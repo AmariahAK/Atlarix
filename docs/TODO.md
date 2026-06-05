@@ -5,6 +5,117 @@
 
 ---
 
+## v12 — Hardening & Core-Loop Rewrite (roadmap)
+
+> **Goal:** close the gap between Atlarix and a real AI IDE (Cursor / Claude Code / opencode / Codex / Antigravity) where any model is brought into a workspace and *just works*. This register is grounded in two long build sessions, three parallel audits (defect sweep, opencode/Claude-Code reference extraction, test-suite audit), and direct spot-verification. **Next session starts at Tier 4 (the eval harness) — nothing else is safe to refactor without it.** References live in `atlarix-references/opencode` and `atlarix-references/claude-code`.
+
+### Verification notes (audit corrections — read FIRST, don't chase phantoms)
+- **Ask-tier is NOT missing compaction/repetition guards.** Confirmed: `runMidLoopCompaction` fires in the agent (L4119), ask (L4880), and agentic (L6257) loops; `askAgenticRepetition` exists (L4175). Any audit note claiming ask-tier lacks these is **wrong**.
+- **The edit tool already has fuzzy matching.** `src/lib/tools/edit.ts` `fuzzyFindString` tolerates indent/EOL (L44–122). The real defect is it's **silent** (logs only) — not "no fuzzy matching."
+- **`enableAutoFixProblems` is a fully dead setting** — declared in `schemas.ts:420` + `main/settings.ts:83` (defaults true) but **read nowhere** in the loop / edit.ts / file.ts. Verified by grep.
+- **No post-edit diagnostics feedback exists** — no `lsp_diagnostics` / `diagnose` call after a write. Verified.
+- **Dual compaction files both live** — `src/lib/context-compaction.ts` (484L) and `src/lib/context/compaction.ts` (507L), BOTH imported by `workspace.ts` + `chat_stream_handlers.ts`. Confirmed duplication.
+- Loop structure: `chat_stream_handlers.ts` is **7,428 lines** with divergent per-mode handling (agent / ask / build / chat-only). Literal `while(true)` count is 2, but the mode branches each re-implement tool execution, ask_user, abort, and history-shaping — the "4 divergent paths" liability is real.
+
+---
+
+### TIER 0 — The four foundations (everything else is downstream; order = dependency order)
+
+#### 0.1 Unify the agent loop (the #1 liability)
+- **Problem:** `chat_stream_handlers.ts` (7,428 lines) re-implements the agent turn per mode. Every cross-cutting feature is wired N times (ask_user had 4 interception sites; mid-loop compaction in 3 places; the `AI_NoOutputGeneratedError` ask_user bug existed *because* abort semantics differ per branch). New features ship with path-specific bugs; fixes are whack-a-mole.
+- **Target (steal from opencode):** ONE `runAgentTurn()` engine parameterized by an `AgentProfile` (mode, permission ruleset, model override, max steps, toolset). Non-recursive `while` loop with a step counter; a `processStep()` returning `"continue" | "stop" | "compact"`; break = `lastAssistant.finished && no pending tool calls && lastUser before lastAssistant`; abort handled in ONE place. Ref: `opencode/packages/opencode/src/session/prompt.ts:1252-1513` (runLoop), `.../processor.ts:958-1029`.
+- **De-risked approach (NOT big-bang):** (1) extract the shared turn into `src/lib/agent/run-agent-turn.ts` seeded from the build loop; (2) migrate ask → build → agent → chat-only one at a time behind a feature flag, with the Tier 4 eval harness asserting parity at each step; (3) delete each old branch only after its evals pass.
+- **Files:** new `src/lib/agent/run-agent-turn.ts`, `agent-profile.ts`, `process-step.ts`; shrink `chat_stream_handlers.ts` to a thin IPC adapter (target <1,500 lines).
+- **Risk:** highest in the repo. Gated entirely on Tier 4 existing first.
+
+#### 0.2 Native tool-call history + multimodal tool results
+- **Problem:** tool calls/results are flattened to synthetic text (`"Here are the results of the tools you called…"`, `chat_stream_handlers.ts` ~L6300) via `stripToolCallXML` / `stripAssistantDisplayContent`. Consequences: (a) weak/local models perform worse — providers train tool behavior on native `tool_use`/`tool_result` blocks; (b) prompt caching breaks in multi-step loops for everyone but the Anthropic BYOK header — each step rebuilds a string-mutated history, re-billing full input (burns the Core token pool); (c) **`browser_screenshot` returns base64 as TEXT** — the model literally cannot see the screenshot we shipped.
+- **Target:** carry native AI-SDK `tool_use`/`tool_result` parts through the loop; tool results can return image/file content blocks (AI SDK v5 supports this); a provider-shaping layer maps to each provider's API. Ref: opencode `message-v2.ts` `toModelMessages`, tool `toModelOutput`.
+- **Files:** history-assembly in `chat_stream_handlers.ts` (~L2106 dispatch map, ~L6294 resent history), `src/lib/tools/browser.ts` (screenshot → image part), tool-result envelope in `registry.ts`.
+- **Dependency:** easier after 0.1 (one assembly path, not four).
+
+#### 0.3 Edit-reliability + auto-verify layer (what makes Cursor feel magic)
+- **Problem:** the edit tool has fuzzy matching but it's silent; on no-match it just errors. There is **no post-edit verification loop** — `enableAutoFixProblems` is dead, no `tsc`/LSP diagnostics fed back after a write. For a "bring any AI" product this is fatal: cheap models *feel* broken in Atlarix and fine in Cursor — same model, different apply layer.
+- **Target:** (a) surface fuzzy-match drift to the model ("applied with whitespace tolerance at line N" so it can self-correct); (b) **wire `enableAutoFixProblems`** — after a write in build/debug, run LSP diagnostics on the touched file and feed errors back into the loop as a tool result (model fixes before claiming done); (c) make "edit → run/typecheck → observe → fix" the loop's default posture, not a bolt-on. Ref: Claude Code Edit exact-match + structured retry guidance; opencode LSP-after-edit.
+- **Files:** `src/lib/tools/edit.ts` (drift signal), new `src/lib/agent/post-edit-verify.ts`, wire into 0.1, reuse `src/lib/lsp/lsp-client.ts`.
+
+#### 0.4 Single message store + structured tool contracts
+- **Problem:** dual store — ephemeral negative-numeric-id (in-memory) + session UUID DB — synced by convention (`computeSessionEditTarget` edit-by-ordinal, ids regenerate on rehydrate, summary persistence had to dodge ids). Every seam is a future "lost/duplicated/wrong-resume message" report. Plus string-marker contracts (`__ask_user`, `__permission_required`, `<task_complete>`, `[COMPACTION MARKER]`, `atlarix-*` content tags) — we already fixed one marker-escaping bug; the whole class is fragile.
+- **Target:** one store, one id space (opencode: Drizzle MessageTable + PartTable, load once per turn, no mid-stream DB writes); replace string markers with a structured stream-event/part type. Ref: opencode `message-v2.ts`, `processor.ts` part model.
+- **Files:** `src/lib/ephemeral-chat.ts`, `src/ipc/handlers/workspace_session_handlers.ts`, `src/db/schema.ts`, marker producers/parsers across the stream handler.
+
+---
+
+### TIER 1 — Critical correctness bugs (fix regardless of Tier 0)
+
+| # | Issue | Evidence | Fix direction |
+|---|-------|----------|---------------|
+| 1.1 | **Dual compaction implementations** with divergent constants, both imported & live | `src/lib/context-compaction.ts` + `src/lib/context/compaction.ts` | Keep `context/compaction.ts` (has v11.1 durable-summary work), fold still-used exports from the root file in, delete the root file. ~1 day. |
+| 1.2 | **`enableAutoFixProblems` dead setting** — promises auto-fix, does nothing | `schemas.ts:420`, `main/settings.ts:83`; read nowhere | Wire it (see 0.3) or remove. Don't ship a lying toggle. |
+| 1.3 | **Browser screenshot invisible to the model** — base64 returned as text | `src/lib/tools/browser.ts` screenshot handler | Return an image content part (needs 0.2). Until then the tool is decorative. |
+| 1.4 | **Silent fuzzy edits** can corrupt indentation-sensitive files (Python/YAML) | `src/lib/tools/edit.ts:244` (logs only) | Surface drift in the tool result + activity card. |
+| 1.5 | **Aux Compass usage recorded fire-and-forget** — limit-hit only warns to log, turn already ended | `chat_stream_handlers.ts:~6784` | Await + surface a visible notice on `limit_exceeded` (the per-step path is strict in v11; aux path still leaks). |
+| 1.6 | **Ask-tier loads 31 tools for every model** — weak/local models drown | `chat_stream_handlers.ts:~4079` ("Ask tier: 31 tools") | Capability-profile per model (2.1); shrink toolset + simplify schemas for low-capability models. |
+
+---
+
+### TIER 2 — High-value gaps (reliability & "any AI" support)
+
+- **2.1 Model-capability adaptation.** No per-model profile. "Any AI" needs tool-count cap, schema simplification, output-format strictness, native-tool-support flag per model; strong models get the full surface, 7B local models a trimmed/guided set. Ref: opencode `SessionTools.resolve`, models.dev catalog. → new `src/lib/routing/model-capability-profile.ts`.
+- **2.2 Permission model → structured rulesets.** Gating is scattered (`runCommandGateResult`, env-secret blocks, per-tool consent); no unified allow/deny/ask ruleset, no glob patterns, no hooks. Ref: Claude Code `settings.json` permissions (`Bash(rm*)`, `Read(~/*.env)`) + `hookify` PreToolUse/PostToolUse; opencode `permission.ts` ruleset merge. → `src/lib/tools/permissions/*` + a hooks layer. Subsumes the security items in Tier 3.
+- **2.3 Background / parallel agents (the differentiator).** Atlarix positions as chat-first mission-control (Antigravity's "manager" angle) but has no background/parallel execution. Ref: Claude Code background sessions + worktrees + `agents` view + resume. **Depends on 0.1 + 0.4.**
+- **2.4 Memory-leak cleanups.** Per-chat jotai atoms never cleared on chat delete (renderer leak after 100+ chats); `ephemeralChats` / `lastStreamRequest` / `partialResponses` maps never pruned (main leak per deleted chat). → `src/atoms/chatAtoms.ts`, `src/lib/ephemeral-chat.ts`, map lifecycles in the stream handler.
+- **2.5 Verification culture by default.** Loop trusts `<task_complete>`; `runAutonomousBuildVerificationAfterTaskComplete` is an after-the-fact bolt-on. Make bounded auto-verify (typecheck after writes, run the touched test, hit the dev-server route) loop-native. Folds into 0.3.
+- **2.6 Settings that do nothing.** Schema defines `delegation`, `autonomous`, `counsel`, `agentLightning`, `selfReview`, `contextSummarization`, `projectUnderstanding`, `activityStream`, `experiments` — most read in isolated spots or not enforced. Grep each, classify enforced vs dead, wire-or-remove. Don't ship lying knobs. → `src/lib/schemas.ts:156-232`.
+- **2.7 Feature-breadth freeze + dead-code purge.** Repo carries half-finished systems (counsel, delegation, agent-lightning, blueprint codegen). Freeze new surfaces until Tier 0 is solid; delete (not disable) what doesn't serve edit→verify→continue.
+
+---
+
+### TIER 3 — Medium correctness & polish (batchable)
+
+- **3.1** `questionId`/ephemeral ids use `Date.now()` → ms collision risk; switch to `crypto.randomUUID()` / monotonic counter. (`chat_stream_handlers.ts:899`, `ephemeral-chat.ts:71`)
+- **3.2** Empty catch blocks hiding real failures (`workspace-analyzer.ts:206-266` — 8 silent catches; assorted `.catch(() => {})` around persistence). Add debug logging + error collection.
+- **3.3** `computeSessionEditTarget` returns null silently at the window boundary → edit appears applied (ephemeral) but DB unchanged → resume diverges. Add user-facing failure. (`workspace_session_handlers.ts:95-110`)
+- **3.4** Context-overflow regex (v11.1) is string-match fragile; prefer provider error codes where the SDK exposes them, regex as fallback. (`context-compaction.ts:29-36`)
+- **3.5** `executeJavaScript(script, true)` in browser tools builds scripts from model input — selectors/values ARE `JSON.stringify`-escaped via the template; document the trust boundary, consider a restricted DOM API over raw eval. (`browser.ts` click/fill/read)
+- **3.6** `runCommandGateResult` doesn't validate `workMode` — fail-closed on invalid. (`chat_stream_handlers.ts:282`)
+- **3.7** Unhandled `void` promises that mutate state (self-correction dispatch in `setImmediate`, summary persistence) — track + drain on shutdown.
+- **3.8** Stale `displaySnapshot` not cleared on ephemeral edit/remove. (`ephemeral-chat.ts:128-159`)
+- **3.9** Unused tool `cost` field — use it (weight toolset/log) or remove. (`tools/index.ts:63`)
+- **3.10** Consolidate tool-availability logic split across `ToolManifest.ts` / `mode-tool-registry.ts` / `registry.ts` into one resolution pipeline.
+
+---
+
+### TIER 4 — Test-suite overhaul (owner approved full replacement) — **START HERE next session**
+
+Current: ~1,025 tests / 134 files — heavy on string-formatter & config-flag assertions, **near-zero coverage of what an AI IDE must guarantee** (agent loops, abort/resume, permission interception, ephemeral↔session round-trips, provider message shaping, edit match/failure). The 56 `chat_stream_handlers.test.ts` tests assert file-op + tag-parsing mechanics, not loop behavior.
+
+**Target architecture**
+```
+tests/
+  unit/          pure utils (property-based via fast-check), handlers w/ mocked providers
+  agent-evals/   ← THE KEY ADDITION: scenario DSL (JSON) → fake-llm-server → assert tool sequence + final FS/DB/permission state
+  renderer/      semi-integrated: IPC events → full chat thread render → tool-card interaction
+  e2e/smoke/     keep existing playwright smoke
+  infra/         shared mock fixtures (fs/db/ipc/providers); extend testing/fake-llm-server with a scenario loader
+```
+- **KEEP:** `chat_stream_handlers.test.ts` (file-op contracts), `agentic-loop-repetition.test.ts`, `stream-thread.test.ts`, `compaction_hardening.test.ts`, `ask-user-artifacts.test.ts`, the renderer harness, e2e smoke, `mode_system_consistency.test.ts`.
+- **DELETE:** snapshot-based prompt tests (`problem_prompt.test.ts`), trivial string-formatter happy-paths, config-flag mapping tests (replace with Zod + types).
+- **BUILD (highest ROI):** the **agent-eval harness**. `testing/fake-llm-server` already streams scripted tool calls (`tc=` fixtures) — extend it with a multi-turn scenario loader, then write evals: single-tool flow, multi-turn edit-with-approval, loop-detection→abort, MCP auth-fail→retry, ephemeral→session persistence round-trip, provider message-shape (Anthropic `cache_control` / image parts). **These evals are what make the 0.1 loop-unification safe** — they assert behavioral parity as each mode migrates.
+- **Shared fixtures:** consolidate the duplicated fs/db/ipc/ephemeral mocks into `tests/infra/`.
+
+---
+
+### Recommended sequencing (next session)
+1. **Tier 4 eval harness FIRST** — nothing else is safe without it.
+2. **Quick wins** in parallel: 1.1 (dedupe compaction), 1.2/0.3 (wire autofix), 1.4 (fuzzy drift), 2.4 (leaks), 3.x batch.
+3. **0.2 native tool history** (unblocks browser screenshots + caching).
+4. **0.1 loop unification** behind a flag, mode-by-mode, evals asserting parity.
+5. **0.4 single store** + structured contracts.
+6. **2.x** capability profiles, permissions/hooks, then **2.3 background agents** as the differentiator.
+
+---
+
 ## Shipped in v11.0.0 (unreleased)
 
 | Area | Notes |
