@@ -5,6 +5,7 @@ export const ATLARIX_CORE_CATEGORY_LABEL = "Atlarix Core";
 /**
  * Label for the subscription tier returned by Supabase (`get_compass_usage_state` / `users.plan`·`effective_tier`).
  * Billing is owned by Lemon Squeezy → Supabase; the app only displays this value.
+ * Plans gate the monthly token quota only — every plan can use all Core models.
  */
 export function formatCompassSubscriptionTier(
   tier: string | null | undefined,
@@ -15,21 +16,35 @@ export function formatCompassSubscriptionTier(
   return "Solo";
 }
 
+/** Pre-v11 ids (`compass-*`) still count as Core tiers so old persisted selections render. */
+const LEGACY_TIER_IDS = ["compass-fast", "compass-balanced", "compass-thinking"];
+
 export function isCompassTierId(tierId: string): boolean {
-  return COMPASS_TIER_ROWS.some((r) => r.id === tierId);
+  return (
+    CORE_TIER_ROWS.some((r) => r.id === tierId) ||
+    LEGACY_TIER_IDS.includes(tierId)
+  );
 }
 
-export const COMPASS_TIER_ROWS = [
+export const CORE_TIER_ROWS = [
   {
-    id: "compass-fast",
-    description: "Included with Solo — general coding and exploration",
+    id: "core-1",
+    label: "Core 1",
+    description: "Fastest — everyday coding, edits, and exploration",
   },
   {
-    id: "compass-balanced",
-    description: "Studio and Team — stronger all-rounder for planning and building",
+    id: "core-2",
+    label: "Core 2",
+    description: "Balanced all-rounder for planning and building",
   },
   {
-    id: "compass-thinking",
-    description: "Studio and Team — deeper reasoning for complex work",
+    id: "core-3",
+    label: "Core 3",
+    description: "Deeper reasoning for complex, multi-step work",
+  },
+  {
+    id: "core-4",
+    label: "Core 4",
+    description: "Most capable — heavy reasoning and long-horizon tasks",
   },
 ] as const;

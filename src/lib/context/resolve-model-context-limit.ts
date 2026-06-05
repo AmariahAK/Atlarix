@@ -6,12 +6,120 @@
 import type { LargeLanguageModel, UserSettings } from "@/lib/schemas";
 import { getTierContextLimits, getCachedOpenRouterModelRow } from "@/lib/routing/tier-context-limits";
 import { resolveTierLimitModelIds } from "@/lib/routing/context_budget_routing";
-import { getOpenRouterModelIdForCompassTier } from "@/ipc/shared/compass_constants";
+import { getOpenRouterModelIdForCoreTier } from "@/ipc/shared/compass_constants";
 
 const SAFETY_FACTOR = 0.8;
 
 function floorSafe(raw: number): number {
   return Math.max(4096, Math.floor(raw * SAFETY_FACTOR));
+}
+
+// ── v11.1: real local-model context windows ─────────────────────────────────
+// Ollama (`POST /api/show` → model_info.*context_length*) and LM Studio
+// (`GET /api/v0/models` → max_context_length) expose the true window — far
+// better than the old hardcoded 8192/16384 guesses. Best-effort with cache;
+// offline/unknown falls back to the heuristics below.
+
+const localContextCache = new Map<string, number | null>();
+const localContextInFlight = new Set<string>();
+
+function localCacheKey(provider: string, name: string): string {
+  return `${provider}:${name}`;
+}
+
+async function fetchOllamaContextLength(name: string): Promise<number | null> {
+  const { getOllamaApiUrl } = await import(
+    "@/ipc/handlers/local_model_ollama_handler"
+  );
+  const res = await fetch(`${getOllamaApiUrl()}/api/show`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+    signal: AbortSignal.timeout(3_000),
+  });
+  if (!res.ok) return null;
+  const json = (await res.json()) as { model_info?: Record<string, unknown> };
+  const info = json.model_info;
+  if (!info || typeof info !== "object") return null;
+  // Key is architecture-prefixed (e.g. "llama.context_length").
+  for (const [key, value] of Object.entries(info)) {
+    if (key.endsWith("context_length") && typeof value === "number" && value > 0) {
+      return value;
+    }
+  }
+  return null;
+}
+
+async function fetchLmStudioContextLength(name: string): Promise<number | null> {
+  const { LM_STUDIO_BASE_URL } = await import("@/ipc/utils/lm_studio_utils");
+  const res = await fetch(`${LM_STUDIO_BASE_URL}/api/v0/models`, {
+    signal: AbortSignal.timeout(3_000),
+  });
+  if (!res.ok) return null;
+  const json = (await res.json()) as {
+    data?: { id?: string; max_context_length?: number }[];
+  };
+  const row = json.data?.find((m) => m.id === name);
+  return typeof row?.max_context_length === "number" && row.max_context_length > 0
+    ? row.max_context_length
+    : null;
+}
+
+/**
+ * Cached real context window for local providers; returns null when unknown
+ * (caller falls back to heuristics). Misses populate in the background so the
+ * first turn never blocks on a dead local server.
+ */
+function getLocalModelContextLength(
+  provider: string,
+  name: string,
+): number | null {
+  const key = localCacheKey(provider, name);
+  if (localContextCache.has(key)) return localContextCache.get(key) ?? null;
+  if (!localContextInFlight.has(key)) {
+    localContextInFlight.add(key);
+    const fetcher = provider.includes("ollama")
+      ? fetchOllamaContextLength(name)
+      : fetchLmStudioContextLength(name);
+    void fetcher
+      .then((len) => {
+        localContextCache.set(key, len);
+        if (len) {
+          // eslint-disable-next-line no-console
+          console.log(`[context] ${provider}/${name} real context_length=${len}`);
+        }
+      })
+      .catch(() => {
+        localContextCache.set(key, null);
+      })
+      .finally(() => {
+        localContextInFlight.delete(key);
+      });
+  }
+  return null;
+}
+
+// ── v11.1: provider-overflow feedback loop ──────────────────────────────────
+// When a provider rejects a dispatch with "context length exceeded", our
+// estimate was too high — clamp this model's effective window down 15% so the
+// retry (and future turns) budget more conservatively. Compounds on repeat.
+
+const overflowClampByModel = new Map<string, number>();
+
+export function reportContextOverflowForModel(model: {
+  provider?: string | null;
+  name?: string | null;
+}): void {
+  const key = localCacheKey(model.provider ?? "", model.name ?? "");
+  const current = overflowClampByModel.get(key) ?? 1;
+  const next = Math.max(0.4, current * 0.85);
+  overflowClampByModel.set(key, next);
+}
+
+function overflowClampFor(model: LargeLanguageModel): number {
+  return overflowClampByModel.get(
+    localCacheKey(model.provider ?? "", model.name ?? ""),
+  ) ?? 1;
 }
 
 /**
@@ -22,7 +130,7 @@ function openRouterCatalogId(model: LargeLanguageModel): string | null {
   const name = model.name?.trim() ?? "";
   if (!name) return null;
   if (provider === "compass") {
-    return getOpenRouterModelIdForCompassTier(name) ?? null;
+    return getOpenRouterModelIdForCoreTier(name) ?? null;
   }
   if (provider === "openrouter") {
     return name;
@@ -79,6 +187,8 @@ export async function resolveModelContextLimit(
   const ids = resolveTierLimitModelIds(settings, { effectiveModel: model });
   await getTierContextLimits(ids.fast, ids.balanced, ids.thinking);
 
+  const clamp = overflowClampFor(model);
+
   const catalogId = openRouterCatalogId(model);
   if (catalogId) {
     const row = getCachedOpenRouterModelRow(catalogId);
@@ -88,13 +198,22 @@ export async function resolveModelContextLimit(
         ? row.top_provider.context_length
         : null);
     if (typeof raw === "number" && raw > 0) {
-      return { tierLimit: floorSafe(raw), rawContextLength: raw };
+      return { tierLimit: floorSafe(raw * clamp), rawContextLength: raw };
+    }
+  }
+
+  // v11.1: local providers report their REAL window (cached async fetch).
+  const pid = (model.provider ?? "").toLowerCase();
+  if (pid.includes("ollama") || pid.includes("lmstudio") || pid.includes("lm_studio")) {
+    const real = getLocalModelContextLength(pid, model.name ?? "");
+    if (typeof real === "number" && real > 0) {
+      return { tierLimit: floorSafe(real * clamp), rawContextLength: real };
     }
   }
 
   const rawHeuristic = heuristicRawContextLength(model);
   return {
-    tierLimit: floorSafe(rawHeuristic),
+    tierLimit: floorSafe(rawHeuristic * clamp),
     rawContextLength: rawHeuristic,
   };
 }

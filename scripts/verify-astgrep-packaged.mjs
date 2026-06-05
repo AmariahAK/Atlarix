@@ -110,8 +110,11 @@ try {
     execSync(`du -sm "${unpackedDir}"`, { encoding: "utf8" }).split("\t")[0],
     10,
   );
-  if (mb < 50) {
-    console.warn(`WARN: app.asar.unpacked is only ~${mb}MB (expected ~120MB+ with natives)`);
+  // v11: the slimmed runtime tree unpacks only real natives (ast-grep napi,
+  // node-pty, better-sqlite3, keytar) ≈ 9MB. The old ~120MB+ expectation came
+  // from the bloated full-tree install that also auto-unpacked junk natives.
+  if (mb < 5) {
+    console.warn(`WARN: app.asar.unpacked is only ~${mb}MB (expected ~9MB with natives)`);
   } else {
     console.log(`OK: app.asar.unpacked ~${mb}MB`);
   }

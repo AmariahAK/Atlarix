@@ -302,6 +302,17 @@ const validInvokeChannels = [
   "blueprint:simplify-architecture",
   "blueprint:commit-snapshot",
   "blueprint:snapshot-exists",
+  // v11 in-app browser (WebContentsView panel)
+  "browser:get-state",
+  "browser:create-tab",
+  "browser:close-tab",
+  "browser:set-active-tab",
+  "browser:navigate",
+  "browser:back",
+  "browser:forward",
+  "browser:reload",
+  "browser:set-bounds",
+  "browser:set-visible",
   // File operations (Live Code Editor)
   "file:read-content",
   "lsp:subscribe",
@@ -435,6 +446,7 @@ const validReceiveChannels = [
   "plan:artifact-updated",
   "plan:file-updated",
   "lsp:diagnostics",
+  "browser:state-changed", // v11 in-app browser: main → renderer tab/nav state
   "counsel:participant-update",
   "counsel:complete",
   "autonomous:session-complete",

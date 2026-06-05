@@ -1,6 +1,9 @@
 /**
- * Atlarix Compass — managed provider (OpenRouter-backed, no user API key).
- * Model IDs come from build-time env: COMPASS_MODEL_FAST, COMPASS_MODEL_BALANCED, COMPASS_MODEL_THINKING.
+ * Atlarix Core — managed provider (OpenRouter-backed, no user API key).
+ * Model IDs come from build-time env: ATLARIX_CORE_MODEL_1..4.
+ * All four Core models are available on every plan; access is metered strictly
+ * by the shared Supabase token pool (`compass_tokens` table + RPCs — the
+ * `compass` name is kept at the wire/storage layer for compatibility).
  */
 
 import type { LanguageModel } from "../ipc_types";
@@ -8,30 +11,48 @@ import {
   formatModelApiNameForDisplay,
   formatModelWithProvider,
 } from "@/lib/format-openrouter-model-label";
-import { COMPASS_TIER_ROWS } from "../../shared/compass_product_copy";
-
-export type CompassPlan = "free" | "pro" | "workforce";
+import { CORE_TIER_ROWS } from "../../shared/compass_product_copy";
 
 export const COMPASS_PROVIDER_ID = "compass";
 
-export const COMPASS_TIER_FAST = "compass-fast";
-export const COMPASS_TIER_BALANCED = "compass-balanced";
-export const COMPASS_TIER_THINKING = "compass-thinking";
+export const CORE_TIER_1 = "core-1";
+export const CORE_TIER_2 = "core-2";
+export const CORE_TIER_3 = "core-3";
+export const CORE_TIER_4 = "core-4";
 
-export const COMPASS_TIER_ORDER = [
-  COMPASS_TIER_FAST,
-  COMPASS_TIER_BALANCED,
-  COMPASS_TIER_THINKING,
+export const CORE_TIER_ORDER = [
+  CORE_TIER_1,
+  CORE_TIER_2,
+  CORE_TIER_3,
+  CORE_TIER_4,
 ] as const;
+
+/** Pre-v11 persisted selections (`compass-*`) keep resolving forever. */
+const LEGACY_COMPASS_TIER_ALIASES: Record<string, string> = {
+  "compass-fast": CORE_TIER_1,
+  "compass-balanced": CORE_TIER_2,
+  "compass-thinking": CORE_TIER_3,
+};
+
+/** Map any internal/legacy tier id to its canonical `core-N` id (unknown ids pass through). */
+export function normalizeCoreTierId(internalTierId: string): string {
+  return LEGACY_COMPASS_TIER_ALIASES[internalTierId] ?? internalTierId;
+}
+
+export function isCoreTierId(internalTierId: string): boolean {
+  return (CORE_TIER_ORDER as readonly string[]).includes(
+    normalizeCoreTierId(internalTierId),
+  );
+}
 
 function compassProviderSlug(openRouterModelId: string): string {
   if (!openRouterModelId.includes("/")) return "openrouter";
   return openRouterModelId.split("/")[0]?.toLowerCase() || "openrouter";
 }
 
-export const COMPASS_SYNTHETIC_MODELS: LanguageModel[] = COMPASS_TIER_ROWS.map(
+export const COMPASS_SYNTHETIC_MODELS: LanguageModel[] = CORE_TIER_ROWS.map(
   (row) => {
-    const openRouterModelId = getOpenRouterModelIdForCompassTier(row.id)?.trim() ?? "";
+    const openRouterModelId = getOpenRouterModelIdForCoreTier(row.id)?.trim() ?? "";
     const modelDisplayName = openRouterModelId
       ? formatModelApiNameForDisplay(openRouterModelId)
       : row.id;
@@ -45,7 +66,7 @@ export const COMPASS_SYNTHETIC_MODELS: LanguageModel[] = COMPASS_TIER_ROWS.map(
     type: "cloud" as const,
     dollarSigns: 0,
     maxOutputTokens: 32_000,
-    // Compass is a synthetic provider — the real context window is captured
+    // Core is a synthetic provider — the real context window is captured
     // per-chat at TTFT (often 1M+). 200_000 matches the pre-TTFT fallback in
     // `getContextWindowDetailed` so any catalog-only consumer (autorouter,
     // proposal handler) reads the same conservative ceiling the stream uses.
@@ -60,51 +81,40 @@ function trimEnv(value: string | undefined): string | undefined {
 }
 
 /**
- * Read build-time Compass env vars.
- * Must use static `process.env.COMPASS_*` property access so Vite `define` in
+ * Read build-time Core env vars.
+ * Must use static `process.env.*` property access so Vite `define` in
  * `vite.main.config.mts` can embed CI secrets into the packaged main bundle.
  */
-function compassEnvAvailable(): boolean {
+function coreEnvAvailable(): boolean {
   return typeof process !== "undefined" && !!process.env;
 }
 
 export function getCompassMasterApiKey(): string | undefined {
-  if (!compassEnvAvailable()) return undefined;
+  if (!coreEnvAvailable()) return undefined;
   return trimEnv(process.env.COMPASS_OPENROUTER_API_KEY);
 }
 
-export function getOpenRouterModelIdForCompassTier(
+export function getOpenRouterModelIdForCoreTier(
   internalTierId: string,
 ): string | undefined {
-  if (!compassEnvAvailable()) return undefined;
-  switch (internalTierId) {
-    case COMPASS_TIER_FAST:
-      return trimEnv(process.env.COMPASS_MODEL_FAST);
-    case COMPASS_TIER_BALANCED:
-      return trimEnv(process.env.COMPASS_MODEL_BALANCED);
-    case COMPASS_TIER_THINKING:
-      return trimEnv(process.env.COMPASS_MODEL_THINKING);
+  if (!coreEnvAvailable()) return undefined;
+  switch (normalizeCoreTierId(internalTierId)) {
+    case CORE_TIER_1:
+      return trimEnv(process.env.ATLARIX_CORE_MODEL_1);
+    case CORE_TIER_2:
+      return trimEnv(process.env.ATLARIX_CORE_MODEL_2);
+    case CORE_TIER_3:
+      return trimEnv(process.env.ATLARIX_CORE_MODEL_3);
+    case CORE_TIER_4:
+      return trimEnv(process.env.ATLARIX_CORE_MODEL_4);
     default:
       return undefined;
   }
 }
 
-/** True when the packaged app has Compass credentials (counts as "configured" in Settings). */
+/** True when the packaged app has Core credentials (counts as "configured" in Settings). */
 export function isCompassBuildConfigured(): boolean {
   return !!getCompassMasterApiKey();
-}
-
-export function coerceCompassTierForPlan(
-  requested: string,
-  effectiveTier: CompassPlan,
-): string {
-  if (effectiveTier !== "free") {
-    if (COMPASS_TIER_ORDER.includes(requested as (typeof COMPASS_TIER_ORDER)[number])) {
-      return requested;
-    }
-    return COMPASS_TIER_FAST;
-  }
-  return COMPASS_TIER_FAST;
 }
 
 export const COMPASS_REACHABILITY_ERROR =

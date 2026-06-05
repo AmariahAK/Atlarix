@@ -28,7 +28,7 @@
 import * as fs from "fs/promises";
 import * as path from "path";
 import { createHash } from "crypto";
-import { exec } from "dugite";
+import { exec } from "@/ipc/utils/system_git_exec";
 import log from "electron-log";
 import { sanitizeLedgerDirSegment } from "@/lib/tasks/task-ledger";
 import { getUserDataPath } from "@/paths/paths";

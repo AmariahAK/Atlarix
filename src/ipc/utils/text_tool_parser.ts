@@ -280,5 +280,3 @@ export function stripToolCallXML(text: string): string {
         .replace(/<invoke\s+name="[^"]+"[^>]*>[\s\S]*?<\/invoke>/gi, "")
         .trim();
 }
-
-export default parseTextToolCalls;

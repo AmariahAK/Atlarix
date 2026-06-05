@@ -20,6 +20,21 @@ import { recordAuxUsage } from "./usage/turn-usage-aggregator";
 
 const logger = log.scope("context-compaction");
 
+/**
+ * v11.1: provider "context window exceeded" error classifier — providers word
+ * this differently (OpenAI `context_length_exceeded`, Anthropic "prompt is
+ * too long", generic 400s with "maximum context"/"too many tokens"). Used by
+ * the stream catch to force one compaction round and retry the dispatch.
+ */
+export function isContextOverflowError(error: unknown): boolean {
+  const message =
+    error instanceof Error ? error.message : typeof error === "string" ? error : "";
+  if (!message) return false;
+  return /context[_\s-]?length[_\s-]?exceeded|maximum context|context window|prompt is too long|too many tokens|maximum length|input length and `max_tokens` exceed|reduce the length of the messages|exceeds the maximum number of tokens/i.test(
+    message,
+  );
+}
+
 // ═══════════════════════════════════════════════════════════════
 // OPENCODE-STYLE CONSTANTS
 // ═══════════════════════════════════════════════════════════════
@@ -96,54 +111,6 @@ interface MessageForCompaction {
   content: string;
 }
 
-/** Absolute token trigger for post-turn compaction from a model context length (tokens). */
-export function getCompactionThresholds(contextLength: number): {
-  postTurnTriggerAbsolute: number;
-} {
-  const L = Math.max(4096, contextLength);
-  const usable = Math.floor(L * (1 - OUTPUT_RESERVE_RATIO));
-  return { postTurnTriggerAbsolute: Math.floor(usable * COMPACTION_THRESHOLD) };
-}
-
-export type CompactionThresholdBands = {
-  /** Effective context length after safety factor (tokens). */
-  contextLengthEffective: number;
-  usableTokens: number;
-  warnAbsolute: number;
-  softAbsolute: number;
-  hardAbsolute: number;
-  emergencyAbsolute: number;
-  /** Same as hard band: post-turn compaction trigger from real usage. */
-  postTurnTriggerAbsolute: number;
-};
-
-/**
- * Per-model thresholds from OpenRouter `context_length` (cached fetch), with 0.8 safety factor.
- * Falls back to 128k when the model row is missing.
- */
-export function getCompactionThresholdsForModel(
-  modelId: string | null | undefined,
-): CompactionThresholdBands {
-  let raw = DEFAULT_MODEL_CONTEXT_FALLBACK;
-  const id = modelId?.trim();
-  if (id) {
-    const row = getCachedOpenRouterModelRow(id);
-    const cl = row?.context_length ?? row?.top_provider?.context_length;
-    if (typeof cl === "number" && cl > 0) raw = cl;
-  }
-  const L = Math.max(4096, Math.floor(raw * MODEL_CONTEXT_SAFETY));
-  const usable = Math.floor(L * (1 - OUTPUT_RESERVE_RATIO));
-  return {
-    contextLengthEffective: L,
-    usableTokens: usable,
-    warnAbsolute: Math.floor(usable * 0.55),
-    softAbsolute: Math.floor(usable * 0.65),
-    hardAbsolute: Math.floor(usable * COMPACTION_THRESHOLD),
-    emergencyAbsolute: Math.floor(usable * 0.88),
-    postTurnTriggerAbsolute: Math.floor(usable * COMPACTION_THRESHOLD),
-  };
-}
-
 function mergeNestedSummary(
   prevFull: string | null | undefined,
   prevGen: number,
@@ -170,19 +137,6 @@ export type CompactionRunOutcome =
     }
   | { status: "deferred"; reason: "ledger_in_progress" }
   | { status: "noop"; reason: string };
-
-/**
- * Estimate total tokens for context (system + workspace + messages + input)
- */
-export function estimateContextTokens(params: {
-  systemPromptTokens: number;
-  messageHistoryTokens: number;
-  inputTokens?: number;
-}): number {
-  const { systemPromptTokens, messageHistoryTokens, inputTokens = 0 } = params;
-  return systemPromptTokens + messageHistoryTokens + inputTokens;
-}
-
 
 // ═══════════════════════════════════════════════════════════════
 // OPENCODE-STYLE TURN-BASED SELECTION
@@ -522,186 +476,9 @@ export async function getContextSummary(_chatId: number): Promise<{
   return null;
 }
 
-// ═══════════════════════════════════════════════════════════════
-// POST-TURN COMPACTION (OpenCode/Claude Code style)
-// Runs after AI responds, uses real token counts. Fire-and-forget.
-// ═══════════════════════════════════════════════════════════════
-
-const lastCompactionTime = new Map<number, number>();
-const MIN_COMPACTION_INTERVAL_MS = 60_000; // 1 minute between compactions
-
-const pendingCompactionByChatId = new Map<
-  number,
-  { totalTokensUsed: number; providerId?: string; turnId?: string; openRouterModelId?: string | null }
->();
-
-/**
- * Check if we should compact based on REAL token usage from API.
- * Called from onFinish after AI stream completes.
- */
-export async function shouldCompactFromRealTokens(params: {
-  chatId: number;
-  totalTokensUsed: number;
-  providerId?: string;
-  /** Resolved OpenRouter model id (e.g. anthropic/claude-3.5-sonnet) when known; uses cached context_length. */
-  openRouterModelId?: string | null;
-}): Promise<boolean> {
-  const { chatId, totalTokensUsed, providerId, openRouterModelId } = params;
-  if (chatId < 0 || totalTokensUsed <= 0) return false;
-
-  const pid = providerId ?? readSettings().selectedModel?.provider ?? "auto";
-  let postTurnTriggerAbsolute: number;
-  if (openRouterModelId?.trim()) {
-    postTurnTriggerAbsolute =
-      getCompactionThresholdsForModel(openRouterModelId.trim()).postTurnTriggerAbsolute;
-  } else {
-    const { budget } = await getEffectiveBudget(pid);
-    postTurnTriggerAbsolute = getCompactionThresholds(budget).postTurnTriggerAbsolute;
-  }
-  if (totalTokensUsed < postTurnTriggerAbsolute) return false;
-
-  const last = lastCompactionTime.get(chatId) ?? 0;
-  if (Date.now() - last < MIN_COMPACTION_INTERVAL_MS) return false;
-
-  return true;
-}
-
-async function runPostTurnCompactionAttempt(args: {
-  chatId: number;
-  totalTokensUsed: number;
-  providerId?: string;
-  turnId?: string;
-  openRouterModelId?: string | null;
-  /** Retry after ledger deferral: skip shouldCompactFromRealTokens (includes interval gate). */
-  forceAttempt?: boolean;
-}): Promise<void> {
-  const { chatId, totalTokensUsed, providerId, turnId, openRouterModelId, forceAttempt } = args;
-  if (chatId < 0) return;
-
-  if (!forceAttempt) {
-    const shouldRun = await shouldCompactFromRealTokens({
-      chatId,
-      totalTokensUsed,
-      providerId,
-      openRouterModelId,
-    });
-    if (!shouldRun) return;
-  }
-
-  logger.info(`Post-turn compaction triggered for chat ${chatId} (${totalTokensUsed} tokens)`);
-
-  // Unreachable for workspace chats (chatId < 0 returns above); the legacy
-  // `messages` table was removed, so this path no longer has rows to compact.
-  const chatMsgs: { id: number; role: string; content: string | null }[] = [];
-
-  const msgList = chatMsgs.map((m) => ({
-    id: m.id,
-    role: m.role,
-    content: m.content || "",
-  }));
-
-  const systemEstimate = 6000;
-  const result = await runCompaction({
-    chatId,
-    chatMessages: msgList,
-    systemPromptTokens: systemEstimate,
-    inputTokens: 0,
-    providerId,
-    turnId: turnId ?? undefined,
-    insertSyntheticContinuation: true,
-  });
-
-  if (result.status === "deferred") {
-    pendingCompactionByChatId.set(chatId, {
-      totalTokensUsed,
-      providerId,
-      turnId,
-      openRouterModelId,
-    });
-    logger.info(`Post-turn compaction deferred (ledger) for chat ${chatId}; will retry when ledger settles`);
-    return;
-  }
-
-  if (result.status === "completed") {
-    lastCompactionTime.set(chatId, Date.now());
-    logger.info(`Post-turn compaction completed for chat ${chatId}`);
-  }
-}
-
-/**
- * After the stream marks the task ledger complete, retry compaction if it was deferred for this turn.
- */
-export function notifyCompactionLedgerSettled(chatId: number, turnId: string): void {
-  if (chatId < 0) return;
-  const p = pendingCompactionByChatId.get(chatId);
-  if (!p || p.turnId !== turnId) return;
-  pendingCompactionByChatId.delete(chatId);
-  void runPostTurnCompactionAttempt({
-    chatId,
-    totalTokensUsed: p.totalTokensUsed,
-    providerId: p.providerId,
-    turnId: p.turnId,
-    openRouterModelId: p.openRouterModelId,
-    forceAttempt: true,
-  }).catch((err) => logger.error("Post-turn compaction retry error:", err));
-}
-
-/**
- * Post-turn compaction: run in background after AI responds.
- * Uses real token count; compacts proactively so next user message is instant.
- */
-export function schedulePostTurnCompaction(params: {
-  chatId: number;
-  totalTokensUsed: number;
-  providerId?: string;
-  appId?: number;
-  turnId?: string;
-  openRouterModelId?: string | null;
-}): void {
-  const { chatId, totalTokensUsed, providerId, turnId, openRouterModelId } = params;
-  if (chatId < 0) return;
-
-  void runPostTurnCompactionAttempt({
-    chatId,
-    totalTokensUsed,
-    providerId,
-    turnId,
-    openRouterModelId,
-  }).catch((err) => logger.error("Post-turn compaction error:", err));
-}
-
-// ═══════════════════════════════════════════════════════════════
-// TOOL OUTPUT PRUNING
-// Truncate old tool results to prevent context bloat (OpenCode style)
-// ═══════════════════════════════════════════════════════════════
-
-const TOOL_OUTPUT_MAX_CHARS = 8000; // ~2000 tokens per tool result
-const KEEP_RECENT_TOOL_MESSAGES = 4; // Don't prune last N tool-result-like messages
-
-/**
- * Prune long tool outputs in messages. Keeps recent ones; truncates old ones.
- */
-export function pruneToolOutputsInMessages<T extends { role: string; content: string }>(
-  msgs: T[]
-): T[] {
-  if (msgs.length <= KEEP_RECENT_TOOL_MESSAGES) return msgs;
-
-  const isToolResultLike = (content: string) =>
-    /Here are the results of the tools|tool_result|<\/tool_result>|<tool_result/i.test(content) ||
-    content.includes("tool=\"") ||
-    (content.length > 3000 && content.includes("output"));
-
-  return msgs.map((msg, idx) => {
-    if (msg.role !== "user" && msg.role !== "assistant") return msg;
-    if (!isToolResultLike(msg.content)) return msg;
-
-    const fromEnd = msgs.length - 1 - idx;
-    if (fromEnd < KEEP_RECENT_TOOL_MESSAGES) return msg; // Keep recent
-
-    if (msg.content.length <= TOOL_OUTPUT_MAX_CHARS) return msg;
-
-    const truncated = msg.content.slice(0, TOOL_OUTPUT_MAX_CHARS) +
-      `\n\n[Truncated - original was ~${Math.ceil(msg.content.length / 4)} tokens. Use read_file or list_files to retrieve if needed.]`;
-    return { ...msg, content: truncated };
-  });
-}
+// v11.1: the entire POST-TURN COMPACTION section (schedulePostTurnCompaction,
+// shouldCompactFromRealTokens, notifyCompactionLedgerSettled) was deleted —
+// it early-returned for every real chat (chatId < 0) and read from the
+// removed legacy `messages` table. Compaction is model-triggered via the
+// compress_context tool, with automatic pre-dispatch/mid-loop gates and the
+// overflow-recovery retry (isContextOverflowError) as backstops.

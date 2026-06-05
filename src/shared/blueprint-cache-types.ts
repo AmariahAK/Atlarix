@@ -19,12 +19,6 @@ export interface BlueprintManifest {
   engine?: "ast-grep+ctags" | "file-tree" | "hybrid";
 }
 
-/** High-level rooms and connections (for fast load) */
-export interface BlueprintOverview {
-  rooms: { id: string; label: string; path?: string; nodeCount: number }[];
-  connections: { from: string; to: string; label?: string }[];
-}
-
 /** Full RTE graph stored in cache */
 export interface BlueprintCacheContent {
   manifest: BlueprintManifest;
@@ -34,13 +28,4 @@ export interface BlueprintCacheContent {
   blueprint?: Blueprint;
   /** Raw `.atlarixignore` used when this cache was written (skip disk read for ignore filtering). */
   atlarixIgnoreSource?: string;
-}
-
-/** Staleness result */
-export interface BlueprintStaleness {
-  isStale: boolean;
-  staleRooms?: string[];
-  recommendation: "use_cache" | "refresh" | "full_reparse";
-  currentHash: string;
-  cachedHash: string;
 }

@@ -9,7 +9,7 @@ import {
   getCachedOpenRouterModelRow,
   type OpenRouterModelRowExtended,
 } from "./tier-context-limits";
-import { getOpenRouterModelIdForCompassTier } from "@/ipc/shared/compass_constants";
+import { getOpenRouterModelIdForCoreTier } from "@/ipc/shared/compass_constants";
 import type { LargeLanguageModel, UserSettings } from "@/lib/schemas";
 import { getExtraProviderOptions } from "@/ipc/utils/thinking_utils";
 
@@ -43,12 +43,12 @@ function openRouterPrefixSuggestsReasoning(modelIdLower: string): boolean {
 }
 
 /**
- * Resolve the OpenRouter-style model id used for catalog lookup (Compass tiers map to env model ids).
+ * Resolve the OpenRouter-style model id used for catalog lookup (Core tiers map to env model ids).
  */
 export function resolveReasoningCatalogModelId(effectiveModel: LargeLanguageModel): string {
   const name = (effectiveModel.name ?? "").trim();
   if (effectiveModel.provider === "compass") {
-    return getOpenRouterModelIdForCompassTier(name) ?? name;
+    return getOpenRouterModelIdForCoreTier(name) ?? name;
   }
   return name;
 }

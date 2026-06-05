@@ -42,7 +42,7 @@ import { currentAppAtom, selectedAppIdAtom, selectedWorkspaceInfoAtom } from '@/
 // Tab configurations for each panel type
 const PANEL_TABS: Record<PanelType, PanelTab[]> = {
     'web-search': [],
-    'code-preview': ['preview', 'code', 'terminal', 'activity', 'errors'],
+    'code-preview': ['preview', 'code', 'browser', 'terminal', 'activity', 'errors'],
     'terminal': ['terminal', 'activity'],
     'files': ['files'],
     'tools': [],  // Deprecated - ThinkingCard handles tools
@@ -287,5 +287,3 @@ function getDataForType(
             return state.aiContext || null;
     }
 }
-
-export default useRightPanelContext;

@@ -5,7 +5,7 @@ vi.mock("@/main/settings", () => ({
   readSettings: vi.fn(),
 }));
 
-vi.mock("dugite", () => ({
+vi.mock("@/ipc/utils/system_git_exec", () => ({
   exec: vi.fn(),
 }));
 
@@ -20,7 +20,7 @@ vi.mock("node:fs", () => {
 });
 
 import { readSettings } from "@/main/settings";
-import { exec } from "dugite";
+import { exec } from "@/ipc/utils/system_git_exec";
 import { gitCommit } from "@/ipc/utils/git_utils";
 
 const mockReadSettings = vi.mocked(readSettings);

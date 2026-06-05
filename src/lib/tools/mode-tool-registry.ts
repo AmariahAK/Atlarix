@@ -21,9 +21,11 @@ export const BUILD_ALLOWLIST_MARKER = "*" as const;
  */
 export const EVERY_MODE_TOOLS = [
   "ask_user",
+  "call_webmcp_tool",
   "compress_context",
   "deep_research",
   "list_attachments",
+  "list_webmcp_tools",
   "read_attachment",
   "web_search",
 ] as const;
@@ -38,6 +40,9 @@ function withEveryModeTools(list: readonly string[]): readonly string[] {
 
 const ASK_TOOLS = [
   "ask_user",
+  "browser_navigate",
+  "browser_read_page",
+  "browser_screenshot",
   "compress_context",
   "deep_research",
   "delegate_to_agent",
@@ -67,6 +72,9 @@ const ASK_TOOLS = [
 
 const PLAN_TOOLS = [
   "ask_user",
+  "browser_navigate",
+  "browser_read_page",
+  "browser_screenshot",
   "compress_context",
   "edit_file",
   "explore_folder",
@@ -95,6 +103,11 @@ const PLAN_TOOLS = [
 
 const DEBUG_TOOLS = [
   "ask_user",
+  "browser_click",
+  "browser_fill",
+  "browser_navigate",
+  "browser_read_page",
+  "browser_screenshot",
   "delete_file",
   "diagnose_issue",
   "edit_file",
@@ -125,6 +138,9 @@ const DEBUG_TOOLS = [
 
 const REVIEW_TOOLS = [
   "ask_user",
+  "browser_navigate",
+  "browser_read_page",
+  "browser_screenshot",
   "delegate_to_agent",
   "diagnose_issue",
   "explore_folder",

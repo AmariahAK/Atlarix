@@ -114,24 +114,3 @@ export function assertSqlSafeForRemoteExecution(sql: string): string {
   return normalized;
 }
 
-/**
- * Read-only queries only (e.g. future db_query tool paths).
- */
-export function assertSafeReadOnlySql(sql: string): string {
-  const normalized = assertSqlSafeForRemoteExecution(sql);
-  const stripped = normalized
-    .replace(/\/\*[\s\S]*?\*\//g, " ")
-    .replace(/--[^\n]*/g, " ")
-    .trim();
-  const lead = stripped.replace(/^\s*\(\s*/g, "").trimStart();
-  const upper = lead.slice(0, 12).toUpperCase();
-  if (!upper.startsWith("SELECT") && !upper.startsWith("WITH") && !upper.startsWith("SHOW") && !upper.startsWith("EXPLAIN")) {
-    throw new Error("Only read-only SQL (SELECT, WITH, SHOW, EXPLAIN) is allowed.");
-  }
-  const forbidden = /\b(INSERT|UPDATE|DELETE|DROP|ALTER|TRUNCATE|CREATE|GRANT|REVOKE|EXEC|EXECUTE)\b/i;
-  if (forbidden.test(normalized)) {
-    throw new Error("Write or DDL keywords are not allowed in read-only SQL.");
-  }
-  return normalized;
-}
-

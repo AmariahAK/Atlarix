@@ -1,19 +1,23 @@
 /**
- * InlineUserQuestions (v10.1) — ask_user question card rendered inline in the
- * chat thread. Supports one or many questions; the stream stays paused until
- * the user answers ALL of them and hits Submit (single questions submit
- * immediately on option click, like before).
+ * InlineUserQuestions (v11.1 end-turn) — ask_user question card rendered
+ * inline in the chat thread. The asking TURN HAS ENDED by the time this
+ * shows; answers are recorded as a real user message and a continuation
+ * stream starts. The card also re-seeds itself from the persisted
+ * `atlarix-questions` artifact after an app reload.
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useAtom, useSetAtom } from "jotai";
+import { useAtom, useAtomValue } from "jotai";
 import {
+  chatMessagesByIdAtom,
+  isStreamingByIdAtom,
   pendingUserQuestionByChatIdAtom,
-  askUserStreamFreezeBaselineByChatIdAtom,
   type PendingUserQuestion,
 } from "@/atoms/chatAtoms";
 import { Button } from "@/components/ui/button";
 import { IpcClient } from "@/ipc/ipc_client";
+import { useStreamChat } from "@/hooks/useStreamChat";
+import { extractQuestionsArtifact } from "@/lib/chat/ask-user-artifacts";
 import { ASK_USER_MAX_OPTIONS } from "@/lib/tools/ask_user_options";
 import { cn } from "@/lib/utils";
 import { Check, MessageCircleQuestion, Pencil } from "lucide-react";
@@ -47,8 +51,37 @@ function combineAnswers(items: QuestionItem[], answers: string[]): string {
 
 export function InlineUserQuestions({ chatId }: Props) {
   const [pendingByChat, setPendingByChat] = useAtom(pendingUserQuestionByChatIdAtom);
-  const setFreezeBaselineByChat = useSetAtom(askUserStreamFreezeBaselineByChatIdAtom);
+  const messagesById = useAtomValue(chatMessagesByIdAtom);
+  const isStreamingById = useAtomValue(isStreamingByIdAtom);
+  const { streamMessage } = useStreamChat({ hasChatId: false });
   const pending: PendingUserQuestion | undefined = pendingByChat[chatId];
+
+  // Reload durability: when the last message is an assistant turn that ended
+  // with an ask_user call, its persisted `atlarix-questions` artifact re-seeds
+  // the card (a following user message means the questions were answered).
+  useEffect(() => {
+    if (pending) return;
+    // A live stream supersedes any persisted question state.
+    if (isStreamingById.get(chatId)) return;
+    const messages = messagesById.get(chatId);
+    if (!messages || messages.length === 0) return;
+    const last = messages[messages.length - 1];
+    if (last.role !== "assistant") return;
+    const artifact = extractQuestionsArtifact(last.content);
+    if (!artifact) return;
+    setPendingByChat((prev) => {
+      if (prev[chatId]) return prev;
+      return {
+        ...prev,
+        [chatId]: {
+          questionId: artifact.questionId,
+          question: artifact.questions[0]?.question ?? "",
+          options: artifact.questions[0]?.options,
+          questions: artifact.questions,
+        },
+      };
+    });
+  }, [pending, messagesById, isStreamingById, chatId, setPendingByChat]);
 
   const items = useMemo(
     () => (pending ? questionItems(pending) : []),
@@ -79,7 +112,7 @@ export function InlineUserQuestions({ chatId }: Props) {
       setSubmitting(true);
       try {
         const combined = combineAnswers(items, finalAnswers);
-        await IpcClient.getInstance().submitUserQuestionAnswer(
+        const res = await IpcClient.getInstance().submitUserQuestionAnswer(
           chatId,
           pending.questionId,
           combined,
@@ -87,17 +120,17 @@ export function InlineUserQuestions({ chatId }: Props) {
             ? items[0].question
             : `${items.length} questions`,
         );
-        setFreezeBaselineByChat((prev) => {
-          const next = { ...prev };
-          delete next[chatId];
-          return next;
-        });
         clearPending();
+        // The asking turn already ended — answers became a real user message;
+        // start the continuation stream so the model picks the task back up.
+        if (res?.restream) {
+          streamMessage({ prompt: "", chatId, continueAfterQuestions: true });
+        }
       } finally {
         setSubmitting(false);
       }
     },
-    [chatId, pending, items, submitting, clearPending, setFreezeBaselineByChat],
+    [chatId, pending, items, submitting, clearPending, streamMessage],
   );
 
   const pick = useCallback(

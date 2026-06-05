@@ -2,14 +2,14 @@
  * v10: shadow-git snapshot store — capture pre-write state, full + partial
  * revert, created-file deletion on revert, legacy .bak fallback.
  *
- * Skips when dugite's embedded git binary is unavailable (CI installs with
- * `--ignore-scripts`, which skips the binary download).
+ * Skips when no git binary is available on PATH (v11: dugite removed; the
+ * app shells out to system git).
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { exec as dugiteExec } from "dugite";
+import { exec as gitExec } from "@/ipc/utils/system_git_exec";
 import {
   captureSnapshot,
   revertSnapshot,
@@ -18,13 +18,13 @@ import {
   _setShadowSnapshotsRootForTests,
 } from "@/lib/snapshot/snapshot-manager";
 
-const gitAvailable = await dugiteExec(["--version"], os.tmpdir())
+const gitAvailable = await gitExec(["--version"], os.tmpdir())
   .then((r) => r.exitCode === 0)
   .catch(() => false);
 const describeWithGit = gitAvailable ? describe : describe.skip;
 if (!gitAvailable) {
   console.warn(
-    "[snapshot_shadow_git.test] dugite git binary unavailable (install ran with --ignore-scripts?) — suite skipped",
+    "[snapshot_shadow_git.test] system git unavailable — suite skipped",
   );
 }
 

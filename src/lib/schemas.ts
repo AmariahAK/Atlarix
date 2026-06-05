@@ -22,11 +22,6 @@ export const ChatSummarySchema = z.object({
 export type ChatSummary = z.infer<typeof ChatSummarySchema>;
 
 /**
- * Zod schema for an array of chat summaries
- */
-export const ChatSummariesSchema = z.array(ChatSummarySchema);
-
-/**
  * Zod schema for chat search result objects returned by the search-chats IPC
  */
 export const ChatSearchResultSchema = z.object({
@@ -41,8 +36,6 @@ export const ChatSearchResultSchema = z.object({
  * Type derived from the ChatSearchResultSchema
  */
 export type ChatSearchResult = z.infer<typeof ChatSearchResultSchema>;
-
-export const ChatSearchResultsSchema = z.array(ChatSearchResultSchema);
 
 // Zod schema for app search result objects returned by the search-app IPC
 export const AppSearchResultSchema = z.object({
@@ -137,21 +130,14 @@ export const ProviderSettingSchema = z.union([
 /**
  * Type derived from the ProviderSettingSchema
  */
-export type ProviderSetting = z.infer<typeof ProviderSettingSchema>;
-export type RegularProviderSetting = z.infer<
-  typeof RegularProviderSettingSchema
->;
 export type AzureProviderSetting = z.infer<typeof AzureProviderSettingSchema>;
 export type VertexProviderSetting = z.infer<typeof VertexProviderSettingSchema>;
 
 export const RuntimeModeSchema = z.enum(["web-sandbox", "local-node", "unset"]);
-export type RuntimeMode = z.infer<typeof RuntimeModeSchema>;
 
 export const RuntimeMode2Schema = z.enum(["host", "docker"]);
-export type RuntimeMode2 = z.infer<typeof RuntimeMode2Schema>;
 
 export const ChatModeSchema = z.enum(["build", "ask", "agent"]);
-export type ChatMode = z.infer<typeof ChatModeSchema>;
 
 /** v5.1: Fine-grained work mode (tools + Blueprint tier alignment). */
 export const WorkModeSchema = z.enum(["ask", "plan", "build", "debug", "review"]);
@@ -159,11 +145,6 @@ export type WorkMode = z.infer<typeof WorkModeSchema>;
 
 /** v2.1: Agent mode (Direct / Guided / Autonomous). */
 export const AgentModeSchema = z.enum(["direct", "guided", "autonomous"]);
-export type AgentMode = z.infer<typeof AgentModeSchema>;
-
-/** v2.1: Permission mode (read-only Ask vs allow edits Build). */
-export const PermissionModeSchema = z.enum(["ask", "build"]);
-export type PermissionMode = z.infer<typeof PermissionModeSchema>;
 
 /** v2.1: Guided mode config. */
 export const GuidedConfigSchema = z.object({
@@ -171,7 +152,6 @@ export const GuidedConfigSchema = z.object({
   agentModel: z.enum(["same", "fast", "custom"]).default("fast"),
   customAgentModel: LargeLanguageModelSchema.optional(),
 });
-export type GuidedConfig = z.infer<typeof GuidedConfigSchema>;
 
 /** @deprecated Migrated to DelegationConfigSchema; kept for settings JSON compatibility. */
 export const AutonomousConfigSchema = z.object({
@@ -180,7 +160,6 @@ export const AutonomousConfigSchema = z.object({
   tokenBudgetPerTurn: z.number().default(50_000),
   requireApprovalForNested: z.boolean().default(true),
 });
-export type AutonomousConfig = z.infer<typeof AutonomousConfigSchema>;
 
 /** Unified delegation limits (all work modes). */
 export const DelegationConfigSchema = z.object({
@@ -191,7 +170,6 @@ export const DelegationConfigSchema = z.object({
   tokenBudgetPerTurn: z.number().optional(),
   enableParallelPrefetch: z.boolean().optional(),
 });
-export type DelegationConfig = z.infer<typeof DelegationConfigSchema>;
 
 /** v2.1: Self-review config. */
 export const SelfReviewConfigSchema = z.object({
@@ -204,7 +182,6 @@ export const SelfReviewConfigSchema = z.object({
   criteria: z.array(z.string()).default(["completeness", "correctness", "clarity", "safety", "best_practices"]),
   showInActivityStream: z.boolean().default(true),
 });
-export type SelfReviewConfig = z.infer<typeof SelfReviewConfigSchema>;
 
 /** v2.1: Agent Lightning (offline training) config. */
 export const AgentLightningConfigSchema = z.object({
@@ -212,7 +189,6 @@ export const AgentLightningConfigSchema = z.object({
   schedule: z.enum(["every_10_sessions", "daily", "weekly", "manual"]).default("weekly"),
   optimizationTarget: z.enum(["quality", "token_efficiency", "speed", "balanced"]).default("balanced"),
 });
-export type AgentLightningConfig = z.infer<typeof AgentLightningConfigSchema>;
 
 /** v2.1: Context and summarization config. */
 export const ContextSummarizationConfigSchema = z.object({
@@ -223,7 +199,6 @@ export const ContextSummarizationConfigSchema = z.object({
   summarizationStrategy: z.enum(["preserve_details", "balanced", "aggressive"]).default("balanced"),
   adaptivePromptSizing: z.boolean().default(true),
 });
-export type ContextSummarizationConfig = z.infer<typeof ContextSummarizationConfigSchema>;
 
 /** v2.1: Project understanding (ATLARIX.md) config. */
 export const ProjectUnderstandingConfigSchema = z.object({
@@ -236,7 +211,6 @@ export const ProjectUnderstandingConfigSchema = z.object({
   updateModel: z.enum(["fast", "same", "custom"]).default("fast"),
   requireApprovalForUpdates: z.enum(["always", "auto_approve_minor", "never"]).default("always"),
 });
-export type ProjectUnderstandingConfig = z.infer<typeof ProjectUnderstandingConfigSchema>;
 
 /** v2.1: Activity stream config. */
 export const ActivityStreamConfigSchema = z.object({
@@ -245,7 +219,6 @@ export const ActivityStreamConfigSchema = z.object({
   showTokenCosts: z.enum(["always", "autonomous_only", "never"]).default("always"),
   detailLevel: z.enum(["minimal", "standard", "verbose"]).default("standard"),
 });
-export type ActivityStreamConfig = z.infer<typeof ActivityStreamConfigSchema>;
 
 /** v2.1: AI Configuration (agents, self-review, context, project understanding). */
 export const AIConfigurationSchema = z.object({
@@ -258,17 +231,10 @@ export const AIConfigurationSchema = z.object({
   projectUnderstanding: ProjectUnderstandingConfigSchema.optional(),
   activityStream: ActivityStreamConfigSchema.optional(),
 });
-export type AIConfiguration = z.infer<typeof AIConfigurationSchema>;
-
-export const GitHubSecretsSchema = z.object({
-  accessToken: SecretSchema.nullable(),
-});
-export type GitHubSecrets = z.infer<typeof GitHubSecretsSchema>;
 
 export const GithubUserSchema = z.object({
   email: z.string(),
 });
-export type GithubUser = z.infer<typeof GithubUserSchema>;
 
 export const SupabaseSchema = z.object({
   accessToken: SecretSchema.optional(),
@@ -276,7 +242,6 @@ export const SupabaseSchema = z.object({
   expiresIn: z.number().optional(),
   tokenTimestamp: z.number().optional(),
 });
-export type Supabase = z.infer<typeof SupabaseSchema>;
 
 export const NeonSchema = z.object({
   accessToken: SecretSchema.optional(),
@@ -284,20 +249,17 @@ export const NeonSchema = z.object({
   expiresIn: z.number().optional(),
   tokenTimestamp: z.number().optional(),
 });
-export type Neon = z.infer<typeof NeonSchema>;
 
 export const ExperimentsSchema = z.object({
   // Deprecated
   enableSupabaseIntegration: z.boolean().describe("DEPRECATED").optional(),
   enableFileEditing: z.boolean().describe("DEPRECATED").optional(),
 });
-export type Experiments = z.infer<typeof ExperimentsSchema>;
 
 export const AtlarixProBudgetSchema = z.object({
   budgetResetAt: z.string(),
   maxBudget: z.number(),
 });
-export type AtlarixProBudget = z.infer<typeof AtlarixProBudgetSchema>;
 
 export const GlobPathSchema = z.object({
   globPath: z.string(),
@@ -324,7 +286,6 @@ export type ContextPathResults = {
 };
 
 export const ReleaseChannelSchema = z.enum(["stable", "beta"]);
-export type ReleaseChannel = z.infer<typeof ReleaseChannelSchema>;
 
 export const ZoomLevelSchema = z.enum(["90", "100", "110", "125", "150"]);
 export type ZoomLevel = z.infer<typeof ZoomLevelSchema>;
@@ -366,9 +327,6 @@ export const BlueprintInjectionModePreferenceSchema = z.enum([
   "build",
   "debug",
 ]);
-export type BlueprintInjectionModePreference = z.infer<
-  typeof BlueprintInjectionModePreferenceSchema
->;
 
 /**
  * Zod schema for user settings

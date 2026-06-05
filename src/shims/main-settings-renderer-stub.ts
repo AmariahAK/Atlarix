@@ -3,7 +3,7 @@ import type { UserSettings } from "@/lib/schemas";
 /** Renderer stub — settings are read/written via IPC from the main process. */
 export function readSettings(): UserSettings {
   return {
-    selectedModel: { name: "compass-fast", provider: "compass" },
+    selectedModel: { name: "core-1", provider: "compass" },
     providerSettings: {},
     telemetryConsent: "unset",
     telemetryUserId: "",

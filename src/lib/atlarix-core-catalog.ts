@@ -1,13 +1,15 @@
 /**
- * Atlarix Core (internal provider `compass`): env-backed OpenRouter models per routing slot.
+ * Atlarix Core (internal provider `compass`): env-backed OpenRouter models per Core slot.
  */
 
 import type { ModelTier } from "@/lib/routing/capability-registry";
 import {
-  COMPASS_TIER_BALANCED,
-  COMPASS_TIER_FAST,
-  COMPASS_TIER_THINKING,
-  getOpenRouterModelIdForCompassTier,
+  CORE_TIER_1,
+  CORE_TIER_2,
+  CORE_TIER_3,
+  CORE_TIER_4,
+  getOpenRouterModelIdForCoreTier,
+  normalizeCoreTierId,
 } from "@/ipc/shared/compass_constants";
 import {
   formatModelApiNameForDisplay,
@@ -17,6 +19,7 @@ import {
 export type AtlarixCoreTierSlot = ModelTier;
 
 export type AtlarixCoreTierPresentation = {
+  /** Routing capability class (context budgeting); Core 3 and 4 both route as `thinking`. */
   slot: AtlarixCoreTierSlot;
   internalTierId: string;
   openRouterModelId: string;
@@ -33,9 +36,10 @@ function providerSlugFromOpenRouterId(openRouterModelId: string): string {
 }
 
 const SLOT_TO_INTERNAL: { slot: AtlarixCoreTierSlot; internalTierId: string }[] = [
-  { slot: "fast", internalTierId: COMPASS_TIER_FAST },
-  { slot: "balanced", internalTierId: COMPASS_TIER_BALANCED },
-  { slot: "thinking", internalTierId: COMPASS_TIER_THINKING },
+  { slot: "fast", internalTierId: CORE_TIER_1 },
+  { slot: "balanced", internalTierId: CORE_TIER_2 },
+  { slot: "thinking", internalTierId: CORE_TIER_3 },
+  { slot: "thinking", internalTierId: CORE_TIER_4 },
 ];
 
 function presentationForInternalTier(
@@ -43,10 +47,10 @@ function presentationForInternalTier(
   internalTierId: string,
 ): AtlarixCoreTierPresentation {
   const openRouterModelId =
-    getOpenRouterModelIdForCompassTier(internalTierId)?.trim() ?? "";
+    getOpenRouterModelIdForCoreTier(internalTierId)?.trim() ?? "";
   const modelDisplayName = openRouterModelId
     ? formatModelApiNameForDisplay(openRouterModelId)
-    : formatModelApiNameForDisplay(internalTierId.replace(/^compass-/, ""));
+    : formatModelApiNameForDisplay(internalTierId.replace(/^(compass|core)-/, "Core "));
   const providerSlug = providerSlugFromOpenRouterId(openRouterModelId);
   return {
     slot,
@@ -58,7 +62,7 @@ function presentationForInternalTier(
   };
 }
 
-/** Build catalog from build-time env (`COMPASS_MODEL_*`). Main process / IPC only. */
+/** Build catalog from build-time env (`ATLARIX_CORE_MODEL_*`). Main process / IPC only. */
 export function buildAtlarixCoreTierCatalog(): AtlarixCoreTierPresentation[] {
   return SLOT_TO_INTERNAL.map(({ slot, internalTierId }) =>
     presentationForInternalTier(slot, internalTierId),
@@ -69,10 +73,11 @@ export function findCatalogEntryByInternalTierId(
   catalog: AtlarixCoreTierPresentation[],
   internalTierId: string,
 ): AtlarixCoreTierPresentation | undefined {
-  return catalog.find((e) => e.internalTierId === internalTierId);
+  const normalized = normalizeCoreTierId(internalTierId);
+  return catalog.find((e) => e.internalTierId === normalized);
 }
 
-/** Identity + prompts: resolve compass tier id to display line. */
+/** Identity + prompts: resolve Core tier id to display line. */
 export function resolveAtlarixCoreIdentity(
   internalTierId: string,
   catalog?: AtlarixCoreTierPresentation[],
@@ -90,10 +95,9 @@ export function resolveAtlarixCoreIdentity(
       labelWithProvider: entry.labelWithProvider,
     };
   }
-  const modelDisplayName = formatModelApiNameForDisplay(
-    internalTierId.replace(/^compass-/, ""),
-  );
-  const slug = providerSlugFromOpenRouterId(internalTierId.replace(/^compass-/, ""));
+  const fallbackName = normalizeCoreTierId(internalTierId).replace(/^core-/, "Core ");
+  const modelDisplayName = formatModelApiNameForDisplay(fallbackName);
+  const slug = "openrouter";
   return {
     modelDisplayName,
     providerSlug: slug,
@@ -101,7 +105,7 @@ export function resolveAtlarixCoreIdentity(
   };
 }
 
-/** Renderer-safe label for a compass internal tier id (catalog from IPC preferred). */
+/** Renderer-safe label for a Core internal tier id (catalog from IPC preferred). */
 export function displayLabelForCompassTier(
   internalTierId: string,
   catalog?: AtlarixCoreTierPresentation[],
@@ -112,11 +116,13 @@ export function displayLabelForCompassTier(
     : undefined;
   if (entry) return entry.labelWithProvider;
   const fromList = languageModelDisplayName?.trim();
-  if (fromList && !/^compass\s/i.test(fromList) && !/^compass-/i.test(fromList)) {
+  if (fromList && !/^(compass|core)\s/i.test(fromList) && !/^(compass|core)-/i.test(fromList)) {
     return fromList;
   }
   return formatModelWithProvider(
-    formatModelApiNameForDisplay(internalTierId.replace(/^compass-/, "")),
+    formatModelApiNameForDisplay(
+      normalizeCoreTierId(internalTierId).replace(/^core-/, "Core "),
+    ),
     "openrouter",
   );
 }

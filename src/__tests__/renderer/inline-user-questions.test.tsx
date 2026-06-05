@@ -1,25 +1,36 @@
 /**
- * ask_user inline card (v10.1): single questions submit on option click;
- * multi-question batches require every answer before Submit enables; the
- * combined readable Q→A string goes back to the model.
+ * ask_user inline card (v11.1 end-turn): the asking turn has already ENDED
+ * when the card shows. Submitting answers records them and starts the
+ * continuation stream; the card also re-seeds itself from the persisted
+ * `atlarix-questions` artifact after a reload.
  */
 
 import React from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { act, fireEvent, screen, waitFor } from "@testing-library/react";
 import {
-  askUserStreamFreezeBaselineByChatIdAtom,
+  chatMessagesByIdAtom,
+  isStreamingByIdAtom,
   pendingUserQuestionByChatIdAtom,
 } from "@/atoms/chatAtoms";
+import { appendQuestionsArtifact } from "@/lib/chat/ask-user-artifacts";
 import { makeFakeIpc, renderWithProviders } from "./helpers";
 
 const fakeIpc = makeFakeIpc() as ReturnType<typeof makeFakeIpc> & {
   submitUserQuestionAnswer: ReturnType<typeof vi.fn>;
 };
-fakeIpc.submitUserQuestionAnswer = vi.fn(async () => undefined);
+fakeIpc.submitUserQuestionAnswer = vi.fn(async () => ({
+  success: true,
+  restream: true,
+}));
 
 vi.mock("@/ipc/ipc_client", () => ({
   IpcClient: { getInstance: () => fakeIpc },
+}));
+
+const streamMessage = vi.fn();
+vi.mock("@/hooks/useStreamChat", () => ({
+  useStreamChat: () => ({ streamMessage }),
 }));
 
 import { InlineUserQuestions } from "@/components/chat/InlineUserQuestions";
@@ -29,9 +40,11 @@ const CHAT_ID = 21;
 describe("InlineUserQuestions", () => {
   beforeEach(() => {
     fakeIpc.submitUserQuestionAnswer.mockClear();
+    streamMessage.mockClear();
     const { store } = renderWithProviders(<div />);
     store.set(pendingUserQuestionByChatIdAtom, {});
-    store.set(askUserStreamFreezeBaselineByChatIdAtom, {});
+    store.set(chatMessagesByIdAtom, new Map());
+    store.set(isStreamingByIdAtom, new Map());
   });
 
   it("renders nothing without a pending question", () => {
@@ -41,7 +54,7 @@ describe("InlineUserQuestions", () => {
     expect(container.textContent).toBe("");
   });
 
-  it("single question: clicking an option submits immediately and clears state", async () => {
+  it("single question: option click submits, clears state, and restreams", async () => {
     const { store } = renderWithProviders(<InlineUserQuestions chatId={CHAT_ID} />);
     act(() => {
       store.set(pendingUserQuestionByChatIdAtom, {
@@ -51,7 +64,6 @@ describe("InlineUserQuestions", () => {
           options: ["Tabs", "Spaces"],
         },
       });
-      store.set(askUserStreamFreezeBaselineByChatIdAtom, { [CHAT_ID]: "frozen" });
     });
 
     expect(screen.getByText("Tabs or spaces?")).toBeInTheDocument();
@@ -66,9 +78,14 @@ describe("InlineUserQuestions", () => {
       );
     });
     expect(store.get(pendingUserQuestionByChatIdAtom)[CHAT_ID]).toBeUndefined();
-    expect(
-      store.get(askUserStreamFreezeBaselineByChatIdAtom)[CHAT_ID],
-    ).toBeUndefined();
+    // v11.1: the asking turn ended — answering starts the continuation stream.
+    await waitFor(() => {
+      expect(streamMessage).toHaveBeenCalledWith({
+        prompt: "",
+        chatId: CHAT_ID,
+        continueAfterQuestions: true,
+      });
+    });
   });
 
   it("multi-question: Submit stays disabled until every question is answered", async () => {
@@ -112,13 +129,14 @@ describe("InlineUserQuestions", () => {
   });
 
   it("free-text question accepts a custom answer", async () => {
+    renderWithProviders(<InlineUserQuestions chatId={CHAT_ID} />);
     const { store } = renderWithProviders(<InlineUserQuestions chatId={CHAT_ID} />);
     act(() => {
       store.set(pendingUserQuestionByChatIdAtom, {
         [CHAT_ID]: { questionId: "q-3", question: "Project name?" },
       });
     });
-    const input = screen.getByPlaceholderText("Your answer…");
+    const input = screen.getAllByPlaceholderText("Your answer…")[0];
     fireEvent.change(input, { target: { value: "atlas-x" } });
     fireEvent.keyDown(input, { key: "Enter" });
     await waitFor(() => {
@@ -129,5 +147,70 @@ describe("InlineUserQuestions", () => {
         "Project name?",
       );
     });
+  });
+
+  it("re-seeds the card from a persisted atlarix-questions artifact (reload)", async () => {
+    const { store } = renderWithProviders(<InlineUserQuestions chatId={CHAT_ID} />);
+    act(() => {
+      store.set(
+        chatMessagesByIdAtom,
+        new Map([
+          [
+            CHAT_ID,
+            [
+              { id: 1, chatId: CHAT_ID, role: "user", content: "build it", createdAt: new Date() },
+              {
+                id: 2,
+                chatId: CHAT_ID,
+                role: "assistant",
+                content: appendQuestionsArtifact("Need a decision first.", {
+                  questionId: "uq_reload",
+                  questions: [{ question: "Deploy target?", options: ["Vercel", "Fly"] }],
+                }),
+                createdAt: new Date(),
+              },
+            ] as never,
+          ],
+        ]),
+      );
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("Deploy target?")).toBeInTheDocument();
+    });
+    expect(store.get(pendingUserQuestionByChatIdAtom)[CHAT_ID]?.questionId).toBe(
+      "uq_reload",
+    );
+  });
+
+  it("does NOT re-seed when a user message follows the question turn (answered)", () => {
+    const { store, container } = renderWithProviders(
+      <InlineUserQuestions chatId={CHAT_ID} />,
+    );
+    act(() => {
+      store.set(
+        chatMessagesByIdAtom,
+        new Map([
+          [
+            CHAT_ID,
+            [
+              {
+                id: 2,
+                chatId: CHAT_ID,
+                role: "assistant",
+                content: appendQuestionsArtifact("Need a decision first.", {
+                  questionId: "uq_done",
+                  questions: [{ question: "Deploy target?" }],
+                }),
+                createdAt: new Date(),
+              },
+              { id: 3, chatId: CHAT_ID, role: "user", content: "***Q:*** Deploy target? → ***A:*** Vercel", createdAt: new Date() },
+            ] as never,
+          ],
+        ]),
+      );
+    });
+    expect(store.get(pendingUserQuestionByChatIdAtom)[CHAT_ID]).toBeUndefined();
+    expect(container.textContent).toBe("");
   });
 });

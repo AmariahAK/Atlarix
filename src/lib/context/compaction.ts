@@ -31,6 +31,39 @@ const TOOL_OUTPUT_MAX_CHARS = 2_000;
 const PRUNE_PROTECTED_TOOLS = ["skill"];
 const MODEL_CONTEXT_SAFETY = 0.8;
 
+/**
+ * v11.1 durable compaction: summary messages are recognizable by this prefix.
+ * The summary is persisted to the workspace session like any other message,
+ * and dispatch slices the MODEL history from the LAST summary onward — so a
+ * reload (which rehydrates the full session log) doesn't re-expand the
+ * model's context. The UI keeps the full scrollback.
+ */
+export const COMPACTION_SUMMARY_PREFIX = "[COMPACTION MARKER]";
+
+export function isCompactionSummaryMessage(
+  content: string | null | undefined,
+): boolean {
+  return typeof content === "string" && content.startsWith(COMPACTION_SUMMARY_PREFIX);
+}
+
+/**
+ * Model-history slice: keep [last summary message .. end]. Returns the input
+ * array unchanged when no summary exists (the common case — cheap check).
+ */
+export function sliceFromLastCompactionSummary<
+  T extends { role: string; content?: string | null },
+>(messages: T[]): T[] {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (
+      messages[i].role === "user" &&
+      isCompactionSummaryMessage(messages[i].content)
+    ) {
+      return i === 0 ? messages : messages.slice(i);
+    }
+  }
+  return messages;
+}
+
 interface MessageForCompaction {
   id: number;
   role: string;
@@ -361,6 +394,7 @@ export async function runSteppedCompaction(
   let modelContext = [...messages];
   let tokensFreed = 0;
   let strategy: CompactionStrategy = "none";
+  let summaryText: string | undefined;
 
   // Step 2: Prune tool outputs if over 60%
   if (usageRatio > PRUNE_THRESHOLD) {
@@ -397,15 +431,39 @@ export async function runSteppedCompaction(
   if (ratioAfterStrip > COMPACTION_THRESHOLD) {
     const { head: headMessages, tail_start_id: tailStartId } = selectMessagesForCompaction(modelContext, providerId);
 
-    if (headMessages.length > 0 && headMessages.length < modelContext.length - 2) {
+    // v11.1 guard: don't re-summarize a head that is just the previous
+    // summary (nothing new to fold in) — avoids degenerate double passes.
+    const headIsOnlyPriorSummary =
+      headMessages.length === 1 &&
+      isCompactionSummaryMessage(headMessages[0]?.content);
+
+    if (
+      !headIsOnlyPriorSummary &&
+      headMessages.length > 0 &&
+      headMessages.length < modelContext.length - 2
+    ) {
       const existing = await getContextSummaryForProvider(providerId);
-      const summary = await summarizeMessages(headMessages, existing);
+      let summary = await summarizeMessages(headMessages, existing);
+
+      // v11.1 guard: a runaway summary defeats the purpose — cap it at 25%
+      // of the budget (rare; generateText maxTokens already bounds it).
+      if (summary) {
+        const summaryTokens = exactTokenCountText(summary);
+        const cap = Math.max(1_000, Math.floor(tierLimit * 0.25));
+        if (summaryTokens > cap) {
+          const keepChars = cap * 4; // ~4 chars/token
+          summary = `${summary.slice(0, keepChars)}\n[summary truncated]`;
+          logger.warn(
+            `Compaction summary exceeded ${cap} tokens — truncated`,
+          );
+        }
+      }
 
       if (summary) {
         const summaryMsg: MessageForCompaction = {
           id: -Date.now(),
           role: "user",
-          content: `[COMPACTION MARKER]\n${summary}\n[END COMPACTION]`,
+          content: `${COMPACTION_SUMMARY_PREFIX}\n${summary}\n[END COMPACTION]`,
         };
 
         const tailMessages = tailStartId
@@ -419,6 +477,7 @@ export async function runSteppedCompaction(
         const newTokens = exactTokenCount(modelContext.map(m => ({ role: m.role, content: m.content })));
         tokensFreed = tokensAfterStrip - newTokens;
         strategy = "summarized";
+        summaryText = summary;
 
         logger.info(`Compaction summary applied: ${tokensFreed} tokens freed`);
       }
@@ -429,6 +488,7 @@ export async function runSteppedCompaction(
     modelContext,
     strategy,
     tokensFreed,
+    summaryText,
     usageRatio,
     compactionApplied: strategy !== "none",
   };
@@ -444,16 +504,4 @@ async function getContextSummaryForProvider(
   return null;
 }
 
-// ═══════════════════════════════════════════════════════════════
-// COMPRESS CONTEXT TOOL
-// ═══════════════════════════════════════════════════════════════
-
-export interface CompressContextParams {
-  scope: "completed_tasks" | "old_tool_outputs" | "everything_old";
-  reason?: string;
-}
-
-// ═══════════════════════════════════════════════════════════════
-// UI SEPARATOR
-// ═══════════════════════════════════════════════════════════════
 

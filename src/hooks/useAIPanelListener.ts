@@ -111,5 +111,3 @@ export function useAIPanelListener() {
         return () => { };
     }, [setAIPanelIntent]);
 }
-
-export default useAIPanelListener;

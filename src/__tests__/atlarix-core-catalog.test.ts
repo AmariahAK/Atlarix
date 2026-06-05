@@ -7,22 +7,27 @@ import {
 
 describe("atlarix-core-catalog", () => {
   beforeEach(() => {
-    vi.stubEnv("COMPASS_MODEL_FAST", "deepseek/deepseek-v4-flash");
-    vi.stubEnv("COMPASS_MODEL_BALANCED", "deepseek/deepseek-v4-pro");
-    vi.stubEnv("COMPASS_MODEL_THINKING", "moonshotai/kimi-k2.6");
+    vi.stubEnv("ATLARIX_CORE_MODEL_1", "deepseek/deepseek-v4-flash");
+    vi.stubEnv("ATLARIX_CORE_MODEL_2", "deepseek/deepseek-v4-pro");
+    vi.stubEnv("ATLARIX_CORE_MODEL_3", "moonshotai/kimi-k2.6");
+    vi.stubEnv("ATLARIX_CORE_MODEL_4", "anthropic/claude-opus-4");
   });
 
   afterEach(() => {
     vi.unstubAllEnvs();
   });
 
-  it("builds three tier entries with provider slug from model id", () => {
+  it("builds four Core entries with provider slug from model id", () => {
     const catalog = buildAtlarixCoreTierCatalog();
-    expect(catalog).toHaveLength(3);
-    const balanced = catalog.find((e) => e.slot === "balanced");
-    expect(balanced?.openRouterModelId).toBe("deepseek/deepseek-v4-pro");
-    expect(balanced?.labelWithProvider).toMatch(/\(deepseek\)/);
-    expect(balanced?.providerSlug).toBe("deepseek");
+    expect(catalog).toHaveLength(4);
+    const core2 = catalog.find((e) => e.internalTierId === "core-2");
+    expect(core2?.slot).toBe("balanced");
+    expect(core2?.openRouterModelId).toBe("deepseek/deepseek-v4-pro");
+    expect(core2?.labelWithProvider).toMatch(/\(deepseek\)/);
+    expect(core2?.providerSlug).toBe("deepseek");
+    const core4 = catalog.find((e) => e.internalTierId === "core-4");
+    expect(core4?.slot).toBe("thinking");
+    expect(core4?.openRouterModelId).toBe("anthropic/claude-opus-4");
   });
 
   it("formatModelWithProvider uses lowercase provider slug", () => {
@@ -31,9 +36,13 @@ describe("atlarix-core-catalog", () => {
     );
   });
 
-  it("resolveAtlarixCoreIdentity maps compass-balanced", () => {
-    const id = resolveAtlarixCoreIdentity("compass-balanced");
+  it("resolveAtlarixCoreIdentity maps core ids and legacy compass ids", () => {
+    const id = resolveAtlarixCoreIdentity("core-2");
     expect(id.labelWithProvider).toMatch(/\(deepseek\)/);
     expect(id.modelDisplayName).toMatch(/DeepSeek|Pro/i);
+
+    // Legacy persisted selection keeps resolving to the same entry.
+    const legacy = resolveAtlarixCoreIdentity("compass-balanced");
+    expect(legacy.labelWithProvider).toBe(id.labelWithProvider);
   });
 });

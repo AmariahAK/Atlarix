@@ -1,7 +1,27 @@
 # Atlarix TODO
 
-**Current Version:** v10.1.0
-**Last Updated:** 2026-06-04
+**Current Version:** v11.0.0 (unreleased)
+**Last Updated:** 2026-06-05
+
+---
+
+## Shipped in v11.0.0 (unreleased)
+
+| Area | Notes |
+|------|--------|
+| **In-app browser (WebContentsView)** | "Browser" tab in the right panel — native `WebContentsView` (immune to X-Frame-Options), tabs + URL bar + back/forward; isolated `persist:atlarix-browser` session, sandboxed dedicated preload, http(s)-only, popups/downloads/permission-requests denied; agent tools `browser_navigate` / `browser_read_page` / `browser_screenshot` (all modes) + `browser_click` / `browser_fill` (Build/Fix); page content framed as untrusted with origin disclosure |
+| **WebMCP bridge** | `navigator.modelContext` (W3C draft) shim injected into browser pages; page-registered tools surface via `list_webmcp_tools` / `call_webmcp_tool` in EVERY mode; metadata-only relay (execute stays in page, 20s timeout); cleared on navigation; untrusted-content envelopes; fixture page `e2e-tests/fixtures/webmcp-demo.html` |
+| **Compass → Atlarix Core** | 3 plan-gated Compass tiers replaced by 4 Core slots (`core-1..4`, env `ATLARIX_CORE_MODEL_1..4`); ALL plans get ALL models — access is strictly token-metered against the existing Supabase `compass_tokens` pool (limits read from Supabase, never hardcoded); plan coercion/filter code deleted; legacy `compass-*` ids alias forever + persisted selections normalize |
+| **Strict mid-task token enforcement** | Core usage recorded **per agent step** (`onStepFinish`, awaited) instead of fire-and-forget at stream end (which also undercounted multi-step turns); turn aborts immediately mid-task when the pool runs out, with the upgrade message + partial response saved; `stopWhen` backstop; server RPC stays authoritative, local tally is the fast guard |
+| **Packaging bug — the real 1.28GB cause** | `npm install <pkgs>` in `packageAfterPrune` reconciled the FULL dependency tree back into the asar AFTER the removal loops (dugite 140MB, next+@next/swc 194MB, echarts, lucide, …). Staged `package.json` now rewritten to the runtime-external allowlist before any install — the asar can never contain the app's full tree again |
+| **Lighter app** | `geist` dep dropped (fonts vendored as woff2, kills next/@next 284MB from installs); `dugite` dropped → system git via `system_git_exec.ts` (E2E bundled-git path kept via `LOCAL_GIT_DIRECTORY`); vestigial 64MB nested `typescript` stripped from `vscode-langservers-extracted`; knip purge (~30 dead exports, 59 dead types, dead files) + knip config tightened |
+| **Document readers** | `.pptx` / `.odt` (zip+XML via tiny `fflate`), `.rtf` (in-house stripper), structured `.csv` (via existing `xlsx`); spreadsheet/CSV results render a real **table card** (`ToolTableExpand`), xlsx included; pdf/docx unchanged |
+| **Supabase hardening** | `20260605120000` migration: REVOKE direct INSERT/UPDATE/DELETE on `compass_tokens` (writes only via SECURITY DEFINER RPCs); docs/compass-limits.md fixed (referenced a migration that never existed) |
+| **ask_user end-turn redesign** | Asking questions ENDS the turn (Claude Code-style): all questions batched in one call, turn persists with reload-durable `atlarix-questions` artifact, answers return as a real Q→A user message + continuation stream; 30-min wait/timeout machinery and freeze-baseline atom deleted; typing supersedes the card |
+| **Error UI placement** | Stream-failure banner + Retry/Dismiss moved from top of chat to the pinned slot above the input (aligned with SlowStreamWarningBar) |
+| **Compaction hardening** | Durable summaries (persisted to session + dispatch slices from last `[COMPACTION MARKER]`); provider context-overflow → clamp estimate + force-compact + one retry; real Ollama/LM Studio context windows via their APIs; double-summarize + runaway-summary guards; dead post-turn compaction scheduler deleted |
+
+**Follow-ups (v11):** consent UX for first agent-initiated `browser_navigate` (currently scheme-gated only); WebMCP `requestUserInteraction` support; Core 4 reasoning-tier routing heuristics; measure installed size on Windows/Linux CI.
 
 ---
 
@@ -63,13 +83,7 @@ chat-edit persistence, dead-code sweeps, 0 tsc/0 lint, quality gate). See
 
 ## Roadmap
 
-### In-app browser tab (WebContentsView)
-
-- **What:** Optional "Browser" surface backed by Electron `WebContentsView` (not an iframe —
-  immune to X-Frame-Options) with back/forward + URL bar, isolated session partition. Lets
-  web-search results and docs open beside the code instead of the system browser.
-- **Why deferred:** New panel surface + navigation UI + security review; external links
-  already open in the user's browser and localhost opens in Preview.
+*(In-app browser tab shipped in v11.0.0 — see above.)*
 
 ---
 

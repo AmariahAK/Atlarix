@@ -6,7 +6,7 @@ import {
 export { ATLARIX_CO_AUTHOR_TRAILER } from "./git_author";
 import git from "isomorphic-git";
 import http from "isomorphic-git/http/node";
-import { exec } from "dugite";
+import { exec } from "./system_git_exec";
 import fs from "node:fs";
 import { promises as fsPromises } from "node:fs";
 import pathModule from "node:path";

@@ -8,7 +8,6 @@
 import { exec } from 'node:child_process';
 import { promisify } from 'node:util';
 import { getLanguage } from './language_registry';
-import { detectProjectLanguages } from './project_language_detector';
 import log from 'electron-log';
 
 const execAsync = promisify(exec);
@@ -22,13 +21,6 @@ export interface LanguageValidationResult {
     version?: string;
     error?: string;
     installUrl: string;
-}
-
-export interface ProjectValidationResult {
-    projectPath: string;
-    allInstalled: boolean;
-    languages: LanguageValidationResult[];
-    missingLanguages: LanguageValidationResult[];
 }
 
 /**
@@ -83,27 +75,5 @@ export async function validateLanguageInstalled(languageName: string): Promise<L
             installUrl: lang.installUrl,
         };
     }
-}
-
-/**
- * Validate all languages required by a project
- */
-export async function validateProjectLanguages(projectPath: string): Promise<ProjectValidationResult> {
-    const detectedLanguages = await detectProjectLanguages(projectPath);
-    const results: LanguageValidationResult[] = [];
-
-    for (const detected of detectedLanguages) {
-        const validation = await validateLanguageInstalled(detected.name);
-        results.push(validation);
-    }
-
-    const missingLanguages = results.filter(r => !r.installed);
-
-    return {
-        projectPath,
-        allInstalled: missingLanguages.length === 0,
-        languages: results,
-        missingLanguages,
-    };
 }
 

@@ -25,9 +25,10 @@ const MAIN_KEYS = [
   "SENTRY_DSN",
   "POSTHOG_API_KEY",
   "COMPASS_OPENROUTER_API_KEY",
-  "COMPASS_MODEL_FAST",
-  "COMPASS_MODEL_BALANCED",
-  "COMPASS_MODEL_THINKING",
+  "ATLARIX_CORE_MODEL_1",
+  "ATLARIX_CORE_MODEL_2",
+  "ATLARIX_CORE_MODEL_3",
+  "ATLARIX_CORE_MODEL_4",
   "TEMPLATE_TOKEN",
   "OAUTH_CLIENT_ID",
 ] as const;
@@ -64,9 +65,9 @@ export const mainRollupExternals: readonly string[] = [
   "ast-types",
   "@babel/parser",
   "@babel/traverse",
-  "@babel/generator",
+  // v11: @babel/generator and default-shell removed — nothing imports them
+  // directly (default-shell is shell-env's transitive dep; npm brings it).
   "shell-env",
-  "default-shell",
 ];
 
 // https://vitejs.dev/config

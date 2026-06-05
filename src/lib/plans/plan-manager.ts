@@ -8,7 +8,6 @@ import * as path from "node:path";
 
 export const PLANS_DIR = ".atlarix/plans";
 export const PLANS_INDEX = "_index.md";
-export const ATLARIX_FILE = ".atlarix/ATLARIX.md";
 
 export const DOMAIN_PLANS = ["backend", "frontend", "database", "devops"] as const;
 export type PlanDomain = (typeof DOMAIN_PLANS)[number];

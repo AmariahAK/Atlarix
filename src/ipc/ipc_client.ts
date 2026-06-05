@@ -2583,7 +2583,7 @@ export class IpcClient {
     questionId: string,
     answer: string,
     questionText: string,
-  ): Promise<{ success: boolean }> {
+  ): Promise<{ success: boolean; restream?: boolean }> {
     return this.ipcRenderer.invoke("chat:submit-user-question-answer", {
       chatId,
       questionId,
@@ -3175,6 +3175,70 @@ export class IpcClient {
 
   public async getCompassUsage(): Promise<CompassUsageIpcResult> {
     return this.ipcRenderer.invoke("compass:get-usage");
+  }
+
+  // ── v11 in-app browser (WebContentsView panel) ──────────────────────────
+
+  public async getBrowserState(): Promise<
+    import("@/ipc/utils/browser_view_manager").BrowserPanelState
+  > {
+    return this.ipcRenderer.invoke("browser:get-state");
+  }
+
+  public async browserCreateTab(url?: string) {
+    return this.ipcRenderer.invoke("browser:create-tab", url);
+  }
+
+  public async browserCloseTab(id: number) {
+    return this.ipcRenderer.invoke("browser:close-tab", id);
+  }
+
+  public async browserSetActiveTab(id: number) {
+    return this.ipcRenderer.invoke("browser:set-active-tab", id);
+  }
+
+  public async browserNavigate(
+    input: string,
+  ): Promise<{ ok: boolean; error?: string }> {
+    return this.ipcRenderer.invoke("browser:navigate", input);
+  }
+
+  public async browserBack() {
+    return this.ipcRenderer.invoke("browser:back");
+  }
+
+  public async browserForward() {
+    return this.ipcRenderer.invoke("browser:forward");
+  }
+
+  public async browserReload() {
+    return this.ipcRenderer.invoke("browser:reload");
+  }
+
+  public async browserSetBounds(rect: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  }): Promise<void> {
+    return this.ipcRenderer.invoke("browser:set-bounds", rect);
+  }
+
+  public async browserSetVisible(visible: boolean) {
+    return this.ipcRenderer.invoke("browser:set-visible", visible);
+  }
+
+  public onBrowserStateChanged(
+    listener: (
+      state: import("@/ipc/utils/browser_view_manager").BrowserPanelState,
+    ) => void,
+  ): () => void {
+    const off = this.ipcRenderer.on("browser:state-changed", (state) =>
+      listener(
+        state as import("@/ipc/utils/browser_view_manager").BrowserPanelState,
+      ),
+    );
+    return typeof off === "function" ? off : () => {};
   }
 
   // OpenRouter Favorites Management

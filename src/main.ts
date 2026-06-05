@@ -43,10 +43,10 @@ import { SubscriptionManager } from "./lib/SubscriptionManager";
 import { resolveSystemPath } from "./lib/resolve-path";
 import { warmTierContextCache } from "./lib/routing/tier-context-limits";
 import {
-  COMPASS_TIER_BALANCED,
-  COMPASS_TIER_FAST,
-  COMPASS_TIER_THINKING,
-  getOpenRouterModelIdForCompassTier,
+  CORE_TIER_1,
+  CORE_TIER_2,
+  CORE_TIER_3,
+  getOpenRouterModelIdForCoreTier,
 } from "./ipc/shared/compass_constants";
 import { isNoUsableModelOutputError } from "./ipc/utils/no_usable_model_output";
 import {
@@ -126,28 +126,23 @@ if (started) {
   app.quit();
 }
 
-/** Prefer system git in production; dugite bundle is optional (E2E / ATLARIX_BUNDLE_GIT=1). */
+/** v11: system git only (dugite removed). A bundled git in resources (E2E /
+ * ATLARIX_BUNDLE_GIT=1 builds) is still honored via LOCAL_GIT_DIRECTORY. */
 function configureGitEnvironment(): void {
-  if (!app.isPackaged) {
-    const devGit = path.join(app.getAppPath(), "node_modules/dugite/git");
-    if (fs.existsSync(devGit)) {
-      process.env.LOCAL_GIT_DIRECTORY = devGit;
-      logger.info("[git] Using dev dugite bundle");
-    }
-    return;
-  }
   try {
     execSync("git --version", { stdio: "ignore" });
     logger.info("[git] Using system git from PATH");
     return;
   } catch {
-    const bundled = path.join(process.resourcesPath, "git");
-    if (fs.existsSync(bundled)) {
+    const bundled = app.isPackaged
+      ? path.join(process.resourcesPath, "git")
+      : null;
+    if (bundled && fs.existsSync(bundled)) {
       process.env.LOCAL_GIT_DIRECTORY = bundled;
       logger.info("[git] Using bundled git from resources");
     } else {
       logger.warn(
-        "[git] No system git and no bundled git — install Git or Xcode Command Line Tools",
+        "[git] No system git found — git features disabled. Install Git (macOS: `xcode-select --install`) to enable them.",
       );
     }
   }
@@ -242,10 +237,12 @@ export async function onReady() {
 
   // Pass 7.3: OpenTelemetry init removed (heavy main-bundle dep, startup crash on packaged builds).
 
+  // Core 4 needs no slot here — the warm fetch caches the full OpenRouter
+  // catalog, and per-model limits resolve via `resolveModelContextLimit`.
   void warmTierContextCache(
-    getOpenRouterModelIdForCompassTier(COMPASS_TIER_FAST) ?? "",
-    getOpenRouterModelIdForCompassTier(COMPASS_TIER_BALANCED) ?? "",
-    getOpenRouterModelIdForCompassTier(COMPASS_TIER_THINKING) ?? "",
+    getOpenRouterModelIdForCoreTier(CORE_TIER_1) ?? "",
+    getOpenRouterModelIdForCoreTier(CORE_TIER_2) ?? "",
+    getOpenRouterModelIdForCoreTier(CORE_TIER_3) ?? "",
   ).catch(() => {
     /* best-effort */
   });

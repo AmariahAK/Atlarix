@@ -185,32 +185,3 @@ export class ProviderManager {
     }
 }
 
-// ═══════════════════════════════════════════════════════════
-// CONVENIENCE FUNCTIONS
-// ═════════════════════════════════════════════════════════ ══
-
-/**
- * Auto-detect available providers
- */
-export async function detectAvailableProviders(): Promise<ProviderType[]> {
-    const available: ProviderType[] = [];
-
-    // Check Ollama
-    if (await ProviderManager.checkProviderAvailability("ollama")) {
-        available.push("ollama");
-    }
-
-    // Check LMStudio
-    if (await ProviderManager.checkProviderAvailability("lmstudio")) {
-        available.push("lmstudio");
-    }
-
-    // Check OpenRouter (requires API key from env)
-    const apiKey = process.env.OPENROUTER_API_KEY;
-    if (apiKey && await ProviderManager.checkProviderAvailability("openrouter", { apiKey })) {
-        available.push("openrouter");
-    }
-
-    return available;
-}
-

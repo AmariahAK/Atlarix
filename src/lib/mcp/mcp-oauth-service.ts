@@ -60,7 +60,7 @@ function broadcastMcpOAuthEvent(
 }
 
 // ── Agent auth-and-retry: block a tool call until the user authenticates ──
-// Mirrors the pending-map pattern in mcp_consent.ts / user_question_wait.ts.
+// Mirrors the pending-map pattern in mcp_consent.ts.
 type McpAuthWaiter = { resolve: (ok: boolean) => void; timer: NodeJS.Timeout };
 const pendingMcpAuthWaiters = new Map<number, McpAuthWaiter[]>();
 

@@ -21,7 +21,7 @@ export type PanelType =
     | 'plan'            // ATLARIX plan + changes summary
     | 'empty';          // No content
 
-export type PanelTab = 'sources' | 'tools' | 'debug' | 'preview' | 'code' | 'terminal' | 'logs' | 'files' | 'approve' | 'permission' | 'errors' | 'permissions' | 'search' | 'activity' | 'chat' | 'plan';
+export type PanelTab = 'sources' | 'tools' | 'debug' | 'preview' | 'code' | 'terminal' | 'logs' | 'files' | 'approve' | 'permission' | 'errors' | 'permissions' | 'search' | 'activity' | 'chat' | 'plan' | 'browser';
 
 export interface PanelContext {
     type: PanelType;
@@ -356,9 +356,6 @@ export const leftPanelWidthAtom = atom<number>(280);
 /** Dev server URL for live preview (Lovable-style) */
 export const devServerUrlAtom = atom<string | null>(null);
 
-/** Project type detected by DevServerProvider - used for backend diagram fallback */
-export type ProjectType = 'frontend' | 'backend' | 'unknown';
-
 // ═══════════════════════════════════════════════════════════
 // BROWSER ERRORS (Live Preview Console Errors)
 // ═══════════════════════════════════════════════════════════
@@ -393,15 +390,4 @@ export const selectedErrorForCodeAtom = atom<SelectedErrorForCode | null>(null);
 
 /** Recent codebase search queries (max 10, for "Recent Searches" dropdown) */
 export const recentCodeSearchesAtom = atom<string[]>([]);
-
-// ═══════════════════════════════════════════════════════════
-// PANEL HISTORY (for breadcrumb navigation)
-// ═══════════════════════════════════════════════════════════
-
-export interface PanelHistoryEntry {
-    type: PanelType;
-    tab: PanelTab;
-    timestamp: number;
-    title: string;
-}
 

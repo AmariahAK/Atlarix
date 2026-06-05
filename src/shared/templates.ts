@@ -19,15 +19,6 @@ export interface Template {
   postInstall?: string;
 }
 
-// API Template interface from the external API
-export interface ApiTemplate {
-  githubOrg: string;
-  githubRepo: string;
-  title: string;
-  description: string;
-  imageUrl: string;
-}
-
 // ============================================
 // CLI TEMPLATE CATALOG
 // ============================================

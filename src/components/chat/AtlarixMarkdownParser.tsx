@@ -28,6 +28,7 @@ import { SuggestedAction } from "@/lib/schemas";
 import { InlineWebCitation } from "./InlineWebCitation";
 import {
   stripAssistantPlanForDisplay } from "@/lib/plan-cards/plan-card-renderer";
+import { stripQuestionsArtifactForDisplay } from "@/lib/chat/ask-user-artifacts";
 import {
   sanitizeMarkdownForDisplay,
 } from "@/lib/chat/answer-display";
@@ -743,7 +744,9 @@ const SEGMENT_EXCLUDED_TAGS = new Set([
 /** Parse markdown segments for AssistantMessageBody (no thought/tool tags). */
 export function parseMarkdownSegmentPieces(content: string): ContentPiece[] {
   const sanitized = sanitizeMarkdownForDisplay(
-    stripTaskCompleteTags(stripAssistantPlanForDisplay(content)),
+    stripTaskCompleteTags(
+      stripQuestionsArtifactForDisplay(stripAssistantPlanForDisplay(content)),
+    ),
   );
   return parseCustomTags(sanitized).filter(
     (piece) =>

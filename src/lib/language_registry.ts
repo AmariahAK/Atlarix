@@ -205,10 +205,3 @@ export function getLanguage(name: string): LanguageRequirement | undefined {
     return LANGUAGE_REGISTRY[name.toLowerCase()];
 }
 
-/**
- * Get all language names
- */
-export function getAllLanguageNames(): string[] {
-    return Object.keys(LANGUAGE_REGISTRY);
-}
-

@@ -431,5 +431,3 @@ export function useBrowserErrorListener() {
         };
     }, [setErrors, setDismissedSignatures]);
 }
-
-export default useBrowserErrorListener;

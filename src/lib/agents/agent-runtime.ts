@@ -58,10 +58,3 @@ export function delegationChatModeFromWorkMode(
   return "ask";
 }
 
-/** Tool names always registered when workspace stream runs. */
-export const DELEGATION_TOOL_NAMES = [
-  "delegate_to_agent",
-  "spawn_sub_agent",
-  "task",
-] as const;
-

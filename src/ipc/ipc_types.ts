@@ -72,21 +72,6 @@ export interface ChatStreamParams {
   workModeOverride?: WorkMode;
 }
 
-/** v3.9: Clarifying question from AI (<questions> block). */
-export interface Question {
-  id: string;
-  question: string;
-  choices: string[];
-  allowCustom: boolean;
-}
-
-/** v7.0.8: Parsed <questions> block for UI (optional heading + items). */
-export interface ClarifyingQuestionsPayload {
-  questions: Question[];
-  /** Shown above the questionnaire when the model provides `title` or `prompt` in JSON. */
-  title?: string;
-}
-
 /** Autonomous session review: one executed permission op logged in main. */
 export interface AutonomousOpDto {
   operationId: string;
@@ -197,20 +182,6 @@ export interface ChatContextReport {
  * response visible and offers [Reconnect] (replays the same turn) and
  * [Continue] (sends a new prompt asking the model to resume).
  */
-export interface ChatStreamDisconnected {
-  chatId: number;
-  partialResponse: string;
-  reason: "network" | "timeout" | "provider_error";
-  canResume: boolean;
-}
-
-/** FIX 4: payload for `chat:stream:reset-partial`. Sent right before a silent
- * retry or a manual reconnect so the renderer clears its in-flight stream
- * buffer; the next chunks overwrite the cleared message cleanly. */
-export interface ChatStreamResetPartial {
-  chatId: number;
-}
-
 /** Result of `compass:get-usage` — use `reason` so UI does not treat RPC/migration failures as “signed out”. */
 export type CompassUsageIpcResult =
   | {
@@ -388,12 +359,6 @@ export interface Version {
 }
 
 export type BranchResult = { branch: string };
-
-export interface SandboxConfig {
-  files: Record<string, string>;
-  dependencies: Record<string, string>;
-  entry: string;
-}
 
 export interface NodeSystemInfo {
   nodeVersion: string | null;
@@ -635,38 +600,6 @@ export interface UpdateChatParams {
   title: string;
 }
 
-export interface UploadFileToCodebaseParams {
-  appId: number;
-  filePath: string;
-  fileData: string; // Base64 encoded file data
-  fileName: string;
-}
-
-export interface UploadFileToCodebaseResult {
-  success: boolean;
-  filePath: string;
-}
-
-// --- Prompts ---
-export interface PromptDto {
-  id: number;
-  title: string;
-  description: string | null;
-  content: string;
-  createdAt: Date;
-  updatedAt: Date;
-}
-
-export interface CreatePromptParamsDto {
-  title: string;
-  description?: string;
-  content: string;
-}
-
-export interface UpdatePromptParamsDto extends CreatePromptParamsDto {
-  id: number;
-}
-
 export interface FileAttachment {
   file?: File;
   type: "upload-to-codebase" | "chat-context";
@@ -739,27 +672,6 @@ export interface StartHelpChatParams {
   message: string;
 }
 
-export interface HelpChatResponseChunk {
-  sessionId: string;
-  delta: string;
-  type: "text";
-}
-
-export interface HelpChatResponseReasoning {
-  sessionId: string;
-  delta: string;
-  type: "reasoning";
-}
-
-export interface HelpChatResponseEnd {
-  sessionId: string;
-}
-
-export interface HelpChatResponseError {
-  sessionId: string;
-  error: string;
-}
-
 // --- Workspace session persistence ---
 export interface WorkspaceChatSession {
   id: string;
@@ -767,22 +679,6 @@ export interface WorkspaceChatSession {
   title: string;
   createdAt: Date;
   updatedAt: Date;
-}
-
-export interface WorkspaceSessionMessage {
-  id: string;
-  sessionId: string;
-  role: "user" | "assistant" | "tool";
-  content: string;
-  kind?: "message" | "plan";
-  createdAt: Date;
-}
-
-export interface WorkspaceSessionWithMessages {
-  session: WorkspaceChatSession;
-  messages: WorkspaceSessionMessage[];
-  truncated?: boolean;
-  totalCount?: number;
 }
 
 // --- MCP Types ---
@@ -949,10 +845,6 @@ export interface SetSupabaseAppProjectParams {
   parentProjectId?: string;
   appId: number;
 }
-export interface SetNodePathParams {
-  nodePath: string;
-}
-
 export interface SelectNodeFolderResult {
   path: string | null;
   canceled?: boolean;

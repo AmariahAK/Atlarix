@@ -1,6 +1,5 @@
 import { IS_TEST_BUILD } from "@/ipc/utils/test_utils";
 import { getSupabaseClient } from "./supabase_management_client";
-import { SUPABASE_SCHEMA_QUERY } from "./supabase_schema_query";
 
 async function getPublishableKey({ projectId }: { projectId: string }) {
   if (IS_TEST_BUILD) {
@@ -50,47 +49,5 @@ const SUPABASE_PUBLISHABLE_KEY = "${publishableKey}";
 export const supabase = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);`;
 };
 
-export async function getSupabaseContext({
-  supabaseProjectId,
-}: {
-  supabaseProjectId: string;
-}) {
-  if (IS_TEST_BUILD) {
-    if (supabaseProjectId === "test-branch-project-id") {
-      return "1234".repeat(200_000);
-    }
-    return "[[TEST_BUILD_SUPABASE_CONTEXT]]";
-  }
-
-  const supabase = await getSupabaseClient();
-  const publishableKey = await getPublishableKey({
-    projectId: supabaseProjectId,
-  });
-  const schema = await supabase.runQuery(
-    supabaseProjectId,
-    SUPABASE_SCHEMA_QUERY,
-  );
-
-  const secrets = await supabase.getSecrets(supabaseProjectId);
-  const secretNames = secrets?.map((secret) => secret.name);
-
-  // TODO: include EDGE FUNCTIONS and SECRETS!
-
-  const context = `
-  # Supabase Context
-
-  ## Supabase Project ID
-  ${supabaseProjectId}
-
-  ## Publishable key (aka anon key)
-  ${publishableKey}
-
-  ## Secret names (environmental variables)
-  ${JSON.stringify(secretNames)}
-
-  ## Schema
-  ${JSON.stringify(schema)}
-  `;
-
-  return context;
-}
+// v11.1: getSupabaseContext deleted — per-turn schema pre-injection was
+// removed (PASS5); Supabase tools fetch their own context on call.

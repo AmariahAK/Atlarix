@@ -1,4 +1,12 @@
-# Compass token limits
+# Atlarix Core token limits (Compass pool)
+
+> **v11:** The three Compass tiers (fast/balanced/thinking) were replaced by four
+> **Core** model slots (`core-1`…`core-4`, env `ATLARIX_CORE_MODEL_1..4`). Every
+> plan can use **all** Core models; access is metered strictly by this shared
+> token pool. The Supabase objects keep their `compass_*` names — nothing in
+> this document's SQL changes. Enforcement is now strict: the app blocks new
+> turns when the pool is exhausted **and stops a running turn mid-task** at the
+> step that crosses the limit.
 
 ## Run in Supabase SQL Editor
 
@@ -9,7 +17,7 @@ To create **RLS**, the **`compass_tokens`** table, and the RPCs **`get_compass_u
 
 The script is idempotent where possible (`CREATE TABLE IF NOT EXISTS`, `CREATE OR REPLACE FUNCTION`, policies use fixed names).
 
-**Follow-up (recommended):** Run [`supabase/migrations/20260329131000_compass_tokens_no_direct_writes.sql`](../supabase/migrations/20260329131000_compass_tokens_no_direct_writes.sql) in the same SQL Editor. It adds RLS policies so authenticated clients **cannot** `INSERT`/`UPDATE`/`DELETE` `compass_tokens` directly — only `SELECT` and the `SECURITY DEFINER` RPCs may change usage.
+**Follow-up (recommended):** Run [`supabase/migrations/20260605120000_compass_tokens_revoke_direct_write.sql`](../supabase/migrations/20260605120000_compass_tokens_revoke_direct_write.sql) in the same SQL Editor. It REVOKEs `INSERT`/`UPDATE`/`DELETE` on `compass_tokens` from `authenticated`/`anon` so only the `SECURITY DEFINER` RPCs may change usage (RLS already limits `SELECT` to the owning user).
 
 **Prerequisite:** The RPCs read subscription tier from **`public.users`** (`plan` / `effective_tier`). Your project must expose that table and columns to Postgres (same schema the app already uses for billing). If your column names differ, edit the `SELECT ... FROM public.users u WHERE u.id = uid` blocks in both functions before running.
 

@@ -21,6 +21,12 @@ import { getEphemeralChat } from "@/lib/ephemeral-chat";
 import path from "path";
 import os from "node:os";
 import { extractTextFromPdfBuffer } from "@/lib/attachment-pdf-extract";
+import { extractCsvFromBuffer } from "@/lib/attachment-csv-extract";
+import {
+    extractTextFromPptxBuffer,
+    extractTextFromOdtBuffer,
+} from "@/lib/attachment-office-xml-extract";
+import { extractTextFromRtfBuffer } from "@/lib/attachment-rtf-extract";
 import fs from "fs/promises";
 import { SubscriptionManager } from "../SubscriptionManager";
 import { estimateTokens } from "@/ipc/utils/token_utils";
@@ -261,7 +267,7 @@ ToolRegistry.register({
 ToolRegistry.register({
     name: "ask_user",
     description:
-        "Ask the user one or more questions and PAUSE until they answer all of them — the stream stops and resumes with their answers. Prefer batching related questions into one call via `questions` (max 5, each with up to 4 `options`); a single `question` + `options` also works. The UI shows option buttons plus a free-text field per question.",
+        "Ask the user one or more questions — YOUR TURN ENDS after asking. The user answers asynchronously and their answers arrive as the next user message, where you continue the task (or ask follow-ups). Because the turn ends, batch ALL questions you need into ONE call via `questions` (max 5, each with up to 4 `options`) — ask everything up front, never one at a time. A single `question` + `options` also works. The UI shows option buttons plus a free-text field per question.",
     category: ToolCategory.EXECUTION,
     cost: 0,
     requiresWorkspace: false,
@@ -335,6 +341,74 @@ export type ExecuteCompressContextContext = {
     setMessages?: (next: Array<{ id: number; role: string; content: string }>) => void;
 };
 
+/** Best-effort durable copy of a compaction summary into the bound session. */
+async function persistCompactionSummaryToSession(
+    chatId: number,
+    afterList: Array<{ role: string; content?: string | null }>,
+): Promise<void> {
+    try {
+        const { isCompactionSummaryMessage } = await import("../context/compaction");
+        const summaryMsg = afterList.find(
+            (m) => m.role === "user" && isCompactionSummaryMessage(m.content),
+        );
+        if (!summaryMsg?.content) return;
+        const {
+            resolveOrBindWorkspaceSessionForStream,
+            persistWorkspaceSessionUserMessage,
+        } = await import("@/ipc/handlers/workspace_session_handlers");
+        const sessionId = await resolveOrBindWorkspaceSessionForStream({ chatId });
+        await persistWorkspaceSessionUserMessage(sessionId, summaryMsg.content, {});
+        logger.info(`[compaction] Summary persisted to session ${sessionId}`);
+    } catch (err) {
+        logger.warn("[compaction] Could not persist summary to session:", err);
+    }
+}
+
+/**
+ * v11.1 overflow recovery: aggressively compact an ephemeral chat's message
+ * list after a provider context-overflow error. Bypasses the usage-ratio
+ * gates by feeding an artificially low budget (the provider just told us the
+ * real window is smaller than our estimate). Returns true when anything
+ * was compacted (the retry dispatch then sees the smaller history).
+ */
+export async function forceCompactEphemeralChat(
+    chatId: number,
+    providerId?: string,
+): Promise<boolean> {
+    const { getEphemeralChat } = await import("@/lib/ephemeral-chat");
+    const chat = getEphemeralChat(chatId);
+    if (!chat || chat.messages.length < 4) return false;
+
+    const msgList = chat.messages.map((m) => ({
+        id: m.id,
+        role: m.role,
+        content: m.content ?? "",
+    }));
+    const currentTokens = msgList.reduce(
+        (acc, m) => acc + estimateTokens(m.content || ""),
+        0,
+    );
+    // Half the current size as the target forces prune + summarize.
+    const forcedLimit = Math.max(8_000, Math.floor(currentTokens / 2));
+    const stepped = await runSteppedCompaction(msgList, forcedLimit, providerId);
+    if (!stepped.compactionApplied) return false;
+
+    chat.messages = stepped.modelContext.map((m) => ({
+        id: m.id,
+        chatId,
+        role: m.role as "user" | "assistant",
+        content: m.content || "",
+        createdAt: new Date(),
+    }));
+    if (stepped.strategy === "summarized") {
+        await persistCompactionSummaryToSession(chatId, stepped.modelContext);
+    }
+    logger.info(
+        `[compaction] Forced overflow compaction freed ~${stepped.tokensFreed} tokens (chat ${chatId})`,
+    );
+    return true;
+}
+
 export async function executeCompressContext(
     params: { reason?: string },
     ctx: ExecuteCompressContextContext,
@@ -365,6 +439,12 @@ export async function executeCompressContext(
         const tokensAfter = afterList.reduce((acc, m) => acc + estimateTokens(m.content || ""), 0);
         if (ctx.setMessages) {
             ctx.setMessages(afterList.map((m) => ({ id: m.id, role: m.role, content: m.content || "" })));
+        }
+        // v11.1 durable compaction: persist the summary message to the bound
+        // workspace session so reloads keep the compact model history (the
+        // dispatch funnel slices from the last summary marker).
+        if (stepped.strategy === "summarized") {
+            await persistCompactionSummaryToSession(ctx.chatId, afterList);
         }
         return {
             success: stepped.compactionApplied === true,
@@ -444,7 +524,7 @@ const SUPPORTED_TEXT_EXTENSIONS = [
 ];
 
 const SUPPORTED_IMAGE_EXTENSIONS = [".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg", ".bmp", ".ico"];
-const SUPPORTED_DOCUMENT_EXTENSIONS = [".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx"];
+const SUPPORTED_DOCUMENT_EXTENSIONS = [".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".odt", ".rtf"];
 
 function getFileExtension(filename: string): string {
     return path.extname(filename).toLowerCase();
@@ -477,7 +557,14 @@ async function extractTextFromDocx(buffer: Buffer): Promise<{ text: string; para
     }
 }
 
-async function extractTextFromXlsx(buffer: Buffer): Promise<{ text: string; sheets: number; rows: number; success: boolean }> {
+async function extractTextFromXlsx(buffer: Buffer): Promise<{
+    text: string;
+    sheets: number;
+    rows: number;
+    success: boolean;
+    table: import("@/lib/attachment-csv-extract").CsvTableData | null;
+    sheetName?: string;
+}> {
     try {
         const XLSX = await import("xlsx");
         const workbook = XLSX.read(buffer, { type: "buffer" });
@@ -492,20 +579,80 @@ async function extractTextFromXlsx(buffer: Buffer): Promise<{ text: string; shee
             totalRows += range.e.r - range.s.r + 1;
         }
 
+        // Structured table from the first sheet for the renderer card.
+        let table = null;
+        const firstSheetName = workbook.SheetNames[0];
+        const firstSheet = firstSheetName ? workbook.Sheets[firstSheetName] : undefined;
+        if (firstSheet) {
+            const matrix = XLSX.utils.sheet_to_json<unknown[]>(firstSheet, {
+                header: 1,
+                raw: false,
+                defval: "",
+            }) as unknown as string[][];
+            if (matrix.length > 0) {
+                const MAX_ROWS = 200;
+                const MAX_COLS = 50;
+                const totalColumns = matrix.reduce((m, r) => Math.max(m, r.length), 0);
+                table = {
+                    headers: (matrix[0] ?? []).slice(0, MAX_COLS).map(String),
+                    rows: matrix.slice(1, 1 + MAX_ROWS).map((r) => r.slice(0, MAX_COLS).map(String)),
+                    totalRows: matrix.length - 1,
+                    totalColumns,
+                    truncated: matrix.length - 1 > MAX_ROWS || totalColumns > MAX_COLS,
+                };
+            }
+        }
+
         return {
             text: allText.trim(),
             sheets: workbook.SheetNames.length,
             rows: totalRows,
             success: Boolean(allText.trim().length > 0),
+            table,
+            sheetName: firstSheetName,
         };
     } catch (err) {
         logger.warn(`xlsx failed: ${err}`);
-        return { text: "", sheets: 0, rows: 0, success: false };
+        return { text: "", sheets: 0, rows: 0, success: false, table: null };
     }
 }
 
 function extractStructuredData(attachment: AttachmentData): any {
     const ext = getFileExtension(attachment.filename);
+
+    // CSV gets the structured spreadsheet path (table card in the renderer);
+    // other text extensions keep the plain-text path below.
+    if (ext === ".csv") {
+        const buffer = Buffer.from(attachment.data, "base64");
+        return extractCsvFromBuffer(buffer).then((result) => {
+            if (result.success) {
+                return {
+                    type: "spreadsheet",
+                    filename: attachment.filename,
+                    size: attachment.size,
+                    mimeType: "text/csv",
+                    format: "csv",
+                    content: result.text,
+                    table: result.table,
+                    rows: result.rowCount,
+                    columns: result.columnCount,
+                    charCount: result.text.length,
+                    note: `CSV parsed: ${result.rowCount} row(s), ${result.columnCount} column(s).`,
+                };
+            }
+            // Fall back to raw text so odd delimiters still surface something.
+            const text = buffer.toString("utf-8");
+            return {
+                type: "text",
+                filename: attachment.filename,
+                size: attachment.size,
+                content: text.slice(0, 200_000),
+                lineCount: text.split("\n").length,
+                charCount: text.length,
+                note: "CSV table parsing failed; raw text provided.",
+            };
+        }) as any;
+    }
 
     if (isTextFile(ext)) {
         try {
@@ -668,6 +815,8 @@ function extractStructuredData(attachment: AttachmentData): any {
                         content: result.text,
                         sheets: result.sheets,
                         rows: result.rows,
+                        table: result.table,
+                        sheetName: result.sheetName,
                         charCount: result.text.length,
                         rawBase64: attachment.data,
                         note: `Excel spreadsheet extracted: ${result.sheets} sheet(s), ${result.rows} row(s).`,
@@ -685,6 +834,85 @@ function extractStructuredData(attachment: AttachmentData): any {
                     };
                 }
             }) as any;
+        }
+
+        if (ext === ".pptx") {
+            const buffer = Buffer.from(attachment.data, "base64");
+            const result = extractTextFromPptxBuffer(buffer);
+            if (result.success) {
+                return {
+                    type: "presentation",
+                    filename: attachment.filename,
+                    size: attachment.size,
+                    mimeType: mimeTypes[ext] || "application/octet-stream",
+                    content: result.text,
+                    slides: result.parts,
+                    charCount: result.text.length,
+                    note: `PowerPoint deck extracted: ${result.parts} slide(s).`,
+                };
+            }
+            return {
+                type: "presentation",
+                filename: attachment.filename,
+                size: attachment.size,
+                mimeType: mimeTypes[ext] || "application/octet-stream",
+                content: null,
+                error: "PowerPoint text extraction failed (corrupt or password-protected deck?).",
+                rawBase64: attachment.data,
+                note: "Could not extract slide text. Base64 provided.",
+            };
+        }
+
+        if (ext === ".odt") {
+            const buffer = Buffer.from(attachment.data, "base64");
+            const result = extractTextFromOdtBuffer(buffer);
+            if (result.success) {
+                return {
+                    type: "document",
+                    filename: attachment.filename,
+                    size: attachment.size,
+                    mimeType: "application/vnd.oasis.opendocument.text",
+                    content: result.text,
+                    charCount: result.text.length,
+                    note: "OpenDocument text extracted successfully.",
+                };
+            }
+            return {
+                type: "document",
+                filename: attachment.filename,
+                size: attachment.size,
+                mimeType: "application/vnd.oasis.opendocument.text",
+                content: null,
+                error: "OpenDocument text extraction failed.",
+                rawBase64: attachment.data,
+                note: "Could not extract text from .odt file. Base64 provided.",
+            };
+        }
+
+        if (ext === ".rtf") {
+            const buffer = Buffer.from(attachment.data, "base64");
+            const result = extractTextFromRtfBuffer(buffer);
+            if (result.success) {
+                return {
+                    type: "document",
+                    filename: attachment.filename,
+                    size: attachment.size,
+                    mimeType: "application/rtf",
+                    content: result.text,
+                    charCount: result.text.length,
+                    note: "RTF text extracted successfully.",
+                };
+            }
+            return {
+                type: "document",
+                filename: attachment.filename,
+                size: attachment.size,
+                mimeType: "application/rtf",
+                content: null,
+                error: "RTF text extraction failed (not a valid RTF file?).",
+                rawBase64: attachment.data,
+                note: "Could not extract text from RTF file. Base64 provided.",
+            };
         }
 
         return {
@@ -711,7 +939,7 @@ ToolRegistry.register({
     name: "read_attachment",
     description:
         "Read and extract structured content from a file attachment. " +
-        "Returns text content for documents, metadata for images, and structured data for PDFs/Word/Excel. " +
+        "Returns text content for documents, metadata for images, and structured data for PDFs, Word (.docx), Excel (.xlsx), CSV, PowerPoint (.pptx), OpenDocument (.odt), and RTF files. " +
         "This tool is available in Ask, Plan, Build, Debug, and Review modes. " +
         "Call it whenever the user references an uploaded file or attachment. " +
         "Use this when you need to analyze or process files the user has attached to the conversation. " +

@@ -259,39 +259,5 @@ export async function upsertProjectMemoryKey(
   });
 }
 
-/** Token-bounded block for system prompt (latest snapshots + memory keys). */
-export async function buildProjectMemoryPromptBlock(
-  workspaceId: number,
-  maxTokens = 900,
-): Promise<string> {
-  const snaps = await listProjectSnapshots(workspaceId, 8);
-  const planSnippets = snaps
-    .filter((s) => s.trigger === "plan_update" || s.planExcerpt)
-    .slice(0, 3);
-  const mem = await listProjectMemoryKeys(workspaceId);
-  const parts: string[] = ["## Project memory (SQLite, cross-session)"];
-  if (snaps[0]) {
-    const ts =
-      snaps[0].createdAt instanceof Date
-        ? snaps[0].createdAt.toISOString()
-        : String(snaps[0].createdAt);
-    parts.push(`Latest snapshot: #${snaps[0].id} (${snaps[0].trigger}, ${ts})`);
-    if (snaps[0].sessionSummary) {
-      parts.push(`Summary: ${snaps[0].sessionSummary.slice(0, 400)}`);
-    }
-  }
-  if (planSnippets.length) {
-    parts.push("Recent plan-related snapshots:");
-    for (const p of planSnippets) {
-      parts.push(`- #${p.id}: ${(p.planExcerpt ?? "").slice(0, 220)}`);
-    }
-  }
-  if (mem.length) {
-    parts.push("Stored keys (key → value excerpt):");
-    for (const row of mem.slice(0, 40)) {
-      parts.push(`- \`${row.key}\`: ${row.value.slice(0, 200)}`);
-    }
-  }
-  const body = parts.join("\n");
-  return truncateToTokens(body, maxTokens, "\n…");
-}
+// v11.1: buildProjectMemoryPromptBlock deleted — prompt pre-injection was
+// removed (PASS5); the model reads memory via the get_project_memory tool.

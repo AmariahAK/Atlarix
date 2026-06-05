@@ -7,6 +7,8 @@ import { ToolSearchResultsExpand } from "./ToolSearchResultsExpand";
 import { ToolMcpServersExpand } from "./ToolMcpServersExpand";
 import { ToolMcpResultExpand } from "./ToolMcpResultExpand";
 import { ToolMcpAuthExpand } from "./ToolMcpAuthExpand";
+import { ToolTableExpand } from "./ToolTableExpand";
+import { ToolBrowserScreenshotExpand } from "./ToolBrowserScreenshotExpand";
 import { ToolScrollableBody } from "./ToolScrollableBody";
 import { cn } from "@/lib/utils";
 
@@ -31,6 +33,10 @@ export function ToolExpandPanel({
       {view.kind === "mcp_servers" ? <ToolMcpServersExpand view={view} /> : null}
       {view.kind === "mcp_result" ? <ToolMcpResultExpand view={view} /> : null}
       {view.kind === "mcp_auth" ? <ToolMcpAuthExpand view={view} /> : null}
+      {view.kind === "table" ? <ToolTableExpand view={view} /> : null}
+      {view.kind === "browser_screenshot" ? (
+        <ToolBrowserScreenshotExpand view={view} />
+      ) : null}
       {view.kind === "text" ? (
         <ToolScrollableBody
           text={view.body}

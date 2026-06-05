@@ -15,5 +15,3 @@ export function PriceBadge({
 
   return <span className={className}>{label}</span>;
 }
-
-export default PriceBadge;

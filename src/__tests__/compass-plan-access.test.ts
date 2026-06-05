@@ -1,39 +1,18 @@
 import { describe, expect, it } from "vitest";
-import {
-  coerceCompassModelForPlan,
-  filterCompassModelsForPlan,
-} from "@/lib/compass-plan-access";
-import type { LanguageModel } from "@/ipc/ipc_types";
-import {
-  COMPASS_TIER_BALANCED,
-  COMPASS_TIER_FAST,
-  COMPASS_TIER_THINKING,
-} from "@/ipc/shared/compass_constants";
+import { subscriptionTierToPlan } from "@/lib/compass-plan-access";
 
-const models = [
-  { apiName: COMPASS_TIER_FAST, displayName: "A", type: "cloud" },
-  { apiName: COMPASS_TIER_BALANCED, displayName: "B", type: "cloud" },
-  { apiName: COMPASS_TIER_THINKING, displayName: "C", type: "cloud" },
-] as unknown as LanguageModel[];
-
+/**
+ * v11: plan-based model gating was removed — every plan gets all Core models,
+ * metered by the shared token pool. Only the tier→plan label mapping remains.
+ */
 describe("compass-plan-access", () => {
-  it("filters to one model for free plan", () => {
-    const out = filterCompassModelsForPlan(models, "free");
-    expect(out).toHaveLength(1);
-    expect(out[0]?.apiName).toBe(COMPASS_TIER_FAST);
-  });
-
-  it("allows all three for pro and workforce", () => {
-    expect(filterCompassModelsForPlan(models, "pro")).toHaveLength(3);
-    expect(filterCompassModelsForPlan(models, "workforce")).toHaveLength(3);
-  });
-
-  it("coerces balanced to fast for free on send", () => {
-    expect(coerceCompassModelForPlan(COMPASS_TIER_BALANCED, "free")).toBe(
-      COMPASS_TIER_FAST,
-    );
-    expect(coerceCompassModelForPlan(COMPASS_TIER_BALANCED, "pro")).toBe(
-      COMPASS_TIER_BALANCED,
-    );
+  it("maps Supabase tier strings to plans", () => {
+    expect(subscriptionTierToPlan("pro")).toBe("pro");
+    expect(subscriptionTierToPlan("PRO")).toBe("pro");
+    expect(subscriptionTierToPlan("workforce")).toBe("workforce");
+    expect(subscriptionTierToPlan("free")).toBe("free");
+    expect(subscriptionTierToPlan(undefined)).toBe("free");
+    expect(subscriptionTierToPlan(null)).toBe("free");
+    expect(subscriptionTierToPlan("unknown-tier")).toBe("free");
   });
 });

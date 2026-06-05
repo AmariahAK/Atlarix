@@ -96,5 +96,3 @@ export async function triggerUpgradeWorkforce(): Promise<UpgradeResult> {
         return { success: false, error: 'Failed to open upgrade page' };
     }
 }
-
-export default useUpgrade;

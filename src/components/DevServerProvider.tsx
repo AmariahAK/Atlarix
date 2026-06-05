@@ -90,5 +90,3 @@ export function DevServerProvider({ children }: { children: React.ReactNode }) {
 
     return <>{children}</>;
 }
-
-export default DevServerProvider;

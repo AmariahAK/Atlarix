@@ -5,7 +5,6 @@
   - Ask / Plan / Review: read-only, no writes, no commands
   - Build / Debug: full tool access, file writes, LSP ON in Build/Debug
 - **Delegation:** Guided = per-tool approvals. Autonomous = eligible tools without per-step dialogs, still summarize.
-- **Compass:** Fast / Balanced / Thinking (managed cloud, subscription tiers apply).
 - **Workforce:** per-chat session context; New Chat clears. Narrate before batch `request_workspace_permissions`.
 
 ## Tool surface (Pass 7 consolidated)

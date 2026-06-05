@@ -96,8 +96,3 @@ export function buildParallelContext(results: ParallelAgentResult[]): string {
   return sections.join("\n\n---\n\n");
 }
 
-export type OrchestrationPattern =
-  | "sequential"
-  | "research_then_build"
-  | "build_then_verify";
-

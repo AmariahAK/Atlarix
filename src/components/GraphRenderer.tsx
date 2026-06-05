@@ -175,5 +175,3 @@ export function GraphRenderer({
     </div>
   );
 }
-
-export default GraphRenderer;

@@ -101,25 +101,6 @@ export function generateBlueprintId(): string {
   return `bp_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
 }
 
-/**
- * Convert Blueprint to Mermaid graph string for preview
- */
-export function blueprintToMermaid(b: Blueprint): string {
-  const lines: string[] = ["graph TB"];
-  const safe = (id: string) => id.replace(/[^a-zA-Z0-9_]/g, "_");
-  for (const room of b.rooms) {
-    const label = room.label.replace(/"/g, "'");
-    lines.push(`  ${safe(room.id)}["${label}"]`);
-  }
-  for (const edge of b.edges) {
-    const from = safe(edge.from);
-    const to = safe(edge.to);
-    const link = edge.label ? ` -->|${edge.label}| ` : " --> ";
-    lines.push(`  ${from}${link}${to}`);
-  }
-  return lines.join("\n");
-}
-
 // --- Combined Blueprint (v2.2: polyrepo / monorepo) ---
 
 /** Minimal node shape for combined blueprint (matches RTE BlueprintNode) */

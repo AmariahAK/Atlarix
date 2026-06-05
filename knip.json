@@ -3,6 +3,7 @@
   "entry": [
     "src/main.ts",
     "src/preload.ts",
+    "src/preload-browser.ts",
     "src/router.ts",
     "src/routes/**/*.{ts,tsx}",
     "src/ipc/ipc_host.ts",
@@ -23,15 +24,28 @@
   "ignoreDependencies": [
     "@ast-grep/lang-go",
     "@ast-grep/lang-python",
-    "geist",
     "keytar",
     "shiki",
     "tw-animate-css",
     "typescript-language-server",
     "vscode-langservers-extracted",
     "@electron-forge/publisher-github",
+    "@electron-forge/shared-types",
+    "@electron-forge/core-utils",
+    "@electron/get",
+    "@electron/packager",
     "@tailwindcss/typography",
+    "@shikijs/themes",
+    "@shikijs/langs",
+    "hast",
     "lint-staged"
+  ],
+  "ignoreBinaries": [
+    "tsx",
+    "ts-node"
+  ],
+  "ignoreUnresolved": [
+    "../../worker/proxy_server.js"
   ],
   "ignoreExportsUsedInFile": true
 }

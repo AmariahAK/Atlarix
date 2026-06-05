@@ -39,6 +39,22 @@ const MCP_LIST_TOOLS = new Set(["list_available_mcps"]);
 
 const MCP_CALL_TOOLS = new Set(["mcp_call"]);
 
+const ATTACHMENT_TOOLS = new Set(["read_attachment"]);
+
+/** Rows shown in the spreadsheet/CSV table card before "+N more". */
+const MAX_TABLE_CARD_ROWS = 30;
+
+// v11 in-app browser + WebMCP bridge
+const BROWSER_TEXT_TOOLS = new Set([
+  "browser_navigate",
+  "browser_read_page",
+  "browser_click",
+  "browser_fill",
+]);
+const BROWSER_SCREENSHOT_TOOLS = new Set(["browser_screenshot"]);
+const WEBMCP_LIST_TOOLS = new Set(["list_webmcp_tools"]);
+const WEBMCP_CALL_TOOLS = new Set(["call_webmcp_tool"]);
+
 const MAX_FILE_ROWS = 50;
 const MAX_READ_LINES = 40;
 const DIFF_CONTENT_MAX = 120_000;
@@ -124,6 +140,21 @@ export type ToolExpandView =
       authType: "none" | "env" | "api_key" | "oauth";
       reason: "missing" | "invalid";
       message: string;
+    }
+  | {
+      kind: "table";
+      fileName: string;
+      sheetName?: string;
+      headers: string[];
+      rows: string[][];
+      totalRows: number;
+      moreCount?: number;
+    }
+  | {
+      kind: "browser_screenshot";
+      url: string;
+      title: string;
+      dataUrl: string;
     };
 
 export function splitPathForDisplay(fullPath: string): {
@@ -638,6 +669,70 @@ function buildMcpResultView(
   return { kind: "mcp_result", server: server || "mcp", tool, body: body.trim() };
 }
 
+type AttachmentTableShape = {
+  headers?: unknown;
+  rows?: unknown;
+  totalRows?: unknown;
+};
+
+/** read_attachment spreadsheet/CSV results carry a structured `table`. */
+function buildAttachmentTableView(
+  payload: Record<string, unknown>,
+): Extract<ToolExpandView, { kind: "table" }> | null {
+  // Single attachment spreads top-level; multi-read nests under `results`.
+  let source: Record<string, unknown> | undefined;
+  if (payload.table && typeof payload.table === "object") {
+    source = payload;
+  } else if (Array.isArray(payload.results)) {
+    source = (payload.results as Record<string, unknown>[]).find(
+      (r) => r && typeof r === "object" && r.table && typeof r.table === "object",
+    );
+  }
+  const table = source?.table as AttachmentTableShape | undefined;
+  if (!table || !Array.isArray(table.headers) || !Array.isArray(table.rows)) {
+    return null;
+  }
+
+  const headers = (table.headers as unknown[]).map(String);
+  const allRows = (table.rows as unknown[])
+    .filter(Array.isArray)
+    .map((r) => (r as unknown[]).map(String));
+  if (headers.length === 0 && allRows.length === 0) return null;
+
+  const rows = allRows.slice(0, MAX_TABLE_CARD_ROWS);
+  const totalRows =
+    typeof table.totalRows === "number" ? table.totalRows : allRows.length;
+  const moreCount = Math.max(0, totalRows - rows.length) || undefined;
+
+  return {
+    kind: "table",
+    fileName: String(source?.filename ?? source?.name ?? ""),
+    sheetName:
+      typeof source?.sheetName === "string" ? source.sheetName : undefined,
+    headers,
+    rows,
+    totalRows,
+    moreCount,
+  };
+}
+
+/** read_attachment text-bearing documents (pdf/docx/pptx/odt/rtf) → snippet card. */
+function buildAttachmentDocumentView(
+  payload: Record<string, unknown>,
+): Extract<ToolExpandView, { kind: "read_snippet" }> | null {
+  const content = typeof payload.content === "string" ? payload.content : null;
+  const filename =
+    typeof payload.filename === "string"
+      ? payload.filename
+      : typeof payload.name === "string"
+        ? payload.name
+        : "";
+  if (!content?.trim() || !filename) return null;
+  const snippet = content.split("\n").slice(0, MAX_READ_LINES).join("\n");
+  const { fileName, directory } = splitPathForDisplay(filename);
+  return { kind: "read_snippet", path: filename, fileName, directory, snippet };
+}
+
 export function buildToolExpandView(
   toolName: string,
   args: unknown,
@@ -715,6 +810,89 @@ export function buildToolExpandView(
     }
     const mcpResult = buildMcpResultView(payload);
     if (mcpResult) return mcpResult;
+  }
+
+  if (ATTACHMENT_TOOLS.has(toolName)) {
+    const table = buildAttachmentTableView(payload);
+    if (table) return table;
+    const doc = buildAttachmentDocumentView(payload);
+    if (doc) return doc;
+  }
+
+  if (BROWSER_SCREENSHOT_TOOLS.has(toolName)) {
+    if (typeof payload.data === "string" && payload.data.length > 0) {
+      return {
+        kind: "browser_screenshot",
+        url: typeof payload.url === "string" ? payload.url : "",
+        title: typeof payload.title === "string" ? payload.title : "",
+        dataUrl: `data:${typeof payload.mimeType === "string" ? payload.mimeType : "image/png"};base64,${payload.data}`,
+      };
+    }
+    if (typeof payload.error === "string" && payload.error.trim()) {
+      return { kind: "text", body: payload.error.trim(), isError: true };
+    }
+  }
+
+  if (BROWSER_TEXT_TOOLS.has(toolName)) {
+    if (typeof payload.error === "string" && payload.error.trim()) {
+      return { kind: "text", body: payload.error.trim(), isError: true };
+    }
+    const parts: string[] = [];
+    if (typeof payload.title === "string" && payload.title) parts.push(payload.title);
+    if (typeof payload.url === "string" && payload.url) parts.push(payload.url);
+    const header = parts.join(" — ");
+    const body =
+      typeof payload.content === "string" && payload.content.trim()
+        ? payload.content
+        : typeof payload.note === "string"
+          ? payload.note
+          : "";
+    const combined = [header, body].filter(Boolean).join("\n\n");
+    if (combined.trim()) return { kind: "text", body: combined };
+  }
+
+  if (WEBMCP_LIST_TOOLS.has(toolName)) {
+    const tools = Array.isArray(payload.tools)
+      ? (payload.tools as { name?: unknown; description?: unknown; title?: unknown }[])
+      : [];
+    const origin = typeof payload.origin === "string" ? payload.origin : "";
+    if (tools.length > 0 && origin) {
+      // Reuse the MCP servers card: one "server" per page origin.
+      return {
+        kind: "mcp_servers",
+        servers: [
+          {
+            name: origin,
+            transport: "webmcp",
+            tools: tools
+              .filter((t) => typeof t?.name === "string")
+              .map((t) => ({
+                name: String(t.name),
+                description:
+                  typeof t.description === "string" ? t.description : undefined,
+              })),
+          },
+        ],
+        usage: typeof payload.usage === "string" ? payload.usage : undefined,
+      };
+    }
+    if (typeof payload.message === "string" && payload.message.trim()) {
+      return { kind: "text", body: payload.message.trim() };
+    }
+  }
+
+  if (WEBMCP_CALL_TOOLS.has(toolName)) {
+    if (typeof payload.error === "string" && payload.error.trim()) {
+      return { kind: "text", body: payload.error.trim(), isError: true };
+    }
+    if (typeof payload.result === "string" && payload.result.trim()) {
+      return {
+        kind: "mcp_result",
+        server: typeof payload.origin === "string" ? payload.origin : "webmcp",
+        tool: typeof payload.tool === "string" ? payload.tool : "",
+        body: payload.result,
+      };
+    }
   }
 
   const preview = formatToolResultPreview(toolName, resultText, streamStatus);

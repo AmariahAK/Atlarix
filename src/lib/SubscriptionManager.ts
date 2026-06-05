@@ -468,5 +468,3 @@ export class SubscriptionManager {
         ];
     }
 }
-
-export default SubscriptionManager;

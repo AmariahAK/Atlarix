@@ -32,6 +32,8 @@ import "./db";
 import "./lsp-tools";
 import "./mode-tool-registry-tool";
 import "./debug-hypothesis-tool";
+import "./browser"; // v11 in-app browser agent tools
+import "./webmcp"; // v11 WebMCP bridge (navigator.modelContext pages)
 
 // Re-export registry for convenience
 import { ToolRegistry } from "./registry";

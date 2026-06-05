@@ -320,8 +320,9 @@ const ignore = (file: string) => {
   if (file.startsWith("/node_modules/@tanstack")) return true;
   if (file.startsWith("/node_modules/echarts")) return true;
   if (file.startsWith("/node_modules/zrender")) return true;
-  // geist depends on next (~200MB); ship font files only (see globals.css paths).
-  if (file.startsWith("/node_modules/geist/dist")) return false;
+  // v11: geist/next/dugite are no longer dependencies (fonts vendored in
+  // src/assets/fonts; system git via system_git_exec). Keep ignoring them so
+  // stale node_modules from older checkouts can never leak into a package.
   if (file.startsWith("/node_modules/geist")) return true;
   if (file.startsWith("/node_modules/next")) return true;
   if (file.startsWith("/node_modules/@next")) return true;
@@ -420,9 +421,6 @@ const config: ForgeConfig = {
     ],
     ignore,
     extraResource: [
-      ...(isEndToEndTestBuild || process.env.ATLARIX_BUNDLE_GIT === "1"
-        ? ["node_modules/dugite/git"]
-        : []),
       AST_GREP_GRAMMARS_STAGING,
       path.join(__dirname, "src/skills"),
       path.join(__dirname, "assets/ctags", process.platform === "darwin"
@@ -556,6 +554,48 @@ const config: ForgeConfig = {
         });
       }
 
+      // ── v11 SIZE FIX ────────────────────────────────────────────────────
+      // `npm install <pkgs>` reconciles the FULL tree from package.json, not
+      // just the named packages. The ast-grep install below (which runs after
+      // the package-removal loops) was therefore silently reinstalling every
+      // prod dependency — dugite, next, echarts, lucide-react, … ~700MB —
+      // straight into the asar. Rewrite the staged package.json to ONLY the
+      // runtime externals so no npm invocation here can ever resolve the
+      // app's full dependency tree again.
+      const stagedPkgJsonPath = path.join(buildPath, "package.json");
+      const stagedPkg = JSON.parse(
+        await fs.readFile(stagedPkgJsonPath, "utf8"),
+      ) as Record<string, unknown> & { dependencies?: Record<string, string> };
+      const fullDeps: Record<string, string> = stagedPkg.dependencies ?? {};
+      const keepRoots = new Set<string>([
+        ...toInstall,
+        ...AST_GREP_RUNTIME_PACKAGES,
+        // Spawned (not imported) language-server binaries — never appear in
+        // rollup externals but must exist in node_modules/.bin at runtime.
+        "typescript-language-server",
+        "vscode-langservers-extracted",
+      ]);
+      for (const name of toInstall) {
+        if (!fullDeps[name]) {
+          console.warn(
+            `[packageAfterPrune] external "${name}" missing from package.json dependencies — npm will resolve latest`,
+          );
+        }
+      }
+      stagedPkg.dependencies = Object.fromEntries(
+        Object.entries(fullDeps).filter(([name]) => keepRoots.has(name)),
+      );
+      delete stagedPkg.devDependencies;
+      delete stagedPkg.optionalDependencies;
+      delete stagedPkg.peerDependencies;
+      // Overrides reference packages that no longer exist in the slimmed tree.
+      delete stagedPkg.overrides;
+      await fs.writeFile(stagedPkgJsonPath, JSON.stringify(stagedPkg, null, 2));
+      console.log(
+        `[packageAfterPrune] slimmed staged package.json to ${Object.keys(stagedPkg.dependencies as object).length} runtime dependencies`,
+      );
+      // ────────────────────────────────────────────────────────────────────
+
       if (toInstall.length > 0) {
         console.log(
           `[packageAfterPrune] npm install (${toInstall.length} roots) — may take several minutes on Windows CI`,
@@ -592,7 +632,8 @@ const config: ForgeConfig = {
         "d3",
         "@shikijs",
         "@tanstack",
-        ...(isEndToEndTestBuild || process.env.ATLARIX_BUNDLE_GIT === "1" ? [] : ["dugite"]),
+        // v11: dugite removed from dependencies; nothing to conditionally keep.
+        "dugite",
       ];
       for (const pkg of RENDERER_ONLY_DIRS) {
         const pkgPath = path.join(buildPath, "node_modules", pkg);
@@ -603,13 +644,25 @@ const config: ForgeConfig = {
         const pkgPath = path.join(buildPath, "node_modules", pkg);
         await fs.rm(pkgPath, { recursive: true, force: true });
       }
-      // geist → next is optional; fonts live under geist/dist only.
-      for (const pkg of ["next", "@next"]) {
+      // v11: geist is no longer a dependency (fonts vendored); rm guards stale trees.
+      for (const pkg of ["next", "@next", "geist"]) {
         await fs.rm(path.join(buildPath, "node_modules", pkg), {
           recursive: true,
           force: true,
         });
       }
+      // v11: vscode-langservers-extracted declares typescript (~64MB nested)
+      // but none of its webpack-bundled servers require it at runtime — strip.
+      // The html/css/json servers Atlarix spawns live in lib/ (<1MB total).
+      await fs.rm(
+        path.join(
+          buildPath,
+          "node_modules",
+          "vscode-langservers-extracted",
+          "node_modules",
+        ),
+        { recursive: true, force: true },
+      );
       await fs.rm(path.join(buildPath, "node_modules", "@playwright"), {
         recursive: true,
         force: true,
@@ -620,6 +673,26 @@ const config: ForgeConfig = {
       });
 
       await installAstGrepRuntimePackages(buildPath, platform, arch);
+      // The ast-grep install reconciles the (slimmed) package.json, which can
+      // resurrect deny-listed transitives — e.g. typescript (23MB) via
+      // typescript-language-server. Re-run the deny sweep AFTER the last
+      // install so nothing banned ships. (TS LSP resolves the workspace's own
+      // typescript at runtime — same behavior as every release to date.)
+      for (const pkg of RELEASE_DENY_PACKAGES) {
+        await fs.rm(path.join(buildPath, "node_modules", pkg), {
+          recursive: true,
+          force: true,
+        });
+      }
+      await fs.rm(
+        path.join(
+          buildPath,
+          "node_modules",
+          "vscode-langservers-extracted",
+          "node_modules",
+        ),
+        { recursive: true, force: true },
+      );
       await stageAstGrepGrammarsForExtraResource(buildPath, platform, arch);
 
       const bindingPkg = astGrepNativeBindingPackage(platform, arch);
@@ -667,6 +740,13 @@ const config: ForgeConfig = {
         },
         {
           entry: "src/preload.ts",
+          config: "vite.preload.config.mts",
+          target: "preload",
+        },
+        {
+          // v11: dedicated preload for the in-app browser WebContentsView
+          // (WebMCP shim + execute relay; never the app preload).
+          entry: "src/preload-browser.ts",
           config: "vite.preload.config.mts",
           target: "preload",
         },

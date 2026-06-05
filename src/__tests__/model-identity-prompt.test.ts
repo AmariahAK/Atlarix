@@ -9,9 +9,10 @@ import { constructSystemPromptParts } from "@/prompts/system_prompt";
 
 describe("model-identity-prompt", () => {
   beforeEach(() => {
-    vi.stubEnv("COMPASS_MODEL_FAST", "deepseek/deepseek-v4-flash");
-    vi.stubEnv("COMPASS_MODEL_BALANCED", "deepseek/deepseek-v4-pro");
-    vi.stubEnv("COMPASS_MODEL_THINKING", "moonshotai/kimi-k2.6");
+    vi.stubEnv("ATLARIX_CORE_MODEL_1", "deepseek/deepseek-v4-flash");
+    vi.stubEnv("ATLARIX_CORE_MODEL_2", "deepseek/deepseek-v4-pro");
+    vi.stubEnv("ATLARIX_CORE_MODEL_3", "moonshotai/kimi-k2.6");
+    vi.stubEnv("ATLARIX_CORE_MODEL_4", "anthropic/claude-opus-4");
   });
 
   afterEach(() => {
@@ -42,15 +43,21 @@ describe("model-identity-prompt", () => {
     expect(block).not.toMatch(/You are \*\*Compass/i);
   });
 
-  it("maps compass tier to routed model identity", () => {
+  it("maps Core tier to routed model identity (legacy id included)", () => {
     const id = resolveActiveModelIdentity({
       provider: "compass",
-      name: "compass-balanced",
+      name: "core-2",
     });
     expect(id.providerBrand).toBe("deepseek");
     expect(id.labelWithProvider).toMatch(/\(deepseek\)/);
     expect(id.modelDisplayName).toMatch(/DeepSeek|Pro/i);
     expect(id.modelDisplayName).not.toMatch(/Compass/i);
+
+    const legacy = resolveActiveModelIdentity({
+      provider: "compass",
+      name: "compass-balanced",
+    });
+    expect(legacy.labelWithProvider).toBe(id.labelWithProvider);
   });
 
   it("resolveActiveModelIdentity uses routed model", () => {

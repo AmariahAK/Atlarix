@@ -272,5 +272,3 @@ export function rebuildSessionMemoryFromMessages(
         }
     }
 }
-
-export default SessionMemory;

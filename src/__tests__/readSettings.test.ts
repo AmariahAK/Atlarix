@@ -83,7 +83,7 @@ describe("readSettings", () => {
           "releaseChannel": "stable",
           "selectedChatMode": "ask",
           "selectedModel": {
-            "name": "compass-fast",
+            "name": "core-1",
             "provider": "compass",
           },
           "selectedTemplateId": "react-vite-ts",
@@ -350,7 +350,7 @@ describe("readSettings", () => {
           "releaseChannel": "stable",
           "selectedChatMode": "ask",
           "selectedModel": {
-            "name": "compass-fast",
+            "name": "core-1",
             "provider": "compass",
           },
           "selectedTemplateId": "react-vite-ts",
@@ -369,7 +369,7 @@ describe("readSettings", () => {
 
       expect(result).toMatchObject({
         selectedModel: {
-          name: "compass-fast",
+          name: "core-1",
           provider: "compass",
         },
         releaseChannel: "stable",
@@ -392,7 +392,7 @@ describe("readSettings", () => {
 
       expect(result).toMatchObject({
         selectedModel: {
-          name: "compass-fast",
+          name: "core-1",
           provider: "compass",
         },
         releaseChannel: "stable",
@@ -417,10 +417,26 @@ describe("readSettings", () => {
 
       expect(result).toMatchObject({
         selectedModel: {
-          name: "compass-fast",
+          name: "core-1",
           provider: "compass",
         },
         releaseChannel: "stable",
+      });
+    });
+
+    it("normalizes legacy compass-* model selections to core-N (v11)", () => {
+      mockFs.existsSync.mockReturnValue(true);
+      mockFs.readFileSync.mockReturnValue(
+        JSON.stringify({
+          selectedModel: { name: "compass-balanced", provider: "compass" },
+        }),
+      );
+
+      const result = readSettings();
+
+      expect(result.selectedModel).toEqual({
+        name: "core-2",
+        provider: "compass",
       });
     });
   });

@@ -40,6 +40,7 @@ import { type PanelType, type PanelTab } from '@/atoms/sourceAtoms';
 import { useWorkspacePlanPanel } from '@/hooks/useWorkspacePlanPanel';
 import { workspacePlanPanelAtom } from '@/atoms/sourceAtoms';
 import { PlanExecutionPanel } from '@/components/preview_panel/PlanExecutionPanel';
+import { BrowserPanel } from '@/components/browser/BrowserPanel';
 
 // Icon configuration for secondary tabs
 const TAB_ICONS: Record<PanelTab, { icon: React.ElementType; label: string }> = {
@@ -59,6 +60,7 @@ const TAB_ICONS: Record<PanelTab, { icon: React.ElementType; label: string }> = 
     debug: { icon: Terminal, label: 'Debug' },
     activity: { icon: ListTree, label: 'Activity' },
     chat: { icon: MessageSquare, label: 'Chat' },
+    browser: { icon: Globe, label: 'Browser' },
 };
 
 // Primary mode categories for the toolbar
@@ -349,6 +351,11 @@ function PanelContent({
         return <EmbeddedChatTab />;
     }
 
+    // v11 in-app browser (WebContentsView renders natively over the panel)
+    if (context.activeTab === 'browser') {
+        return <BrowserPanel />;
+    }
+
     switch (context.type) {
         case 'web-search':
             return <SourcePreviewPanel data={context.data} activeTab={context.activeTab} />;
@@ -400,9 +407,6 @@ function PanelContent({
             );
     }
 }
-
-
-export default RightPanel;
 
 /**
  * Tools Panel - Display tool execution activity

@@ -138,5 +138,3 @@ export const HandoffResultCard: React.FC<HandoffResultCardProps> = ({
     </div>
   );
 };
-
-export default HandoffResultCard;

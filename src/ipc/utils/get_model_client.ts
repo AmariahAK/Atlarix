@@ -39,7 +39,7 @@ export function getFastModelForCurrentProvider(
   const effective = settings.selectedModel;
   if (!effective?.provider) return null;
   if (effective.provider === "compass") {
-    return { provider: "compass", name: COMPASS_TIER_FAST };
+    return { provider: "compass", name: CORE_TIER_1 };
   }
   if (effective.provider === "openrouter" && effective.name?.trim()) {
     return { provider: "openrouter", name: effective.name.trim() };
@@ -65,7 +65,7 @@ export function getBalancedModelForCurrentProvider(
   const effective = settings.selectedModel;
   if (!effective?.provider) return null;
   if (effective.provider === "compass") {
-    return { provider: "compass", name: COMPASS_TIER_BALANCED };
+    return { provider: "compass", name: CORE_TIER_2 };
   }
   if (effective.provider === "openrouter" && effective.name?.trim()) {
     return { provider: "openrouter", name: effective.name.trim() };
@@ -88,10 +88,10 @@ import { getProviderApiKey } from "../shared/provider_api_keys";
 import { LanguageModelProvider } from "../ipc_types";
 import { createAtlarixEngine } from "./llm_engine_provider";
 import {
-  COMPASS_TIER_BALANCED,
-  COMPASS_TIER_FAST,
+  CORE_TIER_1,
+  CORE_TIER_2,
   getCompassMasterApiKey,
-  getOpenRouterModelIdForCompassTier,
+  getOpenRouterModelIdForCoreTier,
 } from "../shared/compass_constants";
 import { LM_STUDIO_BASE_URL } from "./lm_studio_utils";
 import { createOllamaProvider } from "./ollama_provider";
@@ -316,7 +316,7 @@ async function getRegularModelClient(
           "Atlarix Core is not configured for this build. Add your own API keys in Settings or use a release build.",
         );
       }
-      const openRouterModelId = getOpenRouterModelIdForCompassTier(model.name);
+      const openRouterModelId = getOpenRouterModelIdForCoreTier(model.name);
       if (!openRouterModelId) {
         throw new Error(
           `Atlarix Core model "${model.name}" is not configured for this build. Choose another Core model or add BYOK keys in Settings.`,

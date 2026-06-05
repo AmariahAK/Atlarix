@@ -49,7 +49,7 @@ export function SimpleInlineChat({
     const setErrorById = useSetAtom(chatErrorByIdAtom);
     const setActiveChatId = useSetAtom(activeChatIdAtom);
     const selectedAppId = useAtomValue(selectedAppIdAtom);
-    const pendingUserQuestionByChatId = useAtomValue(pendingUserQuestionByChatIdAtom);
+    const setPendingUserQuestionByChatId = useSetAtom(pendingUserQuestionByChatIdAtom);
     const { streamMessage } = useStreamChat({ hasChatId: false });
     const [chatAppId, setChatAppId] = useState<number | null>(() =>
         selectedAppId != null ? selectedAppId : null,
@@ -153,42 +153,6 @@ export function SimpleInlineChat({
 
             <LoadedSessionBanner />
 
-            {error && (
-                <div className="px-4">
-                    <ChatErrorBox
-                        error={error}
-                        isAtlarixProEnabled={false}
-                        onDismiss={() => {
-                            setErrorById((prev) => {
-                                const next = new Map(prev);
-                                next.delete(chatId);
-                                return next;
-                            });
-                        }}
-                    />
-                    <div className="mt-2 flex flex-wrap gap-2">
-                        <Button
-                            type="button"
-                            variant="secondary"
-                            size="sm"
-                            onClick={() => {
-                                setErrorById((prev) => {
-                                    const next = new Map(prev);
-                                    next.delete(chatId);
-                                    return next;
-                                });
-                                streamMessage({ prompt: "", chatId, continueAfterQuestions: true });
-                            }}
-                        >
-                            Retry
-                        </Button>
-                        <div className="text-xs text-muted-foreground flex items-center">
-                            If this keeps happening, switch models using the selector below.
-                        </div>
-                    </div>
-                </div>
-            )}
-
             <div
                 ref={messagesContainerRef}
                 className="flex-1 min-h-0 overflow-y-auto px-4 py-4 space-y-4"
@@ -227,13 +191,50 @@ export function SimpleInlineChat({
                         </div>
                     )}
 
-                {/* ask_user: inline question card under the current response (stream stays paused). */}
+                {/* ask_user: inline question card under the response that asked (turn has ended). */}
                 <InlineUserQuestions chatId={chatId} />
 
                 <div ref={messagesEndRef} />
             </div>
 
             <div className="flex-shrink-0 px-4 pb-2 space-y-2">
+                {/* Stream failure: pinned just above the input (never scrolled away),
+                    aligned with the slow-stream warning — not at the top of the page. */}
+                {error && (
+                    <div data-testid="chat-error-bottom">
+                        <ChatErrorBox
+                            error={error}
+                            isAtlarixProEnabled={false}
+                            onDismiss={() => {
+                                setErrorById((prev) => {
+                                    const next = new Map(prev);
+                                    next.delete(chatId);
+                                    return next;
+                                });
+                            }}
+                        />
+                        <div className="mt-2 flex flex-wrap gap-2">
+                            <Button
+                                type="button"
+                                variant="secondary"
+                                size="sm"
+                                onClick={() => {
+                                    setErrorById((prev) => {
+                                        const next = new Map(prev);
+                                        next.delete(chatId);
+                                        return next;
+                                    });
+                                    streamMessage({ prompt: "", chatId, continueAfterQuestions: true });
+                                }}
+                            >
+                                Retry
+                            </Button>
+                            <div className="text-xs text-muted-foreground flex items-center">
+                                If this keeps happening, switch models using the selector below.
+                            </div>
+                        </div>
+                    </div>
+                )}
                 <SlowStreamWarningBar
                     chatId={chatId}
                     isStreaming={isStreaming}
@@ -249,9 +250,18 @@ export function SimpleInlineChat({
                         next.delete(chatId);
                         return next;
                     });
+                    // v11.1: typing a fresh message supersedes any pending
+                    // ask_user card (the turn already ended — answering is
+                    // optional, like Claude Code).
+                    setPendingUserQuestionByChatId((prev) => {
+                        if (!prev[chatId]) return prev;
+                        const next = { ...prev };
+                        delete next[chatId];
+                        return next;
+                    });
                     onSendMessage(prompt, attachments);
                 }}
-                disabled={isStreaming || !!pendingUserQuestionByChatId[chatId]}
+                disabled={isStreaming}
             />
         </div>
     );

@@ -53,7 +53,7 @@ function getSafeStorage(): SafeStorageApi | null {
 // Need to maintain backwards compatibility!
 const DEFAULT_SETTINGS: UserSettings = {
   selectedModel: {
-    name: "compass-fast",
+    name: "core-1",
     provider: "compass",
   },
   providerSettings: {},
@@ -149,6 +149,22 @@ export function readSettings(): UserSettings {
       legacy.atlarixProBudget = legacy.dyadProBudget as UserSettings["atlarixProBudget"];
     }
     delete legacy.dyadProBudget;
+    // v11: persisted pre-Core selections (`compass-*`) normalize to `core-N`
+    // so the picker shows the new names (resolution also aliases at runtime).
+    if (combinedSettings.selectedModel?.provider === "compass") {
+      const legacyCoreAliases: Record<string, string> = {
+        "compass-fast": "core-1",
+        "compass-balanced": "core-2",
+        "compass-thinking": "core-3",
+      };
+      const mapped = legacyCoreAliases[combinedSettings.selectedModel.name];
+      if (mapped) {
+        combinedSettings.selectedModel = {
+          ...combinedSettings.selectedModel,
+          name: mapped,
+        };
+      }
+    }
     const supabase = combinedSettings.supabase;
     if (supabase) {
       if (supabase.refreshToken) {

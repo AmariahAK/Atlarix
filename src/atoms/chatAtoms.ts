@@ -14,17 +14,6 @@ import type { StreamThreadItem } from "@/lib/chat/stream-thread";
 export const chatMessagesByIdAtom = atom<Map<number, Message[]>>(new Map());
 export const chatErrorByIdAtom = atom<Map<number, string | null>>(new Map());
 
-/**
- * FIX 4: per-chat stream-disconnect state. Set when the backend emits
- * `chat:stream:disconnected` after silent retries fail; cleared on the next
- * `chat:response:chunk` (manual reconnect succeeded) or when the user starts
- * typing a new message.
- */
-export interface StreamReconnectState {
-  partialResponse: string;
-  reason: "network" | "timeout" | "provider_error";
-}
-
 // Atom to hold the currently selected chat ID
 export const selectedChatIdAtom = atom<number | null>(null);
 
@@ -74,9 +63,6 @@ export type PendingUserQuestion = {
 };
 export const pendingUserQuestionByChatIdAtom = atom<Record<number, PendingUserQuestion | undefined>>({});
 
-/** While ask_user is pending, renderer freezes assistant content at this snapshot (by chatId) to suppress speculative streaming. */
-export const askUserStreamFreezeBaselineByChatIdAtom = atom<Record<number, string>>({});
-
 /** v3.9: After edit or revert, show "conversation restarted from here" divider after this message id. Cleared on stream end. */
 export const restartedAfterMessageIdAtom = atom<number | null>(null);
 
@@ -123,14 +109,6 @@ export function emptyToolIndicatorState(): ToolIndicatorState {
 }
 
 export const toolIndicatorAtom = atom<ToolIndicatorState>(emptyToolIndicatorState());
-
-/** Frozen counsel + agent-bus cards for a completed assistant turn (collapsed by default in ChatMessage). */
-export type CompletedTurnCounselSnapshot = {
-  trigger: string;
-  participantPreviews: { role: string; preview?: string }[];
-  synthesisSnippet: string;
-};
-
 
 /** Frozen thinking card per completed assistant message (DB strips think blocks). */
 export const completedTurnThinkingByAssistantMessageIdAtom = atom<

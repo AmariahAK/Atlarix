@@ -1,9 +1,15 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  COMPASS_TIER_FAST,
+  CORE_TIER_1,
+  CORE_TIER_2,
+  CORE_TIER_3,
+  CORE_TIER_4,
+  CORE_TIER_ORDER,
   getCompassMasterApiKey,
-  getOpenRouterModelIdForCompassTier,
+  getOpenRouterModelIdForCoreTier,
   isCompassBuildConfigured,
+  isCoreTierId,
+  normalizeCoreTierId,
 } from "@/ipc/shared/compass_constants";
 
 describe("compass_constants build env", () => {
@@ -23,14 +29,50 @@ describe("compass_constants build env", () => {
     expect(isCompassBuildConfigured()).toBe(false);
   });
 
-  it("maps compass tiers to static COMPASS_MODEL_* env vars", () => {
-    vi.stubEnv("COMPASS_MODEL_FAST", "deepseek/deepseek-v3.2");
-    vi.stubEnv("COMPASS_MODEL_BALANCED", "moonshotai/kimi-k2");
-    vi.stubEnv("COMPASS_MODEL_THINKING", "anthropic/claude-sonnet-4");
+  it("exposes four Core slots", () => {
+    expect(CORE_TIER_ORDER).toEqual(["core-1", "core-2", "core-3", "core-4"]);
+  });
 
-    expect(getOpenRouterModelIdForCompassTier(COMPASS_TIER_FAST)).toBe(
+  it("maps Core tiers to static ATLARIX_CORE_MODEL_* env vars", () => {
+    vi.stubEnv("ATLARIX_CORE_MODEL_1", "deepseek/deepseek-v3.2");
+    vi.stubEnv("ATLARIX_CORE_MODEL_2", "moonshotai/kimi-k2");
+    vi.stubEnv("ATLARIX_CORE_MODEL_3", "anthropic/claude-sonnet-4");
+    vi.stubEnv("ATLARIX_CORE_MODEL_4", "anthropic/claude-opus-4");
+
+    expect(getOpenRouterModelIdForCoreTier(CORE_TIER_1)).toBe(
       "deepseek/deepseek-v3.2",
     );
-    expect(getOpenRouterModelIdForCompassTier("compass-unknown")).toBeUndefined();
+    expect(getOpenRouterModelIdForCoreTier(CORE_TIER_2)).toBe(
+      "moonshotai/kimi-k2",
+    );
+    expect(getOpenRouterModelIdForCoreTier(CORE_TIER_3)).toBe(
+      "anthropic/claude-sonnet-4",
+    );
+    expect(getOpenRouterModelIdForCoreTier(CORE_TIER_4)).toBe(
+      "anthropic/claude-opus-4",
+    );
+    expect(getOpenRouterModelIdForCoreTier("core-unknown")).toBeUndefined();
+  });
+
+  it("resolves legacy compass-* ids through the alias map forever", () => {
+    vi.stubEnv("ATLARIX_CORE_MODEL_1", "deepseek/deepseek-v3.2");
+    vi.stubEnv("ATLARIX_CORE_MODEL_2", "moonshotai/kimi-k2");
+    vi.stubEnv("ATLARIX_CORE_MODEL_3", "anthropic/claude-sonnet-4");
+
+    expect(normalizeCoreTierId("compass-fast")).toBe(CORE_TIER_1);
+    expect(normalizeCoreTierId("compass-balanced")).toBe(CORE_TIER_2);
+    expect(normalizeCoreTierId("compass-thinking")).toBe(CORE_TIER_3);
+    expect(normalizeCoreTierId("core-4")).toBe(CORE_TIER_4);
+
+    expect(getOpenRouterModelIdForCoreTier("compass-fast")).toBe(
+      "deepseek/deepseek-v3.2",
+    );
+    expect(getOpenRouterModelIdForCoreTier("compass-thinking")).toBe(
+      "anthropic/claude-sonnet-4",
+    );
+
+    expect(isCoreTierId("compass-balanced")).toBe(true);
+    expect(isCoreTierId("core-2")).toBe(true);
+    expect(isCoreTierId("gpt-4o")).toBe(false);
   });
 });

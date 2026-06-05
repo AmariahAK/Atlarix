@@ -22,10 +22,6 @@ import { mergeSystemPromptParts } from "@/lib/ai/merge-system-prompt";
 import { getNativeWebSearchSupport } from "../utils/native_web_search";
 import { perfReportOnce } from "@/lib/perf-marks";
 import { buildAttachmentRecord } from "@/lib/attachment-upload";
-import {
-  SUPABASE_AVAILABLE_SYSTEM_PROMPT,
-  SUPABASE_NOT_AVAILABLE_SYSTEM_PROMPT,
-} from "../../prompts/supabase_prompt";
 import { getAtlarixAppPath, resolveAppPath } from "../../paths/paths";
 import { readSettings } from "../../main/settings";
 import type { ChatContextReport, ChatResponseEnd, ChatStreamParams } from "../ipc_types";
@@ -47,15 +43,16 @@ import {
   totalTokensFromAiUsage,
 } from "../../lib/auth/compass_usage";
 import {
+  COMPASS_LIMIT_STREAM_STOP,
+  shouldStopForCompassLimit,
+} from "../../lib/auth/compass_enforcement";
+import {
   COMPASS_REACHABILITY_ERROR,
   compassExhaustedUserMessage,
-  getOpenRouterModelIdForCompassTier,
+  getOpenRouterModelIdForCoreTier,
 } from "../shared/compass_constants";
 import log from "electron-log";
-import {
-  getSupabaseContext,
-  getSupabaseClientCode,
-} from "../../supabase_admin/supabase_context";
+import { getSupabaseClientCode } from "../../supabase_admin/supabase_context";
 import { SUMMARIZE_CHAT_SYSTEM_PROMPT } from "../../prompts/summarize_chat_system_prompt";
 import { SECURITY_REVIEW_SYSTEM_PROMPT } from "../../prompts/security_review_prompt";
 import fs from "node:fs";
@@ -237,11 +234,7 @@ import {
 } from "./autonomous-session-state";
 import { getSessionMemory } from "../../lib/session-memory";
 import { readAtlarixMd } from "../../lib/project-memory";
-import {
-  getContextSummary,
-  schedulePostTurnCompaction,
-  notifyCompactionLedgerSettled,
-} from "../../lib/context-compaction";
+import { getContextSummary } from "../../lib/context-compaction";
 import {
   estimateTokens,
   getContextWindow,
@@ -456,6 +449,19 @@ export function resolveModeChange(chatId: number, approve: boolean): void {
 
 /** Abort reason when the task ledger shows all steps done — not a user cancel. */
 const TASK_COMPLETE_STREAM_STOP = "task_complete";
+
+/**
+ * v11.1: abort reason when the model asked the user question(s) — the turn
+ * ENDS cleanly (persist + chat:response:end), the user answers asynchronously,
+ * and a new stream continues. Not a user cancel; no blocking wait anymore.
+ */
+const ASK_USER_STREAM_STOP = "ask_user_pending";
+
+/** Questions captured at end-turn time so the persist path can embed them. */
+const pendingAskUserArtifactByChatId = new Map<
+  number,
+  import("@/lib/chat/ask-user-artifacts").AskUserArtifact
+>();
 
 async function maybeAppendAutoMemoryAfterStream(params: {
   settings: UserSettings;
@@ -843,12 +849,19 @@ function attachSearchRoutingActivity(
   };
 }
 
+/**
+ * v11.1 end-turn ask_user: detect the `__ask_user` marker, persist the
+ * pending questions for the turn's content, notify the renderer, and END the
+ * turn (graceful abort — same machinery as task-complete). No blocking wait,
+ * no 30-minute timeout: the user's answers come back as the next user message
+ * and a fresh stream continues.
+ */
 async function resolveAskUserToolResult(
   event: IpcMainInvokeEvent,
   chatId: number,
   toolName: string,
   result: unknown,
-  hooks?: { finalizeAskUserBreakpoint?: () => void | Promise<void> },
+  hooks?: { onAskUserEndTurn?: () => void },
 ): Promise<string | null> {
   if (toolName !== "ask_user") return null;
   // Accept the marker both raw and nested inside a registry success envelope
@@ -872,8 +885,6 @@ async function resolveAskUserToolResult(
     options?: string[];
     questions?: Array<{ question: string; options?: string[] }>;
   };
-  // v10.1: one ask_user call can carry several questions; the stream pauses
-  // until the user answers ALL of them in the inline card.
   const questions =
     Array.isArray(q.questions) && q.questions.length > 0
       ? q.questions
@@ -885,9 +896,8 @@ async function resolveAskUserToolResult(
               : {}),
           },
         ];
-  const { waitForUserQuestionAnswer } = await import("./user_question_wait");
-  await hooks?.finalizeAskUserBreakpoint?.();
   const questionId = `uq_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
+  pendingAskUserArtifactByChatId.set(chatId, { questionId, questions });
   safeSend(event.sender, "user-question-request", {
     chatId,
     questionId,
@@ -896,15 +906,17 @@ async function resolveAskUserToolResult(
     questions,
   });
   logger.log(
-    `[ask_user] Waiting for UI answer (${questionId}, ${questions.length} question(s))`,
+    `[ask_user] Questions presented (${questionId}, ${questions.length}) — ending turn; answers arrive as the next message`,
   );
-  const answer = await waitForUserQuestionAnswer(chatId, questionId, 30 * 60 * 1000);
-  // The UI submits a readable combined "Q → A" string (single answers come
-  // back as plain text). Include the questions so the tool card shows Q + A.
+  hooks?.onAskUserEndTurn?.();
+  activeStreams.get(chatId)?.abort(ASK_USER_STREAM_STOP);
+  // Returned as the tool result only if the abort races the SDK — it tells
+  // the model (and any transcript) what happened without inventing answers.
   return JSON.stringify({
     success: true,
     questions: questions.map((it) => it.question),
-    answer,
+    status:
+      "Questions presented to the user. This turn ends here; the user's answers will arrive in the next message.",
   });
 }
 
@@ -921,9 +933,6 @@ let lastSkillCacheAppId: number | undefined;
 
 // Track partial responses for cancelled streams
 const partialResponses = new Map<number, string>();
-
-/** DB: assistant placeholder row receiving post–ask_user continuation (for ordering injected user Q+A). */
-const askUserContinuationAssistantIdByChatId = new Map<number, number>();
 
 // ─── FIX 4: stream reconnect plumbing ──────────────────────────────────────
 // Last successful `chat:stream` request per chat. Re-dispatched when the
@@ -1174,56 +1183,61 @@ export function registerChatStreamHandlers() {
     }
   );
 
+  // v11.1 end-turn ask_user: the asking turn already ENDED. Submitting answers
+  // (1) records the readable Q→A transcript as a REAL user message (ephemeral
+  // store + bound workspace session so it survives reloads), then (2) tells
+  // the renderer to start a continuation stream (`continueAfterQuestions`) —
+  // the model sees its question turn + the answers and continues the task.
   ipcMain.handle(
     "chat:submit-user-question-answer",
     async (
       event,
       payload: { chatId: number; questionId: string; answer: string; questionText: string },
-    ): Promise<{ success: boolean }> => {
+    ): Promise<{ success: boolean; restream?: boolean }> => {
       const { formatInteractiveQaLine } = await import("../../lib/interactive-qa-format");
       const {
         isEphemeralChatId,
         getEphemeralChat,
         insertAskUserAnswerUserMessage,
-        chatOnlyStreamingAssistantDraftByChatId,
       } = await import("@/lib/ephemeral-chat");
-      const { resolveUserQuestionAnswer } = await import("./user_question_wait");
 
-      const ok = resolveUserQuestionAnswer(payload.chatId, payload.questionId, payload.answer);
-      if (!ok) return { success: false };
-
+      pendingAskUserArtifactByChatId.delete(payload.chatId);
       const content = formatInteractiveQaLine(payload.questionText, payload.answer);
 
-      if (isEphemeralChatId(payload.chatId)) {
-        if (!insertAskUserAnswerUserMessage(payload.chatId, content)) {
-          return { success: false };
-        }
-        const chat = getEphemeralChat(payload.chatId);
-        const tail =
-          chatOnlyStreamingAssistantDraftByChatId.get(payload.chatId) ??
-          partialResponses.get(payload.chatId) ??
-          "";
-        safeSend(event.sender, "chat:response:chunk", {
-          chatId: payload.chatId,
-          messages: [
-            ...(chat?.messages ?? []),
-            ...(tail
-              ? [
-                  {
-                    id: -1,
-                    chatId: payload.chatId,
-                    role: "assistant" as const,
-                    content: tail,
-                    createdAt: new Date(),
-                  },
-                ]
-              : []),
-          ],
-        });
-        return { success: true };
+      if (!isEphemeralChatId(payload.chatId)) {
+        // Workspace chats are the only ask_user surface (ephemeral transport
+        // + session log). A non-ephemeral id here means stale UI state.
+        logger.warn(
+          `[ask_user] Answer submitted for non-ephemeral chat ${payload.chatId} — ignored`,
+        );
+        return { success: false };
       }
 
-      return { success: false };
+      if (!insertAskUserAnswerUserMessage(payload.chatId, content)) {
+        return { success: false };
+      }
+
+      // Durable copy in the bound workspace session (best-effort: a session
+      // may not exist for scratch chats — the in-memory message still works).
+      try {
+        const {
+          resolveOrBindWorkspaceSessionForStream,
+          persistWorkspaceSessionUserMessage,
+        } = await import("./workspace_session_handlers");
+        const sessionId = await resolveOrBindWorkspaceSessionForStream({
+          chatId: payload.chatId,
+        });
+        await persistWorkspaceSessionUserMessage(sessionId, content, {});
+      } catch (err) {
+        logger.warn("[ask_user] Could not persist Q&A to session:", err);
+      }
+
+      const chat = getEphemeralChat(payload.chatId);
+      safeSend(event.sender, "chat:response:chunk", {
+        chatId: payload.chatId,
+        messages: [...(chat?.messages ?? [])],
+      });
+      return { success: true, restream: true };
     },
   );
 
@@ -1239,10 +1253,14 @@ export function registerChatStreamHandlers() {
   ) => {
     const abortController = new AbortController();
     activeStreams.set(req.chatId, abortController);
-    askUserContinuationAssistantIdByChatId.delete(req.chatId);
+    // v11.1: a new stream supersedes any pending ask_user state for this chat.
+    pendingAskUserArtifactByChatId.delete(req.chatId);
     // FIX 4: remember this request so the renderer's [Reconnect] button can
     // re-dispatch the exact same turn via `chat:stream:reconnect`.
     lastStreamRequest.set(req.chatId, req);
+
+    // v11.1 overflow recovery: one forced-compaction retry per stream request.
+    let retriedAfterOverflowCompaction = false;
 
     const runStream = async () => {
       let stopAgentOrchestrator: (() => void) | undefined;
@@ -1811,6 +1829,10 @@ ${componentSnippet}
 
       let streamTurnIdForLedger = String(placeholderAssistantMessage.id);
       let streamStopWasTaskComplete = false;
+      // v11.1: set when the model asked the user question(s) — the turn ends
+      // gracefully (persist + response:end) WITHOUT task-complete side effects
+      // (no build verification, no self-review).
+      let askUserEndedTurn = false;
       const delegatedAgentsThisTurn: string[] = [];
       let delegationsStartedThisTurn = 0;
       const inFlightDelegationKeys = new Set<string>();
@@ -1855,20 +1877,9 @@ ${componentSnippet}
         if (req.modelOverride) {
           effectiveModel = req.modelOverride;
         }
-        if (effectiveModel.provider === "compass") {
-          const usageForPlan = await getCompassUsageFromSupabase();
-          if (usageForPlan.ok) {
-            const { coerceCompassModelForPlan, subscriptionTierToPlan } =
-              await import("../../lib/compass-plan-access");
-            const coercedName = coerceCompassModelForPlan(
-              effectiveModel.name,
-              subscriptionTierToPlan(usageForPlan.tier),
-            );
-            if (coercedName !== effectiveModel.name) {
-              effectiveModel = { ...effectiveModel, name: coercedName };
-            }
-          }
-        }
+        // v11: no plan-based model coercion — every plan can use all Core
+        // models. Access is enforced strictly by the shared token pool
+        // (pre-flight block below + per-step enforcement in onStepFinish).
         // `modelClient` is `let` (not destructured const) so the mid-stream
         // tier-escalation guard can rebind it when Auto-routing decides a
         // tool-heavy turn deserves `balanced` or `thinking` halfway through.
@@ -1950,12 +1961,37 @@ ${componentSnippet}
         const usedCompassThisStream = modelClient.builtinProviderId === "compass";
         let compassStreamTier: string | undefined;
         let compassStreamTokens: number | undefined;
+        // v11 strict enforcement: tokens remaining at stream start (server
+        // authoritative; null when pre-flight could not verify) + local tally
+        // so the turn hard-stops on the step that exhausts the pool.
+        let compassRemainingBudget: number | null = null;
+        let compassUsedThisTurn = 0;
+        let compassLimitHit = false;
+
+        const stopStreamForCompassLimit = (origin: string) => {
+          if (compassLimitHit) return;
+          compassLimitHit = true;
+          logger.warn(
+            `[compass] Token pool exhausted mid-task (${origin}) — stopping stream for chat ${req.chatId}`,
+          );
+          safeSend(event.sender, "chat:response:error", {
+            chatId: req.chatId,
+            error: `${AI_STREAMING_ERROR_MESSAGE_PREFIX}${compassExhaustedUserMessage(compassStreamTier ?? "free")}`,
+          });
+          abortController.abort(COMPASS_LIMIT_STREAM_STOP);
+        };
 
         if (modelClient.builtinProviderId === "compass") {
           const usagePre = await getCompassUsageFromSupabase();
           if (usagePre.ok) {
             if (usagePre.tier) {
               compassStreamTier = usagePre.tier;
+            }
+            if (usagePre.monthlyLimit > 0) {
+              compassRemainingBudget = Math.max(
+                0,
+                usagePre.monthlyLimit - usagePre.tokensUsedThisMonth,
+              );
             }
           }
           if (
@@ -2085,7 +2121,7 @@ ${componentSnippet}
           // Note: For ephemeral messages, sourceCommitHash and commitHash may be undefined
           // We only include them if they have actual values to avoid confusing the AI SDK
           type Msg = { role: string; content?: string; sourceCommitHash?: string; commitHash?: string };
-          const messageHistory = updatedChat.messages.map((message: Msg & { modelContent?: string | null }) => {
+          let messageHistory = updatedChat.messages.map((message: Msg & { modelContent?: string | null }) => {
             const content =
               message.role === "user"
                 ? (message.modelContent ?? message.content ?? "")
@@ -2107,6 +2143,23 @@ ${componentSnippet}
 
             return { ...baseMessage, ...commitFields };
           });
+
+          // v11.1 durable compaction: when the history contains a persisted
+          // compaction summary, the MODEL only needs [last summary .. end] —
+          // a reload rehydrates the full session log (kept for the UI), but
+          // re-sending the superseded head would re-overflow the context.
+          {
+            const { sliceFromLastCompactionSummary } = await import(
+              "@/lib/context/compaction"
+            );
+            const sliced = sliceFromLastCompactionSummary(messageHistory);
+            if (sliced.length !== messageHistory.length) {
+              logger.log(
+                `[stream:${req.chatId}] Compaction summary found — model history ${messageHistory.length} → ${sliced.length} messages`,
+              );
+              messageHistory = sliced;
+            }
+          }
 
           logger.log(
             `[stream:${req.chatId}] Prepared message history (len=${messageHistory.length}, ephemeral=${isEphemeralWorkspace})`,
@@ -2562,27 +2615,9 @@ ${componentSnippet}
           // is called (NOT deleted — that note from Pass 7 is wrong and superseded by Pass 6).
           // Architecture exploration is tool-driven via get_blueprint + search + read_file.
 
-          // PASS5: SQLite project memory is now tool-driven.
-          // The model calls get_project_memory when it needs to recall project context.
-          // The underlying DB table and builder function remain intact.
-          if (false) {
-          if (hasWorkspace && effectiveAppId != null && effectiveAppId > 0) {
-            try {
-              const { buildProjectMemoryPromptBlock } = await import("@/lib/project-memory/service");
-              const pmBlock = await buildProjectMemoryPromptBlock(effectiveAppId);
-              if (pmBlock.trim()) {
-                contextSections.push({
-                  name: "projectMemory",
-                  priority: 4,
-                  content: pmBlock,
-                });
-                logger.info("Injected SQLite project memory (Section 2)");
-              }
-            } catch (pmErr) {
-              logger.warn("Failed to inject SQLite project memory:", pmErr);
-            }
-          }
-          }
+          // PASS5: SQLite project memory is tool-driven — the model calls
+          // get_project_memory when it needs project context. (v11.1: the
+          // dead pre-injection block was deleted; table + builder remain.)
 
           // Project-level .atlarix/ATLARIX.md (legacy memory/spec auto-migrated)
           if (hasWorkspace && appPath) {
@@ -2714,28 +2749,9 @@ ${componentSnippet}
               }
             }
 
-            // PASS5: Supabase context is injected by the Supabase tool handler when
-            // the model actually calls a Supabase tool. Pre-injecting schema on every
-            // turn adds significant token weight even for non-Supabase conversations.
-            if (false) {
-              if (
-                effectiveApp?.supabaseProjectId &&
-                settings.supabase?.accessToken?.value
-              ) {
-                systemPrompt +=
-                  "\n\n" +
-                  SUPABASE_AVAILABLE_SYSTEM_PROMPT +
-                  "\n\n" +
-                  (await getSupabaseContext({
-                    supabaseProjectId: effectiveApp.supabaseProjectId,
-                  }));
-              } else if (
-                !effectiveApp?.neonProjectId &&
-                !isSecurityReviewIntent
-              ) {
-                systemPrompt += "\n\n" + SUPABASE_NOT_AVAILABLE_SYSTEM_PROMPT;
-              }
-            }
+            // PASS5: Supabase context is injected by the Supabase tool handler
+            // when the model actually calls a Supabase tool (v11.1: dead
+            // per-turn pre-injection block deleted).
             if (isSummarizeIntent) {
               systemPrompt = SUMMARIZE_CHAT_SYSTEM_PROMPT;
             }
@@ -2779,26 +2795,8 @@ This conversation includes one or more image attachments. When the user uploads 
 `;
             }
 
-            // PASS5: Diagram-first prefix messages inject a synthetic user+assistant turn
-            // on every dispatch, costing tokens regardless of conversation topic.
-            // Removed in favour of the model calling diagram tools when it needs them.
-            if (false) {
-              const _codebasePrefix = isEngineEnabled
-                ? []
-                : ([
-                    {
-                      role: "user",
-                      content: createDiagramFirstPrompt(hasInjectedArchitectureContext),
-                    },
-                    {
-                      role: "assistant",
-                      content: hasInjectedArchitectureContext
-                        ? "Got it. I will use the provided architecture context as the map, then explore folders and read targeted files as needed."
-                        : "Understood. I do not currently have a blueprint in context, so I will call get_blueprint and use search + explore_folder to scope the relevant paths.",
-                    },
-                  ] as const);
-              void _codebasePrefix;
-            }
+            // PASS5: diagram-first prefix removed — the model calls diagram
+            // tools when needed (v11.1: dead synthetic-turn block deleted).
             const codebasePrefix: readonly ModelMessage[] = []; // PASS5: always empty now
 
             const otherCodebasePrefix =
@@ -3520,10 +3518,39 @@ This conversation includes one or more image attachments. When the user uploads 
               maxRetries:
                 tools != null && Object.keys(tools as object).length > 0 ? 0 : 2,
               model: modelClient.model,
-              stopWhen: [() => false],
+              // Backstop for the abort() in stopStreamForCompassLimit: even if
+              // the abort races a step boundary, the multi-step loop must not
+              // start another step once the token pool is exhausted.
+              stopWhen: [() => compassLimitHit],
               providerOptions,
               tools: effectiveTools,
               messages: streamMessages,
+              // v11 strict Core enforcement: record + check usage at every step
+              // boundary (the SDK awaits this before the next step), so a turn
+              // stops immediately mid-task when the monthly pool runs out.
+              // This also fixes the old undercount where only the final step's
+              // usage was recorded for multi-step turns.
+              onStepFinish: async (step) => {
+                if (modelClient.builtinProviderId !== "compass") return;
+                const stepTokens = totalTokensFromAiUsage(step.usage) ?? 0;
+                let recordResult = null;
+                if (stepTokens > 0) {
+                  compassUsedThisTurn += stepTokens;
+                  compassStreamTokens = (compassStreamTokens ?? 0) + stepTokens;
+                  recordResult = await recordCompassUsageTokens(stepTokens);
+                }
+                if (
+                  shouldStopForCompassLimit(
+                    {
+                      remainingBudget: compassRemainingBudget,
+                      usedThisTurn: compassUsedThisTurn,
+                    },
+                    recordResult,
+                  )
+                ) {
+                  stopStreamForCompassLimit("onStepFinish");
+                }
+              },
               onFinish: (response) => {
                 const rt = reasoningTokensFromAiUsage(response.usage);
                 if (typeof rt === "number") {
@@ -3571,44 +3598,16 @@ This conversation includes one or more image attachments. When the user uploads 
                   // since we're trying to figure it out if we're near the context limit.
                   maxTokensUsed = Math.max(maxTokensUsed ?? 0, totalTokens);
 
-                  if (modelClient.builtinProviderId === "compass") {
-                    compassStreamTokens = totalTokens;
-                    void recordCompassUsageTokens(totalTokens).then((r) => {
-                      if (!r.ok && r.error === "limit_exceeded") {
-                        logger.warn("[compass] Monthly limit hit while recording usage");
-                      }
-                    });
-                  }
+                  // Core usage is recorded per step in onStepFinish (strict
+                  // mid-task enforcement) — no aggregate record here.
 
                   logger.log(
                     `Total tokens used (aggregated for message ${placeholderAssistantMessage.id}): ${maxTokensUsed}`,
                   );
 
-                  // PASS2: Compaction is now model-triggered via the compress_context tool.
-                  // The model calls compress_context({ reason: "..." }) when it needs more room.
-                  // Do not re-enable automatic post-turn compaction — remove this if(false) wrapper
-                  // and the tool registration in compress-context-tool.ts together if reverting.
-                  if (false) {
-                    const builtinPid = modelClient.builtinProviderId;
-                    const modelName = optionsModel?.name?.trim();
-                    let compactionOpenRouterId: string | null = null;
-                    if (
-                      builtinPid === "openrouter" ||
-                      optionsModel?.provider === "openrouter"
-                    ) {
-                      compactionOpenRouterId = modelName || null;
-                    } else if (builtinPid === "compass" && modelName) {
-                      compactionOpenRouterId =
-                        getOpenRouterModelIdForCompassTier(modelName) ?? null;
-                    }
-                    schedulePostTurnCompaction({
-                      chatId: req.chatId,
-                      totalTokensUsed: maxTokensUsed as number,
-                      providerId: modelClient.builtinProviderId ?? optionsModel?.provider,
-                      turnId: String(placeholderAssistantMessage.id),
-                      openRouterModelId: compactionOpenRouterId,
-                    });
-                  }
+                  // v11.1: dead post-turn compaction scheduling deleted —
+                  // compaction is model-triggered (compress_context) with
+                  // automatic pre-dispatch/mid-loop gates + overflow retry.
                 } else {
                   logger.log(
                     `Total tokens used (aggregated for message ${placeholderAssistantMessage.id}): unavailable (no total or prompt/completion counts from provider)`,
@@ -3867,42 +3866,9 @@ This conversation includes one or more image attachments. When the user uploads 
             return fullResponse;
           };
 
-          const finalizeAskUserBreakpoint = async () => {
-            const segmentA = fullResponse;
-            if (!segmentA.trim()) {
-              fullResponse = "";
-              partialResponses.set(req.chatId, "");
-              await processResponseChunkUpdate({ fullResponse: "" });
-              return;
-            }
-            if (isEphemeralWorkspace) {
-              const msgs = updatedChat.messages;
-              const last = msgs[msgs.length - 1];
-              if (last?.role === "assistant") {
-                last.content = segmentA;
-              }
-              const newPh = {
-                id: Date.now(),
-                chatId: req.chatId,
-                role: "assistant" as const,
-                content: "",
-                createdAt: new Date(),
-                sourceCommitHash: null,
-                commitHash: null,
-              };
-              msgs.push(newPh);
-              placeholderAssistantMessage = newPh;
-              askUserContinuationAssistantIdByChatId.set(req.chatId, newPh.id);
-              const { getEphemeralChat } = await import("@/lib/ephemeral-chat");
-              const ec = getEphemeralChat(req.chatId);
-              if (ec) {
-                ec.messages = msgs;
-              }
-            }
-            fullResponse = "";
-            partialResponses.set(req.chatId, "");
-            await processResponseChunkUpdate({ fullResponse: "" });
-          };
+          // v11.1: the ask_user "breakpoint" split (segment A + fresh
+          // placeholder for in-turn continuation) is gone — the turn ENDS at
+          // the question and a new turn carries the continuation.
 
           // Pass 7: Blueprint-first blocker fully removed.
           if (settings.selectedChatMode === "agent") {
@@ -4018,7 +3984,7 @@ This conversation includes one or more image attachments. When the user uploads 
                       req.chatId,
                       regName,
                       result,
-                      { finalizeAskUserBreakpoint },
+                      { onAskUserEndTurn: () => { askUserEndedTurn = true; } },
                     );
                     if (askUserResolvedAgentTab !== null) {
                       return askUserResolvedAgentTab;
@@ -4455,7 +4421,7 @@ This conversation includes one or more image attachments. When the user uploads 
                       req.chatId,
                       tool.name,
                       result,
-                      { finalizeAskUserBreakpoint },
+                      { onAskUserEndTurn: () => { askUserEndedTurn = true; } },
                     );
                     if (askUserResolvedEarly !== null) {
                       return askUserResolvedEarly;
@@ -5222,7 +5188,7 @@ This conversation includes one or more image attachments. When the user uploads 
                       req.chatId,
                       toolName,
                       result,
-                      { finalizeAskUserBreakpoint },
+                      { onAskUserEndTurn: () => { askUserEndedTurn = true; } },
                     );
                     if (askUserResolvedBuild !== null) {
                       return askUserResolvedBuild;
@@ -5999,7 +5965,7 @@ This conversation includes one or more image attachments. When the user uploads 
                       req.chatId,
                       toolCall.toolName,
                       toolResult,
-                      { finalizeAskUserBreakpoint },
+                      { onAskUserEndTurn: () => { askUserEndedTurn = true; } },
                     );
                     if (askUserAgentic !== null) {
                       iterationResults.push({ tool: toolCall.toolName, result: askUserAgentic });
@@ -6391,16 +6357,22 @@ This conversation includes one or more image attachments. When the user uploads 
             } catch (streamError) {
               const ledgerCompleteStop =
                 streamStopWasTaskComplete ||
-                abortController.signal.reason === TASK_COMPLETE_STREAM_STOP;
+                askUserEndedTurn ||
+                abortController.signal.reason === TASK_COMPLETE_STREAM_STOP ||
+                abortController.signal.reason === ASK_USER_STREAM_STOP;
               if (abortController.signal.aborted && !ledgerCompleteStop) {
                 const chatId = req.chatId;
                 const partialResponse = partialResponses.get(req.chatId);
                 // If we have a partial response, save it to the database
                 if (partialResponse) {
                   try {
+                    const stopNote =
+                      abortController.signal.reason === COMPASS_LIMIT_STREAM_STOP
+                        ? "[Stopped — monthly Atlarix Core token limit reached]"
+                        : "[Response cancelled by user]";
                     const cancelledContent = `${partialResponse}
 
-[Response cancelled by user]`;
+${stopNote}`;
                     const { addEphemeralMessage } = await import("@/lib/ephemeral-chat");
                     addEphemeralMessage(req.chatId, {
                       role: "assistant",
@@ -6431,8 +6403,13 @@ This conversation includes one or more image attachments. When the user uploads 
           } // End of Build mode block
         }
 
-        // Only save the response and process it if we weren't user-aborted (ledger-complete stop still saves)
-        if (!abortController.signal.aborted || streamStopWasTaskComplete) {
+        // Only save the response and process it if we weren't user-aborted
+        // (ledger-complete and ask_user end-turn stops still save)
+        if (
+          !abortController.signal.aborted ||
+          streamStopWasTaskComplete ||
+          askUserEndedTurn
+        ) {
           const currentSettings = readSettings();
           const intentModeForStructured = currentSettings.intentMode ?? "ask";
           const manualWorkMode =
@@ -6595,6 +6572,21 @@ This conversation includes one or more image attachments. When the user uploads 
             "@/lib/plans/plan-artifacts"
           );
           responseToStore = ensurePlanMarkersInAssistantContent(responseToStore);
+          // v11.1: the turn ended at an ask_user call — embed the pending
+          // questions in the persisted content so the inline card survives
+          // reloads (answers arrive as the next user message).
+          if (askUserEndedTurn) {
+            const pendingArtifact = pendingAskUserArtifactByChatId.get(req.chatId);
+            if (pendingArtifact) {
+              const { appendQuestionsArtifact } = await import(
+                "@/lib/chat/ask-user-artifacts"
+              );
+              responseToStore = appendQuestionsArtifact(
+                responseToStore,
+                pendingArtifact,
+              );
+            }
+          }
           {
             const ec = getEphemeralChat(req.chatId);
             const finalContent = stripThinkBlocks(responseToStore);
@@ -6774,7 +6766,6 @@ This conversation includes one or more image attachments. When the user uploads 
               isBuildModeTurn,
               sender: event.sender,
             });
-            notifyCompactionLedgerSettled(req.chatId, streamTurnIdForLedger);
             // v10 token accuracy: fold sub-agent + compaction usage into this
             // turn's totals so Compass metering and the meter are exact.
             const auxUsage = takeAuxUsage(req.chatId);
@@ -6788,6 +6779,8 @@ This conversation includes one or more image attachments. When the user uploads 
               );
               if (usedCompassThisStream) {
                 compassStreamTokens = (compassStreamTokens ?? 0) + auxUsage.totalTokens;
+                compassUsedThisTurn += auxUsage.totalTokens;
+                // Turn is over at this point — record for the pool, no abort needed.
                 void recordCompassUsageTokens(auxUsage.totalTokens).then((r) => {
                   if (!r.ok && r.error === "limit_exceeded") {
                     logger.warn("[compass] Monthly limit hit while recording aux usage");
@@ -6859,6 +6852,54 @@ This conversation includes one or more image attachments. When the user uploads 
 
         // Stream completed successfully; cleanup is done by chat:cancel/chat:abort or response:end
       } catch (error) {
+        // v11.1: an ask_user end-turn aborts the in-flight stream — the AI
+        // SDK's pending promises then reject (AI_NoOutputGeneratedError /
+        // AbortError), which is BENIGN here: the question card is already up.
+        // Finalize the turn cleanly instead of surfacing an error banner.
+        if (
+          abortController.signal.aborted &&
+          abortController.signal.reason === ASK_USER_STREAM_STOP
+        ) {
+          logger.log(
+            `[ask_user] Stream ended at question (benign: ${error instanceof Error ? error.name : String(error)})`,
+          );
+          try {
+            const { getEphemeralChat } = await import("@/lib/ephemeral-chat");
+            const chat = getEphemeralChat(req.chatId);
+            const pendingArtifact = pendingAskUserArtifactByChatId.get(req.chatId);
+            if (chat) {
+              const last = chat.messages[chat.messages.length - 1];
+              if (last?.role === "assistant") {
+                let content = stripThinkBlocks(
+                  partialResponses.get(req.chatId) ?? last.content ?? "",
+                ).trim();
+                if (pendingArtifact) {
+                  const { appendQuestionsArtifact } = await import(
+                    "@/lib/chat/ask-user-artifacts"
+                  );
+                  content = appendQuestionsArtifact(content, pendingArtifact);
+                }
+                last.content = content;
+              }
+              safeSend(event.sender, "chat:response:chunk", {
+                chatId: req.chatId,
+                messages: [...chat.messages],
+              });
+            }
+          } catch (finalizeErr) {
+            logger.warn("[ask_user] Question-turn finalize failed:", finalizeErr);
+          }
+          partialResponses.delete(req.chatId);
+          safeSend(event.sender, "chat:response:end", {
+            chatId: req.chatId,
+            updatedFiles: false,
+            hadToolCallsOrPermissions: true,
+          } satisfies ChatResponseEnd);
+          activeStreams.delete(req.chatId);
+          streamTerminated = true;
+          FileUploadsState.getInstance().clear(req.chatId);
+          return;
+        }
         logger.error("Error calling LLM:", error);
         // FIX 4: silent retries exhausted — surface a reconnect prompt instead
         // of the generic error box. The renderer keeps the partial visible
@@ -6922,23 +6963,59 @@ This conversation includes one or more image attachments. When the user uploads 
           FileUploadsState.getInstance().clear(req.chatId);
           return;
         }
-        if (
-          error instanceof Error &&
-          /maximum length|Invalid prompt/i.test(error.message)
-        ) {
-          safeSend(event.sender, "chat:response:error", {
-            chatId: req.chatId,
-            error: `${AI_STREAMING_ERROR_MESSAGE_PREFIX}${error.message}`,
-          });
-          safeSend(event.sender, "chat:response:end", {
-            chatId: req.chatId,
-            updatedFiles: false,
-            hadToolCallsOrPermissions: false,
-          } satisfies ChatResponseEnd);
-          activeStreams.delete(req.chatId);
-          streamTerminated = true;
-          FileUploadsState.getInstance().clear(req.chatId);
-          return;
+        {
+          const { isContextOverflowError } = await import("@/lib/context-compaction");
+          if (isContextOverflowError(error)) {
+            // v11.1: the provider just told us our context estimate was too
+            // big. Lower the cached window estimate (feedback loop), force one
+            // aggressive compaction round, and retry the dispatch ONCE.
+            if (!retriedAfterOverflowCompaction) {
+              retriedAfterOverflowCompaction = true;
+              try {
+                const { reportContextOverflowForModel } = await import(
+                  "@/lib/context/resolve-model-context-limit"
+                );
+                reportContextOverflowForModel(getEffectiveModel(readSettings()));
+              } catch {
+                /* best-effort */
+              }
+              const { forceCompactEphemeralChat } = await import("@/lib/tools/workspace");
+              const compacted = await forceCompactEphemeralChat(
+                req.chatId,
+                readSettings().selectedModel?.provider,
+              ).catch(() => false);
+              if (compacted) {
+                logger.warn(
+                  `[stream:${req.chatId}] Context overflow — compacted and retrying dispatch once`,
+                );
+                safeSend(event.sender, "chat:activity", {
+                  id: `overflow-compact-${Date.now()}`,
+                  type: "tool_use",
+                  label: "Context overflow — summarized and retrying",
+                  status: "done",
+                  timestamp: Date.now(),
+                  chatId: req.chatId,
+                });
+                // The user message from the first attempt is already in the
+                // (compacted) history — continue without re-adding it.
+                req.continueAfterQuestions = true;
+                return runStream();
+              }
+            }
+            safeSend(event.sender, "chat:response:error", {
+              chatId: req.chatId,
+              error: `${AI_STREAMING_ERROR_MESSAGE_PREFIX}${error instanceof Error ? error.message : String(error)}`,
+            });
+            safeSend(event.sender, "chat:response:end", {
+              chatId: req.chatId,
+              updatedFiles: false,
+              hadToolCallsOrPermissions: false,
+            } satisfies ChatResponseEnd);
+            activeStreams.delete(req.chatId);
+            streamTerminated = true;
+            FileUploadsState.getInstance().clear(req.chatId);
+            return;
+          }
         }
         const errMessage = isNoUsableModelOutputError(error)
           ? AI_STREAM_EMPTY_RESPONSE_FALLBACK
@@ -7333,40 +7410,7 @@ export function hasUnclosedAtlarixWrite(text: string): boolean {
   return !hasClosingTag;
 }
 
-/**
- * Diagram-First Context Prompt
- * Instead of dumping 168K tokens of codebase, instruct AI to use tools
- */
-function createDiagramFirstPrompt(hasArchitectureContext: boolean): string {
-  if (hasArchitectureContext) {
-    return `# Workspace Context
-
-I have provided architecture context for this project in the prompt.
-
-Use this deterministic flow:
-1. High-level map from architecture context
-2. Explore likely folders/files
-3. Deep-dive only relevant code
-
-## Recommended tool sequence
-- **get_blueprint**: structural slice (files, functions, edges) for a folder or path
-- **explore_folder** / **list_files** / **find_file**: navigate the tree
-- **search** (mode: auto | text | semantic | structural): locate symbols, patterns, concepts, or graph relationships
-- **get_file_outline**: list functions/classes/types in a file before reading it
-- **read_file**: read exact files (use start_line/end_line for slices)
-`;
-  }
-  return `# Workspace Context
-
-You currently do not have a Blueprint slice in context for this turn.
-
-Your first actions should be:
-1. Call **get_blueprint** or **search** to locate relevant areas.
-2. Use **explore_folder** + **read_file** to drill in once you have a target.
-
-Use inline \`\`\`graph\`\`\` JSON fences (nodes + edges) in your reply when a visual helps explain a flow.
-`;
-}
+// v11.1: dead createDiagramFirstPrompt deleted (only caller was a removed if(false) block).
 
 function createOtherAppsCodebasePrompt(otherAppsCodebaseInfo: string): string {
   return `

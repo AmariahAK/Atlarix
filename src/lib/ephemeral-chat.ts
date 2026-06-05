@@ -10,9 +10,6 @@ import { rebuildSessionMemoryFromMessages } from "@/lib/session-memory";
 
 const logger = log.scope("ephemeral-chat");
 
-/** Latest streaming assistant tail; used when flushing ask_user submit chunks. */
-export const chatOnlyStreamingAssistantDraftByChatId = new Map<number, string>();
-
 export function buildContinueAfterQuestionsPrompt(
   msgs: { role: string; content?: string | null }[],
 ): string {

@@ -25,7 +25,6 @@ import {
   responseDoneAnimationAtom,
   restartedAfterMessageIdAtom,
   pendingUserQuestionByChatIdAtom,
-  askUserStreamFreezeBaselineByChatIdAtom,
   livePlanUpdateByAssistantMessageIdAtom,
   planSnapshotByAssistantMessageIdAtom,
   completedTurnThinkingByAssistantMessageIdAtom,
@@ -286,7 +285,6 @@ export function useStreamChat({
 
   const setRestartedAfterMessageId = useSetAtom(restartedAfterMessageIdAtom);
   const setPendingUserQuestionByChatId = useSetAtom(pendingUserQuestionByChatIdAtom);
-  const setAskUserStreamFreezeBaselineByChatId = useSetAtom(askUserStreamFreezeBaselineByChatIdAtom);
 
   // PASS6: throttle setMessagesById during streaming (max ~20/s) to avoid renderer OOM.
   /** AI workspace session title runs once per chat after the first assistant turn is persisted. */
@@ -429,6 +427,8 @@ export function useStreamChat({
           chatId,
           (payload) => {
             queueMicrotask(() => {
+              // v11.1: the asking turn ENDS at the question — no freeze
+              // baseline needed; there is no live stream to suppress.
               setPendingUserQuestionByChatId((prev) => ({
                 ...prev,
                 [chatId]: {
@@ -438,18 +438,6 @@ export function useStreamChat({
                   questions: payload.questions,
                 },
               }));
-              // v10.1 fix: SET the freeze baseline to the current assistant
-              // content (it was deleted here, so the onUpdate freeze guard
-              // never engaged and speculative streaming leaked through while
-              // the question was pending). UserQuestionBar clears it on submit.
-              setAskUserStreamFreezeBaselineByChatId((prev) => {
-                const msgs =
-                  getDefaultStore().get(chatMessagesByIdAtom).get(chatId) ?? [];
-                const lastAssistant = [...msgs]
-                  .reverse()
-                  .find((m) => m.role === "assistant");
-                return { ...prev, [chatId]: lastAssistant?.content ?? "" };
-              });
             });
           },
         );
@@ -930,21 +918,9 @@ export function useStreamChat({
           forceThinkingTier,
           workModeOverride,
           onUpdate: (updatedMessages: Message[]) => {
-            const pendingSnap = getDefaultStore().get(pendingUserQuestionByChatIdAtom);
-            const baselineSnap = getDefaultStore().get(askUserStreamFreezeBaselineByChatIdAtom);
-            const baseline = baselineSnap[chatId];
-            let messagesForUi = updatedMessages;
-            if (pendingSnap[chatId] != null && baseline !== undefined) {
-              const msgs = [...updatedMessages];
-              const li = msgs.length - 1;
-              if (li >= 0 && msgs[li].role === "assistant") {
-                const cur = msgs[li].content ?? "";
-                if (cur.length > baseline.length) {
-                  msgs[li] = { ...msgs[li], content: baseline };
-                }
-              }
-              messagesForUi = msgs;
-            }
+            // v11.1: no freeze-baseline clamp — the turn ends at ask_user, so
+            // there is no speculative streaming to suppress while pending.
+            const messagesForUi = updatedMessages;
 
             if (!hasIncrementedStreamCount) {
               setStreamCountById((prev) => {
@@ -1553,7 +1529,6 @@ export function useStreamChat({
       setLastTurnHadToolCallsByChatId,
       setRestartedAfterMessageId,
       setPendingUserQuestionByChatId,
-      setAskUserStreamFreezeBaselineByChatId,
       posthog,
       hasChatId,
     ],

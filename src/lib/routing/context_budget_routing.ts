@@ -1,10 +1,12 @@
 import type { LargeLanguageModel, UserSettings } from "../schemas";
 import type { ModelTier } from "./capability-registry";
 import {
-  COMPASS_TIER_BALANCED,
-  COMPASS_TIER_FAST,
-  COMPASS_TIER_THINKING,
-  getOpenRouterModelIdForCompassTier,
+  CORE_TIER_1,
+  CORE_TIER_2,
+  CORE_TIER_3,
+  CORE_TIER_4,
+  getOpenRouterModelIdForCoreTier,
+  normalizeCoreTierId,
 } from "../../ipc/shared/compass_constants";
 
 export function resolveContextBudgetTier(
@@ -12,10 +14,16 @@ export function resolveContextBudgetTier(
   _settings: UserSettings,
 ): ModelTier {
   if (effectiveModel.provider === "compass") {
-    if (effectiveModel.name === COMPASS_TIER_THINKING) return "thinking";
-    if (effectiveModel.name === COMPASS_TIER_BALANCED) return "balanced";
-    if (effectiveModel.name === COMPASS_TIER_FAST) return "fast";
-    return "fast";
+    switch (normalizeCoreTierId(effectiveModel.name)) {
+      case CORE_TIER_4:
+      case CORE_TIER_3:
+        return "thinking";
+      case CORE_TIER_2:
+        return "balanced";
+      case CORE_TIER_1:
+      default:
+        return "fast";
+    }
   }
 
   return "balanced";
@@ -33,9 +41,9 @@ export function resolveTierLimitModelIds(
   thinking: string;
 } {
   let out: { fast: string; balanced: string; thinking: string } = {
-    fast: getOpenRouterModelIdForCompassTier(COMPASS_TIER_FAST) ?? "",
-    balanced: getOpenRouterModelIdForCompassTier(COMPASS_TIER_BALANCED) ?? "",
-    thinking: getOpenRouterModelIdForCompassTier(COMPASS_TIER_THINKING) ?? "",
+    fast: getOpenRouterModelIdForCoreTier(CORE_TIER_1) ?? "",
+    balanced: getOpenRouterModelIdForCoreTier(CORE_TIER_2) ?? "",
+    thinking: getOpenRouterModelIdForCoreTier(CORE_TIER_3) ?? "",
   };
   const em = options?.effectiveModel;
   const rt = options?.resolvedTier;

@@ -54,16 +54,6 @@ export function isBlockedSecretBasename(name: string): boolean {
 }
 
 /**
- * @deprecated Prefer `isBlockedSecretBasename` on basename or `assertReadablePath`.
- */
-export function isBlockedSecretPath(p: string): boolean {
-  if (!p || typeof p !== "string") return false;
-  const normalized = sanitizePathInput(p);
-  const basename = path.basename(normalized.replace(/\\/g, "/"));
-  return isBlockedSecretBasename(basename);
-}
-
-/**
  * Resolve `p` under `workspaceRoot`, reject escape, then block secret basenames.
  */
 export function assertReadablePath(p: string, workspaceRoot: string): void {

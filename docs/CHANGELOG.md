@@ -1,6 +1,37 @@
 # Atlarix Changelog
 
-## [Unreleased]
+## [Unreleased] — v11.0.0: In-app browser, WebMCP, Atlarix Core, document readers, much lighter app
+
+### Added (v11)
+
+- **In-app browser (WebContentsView):** New **Browser** tab in the right panel — a real Chromium surface (immune to X-Frame-Options, unlike iframes) with tabs, URL bar, and back/forward. Security-first: isolated `persist:atlarix-browser` session (browsing cookies never touch the app), `sandbox: true` + dedicated minimal preload, http(s)-only navigation, popups/downloads/camera/mic/geolocation denied by default. The agent can drive it too: `browser_navigate`, `browser_read_page`, `browser_screenshot` in every work mode; `browser_click` / `browser_fill` in Build and Fix. All page text and screenshots reach the model wrapped in an untrusted-content envelope that discloses the origin.
+- **WebMCP support:** Pages opened in the in-app browser that register tools via the W3C draft **`navigator.modelContext`** API (WebMCP) expose them to the model — in **all modes** — through `list_webmcp_tools` / `call_webmcp_tool`. Atlarix shims the API via the browser preload (Chromium doesn't ship it yet): tool *metadata* relays to the main process while `execute` stays in the page, invoked over IPC with a 20s timeout so a hostile page can never hang a turn. Tools clear on navigation; names, descriptions, and outputs are treated as untrusted page-authored content. Demo fixture: `e2e-tests/fixtures/webmcp-demo.html`.
+- **Document readers:** `read_attachment` now extracts **.pptx** (per-slide text), **.odt**, **.rtf** (in-house stripper, zero deps), and **structured .csv** — alongside the existing pdf/docx/xlsx. Spreadsheets and CSVs render a proper **table card** in chat (headers + rows, truncation note); CSV/xlsx parsing share one engine (the existing `xlsx` package; pptx/odt unzip via the ~10KB `fflate`).
+
+- **ask_user ends the turn (Claude Code-style):** Asking the user question(s) now **ends the assistant's turn** instead of holding the stream open behind a 30-minute timeout. The model is instructed to batch ALL its questions into one call up front; the turn persists with the question card embedded (survives app restarts via an `atlarix-questions` content artifact), the UI returns to idle, and the user can answer the card **or just type something else**. Answers become a real `Q → A` user message and a continuation stream picks the task back up — token-free waiting, no timeout machinery (`user_question_wait.ts` deleted), follow-up questions work naturally as new exchanges.
+- **Context-overflow self-recovery:** When a provider rejects a dispatch with "context length exceeded" (any provider's wording), Atlarix now lowers its cached window estimate for that model (compounding 15% clamp, 40% floor), force-compacts the conversation, and **retries the dispatch once** — instead of just surfacing the error.
+- **Durable compaction summaries:** Compaction summaries are persisted to the workspace session and the model history is sliced from the **last summary marker** at dispatch — reloading the app no longer re-expands the full history (which used to re-overflow and redo summarization). The UI keeps full scrollback.
+- **Real local-model context windows:** Ollama (`/api/show` → `context_length`) and LM Studio (`/api/v0/models` → `max_context_length`) are queried (cached, 3s timeout, offline-safe fallback) instead of the old hardcoded 8192/16384 guesses — compaction now triggers at the *right* fill level for local models.
+
+### Changed (v11)
+
+- **Compass → Atlarix Core (4 models, token-metered, no tier gating):** The three plan-gated Compass tiers (fast/balanced/thinking) are now four **Core** slots — **Core 1–4** (`ATLARIX_CORE_MODEL_1..4` build-time env, OpenRouter-backed; see `.env.example`). **Every plan can use every Core model**; access is governed strictly by the monthly token pool in Supabase (`compass_tokens` — table, RPCs, limits, 30-day reset, and upgrade flow all unchanged; limits are read from Supabase, never hardcoded). The plan-coercion/filtering code is deleted. Legacy `compass-*` model ids keep resolving forever (alias map) and persisted selections normalize to `core-N` on settings load. Release workflow falls back to the old `COMPASS_MODEL_*` secrets until the new `ATLARIX_CORE_MODEL_*` secrets are set.
+- **Strict mid-task token enforcement:** Core usage is now recorded **per agent step** (awaited at each step boundary) instead of fire-and-forget at stream end — which also fixes an undercount where only the final step of a multi-step turn was metered. When the pool runs out, the running turn **stops immediately mid-task**: the stream aborts, the partial response is saved with a "monthly Core token limit reached" note, and the upgrade message is shown. The Supabase RPC stays authoritative (concurrent devices, resets); a local remaining-budget tally is the fast same-step guard. Transient network/RPC errors never hard-stop a turn.
+- **System git instead of bundled git:** `dugite` (142MB of bundled git binaries) is gone; git operations shell out to the system `git` via a drop-in `exec` adapter (`system_git_exec.ts`). When git isn't installed, features degrade with an actionable message (`xcode-select --install` on macOS). E2E/bundled-git escape hatch (`LOCAL_GIT_DIRECTORY`) still honored.
+
+### Fixed (v11)
+
+- **Stream-error banner placement:** failure/Retry/Dismiss UI now renders pinned **just above the chat input** (aligned with the slow-stream warning) instead of at the top of the page where it scrolled out of view.
+- **Compaction undercount guards:** skip re-summarizing a head that is only the previous summary; cap runaway summaries at 25% of budget.
+- Dead code: post-turn compaction scheduler (early-returned for every real chat and read a removed table), `if(false)` pre-injection blocks (project memory, Supabase schema, diagram-first prefix), ask_user freeze-baseline atom, `getSupabaseContext`, `buildProjectMemoryPromptBlock`, `supabase_schema_query.ts`.
+
+- **The real reason the app was 1.28GB:** the `packageAfterPrune` hook's `npm install <externals>` reconciled the **entire** app dependency tree from the staged `package.json` — *after* the package-removal loops — so dugite (140MB), next + @next/swc (194MB), echarts, lucide-react, playwright-core, jsdom and friends shipped in the asar despite every ignore/remove rule (asar: **848MB**). The staged `package.json` is now rewritten to the runtime-external allowlist before any install, so no npm invocation can resolve the full tree into the package again. Plus: vestigial 64MB nested `typescript` stripped from `vscode-langservers-extracted` (none of its bundled language servers require it).
+- **`docs/compass-limits.md`** referenced a "no direct writes" migration that never existed; a real hardening migration (`20260605120000`) now REVOKEs direct `INSERT/UPDATE/DELETE` on `compass_tokens` (writes only via the SECURITY DEFINER RPCs).
+
+### Removed (v11)
+
+- `geist` npm package (pulled in `next`/`@next`, ~284MB of install weight, for six font files) — Geist Sans/Mono now vendored as woff2 (~172KB) in `src/assets/fonts`.
+- Dead code: `filterCompassModelsForPlan`/`coerceCompassModelForPlan` tier gating, `signal-sets.ts`, ~30 unused exports, 59 unused exported types, 12 redundant default exports, assorted orphaned helpers (knip-driven sweep; config tightened so regressions surface).
 
 ### Fixed
 
