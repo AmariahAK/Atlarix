@@ -161,6 +161,13 @@ export interface ChatResponseEnd {
   compassTier?: string;
   /** v10: auxiliary LLM tokens this turn (sub-agents, compaction) — counted toward usage. */
   auxTokens?: number;
+  /**
+   * v12 0.2: native-history envelope for the assistant message (JSON of the
+   * turn's native tool_use/tool_result ModelMessages). The renderer persists
+   * it as the assistant session message's extras.modelContent so the next
+   * turn replays native parts instead of flattened prose.
+   */
+  assistantModelContent?: string;
 }
 
 /** v10: per-dispatch context assembly report for the context meter. */

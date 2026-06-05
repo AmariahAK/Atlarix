@@ -32,7 +32,10 @@ const TOOL_OUTPUT_PREVIEW_TAIL_TOKENS = 500;
 // 300-line markdown cap added in B4, get_active_skills by its internal char cap),
 // so the envelope is a safety net rather than a removed feature. Single global
 // policy mirrors opencode's max-bytes envelope — no per-tool / per-tier carve-outs.
-const NEVER_TRUNCATE = new Set<string>([]);
+// v12 0.2: browser_screenshot's base64 PNG must reach toModelOutput intact
+// (it becomes a media content part, not text tokens) — head/tail truncation
+// would corrupt the image.
+const NEVER_TRUNCATE = new Set<string>(["browser_screenshot"]);
 
 let _toolOutputDirPath: string | null = null;
 let _toolOutputDirReady = false;

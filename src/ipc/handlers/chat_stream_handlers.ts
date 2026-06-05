@@ -20,6 +20,19 @@ import {
 } from "../../prompts/system_prompt";
 import { mergeSystemPromptParts } from "@/lib/ai/merge-system-prompt";
 import { buildStreamMessagesWithCacheBreakpoints } from "@/lib/ai/anthropic-cache-breakpoints";
+import {
+  buildToolModelOutput,
+  redactToolMediaForDisplay,
+} from "@/lib/ai/tool-model-output";
+import {
+  hasNativeToolParts,
+  serializeNativeHistory,
+  parseNativeHistory,
+  isNativeHistoryEnvelope,
+  estimateModelMessagesTokens,
+  flattenNativeForCompaction,
+  regateNativeMediaForProvider,
+} from "@/lib/ai/native-history";
 import { getNativeWebSearchSupport } from "../utils/native_web_search";
 import { perfReportOnce } from "@/lib/perf-marks";
 import { buildAttachmentRecord } from "@/lib/attachment-upload";
@@ -1550,6 +1563,11 @@ export function registerChatStreamHandlers() {
 
       // v3.9: Set in Build block; used when updating assistant message after stream (must be in same scope as onFinish)
       let preExchangeSnapshotId: number | null = null;
+      // v12 0.2 (B2): the turn's NATIVE model messages (assistant tool_use +
+      // tool results + continuations) accumulated by the build loop. Persisted
+      // on the assistant message's modelContent as a native-history envelope
+      // so the NEXT turn replays native parts instead of flattened prose.
+      const nativeTurnMessages: ModelMessage[] = [];
       let filesWrittenInThisExchange: string[] = [];
 
       if (req.redo) {
@@ -2173,7 +2191,17 @@ ${componentSnippet}
               commitFields.commitHash = message.commitHash;
             }
 
-            return { ...baseMessage, ...commitFields };
+            // v12 0.2 (B2): assistant turns carrying a native-history envelope
+            // keep it — the ModelMessage build below expands it into native
+            // tool_use/tool_result messages. Slicing/truncation here still
+            // operates on the single string-content slot (one per turn).
+            const nativeEnvelope =
+              message.role === "assistant" &&
+              isNativeHistoryEnvelope(message.modelContent)
+                ? { modelContent: message.modelContent! }
+                : {};
+
+            return { ...baseMessage, ...commitFields, ...nativeEnvelope };
           });
 
           // v11.1 durable compaction: when the history contains a persisted
@@ -3243,9 +3271,24 @@ This conversation includes one or more image attachments. When the user uploads 
             };
           })();
 
-          type HistoryMsg = { role: string; content?: string; sourceCommitHash?: string; commitHash?: string };
-          let limitedHistoryChatMessages: ModelMessage[] = limitedMessageHistory.map((msg: HistoryMsg) => {
-            const baseMsg: { role: "user" | "assistant" | "system"; content: string; providerOptions?: object } = {
+          type HistoryMsg = { role: string; content?: string; sourceCommitHash?: string; commitHash?: string; modelContent?: string | null };
+          let limitedHistoryChatMessages: ModelMessage[] = limitedMessageHistory.flatMap((msg: HistoryMsg): ModelMessage[] => {
+            // v12 0.2 (B2): assistant turns with a native-history envelope
+            // expand into their NATIVE messages (assistant tool_use + tool
+            // results) — the model replays real tool blocks, byte-stable
+            // across turns (prompt cache holds). Media re-gated when the
+            // dispatching provider can't take images in tool results.
+            if (msg.role === "assistant" && isNativeHistoryEnvelope(msg.modelContent)) {
+              const envelope = parseNativeHistory(msg.modelContent);
+              if (envelope) {
+                return regateNativeMediaForProvider(
+                  envelope.messages,
+                  modelClient.builtinProviderId,
+                );
+              }
+            }
+
+            const baseMsg: { role: "user" | "assistant" | "system"; content: string; providerOptions?: Record<string, Record<string, unknown>> } = {
               role: msg.role as "user" | "assistant" | "system",
               // Why remove thinking tags?
               // Thinking tags are generally not critical for the context
@@ -3266,7 +3309,7 @@ This conversation includes one or more image attachments. When the user uploads 
               };
             }
 
-            return baseMsg;
+            return [baseMsg as ModelMessage];
           });
 
           // OpenRouter (Compass + BYOK): last-resort safety cap for balanced/thinking tiers.
@@ -3868,6 +3911,15 @@ This conversation includes one or more image attachments. When the user uploads 
                 inputSchema: normalizeToolInputSchemaForAiSdk(
                   tool.function?.parameters ?? { type: "object", properties: {} },
                 ) as never,
+                // v12 0.2: typed tool outputs (screenshot media / text fallback).
+                toModelOutput: (output: unknown) =>
+                  buildToolModelOutput(regName, output, {
+                    builtinProviderId: modelClient.builtinProviderId,
+                  }) ?? {
+                    type: "text",
+                    value:
+                      typeof output === "string" ? output : JSON.stringify(output),
+                  },
                 execute: async (args: any) => {
                   // Fix: Finding 4
                   safeSend(event.sender, "chat:tool:start", {
@@ -3972,6 +4024,10 @@ This conversation includes one or more image attachments. When the user uploads 
                     );
                     if (askUserResolvedAgentTab !== null) {
                       return askUserResolvedAgentTab;
+                    }
+                    // v12 0.2: structured screenshot return (media via toModelOutput).
+                    if (regName === "browser_screenshot" && result && typeof result === "object") {
+                      return result;
                     }
                     return JSON.stringify(result);
                   } finally {
@@ -4238,6 +4294,15 @@ This conversation includes one or more image attachments. When the user uploads 
                   tool.parameters ??
                     (tool as { function?: { parameters?: unknown } }).function?.parameters,
                 ) as never,
+                // v12 0.2: typed tool outputs (screenshot media / text fallback).
+                toModelOutput: (output: unknown) =>
+                  buildToolModelOutput(tool.name, output, {
+                    builtinProviderId: modelClient.builtinProviderId,
+                  }) ?? {
+                    type: "text",
+                    value:
+                      typeof output === "string" ? output : JSON.stringify(output),
+                  },
                 execute: async (args: any) => {
                   askLoader.onToolCall(tool.name);
                   if (askAgenticRepetition.isEnabled()) {
@@ -4647,7 +4712,12 @@ This conversation includes one or more image attachments. When the user uploads 
                       }
                     }
 
-                    toolResultForActivity = result;
+                    // v12 0.2: redacted display copy + structured screenshot
+                    // return (media part via toModelOutput).
+                    toolResultForActivity = redactToolMediaForDisplay(result);
+                    if (tool.name === "browser_screenshot" && result && typeof result === "object") {
+                      return result;
+                    }
                     return typeof result === "string" ? result : JSON.stringify(result);
                   } catch (error) {
                     askActivityStatus = "error";
@@ -5040,6 +5110,17 @@ This conversation includes one or more image attachments. When the user uploads 
               tools[toolName] = {
                 description: toolMeta.description,
                 inputSchema: aiJsonSchema((toolMeta.parameters ?? { type: "object", properties: {} }) as Record<string, unknown>),
+                // v12 0.2: typed tool outputs — screenshots become media
+                // content parts on vision providers; everything else keeps
+                // today's text behavior.
+                toModelOutput: (output: unknown) =>
+                  buildToolModelOutput(toolName, output, {
+                    builtinProviderId: modelClient.builtinProviderId,
+                  }) ?? {
+                    type: "text",
+                    value:
+                      typeof output === "string" ? output : JSON.stringify(output),
+                  },
                 execute: async (args: any) => {
                   buildLoader.onToolCall(toolName);
                   const buildToolStartMs = Date.now();
@@ -5455,7 +5536,15 @@ This conversation includes one or more image attachments. When the user uploads 
                       handleAgenticRepetitionOutcome(agenticRepetition.record(toolName, args));
                     }
                     recordBuildToolLedger(toolName, result);
-                    toolResultForActivity = result;
+                    // v12 0.2: display copy never carries base64 (cards show a
+                    // size placeholder instead of megabytes of image data).
+                    toolResultForActivity = redactToolMediaForDisplay(result);
+                    // Screenshot returns the STRUCTURED object so toModelOutput
+                    // can emit a native media content part; other tools keep
+                    // the string contract.
+                    if (toolName === "browser_screenshot" && result && typeof result === "object") {
+                      return result;
+                    }
                     return typeof result === "string" ? result : JSON.stringify(result);
                   } catch (err) {
                     activityStatus = "error";
@@ -5646,6 +5735,9 @@ This conversation includes one or more image attachments. When the user uploads 
 
                 let buildIterMessages: ModelMessage[] = agenticMessages;
                 let streamRoundDone = false;
+                // v12 0.2 (B1): the final round's native response messages —
+                // continuation rounds already append theirs to buildIterMessages.
+                let finalRoundRespMsgs: ModelMessage[] = [];
                 while (!streamRoundDone) {
                   const {
                     bundle: buildBundle,
@@ -5700,6 +5792,7 @@ This conversation includes one or more image attachments. When the user uploads 
                   fullResponse = buildRoundFull;
                   const buildResp = await buildBundle.response;
                   const respMsgs = buildResp.messages as ModelMessage[];
+                  finalRoundRespMsgs = respMsgs;
 
                   if (
                     shouldContinue(buildFr, {
@@ -5754,6 +5847,18 @@ This conversation includes one or more image attachments. When the user uploads 
                   streamRoundDone = true;
                 }
 
+                // v12 0.2 (B1): this iteration's NATIVE delta = continuation
+                // appends beyond the agenticMessages seed + the final round's
+                // response messages (never appended by the inner loop).
+                const nativeIterMessages: ModelMessage[] = [
+                  ...buildIterMessages.slice(agenticMessages.length),
+                  ...finalRoundRespMsgs,
+                ];
+                // Truthful "native tools ran" signal — the permission-op count
+                // below misses read-only tools (they never hit the interceptor).
+                const roundHadNativeToolMessages =
+                  hasNativeToolParts(nativeIterMessages);
+
                 // ═══════════════════════════════════════════════════════════
                 // OPTION A: Track tool execution (works with ALL providers)
                 // ═══════════════════════════════════════════════════════════
@@ -5790,6 +5895,11 @@ This conversation includes one or more image attachments. When the user uploads 
                 // End only on explicit <task_complete> or a completed task ledger
                 if (isTaskComplete(fullResponse)) {
                   logger.info(`[Agentic Loop] Task completed at iteration ${agenticIteration + 1}`);
+                  // v12 0.2 (B2): the final round's native messages never hit
+                  // the fold site — capture them for the turn envelope.
+                  if (roundHadNativeToolMessages) {
+                    nativeTurnMessages.push(...nativeIterMessages);
+                  }
                   break;
                 }
 
@@ -5798,11 +5908,18 @@ This conversation includes one or more image attachments. When the user uploads 
                   logger.info(
                     `[Agentic Loop] Ledger complete at iteration ${agenticIteration + 1}`,
                   );
+                  if (roundHadNativeToolMessages) {
+                    nativeTurnMessages.push(...nativeIterMessages);
+                  }
                   break;
                 }
 
                 // Prose-only round: nudge the model to keep working instead of ending the turn
-                if (!hasTextToolCalls && !hadNativeToolExecution) {
+                if (
+                  !hasTextToolCalls &&
+                  !hadNativeToolExecution &&
+                  !roundHadNativeToolMessages
+                ) {
                   agenticProseOnlyStreak++;
                   if (agenticProseOnlyStreak >= AGENTIC_PROSE_ONLY_MAX) {
                     logger.warn(
@@ -6213,24 +6330,48 @@ This conversation includes one or more image attachments. When the user uploads 
                     )
                     .join("\n\n");
 
-                // Add assistant's response to message history (strip text-tool XML for cleaner follow-up + UI)
-                // Also strip <think> blocks so the model doesn't re-ingest
-                // its own reasoning on the next turn.
-                agenticMessages.push({
-                  role: 'assistant' as const,
-                  content: stripAssistantDisplayContent(stripToolCallXML(fullResponse)),
-                });
-
-                // Add tool results as a user message so AI can continue
-                if (iterationResults.length > 0) {
-                  agenticMessages.push({
-                    role: 'user' as const,
-                    content: `Here are the results of the tools you called:\n\n${toolResultsMessage}\n\nPlease continue with your task based on these results.`,
-                  });
-                } else if (hadNativeToolExecution) {
+                if (roundHadNativeToolMessages && !hasTextToolCalls) {
+                  // v12 0.2 (B1): native tools ran inside the SDK loop — fold
+                  // the round's NATIVE messages (assistant tool_use + tool
+                  // results) into the next iteration's history instead of
+                  // re-flattening to prose. History stays byte-stable (prompt
+                  // cache holds) and weak models see real tool blocks.
+                  agenticMessages.push(...nativeIterMessages);
+                  // The model stopped without <task_complete>; close the turn
+                  // shape with a STATIC continuation (cache-friendly, keeps
+                  // user/assistant alternation valid on strict providers).
+                  const nativeContinueMsg = {
+                    role: "user" as const,
+                    content:
+                      "Continue with the task. Emit <task_complete> when fully done.",
+                  };
+                  agenticMessages.push(nativeContinueMsg);
+                  // B2: mirror into the turn envelope (exactly what the model saw).
+                  nativeTurnMessages.push(...nativeIterMessages, nativeContinueMsg);
                   logger.log(
-                    "[Agentic Loop] Skipping empty tool-results user message (native tools executed in-stream)",
+                    `[Agentic Loop] Folded ${nativeIterMessages.length} native message(s) into history (no synthetic reflatten)`,
                   );
+                } else {
+                  // Text-tool fallback / legacy path — UNCHANGED.
+                  // Add assistant's response to message history (strip text-tool
+                  // XML for cleaner follow-up + UI); also strip <think> blocks so
+                  // the model doesn't re-ingest its own reasoning next round.
+                  agenticMessages.push({
+                    role: 'assistant' as const,
+                    content: stripAssistantDisplayContent(stripToolCallXML(fullResponse)),
+                  });
+
+                  // Add tool results as a user message so AI can continue
+                  if (iterationResults.length > 0) {
+                    agenticMessages.push({
+                      role: 'user' as const,
+                      content: `Here are the results of the tools you called:\n\n${toolResultsMessage}\n\nPlease continue with your task based on these results.`,
+                    });
+                  } else if (hadNativeToolExecution) {
+                    logger.log(
+                      "[Agentic Loop] Skipping empty tool-results user message (native tools executed in-stream)",
+                    );
+                  }
                 }
 
                 const loopCorrection = agenticRepetition.takePendingCorrection();
@@ -6254,8 +6395,14 @@ This conversation includes one or more image attachments. When the user uploads 
                 // (this is what produced the 8K -> 153K jump in the bug report).
                 // Honors `settings.enableContextAutoSummarize` so users can opt out.
                 {
+                  // v12 0.2: the string-based compaction pipeline can't count
+                  // or summarize native-part messages — degrade them to prose
+                  // for ITS input only. When compaction does not fire, the
+                  // native history is kept untouched; when it fires, the
+                  // compacted (flattened+summarized) view wins — compaction is
+                  // lossy by design. Revisit in 0.1/0.4.
                   const compaction = await runMidLoopCompaction({
-                    messages: agenticMessages,
+                    messages: flattenNativeForCompaction(agenticMessages),
                     systemPromptEstimate: estimateTokens(buildSystemPromptWithManifest),
                     tierLimit: modelContextResolved.tierLimit,
                     contextWindowTokens,
@@ -6281,15 +6428,11 @@ This conversation includes one or more image attachments. When the user uploads 
                 // the same compaction-input estimate so we don't pay a second
                 // tokenizer pass.
                 try {
-                  const buildRunningTokens = estimateTokens(
-                    buildSystemPromptWithManifest +
-                      "\n\n" +
-                      agenticMessages
-                        .map((m) =>
-                          typeof m.content === "string" ? m.content : "",
-                        )
-                        .join("\n"),
-                  );
+                  // v12 0.2: native-part messages have array content — the old
+                  // string join silently counted them as 0 tokens.
+                  const buildRunningTokens =
+                    estimateTokens(buildSystemPromptWithManifest) +
+                    estimateModelMessagesTokens(agenticMessages);
                   await applyTierEscalation({
                     agenticIteration,
                     iterationInterval: 4,
@@ -6589,6 +6732,15 @@ ${stopNote}`;
               );
             }
           }
+          // v12 0.2 (B2): persist the turn's native model messages as a
+          // versioned envelope on the assistant message's modelContent — the
+          // next turn's assembly splices them back natively instead of
+          // re-ingesting flattened prose. Empty when no native tools ran.
+          const assistantModelContent = hasNativeToolParts(nativeTurnMessages)
+            ? serializeNativeHistory(nativeTurnMessages, {
+                builtinProviderId: modelClient.builtinProviderId,
+              })
+            : "";
           {
             const ec = getEphemeralChat(req.chatId);
             const finalContent = stripThinkBlocks(responseToStore);
@@ -6598,10 +6750,16 @@ ${stopNote}`;
                 : null;
             if (lastInUpdated?.role === "assistant") {
               lastInUpdated.content = finalContent;
+              if (assistantModelContent) {
+                lastInUpdated.modelContent = assistantModelContent;
+              }
             } else if (ec) {
               const last = ec.messages[ec.messages.length - 1];
               if (last?.role === "assistant") {
                 last.content = finalContent;
+                if (assistantModelContent) {
+                  last.modelContent = assistantModelContent;
+                }
               }
             }
             if (ec) {
@@ -6801,6 +6959,10 @@ ${stopNote}`;
               ...(maxReasoningTokensUsed != null && maxReasoningTokensUsed > 0
                 ? { reasoningTokens: maxReasoningTokensUsed }
                 : {}),
+              // v12 0.2 (B2): renderer passes this through to the session
+              // store as extras.modelContent when persisting the assistant
+              // message (native-history envelope).
+              ...(assistantModelContent ? { assistantModelContent } : {}),
             } satisfies ChatResponseEnd);
             queuePostTurnSelfCorrection(event.sender, {
               chatId: req.chatId,

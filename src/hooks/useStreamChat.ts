@@ -1269,6 +1269,11 @@ export function useStreamChat({
                   "assistant",
                   assistantContent,
                   snapshotJson ?? undefined,
+                  // v12 0.2 (B2): native-history envelope round-trips into the
+                  // session store so reloads replay native tool parts.
+                  response.assistantModelContent
+                    ? { modelContent: response.assistantModelContent }
+                    : undefined,
                 );
                 if (!sessionTitleGeneratedRef.current.has(response.chatId)) {
                   sessionTitleGeneratedRef.current.add(response.chatId);

@@ -9,7 +9,19 @@
 
 > **Goal:** close the gap between Atlarix and a real AI IDE (Cursor / Claude Code / opencode / Codex / Antigravity) where any model is brought into a workspace and *just works*. This register is grounded in two long build sessions, three parallel audits (defect sweep, opencode/Claude-Code reference extraction, test-suite audit), and direct spot-verification. References live in `atlarix-references/opencode` and `atlarix-references/claude-code`.
 >
-> **Session 1 (2026-06-05) SHIPPED: the Tier 4 agent-eval harness + quick wins 1.1 / 1.4 / 2.4** — see "v12 session 1" below. Next session: **0.2 native tool history** (per sequencing), with the harness now protecting it.
+> **Session 1 (2026-06-05) SHIPPED: the Tier 4 agent-eval harness + quick wins 1.1 / 1.4 / 2.4.** **Session 2 (2026-06-05) SHIPPED: 0.2 native tool-call history + multimodal tool results (build mode)** — see the session tables below. Next session: **0.1 loop unification** behind a flag, mode-by-mode, with the harness asserting parity (fold in the agent-path findings).
+
+### v12 session 2 — shipped (2026-06-05): 0.2 native tool history
+
+| Area | Notes |
+|------|-------|
+| **(A) Typed tool outputs + screenshot fix (1.3 DONE)** | `src/lib/ai/tool-model-output.ts`: `toModelOutput` wired into all 3 ToolSet sites; `browser_screenshot` returns its structured result → `{type:'content', value:[text, media]}` on vision providers (anthropic/openai/google allowlist; 2.1 capability profiles will own this), text fallback elsewhere; base64 redacted from activity cards (`redactToolMediaForDisplay`); `browser_screenshot` added to `NEVER_TRUNCATE` (disk truncation was corrupting the base64 — the tool was doubly broken). |
+| **(B1) In-turn native history** | The build loop's per-iteration reflatten (stripped-prose assistant push + synthetic XML user msg) replaced for the NATIVE path: each round's `response.messages` (assistant tool_use + `role:"tool"` results) folds into `agenticMessages` + a STATIC continuation user message — history is byte-stable across rounds (prompt cache holds) and weak models see real tool blocks. Text-tool fallback path byte-identical (negative-control eval). NEW truthful signal `hasNativeToolParts(respMsgs)` — the old `hadNativeToolExecution` (permission-op count) MISSES read-only native calls, which also mis-fired the prose-only nudge. |
+| **(B2) Between-turns native history** | Turn's native messages persist as a versioned envelope (`src/lib/ai/native-history.ts`, `{v:1, kind:"native-history", messages, producedBy}`) on the assistant message's `modelContent` (ephemeral + `chat:response:end.assistantModelContent` → renderer `messages:add` extras). Next-turn assembly expands the envelope into native ModelMessages at the ModelMessage build (slicing/truncation stays string-based on the single slot); `regateNativeMediaForProvider` strips media on provider shift. Old sessions (no envelope) fall back to the string path. |
+| **Compaction/token interaction (known limitation)** | String-based compaction can't count/summarize native-part messages: `estimateModelMessageTokens` handles array content + flat ~1.6k/image estimate (tier escalation no longer counts native messages as 0); `flattenNativeForCompaction` degrades native→prose ONLY as compaction's input — when compaction fires, the compacted view wins (lossy by design). Lossless native compaction → 0.1/0.4. |
+| **Evals** | `tests/agent-evals/native-history.eval.test.ts` (4): B1 multi-round native fold, B2 2-turn cross-turn native replay + byte-stability assertion, B2 full reload (session persist → rehydrate → native replay), text-tool negative control. + `tool-model-output.test.ts` unit (7). All 16 evals + 1,041 tests green; boot smoke OK. |
+
+**Out of scope / deferred from 0.2:** ask/agent-path native HISTORY (they got the `toModelOutput` plumbing only — 0.1 unifies); lossless native compaction; `read_attachment` media parts; `ATLARIX_FORCE_TEXT_TOOLS=1` note: custom providers default to native (no text fallback) since `builtinProviderId` is undefined.
 
 ### v12 session 1 — shipped (2026-06-05)
 
@@ -51,7 +63,7 @@
 - **Files:** new `src/lib/agent/run-agent-turn.ts`, `agent-profile.ts`, `process-step.ts`; shrink `chat_stream_handlers.ts` to a thin IPC adapter (target <1,500 lines).
 - **Risk:** highest in the repo. Gated entirely on Tier 4 existing first.
 
-#### 0.2 Native tool-call history + multimodal tool results
+#### 0.2 Native tool-call history + multimodal tool results — ✅ SHIPPED session 2 (build mode; ask/agent via 0.1)
 - **Problem:** tool calls/results are flattened to synthetic text (`"Here are the results of the tools you called…"`, `chat_stream_handlers.ts` ~L6300) via `stripToolCallXML` / `stripAssistantDisplayContent`. Consequences: (a) weak/local models perform worse — providers train tool behavior on native `tool_use`/`tool_result` blocks; (b) prompt caching breaks in multi-step loops for everyone but the Anthropic BYOK header — each step rebuilds a string-mutated history, re-billing full input (burns the Core token pool); (c) **`browser_screenshot` returns base64 as TEXT** — the model literally cannot see the screenshot we shipped.
 - **Target:** carry native AI-SDK `tool_use`/`tool_result` parts through the loop; tool results can return image/file content blocks (AI SDK v5 supports this); a provider-shaping layer maps to each provider's API. Ref: opencode `message-v2.ts` `toModelMessages`, tool `toModelOutput`.
 - **Files:** history-assembly in `chat_stream_handlers.ts` (~L2106 dispatch map, ~L6294 resent history), `src/lib/tools/browser.ts` (screenshot → image part), tool-result envelope in `registry.ts`.
@@ -75,7 +87,7 @@
 |---|-------|----------|---------------|
 | 1.1 | ✅ **DONE (session 1)** — dual compaction implementations | root file deleted; exports folded into `context/compaction.ts` | — |
 | 1.2 | **`enableAutoFixProblems` setting has no logic** — UI toggle exists (`AutoFixProblemsSwitch.tsx`), nothing reads it in the loop | `schemas.ts:420`, `main/settings.ts:83` | Wire it (see 0.3) or remove. Don't ship a lying toggle. |
-| 1.3 | **Browser screenshot invisible to the model** — base64 returned as text | `src/lib/tools/browser.ts` screenshot handler | Return an image content part (needs 0.2). Until then the tool is decorative. |
+| 1.3 | ✅ **DONE (session 2)** — browser screenshot invisible to the model | media content part via `toModelOutput` on vision providers; text fallback elsewhere; also fixed disk-truncation corrupting the base64 | — |
 | 1.4 | ✅ **DONE (session 1)** — silent fuzzy edits | drift notice in tool result (`preview.notice` → exec `output`) + card description, with matched line number | — |
 | 1.5 | **Aux Compass usage recorded fire-and-forget** — limit-hit only warns to log, turn already ended | `chat_stream_handlers.ts:~6784` | Await + surface a visible notice on `limit_exceeded` (the per-step path is strict in v11; aux path still leaks). |
 | 1.6 | **Ask-tier loads 31 tools for every model** — weak/local models drown | `chat_stream_handlers.ts:~4079` ("Ask tier: 31 tools") | Capability-profile per model (2.1); shrink toolset + simplify schemas for low-capability models. |
@@ -134,8 +146,8 @@ tests/
 ### Recommended sequencing
 1. ✅ ~~**Tier 4 eval harness FIRST**~~ — shipped session 1.
 2. ✅ ~~**Quick wins**: 1.1, 1.4, 2.4~~ — shipped session 1. Still open from the batch: 1.2/0.3 (wire autofix), 3.x.
-3. **0.2 native tool history** (unblocks browser screenshots + caching) ← **next session starts here** (cache-breakpoint extraction already done as a down-payment).
-4. **0.1 loop unification** behind a flag, mode-by-mode, evals asserting parity — fold in the session-1 agent-path findings (double-dispatch, missing workspace injection, mid-round correction injection).
+3. ✅ ~~**0.2 native tool history**~~ — shipped session 2 (build mode; ask/agent native history deferred to 0.1).
+4. **0.1 loop unification** behind a flag, mode-by-mode, evals asserting parity ← **next session starts here** — fold in the session-1 agent-path findings (double-dispatch, missing workspace injection, mid-round correction injection) and extend native history to ask/agent/chat-only via the unified engine.
 5. **0.4 single store** + structured contracts.
 6. **2.x** capability profiles, permissions/hooks, then **2.3 background agents** as the differentiator.
 
