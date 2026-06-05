@@ -116,6 +116,46 @@ tests/
 
 ---
 
+### TIER 5 — Identity (what Atlarix IS — read before adding "features")
+
+Atlarix is a **workspace for AIs**: lean, local, free/cheap, usable *beside* Cursor/Claude Code/Codex or standalone, and built on the thesis that **even small models perform well when retrieval is surgical and correct, not flooded**. It is **NOT trying to be an IDE.** Guardrails so future work doesn't drift into a Cursor clone:
+
+- **Do NOT add embeddings auto-RAG / auto-context-injection.** Naive top-k flooding hurts small models and contradicts the thesis. Retrieval is model-driven and sectional (Blueprint + `search` + `read_file`) — same school as Claude Code/opencode, which also don't use embeddings. (See the research paper: Zenodo 10.5281/zenodo.20381860 — "Section-Scoped Structural Graph Retrieval". Its result: Blueprint *increases* thoroughness/tokens because the model explores *confidently*; the goal is a **trustworthy correct map**, not fewer tokens.) An *optional* local-embedding **rerank** inside the existing `search` is the ONLY embedding-shaped idea worth considering, and only if eval shows first-call precision is the bottleneck.
+- **Editor-native AI (Tab completion / Cmd+K inline edit) is OUT of scope.** That's "becoming an IDE." Atlarix is chat-first with a passive editor pane by design.
+- **Keep it simple.** "Not complex" is a stated goal — weigh every addition against it. The engine-correctness work (Tiers 0–4) and "small models perform well" features (native tool history 0.2, capability profiles 2.1, edit-verify 0.3) ARE the identity; most product/IDE features are not.
+- **Perf is identity.** Observed `ttft=15909ms` on Core (own logs) is a real bug — the pre-flight Supabase usage check + context assembly likely run serially before first token. **Parallelize pre-flight, lazy-build non-critical context, stream the first token sooner.** Fast is core.
+- `atlarix.md` (user-editable) is the project **rules** file; `memory.md` is the **model's** project memory — distinct, both already exist. No new "rules file" needed.
+
+---
+
+### TIER 6 — Blueprint v2 (ranked structural retrieval)
+
+The retrieval engine (paper above). Already fast (ms, like embeddings) and accuracy ~parity; goal is **better than embeddings** by being *correct structure, relevance-ranked* — the differentiator embeddings can't match. Three high-value fixes, all pure local/lexical (zero embeddings):
+
+1. **Edge resolution must respect `tsconfig.json` paths + `package.json` exports/imports BEFORE relative fallback** (`src/lib/blueprint/rte/.../resolve-edges.ts`). The resolver only tries hard-coded relative extensions, so **alias imports (`@/lib/...`) resolve to nothing → cross-module edges silently dropped.** *Atlarix's own repo proves this* — run `get_blueprint` on it and most connectivity is missing. For a structural-graph retriever, missing edges = the model follows dead ends and over-reads to compensate (the token bloat). **This is the #1 accuracy fix.**
+2. **Fuse the existing BM25 index into `get_blueprint` slice ordering** (`bm25_semantic_index.ts` lives only on the `search` path today). Rank rooms/functions by relevance to `focus_path`/`topic`/query × centrality; return top-N, summarize the tail (`+14 more rooms: payments, auth…`). This is the **"relevant structure"** differentiator (embeddings give relevant chunks with no structure; ranked-Blueprint gives both) AND it answers "don't overwhelm" — fewer, better nodes at the same cap, model lands in 1–2 calls not 6.
+3. **Emit ctags `signature` per function, not bare names** — the signature is already in the symbol index. `` `sendEmail(to, subject, body)` `` vs `` `sendEmail` `` is ~same tokens but lets the model pick the right function *without an extra `read_file`*. Free signal density. (Same for one-line JSDoc `simpleDescription`; skip AI-generated ones to stay cheap.)
+- **Secondary:** centrality-aware BFS (prefer high-fan-in core modules when expanding depth so the slice doesn't balloon); edge **confidence** (`call`-confirmed vs `import`-inferred so the model trusts confirmed, treats inferred as hints → fewer dead-end reads); truncate at **room boundaries**, never mid-room.
+- **Measure it (ties to Tier 4):** add a retrieval eval — **precision@1** (did the first `get_blueprint`/`search` land on the file the task needs?) and **calls-to-target** — vs the embedding baseline. Turns "~parity" into "measurably better" and is the natural second paper.
+- **Weak spots also noted** (lower priority, from a full subsystem audit): brittle `getRoomKey` collapses `src/api/v1/handlers/auth.ts` → "api" (loses granularity); dynamic calls (`obj[fn]()`) dropped silently; BM25 `name:4` weight lets generic names (`handle`/`process`) dominate; thin-graph threshold (15 fns) too aggressive for well-modularized Python; structural-scan worker crashes lose batch edges silently; no slice cache for `(focus_path, topic, depth)`.
+
+---
+
+### TIER 7 — Standing Workspace (make it yours, shareable, trustworthy)
+
+What separates "an app you point at a folder" from "a workspace that's *yours*." **Strength already present:** `.atlarix/` is a committable, portable config (memory.md, ATLARIX.md rules, blueprint.json, skills/, plans/, snapshots/, reference-projects.json, training_data/) — a foundation Cursor lacks. The gaps complete it:
+
+- **A. User-definable agents (the identity bullseye).** Modes are hardcoded in `mode-tool-registry.ts`. Let users define their own: `.atlarix/agents/<name>.md` = system prompt + tool allowlist + model override. This is literally "configure how AIs work in my space." **Nearly free after 0.1** — it's just an `AgentProfile` loaded from disk. Highest identity-fit.
+- **B. Hooks: advisory → enforceable + DB → portable.** A hooks system exists (`src/lib/hooks/hooks-manager.ts`) but is **advisory only** ("Failures are logged only; never thrown"), **DB-stored** (doesn't travel with the repo), triggers only on file-write/run-command, and isn't wired into the main agent tool path. Upgrade to: (1) **blocking** (deny a tool / require a gate, like Claude Code PreToolUse); (2) `.atlarix/hooks/` file-based so a team/clone inherits them; (3) all-tools + lifecycle (`Stop` = "require tests before done", `Prompt`). Lean (regex + shell, no AI) = on-thesis. Subsumes the Tier 2.2 permission-rulesets item.
+- **C. Complete & document the portable `.atlarix/` contract.** Unify memory + rules + agents (A) + portable hooks (B) + per-project model/provider prefs into one documented, committable spec so `git clone` → open → identical AI workspace. ~70% there; mostly unification + docs.
+- **D. BYOK trust surface.** Show **spend** (per-turn/running cost — exists for Compass, missing for BYOK) and an **inspectable audit** of what the agent did. Bring-any-AI needs spend + action visibility to stand alone.
+
+**Open decision (NOT a recommendation): headless surface.** A CLI/local-server/SDK (peer-parity with Claude Code/opencode/Codex; enables CI, git-hooks, invocation by other tools — big expansion of "beside/by itself"). **But** it cuts against "visual workspace" + "not complex." If ever done: expose the unified loop (0.1) behind a thin CLI, do NOT build a second engine. Decide consciously.
+
+**Research note (moonshot, not now): the learning workspace.** `.atlarix/training_data/` already hints at it — a workspace that *learns your codebase over time* (distilling its own retrieval/edit traces to get better at *your* project specifically). The most "Atlarix and no one else" idea here, and a perfect fit for "small models perform well." Research-tier.
+
+---
+
 ## Shipped in v11.0.0 (unreleased)
 
 | Area | Notes |
