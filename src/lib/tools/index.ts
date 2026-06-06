@@ -60,6 +60,9 @@ export function getToolStats() {
         return acc;
     }, {} as Record<string, number>);
 
+    // v12 3.9 (resolved): tool `cost` is informational/reporting-only today —
+    // its only consumer is this stats rollup. The 2.1 capability-profile work
+    // wires it into toolset trimming for low-capability models.
     const totalCost = all.reduce((sum, tool) => sum + tool.cost, 0);
     const avgCost = totalCost / all.length;
 

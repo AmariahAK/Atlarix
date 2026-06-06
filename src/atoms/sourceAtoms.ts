@@ -164,11 +164,6 @@ export interface ActivityStreamItem {
     | 'orchestrator_blocker'
     | 'parallel_prefetch_start'
     | 'parallel_prefetch_complete'
-    | 'counsel_start'
-    | 'counsel_participant_complete'
-    | 'counsel_synthesising'
-    | 'counsel_complete'
-    | 'counsel_timeout'
     | 'build_verification_complete'
     | 'memory_saved'
     | 'plan_created'
@@ -178,7 +173,6 @@ export interface ActivityStreamItem {
     | 'stream_stall_aborted'
     | 'tier_selection'
     | 'tier_escalation'
-    | 'counsel_thinking'
     | 'reasoning_started'
     | 'reasoning_complete'
     | 'subagent_start'
@@ -208,18 +202,15 @@ export interface ActivityStreamItem {
   threadId?: string;
   /** When set, activity was scoped to this chat (used for stream-local buffers). */
   chatId?: number;
-  /** Counsel: groups ThoughtsPanel rows for one multi-model session. */
+  /** Groups ThoughtsPanel rows for one session. */
   sessionId?: string;
   participantCount?: number;
-  counselRole?: 'fast' | 'balanced' | 'thinking' | 'synthesis';
-  /** Short preview text (e.g. counsel participant snippet). */
+  /** Short preview text (e.g. participant snippet). */
   preview?: string;
   /** plan_created: number of steps */
   stepCount?: number;
-  /** Counsel complete: synthesis character count (not token usage). */
+  /** Synthesis character count (not token usage). */
   synthesisLength?: number;
-  /** counsel_start: how counsel was triggered (user_command, auto_complex, deep_think_fallback, …). */
-  counselTrigger?: string;
   /** Agent bus mirror on chat:activity — original bus `type` for filtering internal rows. */
   agentMessageType?: string;
   /** loop_detected / loop_repetition_aborted: tool that repeated (write_file | run_command). */

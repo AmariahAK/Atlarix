@@ -16,8 +16,6 @@ export type ContextSectionName =
   | "contextSummary"
   | "sessionMemory"
   | "sessionLedger"
-  | "counsel"
-  | "counselDeepThinkSubstitute"
   | "parallelPrefetch"
   | "lspDiagnostics"
   | "workspaceCapabilities"

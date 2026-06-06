@@ -1,0 +1,22 @@
+{
+  // v12 Tier-4 remainder: typecheck coverage for tests/ + testing/ (they were
+  // previously unchecked by `npm run ts`). Replaces the broken ts:workers
+  // script (workers/tsc/ was removed with the v9.1 TSC worker).
+  "extends": "./tsconfig.app.json",
+  "compilerOptions": {
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.tests.tsbuildinfo",
+    "types": ["node", "vitest/globals"]
+  },
+  // src/__tests__ stays under the vitest projects' own checking — its renderer
+  // component imports need Vite client types this node-side config lacks.
+  // The src/*.d.ts ambients keep `?raw` sql imports + window globals resolving
+  // for the src files the test files pull in transitively.
+  "include": [
+    "tests",
+    "testing",
+    "src/vite-env.d.ts",
+    "src/sql-raw.d.ts",
+    "src/global.d.ts",
+    "src/types"
+  ]
+}

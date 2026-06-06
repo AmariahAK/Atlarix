@@ -13,7 +13,7 @@
  *
  * The function is renderer-safe: it only imports electron-log (which itself
  * has a renderer entry) and pure JS. Place under `src/lib/tools/` so it can
- * be imported from both registry-side code and chat-only / counsel paths.
+ * be imported from both registry-side code and chat-only paths.
  */
 import log from "electron-log";
 import { recordToolDuration } from "../perf/tool-perf";

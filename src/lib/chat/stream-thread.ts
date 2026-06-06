@@ -65,14 +65,6 @@ export type StreamThreadItem =
       ts: number;
     }
   | {
-      kind: "counsel";
-      id: string;
-      label: string;
-      detail?: string;
-      status: StreamThreadToolStatus;
-      ts: number;
-    }
-  | {
       kind: "subagent_round";
       id: string;
       agents: SubAgentRunEntry[];
@@ -104,15 +96,6 @@ const SUBAGENT_TYPES = new Set([
   "subagent_start",
   "subagent_progress",
   "subagent_complete",
-]);
-
-const COUNSEL_TYPES = new Set([
-  "counsel_start",
-  "counsel_participant_complete",
-  "counsel_synthesising",
-  "counsel_complete",
-  "counsel_thinking",
-  "counsel_timeout",
 ]);
 
 function threadItemKey(item: StreamThreadItem): string {
@@ -413,22 +396,19 @@ export function finalizeAllRunningStreamTools(
   return changed ? next : items;
 }
 
-function isRunningBackgroundOrCounsel(
+function isRunningBackground(
   item: StreamThreadItem,
-): item is Extract<StreamThreadItem, { kind: "background" | "counsel" }> {
-  return (
-    (item.kind === "background" || item.kind === "counsel") &&
-    item.status === "running"
-  );
+): item is Extract<StreamThreadItem, { kind: "background" }> {
+  return item.kind === "background" && item.status === "running";
 }
 
-/** Mark running background/counsel cards done when the stream ends. */
+/** Mark running background cards done when the stream ends. */
 export function finalizeRunningBackgroundItems(
   items: StreamThreadItem[],
 ): StreamThreadItem[] {
   let changed = false;
   const next = items.map((item) => {
-    if (isRunningBackgroundOrCounsel(item)) {
+    if (isRunningBackground(item)) {
       changed = true;
       return { ...item, status: "done" as const };
     }
@@ -491,7 +471,7 @@ export function streamThreadItemFromActivity(
     };
   }
 
-  if (COUNSEL_TYPES.has(item.type) || SUBAGENT_TYPES.has(item.type)) {
+  if (SUBAGENT_TYPES.has(item.type)) {
     return null;
   }
 

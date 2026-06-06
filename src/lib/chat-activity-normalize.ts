@@ -35,11 +35,6 @@ const VALID_TYPES = new Set<string>([
   "orchestrator_blocker",
   "parallel_prefetch_start",
   "parallel_prefetch_complete",
-  "counsel_start",
-  "counsel_participant_complete",
-  "counsel_synthesising",
-  "counsel_complete",
-  "counsel_timeout",
   "build_verification_complete",
   "memory_saved",
   "plan_created",
@@ -60,16 +55,6 @@ function normStatus(s: unknown): ActivityStreamItem["status"] {
   if (s === "running" || s === "done" || s === "error" || s === "active") return s;
   if (s === "complete") return "done";
   return "done";
-}
-
-function counselRoleLabel(
-  role: ActivityStreamItem["counselRole"] | undefined,
-): string {
-  if (role === "fast") return "Fast";
-  if (role === "balanced") return "Balanced";
-  if (role === "thinking") return "Thinking";
-  if (role === "synthesis") return "Synthesis";
-  return "Participant";
 }
 
 /**
@@ -128,13 +113,6 @@ export function normalizeChatActivityPayload(raw: unknown): ActivityStreamItem |
     chatId: typeof p.chatId === "number" ? p.chatId : undefined,
     sessionId: p.sessionId != null ? String(p.sessionId) : undefined,
     participantCount: typeof p.participantCount === "number" ? p.participantCount : undefined,
-    counselRole:
-      p.counselRole === "fast" ||
-      p.counselRole === "balanced" ||
-      p.counselRole === "thinking" ||
-      p.counselRole === "synthesis"
-        ? p.counselRole
-        : undefined,
     preview: p.preview != null ? String(p.preview) : undefined,
     stepCount: typeof p.stepCount === "number" ? p.stepCount : undefined,
     synthesisLength: typeof p.synthesisLength === "number" ? p.synthesisLength : undefined,
@@ -143,7 +121,6 @@ export function normalizeChatActivityPayload(raw: unknown): ActivityStreamItem |
     toolName: p.toolName != null ? String(p.toolName) : undefined,
     loopTarget: p.loopTarget != null ? String(p.loopTarget) : undefined,
     loopCount: typeof p.loopCount === "number" ? p.loopCount : undefined,
-    counselTrigger: p.trigger != null ? String(p.trigger) : undefined,
     modelId: p.modelId != null ? String(p.modelId) : undefined,
     responseMs: typeof p.responseMs === "number" ? p.responseMs : undefined,
     agentType: p.agentType != null ? String(p.agentType) : undefined,
@@ -158,65 +135,6 @@ export function normalizeChatActivityPayload(raw: unknown): ActivityStreamItem |
   };
 
   switch (type) {
-    case "counsel_start": {
-      const n = typeof p.participantCount === "number" ? p.participantCount : 3;
-      return {
-        ...base,
-        label: "Counsel session",
-        detail: undefined,
-        status: "running",
-        participantCount: n,
-      };
-    }
-    case "counsel_participant_complete": {
-      const role =
-        p.counselRole === "fast" ||
-        p.counselRole === "balanced" ||
-        p.counselRole === "thinking" ||
-        p.counselRole === "synthesis"
-          ? p.counselRole
-          : undefined;
-      const prev = p.preview != null ? String(p.preview).trim() : "";
-      return {
-        ...base,
-        counselRole: role,
-        label: counselRoleLabel(role),
-        preview: prev || undefined,
-        detail: undefined,
-        status: "done",
-      };
-    }
-    case "counsel_synthesising":
-      return {
-        ...base,
-        label: "Synthesising perspectives",
-        detail: undefined,
-        status: "running",
-        counselRole: "synthesis",
-      };
-    case "counsel_complete": {
-      const synLen =
-        typeof p.synthesisLength === "number"
-          ? p.synthesisLength
-          : undefined;
-      const det = p.detail != null ? String(p.detail).trim() : "";
-      return {
-        ...base,
-        label: "Counsel complete",
-        detail: det || undefined,
-        status: "done",
-        synthesisLength: synLen,
-      };
-    }
-    case "counsel_timeout": {
-      const det = p.detail != null ? String(p.detail).trim() : "";
-      return {
-        ...base,
-        label: "Counsel timed out",
-        detail: det || "Maximum wait time reached; partial results may be incomplete.",
-        status: "done",
-      };
-    }
     case "parallel_prefetch_start":
       return {
         ...base,

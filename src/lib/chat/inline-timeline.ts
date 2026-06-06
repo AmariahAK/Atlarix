@@ -118,9 +118,5 @@ export function buildInlineTimelineFromActivity(
     });
   }
 
-  // Counsel items are already handled inline via content tags; keep them out of the
-  // legacy timeline builder so they do not duplicate sections.
-  // (AssistantMessageBody renders counsel via completedTurnArtifacts instead.)
-
   return out;
 }

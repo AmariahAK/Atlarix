@@ -87,8 +87,6 @@ export interface ToolIndicatorState {
   liveViewMode: "error_first" | "progress_first" | "raw_capped";
   /** Fix: Finding 4 — pre-tool "Thinking…" from main before first token */
   phaseLabel: string | null;
-  /** counsel_start / counsel_end from main (ToolIndicator strip). */
-  counselPhaseActive: boolean;
 }
 
 export function emptyToolIndicatorState(): ToolIndicatorState {
@@ -104,7 +102,6 @@ export function emptyToolIndicatorState(): ToolIndicatorState {
     liveProgressLines: [],
     liveViewMode: "error_first",
     phaseLabel: null,
-    counselPhaseActive: false,
   };
 }
 

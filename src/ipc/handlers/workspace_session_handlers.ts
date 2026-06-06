@@ -111,27 +111,74 @@ export function computeSessionEditTarget(
 }
 
 /**
- * Persist a user-message edit to the saved session: update the edited row's
- * content and delete the (regenerated) tail after it. Maps the in-memory
- * ephemeral message to its DB row by ordinal (ids don't correlate across the
- * ephemeral/persisted stores), accounting for the SESSION_LOAD_MESSAGE_LIMIT
- * load offset.
+ * v12 0.4-C2: persist a user-message edit by DIRECT row id (the ephemeral
+ * message carries `sessionRowId` since C2 — set at persist time and threaded
+ * through hydration). Updates the row's content and deletes every row after
+ * it (chronological order). No ordinal mapping — the window-boundary failure
+ * class (3.3) is structurally impossible on this path.
+ */
+export async function persistEditedSessionMessageById(
+  sessionRowId: string,
+  newContent: string,
+): Promise<"updated" | "not_found"> {
+  const target = await db.query.sessionMessages.findFirst({
+    where: eq(sessionMessages.id, sessionRowId),
+  });
+  if (!target) return "not_found";
+
+  const allRows = await db
+    .select({ id: sessionMessages.id })
+    .from(sessionMessages)
+    .where(eq(sessionMessages.sessionId, target.sessionId))
+    .orderBy(asc(sessionMessages.createdAt), asc(sessionMessages.id));
+  const targetPos = allRows.findIndex((r) => r.id === sessionRowId);
+  const deleteIds = allRows.slice(targetPos + 1).map((r) => r.id);
+
+  await db
+    .update(sessionMessages)
+    .set({ content: newContent })
+    .where(eq(sessionMessages.id, sessionRowId));
+  if (deleteIds.length > 0) {
+    await db
+      .delete(sessionMessages)
+      .where(inArray(sessionMessages.id, deleteIds));
+  }
+  await db
+    .update(chatSessions)
+    .set({ updatedAt: new Date() })
+    .where(eq(chatSessions.id, target.sessionId));
+  return "updated";
+}
+
+/**
+ * LEGACY ordinal fallback (pre-C2 hydrations whose messages carry no
+ * `sessionRowId`; deleted with the ephemeral store in 0.4-C3): update the
+ * edited row's content and delete the (regenerated) tail after it. Maps the
+ * in-memory ephemeral message to its DB row by ordinal (ids don't correlate
+ * across the ephemeral/persisted stores), accounting for the
+ * SESSION_LOAD_MESSAGE_LIMIT load offset.
  *
  * @param chatId   numeric ephemeral/stream chat id (chatSessions.streamChatId)
  * @param ephIdx   index of the edited message among ephemeral messages (pre-truncation)
  * @param ephCount total ephemeral message count (pre-truncation)
+ * @returns "updated" when the DB row was edited; "no_session" when the chat
+ *          has no persisted session (nothing to update); "unmapped" when the
+ *          ordinal mapping landed outside the visible window — the DB is left
+ *          untouched and the CALLER MUST SURFACE THIS (v12 3.3: it used to be
+ *          a silent void return, so an "applied" edit could quietly diverge
+ *          from the persisted session and resume wrong).
  */
 export async function persistEditedSessionMessage(
   chatId: number,
   ephIdx: number,
   ephCount: number,
   newContent: string,
-): Promise<void> {
-  if (ephIdx < 0) return;
+): Promise<"updated" | "no_session" | "unmapped"> {
+  if (ephIdx < 0) return "unmapped";
   const session = await db.query.chatSessions.findFirst({
     where: eq(chatSessions.streamChatId, chatId),
   });
-  if (!session) return; // not a persisted workspace session — nothing to update
+  if (!session) return "no_session"; // not a persisted workspace session
 
   const allRows = await db
     .select()
@@ -140,7 +187,7 @@ export async function persistEditedSessionMessage(
     .orderBy(asc(sessionMessages.createdAt), asc(sessionMessages.id));
 
   const target = computeSessionEditTarget(allRows, ephIdx, ephCount);
-  if (!target) return; // can't map (offset edge) — leave the DB untouched
+  if (!target) return "unmapped"; // can't map (offset edge) — DB untouched
 
   await db
     .update(sessionMessages)
@@ -157,6 +204,7 @@ export async function persistEditedSessionMessage(
     .update(chatSessions)
     .set({ updatedAt: new Date() })
     .where(eq(chatSessions.id, session.id));
+  return "updated";
 }
 
 async function trimSessionMessagesIfNeeded(sessionId: string): Promise<void> {

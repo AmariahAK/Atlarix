@@ -168,6 +168,18 @@ export async function analyzeWorkspace(workspacePath: string): Promise<Workspace
 }
 
 /**
+ * v12 3.2: the detectProjectType probes intentionally fall through when a
+ * config file is absent (ENOENT) — but the empty catches also swallowed REAL
+ * failures (malformed package.json, permission errors), silently skipping
+ * detection. Log non-missing-file errors.
+ */
+function logProbeFailure(probe: string, e: unknown): void {
+    const code = (e as { code?: string })?.code;
+    if (code === 'ENOENT' || code === 'ENOTDIR') return; // expected: file absent
+    logger.warn(`detectProjectType: ${probe} probe failed (not ENOENT): ${String(e)}`);
+}
+
+/**
  * Detect project type from config files
  */
 async function detectProjectType(workspacePath: string): Promise<{
@@ -203,7 +215,7 @@ async function detectProjectType(workspacePath: string): Promise<{
         else if (await fileExists(path.join(workspacePath, 'bun.lockb'))) packageManager = 'bun';
 
         return { language, framework, packageManager };
-    } catch { }
+    } catch (e) { logProbeFailure('package.json', e); }
 
     // Check Spring Boot / Java / Kotlin (pom.xml or Gradle)
     try {
@@ -211,21 +223,21 @@ async function detectProjectType(workspacePath: string): Promise<{
         const pom = await fs.readFile(pomPath, 'utf-8');
         const isSpring = /spring-boot-starter|org\\.springframework/.test(pom);
         return { language: 'java', framework: isSpring ? 'spring' : undefined, packageManager: 'maven' };
-    } catch { }
+    } catch (e) { logProbeFailure('pom.xml', e); }
 
     try {
         const gradleKts = path.join(workspacePath, 'build.gradle.kts');
         const content = await fs.readFile(gradleKts, 'utf-8');
         const isSpring = /spring-boot|org\\.springframework/.test(content);
         return { language: 'kotlin', framework: isSpring ? 'spring' : undefined, packageManager: 'gradle' };
-    } catch { }
+    } catch (e) { logProbeFailure('build.gradle.kts', e); }
 
     try {
         const gradle = path.join(workspacePath, 'build.gradle');
         const content = await fs.readFile(gradle, 'utf-8');
         const isSpring = /spring-boot|org\\.springframework/.test(content);
         return { language: 'java', framework: isSpring ? 'spring' : undefined, packageManager: 'gradle' };
-    } catch { }
+    } catch (e) { logProbeFailure('build.gradle', e); }
 
     // Check pyproject.toml (Python + Poetry)
     try {
@@ -238,7 +250,7 @@ async function detectProjectType(workspacePath: string): Promise<{
         else if (content.includes('flask')) framework = 'flask';
 
         return { language: 'python', framework, packageManager: 'poetry' };
-    } catch { }
+    } catch (e) { logProbeFailure('pyproject.toml', e); }
 
     // Check requirements.txt (Python + pip)
     try {
@@ -251,19 +263,19 @@ async function detectProjectType(workspacePath: string): Promise<{
         else if (content.includes('flask')) framework = 'flask';
 
         return { language: 'python', framework, packageManager: 'pip' };
-    } catch { }
+    } catch (e) { logProbeFailure('requirements.txt', e); }
 
     // Check Cargo.toml (Rust)
     try {
         await fs.access(path.join(workspacePath, 'Cargo.toml'));
         return { language: 'rust', packageManager: 'cargo' };
-    } catch { }
+    } catch (e) { logProbeFailure('Cargo.toml', e); }
 
     // Check go.mod (Go)
     try {
         await fs.access(path.join(workspacePath, 'go.mod'));
         return { language: 'go', packageManager: 'go' };
-    } catch { }
+    } catch (e) { logProbeFailure('go.mod', e); }
 
     // Fallback: count file extensions
     const files = await scanFiles(workspacePath);

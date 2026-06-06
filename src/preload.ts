@@ -89,8 +89,6 @@ const validInvokeChannels = [
   "commands:create",
   "commands:update",
   "commands:delete",
-  "counsel:start",
-  "counsel:cancel",
   "get-env-vars",
   "get-db-ready",
   "open-external-url",
@@ -295,8 +293,6 @@ const validInvokeChannels = [
   "blueprint:get-atlarixignore",
   "blueprint:set-atlarixignore",
   "blueprint:analyze-workspace",
-  "blueprint:generate-combined",
-  "blueprint:codegen",
   "blueprint:simplify-description",
   "blueprint:simplify-room",
   "blueprint:simplify-architecture",
@@ -447,8 +443,6 @@ const validReceiveChannels = [
   "plan:file-updated",
   "lsp:diagnostics",
   "browser:state-changed", // v11 in-app browser: main → renderer tab/nav state
-  "counsel:participant-update",
-  "counsel:complete",
   "autonomous:session-complete",
   "chat:auto-self-correct", // main → renderer: synthetic fix prompt inserted; continue stream
   // PASS6: Blueprint AI-editing event channels — restored.

@@ -47,7 +47,10 @@ const toolMessagesOf = (req: RecordedRequest) =>
   (req.messages ?? []).filter((m) => m.role === "tool");
 const assistantToolCallMessagesOf = (req: RecordedRequest) =>
   (req.messages ?? []).filter(
-    (m) => m.role === "assistant" && Array.isArray(m.tool_calls) && m.tool_calls.length > 0,
+    (m) =>
+      m.role === "assistant" &&
+      Array.isArray(m.tool_calls) &&
+      m.tool_calls.length > 0,
   );
 
 describe("native tool-call history", () => {
@@ -151,7 +154,9 @@ describe("native tool-call history", () => {
     const turn1Requests = ctx.server.requestsFor(
       "native-2turn-a",
     ) as RecordedRequest[];
-    const turn1Tool = toolMessagesOf(turn1Requests[turn1Requests.length - 1])[0];
+    const turn1Tool = toolMessagesOf(
+      turn1Requests[turn1Requests.length - 1],
+    )[0];
     const turn2Tool = toolMessagesOf(turn2Req)[0];
     expect(turn1Tool).toBeTruthy();
     expect(JSON.stringify(turn2Tool?.content)).toEqual(
@@ -167,9 +172,7 @@ describe("native tool-call history", () => {
         .build(),
     );
     ctx.server.register(
-      scenario("native-reload-b")
-        .text("Still 7. <task_complete>")
-        .build(),
+      scenario("native-reload-b").text("Still 7. <task_complete>").build(),
     );
 
     const { getIpcHandler } = await import("../infra/turn");
@@ -187,7 +190,9 @@ describe("native tool-call history", () => {
       .sentOn("chat:response:end")
       .map((s) => s.payload)
       .find((p) => p?.assistantModelContent);
-    expect(endPayload?.assistantModelContent).toContain('"kind":"native-history"');
+    expect(endPayload?.assistantModelContent).toContain(
+      '"kind":"native-history"',
+    );
 
     // …which the renderer persists via messages:add extras (played here).
     const { getEphemeralChat, hydrateEphemeralChatMessages } = await import(
@@ -199,15 +204,19 @@ describe("native tool-call history", () => {
     const sessionRow = await ctx.testDb.db.query.chatSessions.findFirst({
       where: (s: any, { eq }: any) => eq(s.streamChatId, chatId),
     });
-    const messagesAdd = await getIpcHandler("messages:add");
+    // (Cast: the IPC handler signature is variadic at runtime.)
+    const messagesAdd = (await getIpcHandler("messages:add")) as (
+      ...args: unknown[]
+    ) => Promise<unknown>;
     await messagesAdd(
-      {} as any,
-      // @ts-expect-error variadic IPC handler
+      {},
       sessionRow!.id,
       "assistant",
       liveAssistant!.content,
       undefined,
-      { modelContent: endPayload!.assistantModelContent },
+      {
+        modelContent: endPayload!.assistantModelContent,
+      },
     );
 
     // Simulated app restart: fresh transport hydrated from the session DB.
@@ -230,7 +239,9 @@ describe("native tool-call history", () => {
     });
     expectNoStreamError(turn2.fakeIpc.sends, reloadedChatId);
 
-    const turn2Req = (ctx.server.requestsFor("native-reload-b") as RecordedRequest[])[0];
+    const turn2Req = (
+      ctx.server.requestsFor("native-reload-b") as RecordedRequest[]
+    )[0];
     expect(
       toolMessagesOf(turn2Req).length,
       "reloaded turn must replay turn-1's native role:'tool' message",

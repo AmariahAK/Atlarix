@@ -75,7 +75,7 @@ export function pruneContextSectionsForBudget(
         return { ...section };
       }
 
-      if (health === "over" && (section.name === "counsel" || section.name === "parallelPrefetch")) {
+      if (health === "over" && section.name === "parallelPrefetch") {
         return { ...section, content: "" };
       }
 

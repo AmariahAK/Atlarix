@@ -9,12 +9,11 @@ import { ipcMain, BrowserWindow } from "electron";
 import { db } from "@/db";
 import { apps } from "@/db/schema";
 import { eq } from "drizzle-orm";
-import type { Blueprint, CombinedBlueprint } from "@/shared/blueprint-types";
+import type { Blueprint } from "@/shared/blueprint-types";
 import { createEmptyBlueprint } from "@/shared/blueprint-types";
 import { getAtlarixAppPath } from "@/paths/paths";
 import { registerBlueprintFileWatcher } from "@/lib/blueprint/blueprint-file-watcher";
 import { analyzeWorkspaceWithActivity, type ProjectCandidate } from "@/lib/blueprint/project-selector";
-import { generateCombinedBlueprint } from "@/lib/blueprint/combined-generator";
 import { loadBlueprintCache, saveBlueprintCache, saveUserBlueprint, loadUserBlueprint, getUserBlueprintMtime } from "@/lib/cache/blueprint-cache";
 import {
   ATLARIX_IGNORE_REL,
@@ -27,7 +26,6 @@ import {
   readAtlarixIgnoreSource,
 } from "@/lib/atlarix/atlarix-ignore";
 import { scheduleBlueprintChangeSnapshot } from "@/lib/project-memory/service";
-import { generateFromBlueprintDelta, type CodegenDelta, type CodegenResult } from "@/lib/blueprint/codegen";
 import { inferBlueprintFromWorkspace } from "@/lib/blueprint/workspace_to_blueprint";
 import { rteResultToBlueprint } from "@/lib/blueprint/rte_to_blueprint";
 import { generateBlueprint, blueprintEngineLabel } from "@/lib/blueprint/rte/parsers";
@@ -694,63 +692,9 @@ export function registerBlueprintHandlers() {
     }
   );
 
-  ipcMain.handle(
-    "blueprint:generate-combined",
-    async (
-      _,
-      { workspaceId, projectIds }: { workspaceId: number; projectIds: string[] }
-    ): Promise<{ success: boolean; combined?: CombinedBlueprint; blueprint?: Blueprint; error?: string }> => {
-      try {
-        const [app] = await db.select().from(apps).where(eq(apps.id, workspaceId)).limit(1);
-        if (!app) return { success: false, error: "Workspace not found" };
-        const workspacePath = getAtlarixAppPath(app.path);
-        const allProjects = await analyzeWorkspaceWithActivity(workspacePath);
-        const selected = allProjects.filter((p) => projectIds.includes(p.id));
-        if (selected.length === 0) return { success: false, error: "No projects selected" };
-        const combined = await generateCombinedBlueprint(selected);
-        let blueprintToSet: Blueprint = createEmptyBlueprint();
-        if (combined.projects.length === 1) {
-          const projectPath = selected[0].path;
-          const rteResult = await generateBlueprint(projectPath);
-          if (rteResult && rteResult.nodes.length > 0) {
-            blueprintToSet = rteResultToBlueprint(rteResult, projectPath);
-            setBlueprintForWorkspace(workspaceId, blueprintToSet);
-          }
-        }
-        return { success: true, combined, blueprint: blueprintToSet };
-      } catch (error) {
-        logger.error("blueprint:generate-combined error:", error);
-        return { success: false, error: error instanceof Error ? error.message : "Unknown error" };
-      }
-    }
-  );
-
-  ipcMain.handle(
-    "blueprint:codegen",
-    async (
-      _,
-      { workspaceId, delta }: { workspaceId: number; delta: CodegenDelta }
-    ): Promise<{ success: boolean; result?: CodegenResult; error?: string }> => {
-      try {
-        const app = await db.query.apps.findFirst({
-          where: eq(apps.id, workspaceId),
-        });
-        if (!app) {
-          return { success: false, error: "Workspace not found" };
-        }
-        const workspacePath = getAtlarixAppPath(app.path);
-        const result = await generateFromBlueprintDelta(workspacePath, delta);
-        logger.info("blueprint:codegen ok", { workspaceId, filesCreated: result.filesCreated.length, envKeysAdded: result.envKeysAdded.length });
-        return { success: true, result };
-      } catch (error) {
-        logger.error("blueprint:codegen error:", error);
-        return {
-          success: false,
-          error: error instanceof Error ? error.message : "Unknown error",
-        };
-      }
-    }
-  );
+  // v12 2.7: blueprint:generate-combined + blueprint:codegen handlers DELETED
+  // (half-finished codegen subsystem — zero UI callers, never reached from the
+  // agent loop; combined-generator.ts/codegen.ts removed with them).
 
   ipcMain.handle(
     "blueprint:simplify-description",

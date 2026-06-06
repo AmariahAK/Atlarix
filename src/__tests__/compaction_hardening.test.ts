@@ -30,6 +30,38 @@ describe("isContextOverflowError", () => {
     expect(isContextOverflowError(new Error("invalid api key"))).toBe(false);
     expect(isContextOverflowError(null)).toBe(false);
   });
+
+  // v12 3.4: structured provider error codes win over the message regex.
+  it("classifies by structured provider error code (APICallError shape)", () => {
+    const apiErr = Object.assign(new Error("Bad Request"), {
+      data: { error: { code: "context_length_exceeded" } },
+    });
+    expect(isContextOverflowError(apiErr)).toBe(true);
+  });
+
+  it("classifies a code wrapped in error.cause (RetryError shape)", () => {
+    const inner = Object.assign(new Error("Bad Request"), {
+      data: { error: { code: "context_length_exceeded" } },
+    });
+    const wrapped = Object.assign(new Error("Failed after 3 attempts"), {
+      cause: inner,
+    });
+    expect(isContextOverflowError(wrapped)).toBe(true);
+  });
+
+  it("scans the raw responseBody when the message is generic", () => {
+    const apiErr = Object.assign(new Error("Bad Request"), {
+      responseBody: '{"error":{"message":"prompt is too long: 250000 tokens"}}',
+    });
+    expect(isContextOverflowError(apiErr)).toBe(true);
+  });
+
+  it("ignores non-overflow structured codes", () => {
+    const apiErr = Object.assign(new Error("Bad Request"), {
+      data: { error: { code: "rate_limit_exceeded" } },
+    });
+    expect(isContextOverflowError(apiErr)).toBe(false);
+  });
 });
 
 describe("durable compaction summary slicing", () => {

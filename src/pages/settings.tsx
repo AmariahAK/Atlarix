@@ -764,43 +764,6 @@ export function AISettings() {
       {/* Pass 7: Blueprint context tier selector removed with the Blueprint subsystem. */}
 
       <div className="mt-6 space-y-4 border-t border-border pt-6">
-        <h3 className="text-sm font-medium text-foreground">Counsel</h3>
-        <p className="text-xs text-muted-foreground max-w-2xl">
-          Before the main reply, run parallel Fast, Balanced, and Thinking perspectives
-          and inject a synthesis into context (explicit phrases or auto when routing is
-          complex: Thinking or Balanced tier with longer questions, or very long prompts).
-        </p>
-        <div className="flex items-center justify-between max-w-md gap-4">
-          <Label htmlFor="counsel-enabled" className="text-sm">
-            Enable Counsel
-          </Label>
-          <Switch
-            id="counsel-enabled"
-            checked={settings?.counsel?.enabled !== false}
-            onCheckedChange={(checked) =>
-              updateSettings({
-                counsel: { ...settings?.counsel, enabled: checked },
-              })
-            }
-          />
-        </div>
-        <div className="flex items-center justify-between max-w-md gap-4">
-          <Label htmlFor="counsel-auto-thinking" className="text-sm">
-            Auto-trigger on complex
-          </Label>
-          <Switch
-            id="counsel-auto-thinking"
-            checked={settings?.counsel?.autoTriggerOnThinking !== false}
-            onCheckedChange={(checked) =>
-              updateSettings({
-                counsel: { ...settings?.counsel, autoTriggerOnThinking: checked },
-              })
-            }
-          />
-        </div>
-      </div>
-
-      <div className="mt-6 space-y-4 border-t border-border pt-6">
         <h3 className="text-sm font-medium text-foreground">Build and automation</h3>
         <div className="flex items-center justify-between max-w-md gap-4">
           <Label htmlFor="build-verify-enabled" className="text-sm">

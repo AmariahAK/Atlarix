@@ -652,21 +652,6 @@ function StreamThreadItemView({
           }
         />
       );
-    case "counsel":
-      return (
-        <CollapsedScrollSection
-          summary={item.label}
-          status={item.status === "running" ? "running" : "done"}
-          defaultCollapsed={item.status !== "running"}
-          maxBodyHeightClass="max-h-48"
-        >
-          {item.detail ? (
-            <pre className="text-[10px] text-muted-foreground whitespace-pre-wrap break-words">
-              {item.detail}
-            </pre>
-          ) : null}
-        </CollapsedScrollSection>
-      );
     default:
       return null;
   }

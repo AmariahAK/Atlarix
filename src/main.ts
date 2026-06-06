@@ -1085,6 +1085,14 @@ app.on("before-quit", (e) => {
     } catch (abortErr) {
       logger.warn("abortAllStreams on quit:", abortErr);
     }
+    // v12 3.7: drain tracked state-mutating background work (self-correction
+    // dispatch, snapshot writes, usage records) before the process dies.
+    try {
+      const { drainPendingWork } = await import("./lib/pending-work");
+      await drainPendingWork();
+    } catch (drainErr) {
+      logger.warn("drainPendingWork on quit:", drainErr);
+    }
     try {
       const { shutdownAstGrepPool } = await import(
         "./lib/blueprint/rte/ast-grep/worker-pool"

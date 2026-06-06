@@ -8,7 +8,6 @@ export function readSettings(): UserSettings {
     telemetryConsent: "unset",
     telemetryUserId: "",
     hasRunBefore: true,
-    experiments: {},
     enableProLazyEditsMode: true,
     enableProSmartFilesContextMode: true,
     enableProWebSearch: false,

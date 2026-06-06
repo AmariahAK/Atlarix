@@ -70,19 +70,12 @@ export function InlineStreamStatus({
     [activityItems, chatId],
   );
 
-  // Stream phase (thinking label / counsel / done) → shared indicator atom.
+  // Stream phase (thinking label / done) → shared indicator atom.
   // Tool start/end IPC is handled in useStreamChat only (avoids double count).
   useEffect(() => {
     if (!active) return;
     const unsub = IpcClient.getInstance().onStreamPhase(({ chatId: evChatId, phase, label }) => {
       setState((prev) => {
-        if (phase === "counsel_start") {
-          return { ...prev, counselPhaseActive: true, activeChatId: evChatId };
-        }
-        if (phase === "counsel_end") {
-          if (prev.activeChatId !== evChatId) return prev;
-          return { ...prev, counselPhaseActive: false };
-        }
         if (phase === "done") {
           if (prev.activeChatId !== evChatId) return prev;
           return {
@@ -92,7 +85,6 @@ export function InlineStreamStatus({
             toolId: null,
             toolArgs: null,
             count: 0,
-            counselPhaseActive: false,
             phaseLabel: null,
             liveOutputLines: [],
             liveErrorLines: [],
@@ -141,8 +133,6 @@ export function InlineStreamStatus({
   let displayLine = state.phaseLabel?.trim() || idleLabelForWorkMode(workMode);
   if (autonomousOverride) {
     displayLine = "Agents working…";
-  } else if (state.counselPhaseActive) {
-    displayLine = "Consulting multiple models…";
   } else if (state.count > 0 && (state.toolId || state.toolName)) {
     displayLine = getToolActivityLabelWithArgs(
       (state.toolId ?? state.toolName ?? "").trim(),

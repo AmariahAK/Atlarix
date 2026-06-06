@@ -10,6 +10,18 @@ import { rebuildSessionMemoryFromMessages } from "@/lib/session-memory";
 
 const logger = log.scope("ephemeral-chat");
 
+/**
+ * v12 3.1: monotonic message-id counter (seeded from the clock for rough
+ * time-ordering). `Date.now()` alone collided when two messages landed in
+ * the same millisecond (ask_user answer + continuation, rapid tool notes).
+ * Must stay NUMERIC — renderer atoms key messages by numeric id.
+ */
+let ephemeralMessageIdCounter = Date.now();
+export function nextEphemeralMessageId(): number {
+  ephemeralMessageIdCounter = Math.max(ephemeralMessageIdCounter + 1, Date.now());
+  return ephemeralMessageIdCounter;
+}
+
 export function buildContinueAfterQuestionsPrompt(
   msgs: { role: string; content?: string | null }[],
 ): string {
@@ -30,7 +42,7 @@ export function insertAskUserAnswerUserMessage(
   const chat = ephemeralChats.get(chatId);
   if (!chat) return false;
   const msg: Message = {
-    id: Date.now(),
+    id: nextEphemeralMessageId(),
     chatId,
     role: "user",
     content: formattedContent,
@@ -52,7 +64,15 @@ export function editEphemeralUserMessage(
   );
   if (idx < 0) return false;
   const prev = chat.messages[idx];
-  chat.messages[idx] = { ...prev, content: newContent };
+  // v12 3.8: drop per-message derived state on edit — a stale displaySnapshot
+  // (frozen sub-agent/tool UI) or modelContent (native-history envelope /
+  // attachment bodies) from the pre-edit content must not survive the rewrite.
+  const {
+    displaySnapshot: _staleSnapshot,
+    modelContent: _staleModelContent,
+    ...rest
+  } = prev as Message & { modelContent?: string };
+  chat.messages[idx] = { ...rest, content: newContent } as Message;
   chat.messages = chat.messages.slice(0, idx + 1);
   return true;
 }
@@ -134,6 +154,8 @@ export function hydrateEphemeralChatMessages(
     role: string;
     content: string;
     id?: number;
+    /** v12 0.4-C2: session DB row UUID (direct edit targeting). */
+    sessionRowId?: string | null;
     displaySnapshot?: DisplaySnapshotV1 | null;
     modelContent?: string | null;
     pasteAttachments?: import("@/ipc/ipc_types").PasteAttachmentMeta[] | null;
@@ -143,18 +165,18 @@ export function hydrateEphemeralChatMessages(
 ): void {
   const chat = ephemeralChats.get(chatId);
   if (!chat) return;
-  let seq = 0;
   chat.messages = messages
     .filter((m) => m.role === "user" || m.role === "assistant")
     .map((m) => ({
       id:
         typeof m.id === "number" && Number.isFinite(m.id)
           ? m.id
-          : Date.now() + seq++,
+          : nextEphemeralMessageId(),
       chatId,
       role: m.role as "user" | "assistant",
       content: m.content ?? "",
       createdAt: new Date(),
+      ...(m.sessionRowId ? { sessionRowId: m.sessionRowId } : {}),
       ...(m.modelContent ? { modelContent: m.modelContent } : {}),
       ...(m.pasteAttachments?.length
         ? { pasteAttachments: m.pasteAttachments }
@@ -183,7 +205,7 @@ export function addEphemeralMessage(
   if (chat) {
     chat.messages.push({
       ...message,
-      id: Date.now(),
+      id: nextEphemeralMessageId(),
       chatId,
       createdAt: new Date(),
     } as Message);

@@ -60,17 +60,10 @@ const DEFAULT_SETTINGS: UserSettings = {
   telemetryConsent: "unset",
   telemetryUserId: uuidv4(),
   hasRunBefore: false,
-  experiments: {},
   enableProLazyEditsMode: true,
   enableProSmartFilesContextMode: true,
   selectedChatMode: "ask",
   workModePreference: "ask",
-  counsel: {
-    enabled: true,
-    autoTriggerOnThinking: true,
-    showParticipantPreviews: true,
-    timeoutSeconds: 30,
-  },
   buildVerification: {
     enabled: true,
   },

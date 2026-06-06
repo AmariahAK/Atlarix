@@ -132,6 +132,12 @@ ToolRegistry.register({
     }
     await waitForLoad(view.webContents);
     const selector = typeof args.selector === "string" ? args.selector : "";
+    // v12 3.5 trust boundary: scripts here are TEMPLATES executing in the
+    // (sandboxed, isolated-session) page — every model-supplied value is
+    // embedded ONLY via JSON.stringify, which escapes quotes/backslashes so
+    // input can't break out of the string literal into code position. Keep
+    // that invariant for any new interpolation; a restricted DOM API over raw
+    // eval is the long-term direction (TODO 3.5).
     const script = `(() => {
       const root = ${JSON.stringify(selector)} ? document.querySelector(${JSON.stringify(selector)}) : document.body;
       if (!root) return null;

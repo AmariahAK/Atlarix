@@ -518,12 +518,48 @@ async function getContextSummaryForProvider(
  * too long", generic 400s with "maximum context"/"too many tokens"). Used by
  * the stream catch to force one compaction round and retry the dispatch.
  */
+/** Structured provider error codes that mean "context window exceeded". */
+const CONTEXT_OVERFLOW_ERROR_CODES = new Set([
+  "context_length_exceeded", // OpenAI / OpenAI-compatible
+  "string_above_max_length", // OpenAI long-input variant
+  "model_max_prompt_tokens_exceeded",
+]);
+
+/** Pull a provider error code out of an AI-SDK APICallError-shaped error. */
+function providerErrorCode(error: unknown): string | null {
+  if (!error || typeof error !== "object") return null;
+  const e = error as {
+    data?: { error?: { code?: unknown; type?: unknown } };
+    code?: unknown;
+    cause?: unknown;
+  };
+  const candidates = [e.data?.error?.code, e.data?.error?.type, e.code];
+  for (const c of candidates) {
+    if (typeof c === "string" && c) return c;
+  }
+  // AI SDK wraps provider errors (RetryError.cause, APICallError.cause).
+  if (e.cause && e.cause !== error) return providerErrorCode(e.cause);
+  return null;
+}
+
 export function isContextOverflowError(error: unknown): boolean {
+  // 3.4: prefer the structured provider error code when the SDK exposes one —
+  // the message regex below is wording-fragile across providers/versions.
+  const code = providerErrorCode(error);
+  if (code && CONTEXT_OVERFLOW_ERROR_CODES.has(code)) return true;
+
   const message =
     error instanceof Error ? error.message : typeof error === "string" ? error : "";
-  if (!message) return false;
+  // APICallError carries the raw provider body — scan it too (some providers
+  // put the useful wording only there).
+  const responseBody =
+    error && typeof error === "object"
+      ? String((error as { responseBody?: unknown }).responseBody ?? "")
+      : "";
+  const haystack = `${message}\n${responseBody}`;
+  if (!haystack.trim()) return false;
   return /context[_\s-]?length[_\s-]?exceeded|maximum context|context window|prompt is too long|too many tokens|maximum length|input length and `max_tokens` exceed|reduce the length of the messages|exceeds the maximum number of tokens/i.test(
-    message,
+    haystack,
   );
 }
 

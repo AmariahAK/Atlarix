@@ -66,7 +66,7 @@ export interface ChatStreamParams {
   };
   /** Custom slash command: override chat mode for this stream only. */
   streamChatModeOverride?: "ask" | "agent" | "build";
-  /** When true (Auto routing): use thinking tier for this message and skip counsel injection. */
+  /** When true (Auto routing): use thinking tier for this message. */
   forceThinkingTier?: boolean;
   /** Resend/edit: use this work mode for prompt + tool allowlist for this turn only. */
   workModeOverride?: WorkMode;
@@ -90,37 +90,6 @@ export interface AutonomousSessionCompletePayload {
   workspaceId?: number | null;
   ops: AutonomousOpDto[];
   agentActivity: Record<string, unknown>[];
-}
-
-/** Renderer → main: start a Counsel session outside the main chat stream (optional UI entry). */
-export interface CounselStartIpcPayload {
-  chatId: number;
-  question: string;
-  mode?: "general" | "workspace";
-  turnId?: string;
-}
-
-export type CounselStartIpcResult =
-  | { ok: true; turnId: string }
-  | { ok: false; reason: string };
-
-export type CounselCancelIpcResult =
-  | { ok: true }
-  | { ok: false; reason: string };
-
-/** Main → renderer: discrete counsel activity (also mirrored on `chat:activity`). */
-export interface CounselParticipantUpdateIpcPayload {
-  chatId: number;
-  turnId: string;
-  activity: Record<string, unknown>;
-}
-
-export interface CounselCompleteIpcPayload {
-  ok: boolean;
-  chatId: number;
-  turnId: string;
-  cancelled?: boolean;
-  error?: string;
 }
 
 /** Main → renderer: live task-ledger plan for PlanCard (scoped by chatId). */
@@ -267,6 +236,13 @@ export interface Message {
   id: number;
   role: "user" | "assistant";
   content: string;
+  /**
+   * v12 0.4-C2: the session DB row UUID this message maps to, when known
+   * (set at persist time for streamed user messages; threaded through
+   * hydration). Edits target the DB row DIRECTLY via this id — no ordinal
+   * mapping between the ephemeral and persisted stores.
+   */
+  sessionRowId?: string;
   /** Full model-facing user text (attachment bodies); UI uses `content` when set. */
   modelContent?: string | null;
   /** Ephemeral/chat-only: in-memory chat id (not persisted). */

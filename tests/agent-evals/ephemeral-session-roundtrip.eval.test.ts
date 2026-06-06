@@ -68,21 +68,20 @@ describe("ephemeral → session round-trip", () => {
     expect(liveAssistant?.content).toContain("Ahadi ni deni");
 
     // Renderer-side convention: append the final assistant message.
-    const messagesAdd = await getIpcHandler("messages:add");
-    await messagesAdd(
-      {} as any,
-      // @ts-expect-error variadic IPC handler signature
-      sessionRow!.id,
-      "assistant",
-      liveAssistant!.content,
-    );
+    // (Cast: the IPC handler signature is variadic at runtime.)
+    const messagesAdd = (await getIpcHandler("messages:add")) as (
+      ...args: unknown[]
+    ) => Promise<unknown>;
+    await messagesAdd({}, sessionRow!.id, "assistant", liveAssistant!.content);
     await expectDbSessionMessage(ctx.testDb, {
       role: "assistant",
       contentContains: "Ahadi ni deni",
     });
 
     // Simulated reload: fresh transport + sessions:get + rehydrate.
-    const allocateTransport = await getIpcHandler("sessions:allocate-transport");
+    const allocateTransport = await getIpcHandler(
+      "sessions:allocate-transport",
+    );
     const sessionsGet = await getIpcHandler("sessions:get");
 
     // Forget the old transport (renderer restart ⇒ new ephemeral id).

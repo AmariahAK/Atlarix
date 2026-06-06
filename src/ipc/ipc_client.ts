@@ -70,11 +70,6 @@ import type {
   AnalyseComponentParams,
   DiscordInviteInfoResult,
   CompassUsageIpcResult,
-  CounselStartIpcPayload,
-  CounselStartIpcResult,
-  CounselCancelIpcResult,
-  CounselParticipantUpdateIpcPayload,
-  CounselCompleteIpcPayload,
   PlanUpdatePayload,
   SkillRegistryIndex,
   InstallSkillParams,
@@ -790,32 +785,6 @@ export class IpcClient {
     return () => this.ipcRenderer.removeListener("github-actions:log-chunk", subscription);
   }
 
-  /** Renderer-triggered multi-model Counsel (parallel to stream-embedded counsel). */
-  public async counselStart(payload: CounselStartIpcPayload): Promise<CounselStartIpcResult> {
-    return this.ipcRenderer.invoke("counsel:start", payload);
-  }
-
-  public async counselCancel(chatId: number): Promise<CounselCancelIpcResult> {
-    return this.ipcRenderer.invoke("counsel:cancel", chatId);
-  }
-
-  /** Main → renderer counsel activity (discrete channel; same payloads also on chat:activity). */
-  public onCounselParticipantUpdate(
-    handler: (payload: CounselParticipantUpdateIpcPayload) => void,
-  ): () => void {
-    const subscription = (_: Electron.IpcRendererEvent, payload: CounselParticipantUpdateIpcPayload) =>
-      handler(payload);
-    this.ipcRenderer.on("counsel:participant-update", subscription);
-    return () => this.ipcRenderer.removeListener("counsel:participant-update", subscription);
-  }
-
-  public onCounselComplete(handler: (payload: CounselCompleteIpcPayload) => void): () => void {
-    const subscription = (_: Electron.IpcRendererEvent, payload: CounselCompleteIpcPayload) =>
-      handler(payload);
-    this.ipcRenderer.on("counsel:complete", subscription);
-    return () => this.ipcRenderer.removeListener("counsel:complete", subscription);
-  }
-
   /** Main → renderer: live task-ledger plan for PlanCard. */
   public onPlanUpdate(chatId: number, handler: (payload: PlanUpdatePayload) => void): () => void {
     let set = this.planUpdateHandlers.get(chatId);
@@ -1325,7 +1294,13 @@ export class IpcClient {
 
   public async hydrateEphemeralChatMessages(
     chatId: number,
-    messages: { role: string; content: string; id?: number }[],
+    messages: {
+      role: string;
+      content: string;
+      id?: number;
+      /** v12 0.4-C2: session DB row UUID (direct edit targeting). */
+      sessionRowId?: string;
+    }[],
   ): Promise<void> {
     await this.ipcRenderer.invoke("chat:hydrate-ephemeral-messages", {
       chatId,
@@ -3357,19 +3332,6 @@ export class IpcClient {
     return this.ipcRenderer.invoke("blueprint:analyze-workspace", params);
   }
 
-  /** Generate combined blueprint from selected project IDs; sets single-project blueprint when one selected */
-  public async generateCombinedBlueprint(params: {
-    workspaceId: number;
-    projectIds: string[];
-  }): Promise<{
-    success: boolean;
-    combined?: import("@/shared/blueprint-types").CombinedBlueprint;
-    blueprint?: import("@/shared/blueprint-types").Blueprint;
-    error?: string;
-  }> {
-    return this.ipcRenderer.invoke("blueprint:generate-combined", params);
-  }
-
   /** Simplify beacon description with AI (fast model); updates blueprint and emits blueprint:updated */
   public async simplifyBlueprintDescription(params: {
     workspaceId: number;
@@ -3489,14 +3451,6 @@ export class IpcClient {
     error?: string;
   }> {
     return this.ipcRenderer.invoke("blueprint:snapshot-exists", { workspaceId });
-  }
-
-  /** Generate scaffold from Blueprint delta (new files + .env.local keys) */
-  public async blueprintCodegen(params: {
-    workspaceId: number;
-    delta: { rooms: Array<{ id: string; label: string; type?: string; intent?: string; functions: any[] }>; edges: Array<{ from: string; to: string; label?: string }>; envRefs: string[] };
-  }): Promise<{ success: boolean; result?: { filesCreated: string[]; envKeysAdded: string[]; errors: string[] }; error?: string }> {
-    return this.ipcRenderer.invoke("blueprint:codegen", params);
   }
 
   public onBlueprintAiEditing(listener: (payload: { workspaceId: number; action: string }) => void): () => void {
