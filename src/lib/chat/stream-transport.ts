@@ -1,6 +1,17 @@
 /**
- * Ephemeral workspace chat transport (negative chatId, in-memory messages).
- * Not for global/incognito chat — workspace context required for streaming.
+ * Per-transport TURN BUFFER + binding cache (v12 0.4 contract — see
+ * docs/message-store.md).
+ *
+ * The negative numeric `chatId` keys a single in-memory working `Message[]`
+ * plus its `{appId, title}` binding. **The session DB (`chatSessions` +
+ * `sessionMessages`) is authoritative for everything cross-turn** (true
+ * since 0.4-C2: every persisted message carries its row UUID as
+ * `sessionRowId`, and edits target rows directly). This buffer exists only
+ * because the streaming turn mutates one array in place and the renderer is
+ * driven off `chat:response:chunk` snapshots of it — `get-chat` mid-stream
+ * MUST see in-flight chunks the DB does not have yet. It is NOT a store of
+ * record; on reload the renderer rehydrates a fresh buffer from
+ * `sessions:get`. (Formerly src/lib/ephemeral-chat.ts.)
  */
 
 import log from "electron-log";
@@ -8,7 +19,7 @@ import type { Message } from "@/ipc/ipc_types";
 import type { DisplaySnapshotV1 } from "@/lib/chat/display-snapshot";
 import { rebuildSessionMemoryFromMessages } from "@/lib/session-memory";
 
-const logger = log.scope("ephemeral-chat");
+const logger = log.scope("stream-transport");
 
 /**
  * v12 3.1: monotonic message-id counter (seeded from the clock for rough
@@ -38,6 +49,8 @@ export function buildContinueAfterQuestionsPrompt(
 export function insertAskUserAnswerUserMessage(
   chatId: number,
   formattedContent: string,
+  /** v12 0.4-C3: row UUID from the session persist (direct edit targeting). */
+  sessionRowId?: string,
 ): boolean {
   const chat = ephemeralChats.get(chatId);
   if (!chat) return false;
@@ -47,12 +60,13 @@ export function insertAskUserAnswerUserMessage(
     role: "user",
     content: formattedContent,
     createdAt: new Date(),
+    ...(sessionRowId ? { sessionRowId } : {}),
   };
   chat.messages.push(msg);
   return true;
 }
 
-export function editEphemeralUserMessage(
+export function editTransportUserMessage(
   chatId: number,
   userMessageId: number,
   newContent: string,
@@ -67,12 +81,16 @@ export function editEphemeralUserMessage(
   // v12 3.8: drop per-message derived state on edit — a stale displaySnapshot
   // (frozen sub-agent/tool UI) or modelContent (native-history envelope /
   // attachment bodies) from the pre-edit content must not survive the rewrite.
+  // (sessionRowId SURVIVES — the row identity is what the DB edit targets.)
   const {
     displaySnapshot: _staleSnapshot,
     modelContent: _staleModelContent,
     ...rest
   } = prev as Message & { modelContent?: string };
   chat.messages[idx] = { ...rest, content: newContent } as Message;
+  // Mirror only: the in-memory truncation keeps the live chat:response:chunk
+  // snapshot consistent; the AUTHORITATIVE truncation is the DB tail delete
+  // in persistEditedSessionMessageById.
   chat.messages = chat.messages.slice(0, idx + 1);
   return true;
 }
@@ -90,7 +108,7 @@ const ephemeralChats = new Map<
 
 let ephemeralChatCounter = -1;
 
-export function createEphemeralWorkspaceChat(appId: number): number {
+export function createStreamTransport(appId: number): number {
   const id = ephemeralChatCounter--;
   ephemeralChats.set(id, {
     id,
@@ -103,15 +121,15 @@ export function createEphemeralWorkspaceChat(appId: number): number {
   return id;
 }
 
-export function getEphemeralChatAppId(chatId: number): number | undefined {
+export function getStreamTransportAppId(chatId: number): number | undefined {
   return ephemeralChats.get(chatId)?.appId;
 }
 
-export function getEphemeralChat(chatId: number) {
+export function getStreamTransport(chatId: number) {
   return ephemeralChats.get(chatId);
 }
 
-export function isEphemeralChatId(chatId: number): boolean {
+export function isStreamTransportId(chatId: number): boolean {
   return chatId < 0;
 }
 
@@ -120,18 +138,11 @@ export function isEphemeralChatId(chatId: number): boolean {
  * deleted — entries were never pruned, leaking message arrays per deleted
  * session for the lifetime of the main process.
  */
-export function deleteEphemeralChat(chatId: number): boolean {
+export function deleteStreamTransport(chatId: number): boolean {
   return ephemeralChats.delete(chatId);
 }
 
-export function clearEphemeralChatMessages(chatId: number): void {
-  const chat = ephemeralChats.get(chatId);
-  if (!chat) return;
-  chat.messages = [];
-  ephemeralChats.set(chatId, chat);
-}
-
-export function setEphemeralMessageDisplaySnapshot(
+export function setTransportMessageDisplaySnapshot(
   chatId: number,
   messageId: number,
   snapshot: DisplaySnapshotV1,
@@ -148,7 +159,7 @@ export function setEphemeralMessageDisplaySnapshot(
   return true;
 }
 
-export function hydrateEphemeralChatMessages(
+export function hydrateStreamTransport(
   chatId: number,
   messages: {
     role: string;
@@ -193,7 +204,7 @@ export function hydrateEphemeralChatMessages(
   }
 }
 
-export function addEphemeralMessage(
+export function appendTransportMessage(
   chatId: number,
   message: {
     role: string;

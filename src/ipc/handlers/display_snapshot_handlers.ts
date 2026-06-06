@@ -5,9 +5,9 @@ import { createLoggedHandler } from "./safe_handle";
 import log from "electron-log";
 import { parseDisplaySnapshot } from "@/lib/chat/display-snapshot";
 import {
-  isEphemeralChatId,
-  setEphemeralMessageDisplaySnapshot,
-} from "@/lib/ephemeral-chat";
+  isStreamTransportId,
+  setTransportMessageDisplaySnapshot,
+} from "@/lib/chat/stream-transport";
 
 const logger = log.scope("display_snapshot_handlers");
 const handle = createLoggedHandler(logger);
@@ -28,10 +28,10 @@ export function registerDisplaySnapshotHandlers(): void {
       if (!parsed) {
         throw new Error("Invalid display snapshot payload");
       }
-      if (!isEphemeralChatId(chatId)) {
+      if (!isStreamTransportId(chatId)) {
         throw new Error("Display snapshots require an active workspace stream");
       }
-      const ok = setEphemeralMessageDisplaySnapshot(
+      const ok = setTransportMessageDisplaySnapshot(
         chatId,
         messageId,
         parsed,

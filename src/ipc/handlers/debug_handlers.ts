@@ -9,7 +9,7 @@ import fs from "fs";
 import { runShellCommandSimple as runShellCommand } from "../utils/runShellCommand";
 import { extractCodebaseCached } from "../../utils/codebase";
 import { db } from "../../db";
-import { getEphemeralChat, getEphemeralChatAppId } from "@/lib/ephemeral-chat";
+import { getStreamTransport, getStreamTransportAppId } from "@/lib/chat/stream-transport";
 import { apps } from "../../db/schema";
 import { eq } from "drizzle-orm";
 import { getAtlarixAppPath } from "../../paths/paths";
@@ -140,7 +140,7 @@ export function registerDebugHandlers() {
           level: "info",
         });
 
-        const ephemeral = getEphemeralChat(chatId);
+        const ephemeral = getStreamTransport(chatId);
         if (!ephemeral) {
           throw new Error(`Active chat transport ${chatId} not found`);
         }
@@ -157,7 +157,7 @@ export function registerDebugHandlers() {
         };
 
         // Get app data from database
-        const transportAppId = getEphemeralChatAppId(chatId);
+        const transportAppId = getStreamTransportAppId(chatId);
         if (transportAppId == null) {
           throw new Error("Chat has no workspace");
         }

@@ -41,10 +41,10 @@ export async function setupEvalContext(opts?: {
     modelName,
     appId,
     async newChat() {
-      const { createEphemeralWorkspaceChat } = await import(
-        "@/lib/ephemeral-chat"
+      const { createStreamTransport } = await import(
+        "@/lib/chat/stream-transport"
       );
-      return createEphemeralWorkspaceChat(appId);
+      return createStreamTransport(appId);
     },
     async cleanup() {
       await server.close();

@@ -78,11 +78,11 @@ vi.mock("../paths/paths", () => ({
 const { mockAppFile } = pathMocks;
 
 // Mock ephemeral chat transport → workspace binding
-vi.mock("@/lib/ephemeral-chat", () => {
+vi.mock("@/lib/chat/stream-transport", () => {
   const store = new Map<number, { messages: { id: number; role: string; content: string; approvalState?: string; commitHash?: string }[] }>();
   return {
-    getEphemeralChatAppId: vi.fn(() => 1),
-    getEphemeralChat: vi.fn((chatId: number) => {
+    getStreamTransportAppId: vi.fn(() => 1),
+    getStreamTransport: vi.fn((chatId: number) => {
       if (!store.has(chatId)) {
         store.set(chatId, {
           messages: [
@@ -96,7 +96,7 @@ vi.mock("@/lib/ephemeral-chat", () => {
       }
       return { id: chatId, messages: store.get(chatId)!.messages, title: "Test", createdAt: new Date(), appId: 1 };
     }),
-    isEphemeralChatId: vi.fn((chatId: number) => chatId < 0 || store.has(chatId)),
+    isStreamTransportId: vi.fn((chatId: number) => chatId < 0 || store.has(chatId)),
   };
 });
 

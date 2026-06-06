@@ -7,7 +7,7 @@ import type {
 import { db } from "../../db";
 import { apps } from "../../db/schema";
 import { eq } from "drizzle-orm";
-import { getEphemeralChat, getEphemeralChatAppId } from "@/lib/ephemeral-chat";
+import { getStreamTransport, getStreamTransportAppId } from "@/lib/chat/stream-transport";
 import type { Message } from "../ipc_types";
 import path from "node:path"; // Import path for basename
 import { isServerFunction } from "../../supabase_admin/supabase_utils";
@@ -121,7 +121,7 @@ async function getCodebaseTokenCount(
 function latestEphemeralAssistant(
   chatId: number,
 ): Pick<Message, "id" | "content" | "approvalState"> | undefined {
-  const chat = getEphemeralChat(chatId);
+  const chat = getStreamTransport(chatId);
   if (!chat?.messages?.length) return undefined;
   for (let i = chat.messages.length - 1; i >= 0; i--) {
     const m = chat.messages[i];
@@ -273,8 +273,8 @@ const getProposalHandler = async (
         }
       }
 
-      const ephemeral = getEphemeralChat(chatId);
-      const appId = getEphemeralChatAppId(chatId);
+      const ephemeral = getStreamTransport(chatId);
+      const appId = getStreamTransportAppId(chatId);
       const app = appId
         ? await db.query.apps.findFirst({ where: eq(apps.id, appId) })
         : null;
@@ -341,7 +341,7 @@ const approveProposalHandler = async (
       "Ask mode is not supported for proposal approval. Please switch to build mode.",
     );
   }
-  const ephemeral = getEphemeralChat(chatId);
+  const ephemeral = getStreamTransport(chatId);
   const messageToApprove = ephemeral?.messages.find(
     (m) => m.id === messageId && m.role === "assistant",
   );
@@ -384,7 +384,7 @@ const rejectProposalHandler = async (
     `IPC: reject-proposal called for chatId: ${chatId}, messageId: ${messageId}`,
   );
 
-  const ephemeral = getEphemeralChat(chatId);
+  const ephemeral = getStreamTransport(chatId);
   const messageToReject = ephemeral?.messages.find(
     (m) => m.id === messageId && m.role === "assistant",
   );

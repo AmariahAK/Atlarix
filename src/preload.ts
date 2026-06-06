@@ -41,7 +41,6 @@ const validInvokeChannels = [
   "github-actions:start-stream",
   "github-actions:stop-stream",
   "chat:count-tokens",
-  "chat:clear-ephemeral-messages",
   "chat:hydrate-ephemeral-messages",
   "sessions:list",
   "sessions:start",

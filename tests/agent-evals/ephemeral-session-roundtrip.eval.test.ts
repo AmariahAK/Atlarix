@@ -60,10 +60,10 @@ describe("ephemeral → session round-trip", () => {
     expect(sessionRow!.streamChatId).toBe(chatId);
 
     // Ephemeral side: the turn is in the in-memory store.
-    const { getEphemeralChat, hydrateEphemeralChatMessages } = await import(
-      "@/lib/ephemeral-chat"
+    const { getStreamTransport, hydrateStreamTransport } = await import(
+      "@/lib/chat/stream-transport"
     );
-    const liveMessages = getEphemeralChat(chatId)?.messages ?? [];
+    const liveMessages = getStreamTransport(chatId)?.messages ?? [];
     const liveAssistant = liveMessages.find((m) => m.role === "assistant");
     expect(liveAssistant?.content).toContain("Ahadi ni deni");
 
@@ -91,7 +91,7 @@ describe("ephemeral → session round-trip", () => {
     expect(loaded.messages[1].role).toBe("assistant");
 
     const newChatId = await ctx.newChat();
-    hydrateEphemeralChatMessages(
+    hydrateStreamTransport(
       newChatId,
       loaded.messages.map((m: any) => ({
         role: m.role,
@@ -100,7 +100,7 @@ describe("ephemeral → session round-trip", () => {
       })),
     );
 
-    const rehydrated = getEphemeralChat(newChatId)?.messages ?? [];
+    const rehydrated = getStreamTransport(newChatId)?.messages ?? [];
     expect(rehydrated.map((m) => m.role)).toEqual(["user", "assistant"]);
     expect(rehydrated[0].content).toContain("Say something memorable.");
     expect(rehydrated[1].content).toContain("Ahadi ni deni");

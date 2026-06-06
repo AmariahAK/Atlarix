@@ -21,7 +21,7 @@ import { readSettings } from "@/main/settings";
 import { extractMentionedAppsCodebases } from "../utils/mention_apps";
 import { parseAppMentions } from "@/shared/parse_mention_apps";
 import { isTurboEditsV2Enabled } from "@/lib/schemas";
-import { getEphemeralChat, isEphemeralChatId } from "@/lib/ephemeral-chat";
+import { getStreamTransport, isStreamTransportId } from "@/lib/chat/stream-transport";
 
 const logger = log.scope("token_count_handlers");
 
@@ -288,8 +288,8 @@ export function registerTokenCountHandlers() {
   handle(
     "chat:count-tokens",
     async (_event, req: TokenCountParams): Promise<TokenCountResult> => {
-      if (isEphemeralChatId(req.chatId)) {
-        const ephemeral = getEphemeralChat(req.chatId);
+      if (isStreamTransportId(req.chatId)) {
+        const ephemeral = getStreamTransport(req.chatId);
         if (!ephemeral) {
           throw new Error(`Chat not found: ${req.chatId}`);
         }

@@ -83,8 +83,8 @@ describe("agent mode coerces to build", () => {
     // Build termination semantics: <task_complete> ended the turn and is
     // stripped from the persisted assistant content.
     expectStreamEnded(fakeIpc.sends, chatId);
-    const { getEphemeralChat } = await import("@/lib/ephemeral-chat");
-    const lastAssistant = [...(getEphemeralChat(chatId)?.messages ?? [])]
+    const { getStreamTransport } = await import("@/lib/chat/stream-transport");
+    const lastAssistant = [...(getStreamTransport(chatId)?.messages ?? [])]
       .reverse()
       .find((m) => m.role === "assistant");
     expect(lastAssistant?.content).toContain("The legacy constant is zamani.");

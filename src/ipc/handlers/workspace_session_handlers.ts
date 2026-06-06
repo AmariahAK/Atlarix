@@ -24,12 +24,12 @@ import type {
 } from "../ipc_types";
 import { hydrateAttachmentStoreFromMessages } from "@/lib/attachment-persistence";
 import {
-  createEphemeralWorkspaceChat,
-  deleteEphemeralChat,
-  getEphemeralChat,
-  getEphemeralChatAppId,
-  isEphemeralChatId,
-} from "@/lib/ephemeral-chat";
+  createStreamTransport,
+  deleteStreamTransport,
+  getStreamTransport,
+  getStreamTransportAppId,
+  isStreamTransportId,
+} from "@/lib/chat/stream-transport";
 
 const DEFAULT_SESSION_TITLES = new Set(["Untitled", "New session", "New chat"]);
 const logger = log.scope("workspace_session_handlers");
@@ -88,34 +88,12 @@ function mapMessage(row: typeof sessionMessages.$inferSelect): SessionMessageRow
 }
 
 /**
- * Pure ordinal mapping for a session edit: given the session's full row list in
- * chronological order, locate the DB row for the ephemeral message at `ephIdx`
- * (among visible user/assistant, non-plan rows, offset by the load window) and
- * the tail rows to delete. Extracted for unit testing.
- */
-export function computeSessionEditTarget(
-  allRows: { id: string; role: string; kind: string | null }[],
-  ephIdx: number,
-  ephCount: number,
-): { targetId: string; deleteIds: string[] } | null {
-  if (ephIdx < 0) return null;
-  const visible = allRows.filter(
-    (r) => (r.role === "user" || r.role === "assistant") && r.kind !== "plan",
-  );
-  const dbOrdinal = visible.length - ephCount + ephIdx;
-  if (dbOrdinal < 0 || dbOrdinal >= visible.length) return null;
-  const target = visible[dbOrdinal]!;
-  const targetPos = allRows.findIndex((r) => r.id === target.id);
-  const deleteIds = allRows.slice(targetPos + 1).map((r) => r.id);
-  return { targetId: target.id, deleteIds };
-}
-
-/**
- * v12 0.4-C2: persist a user-message edit by DIRECT row id (the ephemeral
- * message carries `sessionRowId` since C2 — set at persist time and threaded
- * through hydration). Updates the row's content and deletes every row after
- * it (chronological order). No ordinal mapping — the window-boundary failure
- * class (3.3) is structurally impossible on this path.
+ * Persist a user-message edit by DIRECT row id — every persisted message
+ * carries `sessionRowId` (set at persist time, threaded through hydration;
+ * since 0.4-C3 the ask_user Q→A insert carries it too). Updates the row's
+ * content and deletes every row after it (chronological order). The old
+ * ordinal mapping (and its 3.3 window-boundary failure class) was DELETED
+ * in 0.4-C3 — this is the only edit-persistence path.
  */
 export async function persistEditedSessionMessageById(
   sessionRowId: string,
@@ -150,62 +128,6 @@ export async function persistEditedSessionMessageById(
   return "updated";
 }
 
-/**
- * LEGACY ordinal fallback (pre-C2 hydrations whose messages carry no
- * `sessionRowId`; deleted with the ephemeral store in 0.4-C3): update the
- * edited row's content and delete the (regenerated) tail after it. Maps the
- * in-memory ephemeral message to its DB row by ordinal (ids don't correlate
- * across the ephemeral/persisted stores), accounting for the
- * SESSION_LOAD_MESSAGE_LIMIT load offset.
- *
- * @param chatId   numeric ephemeral/stream chat id (chatSessions.streamChatId)
- * @param ephIdx   index of the edited message among ephemeral messages (pre-truncation)
- * @param ephCount total ephemeral message count (pre-truncation)
- * @returns "updated" when the DB row was edited; "no_session" when the chat
- *          has no persisted session (nothing to update); "unmapped" when the
- *          ordinal mapping landed outside the visible window — the DB is left
- *          untouched and the CALLER MUST SURFACE THIS (v12 3.3: it used to be
- *          a silent void return, so an "applied" edit could quietly diverge
- *          from the persisted session and resume wrong).
- */
-export async function persistEditedSessionMessage(
-  chatId: number,
-  ephIdx: number,
-  ephCount: number,
-  newContent: string,
-): Promise<"updated" | "no_session" | "unmapped"> {
-  if (ephIdx < 0) return "unmapped";
-  const session = await db.query.chatSessions.findFirst({
-    where: eq(chatSessions.streamChatId, chatId),
-  });
-  if (!session) return "no_session"; // not a persisted workspace session
-
-  const allRows = await db
-    .select()
-    .from(sessionMessages)
-    .where(eq(sessionMessages.sessionId, session.id))
-    .orderBy(asc(sessionMessages.createdAt), asc(sessionMessages.id));
-
-  const target = computeSessionEditTarget(allRows, ephIdx, ephCount);
-  if (!target) return "unmapped"; // can't map (offset edge) — DB untouched
-
-  await db
-    .update(sessionMessages)
-    .set({ content: newContent })
-    .where(eq(sessionMessages.id, target.targetId));
-
-  if (target.deleteIds.length > 0) {
-    await db
-      .delete(sessionMessages)
-      .where(inArray(sessionMessages.id, target.deleteIds));
-  }
-
-  await db
-    .update(chatSessions)
-    .set({ updatedAt: new Date() })
-    .where(eq(chatSessions.id, session.id));
-  return "updated";
-}
 
 async function trimSessionMessagesIfNeeded(sessionId: string): Promise<void> {
   const rows = await db
@@ -263,7 +185,7 @@ export async function resolveOrBindWorkspaceSessionForStream(input: {
   const provided = input.workspaceSessionId?.trim();
   if (provided) return provided;
 
-  if (!isEphemeralChatId(input.chatId)) {
+  if (!isStreamTransportId(input.chatId)) {
     throw new Error("workspaceSessionId is required for workspace chat streams");
   }
 
@@ -273,8 +195,8 @@ export async function resolveOrBindWorkspaceSessionForStream(input: {
   if (byTransport) return byTransport.id;
 
   const appId =
-    input.workspaceAppId ?? getEphemeralChatAppId(input.chatId);
-  if (appId == null || !getEphemeralChat(input.chatId)) {
+    input.workspaceAppId ?? getStreamTransportAppId(input.chatId);
+  if (appId == null || !getStreamTransport(input.chatId)) {
     throw new Error("workspaceSessionId is required for workspace chat streams");
   }
 
@@ -287,7 +209,7 @@ export async function resolveOrBindWorkspaceSessionForStream(input: {
     const stored = latest.streamChatId;
     if (
       stored == null ||
-      (isEphemeralChatId(stored) && !getEphemeralChat(stored))
+      (isStreamTransportId(stored) && !getStreamTransport(stored))
     ) {
       await persistSessionStreamChatId(latest.id, input.chatId);
       logger.warn(
@@ -381,7 +303,7 @@ export async function startWorkspaceSession(workspaceId: number): Promise<{
   if (!session) {
     session = await insertWorkspaceSession(workspaceId);
   }
-  const chatId = createEphemeralWorkspaceChat(workspaceId);
+  const chatId = createStreamTransport(workspaceId);
   await persistSessionStreamChatId(session.id, chatId);
   return { sessionId: session.id, chatId, session };
 }
@@ -455,13 +377,13 @@ export function registerWorkspaceSessionHandlers(): void {
     const stored = session.streamChatId;
     if (
       stored != null &&
-      isEphemeralChatId(stored) &&
-      getEphemeralChat(stored)?.appId === session.workspaceId
+      isStreamTransportId(stored) &&
+      getStreamTransport(stored)?.appId === session.workspaceId
     ) {
       return { chatId: stored };
     }
 
-    const chatId = createEphemeralWorkspaceChat(session.workspaceId);
+    const chatId = createStreamTransport(session.workspaceId);
     await persistSessionStreamChatId(sessionId, chatId);
     return { chatId };
   });
@@ -497,8 +419,8 @@ export function registerWorkspaceSessionHandlers(): void {
     await db.delete(chatSessions).where(eq(chatSessions.id, sessionId));
 
     const streamChatId = session?.streamChatId ?? null;
-    if (streamChatId != null && isEphemeralChatId(streamChatId)) {
-      deleteEphemeralChat(streamChatId);
+    if (streamChatId != null && isStreamTransportId(streamChatId)) {
+      deleteStreamTransport(streamChatId);
       const { clearChatStreamStateForChat } = await import(
         "./chat_stream_handlers"
       );

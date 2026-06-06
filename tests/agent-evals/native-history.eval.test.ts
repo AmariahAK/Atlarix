@@ -195,10 +195,10 @@ describe("native tool-call history", () => {
     );
 
     // …which the renderer persists via messages:add extras (played here).
-    const { getEphemeralChat, hydrateEphemeralChatMessages } = await import(
-      "@/lib/ephemeral-chat"
+    const { getStreamTransport, hydrateStreamTransport } = await import(
+      "@/lib/chat/stream-transport"
     );
-    const liveAssistant = (getEphemeralChat(chatId)?.messages ?? []).find(
+    const liveAssistant = (getStreamTransport(chatId)?.messages ?? []).find(
       (m) => m.role === "assistant",
     );
     const sessionRow = await ctx.testDb.db.query.chatSessions.findFirst({
@@ -223,7 +223,7 @@ describe("native tool-call history", () => {
     const sessionsGet = await getIpcHandler("sessions:get");
     const loaded: any = await sessionsGet({} as any, sessionRow!.id);
     const reloadedChatId = await ctx.newChat();
-    hydrateEphemeralChatMessages(
+    hydrateStreamTransport(
       reloadedChatId,
       loaded.messages.map((m: any) => ({
         role: m.role,

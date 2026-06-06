@@ -1,6 +1,6 @@
 import { db } from "../../db";
 import { apps } from "../../db/schema";
-import { getEphemeralChat, getEphemeralChatAppId } from "@/lib/ephemeral-chat";
+import { getStreamTransport, getStreamTransportAppId } from "@/lib/chat/stream-transport";
 import { eq } from "drizzle-orm";
 import fs from "node:fs";
 import { getAtlarixAppPath } from "../../paths/paths";
@@ -70,7 +70,7 @@ export async function processFullResponseActions(
   const fileUploadsMap = fileUploadsState.getFileUploadsForChat(chatId);
   fileUploadsState.clear(chatId);
   logger.log("processFullResponseActions for chatId", chatId);
-  const appId = getEphemeralChatAppId(chatId);
+  const appId = getStreamTransportAppId(chatId);
   const app = appId
     ? await db.query.apps.findFirst({ where: eq(apps.id, appId) })
     : null;
@@ -104,7 +104,7 @@ export async function processFullResponseActions(
 
   const warnings: Output[] = [];
   const errors: Output[] = [];
-  const ephemeralChat = getEphemeralChat(chatId);
+  const ephemeralChat = getStreamTransport(chatId);
 
   try {
     // Extract all tags

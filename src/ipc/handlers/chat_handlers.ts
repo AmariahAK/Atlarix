@@ -12,11 +12,10 @@ import {
   hydrateAttachmentStoreFromMessages,
 } from "@/lib/attachment-persistence";
 import {
-  clearEphemeralChatMessages,
-  getEphemeralChat,
-  hydrateEphemeralChatMessages,
-  isEphemeralChatId,
-} from "@/lib/ephemeral-chat";
+  getStreamTransport,
+  hydrateStreamTransport,
+  isStreamTransportId,
+} from "@/lib/chat/stream-transport";
 import log from "electron-log";
 
 const logger = log.scope("chat_handlers");
@@ -26,10 +25,8 @@ const LEGACY_CHAT_REMOVED =
   "Legacy database chats were removed. Open a workspace session from the sidebar.";
 
 export function registerChatHandlers() {
-  handle("chat:clear-ephemeral-messages", async (_, chatId: number) => {
-    if (!isEphemeralChatId(chatId)) return;
-    clearEphemeralChatMessages(chatId);
-  });
+  // v12 0.4-C3: chat:clear-ephemeral-messages deleted — it was a no-op
+  // precursor (hydrate replaces the buffer wholesale).
 
   handle(
     "chat:hydrate-ephemeral-messages",
@@ -51,18 +48,18 @@ export function registerChatHandlers() {
         }[];
       },
     ) => {
-      if (!isEphemeralChatId(payload.chatId)) return;
+      if (!isStreamTransportId(payload.chatId)) return;
       hydrateAttachmentStoreFromMessages(payload.messages ?? []);
-      hydrateEphemeralChatMessages(payload.chatId, payload.messages ?? []);
+      hydrateStreamTransport(payload.chatId, payload.messages ?? []);
     },
   );
 
   ipcMain.handle("get-chat", async (_, chatId: number) => {
-    if (!isEphemeralChatId(chatId)) {
+    if (!isStreamTransportId(chatId)) {
       throw new Error(LEGACY_CHAT_REMOVED);
     }
 
-    const ephemeralChat = getEphemeralChat(chatId);
+    const ephemeralChat = getStreamTransport(chatId);
     if (!ephemeralChat) {
       throw new Error("Ephemeral chat not found");
     }

@@ -1288,9 +1288,6 @@ export class IpcClient {
     });
   }
 
-  public async clearEphemeralChatMessages(chatId: number): Promise<void> {
-    await this.ipcRenderer.invoke("chat:clear-ephemeral-messages", chatId);
-  }
 
   public async hydrateEphemeralChatMessages(
     chatId: number,
@@ -1391,10 +1388,6 @@ export class IpcClient {
 
   public async deleteChat(_chatId: number): Promise<void> {
     throw new Error("Legacy chat delete removed; use deleteWorkspaceSession");
-  }
-
-  public async deleteMessages(chatId: number): Promise<void> {
-    await this.clearEphemeralChatMessages(chatId);
   }
 
   // Open an external URL using the default browser

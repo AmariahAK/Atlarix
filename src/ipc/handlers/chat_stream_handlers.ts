@@ -94,11 +94,11 @@ import {
 } from "./turn-tool-tracking";
 import { stripHallucinatedAtlarixToolTagsFromDelta } from "@/lib/chat/answer-display";
 import {
-  getEphemeralChatAppId,
-  getEphemeralChat,
+  getStreamTransportAppId,
+  getStreamTransport,
   buildContinueAfterQuestionsPrompt,
   nextEphemeralMessageId,
-} from "@/lib/ephemeral-chat";
+} from "@/lib/chat/stream-transport";
 import { shouldUseTextToolFallback } from "@/lib/stream/text-tool-fallback";
 import { isStreamDebugLoggingEnabled } from "@/lib/stream/stream-debug";
 import { stripQuestionsBlockFromResponse } from "../utils/cleanFullResponse";
@@ -1156,7 +1156,7 @@ async function performFullRevert(params: {
     };
   }
 
-  const ec = getEphemeralChat(chatId);
+  const ec = getStreamTransport(chatId);
   if (ec) {
     const idx = ec.messages.findIndex((m) => m.id === assistantMessageId);
     if (idx < 0) {
@@ -1246,15 +1246,15 @@ export function registerChatStreamHandlers() {
     ): Promise<{ success: boolean; restream?: boolean }> => {
       const { formatInteractiveQaLine } = await import("../../lib/interactive-qa-format");
       const {
-        isEphemeralChatId,
-        getEphemeralChat,
+        isStreamTransportId,
+        getStreamTransport,
         insertAskUserAnswerUserMessage,
-      } = await import("@/lib/ephemeral-chat");
+      } = await import("@/lib/chat/stream-transport");
 
       pendingAskUserArtifactByChatId.delete(payload.chatId);
       const content = formatInteractiveQaLine(payload.questionText, payload.answer);
 
-      if (!isEphemeralChatId(payload.chatId)) {
+      if (!isStreamTransportId(payload.chatId)) {
         // Workspace chats are the only ask_user surface (ephemeral transport
         // + session log). A non-ephemeral id here means stale UI state.
         logger.warn(
@@ -1263,12 +1263,12 @@ export function registerChatStreamHandlers() {
         return { success: false };
       }
 
-      if (!insertAskUserAnswerUserMessage(payload.chatId, content)) {
-        return { success: false };
-      }
-
-      // Durable copy in the bound workspace session (best-effort: a session
-      // may not exist for scratch chats — the in-memory message still works).
+      // Durable copy in the bound workspace session FIRST (best-effort: a
+      // session may not exist for scratch chats — the in-memory message
+      // still works). v12 0.4-C3: persist-then-insert so the in-memory
+      // message carries its row UUID (sessionRowId) — the last message kind
+      // that lacked it, which kept the ordinal edit fallback alive.
+      let qaRowId: string | undefined;
       try {
         const {
           resolveOrBindWorkspaceSessionForStream,
@@ -1277,12 +1277,17 @@ export function registerChatStreamHandlers() {
         const sessionId = await resolveOrBindWorkspaceSessionForStream({
           chatId: payload.chatId,
         });
-        await persistWorkspaceSessionUserMessage(sessionId, content, {});
+        const row = await persistWorkspaceSessionUserMessage(sessionId, content, {});
+        qaRowId = row?.id;
       } catch (err) {
         logger.warn("[ask_user] Could not persist Q&A to session:", err);
       }
 
-      const chat = getEphemeralChat(payload.chatId);
+      if (!insertAskUserAnswerUserMessage(payload.chatId, content, qaRowId)) {
+        return { success: false };
+      }
+
+      const chat = getStreamTransport(payload.chatId);
       safeSend(event.sender, "chat:response:chunk", {
         chatId: payload.chatId,
         messages: [...(chat?.messages ?? [])],
@@ -1443,9 +1448,9 @@ export function registerChatStreamHandlers() {
         const fileUploadsState = FileUploadsState.getInstance();
         let engineRequestId: string | undefined;
         let hadToolCallsOrPermissions = false;
-        const { isEphemeralChatId, getEphemeralChatAppId } = await import("@/lib/ephemeral-chat");
+        const { isStreamTransportId, getStreamTransportAppId } = await import("@/lib/chat/stream-transport");
 
-        if (!isEphemeralChatId(req.chatId)) {
+        if (!isStreamTransportId(req.chatId)) {
           const legacyMsg =
             "Legacy database chats were removed. Open a workspace session from the sidebar.";
           logger.warn(`Chat ${req.chatId} rejected: legacy positive chat id`);
@@ -1462,9 +1467,9 @@ export function registerChatStreamHandlers() {
           return;
         }
 
-        if (isEphemeralChatId(req.chatId)) {
+        if (isStreamTransportId(req.chatId)) {
           // Check if this ephemeral chat is associated with a workspace
-          const ephemeralAppId = getEphemeralChatAppId(req.chatId);
+          const ephemeralAppId = getStreamTransportAppId(req.chatId);
 
           if (ephemeralAppId) {
             logger.log(`Chat ${req.chatId} is ephemeral workspace chat for app: ${ephemeralAppId}`);
@@ -1490,11 +1495,11 @@ export function registerChatStreamHandlers() {
       let chat: any;
       let appData: any;
 
-      if (isEphemeralChatId(req.chatId)) {
+      if (isStreamTransportId(req.chatId)) {
         // Ephemeral workspace chat - get app from DB using the stored appId
-        const ephemeralAppId = getEphemeralChatAppId(req.chatId);
-        const { getEphemeralChat } = await import("@/lib/ephemeral-chat");
-        const ephemeralChat = getEphemeralChat(req.chatId);
+        const ephemeralAppId = getStreamTransportAppId(req.chatId);
+        const { getStreamTransport } = await import("@/lib/chat/stream-transport");
+        const ephemeralChat = getStreamTransport(req.chatId);
 
         appData = await db.query.apps.findFirst({
           where: eq(apps.id, ephemeralAppId!),
@@ -1590,7 +1595,7 @@ export function registerChatStreamHandlers() {
         }
         if (lastUserMessageIndex >= 0) {
           chat.messages = chatMessages.slice(0, lastUserMessageIndex);
-          const ephemeral = getEphemeralChat(req.chatId);
+          const ephemeral = getStreamTransport(req.chatId);
           if (ephemeral) {
             ephemeral.messages = chat.messages;
           }
@@ -1600,7 +1605,7 @@ export function registerChatStreamHandlers() {
       // v3.9: Continue after clarifying questions — use last user message (already updated with Q/A block)
       let userPrompt: string = "";
       if (req.continueAfterQuestions) {
-        const ephemeral = getEphemeralChat(req.chatId);
+        const ephemeral = getStreamTransport(req.chatId);
         if (!ephemeral) throw new Error("Chat not found");
         const composed = buildContinueAfterQuestionsPrompt(ephemeral.messages);
         if (!composed.trim()) {
@@ -1794,7 +1799,7 @@ ${componentSnippet}
       }
 
       // Check if this is an ephemeral workspace chat (skip legacy chats/messages DB writes)
-      const isEphemeralWorkspace = isEphemeralChatId(req.chatId);
+      const isEphemeralWorkspace = isStreamTransportId(req.chatId);
 
       // v12 0.4-C2: capture the persisted row's UUID so the ephemeral message
       // carries it (edits target the DB row directly — no ordinal mapping).
@@ -1849,7 +1854,7 @@ ${componentSnippet}
       let placeholderAssistantMessage: any = { id: placeholderMessageId };
       let updatedChat: any = chat; // Use the existing chat object for ephemeral
 
-      const ephemeralChat = getEphemeralChat(req.chatId);
+      const ephemeralChat = getStreamTransport(req.chatId);
       const existingMessages = ephemeralChat?.messages || [];
 
       const placeholderMessage = {
@@ -3032,7 +3037,7 @@ This conversation includes one or more image attachments. When the user uploads 
                 getEffectiveModelForOptions(settings)?.provider ??
                 (settings.selectedModel?.provider ?? undefined);
               const { executeCompressContext } = await import("@/lib/tools/workspace");
-              const { getEphemeralChat } = await import("@/lib/ephemeral-chat");
+              const { getStreamTransport } = await import("@/lib/chat/stream-transport");
               const msgListR = updatedChat.messages as {
                 id: number;
                 role: string;
@@ -3056,7 +3061,7 @@ This conversation includes one or more image attachments. When the user uploads 
                   setMessages: canEphemeralR
                     ? (next) => {
                         updatedChat.messages = next as typeof updatedChat.messages;
-                        const ec = getEphemeralChat(req.chatId);
+                        const ec = getStreamTransport(req.chatId);
                         if (ec) ec.messages = next as typeof ec.messages;
                       }
                     : undefined,
@@ -3375,7 +3380,7 @@ This conversation includes one or more image attachments. When the user uploads 
           if (isSummarizeIntent) {
             const priorTransportId = parseInt(req.prompt.split("=")[1], 10);
             const priorEphemeral = Number.isFinite(priorTransportId)
-              ? getEphemeralChat(priorTransportId)
+              ? getStreamTransport(priorTransportId)
               : undefined;
             chatMessages = [
               {
@@ -3927,8 +3932,8 @@ This conversation includes one or more image attachments. When the user uploads 
                   updatedChat.messages[lastIdx]?.role === "assistant"
                 ) {
                   updatedChat.messages[lastIdx].content = stripped;
-                  const { getEphemeralChat } = await import("@/lib/ephemeral-chat");
-                  const ec = getEphemeralChat(req.chatId);
+                  const { getStreamTransport } = await import("@/lib/chat/stream-transport");
+                  const ec = getStreamTransport(req.chatId);
                   if (ec) {
                     ec.messages = updatedChat.messages;
                   }
@@ -4163,7 +4168,7 @@ This conversation includes one or more image attachments. When the user uploads 
                           getEffectiveModelForOptions(settings)?.provider ??
                           (settings.selectedModel?.provider ?? undefined);
                         const { executeCompressContext } = await import("@/lib/tools/workspace");
-                        const { getEphemeralChat } = await import("@/lib/ephemeral-chat");
+                        const { getStreamTransport } = await import("@/lib/chat/stream-transport");
                         const msgList = updatedChat.messages as {
                           id: number;
                           role: string;
@@ -4189,7 +4194,7 @@ This conversation includes one or more image attachments. When the user uploads 
                             setMessages: isEphemeralWorkspace
                               ? (next) => {
                                   updatedChat.messages = next as typeof updatedChat.messages;
-                                  const ec = getEphemeralChat(req.chatId);
+                                  const ec = getStreamTransport(req.chatId);
                                   if (ec) ec.messages = next as typeof ec.messages;
                                 }
                               : undefined,
@@ -5865,8 +5870,8 @@ This conversation includes one or more image attachments. When the user uploads 
                     const cancelledContent = `${partialResponse}
 
 ${stopNote}`;
-                    const { addEphemeralMessage } = await import("@/lib/ephemeral-chat");
-                    addEphemeralMessage(req.chatId, {
+                    const { appendTransportMessage } = await import("@/lib/chat/stream-transport");
+                    appendTransportMessage(req.chatId, {
                       role: "assistant",
                       content: stripThinkBlocks(cancelledContent),
                     });
@@ -6088,7 +6093,7 @@ ${stopNote}`;
               })
             : "";
           {
-            const ec = getEphemeralChat(req.chatId);
+            const ec = getStreamTransport(req.chatId);
             const finalContent = stripThinkBlocks(responseToStore);
             const lastInUpdated =
               updatedChat.messages.length > 0
@@ -6389,8 +6394,8 @@ ${stopNote}`;
             `[ask_user] Stream ended at question (benign: ${error instanceof Error ? error.name : String(error)})`,
           );
           try {
-            const { getEphemeralChat } = await import("@/lib/ephemeral-chat");
-            const chat = getEphemeralChat(req.chatId);
+            const { getStreamTransport } = await import("@/lib/chat/stream-transport");
+            const chat = getStreamTransport(req.chatId);
             const pendingArtifact = pendingAskUserArtifactByChatId.get(req.chatId);
             if (chat) {
               const last = chat.messages[chat.messages.length - 1];
@@ -6661,67 +6666,53 @@ ${stopNote}`;
     ) => {
       const { chatId, userMessageId, newContent } = payload;
       // Ephemeral chats (chatId < 0) live only in-memory (ephemeral-chat transport).
-      const { editEphemeralUserMessage, getEphemeralChat } = await import(
-        "@/lib/ephemeral-chat"
+      const { editTransportUserMessage, getStreamTransport } = await import(
+        "@/lib/chat/stream-transport"
       );
-      // Capture identity BEFORE the edit truncates the tail. v12 0.4-C2: the
-      // message carries its DB row UUID (`sessionRowId`) — edits target the
-      // row DIRECTLY. The ordinal capture below is the LEGACY fallback for
-      // pre-C2 messages without it (dies with the ephemeral store in C3).
-      const chat = getEphemeralChat(chatId);
+      // v12 0.4-C3: edits target the DB row DIRECTLY via the message's
+      // sessionRowId (every persisted message carries it — streamed user
+      // messages since C2, ask_user Q→A inserts since C3). The ordinal
+      // fallback is deleted. A message WITHOUT a row id was never persisted
+      // (best-effort persist failed) — surface that instead of silently
+      // diverging.
+      const chat = getStreamTransport(chatId);
       const targetMsg = chat?.messages.find(
         (m) => m.id === userMessageId && m.role === "user",
       );
       const sessionRowId = targetMsg?.sessionRowId;
-      const ephCount = chat?.messages.length ?? 0;
-      const ephIdx =
-        chat?.messages.findIndex(
-          (m) => m.id === userMessageId && m.role === "user",
-        ) ?? -1;
 
-      const ok = editEphemeralUserMessage(chatId, userMessageId, newContent);
+      const ok = editTransportUserMessage(chatId, userMessageId, newContent);
       if (!ok) {
         throw new Error("Ephemeral user message not found");
       }
 
-      // Persist the edit + tail truncation to the saved session (was previously
-      // only in-memory, so edits vanished on session switch).
-      // v12 3.3: an unmapped ordinal (edit beyond the load window) used to fail
-      // SILENTLY — the edit looked applied (ephemeral) but the DB kept the old
-      // content, so a later reload/resume diverged. Surface it.
-      let persistedToSession = true;
+      let persistedToSession = false;
       try {
-        const {
-          persistEditedSessionMessage,
-          persistEditedSessionMessageById,
-        } = await import("./workspace_session_handlers");
-        const outcome = sessionRowId
-          ? await persistEditedSessionMessageById(sessionRowId, newContent)
-          : await persistEditedSessionMessage(
-              chatId,
-              ephIdx,
-              ephCount,
-              newContent,
-            );
-        if (outcome === "unmapped" || outcome === "not_found") {
-          persistedToSession = false;
-          logger.warn(
-            `[chat:edit-message] edit not persisted to session (ordinal unmapped, chat ${chatId}, idx ${ephIdx}/${ephCount})`,
+        if (sessionRowId) {
+          const { persistEditedSessionMessageById } = await import(
+            "./workspace_session_handlers"
           );
-          safeSend(event.sender, "chat:activity", {
-            id: `edit-not-persisted-${chatId}-${Date.now()}`,
-            type: "warning",
-            label: "Edit not saved to session history",
-            detail:
-              "The edit applies to this conversation, but the saved session could not be updated — after a reload the original message may reappear.",
-            status: "error",
-            timestamp: Date.now(),
-            chatId,
-          });
+          persistedToSession =
+            (await persistEditedSessionMessageById(sessionRowId, newContent)) ===
+            "updated";
         }
       } catch (e) {
-        persistedToSession = false;
         logger.warn("Failed to persist edited session message:", e);
+      }
+      if (!persistedToSession) {
+        logger.warn(
+          `[chat:edit-message] edit not persisted to session (chat ${chatId}, sessionRowId=${sessionRowId ?? "none"})`,
+        );
+        safeSend(event.sender, "chat:activity", {
+          id: `edit-not-persisted-${chatId}-${Date.now()}`,
+          type: "warning",
+          label: "Edit not saved to session history",
+          detail:
+            "The edit applies to this conversation, but the saved session could not be updated — after a reload the original message may reappear.",
+          status: "error",
+          timestamp: Date.now(),
+          chatId,
+        });
       }
       return { success: true, persistedToSession };
     }
@@ -6752,12 +6743,12 @@ ${stopNote}`;
       payload: { chatId: number; assistantMessageId: number }
     ) => {
       const { chatId, assistantMessageId } = payload;
-      const ec = getEphemeralChat(chatId);
+      const ec = getStreamTransport(chatId);
       const msg = ec?.messages.find((m) => m.id === assistantMessageId);
       if (!msg || msg.role !== "assistant") {
         throw new Error("Assistant message not found");
       }
-      const appId = getEphemeralChatAppId(chatId) ?? null;
+      const appId = getStreamTransportAppId(chatId) ?? null;
       const turnId = String(assistantMessageId);
       if (appId != null) {
         const app = await db.query.apps.findFirst({ where: eq(apps.id, appId) });
@@ -6791,7 +6782,7 @@ ${stopNote}`;
       if (!op?.path) {
         return { success: false, error: "No file path for this operation" };
       }
-      const workspaceId = getEphemeralChatAppId(payload.chatId);
+      const workspaceId = getStreamTransportAppId(payload.chatId);
       if (workspaceId == null) {
         return { success: false, error: "Chat has no workspace" };
       }
@@ -6840,7 +6831,7 @@ ${stopNote}`;
       if (!Number.isFinite(assistantMessageId)) {
         return { success: false, error: "Invalid turnId" };
       }
-      const ec = getEphemeralChat(chatId);
+      const ec = getStreamTransport(chatId);
       const msg = ec?.messages.find((m) => m.id === assistantMessageId);
       if (!msg || msg.role !== "assistant") {
         return {
@@ -6848,7 +6839,7 @@ ${stopNote}`;
           error: "Assistant message not found for this chat and turnId",
         };
       }
-      const workspaceId = getEphemeralChatAppId(chatId);
+      const workspaceId = getStreamTransportAppId(chatId);
       if (workspaceId == null) {
         return { success: false, error: "No workspace attached" };
       }

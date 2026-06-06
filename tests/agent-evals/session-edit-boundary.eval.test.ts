@@ -10,16 +10,16 @@ import { makeFakeIpcEvent } from "../infra/ipc";
 import { expectNoStreamError, expectStreamEnded } from "../infra/assert";
 
 /**
- * v12 0.4-C2 + 3.3 — session-edit integrity.
+ * v12 0.4 — session-edit integrity (C2 direct-row ids; C3 fallback deletion).
  *
- * C2: streamed user messages carry their session DB row UUID
- * (`sessionRowId`), so edits target the row DIRECTLY — the old
- * window-boundary ordinal failure (3.3) is structurally impossible on this
- * path: an edit that ordinal math could NOT have mapped persists correctly.
+ * Every persisted message carries its session DB row UUID (`sessionRowId` —
+ * streamed user messages since C2, ask_user Q→A inserts since C3), so edits
+ * target the row DIRECTLY. The ordinal mapping and its window-boundary
+ * failure class (3.3) were DELETED in C3.
  *
- * Legacy fallback (pre-C2 messages without `sessionRowId`, deleted with the
- * ephemeral store in C3): an unmappable ordinal surfaces a visible warning +
- * `persistedToSession:false` instead of silently diverging (the 3.3 fix).
+ * A message WITHOUT `sessionRowId` was never persisted (best-effort persist
+ * failed / in-memory-only extra) — editing it surfaces a visible warning +
+ * `persistedToSession:false` instead of silently diverging.
  */
 
 let ctx: EvalContext;
@@ -48,13 +48,13 @@ describe("session edit integrity (0.4-C2 / 3.3)", () => {
     // Pile extra ephemeral user messages on top of the single persisted DB
     // row — the FIRST message's ordinal maps below the visible window
     // (dbOrdinal < 0), which the OLD path could not handle.
-    const { addEphemeralMessage, getEphemeralChat } = await import(
-      "@/lib/ephemeral-chat"
+    const { appendTransportMessage, getStreamTransport } = await import(
+      "@/lib/chat/stream-transport"
     );
-    addEphemeralMessage(chatId, { role: "user", content: "extra one" });
-    addEphemeralMessage(chatId, { role: "user", content: "extra two" });
-    addEphemeralMessage(chatId, { role: "user", content: "extra three" });
-    const firstUser = (getEphemeralChat(chatId)?.messages ?? []).find(
+    appendTransportMessage(chatId, { role: "user", content: "extra one" });
+    appendTransportMessage(chatId, { role: "user", content: "extra two" });
+    appendTransportMessage(chatId, { role: "user", content: "extra three" });
+    const firstUser = (getStreamTransport(chatId)?.messages ?? []).find(
       (m) => m.role === "user",
     );
     expect(
@@ -107,11 +107,11 @@ describe("session edit integrity (0.4-C2 / 3.3)", () => {
     });
     const sessionsGet = await getIpcHandler("sessions:get");
     const loaded: any = await sessionsGet({} as any, sessionRow!.id);
-    const { hydrateEphemeralChatMessages, getEphemeralChat } = await import(
-      "@/lib/ephemeral-chat"
+    const { hydrateStreamTransport, getStreamTransport } = await import(
+      "@/lib/chat/stream-transport"
     );
     const newChatId = await ctx.newChat();
-    hydrateEphemeralChatMessages(
+    hydrateStreamTransport(
       newChatId,
       loaded.messages.map((m: any) => ({
         role: m.role,
@@ -120,7 +120,7 @@ describe("session edit integrity (0.4-C2 / 3.3)", () => {
       })),
     );
 
-    const hydratedUser = (getEphemeralChat(newChatId)?.messages ?? []).find(
+    const hydratedUser = (getStreamTransport(newChatId)?.messages ?? []).find(
       (m) => m.role === "user",
     );
     expect(hydratedUser?.sessionRowId).toBeTruthy();
@@ -142,7 +142,7 @@ describe("session edit integrity (0.4-C2 / 3.3)", () => {
     ).toBe(true);
   });
 
-  it("legacy fallback: an unmappable ordinal surfaces a warning (3.3)", async () => {
+  it("no sessionRowId (never persisted) surfaces a warning instead of diverging", async () => {
     ctx.server.register(scenario("edit-fallback").text("Reply two.").build());
 
     const chatId = await ctx.newChat();
@@ -154,14 +154,14 @@ describe("session edit integrity (0.4-C2 / 3.3)", () => {
     expectNoStreamError(turn.fakeIpc.sends, chatId);
     expectStreamEnded(turn.fakeIpc.sends, chatId);
 
-    // Edit an ephemeral-only extra message (NO sessionRowId → ordinal path).
-    // Its ordinal maps past the persisted rows → "unmapped".
-    const { addEphemeralMessage, getEphemeralChat } = await import(
-      "@/lib/ephemeral-chat"
+    // Edit an in-memory-only extra message (NO sessionRowId — it was never
+    // persisted, so there is no DB row to update).
+    const { appendTransportMessage, getStreamTransport } = await import(
+      "@/lib/chat/stream-transport"
     );
-    addEphemeralMessage(chatId, { role: "user", content: "ephemeral only A" });
-    addEphemeralMessage(chatId, { role: "user", content: "ephemeral only B" });
-    const extra = [...(getEphemeralChat(chatId)?.messages ?? [])]
+    appendTransportMessage(chatId, { role: "user", content: "ephemeral only A" });
+    appendTransportMessage(chatId, { role: "user", content: "ephemeral only B" });
+    const extra = [...(getStreamTransport(chatId)?.messages ?? [])]
       .reverse()
       .find((m) => m.role === "user" && m.content === "ephemeral only A");
     expect(extra).toBeTruthy();

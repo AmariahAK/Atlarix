@@ -68,8 +68,8 @@ describe("single-tool flow (build mode)", () => {
     expectStreamEnded(fakeIpc.sends, chatId);
 
     // Final assistant message in ephemeral history (task_complete stripped)
-    const { getEphemeralChat } = await import("@/lib/ephemeral-chat");
-    const chat = getEphemeralChat(chatId);
+    const { getStreamTransport } = await import("@/lib/chat/stream-transport");
+    const chat = getStreamTransport(chatId);
     const lastAssistant = [...(chat?.messages ?? [])]
       .reverse()
       .find((m) => m.role === "assistant");

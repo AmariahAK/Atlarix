@@ -17,7 +17,7 @@ import {
 import { generateCuteAppName } from "../utils";
 import { db } from "../../db";
 import { apps } from "../../db/schema";
-import { getEphemeralChat } from "@/lib/ephemeral-chat";
+import { getStreamTransport } from "@/lib/chat/stream-transport";
 import path from "path";
 import os from "node:os";
 import { extractTextFromPdfBuffer } from "@/lib/attachment-pdf-extract";
@@ -132,7 +132,7 @@ Would you like to upgrade or delete the existing workspace?`,
             );
 
             if (params.chatId != null) {
-                const transport = getEphemeralChat(params.chatId);
+                const transport = getStreamTransport(params.chatId);
                 if (transport) {
                     transport.appId = app.id;
                 }
@@ -244,7 +244,7 @@ ToolRegistry.register({
                 };
             }
 
-            const transport = getEphemeralChat(params.chatId);
+            const transport = getStreamTransport(params.chatId);
             if (transport) {
                 transport.appId = params.workspace_id;
             }
@@ -379,8 +379,8 @@ export async function forceCompactEphemeralChat(
     chatId: number,
     providerId?: string,
 ): Promise<boolean> {
-    const { getEphemeralChat } = await import("@/lib/ephemeral-chat");
-    const chat = getEphemeralChat(chatId);
+    const { getStreamTransport } = await import("@/lib/chat/stream-transport");
+    const chat = getStreamTransport(chatId);
     if (!chat || chat.messages.length < 4) return false;
 
     const msgList = chat.messages.map((m) => ({

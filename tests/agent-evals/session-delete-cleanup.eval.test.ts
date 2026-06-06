@@ -40,8 +40,8 @@ describe("session delete cleanup", () => {
     });
     expectNoStreamError(fakeIpc.sends, chatId);
 
-    const { getEphemeralChat } = await import("@/lib/ephemeral-chat");
-    expect(getEphemeralChat(chatId)).toBeTruthy();
+    const { getStreamTransport } = await import("@/lib/chat/stream-transport");
+    expect(getStreamTransport(chatId)).toBeTruthy();
 
     const sessionRow = await ctx.testDb.db.query.chatSessions.findFirst();
     expect(sessionRow?.streamChatId).toBe(chatId);
@@ -53,7 +53,7 @@ describe("session delete cleanup", () => {
     expect(result.streamChatId).toBe(chatId);
 
     // In-memory transport gone (main-process leak fixed).
-    expect(getEphemeralChat(chatId)).toBeUndefined();
+    expect(getStreamTransport(chatId)).toBeUndefined();
 
     // DB row gone.
     const remaining = await ctx.testDb.db.query.chatSessions.findMany();

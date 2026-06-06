@@ -88,8 +88,8 @@ describe("ask parity baselines", () => {
 
     expectStreamEnded(fakeIpc.sends, chatId);
 
-    const { getEphemeralChat } = await import("@/lib/ephemeral-chat");
-    const lastAssistant = [...(getEphemeralChat(chatId)?.messages ?? [])]
+    const { getStreamTransport } = await import("@/lib/chat/stream-transport");
+    const lastAssistant = [...(getStreamTransport(chatId)?.messages ?? [])]
       .reverse()
       .find((m) => m.role === "assistant");
     expect(lastAssistant?.content).toContain("habari");
@@ -165,8 +165,8 @@ describe("ask parity baselines", () => {
       "expected the wrapper's 'Plan saved' activity",
     ).toBe(true);
 
-    const { getEphemeralChat } = await import("@/lib/ephemeral-chat");
-    const lastAssistant = [...(getEphemeralChat(chatId)?.messages ?? [])]
+    const { getStreamTransport } = await import("@/lib/chat/stream-transport");
+    const lastAssistant = [...(getStreamTransport(chatId)?.messages ?? [])]
       .reverse()
       .find((m) => m.role === "assistant");
     expect(lastAssistant?.content).toContain("atlarix-plan-artifact");
@@ -248,8 +248,8 @@ describe("ask parity baselines", () => {
       contentContains: "Say something persistent.",
     });
 
-    const { getEphemeralChat } = await import("@/lib/ephemeral-chat");
-    const lastAssistant = [...(getEphemeralChat(chatId)?.messages ?? [])]
+    const { getStreamTransport } = await import("@/lib/chat/stream-transport");
+    const lastAssistant = [...(getStreamTransport(chatId)?.messages ?? [])]
       .reverse()
       .find((m) => m.role === "assistant");
     expect(lastAssistant?.content).toContain("Persisted from ask mode.");

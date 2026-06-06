@@ -83,8 +83,8 @@ describe("edit with approval (build mode)", () => {
 
     expectStreamEnded(fakeIpc.sends, chatId);
 
-    const { getEphemeralChat } = await import("@/lib/ephemeral-chat");
-    const lastAssistant = [...(getEphemeralChat(chatId)?.messages ?? [])]
+    const { getStreamTransport } = await import("@/lib/chat/stream-transport");
+    const lastAssistant = [...(getStreamTransport(chatId)?.messages ?? [])]
       .reverse()
       .find((m) => m.role === "assistant");
     expect(lastAssistant?.content).toContain("Created src/answer.ts.");
