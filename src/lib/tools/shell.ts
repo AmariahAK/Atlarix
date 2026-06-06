@@ -204,9 +204,21 @@ ToolRegistry.register({
             command = testCommand;
         }
 
-        const pathLine = testTarget ? `\nPath: ${testTarget}` : "";
-        const watchLine = watch ? "\nWatch: yes" : "";
-        return `__PERMISSION_REQUIRED__\n🧪 Run Tests\n\nCommand: \`${command}\`${pathLine}${watchLine}\n\n[Approve] [Reject]`;
+        // v12 0.4-C1: structured permission envelope (was the legacy
+        // __PERMISSION_REQUIRED__ string — which the interceptor's legacy
+        // parser didn't even recognize as a command: it fell through to a
+        // bogus write_file/"unknown" operation). operation:"run_command" so
+        // approval executes through the normal command path.
+        return {
+            __permission_required: true,
+            operation: "run_command",
+            preview: {
+                command,
+                workingDirectory: ".",
+                description: `Run tests${testTarget ? ` (${testTarget})` : ""}${watch ? " — watch mode" : ""}`,
+                isDangerous: false,
+            },
+        };
     },
 });
 

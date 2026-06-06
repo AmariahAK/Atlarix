@@ -60,6 +60,8 @@ function sessionMessagesToUiMessages(
     .filter((m) => m.role === "user" || m.role === "assistant")
     .map((m) => ({
       id: displayMessageId--,
+      // v12 0.4-C2: keep the DB row UUID — edits target the row directly.
+      sessionRowId: m.id,
       role: m.role as "user" | "assistant",
       content: m.content,
       chatId,
@@ -202,6 +204,7 @@ export function WorkspaceSessionList({
         chatId,
         uiMessages.map((m) => ({
           id: m.id,
+          sessionRowId: m.sessionRowId ?? undefined,
           role: m.role,
           content: String(m.content ?? ""),
           displaySnapshot: m.displaySnapshot ?? undefined,

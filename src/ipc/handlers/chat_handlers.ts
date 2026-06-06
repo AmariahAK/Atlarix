@@ -41,6 +41,8 @@ export function registerChatHandlers() {
           role: string;
           content: string;
           id?: number;
+          /** v12 0.4-C2: session DB row UUID (direct edit targeting). */
+          sessionRowId?: string | null;
           displaySnapshot?: DisplaySnapshotV1 | null;
           modelContent?: string | null;
           pasteAttachments?: import("../ipc_types").PasteAttachmentMeta[] | null;

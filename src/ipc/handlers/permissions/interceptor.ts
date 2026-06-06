@@ -323,18 +323,20 @@ export class PermissionInterceptor extends EventEmitter {
      * Check if a tool result is a permission request (object or string)
      */
     isPermissionRequest(result: unknown): boolean {
-        // Check object format first (new style)
+        // Structured object format (the contract — v12 0.4-C1: the legacy
+        // "__PERMISSION_REQUIRED__" text fallback was deleted; its last main-
+        // process producer, run_tests, now emits the structured envelope).
         if (typeof result === 'object' && result !== null) {
             return (result as any).__permission_required === true;
         }
 
-        // Check string format (legacy)
+        // JSON-string form (structured envelope serialized by the registry).
         if (typeof result === 'string') {
             try {
                 const parsed = JSON.parse(result);
                 return parsed.__permission_required === true;
             } catch {
-                return result.includes("__PERMISSION_REQUIRED__");
+                return false;
             }
         }
 
@@ -345,85 +347,24 @@ export class PermissionInterceptor extends EventEmitter {
      * Parse and validate a permission request from tool result
      */
     parsePermissionRequest(result: unknown): PermissionRequest | null {
-        // Object format (new style - preferred)
+        // Object format (the contract)
         if (typeof result === 'object' && result !== null && (result as any).__permission_required) {
             logger.log('[parsePermissionRequest] Parsed object format');
             return result as PermissionRequest;
         }
 
-        // String format (legacy)
+        // JSON-string form
         if (typeof result === 'string') {
             const parsed = parsePermissionRequest(result);
             if (parsed) {
                 logger.log('[parsePermissionRequest] Parsed JSON string format');
                 return parsed;
             }
-
-            if (result.includes("__PERMISSION_REQUIRED__")) {
-                logger.log('[parsePermissionRequest] Parsing legacy format');
-                return this.parseLegacyPermissionRequest(result);
-            }
         }
 
         return null;
     }
 
-    /**
-     * Parse legacy __PERMISSION_REQUIRED__ string format (backward compatibility)
-     */
-    private parseLegacyPermissionRequest(result: string): PermissionRequest | null {
-        try {
-            const content = result.replace("__PERMISSION_REQUIRED__\n", "").trim();
-
-            if (content.includes("Create/Modify File:")) {
-                const pathMatch = content.match(/Create\/Modify File: (.+)/);
-                const filePath = pathMatch?.[1] || "unknown";
-                const contentMatch = content.match(/Content \(\d+ lines\):\n([\s\S]*?)\n\n\[Approve\]/);
-                const fileContent = contentMatch?.[1] || "";
-
-                return {
-                    __permission_required: true,
-                    operation: "write_file",
-                    preview: {
-                        path: filePath,
-                        content: fileContent,
-                        description: "File operation",
-                        type: "create",
-                        lines: fileContent.split("\n").length,
-                    },
-                };
-            }
-
-            if (content.includes("Run Command:")) {
-                const cmdMatch = content.match(/Command: `(.+)`/);
-                const command = cmdMatch?.[1] || "unknown";
-
-                return {
-                    __permission_required: true,
-                    operation: "run_command",
-                    preview: {
-                        command,
-                        description: "Command execution",
-                        isDangerous: command.includes("rm ") || command.includes("sudo"),
-                    },
-                };
-            }
-
-            return {
-                __permission_required: true,
-                operation: "write_file",
-                preview: {
-                    path: "unknown",
-                    content: content,
-                    description: "Pending operation",
-                    type: "create",
-                },
-            };
-        } catch (error) {
-            logger.error("Failed to parse legacy permission request:", error);
-            return null;
-        }
-    }
 
     // ════════════════════════════════════════════════════════════════════════════
     // BUFFERING
