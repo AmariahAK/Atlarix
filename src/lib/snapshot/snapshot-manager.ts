@@ -385,6 +385,29 @@ export async function revertSnapshotFiles(params: {
   });
 }
 
+/**
+ * v12 2.3: the workspace-relative files this turn changed (+ which were newly
+ * created). Read from the snapshot manifest — robust across the synthetic-
+ * sender boundary, where the stream-local `filesWrittenInThisExchange` is
+ * invisible. Empty when the turn captured no snapshot.
+ */
+export async function listSnapshotFiles(
+  workspacePath: string,
+  turnId: string,
+): Promise<{ filesChanged: string[]; createdFiles: string[] }> {
+  if (!workspacePath || !turnId) {
+    return { filesChanged: [], createdFiles: [] };
+  }
+  const gitDir = shadowGitDir(workspacePath);
+  const seg = sanitizeLedgerDirSegment(turnId);
+  const manifest = await readManifest(gitDir, seg);
+  if (!manifest) return { filesChanged: [], createdFiles: [] };
+  return {
+    filesChanged: manifest.filesChanged ?? [],
+    createdFiles: manifest.createdFiles ?? [],
+  };
+}
+
 /** True when a snapshot exists for this turn (shadow-git store). */
 export async function snapshotExists(
   workspacePath: string,

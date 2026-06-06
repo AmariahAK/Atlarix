@@ -1294,6 +1294,21 @@ export function getChatStreamHandler() {
   return registeredChatStreamHandler;
 }
 
+/**
+ * v12 2.3: abort an active stream by chatId (the `chat:abort` path, callable
+ * in-process). Used by background-agent cancel. Returns true if a stream was
+ * running.
+ */
+export function abortChatStream(chatId: number): boolean {
+  const controller = activeStreams.get(chatId);
+  if (controller) {
+    controller.abort();
+    activeStreams.delete(chatId);
+    return true;
+  }
+  return false;
+}
+
 export function registerChatStreamHandlers() {
   ipcMain.handle(
     "respond-mode-change",
@@ -1402,6 +1417,10 @@ export function registerChatStreamHandlers() {
         dedupeByKey: new Map<string, unknown>(),
         callCountByTool: new Map<string, number>(),
       };
+      // v12 2.3: the snapshot/ledger turn id for THIS turn, captured for the
+      // terminal payload so a detached background agent can revert. Set once
+      // streamTurnIdForLedger is established (below).
+      let snapshotTurnIdForTerminal: string | undefined;
       const ensureTerminal = (error?: unknown) => {
         if (streamTerminated) return;
         streamTerminated = true;
@@ -1415,6 +1434,9 @@ export function registerChatStreamHandlers() {
           chatId: req.chatId,
           updatedFiles: false,
           hadToolCallsOrPermissions: false,
+          ...(snapshotTurnIdForTerminal
+            ? { snapshotTurnId: snapshotTurnIdForTerminal }
+            : {}),
         } satisfies ChatResponseEnd);
         activeStreams.delete(req.chatId);
       };
@@ -2020,6 +2042,7 @@ ${componentSnippet}
       }
 
       let streamTurnIdForLedger = String(placeholderAssistantMessage.id);
+      snapshotTurnIdForTerminal = streamTurnIdForLedger; // v12 2.3
       let streamStopWasTaskComplete = false;
       // v11.1: set when the model asked the user question(s) — the turn ends
       // gracefully (persist + response:end) WITHOUT task-complete side effects
@@ -5042,8 +5065,14 @@ This conversation includes one or more image attachments. When the user uploads 
                     toolArgs: args,
                   });
                   try {
+                    // A per-turn workModeOverride (resend/edit, background
+                    // agents) wins over the live persisted preference; only
+                    // fall back to the live re-read (mid-turn picker change)
+                    // when there's no explicit override for this turn.
                     const buildLiveWorkMode: WorkMode =
-                      readSettings().workModePreference ?? effectiveWorkMode;
+                      req.workModeOverride ??
+                      readSettings().workModePreference ??
+                      effectiveWorkMode;
                     const debugGateBuild = debugWriteGateResult(
                       req.chatId,
                       toolName,
@@ -6569,6 +6598,8 @@ ${stopNote}`;
               // store as extras.modelContent when persisting the assistant
               // message (native-history envelope).
               ...(assistantModelContent ? { assistantModelContent } : {}),
+              // v12 2.3: lets a background agent revert this turn's writes.
+              snapshotTurnId: streamTurnIdForLedger,
             } satisfies ChatResponseEnd);
             queuePostTurnSelfCorrection(event.sender, {
               chatId: req.chatId,

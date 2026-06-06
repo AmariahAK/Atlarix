@@ -134,6 +134,9 @@ export interface ChatResponseEnd {
   auxTokens?: number;
   /** v12 7D: estimated BYOK USD cost of this turn (omitted for Core/unknown-price). */
   turnCostUsd?: number;
+  /** v12 2.3: the snapshot turn id (= ledger turn id) so a detached background
+   * agent can revert this turn's writes via the shadow-git snapshot. */
+  snapshotTurnId?: string;
   /**
    * v12 0.2: native-history envelope for the assistant message (JSON of the
    * turn's native tool_use/tool_result ModelMessages). The renderer persists

@@ -65,6 +65,39 @@ function sendPanelIntent(intent: string, context: unknown): void {
 /**
  * Register an interceptor for a chat session
  */
+/**
+ * v12 2.3: approve a buffered permission op WITHOUT the renderer IPC round-trip
+ * — for background (detached) write agents that auto-approve their own writes
+ * mid-turn (the human reviews the aggregate diff afterward via the approval
+ * gate). Mirrors the `execute-permission` happy path (`approvalMode:"once"`).
+ * No-ops safely when the interceptor/op is gone.
+ */
+export async function executeBufferedPermission(
+    chatId: number,
+    operationId: string,
+): Promise<void> {
+    const interceptor = activeInterceptors.get(chatId);
+    if (!interceptor) return;
+    try {
+        await interceptor.executeOperation(operationId, { dangerAcknowledged: false });
+    } catch (e) {
+        logger.warn(`executeBufferedPermission(${chatId}, ${operationId}) failed: ${String(e)}`);
+    }
+}
+
+/**
+ * v12 2.3: chatIds whose permission requests are auto-approved in-process,
+ * because no human is watching (detached background WRITE agents). The human
+ * reviews the aggregate diff afterward via the approval gate. This is a
+ * per-chat opt-in — NOT the global `shouldAutoApprovePermissions` (which stays
+ * hard-false). Set before dispatch, cleared after.
+ */
+const autoApproveChats = new Set<number>();
+export function setBackgroundAutoApprove(chatId: number, on: boolean): void {
+    if (on) autoApproveChats.add(chatId);
+    else autoApproveChats.delete(chatId);
+}
+
 export function registerInterceptor(chatId: number, interceptor: PermissionInterceptor): void {
     activeInterceptors.set(chatId, interceptor);
     logger.log(`Registered permission interceptor for chat ${chatId}`);
@@ -72,6 +105,15 @@ export function registerInterceptor(chatId: number, interceptor: PermissionInter
     interceptor.on(
         "permission-request",
         (data: { operationId: string; request: PermissionRequest }) => {
+            // v12 2.3: detached write agent — auto-approve. Microtask-deferred
+            // so the interceptor's `waitForApproval` promise registers before
+            // we resolve it (the re-entrancy hazard).
+            if (autoApproveChats.has(chatId)) {
+                void Promise.resolve().then(() =>
+                    executeBufferedPermission(chatId, data.operationId),
+                );
+                return;
+            }
             // Inline chat approval only — no right-panel permission intent.
             const windows = BrowserWindow.getAllWindows();
             for (const win of windows) {

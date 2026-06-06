@@ -1052,11 +1052,12 @@ export class IpcClient {
     return this.ipcRenderer.invoke("agents:list", appId);
   }
 
-  /** v12 2.3: spawn a detached read-only background agent. */
+  /** v12 2.3: spawn a detached background agent ("ask"=read-only, "build"=write). */
   public async startBackgroundAgent(args: {
     appId: number;
     prompt: string;
     title?: string;
+    mode?: "ask" | "build";
   }): Promise<{ ok: boolean }> {
     return this.ipcRenderer.invoke("agents:background:start", args);
   }
@@ -1067,13 +1068,31 @@ export class IpcClient {
       sessionId: string;
       appId: number;
       title: string;
+      mode: "ask" | "build";
       status: "running" | "done" | "error";
       startedAt: number;
       finishedAt?: number;
       error?: string;
+      changedFiles?: string[];
+      reverted?: boolean;
     }>
   > {
     return this.ipcRenderer.invoke("agents:background:list");
+  }
+
+  /** v12 2.3 V2: approval gate — keep the writes or revert the turn's snapshot. */
+  public async resolveBackgroundAgent(
+    sessionId: string,
+    decision: "keep" | "revert",
+  ): Promise<{ success: boolean; reverted?: boolean; restoredFiles?: number; error?: string }> {
+    return this.ipcRenderer.invoke("agents:background:resolve", sessionId, decision);
+  }
+
+  /** v12 2.3: cancel a running background agent. */
+  public async cancelBackgroundAgent(
+    sessionId: string,
+  ): Promise<{ success: boolean }> {
+    return this.ipcRenderer.invoke("agents:background:cancel", sessionId);
   }
 
   public async getChat(chatId: number): Promise<Chat> {

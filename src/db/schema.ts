@@ -107,6 +107,14 @@ export const chatSessions = sqliteTable("chat_sessions", {
   title: text("title").notNull().default("Untitled"),
   /** In-memory stream transport id (negative); survives app restart mapping. */
   streamChatId: integer("stream_chat_id"),
+  /** v12 2.3: "background" for detached agent sessions, else "normal". */
+  kind: text("kind", { enum: ["normal", "background"] })
+    .notNull()
+    .default("normal"),
+  /** v12 2.3: background-agent run status (null for normal sessions). */
+  status: text("status", { enum: ["running", "done", "error"] }),
+  /** v12 2.3: error detail when status="error". */
+  statusError: text("status_error"),
   createdAt: integer("created_at", { mode: "timestamp" })
     .notNull()
     .default(sql`(unixepoch())`),

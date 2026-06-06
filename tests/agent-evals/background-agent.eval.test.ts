@@ -100,3 +100,123 @@ describe("background agents (2.3)", () => {
     expect(rec.status).not.toBe("running");
   }, 30_000);
 });
+
+describe("background agents V2 — write + approval gate (2.3)", () => {
+  it("a write-mode agent auto-approves its write (no human) and records the diff", async () => {
+    ctx.server.register(
+      scenario("bg-write")
+        .toolCall("write_file", {
+          path: "src/generated.ts",
+          content: "export const gen = 1;\n",
+          description: "generate a module",
+        })
+        .text("Created src/generated.ts. <task_complete>")
+        .build(),
+    );
+    const {
+      startBackgroundAgent,
+      listBackgroundAgents,
+      _resetBackgroundAgents,
+    } = await import("@/lib/agents/background-agent");
+    _resetBackgroundAgents();
+
+    // NO `during` callback — the runner's auto-approver must drive the write.
+    const { sessionId } = await startBackgroundAgent({
+      appId: ctx.appId,
+      prompt: "sc=bg-write Generate a module.",
+      mode: "build",
+      title: "gen module",
+      startedAt: 3_000,
+    });
+
+    const rec = listBackgroundAgents().find((a) => a.sessionId === sessionId)!;
+    expect(rec.status).toBe("done");
+    expect(ctx.ws.exists("src/generated.ts")).toBe(true);
+    expect(rec.changedFiles).toContain("src/generated.ts");
+  }, 30_000);
+
+  it("resolve('revert') deletes the created file; ('keep') leaves it", async () => {
+    const {
+      startBackgroundAgent,
+      resolveBackgroundAgent,
+      _resetBackgroundAgents,
+    } = await import("@/lib/agents/background-agent");
+
+    // keep
+    ctx.server.register(
+      scenario("bg-keep")
+        .toolCall("write_file", {
+          path: "src/keep-me.ts",
+          content: "export const k = 1;\n",
+          description: "keep",
+        })
+        .text("done <task_complete>")
+        .build(),
+    );
+    _resetBackgroundAgents();
+    const keep = await startBackgroundAgent({
+      appId: ctx.appId,
+      prompt: "sc=bg-keep w",
+      mode: "build",
+      startedAt: 4_000,
+    });
+    expect(ctx.ws.exists("src/keep-me.ts")).toBe(true);
+    const keepRes = await resolveBackgroundAgent(keep.sessionId, "keep");
+    expect(keepRes.reverted).toBe(false);
+    expect(ctx.ws.exists("src/keep-me.ts")).toBe(true);
+
+    // revert
+    ctx.server.register(
+      scenario("bg-revert")
+        .toolCall("write_file", {
+          path: "src/revert-me.ts",
+          content: "export const r = 1;\n",
+          description: "revert",
+        })
+        .text("done <task_complete>")
+        .build(),
+    );
+    _resetBackgroundAgents();
+    const rev = await startBackgroundAgent({
+      appId: ctx.appId,
+      prompt: "sc=bg-revert w",
+      mode: "build",
+      startedAt: 5_000,
+    });
+    expect(ctx.ws.exists("src/revert-me.ts")).toBe(true);
+    const revRes = await resolveBackgroundAgent(rev.sessionId, "revert");
+    expect(revRes.reverted).toBe(true);
+    // created file is deleted on revert
+    expect(ctx.ws.exists("src/revert-me.ts")).toBe(false);
+  }, 40_000);
+
+  it("status persists across a simulated reload (hydrate from DB)", async () => {
+    ctx.server.register(
+      scenario("bg-persist").text("ok <task_complete>").build(),
+    );
+    const {
+      startBackgroundAgent,
+      hydrateBackgroundAgentsFromDb,
+      listBackgroundAgents,
+      _resetBackgroundAgents,
+    } = await import("@/lib/agents/background-agent");
+    _resetBackgroundAgents();
+    const { sessionId } = await startBackgroundAgent({
+      appId: ctx.appId,
+      prompt: "sc=bg-persist analyze",
+      startedAt: 6_000,
+    });
+    expect(
+      listBackgroundAgents().find((a) => a.sessionId === sessionId)?.status,
+    ).toBe("done");
+
+    // Simulate restart: wipe the in-memory map, rehydrate from the DB rows.
+    _resetBackgroundAgents();
+    expect(listBackgroundAgents()).toHaveLength(0);
+    await hydrateBackgroundAgentsFromDb();
+    const hydrated = listBackgroundAgents().find(
+      (a) => a.sessionId === sessionId,
+    );
+    expect(hydrated?.status).toBe("done"); // survived the reload
+  }, 30_000);
+});

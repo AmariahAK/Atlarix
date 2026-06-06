@@ -363,7 +363,14 @@ export async function createBackgroundWorkspaceSession(
   const now = new Date();
   await db
     .update(chatSessions)
-    .set({ title: title.slice(0, 200), updatedAt: now })
+    .set({
+      title: title.slice(0, 200),
+      // v12 2.3: flag the session as a background agent + mark it running so
+      // status survives a restart (hydrateBackgroundAgentsFromDb).
+      kind: "background",
+      status: "running",
+      updatedAt: now,
+    })
     .where(eq(chatSessions.id, session.id));
   const chatId = createStreamTransport(workspaceId);
   await persistSessionStreamChatId(session.id, chatId);

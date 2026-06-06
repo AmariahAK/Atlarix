@@ -23,10 +23,11 @@ import { cn } from '@/lib/utils';
 import {
     X, Terminal, Wrench,
     Search, Eye,
-    AlertTriangle, Shield, Globe, Code2, FileText, MessageSquare, ListTree,
+    AlertTriangle, Shield, Globe, Code2, FileText, MessageSquare, ListTree, Bot,
 } from 'lucide-react';
 import { TerminalPanel } from './panels/TerminalPanel';
 import { ActivityPanel } from './panels/ActivityPanel';
+import { AgentsPanel } from './panels/AgentsPanel';
 import { type ParsedError } from '@/lib/devServerErrorParser';
 import { ToolCallCard, ToolStatus } from './ToolCallCard';
 import { useRef, useEffect, useState, useCallback } from 'react';
@@ -61,6 +62,7 @@ const TAB_ICONS: Record<PanelTab, { icon: React.ElementType; label: string }> = 
     activity: { icon: ListTree, label: 'Activity' },
     chat: { icon: MessageSquare, label: 'Chat' },
     browser: { icon: Globe, label: 'Browser' },
+    agents: { icon: Bot, label: 'Agents' },
 };
 
 // Primary mode categories for the toolbar
@@ -354,6 +356,11 @@ function PanelContent({
     // v11 in-app browser (WebContentsView renders natively over the panel)
     if (context.activeTab === 'browser') {
         return <BrowserPanel />;
+    }
+
+    // v12 2.3 background agents view
+    if (context.activeTab === 'agents') {
+        return <AgentsPanel />;
     }
 
     switch (context.type) {

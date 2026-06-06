@@ -61,6 +61,8 @@ const validInvokeChannels = [
   "agents:list",
   "agents:background:start",
   "agents:background:list",
+  "agents:background:resolve",
+  "agents:background:cancel",
   "get-chat-logs",
   "list-apps",
   "get-app",

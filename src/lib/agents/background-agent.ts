@@ -1,5 +1,5 @@
 /**
- * v12 Tier 2.3 — background agents (V1, read-only).
+ * v12 Tier 2.3 — background agents.
  *
  * A background agent is a normal chat turn run DETACHED: it drives the same
  * `chat:stream` engine through a synthetic recording sender (no foreground
@@ -7,39 +7,59 @@
  * result as a session the user opens afterwards. Design spike:
  * docs/background-agents.md.
  *
- * V1 scope (deliberately small — this is the riskiest new surface):
- *  - READ-ONLY: forced to ask-mode (no writes, no run_command), so a detached
- *    turn can never mutate the workspace without a human watching. Worktrees
- *    and write-capable background agents are a separate, later decision.
- *  - The engine persists the USER message at dispatch; since no renderer fires
- *    `messages:add` on response:end, the runner persists the ASSISTANT message
- *    itself (captured from the stream buffer) via `addSessionMessageDirect`.
- *  - Status lives in an in-memory map (running/done/error) surfaced to an
- *    "agents" view; it does not survive a restart (a finished agent is just
- *    its session, which does persist).
+ * V1 (read-only) and V2 (write-capable + approval gate) coexist via `mode`:
+ *  - mode "ask" (default): read-only exploration; the V1 behavior.
+ *  - mode "build": write-capable. A detached turn has no human to approve
+ *    writes mid-turn, so the synthetic sender AUTO-APPROVES each
+ *    `permission-request` (via `executeBufferedPermission` — the production
+ *    approval path; microtask-deferred so the interceptor's `waitForApproval`
+ *    promise registers first). The shadow-git snapshot captures every write
+ *    automatically; the human reviews the AGGREGATE diff afterward and can
+ *    `keep` or `revert` (resolveBackgroundAgent).
+ *
+ * Status is persisted on the session row (kind="background", status=…) so a
+ * finished/failed agent survives a restart; the in-memory map adds the live
+ * fields (chatId, snapshotTurnId, changedFiles) the approval gate needs during
+ * the session's lifetime.
  */
 
 import log from "electron-log";
+import { eq } from "drizzle-orm";
+import { db } from "@/db";
+import { apps, chatSessions } from "@/db/schema";
+import { getAtlarixAppPath } from "@/paths/paths";
 import { getChatStreamHandler } from "@/ipc/handlers/chat_stream_handlers";
 import {
   createBackgroundWorkspaceSession,
   addSessionMessageDirect,
 } from "@/ipc/handlers/workspace_session_handlers";
+import { setBackgroundAutoApprove } from "@/ipc/handlers/permissions/handlers";
+import { listSnapshotFiles } from "@/lib/snapshot/snapshot-manager";
 import type { ChatResponseEnd } from "@/ipc/ipc_types";
 
 const logger = log.scope("background-agent");
 
 export type BackgroundAgentStatus = "running" | "done" | "error";
+export type BackgroundAgentMode = "ask" | "build";
 
 export interface BackgroundAgentRecord {
   sessionId: string;
   appId: number;
   title: string;
   prompt: string;
+  mode: BackgroundAgentMode;
   status: BackgroundAgentStatus;
   startedAt: number;
   finishedAt?: number;
   error?: string;
+  /** The background stream's chatId — target for cancel. */
+  chatId?: number;
+  /** Snapshot/ledger turn id — target for the approval-gate revert. */
+  snapshotTurnId?: string;
+  /** Workspace-relative files this turn changed (write mode). */
+  changedFiles?: string[];
+  /** True once the user reverted the turn's writes. */
+  reverted?: boolean;
 }
 
 const agents = new Map<string, BackgroundAgentRecord>();
@@ -49,19 +69,72 @@ export function listBackgroundAgents(): BackgroundAgentRecord[] {
   return [...agents.values()].sort((a, b) => b.startedAt - a.startedAt);
 }
 
+async function persistStatus(
+  sessionId: string,
+  status: BackgroundAgentStatus,
+  statusError?: string,
+): Promise<void> {
+  try {
+    await db
+      .update(chatSessions)
+      .set({ status, statusError: statusError ?? null, updatedAt: new Date() })
+      .where(eq(chatSessions.id, sessionId));
+  } catch (e) {
+    logger.warn(`persistStatus(${sessionId}) failed: ${String(e)}`);
+  }
+}
+
+/**
+ * Rebuild the in-memory map from persisted background sessions on boot.
+ * A row still "running" at boot was interrupted by the restart (its turn is
+ * gone) — mark it error so the UI doesn't show a stuck spinner.
+ */
+export async function hydrateBackgroundAgentsFromDb(): Promise<void> {
+  try {
+    const rows = await db
+      .select()
+      .from(chatSessions)
+      .where(eq(chatSessions.kind, "background"));
+    for (const row of rows) {
+      let status = (row.status ?? "done") as BackgroundAgentStatus;
+      let error = row.statusError ?? undefined;
+      if (status === "running") {
+        status = "error";
+        error = "interrupted by restart";
+        void persistStatus(row.id, "error", error);
+      }
+      agents.set(row.id, {
+        sessionId: row.id,
+        appId: row.workspaceId,
+        title: row.title.replace(/^🤖\s*/, ""),
+        prompt: "",
+        mode: "ask",
+        status,
+        startedAt: row.createdAt.getTime(),
+        finishedAt: row.updatedAt.getTime(),
+        error,
+      });
+    }
+    logger.log(`Hydrated ${rows.length} background agent(s) from DB`);
+  } catch (e) {
+    logger.warn(`hydrateBackgroundAgentsFromDb failed: ${String(e)}`);
+  }
+}
+
 interface StartInput {
   appId: number;
   prompt: string;
   title?: string;
-  /** Injected by callers/tests; defaults to wall-clock at start. */
+  /** v12 2.3 V2: "build" = write-capable (auto-approved). Default read-only. */
+  mode?: BackgroundAgentMode;
+  /** Injected by callers/tests. */
   startedAt: number;
 }
 
 /**
- * Spawn a detached read-only turn. Returns the new session id immediately-ish
- * (after the turn completes — callers run this without awaiting for true
- * fire-and-forget, or await it in tests). Never throws to the caller: a failed
- * turn is recorded as status "error" on the agent record.
+ * Spawn a detached turn. Awaits the turn (callers fire-and-forget for true
+ * background). Never throws to the caller: a failed turn is recorded as
+ * status "error".
  */
 export async function startBackgroundAgent(
   input: StartInput,
@@ -71,6 +144,7 @@ export async function startBackgroundAgent(
     throw new Error("chat:stream handler not registered");
   }
 
+  const mode: BackgroundAgentMode = input.mode ?? "ask";
   const title =
     input.title?.trim() ||
     input.prompt.trim().slice(0, 60) ||
@@ -85,17 +159,18 @@ export async function startBackgroundAgent(
     appId: input.appId,
     title,
     prompt: input.prompt,
+    mode,
     status: "running",
     startedAt: input.startedAt,
+    chatId,
   };
   agents.set(sessionId, record);
 
-  // Synthetic sender: capture the streamed message buffer + the turn envelope
-  // so we can persist the assistant message the renderer normally would. The
-  // handler returns immediately (`void runStream()`); the turn's real terminal
-  // signal is `chat:response:end` on this sender — await that.
+  // Synthetic sender: capture the streamed buffer + the turn envelope, and —
+  // in write mode — auto-approve permission requests.
   let lastMessages: Array<{ role: string; content?: string }> = [];
   let assistantModelContent: string | undefined;
+  let snapshotTurnId: string | undefined;
   let resolveEnd: () => void = () => {};
   const ended = new Promise<void>((r) => {
     resolveEnd = r;
@@ -112,11 +187,19 @@ export async function startBackgroundAgent(
       } else if (channel === "chat:response:end") {
         const p = payload as ChatResponseEnd;
         assistantModelContent = p.assistantModelContent;
+        snapshotTurnId = p.snapshotTurnId;
         resolveEnd();
       }
+      // NOTE: `permission-request` is broadcast to BrowserWindows by the
+      // interceptor, NOT to this sender — write-mode auto-approval is wired at
+      // the interceptor via setBackgroundAutoApprove(chatId) below.
     },
   };
   const event = { sender } as unknown as Electron.IpcMainInvokeEvent;
+
+  // v12 2.3 V2: a detached write agent has no human to approve mid-turn — flag
+  // its chat for in-process auto-approval (the human reviews the diff after).
+  if (mode === "build") setBackgroundAutoApprove(chatId, true);
 
   try {
     await handler(event, {
@@ -124,13 +207,12 @@ export async function startBackgroundAgent(
       appId: input.appId,
       prompt: input.prompt,
       workspaceSessionId: sessionId,
-      // V1: read-only. ask-mode = exploration tool surface, no writes/run.
-      workModeOverride: "ask",
+      workModeOverride: mode,
     });
     await ended; // wait for the detached stream to reach response:end
+    record.snapshotTurnId = snapshotTurnId;
 
-    // Persist the assistant message (no renderer did it). Take the last
-    // assistant turn from the captured buffer.
+    // Persist the assistant message (no renderer did it).
     const assistant = [...lastMessages]
       .reverse()
       .find((m) => m.role === "assistant");
@@ -146,19 +228,99 @@ export async function startBackgroundAgent(
           : undefined,
       );
     }
+
+    // Write mode: gather changed files from the snapshot manifest for the gate.
+    if (mode === "build" && snapshotTurnId) {
+      try {
+        const [appRow] = await db
+          .select({ path: apps.path })
+          .from(apps)
+          .where(eq(apps.id, input.appId))
+          .limit(1);
+        if (appRow?.path) {
+          const { filesChanged } = await listSnapshotFiles(
+            getAtlarixAppPath(appRow.path),
+            snapshotTurnId,
+          );
+          record.changedFiles = filesChanged;
+        }
+      } catch (e) {
+        logger.warn(
+          `changed-files gather failed for ${sessionId}: ${String(e)}`,
+        );
+      }
+    }
+
     record.status = "done";
-    record.finishedAt = input.startedAt + 1; // monotonic-ish; real ts stamped by caller
+    record.finishedAt = input.startedAt + 1;
+    await persistStatus(sessionId, "done");
     logger.log(
-      `Background agent ${sessionId} finished (${content.length} chars)`,
+      `Background agent ${sessionId} finished (${content.length} chars, ${record.changedFiles?.length ?? 0} files)`,
     );
   } catch (e) {
     record.status = "error";
     record.error = String(e);
     record.finishedAt = input.startedAt + 1;
+    await persistStatus(sessionId, "error", String(e));
     logger.error(`Background agent ${sessionId} failed: ${String(e)}`);
+  } finally {
+    if (mode === "build") setBackgroundAutoApprove(chatId, false);
   }
 
   return { sessionId };
+}
+
+/**
+ * v12 2.3 V2 approval gate: keep the writes (no-op) or revert the turn's
+ * shadow-git snapshot. Returns whether a revert happened.
+ */
+export async function resolveBackgroundAgent(
+  sessionId: string,
+  decision: "keep" | "revert",
+): Promise<{
+  success: boolean;
+  reverted: boolean;
+  restoredFiles?: number;
+  error?: string;
+}> {
+  const rec = agents.get(sessionId);
+  if (!rec)
+    return { success: false, reverted: false, error: "Agent not found" };
+  if (decision === "keep") return { success: true, reverted: false };
+  if (!rec.snapshotTurnId) {
+    return { success: false, reverted: false, error: "No snapshot to revert" };
+  }
+  const [appRow] = await db
+    .select({ path: apps.path })
+    .from(apps)
+    .where(eq(apps.id, rec.appId))
+    .limit(1);
+  if (!appRow?.path) {
+    return { success: false, reverted: false, error: "Workspace not found" };
+  }
+  const { revertSnapshot } = await import("@/lib/snapshot/snapshot-manager");
+  const result = await revertSnapshot({
+    workspacePath: getAtlarixAppPath(appRow.path),
+    turnId: rec.snapshotTurnId,
+  });
+  rec.reverted = result.success;
+  return {
+    success: result.success,
+    reverted: result.success,
+    restoredFiles: result.restoredFiles,
+  };
+}
+
+/** v12 2.3: cancel a running background agent (aborts its stream). */
+export async function cancelBackgroundAgent(
+  sessionId: string,
+): Promise<{ success: boolean }> {
+  const rec = agents.get(sessionId);
+  if (!rec?.chatId) return { success: false };
+  const { abortChatStream } = await import(
+    "@/ipc/handlers/chat_stream_handlers"
+  );
+  return { success: abortChatStream(rec.chatId) };
 }
 
 /** Test seam: clear the in-memory status map. */

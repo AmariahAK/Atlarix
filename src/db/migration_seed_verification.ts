@@ -216,6 +216,12 @@ export function isJournalMigrationApplied(
         columnExists(sqlite, "mcp_servers", "oauth_client_json") &&
         columnExists(sqlite, "mcp_servers", "oauth_discovery_json")
       );
+    case "0060_background_agent_session_status":
+      return (
+        columnExists(sqlite, "chat_sessions", "kind") &&
+        columnExists(sqlite, "chat_sessions", "status") &&
+        columnExists(sqlite, "chat_sessions", "status_error")
+      );
     case "0053_message_paste_attachments":
       return columnExists(sqlite, "messages", "paste_attachments");
     case "0054_message_file_attachments":
