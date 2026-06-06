@@ -1,6 +1,18 @@
 /**
  * Per-mode tool allowlists — single source of truth for prompts, native ToolSet
  * filtering, and execute-time gates.
+ *
+ * THE TOOL-RESOLUTION PIPELINE (v12 3.10 — one documented order, four stages):
+ *   1. registry metadata   — ToolRegistry (registry.ts): per-tool flags
+ *      (isReadOnly / allowInAskMode / requiresWorkspace / isCore / cost)
+ *   2. mode allowlist      — THIS FILE: includeToolForSession / allow-sets
+ *   3. session loader      — ToolSessionLoader: progressive reveal (core
+ *      pre-loaded, others on first call)
+ *   4. capability trim     — model-capability-profile.ts (v12 2.1): per-model
+ *      cap + schema simplification for clearly-weak models. LAST stage; the
+ *      offered set is what survives all four.
+ * Execute-time gating re-checks stage 2 (and the permission layer) — a tool
+ * that is not offered can still be DENIED if a model hallucinates a call.
  */
 
 import type { WorkMode } from "@/lib/schemas";

@@ -33,6 +33,11 @@ import {
 } from "@/lib/ai/native-history";
 import { runAgentTurn } from "@/lib/agent/run-agent-turn";
 import { buildPostWriteVerify } from "@/lib/agent/post-write-verify";
+import {
+  getCapabilityProfile,
+  trimToolsForCapability,
+  simplifyToolParametersForProfile,
+} from "@/lib/routing/model-capability-profile";
 import { getNativeWebSearchSupport } from "../utils/native_web_search";
 import { perfReportOnce } from "@/lib/perf-marks";
 import { buildAttachmentRecord } from "@/lib/attachment-upload";
@@ -4064,7 +4069,17 @@ This conversation includes one or more image attachments. When the user uploads 
                 : []),
             ]);
             const askLoadedNames = askLoader.getLoadedToolNames();
-            const askToolsToInclude = askModeTools.filter((t) =>
+            // v12 2.1 (resolves 1.6): per-model capability trim — the LAST
+            // stage of the tool-resolution pipeline (registry metadata →
+            // mode allowlist → session loader → capability cap). Strong
+            // models keep the full surface; clearly-weak/local models get a
+            // core-first, cost-ranked trimmed set + simplified schemas.
+            const askCapabilityProfile = getCapabilityProfile({
+              name: effectiveModel?.name ?? "",
+              provider: effectiveModel?.provider,
+              builtinProviderId: modelClient.builtinProviderId,
+            });
+            const askToolsPreTrim = askModeTools.filter((t) =>
               includeToolForSession(t, {
                 loaded: askLoadedNames,
                 hasWorkspace,
@@ -4072,6 +4087,16 @@ This conversation includes one or more image attachments. When the user uploads 
                 isCore: isCoreTool,
               }),
             );
+            const askToolsToInclude = trimToolsForCapability(
+              askToolsPreTrim,
+              askCapabilityProfile,
+              isCoreTool,
+            );
+            if (askToolsToInclude.length < askToolsPreTrim.length) {
+              logger.log(
+                `[capability] Ask toolset trimmed ${askToolsPreTrim.length}→${askToolsToInclude.length} for ${effectiveModel?.name}`,
+              );
+            }
             const askProgressiveNote = generateProgressiveRevealNote(
               askToolsToInclude.map((t) => t.name),
               effectiveWorkMode,
@@ -4082,8 +4107,12 @@ This conversation includes one or more image attachments. When the user uploads 
               askTools[tool.name] = {
                 description: tool.description,
                 inputSchema: normalizeToolInputSchemaForAiSdk(
-                  tool.parameters ??
-                    (tool as { function?: { parameters?: unknown } }).function?.parameters,
+                  simplifyToolParametersForProfile(
+                    tool.parameters ??
+                      (tool as { function?: { parameters?: unknown } }).function
+                        ?.parameters,
+                    askCapabilityProfile,
+                  ),
                 ) as never,
                 // v12 0.2: typed tool outputs (screenshot media / text fallback).
                 toModelOutput: (output: unknown) =>
@@ -4548,7 +4577,13 @@ This conversation includes one or more image attachments. When the user uploads 
               };
             }
 
-            if (isDelegationAllowedForWorkMode(effectiveWorkMode)) {
+            // v12 2.1: delegation stays off the trimmed surface — a weak
+            // model orchestrating sub-agents (of itself) is the 1.6 failure
+            // mode, and the delegation schemas are the heaviest on offer.
+            if (
+              isDelegationAllowedForWorkMode(effectiveWorkMode) &&
+              askCapabilityProfile.maxTools == null
+            ) {
               attachDelegationToolsToSet(askTools, {
                 sender: event.sender,
                 chatId: req.chatId,
@@ -4698,12 +4733,28 @@ This conversation includes one or more image attachments. When the user uploads 
               buildLoader.ensureLoaded(WORKSPACE_INTEGRATION_TOOL_NAMES);
             }
             const buildLoadedNames = buildLoader.getLoadedToolNames();
-            const buildToolsToInclude = buildModeToolsMetadata.filter(
+            // v12 2.1: per-model capability trim (see the ask-branch note).
+            const buildCapabilityProfile = getCapabilityProfile({
+              name: effectiveModel?.name ?? "",
+              provider: effectiveModel?.provider,
+              builtinProviderId: modelClient.builtinProviderId,
+            });
+            const buildToolsPreTrim = buildModeToolsMetadata.filter(
               (t) =>
                 buildLoadedNames.has(t.name) ||
                 isCoreTool(t) ||
                 (hasWorkspace && isWorkspaceIntegrationTool(t.name)),
             );
+            const buildToolsToInclude = trimToolsForCapability(
+              buildToolsPreTrim,
+              buildCapabilityProfile,
+              isCoreTool,
+            );
+            if (buildToolsToInclude.length < buildToolsPreTrim.length) {
+              logger.log(
+                `[capability] Build toolset trimmed ${buildToolsPreTrim.length}→${buildToolsToInclude.length} for ${effectiveModel?.name}`,
+              );
+            }
             // Create permission interceptor for this session
             const permissionInterceptor = new PermissionInterceptor(
               workspacePath,
@@ -4781,7 +4832,12 @@ This conversation includes one or more image attachments. When the user uploads 
               const toolName = toolMeta.name;
               tools[toolName] = {
                 description: toolMeta.description,
-                inputSchema: aiJsonSchema((toolMeta.parameters ?? { type: "object", properties: {} }) as Record<string, unknown>),
+                inputSchema: aiJsonSchema(
+                  simplifyToolParametersForProfile(
+                    toolMeta.parameters ?? { type: "object", properties: {} },
+                    buildCapabilityProfile,
+                  ) as Record<string, unknown>,
+                ),
                 // v12 0.2: typed tool outputs — screenshots become media
                 // content parts on vision providers; everything else keeps
                 // today's text behavior.
@@ -5266,7 +5322,11 @@ This conversation includes one or more image attachments. When the user uploads 
             // Pass 7: MCP tools are no longer pre-merged for workspace Build chats.
             // The model calls list_available_mcps + mcp_call from the registry on demand.
 
-            if (isDelegationAllowedForWorkMode(effectiveWorkMode)) {
+            // v12 2.1: no delegation surface on trimmed (weak-model) profiles.
+            if (
+              isDelegationAllowedForWorkMode(effectiveWorkMode) &&
+              buildCapabilityProfile.maxTools == null
+            ) {
               attachDelegationToolsToSet(tools, {
                 sender: event.sender,
                 chatId: req.chatId,

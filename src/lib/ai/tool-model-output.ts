@@ -6,25 +6,16 @@
  * First (and currently only) consumer: `browser_screenshot` — its base64 PNG
  * becomes a `media` content part the model can actually SEE (TODO 1.3).
  *
- * Provider gating is a coarse media-allowlist by builtinProviderId
- * (opencode-style; the 2.1 capability-profile work will own this properly).
- * Unknown/custom/local providers get a text fallback — never raw base64.
+ * Provider gating lives in the 2.1 capability-profile module (the single
+ * source of truth since v12 session 9); re-exported here for existing
+ * importers. Unknown/custom/local providers get a text fallback — never
+ * raw base64.
  */
 
 import type { LanguageModelV2ToolResultOutput } from "@ai-sdk/provider";
+import { providerSupportsToolMedia } from "@/lib/routing/model-capability-profile";
 
-/** Providers whose tool-result messages accept image content parts. */
-const TOOL_MEDIA_PROVIDERS: ReadonlySet<string> = new Set([
-  "anthropic",
-  "openai",
-  "google",
-]);
-
-export function providerSupportsToolMedia(
-  builtinProviderId: string | undefined,
-): boolean {
-  return !!builtinProviderId && TOOL_MEDIA_PROVIDERS.has(builtinProviderId);
-}
+export { providerSupportsToolMedia };
 
 interface ScreenshotMedia {
   data: string;
