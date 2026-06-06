@@ -137,6 +137,9 @@ export const RuntimeModeSchema = z.enum(["web-sandbox", "local-node", "unset"]);
 
 export const RuntimeMode2Schema = z.enum(["host", "docker"]);
 
+// v12 0.1: "agent" remains ONLY so legacy persisted settings parse — the agent
+// chat-mode path was deleted and readSettings coerces "agent" → "build"
+// (custom-command modeOverrides coerce too). Do not dispatch on "agent".
 export const ChatModeSchema = z.enum(["build", "ask", "agent"]);
 
 /** v5.1: Fine-grained work mode (tools + Blueprint tier alignment). */

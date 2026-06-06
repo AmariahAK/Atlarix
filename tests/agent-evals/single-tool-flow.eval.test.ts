@@ -16,11 +16,10 @@ import {
  * tool result returned to the model → final text → stream end + ephemeral
  * history updated.
  *
- * NOTE deliberately NOT agent mode: the harness exposed that selectedChatMode
- * "agent" runs the agent loop AND THEN falls into the build loop (L4155's
- * ask-check `else` catches it), double-dispatching every turn — and the agent
- * path's tool wrapper injects no `workspace` arg. Recorded in docs/TODO.md;
- * an agent-mode eval can pin the fixed behavior after 0.1.
+ * NOTE: the harness originally exposed that selectedChatMode "agent" ran the
+ * agent loop AND THEN fell into the build loop (double-dispatch) with no
+ * `workspace` arg injection. v12 0.1 Phase D DELETED that path; legacy
+ * "agent" now coerces to "build" — pinned in agent-mode-coercion.eval.test.ts.
  */
 
 let ctx: EvalContext;

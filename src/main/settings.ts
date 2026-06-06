@@ -165,6 +165,13 @@ export function readSettings(): UserSettings {
         };
       }
     }
+    // v12 0.1: the vestigial "agent" chat-mode path was deleted — persisted
+    // legacy rows coerce to "build" (the same loop, correctly wired). The
+    // schema still parses "agent" so old settings files load; written back as
+    // "build" on the next normal save.
+    if (combinedSettings.selectedChatMode === "agent") {
+      combinedSettings.selectedChatMode = "build";
+    }
     const supabase = combinedSettings.supabase;
     if (supabase) {
       if (supabase.refreshToken) {

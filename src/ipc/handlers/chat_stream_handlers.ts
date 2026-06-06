@@ -91,10 +91,7 @@ import {
 import { getExtraProviderOptions } from "../utils/thinking_utils";
 
 import { safeSend } from "../utils/safe_sender";
-import {
-  normalizeToolInputSchemaForAiSdk,
-  PERMISSIVE_TOOL_JSON_SCHEMA,
-} from "@/lib/ai/normalize-tool-schema";
+import { normalizeToolInputSchemaForAiSdk } from "@/lib/ai/normalize-tool-schema";
 import {
   clearToolsUsedForTurn,
   getToolsUsedThisTurn,
@@ -1552,8 +1549,12 @@ export function registerChatStreamHandlers() {
             if (row) {
               req.prompt = buildCommandPrompt(row.promptTemplate, parsed.rest);
               const mo = row.modeOverride?.trim().toLowerCase();
-              if (mo === "ask" || mo === "agent" || mo === "build") {
+              if (mo === "ask" || mo === "build") {
                 req.streamChatModeOverride = mo;
+              } else if (mo === "agent") {
+                // v12 0.1: the "agent" chat-mode path was deleted — legacy
+                // command overrides coerce to build (same loop, correctly wired).
+                req.streamChatModeOverride = "build";
               }
             }
           }
@@ -2278,10 +2279,10 @@ ${componentSnippet}
           }
 
           const contextSize = await getContextWindow(effectiveModel, req.chatId);
+          // v12 0.1: legacy "agent" is coerced to "build" upstream (readSettings
+          // + custom-command modeOverride) — only ask/build reach this point.
           const chatMode: "ask" | "build" =
-            settings.selectedChatMode === "agent"
-              ? "build"
-              : (settings.selectedChatMode === "ask" || settings.selectedChatMode === "build" ? settings.selectedChatMode : "ask");
+            settings.selectedChatMode === "build" ? "build" : "ask";
 
           // PASS8 A2: effectiveWorkMode = UI work mode (ask|plan|build|debug|review).
           // Manual mode picker sets workModePreference; Auto intent maps to ask|build only.
@@ -2603,7 +2604,6 @@ ${componentSnippet}
           const delegationRuntime = getDelegationConfig(settings);
           const shouldInjectTaskProgress =
             settings.selectedChatMode === "build" ||
-            settings.selectedChatMode === "agent" ||
             effectiveWorkMode === "build";
 
           const ledgerRow = getLedger(streamTurnIdForLedger);
@@ -2619,7 +2619,7 @@ ${componentSnippet}
           // modified. Stale file excerpts from prior turns add noise in other modes.
           // (We don’t currently have a “files modified this turn” signal here, so we gate by build-like mode.)
           const shouldInjectFileSystemTruth =
-            settings.selectedChatMode === "build" || settings.selectedChatMode === "agent";
+            settings.selectedChatMode === "build";
           if (
             shouldInjectFileSystemTruth &&
             hasWorkspace &&
@@ -3898,295 +3898,13 @@ This conversation includes one or more image attachments. When the user uploads 
           // placeholder for in-turn continuation) is gone — the turn ENDS at
           // the question and a new turn carries the continuation.
 
-          // Pass 7: Blueprint-first blocker fully removed.
-          if (settings.selectedChatMode === "agent") {
-            // Workspace-aware tool filtering (uses effective workspace from outer scope)
-            const workspaceFilteredTools = ToolRegistry.toAISDKFormatForContext(hasWorkspace);
-
-            // Convert to tool set format expected by AI SDK
-            const tools: ToolSet = {};
-            for (const tool of workspaceFilteredTools) {
-              const regName = tool.function.name;
-              tools[regName] = {
-                description: tool.function.description,
-                inputSchema: normalizeToolInputSchemaForAiSdk(
-                  tool.function?.parameters ?? { type: "object", properties: {} },
-                ) as never,
-                // v12 0.2: typed tool outputs (screenshot media / text fallback).
-                toModelOutput: (output: unknown) =>
-                  buildToolModelOutput(regName, output, {
-                    builtinProviderId: modelClient.builtinProviderId,
-                  }) ?? {
-                    type: "text",
-                    value:
-                      typeof output === "string" ? output : JSON.stringify(output),
-                  },
-                execute: async (args: any) => {
-                  // Fix: Finding 4
-                  safeSend(event.sender, "chat:tool:start", {
-                    chatId: req.chatId,
-                    toolId: regName,
-                    toolName: getToolActivityLabel(regName),
-                    toolArgs: args,
-                  });
-                  try {
-                    if (regName === "compress_context") {
-                      // PASS2: Compaction is model-triggered via compress_context.
-                      // Emit activity + run compaction here (tool handler has no stream scope).
-                      const reason =
-                        args && typeof args.reason === "string" && args.reason.trim()
-                          ? args.reason.trim()
-                          : "model-initiated";
-                      safeSend(event.sender, "chat:activity", {
-                        id: `compress-context-${req.chatId}-${Date.now()}`,
-                        type: "compaction",
-                        label: "Context compressed",
-                        status: "running",
-                        timestamp: Date.now(),
-                        detail: reason,
-                        chatId: req.chatId,
-                        modelInitiated: true,
-                      });
-
-                      try {
-                        const providerId =
-                          getEffectiveModelForOptions(settings)?.provider ??
-                          (settings.selectedModel?.provider ?? undefined);
-                        const { executeCompressContext } = await import("@/lib/tools/workspace");
-                        const msgList = updatedChat.messages as { id: number; role: string; content: string }[];
-                        const outcome = await executeCompressContext(
-                          { reason },
-                          {
-                            chatId: req.chatId,
-                            messages: msgList.map((m) => ({ id: m.id, role: m.role, content: m.content || "" })),
-                            systemPromptTokens: 6000,
-                            inputTokens: 0,
-                            providerId,
-                            sessionStats: { toolCallCount: 0, delegationCount: 0 },
-                            turnId: String(placeholderAssistantMessage?.id ?? ""),
-                          },
-                        );
-
-                        safeSend(event.sender, "chat:activity", {
-                          id: `compress-context-${req.chatId}-${Date.now()}`,
-                          type: "compaction",
-                          label: "Context compressed",
-                          status: "done",
-                          timestamp: Date.now(),
-                          // PASS8 F1: tokensBefore/After are estimates, not exact provider counts.
-                          detail: `${outcome.tokensBefore} → ${outcome.tokensAfter} est. tokens. ${outcome.status}`,
-                          chatId: req.chatId,
-                          modelInitiated: true,
-                        });
-
-                        return JSON.stringify({
-                          success: outcome.success,
-                          reason: outcome.reason,
-                          tokensBefore: outcome.tokensBefore,
-                          tokensAfter: outcome.tokensAfter,
-                          summary: outcome.summary,
-                          status: outcome.status,
-                        });
-                      } catch (e) {
-                        safeSend(event.sender, "chat:activity", {
-                          id: `compress-context-${req.chatId}-${Date.now()}`,
-                          type: "compaction",
-                          label: "Context compressed",
-                          status: "error",
-                          timestamp: Date.now(),
-                          detail: String(e),
-                          chatId: req.chatId,
-                          modelInitiated: true,
-                        });
-                        return JSON.stringify({ success: false, error: String(e), reason });
-                      }
-                    }
-
-                    const result = await runToolExecute(
-                      regName,
-                      {
-                        ...args,
-                        _chatSessionId: req.chatId,
-                        workspaceSessionId: req.workspaceSessionId ?? undefined,
-                      },
-                      event.sender,
-                      req.chatId,
-                      buildToolStreamOpts(),
-                    );
-                    // v10.1 fix: this path returned the raw `__ask_user` marker
-                    // to the model (no UI question, no pause). Intercept like the
-                    // Build/agentic paths do.
-                    const askUserResolvedAgentTab = await resolveAskUserToolResult(
-                      event,
-                      req.chatId,
-                      regName,
-                      result,
-                      { onAskUserEndTurn: () => { askUserEndedTurn = true; } },
-                    );
-                    if (askUserResolvedAgentTab !== null) {
-                      return askUserResolvedAgentTab;
-                    }
-                    // v12 0.2: structured screenshot return (media via toModelOutput).
-                    if (regName === "browser_screenshot" && result && typeof result === "object") {
-                      return result;
-                    }
-                    return JSON.stringify(result);
-                  } finally {
-                    safeSend(event.sender, "chat:tool:end", { chatId: req.chatId });
-                  }
-                },
-              };
-            }
-
-            // Add generate-code meta-tool
-            tools["generate-code"] = {
-              description:
-                "ALWAYS use this tool whenever generating or editing code for the codebase.",
-              inputSchema: aiJsonSchema(PERMISSIVE_TOOL_JSON_SCHEMA),
-              execute: async () => "",
-            };
-
-            // Pass 7: MCP tools are no longer pre-merged for workspace chats.
-            // The model calls list_available_mcps to discover, then mcp_call to invoke.
-
-            let agentStreamMessages: ModelMessage[] = limitedHistoryChatMessages;
-            const agentTabStreamLoopStartMs = Date.now();
-            while (true) {
-              if (Date.now() - agentTabStreamLoopStartMs > STREAM_TOOL_LOOP_DURATION_CAP_MS) {
-                logger.warn("[Agent tab stream] Hit duration limit (30 minutes)");
-                safeSend(event.sender, "chat:activity", {
-                  id: `duration-limit-${Date.now()}`,
-                  type: "duration_limit_reached",
-                  label: "Task paused after 30 minutes",
-                  detail: "Send a message to continue",
-                  status: "done",
-                  timestamp: Date.now(),
-                  chatId: req.chatId,
-                });
-                break;
-              }
-              // PASS8 A2 + A5: Build header + dynamic tail; pass header as system,
-              // dynamic tail prepended as a system-role message in `messages`.
-              const agentParts = constructSystemPromptParts({
-                chatMode: "build",
-                effectiveWorkMode: "build",
-                hasWorkspace,
-                ...promptIdentityOpts,
-                contextSize: await getContextWindow(effectiveModel, req.chatId),
-                enableTurboEditsV2: false,
-              });
-              const { bundle, fullResponse: agentRoundFull, finishReason: fr } =
-                await runStreamRoundWithEmptyOutputRetry({
-                  runSimpleStream: async () =>
-                    simpleStreamText({
-                      chatMessages: agentStreamMessages,
-                      modelClient,
-                      tools,
-                      systemPromptOverride: agentParts.stableHeader,
-                      dynamicSystemTail: agentParts.dynamicTail,
-                      files: files,
-                      dyadDisableFiles: true,
-                    }),
-                  fullResponse,
-                  abortController,
-                  chatId: req.chatId,
-                  processResponseChunkUpdate,
-                  onFirstModelActivity: () => {
-                    safeSend(event.sender, "chat:stream:phase", {
-                      chatId: req.chatId,
-                      phase: "responding",
-                      label: "",
-                    });
-                  },
-                  onFirstTextDelta: logTtftOnce,
-                  onFirstReasoningDelta: () => {
-                    safeSend(event.sender, "chat:activity", {
-                      id: `reasoning-started-${req.chatId}-${Date.now()}`,
-                      type: "reasoning_started",
-                      label: "Thinking deeply...",
-                      status: "running",
-                      timestamp: Date.now(),
-                      chatId: req.chatId,
-                    });
-                  },
-                  onFirstTextAfterReasoning: () => {
-                    safeSend(event.sender, "chat:activity", {
-                      id: `reasoning-${req.chatId}`,
-                      type: "reasoning_complete",
-                      label: "Done thinking, writing response...",
-                      status: "done",
-                      timestamp: Date.now(),
-                      chatId: req.chatId,
-                    });
-                  },
-                  onStreamStall: handleStreamStall,
-                  onToolInputProgress: handleToolInputProgress,
-                  onStreamActivityPulse: handleStreamActivityPulse,
-                  sanitizeTextDelta: stripHallucinatedAtlarixToolTagsFromDelta,
-                });
-              fullResponse = agentRoundFull;
-              if (
-                !shouldContinue(fr, {
-                  attemptCount: streamContinuationAttempts,
-                  maxAttempts: STREAM_CONTINUATION_MAX,
-                })
-              ) {
-                break;
-              }
-              streamContinuationAttempts++;
-              const resp = await bundle.response;
-              agentStreamMessages = [
-                ...agentStreamMessages,
-                ...(resp.messages as ModelMessage[]),
-                {
-                  role: "user",
-                  content: buildContinuationPrompt({
-                    chatId: req.chatId,
-                    turnId: String(placeholderAssistantMessage.id),
-                    attemptCount: streamContinuationAttempts,
-                    maxAttempts: STREAM_CONTINUATION_MAX,
-                    lastContent: stripThinkBlocks(fullResponse),
-                    ledgerState: getLedgerStateForContinuation(),
-                  }),
-                },
-              ];
-
-              // PASS8-FIX: Tool results are appended above (3997-4011), THEN
-              // prune, THEN compaction. Compaction never runs before the
-              // current round's tool results land in the message accumulator.
-              // PASS8 D1: Prune large tool outputs between rounds before compaction.
-              // PASS8 C1-C4: Compaction mirrored from Build into all agentic loops.
-              {
-                const agentCompaction = await runMidLoopCompaction({
-                  messages: agentStreamMessages,
-                  systemPromptEstimate: estimateTokens(agentParts.stableHeader + "\n\n" + agentParts.dynamicTail),
-                  tierLimit: modelContextResolved.tierLimit,
-                  contextWindowTokens,
-                  enabled: settings.enableContextAutoSummarize !== false,
-                  chatId: req.chatId,
-                  loopLabel: "Agent tab",
-                  emitActivity: emitCompactionMirroredActivity(event.sender, req.chatId),
-                  onInfo: (msg) => logger.log(msg),
-                  onWarn: (msg, err) => logger.warn(msg, err),
-                });
-                if (agentCompaction.compacted) {
-                  agentStreamMessages = agentCompaction.messages;
-                }
-              }
-            }
-            chatMessages.push({
-              role: "assistant",
-              // Strip <think> blocks from the model-facing history. The
-              // renderer stream (ThinkingCard) still receives the live tags
-              // via chat:response:chunk; only the next-turn context is
-              // stripped so the model never re-ingests its own reasoning.
-              content: stripThinkBlocks(fullResponse),
-            });
-            chatMessages.push({
-              role: "user",
-              content: "OK.",
-            });
-          }
+          // v12 0.1 Phase D: the vestigial "agent" chat-mode path was DELETED.
+          // The UI has only emitted ask/build since work-mode.ts; legacy
+          // "agent" settings rows and custom-command modeOverrides are coerced
+          // to "build" (readSettings + the modeOverride accept set above). The
+          // dead block carried real bugs killed by deletion: double-dispatch
+          // into the build branch, no workspace injection, and no permission/
+          // repetition/delegation wiring.
 
           // v3.9: Assign in Build block (declared above for use in post-stream update)
           preExchangeSnapshotId = null;
@@ -6701,7 +6419,6 @@ ${stopNote}`;
                   : null;
 
           const isBuildModeForSchema =
-            currentSettings.selectedChatMode === "agent" ||
             currentSettings.selectedChatMode === "build";
 
           if (modeSchemaConfig && fullResponse.trim() && isBuildModeForSchema) {
@@ -6897,8 +6614,7 @@ ${stopNote}`;
             logger.warn("Failed to record session memory exchange:", error);
           }
           const settings = readSettings();
-          const isBuildModeTurn =
-            settings.selectedChatMode === "agent" || settings.selectedChatMode === "build";
+          const isBuildModeTurn = settings.selectedChatMode === "build";
           {
             const newReviewSystemActiveElse =
               streamStopWasTaskComplete ||

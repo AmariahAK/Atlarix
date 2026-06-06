@@ -1,7 +1,7 @@
 # Atlarix TODO
 
 **Current Version:** v11.0.0 (unreleased)
-**Last Updated:** 2026-06-05
+**Last Updated:** 2026-06-06
 
 ---
 
@@ -9,7 +9,20 @@
 
 > **Goal:** close the gap between Atlarix and a real AI IDE (Cursor / Claude Code / opencode / Codex / Antigravity) where any model is brought into a workspace and *just works*. This register is grounded in two long build sessions, three parallel audits (defect sweep, opencode/Claude-Code reference extraction, test-suite audit), and direct spot-verification. References live in `atlarix-references/opencode` and `atlarix-references/claude-code`.
 >
-> **Session 1 (2026-06-05) SHIPPED: the Tier 4 agent-eval harness + quick wins 1.1 / 1.4 / 2.4.** **Session 2 (2026-06-05) SHIPPED: 0.2 native tool-call history + multimodal tool results (build mode)** — see the session tables below. Next session: **0.1 loop unification** behind a flag, mode-by-mode, with the harness asserting parity (fold in the agent-path findings).
+> **Session 1 (2026-06-05) SHIPPED: the Tier 4 agent-eval harness + quick wins 1.1 / 1.4 / 2.4.** **Session 2 (2026-06-05) SHIPPED: 0.2 native tool-call history + multimodal tool results (build mode)** **Session 3 (2026-06-06) SHIPPED: 0.1 part 1 — `runAgentTurn` engine extracted, BUILD migrated behind `enableUnifiedAgentLoop` (default OFF), vestigial agent path DELETED + legacy coercion** — see the session tables below. Next session: **finish 0.1** — migrate ASK onto the engine, flag default-flip + legacy-branch deletion after soak, mid-round correction reinject.
+
+### v12 session 3 — shipped (2026-06-06): 0.1 part 1 — unified engine + build migration + agent-path deletion
+
+| Area | Notes |
+|------|-------|
+| **Engine extracted (`src/lib/agent/run-agent-turn.ts` + `agent-profile.ts`)** | Faithful CONTROL-FLOW port of the build `for(;;)` loop, parameterized by `AgentProfile` (data flags: `honorTaskCompleteBreak`, `proseOnlyStreakMax` — `undefined` = ask's "prose ends the turn", `escalationMode`, labels; capabilities: `tools`, `repetition`, `buildRoundSystemPrompt`, text-tool fallback trio, **`postWriteVerify?` seam left unset for 0.3/1.2**). State stays in `runStream` — the engine receives handler closures via a `TurnRuntime` param (full state extraction is 0.4). Cycle-free (no handler import). No separate `process-step.ts` — the break decisions live inline until they earn extraction. |
+| **BUILD migrated behind a flag** | `enableUnifiedAgentLoop` (schemas.ts) + `ATLARIX_UNIFIED_LOOP=1` env override, **default OFF**. The text-tool execution block was extracted into handler-local `execBuildTextToolCalls` shared by BOTH branches; legacy loop byte-for-byte unchanged behind the `else`; shared post-loop epilogue stays common. Engine reproduced the legacy loop on first run — full eval matrix green flag ON and OFF, incl. the 4 native-history byte-stability canaries. |
+| **Vestigial agent path DELETED (+289 lines)** | `selectedChatMode === "agent"` block removed (incl. inline compress_context, generate-code meta-tool, static "OK." continuation). Killed by deletion: **double-dispatch every turn**, **no workspace injection**, no permission/repetition/delegation wiring (the session-1 harness findings). Coercion: `readSettings` rewrites persisted `"agent"` → `"build"` (compass-alias pattern); custom-command `modeOverride: "agent"` coerces at the accept set; dead `=== "agent"` arms simplified; `"agent"` stays in `ChatModeSchema` so old rows parse (coercion comment). Renderer/work-mode coercion arms kept as defense-in-depth. |
+| **Ask parity baselines (Phase A)** | `tests/agent-evals/ask-parity.eval.test.ts` (5): read-only flow + toolset surface (write tools NOT offered, ask_user IS), plan-workMode surface (**pins a real defect: `write_implementation_plan` is never offered** — `getToolsForAskMode` excludes it though the ask wrapper has dedicated handling at ~L4205; fix = profile-level plan-tool inclusion during the ask migration), repetition abort, ask_user end-turn, round-trip persist. Pinned against the OLD ask loop pre-migration. |
+| **Coercion eval (Phase D)** | `tests/agent-evals/agent-mode-coercion.eval.test.ts`: `mode:"agent"` turn → exactly 2 requests (single dispatch), workspace injection works, build toolset surface, `<task_complete>` honored. |
+| **Verification** | 22 agent-evals green flag ON+OFF (stable ×2), `npm test` 1047/1047, ts:main clean, oxlint at the 9 pre-existing errors, boot smoke OK. |
+
+**Still open in 0.1 (next session):** migrate ASK onto the engine (`buildAskProfile`: `honorTaskCompleteBreak:false`, `proseOnlyStreakMax:undefined`, no text-tool callbacks, ask-native-history-replay eval — ask inherits 0.2 native history via the engine); soak → flag default-flip → DELETE the legacy build branch; mid-round correction reinject (corrections fired inside the SDK inner loop can only abort today — fix once in the single engine); decide the plan-tool defect consciously. **Realistic size note:** `chat_stream_handlers.ts` is 7,419 lines after deletion; legacy-branch removal lands it ~3,500–4,500 — the <1,500 target needs 0.4's state extraction.
 
 ### v12 session 2 — shipped (2026-06-05): 0.2 native tool history
 
@@ -50,13 +63,13 @@
 - **`enableAutoFixProblems` is NOT fully dead** (session-1 correction): `AutoFixProblemsSwitch.tsx` reads/writes it — the UI toggle works. What's missing is any LOGIC behind it (nothing in the loop / edit.ts / file.ts reads it). Still a lying knob until 0.3 wires post-edit LSP verify to it.
 - **No post-edit diagnostics feedback exists** — no `lsp_diagnostics` / `diagnose` call after a write. Verified.
 - ~~**Dual compaction files both live**~~ → **FIXED in session 1** (root file deleted, exports folded into `context/compaction.ts`).
-- Loop structure: `chat_stream_handlers.ts` is **7,428 lines** with divergent per-mode handling (agent / ask / build / chat-only). Literal `while(true)` count is 2, but the mode branches each re-implement tool execution, ask_user, abort, and history-shaping — the "4 divergent paths" liability is real.
+- Loop structure (UPDATED session 3): the "4 divergent paths" collapsed to **2 live loops** — the agent path was vestigial (UI only ever emits ask/build) and is now DELETED; chat-only is an early boundary rejection, not a loop. Remaining: ask loop (legacy) + build (legacy `else` / unified engine behind the flag).
 
 ---
 
 ### TIER 0 — The four foundations (everything else is downstream; order = dependency order)
 
-#### 0.1 Unify the agent loop (the #1 liability)
+#### 0.1 Unify the agent loop (the #1 liability) — 🔶 PART 1 SHIPPED session 3 (engine + build behind flag + agent path deleted); remaining: ask migration, flag flip, legacy deletion, correction reinject
 - **Problem:** `chat_stream_handlers.ts` (7,428 lines) re-implements the agent turn per mode. Every cross-cutting feature is wired N times (ask_user had 4 interception sites; mid-loop compaction in 3 places; the `AI_NoOutputGeneratedError` ask_user bug existed *because* abort semantics differ per branch). New features ship with path-specific bugs; fixes are whack-a-mole.
 - **Target (steal from opencode):** ONE `runAgentTurn()` engine parameterized by an `AgentProfile` (mode, permission ruleset, model override, max steps, toolset). Non-recursive `while` loop with a step counter; a `processStep()` returning `"continue" | "stop" | "compact"`; break = `lastAssistant.finished && no pending tool calls && lastUser before lastAssistant`; abort handled in ONE place. Ref: `opencode/packages/opencode/src/session/prompt.ts:1252-1513` (runLoop), `.../processor.ts:958-1029`.
 - **De-risked approach (NOT big-bang):** (1) extract the shared turn into `src/lib/agent/run-agent-turn.ts` seeded from the build loop; (2) migrate ask → build → agent → chat-only one at a time behind a feature flag, with the Tier 4 eval harness asserting parity at each step; (3) delete each old branch only after its evals pass.
@@ -147,7 +160,7 @@ tests/
 1. ✅ ~~**Tier 4 eval harness FIRST**~~ — shipped session 1.
 2. ✅ ~~**Quick wins**: 1.1, 1.4, 2.4~~ — shipped session 1. Still open from the batch: 1.2/0.3 (wire autofix), 3.x.
 3. ✅ ~~**0.2 native tool history**~~ — shipped session 2 (build mode; ask/agent native history deferred to 0.1).
-4. **0.1 loop unification** behind a flag, mode-by-mode, evals asserting parity ← **next session starts here** — fold in the session-1 agent-path findings (double-dispatch, missing workspace injection, mid-round correction injection) and extend native history to ask/agent/chat-only via the unified engine.
+4. 🔶 **0.1 loop unification** — part 1 shipped session 3 (engine, build behind `enableUnifiedAgentLoop`, agent path deleted+coerced). ← **next session finishes it**: ask migration (incl. native history via the engine + the plan-tool defect decision), soak → flag flip → legacy-branch deletion, mid-round correction reinject.
 5. **0.4 single store** + structured contracts.
 6. **2.x** capability profiles, permissions/hooks, then **2.3 background agents** as the differentiator.
 
