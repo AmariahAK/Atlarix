@@ -418,6 +418,12 @@ export const UserSettingsSchema = z.object({
   enablePtyTerminal: z.boolean().optional(),
 
   enableAutoFixProblems: z.boolean().optional(),
+  /**
+   * v12 0.1 migration flag: route mode loops through the unified
+   * runAgentTurn engine (src/lib/agent/). Default OFF until parity soak;
+   * env override ATLARIX_UNIFIED_LOOP=1. Dies with the legacy branches.
+   */
+  enableUnifiedAgentLoop: z.boolean().optional(),
   enableNativeGit: z.boolean().optional(),
   /** When true, run_command may execute git init. Default false. */
   allowGitInit: z.boolean().optional(),

@@ -33,6 +33,7 @@ import {
   flattenNativeForCompaction,
   regateNativeMediaForProvider,
 } from "@/lib/ai/native-history";
+import { runAgentTurn } from "@/lib/agent/run-agent-turn";
 import { getNativeWebSearchSupport } from "../utils/native_web_search";
 import { perfReportOnce } from "@/lib/perf-marks";
 import { buildAttachmentRecord } from "@/lib/attachment-upload";
@@ -5698,272 +5699,19 @@ This conversation includes one or more image attachments. When the user uploads 
 
             try {
               agenticRepetition.setEnabled(true);
-              for (;;) {
-                if (Date.now() - loopStartTime > STREAM_TOOL_LOOP_DURATION_CAP_MS) {
-                  logger.warn(
-                    `[Agentic Loop] Hit duration limit (30 minutes) chatMode=${settings.selectedChatMode ?? "?"} agentMode=${settings.agentMode ?? "?"}`,
-                  );
-                  safeSend(event.sender, "chat:activity", {
-                    id: `duration-limit-${Date.now()}`,
-                    type: "duration_limit_reached",
-                    label: "Task paused after 30 minutes",
-                    detail: "Send a message to continue",
-                    status: "done",
-                    timestamp: Date.now(),
-                    chatId: req.chatId,
-                  });
-                  break;
-                }
-
-                // Emit progress to frontend (maxIterations 0 = unbounded in UI)
-                safeSend(event.sender, "chat:iteration:progress", {
-                  chatId: req.chatId,
-                  iteration: agenticIteration + 1,
-                  maxIterations: 0,
-                  totalToolsExecuted: totalToolExecutions,
-                });
-
-                logger.log(`[Agentic Loop] Iteration ${agenticIteration + 1} (unbounded)`);
-
-                buildSystemPromptWithManifest =
-                  systemPrompt +
-                  "\n\n" +
-                  generateProgressiveRevealNote(
-                    [...buildLoader.getLoadedToolNames()],
-                    effectiveWorkMode,
-                  );
-
-                let buildIterMessages: ModelMessage[] = agenticMessages;
-                let streamRoundDone = false;
-                // v12 0.2 (B1): the final round's native response messages —
-                // continuation rounds already append theirs to buildIterMessages.
-                let finalRoundRespMsgs: ModelMessage[] = [];
-                while (!streamRoundDone) {
-                  const {
-                    bundle: buildBundle,
-                    fullResponse: buildRoundFull,
-                    finishReason: buildFr,
-                  } = await runStreamRoundWithEmptyOutputRetry({
-                    runSimpleStream: async () =>
-                      simpleStreamText({
-                        chatMessages: buildIterMessages,
-                        modelClient,
-                        tools,
-                        systemPromptOverride: buildSystemPromptWithManifest,
-                        files: files,
-                      }),
-                    fullResponse,
-                    abortController,
-                    chatId: req.chatId,
-                    processResponseChunkUpdate,
-                    onFirstModelActivity: () => {
-                      safeSend(event.sender, "chat:stream:phase", {
-                        chatId: req.chatId,
-                        phase: "responding",
-                        label: "",
-                      });
-                    },
-                    onFirstTextDelta: logTtftOnce,
-                    onFirstReasoningDelta: () => {
-                      safeSend(event.sender, "chat:activity", {
-                        id: `reasoning-started-${req.chatId}-${Date.now()}`,
-                        type: "reasoning_started",
-                        label: "Thinking deeply...",
-                        status: "running",
-                        timestamp: Date.now(),
-                        chatId: req.chatId,
-                      });
-                    },
-                    onFirstTextAfterReasoning: () => {
-                      safeSend(event.sender, "chat:activity", {
-                        id: `reasoning-${req.chatId}`,
-                        type: "reasoning_complete",
-                        label: "Done thinking, writing response...",
-                        status: "done",
-                        timestamp: Date.now(),
-                        chatId: req.chatId,
-                      });
-                    },
-                    onStreamStall: handleStreamStall,
-                    onToolInputProgress: handleToolInputProgress,
-                    onStreamActivityPulse: handleStreamActivityPulse,
-                    sanitizeTextDelta: stripHallucinatedAtlarixToolTagsFromDelta,
-                  });
-                  fullResponse = buildRoundFull;
-                  const buildResp = await buildBundle.response;
-                  const respMsgs = buildResp.messages as ModelMessage[];
-                  finalRoundRespMsgs = respMsgs;
-
-                  if (
-                    shouldContinue(buildFr, {
-                      attemptCount: streamContinuationAttempts,
-                      maxAttempts: STREAM_CONTINUATION_MAX,
-                    })
-                  ) {
-                    streamContinuationAttempts++;
-                    buildIterMessages = [
-                      ...buildIterMessages,
-                      ...respMsgs,
-                      {
-                        role: "user",
-                        content: buildContinuationPrompt({
-                          chatId: req.chatId,
-                          turnId: String(placeholderAssistantMessage.id),
-                          attemptCount: streamContinuationAttempts,
-                          maxAttempts: STREAM_CONTINUATION_MAX,
-                          lastContent: stripThinkBlocks(fullResponse),
-                          ledgerState: getLedgerStateForContinuation(),
-                        }),
-                      },
-                    ];
-                    continue;
-                  }
-
-                  const ledgerNow = getLedger(streamTurnIdForLedger);
-                  const pendingForContinue =
-                    ledgerNow &&
-                    buildFr === "stop" &&
-                    !isLedgerTaskComplete(ledgerNow) &&
-                    streamContinuationAttempts < STREAM_CONTINUATION_MAX
-                      ? getRemainingSteps(ledgerNow)
-                      : [];
-
-                  if (pendingForContinue.length > 0) {
-                    streamContinuationAttempts++;
-                    const ledgerSnap = getLedgerStateString(streamTurnIdForLedger);
-                    buildIterMessages = [
-                      ...buildIterMessages,
-                      ...respMsgs,
-                      {
-                        role: "user",
-                        content:
-                          buildPendingStepsContinuationPrompt(pendingForContinue) +
-                          (ledgerSnap ? `\n\nCurrent task state:\n${ledgerSnap}` : ""),
-                      },
-                    ];
-                    continue;
-                  }
-
-                  streamRoundDone = true;
-                }
-
-                // v12 0.2 (B1): this iteration's NATIVE delta = continuation
-                // appends beyond the agenticMessages seed + the final round's
-                // response messages (never appended by the inner loop).
-                const nativeIterMessages: ModelMessage[] = [
-                  ...buildIterMessages.slice(agenticMessages.length),
-                  ...finalRoundRespMsgs,
-                ];
-                // Truthful "native tools ran" signal — the permission-op count
-                // below misses read-only tools (they never hit the interceptor).
-                const roundHadNativeToolMessages =
-                  hasNativeToolParts(nativeIterMessages);
-
-                // ═══════════════════════════════════════════════════════════
-                // OPTION A: Track tool execution (works with ALL providers)
-                // ═══════════════════════════════════════════════════════════
-
-                // Check for text-based tool calls (MiniMax, Claude XML, etc.)
-                const hasTextToolCalls =
-                  useTextToolFallback && containsTextToolCall(fullResponse);
-
-                // Check how many operations were buffered in this iteration
-                // (This tracks native function calling - Claude, GPT via OpenRouter)
-                const currentOpCount = permissionInterceptor.getAllOperationsCount();
-                const executedOpCount = permissionInterceptor.getExecutedOperationsCount();
-                logger.log(`[Agentic Loop] Operation counts: total=${currentOpCount}, executed=${executedOpCount}, tracked=${totalToolExecutions}`);
-
-                const hadNativeToolExecution = currentOpCount > totalToolExecutions;
-
-                if (hasTextToolCalls) {
-                  logger.log("[Agentic Loop] Detected text-based tool calls, parsing and executing...");
-                } else if (hadNativeToolExecution) {
-                  const newOps = currentOpCount - totalToolExecutions;
-                  logger.log(`[Agentic Loop] Native tool calls detected (${newOps} new operations, ${currentOpCount} total)`);
-                  totalToolExecutions = currentOpCount;
-                }
-
-                if (streamDebugLogging) {
-                  logger.log(`[Agentic Loop] Round summary`, {
-                    iteration: agenticIteration + 1,
-                    hasTextToolCalls,
-                    hadNativeToolExecution,
-                    responseTail: fullResponse.slice(-200),
-                  });
-                }
-
-                // End only on explicit <task_complete> or a completed task ledger
-                if (isTaskComplete(fullResponse)) {
-                  logger.info(`[Agentic Loop] Task completed at iteration ${agenticIteration + 1}`);
-                  // v12 0.2 (B2): the final round's native messages never hit
-                  // the fold site — capture them for the turn envelope.
-                  if (roundHadNativeToolMessages) {
-                    nativeTurnMessages.push(...nativeIterMessages);
-                  }
-                  break;
-                }
-
-                const ledgerAfterRound = getLedger(streamTurnIdForLedger);
-                if (ledgerAfterRound && isLedgerTaskComplete(ledgerAfterRound)) {
-                  logger.info(
-                    `[Agentic Loop] Ledger complete at iteration ${agenticIteration + 1}`,
-                  );
-                  if (roundHadNativeToolMessages) {
-                    nativeTurnMessages.push(...nativeIterMessages);
-                  }
-                  break;
-                }
-
-                // Prose-only round: nudge the model to keep working instead of ending the turn
-                if (
-                  !hasTextToolCalls &&
-                  !hadNativeToolExecution &&
-                  !roundHadNativeToolMessages
-                ) {
-                  agenticProseOnlyStreak++;
-                  if (agenticProseOnlyStreak >= AGENTIC_PROSE_ONLY_MAX) {
-                    logger.warn(
-                      `[Agentic Loop] Prose-only cap (${AGENTIC_PROSE_ONLY_MAX}) reached; ending loop`,
-                    );
-                    break;
-                  }
-                  const pendingSteps = ledgerAfterRound
-                    ? getRemainingSteps(ledgerAfterRound)
-                    : [];
-                  const ledgerSnap = getLedgerStateString(streamTurnIdForLedger);
-                  const nudge =
-                    pendingSteps.length > 0
-                      ? buildPendingStepsContinuationPrompt(pendingSteps) +
-                        (ledgerSnap ? `\n\nCurrent task state:\n${ledgerSnap}` : "")
-                      : "You replied without using tools or finishing. Continue the task: call tools as needed, then emit <task_complete> when fully done.";
-                  agenticMessages.push({
-                    role: "assistant" as const,
-                    content: stripAssistantDisplayContent(stripToolCallXML(fullResponse)),
-                  });
-                  agenticMessages.push({
-                    role: "user" as const,
-                    content: nudge,
-                  });
-                  agenticIteration++;
-                  logger.log(
-                    `[Agentic Loop] Prose-only streak ${agenticProseOnlyStreak}/${AGENTIC_PROSE_ONLY_MAX}; continuing`,
-                  );
-                  continue;
-                }
-
-                agenticProseOnlyStreak = 0;
-
-                // Parse and execute text-based tool calls
-                const textToolCalls = hasTextToolCalls ? parseTextToolCalls(fullResponse) : [];
-
-                if (hasTextToolCalls && textToolCalls.length === 0) {
-                  logger.log("[Agentic Loop] No parseable tool calls found, ending loop");
-                  break;
-                }
-
+            // v12 0.1: text-tool execution extracted to ONE implementation shared
+            // by the legacy loop and the unified engine (profile.executeTextToolCalls).
+            // Closure over the build-branch scope (tools / interceptor / gates /
+            // filesWrittenInThisExchange / askUserEndedTurn) is intentional.
+            const execBuildTextToolCalls = async (
+              textToolCalls: Array<{ toolName: string; args: Record<string, unknown> }>,
+            ): Promise<{
+              iterationResults: Array<{ tool: string; result: string }>;
+              hasPermissionRequest: boolean;
+            }> => {
                 // Execute text-based tools. When all are read-only, run in parallel (Phase 5).
                 const iterationResults: { tool: string; result: string }[] = [];
-                let hasPermissionRequest = hadNativeToolExecution; // Carry forward native tool detection
+                let hasPermissionRequest = false; // native carry-forward happens at the call site
 
                 const readOnlyNames = new Set(
                   ToolRegistry.getAll().filter((t) => t.isReadOnly).map((t) => t.name)
@@ -6317,6 +6065,369 @@ This conversation includes one or more image attachments. When the user uploads 
                     });
                   }
                 }
+                return { iterationResults, hasPermissionRequest };
+            };
+
+              // v12 0.1: unified-loop migration flag. ON → the extracted
+              // runAgentTurn engine (must reproduce this loop byte-for-byte —
+              // the eval suite runs both states). OFF (default) → the legacy
+              // loop below, UNCHANGED. The flag and the legacy body die
+              // together once parity has soaked.
+              const unifiedLoopEnabled =
+                process.env.ATLARIX_UNIFIED_LOOP === "1" ||
+                settings.enableUnifiedAgentLoop === true;
+              if (unifiedLoopEnabled) {
+                const turnResult = await runAgentTurn(
+                  {
+                    mode: "build",
+                    loopLogLabel: "[Agentic Loop]",
+                    compactionLabel: "Agentic Loop",
+                    honorTaskCompleteBreak: true,
+                    proseOnlyStreakMax: AGENTIC_PROSE_ONLY_MAX,
+                    escalationMode:
+                      effectiveWorkMode === "plan"
+                        ? "plan"
+                        : effectiveWorkMode === "build"
+                          ? "build"
+                          : "agent",
+                    tools,
+                    repetition: agenticRepetition,
+                    buildRoundSystemPrompt: () => {
+                      buildSystemPromptWithManifest =
+                        systemPrompt +
+                        "\n\n" +
+                        generateProgressiveRevealNote(
+                          [...buildLoader.getLoadedToolNames()],
+                          effectiveWorkMode,
+                        );
+                      return buildSystemPromptWithManifest;
+                    },
+                    detectTextToolCalls: (fr) =>
+                      useTextToolFallback && containsTextToolCall(fr)
+                        ? (parseTextToolCalls(fr) as Array<{
+                            toolName: string;
+                            args: Record<string, unknown>;
+                          }>)
+                        : null,
+                    executeTextToolCalls: (calls) =>
+                      execBuildTextToolCalls(
+                        calls as Array<{ toolName: string; args: Record<string, unknown> }>,
+                      ),
+                    stripTextToolXML: stripToolCallXML,
+                  },
+                  {
+                    chatId: req.chatId,
+                    settings,
+                    abortController,
+                    continuationTurnId: String(placeholderAssistantMessage.id),
+                    streamTurnIdForLedger,
+                    tierLimit: modelContextResolved.tierLimit,
+                    contextWindowTokens,
+                    maxContinuationAttempts: STREAM_CONTINUATION_MAX,
+                    permissionInterceptor,
+                    seedMessages: chatMessages,
+                    nativeTurnMessages,
+                    initialFullResponse: fullResponse,
+                    safeSend: (channel, payload) =>
+                      safeSend(event.sender, channel, payload),
+                    emitCompactionActivity: emitCompactionMirroredActivity(
+                      event.sender,
+                      req.chatId,
+                    ),
+                    simpleStreamText: (opts) =>
+                      simpleStreamText({
+                        chatMessages: opts.chatMessages,
+                        modelClient,
+                        tools: opts.tools as ToolSet,
+                        systemPromptOverride: opts.systemPromptOverride,
+                        files: files,
+                      }),
+                    runStreamRound: runStreamRoundWithEmptyOutputRetry,
+                    processResponseChunkUpdate,
+                    onFirstTextDelta: logTtftOnce,
+                    onStreamStall: handleStreamStall,
+                    onToolInputProgress: handleToolInputProgress,
+                    onStreamActivityPulse: handleStreamActivityPulse,
+                    sanitizeTextDelta: stripHallucinatedAtlarixToolTagsFromDelta,
+                    applyTierEscalation,
+                    getLedgerStateForContinuation,
+                  },
+                );
+                fullResponse = turnResult.fullResponse;
+                agenticIteration = turnResult.iterations;
+                totalToolExecutions = turnResult.totalToolExecutions;
+              } else
+              for (;;) {
+                if (Date.now() - loopStartTime > STREAM_TOOL_LOOP_DURATION_CAP_MS) {
+                  logger.warn(
+                    `[Agentic Loop] Hit duration limit (30 minutes) chatMode=${settings.selectedChatMode ?? "?"} agentMode=${settings.agentMode ?? "?"}`,
+                  );
+                  safeSend(event.sender, "chat:activity", {
+                    id: `duration-limit-${Date.now()}`,
+                    type: "duration_limit_reached",
+                    label: "Task paused after 30 minutes",
+                    detail: "Send a message to continue",
+                    status: "done",
+                    timestamp: Date.now(),
+                    chatId: req.chatId,
+                  });
+                  break;
+                }
+
+                // Emit progress to frontend (maxIterations 0 = unbounded in UI)
+                safeSend(event.sender, "chat:iteration:progress", {
+                  chatId: req.chatId,
+                  iteration: agenticIteration + 1,
+                  maxIterations: 0,
+                  totalToolsExecuted: totalToolExecutions,
+                });
+
+                logger.log(`[Agentic Loop] Iteration ${agenticIteration + 1} (unbounded)`);
+
+                buildSystemPromptWithManifest =
+                  systemPrompt +
+                  "\n\n" +
+                  generateProgressiveRevealNote(
+                    [...buildLoader.getLoadedToolNames()],
+                    effectiveWorkMode,
+                  );
+
+                let buildIterMessages: ModelMessage[] = agenticMessages;
+                let streamRoundDone = false;
+                // v12 0.2 (B1): the final round's native response messages —
+                // continuation rounds already append theirs to buildIterMessages.
+                let finalRoundRespMsgs: ModelMessage[] = [];
+                while (!streamRoundDone) {
+                  const {
+                    bundle: buildBundle,
+                    fullResponse: buildRoundFull,
+                    finishReason: buildFr,
+                  } = await runStreamRoundWithEmptyOutputRetry({
+                    runSimpleStream: async () =>
+                      simpleStreamText({
+                        chatMessages: buildIterMessages,
+                        modelClient,
+                        tools,
+                        systemPromptOverride: buildSystemPromptWithManifest,
+                        files: files,
+                      }),
+                    fullResponse,
+                    abortController,
+                    chatId: req.chatId,
+                    processResponseChunkUpdate,
+                    onFirstModelActivity: () => {
+                      safeSend(event.sender, "chat:stream:phase", {
+                        chatId: req.chatId,
+                        phase: "responding",
+                        label: "",
+                      });
+                    },
+                    onFirstTextDelta: logTtftOnce,
+                    onFirstReasoningDelta: () => {
+                      safeSend(event.sender, "chat:activity", {
+                        id: `reasoning-started-${req.chatId}-${Date.now()}`,
+                        type: "reasoning_started",
+                        label: "Thinking deeply...",
+                        status: "running",
+                        timestamp: Date.now(),
+                        chatId: req.chatId,
+                      });
+                    },
+                    onFirstTextAfterReasoning: () => {
+                      safeSend(event.sender, "chat:activity", {
+                        id: `reasoning-${req.chatId}`,
+                        type: "reasoning_complete",
+                        label: "Done thinking, writing response...",
+                        status: "done",
+                        timestamp: Date.now(),
+                        chatId: req.chatId,
+                      });
+                    },
+                    onStreamStall: handleStreamStall,
+                    onToolInputProgress: handleToolInputProgress,
+                    onStreamActivityPulse: handleStreamActivityPulse,
+                    sanitizeTextDelta: stripHallucinatedAtlarixToolTagsFromDelta,
+                  });
+                  fullResponse = buildRoundFull;
+                  const buildResp = await buildBundle.response;
+                  const respMsgs = buildResp.messages as ModelMessage[];
+                  finalRoundRespMsgs = respMsgs;
+
+                  if (
+                    shouldContinue(buildFr, {
+                      attemptCount: streamContinuationAttempts,
+                      maxAttempts: STREAM_CONTINUATION_MAX,
+                    })
+                  ) {
+                    streamContinuationAttempts++;
+                    buildIterMessages = [
+                      ...buildIterMessages,
+                      ...respMsgs,
+                      {
+                        role: "user",
+                        content: buildContinuationPrompt({
+                          chatId: req.chatId,
+                          turnId: String(placeholderAssistantMessage.id),
+                          attemptCount: streamContinuationAttempts,
+                          maxAttempts: STREAM_CONTINUATION_MAX,
+                          lastContent: stripThinkBlocks(fullResponse),
+                          ledgerState: getLedgerStateForContinuation(),
+                        }),
+                      },
+                    ];
+                    continue;
+                  }
+
+                  const ledgerNow = getLedger(streamTurnIdForLedger);
+                  const pendingForContinue =
+                    ledgerNow &&
+                    buildFr === "stop" &&
+                    !isLedgerTaskComplete(ledgerNow) &&
+                    streamContinuationAttempts < STREAM_CONTINUATION_MAX
+                      ? getRemainingSteps(ledgerNow)
+                      : [];
+
+                  if (pendingForContinue.length > 0) {
+                    streamContinuationAttempts++;
+                    const ledgerSnap = getLedgerStateString(streamTurnIdForLedger);
+                    buildIterMessages = [
+                      ...buildIterMessages,
+                      ...respMsgs,
+                      {
+                        role: "user",
+                        content:
+                          buildPendingStepsContinuationPrompt(pendingForContinue) +
+                          (ledgerSnap ? `\n\nCurrent task state:\n${ledgerSnap}` : ""),
+                      },
+                    ];
+                    continue;
+                  }
+
+                  streamRoundDone = true;
+                }
+
+                // v12 0.2 (B1): this iteration's NATIVE delta = continuation
+                // appends beyond the agenticMessages seed + the final round's
+                // response messages (never appended by the inner loop).
+                const nativeIterMessages: ModelMessage[] = [
+                  ...buildIterMessages.slice(agenticMessages.length),
+                  ...finalRoundRespMsgs,
+                ];
+                // Truthful "native tools ran" signal — the permission-op count
+                // below misses read-only tools (they never hit the interceptor).
+                const roundHadNativeToolMessages =
+                  hasNativeToolParts(nativeIterMessages);
+
+                // ═══════════════════════════════════════════════════════════
+                // OPTION A: Track tool execution (works with ALL providers)
+                // ═══════════════════════════════════════════════════════════
+
+                // Check for text-based tool calls (MiniMax, Claude XML, etc.)
+                const hasTextToolCalls =
+                  useTextToolFallback && containsTextToolCall(fullResponse);
+
+                // Check how many operations were buffered in this iteration
+                // (This tracks native function calling - Claude, GPT via OpenRouter)
+                const currentOpCount = permissionInterceptor.getAllOperationsCount();
+                const executedOpCount = permissionInterceptor.getExecutedOperationsCount();
+                logger.log(`[Agentic Loop] Operation counts: total=${currentOpCount}, executed=${executedOpCount}, tracked=${totalToolExecutions}`);
+
+                const hadNativeToolExecution = currentOpCount > totalToolExecutions;
+
+                if (hasTextToolCalls) {
+                  logger.log("[Agentic Loop] Detected text-based tool calls, parsing and executing...");
+                } else if (hadNativeToolExecution) {
+                  const newOps = currentOpCount - totalToolExecutions;
+                  logger.log(`[Agentic Loop] Native tool calls detected (${newOps} new operations, ${currentOpCount} total)`);
+                  totalToolExecutions = currentOpCount;
+                }
+
+                if (streamDebugLogging) {
+                  logger.log(`[Agentic Loop] Round summary`, {
+                    iteration: agenticIteration + 1,
+                    hasTextToolCalls,
+                    hadNativeToolExecution,
+                    responseTail: fullResponse.slice(-200),
+                  });
+                }
+
+                // End only on explicit <task_complete> or a completed task ledger
+                if (isTaskComplete(fullResponse)) {
+                  logger.info(`[Agentic Loop] Task completed at iteration ${agenticIteration + 1}`);
+                  // v12 0.2 (B2): the final round's native messages never hit
+                  // the fold site — capture them for the turn envelope.
+                  if (roundHadNativeToolMessages) {
+                    nativeTurnMessages.push(...nativeIterMessages);
+                  }
+                  break;
+                }
+
+                const ledgerAfterRound = getLedger(streamTurnIdForLedger);
+                if (ledgerAfterRound && isLedgerTaskComplete(ledgerAfterRound)) {
+                  logger.info(
+                    `[Agentic Loop] Ledger complete at iteration ${agenticIteration + 1}`,
+                  );
+                  if (roundHadNativeToolMessages) {
+                    nativeTurnMessages.push(...nativeIterMessages);
+                  }
+                  break;
+                }
+
+                // Prose-only round: nudge the model to keep working instead of ending the turn
+                if (
+                  !hasTextToolCalls &&
+                  !hadNativeToolExecution &&
+                  !roundHadNativeToolMessages
+                ) {
+                  agenticProseOnlyStreak++;
+                  if (agenticProseOnlyStreak >= AGENTIC_PROSE_ONLY_MAX) {
+                    logger.warn(
+                      `[Agentic Loop] Prose-only cap (${AGENTIC_PROSE_ONLY_MAX}) reached; ending loop`,
+                    );
+                    break;
+                  }
+                  const pendingSteps = ledgerAfterRound
+                    ? getRemainingSteps(ledgerAfterRound)
+                    : [];
+                  const ledgerSnap = getLedgerStateString(streamTurnIdForLedger);
+                  const nudge =
+                    pendingSteps.length > 0
+                      ? buildPendingStepsContinuationPrompt(pendingSteps) +
+                        (ledgerSnap ? `\n\nCurrent task state:\n${ledgerSnap}` : "")
+                      : "You replied without using tools or finishing. Continue the task: call tools as needed, then emit <task_complete> when fully done.";
+                  agenticMessages.push({
+                    role: "assistant" as const,
+                    content: stripAssistantDisplayContent(stripToolCallXML(fullResponse)),
+                  });
+                  agenticMessages.push({
+                    role: "user" as const,
+                    content: nudge,
+                  });
+                  agenticIteration++;
+                  logger.log(
+                    `[Agentic Loop] Prose-only streak ${agenticProseOnlyStreak}/${AGENTIC_PROSE_ONLY_MAX}; continuing`,
+                  );
+                  continue;
+                }
+
+                agenticProseOnlyStreak = 0;
+
+                // Parse and execute text-based tool calls
+                const textToolCalls = hasTextToolCalls ? parseTextToolCalls(fullResponse) : [];
+
+                if (hasTextToolCalls && textToolCalls.length === 0) {
+                  logger.log("[Agentic Loop] No parseable tool calls found, ending loop");
+                  break;
+                }
+
+                // v12 0.1: shared implementation (also the unified engine's
+                // profile.executeTextToolCalls).
+                const textExec = await execBuildTextToolCalls(
+                  textToolCalls as Array<{ toolName: string; args: Record<string, unknown> }>,
+                );
+                const iterationResults = textExec.iterationResults;
+                const hasPermissionRequest =
+                  hadNativeToolExecution || textExec.hasPermissionRequest;
 
                 // Store all tool results
                 allToolResults.push(...iterationResults);
