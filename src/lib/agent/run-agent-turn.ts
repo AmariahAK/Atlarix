@@ -391,13 +391,35 @@ export async function runAgentTurn(
       }
     }
 
+    let stopGateFeedback: string | null = null;
     if (profile.honorTaskCompleteBreak) {
       // End only on explicit <task_complete> or a completed task ledger —
-      // unless this round's writes have outstanding diagnostics (0.3): then
-      // suppress the break (bounded) and feed the errors back instead.
+      // unless this round's writes have outstanding diagnostics (0.3) or a
+      // workspace stop-hook is red (2.2/7B): then suppress the break
+      // (bounded) and feed the failure back instead.
       const verifyBlocksBreak =
         verifyFeedback != null && verifyBlockedBreaks < MAX_VERIFY_BLOCKED_BREAKS;
-      if (isTaskComplete(fullResponse) && !verifyBlocksBreak) {
+      const tagComplete = isTaskComplete(fullResponse);
+      const ledgerAfterRound = getLedger(rt.streamTurnIdForLedger);
+      const ledgerComplete =
+        !!ledgerAfterRound && isLedgerTaskComplete(ledgerAfterRound);
+
+      if (
+        (tagComplete || ledgerComplete) &&
+        !verifyBlocksBreak &&
+        profile.taskCompleteGate &&
+        verifyBlockedBreaks < MAX_VERIFY_BLOCKED_BREAKS
+      ) {
+        try {
+          stopGateFeedback = await profile.taskCompleteGate();
+        } catch (gateErr) {
+          logger.warn(`${L} stop-hook gate failed to run: ${String(gateErr)}`);
+        }
+      }
+      const gateBlocksBreak =
+        stopGateFeedback != null && verifyBlockedBreaks < MAX_VERIFY_BLOCKED_BREAKS;
+
+      if (tagComplete && !verifyBlocksBreak && !gateBlocksBreak) {
         logger.info(`${L} Task completed at iteration ${agenticIteration + 1}`);
         // v12 0.2 (B2): the final round's native messages never hit the fold
         // site — capture them for the turn envelope.
@@ -406,19 +428,14 @@ export async function runAgentTurn(
         }
         break;
       }
-      if (isTaskComplete(fullResponse) && verifyBlocksBreak) {
+      if ((tagComplete || ledgerComplete) && (verifyBlocksBreak || gateBlocksBreak)) {
         verifyBlockedBreaks++;
         logger.info(
-          `${L} <task_complete> blocked by post-write diagnostics (${verifyBlockedBreaks}/${MAX_VERIFY_BLOCKED_BREAKS}) — continuing for fixes`,
+          `${L} completion blocked by ${verifyBlocksBreak ? "post-write diagnostics" : "a stop hook"} (${verifyBlockedBreaks}/${MAX_VERIFY_BLOCKED_BREAKS}) — continuing`,
         );
       }
 
-      const ledgerAfterRound = getLedger(rt.streamTurnIdForLedger);
-      if (
-        ledgerAfterRound &&
-        isLedgerTaskComplete(ledgerAfterRound) &&
-        !verifyBlocksBreak
-      ) {
+      if (ledgerComplete && !verifyBlocksBreak && !gateBlocksBreak) {
         logger.info(`${L} Ledger complete at iteration ${agenticIteration + 1}`);
         if (roundHadNativeToolMessages) {
           rt.nativeTurnMessages.push(...nativeIterMessages);
@@ -445,11 +462,16 @@ export async function runAgentTurn(
         ? getRemainingSteps(ledgerAfterRound)
         : [];
       const ledgerSnap = getLedgerStateString(rt.streamTurnIdForLedger);
+      // v12 2.2/0.3: a prose-only round whose completion was SUPPRESSED
+      // (stop hook red / diagnostics outstanding) gets that failure as its
+      // nudge — not the generic "continue" line.
       const nudge =
-        pendingSteps.length > 0
+        stopGateFeedback ??
+        verifyFeedback ??
+        (pendingSteps.length > 0
           ? buildPendingStepsContinuationPrompt(pendingSteps) +
             (ledgerSnap ? `\n\nCurrent task state:\n${ledgerSnap}` : "")
-          : "You replied without using tools or finishing. Continue the task: call tools as needed, then emit <task_complete> when fully done.";
+          : "You replied without using tools or finishing. Continue the task: call tools as needed, then emit <task_complete> when fully done.");
       agenticMessages.push({
         role: "assistant" as const,
         content: stripAssistantDisplayContent(stripXML(fullResponse)),
@@ -525,16 +547,19 @@ export async function runAgentTurn(
       }
     }
 
-    // v12 0.3: push the round's diagnostics feedback (computed before the
-    // task-complete gate above) so the next round's model input contains it.
-    // Like the loop correction below, it is transient round input — NOT
-    // mirrored into the B2 native envelope.
+    // v12 0.3 / 2.2: push the round's diagnostics feedback and/or stop-hook
+    // feedback (both computed before the task-complete gate above) so the
+    // next round's model input contains them. Transient round input — NOT
+    // mirrored into the B2 native envelope. (The prose-only path above
+    // consumed these as its nudge and `continue`d, so this only fires on
+    // tool rounds whose completion was suppressed.)
     if (verifyFeedback) {
-      agenticMessages.push({
-        role: "user" as const,
-        content: verifyFeedback,
-      });
+      agenticMessages.push({ role: "user" as const, content: verifyFeedback });
       logger.log(`${L} post-write verify: diagnostics fed back`);
+    }
+    if (stopGateFeedback) {
+      agenticMessages.push({ role: "user" as const, content: stopGateFeedback });
+      logger.log(`${L} stop-hook gate: failure fed back`);
     }
 
     const loopCorrection = profile.repetition.takePendingCorrection();

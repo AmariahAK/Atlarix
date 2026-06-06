@@ -38,6 +38,16 @@ import {
   trimToolsForCapability,
   simplifyToolParametersForProfile,
 } from "@/lib/routing/model-capability-profile";
+import {
+  evaluateRuleset,
+  loadWorkspaceRuleset,
+} from "@/lib/tools/permissions/ruleset";
+import {
+  runPreToolUseHooks,
+  runPostToolUseHooks,
+  runStopHooks,
+  hasStopHooks,
+} from "@/lib/hooks/file-hooks";
 import { getNativeWebSearchSupport } from "../utils/native_web_search";
 import { perfReportOnce } from "@/lib/perf-marks";
 import { buildAttachmentRecord } from "@/lib/attachment-upload";
@@ -843,6 +853,48 @@ async function runToolExecute(
     }
   }
 
+  // v12 2.2: unified permission ruleset + blocking pre_tool_use hooks at the
+  // SINGLE execution funnel — covers ask+build, native AND text-tool paths
+  // uniformly (the legacy mode/category gates in the wrappers continue to
+  // apply on top). No rules/hooks files ⇒ behavior identical to pre-2.2.
+  const gateWorkspace =
+    typeof executeArgs.workspace === "string" ? executeArgs.workspace : undefined;
+  if (gateWorkspace) {
+    const decision = evaluateRuleset(
+      loadWorkspaceRuleset(gateWorkspace),
+      toolName,
+      executeArgs,
+    );
+    if (decision?.kind === "deny") {
+      logger.warn(
+        `[ruleset] ${toolName} blocked by workspace permission rule: ${decision.rule}`,
+      );
+      if (streamOpts?.turnId) recordToolUseForTurn(streamOpts.turnId, toolName);
+      return JSON.stringify({
+        success: false,
+        error: `Blocked by workspace permission rule \`${decision.rule}\` (.atlarix/permissions.json). Do not retry this exact call; choose a different approach or ask the user to adjust the rule.`,
+      });
+    }
+    if (decision?.kind === "ask") {
+      // v1: mutating tools already prompt via the permission interceptor;
+      // log the match so rule authors can see it firing.
+      logger.log(`[ruleset] ask-rule matched for ${toolName}: ${decision.rule}`);
+    }
+
+    const hookDenial = await runPreToolUseHooks(
+      gateWorkspace,
+      toolName,
+      executeArgs,
+    );
+    if (hookDenial) {
+      if (streamOpts?.turnId) recordToolUseForTurn(streamOpts.turnId, toolName);
+      return JSON.stringify({
+        success: false,
+        error: `Blocked by a workspace pre_tool_use hook (\`${hookDenial.deniedBy}\`):\n${hookDenial.outputTail || "(no output)"}`,
+      });
+    }
+  }
+
   // MCP auth-and-retry: let mcp_call pause for the user to authenticate, then retry.
   if (toolName === "mcp_call") {
     executeArgs._mcpInvocationContext = {
@@ -851,6 +903,9 @@ async function runToolExecute(
   }
 
   const result: unknown = await ToolRegistry.execute(toolName, executeArgs);
+  if (gateWorkspace) {
+    runPostToolUseHooks(gateWorkspace, toolName, executeArgs);
+  }
   if (dedup && !TOOL_DEDUP_EXEMPT.has(toolName)) {
     const argHash = hashToolArgsForDedup(executeArgs);
     const dedupeKey = `${toolName}\0${argHash}`;
@@ -5841,6 +5896,12 @@ This conversation includes one or more image attachments. When the user uploads 
                     // the knob finally has logic behind it.
                     ...(settings.enableAutoFixProblems !== false && appPath
                       ? { postWriteVerify: buildPostWriteVerify(appPath) }
+                      : {}),
+                    // v12 2.2/7B: workspace `stop` hooks gate <task_complete>
+                    // ("require tests before done"). Attached only when the
+                    // workspace declares stop hooks (cheap pre-check).
+                    ...(appPath && hasStopHooks(appPath)
+                      ? { taskCompleteGate: () => runStopHooks(appPath) }
                       : {}),
                   },
                   {

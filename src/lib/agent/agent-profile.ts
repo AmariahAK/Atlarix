@@ -96,4 +96,13 @@ export interface AgentProfile {
    * only when `enableAutoFixProblems` is on (1.2). Unset for ask (no writes).
    */
   postWriteVerify?(writtenPaths: string[]): Promise<string | null>;
+
+  /**
+   * v12 2.2/7B: workspace `stop` hooks ("require tests before done") — runs
+   * when the model claims <task_complete>; a non-null feedback string
+   * suppresses the break (same bounded counter as postWriteVerify) and is
+   * fed back as a user message. Attached only when `.atlarix/hooks/`
+   * declares stop hooks.
+   */
+  taskCompleteGate?(): Promise<string | null>;
 }
