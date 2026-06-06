@@ -70,6 +70,8 @@ export interface ChatStreamParams {
   forceThinkingTier?: boolean;
   /** Resend/edit: use this work mode for prompt + tool allowlist for this turn only. */
   workModeOverride?: WorkMode;
+  /** v12 7A: run this turn as a user-defined agent (.atlarix/agents/<name>.md). */
+  agentOverride?: string;
 }
 
 /** Autonomous session review: one executed permission op logged in main. */
@@ -130,6 +132,8 @@ export interface ChatResponseEnd {
   compassTier?: string;
   /** v10: auxiliary LLM tokens this turn (sub-agents, compaction) — counted toward usage. */
   auxTokens?: number;
+  /** v12 7D: estimated BYOK USD cost of this turn (omitted for Core/unknown-price). */
+  turnCostUsd?: number;
   /**
    * v12 0.2: native-history envelope for the assistant message (JSON of the
    * turn's native tool_use/tool_result ModelMessages). The renderer persists

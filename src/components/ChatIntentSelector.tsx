@@ -7,8 +7,16 @@ import { useSettings } from "@/hooks/useSettings";
 import { useAtomValue } from "jotai";
 import { selectedChatIdAtom } from "@/atoms/chatAtoms";
 import { resolveChatWorkspaceAppId } from "@/lib/chat-workspace-binding";
+import { IpcClient } from "@/ipc/ipc_client";
 import { cn } from "@/lib/utils";
-import { MessageCircle, ListTodo, Hammer, Bug, ShieldCheck } from "lucide-react";
+import {
+  MessageCircle,
+  ListTodo,
+  Hammer,
+  Bug,
+  ShieldCheck,
+  Bot,
+} from "lucide-react";
 import {
   Tooltip,
   TooltipContent,
@@ -51,10 +59,37 @@ const WORK_MODES: { value: WorkMode; icon: typeof MessageCircle; desc: string }[
   { value: "review", icon: ShieldCheck, desc: "Review and quality; Ask tools + review-style prompts." },
 ];
 
+const AGENT_PREFIX = "agent:"; // SelectItem value namespace for user agents
+
 export function ChatIntentSelector() {
   const selectedChatId = useAtomValue(selectedChatIdAtom);
   const workspaceAppId = resolveChatWorkspaceAppId(selectedChatId);
   const { settings, updateSettings } = useSettings();
+  const [agents, setAgents] = useState<
+    Array<{ name: string; description: string; mode: string }>
+  >([]);
+
+  // v12 7A: load workspace user-agents (.atlarix/agents/*.md) for the picker.
+  useEffect(() => {
+    let cancelled = false;
+    if (workspaceAppId == null) {
+      setAgents([]);
+      return;
+    }
+    IpcClient.getInstance()
+      .listAgents(workspaceAppId)
+      .then((list) => {
+        if (!cancelled) setAgents(list);
+      })
+      .catch(() => {
+        if (!cancelled) setAgents([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [workspaceAppId]);
+
+  const selectedAgent = settings?.selectedAgent || "";
   const [showFirstTime, setShowFirstTime] = useState(() => {
     if (typeof window === "undefined") return false;
     return !window.localStorage.getItem(HAS_SEEN_INTENT_KEY);
@@ -100,12 +135,27 @@ export function ChatIntentSelector() {
     if (isReadOnlyChatChrome && mode !== "ask") {
       return;
     }
+    // Picking a built-in mode clears any active user agent.
     updateSettings({
       ...settingsPatchForWorkMode(mode),
+      selectedAgent: "",
     });
   };
-  const workIcon =
-    WORK_MODES.find((w) => w.value === workMode)?.icon ?? MessageCircle;
+
+  // Picker value: a user agent (when active) takes the slot, else the mode.
+  const selectorValue = selectedAgent
+    ? `${AGENT_PREFIX}${selectedAgent}`
+    : workMode;
+  const onSelect = (v: string) => {
+    if (v.startsWith(AGENT_PREFIX)) {
+      updateSettings({ selectedAgent: v.slice(AGENT_PREFIX.length) });
+    } else {
+      setWorkMode(v as WorkMode);
+    }
+  };
+  const workIcon = selectedAgent
+    ? Bot
+    : WORK_MODES.find((w) => w.value === workMode)?.icon ?? MessageCircle;
   const WorkIcon = workIcon;
 
   const dismissFirstTime = () => {
@@ -146,10 +196,7 @@ export function ChatIntentSelector() {
             </Tooltip>
           ) : (
             <>
-              <Select
-                value={workMode}
-                onValueChange={(v) => setWorkMode(v as WorkMode)}
-              >
+              <Select value={selectorValue} onValueChange={onSelect}>
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <MiniSelectTrigger
@@ -162,7 +209,7 @@ export function ChatIntentSelector() {
                     >
                       <WorkIcon className="h-3.5 w-3.5 shrink-0" />
                       <SelectValue>
-                        {labelForWorkMode(workMode)}
+                        {selectedAgent || labelForWorkMode(workMode)}
                       </SelectValue>
                     </MiniSelectTrigger>
                   </TooltipTrigger>
@@ -192,6 +239,31 @@ export function ChatIntentSelector() {
                       </SelectItem>
                     );
                   })}
+                  {/* v12 7A: workspace user-defined agents */}
+                  {agents.length > 0 && (
+                    <div className="px-2 pt-2 pb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                      Workspace agents
+                    </div>
+                  )}
+                  {agents.map((a) => (
+                    <SelectItem
+                      key={a.name}
+                      value={`${AGENT_PREFIX}${a.name}`}
+                      disabled={noWorkspace}
+                    >
+                      <div className="flex flex-col items-start gap-0.5 py-0.5">
+                        <span className="flex items-center gap-1.5 font-medium">
+                          <Bot className="h-3.5 w-3.5" />
+                          {a.name}
+                        </span>
+                        {a.description && (
+                          <span className="text-xs text-muted-foreground font-normal">
+                            {a.description}
+                          </span>
+                        )}
+                      </div>
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </>

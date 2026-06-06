@@ -48,6 +48,11 @@ import {
   runStopHooks,
   hasStopHooks,
 } from "@/lib/hooks/file-hooks";
+import { renderUserAgentSystemBlock } from "@/lib/agents/user-agents";
+import {
+  estimateTurnCostUsd,
+  inputOutputTokensFromUsage,
+} from "@/lib/routing/byok-pricing";
 import { getNativeWebSearchSupport } from "../utils/native_web_search";
 import { perfReportOnce } from "@/lib/perf-marks";
 import { buildAttachmentRecord } from "@/lib/attachment-upload";
@@ -1901,6 +1906,45 @@ ${componentSnippet}
         const { settingsPatchForWorkMode } = await import("@/lib/work-mode");
         settings = { ...settings, ...settingsPatchForWorkMode(req.workModeOverride) };
       }
+
+      // v12 7A: user-defined agent (.atlarix/agents/<name>.md). Resolved
+      // BEFORE the model + work-mode resolve below so its base mode, model
+      // override, and (later) custom system block + tool allowlist all take
+      // effect. Composes with everything downstream (capability trim, hooks).
+      let activeUserAgent: import("@/lib/agents/user-agents").UserAgent | null =
+        null;
+      // Per-turn req override wins; else the persisted picker selection.
+      const agentName = req.agentOverride ?? settings.selectedAgent ?? undefined;
+      if (agentName && chat?.app?.path) {
+        const { loadUserAgent } = await import("@/lib/agents/user-agents");
+        activeUserAgent = loadUserAgent(
+          resolveAppPath(chat.app.path),
+          agentName,
+        );
+        if (activeUserAgent) {
+          const { settingsPatchForWorkMode } = await import("@/lib/work-mode");
+          settings = {
+            ...settings,
+            ...settingsPatchForWorkMode(activeUserAgent.mode),
+          };
+          if (activeUserAgent.model && !req.modelOverride) {
+            const slash = activeUserAgent.model.indexOf("/");
+            req.modelOverride =
+              slash > 0
+                ? {
+                    provider: activeUserAgent.model.slice(0, slash),
+                    name: activeUserAgent.model.slice(slash + 1),
+                  }
+                : { provider: settings.selectedModel.provider, name: activeUserAgent.model };
+          }
+          logger.log(
+            `[user-agent] active: ${activeUserAgent.name} (mode=${activeUserAgent.mode}${activeUserAgent.model ? `, model=${activeUserAgent.model}` : ""})`,
+          );
+        } else {
+          logger.warn(`[user-agent] "${req.agentOverride}" not found — ignored`);
+        }
+      }
+
       // Generate requestId early so it can be saved with the message
       engineRequestId = uuidv4();
 
@@ -1989,6 +2033,10 @@ ${componentSnippet}
       let fullResponse = "";
       let maxTokensUsed: number | undefined;
       let maxReasoningTokensUsed: number | undefined;
+      // v12 7D: accumulate BYOK token usage across the turn's rounds for the
+      // per-turn cost estimate emitted on chat:response:end.
+      let turnInputTokens = 0;
+      let turnOutputTokens = 0;
 
       // Check if this is a test prompt
       const testResponse = getTestResponse(req.prompt);
@@ -2428,6 +2476,15 @@ ${componentSnippet}
               hasWorkspace,
               ...promptIdentityOpts,
             });
+          }
+          // v12 7A: prepend the user agent's system block (build path +
+          // every non-ask consumer of `systemPrompt`; the ask branch injects
+          // it into its own rebuilt header below).
+          if (activeUserAgent) {
+            const { renderUserAgentSystemBlock } = await import(
+              "@/lib/agents/user-agents"
+            );
+            baseSystemPrompt = `${renderUserAgentSystemBlock(activeUserAgent)}\n\n${baseSystemPrompt}`;
           }
           let contextSections: ContextSection[] = [];
 
@@ -3699,6 +3756,12 @@ This conversation includes one or more image attachments. When the user uploads 
                 if (typeof rt === "number") {
                   maxReasoningTokensUsed = Math.max(maxReasoningTokensUsed ?? 0, rt);
                 }
+                // v12 7D: accumulate input/output tokens for the BYOK cost line.
+                const split = inputOutputTokensFromUsage(response.usage);
+                if (split) {
+                  turnInputTokens += split.inputTokens;
+                  turnOutputTokens += split.outputTokens;
+                }
                 // v10.1 prompt caching: surface cache reads/writes per round.
                 {
                   const u = response.usage as { cachedInputTokens?: number } | undefined;
@@ -4134,7 +4197,7 @@ This conversation includes one or more image attachments. When the user uploads 
               provider: effectiveModel?.provider,
               builtinProviderId: modelClient.builtinProviderId,
             });
-            const askToolsPreTrim = askModeTools.filter((t) =>
+            const askToolsModeFiltered = askModeTools.filter((t) =>
               includeToolForSession(t, {
                 loaded: askLoadedNames,
                 hasWorkspace,
@@ -4142,6 +4205,13 @@ This conversation includes one or more image attachments. When the user uploads 
                 isCore: isCoreTool,
               }),
             );
+            // v12 7A: a user agent's `tools:` allowlist intersects the offered
+            // set (composes with the capability trim below).
+            const askToolsPreTrim = activeUserAgent?.tools
+              ? askToolsModeFiltered.filter((t) =>
+                  activeUserAgent!.tools!.includes(t.name),
+                )
+              : askToolsModeFiltered;
             const askToolsToInclude = trimToolsForCapability(
               askToolsPreTrim,
               askCapabilityProfile,
@@ -4635,9 +4705,16 @@ This conversation includes one or more image attachments. When the user uploads 
             // v12 2.1: delegation stays off the trimmed surface — a weak
             // model orchestrating sub-agents (of itself) is the 1.6 failure
             // mode, and the delegation schemas are the heaviest on offer.
+            // v12 7A: also off when a user agent's allowlist excludes them.
+            const askAgentAllowsDelegation =
+              !activeUserAgent?.tools ||
+              activeUserAgent.tools.some((t) =>
+                t === "delegate_to_agent" || t === "spawn_sub_agent" || t === "task",
+              );
             if (
               isDelegationAllowedForWorkMode(effectiveWorkMode) &&
-              askCapabilityProfile.maxTools == null
+              askCapabilityProfile.maxTools == null &&
+              askAgentAllowsDelegation
             ) {
               attachDelegationToolsToSet(askTools, {
                 sender: event.sender,
@@ -4706,9 +4783,11 @@ This conversation includes one or more image attachments. When the user uploads 
                       registeredToolNames: [...askLoadedNames],
                       ...promptIdentityOpts,
                     });
+                    const askHeader = activeUserAgent
+                      ? `${renderUserAgentSystemBlock(activeUserAgent)}\n\n${askParts.stableHeader}`
+                      : askParts.stableHeader;
                     return {
-                      systemPromptOverride:
-                        askParts.stableHeader + "\n\n" + askProgressiveNote,
+                      systemPromptOverride: askHeader + "\n\n" + askProgressiveNote,
                       dynamicSystemTail: askParts.dynamicTail,
                     };
                   },
@@ -4794,12 +4873,18 @@ This conversation includes one or more image attachments. When the user uploads 
               provider: effectiveModel?.provider,
               builtinProviderId: modelClient.builtinProviderId,
             });
-            const buildToolsPreTrim = buildModeToolsMetadata.filter(
+            const buildToolsModeFiltered = buildModeToolsMetadata.filter(
               (t) =>
                 buildLoadedNames.has(t.name) ||
                 isCoreTool(t) ||
                 (hasWorkspace && isWorkspaceIntegrationTool(t.name)),
             );
+            // v12 7A: user-agent tool allowlist intersection (see ask note).
+            const buildToolsPreTrim = activeUserAgent?.tools
+              ? buildToolsModeFiltered.filter((t) =>
+                  activeUserAgent!.tools!.includes(t.name),
+                )
+              : buildToolsModeFiltered;
             const buildToolsToInclude = trimToolsForCapability(
               buildToolsPreTrim,
               buildCapabilityProfile,
@@ -5378,9 +5463,16 @@ This conversation includes one or more image attachments. When the user uploads 
             // The model calls list_available_mcps + mcp_call from the registry on demand.
 
             // v12 2.1: no delegation surface on trimmed (weak-model) profiles.
+            // v12 7A: nor when a user agent's allowlist excludes them.
+            const buildAgentAllowsDelegation =
+              !activeUserAgent?.tools ||
+              activeUserAgent.tools.some((t) =>
+                t === "delegate_to_agent" || t === "spawn_sub_agent" || t === "task",
+              );
             if (
               isDelegationAllowedForWorkMode(effectiveWorkMode) &&
-              buildCapabilityProfile.maxTools == null
+              buildCapabilityProfile.maxTools == null &&
+              buildAgentAllowsDelegation
             ) {
               attachDelegationToolsToSet(tools, {
                 sender: event.sender,
@@ -6444,6 +6536,20 @@ ${stopNote}`;
               ...(maxReasoningTokensUsed != null && maxReasoningTokensUsed > 0
                 ? { reasoningTokens: maxReasoningTokensUsed }
                 : {}),
+              // v12 7D: BYOK per-turn USD estimate (omitted for Core/Compass
+              // and for models with no known price — never a guessed number).
+              ...(() => {
+                const cost = estimateTurnCostUsd(
+                  {
+                    name: effectiveModel?.name ?? "",
+                    builtinProviderId: modelClient.builtinProviderId,
+                  },
+                  turnInputTokens + turnOutputTokens > 0
+                    ? { inputTokens: turnInputTokens, outputTokens: turnOutputTokens }
+                    : null,
+                );
+                return cost != null ? { turnCostUsd: cost } : {};
+              })(),
               // v12 0.2 (B2): renderer passes this through to the session
               // store as extras.modelContent when persisting the assistant
               // message (native-history envelope).

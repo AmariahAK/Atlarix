@@ -12,10 +12,14 @@ import {
   AlignLeft,
   ExternalLink,
 } from "lucide-react";
-import { chatInputValueAtom, lastAuxTokensByChatIdAtom } from "@/atoms/chatAtoms";
+import {
+  chatInputValueAtom,
+  lastAuxTokensByChatIdAtom,
+  lastTurnCostUsdByChatIdAtom,
+} from "@/atoms/chatAtoms";
 import { useAtom, useAtomValue } from "jotai";
 import { useContextReport } from "@/hooks/useContextReport";
-import { Scissors, Bot as BotIcon } from "lucide-react";
+import { Scissors, Bot as BotIcon, DollarSign } from "lucide-react";
 import { useSettings } from "@/hooks/useSettings";
 import { TokenCircle } from "./TokenCircle";
 import { useCompactionTokenVisuals } from "@/hooks/useCompactionTokenVisuals";
@@ -46,6 +50,8 @@ export function TokenBar({
   const contextReport = useContextReport(chatId ?? null);
   const auxTokensByChat = useAtomValue(lastAuxTokensByChatIdAtom);
   const lastAuxTokens = chatId != null ? auxTokensByChat[chatId] : undefined;
+  const turnCostByChat = useAtomValue(lastTurnCostUsdByChatIdAtom);
+  const lastTurnCostUsd = chatId != null ? turnCostByChat[chatId] : undefined;
 
   if (chatId == null || !result) {
     return null;
@@ -171,6 +177,17 @@ export function TokenBar({
                     <BotIcon size={12} className="text-cyan-500" />
                     <span>Sub-agents (last turn)</span>
                     <span>{lastAuxTokens.toLocaleString()}</span>
+                  </div>
+                ) : null}
+                {lastTurnCostUsd != null && lastTurnCostUsd > 0 ? (
+                  <div className="pt-1 border-t border-border grid grid-cols-[20px_1fr_auto] gap-x-2 items-center">
+                    <DollarSign size={12} className="text-emerald-500" />
+                    <span>Est. cost (last turn)</span>
+                    <span>
+                      {lastTurnCostUsd < 0.01
+                        ? `<$0.01`
+                        : `$${lastTurnCostUsd.toFixed(2)}`}
+                    </span>
                   </div>
                 ) : null}
                 {contextReport && contextReport.trimReport.length > 0 ? (

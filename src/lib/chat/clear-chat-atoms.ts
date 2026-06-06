@@ -8,6 +8,7 @@ import {
   lastTurnHadToolCallsByChatIdAtom,
   lastReasoningTokensByChatIdAtom,
   lastAuxTokensByChatIdAtom,
+  lastTurnCostUsdByChatIdAtom,
   pendingUserQuestionByChatIdAtom,
   livePlanUpdateByAssistantMessageIdAtom,
   planSnapshotByAssistantMessageIdAtom,
@@ -89,6 +90,7 @@ export function clearChatAtomsForChat(chatId: number): void {
   deleteRecordKey(lastTurnHadToolCallsByChatIdAtom);
   deleteRecordKey(lastReasoningTokensByChatIdAtom);
   deleteRecordKey(lastAuxTokensByChatIdAtom);
+  deleteRecordKey(lastTurnCostUsdByChatIdAtom);
   deleteRecordKey(pendingUserQuestionByChatIdAtom);
 
   store.set(recentStreamChatIdsAtom, (prev) => {

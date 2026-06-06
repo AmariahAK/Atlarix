@@ -43,6 +43,9 @@ export const lastReasoningTokensByChatIdAtom = atom<Record<number, number>>({});
 /** v10: per-chat auxiliary LLM tokens (sub-agents, compaction) from the last completed turn. */
 export const lastAuxTokensByChatIdAtom = atom<Record<number, number>>({});
 
+/** v12 7D: per-chat estimated BYOK USD cost of the last completed turn. */
+export const lastTurnCostUsdByChatIdAtom = atom<Record<number, number>>({});
+
 /** Autonomous mode: post-turn review payload from main (cleared on accept or dismiss). */
 export const autonomousSessionReviewAtom = atom<AutonomousSessionCompletePayload | null>(null);
 

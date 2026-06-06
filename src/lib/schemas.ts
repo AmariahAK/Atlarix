@@ -345,6 +345,8 @@ export const UserSettingsSchema = z.object({
   intentMode: z.enum(["ask", "build", "auto"]).optional(),
   /** v5.1: Work mode for Blueprint tier + UX; maps to ask/build tools (see work-mode.ts). */
   workModePreference: WorkModeSchema.optional(),
+  /** v12 7A: active user-defined agent (.atlarix/agents/<name>.md); empty = none. */
+  selectedAgent: z.string().optional(),
   /** v2.1: AI Configuration (agents, self-review, context, project understanding). */
   aiConfiguration: AIConfigurationSchema.optional(),
   acceptedCommunityCode: z.boolean().optional(),

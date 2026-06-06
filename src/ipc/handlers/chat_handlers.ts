@@ -54,6 +54,23 @@ export function registerChatHandlers() {
     },
   );
 
+  // v12 7A: list a workspace's user-defined agents (.atlarix/agents/*.md)
+  // for the mode picker.
+  handle("agents:list", async (_, appId: number) => {
+    const app = await db.query.apps.findFirst({
+      where: eq(apps.id, appId),
+      columns: { path: true },
+    });
+    if (!app?.path) return [];
+    const { resolveAppPath } = await import("../../paths/paths");
+    const { listUserAgents } = await import("@/lib/agents/user-agents");
+    return listUserAgents(resolveAppPath(app.path)).map((a) => ({
+      name: a.name,
+      description: a.description,
+      mode: a.mode,
+    }));
+  });
+
   ipcMain.handle("get-chat", async (_, chatId: number) => {
     if (!isStreamTransportId(chatId)) {
       throw new Error(LEGACY_CHAT_REMOVED);

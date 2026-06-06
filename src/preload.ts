@@ -58,6 +58,7 @@ const validInvokeChannels = [
   "create-app",
   "copy-app",
   "get-chat",
+  "agents:list",
   "get-chat-logs",
   "list-apps",
   "get-app",

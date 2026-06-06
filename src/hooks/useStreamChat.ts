@@ -19,6 +19,7 @@ import {
   lastTurnHadToolCallsByChatIdAtom,
   lastReasoningTokensByChatIdAtom,
   lastAuxTokensByChatIdAtom,
+  lastTurnCostUsdByChatIdAtom,
   toolIndicatorAtom,
   streamLastActivityAtByChatIdAtom,
   streamSlowWarningByChatIdAtom,
@@ -1094,6 +1095,14 @@ export function useStreamChat({
               getDefaultStore().set(lastAuxTokensByChatIdAtom, (prev) => ({
                 ...prev,
                 [response.chatId]: response.auxTokens!,
+              }));
+            }
+
+            // v12 7D: BYOK per-turn cost estimate (token-meter cost line).
+            if (typeof response.turnCostUsd === "number") {
+              getDefaultStore().set(lastTurnCostUsdByChatIdAtom, (prev) => ({
+                ...prev,
+                [response.chatId]: response.turnCostUsd!,
               }));
             }
 
