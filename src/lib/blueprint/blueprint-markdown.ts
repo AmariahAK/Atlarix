@@ -216,9 +216,21 @@ export function blueprintToMarkdown(
         if (toolMode && allFns.length > 0) {
           for (const fn of allFns.slice(0, exportCap)) {
             const file = fnFileLabel(fn);
+            // v12 Tier 6 #3: prefer the ctags signature (`fn(a, b)`, carried
+            // in simpleDescription with source "pattern"/"jsdoc") over the
+            // bare name — ~same tokens, lets the model pick the right function
+            // without an extra read_file. Skip AI-generated descriptions
+            // (source "ai"/"ollama") which aren't signatures.
+            const sig =
+              fn.simpleDescription &&
+              fn.descriptionSource !== "ai" &&
+              fn.descriptionSource !== "ollama" &&
+              fn.simpleDescription.includes("(")
+                ? fn.simpleDescription
+                : fn.name;
             const line = file
-              ? `- \`${safeLabel(fn.name)}\` (file: ${safeLabel(file)})`
-              : `- \`${safeLabel(fn.name)}\``;
+              ? `- \`${safeLabel(sig)}\` (file: ${safeLabel(file)})`
+              : `- \`${safeLabel(sig)}\``;
             if (!push(line)) break;
           }
           if (allFns.length > exportCap) {

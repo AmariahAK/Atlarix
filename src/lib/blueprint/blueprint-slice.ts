@@ -142,9 +142,18 @@ export interface SliceResult {
     path?: string;
     intent?: string;
     functionCount: number;
-    functions: Array<{ id: string; name: string; kind: string; file?: string }>;
+    functions: Array<{
+      id: string;
+      name: string;
+      kind: string;
+      file?: string;
+      /** v12 Tier 6 #3: the ctags signature (`fn(a, b)`), free signal density. */
+      signature?: string;
+    }>;
   }>;
   edges: Array<{ from: string; to: string; label?: string; type?: string; inferred?: boolean }>;
+  /** v12 Tier 6 #2: rooms dropped by the relevance/centrality cap (tail summary). */
+  omittedRooms?: { count: number; labels: string[] };
 }
 
 export function buildSlice(
@@ -172,25 +181,55 @@ export function buildSlice(
     if (!grew) break;
   }
 
-  const nodes = blueprint.rooms
-    .filter((r) => keepIds.has(r.id))
-    .map((r) => ({
-      id: r.id,
-      label: r.label,
-      type: r.type,
-      path: r.path,
-      intent: r.intent,
-      functionCount: r.functions?.length ?? 0,
-      functions: (r.functions ?? []).slice(0, 50).map((fn) => ({
+  // v12 Tier 6 #2: rank kept rooms by centrality (edge-degree — high-fan-in
+  // core modules first) so a capped slice keeps the most-connected structure
+  // and the tail is summarized rather than truncated arbitrarily.
+  const degree = new Map<string, number>();
+  for (const e of allEdges) {
+    if (keepIds.has(e.from) && keepIds.has(e.to)) {
+      degree.set(e.from, (degree.get(e.from) ?? 0) + 1);
+      degree.set(e.to, (degree.get(e.to) ?? 0) + 1);
+    }
+  }
+  const MAX_ROOMS_IN_SLICE = 40;
+  const keptRooms = blueprint.rooms.filter((r) => keepIds.has(r.id));
+  const matchedIds = new Set(matched.map((r) => r.id));
+  const rankedRooms = [...keptRooms].sort((a, b) => {
+    // Directly-matched rooms always outrank edge-expanded ones.
+    const am = matchedIds.has(a.id) ? 1 : 0;
+    const bm = matchedIds.has(b.id) ? 1 : 0;
+    if (am !== bm) return bm - am;
+    return (degree.get(b.id) ?? 0) - (degree.get(a.id) ?? 0);
+  });
+  const slicedRooms = rankedRooms.slice(0, MAX_ROOMS_IN_SLICE);
+  const omitted = rankedRooms.slice(MAX_ROOMS_IN_SLICE);
+  // Re-narrow keepIds to the kept rooms so edges to dropped rooms are pruned.
+  const finalKeep = new Set(slicedRooms.map((r) => r.id));
+
+  const nodes = slicedRooms.map((r) => ({
+    id: r.id,
+    label: r.label,
+    type: r.type,
+    path: r.path,
+    intent: r.intent,
+    functionCount: r.functions?.length ?? 0,
+    // v12 Tier 6 #2: rank functions within a room by signature-richness then
+    // name, capped — a ranked top-50 instead of arbitrary first-50.
+    functions: [...(r.functions ?? [])]
+      .sort((a, b) => Number(!!b.simpleDescription) - Number(!!a.simpleDescription))
+      .slice(0, 50)
+      .map((fn) => ({
         id: fn.id,
         name: fn.name,
         kind: fn.kind,
         file: fn.file,
+        // #3: emit the ctags signature (held in simpleDescription) when present.
+        ...(fn.simpleDescription ? { signature: fn.simpleDescription } : {}),
       })),
-    }));
+  }));
 
   const edges = allEdges
-    .filter((e) => keepIds.has(e.from) && keepIds.has(e.to))
+    .filter((e) => finalKeep.has(e.from) && finalKeep.has(e.to))
     .map((e) => ({
       from: e.from,
       to: e.to,
@@ -206,6 +245,14 @@ export function buildSlice(
     totalRoomsInWorkspace: total,
     nodes,
     edges,
+    ...(omitted.length > 0
+      ? {
+          omittedRooms: {
+            count: omitted.length,
+            labels: omitted.slice(0, 8).map((r) => r.label),
+          },
+        }
+      : {}),
   };
 }
 

@@ -270,6 +270,13 @@ ToolRegistry.register({
         parsedRoomCount: topicVisibleCount || parsedRoomCount,
         toolMode: true,
       });
+      // v12 Tier 6 #2: summarize the centrality-capped tail rather than
+      // truncating it silently — the model sees what was dropped.
+      if (slice.omittedRooms && slice.omittedRooms.count > 0) {
+        markdown += `\n\n+${slice.omittedRooms.count} more rooms (lower centrality): ${slice.omittedRooms.labels.join(", ")}${
+          slice.omittedRooms.count > slice.omittedRooms.labels.length ? ", …" : ""
+        }`;
+      }
       if (markdown.length > MAX_BLUEPRINT_MARKDOWN_CHARS) {
         markdown =
           markdown.slice(0, MAX_BLUEPRINT_MARKDOWN_CHARS) +
