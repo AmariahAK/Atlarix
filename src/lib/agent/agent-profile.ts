@@ -89,8 +89,11 @@ export interface AgentProfile {
   stripTextToolXML?(text: string): string;
 
   /**
-   * 0.3/1.2 seam (UNSET in 0.1): post-write verification — run LSP
-   * diagnostics on touched files and feed errors back into the loop.
+   * v12 0.3: post-write verification — run LSP diagnostics on the files the
+   * round wrote and return a feedback string (the ENGINE appends it as a user
+   * message so the model fixes errors before <task_complete>), or null when
+   * clean. Built by `buildPostWriteVerify` (post-write-verify.ts); attached
+   * only when `enableAutoFixProblems` is on (1.2). Unset for ask (no writes).
    */
-  postWriteVerify?(writtenPaths: string[]): Promise<void>;
+  postWriteVerify?(writtenPaths: string[]): Promise<string | null>;
 }

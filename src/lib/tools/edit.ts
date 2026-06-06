@@ -224,16 +224,36 @@ async function runReplace(
 
   const match = fuzzyFindString(r.content, old_content);
   if (!match) {
+    // v12 0.3: structured retry guidance (Claude Code-style) — show the
+    // closest candidate region so the model can re-read and retry with exact
+    // context instead of guessing.
     const lines = r.content.split("\n");
     const firstLineOfOld = old_content.split("\n")[0].trim();
     const similarLine = lines.findIndex((l) => l.includes(firstLineOfOld.slice(0, 30)));
     let hint = "";
+    let nearMiss:
+      | { line: number; preview: string }
+      | undefined;
     if (similarLine !== -1) {
-      hint = `\n\nSimilar content at line ${similarLine + 1}. Use read_file with start_line=${Math.max(1, similarLine - 2)}, end_line=${similarLine + 5} to inspect.`;
+      const from = Math.max(0, similarLine - 2);
+      const to = Math.min(lines.length, similarLine + 3);
+      nearMiss = {
+        line: similarLine + 1,
+        preview: lines.slice(from, to).join("\n"),
+      };
+      hint = `\n\nClosest candidate at line ${similarLine + 1}:\n---\n${nearMiss.preview}\n---\nThe file likely changed since you read it. Re-read with read_file (start_line=${from + 1}, end_line=${to}) and retry with the EXACT current content as old_content.`;
+    } else {
+      hint =
+        "\n\nNo similar content found — the file may have changed substantially since you read it, or this may be the wrong file. Re-read the file (or search for the function) before retrying.";
     }
     return {
       error: `Content to replace not found in ${normalizedPath}. old_content must match exactly (whitespace included).${hint}`,
       operation: "edit_file",
+      retry: {
+        reason: "no_match",
+        ...(nearMiss ? { nearMiss } : {}),
+        guidance: "re-read the target range, then retry with exact content",
+      },
     };
   }
 
