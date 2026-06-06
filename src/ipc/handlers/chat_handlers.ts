@@ -71,6 +71,27 @@ export function registerChatHandlers() {
     }));
   });
 
+  // v12 2.3: spawn a detached read-only background agent for a workspace.
+  handle(
+    "agents:background:start",
+    async (_, args: { appId: number; prompt: string; title?: string }) => {
+      const { startBackgroundAgent } = await import(
+        "@/lib/agents/background-agent"
+      );
+      // Fire-and-forget — runs detached; the UI polls agents:background:list.
+      const startedAt = Date.now();
+      void startBackgroundAgent({ ...args, startedAt }).catch(() => {});
+      return { ok: true };
+    },
+  );
+
+  handle("agents:background:list", async () => {
+    const { listBackgroundAgents } = await import(
+      "@/lib/agents/background-agent"
+    );
+    return listBackgroundAgents();
+  });
+
   ipcMain.handle("get-chat", async (_, chatId: number) => {
     if (!isStreamTransportId(chatId)) {
       throw new Error(LEGACY_CHAT_REMOVED);

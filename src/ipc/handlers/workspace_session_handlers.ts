@@ -145,6 +145,48 @@ async function trimSessionMessagesIfNeeded(sessionId: string): Promise<void> {
   }
 }
 
+/**
+ * Main-side session-message insert. The `messages:add` IPC handler delegates
+ * here; background agents (v12 2.3) call it directly because there is no
+ * renderer to fire `messages:add` on `chat:response:end`.
+ */
+export async function addSessionMessageDirect(
+  sessionId: string,
+  role: "user" | "assistant" | "tool",
+  content: string,
+  displaySnapshot?: string,
+  extras?: SessionMessageExtras,
+): Promise<SessionMessageRow> {
+  if (!["user", "assistant", "tool"].includes(role)) {
+    throw new Error(`Invalid message role: ${role}`);
+  }
+  if (displaySnapshot != null && !parseDisplaySnapshot(displaySnapshot)) {
+    throw new Error("Invalid display snapshot payload");
+  }
+  const now = new Date();
+  const id = randomUUID();
+  const [message] = await db
+    .insert(sessionMessages)
+    .values({
+      id,
+      sessionId,
+      role,
+      content,
+      displaySnapshot: displaySnapshot ?? null,
+      modelContent: extras?.modelContent ?? null,
+      pasteAttachments: extras?.pasteAttachments ?? null,
+      fileAttachments: extras?.fileAttachments ?? null,
+      createdAt: now,
+    })
+    .returning();
+  await db
+    .update(chatSessions)
+    .set({ updatedAt: now })
+    .where(eq(chatSessions.id, sessionId));
+  await trimSessionMessagesIfNeeded(sessionId);
+  return mapMessage(message);
+}
+
 export async function persistWorkspaceSessionUserMessage(
   sessionId: string,
   content: string,
@@ -306,6 +348,26 @@ export async function startWorkspaceSession(workspaceId: number): Promise<{
   const chatId = createStreamTransport(workspaceId);
   await persistSessionStreamChatId(session.id, chatId);
   return { sessionId: session.id, chatId, session };
+}
+
+/**
+ * v12 2.3: always create a FRESH session + bound transport (no empty-session
+ * reuse) for a background agent, with its own title. Returns the ids the
+ * background runner dispatches `chat:stream` against.
+ */
+export async function createBackgroundWorkspaceSession(
+  workspaceId: number,
+  title: string,
+): Promise<{ sessionId: string; chatId: number }> {
+  const session = await insertWorkspaceSession(workspaceId);
+  const now = new Date();
+  await db
+    .update(chatSessions)
+    .set({ title: title.slice(0, 200), updatedAt: now })
+    .where(eq(chatSessions.id, session.id));
+  const chatId = createStreamTransport(workspaceId);
+  await persistSessionStreamChatId(session.id, chatId);
+  return { sessionId: session.id, chatId };
 }
 
 async function insertWorkspaceSession(
@@ -476,38 +538,7 @@ export function registerWorkspaceSessionHandlers(): void {
       content: string,
       displaySnapshot?: string,
       extras?: SessionMessageExtras,
-    ) => {
-      if (!["user", "assistant", "tool"].includes(role)) {
-        throw new Error(`Invalid message role: ${role}`);
-      }
-      if (displaySnapshot != null && !parseDisplaySnapshot(displaySnapshot)) {
-        throw new Error("Invalid display snapshot payload");
-      }
-      const now = new Date();
-      const id = randomUUID();
-      const [message] = await db
-        .insert(sessionMessages)
-        .values({
-          id,
-          sessionId,
-          role,
-          content,
-          displaySnapshot: displaySnapshot ?? null,
-          modelContent: extras?.modelContent ?? null,
-          pasteAttachments: extras?.pasteAttachments ?? null,
-          fileAttachments: extras?.fileAttachments ?? null,
-          createdAt: now,
-        })
-        .returning();
-      await db
-        .update(chatSessions)
-        .set({ updatedAt: now })
-        .where(eq(chatSessions.id, sessionId));
-
-      await trimSessionMessagesIfNeeded(sessionId);
-
-      return mapMessage(message);
-    },
+    ) => addSessionMessageDirect(sessionId, role, content, displaySnapshot, extras),
   );
 
   handle("sessions:generate-title", async (_event, sessionId: string) => {

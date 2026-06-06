@@ -1281,6 +1281,19 @@ function queuePostTurnSelfCorrection(
   });
 }
 
+/**
+ * v12 2.3: the registered `chat:stream` handler, captured at registration so
+ * background agents can invoke the SAME turn engine in-process with a
+ * synthetic recording sender (no foreground renderer). Null until registered.
+ */
+let registeredChatStreamHandler:
+  | ((event: Electron.IpcMainInvokeEvent, req: ChatStreamParams) => Promise<unknown>)
+  | null = null;
+
+export function getChatStreamHandler() {
+  return registeredChatStreamHandler;
+}
+
 export function registerChatStreamHandlers() {
   ipcMain.handle(
     "respond-mode-change",
@@ -3866,7 +3879,9 @@ This conversation includes one or more image attachments. When the user uploads 
                     },
                   );
                 }
-                event.sender.send("chat:response:error", {
+                // v12 2.3: was a raw event.sender.send — would throw on a
+                // synthetic/destroyed sender (background agents). Wrapped.
+                safeSend(event.sender, "chat:response:error", {
                   chatId: req.chatId,
                   error: `${AI_STREAMING_ERROR_MESSAGE_PREFIX}${requestIdPrefix}${message}`,
                 });
@@ -6806,6 +6821,7 @@ ${stopNote}`;
   };
 
   ipcMain.handle("chat:stream", chatStreamHandler);
+  registeredChatStreamHandler = chatStreamHandler;
 
   // Handler to cancel an ongoing stream
   ipcMain.handle("chat:cancel", async (event, chatId: number) => {

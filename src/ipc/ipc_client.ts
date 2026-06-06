@@ -1052,6 +1052,30 @@ export class IpcClient {
     return this.ipcRenderer.invoke("agents:list", appId);
   }
 
+  /** v12 2.3: spawn a detached read-only background agent. */
+  public async startBackgroundAgent(args: {
+    appId: number;
+    prompt: string;
+    title?: string;
+  }): Promise<{ ok: boolean }> {
+    return this.ipcRenderer.invoke("agents:background:start", args);
+  }
+
+  /** v12 2.3: poll background-agent status (running/done/error). */
+  public async listBackgroundAgents(): Promise<
+    Array<{
+      sessionId: string;
+      appId: number;
+      title: string;
+      status: "running" | "done" | "error";
+      startedAt: number;
+      finishedAt?: number;
+      error?: string;
+    }>
+  > {
+    return this.ipcRenderer.invoke("agents:background:list");
+  }
+
   public async getChat(chatId: number): Promise<Chat> {
     try {
       const data = await this.ipcRenderer.invoke("get-chat", chatId);
