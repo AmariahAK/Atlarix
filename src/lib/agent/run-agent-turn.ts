@@ -23,6 +23,7 @@ import {
 import { getLedger, getLedgerStateString } from "@/lib/tasks/task-ledger";
 import {
   isTaskComplete as isLedgerTaskComplete,
+  responseHasTaskCompleteTag as isTaskComplete,
   getRemainingSteps,
   buildPendingStepsContinuationPrompt,
 } from "@/lib/tasks/completion-detector";
@@ -43,11 +44,6 @@ import { STREAM_TOOL_LOOP_DURATION_CAP_MS } from "@/constants/settings_constants
 import type { AgentProfile } from "./agent-profile";
 
 const logger = log.scope("run-agent-turn");
-
-/** Mirrors the handler's module-level twin; deduped when the legacy loop dies. */
-function isTaskComplete(response: string): boolean {
-  return response.includes("<task_complete>");
-}
 
 /**
  * The handler-scope closures + live state the engine drives. 0.1 extracts
@@ -124,6 +120,13 @@ export interface TurnRuntime {
     mode: string;
   }): Promise<unknown>;
   getLedgerStateForContinuation(): string | undefined;
+  /**
+   * v12 0.3: live view of the turn's written-file side channel (the handler's
+   * `filesWrittenInThisExchange`, appended by the permission-approved write
+   * paths). The engine snapshots its length at round start and verifies the
+   * round's delta via profile.postWriteVerify. Optional — unset for ask.
+   */
+  getFilesWrittenThisTurn?(): readonly string[];
 }
 
 export interface AgentTurnResult {
@@ -148,6 +151,14 @@ export async function runAgentTurn(
   let totalToolExecutions = 0;
   let fullResponse = rt.initialFullResponse;
   let streamContinuationAttempts = 0;
+  // v12 0.3: high-water mark into the written-files side channel — each
+  // verify pass covers the delta since the last one (text-tool writes land
+  // after the round's verify point and are picked up by the next pass).
+  let writeVerifyMark = rt.getFilesWrittenThisTurn?.().length ?? 0;
+  // A model that keeps emitting <task_complete> on broken code is nudged at
+  // most this many times before the break is honored anyway (bounded loop).
+  const MAX_VERIFY_BLOCKED_BREAKS = 3;
+  let verifyBlockedBreaks = 0;
 
   for (;;) {
     if (Date.now() - loopStartTime > STREAM_TOOL_LOOP_DURATION_CAP_MS) {
@@ -361,9 +372,32 @@ export async function runAgentTurn(
       });
     }
 
+    // v12 0.3: post-write verify — LSP diagnostics on the writes since the
+    // last verify pass (native writes executed inside this round's SDK loop;
+    // a previous round's text-tool writes land here too, since they execute
+    // after that round's verify point). Runs BEFORE the task-complete break
+    // so broken code can't slip out behind a same-round <task_complete>.
+    let verifyFeedback: string | null = null;
+    if (profile.postWriteVerify && rt.getFilesWrittenThisTurn) {
+      const written = rt.getFilesWrittenThisTurn();
+      const roundWrites = written.slice(writeVerifyMark);
+      writeVerifyMark = written.length;
+      if (roundWrites.length > 0) {
+        try {
+          verifyFeedback = await profile.postWriteVerify([...roundWrites]);
+        } catch (verifyErr) {
+          logger.warn(`${L} post-write verify failed: ${String(verifyErr)}`);
+        }
+      }
+    }
+
     if (profile.honorTaskCompleteBreak) {
-      // End only on explicit <task_complete> or a completed task ledger
-      if (isTaskComplete(fullResponse)) {
+      // End only on explicit <task_complete> or a completed task ledger —
+      // unless this round's writes have outstanding diagnostics (0.3): then
+      // suppress the break (bounded) and feed the errors back instead.
+      const verifyBlocksBreak =
+        verifyFeedback != null && verifyBlockedBreaks < MAX_VERIFY_BLOCKED_BREAKS;
+      if (isTaskComplete(fullResponse) && !verifyBlocksBreak) {
         logger.info(`${L} Task completed at iteration ${agenticIteration + 1}`);
         // v12 0.2 (B2): the final round's native messages never hit the fold
         // site — capture them for the turn envelope.
@@ -372,9 +406,19 @@ export async function runAgentTurn(
         }
         break;
       }
+      if (isTaskComplete(fullResponse) && verifyBlocksBreak) {
+        verifyBlockedBreaks++;
+        logger.info(
+          `${L} <task_complete> blocked by post-write diagnostics (${verifyBlockedBreaks}/${MAX_VERIFY_BLOCKED_BREAKS}) — continuing for fixes`,
+        );
+      }
 
       const ledgerAfterRound = getLedger(rt.streamTurnIdForLedger);
-      if (ledgerAfterRound && isLedgerTaskComplete(ledgerAfterRound)) {
+      if (
+        ledgerAfterRound &&
+        isLedgerTaskComplete(ledgerAfterRound) &&
+        !verifyBlocksBreak
+      ) {
         logger.info(`${L} Ledger complete at iteration ${agenticIteration + 1}`);
         if (roundHadNativeToolMessages) {
           rt.nativeTurnMessages.push(...nativeIterMessages);
@@ -479,6 +523,18 @@ export async function runAgentTurn(
           `${L} Skipping empty tool-results user message (native tools executed in-stream)`,
         );
       }
+    }
+
+    // v12 0.3: push the round's diagnostics feedback (computed before the
+    // task-complete gate above) so the next round's model input contains it.
+    // Like the loop correction below, it is transient round input — NOT
+    // mirrored into the B2 native envelope.
+    if (verifyFeedback) {
+      agenticMessages.push({
+        role: "user" as const,
+        content: verifyFeedback,
+      });
+      logger.log(`${L} post-write verify: diagnostics fed back`);
     }
 
     const loopCorrection = profile.repetition.takePendingCorrection();

@@ -9,20 +9,21 @@ import {
 } from "../infra/assert";
 
 /**
- * v12 0.1 Phase A — ASK-tier parity baselines.
+ * v12 0.1 — ASK-tier behavior on the unified runAgentTurn engine.
  *
- * These pin the CURRENT ask-loop behavior (chat_stream_handlers.ts ask branch)
- * BEFORE it migrates onto the unified runAgentTurn engine. After migration
- * they must stay green with the unified flag ON and OFF.
+ * Originally Phase A parity baselines pinned against the legacy ask loop;
+ * single-leg (engine only) since the 0.1 close-out deleted the legacy bodies.
  *
- * Ask-loop facts these rely on (verified):
- * - one outer while(true); normal exit = !shouldContinue(finishReason) — the
- *   AI-SDK inner loop handles tool multi-step within a single round, so no
- *   <task_complete> is needed to end an ask turn;
+ * Ask-tier facts these rely on (verified):
+ * - singleRound profile: a completed round ends the turn — the AI-SDK inner
+ *   loop handles tool multi-step within the round, so no <task_complete> is
+ *   needed to end an ask turn;
  * - toolset = ToolRegistry.getToolsForAskMode() (isReadOnly || allowInAskMode)
- *   → write tools are NOT offered at all;
- * - repetition guard (askAgenticRepetition) aborts the in-flight stream on
- *   loop_abort (session-1 fix, LOOP_REPETITION_STREAM_STOP);
+ *   → write tools are NOT offered; plan-write tools union in for workMode
+ *   "plan" (0.1 close-out fix);
+ * - repetition guard (askAgenticRepetition) injects corrections mid-round
+ *   (prepareStep) and aborts the in-flight stream on loop_abort
+ *   (LOOP_REPETITION_STREAM_STOP);
  * - ask_user → `user-question-request` event + ASK_USER_STREAM_STOP end-turn.
  */
 
@@ -69,7 +70,9 @@ describe("ask parity baselines", () => {
     expectNoStreamError(fakeIpc.sends, chatId);
     expectToolSequence(fakeIpc.sends, ["read_file"]);
 
-    const requests = ctx.server.requestsFor("ask-read-flow") as RecordedRequest[];
+    const requests = ctx.server.requestsFor(
+      "ask-read-flow",
+    ) as RecordedRequest[];
     expect(requests.length).toBeGreaterThanOrEqual(2);
     // Workspace injection: the tool actually read the seeded file.
     expect(JSON.stringify(requests[requests.length - 1])).toContain("habari");
@@ -92,7 +95,7 @@ describe("ask parity baselines", () => {
     expect(lastAssistant?.content).toContain("habari");
   });
 
-  it("plan workMode: toolset surface baseline (suspected defect: plan tool not offered)", async () => {
+  it("plan workMode: plan-write tools are offered (v12 0.1 close-out fix)", async () => {
     ctx.server.register(
       scenario("ask-plan-surface")
         .text("Here is my plan outline in prose.")
@@ -110,17 +113,63 @@ describe("ask parity baselines", () => {
     expectNoStreamError(fakeIpc.sends, chatId);
     expectStreamEnded(fakeIpc.sends, chatId);
 
-    const requests = ctx.server.requestsFor("ask-plan-surface") as RecordedRequest[];
+    const requests = ctx.server.requestsFor(
+      "ask-plan-surface",
+    ) as RecordedRequest[];
     const tools = offeredToolNames(requests[0]);
     expect(tools).toContain("read_file"); // read surface present in plan mode
 
-    // BASELINE of a SUSPECTED DEFECT: plan workMode routes through the ask
-    // loop, whose toolset is getToolsForAskMode() — write_implementation_plan
-    // has isReadOnly:false + allowInAskMode:false, so it is NOT offered even
-    // though the ask wrapper has dedicated handling for it (L4487) and the
-    // mode allowlist names it. Pinned here so the 0.1 migration makes a
-    // CONSCIOUS decision (fix = profile-level plan-tool inclusion).
-    expect(tools).not.toContain("write_implementation_plan");
+    // FIXED defect (was pinned as a baseline): plan workMode routes through
+    // the ask tier, whose toolset is getToolsForAskMode() — the plan-write
+    // tools are isReadOnly:false + allowInAskMode:false, so they were never
+    // offered even though PLAN_ALLOWLIST names them and the ask wrapper has
+    // dedicated artifact handling. The toolset assembly now unions them in
+    // when workMode === "plan".
+    expect(tools).toContain("write_implementation_plan");
+    expect(tools).toContain("update_plan_status");
+    expect(tools).toContain("update_plan_step");
+    // Still excluded outside plan mode (see the read-only flow eval above) —
+    // and write/run tools stay out regardless.
+    expect(tools).not.toContain("write_file");
+    expect(tools).not.toContain("edit_file");
+  });
+
+  it("plan workMode: write_implementation_plan executes and emits the plan artifact", async () => {
+    ctx.server.register(
+      scenario("ask-plan-write")
+        .toolCall("write_implementation_plan", {
+          title: "Refactor plan",
+          content:
+            "# Refactor plan\n\n1. Extract the helper.\n2. Migrate call sites.",
+        })
+        .text("I wrote the implementation plan.")
+        .build(),
+    );
+
+    const chatId = await ctx.newChat();
+    const { fakeIpc } = await runTurn(ctx, {
+      chatId,
+      prompt: "sc=ask-plan-write Write the refactor plan.",
+      mode: "ask",
+      settings: { workModePreference: "plan" },
+    });
+
+    expectNoStreamError(fakeIpc.sends, chatId);
+    expectStreamEnded(fakeIpc.sends, chatId);
+
+    // The shared ask wrapper's dedicated handling fired: "Plan saved"
+    // activity + plan-artifact marker appended to the response.
+    const activities = fakeIpc.sentOn("chat:activity");
+    expect(
+      activities.some((a) => a.payload?.label === "Plan saved"),
+      "expected the wrapper's 'Plan saved' activity",
+    ).toBe(true);
+
+    const { getEphemeralChat } = await import("@/lib/ephemeral-chat");
+    const lastAssistant = [...(getEphemeralChat(chatId)?.messages ?? [])]
+      .reverse()
+      .find((m) => m.role === "assistant");
+    expect(lastAssistant?.content).toContain("atlarix-plan-artifact");
   });
 
   it("repetition guard: repeated identical read aborts the stream (bounded)", async () => {
@@ -139,7 +188,9 @@ describe("ask parity baselines", () => {
       timeoutMs: 20_000,
     });
 
-    const activities = fakeIpc.sentOn("chat:activity").map((s) => s.payload?.type);
+    const activities = fakeIpc
+      .sentOn("chat:activity")
+      .map((s) => s.payload?.type);
     expect(activities).toContain("loop_detected");
     expect(activities).toContain("loop_repetition_aborted");
 
@@ -179,9 +230,7 @@ describe("ask parity baselines", () => {
 
   it("round-trip: ask turn persists user message + ephemeral assistant", async () => {
     ctx.server.register(
-      scenario("ask-roundtrip")
-        .text("Persisted from ask mode.")
-        .build(),
+      scenario("ask-roundtrip").text("Persisted from ask mode.").build(),
     );
 
     const chatId = await ctx.newChat();
@@ -206,20 +255,18 @@ describe("ask parity baselines", () => {
     expect(lastAssistant?.content).toContain("Persisted from ask mode.");
   });
 
-  it("native history across ask turns: engine emits the B2 envelope; legacy does not", async () => {
-    // v12 0.1 Phase E: ask inherits 0.2's between-turns native history VIA
-    // THE ENGINE (the shared tail persists rt.nativeTurnMessages — the legacy
-    // ask loop never populates it). The suite runs flag ON and OFF, so this
-    // pins BOTH behaviors explicitly.
+  it("native history across ask turns: the engine emits the B2 envelope", async () => {
+    // v12 0.1 Phase E: ask inherits 0.2's between-turns native history via
+    // the engine (the shared tail persists rt.nativeTurnMessages). Single-leg
+    // since the 0.1 close-out — the legacy ask loop (which never populated
+    // the envelope) is deleted.
     ctx.server.register(
       scenario("ask-nh-1")
         .toolCall("read_file", { path: "src/info.ts" })
         .text("Turn one read the info file.")
         .build(),
     );
-    ctx.server.register(
-      scenario("ask-nh-2").text("Turn two recap.").build(),
-    );
+    ctx.server.register(scenario("ask-nh-2").text("Turn two recap.").build());
 
     const chatId = await ctx.newChat();
     const turn1 = await runTurn(ctx, {
@@ -253,20 +300,14 @@ describe("ask parity baselines", () => {
         m.tool_calls.length > 0,
     );
 
-    if (process.env.ATLARIX_UNIFIED_LOOP === "1") {
-      // Engine: turn-1's native tool exchange replays in turn-2's history.
-      expect(
-        toolMsgs.length,
-        "engine ask must replay turn-1's native role:'tool' message",
-      ).toBeGreaterThanOrEqual(1);
-      expect(
-        assistantToolCallMsgs.length,
-        "engine ask must replay turn-1's assistant tool_calls message",
-      ).toBeGreaterThanOrEqual(1);
-    } else {
-      // Legacy ask loop: no envelope — turn 2 sees prose history only.
-      expect(toolMsgs.length).toBe(0);
-      expect(assistantToolCallMsgs.length).toBe(0);
-    }
+    // Engine: turn-1's native tool exchange replays in turn-2's history.
+    expect(
+      toolMsgs.length,
+      "engine ask must replay turn-1's native role:'tool' message",
+    ).toBeGreaterThanOrEqual(1);
+    expect(
+      assistantToolCallMsgs.length,
+      "engine ask must replay turn-1's assistant tool_calls message",
+    ).toBeGreaterThanOrEqual(1);
   });
 });

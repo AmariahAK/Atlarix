@@ -29,11 +29,10 @@ import {
   serializeNativeHistory,
   parseNativeHistory,
   isNativeHistoryEnvelope,
-  estimateModelMessagesTokens,
-  flattenNativeForCompaction,
   regateNativeMediaForProvider,
 } from "@/lib/ai/native-history";
 import { runAgentTurn } from "@/lib/agent/run-agent-turn";
+import { buildPostWriteVerify } from "@/lib/agent/post-write-verify";
 import { getNativeWebSearchSupport } from "../utils/native_web_search";
 import { perfReportOnce } from "@/lib/perf-marks";
 import { buildAttachmentRecord } from "@/lib/attachment-upload";
@@ -64,7 +63,6 @@ import {
 import {
   COMPASS_REACHABILITY_ERROR,
   compassExhaustedUserMessage,
-  getOpenRouterModelIdForCoreTier,
 } from "../shared/compass_constants";
 import log from "electron-log";
 import { getSupabaseClientCode } from "../../supabase_admin/supabase_context";
@@ -79,10 +77,7 @@ import {
   getMaxTokensWithFloor,
   getTemperature,
 } from "../utils/token_utils";
-import {
-  MAX_CHAT_TURNS_IN_CONTEXT,
-  STREAM_TOOL_LOOP_DURATION_CAP_MS,
-} from "@/constants/settings_constants";
+import { MAX_CHAT_TURNS_IN_CONTEXT } from "@/constants/settings_constants";
 import {
   requireMcpAuth,
   type RequireMcpAuthInfo,
@@ -102,13 +97,13 @@ import {
   getEphemeralChatAppId,
   getEphemeralChat,
   buildContinueAfterQuestionsPrompt,
+  nextEphemeralMessageId,
 } from "@/lib/ephemeral-chat";
 import { shouldUseTextToolFallback } from "@/lib/stream/text-tool-fallback";
 import { isStreamDebugLoggingEnabled } from "@/lib/stream/stream-debug";
 import { stripQuestionsBlockFromResponse } from "../utils/cleanFullResponse";
 import {
   removeThinkingTags,
-  stripAssistantDisplayContent,
   stripTaskCompleteTags,
   stripThinkBlocks,
 } from "../utils/thinking_tags";
@@ -116,7 +111,8 @@ import { FileUploadsState } from "../utils/file_uploads_state";
 import { extractMentionedAppsCodebases } from "../utils/mention_apps";
 import { parseAppMentions } from "@/shared/parse_mention_apps";
 import type { ZodTypeAny } from "zod";
-import { isTurboEditsV2Enabled } from "@/lib/schemas";
+import { isTurboEditsV2Enabled, WorkModeSchema } from "@/lib/schemas";
+import { trackPendingWork } from "@/lib/pending-work";
 import {
   AI_STREAMING_ERROR_MESSAGE_PREFIX,
   AI_STREAM_EMPTY_RESPONSE_FALLBACK,
@@ -178,14 +174,10 @@ import { clearDebugHypothesis } from "../../lib/debug/debug-hypothesis-session";
 import { toolExecutionChatMode } from "../../lib/work-mode";
 import { ToolSessionLoader } from "../../lib/tools/ToolSessionLoader";
 import {
-  buildContinuationPrompt,
-  shouldContinue,
-} from "../../lib/streaming/continuation-handler";
-import {
   createAgenticRepetitionState,
   type AgenticRepetitionOutcome,
+  type AgenticRepetitionState,
 } from "../../lib/streaming/agentic-loop-repetition";
-import { consumeDelegationAbort } from "../../lib/agents/agent-bus-monitor";
 import {
   cancelLedger,
   createLedger,
@@ -207,15 +199,13 @@ import {
 import { emitPlanUpdate } from "@/ipc/utils/emit_plan_update";
 import {
   isTaskComplete as isLedgerTaskComplete,
-  getRemainingSteps,
-  buildPendingStepsContinuationPrompt,
+  responseHasTaskCompleteTag as isTaskComplete,
 } from "@/lib/tasks/completion-detector";
 import { assembleContextSections, type ContextSection } from "@/lib/context/ContextAssembler";
 import { ContextBudgetTracker } from "@/lib/context/context-budget-tracker";
 import { pruneContextSectionsForBudget } from "@/lib/context/context-budget-pruning";
 import { resolveModelContextLimit } from "@/lib/context/resolve-model-context-limit";
 import { estimateDispatchTokens } from "@/lib/routing/tier_context_budget";
-import { runMidLoopCompaction } from "@/lib/context/mid_loop_compaction";
 import { loadSkill } from "@/lib/skills/skill-loader";
 import { getSkillNameForMode } from "@/lib/skills/skill-registry";
 import {
@@ -252,7 +242,6 @@ import {
   getContextWindowDetailed,
   setCompassContextWindow,
 } from "../utils/token_utils";
-import { recordTrace } from "../../lib/agents/agent-lightning";
 import { writeSettings } from "../../main/settings";
 import {
   labelForWorkMode,
@@ -291,6 +280,18 @@ function runCommandModeGateResult(
 }
 
 function runCommandGateResult(command: string, workMode: WorkMode): string | null {
+  // v12 3.6: fail-closed on an invalid workMode — runtime values flow in from
+  // persisted settings / IPC, so don't trust the static type at this gate.
+  if (!WorkModeSchema.safeParse(workMode).success) {
+    logger.warn(
+      `[run-command gate] invalid workMode ${JSON.stringify(workMode)} — failing closed`,
+    );
+    return JSON.stringify({
+      success: false,
+      error:
+        "Command blocked: the active work mode could not be determined. Switch modes in the UI and retry.",
+    });
+  }
   const gitInitBlock = runCommandGitInitGateResult(
     command,
     readSettings().allowGitInit,
@@ -550,6 +551,12 @@ async function maybeAppendAutoMemoryAfterStream(params: {
  * Callers must **not** await this before `chat:response:end` — fire-and-forget so the next
  * user message is not queued behind verification. Results surface via `chat:activity`
  * (`build_verification_complete`).
+ *
+ * v12 0.3 re-scope (2.5 decision): this is now the OPTIONAL post-turn DEEP
+ * review — semantic/logic issues LSP can't see. Compile-level errors are
+ * caught IN-LOOP before <task_complete> by the engine's postWriteVerify (LSP
+ * diagnostics, gated on enableAutoFixProblems), so this pass should rarely
+ * surface mechanical breakage anymore. Gated by `buildVerification.enabled`.
  */
 async function runAutonomousBuildVerificationAfterTaskComplete(params: {
   sender: WebContents;
@@ -917,7 +924,8 @@ async function resolveAskUserToolResult(
               : {}),
           },
         ];
-  const questionId = `uq_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
+  // v12 3.1: collision-free id (was Date.now()+Math.random — ms collisions).
+  const questionId = `uq_${crypto.randomUUID()}`;
   pendingAskUserArtifactByChatId.set(chatId, { questionId, questions });
   safeSend(event.sender, "user-question-request", {
     chatId,
@@ -939,11 +947,6 @@ async function resolveAskUserToolResult(
     status:
       "Questions presented to the user. This turn ends here; the user's answers will arrive in the next message.",
   });
-}
-
-/** Agentic loop completion: explicit model tag only (no inferred prose). */
-function isTaskComplete(response: string): boolean {
-  return response.includes("<task_complete>");
 }
 
 // Track active streams for cancellation
@@ -1190,22 +1193,26 @@ function queuePostTurnSelfCorrection(
   },
 ): void {
   setImmediate(() => {
-    void import("./self_correction_followup")
-      .then(({ schedulePostTurnSelfCorrection }) =>
-        schedulePostTurnSelfCorrection({
-          webContents: sender,
-          chatId: args.chatId,
-          rootAssistantMessageId: args.rootAssistantMessageId,
-          appId: args.appId,
-          appPathResolved: args.appPath,
-          filesWrittenInThisExchange: args.filesWrittenInThisExchange,
-          isBuildModeTurn: args.isBuildModeTurn,
-          isEphemeralWorkspace: args.isEphemeralWorkspace,
-          aborted: args.aborted,
-          isStreamActive: () => activeStreams.has(args.chatId),
-        }),
-      )
-      .catch((e) => logger.warn("[self-correction] queue failed", e));
+    // v12 3.7: tracked so shutdown drains it instead of dropping a dispatch
+    // mid-flight.
+    trackPendingWork(
+      import("./self_correction_followup").then(
+        ({ schedulePostTurnSelfCorrection }) =>
+          schedulePostTurnSelfCorrection({
+            webContents: sender,
+            chatId: args.chatId,
+            rootAssistantMessageId: args.rootAssistantMessageId,
+            appId: args.appId,
+            appPathResolved: args.appPath,
+            filesWrittenInThisExchange: args.filesWrittenInThisExchange,
+            isBuildModeTurn: args.isBuildModeTurn,
+            isEphemeralWorkspace: args.isEphemeralWorkspace,
+            aborted: args.aborted,
+            isStreamActive: () => activeStreams.has(args.chatId),
+          }),
+      ),
+      "self-correction",
+    );
   });
 }
 
@@ -1789,6 +1796,9 @@ ${componentSnippet}
       // Check if this is an ephemeral workspace chat (skip legacy chats/messages DB writes)
       const isEphemeralWorkspace = isEphemeralChatId(req.chatId);
 
+      // v12 0.4-C2: capture the persisted row's UUID so the ephemeral message
+      // carries it (edits target the DB row directly — no ordinal mapping).
+      let persistedUserRowId: string | undefined;
       if (
         req.workspaceSessionId &&
         !req.continueAfterQuestions &&
@@ -1798,7 +1808,7 @@ ${componentSnippet}
           const { persistWorkspaceSessionUserMessage } = await import(
             "./workspace_session_handlers"
           );
-          await persistWorkspaceSessionUserMessage(
+          const row = await persistWorkspaceSessionUserMessage(
             req.workspaceSessionId,
             userDisplayContent,
             {
@@ -1809,6 +1819,7 @@ ${componentSnippet}
                 storedFileAttachments.length > 0 ? storedFileAttachments : null,
             },
           );
+          persistedUserRowId = row?.id;
         } catch (err) {
           logger.error("Failed to persist workspace session user message:", err);
         }
@@ -1830,14 +1841,19 @@ ${componentSnippet}
 
       // Add a placeholder assistant message immediately
       // For ephemeral chats, we'll use a placeholder ID
-      let placeholderAssistantMessage: any = { id: Date.now() }; // Default for ephemeral
+      // (v12 3.1: monotonic counter — Date.now() collided in-millisecond.
+      // Allocation order matters: the user message's id must be LOWER than
+      // the placeholder's so id-order matches array/display order.)
+      const newUserMessageId = nextEphemeralMessageId();
+      const placeholderMessageId = nextEphemeralMessageId();
+      let placeholderAssistantMessage: any = { id: placeholderMessageId };
       let updatedChat: any = chat; // Use the existing chat object for ephemeral
 
       const ephemeralChat = getEphemeralChat(req.chatId);
       const existingMessages = ephemeralChat?.messages || [];
 
       const placeholderMessage = {
-        id: Date.now() + 1,
+        id: placeholderMessageId,
         chatId: req.chatId,
         role: "assistant",
         content: "",
@@ -1850,10 +1866,12 @@ ${componentSnippet}
         updatedChat.messages = [...existingMessages, placeholderMessage];
       } else {
         const newUserMessage = {
-          id: Date.now(),
+          id: newUserMessageId,
           chatId: req.chatId,
           role: "user",
           content: userDisplayContent,
+          // v12 0.4-C2: direct DB-row identity for edits (no ordinal mapping).
+          ...(persistedUserRowId ? { sessionRowId: persistedUserRowId } : {}),
           modelContent:
             userPrompt !== userDisplayContent ? userPrompt : null,
           pasteAttachments:
@@ -2008,7 +2026,9 @@ ${componentSnippet}
           `contextWindow=${budgetDetail.contextWindow} source=${budgetDetail.source}`,
         );
 
-        const suppressNativeThinkingForDeepCounsel =
+        // (Renamed from ...ForDeepCounsel with the counsel-scaffold purge —
+        // this is about forced-thinking-tier requests, nothing else.)
+        const suppressNativeThinkingForForcedTier =
           req.forceThinkingTier === true && !forceThinkingNativeSupported;
         const usedCompassThisStream = modelClient.builtinProviderId === "compass";
         let compassStreamTier: string | undefined;
@@ -3368,7 +3388,6 @@ This conversation includes one or more image attachments. When the user uploads 
           }
 
           /** Shared cap for length + pending-step continuations per user turn */
-          let streamContinuationAttempts = 0;
           const STREAM_CONTINUATION_MAX = 3;
           /** One retry after 1s when the model returns no usable output (cold start / provider flake). */
           const MAX_STREAM_EMPTY_OUTPUT_ATTEMPTS = 2;
@@ -3389,6 +3408,7 @@ This conversation includes one or more image attachments. When the user uploads 
             dynamicSystemTail,
             dyadDisableFiles = false,
             files,
+            repetition,
           }: {
             chatMessages: ModelMessage[];
             modelClient: ModelClient;
@@ -3397,6 +3417,9 @@ This conversation includes one or more image attachments. When the user uploads 
             systemPromptOverride?: string;
             dynamicSystemTail?: string;
             dyadDisableFiles?: boolean;
+            // v12 0.1 close-out: mode's repetition guard — enables mid-round
+            // correction reinject via prepareStep (see streamText below).
+            repetition?: AgenticRepetitionState;
           }) => {
             if (isEngineEnabled) {
               logger.log(
@@ -3419,7 +3442,7 @@ This conversation includes one or more image attachments. When the user uploads 
               : "balanced";
             const optionsModel = getEffectiveModelForOptions(settings);
             const thinkingTier =
-              contextBudgetTier === "thinking" && !suppressNativeThinkingForDeepCounsel;
+              contextBudgetTier === "thinking" && !suppressNativeThinkingForForcedTier;
             const providerOptions: Record<string, any> = {
               "dyad-engine": {
                 dyadAppId: effectiveAppId ?? updatedChat.app?.id,
@@ -3550,6 +3573,33 @@ This conversation includes one or more image attachments. When the user uploads 
               // the abort races a step boundary, the multi-step loop must not
               // start another step once the token pool is exhausted.
               stopWhen: [() => compassLimitHit],
+              // v12 0.1 close-out: mid-round correction reinject. Repetition
+              // corrections are queued inside the SDK's multi-step inner loop
+              // (the tool wrappers call record() during execute), where the
+              // round-boundary injection can't reach until the round ends.
+              // prepareStep runs before EVERY step — when a correction is
+              // pending, append it as a user message so the model sees it on
+              // the very next step. takePendingCorrection() is take-once, so
+              // the engine's round-boundary injection stays a non-duplicating
+              // fallback (text-tool path / correction queued on a final step).
+              // The injected message is step-input only — it never enters
+              // response.messages, so native-history folding (B1/B2) is
+              // unaffected (transient steering nudge, not persisted history).
+              prepareStep: repetition
+                ? ({ messages }) => {
+                    const correction = repetition.takePendingCorrection();
+                    if (!correction) return undefined;
+                    logger.log(
+                      `[repetition] injecting mid-round correction (chat ${req.chatId})`,
+                    );
+                    return {
+                      messages: [
+                        ...messages,
+                        { role: "user" as const, content: correction },
+                      ],
+                    };
+                  }
+                : undefined,
               providerOptions,
               tools: effectiveTools,
               messages: streamMessages,
@@ -3982,6 +4032,23 @@ This conversation includes one or more image attachments. When the user uploads 
             });
 
             const askModeTools = ToolRegistry.getToolsForAskMode();
+            // Plan workMode routes through the ask tier, but the plan-write
+            // tools are isReadOnly:false + allowInAskMode:false, so
+            // getToolsForAskMode() drops them even though PLAN_ALLOWLIST names
+            // them and the wrapper below has dedicated artifact handling.
+            // Union them in here; includeToolForSession's mode filter keeps
+            // them plan-only. (v12 0.1 close-out — was a pinned defect.)
+            if (effectiveWorkMode === "plan") {
+              const offered = new Set(askModeTools.map((t) => t.name));
+              for (const name of [
+                "write_implementation_plan",
+                "update_plan_status",
+                "update_plan_step",
+              ]) {
+                const meta = ToolRegistry.get(name);
+                if (meta && !offered.has(name)) askModeTools.push(meta);
+              }
+            }
             const askLoader = getOrCreateToolSessionLoader(req.chatId);
             const modeAllowlist = getModeToolAllowSets();
             const modeAllowNames = getModeToolAllowlist(effectiveWorkMode);
@@ -4205,8 +4272,15 @@ This conversation includes one or more image attachments. When the user uploads 
 
                     if (tool.name === "write_implementation_plan") {
                       try {
-                        const parsed =
+                        const envelope =
                           typeof result === "string" ? JSON.parse(result) : result;
+                        // runToolExecute wraps tool output in the ToolRegistry
+                        // {success, result, cost} envelope — unwrap to reach
+                        // the tool's own {success, planId} payload.
+                        const parsed =
+                          envelope?.result && typeof envelope.result === "object"
+                            ? envelope.result
+                            : envelope;
                         if (parsed?.success && parsed?.planId) {
                           const { emitPlanArtifactUpdated } = await import(
                             "@/ipc/utils/emit_plan_artifact"
@@ -4503,22 +4577,15 @@ This conversation includes one or more image attachments. When the user uploads 
             );
 
             let askStreamMessages: ModelMessage[] = [...chatMessages];
-            const askTierStreamLoopStartMs = Date.now();
             askAgenticRepetition.setEnabled(true);
-            let askAgenticIteration = 0;
-            // v12 0.1 Phase E: unified-loop migration flag (same resolution
-            // as the build branch). ON → the runAgentTurn engine with the ask
-            // profile (singleRound: a completed round ends the turn; the
-            // outer loop only ever served truncation continuations). OFF
-            // (default) → the legacy ask loop below, UNCHANGED. Known deltas
-            // when ON: truncation-continuation rounds skip mid-loop
-            // compaction/escalation/correction-injection (rare path), and ask
-            // GAINS the 0.2 native turn envelope (B2 — shared tail persists
-            // it).
-            const unifiedLoopEnabled =
-              process.env.ATLARIX_UNIFIED_LOOP === "1" ||
-              settings.enableUnifiedAgentLoop === true;
-            if (unifiedLoopEnabled) {
+            // v12 0.1: the unified runAgentTurn engine with the ask profile
+            // (singleRound: a completed round ends the turn — the old outer
+            // ask loop only ever served truncation continuations; deleted at
+            // the 0.1 close-out). Ask gains the 0.2 native turn envelope via
+            // the shared tail (B2). Known delta vs the legacy loop:
+            // truncation-continuation rounds skip mid-loop compaction/
+            // escalation (rare path).
+            {
               const turnResult = await runAgentTurn(
                 {
                   mode: "ask",
@@ -4578,6 +4645,7 @@ This conversation includes one or more image attachments. When the user uploads 
                       systemPromptOverride: opts.systemPromptOverride,
                       dynamicSystemTail: opts.dynamicSystemTail,
                       files: files,
+                      repetition: askAgenticRepetition,
                     }),
                   runStreamRound: runStreamRoundWithEmptyOutputRetry,
                   processResponseChunkUpdate,
@@ -4593,206 +4661,6 @@ This conversation includes one or more image attachments. When the user uploads 
                 },
               );
               fullResponse = turnResult.fullResponse;
-            } else
-            while (true) {
-              if (abortController.signal.aborted) {
-                logger.log(
-                  `[Ask tier] AbortController already aborted (reason: ${String(abortController.signal.reason)}), exiting loop`,
-                );
-                sentryAddBreadcrumbSafe({
-                  category: "ask_stream",
-                  message: `aborted: ${String(abortController.signal.reason)}`,
-                  level: "info",
-                });
-                break;
-              }
-              if (Date.now() - askTierStreamLoopStartMs > STREAM_TOOL_LOOP_DURATION_CAP_MS) {
-                logger.warn(
-                  `[Ask tier stream] Hit duration limit (30 minutes) workMode=${effectiveWorkMode}`,
-                );
-                safeSend(event.sender, "chat:activity", {
-                  id: `duration-limit-${Date.now()}`,
-                  type: "duration_limit_reached",
-                  label: "Task paused after 30 minutes",
-                  detail: "Send a message to continue",
-                  status: "done",
-                  timestamp: Date.now(),
-                  chatId: req.chatId,
-                });
-                break;
-              }
-              // PASS8 A4: Removed redundant second constructSystemPrompt assembly.
-              // PASS8 A2 + A5: Reuse the already-assembled baseSystemPrompt parts
-              // (workspace project layers + active mode block) plus the Ask appendices.
-              const askParts = constructSystemPromptParts({
-                chatMode: "ask",
-                effectiveWorkMode: modeBlockKey,
-                contextSize: await getContextWindow(effectiveModel, req.chatId),
-                enableTurboEditsV2: false,
-                hasWorkspace,
-                registeredToolNames: [...askLoadedNames],
-                ...promptIdentityOpts,
-              });
-              const askStableHeader =
-                askParts.stableHeader + "\n\n" + askProgressiveNote;
-              const {
-                bundle: askBundle,
-                fullResponse: askRoundFull,
-                finishReason: askFr,
-              } = await runStreamRoundWithEmptyOutputRetry({
-                runSimpleStream: async () =>
-                  simpleStreamText({
-                    chatMessages: askStreamMessages,
-                    modelClient,
-                    tools: askTools,
-                    systemPromptOverride: askStableHeader,
-                    dynamicSystemTail: askParts.dynamicTail,
-                    files: files,
-                  }),
-                fullResponse,
-                abortController,
-                chatId: req.chatId,
-                processResponseChunkUpdate,
-                onFirstModelActivity: () => {
-                  safeSend(event.sender, "chat:stream:phase", {
-                    chatId: req.chatId,
-                    phase: "responding",
-                    label: "",
-                  });
-                },
-                onFirstTextDelta: logTtftOnce,
-                onFirstReasoningDelta: () => {
-                  safeSend(event.sender, "chat:activity", {
-                    id: `reasoning-${req.chatId}`,
-                    type: "reasoning_started",
-                    label: "Thinking deeply...",
-                    status: "running",
-                    timestamp: Date.now(),
-                    chatId: req.chatId,
-                  });
-                },
-                onFirstTextAfterReasoning: () => {
-                  safeSend(event.sender, "chat:activity", {
-                    id: `reasoning-${req.chatId}`,
-                    type: "reasoning_complete",
-                    label: "Done thinking, writing response...",
-                    status: "done",
-                    timestamp: Date.now(),
-                    chatId: req.chatId,
-                  });
-                },
-                onStreamStall: handleStreamStall,
-                onToolInputProgress: handleToolInputProgress,
-                onStreamActivityPulse: handleStreamActivityPulse,
-              });
-              fullResponse = askRoundFull;
-              if (
-                !shouldContinue(askFr, {
-                  attemptCount: streamContinuationAttempts,
-                  maxAttempts: STREAM_CONTINUATION_MAX,
-                })
-              ) {
-                break;
-              }
-              streamContinuationAttempts++;
-              const askResp = await askBundle.response;
-              askStreamMessages = [
-                ...askStreamMessages,
-                ...(askResp.messages as ModelMessage[]),
-                {
-                  role: "user",
-                  content: buildContinuationPrompt({
-                    chatId: req.chatId,
-                    turnId: String(placeholderAssistantMessage.id),
-                    attemptCount: streamContinuationAttempts,
-                    maxAttempts: STREAM_CONTINUATION_MAX,
-                    lastContent: stripThinkBlocks(fullResponse),
-                    ledgerState: getLedgerStateForContinuation(),
-                  }),
-                },
-              ];
-
-              // Inject the repetition-guard correction (if any) so the next
-              // dispatch nudges the model away from the same read/search.
-              // Mirrors Build-mode wiring (chat_stream_handlers `agenticMessages`).
-              const askLoopCorrection = askAgenticRepetition.takePendingCorrection();
-              if (askLoopCorrection) {
-                askStreamMessages.push({
-                  role: "user" as const,
-                  content: askLoopCorrection,
-                });
-              }
-
-              // Hard stop after the model ignored the correction twice — Ask
-              // mode has nowhere to delegate write/run mitigation, so we
-              // break the loop and surface a clear message. Ask mode uses
-              // native tool calling exclusively, so the fullResponse never
-              // contains text-tool XML (no stripToolCallXML needed here,
-              // unlike the Build branch which supports both call shapes).
-              if (askAgenticRepetition.consumeLoopBreak()) {
-                logger.warn(
-                  "[Ask tier] Stopping after repeated read/search (repetition guard)",
-                );
-                fullResponse =
-                  fullResponse +
-                  "\n\n[Repeated action — task stopped. Review the activity log and send a message to continue.]";
-                break;
-              }
-
-              // PASS8-FIX: Tool results are appended above, THEN prune, THEN
-              // compaction. Compaction never runs before the current round's
-              // tool results land in the message accumulator.
-              // PASS8 D1: Prune large tool outputs between rounds before compaction.
-
-              // PASS8 C1-C4: Compaction mirrored from Build into all agentic loops.
-              {
-                const askCompaction = await runMidLoopCompaction({
-                  messages: askStreamMessages,
-                  systemPromptEstimate: estimateTokens(askStableHeader + "\n\n" + askParts.dynamicTail),
-                  tierLimit: modelContextResolved.tierLimit,
-                  contextWindowTokens,
-                  enabled: settings.enableContextAutoSummarize !== false,
-                  chatId: req.chatId,
-                  loopLabel: "Ask tier",
-                  emitActivity: emitCompactionMirroredActivity(event.sender, req.chatId),
-                  onInfo: (msg) => logger.log(msg),
-                  onWarn: (msg, err) => logger.warn(msg, err),
-                });
-                if (askCompaction.compacted) {
-                  askStreamMessages = askCompaction.messages;
-                }
-              }
-
-              // Mid-stream tier escalation (Auto mode only — manual selections
-              // short-circuit inside `maybeEscalateTier`). Reuses the running
-              // dispatchEstimate as a cheap token proxy and bumps the loop
-              // counter so the gate only fires every N=4 iterations or once
-              // we cross 60% of the tier budget. Skipped if the iteration is
-              // still pre-counter (i.e. the very first round).
-              askAgenticIteration++;
-              try {
-                const askRunningTokens = estimateTokens(
-                  askStableHeader +
-                    "\n\n" +
-                    askParts.dynamicTail +
-                    "\n\n" +
-                    askStreamMessages
-                      .map((m) =>
-                        typeof m.content === "string" ? m.content : "",
-                      )
-                      .join("\n"),
-                );
-                await applyTierEscalation({
-                  agenticIteration: askAgenticIteration,
-                  iterationInterval: 4,
-                  runningTokens: askRunningTokens,
-                  mode: effectiveWorkMode === "plan" ? "plan" : "ask",
-                });
-              } catch (escalationErr) {
-                logger.warn(
-                  `[Ask tier] tier escalation guard failed: ${String(escalationErr)}`,
-                );
-              }
             }
             askAgenticRepetition.setEnabled(false);
           } else {
@@ -4831,14 +4699,6 @@ This conversation includes one or more image attachments. When the user uploads 
                 isCoreTool(t) ||
                 (hasWorkspace && isWorkspaceIntegrationTool(t.name)),
             );
-            let buildSystemPromptWithManifest =
-              systemPrompt +
-              "\n\n" +
-              generateProgressiveRevealNote(
-                buildToolsToInclude.map((t) => t.name),
-                effectiveWorkMode,
-              );
-
             // Create permission interceptor for this session
             const permissionInterceptor = new PermissionInterceptor(
               workspacePath,
@@ -5480,11 +5340,8 @@ This conversation includes one or more image attachments. When the user uploads 
             // ═══════════════════════════════════════════════════════════════
             const loopStartTime = Date.now();
             let agenticIteration = 0;
-            let agenticProseOnlyStreak = 0;
             /** Safety cap when the model keeps replying without tools or <task_complete>. */
             const AGENTIC_PROSE_ONLY_MAX = 5;
-            let agenticMessages = [...chatMessages]; // Copy current messages
-            let allToolResults: { tool: string; result: string }[] = [];
             let totalToolExecutions = 0; // Track total tools executed across all iterations
 
             let streamAbortLedgerCompleteCaptured = false;
@@ -5874,15 +5731,11 @@ This conversation includes one or more image attachments. When the user uploads 
                 return { iterationResults, hasPermissionRequest };
             };
 
-              // v12 0.1: unified-loop migration flag. ON → the extracted
-              // runAgentTurn engine (must reproduce this loop byte-for-byte —
-              // the eval suite runs both states). OFF (default) → the legacy
-              // loop below, UNCHANGED. The flag and the legacy body die
-              // together once parity has soaked.
-              const unifiedLoopEnabled =
-                process.env.ATLARIX_UNIFIED_LOOP === "1" ||
-                settings.enableUnifiedAgentLoop === true;
-              if (unifiedLoopEnabled) {
+              // v12 0.1: the extracted runAgentTurn engine — a faithful
+              // control-flow port of the legacy build for(;;) loop (deleted
+              // at the 0.1 close-out after the eval matrix proved parity in
+              // both flag states).
+              {
                 const turnResult = await runAgentTurn(
                   {
                     mode: "build",
@@ -5898,16 +5751,13 @@ This conversation includes one or more image attachments. When the user uploads 
                           : "agent",
                     tools,
                     repetition: agenticRepetition,
-                    buildRoundSystemPrompt: () => {
-                      buildSystemPromptWithManifest =
-                        systemPrompt +
-                        "\n\n" +
-                        generateProgressiveRevealNote(
-                          [...buildLoader.getLoadedToolNames()],
-                          effectiveWorkMode,
-                        );
-                      return buildSystemPromptWithManifest;
-                    },
+                    buildRoundSystemPrompt: () =>
+                      systemPrompt +
+                      "\n\n" +
+                      generateProgressiveRevealNote(
+                        [...buildLoader.getLoadedToolNames()],
+                        effectiveWorkMode,
+                      ),
                     detectTextToolCalls: (fr) =>
                       useTextToolFallback && containsTextToolCall(fr)
                         ? (parseTextToolCalls(fr) as Array<{
@@ -5920,6 +5770,13 @@ This conversation includes one or more image attachments. When the user uploads 
                         calls as Array<{ toolName: string; args: Record<string, unknown> }>,
                       ),
                     stripTextToolXML: stripToolCallXML,
+                    // v12 0.3 (resolves 1.2): LSP diagnostics on each round's
+                    // writes, fed back so the model fixes before done. Only
+                    // attached when the enableAutoFixProblems toggle is on —
+                    // the knob finally has logic behind it.
+                    ...(settings.enableAutoFixProblems !== false && appPath
+                      ? { postWriteVerify: buildPostWriteVerify(appPath) }
+                      : {}),
                   },
                   {
                     chatId: req.chatId,
@@ -5934,6 +5791,7 @@ This conversation includes one or more image attachments. When the user uploads 
                     seedMessages: chatMessages,
                     nativeTurnMessages,
                     initialFullResponse: fullResponse,
+                    getFilesWrittenThisTurn: () => filesWrittenInThisExchange,
                     safeSend: (channel, payload) =>
                       safeSend(event.sender, channel, payload),
                     emitCompactionActivity: emitCompactionMirroredActivity(
@@ -5947,6 +5805,7 @@ This conversation includes one or more image attachments. When the user uploads 
                         tools: opts.tools as ToolSet,
                         systemPromptOverride: opts.systemPromptOverride,
                         files: files,
+                        repetition: agenticRepetition,
                       }),
                     runStreamRound: runStreamRoundWithEmptyOutputRetry,
                     processResponseChunkUpdate,
@@ -5962,435 +5821,6 @@ This conversation includes one or more image attachments. When the user uploads 
                 fullResponse = turnResult.fullResponse;
                 agenticIteration = turnResult.iterations;
                 totalToolExecutions = turnResult.totalToolExecutions;
-              } else
-              for (;;) {
-                if (Date.now() - loopStartTime > STREAM_TOOL_LOOP_DURATION_CAP_MS) {
-                  logger.warn(
-                    `[Agentic Loop] Hit duration limit (30 minutes) chatMode=${settings.selectedChatMode ?? "?"} agentMode=${settings.agentMode ?? "?"}`,
-                  );
-                  safeSend(event.sender, "chat:activity", {
-                    id: `duration-limit-${Date.now()}`,
-                    type: "duration_limit_reached",
-                    label: "Task paused after 30 minutes",
-                    detail: "Send a message to continue",
-                    status: "done",
-                    timestamp: Date.now(),
-                    chatId: req.chatId,
-                  });
-                  break;
-                }
-
-                // Emit progress to frontend (maxIterations 0 = unbounded in UI)
-                safeSend(event.sender, "chat:iteration:progress", {
-                  chatId: req.chatId,
-                  iteration: agenticIteration + 1,
-                  maxIterations: 0,
-                  totalToolsExecuted: totalToolExecutions,
-                });
-
-                logger.log(`[Agentic Loop] Iteration ${agenticIteration + 1} (unbounded)`);
-
-                buildSystemPromptWithManifest =
-                  systemPrompt +
-                  "\n\n" +
-                  generateProgressiveRevealNote(
-                    [...buildLoader.getLoadedToolNames()],
-                    effectiveWorkMode,
-                  );
-
-                let buildIterMessages: ModelMessage[] = agenticMessages;
-                let streamRoundDone = false;
-                // v12 0.2 (B1): the final round's native response messages —
-                // continuation rounds already append theirs to buildIterMessages.
-                let finalRoundRespMsgs: ModelMessage[] = [];
-                while (!streamRoundDone) {
-                  const {
-                    bundle: buildBundle,
-                    fullResponse: buildRoundFull,
-                    finishReason: buildFr,
-                  } = await runStreamRoundWithEmptyOutputRetry({
-                    runSimpleStream: async () =>
-                      simpleStreamText({
-                        chatMessages: buildIterMessages,
-                        modelClient,
-                        tools,
-                        systemPromptOverride: buildSystemPromptWithManifest,
-                        files: files,
-                      }),
-                    fullResponse,
-                    abortController,
-                    chatId: req.chatId,
-                    processResponseChunkUpdate,
-                    onFirstModelActivity: () => {
-                      safeSend(event.sender, "chat:stream:phase", {
-                        chatId: req.chatId,
-                        phase: "responding",
-                        label: "",
-                      });
-                    },
-                    onFirstTextDelta: logTtftOnce,
-                    onFirstReasoningDelta: () => {
-                      safeSend(event.sender, "chat:activity", {
-                        id: `reasoning-started-${req.chatId}-${Date.now()}`,
-                        type: "reasoning_started",
-                        label: "Thinking deeply...",
-                        status: "running",
-                        timestamp: Date.now(),
-                        chatId: req.chatId,
-                      });
-                    },
-                    onFirstTextAfterReasoning: () => {
-                      safeSend(event.sender, "chat:activity", {
-                        id: `reasoning-${req.chatId}`,
-                        type: "reasoning_complete",
-                        label: "Done thinking, writing response...",
-                        status: "done",
-                        timestamp: Date.now(),
-                        chatId: req.chatId,
-                      });
-                    },
-                    onStreamStall: handleStreamStall,
-                    onToolInputProgress: handleToolInputProgress,
-                    onStreamActivityPulse: handleStreamActivityPulse,
-                    sanitizeTextDelta: stripHallucinatedAtlarixToolTagsFromDelta,
-                  });
-                  fullResponse = buildRoundFull;
-                  const buildResp = await buildBundle.response;
-                  const respMsgs = buildResp.messages as ModelMessage[];
-                  finalRoundRespMsgs = respMsgs;
-
-                  if (
-                    shouldContinue(buildFr, {
-                      attemptCount: streamContinuationAttempts,
-                      maxAttempts: STREAM_CONTINUATION_MAX,
-                    })
-                  ) {
-                    streamContinuationAttempts++;
-                    buildIterMessages = [
-                      ...buildIterMessages,
-                      ...respMsgs,
-                      {
-                        role: "user",
-                        content: buildContinuationPrompt({
-                          chatId: req.chatId,
-                          turnId: String(placeholderAssistantMessage.id),
-                          attemptCount: streamContinuationAttempts,
-                          maxAttempts: STREAM_CONTINUATION_MAX,
-                          lastContent: stripThinkBlocks(fullResponse),
-                          ledgerState: getLedgerStateForContinuation(),
-                        }),
-                      },
-                    ];
-                    continue;
-                  }
-
-                  const ledgerNow = getLedger(streamTurnIdForLedger);
-                  const pendingForContinue =
-                    ledgerNow &&
-                    buildFr === "stop" &&
-                    !isLedgerTaskComplete(ledgerNow) &&
-                    streamContinuationAttempts < STREAM_CONTINUATION_MAX
-                      ? getRemainingSteps(ledgerNow)
-                      : [];
-
-                  if (pendingForContinue.length > 0) {
-                    streamContinuationAttempts++;
-                    const ledgerSnap = getLedgerStateString(streamTurnIdForLedger);
-                    buildIterMessages = [
-                      ...buildIterMessages,
-                      ...respMsgs,
-                      {
-                        role: "user",
-                        content:
-                          buildPendingStepsContinuationPrompt(pendingForContinue) +
-                          (ledgerSnap ? `\n\nCurrent task state:\n${ledgerSnap}` : ""),
-                      },
-                    ];
-                    continue;
-                  }
-
-                  streamRoundDone = true;
-                }
-
-                // v12 0.2 (B1): this iteration's NATIVE delta = continuation
-                // appends beyond the agenticMessages seed + the final round's
-                // response messages (never appended by the inner loop).
-                const nativeIterMessages: ModelMessage[] = [
-                  ...buildIterMessages.slice(agenticMessages.length),
-                  ...finalRoundRespMsgs,
-                ];
-                // Truthful "native tools ran" signal — the permission-op count
-                // below misses read-only tools (they never hit the interceptor).
-                const roundHadNativeToolMessages =
-                  hasNativeToolParts(nativeIterMessages);
-
-                // ═══════════════════════════════════════════════════════════
-                // OPTION A: Track tool execution (works with ALL providers)
-                // ═══════════════════════════════════════════════════════════
-
-                // Check for text-based tool calls (MiniMax, Claude XML, etc.)
-                const hasTextToolCalls =
-                  useTextToolFallback && containsTextToolCall(fullResponse);
-
-                // Check how many operations were buffered in this iteration
-                // (This tracks native function calling - Claude, GPT via OpenRouter)
-                const currentOpCount = permissionInterceptor.getAllOperationsCount();
-                const executedOpCount = permissionInterceptor.getExecutedOperationsCount();
-                logger.log(`[Agentic Loop] Operation counts: total=${currentOpCount}, executed=${executedOpCount}, tracked=${totalToolExecutions}`);
-
-                const hadNativeToolExecution = currentOpCount > totalToolExecutions;
-
-                if (hasTextToolCalls) {
-                  logger.log("[Agentic Loop] Detected text-based tool calls, parsing and executing...");
-                } else if (hadNativeToolExecution) {
-                  const newOps = currentOpCount - totalToolExecutions;
-                  logger.log(`[Agentic Loop] Native tool calls detected (${newOps} new operations, ${currentOpCount} total)`);
-                  totalToolExecutions = currentOpCount;
-                }
-
-                if (streamDebugLogging) {
-                  logger.log(`[Agentic Loop] Round summary`, {
-                    iteration: agenticIteration + 1,
-                    hasTextToolCalls,
-                    hadNativeToolExecution,
-                    responseTail: fullResponse.slice(-200),
-                  });
-                }
-
-                // End only on explicit <task_complete> or a completed task ledger
-                if (isTaskComplete(fullResponse)) {
-                  logger.info(`[Agentic Loop] Task completed at iteration ${agenticIteration + 1}`);
-                  // v12 0.2 (B2): the final round's native messages never hit
-                  // the fold site — capture them for the turn envelope.
-                  if (roundHadNativeToolMessages) {
-                    nativeTurnMessages.push(...nativeIterMessages);
-                  }
-                  break;
-                }
-
-                const ledgerAfterRound = getLedger(streamTurnIdForLedger);
-                if (ledgerAfterRound && isLedgerTaskComplete(ledgerAfterRound)) {
-                  logger.info(
-                    `[Agentic Loop] Ledger complete at iteration ${agenticIteration + 1}`,
-                  );
-                  if (roundHadNativeToolMessages) {
-                    nativeTurnMessages.push(...nativeIterMessages);
-                  }
-                  break;
-                }
-
-                // Prose-only round: nudge the model to keep working instead of ending the turn
-                if (
-                  !hasTextToolCalls &&
-                  !hadNativeToolExecution &&
-                  !roundHadNativeToolMessages
-                ) {
-                  agenticProseOnlyStreak++;
-                  if (agenticProseOnlyStreak >= AGENTIC_PROSE_ONLY_MAX) {
-                    logger.warn(
-                      `[Agentic Loop] Prose-only cap (${AGENTIC_PROSE_ONLY_MAX}) reached; ending loop`,
-                    );
-                    break;
-                  }
-                  const pendingSteps = ledgerAfterRound
-                    ? getRemainingSteps(ledgerAfterRound)
-                    : [];
-                  const ledgerSnap = getLedgerStateString(streamTurnIdForLedger);
-                  const nudge =
-                    pendingSteps.length > 0
-                      ? buildPendingStepsContinuationPrompt(pendingSteps) +
-                        (ledgerSnap ? `\n\nCurrent task state:\n${ledgerSnap}` : "")
-                      : "You replied without using tools or finishing. Continue the task: call tools as needed, then emit <task_complete> when fully done.";
-                  agenticMessages.push({
-                    role: "assistant" as const,
-                    content: stripAssistantDisplayContent(stripToolCallXML(fullResponse)),
-                  });
-                  agenticMessages.push({
-                    role: "user" as const,
-                    content: nudge,
-                  });
-                  agenticIteration++;
-                  logger.log(
-                    `[Agentic Loop] Prose-only streak ${agenticProseOnlyStreak}/${AGENTIC_PROSE_ONLY_MAX}; continuing`,
-                  );
-                  continue;
-                }
-
-                agenticProseOnlyStreak = 0;
-
-                // Parse and execute text-based tool calls
-                const textToolCalls = hasTextToolCalls ? parseTextToolCalls(fullResponse) : [];
-
-                if (hasTextToolCalls && textToolCalls.length === 0) {
-                  logger.log("[Agentic Loop] No parseable tool calls found, ending loop");
-                  break;
-                }
-
-                // v12 0.1: shared implementation (also the unified engine's
-                // profile.executeTextToolCalls).
-                const textExec = await execBuildTextToolCalls(
-                  textToolCalls as Array<{ toolName: string; args: Record<string, unknown> }>,
-                );
-                const iterationResults = textExec.iterationResults;
-                const hasPermissionRequest =
-                  hadNativeToolExecution || textExec.hasPermissionRequest;
-
-                // Store all tool results
-                allToolResults.push(...iterationResults);
-                totalToolExecutions += iterationResults.length; // Track total executions
-
-                // Format tool results to feed back to AI
-                const toolResultsMessage =
-                  iterationResults
-                    .map(
-                      (r) => `<tool_result tool="${r.tool}">\n${r.result}\n</tool_result>`,
-                    )
-                    .join("\n\n");
-
-                if (roundHadNativeToolMessages && !hasTextToolCalls) {
-                  // v12 0.2 (B1): native tools ran inside the SDK loop — fold
-                  // the round's NATIVE messages (assistant tool_use + tool
-                  // results) into the next iteration's history instead of
-                  // re-flattening to prose. History stays byte-stable (prompt
-                  // cache holds) and weak models see real tool blocks.
-                  agenticMessages.push(...nativeIterMessages);
-                  // The model stopped without <task_complete>; close the turn
-                  // shape with a STATIC continuation (cache-friendly, keeps
-                  // user/assistant alternation valid on strict providers).
-                  const nativeContinueMsg = {
-                    role: "user" as const,
-                    content:
-                      "Continue with the task. Emit <task_complete> when fully done.",
-                  };
-                  agenticMessages.push(nativeContinueMsg);
-                  // B2: mirror into the turn envelope (exactly what the model saw).
-                  nativeTurnMessages.push(...nativeIterMessages, nativeContinueMsg);
-                  logger.log(
-                    `[Agentic Loop] Folded ${nativeIterMessages.length} native message(s) into history (no synthetic reflatten)`,
-                  );
-                } else {
-                  // Text-tool fallback / legacy path — UNCHANGED.
-                  // Add assistant's response to message history (strip text-tool
-                  // XML for cleaner follow-up + UI); also strip <think> blocks so
-                  // the model doesn't re-ingest its own reasoning next round.
-                  agenticMessages.push({
-                    role: 'assistant' as const,
-                    content: stripAssistantDisplayContent(stripToolCallXML(fullResponse)),
-                  });
-
-                  // Add tool results as a user message so AI can continue
-                  if (iterationResults.length > 0) {
-                    agenticMessages.push({
-                      role: 'user' as const,
-                      content: `Here are the results of the tools you called:\n\n${toolResultsMessage}\n\nPlease continue with your task based on these results.`,
-                    });
-                  } else if (hadNativeToolExecution) {
-                    logger.log(
-                      "[Agentic Loop] Skipping empty tool-results user message (native tools executed in-stream)",
-                    );
-                  }
-                }
-
-                const loopCorrection = agenticRepetition.takePendingCorrection();
-                if (loopCorrection) {
-                  agenticMessages.push({
-                    role: "user" as const,
-                    content: loopCorrection,
-                  });
-                }
-
-                // PASS8-FIX: Tool results are appended above (the assistant
-                // strip + synthetic "Here are the results of the tools you
-                // called" user message), THEN compaction. Compaction never
-                // runs before the current round's tool results land in
-                // agenticMessages.
-                // PASS8 C1-C4 (+ G2): Mid-turn auto-compaction via shared helper.
-                // The agentic loop accumulates one assistant turn + one synthetic
-                // user-with-tool-results turn per iteration; without this the
-                // history grows unbounded and a few `read_file` calls on big
-                // files can push a single dispatch past the per-tier budget
-                // (this is what produced the 8K -> 153K jump in the bug report).
-                // Honors `settings.enableContextAutoSummarize` so users can opt out.
-                {
-                  // v12 0.2: the string-based compaction pipeline can't count
-                  // or summarize native-part messages — degrade them to prose
-                  // for ITS input only. When compaction does not fire, the
-                  // native history is kept untouched; when it fires, the
-                  // compacted (flattened+summarized) view wins — compaction is
-                  // lossy by design. Revisit in 0.1/0.4.
-                  const compaction = await runMidLoopCompaction({
-                    messages: flattenNativeForCompaction(agenticMessages),
-                    systemPromptEstimate: estimateTokens(buildSystemPromptWithManifest),
-                    tierLimit: modelContextResolved.tierLimit,
-                    contextWindowTokens,
-                    enabled: settings.enableContextAutoSummarize !== false,
-                    chatId: req.chatId,
-                    loopLabel: "Agentic Loop",
-                    emitActivity: emitCompactionMirroredActivity(event.sender, req.chatId),
-                    onInfo: (msg) => logger.log(msg),
-                    onWarn: (msg, err) => logger.warn(msg, err),
-                  });
-                  if (compaction.compacted) {
-                    agenticMessages = compaction.messages;
-                  }
-                }
-
-                // Keep fullResponse for UI continuity - don't reset
-                // (Conversation history already has the response)
-                agenticIteration++;
-
-                // Mid-stream tier escalation (Auto mode only). Build loops are
-                // the heaviest agentic workload — by iteration 4-6 we usually
-                // know the user is asking for real architectural work. Reuse
-                // the same compaction-input estimate so we don't pay a second
-                // tokenizer pass.
-                try {
-                  // v12 0.2: native-part messages have array content — the old
-                  // string join silently counted them as 0 tokens.
-                  const buildRunningTokens =
-                    estimateTokens(buildSystemPromptWithManifest) +
-                    estimateModelMessagesTokens(agenticMessages);
-                  await applyTierEscalation({
-                    agenticIteration,
-                    iterationInterval: 4,
-                    runningTokens: buildRunningTokens,
-                    mode:
-                      effectiveWorkMode === "plan"
-                        ? "plan"
-                        : effectiveWorkMode === "build"
-                          ? "build"
-                          : "agent",
-                  });
-                } catch (escalationErr) {
-                  logger.warn(
-                    `[Agentic Loop] tier escalation guard failed: ${String(escalationErr)}`,
-                  );
-                }
-
-                // If we hit permission requests, the AI should continue after approval
-                if (hasPermissionRequest) {
-                  logger.log("[Agentic Loop] Had permission requests, continuing loop...");
-                }
-
-                if (loopCorrection) {
-                  continue;
-                }
-
-                if (agenticRepetition.consumeLoopBreak()) {
-                  logger.warn("[Agentic Loop] Stopping after repeated write/command (repetition guard)");
-                  fullResponse =
-                    stripToolCallXML(fullResponse) +
-                    "\n\n[Repeated action — task stopped. Review the activity log and send a message to continue.]";
-                  break;
-                }
-
-                if (consumeDelegationAbort(req.chatId)) {
-                  logger.warn("[Agentic Loop] Stopping after delegation repetition guard");
-                  fullResponse =
-                    stripToolCallXML(fullResponse) +
-                    "\n\n[Delegation loop guard — task stopped. Review the activity log and send a message to continue.]";
-                  break;
-                }
               }
 
               fullResponse = stripToolCallXML(fullResponse);
@@ -6735,19 +6165,9 @@ ${stopNote}`;
                 chatId: req.chatId,
               });
             }
-            if (
-              hasWorkspace &&
-              appPath &&
-              settings.aiConfiguration?.agentLightning?.collectData
-            ) {
-              recordTrace(appPath, {
-                timestamp: Date.now(),
-                chatId: req.chatId,
-                requestSnippet: (userPrompt ?? "").slice(0, 500),
-                agentMode: settings.agentMode,
-                finalSnippet: (fullResponse ?? "").slice(0, 1000),
-              }).catch(() => {});
-            }
+            // v12 2.6/2.7: Agent Lightning trace stub deleted (collectData was
+            // never UI-wired; .atlarix/training_data/ stays a reserved dir for
+            // the Tier-7 "learning workspace" research idea).
             if (
               isBuildModeTurn &&
               effectiveAppId != null &&
@@ -6755,10 +6175,14 @@ ${stopNote}`;
               filesWrittenInThisExchange.length > 0
             ) {
               const { recordBuildCompleteSnapshot } = await import("@/lib/project-memory/service");
-              void recordBuildCompleteSnapshot(
-                effectiveAppId,
-                appPath,
-                userPrompt?.slice(0, 500),
+              // v12 3.7: tracked — snapshot write must survive a quick quit.
+              trackPendingWork(
+                recordBuildCompleteSnapshot(
+                  effectiveAppId,
+                  appPath,
+                  userPrompt?.slice(0, 500),
+                ),
+                "build-complete-snapshot",
               );
             }
             // Plan-lifecycle safety net: a Build turn that wrote files and finished
@@ -6855,12 +6279,32 @@ ${stopNote}`;
               if (usedCompassThisStream) {
                 compassStreamTokens = (compassStreamTokens ?? 0) + auxUsage.totalTokens;
                 compassUsedThisTurn += auxUsage.totalTokens;
-                // Turn is over at this point — record for the pool, no abort needed.
-                void recordCompassUsageTokens(auxUsage.totalTokens).then((r) => {
+                // Turn is over at this point — record for the pool, no abort
+                // needed. v12 1.5: AWAIT the record (it used to be
+                // fire-and-forget) and surface a visible notice when the pool
+                // ran out — the next turn's pre-flight will hard-block, so
+                // tell the user now instead of letting that block surprise
+                // them.
+                try {
+                  const r = await recordCompassUsageTokens(auxUsage.totalTokens);
                   if (!r.ok && r.error === "limit_exceeded") {
                     logger.warn("[compass] Monthly limit hit while recording aux usage");
+                    safeSend(event.sender, "chat:activity", {
+                      id: `compass-limit-aux-${req.chatId}-${Date.now()}`,
+                      type: "compass_limit",
+                      label: "Monthly Atlarix Core token limit reached",
+                      detail: compassExhaustedUserMessage(compassStreamTier ?? "free"),
+                      status: "error",
+                      timestamp: Date.now(),
+                      chatId: req.chatId,
+                    });
                   }
-                });
+                } catch (auxRecordErr) {
+                  // Transient RPC/network failure must never block the turn end.
+                  logger.warn(
+                    `[compass] aux usage record failed: ${String(auxRecordErr)}`,
+                  );
+                }
               }
             }
             safeSend(event.sender, "chat:response:end", {
@@ -6890,20 +6334,22 @@ ${stopNote}`;
               aborted: abortController.signal.aborted && !streamStopWasTaskComplete,
             });
             activeStreams.delete(req.chatId);
-            void runAutonomousBuildVerificationAfterTaskComplete({
-              sender: event.sender,
-              chatId: req.chatId,
-              streamStopWasTaskComplete,
-              agentMode: settings.agentMode,
-              appPath,
-              workspaceId: effectiveAppId ?? undefined,
-              streamTurnIdForLedger,
-              rootAssistantMessageId: placeholderAssistantMessage.id,
-              isEphemeralWorkspace,
-              settings,
-            }).catch((buildVerifyErr) => {
-              logger.warn("[build-verify] Post-turn verification failed:", buildVerifyErr);
-            });
+            // v12 3.7: tracked (was a bare void) — it enqueues follow-ups.
+            trackPendingWork(
+              runAutonomousBuildVerificationAfterTaskComplete({
+                sender: event.sender,
+                chatId: req.chatId,
+                streamStopWasTaskComplete,
+                agentMode: settings.agentMode,
+                appPath,
+                workspaceId: effectiveAppId ?? undefined,
+                streamTurnIdForLedger,
+                rootAssistantMessageId: placeholderAssistantMessage.id,
+                isEphemeralWorkspace,
+                settings,
+              }),
+              "build-verify",
+            );
           }
         }
 
@@ -7210,7 +6656,7 @@ ${stopNote}`;
   ipcMain.handle(
     "chat:edit-message",
     async (
-      _event,
+      event,
       payload: { chatId: number; userMessageId: number; newContent: string }
     ) => {
       const { chatId, userMessageId, newContent } = payload;
@@ -7218,9 +6664,15 @@ ${stopNote}`;
       const { editEphemeralUserMessage, getEphemeralChat } = await import(
         "@/lib/ephemeral-chat"
       );
-      // Capture the message's ordinal BEFORE the edit truncates the tail, so the
-      // persisted session row can be located (ids don't correlate across stores).
+      // Capture identity BEFORE the edit truncates the tail. v12 0.4-C2: the
+      // message carries its DB row UUID (`sessionRowId`) — edits target the
+      // row DIRECTLY. The ordinal capture below is the LEGACY fallback for
+      // pre-C2 messages without it (dies with the ephemeral store in C3).
       const chat = getEphemeralChat(chatId);
+      const targetMsg = chat?.messages.find(
+        (m) => m.id === userMessageId && m.role === "user",
+      );
+      const sessionRowId = targetMsg?.sessionRowId;
       const ephCount = chat?.messages.length ?? 0;
       const ephIdx =
         chat?.messages.findIndex(
@@ -7234,15 +6686,44 @@ ${stopNote}`;
 
       // Persist the edit + tail truncation to the saved session (was previously
       // only in-memory, so edits vanished on session switch).
+      // v12 3.3: an unmapped ordinal (edit beyond the load window) used to fail
+      // SILENTLY — the edit looked applied (ephemeral) but the DB kept the old
+      // content, so a later reload/resume diverged. Surface it.
+      let persistedToSession = true;
       try {
-        const { persistEditedSessionMessage } = await import(
-          "./workspace_session_handlers"
-        );
-        await persistEditedSessionMessage(chatId, ephIdx, ephCount, newContent);
+        const {
+          persistEditedSessionMessage,
+          persistEditedSessionMessageById,
+        } = await import("./workspace_session_handlers");
+        const outcome = sessionRowId
+          ? await persistEditedSessionMessageById(sessionRowId, newContent)
+          : await persistEditedSessionMessage(
+              chatId,
+              ephIdx,
+              ephCount,
+              newContent,
+            );
+        if (outcome === "unmapped" || outcome === "not_found") {
+          persistedToSession = false;
+          logger.warn(
+            `[chat:edit-message] edit not persisted to session (ordinal unmapped, chat ${chatId}, idx ${ephIdx}/${ephCount})`,
+          );
+          safeSend(event.sender, "chat:activity", {
+            id: `edit-not-persisted-${chatId}-${Date.now()}`,
+            type: "warning",
+            label: "Edit not saved to session history",
+            detail:
+              "The edit applies to this conversation, but the saved session could not be updated — after a reload the original message may reappear.",
+            status: "error",
+            timestamp: Date.now(),
+            chatId,
+          });
+        }
       } catch (e) {
+        persistedToSession = false;
         logger.warn("Failed to persist edited session message:", e);
       }
-      return { success: true };
+      return { success: true, persistedToSession };
     }
   );
 

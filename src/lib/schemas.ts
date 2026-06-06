@@ -186,13 +186,6 @@ export const SelfReviewConfigSchema = z.object({
   showInActivityStream: z.boolean().default(true),
 });
 
-/** v2.1: Agent Lightning (offline training) config. */
-export const AgentLightningConfigSchema = z.object({
-  collectData: z.boolean().default(false),
-  schedule: z.enum(["every_10_sessions", "daily", "weekly", "manual"]).default("weekly"),
-  optimizationTarget: z.enum(["quality", "token_efficiency", "speed", "balanced"]).default("balanced"),
-});
-
 /** v2.1: Context and summarization config. */
 export const ContextSummarizationConfigSchema = z.object({
   summarizationModel: z.enum(["fast", "balanced", "same", "custom"]).default("balanced"),
@@ -203,35 +196,28 @@ export const ContextSummarizationConfigSchema = z.object({
   adaptivePromptSizing: z.boolean().default(true),
 });
 
-/** v2.1: Project understanding (ATLARIX.md) config. */
-export const ProjectUnderstandingConfigSchema = z.object({
-  autoUpdateAtlarixMd: z.boolean().default(false),
-  updateTriggers: z.object({
-    afterArchitectureDecisions: z.boolean().default(true),
-    afterSummarization: z.boolean().default(true),
-    afterEverySession: z.boolean().default(false),
-  }).default({}),
-  updateModel: z.enum(["fast", "same", "custom"]).default("fast"),
-  requireApprovalForUpdates: z.enum(["always", "auto_approve_minor", "never"]).default("always"),
-});
-
 /** v2.1: Activity stream config. */
 export const ActivityStreamConfigSchema = z.object({
   position: z.enum(["right_panel", "overlay", "bottom_bar"]).default("right_panel"),
   autoCollapseAfterMs: z.union([z.literal(3000), z.literal(10000), z.literal(0)]).default(10000),
   showTokenCosts: z.enum(["always", "autonomous_only", "never"]).default("always"),
-  detailLevel: z.enum(["minimal", "standard", "verbose"]).default("standard"),
 });
 
-/** v2.1: AI Configuration (agents, self-review, context, project understanding). */
+/**
+ * v2.1: AI Configuration (agents, self-review, context).
+ * v12 2.6 wire-or-remove: `agentLightning` (12-LOC trace stub, never UI-wired),
+ * `projectUnderstanding` (zero logic reads), and `activityStream.detailLevel`
+ * (unused) were DELETED — lying knobs. Persisted rows carrying them still
+ * parse (plain z.object strips unknown keys). `autonomous` stays for settings
+ * JSON compatibility only (see its @deprecated note); delegation/selfReview/
+ * contextSummarization are enforced.
+ */
 export const AIConfigurationSchema = z.object({
   delegation: DelegationConfigSchema.optional(),
   guided: GuidedConfigSchema.optional(),
   autonomous: AutonomousConfigSchema.optional(),
   selfReview: SelfReviewConfigSchema.optional(),
-  agentLightning: AgentLightningConfigSchema.optional(),
   contextSummarization: ContextSummarizationConfigSchema.optional(),
-  projectUnderstanding: ProjectUnderstandingConfigSchema.optional(),
   activityStream: ActivityStreamConfigSchema.optional(),
 });
 
@@ -251,12 +237,6 @@ export const NeonSchema = z.object({
   refreshToken: SecretSchema.optional(),
   expiresIn: z.number().optional(),
   tokenTimestamp: z.number().optional(),
-});
-
-export const ExperimentsSchema = z.object({
-  // Deprecated
-  enableSupabaseIntegration: z.boolean().describe("DEPRECATED").optional(),
-  enableFileEditing: z.boolean().describe("DEPRECATED").optional(),
 });
 
 export const AtlarixProBudgetSchema = z.object({
@@ -346,7 +326,6 @@ export const UserSettingsSchema = z.object({
   telemetryUserId: z.string().optional(),
   hasRunBefore: z.boolean().optional(),
   enableAtlarixPro: z.boolean().optional(),
-  experiments: ExperimentsSchema.optional(),
   lastShownReleaseNotesVersion: z.string().optional(),
   maxChatTurnsInContext: z.number().optional(),
   /** Phase 6: When true, use context bar + auto-summarize instead of fixed turn truncation */
@@ -376,16 +355,6 @@ export const UserSettingsSchema = z.object({
 
   // PASS6: Blueprint UI preference — restored.
   blueprintAlwaysShowBeacons: z.boolean().optional(),
-
-  /** Multi-model counsel (fast / balanced / thinking) before main reply. */
-  counsel: z
-    .object({
-      enabled: z.boolean().optional(),
-      autoTriggerOnThinking: z.boolean().optional(),
-      showParticipantPreviews: z.boolean().optional(),
-      timeoutSeconds: z.number().min(5).max(120).optional(),
-    })
-    .optional(),
 
   /** After autonomous task_complete: parallel reviewer + debugger on files written. */
   buildVerification: z
@@ -421,12 +390,6 @@ export const UserSettingsSchema = z.object({
   enablePtyTerminal: z.boolean().optional(),
 
   enableAutoFixProblems: z.boolean().optional(),
-  /**
-   * v12 0.1 migration flag: route mode loops through the unified
-   * runAgentTurn engine (src/lib/agent/). Default OFF until parity soak;
-   * env override ATLARIX_UNIFIED_LOOP=1. Dies with the legacy branches.
-   */
-  enableUnifiedAgentLoop: z.boolean().optional(),
   enableNativeGit: z.boolean().optional(),
   /** When true, run_command may execute git init. Default false. */
   allowGitInit: z.boolean().optional(),

@@ -1,5 +1,14 @@
 import type { TaskLedger, TaskStep } from "./task-ledger";
 
+/**
+ * Agentic loop completion: explicit model tag only (no inferred prose).
+ * Distinct from the ledger `isTaskComplete` below — this is the
+ * `<task_complete>` text marker the loop honors in build mode.
+ */
+export function responseHasTaskCompleteTag(response: string): boolean {
+  return response.includes("<task_complete>");
+}
+
 export function isTaskComplete(ledger: TaskLedger): boolean {
   if (!ledger.steps.length) return false;
   return ledger.steps.every(
