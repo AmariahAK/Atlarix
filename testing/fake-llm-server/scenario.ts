@@ -91,9 +91,16 @@ function messageText(message: any): string {
   return "";
 }
 
-/** Returns the id of a REGISTERED scenario referenced by any message, else null. */
+/**
+ * Returns the id of a REGISTERED scenario referenced by the messages, else
+ * null. Scanned in REVERSE so the LIVE prompt (the last user message) wins:
+ * multi-turn evals keep prior turns' `sc=` prompts in the request history,
+ * and first-match scanning routed turn N to turn 1's exhausted scenario
+ * (build evals only survived because the dynamic system tail leaked the
+ * live id at messages[0]).
+ */
 export function findScenarioId(messages: any[]): string | null {
-  for (const message of messages ?? []) {
+  for (const message of [...(messages ?? [])].reverse()) {
     const match = messageText(message).match(SCENARIO_ID_RE);
     if (match && scenarios.has(match[1])) return match[1];
   }

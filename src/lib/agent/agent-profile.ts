@@ -8,8 +8,8 @@
  * deliberately closures over the handler scope, because 0.1 extracts the
  * loop, not the state (state extraction is 0.4).
  *
- * Exactly TWO profiles exist: build (buildBuildProfile) and ask
- * (buildAskProfile, lands with the ask migration). Do not add a third
+ * Exactly TWO profiles exist, built inline at the handler call sites:
+ * build (agentic multi-round) and ask (singleRound). Do not add a third
  * without a mode that actually exists.
  */
 
@@ -26,6 +26,15 @@ export interface TextToolExecOutcome {
   iterationResults: Array<{ tool: string; result: string }>;
   /** True when any executed tool buffered a permission request. */
   hasPermissionRequest: boolean;
+}
+
+/**
+ * A round's system prompt, when the mode splits it (ask: stable header for
+ * the prompt cache + dynamic tail appended as a separate system block).
+ */
+export interface RoundSystemPrompt {
+  systemPromptOverride: string;
+  dynamicSystemTail?: string;
 }
 
 export interface AgentProfile {
@@ -45,14 +54,30 @@ export interface AgentProfile {
   readonly proseOnlyStreakMax?: number;
   /** Static escalation mode label (computed from workMode at profile build). */
   readonly escalationMode: "ask" | "plan" | "build" | "agent";
+  /**
+   * Ask semantics: a COMPLETED round ends the turn, tools or not — the
+   * AI-SDK inner loop already did the multi-step tool work, and the engine's
+   * outer loop exists only for the in-round truncation continuations. The
+   * engine breaks after the first completed round (capturing the round's
+   * native messages for the B2 turn envelope — ask inherits native history
+   * here) and never emits iteration progress. Build leaves this unset.
+   */
+  readonly singleRound?: boolean;
 
   /** Pre-built ToolSet for this turn (the wrappers close over handler state). */
   readonly tools: ToolSet;
   /** The SAME repetition-state instance the tool wrappers record into. */
   readonly repetition: AgenticRepetitionState;
 
-  /** Per-iteration system prompt (progressive-reveal manifest refresh). */
-  buildRoundSystemPrompt(): string;
+  /**
+   * Per-iteration system prompt (progressive-reveal manifest refresh).
+   * Build returns a plain string; ask returns a RoundSystemPrompt (async —
+   * it re-resolves the context window per round) so the stable header and
+   * dynamic tail stay separate system blocks for the prompt cache.
+   */
+  buildRoundSystemPrompt():
+    | string
+    | Promise<string | RoundSystemPrompt>;
 
   /**
    * Text-tool fallback surface (weak/local models emitting XML tool calls).

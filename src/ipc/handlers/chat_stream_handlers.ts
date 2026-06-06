@@ -4506,6 +4506,94 @@ This conversation includes one or more image attachments. When the user uploads 
             const askTierStreamLoopStartMs = Date.now();
             askAgenticRepetition.setEnabled(true);
             let askAgenticIteration = 0;
+            // v12 0.1 Phase E: unified-loop migration flag (same resolution
+            // as the build branch). ON → the runAgentTurn engine with the ask
+            // profile (singleRound: a completed round ends the turn; the
+            // outer loop only ever served truncation continuations). OFF
+            // (default) → the legacy ask loop below, UNCHANGED. Known deltas
+            // when ON: truncation-continuation rounds skip mid-loop
+            // compaction/escalation/correction-injection (rare path), and ask
+            // GAINS the 0.2 native turn envelope (B2 — shared tail persists
+            // it).
+            const unifiedLoopEnabled =
+              process.env.ATLARIX_UNIFIED_LOOP === "1" ||
+              settings.enableUnifiedAgentLoop === true;
+            if (unifiedLoopEnabled) {
+              const turnResult = await runAgentTurn(
+                {
+                  mode: "ask",
+                  loopLogLabel: "[Ask tier]",
+                  compactionLabel: "Ask tier",
+                  honorTaskCompleteBreak: false,
+                  proseOnlyStreakMax: undefined,
+                  singleRound: true,
+                  escalationMode:
+                    effectiveWorkMode === "plan" ? "plan" : "ask",
+                  tools: askTools,
+                  repetition: askAgenticRepetition,
+                  buildRoundSystemPrompt: async () => {
+                    const askParts = constructSystemPromptParts({
+                      chatMode: "ask",
+                      effectiveWorkMode: modeBlockKey,
+                      contextSize: await getContextWindow(
+                        effectiveModel,
+                        req.chatId,
+                      ),
+                      enableTurboEditsV2: false,
+                      hasWorkspace,
+                      registeredToolNames: [...askLoadedNames],
+                      ...promptIdentityOpts,
+                    });
+                    return {
+                      systemPromptOverride:
+                        askParts.stableHeader + "\n\n" + askProgressiveNote,
+                      dynamicSystemTail: askParts.dynamicTail,
+                    };
+                  },
+                },
+                {
+                  chatId: req.chatId,
+                  settings,
+                  abortController,
+                  continuationTurnId: String(placeholderAssistantMessage.id),
+                  streamTurnIdForLedger,
+                  tierLimit: modelContextResolved.tierLimit,
+                  contextWindowTokens,
+                  maxContinuationAttempts: STREAM_CONTINUATION_MAX,
+                  permissionInterceptor: askPermissionInterceptor,
+                  seedMessages: askStreamMessages,
+                  nativeTurnMessages,
+                  initialFullResponse: fullResponse,
+                  safeSend: (channel, payload) =>
+                    safeSend(event.sender, channel, payload),
+                  emitCompactionActivity: emitCompactionMirroredActivity(
+                    event.sender,
+                    req.chatId,
+                  ),
+                  simpleStreamText: (opts) =>
+                    simpleStreamText({
+                      chatMessages: opts.chatMessages,
+                      modelClient,
+                      tools: opts.tools as ToolSet,
+                      systemPromptOverride: opts.systemPromptOverride,
+                      dynamicSystemTail: opts.dynamicSystemTail,
+                      files: files,
+                    }),
+                  runStreamRound: runStreamRoundWithEmptyOutputRetry,
+                  processResponseChunkUpdate,
+                  onFirstTextDelta: logTtftOnce,
+                  onStreamStall: handleStreamStall,
+                  onToolInputProgress: handleToolInputProgress,
+                  onStreamActivityPulse: handleStreamActivityPulse,
+                  // Legacy ask streams deltas unsanitized (native-only mode —
+                  // no hallucinated-XML stripping, unlike build).
+                  sanitizeTextDelta: (t) => t,
+                  applyTierEscalation,
+                  getLedgerStateForContinuation,
+                },
+              );
+              fullResponse = turnResult.fullResponse;
+            } else
             while (true) {
               if (abortController.signal.aborted) {
                 logger.log(

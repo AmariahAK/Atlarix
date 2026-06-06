@@ -205,4 +205,68 @@ describe("ask parity baselines", () => {
       .find((m) => m.role === "assistant");
     expect(lastAssistant?.content).toContain("Persisted from ask mode.");
   });
+
+  it("native history across ask turns: engine emits the B2 envelope; legacy does not", async () => {
+    // v12 0.1 Phase E: ask inherits 0.2's between-turns native history VIA
+    // THE ENGINE (the shared tail persists rt.nativeTurnMessages — the legacy
+    // ask loop never populates it). The suite runs flag ON and OFF, so this
+    // pins BOTH behaviors explicitly.
+    ctx.server.register(
+      scenario("ask-nh-1")
+        .toolCall("read_file", { path: "src/info.ts" })
+        .text("Turn one read the info file.")
+        .build(),
+    );
+    ctx.server.register(
+      scenario("ask-nh-2").text("Turn two recap.").build(),
+    );
+
+    const chatId = await ctx.newChat();
+    const turn1 = await runTurn(ctx, {
+      chatId,
+      prompt: "sc=ask-nh-1 Read src/info.ts.",
+      mode: "ask",
+    });
+    expectNoStreamError(turn1.fakeIpc.sends, chatId);
+
+    const turn2 = await runTurn(ctx, {
+      chatId,
+      prompt: "sc=ask-nh-2 Recap what you found.",
+      mode: "ask",
+    });
+    expectNoStreamError(turn2.fakeIpc.sends, chatId);
+    expectStreamEnded(turn2.fakeIpc.sends, chatId);
+
+    const turn2Req = (
+      ctx.server.requestsFor("ask-nh-2") as Array<{
+        messages: Array<{
+          role: string;
+          tool_calls?: Array<{ function?: { name?: string } }>;
+        }>;
+      }>
+    )[0];
+    const toolMsgs = turn2Req.messages.filter((m) => m.role === "tool");
+    const assistantToolCallMsgs = turn2Req.messages.filter(
+      (m) =>
+        m.role === "assistant" &&
+        Array.isArray(m.tool_calls) &&
+        m.tool_calls.length > 0,
+    );
+
+    if (process.env.ATLARIX_UNIFIED_LOOP === "1") {
+      // Engine: turn-1's native tool exchange replays in turn-2's history.
+      expect(
+        toolMsgs.length,
+        "engine ask must replay turn-1's native role:'tool' message",
+      ).toBeGreaterThanOrEqual(1);
+      expect(
+        assistantToolCallMsgs.length,
+        "engine ask must replay turn-1's assistant tool_calls message",
+      ).toBeGreaterThanOrEqual(1);
+    } else {
+      // Legacy ask loop: no envelope — turn 2 sees prose history only.
+      expect(toolMsgs.length).toBe(0);
+      expect(assistantToolCallMsgs.length).toBe(0);
+    }
+  });
 });

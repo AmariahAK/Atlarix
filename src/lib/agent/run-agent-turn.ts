@@ -89,6 +89,8 @@ export interface TurnRuntime {
     chatMessages: ModelMessage[];
     tools: unknown;
     systemPromptOverride: string;
+    /** Ask: the per-round dynamic tail (separate system block). */
+    dynamicSystemTail?: string;
   }): Promise<unknown>;
   runStreamRound(params: {
     runSimpleStream: () => Promise<unknown>;
@@ -162,17 +164,29 @@ export async function runAgentTurn(
       break;
     }
 
-    // Emit progress to frontend (maxIterations 0 = unbounded in UI)
-    rt.safeSend("chat:iteration:progress", {
-      chatId: rt.chatId,
-      iteration: agenticIteration + 1,
-      maxIterations: 0,
-      totalToolsExecuted: totalToolExecutions,
-    });
+    if (!profile.singleRound) {
+      // Emit progress to frontend (maxIterations 0 = unbounded in UI) —
+      // single-round (ask) turns have no iterations to report.
+      rt.safeSend("chat:iteration:progress", {
+        chatId: rt.chatId,
+        iteration: agenticIteration + 1,
+        maxIterations: 0,
+        totalToolsExecuted: totalToolExecutions,
+      });
+      logger.log(`${L} Iteration ${agenticIteration + 1} (unbounded)`);
+    }
 
-    logger.log(`${L} Iteration ${agenticIteration + 1} (unbounded)`);
-
-    const roundSystemPrompt = profile.buildRoundSystemPrompt();
+    const promptSpec = await profile.buildRoundSystemPrompt();
+    const roundPrompt =
+      typeof promptSpec === "string"
+        ? { systemPromptOverride: promptSpec }
+        : promptSpec;
+    // Token estimate covers BOTH system blocks (header + dynamic tail).
+    const roundSystemPromptEstimateText =
+      roundPrompt.systemPromptOverride +
+      (roundPrompt.dynamicSystemTail
+        ? "\n\n" + roundPrompt.dynamicSystemTail
+        : "");
 
     let buildIterMessages: ModelMessage[] = agenticMessages;
     let streamRoundDone = false;
@@ -189,7 +203,8 @@ export async function runAgentTurn(
           rt.simpleStreamText({
             chatMessages: buildIterMessages,
             tools: profile.tools,
-            systemPromptOverride: roundSystemPrompt,
+            systemPromptOverride: roundPrompt.systemPromptOverride,
+            dynamicSystemTail: roundPrompt.dynamicSystemTail,
           }),
         fullResponse,
         abortController: rt.abortController,
@@ -293,6 +308,26 @@ export async function runAgentTurn(
       ...finalRoundRespMsgs,
     ];
     const roundHadNativeToolMessages = hasNativeToolParts(nativeIterMessages);
+
+    if (profile.singleRound) {
+      // Ask semantics: a completed round ENDS the turn, tools or not — the
+      // SDK inner loop already did the multi-step tool work, and truncation
+      // continuations were handled inside the round loop above.
+      if (roundHadNativeToolMessages) {
+        // v12 0.2 (B2): ask inherits the turn envelope via the engine — the
+        // shared post-stream tail persists it on the assistant message.
+        rt.nativeTurnMessages.push(...nativeIterMessages);
+      }
+      if (profile.repetition.consumeLoopBreak()) {
+        logger.warn(
+          `${L} Stopping after repeated read/search (repetition guard)`,
+        );
+        fullResponse =
+          fullResponse +
+          "\n\n[Repeated action — task stopped. Review the activity log and send a message to continue.]";
+      }
+      break;
+    }
 
     // Text-based tool calls (MiniMax, Claude XML, etc.) — profile-gated.
     // null = none detected; [] = detected but unparseable (break below).
@@ -462,7 +497,7 @@ export async function runAgentTurn(
       // design). Revisit in 0.4.
       const compaction = await runMidLoopCompaction({
         messages: flattenNativeForCompaction(agenticMessages),
-        systemPromptEstimate: estimateTokens(roundSystemPrompt),
+        systemPromptEstimate: estimateTokens(roundSystemPromptEstimateText),
         tierLimit: rt.tierLimit,
         contextWindowTokens: rt.contextWindowTokens,
         enabled: rt.settings.enableContextAutoSummarize !== false,
@@ -482,7 +517,7 @@ export async function runAgentTurn(
     // Mid-stream tier escalation (Auto mode only).
     try {
       const runningTokens =
-        estimateTokens(roundSystemPrompt) +
+        estimateTokens(roundSystemPromptEstimateText) +
         estimateModelMessagesTokens(agenticMessages);
       await rt.applyTierEscalation({
         agenticIteration,
