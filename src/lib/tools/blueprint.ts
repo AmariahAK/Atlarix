@@ -26,8 +26,15 @@ import { blueprintToMarkdown, type BlueprintMarkdownEmptyReason } from "@/lib/bl
 import {
   buildSliceWithResolve,
   countVisibleRooms,
+  bm25HitsToRoomScores,
   type SliceResult,
 } from "@/lib/blueprint/blueprint-slice";
+import { searchBlueprintBm25 } from "@/lib/search/bm25_semantic_index";
+import {
+  sliceCacheKey,
+  getCachedSlice,
+  setCachedSlice,
+} from "@/lib/blueprint/blueprint-slice-cache";
 import { snapshotBlueprintToRepo } from "@/lib/blueprint/blueprint-snapshot";
 import {
   getBlueprintForWorkspace,
@@ -205,13 +212,61 @@ ToolRegistry.register({
       const functionCount = countBlueprintFunctions(blueprint.rooms ?? []);
       const sectionMeta = getBlueprintSectionMeta(workspaceId, focusPath);
 
-      const { slice, sliceWidened } = buildSliceWithResolve(
-        focusedBlueprint,
-        scope,
-        params.path,
+      // v12 Tier 6 #5: serve a memoized slice when nothing changed. Cache is
+      // dropped per-workspace on any blueprint reparse (markBlueprintSliceDirty).
+      const cacheKey = sliceCacheKey({
+        workspaceId,
         focusPath,
+        topic: params.topic,
+        scope,
+        path: params.path,
         depth,
-      );
+      });
+      const cachedSlice = getCachedSlice(cacheKey, workspaceId);
+
+      let slice: SliceResult;
+      let sliceWidened: boolean;
+      if (cachedSlice) {
+        ({ slice, sliceWidened } = cachedSlice);
+      } else {
+        // v12 Tier 6 #1: fuse BM25 text relevance into slice ranking. The topic
+        // (also the name-filter above) doubles as the BM25 query; the resulting
+        // per-room relevance map biases the slice toward the topic-relevant
+        // module, not just structural hubs. Best-effort — a null/empty result
+        // leaves ranking at centrality-only.
+        let bm25ScoreByRoom: Map<string, number> | undefined;
+        const topicQuery = params.topic?.trim();
+        if (topicQuery) {
+          try {
+            const bm25 = await searchBlueprintBm25(
+              workspaceId,
+              workspacePath,
+              topicQuery,
+              200,
+            );
+            if (bm25 && bm25.hits.length > 0) {
+              bm25ScoreByRoom = bm25HitsToRoomScores(
+                focusedBlueprint.rooms,
+                bm25.hits,
+              );
+            }
+          } catch (e) {
+            logger.warn("get_blueprint: BM25 fusion skipped", { error: String(e) });
+          }
+        }
+
+        const built = buildSliceWithResolve(
+          focusedBlueprint,
+          scope,
+          params.path,
+          focusPath,
+          depth,
+          bm25ScoreByRoom,
+        );
+        slice = built.slice;
+        sliceWidened = built.sliceWidened;
+        setCachedSlice(cacheKey, workspaceId, slice, sliceWidened);
+      }
 
       if (sliceWidened) {
         logger.info("get_blueprint: slice empty, widened to full section", {

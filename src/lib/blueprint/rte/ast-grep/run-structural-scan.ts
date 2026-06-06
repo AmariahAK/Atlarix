@@ -21,6 +21,8 @@ import {
 import {
   isAstGrepWorkerPoolAvailable,
   scanBatchInWorker,
+  getAstGrepScanErrors,
+  resetAstGrepScanErrors,
 } from "./worker-pool";
 
 const logger = log.scope("ast-grep-structural");
@@ -106,6 +108,7 @@ export async function runStructuralScan(
   let edges: RTEBlueprintEdge[] = [];
 
   if (isAstGrepWorkerPoolAvailable()) {
+    resetAstGrepScanErrors(); // v12 Tier 6 #4: per-scan baseline
     for (let i = 0; i < scanFiles.length; i += WORKER_BATCH_SIZE) {
       const batch = scanFiles.slice(i, i + WORKER_BATCH_SIZE);
       const batchEdges = await scanBatchInWorker({
@@ -114,6 +117,13 @@ export async function runStructuralScan(
         symbols,
       });
       edges.push(...batchEdges);
+    }
+    const lost = getAstGrepScanErrors();
+    if (lost > 0) {
+      logger.warn(
+        `runStructuralScan: ${lost} batch(es) lost edges to worker crash/timeout — connectivity may be under-reported`,
+        { projectRoot },
+      );
     }
   } else {
     const edgeLists = await runBatch(

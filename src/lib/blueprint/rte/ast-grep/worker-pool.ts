@@ -28,12 +28,25 @@ type PendingTask = {
 type PoolWorker = {
   worker: Worker;
   busy: boolean;
+  /** Task id currently running on this slot, so a crash can resolve it. */
+  currentTaskId?: number;
 };
 
 let pool: PoolWorker[] | null = null;
 let taskId = 0;
 const pending = new Map<number, PendingTask>();
 const queue: Array<AstGrepScanBatch & { resolve: (edges: RTEBlueprintEdge[]) => void }> = [];
+
+// v12 Tier 6 #4: count batches whose edges were lost to a worker crash/timeout
+// so get_blueprint can flag a degraded parse instead of silently under-reporting
+// connectivity.
+let scanErrorCount = 0;
+export function getAstGrepScanErrors(): number {
+  return scanErrorCount;
+}
+export function resetAstGrepScanErrors(): void {
+  scanErrorCount = 0;
+}
 
 function workerScriptPath(): string {
   const candidates: string[] = [];
@@ -73,10 +86,13 @@ function dispatchQueue(): void {
     const task = queue.shift()!;
     slot.busy = true;
     const id = ++taskId;
+    slot.currentTaskId = id;
     const timer = setTimeout(() => {
       pending.delete(id);
-      logger.warn("[ast-grep-pool] batch timeout");
+      scanErrorCount++;
+      logger.warn("[ast-grep-pool] batch timeout — edges lost");
       slot.busy = false;
+      slot.currentTaskId = undefined;
       task.resolve([]);
       dispatchQueue();
     }, SCAN_TIMEOUT_MS);
@@ -108,23 +124,47 @@ function ensurePool(): void {
         clearTimeout(p.timer);
         pending.delete(msg.id);
         if (msg.error) {
-          logger.warn("[ast-grep-pool] batch error", { error: msg.error });
+          scanErrorCount++;
+          logger.error("[ast-grep-pool] batch error — edges lost", { error: msg.error });
         }
         p.resolve(msg.edges ?? []);
       }
       slot.busy = false;
+      slot.currentTaskId = undefined;
       dispatchQueue();
     });
+    // v12 Tier 6 #4: a crashing worker used to free the slot but leave its
+    // in-flight task hanging until the 60s timeout. Resolve it now (empty,
+    // counted) so the parse degrades fast instead of stalling.
+    const failInFlight = (reason: string) => {
+      const id = slot.currentTaskId;
+      slot.busy = false;
+      slot.currentTaskId = undefined;
+      if (id != null) {
+        const p = pending.get(id);
+        if (p) {
+          clearTimeout(p.timer);
+          pending.delete(id);
+          scanErrorCount++;
+          logger.error(`[ast-grep-pool] ${reason} — in-flight batch edges lost`);
+          p.resolve([]);
+        }
+      }
+    };
     worker.on("error", (err) => {
       logger.error("[ast-grep-pool] worker error", err);
-      slot.busy = false;
+      failInFlight("worker error");
       dispatchQueue();
     });
     worker.on("exit", (code) => {
       if (code !== 0) {
         logger.error("[ast-grep-pool] worker exited", { code });
+        failInFlight(`worker exited (${code})`);
+        dispatchQueue();
+      } else {
+        slot.busy = false;
+        slot.currentTaskId = undefined;
       }
-      slot.busy = false;
     });
     pool.push(slot);
   }

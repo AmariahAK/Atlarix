@@ -29,18 +29,28 @@ function getRoomKey(filePath: string, projectRoot: string): string {
   const normalizedRoot = projectRoot.replace(/\\/g, "/").replace(/\/$/, "");
   const rel = filePath.replace(/\\/g, "/").replace(normalizedRoot, "").replace(/^\//, "");
   const parts = rel.split("/").filter(Boolean);
-  if (parts.length === 0) return "root";
-  if (GENERIC_ROOTS.has(parts[0]) && parts.length > 1) return parts[1];
-  return parts[0];
+  return roomKeyFromParts(parts);
 }
 
 function roomKeyFromFile(file: string): string {
-  const first = file.split("/")[0];
-  if (first === "src" || first === "lib" || first === "app" || first === "apps") {
-    const parts = file.split("/");
-    return parts.length > 1 ? parts[1] : first;
+  return roomKeyFromParts(file.split("/").filter(Boolean));
+}
+
+/**
+ * v12 Tier 6 #2: when the first segment is a generic root (`src`/`api`/…),
+ * descend past it. Take TWO levels only when the second is itself a directory
+ * (i.e. there's a deeper file: `parts.length > 3`) so `src/api/v1/handlers/x`
+ * → `api/v1` ≠ `src/api/v2/...` → `api/v2`. A shallow `src/auth/login.ts`
+ * stays `auth` (one level) — we don't want per-file rooms. Non-generic roots
+ * are unchanged (`parts[0]`).
+ */
+function roomKeyFromParts(parts: string[]): string {
+  if (parts.length === 0) return "root";
+  if (GENERIC_ROOTS.has(parts[0]) && parts.length > 1) {
+    if (parts.length > 3) return `${parts[1]}/${parts[2]}`;
+    return parts[1];
   }
-  return first || "root";
+  return parts[0];
 }
 
 /**
@@ -110,25 +120,40 @@ export function rteResultToBlueprint(result: RTEParseResult, projectRoot?: strin
       label: e.label,
       type: (e.type === "imports" ? "import" : e.type === "api_call" ? "api" : "call") as "import" | "call" | "api",
       weight: undefined,
+      // v12 Tier 6 #3: an import is INFERRED connectivity (resolved a path, not
+      // a confirmed use); a call/api_call is CONFIRMED. Ranking down-weights
+      // inferred edges so confirmed calls count as stronger centrality.
+      inferred: e.type === "imports",
     };
   }
 
   const roomEdges: BlueprintEdge[] = [];
-  const seen = new Set<string>();
+  const edgeByKey = new Map<string, BlueprintEdge>();
   for (const e of edges) {
     const fromRoom = nodeToRoomId.get(e.from);
     const toRoom = nodeToRoomId.get(e.to);
     if (fromRoom && toRoom && fromRoom !== toRoom) {
       const key = `${fromRoom}->${toRoom}`;
-      if (!seen.has(key)) {
-        seen.add(key);
-        roomEdges.push({
+      const existing = edgeByKey.get(key);
+      const confirmed = e.type !== "imports"; // call / api_call
+      if (!existing) {
+        const edge: BlueprintEdge = {
           from: fromRoom,
           to: toRoom,
           label: e.label,
           type: e.type === "imports" ? "import" : e.type === "api_call" ? "api" : "call",
           weight: undefined,
-        });
+          // v12 Tier 6 #3: import-inferred vs call-confirmed (see mapRteEdge).
+          inferred: !confirmed,
+        };
+        edgeByKey.set(key, edge);
+        roomEdges.push(edge);
+      } else if (confirmed && existing.inferred) {
+        // A confirmed call between this pair beats an earlier import.
+        existing.inferred = false;
+        if (existing.type === "import") {
+          existing.type = e.type === "api_call" ? "api" : "call";
+        }
       }
     }
   }

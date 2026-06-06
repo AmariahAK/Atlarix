@@ -104,6 +104,44 @@ function roomPathMatchesTarget(roomPath: string, target: string): boolean {
   return false;
 }
 
+/**
+ * v12 Tier 6 #1: reduce BM25 file-level hits to a per-room relevance score
+ * (0..1, normalized by the max). A room's score is the MAX BM25 score over
+ * hits whose absolute file matches any of the room's function files — using
+ * the room→file linkage already in the blueprint (no room-key re-derivation).
+ * Returns an empty map when nothing matches (fusion becomes a no-op).
+ */
+export function bm25HitsToRoomScores(
+  rooms: BlueprintRoom[],
+  hits: Array<{ file: string; score: number }>,
+): Map<string, number> {
+  const out = new Map<string, number>();
+  if (!hits.length) return out;
+  // Index hits by normalized path for endsWith matching.
+  const hitPaths = hits.map((h) => ({ p: pathLower(h.file), score: h.score }));
+  for (const room of rooms) {
+    const roomFiles = (room.functions ?? [])
+      .map((fn) => pathLower(fn.file ?? ""))
+      .filter(Boolean);
+    if (roomFiles.length === 0) continue;
+    let best = 0;
+    for (const { p, score } of hitPaths) {
+      if (!p) continue;
+      const match = roomFiles.some(
+        (rf) => rf === p || p.endsWith(`/${rf}`) || rf.endsWith(`/${p}`),
+      );
+      if (match && score > best) best = score;
+    }
+    if (best > 0) out.set(room.id, best);
+  }
+  // Normalize to 0..1.
+  const max = Math.max(0, ...out.values());
+  if (max > 0) {
+    for (const [id, v] of out) out.set(id, v / max);
+  }
+  return out;
+}
+
 export function roomMatchesScope(
   room: BlueprintRoom,
   scope: "file" | "folder" | "full",
@@ -161,6 +199,10 @@ export function buildSlice(
   scope: "file" | "folder" | "full",
   targetPath: string | undefined,
   depth: number,
+  // v12 Tier 6 #1: optional per-room BM25 relevance (0..1, precomputed in the
+  // async get_blueprint handler). When absent, ordering is byte-identical to
+  // the centrality-only behavior (locked tests rely on this).
+  bm25ScoreByRoom?: Map<string, number>,
 ): SliceResult {
   const total = blueprint.rooms.length;
   const matched = blueprint.rooms.filter((r) => roomMatchesScope(r, scope, targetPath));
@@ -183,23 +225,34 @@ export function buildSlice(
 
   // v12 Tier 6 #2: rank kept rooms by centrality (edge-degree — high-fan-in
   // core modules first) so a capped slice keeps the most-connected structure
-  // and the tail is summarized rather than truncated arbitrarily.
+  // and the tail is summarized rather than truncated arbitrarily. v12 #3:
+  // import-inferred edges count half (a confirmed call is stronger evidence
+  // of structural centrality than a mere import).
   const degree = new Map<string, number>();
   for (const e of allEdges) {
     if (keepIds.has(e.from) && keepIds.has(e.to)) {
-      degree.set(e.from, (degree.get(e.from) ?? 0) + 1);
-      degree.set(e.to, (degree.get(e.to) ?? 0) + 1);
+      const w = e.inferred ? 0.5 : 1;
+      degree.set(e.from, (degree.get(e.from) ?? 0) + w);
+      degree.set(e.to, (degree.get(e.to) ?? 0) + w);
     }
   }
+  const maxDegree = Math.max(1, ...degree.values());
   const MAX_ROOMS_IN_SLICE = 40;
   const keptRooms = blueprint.rooms.filter((r) => keepIds.has(r.id));
   const matchedIds = new Set(matched.map((r) => r.id));
+  // v12 Tier 6 #1: fuse text relevance with centrality. BM25 dominates (W=2)
+  // but normalized edge-degree breaks ties — so the topic-relevant module
+  // ranks first AND structural hubs still surface.
+  const BM25_WEIGHT = 2.0;
+  const rankScore = (id: string): number =>
+    (bm25ScoreByRoom?.get(id) ?? 0) * BM25_WEIGHT +
+    (degree.get(id) ?? 0) / maxDegree;
   const rankedRooms = [...keptRooms].sort((a, b) => {
     // Directly-matched rooms always outrank edge-expanded ones.
     const am = matchedIds.has(a.id) ? 1 : 0;
     const bm = matchedIds.has(b.id) ? 1 : 0;
     if (am !== bm) return bm - am;
-    return (degree.get(b.id) ?? 0) - (degree.get(a.id) ?? 0);
+    return rankScore(b.id) - rankScore(a.id);
   });
   const slicedRooms = rankedRooms.slice(0, MAX_ROOMS_IN_SLICE);
   const omitted = rankedRooms.slice(MAX_ROOMS_IN_SLICE);
@@ -269,14 +322,15 @@ export function buildSliceWithResolve(
   path: string | undefined,
   focusPath: string,
   depth: number,
+  bm25ScoreByRoom?: Map<string, number>,
 ): { slice: SliceResult; sliceWidened: boolean; resolved: ResolvedSliceParams } {
   const resolved = resolveSliceParams(scope, path, focusPath);
-  let slice = buildSlice(blueprint, resolved.scope, resolved.path, depth);
+  let slice = buildSlice(blueprint, resolved.scope, resolved.path, depth, bm25ScoreByRoom);
   let sliceWidened = false;
 
   const visible = countVisibleRooms(blueprint);
   if (visible > 0 && slice.nodes.length === 0 && resolved.scope !== "full") {
-    slice = buildSlice(blueprint, "full", undefined, depth);
+    slice = buildSlice(blueprint, "full", undefined, depth, bm25ScoreByRoom);
     sliceWidened = true;
   }
 

@@ -36,6 +36,7 @@ import {
   normalizedRoomKey,
 } from "@/lib/blueprint/blueprint-merge";
 import { countVisibleRooms } from "@/lib/blueprint/blueprint-slice";
+import { markBlueprintSliceDirty } from "@/lib/blueprint/blueprint-slice-cache";
 import { validateBlueprintFocusPath } from "@/lib/blueprint/section-path";
 import { getReferencePaths, setReferencePaths } from "@/lib/blueprint/reference-manager";
 import { ensurePlansDir } from "@/lib/plans/plan-manager";
@@ -107,6 +108,7 @@ function setCachedBlueprint(
     engine: options?.engine ?? prev?.engine,
   });
   markBm25Dirty(workspaceId);
+  markBlueprintSliceDirty(workspaceId); // v12 Tier 6 #5: drop cached slices on reparse
   while (blueprintCache.size > MAX_BLUEPRINT_CACHE_ENTRIES) {
     const oldest = blueprintCache.keys().next().value as string | undefined;
     if (oldest === undefined) break;
