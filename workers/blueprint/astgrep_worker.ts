@@ -23,6 +23,8 @@ type WorkerRequest = {
 type WorkerResponse = {
   id: number;
   edges: RTEBlueprintEdge[];
+  /** v12 S20: call sites with non-identifier callees (no edge produced). */
+  dynamicCalls?: number;
   error?: string;
 };
 
@@ -30,11 +32,13 @@ parentPort?.on("message", async (msg: WorkerRequest) => {
   try {
     const byFile = buildSymbolLookup(msg.symbols);
     const allEdges: RTEBlueprintEdge[] = [];
+    let dynamicCalls = 0;
     for (const rel of msg.relFiles) {
-      const fileEdges = await scanFileStructuralEdges(msg.projectRoot, rel, byFile);
-      allEdges.push(...fileEdges);
+      const fileResult = await scanFileStructuralEdges(msg.projectRoot, rel, byFile);
+      allEdges.push(...fileResult.edges);
+      dynamicCalls += fileResult.dynamicCalls;
     }
-    const res: WorkerResponse = { id: msg.id, edges: allEdges };
+    const res: WorkerResponse = { id: msg.id, edges: allEdges, dynamicCalls };
     parentPort?.postMessage(res);
   } catch (err) {
     parentPort?.postMessage({

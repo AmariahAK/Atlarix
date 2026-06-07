@@ -65,6 +65,12 @@ export interface RTEParseResult {
   atlarixIgnoreSource?: string;
   /** True when file-tree beacons were merged due to thin ctags coverage. */
   supplemented?: boolean;
+  /**
+   * v12 S20: call sites with non-identifier callees (member/computed/
+   * expression) that produced no edge — connectivity is under-reported by
+   * about this many sites. Persisted with the blueprint cache.
+   */
+  dynamicCallCount?: number;
 }
 
 export type SupportedLanguage =

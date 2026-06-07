@@ -118,11 +118,16 @@ export async function scanCallsForFile(
   projectRoot: string,
   relFile: string,
   byFile: Map<string, SymbolRecord[]>,
-): Promise<RTEBlueprintEdge[]> {
+): Promise<{ edges: RTEBlueprintEdge[]; dynamicCalls: number }> {
   const absPath = path.join(projectRoot, relFile);
   const lang = langForFile(relFile);
   const edges: RTEBlueprintEdge[] = [];
   const seen = new Set<string>();
+  // v12 S20 (Tier 6): call sites whose callee is NOT a bare identifier —
+  // member calls (`a.b()`), computed/dynamic (`obj[fn]()`), expression
+  // callees — produce no edge. Count them instead of dropping silently so
+  // get_blueprint can disclose that connectivity is under-reported.
+  let dynamicCalls = 0;
 
   const callerSymbols = byFile.get(relFile.replace(/\\/g, "/")) ?? [];
   const defaultCaller = callerSymbols[0]?.id ?? nodeIdForFileLine(relFile, 1, "module");
@@ -131,7 +136,11 @@ export async function scanCallsForFile(
     await runFindInFiles(lang, absPath, callMatcher, (nodes) => {
       for (const n of nodes) {
         const callee = n.getMatch(CALLEE_CAPTURE)?.text();
-        if (!callee || !/^[a-zA-Z_$][\w$]*$/.test(callee)) continue;
+        if (!callee) continue;
+        if (!/^[a-zA-Z_$][\w$]*$/.test(callee)) {
+          dynamicCalls++;
+          continue;
+        }
         const line = n.range().start.line + 1;
         const fromId =
           callerSymbols.find((s) => s.line <= line && (s.endLine ?? s.line) >= line)?.id ??
@@ -154,7 +163,7 @@ export async function scanCallsForFile(
     });
   }
 
-  return edges;
+  return { edges, dynamicCalls };
 }
 
 export async function scanRoutesForFile(
@@ -237,9 +246,12 @@ export async function scanFileStructuralEdges(
   projectRoot: string,
   relFile: string,
   byFile: Map<string, SymbolRecord[]>,
-): Promise<RTEBlueprintEdge[]> {
+): Promise<{ edges: RTEBlueprintEdge[]; dynamicCalls: number }> {
   const imports = await scanImportsForFile(projectRoot, relFile, byFile);
   const calls = await scanCallsForFile(projectRoot, relFile, byFile);
   const routes = await scanRoutesForFile(projectRoot, relFile, byFile);
-  return [...imports, ...calls, ...routes];
+  return {
+    edges: [...imports, ...calls.edges, ...routes],
+    dynamicCalls: calls.dynamicCalls,
+  };
 }

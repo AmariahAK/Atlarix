@@ -79,6 +79,8 @@ type BlueprintCacheEntry = {
   focusPath: string;
   inferredEdgesMerged: boolean;
   engine?: "ast-grep+ctags" | "file-tree" | "hybrid";
+  /** v12 S20: unresolved (non-identifier-callee) call sites from the parse. */
+  dynamicCallCount?: number;
 };
 
 const blueprintCache = new Map<string, BlueprintCacheEntry>();
@@ -94,7 +96,11 @@ function setCachedBlueprint(
   workspaceId: number,
   focusPath: string,
   b: Blueprint,
-  options?: { inferredEdgesMerged?: boolean; engine?: "ast-grep+ctags" | "file-tree" | "hybrid" },
+  options?: {
+    inferredEdgesMerged?: boolean;
+    engine?: "ast-grep+ctags" | "file-tree" | "hybrid";
+    dynamicCallCount?: number;
+  },
 ): void {
   const key = blueprintCacheKey(workspaceId, focusPath);
   const prev = blueprintCache.get(key);
@@ -106,6 +112,7 @@ function setCachedBlueprint(
     inferredEdgesMerged:
       options?.inferredEdgesMerged ?? prev?.inferredEdgesMerged ?? false,
     engine: options?.engine ?? prev?.engine,
+    dynamicCallCount: options?.dynamicCallCount ?? prev?.dynamicCallCount,
   });
   markBm25Dirty(workspaceId);
   markBlueprintSliceDirty(workspaceId); // v12 Tier 6 #5: drop cached slices on reparse
@@ -125,14 +132,17 @@ function getCachedBlueprint(
   return blueprintCache.get(blueprintCacheKey(workspaceId, focusPath));
 }
 
-/** Parse engine label for a section (AI tool metadata). */
+/** Parse engine label + scan-honesty counters for a section (AI tool metadata). */
 export function getBlueprintSectionMeta(
   workspaceId: number,
   focusPath: string,
-): { engine?: "ast-grep+ctags" | "file-tree" | "hybrid" } {
+): {
+  engine?: "ast-grep+ctags" | "file-tree" | "hybrid";
+  dynamicCallCount?: number;
+} {
   const fp = normalizeBlueprintFocusPath(focusPath) || ".";
   const mem = getCachedBlueprint(workspaceId, fp);
-  return { engine: mem?.engine };
+  return { engine: mem?.engine, dynamicCallCount: mem?.dynamicCallCount };
 }
 
 const INVALID_ROOM_NAMES = new Set([".", "..", ""]);
@@ -164,7 +174,11 @@ function cacheBlueprintIfNonEmpty(
   workspaceId: number,
   focusPath: string,
   blueprint: Blueprint,
-  options?: { inferredEdgesMerged?: boolean; engine?: "ast-grep+ctags" | "file-tree" | "hybrid" },
+  options?: {
+    inferredEdgesMerged?: boolean;
+    engine?: "ast-grep+ctags" | "file-tree" | "hybrid";
+    dynamicCallCount?: number;
+  },
 ): void {
   if (countVisibleRooms(blueprint) > 0) {
     setCachedBlueprint(workspaceId, focusPath, blueprint, options);
@@ -211,6 +225,7 @@ async function inferBlueprint(workspaceId: number, focusPath: string): Promise<B
     if (b.rooms.length > 0) {
       cacheBlueprintIfNonEmpty(workspaceId, fp, b, {
         engine: cached.manifest.engine ?? "file-tree",
+        dynamicCallCount: cached.manifest.dynamicCallCount, // v12 S20
       });
       return b;
     }
@@ -231,6 +246,9 @@ async function inferBlueprint(workspaceId: number, focusPath: string): Promise<B
           framework: rteResult.framework.name,
           language: rteResult.framework.name,
           engine,
+          ...(rteResult.dynamicCallCount != null
+            ? { dynamicCallCount: rteResult.dynamicCallCount } // v12 S20
+            : {}),
         },
         nodes: rteResult.nodes,
         edges: rteResult.edges,
@@ -257,7 +275,10 @@ async function inferBlueprint(workspaceId: number, focusPath: string): Promise<B
             });
           })
           .catch(() => {});
-        cacheBlueprintIfNonEmpty(workspaceId, fp, blueprint, { engine });
+        cacheBlueprintIfNonEmpty(workspaceId, fp, blueprint, {
+          engine,
+          dynamicCallCount: rteResult.dynamicCallCount, // v12 S20
+        });
         return blueprint;
       }
     }

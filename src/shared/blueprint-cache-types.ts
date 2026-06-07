@@ -17,6 +17,8 @@ export interface BlueprintManifest {
   timestamp: number;
   /** Index engine used when cache was written. */
   engine?: "ast-grep+ctags" | "file-tree" | "hybrid";
+  /** v12 S20: unresolved (non-identifier-callee) call sites from the scan. */
+  dynamicCallCount?: number;
 }
 
 /** Full RTE graph stored in cache */

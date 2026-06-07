@@ -48,6 +48,18 @@ export function resetAstGrepScanErrors(): void {
   scanErrorCount = 0;
 }
 
+// v12 S20 (Tier 6): per-scan tally of call sites whose callee is not a bare
+// identifier (member/computed/expression calls) — no edge is produced for
+// them, so get_blueprint discloses the count instead of silently dropping.
+// Same reset-per-scan lifecycle as the error counter above.
+let dynamicCallTally = 0;
+export function getAstGrepDynamicCalls(): number {
+  return dynamicCallTally;
+}
+export function resetAstGrepDynamicCalls(): void {
+  dynamicCallTally = 0;
+}
+
 function workerScriptPath(): string {
   const candidates: string[] = [];
   if (process.resourcesPath) {
@@ -118,7 +130,7 @@ function ensurePool(): void {
   for (let i = 0; i < poolSize(); i++) {
     const worker = new Worker(script);
     const slot: PoolWorker = { worker, busy: false };
-    worker.on("message", (msg: { id: number; edges: RTEBlueprintEdge[]; error?: string }) => {
+    worker.on("message", (msg: { id: number; edges: RTEBlueprintEdge[]; dynamicCalls?: number; error?: string }) => {
       const p = pending.get(msg.id);
       if (p) {
         clearTimeout(p.timer);
@@ -126,6 +138,9 @@ function ensurePool(): void {
         if (msg.error) {
           scanErrorCount++;
           logger.error("[ast-grep-pool] batch error — edges lost", { error: msg.error });
+        }
+        if (typeof msg.dynamicCalls === "number") {
+          dynamicCallTally += msg.dynamicCalls; // v12 S20
         }
         p.resolve(msg.edges ?? []);
       }

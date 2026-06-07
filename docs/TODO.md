@@ -9,6 +9,16 @@
 
 > The four clusters the register left open: S16 security+follow-ups, S17/S18 TTFT perf (Tier 5 "perf is identity"), S19 tool-resolution consolidation (3.10), S20/S21 Blueprint tail + retrieval eval, S22 release v12.0.0 PREP (no tag — manual test first). Decisions recorded: single v12.0.0 version; worktree-per-agent DEFERRED; browser_navigate stays scheme-gated (consent follow-up CLOSED as conscious decision); renderer `file:read-content` stays ungated (user-initiated opens).
 
+### v12 session 20 — shipped (2026-06-07): Blueprint v2 tail — dynamic-call honesty, BM25 stoplist, density override
+
+| Area | Notes |
+|------|-------|
+| **Dynamic calls counted, not silent (Tier 6)** | `scanCallsForFile` counts call sites whose callee fails the bare-identifier regex (member `a.b()`, computed `obj[fn]()`, expression callees) instead of dropping silently. Threaded the whole chain: `{edges, dynamicCalls}` return → worker message → pool tally (`get/resetAstGrepDynamicCalls`, same per-scan lifecycle as the Tier-6 #4 error counter) → `StructuralScanResult.dynamicCallCount` → `RTEParseResult` → blueprint disk-cache manifest (persists across reloads) → section meta → **`get_blueprint` output**: a markdown note ("~N call sites use member/computed callees … treat missing edges as 'unknown', not 'no relationship'") + `dynamicCallCount` field. Incremental single-file updates keep the whole-scan count (delta not worth manifest churn — documented). |
+| **BM25 generic-identifier stoplist (Tier 6)** | `name:4` KEPT for specific names; symbols whose WHOLE name is a generic word (`handle`, `process`, `get`, … ~45 entries) index the name under a new `nameGeneric:1` field instead. camelCase/snake_case names tokenize as single tokens so they're unaffected. `isGenericIdentifierName` exported. IDF damping deferred (stretch). |
+| **Thin-graph density override (Tier 6)** | `assessBlueprintRichness`: a graph with `functions/files ≥ 2`, `files ≥ 3`, and ≥1 confirmed edge is NOT thin regardless of absolute counts — idiomatic Python (many small modules) no longer degrades to file-tree backfill. Absolute thresholds stay the floor; disconnected or too-few-file graphs never take the escape hatch. |
+| **Tests** | `blueprint-s20.test.ts` (8): real ast-grep scan counts ≥3 dynamic callees + bare call still resolves + zero-count control; stoplist classification + a bare `process` symbol no longer outranks contextual matches (wink ≥3-docs + string-id gotchas); density override positive + ratio/min-files/no-edge negatives. All 26 existing blueprint tests green. |
+| **Verification** | 54 agent-evals, `npm test` 1164/1164 (+8), `npm run ts` clean, oxlint 8 (baseline), knip 0 unused files, boot smoke OK. |
+
 ### v12 session 19 — shipped (2026-06-07): resolveToolsetForSession — 3.10 CLOSED
 
 | Area | Notes |

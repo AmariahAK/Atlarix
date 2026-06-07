@@ -332,6 +332,11 @@ ToolRegistry.register({
           slice.omittedRooms.count > slice.omittedRooms.labels.length ? ", …" : ""
         }`;
       }
+      // v12 S20: scan honesty — dynamic/member call sites produce no edge, so
+      // tell the model the call graph is a floor, not the whole truth.
+      if (sectionMeta.dynamicCallCount && sectionMeta.dynamicCallCount > 0) {
+        markdown += `\n\nNote: ~${sectionMeta.dynamicCallCount} call sites use member/computed callees (e.g. obj.method(), obj[fn]()) and are not in the edge graph — connectivity is under-reported; treat missing edges as "unknown", not "no relationship".`;
+      }
       if (markdown.length > MAX_BLUEPRINT_MARKDOWN_CHARS) {
         markdown =
           markdown.slice(0, MAX_BLUEPRINT_MARKDOWN_CHARS) +
@@ -351,6 +356,7 @@ ToolRegistry.register({
         functionCount: number;
         parseQuality: typeof richness.quality;
         parseEngine?: string;
+        dynamicCallCount?: number;
         sliceWidened?: boolean;
         graphAutoIncluded?: boolean;
         focusPath?: string;
@@ -368,6 +374,9 @@ ToolRegistry.register({
       };
       out.focusPath = focusPath;
       if (sectionMeta.engine) out.parseEngine = sectionMeta.engine;
+      if (sectionMeta.dynamicCallCount) {
+        out.dynamicCallCount = sectionMeta.dynamicCallCount; // v12 S20
+      }
       if (sliceWidened) out.sliceWidened = true;
       if (params.topic?.trim()) {
         (out as { topic?: string; topicFilterApplied?: boolean }).topic = params.topic;

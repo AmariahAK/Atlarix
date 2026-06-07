@@ -96,6 +96,9 @@ export async function generateBlueprint(projectPath: string): Promise<RTEParseRe
       edges: dedupeEdges(edges),
       framework,
       atlarixIgnoreSource: ignoreSourceForCache,
+      // v12 S20: unresolved (non-identifier-callee) call sites — disclosed
+      // through the blueprint manifest so get_blueprint can flag it.
+      dynamicCallCount: structural.dynamicCallCount,
     };
 
     const { result: supplemented, supplemented: didSupplement } = await supplementThinRteResult(

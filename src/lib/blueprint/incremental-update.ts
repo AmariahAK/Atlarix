@@ -104,7 +104,10 @@ export async function updateBlueprintCacheForFile(
   if (exists) {
     const fileSymbols = getSymbolsForFile(symbolCache, normRel);
     const byFile = buildSymbolLookup(symbolCache.symbols);
-    const newEdges = await scanFileStructuralEdges(normPath, normRel, byFile);
+    // v12 S20: scanFileStructuralEdges returns {edges, dynamicCalls}; the
+    // incremental path keeps the manifest's whole-scan count as-is (a single
+    // file's delta isn't worth a manifest rewrite churn).
+    const newEdges = (await scanFileStructuralEdges(normPath, normRel, byFile)).edges;
     nodes = [...nodes, ...symbolsToNodes(fileSymbols)];
     edges = dedupeEdges([...edges, ...newEdges]);
   }

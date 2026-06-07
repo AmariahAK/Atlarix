@@ -76,6 +76,28 @@ function tokenizeForBm25(text: string): string[] {
     .filter((t) => t.length > 1);
 }
 
+/**
+ * v12 S20 (Tier 6): identifier stop-set — symbols whose WHOLE name is one of
+ * these generic words get the name indexed at weight 1 instead of name:4
+ * (a `handle`/`process`/`get` symbol shouldn't outrank a specific match on
+ * topic queries; the 4x multiplier made generic names dominate room scoring).
+ * Specific names (`handleAuthCallback`, `processPayment`) tokenize as single
+ * camel/snake tokens and are NOT in this set — they keep the full weight.
+ */
+const GENERIC_IDENTIFIER_NAMES = new Set([
+  "handle", "handler", "process", "run", "exec", "execute", "init", "setup",
+  "get", "set", "make", "do", "call", "apply", "main", "start", "stop",
+  "create", "update", "delete", "add", "remove", "load", "save", "fetch",
+  "send", "read", "write", "parse", "render", "build", "check", "test",
+  "data", "value", "item", "index", "key", "result", "callback", "cb", "fn",
+  "util", "utils", "helper", "helpers", "config", "options", "params",
+  "new", "default",
+]);
+
+export function isGenericIdentifierName(name: string): boolean {
+  return GENERIC_IDENTIFIER_NAMES.has(name.trim().toLowerCase());
+}
+
 async function enrichLineContext(
   absFile: string,
   line: number,
@@ -147,7 +169,9 @@ async function buildIndex(
 
   const engine = createBm25Engine();
   engine.defineConfig({
-    fldWeights: { name: 4, signature: 2, path: 1, snippet: 2, kind: 1, scope: 1 },
+    // v12 S20: `nameGeneric` carries stop-set names at weight 1 (see
+    // GENERIC_IDENTIFIER_NAMES); specific names keep the full name:4.
+    fldWeights: { name: 4, nameGeneric: 1, signature: 2, path: 1, snippet: 2, kind: 1, scope: 1 },
   });
   engine.definePrepTasks([tokenizeForBm25]);
 
@@ -157,9 +181,11 @@ async function buildIndex(
 
   if (symbolDocs.length > 0) {
     for (const s of symbolDocs) {
+      const generic = isGenericIdentifierName(s.name);
       engine.addDoc(
         {
-          name: s.name,
+          name: generic ? "" : s.name,
+          nameGeneric: generic ? s.name : "",
           kind: s.kind,
           scope: s.scope,
           path: s.path,

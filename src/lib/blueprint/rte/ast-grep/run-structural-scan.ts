@@ -23,6 +23,8 @@ import {
   scanBatchInWorker,
   getAstGrepScanErrors,
   resetAstGrepScanErrors,
+  getAstGrepDynamicCalls,
+  resetAstGrepDynamicCalls,
 } from "./worker-pool";
 
 const logger = log.scope("ast-grep-structural");
@@ -34,6 +36,12 @@ const WORKER_BATCH_SIZE = 25;
 export type StructuralScanResult = {
   nodes: BlueprintNode[];
   edges: RTEBlueprintEdge[];
+  /**
+   * v12 S20: call sites whose callee is not a bare identifier (member,
+   * computed `obj[fn]()`, expression) — no edge could be produced, so the
+   * call graph is under-reported by roughly this many sites.
+   */
+  dynamicCallCount: number;
 };
 
 function symbolsToNodes(symbols: SymbolRecord[]): BlueprintNode[] {
@@ -106,9 +114,11 @@ export async function runStructuralScan(
   });
 
   let edges: RTEBlueprintEdge[] = [];
+  let dynamicCallCount = 0;
 
   if (isAstGrepWorkerPoolAvailable()) {
     resetAstGrepScanErrors(); // v12 Tier 6 #4: per-scan baseline
+    resetAstGrepDynamicCalls(); // v12 S20: same per-scan lifecycle
     for (let i = 0; i < scanFiles.length; i += WORKER_BATCH_SIZE) {
       const batch = scanFiles.slice(i, i + WORKER_BATCH_SIZE);
       const batchEdges = await scanBatchInWorker({
@@ -118,6 +128,7 @@ export async function runStructuralScan(
       });
       edges.push(...batchEdges);
     }
+    dynamicCallCount = getAstGrepDynamicCalls();
     const lost = getAstGrepScanErrors();
     if (lost > 0) {
       logger.warn(
@@ -126,12 +137,13 @@ export async function runStructuralScan(
       );
     }
   } else {
-    const edgeLists = await runBatch(
+    const fileResults = await runBatch(
       scanFiles,
       (f) => scanFileStructuralEdges(projectRoot, f, byFile),
       CONCURRENCY,
     );
-    edges = edgeLists.flat();
+    edges = fileResults.flatMap((r) => r.edges);
+    dynamicCallCount = fileResults.reduce((n, r) => n + r.dynamicCalls, 0);
   }
 
   const edgeMap = new Map<string, RTEBlueprintEdge>();
@@ -145,9 +157,10 @@ export async function runStructuralScan(
     files: scanFiles.length,
     nodes: nodes.length,
     edges: deduped.length,
+    dynamicCalls: dynamicCallCount,
     worker: isAstGrepWorkerPoolAvailable(),
     elapsedMs: Date.now() - t0,
   });
 
-  return { nodes, edges: deduped };
+  return { nodes, edges: deduped, dynamicCallCount };
 }

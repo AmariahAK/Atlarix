@@ -20,6 +20,19 @@ const THIN_ROOMS_WITH_FEW_EDGES = 4;
 const THIN_EDGE_COUNT = 5;
 const RICH_FUNCTION_COUNT = 40;
 const RICH_UNIQUE_FILES = 15;
+/**
+ * v12 S20 (Tier 6): density-ratio escape hatch. Well-modularized codebases
+ * (idiomatic Python especially: many small files, few functions each) trip
+ * the ABSOLUTE thresholds above and get degraded to file-tree backfill —
+ * losing symbol detail the parse actually produced. When functions-per-file
+ * meets this ratio AND there is confirmed connectivity (edges), the graph is
+ * dense-enough regardless of absolute count. Absolute thresholds remain the
+ * floor for genuinely sparse parses (high ratio on 1-2 files is meaningless,
+ * hence the minimum-files guard).
+ */
+const DENSE_FUNCTIONS_PER_FILE = 2;
+const DENSE_MIN_FILES = 3;
+const DENSE_MIN_EDGES = 1;
 
 function relFilePath(file?: string, description?: string): string {
   const p = (file ?? description ?? "").replace(/\\/g, "/").replace(/^\//, "");
@@ -61,10 +74,18 @@ export function assessBlueprintRichness(
 
   let quality: BlueprintQuality = "moderate";
 
+  // v12 S20: density override — a small-but-dense, connected graph is NOT
+  // thin even when the absolute counts say so (Python small-module style).
+  const denseEnough =
+    uniqueFiles >= DENSE_MIN_FILES &&
+    edgeCount >= DENSE_MIN_EDGES &&
+    functionCount / Math.max(1, uniqueFiles) >= DENSE_FUNCTIONS_PER_FILE;
+
   if (
-    functionCount < THIN_FUNCTION_COUNT ||
-    uniqueFiles < THIN_UNIQUE_FILES ||
-    (visibleRooms < THIN_ROOMS_WITH_FEW_EDGES && edgeCount < THIN_EDGE_COUNT)
+    !denseEnough &&
+    (functionCount < THIN_FUNCTION_COUNT ||
+      uniqueFiles < THIN_UNIQUE_FILES ||
+      (visibleRooms < THIN_ROOMS_WITH_FEW_EDGES && edgeCount < THIN_EDGE_COUNT))
   ) {
     quality = "thin";
   } else if (functionCount >= RICH_FUNCTION_COUNT && uniqueFiles >= RICH_UNIQUE_FILES) {
