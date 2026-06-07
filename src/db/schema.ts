@@ -462,8 +462,11 @@ export const searchProviders = sqliteTable("search_providers", {
     .default(sql`(unixepoch())`),
 });
 
-// Diagram tables removed with the diagram subsystem (legacy `diagrams` /
-// `workspace_diagrams` SQLite tables remain in old DBs; nothing reads or writes them).
+// Diagram tables removed with the diagram subsystem. The legacy `diagrams` /
+// `workspace_diagrams` SQLite tables are DROPPED by migration 0062 — `diagrams`
+// kept a dead FK to the 0058-dropped `chats` table, which made SQLite unable to
+// even PREPARE `DELETE FROM apps` (workspace deletion failed with
+// "no such table: main.chats").
 
 // --- Daily Logs ---
 // AI-generated micro-changelog for workspace activity

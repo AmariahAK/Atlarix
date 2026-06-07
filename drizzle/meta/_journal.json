@@ -435,6 +435,13 @@
       "when": 1780050000000,
       "tag": "0061_background_agent_meta",
       "breakpoints": true
+    },
+    {
+      "idx": 62,
+      "version": "6",
+      "when": 1780150000000,
+      "tag": "0062_drop_legacy_diagram_tables",
+      "breakpoints": true
     }
   ]
 }
