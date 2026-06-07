@@ -40,7 +40,7 @@ import {
 } from "@/lib/routing/model-capability-profile";
 import {
   evaluateRuleset,
-  loadWorkspaceRuleset,
+  loadEffectiveRuleset,
 } from "@/lib/tools/permissions/ruleset";
 import {
   runPreToolUseHooks,
@@ -866,18 +866,18 @@ async function runToolExecute(
     typeof executeArgs.workspace === "string" ? executeArgs.workspace : undefined;
   if (gateWorkspace) {
     const decision = evaluateRuleset(
-      loadWorkspaceRuleset(gateWorkspace),
+      loadEffectiveRuleset(gateWorkspace),
       toolName,
       executeArgs,
     );
     if (decision?.kind === "deny") {
       logger.warn(
-        `[ruleset] ${toolName} blocked by workspace permission rule: ${decision.rule}`,
+        `[ruleset] ${toolName} blocked by permission rule: ${decision.rule}`,
       );
       if (streamOpts?.turnId) recordToolUseForTurn(streamOpts.turnId, toolName);
       return JSON.stringify({
         success: false,
-        error: `Blocked by workspace permission rule \`${decision.rule}\` (.atlarix/permissions.json). Do not retry this exact call; choose a different approach or ask the user to adjust the rule.`,
+        error: `Blocked by permission rule \`${decision.rule}\` (.atlarix/permissions.json — workspace or global ~/.atlarix). Do not retry this exact call; choose a different approach or ask the user to adjust the rule.`,
       });
     }
     if (decision?.kind === "ask") {

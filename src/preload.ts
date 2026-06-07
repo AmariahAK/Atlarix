@@ -84,11 +84,6 @@ const validInvokeChannels = [
   "rename-app",
   "get-user-settings",
   "set-user-settings",
-  "hooks:list",
-  "hooks:create",
-  "hooks:update",
-  "hooks:delete",
-  "hooks:toggle",
   "commands:list",
   "commands:create",
   "commands:update",
@@ -394,6 +389,7 @@ const validReceiveChannels = [
   "force-close-detected",
   "db-ready",                  // Main: DB initialized, renderer can show app
   "apps:status-changed",       // Main: workspace folder presence changed (focus refresh)
+  "agents:background:started", // v12 S16: auto-surface the Agents tab
   // Help bot
   "help:chat:response:chunk",
   "help:chat:response:end",

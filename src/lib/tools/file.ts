@@ -801,10 +801,16 @@ ToolRegistry.register({
             const fullPath = workspace
                 ? resolvePathUnderWorkspace(workspace, searchPath || ".")
                 : path.resolve(stripToolPathPrefixes(searchPath || ".") || ".");
-            const files = await glob(pattern, {
+            const matched = await glob(pattern, {
                 cwd: fullPath,
                 ignore: ["node_modules/**", ".git/**", "dist/**"],
             });
+            // Secret-path denylist: never enumerate .env-style files (same
+            // policy as read_file/list_files — listing names leaks that
+            // secrets exist and invites a follow-up read).
+            const files = matched.filter(
+                (f) => !isBlockedSecretBasename(path.basename(f))
+            );
 
             if (files.length === 0) {
                 return `No files found matching pattern: ${pattern}. Often an extension or casing issue — try a broader glob (e.g. "**/${pattern}"), or use search to find the file by its content.`;

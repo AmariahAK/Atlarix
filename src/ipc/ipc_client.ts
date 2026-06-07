@@ -1080,6 +1080,21 @@ export class IpcClient {
     return this.ipcRenderer.invoke("agents:background:list");
   }
 
+  /** v12 S16: main pushed "a background agent started" — surface the Agents tab. */
+  public onBackgroundAgentStarted(
+    callback: (payload: { appId: number }) => void,
+  ): () => void {
+    const listener = (data: unknown) => {
+      if (data && typeof data === "object" && "appId" in data) {
+        callback(data as { appId: number });
+      }
+    };
+    this.ipcRenderer.on("agents:background:started", listener);
+    return () => {
+      this.ipcRenderer.removeListener("agents:background:started", listener);
+    };
+  }
+
   /** v12 2.3 V2: approval gate — keep the writes or revert the turn's snapshot. */
   public async resolveBackgroundAgent(
     sessionId: string,
@@ -2050,41 +2065,6 @@ export class IpcClient {
    */
   public async listRepoSkills(workspaceId: number | null | undefined): Promise<ListRepoSkillsResult> {
     return this.ipcRenderer.invoke("skills:list-repo-skills", { workspaceId: workspaceId ?? null });
-  }
-
-  // --- Hooks (advisory scripts) ---
-  public async listHooks(workspaceId?: number | null) {
-    return this.ipcRenderer.invoke("hooks:list", workspaceId ?? null);
-  }
-
-  public async createHook(params: {
-    name: string;
-    trigger: string;
-    command: string;
-    argsJson?: string | null;
-    workspaceId?: number | null;
-  }) {
-    return this.ipcRenderer.invoke("hooks:create", params);
-  }
-
-  public async updateHook(params: {
-    id: number;
-    name?: string;
-    trigger?: string;
-    command?: string;
-    argsJson?: string | null;
-    workspaceId?: number | null;
-    enabled?: boolean;
-  }) {
-    return this.ipcRenderer.invoke("hooks:update", params);
-  }
-
-  public async deleteHook(id: number) {
-    return this.ipcRenderer.invoke("hooks:delete", id);
-  }
-
-  public async toggleHook(id: number, enabled: boolean) {
-    return this.ipcRenderer.invoke("hooks:toggle", id, enabled);
   }
 
   // --- Custom slash commands ---

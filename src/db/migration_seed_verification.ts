@@ -222,6 +222,8 @@ export function isJournalMigrationApplied(
         columnExists(sqlite, "chat_sessions", "status") &&
         columnExists(sqlite, "chat_sessions", "status_error")
       );
+    case "0061_background_agent_meta":
+      return columnExists(sqlite, "chat_sessions", "agent_meta");
     case "0053_message_paste_attachments":
       return columnExists(sqlite, "messages", "paste_attachments");
     case "0054_message_file_attachments":

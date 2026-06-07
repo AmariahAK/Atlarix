@@ -42,6 +42,7 @@ import { useWorkspacePlanPanel } from '@/hooks/useWorkspacePlanPanel';
 import { workspacePlanPanelAtom } from '@/atoms/sourceAtoms';
 import { PlanExecutionPanel } from '@/components/preview_panel/PlanExecutionPanel';
 import { BrowserPanel } from '@/components/browser/BrowserPanel';
+import { IpcClient } from '@/ipc/ipc_client';
 
 // Icon configuration for secondary tabs
 const TAB_ICONS: Record<PanelTab, { icon: React.ElementType; label: string }> = {
@@ -204,6 +205,15 @@ Please fix these errors in priority order (structural/build errors first, then r
             document.removeEventListener('mouseup', handleMouseUp);
         };
     }, [isDragging, setWidth]);
+
+    // v12 S16: a background agent just started — surface the Agents tab so the
+    // user can watch/cancel/review it without knowing the tab exists.
+    useEffect(() => {
+        return IpcClient.getInstance().onBackgroundAgentStarted(() => {
+            setIsVisible(true);
+            setActiveTab('agents');
+        });
+    }, [setIsVisible, setActiveTab]);
 
     // Don't render if not visible
     if (!isVisible) {

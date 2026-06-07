@@ -1,7 +1,24 @@
 # Atlarix TODO
 
 **Current Version:** v11.0.0 (unreleased)
-**Last Updated:** 2026-06-06
+**Last Updated:** 2026-06-07
+
+---
+
+## Post-register batch (approved 2026-06-07): sessions 16–22
+
+> The four clusters the register left open: S16 security+follow-ups, S17/S18 TTFT perf (Tier 5 "perf is identity"), S19 tool-resolution consolidation (3.10), S20/S21 Blueprint tail + retrieval eval, S22 release v12.0.0 PREP (no tag — manual test first). Decisions recorded: single v12.0.0 version; worktree-per-agent DEFERRED; browser_navigate stays scheme-gated (consent follow-up CLOSED as conscious decision); renderer `file:read-content` stays ungated (user-initiated opens).
+
+### v12 session 16 — shipped (2026-06-07): security hardening + ruleset global layer + bg-agent restart fix
+
+| Area | Notes |
+|------|-------|
+| **find_file secret denylist** | `find_file` glob results filtered through `isBlockedSecretBasename` (file.ts) — enumerating `.env*`/key/credential names leaked that secrets exist (read_file/list_files/search were already gated; find_file was the gap). Unit: `find-file-secret-denylist.test.ts` (2). |
+| **Global `~/.atlarix/permissions.json` (2.2 follow-up)** | `ruleset.ts`: loader generalized to `loadRulesetFile` (same per-file mtime cache), `globalRulesetPath()` (+ `setGlobalAtlarixDirForTests` seam), `mergeRulesets` (deny/ask union, allocation-free when one side empty), `loadEffectiveRuleset` = merge(global, workspace) — wired at the single funnel call site. Deny error text now source-agnostic ("workspace or global ~/.atlarix"). Eval: global deny blocks a native run_command with no workspace deny; unit: 4 merge cases. |
+| **Legacy DB hooks RETIRED (2.2 follow-up)** | `hooks-manager.ts` + `hooks_handlers.ts` DELETED end-to-end (runtime read, 5 IPC channels, preload entries, ipc_client methods, settings-page editor → replaced with a static pointer to `.atlarix/hooks/hooks.json`, interceptor's `runAdvisoryHooks` + 7 call sites — the run_command `try/finally` became a bare block, session-4 pattern). `atlarix_hooks` TABLE + migrations KEPT (chain integrity, counsel precedent). Release note in S22: migrate to file hooks. |
+| **bg-agent restart-revert FIX (2.3 deferred)** | `snapshotTurnId`/`changedFiles`/`mode`/`reverted` lived only in the in-memory map — keep/revert was silently LOST on app restart. Migration **0061** adds `chat_sessions.agent_meta` (JSON); persisted on done/error/revert, restored in `hydrateBackgroundAgentsFromDb`. Eval: write → simulated reload → `resolve('revert')` still deletes the file (pre-S16: "No snapshot to revert"). |
+| **Agents tab auto-surface (2.3 deferred)** | Latent bug found: the `agents` tab was UNREACHABLE — session 15 wired type/icon/render arm but never added it to `PANEL_TABS['code-preview']`. Fixed + auto-surface: `agents:background:start` broadcasts `agents:background:started` to all windows; RightPanel listener opens the panel on the Agents tab (`onBackgroundAgentStarted` in ipc_client, preload receive channel added). |
+| **Verification** | 48 agent-evals (+2), `npm test` 1150/1150 (+8), `npm run ts` clean, oxlint 8 (baseline), knip 0 unused files, migration applies (eval temp DB + boot), boot smoke OK. |
 
 ---
 

@@ -64,6 +64,7 @@ import raw_57_0057_workspace_file_permissions from "../../../drizzle/0057_worksp
 import raw_58_0058_session_stream_and_drop_legacy_chats from "../../../drizzle/0058_session_stream_and_drop_legacy_chats.sql?raw";
 import raw_59_0059_mcp_oauth_columns from "../../../drizzle/0059_mcp_oauth_columns.sql?raw";
 import raw_60_0060_background_agent_session_status from "../../../drizzle/0060_background_agent_session_status.sql?raw";
+import raw_61_0061_background_agent_meta from "../../../drizzle/0061_background_agent_meta.sql?raw";
 
 export type BundledMigration = {
   name: string;
@@ -135,6 +136,7 @@ export const BUNDLED_MIGRATIONS: BundledMigration[] = [
   { name: "0058_session_stream_and_drop_legacy_chats", sql: raw_58_0058_session_stream_and_drop_legacy_chats as string, drizzleHash: "a0cb6ae056328ce764590f04674699982511735af5ab08ae076594e9fd1bb076", when: 1779750000000 },
   { name: "0059_mcp_oauth_columns", sql: raw_59_0059_mcp_oauth_columns as string, drizzleHash: "df51a6f67dc47dc70b6b37ef36652c9e0539ffe86703aa46c715cc2ee9b67cf2", when: 1779850000000 },
   { name: "0060_background_agent_session_status", sql: raw_60_0060_background_agent_session_status as string, drizzleHash: "d1c4eabed2ebafc76ffec6911899ae7b0e445f452ec44863318a07acebbb4bb2", when: 1779950000000 },
+  { name: "0061_background_agent_meta", sql: raw_61_0061_background_agent_meta as string, drizzleHash: "051367e12c9dbddf34f4e9f9296ce394772e02703bfb69e65425ca3b16efb260", when: 1780050000000 },
 ];
 
 /** Map Drizzle __drizzle_migrations.hash → migration tag for bridge. */
@@ -200,4 +202,5 @@ export const DRIZZLE_HASH_TO_NAME: Record<string, string> = {
   "a0cb6ae056328ce764590f04674699982511735af5ab08ae076594e9fd1bb076": "0058_session_stream_and_drop_legacy_chats",
   "df51a6f67dc47dc70b6b37ef36652c9e0539ffe86703aa46c715cc2ee9b67cf2": "0059_mcp_oauth_columns",
   "d1c4eabed2ebafc76ffec6911899ae7b0e445f452ec44863318a07acebbb4bb2": "0060_background_agent_session_status",
+  "051367e12c9dbddf34f4e9f9296ce394772e02703bfb69e65425ca3b16efb260": "0061_background_agent_meta",
 };

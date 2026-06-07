@@ -47,10 +47,6 @@ import {
 } from "../../../lib/terminal-instance-store";
 import { runCommandGitInitGateResult } from "../../../lib/git-init-command-guard";
 import { injectAgentGitIdentity } from "../../utils/git_author";
-import {
-    runHooksForTrigger,
-    type HookTrigger,
-} from "../../../lib/hooks/hooks-manager";
 import { SubscriptionManager } from "../../../lib/SubscriptionManager";
 
 const logger = log.scope("permission-interceptor");
@@ -267,18 +263,6 @@ export class PermissionInterceptor extends EventEmitter {
             const L = getLedger(planTurnId);
             if (L) await syncPlanFile(this.workspacePath, L);
         }
-    }
-
-    private async runAdvisoryHooks(
-        trigger: HookTrigger,
-        extraEnv: Record<string, string>,
-    ): Promise<void> {
-        await runHooksForTrigger({
-            trigger,
-            workspacePath: this.workspacePath,
-            workspaceId: this.workspaceId,
-            extraEnv,
-        });
     }
 
     /**
@@ -1103,14 +1087,11 @@ export class PermissionInterceptor extends EventEmitter {
             const { archiveCurrentPlan } = await import("@/lib/tasks/plan-sync");
             await archiveCurrentPlan(this.workspacePath, rel);
         }
-        await this.runAdvisoryHooks("before_file_write", { ATLARIX_FILE_PATH: rel });
-
         // Ensure directory exists
         await fs.mkdir(path.dirname(fullPath), { recursive: true });
 
         // Write file
         await fs.writeFile(fullPath, preview.content || "", "utf-8");
-        await this.runAdvisoryHooks("after_file_write", { ATLARIX_FILE_PATH: rel });
         logger.log(`Wrote file: ${fullPath}`);
         if (this.snapshotTurnId) {
             appendLedgerFilesWritten(this.snapshotTurnId, [
@@ -1137,12 +1118,10 @@ export class PermissionInterceptor extends EventEmitter {
                 const { archiveCurrentPlan } = await import("@/lib/tasks/plan-sync");
                 await archiveCurrentPlan(this.workspacePath, rel);
             }
-            await this.runAdvisoryHooks("before_file_write", { ATLARIX_FILE_PATH: rel });
             await fs.mkdir(path.dirname(fullPath), { recursive: true });
             await fs.writeFile(fullPath, preview.content || "", "utf-8");
             logger.log(`Wrote file: ${fullPath}`);
             relPaths.push(rel);
-            await this.runAdvisoryHooks("after_file_write", { ATLARIX_FILE_PATH: rel });
             if (isAtlarixPlanRelativePath(rel)) {
                 await this.refreshPlanLedgerFromWrittenFile(fullPath, rel);
             }
@@ -1367,12 +1346,10 @@ export class PermissionInterceptor extends EventEmitter {
         let commandProc: ChildProcess | null = null;
         let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
 
-        await this.runAdvisoryHooks("before_run_command", {
-            ATLARIX_COMMAND: commandToRun,
-            ATLARIX_WORKING_DIR: workingDir,
-        });
-
-        try {
+        // Bare block: was `try`/`finally` around the legacy DB advisory hooks
+        // (retired in S16 — `.atlarix/hooks/` at the tool funnel is the
+        // replacement); kept as a block to avoid reindenting the body.
+        {
             try {
                 // Stream stdout/stderr and emit on each chunk for live tool indicator
                 const result = await new Promise<CommandResult>((resolve, reject) => {
@@ -1491,11 +1468,6 @@ export class PermissionInterceptor extends EventEmitter {
                 logger.error(`[executeRunCommand] Error: ${commandToRun} - ${errorMessage}`);
                 throw error;
             }
-        } finally {
-            await this.runAdvisoryHooks("after_run_command", {
-                ATLARIX_COMMAND: commandToRun,
-                ATLARIX_WORKING_DIR: workingDir,
-            });
         }
     }
 

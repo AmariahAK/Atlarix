@@ -115,6 +115,12 @@ export const chatSessions = sqliteTable("chat_sessions", {
   status: text("status", { enum: ["running", "done", "error"] }),
   /** v12 2.3: error detail when status="error". */
   statusError: text("status_error"),
+  /**
+   * v12 S16: background-agent run metadata, JSON
+   * `{mode, snapshotTurnId, changedFiles, reverted}` — restores the
+   * keep/revert approval gate across app restarts. Null for normal sessions.
+   */
+  agentMeta: text("agent_meta"),
   createdAt: integer("created_at", { mode: "timestamp" })
     .notNull()
     .default(sql`(unixepoch())`),

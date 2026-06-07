@@ -219,4 +219,48 @@ describe("background agents V2 — write + approval gate (2.3)", () => {
     );
     expect(hydrated?.status).toBe("done"); // survived the reload
   }, 30_000);
+
+  it("keep/revert still works after a simulated reload (agent_meta, S16)", async () => {
+    ctx.server.register(
+      scenario("bg-restart-revert")
+        .toolCall("write_file", {
+          path: "src/restart-revert-me.ts",
+          content: "export const rr = 1;\n",
+          description: "write then revert after reload",
+        })
+        .text("done <task_complete>")
+        .build(),
+    );
+    const {
+      startBackgroundAgent,
+      resolveBackgroundAgent,
+      hydrateBackgroundAgentsFromDb,
+      listBackgroundAgents,
+      _resetBackgroundAgents,
+    } = await import("@/lib/agents/background-agent");
+    _resetBackgroundAgents();
+    const { sessionId } = await startBackgroundAgent({
+      appId: ctx.appId,
+      prompt: "sc=bg-restart-revert w",
+      mode: "build",
+      startedAt: 7_000,
+    });
+    expect(ctx.ws.exists("src/restart-revert-me.ts")).toBe(true);
+
+    // Simulate restart BEFORE the user resolves the approval gate.
+    _resetBackgroundAgents();
+    await hydrateBackgroundAgentsFromDb();
+    const hydrated = listBackgroundAgents().find(
+      (a) => a.sessionId === sessionId,
+    );
+    // The gate fields came back from the persisted agent_meta JSON.
+    expect(hydrated?.mode).toBe("build");
+    expect(hydrated?.snapshotTurnId).toBeTruthy();
+    expect(hydrated?.changedFiles).toContain("src/restart-revert-me.ts");
+
+    // Revert still works — pre-S16 this failed with "No snapshot to revert".
+    const res = await resolveBackgroundAgent(sessionId, "revert");
+    expect(res.reverted).toBe(true);
+    expect(ctx.ws.exists("src/restart-revert-me.ts")).toBe(false);
+  }, 40_000);
 });

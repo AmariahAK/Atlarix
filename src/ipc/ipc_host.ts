@@ -53,7 +53,6 @@ import { registerWorkspaceSnapshotHandlers } from "./handlers/workspace_snapshot
 // PASS6: Blueprint subsystem restored.
 import { registerBlueprintHandlers } from "./handlers/blueprint_handlers";
 import { registerDbExtensionHandlers } from "./handlers/db_extension_handlers";
-import { registerHooksHandlers } from "./handlers/hooks_handlers";
 import { registerCommandsHandlers } from "./handlers/commands_handlers";
 import { registerStreamHandlers } from "./handlers/stream_handlers";
 import { registerGitHubActionsHandlers } from "./handlers/github_actions_handlers";
@@ -127,7 +126,6 @@ export function registerIpcHandlers() {
   // PASS6: Blueprint subsystem restored.
   registerBlueprintHandlers();
   registerDbExtensionHandlers(); // DB Studio extension (Pro)
-  registerHooksHandlers();
   registerCommandsHandlers(); // v3.6 Auto routing preview
   registerStreamHandlers(); // v3.9 Stream tools (terminal/pipeline)
   registerGitHubActionsHandlers(); // v3.9 GitHub Actions panel

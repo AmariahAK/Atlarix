@@ -1,4 +1,4 @@
-import { ipcMain } from "electron";
+import { BrowserWindow, ipcMain } from "electron";
 import { db } from "../../db";
 import { apps } from "../../db/schema";
 import { eq } from "drizzle-orm";
@@ -95,6 +95,12 @@ export function registerChatHandlers() {
       // Fire-and-forget — runs detached; the UI polls agents:background:list.
       const startedAt = Date.now();
       void startBackgroundAgent({ ...args, startedAt }).catch(() => {});
+      // S16: nudge the renderer to surface the Agents tab.
+      for (const win of BrowserWindow.getAllWindows()) {
+        win.webContents.send("agents:background:started", {
+          appId: args.appId,
+        });
+      }
       return { ok: true };
     },
   );

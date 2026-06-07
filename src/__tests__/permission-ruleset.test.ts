@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import {
   compileRule,
   evaluateRuleset,
+  mergeRulesets,
   ruleMatchTarget,
 } from "@/lib/tools/permissions/ruleset";
 
@@ -93,5 +94,47 @@ describe("evaluateRuleset", () => {
     expect(compileRule("not a valid (rule (")).toBeNull();
     const rs = compiled(["", "write_file(ok*)"]);
     expect(rs.deny.length).toBe(1);
+  });
+});
+
+describe("mergeRulesets (global ~/.atlarix layer, S16)", () => {
+  it("unions deny and ask lists from both sides", () => {
+    const merged = mergeRulesets(
+      compiled(["run_command(curl *)"], ["run_command(git push*)"]),
+      compiled(["write_file(*.env*)"], ["run_command(npm publish*)"]),
+    );
+    expect(merged.deny.map((r) => r.raw)).toEqual([
+      "run_command(curl *)",
+      "write_file(*.env*)",
+    ]);
+    expect(merged.ask.map((r) => r.raw)).toEqual([
+      "run_command(git push*)",
+      "run_command(npm publish*)",
+    ]);
+  });
+
+  it("a global deny still wins over a workspace ask (deny > ask)", () => {
+    const merged = mergeRulesets(
+      compiled(["run_command(git push*)"]),
+      compiled([], ["run_command(git *)"]),
+    );
+    expect(
+      evaluateRuleset(merged, "run_command", {
+        command: "git push origin main",
+      })?.kind,
+    ).toBe("deny");
+  });
+
+  it("returns the other side as-is when one is empty (no-allocation fast path)", () => {
+    const ws = compiled(["run_command(rm *)"]);
+    expect(mergeRulesets(compiled(), ws)).toBe(ws);
+    expect(mergeRulesets(ws, compiled())).toBe(ws);
+  });
+
+  it("two empties stay empty (pre-2.2 behavior preserved)", () => {
+    const merged = mergeRulesets(compiled(), compiled());
+    expect(
+      evaluateRuleset(merged, "run_command", { command: "anything" }),
+    ).toBeNull();
   });
 });

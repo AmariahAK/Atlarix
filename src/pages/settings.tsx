@@ -478,16 +478,6 @@ export function WorkflowSettings() {
   );
 }
 
-type HookRow = {
-  id: number;
-  name: string;
-  trigger: string;
-  command: string;
-  argsJson?: string | null;
-  workspaceId?: number | null;
-  enabled?: boolean;
-};
-
 type CommandRow = {
   id: number;
   name: string;
@@ -501,12 +491,7 @@ const SHOW_CUSTOM_COMMANDS_SETTINGS = false;
 
 function HooksAndCommandsSettings() {
   const appId = useAtomValue(selectedAppIdAtom);
-  const [hooks, setHooks] = useState<HookRow[]>([]);
   const [commands, setCommands] = useState<CommandRow[]>([]);
-  const [hookName, setHookName] = useState("");
-  const [hookTrigger, setHookTrigger] = useState("after_file_write");
-  const [hookCommand, setHookCommand] = useState("");
-  const [hookArgs, setHookArgs] = useState("");
   const [cmdName, setCmdName] = useState("");
   const [cmdTemplate, setCmdTemplate] = useState("{{input}}");
   const [cmdMode, setCmdMode] = useState("");
@@ -514,14 +499,11 @@ function HooksAndCommandsSettings() {
   const reload = useCallback(async () => {
     const ipc = IpcClient.getInstance();
     try {
-      const h = (await ipc.listHooks(appId ?? null)) as HookRow[];
       const c = SHOW_CUSTOM_COMMANDS_SETTINGS
         ? ((await ipc.listCustomCommands(appId ?? null)) as CommandRow[])
         : [];
-      setHooks(Array.isArray(h) ? h : []);
       setCommands(Array.isArray(c) ? c : []);
     } catch {
-      setHooks([]);
       setCommands([]);
     }
   }, [appId]);
@@ -535,99 +517,14 @@ function HooksAndCommandsSettings() {
       <div className="space-y-3">
         <h3 className="text-sm font-medium text-foreground">Hooks</h3>
         <p className="text-xs text-muted-foreground max-w-2xl">
-          Non-blocking scripts around file writes and run_command. Uses{" "}
-          <code className="text-[11px]">ATLARIX_*</code> environment variables. Scoped to this
-          workspace when one is selected; otherwise global hooks only.
+          Hooks are configured per workspace in{" "}
+          <code className="text-[11px]">.atlarix/hooks/hooks.json</code> — blocking{" "}
+          <code className="text-[11px]">pre_tool_use</code>, advisory{" "}
+          <code className="text-[11px]">post_tool_use</code>, and a{" "}
+          <code className="text-[11px]">stop</code> gate on task completion, all enforced
+          at the tool-execution funnel. The file is committable, so hooks travel with
+          the repo. See the workspace contract docs for the format.
         </p>
-        <div className="flex flex-wrap gap-2 items-end max-w-2xl">
-          <Input
-            placeholder="Name"
-            value={hookName}
-            onChange={(e) => setHookName(e.target.value)}
-            className="w-32"
-          />
-          <Select value={hookTrigger} onValueChange={setHookTrigger}>
-            <SelectTrigger className="w-[11rem]">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="before_file_write">before_file_write</SelectItem>
-              <SelectItem value="after_file_write">after_file_write</SelectItem>
-              <SelectItem value="before_run_command">before_run_command</SelectItem>
-              <SelectItem value="after_run_command">after_run_command</SelectItem>
-            </SelectContent>
-          </Select>
-          <Input
-            placeholder="Executable path"
-            value={hookCommand}
-            onChange={(e) => setHookCommand(e.target.value)}
-            className="flex-1 min-w-[8rem]"
-          />
-          <Input
-            placeholder='Args JSON e.g. ["--quiet"]'
-            value={hookArgs}
-            onChange={(e) => setHookArgs(e.target.value)}
-            className="w-40"
-          />
-          <Button
-            type="button"
-            size="sm"
-            variant="secondary"
-            onClick={async () => {
-              const r = await IpcClient.getInstance().createHook({
-                name: hookName,
-                trigger: hookTrigger,
-                command: hookCommand,
-                argsJson: hookArgs.trim() || null,
-                workspaceId: appId ?? null,
-              });
-              if ((r as { ok?: boolean }).ok !== false) {
-                setHookName("");
-                setHookCommand("");
-                setHookArgs("");
-                void reload();
-              }
-            }}
-          >
-            Add hook
-          </Button>
-        </div>
-        <ul className="text-xs space-y-1 max-w-2xl">
-          {hooks.map((h) => (
-            <li
-              key={h.id}
-              className="flex flex-wrap items-center gap-2 border border-border/60 rounded px-2 py-1"
-            >
-              <span className="font-medium">{h.name}</span>
-              <span className="text-muted-foreground">{h.trigger}</span>
-              <span className="font-mono truncate max-w-[12rem]">{h.command}</span>
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="h-6 text-[11px]"
-                onClick={async () => {
-                  await IpcClient.getInstance().toggleHook(h.id, !h.enabled);
-                  void reload();
-                }}
-              >
-                {h.enabled === false ? "Enable" : "Disable"}
-              </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="h-6 text-[11px] text-destructive"
-                onClick={async () => {
-                  await IpcClient.getInstance().deleteHook(h.id);
-                  void reload();
-                }}
-              >
-                Delete
-              </Button>
-            </li>
-          ))}
-        </ul>
       </div>
 
       {SHOW_CUSTOM_COMMANDS_SETTINGS ? (

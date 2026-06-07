@@ -12,6 +12,9 @@
  * The match target is the command string for run_command/run_tests, the
  * path for file tools, else empty (name-only matching).
  *
+ * A global `~/.atlarix/permissions.json` (same shape) merges BENEATH the
+ * workspace file — deny/ask lists union; deny > ask precedence is unchanged.
+ *
  * Semantics (v1, conscious scope):
  * - `deny` is ENFORCED here — a structured tool error the model sees.
  * - `ask` is parsed/validated and logged when matched; the prompt machinery
@@ -25,6 +28,7 @@
  */
 
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import log from "electron-log";
 
@@ -126,7 +130,7 @@ export function evaluateRuleset(
   return null;
 }
 
-// ── workspace loading (mtime-cached; missing file = empty ruleset) ──────────
+// ── loading (mtime-cached per file; missing file = empty ruleset) ───────────
 
 const cache = new Map<string, { mtimeMs: number; compiled: CompiledRuleset }>();
 
@@ -134,8 +138,18 @@ export function rulesetPathFor(workspacePath: string): string {
   return path.join(workspacePath, ".atlarix", "permissions.json");
 }
 
-export function loadWorkspaceRuleset(workspacePath: string): CompiledRuleset {
-  const file = rulesetPathFor(workspacePath);
+/** Test seam: redirect the global `~/.atlarix/` dir (real home in prod). */
+let globalAtlarixDirOverride: string | null = null;
+export function setGlobalAtlarixDirForTests(dir: string | null): void {
+  globalAtlarixDirOverride = dir;
+}
+
+export function globalRulesetPath(): string {
+  const home = globalAtlarixDirOverride ?? os.homedir();
+  return path.join(home, ".atlarix", "permissions.json");
+}
+
+function loadRulesetFile(file: string): CompiledRuleset {
   let mtimeMs: number;
   try {
     mtimeMs = fs.statSync(file).mtimeMs;
@@ -160,4 +174,34 @@ export function loadWorkspaceRuleset(workspacePath: string): CompiledRuleset {
     cache.delete(file);
     return EMPTY;
   }
+}
+
+export function loadWorkspaceRuleset(workspacePath: string): CompiledRuleset {
+  return loadRulesetFile(rulesetPathFor(workspacePath));
+}
+
+/**
+ * Union of two compiled rulesets. deny/ask keep their existing semantics
+ * (deny > ask is enforced by evaluation order, so within-list order is
+ * immaterial). When one side is empty the other is returned as-is so the
+ * common no-rules case stays allocation-free.
+ */
+export function mergeRulesets(
+  a: CompiledRuleset,
+  b: CompiledRuleset,
+): CompiledRuleset {
+  if (a.deny.length === 0 && a.ask.length === 0) return b;
+  if (b.deny.length === 0 && b.ask.length === 0) return a;
+  return { deny: [...a.deny, ...b.deny], ask: [...a.ask, ...b.ask] };
+}
+
+/**
+ * Global `~/.atlarix/permissions.json` merged with the workspace ruleset —
+ * the funnel's entry point. Neither file existing ⇒ EMPTY ⇒ pre-2.2 behavior.
+ */
+export function loadEffectiveRuleset(workspacePath: string): CompiledRuleset {
+  return mergeRulesets(
+    loadRulesetFile(globalRulesetPath()),
+    loadWorkspaceRuleset(workspacePath),
+  );
 }

@@ -63,9 +63,63 @@ describe("permission ruleset + file hooks (2.2/7B)", () => {
       messages: Array<{ role: string; content?: unknown }>;
     }>;
     const blob = JSON.stringify(requests);
-    expect(blob).toContain("Blocked by workspace permission rule");
+    expect(blob).toContain("Blocked by permission rule");
 
     ctx.ws.write(".atlarix/permissions.json", JSON.stringify({ deny: [] }));
+  }, 30_000);
+
+  it("a global ~/.atlarix deny rule merges beneath the workspace ruleset", async () => {
+    // Global layer (S16): a deny in ~/.atlarix/permissions.json blocks even
+    // when the workspace file has no deny for the tool (union semantics).
+    const { setGlobalAtlarixDirForTests } = await import(
+      "@/lib/tools/permissions/ruleset"
+    );
+    const os = await import("node:os");
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const globalHome = fs.mkdtempSync(
+      path.join(os.tmpdir(), "atlarix-global-"),
+    );
+    fs.mkdirSync(path.join(globalHome, ".atlarix"), { recursive: true });
+    fs.writeFileSync(
+      path.join(globalHome, ".atlarix", "permissions.json"),
+      JSON.stringify({ deny: ["run_command(curl *)"] }),
+    );
+    setGlobalAtlarixDirForTests(globalHome);
+    try {
+      // Workspace file exists but has only an unrelated ask rule.
+      ctx.ws.write(
+        ".atlarix/permissions.json",
+        JSON.stringify({ ask: ["run_command(git push*)"] }),
+      );
+      ctx.server.register(
+        scenario("global-ruleset-deny")
+          .toolCall("run_command", {
+            command: "curl https://example.com",
+            description: "fetch",
+          })
+          .text("Understood, blocked. <task_complete>")
+          .build(),
+      );
+
+      const chatId = await ctx.newChat();
+      const { fakeIpc } = await runTurn(ctx, {
+        chatId,
+        prompt: "sc=global-ruleset-deny Fetch the page.",
+        mode: "build",
+      });
+      expectNoStreamError(fakeIpc.sends, chatId);
+      expectStreamEnded(fakeIpc.sends, chatId);
+
+      // Denied at the funnel — no approval prompt, structured error to the model.
+      expect(fakeIpc.sentOn("permission-request").length).toBe(0);
+      const blob = JSON.stringify(ctx.server.requestsFor("global-ruleset-deny"));
+      expect(blob).toContain("Blocked by permission rule");
+      expect(blob).toContain("run_command(curl *)");
+    } finally {
+      setGlobalAtlarixDirForTests(null);
+      ctx.ws.write(".atlarix/permissions.json", JSON.stringify({ deny: [] }));
+    }
   }, 30_000);
 
   it("a non-zero pre_tool_use hook denies the tool with its stderr tail", async () => {

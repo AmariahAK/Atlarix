@@ -18,9 +18,10 @@
  *    `keep` or `revert` (resolveBackgroundAgent).
  *
  * Status is persisted on the session row (kind="background", status=…) so a
- * finished/failed agent survives a restart; the in-memory map adds the live
- * fields (chatId, snapshotTurnId, changedFiles) the approval gate needs during
- * the session's lifetime.
+ * finished/failed agent survives a restart. The approval-gate fields
+ * (mode, snapshotTurnId, changedFiles, reverted) persist alongside as the
+ * row's `agent_meta` JSON (S16) so keep/revert still works after a restart;
+ * the in-memory map adds only the truly live field (chatId, for cancel).
  */
 
 import log from "electron-log";
@@ -84,6 +85,41 @@ async function persistStatus(
   }
 }
 
+/** Approval-gate fields persisted on the session row (`agent_meta` JSON, S16). */
+interface PersistedAgentMeta {
+  mode?: BackgroundAgentMode;
+  snapshotTurnId?: string;
+  changedFiles?: string[];
+  reverted?: boolean;
+}
+
+async function persistAgentMeta(rec: BackgroundAgentRecord): Promise<void> {
+  const meta: PersistedAgentMeta = {
+    mode: rec.mode,
+    snapshotTurnId: rec.snapshotTurnId,
+    changedFiles: rec.changedFiles,
+    reverted: rec.reverted,
+  };
+  try {
+    await db
+      .update(chatSessions)
+      .set({ agentMeta: JSON.stringify(meta), updatedAt: new Date() })
+      .where(eq(chatSessions.id, rec.sessionId));
+  } catch (e) {
+    logger.warn(`persistAgentMeta(${rec.sessionId}) failed: ${String(e)}`);
+  }
+}
+
+function parseAgentMeta(raw: string | null): PersistedAgentMeta {
+  if (!raw) return {};
+  try {
+    const v = JSON.parse(raw) as PersistedAgentMeta;
+    return v && typeof v === "object" ? v : {};
+  } catch {
+    return {};
+  }
+}
+
 /**
  * Rebuild the in-memory map from persisted background sessions on boot.
  * A row still "running" at boot was interrupted by the restart (its turn is
@@ -103,16 +139,21 @@ export async function hydrateBackgroundAgentsFromDb(): Promise<void> {
         error = "interrupted by restart";
         void persistStatus(row.id, "error", error);
       }
+      // S16: restore the approval-gate fields so keep/revert survives restart.
+      const meta = parseAgentMeta(row.agentMeta);
       agents.set(row.id, {
         sessionId: row.id,
         appId: row.workspaceId,
         title: row.title.replace(/^🤖\s*/, ""),
         prompt: "",
-        mode: "ask",
+        mode: meta.mode ?? "ask",
         status,
         startedAt: row.createdAt.getTime(),
         finishedAt: row.updatedAt.getTime(),
         error,
+        snapshotTurnId: meta.snapshotTurnId,
+        changedFiles: meta.changedFiles,
+        reverted: meta.reverted,
       });
     }
     logger.log(`Hydrated ${rows.length} background agent(s) from DB`);
@@ -254,6 +295,7 @@ export async function startBackgroundAgent(
     record.status = "done";
     record.finishedAt = input.startedAt + 1;
     await persistStatus(sessionId, "done");
+    await persistAgentMeta(record); // S16: keep/revert survives restart
     logger.log(
       `Background agent ${sessionId} finished (${content.length} chars, ${record.changedFiles?.length ?? 0} files)`,
     );
@@ -262,6 +304,7 @@ export async function startBackgroundAgent(
     record.error = String(e);
     record.finishedAt = input.startedAt + 1;
     await persistStatus(sessionId, "error", String(e));
+    await persistAgentMeta(record); // S16: a failed write turn may still revert
     logger.error(`Background agent ${sessionId} failed: ${String(e)}`);
   } finally {
     if (mode === "build") setBackgroundAutoApprove(chatId, false);
@@ -304,6 +347,7 @@ export async function resolveBackgroundAgent(
     turnId: rec.snapshotTurnId,
   });
   rec.reverted = result.success;
+  if (result.success) await persistAgentMeta(rec); // S16
   return {
     success: result.success,
     reverted: result.success,

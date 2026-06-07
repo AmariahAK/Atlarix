@@ -428,6 +428,13 @@
       "when": 1779950000000,
       "tag": "0060_background_agent_session_status",
       "breakpoints": true
+    },
+    {
+      "idx": 61,
+      "version": "6",
+      "when": 1780050000000,
+      "tag": "0061_background_agent_meta",
+      "breakpoints": true
     }
   ]
 }
