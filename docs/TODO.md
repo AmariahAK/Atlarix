@@ -1,6 +1,6 @@
 # Atlarix TODO
 
-**Current Version:** v11.0.0 (unreleased)
+**Current Version:** v12.0.0 (unreleased — manual test pending, see docs/v12-manual-test-checklist.md; do NOT tag until it passes)
 **Last Updated:** 2026-06-07
 
 ---
@@ -8,6 +8,17 @@
 ## Post-register batch (approved 2026-06-07): sessions 16–22
 
 > The four clusters the register left open: S16 security+follow-ups, S17/S18 TTFT perf (Tier 5 "perf is identity"), S19 tool-resolution consolidation (3.10), S20/S21 Blueprint tail + retrieval eval, S22 release v12.0.0 PREP (no tag — manual test first). Decisions recorded: single v12.0.0 version; worktree-per-agent DEFERRED; browser_navigate stays scheme-gated (consent follow-up CLOSED as conscious decision); renderer `file:read-content` stays ungated (user-initiated opens).
+
+### v12 session 22 — shipped (2026-06-07): release v12.0.0 PREP (no tag — manual test first)
+
+| Area | Notes |
+|------|-------|
+| **Version** | `package.json` 10.1.0 → **12.0.0** (decision: the never-tagged v11 work folds into one v12.0.0 release). `npm run verify:lockfile` clean. |
+| **Changelog** | `[12.0.0] — Unreleased (pending manual test)` section written: the engine release (unified loop, native history, edit-verify, capability profiles, permissions+hooks, user agents, background agents, Blueprint v2 + measured baseline, TTFT work, eval harness) + Fixed/Changed including the **legacy DB hooks retirement release note** (migrate to `.atlarix/hooks/hooks.json`). The v11 section retitled "included in 12.0.0 above". |
+| **README** | Current release → v12.0.0; new bullets: background agents, user agents + portable `.atlarix`/`~/.atlarix` config, verified edits, native tool history. |
+| **CI sanity** | release.yml `ATLARIX_CORE_MODEL_1..3` fall back to legacy `COMPASS_MODEL_*`; **CORE_MODEL_4 has NO fallback — set the repo secret before tagging**. Bundled migrations cover 0061 (62 total). |
+| **`docs/v12-manual-test-checklist.md`** | The pre-tag deliverable: engine parity per mode, prompt-cache hold + native replay across reload, edit-verify gate on/off, ruleset/hook enforcement (incl. global layer + Settings pointer), background agents incl. restart-revert, capability trim on a 7B, Blueprint v2 on real repos, **wall-clock TTFT on the largest real workspace** (the human verification of S17/S18), packaged-build + migration-on-real-profile checks, then the tag command. |
+| **NOT done on purpose** | No `git tag`, no push to atlarix-releases, no launchpad edits (launchpad copy aligns AFTER the release is live — checklist item 10). |
 
 ### v12 session 21 — shipped (2026-06-07): retrieval eval — the Tier-6 "measure it" baseline
 

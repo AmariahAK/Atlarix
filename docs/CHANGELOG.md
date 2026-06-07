@@ -1,6 +1,42 @@
 # Atlarix Changelog
 
-## [Unreleased] — v11.0.0: In-app browser, WebMCP, Atlarix Core, document readers, much lighter app
+## [12.0.0] — Unreleased (pending manual test): The engine release — one agent loop, native tool history, verified edits, background agents
+
+> Everything since 10.1.0 ships as one release: the v12 core-loop rewrite (22 build sessions) plus the v11 feature batch (in-app browser, WebMCP, Atlarix Core, document readers) that was never tagged separately.
+
+### Added (v12)
+
+- **One unified agent engine:** Every mode (Explore/Plan/Build/Debug/Review) now runs the same `runAgentTurn` loop. The four divergent per-mode loops — each with its own abort, compaction, and permission quirks — are gone; cross-cutting fixes land once and apply everywhere. Found and fixed along the way: the plan-writing tools were never actually offered in Plan mode, loop-detection corrections never reached the model mid-round, and approving `run_tests` silently executed the wrong operation.
+- **Native tool-call history:** Tool calls and results are carried as real provider-native blocks instead of being flattened to text. Weak and local models perform dramatically better (providers train on native tool formats), prompt caching holds across multi-step turns (the history is byte-stable round to round), and `browser_screenshot` is finally *visible* to vision models instead of arriving as base64 text.
+- **Edit verification in the loop:** After each round's writes, LSP diagnostics on the touched files feed straight back to the model — and a turn can no longer claim completion on top of broken code (`enableAutoFixProblems` now actually does this; it was a dead toggle). Failed `edit_file` matches return the closest-candidate region with explicit re-read guidance instead of a bare error.
+- **Per-model capability profiles:** Known-strong models get the full ~38-tool surface; clearly weak/local models get a trimmed, core-first set with simplified schemas — so a 7B model isn't handed an orchestration surface it can't drive. Tool resolution is one documented 4-stage pipeline assembled in exactly one place, with the per-mode offered surface pinned by an exact-list eval.
+- **Portable permissions + hooks:** `.atlarix/permissions.json` (committable deny/ask rules, Claude-Code-style `tool(glob)` patterns) is enforced for every tool path at the single execution funnel, and a global `~/.atlarix/permissions.json` layer merges beneath the workspace file. File-based `.atlarix/hooks/hooks.json` adds blocking `pre_tool_use`, advisory `post_tool_use`, and a `stop` gate that can hold `task_complete` until your check passes.
+- **User-defined agents:** Drop `.atlarix/agents/<name>.md` (system prompt + mode + optional model/tool allowlist) into a repo and it appears in the mode picker. Committable — your team shares them with the code.
+- **Background agents:** Spawn detached agents that run a full turn into their own session — read-only by default, or write-capable with auto-approved writes captured by shadow-git and an explicit **keep/revert** review of the aggregate diff. Status, cancel, and the keep/revert gate live in a new Agents panel tab (which auto-surfaces when an agent starts) and survive app restarts.
+- **BYOK cost estimate:** Each turn on a BYOK provider shows an estimated USD cost (provider pricing or a maintained static table; never a guessed number).
+- **Blueprint v2:** Aliased imports (`tsconfig` paths/baseUrl, package `#imports`) now resolve to real cross-module edges; slices are relevance-ranked (BM25 over symbols fused with graph centrality) with ctags signatures inline; dynamic/member call sites are *disclosed* ("connectivity under-reported by ~N sites") instead of silently dropped; dense small-module codebases (idiomatic Python) no longer degrade to file-tree fallback. Measured baseline on a ground-truth fixture: **get_blueprint precision@1 = 100%** across exact/fuzzy/structural/Python query categories vs 45% for raw lexical search.
+- **Faster first token:** The pre-flight pipeline (usage check, model client, context loads) is instrumented end-to-end (`[perf] preflight-breakdown`) and parallelized — network round-trips overlap, the six context-section loads run concurrently (wall-clock = slowest load, not the sum).
+- **Agent-eval test harness:** 55 behavioral evals drive the REAL chat engine against a scripted in-process LLM server with a real temp database — the safety net the entire rewrite shipped on.
+
+### Changed (v12)
+
+- **Legacy DB hooks retired:** The old Settings-page hooks (database rows, advisory-only, `before/after_file_write` triggers) are removed. **Migrate to `.atlarix/hooks/hooks.json`** — the file-based hooks are committable, support blocking denial, and run at the tool funnel where they can't be bypassed. The Settings page now points at the file format.
+- **`find_file` respects the secret denylist:** Glob results no longer enumerate `.env*`/key/credential filenames (read tools were already gated; listing names leaked their existence).
+- **Messages have one store of record:** Session DB rows carry the id everywhere (`sessionRowId`); the fragile ordinal-mapping edit path is deleted. Editing a message can no longer silently diverge from what's persisted.
+- **`agent` chat mode folded into Build:** The vestigial third path double-dispatched every turn and skipped workspace injection; persisted selections coerce automatically.
+
+### Fixed (v12)
+
+- Approving a `run_tests` permission executed a bogus operation (the legacy text marker was misparsed) — it now runs through the normal command path.
+- Loop-detection guidance reaches the model mid-round via `prepareStep` injection (previously only the third-strike abort worked).
+- Background write-agents keep their keep/revert capability across app restarts (the snapshot reference was in-memory only).
+- The Agents panel tab was unreachable (never added to the tab list) — fixed, plus auto-surface on agent start.
+- A runaway model calling tools in a loop is aborted mid-stream (the guard previously waited for a round boundary that never came).
+- Generic-named symbols (`handle`, `process`, `get`…) no longer dominate Blueprint relevance ranking over contextual matches.
+
+---
+
+## v11.0.0 work — included in 12.0.0 above (never tagged separately): In-app browser, WebMCP, Atlarix Core, document readers, much lighter app
 
 ### Added (v11)
 
