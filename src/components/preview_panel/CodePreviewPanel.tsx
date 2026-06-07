@@ -42,7 +42,6 @@ import { currentAppAtom } from '@/atoms/appAtoms';
 import { WorkspaceFileTree } from '@/components/workspace/WorkspaceFileTree';
 import { CodebaseSearchBox } from '@/components/CodebaseSearchBox';
 import { type ParsedError } from '@/lib/devServerErrorParser';
-import { ErrorFileEditor } from './ErrorFileEditor';
 import { FileEditor } from './FileEditor';
 import { TerminalPanel } from '@/components/panels/TerminalPanel';
 
@@ -510,21 +509,12 @@ function CodeTab({
             .finally(() => setSidebarFileLoading(false));
     }, [selectedFilePath, workspacePath, appId, selectedErrorForCode?.line, onSelectedErrorForCodeConsumed]);
 
-    // Check if we have errors with file paths - show editor for those
-    const filesWithErrors = errors.filter(e => e.file);
-
-    // If there are errors with files, show the ErrorFileEditor
-    if (filesWithErrors.length > 0 && workspacePath) {
-        return (
-            <ErrorFileEditor
-                errors={errors}
-                workspacePath={workspacePath}
-                initialFilePath={selectedFilePath || undefined}
-                initialLine={selectedErrorForCode?.line}
-                onInitialFilePathConsumed={onSelectedErrorForCodeConsumed}
-            />
-        );
-    }
+    // The Code tab ALWAYS shows the file tree + editor. Runtime/preview errors
+    // render as VS Code-style squiggles inside FileEditor (previewErrors →
+    // applyPreviewMarkersToModel) and as the list in the Errors tab — the
+    // legacy ErrorFileEditor takeover (which hijacked this tab whenever any
+    // error carried a file path, sometimes into an EMPTY "No files with
+    // errors" state after its own external-file filtering) is gone.
 
     // Miniscreen mode: file tree sidebar + editor whenever a workspace is selected
     if (appId) {
@@ -564,6 +554,7 @@ function CodeTab({
                         <FileEditor
                             appId={appId}
                             filePath={treeFileContent.path}
+                            previewErrors={errors}
                             initialLine={
                                 treeOpenLineRef.current?.path === treeFileContent.path
                                     ? treeOpenLineRef.current.line
