@@ -33,11 +33,8 @@ import {
 } from "@/lib/ai/native-history";
 import { runAgentTurn } from "@/lib/agent/run-agent-turn";
 import { buildPostWriteVerify } from "@/lib/agent/post-write-verify";
-import {
-  getCapabilityProfile,
-  trimToolsForCapability,
-  simplifyToolParametersForProfile,
-} from "@/lib/routing/model-capability-profile";
+import { simplifyToolParametersForProfile } from "@/lib/routing/model-capability-profile";
+import { resolveToolsetForSession } from "@/lib/tools/resolve-toolset";
 import {
   evaluateRuleset,
   loadEffectiveRuleset,
@@ -179,17 +176,8 @@ import {
   pasteToAttachmentData,
 } from "../../lib/attachment-persistence";
 import type { StoredFileAttachment } from "../ipc_types";
-import {
-  generateProgressiveRevealNote,
-  isCoreTool,
-  isWorkspaceIntegrationTool,
-  WORKSPACE_INTEGRATION_TOOL_NAMES,
-} from "../../lib/tools/ToolManifest";
-import {
-  getModeToolAllowlist,
-  getModeToolAllowSets,
-  includeToolForSession,
-} from "../../lib/tools/mode-tool-registry";
+import { generateProgressiveRevealNote } from "../../lib/tools/ToolManifest";
+import { getModeToolAllowSets } from "../../lib/tools/mode-tool-registry";
 import { debugWriteGateResult } from "../../lib/debug/debug-hypothesis-gate";
 import { clearDebugHypothesis } from "../../lib/debug/debug-hypothesis-session";
 import { toolExecutionChatMode } from "../../lib/work-mode";
@@ -272,7 +260,6 @@ import {
 import { classifyTerminalCommand } from "../../lib/terminal-command-class";
 import { runCommandGitInitGateResult } from "../../lib/git-init-command-guard";
 import { attachDelegationToolsToSet } from "../../lib/agents/register-delegation-tools";
-import { isDelegationAllowedForWorkMode } from "../../lib/agents/agent-runtime";
 import {
   getDelegationConfig,
   shouldAutoApprovePermissions,
@@ -4282,69 +4269,31 @@ This conversation includes one or more image attachments. When the user uploads 
               toolTurnDedup: toolTurnDedupState,
             });
 
-            const askModeTools = ToolRegistry.getToolsForAskMode();
-            // Plan workMode routes through the ask tier, but the plan-write
-            // tools are isReadOnly:false + allowInAskMode:false, so
-            // getToolsForAskMode() drops them even though PLAN_ALLOWLIST names
-            // them and the wrapper below has dedicated artifact handling.
-            // Union them in here; includeToolForSession's mode filter keeps
-            // them plan-only. (v12 0.1 close-out — was a pinned defect.)
-            if (effectiveWorkMode === "plan") {
-              const offered = new Set(askModeTools.map((t) => t.name));
-              for (const name of [
-                "write_implementation_plan",
-                "update_plan_status",
-                "update_plan_step",
-              ]) {
-                const meta = ToolRegistry.get(name);
-                if (meta && !offered.has(name)) askModeTools.push(meta);
-              }
-            }
+            // v12 S19 (closes 3.10): the 4-stage resolution pipeline
+            // (registry metadata → mode allowlist → session loader →
+            // capability trim, + plan-tool union + user-agent intersection)
+            // lives in ONE place — resolve-toolset.ts. Both branches call it.
             const askLoader = getOrCreateToolSessionLoader(req.chatId);
             const modeAllowlist = getModeToolAllowSets();
-            const modeAllowNames = getModeToolAllowlist(effectiveWorkMode);
-            askLoader.ensureLoaded([
-              ...modeAllowNames.filter((n) => n !== "*"),
-              ...(hasWorkspace && effectiveAppId != null
-                ? WORKSPACE_INTEGRATION_TOOL_NAMES
-                : []),
-            ]);
-            const askLoadedNames = askLoader.getLoadedToolNames();
-            // v12 2.1 (resolves 1.6): per-model capability trim — the LAST
-            // stage of the tool-resolution pipeline (registry metadata →
-            // mode allowlist → session loader → capability cap). Strong
-            // models keep the full surface; clearly-weak/local models get a
-            // core-first, cost-ranked trimmed set + simplified schemas.
-            const askCapabilityProfile = getCapabilityProfile({
-              name: effectiveModel?.name ?? "",
-              provider: effectiveModel?.provider,
-              builtinProviderId: modelClient.builtinProviderId,
+            const askResolved = resolveToolsetForSession({
+              branch: "ask",
+              effectiveWorkMode,
+              hasWorkspace,
+              workspaceIntegrationEligible:
+                hasWorkspace && effectiveAppId != null,
+              loader: askLoader,
+              model: {
+                name: effectiveModel?.name,
+                provider: effectiveModel?.provider,
+                builtinProviderId: modelClient.builtinProviderId,
+              },
+              userAgentTools: activeUserAgent?.tools ?? null,
             });
-            const askToolsModeFiltered = askModeTools.filter((t) =>
-              includeToolForSession(t, {
-                loaded: askLoadedNames,
-                hasWorkspace,
-                mode: effectiveWorkMode,
-                isCore: isCoreTool,
-              }),
-            );
-            // v12 7A: a user agent's `tools:` allowlist intersects the offered
-            // set (composes with the capability trim below).
-            const askToolsPreTrim = activeUserAgent?.tools
-              ? askToolsModeFiltered.filter((t) =>
-                  activeUserAgent!.tools!.includes(t.name),
-                )
-              : askToolsModeFiltered;
-            const askToolsToInclude = trimToolsForCapability(
-              askToolsPreTrim,
-              askCapabilityProfile,
-              isCoreTool,
-            );
-            if (askToolsToInclude.length < askToolsPreTrim.length) {
-              logger.log(
-                `[capability] Ask toolset trimmed ${askToolsPreTrim.length}→${askToolsToInclude.length} for ${effectiveModel?.name}`,
-              );
-            }
+            const askToolsToInclude = askResolved.tools;
+            const askCapabilityProfile = askResolved.capabilityProfile;
+            // Assembly-time snapshot (resolver already ran ensureLoaded) —
+            // feeds the per-round manifest render, same as pre-S19.
+            const askLoadedNames = askLoader.getLoadedToolNames();
             const askProgressiveNote = generateProgressiveRevealNote(
               askToolsToInclude.map((t) => t.name),
               effectiveWorkMode,
@@ -4825,20 +4774,9 @@ This conversation includes one or more image attachments. When the user uploads 
               };
             }
 
-            // v12 2.1: delegation stays off the trimmed surface — a weak
-            // model orchestrating sub-agents (of itself) is the 1.6 failure
-            // mode, and the delegation schemas are the heaviest on offer.
-            // v12 7A: also off when a user agent's allowlist excludes them.
-            const askAgentAllowsDelegation =
-              !activeUserAgent?.tools ||
-              activeUserAgent.tools.some((t) =>
-                t === "delegate_to_agent" || t === "spawn_sub_agent" || t === "task",
-              );
-            if (
-              isDelegationAllowedForWorkMode(effectiveWorkMode) &&
-              askCapabilityProfile.maxTools == null &&
-              askAgentAllowsDelegation
-            ) {
+            // v12 2.1/7A: the delegation-surface decision (trim + user-agent
+            // gates) is computed inside resolveToolsetForSession (S19).
+            if (askResolved.delegationAllowed) {
               attachDelegationToolsToSet(askTools, {
                 sender: event.sender,
                 chatId: req.chatId,
@@ -4984,40 +4922,25 @@ This conversation includes one or more image attachments. When the user uploads 
 
             const workspacePath = appPath;
             let workspaceOverride: { path: string; id: number } | null = null;
-            const buildModeToolsMetadata = ToolRegistry.getToolsForContext(hasWorkspace);
+            // v12 S19 (closes 3.10): single resolution pipeline — see the
+            // ask-branch note and resolve-toolset.ts.
             const buildLoader = getOrCreateToolSessionLoader(req.chatId);
-            if (hasWorkspace && effectiveAppId != null) {
-              buildLoader.ensureLoaded(WORKSPACE_INTEGRATION_TOOL_NAMES);
-            }
-            const buildLoadedNames = buildLoader.getLoadedToolNames();
-            // v12 2.1: per-model capability trim (see the ask-branch note).
-            const buildCapabilityProfile = getCapabilityProfile({
-              name: effectiveModel?.name ?? "",
-              provider: effectiveModel?.provider,
-              builtinProviderId: modelClient.builtinProviderId,
+            const buildResolved = resolveToolsetForSession({
+              branch: "build",
+              effectiveWorkMode,
+              hasWorkspace,
+              workspaceIntegrationEligible:
+                hasWorkspace && effectiveAppId != null,
+              loader: buildLoader,
+              model: {
+                name: effectiveModel?.name,
+                provider: effectiveModel?.provider,
+                builtinProviderId: modelClient.builtinProviderId,
+              },
+              userAgentTools: activeUserAgent?.tools ?? null,
             });
-            const buildToolsModeFiltered = buildModeToolsMetadata.filter(
-              (t) =>
-                buildLoadedNames.has(t.name) ||
-                isCoreTool(t) ||
-                (hasWorkspace && isWorkspaceIntegrationTool(t.name)),
-            );
-            // v12 7A: user-agent tool allowlist intersection (see ask note).
-            const buildToolsPreTrim = activeUserAgent?.tools
-              ? buildToolsModeFiltered.filter((t) =>
-                  activeUserAgent!.tools!.includes(t.name),
-                )
-              : buildToolsModeFiltered;
-            const buildToolsToInclude = trimToolsForCapability(
-              buildToolsPreTrim,
-              buildCapabilityProfile,
-              isCoreTool,
-            );
-            if (buildToolsToInclude.length < buildToolsPreTrim.length) {
-              logger.log(
-                `[capability] Build toolset trimmed ${buildToolsPreTrim.length}→${buildToolsToInclude.length} for ${effectiveModel?.name}`,
-              );
-            }
+            const buildToolsToInclude = buildResolved.tools;
+            const buildCapabilityProfile = buildResolved.capabilityProfile;
             // Create permission interceptor for this session
             const permissionInterceptor = new PermissionInterceptor(
               workspacePath,
@@ -5591,18 +5514,9 @@ This conversation includes one or more image attachments. When the user uploads 
             // Pass 7: MCP tools are no longer pre-merged for workspace Build chats.
             // The model calls list_available_mcps + mcp_call from the registry on demand.
 
-            // v12 2.1: no delegation surface on trimmed (weak-model) profiles.
-            // v12 7A: nor when a user agent's allowlist excludes them.
-            const buildAgentAllowsDelegation =
-              !activeUserAgent?.tools ||
-              activeUserAgent.tools.some((t) =>
-                t === "delegate_to_agent" || t === "spawn_sub_agent" || t === "task",
-              );
-            if (
-              isDelegationAllowedForWorkMode(effectiveWorkMode) &&
-              buildCapabilityProfile.maxTools == null &&
-              buildAgentAllowsDelegation
-            ) {
+            // v12 2.1/7A: delegation-surface decision computed in
+            // resolveToolsetForSession (S19).
+            if (buildResolved.delegationAllowed) {
               attachDelegationToolsToSet(tools, {
                 sender: event.sender,
                 chatId: req.chatId,

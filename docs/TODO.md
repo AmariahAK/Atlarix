@@ -9,6 +9,16 @@
 
 > The four clusters the register left open: S16 security+follow-ups, S17/S18 TTFT perf (Tier 5 "perf is identity"), S19 tool-resolution consolidation (3.10), S20/S21 Blueprint tail + retrieval eval, S22 release v12.0.0 PREP (no tag — manual test first). Decisions recorded: single v12.0.0 version; worktree-per-agent DEFERRED; browser_navigate stays scheme-gated (consent follow-up CLOSED as conscious decision); renderer `file:read-content` stays ungated (user-initiated opens).
 
+### v12 session 19 — shipped (2026-06-07): resolveToolsetForSession — 3.10 CLOSED
+
+| Area | Notes |
+|------|-------|
+| **`src/lib/tools/resolve-toolset.ts`** | The ONE assembly of the 4-stage pipeline (registry metadata → mode allowlist → session loader → capability trim) + the plan-tool union (S4 fix), user-agent `tools:` intersection (7A), and the **delegation-surface decision** (trim + user-agent gates) — returned as `{tools, capabilityProfile, delegationAllowed, preTrimCount}`. Branch differences are explicit params, not drift: ask starts from `getToolsForAskMode` + `includeToolForSession` mode filter; build starts from `getToolsForContext` + loader/core/ws-integration filter (mode gating at execute time). |
+| **Both sites replaced** | Ask (~L4285) and build (~L4990) assembly collapsed to a resolver call each; duplicated `getCapabilityProfile`/trim/intersection/delegation-gate code deleted; 5 imports dropped from the handler. `askLoadedNames` snapshot for the per-round manifest re-declared post-resolve (`getLoadedToolNames` returns a copy — assembly-time semantics preserved). |
+| **Golden A/B gate (the refactor proof)** | Pre-refactor capture of the EXACT offered tool list per mode (ask=31, plan=32, build=38) → refactor → re-capture → **byte-identical diff**. The "two sites were never actually identical" risk did not materialize. |
+| **`toolset-golden.eval.test.ts` (permanent)** | The exact per-mode offered surface is now a pinned CONTRACT (3 evals, exact-list equality against the embedded golden). Future tool additions/pipeline changes must update the golden consciously. Pipeline doc in mode-tool-registry.ts header updated to point at the resolver. |
+| **Verification** | 54 agent-evals (+3), `npm test` 1156/1156 (+3), `npm run ts` clean, oxlint 8 (baseline), knip 0 unused files, boot smoke OK. |
+
 ### v12 session 18 — shipped (2026-06-07): TTFT parallelization — sum(loads) → max(loads)
 
 | Area | Notes |

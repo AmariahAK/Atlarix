@@ -13,6 +13,10 @@
  *      offered set is what survives all four.
  * Execute-time gating re-checks stage 2 (and the permission layer) — a tool
  * that is not offered can still be DENIED if a model hallucinates a call.
+ *
+ * v12 S19 (3.10 CLOSED): the pipeline is ASSEMBLED in exactly one place —
+ * `resolveToolsetForSession` (resolve-toolset.ts). Both stream branches call
+ * it; the exact offered surface per mode is pinned by the toolset-golden eval.
  */
 
 import type { WorkMode } from "@/lib/schemas";
