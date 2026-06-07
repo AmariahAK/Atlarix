@@ -9,6 +9,17 @@
 
 > The four clusters the register left open: S16 security+follow-ups, S17/S18 TTFT perf (Tier 5 "perf is identity"), S19 tool-resolution consolidation (3.10), S20/S21 Blueprint tail + retrieval eval, S22 release v12.0.0 PREP (no tag — manual test first). Decisions recorded: single v12.0.0 version; worktree-per-agent DEFERRED; browser_navigate stays scheme-gated (consent follow-up CLOSED as conscious decision); renderer `file:read-content` stays ungated (user-initiated opens).
 
+### v12 session 21 — shipped (2026-06-07): retrieval eval — the Tier-6 "measure it" baseline
+
+| Area | Notes |
+|------|-------|
+| **Fixture repo** | `tests/fixtures/blueprint-eval-repo/` — synthetic TS+Python shop (27 files, known call graph): tsconfig `@lib/*` alias imports, a computed-callee dynamic dispatch (`handlers[jobType]()`), thin Python small-modules (worker/) — exercises S12 alias edges, S20 dynamic-call counter + density override. Excluded from `npm run ts` (tsconfig.tests.json `exclude`) and oxlint (`tests/fixtures/**`) — it's DATA, not project code. |
+| **Ground truth** | `ground-truth.json`: 20 tasks `{id, category, section, task, topic, targetFiles[]}` across exact/fuzzy/structure/python categories. `topic` uses get_blueprint's documented `\|`-alternates form (a model following the tool docs). |
+| **`retrieval.eval.test.ts` (report mode)** | Drives the REAL retriever (ctags + in-process ast-grep + BM25-fused centrality slice) via `ToolRegistry.execute("get_blueprint")` + `searchBlueprintBm25` directly — no chat loop needed for P@1. Emits the per-category JSON summary (the paper dataset). |
+| **BASELINE (2026-06-07, deterministic)** | **get_blueprint P@1 = 100%** (room-level, all 4 categories — including fuzzy synonyms and Python) vs **raw BM25 P@1 = 45% / P@3 = 50%** (file-level; fuzzy 20%, camelCase tokenization gap: query "hashing" can't match token "hashpassword"). The thesis in data: sectional structural retrieval with topic filtering beats lexical search. Found while authoring: space-separated topics score FAR worse than `\|` alternates — the tool-doc guidance materially matters. Regression floors pinned well under baseline (gb ≥ 75, bm25 ≥ 25; room for ctags-version variance). |
+| **Consciously deferred** | calls-to-target (needs REAL model runs — the fake-LLM can't reason its way to a target); file-level get_blueprint precision (room-level is the current contract); embedding comparison (Tier 5 guardrail: measure absolute, no embeddings added). |
+| **Verification** | 55 agent-evals (+1), `npm test` 1165/1165 (+1), `npm run ts` clean, oxlint 8 (baseline), knip 0 unused files. Boot smoke N/A — zero `src/` changes this session (S20's verified binary is byte-identical). |
+
 ### v12 session 20 — shipped (2026-06-07): Blueprint v2 tail — dynamic-call honesty, BM25 stoplist, density override
 
 | Area | Notes |

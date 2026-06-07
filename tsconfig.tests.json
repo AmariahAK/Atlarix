@@ -18,5 +18,8 @@
     "src/sql-raw.d.ts",
     "src/global.d.ts",
     "src/types"
-  ]
+  ],
+  // tests/fixtures are synthetic DATA repos (S21 blueprint-eval-repo), not
+  // code under this project's compiler settings — they parse standalone.
+  "exclude": ["tests/fixtures"]
 }

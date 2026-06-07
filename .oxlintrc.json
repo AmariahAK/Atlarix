@@ -1,6 +1,7 @@
 {
   "ignorePatterns": [
-    "e2e-tests/fixtures/**/*"
+    "e2e-tests/fixtures/**/*",
+    "tests/fixtures/**/*"
   ],
   "rules": {
     "eslint/no-unused-vars": "error",
