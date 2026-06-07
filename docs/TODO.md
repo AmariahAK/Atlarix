@@ -9,6 +9,16 @@
 
 > The four clusters the register left open: S16 security+follow-ups, S17/S18 TTFT perf (Tier 5 "perf is identity"), S19 tool-resolution consolidation (3.10), S20/S21 Blueprint tail + retrieval eval, S22 release v12.0.0 PREP (no tag — manual test first). Decisions recorded: single v12.0.0 version; worktree-per-agent DEFERRED; browser_navigate stays scheme-gated (consent follow-up CLOSED as conscious decision); renderer `file:read-content` stays ungated (user-initiated opens).
 
+### v12 session 17 — shipped (2026-06-07): TTFT pre-flight instrumentation (measure first)
+
+| Area | Notes |
+|------|-------|
+| **`src/lib/agent/preflight-timing.ts`** | `PreflightTimer` — `time(name, fn)` WRAPS an awaited step (never reorders, rethrows; records even on failure), `reportOnce(chatId)` emits ONE greppable `[perf] preflight-breakdown chat=… total=…ms accounted=…ms step=…ms …` line at the FIRST dispatch of the turn (the `ttftStartRef` site inside `simpleStreamText` — per-round calls after the first are no-ops). |
+| **Wrapped steps (17 spans)** | auth, session-bind, custom-commands, persist-user-msg, model-client, context-window, **compass-preflight** (the Supabase RPC), app-lookup, system-prompt, mode-skill, priority-skills, workspace-caps, plan-artifact, fs-truth, atlarix-md, prompt-bundle, max-tokens, temperature. `accounted` vs `total` exposes untimed (sync) pre-flight — harness already shows a ~1s unaccounted gap worth chasing in S18. |
+| **Presence gate** | `preflight-timing.eval.test.ts`: a real build turn emits EXACTLY ONE breakdown line carrying the core spans. Gotcha discovered: electron-log invokes hooks once PER TRANSPORT — the eval keys on `transportName === "console"`. Wall-clock thresholds are environment-dependent → manual release checklist (S22), not CI. |
+| **Conscious scope** | Measurement only — zero reordering (S18 parallelizes against these numbers). The standalone perf-smoke script was dropped in favor of the eval: the harness drives the REAL handler in-process, and app-boot scripts proved flaky under the dev environment. |
+| **Verification** | 49 agent-evals (+1), `npm test` 1151/1151 (+1), `npm run ts` clean, oxlint 8 (baseline), boot smoke OK (direct-electron recipe). |
+
 ### v12 session 16 — shipped (2026-06-07): security hardening + ruleset global layer + bg-agent restart fix
 
 | Area | Notes |

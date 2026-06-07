@@ -55,6 +55,7 @@ import {
 } from "@/lib/routing/byok-pricing";
 import { getNativeWebSearchSupport } from "../utils/native_web_search";
 import { perfReportOnce } from "@/lib/perf-marks";
+import { PreflightTimer } from "@/lib/agent/preflight-timing";
 import { buildAttachmentRecord } from "@/lib/attachment-upload";
 import { getAtlarixAppPath, resolveAppPath } from "../../paths/paths";
 import { readSettings } from "../../main/settings";
@@ -1484,9 +1485,13 @@ export function registerChatStreamHandlers() {
         });
       };
 
+      // v12 S17: per-turn TTFT waterfall. `time()` only wraps awaited steps —
+      // ordering and error propagation are untouched (measure before S18 fixes).
+      const preflight = new PreflightTimer();
+
       try {
         try {
-          await requireAuthSession();
+          await preflight.time("auth", () => requireAuthSession());
         } catch (e) {
           if (e instanceof AuthRequiredError) {
             safeSend(event.sender, "chat:response:error", {
@@ -1627,11 +1632,13 @@ export function registerChatStreamHandlers() {
       const { resolveOrBindWorkspaceSessionForStream } = await import(
         "./workspace_session_handlers"
       );
-      req.workspaceSessionId = await resolveOrBindWorkspaceSessionForStream({
-        workspaceSessionId: req.workspaceSessionId,
-        chatId: req.chatId,
-        workspaceAppId: chat.app?.id ?? req.appId ?? null,
-      });
+      req.workspaceSessionId = await preflight.time("session-bind", () =>
+        resolveOrBindWorkspaceSessionForStream({
+          workspaceSessionId: req.workspaceSessionId,
+          chatId: req.chatId,
+          workspaceAppId: chat.app?.id ?? req.appId ?? null,
+        }),
+      );
 
       if (!req.continueAfterQuestions) {
         try {
@@ -1648,11 +1655,13 @@ export function registerChatStreamHandlers() {
                   eq(customCommandsTable.workspaceId, appId),
                 )
               : isNull(customCommandsTable.workspaceId);
-          const cmdRows = await db
-            .select()
-            .from(customCommandsTable)
-            .where(scope)
-            .orderBy(desc(customCommandsTable.id));
+          const cmdRows = await preflight.time("custom-commands", () =>
+            db
+              .select()
+              .from(customCommandsTable)
+              .where(scope)
+              .orderBy(desc(customCommandsTable.id)),
+          );
           const parsed = parseCommandFromMessage(req.prompt, cmdRows);
           if (parsed) {
             const row = cmdRows.find(
@@ -1913,16 +1922,18 @@ ${componentSnippet}
           const { persistWorkspaceSessionUserMessage } = await import(
             "./workspace_session_handlers"
           );
-          const row = await persistWorkspaceSessionUserMessage(
-            req.workspaceSessionId,
-            userDisplayContent,
-            {
-              modelContent:
-                userPrompt !== userDisplayContent ? userPrompt : null,
-              pasteAttachments: pasteAttachmentsForMessage,
-              fileAttachments:
-                storedFileAttachments.length > 0 ? storedFileAttachments : null,
-            },
+          const row = await preflight.time("persist-user-msg", () =>
+            persistWorkspaceSessionUserMessage(
+              req.workspaceSessionId!,
+              userDisplayContent,
+              {
+                modelContent:
+                  userPrompt !== userDisplayContent ? userPrompt : null,
+                pasteAttachments: pasteAttachmentsForMessage,
+                fileAttachments:
+                  storedFileAttachments.length > 0 ? storedFileAttachments : null,
+              },
+            ),
           );
           persistedUserRowId = row?.id;
         } catch (err) {
@@ -2105,10 +2116,9 @@ ${componentSnippet}
         // `isEngineEnabled` / `isSmartContextEnabled` stay tied to the initial
         // client because they encode capabilities used during system-prompt
         // assembly and would be unsafe to flip mid-turn.
-        const initialModelClientBundle = await getModelClient(
-          effectiveModel,
-          settings,
-          mainOptions,
+        const initialModelClientBundle = await preflight.time(
+          "model-client",
+          () => getModelClient(effectiveModel, settings, mainOptions),
         );
         let modelClient = initialModelClientBundle.modelClient;
         const isEngineEnabled = initialModelClientBundle.isEngineEnabled;
@@ -2169,7 +2179,9 @@ ${componentSnippet}
         // calls in the same process hit "cache" via the module-level memo.
         // "fallback" means the catalog had no contextWindow and we used the
         // 200K default — investigate if this fires for a model we know.
-        const budgetDetail = await getContextWindowDetailed(effectiveModel, req.chatId);
+        const budgetDetail = await preflight.time("context-window", () =>
+          getContextWindowDetailed(effectiveModel, req.chatId),
+        );
         logger.log(
           `[budget] model=${effectiveModel.provider}/${effectiveModel.name} ` +
           `contextWindow=${budgetDetail.contextWindow} source=${budgetDetail.source}`,
@@ -2203,7 +2215,9 @@ ${componentSnippet}
         };
 
         if (modelClient.builtinProviderId === "compass") {
-          const usagePre = await getCompassUsageFromSupabase();
+          const usagePre = await preflight.time("compass-preflight", () =>
+            getCompassUsageFromSupabase(),
+          );
           if (usagePre.ok) {
             if (usagePre.tier) {
               compassStreamTier = usagePre.tier;
@@ -2233,9 +2247,11 @@ ${componentSnippet}
         // (client binds appId on first stream — no mid-chat sidebar override).
         let effectiveApp = updatedChat.app;
         if (!effectiveApp && req.appId != null) {
-          const boundApp = await db.query.apps.findFirst({
-            where: eq(apps.id, req.appId),
-          });
+          const boundApp = await preflight.time("app-lookup", () =>
+            db.query.apps.findFirst({
+              where: eq(apps.id, req.appId!),
+            }),
+          );
           if (boundApp) effectiveApp = boundApp;
         }
         const hasWorkspace = !!effectiveApp;
@@ -2490,7 +2506,8 @@ ${componentSnippet}
 
           let baseSystemPrompt: string;
           if (hasWorkspace && appPath && effectiveAppId != null) {
-            baseSystemPrompt = await buildSystemPromptWithProjectInstructions({
+            baseSystemPrompt = await preflight.time("system-prompt", () =>
+              buildSystemPromptWithProjectInstructions({
               workspacePath: appPath,
               workspacePromptContent: null,
               contextSize,
@@ -2500,7 +2517,8 @@ ${componentSnippet}
               hasAnsweredQuestions: updatedChat?.hasAnsweredQuestions ?? false,
               hasWorkspace: true,
               ...promptIdentityOpts,
-            });
+              }),
+            );
           } else {
             baseSystemPrompt = constructSystemPrompt({
               chatMode,
@@ -2526,9 +2544,11 @@ ${componentSnippet}
 
           try {
             const modeSkillName = getSkillNameForMode(effectiveWorkMode);
-            const modeSkillBody = await loadSkill(
-              modeSkillName,
-              hasWorkspace && appPath ? appPath : undefined,
+            const modeSkillBody = await preflight.time("mode-skill", () =>
+              loadSkill(
+                modeSkillName,
+                hasWorkspace && appPath ? appPath : undefined,
+              ),
             );
             if (modeSkillBody.trim()) {
               contextSections.push({
@@ -2546,9 +2566,9 @@ ${componentSnippet}
               try {
                 const isWorkforce =
                   SubscriptionManager.getEffectiveTier() === "workforce";
-                const prioritySkills = await loadPrioritySkillsForWorkspace(
-                  appPath,
-                  isWorkforce,
+                const prioritySkills = await preflight.time(
+                  "priority-skills",
+                  () => loadPrioritySkillsForWorkspace(appPath, isWorkforce),
                 );
                 if (prioritySkills.length > 0) {
                   const block = formatPrioritySkillsForPrompt(
@@ -2585,10 +2605,12 @@ ${componentSnippet}
                 loadWorkspaceCapabilitiesSummary,
                 formatWorkspaceCapabilitiesForPrompt,
               } = await import("@/lib/workspace/workspace-capabilities");
-              const caps = await loadWorkspaceCapabilitiesSummary({
-                workspaceId: effectiveAppId,
-                workspacePath: appPath,
-              });
+              const caps = await preflight.time("workspace-caps", () =>
+                loadWorkspaceCapabilitiesSummary({
+                  workspaceId: effectiveAppId,
+                  workspacePath: appPath,
+                }),
+              );
               const capsBlock = formatWorkspaceCapabilitiesForPrompt(caps);
               if (capsBlock.trim()) {
                 contextSections.push({
@@ -2614,9 +2636,14 @@ ${componentSnippet}
           ) {
             try {
               const { getLatestPlanArtifact } = await import("@/lib/plans/plan-artifacts");
-              const activePlan =
-                (await getLatestPlanArtifact(req.workspaceSessionId, "building")) ??
-                (await getLatestPlanArtifact(req.workspaceSessionId));
+              const activePlan = await preflight.time(
+                "plan-artifact",
+                async () =>
+                  (await getLatestPlanArtifact(
+                    req.workspaceSessionId!,
+                    "building",
+                  )) ?? (await getLatestPlanArtifact(req.workspaceSessionId!)),
+              );
               if (activePlan?.content?.trim()) {
                 const snippet =
                   activePlan.content.length > 3000
@@ -2807,10 +2834,12 @@ ${componentSnippet}
           ) {
             try {
               const { buildFileSystemTruthBlock } = await import("@/lib/tasks/filesystem-truth");
-              const fsTruth = await buildFileSystemTruthBlock({
-                turnId: streamTurnIdForLedger,
-                workspacePath: appPath,
-              });
+              const fsTruth = await preflight.time("fs-truth", () =>
+                buildFileSystemTruthBlock({
+                  turnId: streamTurnIdForLedger,
+                  workspacePath: appPath,
+                }),
+              );
               if (fsTruth.trim()) {
                 contextSections.push({
                   name: "fileSystemTruth",
@@ -2838,7 +2867,9 @@ ${componentSnippet}
           // Project-level .atlarix/ATLARIX.md (legacy memory/spec auto-migrated)
           if (hasWorkspace && appPath) {
             try {
-              const atlarixMd = await readAtlarixMd(appPath);
+              const atlarixMd = await preflight.time("atlarix-md", () =>
+                readAtlarixMd(appPath),
+              );
               if (atlarixMd) {
                 contextSections.push({
                   name: "projectMemory",
@@ -3039,7 +3070,9 @@ This conversation includes one or more image attachments. When the user uploads 
             };
           };
 
-          let promptBundle = await buildPromptBundle(contextSections);
+          let promptBundle = await preflight.time("prompt-bundle", () =>
+            buildPromptBundle(contextSections),
+          );
           let {
             systemPrompt,
             contextAssemblerBlob,
@@ -3685,8 +3718,12 @@ This conversation includes one or more image attachments. When the user uploads 
               }
             }
 
-            const maxOutputTokens = await getMaxTokensWithFloor(optionsModel);
-            const temperature = await getTemperature(optionsModel);
+            const maxOutputTokens = await preflight.time("max-tokens", () =>
+              getMaxTokensWithFloor(optionsModel),
+            );
+            const temperature = await preflight.time("temperature", () =>
+              getTemperature(optionsModel),
+            );
 
             ttftStartRef.ms = Date.now();
             // v10.1 perf: time from workspace open to the first prompt dispatch.
@@ -3696,6 +3733,8 @@ This conversation includes one or more image attachments. When the user uploads 
                 `workspace ${effectiveAppId} open → first prompt dispatch`,
               );
             }
+            // v12 S17: pre-flight waterfall — first dispatch of the turn only.
+            preflight.reportOnce(req.chatId);
 
             const history: ModelMessage[] = chatMessages.filter((m) => m.content);
             const tailParts = [proactiveContextReminderForStream, dynamicSystemTail].filter(
