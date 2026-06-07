@@ -9,6 +9,16 @@
 
 > The four clusters the register left open: S16 security+follow-ups, S17/S18 TTFT perf (Tier 5 "perf is identity"), S19 tool-resolution consolidation (3.10), S20/S21 Blueprint tail + retrieval eval, S22 release v12.0.0 PREP (no tag — manual test first). Decisions recorded: single v12.0.0 version; worktree-per-agent DEFERRED; browser_navigate stays scheme-gated (consent follow-up CLOSED as conscious decision); renderer `file:read-content` stays ungated (user-initiated opens).
 
+### v12 session 18 — shipped (2026-06-07): TTFT parallelization — sum(loads) → max(loads)
+
+| Area | Notes |
+|------|-------|
+| **Network pre-flights overlapped** | `getContextWindowDetailed` depends only on `effectiveModel` — started CONCURRENTLY with `getModelClient`, awaited at its original `[budget]` log site. The **Compass usage Supabase RPC** starts the moment the provider is known and is awaited at the original limit-check site — it now overlaps the tier/window work instead of serially blocking dispatch (the limit-exceeded early-return semantics are unchanged; per-step metering still enforces mid-turn). Noop `.catch` guards suppress unhandled-rejection if the turn throws before the await (the await still rethrows). |
+| **Context-section loads concurrent** | The six independent loads (mode-skill, repo-skills, workspace-caps, plan-artifact, fs-truth, atlarix-md) became loader functions returning section-or-null, run via ONE `Promise.all`, pushed in one place. Per-loader try/catch preserves the old error isolation; `assembleContextSections` sorts by priority (all distinct), so assembly output is byte-identical to the serial path. `streamTurnIdForLedger` verified stable (its reassignments live under the disabled `shouldCreateTaskLedger` block). The S17 spans now measure concurrent wall time. |
+| **Mode-aware deferral consciously DROPPED (plan step 3)** | After parallelization, deferring a section saves only `max(loads) − second-max`, and the seconds-scale offender (`fs-truth`) was ALREADY build-gated; skipping workspace-caps in ask would change ask-mode prompt content (model knows less about the stack) for marginal latency. Revisit only if the user's real-repo waterfall numbers show one section dominating. |
+| **Evals** | `ttft-assembly.eval.test.ts` (2): a build turn carries the concurrently-loaded sections (mode skill + atlarix.md canary) in priority order in the dispatched system prompt; a second fresh chat produces the identical section order (prompt-cache determinism guard). The 4 native-history byte-stability canaries stay green — round-to-round cache stability untouched. |
+| **Verification** | 51 agent-evals (+2), `npm test` 1153/1153 (+2), `npm run ts` clean, oxlint 8 (baseline), knip 0 unused files, boot smoke OK. Real-repo before/after waterfall comparison = S22 manual checklist (the harness workspace is too small to show the win). |
+
 ### v12 session 17 — shipped (2026-06-07): TTFT pre-flight instrumentation (measure first)
 
 | Area | Notes |

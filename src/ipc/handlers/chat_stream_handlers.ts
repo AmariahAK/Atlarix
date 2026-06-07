@@ -2116,11 +2116,31 @@ ${componentSnippet}
         // `isEngineEnabled` / `isSmartContextEnabled` stay tied to the initial
         // client because they encode capabilities used during system-prompt
         // assembly and would be unsafe to flip mid-turn.
+        // v12 S18: the context-window lookup depends only on `effectiveModel`
+        // — start it CONCURRENTLY with model-client creation and await it at
+        // its original use site below (the [budget] log). The noop catch only
+        // suppresses an unhandled-rejection warning if we throw before that
+        // await; the await itself still rethrows.
+        const contextWindowPromise = preflight.time("context-window", () =>
+          getContextWindowDetailed(effectiveModel, req.chatId),
+        );
+        contextWindowPromise.catch(() => {});
         const initialModelClientBundle = await preflight.time(
           "model-client",
           () => getModelClient(effectiveModel, settings, mainOptions),
         );
         let modelClient = initialModelClientBundle.modelClient;
+        // v12 S18: the Compass usage pre-flight is a Supabase round-trip that
+        // only gates dispatch (per-step metering still enforces mid-turn) —
+        // start it as soon as the provider is known and await at the original
+        // check site, overlapping the tier/window work between here and there.
+        const compassUsagePromise =
+          modelClient.builtinProviderId === "compass"
+            ? preflight.time("compass-preflight", () =>
+                getCompassUsageFromSupabase(),
+              )
+            : null;
+        compassUsagePromise?.catch(() => {});
         const isEngineEnabled = initialModelClientBundle.isEngineEnabled;
         const isSmartContextEnabled = initialModelClientBundle.isSmartContextEnabled;
         const forceThinkingNativeSupported =
@@ -2179,9 +2199,7 @@ ${componentSnippet}
         // calls in the same process hit "cache" via the module-level memo.
         // "fallback" means the catalog had no contextWindow and we used the
         // 200K default — investigate if this fires for a model we know.
-        const budgetDetail = await preflight.time("context-window", () =>
-          getContextWindowDetailed(effectiveModel, req.chatId),
-        );
+        const budgetDetail = await contextWindowPromise;
         logger.log(
           `[budget] model=${effectiveModel.provider}/${effectiveModel.name} ` +
           `contextWindow=${budgetDetail.contextWindow} source=${budgetDetail.source}`,
@@ -2214,10 +2232,8 @@ ${componentSnippet}
           abortController.abort(COMPASS_LIMIT_STREAM_STOP);
         };
 
-        if (modelClient.builtinProviderId === "compass") {
-          const usagePre = await preflight.time("compass-preflight", () =>
-            getCompassUsageFromSupabase(),
-          );
+        if (compassUsagePromise) {
+          const usagePre = await compassUsagePromise;
           if (usagePre.ok) {
             if (usagePre.tier) {
               compassStreamTier = usagePre.tier;
@@ -2542,64 +2558,73 @@ ${componentSnippet}
           }
           let contextSections: ContextSection[] = [];
 
-          try {
-            const modeSkillName = getSkillNameForMode(effectiveWorkMode);
-            const modeSkillBody = await preflight.time("mode-skill", () =>
-              loadSkill(
-                modeSkillName,
-                hasWorkspace && appPath ? appPath : undefined,
-              ),
-            );
-            if (modeSkillBody.trim()) {
-              contextSections.push({
+          // v12 S18: the six pre-flight context loads (mode skill, repo
+          // skills, workspace capabilities, plan artifact, filesystem truth,
+          // atlarix.md) are mutually independent disk/DB reads that feed
+          // DISTINCT sections — run them CONCURRENTLY. Each loader keeps its
+          // own try/catch (one failed source never blocks the others, same
+          // isolation as the old serial code) and returns a section-or-null;
+          // results are pushed afterwards in one place. Section ORDER is
+          // unaffected: assembleContextSections sorts by `priority`, and all
+          // priorities here are distinct. Wall-clock drops from sum(loads)
+          // to max(loads). The [perf] spans now measure concurrent wall time.
+          const loadModeSkillSection = async (): Promise<ContextSection | null> => {
+            try {
+              const modeSkillName = getSkillNameForMode(effectiveWorkMode);
+              const modeSkillBody = await preflight.time("mode-skill", () =>
+                loadSkill(
+                  modeSkillName,
+                  hasWorkspace && appPath ? appPath : undefined,
+                ),
+              );
+              if (!modeSkillBody.trim()) return null;
+              return {
                 name: "activeSkill",
                 priority: -1,
                 content: `[Active Skill: ${modeSkillName}]\n${modeSkillBody}`,
-              });
+              };
+            } catch (skillErr) {
+              logger.warn("[skills] Failed to load mode skill:", skillErr);
+              return null;
             }
+          };
 
-            // WORKFORCE Feature 1: repo-scoped priority skills from .atlarix/skills/.
-            // Injected ahead of the active mode skill (priority -2). The `priority: true`
-            // frontmatter flag only takes effect for Workforce accounts; Free/Pro still
-            // load files in the folder as regular local skills.
-            if (hasWorkspace && appPath) {
-              try {
-                const isWorkforce =
-                  SubscriptionManager.getEffectiveTier() === "workforce";
-                const prioritySkills = await preflight.time(
-                  "priority-skills",
-                  () => loadPrioritySkillsForWorkspace(appPath, isWorkforce),
-                );
-                if (prioritySkills.length > 0) {
-                  const block = formatPrioritySkillsForPrompt(
-                    prioritySkills,
-                    effectiveWorkMode,
-                  );
-                  if (block.trim()) {
-                    contextSections.push({
-                      name: "repoSkills",
-                      priority: -2,
-                      content: block,
-                    });
-                    const priorityCount = prioritySkills.filter((s) => s.priority).length;
-                    const localCount = prioritySkills.length - priorityCount;
-                    logger.info(
-                      `[priority-skills] Injected ${priorityCount} priority + ${localCount} local skill(s) for mode "${effectiveWorkMode}"`,
-                    );
-                  }
-                }
-              } catch (repoSkillErr) {
-                logger.warn(
-                  "[priority-skills] Failed to load repo skills:",
-                  repoSkillErr,
-                );
-              }
+          // WORKFORCE Feature 1: repo-scoped priority skills from .atlarix/skills/.
+          // Injected ahead of the active mode skill (priority -2). The `priority: true`
+          // frontmatter flag only takes effect for Workforce accounts; Free/Pro still
+          // load files in the folder as regular local skills.
+          const loadRepoSkillsSection = async (): Promise<ContextSection | null> => {
+            if (!(hasWorkspace && appPath)) return null;
+            try {
+              const isWorkforce =
+                SubscriptionManager.getEffectiveTier() === "workforce";
+              const prioritySkills = await preflight.time(
+                "priority-skills",
+                () => loadPrioritySkillsForWorkspace(appPath, isWorkforce),
+              );
+              if (prioritySkills.length === 0) return null;
+              const block = formatPrioritySkillsForPrompt(
+                prioritySkills,
+                effectiveWorkMode,
+              );
+              if (!block.trim()) return null;
+              const priorityCount = prioritySkills.filter((s) => s.priority).length;
+              const localCount = prioritySkills.length - priorityCount;
+              logger.info(
+                `[priority-skills] Injected ${priorityCount} priority + ${localCount} local skill(s) for mode "${effectiveWorkMode}"`,
+              );
+              return { name: "repoSkills", priority: -2, content: block };
+            } catch (repoSkillErr) {
+              logger.warn(
+                "[priority-skills] Failed to load repo skills:",
+                repoSkillErr,
+              );
+              return null;
             }
-          } catch (skillErr) {
-            logger.warn("[skills] Failed to load mode skill:", skillErr);
-          }
+          };
 
-          if (hasWorkspace && appPath && effectiveAppId != null) {
+          const loadWorkspaceCapsSection = async (): Promise<ContextSection | null> => {
+            if (!(hasWorkspace && appPath && effectiveAppId != null)) return null;
             try {
               const {
                 loadWorkspaceCapabilitiesSummary,
@@ -2612,28 +2637,27 @@ ${componentSnippet}
                 }),
               );
               const capsBlock = formatWorkspaceCapabilitiesForPrompt(caps);
-              if (capsBlock.trim()) {
-                contextSections.push({
-                  name: "workspaceCapabilities",
-                  priority: -3,
-                  content: capsBlock,
-                });
-              }
+              if (!capsBlock.trim()) return null;
+              return {
+                name: "workspaceCapabilities",
+                priority: -3,
+                content: capsBlock,
+              };
             } catch (capsErr) {
               logger.warn("[workspace-capabilities] Failed to load:", capsErr);
+              return null;
             }
-          }
+          };
 
-          // Pass 7: Installed skills are accessed on-demand via the
-          // get_active_skills / list_installed_skills tools (registered in skills-tools.ts).
-          // The legacy pre-injection block has been removed.
-          const shouldCreateTaskLedger = false;
-          if (
-            req.workspaceSessionId &&
-            hasWorkspace &&
-            !req.prompt.startsWith("Summarize from chat-id=") &&
-            !req.prompt.startsWith("/security-review")
-          ) {
+          const loadActivePlanSection = async (): Promise<ContextSection | null> => {
+            if (
+              !req.workspaceSessionId ||
+              !hasWorkspace ||
+              req.prompt.startsWith("Summarize from chat-id=") ||
+              req.prompt.startsWith("/security-review")
+            ) {
+              return null;
+            }
             try {
               const { getLatestPlanArtifact } = await import("@/lib/plans/plan-artifacts");
               const activePlan = await preflight.time(
@@ -2644,21 +2668,90 @@ ${componentSnippet}
                     "building",
                   )) ?? (await getLatestPlanArtifact(req.workspaceSessionId!)),
               );
-              if (activePlan?.content?.trim()) {
-                const snippet =
-                  activePlan.content.length > 3000
-                    ? `${activePlan.content.slice(0, 3000)}\n\n...(truncated)`
-                    : activePlan.content;
-                contextSections.push({
-                  name: "activePlan",
-                  priority: 0.05,
-                  content: `Active session plan (planId: ${activePlan.id}, status: ${activePlan.planStatus}) — advance it with update_plan_status("${activePlan.id}", "building" | "built"):\n\n${snippet}`,
-                });
-              }
+              if (!activePlan?.content?.trim()) return null;
+              const snippet =
+                activePlan.content.length > 3000
+                  ? `${activePlan.content.slice(0, 3000)}\n\n...(truncated)`
+                  : activePlan.content;
+              return {
+                name: "activePlan",
+                priority: 0.05,
+                content: `Active session plan (planId: ${activePlan.id}, status: ${activePlan.planStatus}) — advance it with update_plan_status("${activePlan.id}", "building" | "built"):\n\n${snippet}`,
+              };
             } catch (planCtxErr) {
               logger.warn("[plan-artifact] context inject failed:", planCtxErr);
+              return null;
             }
+          };
+
+          // PASS5: File system truth only useful in Build mode when files were
+          // actually modified; stale excerpts add noise in other modes.
+          // `streamTurnIdForLedger` is stable here — its only reassignments
+          // live under the disabled `shouldCreateTaskLedger` block below.
+          const loadFsTruthSection = async (): Promise<ContextSection | null> => {
+            const shouldInjectFileSystemTruth =
+              settings.selectedChatMode === "build";
+            if (
+              !shouldInjectFileSystemTruth ||
+              !hasWorkspace ||
+              !appPath ||
+              req.prompt.startsWith("Summarize from chat-id=") ||
+              req.prompt.startsWith("/security-review")
+            ) {
+              return null;
+            }
+            try {
+              const { buildFileSystemTruthBlock } = await import("@/lib/tasks/filesystem-truth");
+              const fsTruth = await preflight.time("fs-truth", () =>
+                buildFileSystemTruthBlock({
+                  turnId: streamTurnIdForLedger,
+                  workspacePath: appPath,
+                }),
+              );
+              if (!fsTruth.trim()) return null;
+              return { name: "fileSystemTruth", priority: 0.5, content: fsTruth };
+            } catch (fsErr) {
+              logger.warn("Failed to build filesystem truth block:", fsErr);
+              return null;
+            }
+          };
+
+          // Project-level .atlarix/ATLARIX.md (legacy memory/spec auto-migrated)
+          const loadAtlarixMdSection = async (): Promise<ContextSection | null> => {
+            if (!(hasWorkspace && appPath)) return null;
+            try {
+              const atlarixMd = await preflight.time("atlarix-md", () =>
+                readAtlarixMd(appPath),
+              );
+              if (!atlarixMd) return null;
+              logger.info("Injected atlarix.md");
+              return {
+                name: "projectMemory",
+                priority: 4,
+                content: `## Project memory (.atlarix/atlarix.md)\n${atlarixMd}`,
+              };
+            } catch (memErr) {
+              logger.warn("Failed to read atlarix.md:", memErr);
+              return null;
+            }
+          };
+
+          const loadedSections = await Promise.all([
+            loadModeSkillSection(),
+            loadRepoSkillsSection(),
+            loadWorkspaceCapsSection(),
+            loadActivePlanSection(),
+            loadFsTruthSection(),
+            loadAtlarixMdSection(),
+          ]);
+          for (const section of loadedSections) {
+            if (section) contextSections.push(section);
           }
+
+          // Pass 7: Installed skills are accessed on-demand via the
+          // get_active_skills / list_installed_skills tools (registered in skills-tools.ts).
+          // The legacy pre-injection block has been removed.
+          const shouldCreateTaskLedger = false;
           if (
             shouldCreateTaskLedger &&
             !req.prompt.startsWith("Summarize from chat-id=") &&
@@ -2820,37 +2913,7 @@ ${componentSnippet}
             });
           }
 
-          // PASS5: File system truth only useful in Build mode when files were actually
-          // modified. Stale file excerpts from prior turns add noise in other modes.
-          // (We don’t currently have a “files modified this turn” signal here, so we gate by build-like mode.)
-          const shouldInjectFileSystemTruth =
-            settings.selectedChatMode === "build";
-          if (
-            shouldInjectFileSystemTruth &&
-            hasWorkspace &&
-            appPath &&
-            !req.prompt.startsWith("Summarize from chat-id=") &&
-            !req.prompt.startsWith("/security-review")
-          ) {
-            try {
-              const { buildFileSystemTruthBlock } = await import("@/lib/tasks/filesystem-truth");
-              const fsTruth = await preflight.time("fs-truth", () =>
-                buildFileSystemTruthBlock({
-                  turnId: streamTurnIdForLedger,
-                  workspacePath: appPath,
-                }),
-              );
-              if (fsTruth.trim()) {
-                contextSections.push({
-                  name: "fileSystemTruth",
-                  priority: 0.5,
-                  content: fsTruth,
-                });
-              }
-            } catch (fsErr) {
-              logger.warn("Failed to build filesystem truth block:", fsErr);
-            }
-          }
+          // (fileSystemTruth is loaded concurrently above — S18.)
 
           // Pass 7: Workforce workspace context block deleted along with the
           // Legacy hosted credential store removed; per-extension state lives in MCP server
@@ -2864,24 +2927,7 @@ ${componentSnippet}
           // get_project_memory when it needs project context. (v11.1: the
           // dead pre-injection block was deleted; table + builder remain.)
 
-          // Project-level .atlarix/ATLARIX.md (legacy memory/spec auto-migrated)
-          if (hasWorkspace && appPath) {
-            try {
-              const atlarixMd = await preflight.time("atlarix-md", () =>
-                readAtlarixMd(appPath),
-              );
-              if (atlarixMd) {
-                contextSections.push({
-                  name: "projectMemory",
-                  priority: 4,
-                  content: `## Project memory (.atlarix/atlarix.md)\n${atlarixMd}`,
-                });
-                logger.info("Injected atlarix.md");
-              }
-            } catch (memErr) {
-              logger.warn("Failed to read atlarix.md:", memErr);
-            }
-          }
+          // (projectMemory / atlarix.md is loaded concurrently above — S18.)
 
           // Phase 6: Inject context summary (compacted earlier conversation)
           if (contextSummaryForSystem) {
