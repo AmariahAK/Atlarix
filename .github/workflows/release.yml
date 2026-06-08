@@ -78,14 +78,11 @@ jobs:
       - name: Lint (oxlint)
         run: npm run check:lint
 
-      # Node-ABI better-sqlite3 for the agent-evals vitest project (root copy is
-      # Electron-ABI). Scripts ON so the prebuilt binary is fetched. Without
-      # this the agent-evals project self-skips (see vitest.config.ts); with it
-      # the evals run in this Linux/Node-20 gate. Non-fatal so a registry/network
-      # hiccup degrades to "evals skipped" rather than failing the whole run.
-      - name: Install agent-eval native deps (Node-ABI better-sqlite3)
-        run: npm install --prefix tests/infra --no-audit --no-fund --no-save || echo "tests/infra install failed — agent-evals will self-skip"
-
+      # NOTE: the agent-evals vitest project is a LOCAL gate — its harness needs
+      # a Node-ABI better-sqlite3 (tests/infra) plus a git-mock server and the
+      # fake-LLM server that aren't provisioned on CI runners. It self-skips when
+      # tests/infra's native binary is absent (see vitest.config.ts), so CI runs
+      # the node + renderer projects here; run `npm test` locally for the evals.
       - name: Tests (vitest)
         run: npm test
 
