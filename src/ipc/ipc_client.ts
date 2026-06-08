@@ -1395,6 +1395,13 @@ export class IpcClient {
     return this.ipcRenderer.invoke("sessions:get", sessionId, opts);
   }
 
+  /** Issue 4: promote an interrupted assistant row to a normal history message. */
+  public async markSessionMessageComplete(
+    rowId: string,
+  ): Promise<{ ok: boolean }> {
+    return this.ipcRenderer.invoke("messages:mark-complete", rowId);
+  }
+
   public async generateWorkspaceSessionTitle(
     sessionId: string,
   ): Promise<{ title: string }> {

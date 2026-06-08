@@ -104,6 +104,11 @@ import {
 import { getExtraProviderOptions } from "../utils/thinking_utils";
 
 import { safeSend } from "../utils/safe_sender";
+import {
+  acquirePowerSaveBlocker,
+  releasePowerSaveBlocker,
+  resetPowerSaveBlocker,
+} from "../utils/power-blocker";
 import { normalizeToolInputSchemaForAiSdk } from "@/lib/ai/normalize-tool-schema";
 import {
   clearToolsUsedForTurn,
@@ -1002,8 +1007,33 @@ async function resolveAskUserToolResult(
   });
 }
 
-// Track active streams for cancellation
-const activeStreams = new Map<number, AbortController>();
+// Track active streams for cancellation.
+//
+// Subclasses Map so every set/delete/clear drives the power-save blocker in one
+// place — no matter which of the ~14 delete sites fires. The blocker keeps the
+// CPU alive while a stream is in flight so tasks keep progressing when the
+// display sleeps (see power-blocker.ts).
+class ActiveStreamRegistry extends Map<number, AbortController> {
+  override set(chatId: number, controller: AbortController): this {
+    const isNew = !this.has(chatId);
+    super.set(chatId, controller);
+    if (isNew) acquirePowerSaveBlocker();
+    return this;
+  }
+
+  override delete(chatId: number): boolean {
+    const existed = super.delete(chatId);
+    if (existed) releasePowerSaveBlocker();
+    return existed;
+  }
+
+  override clear(): void {
+    super.clear();
+    resetPowerSaveBlocker();
+  }
+}
+
+const activeStreams = new ActiveStreamRegistry();
 
 /** Clear skill file cache when switching workspace (see `loadSkill`). */
 let lastSkillCacheAppId: number | undefined;
@@ -1038,6 +1068,87 @@ export function clearChatStreamStateForChat(chatId: number): void {
   lastStreamRequest.delete(chatId);
   pendingAskUserArtifactByChatId.delete(chatId);
   toolSessionLoaders.delete(chatId);
+  partialDraftRowByChatId.delete(chatId);
+  partialDraftLastFlushAtByChatId.delete(chatId);
+  streamSessionByChatId.delete(chatId);
+}
+
+// ─── Issue 4: crash-safe interrupted-turn recovery ─────────────────────────
+// While an assistant turn streams we throttle-write the accumulated text into a
+// single "interrupted" session_messages row per chat. If the app is killed,
+// suspended, or the stream is aborted before completing, that row survives so
+// the session can render the partial output with a "Continue" affordance. On
+// clean completion the draft is deleted — the renderer persists the finished
+// message instead.
+const partialDraftRowByChatId = new Map<number, string>();
+const partialDraftLastFlushAtByChatId = new Map<number, number>();
+/** chatId → workspace sessionId, so shutdown flush can resolve the session without a req. */
+const streamSessionByChatId = new Map<number, string>();
+const PARTIAL_DRAFT_FLUSH_INTERVAL_MS = 1500;
+
+async function flushInterruptedDraft(
+  chatId: number,
+  sessionId: string,
+  content: string,
+  opts?: { force?: boolean },
+): Promise<void> {
+  const text = stripThinkBlocks(stripTaskCompleteTags(content)).trim();
+  if (!text) return;
+  const now = Date.now();
+  const last = partialDraftLastFlushAtByChatId.get(chatId) ?? 0;
+  if (!opts?.force && now - last < PARTIAL_DRAFT_FLUSH_INTERVAL_MS) return;
+  partialDraftLastFlushAtByChatId.set(chatId, now);
+  try {
+    const { upsertInterruptedAssistantDraft } = await import(
+      "./workspace_session_handlers"
+    );
+    const rowId = await upsertInterruptedAssistantDraft(
+      partialDraftRowByChatId.get(chatId) ?? null,
+      sessionId,
+      text,
+    );
+    partialDraftRowByChatId.set(chatId, rowId);
+  } catch (e) {
+    logger.warn(`[partial-draft] upsert failed for chat ${chatId}:`, e);
+  }
+}
+
+/** Delete the interrupted draft for a chat (turn completed cleanly / superseded). */
+async function clearInterruptedDraft(chatId: number): Promise<void> {
+  const rowId = partialDraftRowByChatId.get(chatId);
+  partialDraftRowByChatId.delete(chatId);
+  partialDraftLastFlushAtByChatId.delete(chatId);
+  if (!rowId) return;
+  try {
+    const { deleteInterruptedAssistantDraft } = await import(
+      "./workspace_session_handlers"
+    );
+    await deleteInterruptedAssistantDraft(rowId);
+  } catch (e) {
+    logger.warn(`[partial-draft] delete failed for chat ${chatId}:`, e);
+  }
+}
+
+/**
+ * Force-persist every in-flight stream's partial output as an interrupted row.
+ * Called from main.ts on `before-quit` and powerMonitor `suspend` so a full
+ * system suspend / app quit never loses work-in-progress.
+ */
+export async function flushPartialStreamsForShutdown(): Promise<void> {
+  const entries = [...partialResponses.entries()];
+  if (entries.length === 0) return;
+  logger.info(
+    `[partial-draft] shutdown flush for ${entries.length} active stream(s)`,
+  );
+  for (const [chatId, content] of entries) {
+    const sessionId = streamSessionByChatId.get(chatId);
+    if (!sessionId) continue;
+    try {
+      await flushInterruptedDraft(chatId, sessionId, content, { force: true });
+    } catch (e) {
+      logger.warn(`[partial-draft] shutdown flush failed for chat ${chatId}:`, e);
+    }
+  }
 }
 
 const RECONNECT_DELAYS_MS = [2000, 5000, 10000];
@@ -1626,6 +1737,11 @@ export function registerChatStreamHandlers() {
           workspaceAppId: chat.app?.id ?? req.appId ?? null,
         }),
       );
+      // Issue 4: remember chat→session so a shutdown/suspend flush can persist
+      // this stream's partial output without a request object.
+      if (req.workspaceSessionId) {
+        streamSessionByChatId.set(req.chatId, req.workspaceSessionId);
+      }
 
       if (!req.continueAfterQuestions) {
         try {
@@ -2231,6 +2347,21 @@ ${componentSnippet}
                 usagePre.monthlyLimit - usagePre.tokensUsedThisMonth,
               );
             }
+            // 3b diagnostics: the metering pool (this RPC) must match the
+            // budget the UI shows for the user's real plan. A mismatch here
+            // (e.g. a workforce account metered at a free-tier monthlyLimit)
+            // is what causes a premature "token pool exhausted" stop while the
+            // app still shows tokens remaining. Logged so the gap is visible.
+            logger.log(
+              `[compass] preflight budget chat ${req.chatId}: tier=${usagePre.tier} ` +
+                `monthlyLimit=${usagePre.monthlyLimit} usedThisMonth=${usagePre.tokensUsedThisMonth} ` +
+                `remaining=${compassRemainingBudget ?? "unknown"}`,
+            );
+          } else {
+            logger.warn(
+              `[compass] preflight usage unavailable for chat ${req.chatId} (reason=${usagePre.reason}) — ` +
+                `enforcement relies on the server RPC only this turn`,
+            );
           }
           if (
             usagePre.ok &&
@@ -3856,6 +3987,19 @@ This conversation includes one or more image attachments. When the user uploads 
                     recordResult,
                   )
                 ) {
+                  // 3b diagnostics: which guard fired? `rpc-limit_exceeded`
+                  // means the server pool says done while our local tally
+                  // (usedThisTurn vs preflight remaining) may still show room
+                  // — that divergence is the metering-vs-display bug to chase
+                  // server-side (docs/compass-limits.md).
+                  const cause =
+                    recordResult && !recordResult.ok && recordResult.error === "limit_exceeded"
+                      ? "rpc-limit_exceeded"
+                      : "local-tally";
+                  logger.warn(
+                    `[compass] stop cause=${cause} chat ${req.chatId}: usedThisTurn=${compassUsedThisTurn} ` +
+                      `remaining=${compassRemainingBudget ?? "unknown"}`,
+                  );
                   stopStreamForCompassLimit("onStepFinish");
                 }
               },
@@ -4150,6 +4294,14 @@ This conversation includes one or more image attachments. When the user uploads 
             }
             // Store the current partial response
             partialResponses.set(req.chatId, fullResponse);
+            // Issue 4: throttled crash-safe persistence of the partial turn.
+            if (req.workspaceSessionId) {
+              void flushInterruptedDraft(
+                req.chatId,
+                req.workspaceSessionId,
+                fullResponse,
+              );
+            }
             // Update the placeholder assistant message content in the messages array
             const currentMessages = [...updatedChat.messages];
             if (
@@ -6131,6 +6283,16 @@ ${stopNote}`;
                       role: "assistant",
                       content: stripThinkBlocks(cancelledContent),
                     });
+                    // Issue 4: persist the partial to the session DB as an
+                    // interrupted row so it survives reload and offers Continue.
+                    if (req.workspaceSessionId) {
+                      await flushInterruptedDraft(
+                        req.chatId,
+                        req.workspaceSessionId,
+                        partialResponse,
+                        { force: true },
+                      );
+                    }
                     logger.log(`Persisted partial response to ephemeral chat ${chatId} after abort`);
                     partialResponses.delete(req.chatId);
                   } catch (error) {
@@ -6611,6 +6773,10 @@ ${stopNote}`;
               aborted: abortController.signal.aborted && !streamStopWasTaskComplete,
             });
             activeStreams.delete(req.chatId);
+            // Issue 4: turn completed cleanly — drop the interrupted draft so the
+            // renderer's authoritative finished message is the only copy.
+            void clearInterruptedDraft(req.chatId);
+            streamSessionByChatId.delete(req.chatId);
             // v12 3.7: tracked (was a bare void) — it enqueues follow-ups.
             trackPendingWork(
               runAutonomousBuildVerificationAfterTaskComplete({

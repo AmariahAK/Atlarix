@@ -13,7 +13,7 @@ import {
 } from "./chat/AtlarixMarkdownParser";
 import { AssistantMessageBody } from "./chat/AssistantMessageBody";
 import { InlineStreamStatus } from "./chat/InlineStreamStatus";
-import { Copy, Check, Bot, Edit2 } from "lucide-react";
+import { Copy, Check, Bot, Edit2, RotateCw, AlertTriangle } from "lucide-react";
 import { useState } from "react";
 import { useCopyToClipboard } from "@/hooks/useCopyToClipboard";
 import { showSuccess } from "@/lib/toast";
@@ -52,6 +52,8 @@ interface SimpleMessageProps {
     /** Last assistant message in the thread — keeps the settled "A" indicator after the turn completes. */
     isLatestAssistant?: boolean;
     onEditUserMessage?: (messageId: number, newContent: string) => Promise<void>;
+    /** Issue 4: resume an interrupted assistant turn (partial content preserved). */
+    onContinue?: (message: Message) => void;
 }
 
 export function SimpleMessage({
@@ -61,6 +63,7 @@ export function SimpleMessage({
     isStreaming = false,
     isLatestAssistant = false,
     onEditUserMessage,
+    onContinue,
 }: SimpleMessageProps) {
     const [copied, setCopied] = useState(false);
     const { copyMessageContent, copied: assistantCopied } = useCopyToClipboard();
@@ -197,6 +200,26 @@ export function SimpleMessage({
                 {/* Display sources for assistant messages if available */}
                 {isAssistant && message.sources && message.sources.length > 0 && (
                     <MessageSources sources={message.sources} />
+                )}
+
+                {/* Issue 4: interrupted turn — partial output preserved, offer Continue. */}
+                {isAssistant && message.interrupted && !isStreaming && (
+                    <div className="mt-2 flex flex-wrap items-center gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
+                        <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                        <span className="flex-1 min-w-[8rem]">
+                            This response was interrupted before it finished.
+                        </span>
+                        {onContinue && (
+                            <button
+                                type="button"
+                                onClick={() => onContinue(message)}
+                                className="flex items-center gap-1 rounded bg-amber-500/20 px-2 py-1 font-medium text-amber-800 transition-colors hover:bg-amber-500/30 dark:text-amber-200"
+                            >
+                                <RotateCw className="h-3 w-3" />
+                                Continue
+                            </button>
+                        )}
+                    </div>
                 )}
 
                 {/* Actions under messages — Copy / Edit / Mode / Save / Cancel */}

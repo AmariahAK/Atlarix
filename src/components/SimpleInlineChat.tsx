@@ -23,7 +23,7 @@ import { InlineUserQuestions } from "@/components/chat/InlineUserQuestions";
 import { Plus } from "lucide-react";
 import { sliceLastExchanges } from "../lib/chat/lastExchanges";
 import { useStreamChat } from "@/hooks/useStreamChat";
-import type { FileAttachment } from "@/ipc/ipc_types";
+import type { FileAttachment, Message } from "@/ipc/ipc_types";
 import { ChatErrorBox } from "@/components/chat/ChatErrorBox";
 import { Button } from "@/components/ui/button";
 import { selectedAppIdAtom } from "@/atoms/appAtoms";
@@ -108,6 +108,12 @@ export function SimpleInlineChat({
 
     const messages = messagesById.get(chatId) ?? [];
     const visibleMessages = sliceLastExchanges(messages, 7);
+    // Anchor the settled "A" to the LAST assistant message, not the last array
+    // element — a trailing synthetic/user message (compaction continuation,
+    // self-correction) would otherwise flip it off and the indicator vanishes.
+    const lastAssistantIndex = visibleMessages
+        .map((m) => m.role)
+        .lastIndexOf("assistant");
     const isStreaming = isStreamingById.get(chatId) ?? false;
     const error = errorById.get(chatId) ?? null;
     const handleNewChat = useCallback(async () => {
@@ -136,6 +142,41 @@ export function SimpleInlineChat({
             streamMessage({ prompt: "", chatId, continueAfterQuestions: true });
         },
         [chatId, setMessagesById, streamMessage],
+    );
+
+    const handleContinue = useCallback(
+        async (message: Message) => {
+            if (isStreaming) return;
+            // Promote the interrupted draft to a normal history message so its
+            // partial content is preserved, then resume with a fresh turn.
+            if (message.sessionRowId) {
+                try {
+                    await IpcClient.getInstance().markSessionMessageComplete(
+                        message.sessionRowId,
+                    );
+                } catch (e) {
+                    console.error("Failed to mark interrupted message complete:", e);
+                }
+            }
+            setMessagesById((prev) => {
+                const next = new Map(prev);
+                const list = next.get(chatId);
+                if (list) {
+                    next.set(
+                        chatId,
+                        list.map((m) =>
+                            m.id === message.id ? { ...m, interrupted: false } : m,
+                        ),
+                    );
+                }
+                return next;
+            });
+            streamMessage({
+                prompt: "Continue from where you left off, without repeating what you already wrote.",
+                chatId,
+            });
+        },
+        [chatId, isStreaming, setMessagesById, streamMessage],
     );
 
     return (
@@ -172,11 +213,9 @@ export function SimpleInlineChat({
                                 chatId={chatId}
                                 workspaceAppId={chatAppId}
                                 isStreaming={isStreaming && index === visibleMessages.length - 1}
-                                isLatestAssistant={
-                                    message.role === "assistant" &&
-                                    index === visibleMessages.length - 1
-                                }
+                                isLatestAssistant={index === lastAssistantIndex}
                                 onEditUserMessage={handleEditUserMessage}
+                                onContinue={handleContinue}
                             />
                         </div>
                     ))

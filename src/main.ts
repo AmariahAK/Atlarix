@@ -1,5 +1,5 @@
 import "./preload-env";
-import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, Notification, shell, type MenuItemConstructorOptions } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, Notification, powerMonitor, shell, type MenuItemConstructorOptions } from "electron";
 import * as path from "node:path";
 import dotenv from "dotenv";
 // @ts-ignore
@@ -233,6 +233,27 @@ export async function onReady() {
     void import("./ipc/utils/workspace_path_status_broadcast").then((m) =>
       m.broadcastWorkspacePathStatusesIfChanged(),
     );
+  });
+
+  // Power events. `prevent-app-suspension` (held while a stream runs, see
+  // power-blocker.ts) keeps us alive when the *display* sleeps; a full system
+  // suspend (e.g. lid close) can still pause/kill us — so flush in-flight
+  // partial assistant output before the OS suspends so work isn't lost.
+  powerMonitor.on("suspend", () => {
+    logger.info("[power] system suspend — flushing in-flight partial streams");
+    void (async () => {
+      try {
+        const { flushPartialStreamsForShutdown } = await import(
+          "./ipc/handlers/chat_stream_handlers"
+        );
+        await flushPartialStreamsForShutdown();
+      } catch (e) {
+        logger.warn("[power] partial flush on suspend failed:", e);
+      }
+    })();
+  });
+  powerMonitor.on("resume", () => {
+    logger.info("[power] system resume");
   });
 
   // Pass 7.3: OpenTelemetry init removed (heavy main-bundle dep, startup crash on packaged builds).
@@ -1078,6 +1099,16 @@ app.on("before-quit", (e) => {
       await flushSessionEndSnapshots();
     } catch (err) {
       logger.error("flushSessionEndSnapshots failed:", err);
+    }
+    // Persist in-flight partial assistant output BEFORE aborting, so an
+    // interrupted turn is recoverable (shown with a Continue affordance).
+    try {
+      const { flushPartialStreamsForShutdown } = await import(
+        "./ipc/handlers/chat_stream_handlers"
+      );
+      await flushPartialStreamsForShutdown();
+    } catch (flushErr) {
+      logger.warn("flushPartialStreamsForShutdown on quit:", flushErr);
     }
     try {
       const { abortAllStreams } = await import("./ipc/handlers/chat_stream_handlers");

@@ -24,6 +24,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { useAIPanelListener } from "@/hooks/useAIPanelListener";
 import { useLocation } from "@tanstack/react-router";
 import { SimpleInlineChat } from "@/components/SimpleInlineChat";
+import { ChatTabStrip } from "@/components/chat/ChatTabStrip";
 import { RightPanel } from "@/components/RightPanel";
 import { LeftPanel } from "@/components/layout/LeftPanel";
 import { WorkspaceNotFoundBanner } from "@/components/WorkspaceNotFoundBanner";
@@ -220,6 +221,9 @@ function PersistentChatContainer() {
             </button>
           </div>
         </div>
+
+        {/* Concurrent-session tabs (only shown with >1 open session). */}
+        <ChatTabStrip />
 
         {/* Chat messages and input - stays mounted */}
         <SimpleInlineChat

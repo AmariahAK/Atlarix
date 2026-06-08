@@ -135,6 +135,12 @@ export interface AgentTurnResult {
   totalToolExecutions: number;
 }
 
+/** Normalize an AbortController reason into an Error for throw/propagation. */
+function abortReasonError(reason: unknown): Error {
+  if (reason instanceof Error) return reason;
+  return new Error(String(reason ?? "aborted"));
+}
+
 export async function runAgentTurn(
   profile: AgentProfile,
   rt: TurnRuntime,
@@ -161,6 +167,17 @@ export async function runAgentTurn(
   let verifyBlockedBreaks = 0;
 
   for (;;) {
+    // Stream was aborted (compass token-pool stop, user stop, task-complete
+    // stop). Do NOT start another round — issuing a request on an aborted
+    // controller yields empty output and an AI_NoOutputGeneratedError that
+    // would escape as an unhandled rejection. Throw so the handler's catch
+    // takes its existing abort path (persist partial / honor ledger-complete).
+    if (rt.abortController.signal.aborted) {
+      logger.log(
+        `${L} Stream aborted (${String(rt.abortController.signal.reason ?? "unknown")}) — stopping turn loop`,
+      );
+      throw abortReasonError(rt.abortController.signal.reason);
+    }
     if (Date.now() - loopStartTime > STREAM_TOOL_LOOP_DURATION_CAP_MS) {
       logger.warn(`${L} Hit duration limit (30 minutes) mode=${profile.mode}`);
       rt.safeSend("chat:activity", {
@@ -205,6 +222,11 @@ export async function runAgentTurn(
     // already append theirs to buildIterMessages.
     let finalRoundRespMsgs: ModelMessage[] = [];
     while (!streamRoundDone) {
+      // Same guard inside the continuation loop: a mid-round abort must not
+      // trigger another runStreamRound via the continuation `continue` below.
+      if (rt.abortController.signal.aborted) {
+        throw abortReasonError(rt.abortController.signal.reason);
+      }
       const {
         bundle,
         fullResponse: roundFull,

@@ -142,6 +142,14 @@ export const sessionMessages = sqliteTable("session_messages", {
   kind: text("kind", { enum: ["message", "plan"] })
     .notNull()
     .default("message"),
+  /**
+   * "interrupted" marks an assistant turn whose stream was cut off (compass
+   * stop, app quit/suspend, crash) before completing. Such rows hold partial
+   * content and render a "Continue" affordance. Normal turns are "complete".
+   */
+  status: text("status", { enum: ["complete", "interrupted"] })
+    .notNull()
+    .default("complete"),
   planStatus: text("plan_status", { enum: ["plan", "building", "built"] }),
   /** Frozen sub-agent / tool UI for session resume (JSON DisplaySnapshotV1). */
   displaySnapshot: text("display_snapshot"),

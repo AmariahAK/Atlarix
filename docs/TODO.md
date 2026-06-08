@@ -1,9 +1,25 @@
 # Atlarix TODO
 
-**Current Version:** v12.0.0 (unreleased — manual test pending, see docs/v12-manual-test-checklist.md; do NOT tag until it passes)
-**Last Updated:** 2026-06-07
+**Current Version:** v12.5.0 (released — first tagged build; bundles the never-tagged v11/v12.0 work)
+**Last Updated:** 2026-06-08
 
 ---
+
+## v12.5 — SHIPPED (2026-06-08): stability + concurrency batch, first tagged release
+
+> Six reported issues + one UI fix, then the v12.5.0 release (the first real tag — folds in all the never-tagged v11/v12.0 work).
+
+| Area | Notes |
+|------|-------|
+| **Concurrent sessions** | Renderer no longer overwrites the active chat when a second session opens. New `openChatTabsAtom` + `ChatTabStrip` (tabs with live streaming dots); sidebar already shows a background-stream spinner; tab cleanup on session delete. Per-chat state was already isolated by `chatId` in the backend — bug was purely renderer navigation (`open-workspace-session.ts` unconditional `activeChatIdAtom` overwrite). |
+| **Interrupted-turn recovery** | New `session_messages.status` column (`complete`/`interrupted`, idempotent boot migration). Main process throttle-persists partial assistant text during streaming (crash/quit/sleep-safe), force-flushes on abort + `before-quit` + `powerMonitor suspend`, deletes the draft on clean completion. Renderer shows an "interrupted" banner + **Continue** (promotes the draft via `messages:mark-complete`, then resumes). |
+| **Keep running on display sleep** | `powerSaveBlocker('prevent-app-suspension')`, refcounted by subclassing the `activeStreams` Map so all delete sites are covered. `powerMonitor` suspend/resume logging. (Lid-close suspend is OS-enforced — documented.) |
+| **Compass stop cascade** | After a token-pool abort the agent loop fired another request → `AI_NoOutputGeneratedError` unhandled rejection. `runAgentTurn` now guards both the outer turn loop and the inner continuation loop on `abortController.signal.aborted` (throws → existing abort path). |
+| **Compass budget/context** | Context window no longer over-pruned to 200K on the first turn (resolves the real per-tier window from the warmed OpenRouter catalog via `getCachedOpenRouterModelRow`). Added preflight (`tier/monthlyLimit/used/remaining`) + stop-cause (`rpc-limit_exceeded` vs `local-tally`) diagnostics. **Follow-up (server-side, NOT in this release):** reconcile the Supabase `record_compass_usage`/`get_compass_usage_state` monthly_limit so workforce accounts aren't metered at a free-tier cap — see `docs/compass-limits.md`. |
+| **Login gate** | `requireAuthSession()` on `sessions:start`/`sessions:create` (backend) + renderer `ensureSignedInForWorkspace()` prompt before opening any workspace. |
+| **Folder/file tool emojis** | Stripped from `file.ts` (buildTree, get_project_structure, list_files markers, get_file_outline, read_file tip) and `repo-overview.ts`. Legacy `📄` grep parser kept for old persisted results. |
+| **Settled "A" indicator** | Anchored to the last *assistant* message (not last array element) so it persists after a turn even when a trailing synthetic/user message is appended. |
+| **Release** | `package.json`/`README`/`CHANGELOG`/`TODO` → 12.5.0; new `docs/discord-release-12.5.md`; launchpad copy/version updated (no git on launchpad); `git tag v12.5.0` + push triggers the release Action. **`ATLARIX_CORE_MODEL_4` repo secret must be set.** |
 
 ## Post-register batch (approved 2026-06-07): sessions 16–22
 

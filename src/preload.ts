@@ -52,6 +52,7 @@ const validInvokeChannels = [
   "sessions:get",
   "sessions:generate-title",
   "messages:add",
+  "messages:mark-complete",
   "messages:save-display-snapshot",
   "session-messages:save-display-snapshot",
   "chat:set-display-snapshot",

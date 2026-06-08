@@ -4,9 +4,24 @@ import {
   X,
   ExternalLink as ExternalLinkIcon,
   CircleArrowUp,
+  SlidersHorizontal,
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { getDefaultStore } from "jotai";
+import { activeSettingsSectionAtom } from "@/atoms/viewAtoms";
+import { router } from "@/router";
+import { AI_STREAMING_ERROR_MESSAGE_PREFIX } from "@/shared/texts";
+
+/** Open Settings → AI so the user can switch provider / model or add an API key. */
+function openAiSettings() {
+  getDefaultStore().set(activeSettingsSectionAtom, "ai");
+  void router.navigate({ to: "/settings" });
+}
+
+/** Stable phrases emitted by the Compass token-pool guard (see compass_constants.ts). */
+const COMPASS_EXHAUSTED_MARKER = "Atlarix Core usage for this month is over";
+const COMPASS_REACHABILITY_MARKER = "trouble reaching Atlarix Core";
 
 export function ChatErrorBox({
   onDismiss,
@@ -17,6 +32,34 @@ export function ChatErrorBox({
   error: string;
   isAtlarixProEnabled: boolean;
 }) {
+  // Atlarix Core monthly token pool exhausted — offer upgrade + switch to
+  // another provider/model (BYOK) without losing the chat.
+  if (error.includes(COMPASS_EXHAUSTED_MARKER)) {
+    return (
+      <ChatInfoContainer onDismiss={onDismiss}>
+        <span>{error.replace(AI_STREAMING_ERROR_MESSAGE_PREFIX, "")}</span>
+        <div className="mt-2 space-y-2 space-x-2">
+          {!isAtlarixProEnabled && (
+            <UpgradeButton>Upgrade for more</UpgradeButton>
+          )}
+          <SwitchProviderButton>Choose another model</SwitchProviderButton>
+        </div>
+      </ChatInfoContainer>
+    );
+  }
+
+  // Transient: couldn't reach Atlarix Core — retry or switch provider.
+  if (error.includes(COMPASS_REACHABILITY_MARKER)) {
+    return (
+      <ChatInfoContainer onDismiss={onDismiss}>
+        <span>{error.replace(AI_STREAMING_ERROR_MESSAGE_PREFIX, "")}</span>
+        <div className="mt-2 space-y-2 space-x-2">
+          <SwitchProviderButton>Switch provider</SwitchProviderButton>
+        </div>
+      </ChatInfoContainer>
+    );
+  }
+
   if (error.includes("doesn't have a free quota tier")) {
     return (
       <ChatErrorContainer onDismiss={onDismiss}>
@@ -189,6 +232,20 @@ function UpgradeButton({ children }: { children: React.ReactNode }) {
     >
       <span>{children}</span>
       <CircleArrowUp size={18} />
+    </a>
+  );
+}
+
+/** Opens Settings → AI so the user can switch provider / model (BYOK) or add a key. */
+function SwitchProviderButton({ children }: { children: React.ReactNode }) {
+  const baseClasses =
+    "cursor-pointer inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium shadow-sm focus:outline-none focus:ring-2";
+  const secondaryClasses =
+    "bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 hover:border-blue-300 focus:ring-blue-200";
+  return (
+    <a className={`${baseClasses} ${secondaryClasses}`} onClick={openAiSettings}>
+      <span>{children}</span>
+      <SlidersHorizontal size={14} />
     </a>
   );
 }

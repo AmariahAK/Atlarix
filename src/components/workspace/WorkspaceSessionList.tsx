@@ -34,6 +34,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { appsListAtom } from "@/atoms/appAtoms";
 import { attachWorkspaceToChat } from "@/lib/chat-workspace-binding";
+import { registerOpenChatTab, removeOpenChatTab } from "@/lib/open-workspace-session";
 import { showInfo } from "@/lib/toast";
 import type { DisplaySnapshotV1 } from "@/lib/chat/display-snapshot";
 import { shouldUseStreamingSessionFastPath } from "@/lib/chat/activity-stream";
@@ -49,6 +50,7 @@ function sessionMessagesToUiMessages(
     id: string;
     role: string;
     content: string;
+    status?: "complete" | "interrupted";
     createdAt: Date;
     displaySnapshot?: DisplaySnapshotV1 | null;
     modelContent?: string | null;
@@ -66,6 +68,7 @@ function sessionMessagesToUiMessages(
       content: m.content,
       chatId,
       createdAt: m.createdAt,
+      ...(m.status === "interrupted" ? { interrupted: true } : {}),
       ...(m.modelContent ? { modelContent: m.modelContent } : {}),
       ...(m.pasteAttachments?.length
         ? { pasteAttachments: m.pasteAttachments }
@@ -107,6 +110,7 @@ export function WorkspaceSessionList({
   const isStreamingById = useAtomValue(isStreamingByIdAtom);
   const setMessagesById = useSetAtom(chatMessagesByIdAtom);
   const setActiveChatId = useSetAtom(activeChatIdAtom);
+  const activeChatIdValue = useAtomValue(activeChatIdAtom);
   const setSelectedChatId = useSetAtom(selectedChatIdAtom);
   const sessionsRefreshKey = useAtomValue(workspaceSessionsRefreshAtom);
   const titleGeneratingIds = useAtomValue(workspaceSessionTitleGeneratingAtom);
@@ -154,6 +158,14 @@ export function WorkspaceSessionList({
         });
         setActiveChatId(chatId);
         setSelectedChatId(chatId);
+        registerOpenChatTab({
+          chatId,
+          appId: workspaceId,
+          title:
+            sessions.find((s) => s.id === sessionId)?.title ||
+            workspaceApp?.name ||
+            "Session",
+        });
         navigate({ to: "/" });
         onSessionsChange?.();
       } catch (e) {
@@ -233,6 +245,11 @@ export function WorkspaceSessionList({
       });
       setActiveChatId(chatId);
       setSelectedChatId(chatId);
+      registerOpenChatTab({
+        chatId,
+        appId: workspaceId,
+        title: session.title || workspaceApp?.name || "Session",
+      });
       navigate({ to: "/" });
       onSessionsChange?.();
     } catch (e) {
@@ -275,6 +292,11 @@ export function WorkspaceSessionList({
           "@/lib/chat/clear-chat-atoms"
         );
         clearChatAtomsForChat(streamChatId);
+        // Drop its concurrent-session tab too (otherwise a dead tab lingers).
+        removeOpenChatTab(streamChatId);
+        if (activeChatIdValue === streamChatId) {
+          setActiveChatId(null);
+        }
       }
       if (activeSessionId === sessionId) {
         setActiveSessionId(null);

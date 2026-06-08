@@ -324,7 +324,7 @@ ToolRegistry.register({
             let result = `File: ${displayPath}\n`;
             result += `Total lines: ${lines.length} | Showing: ${sliced.linesShown} (${sliced.strategy})\n`;
             result +=
-                "💡 Tip: Use start_line/end_line for specific sections, or get_file_outline for structure.\n\n";
+                "Tip: Use start_line/end_line for specific sections, or get_file_outline for structure.\n\n";
             result += sliced.text;
 
             return truncateUtf8ByBytes(result, capBytes, { margin: 120, suffix: "\n\n… [truncated: exceeded max_bytes; lower max_lines/max_bytes or use start_line/end_line]" });
@@ -736,14 +736,14 @@ ToolRegistry.register({
 
             fileInfos.sort((a, b) => (b.lines || 0) - (a.lines || 0));
 
-            let output = `📊 **Project Structure with Stats** (${files.length} items)\n\n`;
+            let output = `**Project Structure with Stats** (${files.length} items)\n\n`;
 
             const large = fileInfos.filter(f => (f.lines || 0) > 500);
             const medium = fileInfos.filter(f => (f.lines || 0) > 100 && (f.lines || 0) <= 500);
             const small = fileInfos.filter(f => (f.lines || 0) <= 100);
 
             if (large.length > 0) {
-                output += `**🔴 Large Files (>500 lines)** - Use get_file_outline first:\n`;
+                output += `**Large Files (>500 lines)** - Use get_file_outline first:\n`;
                 large.slice(0, 10).forEach(f => {
                     output += `  - ${f.path} (${f.lines} lines, ${(f.size / 1024).toFixed(1)}KB)\n`;
                 });
@@ -751,7 +751,7 @@ ToolRegistry.register({
             }
 
             if (medium.length > 0) {
-                output += `**🟡 Medium Files (100-500 lines)** - Consider using context param:\n`;
+                output += `**Medium Files (100-500 lines)** - Consider using context param:\n`;
                 medium.slice(0, 15).forEach(f => {
                     output += `  - ${f.path} (${f.lines} lines)\n`;
                 });
@@ -759,7 +759,7 @@ ToolRegistry.register({
             }
 
             if (small.length > 0) {
-                output += `**🟢 Small Files (<100 lines)** - Safe to read fully:\n`;
+                output += `**Small Files (<100 lines)** - Safe to read fully:\n`;
                 small.slice(0, 20).forEach(f => {
                     output += `  - ${f.path} (${f.lines || '?'} lines)\n`;
                 });
@@ -768,7 +768,7 @@ ToolRegistry.register({
                 }
             }
 
-            output += `\n💡 **Tip:** For large files, use \`get_file_outline\` first, then \`view_symbol\` for specific functions.`;
+            output += `\n**Tip:** For large files, use \`get_file_outline\` first, then \`view_symbol\` for specific functions.`;
 
             return output;
         } catch (error) {
@@ -926,7 +926,7 @@ ToolRegistry.register({
                         lineCount = syms[syms.length - 1]?.line ?? 0;
                     }
 
-                    let output = `📄 **File Outline: ${normalizedPath}** (ctags)\n`;
+                    let output = `**File Outline: ${normalizedPath}** (ctags)\n`;
                     output += `**Total lines:** ${lineCount}\n\n`;
 
                     if (include_stats) {
@@ -934,7 +934,7 @@ ToolRegistry.register({
                     }
 
                     if (classes.length > 0) {
-                        output += `**🏛️ Classes (${classes.length}):**\n`;
+                        output += `**Classes (${classes.length}):**\n`;
                         classes.forEach((c) => {
                             output += `  - \`${c.name}\` (line ${c.line})${c.signature ? `: ${c.signature.slice(0, 60)}` : ""}\n`;
                         });
@@ -942,7 +942,7 @@ ToolRegistry.register({
                     }
 
                     if (interfaces.length > 0) {
-                        output += `**📋 Interfaces (${interfaces.length}):**\n`;
+                        output += `**Interfaces (${interfaces.length}):**\n`;
                         interfaces.forEach((i) => {
                             output += `  - \`${i.name}\` (line ${i.line})\n`;
                         });
@@ -950,7 +950,7 @@ ToolRegistry.register({
                     }
 
                     if (types.length > 0) {
-                        output += `**🔷 Types (${types.length}):**\n`;
+                        output += `**Types (${types.length}):**\n`;
                         types.forEach((t) => {
                             output += `  - \`${t.name}\` (line ${t.line})\n`;
                         });
@@ -958,7 +958,7 @@ ToolRegistry.register({
                     }
 
                     if (functions.length > 0) {
-                        output += `**⚡ Functions (${functions.length}):**\n`;
+                        output += `**Functions (${functions.length}):**\n`;
                         functions.forEach((f) => {
                             output += `  - \`${f.name}\` (line ${f.line})${f.signature ? `: ${f.signature.slice(0, 60)}` : ""}\n`;
                         });
@@ -966,7 +966,7 @@ ToolRegistry.register({
                     }
 
                     const tipLine = functions[0]?.line ?? classes[0]?.line ?? 1;
-                    output += `\n💡 **Tip:** Use \`read_file\` with \`start_line\`/\`end_line\` (e.g. start at line ${tipLine}) to read a specific symbol's body.`;
+                    output += `\n**Tip:** Use \`read_file\` with \`start_line\`/\`end_line\` (e.g. start at line ${tipLine}) to read a specific symbol's body.`;
                     return output;
                 }
             } catch {
@@ -1044,7 +1044,7 @@ ToolRegistry.register({
                 }
             }
 
-            let output = `📄 **File Outline: ${normalizedPath}**\n`;
+            let output = `**File Outline: ${normalizedPath}**\n`;
             output += `**Total lines:** ${lines.length}\n\n`;
 
             if (include_stats) {
@@ -1052,7 +1052,7 @@ ToolRegistry.register({
             }
 
             if (imports.length > 0) {
-                output += `**📦 Imports (${imports.length}):**\n`;
+                output += `**Imports (${imports.length}):**\n`;
                 imports.slice(0, 10).forEach(imp => {
                     output += `  ${imp}\n`;
                 });
@@ -1063,7 +1063,7 @@ ToolRegistry.register({
             }
 
             if (classes.length > 0) {
-                output += `**🏛️ Classes (${classes.length}):**\n`;
+                output += `**Classes (${classes.length}):**\n`;
                 classes.forEach(c => {
                     output += `  - \`${c.name}\` (line ${c.line})\n`;
                 });
@@ -1071,7 +1071,7 @@ ToolRegistry.register({
             }
 
             if (interfaces.length > 0) {
-                output += `**📋 Interfaces (${interfaces.length}):**\n`;
+                output += `**Interfaces (${interfaces.length}):**\n`;
                 interfaces.forEach(i => {
                     output += `  - \`${i.name}\` (line ${i.line})\n`;
                 });
@@ -1079,7 +1079,7 @@ ToolRegistry.register({
             }
 
             if (types.length > 0) {
-                output += `**🔷 Types (${types.length}):**\n`;
+                output += `**Types (${types.length}):**\n`;
                 types.forEach(t => {
                     output += `  - \`${t.name}\` (line ${t.line})\n`;
                 });
@@ -1087,14 +1087,14 @@ ToolRegistry.register({
             }
 
             if (functions.length > 0) {
-                output += `**⚡ Functions (${functions.length}):**\n`;
+                output += `**Functions (${functions.length}):**\n`;
                 functions.forEach(f => {
                     output += `  - \`${f.name}\` (line ${f.line})\n`;
                 });
                 output += '\n';
             }
 
-            output += `\n💡 **Tip:** Use \`read_file\` with \`start_line\`/\`end_line\` (e.g. start at line ${functions[0]?.line || classes[0]?.line || 1}) to read a specific symbol's body.`;
+            output += `\n**Tip:** Use \`read_file\` with \`start_line\`/\`end_line\` (e.g. start at line ${functions[0]?.line || classes[0]?.line || 1}) to read a specific symbol's body.`;
 
             return output;
 
@@ -1275,8 +1275,8 @@ ToolRegistry.register({
 
             sortedFolders.forEach(([folder, count]) => {
                 output += include_counts
-                    ? `- 📁 ${folder}/ (${count} files)\n`
-                    : `- 📁 ${folder}/\n`;
+                    ? `- ${folder}/ (${count} files)\n`
+                    : `- ${folder}/\n`;
             });
 
             if (entryPoints.length > 0) {
@@ -1297,7 +1297,7 @@ ToolRegistry.register({
                 output += `- ${ext}: ${count} files\n`;
             });
 
-            output += `\n---\n💡 **Next Steps:**\n`;
+            output += `\n---\n**Next Steps:**\n`;
             output += `- Use \`search\` with mode semantic or text to find code and features\n`;
             output += `- Use \`read_file\` to view specific files\n`;
 
@@ -1576,13 +1576,13 @@ function buildTree(files: string[], indent: string = ""): string {
     let result = "";
     for (const [dir, children] of tree) {
         if (dir !== ".") {
-            result += `${indent}📁 ${dir}/\n`;
+            result += `${indent}${dir}/\n`;
             if (children.length > 0) {
                 result += buildTree(children, indent + "  ");
             }
         } else {
             children.forEach((file) => {
-                result += `${indent}📄 ${file}\n`;
+                result += `${indent}${file}\n`;
             });
         }
     }

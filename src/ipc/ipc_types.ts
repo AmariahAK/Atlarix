@@ -289,6 +289,12 @@ export interface Message {
   pasteAttachments?: PasteAttachmentMeta[] | null;
   /** Frozen tool / sub-agent UI (DisplaySnapshotV1). */
   displaySnapshot?: DisplaySnapshotV1 | null;
+  /**
+   * Issue 4: assistant turn whose stream was cut off (compass stop, app
+   * quit/suspend, crash) before completing. Holds partial content and renders
+   * a "Continue" affordance so the user can resume.
+   */
+  interrupted?: boolean | null;
 }
 
 export interface Chat {

@@ -464,6 +464,12 @@ function ensureSessionMessagePlanColumnsIfNeeded(sqlite: Database.Database): voi
     logger.log("[Schema Fix] Adding session_messages.file_attachments (0055_session_message_attachments)");
     sqlite.exec("ALTER TABLE session_messages ADD COLUMN file_attachments text");
   }
+  if (!columnExists(sqlite, "session_messages", "status")) {
+    logger.log("[Schema Fix] Adding session_messages.status (interrupted-turn recovery)");
+    sqlite.exec(
+      "ALTER TABLE session_messages ADD COLUMN status text NOT NULL DEFAULT 'complete'",
+    );
+  }
 }
 
 function ensureAppsRemoteColumnsIfNeeded(sqlite: Database.Database): void {

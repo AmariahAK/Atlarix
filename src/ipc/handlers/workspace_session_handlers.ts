@@ -23,6 +23,7 @@ import type {
   StoredFileAttachment,
 } from "../ipc_types";
 import { hydrateAttachmentStoreFromMessages } from "@/lib/attachment-persistence";
+import { requireAuthSession } from "@/lib/auth/require_auth_session";
 import {
   createStreamTransport,
   deleteStreamTransport,
@@ -49,6 +50,8 @@ export type SessionMessageRow = {
   role: "user" | "assistant" | "tool";
   content: string;
   kind: "message" | "plan";
+  /** "interrupted" when the assistant turn was cut off mid-stream (holds partial content). */
+  status: "complete" | "interrupted";
   createdAt: Date;
   displaySnapshot?: DisplaySnapshotV1 | null;
   modelContent?: string | null;
@@ -79,6 +82,7 @@ function mapMessage(row: typeof sessionMessages.$inferSelect): SessionMessageRow
     role: row.role as SessionMessageRow["role"],
     content: row.content,
     kind: (row.kind ?? "message") as SessionMessageRow["kind"],
+    status: (row.status ?? "complete") as SessionMessageRow["status"],
     createdAt: row.createdAt,
     displaySnapshot: parseDisplaySnapshot(row.displaySnapshot),
     modelContent: row.modelContent ?? null,
@@ -185,6 +189,61 @@ export async function addSessionMessageDirect(
     .where(eq(chatSessions.id, sessionId));
   await trimSessionMessagesIfNeeded(sessionId);
   return mapMessage(message);
+}
+
+/**
+ * Crash-safe partial-output persistence. While an assistant turn streams, the
+ * main process upserts the accumulated text into a single "interrupted" row per
+ * stream (see `partialDraftRowByChatId` in chat_stream_handlers). If the app is
+ * killed / suspended / the stream is aborted, that row survives and the session
+ * renders it with a Continue affordance. On clean completion the draft is
+ * deleted — the renderer persists the authoritative finished message instead.
+ */
+export async function upsertInterruptedAssistantDraft(
+  existingRowId: string | null,
+  sessionId: string,
+  content: string,
+): Promise<string> {
+  const now = new Date();
+  if (existingRowId) {
+    await db
+      .update(sessionMessages)
+      .set({ content, status: "interrupted" })
+      .where(eq(sessionMessages.id, existingRowId));
+    await db
+      .update(chatSessions)
+      .set({ updatedAt: now })
+      .where(eq(chatSessions.id, sessionId));
+    return existingRowId;
+  }
+  const id = randomUUID();
+  await db.insert(sessionMessages).values({
+    id,
+    sessionId,
+    role: "assistant",
+    content,
+    status: "interrupted",
+    createdAt: now,
+  });
+  await db
+    .update(chatSessions)
+    .set({ updatedAt: now })
+    .where(eq(chatSessions.id, sessionId));
+  await trimSessionMessagesIfNeeded(sessionId);
+  return id;
+}
+
+/** Remove an interrupted draft row once the turn completes (or is superseded). */
+export async function deleteInterruptedAssistantDraft(rowId: string): Promise<void> {
+  await db.delete(sessionMessages).where(eq(sessionMessages.id, rowId));
+}
+
+/** Promote an interrupted row to a normal history message (used by "Continue"). */
+export async function markSessionMessageComplete(rowId: string): Promise<void> {
+  await db
+    .update(sessionMessages)
+    .set({ status: "complete" })
+    .where(eq(sessionMessages.id, rowId));
 }
 
 export async function persistWorkspaceSessionUserMessage(
@@ -430,6 +489,9 @@ export function registerWorkspaceSessionHandlers(): void {
   );
 
   handle("sessions:start", async (_event, workspaceId: number) => {
+    // Defense-in-depth: a workspace session may only be started by a signed-in
+    // user (the UI gates selection too, but never trust the renderer).
+    await requireAuthSession();
     const started = await startWorkspaceSession(workspaceId);
     logger.info(
       `sessions:start workspace=${workspaceId} session=${started.sessionId} transport=${started.chatId}`,
@@ -458,6 +520,7 @@ export function registerWorkspaceSessionHandlers(): void {
   });
 
   handle("sessions:create", async (_event, workspaceId: number) => {
+    await requireAuthSession();
     return insertWorkspaceSession(workspaceId);
   });
 
@@ -547,6 +610,11 @@ export function registerWorkspaceSessionHandlers(): void {
       extras?: SessionMessageExtras,
     ) => addSessionMessageDirect(sessionId, role, content, displaySnapshot, extras),
   );
+
+  handle("messages:mark-complete", async (_event, rowId: string) => {
+    await markSessionMessageComplete(rowId);
+    return { ok: true };
+  });
 
   handle("sessions:generate-title", async (_event, sessionId: string) => {
     const session = await db.query.chatSessions.findFirst({

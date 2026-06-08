@@ -21,6 +21,19 @@ export const selectedChatIdAtom = atom<number | null>(null);
 // Only reset when "New Chat" is clicked or app restarts
 export const activeChatIdAtom = atom<number | null>(null);
 
+/**
+ * Concurrent sessions: every workspace conversation the user has opened this
+ * run, in open order. Switching the active chat must NOT drop the others — a
+ * tab strip renders these so a session that is still streaming in the
+ * background stays reachable (its per-chat state lives in the maps above).
+ */
+export interface OpenChatTab {
+  chatId: number;
+  appId: number | null;
+  title: string;
+}
+export const openChatTabsAtom = atom<OpenChatTab[]>([]);
+
 export const isStreamingByIdAtom = atom<Map<number, boolean>>(new Map());
 export const chatInputValueAtom = atom<string>("");
 

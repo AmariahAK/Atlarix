@@ -18,6 +18,7 @@ import {
   activeChatIdAtom,
   chatMessagesByIdAtom,
   selectedChatIdAtom,
+  openChatTabsAtom,
 } from "@/atoms/chatAtoms";
 import {
   selectedAppIdAtom,
@@ -28,6 +29,36 @@ import { pushRecentWorkspace } from "@/lib/workspace-recents";
 import { showError } from "@/lib/toast";
 import { resetTerminalInstancesForNewChat } from "@/lib/reset-terminal-instances";
 
+/**
+ * Add or update an open-session tab (dedupe by chatId), preserving the order
+ * and the other open sessions. Called whenever a workspace conversation becomes
+ * active so concurrent/background sessions stay reachable via the tab strip.
+ */
+export function registerOpenChatTab(tab: {
+  chatId: number;
+  appId: number | null;
+  title: string;
+}): void {
+  const store = getDefaultStore();
+  store.set(openChatTabsAtom, (prev) => {
+    const existing = prev.find((t) => t.chatId === tab.chatId);
+    if (existing) {
+      return prev.map((t) =>
+        t.chatId === tab.chatId
+          ? { ...t, appId: tab.appId, title: tab.title || t.title }
+          : t,
+      );
+    }
+    return [...prev, tab];
+  });
+}
+
+/** Remove a tab (and let the caller decide the next active chat). */
+export function removeOpenChatTab(chatId: number): void {
+  const store = getDefaultStore();
+  store.set(openChatTabsAtom, (prev) => prev.filter((t) => t.chatId !== chatId));
+}
+
 export type OpenWorkspaceFolderResult = {
   appId: number;
   chatId: number;
@@ -35,6 +66,24 @@ export type OpenWorkspaceFolderResult = {
   path: string;
   name: string;
 };
+
+/**
+ * Workspaces require a signed-in user. Checks the main-process session and, if
+ * absent, surfaces a sign-in prompt and returns false. The backend session
+ * handlers enforce this too (requireAuthSession) — this is the friendly UX gate.
+ */
+async function ensureSignedInForWorkspace(): Promise<boolean> {
+  try {
+    const res = (await window.electron?.ipcRenderer.invoke(
+      "auth:get-current-user",
+    )) as { user?: unknown } | undefined;
+    if (res?.user) return true;
+  } catch {
+    /* treat as signed-out */
+  }
+  showError("Please sign in to open a workspace.");
+  return false;
+}
 
 export type StartNewWorkspaceConversationOptions = {
   workspaceId: number;
@@ -53,6 +102,7 @@ export async function startNewWorkspaceConversation(
 ): Promise<number | null> {
   const { workspaceId } = options;
   try {
+    if (!(await ensureSignedInForWorkspace())) return null;
     const ipc = IpcClient.getInstance();
     const app = await ipc.getApp(workspaceId);
     if (app.pathExists === false) {
@@ -99,6 +149,7 @@ export async function startNewWorkspaceConversation(
     });
     store.set(activeChatIdAtom, chatId);
     store.set(selectedChatIdAtom, chatId);
+    registerOpenChatTab({ chatId, appId: workspaceId, title: name });
     store.set(workspaceSessionsRefreshAtom, (n) => n + 1);
 
     options.navigate?.({ to: "/" });
@@ -188,6 +239,7 @@ export async function openWorkspaceByAppId(
 ): Promise<OpenWorkspaceFolderResult | null> {
   const { appId } = options;
   try {
+    if (!(await ensureSignedInForWorkspace())) return null;
     await options.refreshApps?.();
     await IpcClient.getInstance().touchAppLastOpened(appId);
 
@@ -215,6 +267,7 @@ export async function openWorkspaceByAppId(
     store.set(loadedSessionResumeAtom, false);
     store.set(activeChatIdAtom, chatId);
     store.set(selectedChatIdAtom, chatId);
+    registerOpenChatTab({ chatId, appId, title: app.name });
     store.set(workspaceSessionsRefreshAtom, (n) => n + 1);
 
     if (folderPath && !folderPath.startsWith("atlarix-remote://")) {
@@ -246,6 +299,8 @@ export async function openWorkspaceFolder(
   const folderPath = options.folderPath.trim();
   if (!folderPath) return null;
 
+  if (!(await ensureSignedInForWorkspace())) return null;
+
   const isRemote = folderPath.startsWith("atlarix-remote://");
   const appName =
     options.appName ??
@@ -276,6 +331,7 @@ export async function openWorkspaceFolder(
     store.set(loadedSessionResumeAtom, false);
     store.set(activeChatIdAtom, chatId);
     store.set(selectedChatIdAtom, chatId);
+    registerOpenChatTab({ chatId, appId: imported.appId, title: app.name });
     store.set(workspaceSessionsRefreshAtom, (n) => n + 1);
 
     if (!isRemote) {

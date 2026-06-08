@@ -100,10 +100,10 @@ async function buildStructureLines(root: string, relBase: string, maxDepth: numb
       const indent = "  ".repeat(depth);
       if (stat.isDirectory()) {
         if (IGNORE_DIRS.has(name)) {
-          lines.push(`${indent}- 📁 ${relPath}/ (skipped)`);
+          lines.push(`${indent}- ${relPath}/ (skipped)`);
           continue;
         }
-        lines.push(`${indent}- 📁 ${relPath}/`);
+        lines.push(`${indent}- ${relPath}/`);
         if (depth < maxDepth) await walk(full, relPath, depth + 1);
       } else {
         lines.push(`${indent}- ${relPath}`);

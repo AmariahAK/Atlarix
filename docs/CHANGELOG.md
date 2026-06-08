@@ -1,5 +1,31 @@
 # Atlarix Changelog
 
+## [12.5.0] (2026-06-08) — Concurrency & stability: run sessions in parallel, never lose work, keep going while the screen sleeps
+
+> The first tagged release. It bundles all the previously untagged 11.0/12.0 work (engine rewrite, in-app browser, Atlarix Core, document readers — see the sections below) plus this stability batch.
+
+### Added (v12.5)
+
+- **Concurrent sessions:** Starting a second workspace session no longer hides the first. Open sessions now appear as **tabs** above the chat (each with a live streaming dot), and the sidebar shows a running indicator per session — so a session that's still streaming in the background stays reachable instead of being overwritten. Per-chat state was already isolated by chat id in the backend; the bug was the renderer unconditionally replacing the active chat on every open.
+- **Interrupted-turn recovery:** A turn that's cut off by an abrupt quit, OS sleep, or crash is no longer lost. The main process throttle-persists the in-flight assistant text to the session DB (a new `session_messages.status` = `interrupted` row), force-flushes it on stream abort, `before-quit`, and `powerMonitor` suspend, and deletes the draft on clean completion. On reopen the session shows the partial output with a **Continue** button that resumes the turn.
+- **Keeps working while the display sleeps:** A reference-counted `powerSaveBlocker('prevent-app-suspension')` is held whenever a stream is active, so long tasks keep progressing when the screen sleeps. (A full system suspend / lid-close is still OS-enforced — partial work is flushed first so nothing is lost.)
+- **Switch-provider prompt on Core exhaustion:** When the monthly Atlarix Core token pool runs out (or Core is unreachable), the chat shows an actionable banner — **Choose another model / Switch provider** (opens Settings → AI) plus an upgrade link — instead of a bare error.
+
+### Fixed (v12.5)
+
+- **The inline "A" indicator now persists after a turn:** It settled into a stagnant "A" but then vanished when a trailing synthetic/continuation message was appended; it's now anchored to the last assistant message and stays put.
+- **Core token-pool stop no longer cascades into an error:** Hitting the pool mid-task previously let the agent loop fire one more request that returned empty (`AI_NoOutputGeneratedError`, surfaced as an unhandled rejection). The unified `runAgentTurn` loop now hard-stops on abort (outer turn loop **and** inner continuation loop) and takes the clean partial-save path.
+- **Core context window no longer over-pruned on the first turn:** Before the first token was captured, Core dispatches budgeted against a blanket 200K; they now use the underlying tier model's real window (e.g. 1M for Core 3) from the warmed OpenRouter catalog, so the opening turn isn't needlessly truncated.
+- **Login is required before opening a workspace:** enforced both in the UI (sign-in prompt) and the backend (`sessions:start`/`sessions:create`).
+- **Folder/file tools emit plain text:** removed emojis from the folder layout, project-structure, `list_files`, `get_file_outline`, and `read_file` tool output (legacy parsing of older results preserved).
+
+### Changed (v12.5)
+
+- **Compass budget diagnostics:** preflight now logs `tier / monthlyLimit / used / remaining`, and a mid-task stop logs its cause (`rpc-limit_exceeded` vs local tally) — to surface a metering-vs-displayed-budget mismatch. **Known follow-up (server-side, not in this release):** the Supabase usage RPCs must report the correct monthly limit for paid plans so a workforce account isn't metered at a free-tier cap (see `docs/compass-limits.md`).
+- **Schema:** added `session_messages.status` (`complete` | `interrupted`) via an idempotent boot migration.
+
+---
+
 ## [12.0.0] — Unreleased (pending manual test): The engine release — one agent loop, native tool history, verified edits, background agents
 
 > Everything since 10.1.0 ships as one release: the v12 core-loop rewrite (22 build sessions) plus the v11 feature batch (in-app browser, WebMCP, Atlarix Core, document readers) that was never tagged separately.
