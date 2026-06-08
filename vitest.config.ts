@@ -1,7 +1,32 @@
+import fs from "node:fs";
 import path from "node:path";
 import { defineConfig } from "vitest/config";
 
 const root = import.meta.dirname;
+
+/**
+ * The agent-evals project aliases `better-sqlite3` to a Node-ABI copy under
+ * tests/infra/node_modules (the root copy is rebuilt for Electron's ABI). That
+ * copy is a local-only install (gitignored), so if it isn't present — e.g. a CI
+ * job that didn't run `npm install --prefix tests/infra`, or a fresh clone —
+ * skip registering the project entirely instead of failing every suite to load
+ * with an unresolved-alias error.
+ */
+const AGENT_EVALS_BETTER_SQLITE = path.join(
+  root,
+  "tests/infra/node_modules/better-sqlite3",
+);
+// Require the compiled native binary, not just the package dir — a partial
+// install (dir present, prebuild fetch failed) would otherwise register the
+// project and then fail every suite at load with an ABI/require error.
+const AGENT_EVALS_READY = fs.existsSync(
+  path.join(AGENT_EVALS_BETTER_SQLITE, "build/Release/better_sqlite3.node"),
+);
+if (!AGENT_EVALS_READY) {
+  console.warn(
+    "[vitest] agent-evals project skipped: tests/infra Node-ABI better-sqlite3 not built (run `npm install --prefix tests/infra`).",
+  );
+}
 
 const sharedExclude = [
   "**/node_modules/**",
@@ -68,37 +93,38 @@ export default defineConfig({
           exclude: sharedExclude,
         },
       },
-      {
-        resolve: {
-          alias: {
-            "@": path.join(root, "src"),
-            // Root better-sqlite3 is rebuilt for Electron's ABI (postinstall
-            // electron-rebuild); plain-Node vitest needs the Node-ABI copy
-            // installed under tests/infra (see tests/infra/package.json).
-            "better-sqlite3": path.join(
-              root,
-              "tests/infra/node_modules/better-sqlite3",
-            ),
-          },
-        },
-        test: {
-          name: "agent-evals",
-          environment: "node",
-          setupFiles: [
-            "./vitest.setup.ts",
-            "./tests/infra/setup-agent-evals.ts",
-          ],
-          include: ["tests/agent-evals/**/*.test.ts"],
-          exclude: sharedExclude,
-          // Real sqlite migrations + streamed fake-LLM turns are slower than
-          // pure unit tests; evals drive full agent turns end-to-end.
-          testTimeout: 30_000,
-          hookTimeout: 30_000,
-          // Each eval file owns a real DB singleton + temp dirs; keep files
-          // isolated from each other.
-          fileParallelism: false,
-        },
-      },
+      ...(AGENT_EVALS_READY
+        ? [
+            {
+              resolve: {
+                alias: {
+                  "@": path.join(root, "src"),
+                  // Root better-sqlite3 is rebuilt for Electron's ABI (postinstall
+                  // electron-rebuild); plain-Node vitest needs the Node-ABI copy
+                  // installed under tests/infra (see tests/infra/package.json).
+                  "better-sqlite3": AGENT_EVALS_BETTER_SQLITE,
+                },
+              },
+              test: {
+                name: "agent-evals",
+                environment: "node" as const,
+                setupFiles: [
+                  "./vitest.setup.ts",
+                  "./tests/infra/setup-agent-evals.ts",
+                ],
+                include: ["tests/agent-evals/**/*.test.ts"],
+                exclude: sharedExclude,
+                // Real sqlite migrations + streamed fake-LLM turns are slower
+                // than pure unit tests; evals drive full agent turns end-to-end.
+                testTimeout: 30_000,
+                hookTimeout: 30_000,
+                // Each eval file owns a real DB singleton + temp dirs; keep
+                // files isolated from each other.
+                fileParallelism: false,
+              },
+            },
+          ]
+        : []),
     ],
   },
 });
