@@ -1,12 +1,12 @@
 import { useMemo, useState } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { FolderOpen, GitBranch, Settings, Trash2 } from "lucide-react";
+import { FolderOpen, GitBranch, LogOut, Settings, Trash2 } from "lucide-react";
 import { DISCORD_INVITE_URL } from "@/lib/community/discord";
 import { IpcClient } from "@/ipc/ipc_client";
 import { PlanLimitError } from "@/lib/plan-limit-error";
 import { showError } from "@/lib/toast";
 import AtlarixAnimation from "@/components/atlarix/AtlarixAnimation";
-import { AtlarixSignInHero } from "@/components/atlarix/AtlarixSignInHero";
+import { OAuthSignInButtons } from "@/components/auth/OAuthSignInButtons";
 import { useAuth } from "@/lib/auth/useAuth";
 import { useLoadApps } from "@/hooks/useLoadApps";
 import { formatCompassSubscriptionTier } from "@/shared/compass_product_copy";
@@ -24,7 +24,7 @@ const RECENT_PREVIEW = 8;
 
 export default function WelcomeLauncher() {
   const navigate = useNavigate();
-  const { user, status, isAuthenticated, signInWithGoogle } = useAuth();
+  const { user, status, isAuthenticated, signOut } = useAuth();
   const { apps, refreshApps } = useLoadApps();
   const [cloneOpen, setCloneOpen] = useState(false);
   const [showAllRecents, setShowAllRecents] = useState(false);
@@ -60,11 +60,11 @@ export default function WelcomeLauncher() {
     return (
       <div className="flex flex-col items-center justify-center min-h-[60vh] px-6 text-center gap-4">
         <LocalDateTimeClock variant="welcome" className="mb-2" />
-        <AtlarixSignInHero
-          size="md"
-          onSignIn={() => void signInWithGoogle()}
-        />
+        <AtlarixAnimation size="sm" phase="done" minimalChrome theme="auto" className="shadow-sm" />
         <p className="text-muted-foreground">Sign in to open a workspace.</p>
+        <div className="w-full max-w-xs">
+          <OAuthSignInButtons size="md" />
+        </div>
         <Button asChild variant="outline" size="sm">
           <Link to="/sign-in">More about sign in</Link>
         </Button>
@@ -140,13 +140,23 @@ export default function WelcomeLauncher() {
             {tierLabel}
           </Badge>
         </div>
-        <Link
-          to="/settings"
-          className="text-xs text-muted-foreground hover:text-foreground inline-flex items-center gap-1"
-        >
-          <Settings className="h-3 w-3" />
-          Settings & account
-        </Link>
+        <div className="flex items-center gap-3">
+          <Link
+            to="/settings"
+            className="text-xs text-muted-foreground hover:text-foreground inline-flex items-center gap-1"
+          >
+            <Settings className="h-3 w-3" />
+            Settings & account
+          </Link>
+          <button
+            type="button"
+            onClick={() => void signOut()}
+            className="text-xs text-muted-foreground hover:text-foreground inline-flex items-center gap-1"
+          >
+            <LogOut className="h-3 w-3" />
+            Sign out
+          </button>
+        </div>
       </header>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full max-w-xl">

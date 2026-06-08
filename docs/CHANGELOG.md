@@ -1,5 +1,17 @@
 # Atlarix Changelog
 
+## [12.6.0] (2026-06-08) — Sign-in fix: Google & GitHub buttons everywhere, log out/in from the welcome screen
+
+### Fixed (v12.6)
+
+- **Sign-in surfaces show real OAuth buttons again:** after logging out, the sidebar (and the welcome screen, and the full sign-in page) showed only the animated Atlarix mark with "Click to sign in" — Google-only and easy to miss. They now render proper **"Continue with Google"** and **"Continue with GitHub"** buttons. The Supabase OAuth wiring was always intact (`auth:sign-in` → `SubscriptionManager.signIn`); only the UI had regressed to an animation-only control. Restores the v9.0.0 button UI, now driven by `useAuth()` so the in-flight OAuth status/spinner is preserved.
+
+### Added (v12.6)
+
+- **Log out / sign in from the welcome screen:** the home/workspace-selector header now has a **Sign out** control next to "Settings & account", and when signed out it shows the Google/GitHub sign-in buttons directly — no need to dig through the sidebar.
+
+---
+
 ## [12.5.0] (2026-06-08) — Concurrency & stability: run sessions in parallel, never lose work, keep going while the screen sleeps
 
 > The first tagged release. It bundles all the previously untagged 11.0/12.0 work (engine rewrite, in-app browser, Atlarix Core, document readers — see the sections below) plus this stability batch.

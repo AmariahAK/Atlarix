@@ -7,10 +7,10 @@ import {
   LogOut,
   User,
 } from "lucide-react";
-import { AtlarixSignInHero } from "@/components/atlarix/AtlarixSignInHero";
+import { OAuthSignInButtons } from "@/components/auth/OAuthSignInButtons";
 import { Link, useRouterState } from "@tanstack/react-router";
 import { useSidebar } from "@/components/ui/sidebar"; // import useSidebar hook
-import { useEffect, useState, useRef, useCallback } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useAtom } from "jotai";
 import { dropdownOpenAtom } from "@/atoms/uiAtoms";
 import { useAuth } from "@/lib/auth/useAuth";
@@ -76,7 +76,6 @@ export function AppSidebar() {
   const {
     user,
     isAuthenticated,
-    signInWithGoogle,
     signOut,
     status,
     refreshStatus,
@@ -87,11 +86,6 @@ export function AppSidebar() {
       void refreshStatus?.();
     }
   }, [showAuthMenu, isAuthenticated, refreshStatus]);
-
-  const handleSignIn = useCallback((fn: () => void) => {
-    fn();
-    setShowAuthMenu(false);
-  }, []);
 
   useEffect(() => {
     if (hoverState.startsWith("start-hover") && state === "collapsed") {
@@ -316,10 +310,10 @@ export function AppSidebar() {
 
                 {/* Dropdown menu for login options */}
                 {showAuthMenu && (
-                  <div className="absolute bottom-full left-0 mb-2 w-56 bg-popover border border-border rounded-lg shadow-lg p-3 z-50">
-                    <AtlarixSignInHero
+                  <div className="absolute bottom-full left-0 mb-2 w-60 bg-popover border border-border rounded-lg shadow-lg p-3 z-50">
+                    <OAuthSignInButtons
                       size="sm"
-                      onSignIn={() => handleSignIn(signInWithGoogle)}
+                      onAfterClick={() => setShowAuthMenu(false)}
                     />
                   </div>
                 )}

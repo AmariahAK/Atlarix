@@ -1,9 +1,21 @@
 # Atlarix TODO
 
-**Current Version:** v12.5.0 (released — first tagged build; bundles the never-tagged v11/v12.0 work)
+**Current Version:** v12.6.0 (released)
 **Last Updated:** 2026-06-08
 
 ---
+
+## v12.6 — SHIPPED (2026-06-08): sign-in UI fix
+
+> Sign-in surfaces had regressed to the animation-only `AtlarixSignInHero` (Google-only). Restored real Google + GitHub OAuth buttons; added logout/login from the welcome screen.
+
+| Area | Notes |
+|------|-------|
+| **OAuth buttons** | New `src/components/auth/OAuthSignInButtons.tsx` (recreates the deleted `AuthButton.tsx@3277e7a` UI — GoogleIcon SVG + lucide `Github`, "Continue with Google/GitHub") driven by `useAuth()`. Supabase path unchanged: `useAuth().signIn*` → `auth:sign-in {provider}` → `SubscriptionManager.signIn` → Supabase OAuth. `oauthPending`/`oauthProvider`/`oauthStatusLabel` drive the disabled/spinner state. |
+| **Sidebar** | `app-sidebar.tsx` logged-out dropdown now renders `OAuthSignInButtons` (was `AtlarixSignInHero`, Google-only). Removed now-dead `handleSignIn`/`signInWithGoogle`/`useCallback`. |
+| **Welcome screen** | `welcome-launcher.tsx`: signed-out gate shows the OAuth buttons (decorative `AtlarixAnimation` kept); signed-in header adds a **Sign out** control next to "Settings & account". |
+| **Sign-in page** | `sign-in.tsx` swapped to `OAuthSignInButtons` for consistency (GitHub now offered there too). |
+| **Release** | docs → 12.6.0; launchpad copy/version updated (no git); `docs/discord-release-12.6.md`; tag `v12.6.0` + push. |
 
 ## v12.5 — SHIPPED (2026-06-08): stability + concurrency batch, first tagged release
 

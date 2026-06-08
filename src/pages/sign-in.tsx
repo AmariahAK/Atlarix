@@ -9,16 +9,14 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { useEffect } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { LoadingBar } from '@/components/ui/LoadingBar';
-import { AtlarixSignInHero } from '@/components/atlarix/AtlarixSignInHero';
+import { OAuthSignInButtons } from '@/components/auth/OAuthSignInButtons';
 import AtlarixAnimation from '@/components/atlarix/AtlarixAnimation';
 
 export function SignInPage() {
     const {
         user,
         loading,
-        signInWithGoogle,
         oauthPending,
-        oauthStatusLabel,
     } = useAuth();
     const navigate = useNavigate();
 
@@ -44,12 +42,10 @@ export function SignInPage() {
             <Card className="relative w-full max-w-md border-border/50 bg-card/80 backdrop-blur-sm overflow-hidden">
                 <LoadingBar isVisible={oauthPending} />
                 <CardHeader className="text-center space-y-4">
-                    <AtlarixSignInHero
-                        size="lg"
-                        onSignIn={() => void signInWithGoogle()}
-                        oauthPending={oauthPending}
-                        oauthStatusLabel={oauthStatusLabel}
-                    />
+                    <div className="flex justify-center">
+                        <AtlarixAnimation size="lg" phase="done" minimalChrome />
+                    </div>
+                    <OAuthSignInButtons size="md" />
 
                     <div>
                         <CardTitle className="text-3xl font-bold bg-gradient-to-r from-primary via-secondary to-primary bg-clip-text text-transparent">
