@@ -14,7 +14,6 @@ import { getAtlarixAppPath } from "@/paths/paths";
 import { getCurrentCommitHash } from "@/ipc/utils/git_utils";
 const PLAN_FILE = ".atlarix/ATLARIX_PLAN.md";
 import log from "electron-log";
-import { truncateToTokens } from "@/lib/truncate";
 
 const logger = log.scope("project-memory");
 
