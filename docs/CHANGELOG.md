@@ -1,5 +1,18 @@
 # Atlarix Changelog
 
+## [12.8.0] (2026-06-08) — Stability: graceful token count, delete-session keeps you in the workspace, crash hardening
+
+### Fixed (v12.8)
+
+- **No more "Chat not found: -1".** A debounced token-count request that fired for a chat just torn down (session deleted / app teardown) threw `Chat not found: <id>` (`token_count_handlers.ts`), which surfaced as a user error toast and a Sentry event. Token count is a non-critical estimate, so a missing ephemeral chat now returns an empty result instead of throwing.
+- **Deleting the active session no longer bounces you to the workspace selector.** `WorkspaceSessionList.handleDelete` cleared the active session but never started a replacement, so deleting the active (or last) session fell back to the welcome screen. It now opens a fresh session in the **same** workspace (reusing an empty default session when one exists) via `startNewWorkspaceConversation`. Deleting a background session leaves your current view unchanged.
+
+### Hardened (v12.8)
+
+- **Prevent fatal native aborts.** The main process had no `process.on("uncaughtException")` handler, so an uncaught error (a native-addon throw, or a JS error outside a promise) reached the runtime and triggered `std::terminate()` — a hard abort that crashed the window and lost work (fatal minidumps in Sentry). Added an `uncaughtException` handler that reports to Sentry (respecting the v12.7 filters) and keeps the app alive, mirroring the existing `unhandledRejection` policy. Also wrapped the `before-quit` flush chain in a `try/finally` (always quits, reports unexpected throws) and guarded the unwrapped `safeStorage.encryptString` write in secure-storage.
+
+---
+
 ## [12.7.0] (2026-06-08) — Tool-schema sanitizer (fixes strict-provider 400s), tidier chat config, quieter Sentry
 
 ### Fixed (v12.7)

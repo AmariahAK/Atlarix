@@ -291,7 +291,11 @@ export function registerTokenCountHandlers() {
       if (isStreamTransportId(req.chatId)) {
         const ephemeral = getStreamTransport(req.chatId);
         if (!ephemeral) {
-          throw new Error(`Chat not found: ${req.chatId}`);
+          // The chat was torn down (session deleted / app teardown) between the
+          // renderer's debounced request and now. Token count is a non-critical
+          // estimate — return an empty result instead of throwing (was: Sentry
+          // noise "Chat not found: -1" + a user-facing error toast).
+          return computeTokenCountResult(req, [], null);
         }
         let app: AppRowForTokens = null;
         if (ephemeral.appId != null) {

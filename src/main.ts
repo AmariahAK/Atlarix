@@ -83,6 +83,32 @@ process.on("unhandledRejection", (reason: unknown) => {
   }
   logger.error("[main] Unhandled rejection:", reason);
 });
+
+// Without this handler an uncaught error (a native-addon throw, or a JS error
+// raised outside any promise) reaches the native runtime and triggers
+// std::terminate() → a hard abort that crashes the window and loses the user's
+// work (seen as fatal minidumps in Sentry). Catch it, report it, and keep the
+// app alive — mirrors the unhandledRejection policy above. Sentry still applies
+// the v12.7 ignoreErrors/beforeSend filters, so benign families stay dropped.
+process.on("uncaughtException", (error: unknown) => {
+  if (isNoUsableModelOutputError(error)) {
+    logger.warn(
+      "[main] Swallowed uncaught AI empty-output error (handled upstream or benign):",
+      error,
+    );
+    return;
+  }
+  logger.error("[main] Uncaught exception:", error);
+  if (SENTRY_DSN) {
+    try {
+      Sentry.captureException(error, { level: "fatal" });
+    } catch {
+      /* never let the reporter itself crash the process */
+    }
+  }
+  // Intentionally do NOT process.exit() — converting the hard abort into a
+  // reported, survivable error keeps the session going.
+});
 // .env loaded in ./preload-env (must run before other modules read process.env)
 dotenv.config();
 resolveSystemPath();
@@ -1095,6 +1121,7 @@ app.on("before-quit", (e) => {
   quittingAfterProjectMemoryFlush = true;
   void (async () => {
     try {
+    try {
       const { flushSessionEndSnapshots } = await import("./lib/project-memory/service");
       await flushSessionEndSnapshots();
     } catch (err) {
@@ -1132,7 +1159,24 @@ app.on("before-quit", (e) => {
     } catch (poolErr) {
       logger.warn("shutdownAstGrepPool on quit:", poolErr);
     }
-    app.quit();
+    } catch (shutdownErr) {
+      // Belt-and-suspenders: each step is individually guarded above, but if the
+      // chain itself throws (e.g. a dynamic import fails), report it instead of
+      // letting it become an uncaught fatal during quit.
+      logger.error("[lifecycle] before-quit chain failed:", shutdownErr);
+      if (SENTRY_DSN) {
+        try {
+          Sentry.captureException(shutdownErr, {
+            level: "fatal",
+            tags: { phase: "before-quit" },
+          });
+        } catch {
+          /* noop */
+        }
+      }
+    } finally {
+      app.quit();
+    }
   })();
 });
 

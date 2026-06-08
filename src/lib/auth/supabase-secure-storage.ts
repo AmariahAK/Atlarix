@@ -116,8 +116,15 @@ async function persistBlob(cache: Record<string, string>): Promise<void> {
   }
 
   if (safeStorage.isEncryptionAvailable()) {
-    const enc = safeStorage.encryptString(json);
-    fs.writeFileSync(fallbackEncryptedPath(), enc.toString("base64"), "utf8");
+    // safeStorage is a native module; encryptString can throw at the C++ level
+    // (e.g. OS credential store locked). Guard it so the throw can't bubble
+    // uncaught and abort the main process (the keytar branch above is wrapped too).
+    try {
+      const enc = safeStorage.encryptString(json);
+      fs.writeFileSync(fallbackEncryptedPath(), enc.toString("base64"), "utf8");
+    } catch (e) {
+      logger.error("[SupabaseSecureStorage] safeStorage encrypt/write failed:", e);
+    }
     return;
   }
 

@@ -34,7 +34,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { appsListAtom } from "@/atoms/appAtoms";
 import { attachWorkspaceToChat } from "@/lib/chat-workspace-binding";
-import { registerOpenChatTab, removeOpenChatTab } from "@/lib/open-workspace-session";
+import { registerOpenChatTab, removeOpenChatTab, startNewWorkspaceConversation } from "@/lib/open-workspace-session";
 import { showInfo } from "@/lib/toast";
 import type { DisplaySnapshotV1 } from "@/lib/chat/display-snapshot";
 import { shouldUseStreamingSessionFastPath } from "@/lib/chat/activity-stream";
@@ -301,9 +301,21 @@ export function WorkspaceSessionList({
       if (activeSessionId === sessionId) {
         setActiveSessionId(null);
         setLoadedResume(false);
+        // Deleting the active session previously left every atom null, which
+        // dropped the user back to the workspace selector. Instead open a fresh
+        // session in the same workspace (reuses an empty default session if one
+        // exists). Falls back to the cleared state if it can't start one.
+        const startedChatId = await startNewWorkspaceConversation({
+          workspaceId,
+          navigate,
+        });
+        await loadSessions();
+        onSessionsChange?.();
+        if (startedChatId != null) return;
+      } else {
+        await loadSessions();
+        onSessionsChange?.();
       }
-      await loadSessions();
-      onSessionsChange?.();
     } catch (e) {
       console.error("Failed to delete session:", e);
     }

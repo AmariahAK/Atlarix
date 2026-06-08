@@ -1,9 +1,28 @@
 # Atlarix TODO
 
-**Current Version:** v12.7.0 (released)
+**Current Version:** v12.8.0 (released)
 **Last Updated:** 2026-06-08
 
 ---
+
+## Known issues — to fix
+
+> Tracked, not yet scheduled.
+
+- **Plan tools fail when a stream transport lost its session binding.** `read_implementation_plan`/`write_implementation_plan` (`src/lib/tools/plan.ts`) return *"No workspace session for this chat"* / *"Plan not found"* when the current chat's in-memory stream transport has no resolvable workspace session — e.g. a stale/reused transport after a reload, where `resolveOrBindWorkspaceSessionForStream` (`workspace_session_handlers.ts`) can't bind one. `workspaceSessionId` is **auto-injected server-side** (`chat_stream_handlers.ts` execArgs), so the model can't influence it — its retries/"switch to Build mode" attempts are no-ops. **Proposed fix:** when `getStreamTransport` is empty but the chat's app id is known, auto-rebind the transport to the latest session for that app (reuse `pickSessionReuse`/`insertWorkspaceSession`); otherwise return a clear "start a new chat in this workspace" message instead of "Plan not found". Workaround today: start a new chat in the workspace.
+
+---
+
+## v12.8 — SHIPPED (2026-06-08): stability fixes + crash hardening
+
+> Three production issues from 12.7.0.
+
+| Area | Notes |
+|------|-------|
+| **Token count** | `token_count_handlers.ts`: a torn-down ephemeral chat (deleted session) no longer throws `Chat not found: <id>` on a debounced `chat:count-tokens`; returns `computeTokenCountResult(req, [], null)` → no Sentry event, no error toast. |
+| **Delete session** | `WorkspaceSessionList.handleDelete`: deleting the **active** session now calls `startNewWorkspaceConversation({ workspaceId, navigate })` (reuses empty default session via `pickSessionReuse`) so the user stays in the workspace instead of dropping to the selector. Background-session delete unchanged. |
+| **Crash hardening** | `main.ts`: added `process.on("uncaughtException")` (report to Sentry + keep alive, mirrors `unhandledRejection`); wrapped `before-quit` chain in `try/finally` (always `app.quit()`). `supabase-secure-storage.ts`: wrapped the native `safeStorage.encryptString`/`writeFileSync` write. Converts hard `std::terminate` aborts into reported, survivable events. |
+| **Release** | docs → 12.8.0; launchpad copy/version updated (no git); `docs/discord-release-12.8.md`; tag `v12.8.0` + push. |
 
 ## v12.7 — SHIPPED (2026-06-08): tool-schema sanitizer + chat-config cleanup + Sentry quieting
 
