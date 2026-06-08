@@ -39,8 +39,18 @@ function formatBytes(n) {
   return `${n} B`;
 }
 
-/** v9.0.0 Setup.exe ~360 MiB; v9.1.18 without packageAfterPrune ~145 MiB. */
-const MIN_WIN_SETUP_BYTES = 200 * 1024 * 1024;
+/**
+ * Coarse floor to catch a grossly broken/empty package (e.g. packageAfterPrune
+ * skipped). The resource check (app.asar + ast-grep-grammars/parser.so) is the
+ * real "prune ran" assertion; this is only a backstop.
+ *
+ * History: v9.0.0 Setup.exe ~360 MiB. The v11 packaging fix (the asar was
+ * silently bloated to 848 MiB by a packageAfterPrune `npm install` reconciling
+ * the full dep tree — dugite/next/etc.) brought the LEGITIMATE installer down
+ * to ~155 MiB with all required native assets still present. The old 200 MiB
+ * floor predated that fix and now false-positives, so it's lowered to 100 MiB.
+ */
+const MIN_WIN_SETUP_BYTES = 100 * 1024 * 1024;
 
 function findFilesNamed(dir, name, out = []) {
   if (!fs.existsSync(dir)) return out;
