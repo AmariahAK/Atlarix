@@ -1,8 +1,9 @@
 /**
- * Single Config button opening a dropdown: MCP, Models & provider, Auto mode,
- * Delegation (Direct/Guided/Autonomous). Lucide icons only.
+ * Single Config button opening a dropdown: Models & provider, Deep reasoning.
+ * Lucide icons only.
  *
  * Pass 7: Blueprint-in-prompt tier override removed with the Blueprint subsystem.
+ * v12.7: MCP entry removed — MCP management lives in Settings → MCP Servers.
  */
 
 import { useAtom } from "jotai";
@@ -23,7 +24,6 @@ import {
 import { Switch } from "@/components/ui/switch";
 import {
   SlidersHorizontal,
-  Server,
   Cpu,
   Brain,
 } from "lucide-react";
@@ -68,10 +68,8 @@ export function useModelDisplayName(): string {
 
 export function ChatConfigDropdown({
   onOpenModelPicker,
-  onOpenMcpTools,
 }: {
   onOpenModelPicker?: () => void;
-  onOpenMcpTools?: () => void;
 }) {
   const { settings } = useSettings();
   const modelDisplayName = useModelDisplayName();
@@ -94,7 +92,7 @@ export function ChatConfigDropdown({
           </DropdownMenuTrigger>
         </TooltipTrigger>
         <TooltipContent>
-          Config: MCP, model
+          Config: model
         </TooltipContent>
       </Tooltip>
       <DropdownMenuContent
@@ -107,22 +105,6 @@ export function ChatConfigDropdown({
         className="z-200 w-72 max-h-(--radix-dropdown-menu-content-available-height) overflow-y-auto overflow-x-hidden p-0"
       >
         <div className="p-1">
-          {/* MCP */}
-          <DropdownMenuLabel className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
-            <Server className="h-3.5 w-3.5" />
-            MCP servers
-          </DropdownMenuLabel>
-          <DropdownMenuItem
-            onSelect={(e) => {
-              e.preventDefault();
-              onOpenMcpTools?.();
-            }}
-          >
-            Manage MCP tools
-          </DropdownMenuItem>
-
-          <DropdownMenuSeparator />
-
           <DropdownMenuLabel className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
             <Cpu className="h-3.5 w-3.5" />
             Model

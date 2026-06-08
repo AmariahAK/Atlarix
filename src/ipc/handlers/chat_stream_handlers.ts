@@ -109,7 +109,7 @@ import {
   releasePowerSaveBlocker,
   resetPowerSaveBlocker,
 } from "../utils/power-blocker";
-import { normalizeToolInputSchemaForAiSdk } from "@/lib/ai/normalize-tool-schema";
+import { normalizeToolInputSchemaForAiSdk, sanitizeJsonSchemaForProvider } from "@/lib/ai/normalize-tool-schema";
 import {
   clearToolsUsedForTurn,
   getToolsUsedThisTurn,
@@ -5171,10 +5171,12 @@ This conversation includes one or more image attachments. When the user uploads 
               tools[toolName] = {
                 description: toolMeta.description,
                 inputSchema: aiJsonSchema(
-                  simplifyToolParametersForProfile(
-                    toolMeta.parameters ?? { type: "object", properties: {} },
-                    buildCapabilityProfile,
-                  ) as Record<string, unknown>,
+                  sanitizeJsonSchemaForProvider(
+                    simplifyToolParametersForProfile(
+                      toolMeta.parameters ?? { type: "object", properties: {} },
+                      buildCapabilityProfile,
+                    ),
+                  ),
                 ),
                 // v12 0.2: typed tool outputs — screenshots become media
                 // content parts on vision providers; everything else keeps

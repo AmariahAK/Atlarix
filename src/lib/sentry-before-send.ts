@@ -2,10 +2,12 @@ import type { ErrorEvent, EventHint } from "@sentry/core";
 import { isPlanLimitError } from "@/lib/plan-limit-error";
 import { sentryMessageMatchesIgnoredPattern } from "@/lib/sentry-ignore-patterns";
 import { normalizeSentryErrorText } from "@/lib/sentry-decode-message";
+import { isNoUsableModelOutputError } from "@/ipc/utils/no_usable_model_output";
 
 /**
  * Drop expected non-errors so Sentry alerts stay actionable.
  * - Auth required, plan/workspace limits, missing TextMate grammars, bundled TS fallback
+ * - Benign AI "empty output" stream errors (already handled/retried in-process)
  */
 export function sentryBeforeSendDropExpected(
   event: ErrorEvent,
@@ -22,6 +24,9 @@ export function sentryBeforeSendDropExpected(
   }
   const original = hint?.originalException;
   if (isPlanLimitError(original)) return null;
+  // Structured match catches the benign empty-output family even when the
+  // serialized message text varies (AI SDK wraps/nests these).
+  if (isNoUsableModelOutputError(original)) return null;
   if (original instanceof Error) {
     parts.push(original.message, original.name);
   } else if (typeof original === "string") {

@@ -18,6 +18,14 @@ export const SENTRY_IGNORE_ERROR_PATTERNS: RegExp[] = [
   /OnigScanner/i,
   /OnigScanner\.findNextMatchSync/i,
   /Failed to load TypeScript from[\s\S]*Cannot find module 'typescript'/i,
+  // v12.7: benign AI stream "empty output" — already handled in-process (retried
+  // and surfaced to the user, or a no-op flush). Noise, not actionable.
+  /No output generated/i,
+  /AI_NoOutputGeneratedError/i,
+  /AI_NoContentGeneratedError/i,
+  /NoOutputGeneratedError/i,
+  /NoContentGeneratedError/i,
+  /EmptyModelOutputAfterRetry/i,
 ];
 
 export function sentryMessageMatchesIgnoredPattern(combined: string): boolean {

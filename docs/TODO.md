@@ -1,9 +1,20 @@
 # Atlarix TODO
 
-**Current Version:** v12.6.0 (released)
+**Current Version:** v12.7.0 (released)
 **Last Updated:** 2026-06-08
 
 ---
+
+## v12.7 — SHIPPED (2026-06-08): tool-schema sanitizer + chat-config cleanup + Sentry quieting
+
+> A Mistral-routed Core turn 400'd with `"Invalid tool schema: False is not of type 'array'"`. Root cause was real (not a provider quirk): hand-written tool schemas with JSON-Schema-invalid `required: true/false` booleans, plus bare property-map schemas that lost all params to the permissive fallback. Fixed at the normalizer choke point.
+
+| Area | Notes |
+|------|-------|
+| **Schema sanitizer** | New `sanitizeJsonSchemaForProvider` in `src/lib/ai/normalize-tool-schema.ts`: wraps bare prop-maps (`live_preview`/`rename_file`/`create_workspace` were being sent param-less to every provider) and repairs `required` booleans (strips them, hoists `required:true` names into the top-level `required` array). Wired into `normalizeToolInputSchemaForAiSdk` (Ask-tier path) and the 2nd tool-wiring path at `chat_stream_handlers.ts:~5173`. Unit-tested in `normalize-tool-schema.test.ts`. |
+| **Chat config** | Removed the unused "Manage MCP tools" entry + MCP section from `ChatConfigDropdown.tsx`; cleaned up the now-dead `onOpenMcpTools`/`configSubView`/Popover wiring in `ChatInputControls.tsx`. MCP management stays in Settings → MCP Servers. |
+| **Sentry** | Benign empty-output family (`AI_NoOutputGeneratedError`/`NoContentGenerated`/`EmptyModelOutputAfterRetry`) dropped via `sentry-before-send.ts` (`isNoUsableModelOutputError`) + `sentry-ignore-patterns.ts`. Scope: benign-only — other provider errors stay visible. |
+| **Release** | docs → 12.7.0; launchpad copy/version updated (no git); `docs/discord-release-12.7.md`; tag `v12.7.0` + push. |
 
 ## v12.6 — SHIPPED (2026-06-08): sign-in UI fix
 

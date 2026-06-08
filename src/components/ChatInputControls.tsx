@@ -3,10 +3,8 @@ import { ContextFilesPicker } from "./ContextFilesPicker";
 import { ModelPickerSheetContent } from "./ModelPickerSheetContent";
 import { ChatConfigDropdown } from "./ChatConfigDropdown";
 import { ChatIntentSelector } from "./ChatIntentSelector";
-import { McpToolsPickerContent } from "@/components/McpToolsPicker";
 import { useSettings } from "@/hooks/useSettings";
 import { useContextTokenCount } from "@/hooks/useCountTokens";
-import { Popover, PopoverAnchor, PopoverContent } from "@/components/ui/popover";
 import {
   Sheet,
   SheetContent,
@@ -58,7 +56,6 @@ export function ChatInputControls({
     threadMessages?.some((m) => m.role === "user") ?? false;
   const rightPanelVisible = useAtomValue(rightPanelVisibleAtom);
   const { settings } = useSettings();
-  const [configSubView, setConfigSubView] = useState<"mcp" | null>(null);
   const [modelSheetOpen, setModelSheetOpen] = useState(false);
   // PASS8 E3: Shared context-only token count (dedup'd via React Query key).
   const { result: tokenResult } = useContextTokenCount(chatId ?? null);
@@ -178,36 +175,15 @@ export function ChatInputControls({
         {rightPanelVisible && (
           <CompactModelSearch className="shrink-0" />
         )}
-        <Popover
-          open={configSubView !== null}
-          onOpenChange={(open) => !open && setConfigSubView(null)}
-        >
-          <PopoverAnchor asChild>
-            <span className="inline-flex" data-tour="tour-model-picker">
-              <ChatConfigDropdown
-                onOpenModelPicker={
-                  rightPanelVisible
-                    ? undefined
-                    : () => {
-                        setConfigSubView(null);
-                        setModelSheetOpen(true);
-                      }
-                }
-                onOpenMcpTools={() => setConfigSubView("mcp")}
-              />
-            </span>
-          </PopoverAnchor>
-          <PopoverContent
-            align="start"
-            side="top"
-            sideOffset={8}
-            avoidCollisions
-            collisionPadding={16}
-            className="z-200 w-auto max-w-[min(90vw,24rem)] max-h-[min(70vh,var(--radix-popover-content-available-height,70vh))] overflow-y-auto p-0"
-          >
-            {configSubView === "mcp" && <McpToolsPickerContent appId={appId} />}
-          </PopoverContent>
-        </Popover>
+        <span className="inline-flex" data-tour="tour-model-picker">
+          <ChatConfigDropdown
+            onOpenModelPicker={
+              rightPanelVisible
+                ? undefined
+                : () => setModelSheetOpen(true)
+            }
+          />
+        </span>
 
         {!rightPanelVisible && (
         <Sheet

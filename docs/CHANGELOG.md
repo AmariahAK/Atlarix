@@ -1,5 +1,22 @@
 # Atlarix Changelog
 
+## [12.7.0] (2026-06-08) — Tool-schema sanitizer (fixes strict-provider 400s), tidier chat config, quieter Sentry
+
+### Fixed (v12.7)
+
+- **Malformed tool schemas no longer break strict-validating providers.** Some tools encoded a property's optionality as a JSON-Schema-invalid `required: true/false` boolean (it must be an array of property names). Lenient providers ignored it, but strict validators (e.g. Mistral via OpenRouter) rejected the whole request with `400 "Invalid tool schema: False is not of type 'array'"`, which surfaced as an empty/failed turn. A new `sanitizeJsonSchemaForProvider` (`src/lib/ai/normalize-tool-schema.ts`) now strips those booleans and hoists the `required: true` ones into the correct top-level `required` array, applied at both tool-wiring sites in `chat_stream_handlers.ts`.
+- **Tools with hand-written parameter maps now send their real parameters.** Tools that declared `parameters` as a bare `{ prop: {…} }` map (no `type`/`properties` wrapper) — e.g. `live_preview`, `rename_file`, `create_workspace` — were silently downgraded to an empty permissive schema, so the model received them with no parameter hints. The normalizer now wraps and preserves them.
+
+### Changed (v12.7)
+
+- **Removed the unused "Manage MCP tools" entry from the chat Config dropdown.** Full MCP management remains in **Settings → MCP Servers**. Tidies the in-chat config menu down to Model and Deep reasoning.
+
+### Internal (v12.7)
+
+- **Stop reporting benign empty-output stream errors to Sentry.** `AI_NoOutputGeneratedError` / `AI_NoContentGeneratedError` / `EmptyModelOutputAfterRetryError` are already handled in-process (retried, or a no-op flush); they're now dropped in `sentry-before-send.ts` (structured `isNoUsableModelOutputError` match) and `sentry-ignore-patterns.ts`. Genuine provider errors still report.
+
+---
+
 ## [12.6.0] (2026-06-08) — Sign-in fix: Google & GitHub buttons everywhere, log out/in from the welcome screen
 
 ### Fixed (v12.6)
