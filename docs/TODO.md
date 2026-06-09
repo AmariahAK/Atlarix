@@ -1,6 +1,6 @@
 # Atlarix TODO
 
-**Current Version:** v12.9.0 (released)
+**Current Version:** v12.9.5 (released)
 **Last Updated:** 2026-06-09
 
 ---
@@ -12,6 +12,15 @@
 - **Plan tools fail when a stream transport lost its session binding.** `read_implementation_plan`/`write_implementation_plan` (`src/lib/tools/plan.ts`) return *"No workspace session for this chat"* / *"Plan not found"* when the current chat's in-memory stream transport has no resolvable workspace session — e.g. a stale/reused transport after a reload, where `resolveOrBindWorkspaceSessionForStream` (`workspace_session_handlers.ts`) can't bind one. `workspaceSessionId` is **auto-injected server-side** (`chat_stream_handlers.ts` execArgs), so the model can't influence it — its retries/"switch to Build mode" attempts are no-ops. **Proposed fix:** when `getStreamTransport` is empty but the chat's app id is known, auto-rebind the transport to the latest session for that app (reuse `pickSessionReuse`/`insertWorkspaceSession`); otherwise return a clear "start a new chat in this workspace" message instead of "Plan not found". Workaround today: start a new chat in the workspace.
 
 ---
+
+## v12.9.5 — SHIPPED (2026-06-09): Terminal opens in packaged builds (node-pty spawn-helper)
+
+> Follow-up to v12.9: with the crash gone, the packaged Terminal showed "Interactive shell unavailable: posix_spawnp failed". node-pty's macOS `spawn-helper` (a non-`.node` Mach-O sibling of `pty.node`) was left inside `app.asar` by `AutoUnpackNatives` (which only unpacks `*.node`); node-pty resolves it to `app.asar.unpacked/.../spawn-helper` → ENOENT → `posix_spawnp failed`.
+
+| Area | Notes |
+|------|-------|
+| **Terminal spawn** | `forge.config.ts` `asarUnpack`: added `**/@lydell/node-pty-{darwin,linux,win32}-*/**` (same pattern as `@ast-grep` platform pkgs) so `spawn-helper` + Windows conpty/winpty binaries land in `app.asar.unpacked` and get signed. No app code change — `pty-session-manager.ts` already degrades gracefully. |
+| **Release** | docs → 12.9.5; launchpad copy/version updated (no git); `docs/discord-release-12.9.5.md`; tag `v12.9.5` + push. |
 
 ## v12.9 — SHIPPED (2026-06-09): Terminal crash fix (keytar removed) + packaged system prompt
 

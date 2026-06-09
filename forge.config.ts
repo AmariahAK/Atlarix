@@ -415,6 +415,14 @@ const config: ForgeConfig = {
       "**/@ast-grep/lang-python/**",
       "**/@ast-grep/lang-go/**",
       "**/.vite/build/astgrep_worker.js",
+      // node-pty ships spawn-helper (macOS) and conpty/winpty binaries (Windows)
+      // as NON-.node siblings of pty.node. AutoUnpackNatives only unpacks *.node,
+      // so unpack the whole platform dir — otherwise node-pty resolves the helper
+      // to app.asar.unpacked/.../spawn-helper (which doesn't exist) and the shell
+      // fails with "posix_spawnp failed". (Same pattern as @ast-grep above.)
+      "**/@lydell/node-pty-darwin-*/**",
+      "**/@lydell/node-pty-linux-*/**",
+      "**/@lydell/node-pty-win32-*/**",
     ],
     ignore,
     extraResource: [

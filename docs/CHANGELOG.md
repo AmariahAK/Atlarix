@@ -1,5 +1,13 @@
 # Atlarix Changelog
 
+## [12.9.5] (2026-06-09) — Terminal now opens in packaged builds
+
+### Fixed (v12.9.5)
+
+- **"Interactive shell unavailable: posix_spawnp failed" is fixed.** After v12.9 stopped the Terminal from crashing the app, the packaged build couldn't actually launch a shell. node-pty's macOS `spawn-helper` is a separate Mach-O executable (a sibling of `pty.node`, not a `.node` file), so `AutoUnpackNatives` (which only unpacks `*.node`) left it inside `app.asar` — and node-pty resolves it to `app.asar.unpacked/.../spawn-helper`, which didn't exist, so `posix_spawnp` failed. The `@lydell/node-pty-<platform>` dirs are now `asarUnpack`-ed (the same packaging pattern as the `@ast-grep` native packages), so `spawn-helper` (and the Windows conpty/winpty binaries) ship on disk and get code-signed. The interactive Terminal now opens in the installed app. Dev was unaffected.
+
+---
+
 ## [12.9.0] (2026-06-09) — Fix fatal Terminal crash (removed keytar) + packaged system prompt
 
 ### Fixed (v12.9)
