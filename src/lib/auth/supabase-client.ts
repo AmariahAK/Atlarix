@@ -48,7 +48,7 @@ export function getSupabaseClient(): SupabaseClient {
             throw new Error('Supabase URL and anon key are required. Add them to .env (see .env.example).');
         }
 
-        // Keychain / safeStorage-backed session persistence (see supabase-secure-storage.ts)
+        // safeStorage-backed session persistence (see supabase-secure-storage.ts)
         fileStorage = createSecureSupabaseStorage();
 
         supabaseClient = createClient(supabaseUrl, supabaseAnonKey, {

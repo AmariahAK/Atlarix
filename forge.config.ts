@@ -287,9 +287,6 @@ const ignore = (file: string) => {
   if (file.startsWith("/node_modules/better-sqlite3")) {
     return false;
   }
-  if (file.startsWith("/node_modules/keytar")) {
-    return false;
-  }
   if (file.startsWith("/node_modules/@ast-grep")) {
     return false;
   }
@@ -422,6 +419,12 @@ const config: ForgeConfig = {
     ignore,
     extraResource: [
       AST_GREP_GRAMMARS_STAGING,
+      // System-prompt guidance read at runtime by src/prompts/system_prompt.ts via
+      // process.resourcesPath. Without these the packaged app falls back to a minimal
+      // prompt (root-level files are otherwise excluded by the `ignore` allowlist).
+      path.join(__dirname, "AGENTS.md"),
+      path.join(__dirname, "AGENTS_COMPACT.md"),
+      path.join(__dirname, "AGENTS_MODE_BASE.md"),
       path.join(__dirname, "src/skills"),
       path.join(__dirname, "assets/ctags", process.platform === "darwin"
         ? (process.arch === "arm64" ? "darwin-arm64" : "darwin-x64")
@@ -435,7 +438,6 @@ const config: ForgeConfig = {
   rebuildConfig: {
     extraModules: [
       "better-sqlite3",
-      "keytar",
       "@lydell/node-pty",
       "@ast-grep/napi",
     ],
@@ -702,7 +704,6 @@ const config: ForgeConfig = {
         platform === "win32" && process.env.GITHUB_ACTIONS === "true";
       const rebuildModules = [
         "better-sqlite3",
-        "keytar",
         "@lydell/node-pty",
         "@ast-grep/napi",
       ];

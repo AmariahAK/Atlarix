@@ -55,11 +55,19 @@ const loadAgentsFile = (filename: string): string => {
         path.join(__dirname, "../../", filename),
         path.join(__dirname, "../../../", filename),
     ];
-    // Packaged Electron: app lives in app.asar; getAppPath() points to app root so files are found
     try {
-        const { app } = require("electron");
-        if (app && typeof app.getAppPath === "function") {
+        const { app } = require("electron") as {
+            app?: { getAppPath?: () => string; isPackaged?: boolean };
+        };
+        // Packaged Electron: app lives in app.asar; getAppPath() points to app root.
+        if (app?.getAppPath) {
             paths.unshift(path.join(app.getAppPath(), filename));
+        }
+        // Packaged: AGENTS*.md ship via extraResource (forge.config.ts) into
+        // Contents/Resources/<file> — the proven path used for src/skills. Check
+        // this FIRST when packaged so a degraded fallback prompt is never used.
+        if (app?.isPackaged) {
+            paths.unshift(path.join(process.resourcesPath, filename));
         }
     } catch {
         // not in Electron or app not ready

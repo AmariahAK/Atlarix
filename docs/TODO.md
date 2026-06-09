@@ -1,7 +1,7 @@
 # Atlarix TODO
 
-**Current Version:** v12.8.0 (released)
-**Last Updated:** 2026-06-08
+**Current Version:** v12.9.0 (released)
+**Last Updated:** 2026-06-09
 
 ---
 
@@ -12,6 +12,16 @@
 - **Plan tools fail when a stream transport lost its session binding.** `read_implementation_plan`/`write_implementation_plan` (`src/lib/tools/plan.ts`) return *"No workspace session for this chat"* / *"Plan not found"* when the current chat's in-memory stream transport has no resolvable workspace session — e.g. a stale/reused transport after a reload, where `resolveOrBindWorkspaceSessionForStream` (`workspace_session_handlers.ts`) can't bind one. `workspaceSessionId` is **auto-injected server-side** (`chat_stream_handlers.ts` execArgs), so the model can't influence it — its retries/"switch to Build mode" attempts are no-ops. **Proposed fix:** when `getStreamTransport` is empty but the chat's app id is known, auto-rebind the transport to the latest session for that app (reuse `pickSessionReuse`/`insertWorkspaceSession`); otherwise return a clear "start a new chat in this workspace" message instead of "Plan not found". Workaround today: start a new chat in the workspace.
 
 ---
+
+## v12.9 — SHIPPED (2026-06-09): Terminal crash fix (keytar removed) + packaged system prompt
+
+> Prod-only crash: clicking the right-panel Terminal force-closed the app. Crash minidump (`Crashpad/completed/*.dmp`, lldb-symbolicated) showed **keytar** throwing an uncaught C++ `Napi::Error` on the main thread (`Napi::CallbackData::Wrapper` → `__cxa_throw` → `std::terminate` → `abort`) — uncatchable from JS, so v12.8's `uncaughtException` handler couldn't help. keytar (deprecated) was the sole Supabase session-store backend; opening the Terminal coincided with a session read/refresh that hit it. Separately, the packaged app was running on a degraded fallback prompt.
+
+| Area | Notes |
+|------|-------|
+| **Terminal crash** | Removed `keytar` entirely. `supabase-secure-storage.ts` now uses Electron `safeStorage` (already the fallback; raises catchable JS errors) + encrypted `supabase-auth.enc` + one-time legacy-json migration. Existing users re-login once (old sessions lived only in keytar). Also dropped keytar from `package.json`, `forge.config.ts` (ignore + 2 rebuild lists), `src/types/keytar.d.ts`, `knip.json`. |
+| **System prompt in prod** | `AGENTS.md`/`AGENTS_COMPACT.md`/`AGENTS_MODE_BASE.md` weren't packaged (root files excluded by the packager `ignore` allowlist) → `system_prompt.ts` fell back to a minimal prompt. Now shipped via `extraResource` and loaded from `process.resourcesPath` first when packaged (mirrors `src/skills`). |
+| **Release** | docs → 12.9.0; launchpad copy/version updated (no git); `docs/discord-release-12.9.md`; tag `v12.9.0` + push. |
 
 ## v12.8 — SHIPPED (2026-06-08): stability fixes + crash hardening
 

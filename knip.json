@@ -24,7 +24,6 @@
   "ignoreDependencies": [
     "@ast-grep/lang-go",
     "@ast-grep/lang-python",
-    "keytar",
     "shiki",
     "tw-animate-css",
     "typescript-language-server",

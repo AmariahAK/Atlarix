@@ -1,5 +1,19 @@
 # Atlarix Changelog
 
+## [12.9.0] (2026-06-09) — Fix fatal Terminal crash (removed keytar) + packaged system prompt
+
+### Fixed (v12.9)
+
+- **The packaged app now ships the full system prompt.** In production the agent silently ran on a degraded minimal fallback prompt — `AGENTS.md` / `AGENTS_COMPACT.md` / `AGENTS_MODE_BASE.md` were never packaged (root-level files are excluded by the packager's `ignore` allowlist), so `system_prompt.ts` logged "AGENTS.md not found … using fallback minimal prompt". These files now ship via `extraResource` (the same mechanism as the built-in skill guides) and are loaded from `process.resourcesPath` first when packaged. Dev was unaffected (it reads them from the project root).
+- **Opening the Terminal no longer force-closes the app (macOS).** In packaged builds, clicking the right-panel Terminal tab could abort the entire process. The crash minidump symbolicated to **keytar**: its prebuilt native binary throws an uncaught C++ `Napi::Error` on the main thread (`Napi::CallbackData::Wrapper` → `__cxa_throw` → `std::terminate` → `abort`) for certain macOS Keychain states. Because the abort happens *inside native code*, no JS `try/catch` (nor the v12.8 `uncaughtException` handler) can catch it — the only fix is to stop calling keytar. The Supabase session store (the sole keytar user) was being touched during a session read/refresh that coincided with opening the Terminal. Replaced keytar with Electron's built-in **`safeStorage`** (already the fallback here, and used elsewhere in the app), which raises catchable JS errors and cannot abort the process. keytar is also deprecated/unmaintained.
+- **Note:** session persistence now lives in `safeStorage` (encrypted `supabase-auth.enc`). After updating you may be asked to **sign in once more**; afterwards the session persists as before.
+
+### Internal (v12.9)
+
+- Removed the `keytar` dependency entirely (package, native rebuild config in `forge.config.ts`, types, knip allowlist). One fewer native addon to build/ship. The same keytar abort could also fire on any background Supabase token refresh; removing keytar closes that path too.
+
+---
+
 ## [12.8.0] (2026-06-08) — Stability: graceful token count, delete-session keeps you in the workspace, crash hardening
 
 ### Fixed (v12.8)
