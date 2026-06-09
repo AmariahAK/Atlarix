@@ -1,6 +1,6 @@
 # Atlarix TODO
 
-**Current Version:** v12.9.6 (released)
+**Current Version:** v12.9.7 (released)
 **Last Updated:** 2026-06-09
 
 ---
@@ -13,6 +13,29 @@
 - **`@ast-grep/lang-{go,python}` are not unpacked from the asar.** They were listed in the old (ignored) `asarUnpack` array; v12.9.6 fixed the asar key for node-pty only (minimal hotfix) and did **not** fold ast-grep into `asar.unpack`. ast-grep core works (its `.node` is unpacked by `AutoUnpackNatives`), but if dynamic Go/Python AST registration needs those package files on disk, add `**/@ast-grep/lang-python/**`,`**/@ast-grep/lang-go/**` (and `**/.vite/build/astgrep_worker.js`) to the `asar.unpack` glob in `forge.config.ts`. Verify before changing — they ship in-asar today and the app works.
 
 ---
+
+## Audited, intentionally left (de-hardcode sweep, v12.9.7)
+
+> Hardcoded values reviewed during the v12.9.7 sweep and deliberately kept — they're intentional tuning, not bugs. Recorded so the trail exists.
+
+- **Compaction tuning knobs** — `COMPACTION_THRESHOLD 0.75` / `PRUNE_THRESHOLD 0.60` / `MODEL_CONTEXT_SAFETY 0.8` (`compaction.ts`), the `0.85` soft cap (`tier_context_budget.ts`), fill ratios `0.5/0.7/0.85` (`context-budget-tracker.ts`), the 24-round compaction loop + 3-protected-exchanges (`tier_context_budget.ts`). Co-tuned with v11/v12 per-step token enforcement; changing them risks destabilizing compaction for no clear win.
+- **Reasoning effort `"medium"`** (`reasoning-detector.ts`) — a feature request (expose high/low), not a bug.
+- **Git log depth `100_000`** (`version_handlers.ts`) — display/cache only, no prod logic impact.
+
+---
+
+## v12.9.7 — SHIPPED (2026-06-09): ask_user options render correctly + de-hardcoded context-window logic
+
+> Two user-reported issues from OpenRouter testing (deepseek/minimax/qwen), plus an approved "go broad" de-hardcoding sweep. Minimax emitted options as `{label, description}` objects → `String()` → `[object Object]`, then Set-dedup collapsed them to one. Separately, the proposal token-usage % was capped at a hardcoded 100K instead of the real model window.
+
+| Area | Notes |
+|------|-------|
+| **ask_user options** | `ask_user_options.ts`: new `coerceOptionLabel` extracts `label/value/title/name/text/option` from object options before stringifying (was `String(x)` → `[object Object]`, deduped to one). Hardened normalizer: question resolves from `question/prompt/text/header/title/label` aliases, options also accept `answers`, and empty-question-but-options synthesizes a generic title (never leaks options into the headline). Single source of truth — handler already routes through it. |
+| **Proposal context window** | `proposal_handlers.ts`: dropped `Math.min(getContextWindow(), 100_000)` cap (only caller that clamped) → real per-model window + pass `chatId` for Compass. Informational/suggestion-only, never gated dispatch. |
+| **Context heuristics** | `resolve-model-context-limit.ts` catalog-miss heuristics modernized: deepseek 16K→128K, qwen 32K→128K, llama/mistral 8K→128K, added minimax→1M, unlisted floor 16K→128K. Bias-high is safe (overflow loop self-corrects). |
+| **Tier fallbacks** | `tier-context-limits.ts`: unified `FALLBACK_LIMIT` 100K→200K (both miss paths agree). `agent.ts` delegation fallback 32K→128K. Live limits unchanged. |
+| **Tests** | New `ask-user-options.test.ts` (object options, aliasing, dedup, empty fallback, real minimax shape) + `context-window-heuristics.test.ts` (modern heuristics, 200K fetch-failure fallback). |
+| **Release** | docs → 12.9.7; launchpad copy/version updated (no git); `docs/discord-release-12.9.7.md`; tag `v12.9.7` + push. |
 
 ## v12.9.6 — SHIPPED (2026-06-09): Terminal opens for real (correct asar.unpack key)
 

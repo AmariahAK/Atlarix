@@ -425,12 +425,15 @@ See guides/blueprint-section-first.md.
     let delegLengthAttempts = 0;
     let totalDelegSteps = 0;
     // PASS8 C1-C4: Tier limit for compaction in the length-continuation loop.
-    let delegationTierLimit = 32_000;
+    // Modern floor fallback; only used if resolveModelContextLimit throws (rare
+    // — it has internal fallbacks). Avoids silently crushing a delegated
+    // agent's budget to 32K for a large-context model.
+    let delegationTierLimit = 128_000;
     try {
       const tierResolved = await resolveModelContextLimit(effectiveModel, settings);
       delegationTierLimit = tierResolved.tierLimit;
     } catch (e) {
-      logger.warn("[Delegation] Failed to resolve tier limit; using fallback 32K:", e);
+      logger.warn("[Delegation] Failed to resolve tier limit; using fallback 128K:", e);
     }
     const delegationSystemEstimate = estimateTokens(delegationSystem);
     let result = await generateText({

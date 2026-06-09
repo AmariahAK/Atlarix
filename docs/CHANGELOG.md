@@ -1,5 +1,20 @@
 # Atlarix Changelog
 
+## [12.9.7] (2026-06-09) — ask_user options render correctly + de-hardcoded context-window logic
+
+### Fixed (v12.9.7)
+
+- **Question options no longer render as `[object Object]`.** When a model emitted the Anthropic-native option shape (`options: [{ label, description }]` — observed with **minimax** over OpenRouter), the normalizer stringified each object to `"[object Object]"`, and the Set-dedup then collapsed them all to a single bogus choice. The question text itself was always fine — only the choices broke, and only for some models (deepseek's `{question, options:[strings]}` nesting worked, which is why it was inconsistent). `coerceStringArray` now extracts a label (`label ?? value ?? title ?? name ?? text ?? option`) from object options before stringifying. Hardened the normalizer further so it's model-agnostic: the question is resolved from alias fields (`question ?? prompt ?? text ?? header ?? title ?? label`), options also accept `answers`, and if a model ever sends choices with no question text we synthesize a generic title rather than letting the options leak into the headline.
+- **Proposal token-usage % now uses the model's real context window.** `proposal_handlers.ts` hardcoded a `Math.min(getContextWindow(), 100_000)` cap — the only caller that clamped — which made the logged percentage wrong and fired the "summarize in a new chat" suggestion far too early for >100K-context models. It now uses the real per-model window (and passes `chatId` so Compass chats use their per-chat captured window). This is informational/suggestion-only; it never gated real dispatch.
+
+### Internal (v12.9.7)
+
+- **Modernized stale context-window heuristics** (`resolve-model-context-limit.ts`), the catalog-miss fallback that feeds compaction/budgeting: `deepseek` 16K→128K, `qwen` 32K→128K, `llama`/`mistral` 8K→128K, added `minimax`→1M, and raised the unlisted-model floor 16K→128K. These were wildly low for today's models (and for exactly the OpenRouter models in use); biasing slightly high is safe because the provider-overflow feedback loop self-corrects over-estimates, while under-estimates cause permanent premature compaction.
+- **Unified the tier-limit fallbacks** (`tier-context-limits.ts`): the per-model-miss path used `100_000` while whole-fetch-failure used `200_000`; both now use a single generous `FALLBACK_LIMIT = 200_000`. Raised the delegation tier-limit fallback (`agent.ts`) 32K→128K (only used if model resolution throws). Real, live OpenRouter limits are unchanged.
+- Compaction tuning knobs (compaction/prune/soft-cap thresholds, fill ratios, round/exchange counts) were audited and **intentionally left as-is** — they're co-tuned with per-step token enforcement.
+
+---
+
 ## [12.9.6] (2026-06-09) — Terminal actually opens now (correct asar unpack key)
 
 ### Fixed (v12.9.6)

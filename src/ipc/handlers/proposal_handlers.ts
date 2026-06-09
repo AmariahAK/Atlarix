@@ -294,7 +294,11 @@ const getProposalHandler = async (
         }
 
         const totalTokens = messagesTokenCount + codebaseTokenCount;
-        const contextWindow = Math.min(await getContextWindow(), 100_000);
+        // Use the model's REAL context window (pass chatId so Compass chats use
+        // the per-chat TTFT-captured window). No artificial cap — this was the
+        // only caller that clamped, which made the % wrong and fired the
+        // summarize nudge far too early for >100K models.
+        const contextWindow = await getContextWindow(undefined, chatId);
         logger.log(
           `Token usage: ${totalTokens}/${contextWindow} (${(totalTokens / contextWindow) * 100
           }%)`,

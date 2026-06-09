@@ -141,12 +141,17 @@ function openRouterCatalogId(model: LargeLanguageModel): string | null {
   return null;
 }
 
-function heuristicRawContextLength(model: LargeLanguageModel): number {
+export function heuristicRawContextLength(model: LargeLanguageModel): number {
   const pid = (model.provider ?? "").toLowerCase();
   const mid = (model.name ?? "").toLowerCase();
   if (pid.includes("ollama")) return 8192;
   if (pid.includes("lmstudio") || pid.includes("lm_studio")) return 16384;
   if (pid.includes("groq")) return 131072;
+  // Bias these slightly HIGH for unknown/catalog-miss cases: the provider
+  // overflow feedback loop (reportContextOverflowForModel) self-corrects an
+  // over-estimate by clamping 15% on a real "context exceeded" rejection,
+  // whereas an UNDER-estimate causes permanent premature compaction with no
+  // recovery signal. Values reflect modern (2024+) model windows.
   const hints: [string, number][] = [
     ["gpt-4o", 128000],
     ["gpt-4-turbo", 128000],
@@ -157,16 +162,20 @@ function heuristicRawContextLength(model: LargeLanguageModel): number {
     ["claude-opus", 200000],
     ["gemini-1.5", 1000000],
     ["gemini-pro", 32768],
-    ["deepseek", 16384],
-    ["llama", 8192],
-    ["mistral", 8192],
+    ["deepseek", 128000], // V3/R1 are 128K+
+    ["minimax", 1000000], // MiniMax-Text-01 ≈ 1M
+    ["llama", 131072], // Llama 3.1 = 128K
+    ["mistral", 131072], // Mistral Large = 128K
     ["codellama", 16384],
-    ["qwen", 32768],
+    ["qwen", 131072], // modern Qwen 128K+ (many up to 1M)
   ];
   for (const [k, v] of hints) {
     if (mid.includes(k)) return v;
   }
-  return 16384;
+  // Modern floor for any unlisted frontier API model (covers new OpenRouter
+  // additions); local providers are handled by the explicit ollama/lmstudio
+  // branches above and their real-fetch path.
+  return 128000;
 }
 
 export type ResolvedModelContextLimit = {

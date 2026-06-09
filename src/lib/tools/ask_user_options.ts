@@ -7,10 +7,26 @@ export const ASK_USER_MAX_OPTIONS = 4;
  * numbered lines in `question`, or comma lists after "Pick one:").
  */
 
+/**
+ * Coerce one option item to a display string. Models vary wildly over
+ * OpenRouter: some emit plain strings, others emit the Anthropic-native
+ * `{ label, description }` objects (minimax). Without this, `String({…})`
+ * yields "[object Object]" and the Set-dedup below collapses them all to one.
+ */
+function coerceOptionLabel(x: unknown): string {
+  if (x == null) return "";
+  if (typeof x === "object") {
+    const r = x as Record<string, unknown>;
+    const v = r.label ?? r.value ?? r.title ?? r.name ?? r.text ?? r.option;
+    return v == null ? "" : String(v).trim();
+  }
+  return String(x).trim();
+}
+
 function coerceStringArray(raw: unknown): string[] | undefined {
   if (raw == null) return undefined;
   if (Array.isArray(raw)) {
-    const out = raw.map((x) => String(x).trim()).filter(Boolean);
+    const out = raw.map(coerceOptionLabel).filter(Boolean);
     return out.length > 0 ? [...new Set(out)] : undefined;
   }
   if (typeof raw === "string") {
@@ -111,8 +127,9 @@ export function normalizeAskUserQuestions(
       if (item && typeof item === "object") {
         const rec = item as Record<string, unknown>;
         const norm = normalizeAskUserPayload({
-          question: rec.question ?? rec.text ?? "",
-          options: rec.options ?? rec.choices,
+          question:
+            rec.question ?? rec.text ?? rec.prompt ?? rec.header ?? rec.title ?? rec.label ?? "",
+          options: rec.options ?? rec.choices ?? rec.answers,
         });
         if (norm.question.trim()) out.push(norm);
       }
@@ -127,11 +144,21 @@ export function normalizeAskUserPayload(args: Record<string, unknown>): {
   question: string;
   options?: string[];
 } {
-  const rawQuestion = String(args.question ?? "");
+  const rawQuestion = String(
+    args.question ?? args.prompt ?? args.text ?? args.header ?? args.title ?? "",
+  );
   const fromParams =
-    coerceStringArray(args.options) ?? coerceStringArray(args.choices);
+    coerceStringArray(args.options) ??
+    coerceStringArray(args.choices) ??
+    coerceStringArray(args.answers);
   if (fromParams && fromParams.length > 0) {
-    return { question: rawQuestion, options: capAskUserOptions(fromParams) };
+    // Never let options leak into the question slot: if the model gave choices
+    // but no readable question text, synthesize a generic prompt so the entry
+    // still renders (and is never dropped by the empty-question filter).
+    return {
+      question: rawQuestion.trim() || "Select an option:",
+      options: capAskUserOptions(fromParams),
+    };
   }
 
   const multiline = extractChoiceLinesFromQuestion(rawQuestion);

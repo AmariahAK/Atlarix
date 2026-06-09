@@ -13,7 +13,12 @@ export interface TierContextLimits {
 }
 
 const SAFETY_FACTOR = 0.8;
-const FALLBACK_LIMIT = 100_000;
+// Single generous fallback used by BOTH miss paths (per-model lookup miss and
+// whole-fetch failure) so they agree. Real limits come from the live
+// OpenRouter response; this only applies when that data is unavailable.
+// Modern models routinely exceed 128K (Qwen3.5-Flash advertises 1M) — a low
+// cap here caused false "context full" warnings and premature compaction.
+const FALLBACK_LIMIT = 200_000;
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 
 export interface OpenRouterModelRowExtended {
@@ -36,16 +41,13 @@ let cacheKey = "";
 let openRouterModelsById: Map<string, OpenRouterModelRowExtended> | null = null;
 
 function fallbackLimitsOnFetchFailure(): TierContextLimits {
-  // Last-resort fallbacks when the OpenRouter models fetch fails. These are
-  // intentionally generous (200K each) — they should never be the operating
-  // limit in practice; real limits come from the live OpenRouter response.
-  // Modern models routinely exceed 128K (Qwen3.5-Flash advertises 1M); a
-  // conservative 32K cap here caused false "context full" warnings and
-  // premature compaction.
+  // Last-resort fallbacks when the OpenRouter models fetch fails. Uses the same
+  // FALLBACK_LIMIT as the per-model-miss path so both agree; never the
+  // operating limit in practice (real limits come from the live response).
   return {
-    fast: 200_000,
-    balanced: 200_000,
-    thinking: 200_000,
+    fast: FALLBACK_LIMIT,
+    balanced: FALLBACK_LIMIT,
+    thinking: FALLBACK_LIMIT,
   };
 }
 
