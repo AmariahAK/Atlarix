@@ -213,7 +213,25 @@ jobs:
           npm run clean
           npm run ci:package -- --arch=${{ matrix.arch }}
           node scripts/verify-ci-package-out.mjs --stage package --platform darwin --arch ${{ matrix.arch }}
-          npm run ci:installers -- --arch=${{ matrix.arch }}
+          # appdmg@0.6.6 intermittently fails `hdiutil detach /Volumes/Atlarix`
+          # ("No such file or directory") when the DMG volume auto-ejects mid-make.
+          # Detach any stale Atlarix volume and retry the installers (make) step.
+          make_with_retry() {
+            for attempt in 1 2 3; do
+              for vol in /Volumes/Atlarix*; do
+                [ -e "$vol" ] && hdiutil detach -force "$vol" >/dev/null 2>&1 || true
+              done
+              rm -rf out/make
+              if npm run ci:installers -- --arch=${{ matrix.arch }}; then
+                return 0
+              fi
+              echo "::warning::macOS make attempt ${attempt} failed (appdmg/hdiutil flake); retrying…"
+              sleep 5
+            done
+            echo "::error::macOS make failed after 3 attempts"
+            return 1
+          }
+          make_with_retry
           node scripts/verify-ci-package-out.mjs --stage make --platform darwin --arch ${{ matrix.arch }}
         env:
           NODE_OPTIONS: "--max-old-space-size=4096"

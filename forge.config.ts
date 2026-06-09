@@ -452,6 +452,9 @@ const config: ForgeConfig = {
       })),
     new MakerDMG({
       icon: "./assets/icon/logo.icns",
+      // appdmg@0.6.6 errors if the target .dmg already exists; allow overwrite so
+      // a retried macOS make (see release.yml) doesn't trip on a partial artifact.
+      overwrite: true,
     }),
     new MakerZIP({}, ["darwin"]),
     new MakerRpm({
