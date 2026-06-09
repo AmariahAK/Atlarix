@@ -1,5 +1,13 @@
 # Atlarix Changelog
 
+## [12.9.6] (2026-06-09) — Terminal actually opens now (correct asar unpack key)
+
+### Fixed (v12.9.6)
+
+- **"Interactive shell unavailable: posix_spawnp failed" — fixed for real this time.** v12.9.5's fix added node-pty's `spawn-helper` to an `asarUnpack` array, but that's an **electron-builder** option — this app uses **electron-forge/electron-packager**, which ignores it (verified against the shipped 12.9.5 build: `spawn-helper` was still trapped inside `app.asar`). node-pty execs the helper from `app.asar.unpacked/.../spawn-helper`, which didn't exist → `posix_spawnp` ENOENT. Switched to the correct key, `packagerConfig.asar.unpack` (a minimatch glob that `AutoUnpackNativesPlugin` merges with `**/*.node`), so the `@lydell/node-pty-<platform>` dirs — including `spawn-helper` (and the Windows conpty/winpty binaries) — are unpacked to disk and code-signed. The interactive Terminal now launches in the installed app.
+
+---
+
 ## [12.9.5] (2026-06-09) — Terminal now opens in packaged builds
 
 ### Fixed (v12.9.5)

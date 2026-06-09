@@ -407,23 +407,17 @@ const config: ForgeConfig = {
             }),
           },
     osxNotarize: undefined,
-    asar: true,
-    asarUnpack: [
-      "**/@ast-grep/napi-darwin-*/**",
-      "**/@ast-grep/napi-linux-*/**",
-      "**/@ast-grep/napi-win32-*/**",
-      "**/@ast-grep/lang-python/**",
-      "**/@ast-grep/lang-go/**",
-      "**/.vite/build/astgrep_worker.js",
-      // node-pty ships spawn-helper (macOS) and conpty/winpty binaries (Windows)
-      // as NON-.node siblings of pty.node. AutoUnpackNatives only unpacks *.node,
-      // so unpack the whole platform dir — otherwise node-pty resolves the helper
-      // to app.asar.unpacked/.../spawn-helper (which doesn't exist) and the shell
-      // fails with "posix_spawnp failed". (Same pattern as @ast-grep above.)
-      "**/@lydell/node-pty-darwin-*/**",
-      "**/@lydell/node-pty-linux-*/**",
-      "**/@lydell/node-pty-win32-*/**",
-    ],
+    // electron-packager honors `asar.unpack` (a minimatch glob string), NOT the
+    // electron-builder-style top-level `asarUnpack` array (which it silently
+    // ignores). AutoUnpackNativesPlugin merges this glob with `**/*.node`.
+    // node-pty ships `spawn-helper` (macOS) and conpty/winpty binaries (Windows)
+    // as NON-.node siblings of pty.node; without unpacking the platform dir,
+    // node-pty resolves the helper to app.asar.unpacked/.../spawn-helper (absent)
+    // and the shell dies with "posix_spawnp failed" (can't exec inside an asar).
+    asar: {
+      unpack:
+        "{**/@lydell/node-pty-darwin-*/**,**/@lydell/node-pty-linux-*/**,**/@lydell/node-pty-win32-*/**}",
+    },
     ignore,
     extraResource: [
       AST_GREP_GRAMMARS_STAGING,

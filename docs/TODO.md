@@ -1,6 +1,6 @@
 # Atlarix TODO
 
-**Current Version:** v12.9.5 (released)
+**Current Version:** v12.9.6 (released)
 **Last Updated:** 2026-06-09
 
 ---
@@ -10,8 +10,18 @@
 > Tracked, not yet scheduled.
 
 - **Plan tools fail when a stream transport lost its session binding.** `read_implementation_plan`/`write_implementation_plan` (`src/lib/tools/plan.ts`) return *"No workspace session for this chat"* / *"Plan not found"* when the current chat's in-memory stream transport has no resolvable workspace session — e.g. a stale/reused transport after a reload, where `resolveOrBindWorkspaceSessionForStream` (`workspace_session_handlers.ts`) can't bind one. `workspaceSessionId` is **auto-injected server-side** (`chat_stream_handlers.ts` execArgs), so the model can't influence it — its retries/"switch to Build mode" attempts are no-ops. **Proposed fix:** when `getStreamTransport` is empty but the chat's app id is known, auto-rebind the transport to the latest session for that app (reuse `pickSessionReuse`/`insertWorkspaceSession`); otherwise return a clear "start a new chat in this workspace" message instead of "Plan not found". Workaround today: start a new chat in the workspace.
+- **`@ast-grep/lang-{go,python}` are not unpacked from the asar.** They were listed in the old (ignored) `asarUnpack` array; v12.9.6 fixed the asar key for node-pty only (minimal hotfix) and did **not** fold ast-grep into `asar.unpack`. ast-grep core works (its `.node` is unpacked by `AutoUnpackNatives`), but if dynamic Go/Python AST registration needs those package files on disk, add `**/@ast-grep/lang-python/**`,`**/@ast-grep/lang-go/**` (and `**/.vite/build/astgrep_worker.js`) to the `asar.unpack` glob in `forge.config.ts`. Verify before changing — they ship in-asar today and the app works.
 
 ---
+
+## v12.9.6 — SHIPPED (2026-06-09): Terminal opens for real (correct asar.unpack key)
+
+> v12.9.5 added node-pty to an `asarUnpack` array — an **electron-builder** key that electron-forge/electron-packager ignores. Verified against the shipped 12.9.5 build: `spawn-helper` was still inside `app.asar`, so `posix_spawnp` still failed.
+
+| Area | Notes |
+|------|-------|
+| **Terminal spawn** | `forge.config.ts`: replaced `asar: true` + the dead `asarUnpack: [...]` array with `asar: { unpack: "{**/@lydell/node-pty-{darwin,linux,win32}-*/**}" }`. `AutoUnpackNativesPlugin` merges it with `**/*.node` (verified via minimatch + local `electron-forge package`: `spawn-helper` now in `app.asar.unpacked`). No app code change. |
+| **Release** | docs → 12.9.6; launchpad copy/version updated (no git); `docs/discord-release-12.9.6.md`; tag `v12.9.6` + push. |
 
 ## v12.9.5 — SHIPPED (2026-06-09): Terminal opens in packaged builds (node-pty spawn-helper)
 
