@@ -487,13 +487,20 @@ export async function runAgentTurn(
       // v12 2.2/0.3: a prose-only round whose completion was SUPPRESSED
       // (stop hook red / diagnostics outstanding) gets that failure as its
       // nudge — not the generic "continue" line.
+      // One streak away from the cap: give an explicit final warning so the
+      // model self-completes (or acts) instead of silently dying at the cap.
+      const isLastChance =
+        profile.proseOnlyStreakMax != null &&
+        agenticProseOnlyStreak === profile.proseOnlyStreakMax - 1;
       const nudge =
         stopGateFeedback ??
         verifyFeedback ??
         (pendingSteps.length > 0
           ? buildPendingStepsContinuationPrompt(pendingSteps) +
             (ledgerSnap ? `\n\nCurrent task state:\n${ledgerSnap}` : "")
-          : "You replied without using tools or finishing. Continue the task: call tools as needed, then emit <task_complete> when fully done.");
+          : isLastChance
+            ? "You have replied several times without using tools. This is your last turn before the loop ends: if the task is COMPLETE, emit <task_complete> NOW; otherwise call the required tools immediately."
+            : "You replied without using tools or finishing. Continue the task: call tools as needed, then emit <task_complete> when fully done.");
       agenticMessages.push({
         role: "assistant" as const,
         content: stripAssistantDisplayContent(stripXML(fullResponse)),

@@ -1,11 +1,11 @@
 /**
  * Atlarix System Prompt
  * ======================
- * Minimal system prompt that loads AGENTS.md as the primary guidance.
+ * Minimal system prompt built from the bundled AGENTS guidance.
  * v2.1: Supports project instruction precedence (ATLARIX.md, workspace, global, bundle).
  *
- * - AGENTS.md: Full reference (55 tools) for 32K+ models
- * - AGENTS_COMPACT.md: Essential guidance (~100 lines) for 8K models
+ * - AGENTS_COMPACT.md: Essential base guidance (every-dispatch layer)
+ * - AGENTS_MODE_BASE.md: Mode-scoped base guidance for the active mode
  */
 
 import path from "node:path";
@@ -46,7 +46,6 @@ const logger = log.scope("system_prompt");
 // AGENTS.MD LOADING
 // ═══════════════════════════════════════════════════════════
 
-let AGENTS_MD_FULL = "";
 let AGENTS_MD_COMPACT = "";
 
 const loadAgentsFile = (filename: string): string => {
@@ -90,30 +89,27 @@ const loadAgentsFile = (filename: string): string => {
 };
 
 // Load at startup
-AGENTS_MD_FULL = loadAgentsFile("AGENTS.md");
 AGENTS_MD_COMPACT = loadAgentsFile("AGENTS_COMPACT.md");
 const AGENTS_MD_MODE_BASE = loadAgentsFile("AGENTS_MODE_BASE.md");
 
-// Fallback if both failed (e.g. packaged app layout): minimal prompt so app never runs with empty
+// Fallback if the compact bundle is missing (e.g. unexpected packaged layout): a minimal
+// prompt so the app never runs with an empty system prompt.
 const FALLBACK_AGENTS = `# Atlarix
 You are Atlarix, an AI development assistant. Use tools for operations.
 Use run_command with cwd for working directory. For scaffolding run exactly one run_command.
 `;
 
-if (!AGENTS_MD_FULL && !AGENTS_MD_COMPACT) {
-    logger.error("AGENTS.md and AGENTS_COMPACT.md not found; using fallback minimal prompt");
-    AGENTS_MD_FULL = FALLBACK_AGENTS;
+if (!AGENTS_MD_COMPACT) {
+    logger.error("AGENTS_COMPACT.md not found; using fallback minimal prompt");
     AGENTS_MD_COMPACT = FALLBACK_AGENTS;
 }
 
 /**
- * Get AGENTS.md content based on model context size.
- * PASS8 A1: Always prefer AGENTS_COMPACT.md regardless of context size. The full
- * AGENTS.md is kept only as a fallback for the rare case the compact file is missing.
- * Every token in this base layer costs a token on every single dispatch.
+ * Base ("every dispatch") guidance. Always AGENTS_COMPACT.md — every token here costs a
+ * token on every single dispatch, so the bundle is kept deliberately compact.
  */
 export const getAgentsMdForContextSize = (_contextSize: number = 32000): string => {
-    return AGENTS_MD_COMPACT || AGENTS_MD_FULL || "";
+    return AGENTS_MD_COMPACT || "";
 };
 
 // ═══════════════════════════════════════════════════════════
@@ -133,7 +129,7 @@ export type ModeSystemKey = ModeRegistryKey;
 
 /** Mode-scoped bundle — omits multi-mode summaries (active mode is in `<mode_system>` only). */
 export const getAgentsMdForWorkMode = (_mode: ModeSystemKey): string => {
-    return AGENTS_MD_MODE_BASE || AGENTS_MD_COMPACT || AGENTS_MD_FULL || "";
+    return AGENTS_MD_MODE_BASE || AGENTS_MD_COMPACT || "";
 };
 
 const MODE_SYSTEM_DESCRIPTIONS: Record<ModeSystemKey, string> = {

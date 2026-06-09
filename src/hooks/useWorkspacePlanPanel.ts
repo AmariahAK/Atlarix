@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import { useAtom, useAtomValue } from "jotai";
 import { useSearch } from "@tanstack/react-router";
 import { workspacePlanPanelAtom, pendingProposalsAtom } from "@/atoms/sourceAtoms";
@@ -82,13 +82,21 @@ export function useWorkspacePlanPanel(): void {
     chatId = undefined;
   }
 
-  const messages =
+  // Derive from the raw per-chat array reference (stable between renders unless
+  // messages actually change) and memoize, so `messages` has a stable identity.
+  // Without this the fresh `.map()` made the effects below re-run every render.
+  const rawMessages =
     chatId != null && !Number.isNaN(chatId)
-      ? (messagesByChatId.get(chatId) ?? []).map((m) => ({
-          role: m.role,
-          content: String(m.content ?? ""),
-        }))
-      : [];
+      ? messagesByChatId.get(chatId)
+      : undefined;
+  const messages = useMemo(
+    () =>
+      (rawMessages ?? []).map((m) => ({
+        role: m.role,
+        content: String(m.content ?? ""),
+      })),
+    [rawMessages],
+  );
 
   useEffect(() => {
     const onActivated = (payload: PlanArtifactPayload) => {
@@ -120,7 +128,26 @@ export function useWorkspacePlanPanel(): void {
     setPanel((prev) => {
       if (!prev.content) return prev;
       const changes = resolveChanges(messages, prev.content, proposals);
-      return { ...prev, changes: changes ?? prev.changes };
+      const next = changes ?? prev.changes;
+      // Return the SAME object when nothing changed so jotai does not write a
+      // new reference — otherwise this effect's own write retriggers the render
+      // that re-runs it (React #185 "Maximum update depth exceeded").
+      if (changesEqual(next, prev.changes)) return prev;
+      return { ...prev, changes: next };
     });
   }, [messages, proposals, setPanel]);
+}
+
+/** Cheap structural equality for the plain, serializable plan-changes payload. */
+function changesEqual(
+  a: PlanChangesPayload | null,
+  b: PlanChangesPayload | null,
+): boolean {
+  if (a === b) return true;
+  if (a == null || b == null) return a === b;
+  try {
+    return JSON.stringify(a) === JSON.stringify(b);
+  } catch {
+    return false;
+  }
 }

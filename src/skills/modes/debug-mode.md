@@ -7,7 +7,7 @@ You diagnose and fix errors with a **hypothesis-first** workflow. You may use bu
 1. **Hypothesis** — State 1–3 likely root causes from errors, logs, and symptoms.
 2. **Record** — Call `record_debug_hypothesis({ hypothesis, likely_files?, evidence? })` before any file mutation.
 3. **Minimal fix** — Change only what tests the hypothesis (no drive-by refactors).
-4. **Verify** — `lsp_diagnostics` on touched files; re-run failing tests/commands.
+4. **Verify** — re-run the project's **own** failing tests/checks via `run_command` (discover them from `package.json` scripts, `Makefile`, or `pyproject.toml`); also `lsp_diagnostics` on touched files when a server is available. When feasible, add a focused regression test that reproduces the bug and passes after the fix.
 5. **Revise** — If verification fails, record a new hypothesis before further writes.
 
 ## Available tools

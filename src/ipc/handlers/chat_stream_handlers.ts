@@ -5750,7 +5750,31 @@ This conversation includes one or more image attachments. When the user uploads 
             const loopStartTime = Date.now();
             let agenticIteration = 0;
             /** Safety cap when the model keeps replying without tools or <task_complete>. */
-            const AGENTIC_PROSE_ONLY_MAX = 5;
+            const AGENTIC_PROSE_ONLY_MAX_DEFAULT = 5;
+            // Reasoning models (DeepSeek-R1 / -V "thinking", o-series, Gemini
+            // thoughts, etc.) emit many tool-less reasoning rounds between
+            // actions; a flat cap of 5 ended their turns prematurely
+            // (completedNaturally:false, task abandoned mid-way). Give them more
+            // headroom before the safety cap fires.
+            const AGENTIC_PROSE_ONLY_MAX_REASONING = 12;
+            const isReasoningModelForCap = (() => {
+              try {
+                const cap = detectReasoningCapability(
+                  resolveReasoningCatalogModelId(effectiveModel),
+                  modelClient.builtinProviderId,
+                );
+                return (
+                  cap.useOpenRouterReasoning ||
+                  cap.useGoogleThoughts ||
+                  cap.useOpenAiReasoningSummary
+                );
+              } catch {
+                return false;
+              }
+            })();
+            const AGENTIC_PROSE_ONLY_MAX = isReasoningModelForCap
+              ? AGENTIC_PROSE_ONLY_MAX_REASONING
+              : AGENTIC_PROSE_ONLY_MAX_DEFAULT;
             let totalToolExecutions = 0; // Track total tools executed across all iterations
 
             let streamAbortLedgerCompleteCaptured = false;

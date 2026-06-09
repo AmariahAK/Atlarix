@@ -347,6 +347,29 @@ export interface MidLoopCompactionResult {
  * If compaction is unnecessary or the summarizer call fails, the messages are
  * returned unchanged (`compacted: false`).
  */
+/**
+ * Cheap predicate mirroring the EXACT trigger inside `compactAgenticMessagesIfNeeded`
+ * (same `estimateTokens`/`modelMessageText` so it can't drift). Lets callers decide
+ * whether compaction will run BEFORE emitting any "summarizing" UI — avoids showing a
+ * summarize card on every loop iteration when we're nowhere near the threshold.
+ */
+export function midLoopCompactionWouldTrigger(params: {
+  messages: ModelMessage[];
+  systemPromptEstimate: number;
+  tierLimit: number;
+  contextWindowTokens?: number;
+  threshold?: number;
+}): { willTrigger: boolean; beforeTokens: number } {
+  const threshold = params.threshold ?? 0.75;
+  const limitDenom = params.contextWindowTokens ?? params.tierLimit;
+  const beforeTokens =
+    params.messages.reduce(
+      (acc, m) => acc + estimateTokens(modelMessageText(m.content)),
+      0,
+    ) + params.systemPromptEstimate;
+  return { willTrigger: beforeTokens >= threshold * limitDenom, beforeTokens };
+}
+
 export async function compactAgenticMessagesIfNeeded(
   params: MidLoopCompactionParams,
 ): Promise<MidLoopCompactionResult> {

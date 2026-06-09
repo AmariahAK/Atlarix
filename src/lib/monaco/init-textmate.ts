@@ -4,6 +4,7 @@
 
 import * as monaco from "monaco-editor";
 import { MONACO_LANGUAGE_MANIFEST } from "./language-manifest";
+import { guardOnigScanner } from "./guard-onig-scanner";
 
 const grammarModules = import.meta.glob("./grammars/*.json", {
   eager: true,
@@ -108,11 +109,12 @@ export async function initTextMateGrammars(): Promise<boolean> {
   }
 
   try {
-    const [{ Registry }, { wireTmGrammars }, { loadWASM }] = await Promise.all([
+    const [{ Registry }, { wireTmGrammars }, onigasm] = await Promise.all([
       import("monaco-textmate"),
       import("monaco-editor-textmate"),
       import("onigasm"),
     ]);
+    const { loadWASM } = onigasm;
 
     const onigWasmModule = await import("onigasm/lib/onigasm.wasm?url");
     const onigWasmUrl =
@@ -120,6 +122,14 @@ export async function initTextMateGrammars(): Promise<boolean> {
         ? onigWasmModule
         : (onigWasmModule as { default: string }).default;
     await loadWASM(onigWasmUrl);
+
+    // onigasm@2.x (old Oniguruma) throws "invalid pattern in look-behind" on the
+    // variable-length look-behind patterns modern TextMate grammars use heavily
+    // (python.json alone has ~20+). The throw fires on *every* background-tokenize
+    // line, flooding the console and Sentry. Guard the scanner at its source so a
+    // rejected pattern degrades to "no match" (those tokens just don't highlight)
+    // instead of crashing the tokenizer. Idempotent — patch the prototype once.
+    guardOnigScanner(onigasm);
 
     const registry = new Registry({
       getGrammarDefinition: async (scopeName) => {

@@ -139,7 +139,17 @@ export function SimpleInlineChat({
                 "@/lib/chat/apply-stream-display-hydration"
             );
             applyStreamDisplayHydration(chat.messages);
-            streamMessage({ prompt: "", chatId, continueAfterQuestions: true });
+            // Reproduce the edited message's own work mode on resend so the turn
+            // is deterministic instead of drifting to whatever global settings
+            // happen to be. Fall back to undefined (global) when unset.
+            const edited = chat.messages.find((m) => m.id === messageId);
+            const workModeOverride = edited?.workMode ?? undefined;
+            streamMessage({
+                prompt: "",
+                chatId,
+                continueAfterQuestions: true,
+                workModeOverride,
+            });
         },
         [chatId, setMessagesById, streamMessage],
     );

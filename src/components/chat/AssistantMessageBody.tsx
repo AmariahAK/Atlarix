@@ -37,6 +37,7 @@ import { InlinePermissionApprovals } from "./InlinePermissionApprovals";
 import { StreamToolCallCard } from "./StreamToolCallCard";
 import { flattenToolGroupsInThread } from "@/lib/chat/group-stream-tools";
 import {
+  compareThreadItems,
   consolidateSubagentRoundsInThread,
   hasActiveSubagentActivity,
   hasDelegateToolParts,
@@ -504,17 +505,20 @@ function ipcTimelineTailItems(
   excludeSubagentRound = false,
 ): StreamThreadItem[] {
   const inParts = toolNamesInParts(parts);
-  return thread.filter((item) => {
-    if (item.kind === "subagent_round") return !excludeSubagentRound;
-    if (item.kind === "background" || item.kind === "plan") return true;
-    if (item.kind === "tool") {
-      if (item.status === "running" && !inParts.has(item.toolName)) {
-        return true;
+  return thread
+    .filter((item) => {
+      if (item.kind === "subagent_round") return !excludeSubagentRound;
+      if (item.kind === "background" || item.kind === "plan") return true;
+      if (item.kind === "tool") {
+        // Show tools not represented in the content parts — including COMPLETED
+        // ones. Previously only `running` tools passed, so a permission-
+        // interceptor write/edit (which never gets a content-tag part) vanished
+        // the instant it completed: visible while running, gone after accept.
+        return !inParts.has(item.toolName);
       }
       return false;
-    }
-    return false;
-  });
+    })
+    .sort(compareThreadItems);
 }
 
 /** Completed-thread rows not already covered by tag-parsed interleaved parts. */
@@ -536,22 +540,29 @@ function completedThreadTailItems(
     return partTools.filter((p) => p.toolName === toolName)[idx];
   };
 
-  return thread.filter((item) => {
-    if (item.kind === "subagent_round") return !excludeSubagentRound;
-    if (item.kind === "subagent" || item.kind === "tool_group") return false;
-    if (item.kind === "thought") return !hasThoughtInParts;
-    if (item.kind === "background" || item.kind === "plan") return true;
-    if (item.kind === "tool") {
-      const part = partForTool(item.toolName);
-      if (!part) return true;
-      const partHasResult = Boolean(part.resultText?.trim());
-      const threadExpandable =
-        item.expand != null && isToolExpandViewExpandable(item.expand);
-      if (!partHasResult && threadExpandable) return true;
+  return thread
+    .filter((item) => {
+      if (item.kind === "subagent_round") return !excludeSubagentRound;
+      if (item.kind === "subagent" || item.kind === "tool_group") return false;
+      if (item.kind === "thought") return !hasThoughtInParts;
+      if (item.kind === "background" || item.kind === "plan") return true;
+      if (item.kind === "tool") {
+        const part = partForTool(item.toolName);
+        if (!part) return true;
+        // The inline part renders its own result only when it carries one.
+        // When it doesn't, keep the completed thread card if it has its own
+        // renderable content (a diff/expand view OR raw result text) so an
+        // accepted write/edit whose result arrived via the permission
+        // interceptor isn't dropped from the frozen view.
+        const partHasResult = Boolean(part.resultText?.trim());
+        if (partHasResult) return false;
+        const threadExpandable =
+          item.expand != null && isToolExpandViewExpandable(item.expand);
+        return threadExpandable || Boolean(item.resultText?.trim());
+      }
       return false;
-    }
-    return false;
-  });
+    })
+    .sort(compareThreadItems);
 }
 
 function threadItemKey(item: StreamThreadItem): string {

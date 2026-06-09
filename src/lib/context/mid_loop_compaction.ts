@@ -14,7 +14,10 @@
  */
 
 import type { ModelMessage } from "ai";
-import { compactAgenticMessagesIfNeeded } from "@/lib/routing/tier_context_budget";
+import {
+  compactAgenticMessagesIfNeeded,
+  midLoopCompactionWouldTrigger,
+} from "@/lib/routing/tier_context_budget";
 
 export interface MidLoopCompactionActivityPayload {
   id: string;
@@ -75,6 +78,27 @@ export async function runMidLoopCompaction(
 
   if (!enabled) {
     return { messages, compacted: false, beforeTokens: 0, afterTokens: 0 };
+  }
+
+  // Gate ALL activity emission behind the real compaction trigger (same
+  // predicate as compactAgenticMessagesIfNeeded). Without this, a
+  // "Summarizing in-task context" card pulsed on EVERY loop iteration — even
+  // at ~6k tokens against a 1M window — because the running/done events were
+  // emitted unconditionally. Below threshold: do nothing, emit nothing.
+  const pre = midLoopCompactionWouldTrigger({
+    messages,
+    systemPromptEstimate,
+    tierLimit,
+    contextWindowTokens,
+    threshold,
+  });
+  if (!pre.willTrigger) {
+    return {
+      messages,
+      compacted: false,
+      beforeTokens: pre.beforeTokens,
+      afterTokens: pre.beforeTokens,
+    };
   }
 
   // PASS8 G2: label uses "Summarizing in-task context" so the existing

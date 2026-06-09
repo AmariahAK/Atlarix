@@ -29,6 +29,18 @@ describe("sentryBeforeSendDropExpected", () => {
     expect(sentryBeforeSendDropExpected(event as ErrorEvent, undefined)).toBeNull();
   });
 
+  it("drops benign Electron teardown races (Object has been destroyed)", () => {
+    for (const value of [
+      "Object has been destroyed",
+      "Render frame was disposed before WebFrameMain could be accessed",
+    ]) {
+      const event = { exception: { values: [{ type: "Error", value }] } };
+      expect(
+        sentryBeforeSendDropExpected(event as ErrorEvent, undefined),
+      ).toBeNull();
+    }
+  });
+
   it("passes through unexpected errors", () => {
     const event = {
       exception: { values: [{ type: "Error", value: "Database connection lost" }] },

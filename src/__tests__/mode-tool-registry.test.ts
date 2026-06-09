@@ -48,6 +48,20 @@ describe("mode-tool-registry", () => {
     expect(ask).not.toContain("get_mode_tool_registry");
   });
 
+  it("plan mode is filesystem read-only but keeps plan-artifact tools", () => {
+    // Must NOT be able to mutate the workspace or run shell.
+    expect(isToolAllowedInMode("write_file", "plan")).toBe(false);
+    expect(isToolAllowedInMode("edit_file", "plan")).toBe(false);
+    expect(isToolAllowedInMode("run_command", "plan")).toBe(false);
+    // Must still be able to author the plan + read the workspace.
+    expect(isToolAllowedInMode("write_implementation_plan", "plan")).toBe(true);
+    expect(isToolAllowedInMode("update_plan_step", "plan")).toBe(true);
+    expect(isToolAllowedInMode("read_file", "plan")).toBe(true);
+    // And the advertised system tool list must not name them.
+    expect(MODE_SYSTEM_TOOL_LISTS.plan).not.toContain("write_file");
+    expect(MODE_SYSTEM_TOOL_LISTS.plan).not.toContain("run_command");
+  });
+
   it("MODE_SYSTEM_TOOL_LISTS.ask is alphabetically sorted", () => {
     const tools = [...MODE_SYSTEM_TOOL_LISTS.ask];
     expect(tools).toEqual([...tools].sort((a, b) => a.localeCompare(b)));

@@ -37,7 +37,7 @@ export type SubAgentRunEntry = {
   nestedItems: StreamThreadItem[];
 };
 
-export type StreamThreadItem =
+export type StreamThreadItem = (
   | { kind: "thought"; id: string; content: string; ts: number }
   | {
       kind: "tool";
@@ -90,7 +90,31 @@ export type StreamThreadItem =
       summary: string;
       status: StreamThreadToolStatus;
       ts: number;
-    };
+    }
+) & {
+  /**
+   * Monotonic insertion ordinal, stamped when an item is first appended.
+   * `ts` (ms) collides for events in the same millisecond, so ordering sorts by
+   * (ts, seq) — see `compareThreadItems`. Optional so rebuilt/persisted items
+   * without it fall back to ts-only ordering.
+   */
+  seq?: number;
+};
+
+/** Monotonic counter for thread-item insertion order (stable across same-ms ts). */
+let __threadSeqCounter = 0;
+function nextThreadSeq(): number {
+  return ++__threadSeqCounter;
+}
+
+/** Chronological comparator: by `ts`, then insertion `seq` for same-ms ties. */
+export function compareThreadItems(
+  a: StreamThreadItem,
+  b: StreamThreadItem,
+): number {
+  if (a.ts !== b.ts) return a.ts - b.ts;
+  return (a.seq ?? 0) - (b.seq ?? 0);
+}
 
 const SUBAGENT_TYPES = new Set([
   "subagent_start",
@@ -138,6 +162,8 @@ function mergeToolItems(
     return {
       ...next,
       id: prev.id,
+      // Keep the original insertion slot when a tool goes running -> done.
+      seq: prev.seq ?? next.seq,
       toolName: prev.toolName || next.toolName,
       toolArgs: next.toolArgs ?? prev.toolArgs,
       resultText: next.resultText ?? prev.resultText,
@@ -153,12 +179,18 @@ function mergeToolItems(
     ...prev,
     ...next,
     id: prev.id,
+    seq: prev.seq ?? next.seq,
     toolName: prev.toolName,
     toolArgs: next.toolArgs ?? prev.toolArgs,
     resultText: next.resultText ?? prev.resultText,
     detail: next.detail ?? prev.detail,
     expand: next.expand ?? prev.expand,
   };
+}
+
+/** Stamp a monotonic `seq` on a brand-new item if it doesn't already have one. */
+function withThreadSeq(item: StreamThreadItem): StreamThreadItem {
+  return item.seq == null ? { ...item, seq: nextThreadSeq() } : item;
 }
 
 export function upsertStreamThreadItem(
@@ -189,7 +221,7 @@ export function upsertStreamThreadItem(
     }
   }
 
-  return [...items, item];
+  return [...items, withThreadSeq(item)];
 }
 
 /** Upsert nested sub-agent tools by id only (no toolName running-slot merge). */
@@ -210,7 +242,7 @@ export function upsertNestedStreamThreadItem(
     next[idx] = item;
     return next;
   }
-  return [...items, item];
+  return [...items, withThreadSeq(item)];
 }
 
 export function streamThreadItemFromToolStart(payload: {

@@ -59,7 +59,7 @@ const GOLDEN = {
     "get_repo_overview", "list_attachments", "list_available_mcps",
     "list_files", "list_installed_skills", "list_webmcp_tools", "mcp_call",
     "memory", "read_attachment", "read_file", "read_implementation_plan",
-    "run_command", "search", "update_plan_status", "update_plan_step",
+    "search", "update_plan_status", "update_plan_step",
     "web_search", "write_implementation_plan",
   ],
   build: [

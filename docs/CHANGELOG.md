@@ -1,5 +1,45 @@
 # Atlarix Changelog
 
+## [12.10.0] (2026-06-09) — streaming-UI crash fixes + runtime Core models + project-check verification
+
+### Added (v12.10)
+
+- **Runtime Core-tier model config (no repackage).** The four Atlarix Core tiers (Core 1–4) now
+  resolve their underlying model from a hosted `core-models.json` in the `atlarix-releases` repo,
+  fetched and disk-cached at startup (and hourly), with the build-time env (`ATLARIX_CORE_MODEL_1..4`)
+  as the fallback. Swapping a Core model is now a JSON edit, not a full app rebuild/re-sign/re-publish.
+  New `src/ipc/shared/core-model-override-store.ts` (pure, renderer-safe) holds the map; new
+  `src/lib/routing/core-model-overrides.ts` (main-process, mirrors the `models_dev.ts` fetch/cache
+  pattern) fills it; `getOpenRouterModelIdForCoreTier` prefers the override over env so it propagates
+  to every consumer from one edit; a `core-models:refresh` IPC forces a re-fetch. Secrets stay
+  build-time (the public JSON carries model ids only).
+
+### Changed (v12.10)
+
+- **Build & Debug verify with the project's *own* tooling.** Both modes now instruct the agent to
+  discover and run the project's real checks via `run_command` — its `package.json` scripts, else
+  `tsc --noEmit`/`eslint`, `ruff`/`mypy`/`pytest`, `cargo`/`go`, with `node --check` /
+  `python3 -m py_compile` as a syntax floor — and to **write tests for non-trivial logic** before
+  `<task_complete>`. LSP diagnostics remain one input, not the only one, so verification works on the
+  common case of a machine with no language server installed (`src/lib/tools/mode-prompt-bundle.ts`,
+  `src/skills/modes/{build,debug}-mode.md`).
+
+### Fixed (v12.10)
+
+- **Renderer no longer crashes to the error boundary (React #185 "Maximum update depth exceeded") while a plan is showing.** The remaining infinite loop was in `useWorkspacePlanPanel.ts` (not the sidebar, as first suspected): `messages` was rebuilt with a fresh `.map()` on every render, so the "sync plan changes" effect (deps `[messages, …]`) ran after *every* render and its `setPanel(prev => ({ ...prev, changes }))` wrote a **new object reference** whenever a plan was open → re-render → fresh `messages` → effect re-fires → loop, triggered exactly on the `show-plan → get-proposal` path. Fixed by memoizing `messages` (keyed on the raw per-chat array) and equality-guarding the write (return the same object when `changes` is unchanged), reusing the JSON-equality pattern from the loop-safe `useProposal.ts`.
+- **Accepted edit/write tool result cards no longer vanish.** A write/edit card was visible while the op ran but disappeared the instant the permission was accepted. In the interleaved-timeline branch, `ipcTimelineTailItems` (`AssistantMessageBody.tsx`) only kept tools with `status === "running"`, so a permission-interceptor op — which never gets a content-tag part — was dropped the moment it completed. It now shows tools not represented in the content parts regardless of running/done. Also broadened the frozen-view tail filter (`completedThreadTailItems`) so a completed card carrying its own `resultText`/expand isn't dropped when a matching part lacks a result.
+- **Main process no longer files fatal `TypeError: Object has been destroyed` on quit.** `broadcastToAllWindows` (`broadcast_all_windows.ts`) guarded the *window* (`!isDestroyed()`) but then called `win.webContents.send(...)` — during teardown the webContents can already be gone while the window still reports alive, so the send threw. Now routed through `safeSend` (which checks `webContents.isDestroyed()/isCrashed()`) inside a try/catch, fixing the race for every broadcaster at once. These benign teardown races are also added to the Sentry ignore list as a safety net. (The `emitUserTags` frame in the Sentry report was a stale-source-map mislabel.)
+- **TextMate tokenizer no longer floods the console/Sentry with `invalid pattern in look-behind`.** `onigasm@2.x` (old Oniguruma) rejects the variable-length look-behind patterns modern grammars use heavily (e.g. `python.json`), and `OnigScanner.findNextMatchSync` re-threw on every background-tokenized line (observed opening a Python workspace). The scanner is now wrapped at its source (`guard-onig-scanner.ts`, applied in `init-textmate.ts`) so a rejected pattern degrades to "no match" (those tokens just don't highlight) instead of throwing/retrying forever.
+
+### Internal (v12.10)
+
+- New derived `backgroundStreamingSessionIdsAtom` (`sessionAtoms.ts`) drives the session-list spinner from a membership-stable Set, so the sidebar stops re-rendering on every streaming tick (it previously subscribed to the whole `chatIdToSessionId` reverse map).
+- **Lighter prompt loader.** Removed the runtime-unused full `AGENTS.md` — `AGENTS_COMPACT.md` + `AGENTS_MODE_BASE.md` are the authoritative bundles (the loader always preferred them; the full file only shipped as a fallback that never fired). Simplified `src/prompts/system_prompt.ts` and dropped it from `forge.config.ts` `extraResource`.
+- Corrected the `.atlarix/plans/_index.md` scaffold text (`src/lib/plans/plan-manager.ts`): it now points at `.atlarix/atlarix.md` (durable project instructions) and `.atlarix/memory.md` (project knowledge) instead of the wrong, single `.atlarix/ATLARIX.md`.
+- Aligned the `toolset-golden` plan surface with the intentional `run_command` exclusion from Plan mode (`mode-tool-registry.ts`). Added regression tests: plan-panel no-loop, mid-stream completed tool card, broadcast teardown guard, onig-scanner guard, runtime Core-model overrides, and the new Sentry ignore patterns.
+
+---
+
 ## [12.9.7] (2026-06-09) — ask_user options render correctly + de-hardcoded context-window logic
 
 ### Fixed (v12.9.7)

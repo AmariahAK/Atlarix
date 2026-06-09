@@ -13,7 +13,7 @@ You have control.
 
 **Map** — Atlarix builds a live **Blueprint** per workspace section (Universal Ctags + ast-grep edges). The agent calls `get_blueprint` with a folder path—one monorepo area at a time—with validation, hybrid backfill on thin indexes, and compact Markdown slices—not whole-repo dumps.
 
-**Connect** — Wire in any LLM: local Ollama, OpenAI, Anthropic, OpenRouter, or **Atlarix Core** (managed models with real catalog names, not raw tier ids).
+**Connect** — Wire in any LLM: local Ollama, OpenAI, Anthropic, OpenRouter, or **Atlarix Core** (managed models with real catalog names, not raw tier ids — the Core tiers are configured remotely, so the underlying models stay current without an app update).
 
 **Execute** — The agent plans, reads, writes, runs commands, searches the web. You approve every destructive action.
 
@@ -21,7 +21,7 @@ You have control.
 
 **Created by [NorahLabs](https://norahlabs.com)** (Nairobi, Kenya)  
 **Website:** [atlarix.dev](https://atlarix.dev)  
-**Current release:** **v12.9.7**
+**Current release:** **v12.10.0**
 
 **Downloads:** Installers for **macOS**, **Linux**, and **Windows** are on [atlarix.dev](https://atlarix.dev). *(Windows builds are currently unsigned; code signing is coming soon.)*
 
@@ -42,7 +42,7 @@ Release notes: **[docs/CHANGELOG.md](docs/CHANGELOG.md)** (current: 9.0+). Older
 - **Sub-agents:** Explore & Review helpers run scoped, read-only passes (up to five per turn) with grouped tool summaries in the Sub-agents panel.
 - **Background agents:** Spawn detached agents into their own sessions — read-only, or write-capable with shadow-git capture and an explicit **keep/revert** review of the aggregate diff. Restart-safe, with a dedicated Agents panel tab.
 - **User-defined agents & portable config:** `.atlarix/agents/<name>.md` (system prompt + tools + model) shows up in the picker; `.atlarix/permissions.json` deny/ask rules and `.atlarix/hooks/` (blocking pre-tool, advisory post-tool, stop gate) are committable and enforced at the single tool-execution funnel — plus a global `~/.atlarix/` layer.
-- **Verified edits:** After each round of writes, LSP diagnostics on the touched files feed back into the loop — the agent cannot claim a task complete on top of broken code.
+- **Verified edits:** After each round of writes, LSP diagnostics on the touched files feed back into the loop — the agent cannot claim a task complete on top of broken code. In **Build** and **Debug** the agent also discovers and runs the project's *own* checks (package.json scripts, `tsc`/`eslint`, `ruff`/`mypy`/`pytest`) via the terminal and writes tests for non-trivial logic before declaring done — verification works even on machines with no language server installed.
 - **Native tool history:** Tool calls/results ride as provider-native blocks (not flattened text) — weak and local models perform notably better, and multi-step prompt caching holds.
 - **Self-correction:** After substantive build turns, optional LSP-based follow-ups can address diagnostics in touched files (no separate TypeScript compiler worker or Problems tab).
 - **Approval queue:** File writes and shell commands wait for explicit approval with diff preview — accept or reject **individual hunks**, not just whole files.

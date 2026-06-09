@@ -130,8 +130,11 @@ describe("mode system consistency", () => {
       expect(isToolAllowedInMode(tool, "ask")).toBe(false);
       expect(isToolAllowedInMode(tool, "review")).toBe(false);
     }
-    // Plan may write (gated to .atlarix docs by prompt), Build allows all.
-    expect(isToolAllowedInMode("write_file", "plan")).toBe(true);
+    // Plan is now filesystem-read-only — it authors plans via the plan-artifact
+    // tools (write_implementation_plan, etc.), NOT write_file/run_command.
+    expect(isToolAllowedInMode("write_file", "plan")).toBe(false);
+    expect(isToolAllowedInMode("run_command", "plan")).toBe(false);
+    // Build allows all.
     expect(isToolAllowedInMode("write_file", "build")).toBe(true);
   });
 

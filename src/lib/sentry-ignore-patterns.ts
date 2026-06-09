@@ -13,6 +13,11 @@ export const SENTRY_IGNORE_ERROR_PATTERNS: RegExp[] = [
   /Upgrade to Pro for unlimited workspaces/i,
   /Free tier is limited to 1 MCP/i,
   /Missing grammar for scope:/i,
+  // Benign Electron teardown races: an async callback/broadcast touches a
+  // window/webContents that's already destroyed during quit. Guarded at the
+  // source (broadcastToAllWindows + safeSend); dropped here as a safety net.
+  /Object has been destroyed/i,
+  /Render frame was disposed/i,
   /invalid pattern in look-behind/i,
   /look-behind/i,
   /OnigScanner/i,

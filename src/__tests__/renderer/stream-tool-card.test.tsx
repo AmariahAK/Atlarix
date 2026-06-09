@@ -85,6 +85,40 @@ describe("stream → tool card", () => {
     expect(screen.getByText("Read files (1)")).toBeInTheDocument();
   });
 
+  it("keeps a completed tool card visible mid-stream in the interleaved branch (v12.10: accepted edit must not vanish on completion)", () => {
+    // Structured content (has <think>) forces the interleaved timeline branch,
+    // where running tools render via ipcTimelineTailItems. A permission-
+    // interceptor write/edit never gets a content-tag part, so when it flips to
+    // "done" it must STILL render — previously only "running" tools passed.
+    const { store } = renderWithProviders(
+      <AssistantMessageBody
+        content="<think>Setting up the project.</think>"
+        isStreaming
+        chatId={CHAT_ID}
+        assistantMessageId={MESSAGE_ID}
+      />,
+    );
+    act(() => {
+      store.set(
+        streamThreadByChatIdAtom,
+        new Map([
+          [
+            CHAT_ID,
+            [
+              toolItem({
+                toolName: "write_file",
+                status: "done",
+                summary: "Wrote requirements.txt",
+                endTs: 5,
+              }),
+            ],
+          ],
+        ]),
+      );
+    });
+    expect(screen.getByText("Wrote requirements.txt")).toBeInTheDocument();
+  });
+
   it("renders frozen tool cards from the completed thread after the stream ends", () => {
     const { store } = renderWithProviders(
       <AssistantMessageBody

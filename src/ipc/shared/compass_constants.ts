@@ -12,6 +12,7 @@ import {
   formatModelWithProvider,
 } from "@/lib/format-openrouter-model-label";
 import { CORE_TIER_ROWS } from "../../shared/compass_product_copy";
+import { getCoreModelOverrideId } from "./core-model-override-store";
 
 export const COMPASS_PROVIDER_ID = "compass";
 
@@ -97,8 +98,13 @@ export function getCompassMasterApiKey(): string | undefined {
 export function getOpenRouterModelIdForCoreTier(
   internalTierId: string,
 ): string | undefined {
+  const norm = normalizeCoreTierId(internalTierId);
+  // Runtime override (hosted core-models.json) wins over the build-time env, so
+  // Core models can change without repackaging. Null/absent → env fallback.
+  const override = getCoreModelOverrideId(norm);
+  if (override) return override;
   if (!coreEnvAvailable()) return undefined;
-  switch (normalizeCoreTierId(internalTierId)) {
+  switch (norm) {
     case CORE_TIER_1:
       return trimEnv(process.env.ATLARIX_CORE_MODEL_1);
     case CORE_TIER_2:

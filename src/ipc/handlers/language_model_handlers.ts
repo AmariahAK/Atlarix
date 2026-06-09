@@ -13,6 +13,7 @@ import {
   getLanguageModelsByProviders,
 } from "../shared/language_model_helpers";
 import { refreshModelsDev, resetModelsDevCache } from "@/lib/models_dev";
+import { refreshCoreModelOverrides } from "@/lib/routing/core-model-overrides";
 import { invalidateProviderModelCache } from "@/lib/provider_model_fetchers";
 import { db } from "@/db";
 import {
@@ -380,6 +381,17 @@ export function registerLanguageModelHandlers() {
       return { success: true };
     } catch (e) {
       logger.warn("models-dev refresh failed", e);
+      return { success: false };
+    }
+  });
+
+  // Force a re-fetch of the hosted Core-tier model overrides (core-models.json).
+  handle("core-models:refresh", async (): Promise<{ success: boolean }> => {
+    try {
+      await refreshCoreModelOverrides();
+      return { success: true };
+    } catch (e) {
+      logger.warn("core-models refresh failed", e);
       return { success: false };
     }
   });

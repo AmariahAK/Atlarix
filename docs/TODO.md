@@ -1,6 +1,6 @@
 # Atlarix TODO
 
-**Current Version:** v12.9.7 (released)
+**Current Version:** v12.10.0 (released)
 **Last Updated:** 2026-06-09
 
 ---
@@ -21,6 +21,14 @@
 - **Compaction tuning knobs** — `COMPACTION_THRESHOLD 0.75` / `PRUNE_THRESHOLD 0.60` / `MODEL_CONTEXT_SAFETY 0.8` (`compaction.ts`), the `0.85` soft cap (`tier_context_budget.ts`), fill ratios `0.5/0.7/0.85` (`context-budget-tracker.ts`), the 24-round compaction loop + 3-protected-exchanges (`tier_context_budget.ts`). Co-tuned with v11/v12 per-step token enforcement; changing them risks destabilizing compaction for no clear win.
 - **Reasoning effort `"medium"`** (`reasoning-detector.ts`) — a feature request (expose high/low), not a bug.
 - **Git log depth `100_000`** (`version_handlers.ts`) — display/cache only, no prod logic impact.
+
+---
+
+## v12.10.0 — SHIPPED (2026-06-09): streaming-UI crash fixes + runtime Core models + project-check verification
+
+> **Streaming-UI defects** on top of the v12.10 working-tree work (chronological card ordering, no spurious "Summarizing" cards — both kept). (A) React #185 infinite render traced to `useWorkspacePlanPanel` (fresh `.map()` messages + unguarded `setPanel` write every render) — memoized + equality-guarded; sidebar narrowed to a derived `backgroundStreamingSessionIdsAtom`. (B) Accepted edit/write cards vanished because `ipcTimelineTailItems` only kept `running` tools — now keeps completed tools not in content parts; frozen-view tail filter broadened too. (C) Fatal main-process `Object has been destroyed` on quit — `broadcastToAllWindows` now guards at the webContents level via `safeSend` (+ Sentry ignore safety net). (D) `invalid pattern in look-behind` flood from `onigasm` — `OnigScanner.findNextMatch(Sync)` wrapped to degrade to no-match.
+>
+> **Then, this cycle:** (E) **Runtime Core-tier model config** — Core 1–4 resolve from a hosted `core-models.json` (atlarix-releases), fetched+cached at startup with build-time env fallback, so Core models change without a repackage (`core-model-override-store.ts` + `core-model-overrides.ts`, `core-models:refresh` IPC). (F) **Build/Debug verify with the project's own tooling** — both modes run the project's real checks/tests via `run_command` and write tests for non-trivial logic, not LSP-only (`mode-prompt-bundle.ts` + mode skills). (G) **Lighter prompt loader** — removed the runtime-unused full `AGENTS.md`. (H) Fixed the `.atlarix/plans/_index.md` scaffold (atlarix.md = instructions, memory.md = knowledge). All tests green (171 files / 1198 tests); released as v12.10.0.
 
 ---
 

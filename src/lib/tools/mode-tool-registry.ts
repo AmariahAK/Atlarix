@@ -86,13 +86,17 @@ const ASK_TOOLS = [
   "web_search",
 ] as const;
 
+// Plan mode is filesystem-read-only: it can author its PLAN (via the plan-artifact
+// tools below) but must NOT touch the workspace. write_file / edit_file /
+// run_command are intentionally excluded so they're neither advertised in the
+// system prompt nor allowed by the execute-gate (incl. the text-tool fallback
+// path that reasoning models like DeepSeek use to bypass the native schema).
 const PLAN_TOOLS = [
   "ask_user",
   "browser_navigate",
   "browser_read_page",
   "browser_screenshot",
   "compress_context",
-  "edit_file",
   "explore_folder",
   "find_file",
   "get_active_skills",
@@ -109,11 +113,9 @@ const PLAN_TOOLS = [
   "memory",
   "read_file",
   "read_implementation_plan",
-  "run_command",
   "search",
   "update_plan_status",
   "update_plan_step",
-  "write_file",
   "write_implementation_plan",
 ] as const;
 

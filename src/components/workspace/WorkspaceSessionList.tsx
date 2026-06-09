@@ -13,6 +13,7 @@ import {
   workspaceSessionTitleGeneratingAtom,
   chatIdToSessionIdAtom,
   sessionIdToChatIdAtom,
+  backgroundStreamingSessionIdsAtom,
   workspaceSessionLoadingAtom,
   workspaceSessionLoadingLabelAtom,
 } from "@/atoms/sessionAtoms";
@@ -108,6 +109,12 @@ export function WorkspaceSessionList({
   const sessionIdToChatId = useAtomValue(sessionIdToChatIdAtom);
   const setSessionIdToChatId = useSetAtom(sessionIdToChatIdAtom);
   const isStreamingById = useAtomValue(isStreamingByIdAtom);
+  // Membership-stable Set of sessions with an active background stream — drives
+  // the spinner without subscribing to the whole chatIdToSessionId reverse map
+  // (which churns on every streaming tick and over-rendered this list).
+  const backgroundStreamingSessionIds = useAtomValue(
+    backgroundStreamingSessionIdsAtom,
+  );
   const setMessagesById = useSetAtom(chatMessagesByIdAtom);
   const setActiveChatId = useSetAtom(activeChatIdAtom);
   const activeChatIdValue = useAtomValue(activeChatIdAtom);
@@ -294,6 +301,16 @@ export function WorkspaceSessionList({
         clearChatAtomsForChat(streamChatId);
         // Drop its concurrent-session tab too (otherwise a dead tab lingers).
         removeOpenChatTab(streamChatId);
+      }
+      // Prune the forward session→chat binding so a deleted session can never
+      // leave a stale entry that mis-attributes a spinner to it later.
+      setSessionIdToChatId((prev) => {
+        if (!prev.has(sessionId)) return prev;
+        const next = new Map(prev);
+        next.delete(sessionId);
+        return next;
+      });
+      if (streamChatId != null) {
         if (activeChatIdValue === streamChatId) {
           setActiveChatId(null);
         }
@@ -353,11 +370,11 @@ export function WorkspaceSessionList({
           }}
         >
           {(() => {
-            const mappedChat = sessionIdToChatId.get(session.id);
+            // backgroundStreamingSessionIdsAtom already applies the reverse-map
+            // consistency guard (a stale forward entry can't spin the wrong row).
             const bgStream =
-              mappedChat != null &&
               activeSessionId !== session.id &&
-              (isStreamingById.get(mappedChat) ?? false);
+              backgroundStreamingSessionIds.has(session.id);
             return bgStream ? (
               <Loader2 className="h-3 w-3 text-amber-600 animate-spin flex-shrink-0" />
             ) : (

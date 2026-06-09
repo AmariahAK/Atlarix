@@ -1,6 +1,6 @@
 /**
  * Plan file restructure: .atlarix/plans/_index.md and domain-specific plan files.
- * Project context/instructions live in .atlarix/ATLARIX.md.
+ * Project instructions live in .atlarix/atlarix.md; project knowledge in .atlarix/memory.md.
  */
 
 import * as fs from "node:fs/promises";
@@ -31,7 +31,7 @@ const INDEX_TEMPLATE = `# Atlarix Plans Index
 - [Database](database.md)
 - [DevOps](devops.md)
 
-Use .atlarix/ATLARIX.md for project-level instructions and memory.
+Use \`.atlarix/atlarix.md\` for durable project instructions and \`.atlarix/memory.md\` for project knowledge (stack, architecture, layout).
 `;
 
 const DOMAIN_TEMPLATE = (domain: string) => `# ${domain.charAt(0).toUpperCase() + domain.slice(1)} Plan

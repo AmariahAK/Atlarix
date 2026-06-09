@@ -424,7 +424,6 @@ const config: ForgeConfig = {
       // System-prompt guidance read at runtime by src/prompts/system_prompt.ts via
       // process.resourcesPath. Without these the packaged app falls back to a minimal
       // prompt (root-level files are otherwise excluded by the `ignore` allowlist).
-      path.join(__dirname, "AGENTS.md"),
       path.join(__dirname, "AGENTS_COMPACT.md"),
       path.join(__dirname, "AGENTS_MODE_BASE.md"),
       path.join(__dirname, "src/skills"),

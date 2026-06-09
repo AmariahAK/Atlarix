@@ -1,17 +1,26 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { IpcClient } from "@/ipc/ipc_client";
 import type { ProposalResult } from "@/lib/schemas"; // Import Proposal type
 import { proposalResultAtom } from "@/atoms/proposalAtoms";
 import { useAtom } from "jotai";
+
 export function useProposal(chatId?: number | undefined) {
   const [proposalResult, setProposalResult] = useAtom(proposalResultAtom);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+  // Mirror of the current atom value so the write guard can compare without
+  // adding `proposalResult` to fetchProposal's deps (which would re-create the
+  // callback on every fetch and re-arm the effect — the React #185 loop).
+  const resultRef = useRef<ProposalResult | null>(proposalResult);
+  resultRef.current = proposalResult;
+
   const fetchProposal = useCallback(
     async (overrideChatId?: number) => {
-      chatId = overrideChatId ?? chatId;
-      if (chatId === undefined) {
-        setProposalResult(null);
+      // Use a LOCAL id — never reassign the captured `chatId` param (mutating it
+      // confused the dependency identity and helped drive an update loop).
+      const id = overrideChatId ?? chatId;
+      if (id === undefined) {
+        if (resultRef.current !== null) setProposalResult(null);
         setIsLoading(false);
         setError(null);
         return;
@@ -19,35 +28,36 @@ export function useProposal(chatId?: number | undefined) {
       setIsLoading(true);
       setError(null);
       try {
-        // Type assertion might be needed depending on how IpcClient is typed
         const result = (await IpcClient.getInstance().getProposal(
-          chatId,
+          id,
         )) as ProposalResult | null;
-
-        if (result) {
-          setProposalResult(result);
-        } else {
-          setProposalResult(null); // Explicitly set to null if IPC returns null
+        const next = result ?? null;
+        // Skip the atom write when nothing actually changed. getProposal returns
+        // a fresh object every call, so writing unconditionally notified every
+        // subscriber on each fetch — the engine behind the render storm.
+        if (!proposalsEqual(next, resultRef.current)) {
+          setProposalResult(next);
         }
       } catch (err: any) {
         console.error("Error fetching proposal:", err);
-        setError(err.message || "Failed to fetch proposal");
-        setProposalResult(null); // Clear proposal data on error
+        setError(err?.message || "Failed to fetch proposal");
+        if (resultRef.current !== null) setProposalResult(null);
       } finally {
         setIsLoading(false);
       }
     },
-    [chatId], // Only depend on chatId, setProposalResult is stable
-  ); // Depend on chatId
+    // setProposalResult is stable (jotai). Intentionally NOT depending on
+    // proposalResult — the ref handles equality.
+    [chatId, setProposalResult],
+  );
 
+  // Fetch only when chatId actually changes — NOT when fetchProposal identity
+  // churns. Depending on [fetchProposal] (which depends on chatId) re-ran the
+  // effect → setProposalResult → re-render → ... → "Maximum update depth".
   useEffect(() => {
-    fetchProposal();
-
-    // Cleanup function if needed (e.g., for aborting requests)
-    // return () => {
-    //   // Abort logic here
-    // };
-  }, [fetchProposal]); // Re-run effect if fetchProposal changes (due to chatId change)
+    void fetchProposal();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chatId]);
 
   return {
     proposalResult: proposalResult,
@@ -55,4 +65,18 @@ export function useProposal(chatId?: number | undefined) {
     error,
     refreshProposal: fetchProposal, // Expose the refresh function
   };
+}
+
+/** Cheap structural equality for a plain IPC-serializable proposal result. */
+function proposalsEqual(
+  a: ProposalResult | null,
+  b: ProposalResult | null,
+): boolean {
+  if (a === b) return true;
+  if (a == null || b == null) return a === b;
+  try {
+    return JSON.stringify(a) === JSON.stringify(b);
+  } catch {
+    return false;
+  }
 }

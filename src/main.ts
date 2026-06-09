@@ -42,6 +42,7 @@ import { restoreAuthSessionOnStartup } from "./lib/auth/supabase-client";
 import { SubscriptionManager } from "./lib/SubscriptionManager";
 import { resolveSystemPath } from "./lib/resolve-path";
 import { warmTierContextCache } from "./lib/routing/tier-context-limits";
+import { warmCoreModelOverrides } from "./lib/routing/core-model-overrides";
 import {
   CORE_TIER_1,
   CORE_TIER_2,
@@ -283,6 +284,11 @@ export async function onReady() {
   });
 
   // Pass 7.3: OpenTelemetry init removed (heavy main-bundle dep, startup crash on packaged builds).
+
+  // Runtime Core-tier model overrides (hosted core-models.json). Sync-preloads the
+  // disk cache so the warm below + the first stream see last-known-good ids, then
+  // refreshes from the network in the background. Must run before warmTierContextCache.
+  warmCoreModelOverrides();
 
   // Core 4 needs no slot here — the warm fetch caches the full OpenRouter
   // catalog, and per-model limits resolve via `resolveModelContextLimit`.
