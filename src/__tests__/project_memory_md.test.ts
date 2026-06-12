@@ -15,6 +15,8 @@ import {
   isWorkspaceAtlarixMdPath,
   isAtlarixDocWritePath,
   getMemoryMdPath,
+  getAtlarixMdPath,
+  readProjectInstructions,
 } from "@/lib/project-memory";
 import { appendAutoMemoryIfEligible } from "@/lib/memory/auto-memory";
 
@@ -138,6 +140,59 @@ describe("path gates", () => {
   it("isWorkspaceAtlarixMdPath unchanged for atlarix.md", () => {
     expect(isWorkspaceAtlarixMdPath(".atlarix/atlarix.md")).toBe(true);
     expect(isWorkspaceAtlarixMdPath(".atlarix/memory.md")).toBe(false);
+  });
+});
+
+describe("readProjectInstructions (v13.1 AGENTS.md/CLAUDE.md interop)", () => {
+  async function writeAtlarix(content: string) {
+    await fs.mkdir(path.join(workspace, ".atlarix"), { recursive: true });
+    await fs.writeFile(getAtlarixMdPath(workspace), content, "utf8");
+  }
+
+  it("prefers .atlarix/atlarix.md when present", async () => {
+    await writeAtlarix("# Rules\n\nfrom atlarix\n");
+    await fs.writeFile(path.join(workspace, "AGENTS.md"), "from agents\n", "utf8");
+    const res = await readProjectInstructions(workspace);
+    expect(res?.source).toBe("atlarix");
+    expect(res?.content).toContain("from atlarix");
+  });
+
+  it("falls back to AGENTS.md when atlarix.md is absent", async () => {
+    await fs.writeFile(path.join(workspace, "AGENTS.md"), "agent guidance here\n", "utf8");
+    const res = await readProjectInstructions(workspace);
+    expect(res?.source).toBe("agents");
+    expect(res?.content).toContain("agent guidance here");
+  });
+
+  it("falls back to CLAUDE.md when atlarix.md and AGENTS.md are absent", async () => {
+    await fs.writeFile(path.join(workspace, "CLAUDE.md"), "claude guidance\n", "utf8");
+    const res = await readProjectInstructions(workspace);
+    expect(res?.source).toBe("claude");
+    expect(res?.content).toContain("claude guidance");
+  });
+
+  it("treats a whitespace-only atlarix.md as absent and falls back", async () => {
+    await writeAtlarix("   \n\n");
+    await fs.writeFile(path.join(workspace, "AGENTS.md"), "real guidance\n", "utf8");
+    const res = await readProjectInstructions(workspace);
+    expect(res?.source).toBe("agents");
+  });
+
+  it("returns null when no instructions file exists", async () => {
+    expect(await readProjectInstructions(workspace)).toBeNull();
+  });
+
+  it("caps AGENTS.md to the inject budget and never copies it into .atlarix", async () => {
+    await fs.writeFile(path.join(workspace, "AGENTS.md"), "x".repeat(5000), "utf8");
+    const res = await readProjectInstructions(workspace);
+    expect(res?.content).toContain("...(truncated)");
+    expect(res!.content.length).toBeLessThan(5000);
+    // Read-only fallback — atlarix.md is not created from AGENTS.md.
+    const copied = await fs
+      .access(getAtlarixMdPath(workspace))
+      .then(() => true)
+      .catch(() => false);
+    expect(copied).toBe(false);
   });
 });
 

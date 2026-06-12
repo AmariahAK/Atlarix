@@ -37,12 +37,10 @@ export const BUILD_ALLOWLIST_MARKER = "*" as const;
  */
 export const EVERY_MODE_TOOLS = [
   "ask_user",
-  "call_webmcp_tool",
   "compress_context",
-  "deep_research",
   "list_attachments",
-  "list_webmcp_tools",
   "read_attachment",
+  "read_url",
   "web_search",
 ] as const;
 
@@ -55,140 +53,54 @@ function withEveryModeTools(list: readonly string[]): readonly string[] {
 }
 
 const ASK_TOOLS = [
-  "ask_user",
   "browser_navigate",
   "browser_read_page",
   "browser_screenshot",
-  "compress_context",
-  "deep_research",
-  "delegate_to_agent",
-  "explore_folder",
-  "find_file",
-  "get_active_skills",
   "get_blueprint",
-  "get_file_outline",
-  "get_project_history",
-  "get_project_structure",
-  "get_repo_overview",
-  "list_attachments",
+  "glob",
+  "grep",
   "list_available_mcps",
-  "list_files",
-  "list_installed_skills",
   "mcp_call",
-  "memory",
-  "read_attachment",
   "read_file",
-  "read_url",
   "run_command",
-  "search",
-  "spawn_sub_agent",
   "task",
-  "web_search",
 ] as const;
 
-// Plan mode is filesystem-read-only: it can author its PLAN (via the plan-artifact
-// tools below) but must NOT touch the workspace. write_file / edit_file /
-// run_command are intentionally excluded so they're neither advertised in the
-// system prompt nor allowed by the execute-gate (incl. the text-tool fallback
-// path that reasoning models like DeepSeek use to bypass the native schema).
+// Plan mode is filesystem-read-only: it authors its PLAN via the `plan` tool
+// (session artifact) but must NOT touch the workspace. write_file / edit_file /
+// destructive run_command stay excluded from the advertised list and the
+// execute-gate (incl. the text-tool fallback path).
 const PLAN_TOOLS = [
-  "ask_user",
   "browser_navigate",
   "browser_read_page",
   "browser_screenshot",
-  "compress_context",
-  "explore_folder",
-  "find_file",
-  "get_active_skills",
   "get_blueprint",
-  "get_file_outline",
-  "get_plan_scope",
-  "get_project_history",
-  "get_project_structure",
-  "get_repo_overview",
+  "glob",
+  "grep",
   "list_available_mcps",
-  "list_files",
-  "list_installed_skills",
   "mcp_call",
-  "memory",
+  "plan",
   "read_file",
-  "read_implementation_plan",
-  "search",
-  "update_plan_status",
-  "update_plan_step",
-  "write_implementation_plan",
-] as const;
-
-const DEBUG_TOOLS = [
-  "ask_user",
-  "browser_click",
-  "browser_fill",
-  "browser_navigate",
-  "browser_read_page",
-  "browser_screenshot",
-  "delete_file",
-  "diagnose_issue",
-  "edit_file",
-  "explore_folder",
-  "find_file",
-  "get_active_skills",
-  "get_blueprint",
-  "get_file_outline",
-  "get_project_structure",
-  "get_repo_overview",
-  "list_available_mcps",
-  "list_files",
-  "lsp_definitions",
-  "lsp_diagnostics",
-  "lsp_hover",
-  "lsp_references",
-  "mcp_call",
-  "memory",
-  "read_file",
-  "record_debug_hypothesis",
-  "rename_file",
-  "run_command",
-  "search",
-  "stream_terminal_output",
-  "write_file",
-  "write_multiple_files",
+  "task",
 ] as const;
 
 const REVIEW_TOOLS = [
-  "ask_user",
   "browser_navigate",
   "browser_read_page",
   "browser_screenshot",
-  "delegate_to_agent",
-  "diagnose_issue",
-  "explore_folder",
-  "find_file",
-  "get_active_skills",
   "get_blueprint",
-  "get_file_outline",
-  "get_project_history",
-  "get_project_structure",
-  "get_repo_overview",
+  "glob",
+  "grep",
   "list_available_mcps",
-  "list_files",
-  "list_installed_skills",
-  "lsp_definitions",
-  "lsp_diagnostics",
-  "lsp_hover",
-  "lsp_references",
   "mcp_call",
-  "memory",
   "read_file",
   "run_command",
-  "search",
-  "spawn_sub_agent",
   "task",
 ] as const;
 
 /** Full per-mode allowlists (mode-specific tools ∪ every-mode tools). */
 const ASK_ALLOWLIST = withEveryModeTools(ASK_TOOLS);
 const PLAN_ALLOWLIST = withEveryModeTools(PLAN_TOOLS);
-const DEBUG_ALLOWLIST = withEveryModeTools(DEBUG_TOOLS);
 const REVIEW_ALLOWLIST = withEveryModeTools(REVIEW_TOOLS);
 
 /** Backward-compatible export for system_prompt and tests. */
@@ -196,7 +108,8 @@ export const MODE_SYSTEM_TOOL_LISTS = {
   ask: ASK_ALLOWLIST,
   plan: PLAN_ALLOWLIST,
   build: [BUILD_ALLOWLIST_MARKER] as const,
-  debug: DEBUG_ALLOWLIST,
+  // v13: debug = full surface (differs from build by prompt discipline only).
+  debug: [BUILD_ALLOWLIST_MARKER] as const,
   review: REVIEW_ALLOWLIST,
 } as const;
 
@@ -215,7 +128,7 @@ const ALLOWLIST_BY_MODE: Record<
   ask: ASK_ALLOWLIST,
   plan: PLAN_ALLOWLIST,
   build: BUILD_ALLOWLIST_MARKER,
-  debug: DEBUG_ALLOWLIST,
+  debug: BUILD_ALLOWLIST_MARKER,
   review: REVIEW_ALLOWLIST,
 };
 
@@ -227,7 +140,7 @@ function getAllowSets(): Record<ModeRegistryKey, Set<string>> {
       ask: new Set(ASK_ALLOWLIST),
       plan: new Set(PLAN_ALLOWLIST),
       build: new Set(),
-      debug: new Set(DEBUG_ALLOWLIST),
+      debug: new Set(),
       review: new Set(REVIEW_ALLOWLIST),
     };
   }
@@ -251,7 +164,7 @@ export function isToolAllowedInMode(
   toolName: string,
   mode: ModeRegistryKey,
 ): boolean {
-  if (mode === "build") return true;
+  if (mode === "build" || mode === "debug") return true;
   return getAllowSets()[mode].has(toolName);
 }
 
@@ -302,9 +215,9 @@ export function renderActiveModeToolsRegistry(
     `<tools_registry mode="${mode}" label="${label}">`,
   ];
 
-  if (mode === "build") {
+  if (mode === "build" || mode === "debug") {
     lines.push(
-      `Allowlist (${label}): all workspace tools (progressive reveal); mutating tools use the approval queue.`,
+      `Allowlist (${label}): all workspace tools; mutating tools use the approval queue.`,
     );
   } else {
     const allowlist = getModeToolAllowlist(mode).join(", ");
@@ -317,7 +230,7 @@ export function renderActiveModeToolsRegistry(
     );
     lines.push(WORKSPACE_INTEGRATION_TOOL_NAMES.join(", "));
     lines.push(
-      "Call list_available_mcps / list_installed_skills first, then mcp_call or skill-backed tools as needed.",
+      "Call list_available_mcps first, then mcp_call as needed. Installed skills are injected into your context automatically.",
     );
   }
 
@@ -327,9 +240,6 @@ export function renderActiveModeToolsRegistry(
     );
   }
 
-  lines.push(
-    "Progressive reveal: the allowlist above is what you may use in this work mode; native function schemas start with core tools (and workspace discovery tools when bound), then add each other allowlisted tool on first use in this chat session.",
-  );
   lines.push(
     "This turn's work mode is fixed until the user changes it in the UI; only tools on this allowlist can execute.",
   );

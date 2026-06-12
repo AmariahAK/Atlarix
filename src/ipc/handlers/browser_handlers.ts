@@ -17,7 +17,6 @@ import {
   getBrowserPanelState,
   normalizeBrowserInput,
 } from "../utils/browser_view_manager";
-import { registerWebMcpIpc } from "../utils/webmcp_registry";
 
 const logger = log.scope("browser_ipc");
 
@@ -81,6 +80,5 @@ export function registerBrowserHandlers(): void {
     return getBrowserPanelState();
   });
 
-  registerWebMcpIpc();
   logger.log("[browser] handlers registered");
 }

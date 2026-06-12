@@ -12,10 +12,8 @@ export function readSettings(): UserSettings {
     enableProSmartFilesContextMode: true,
     enableProWebSearch: false,
     selectedChatMode: "build",
-    enableAutoFixProblems: false,
     enableAutoUpdate: true,
     releaseChannel: "stable",
-    selectedTemplateId: "react-vite",
   } as UserSettings;
 }
 

@@ -3,7 +3,6 @@ import { ipcMain, IpcMainInvokeEvent, type WebContents } from "electron";
 import {
   ModelMessage,
   streamText,
-  generateText,
   ToolSet,
   jsonSchema as aiJsonSchema,
 } from "ai";
@@ -32,7 +31,6 @@ import {
   regateNativeMediaForProvider,
 } from "@/lib/ai/native-history";
 import { runAgentTurn } from "@/lib/agent/run-agent-turn";
-import { buildPostWriteVerify } from "@/lib/agent/post-write-verify";
 import { simplifyToolParametersForProfile } from "@/lib/routing/model-capability-profile";
 import { resolveToolsetForSession } from "@/lib/tools/resolve-toolset";
 import {
@@ -133,9 +131,11 @@ import {
 import { FileUploadsState } from "../utils/file_uploads_state";
 import { extractMentionedAppsCodebases } from "../utils/mention_apps";
 import { parseAppMentions } from "@/shared/parse_mention_apps";
-import type { ZodTypeAny } from "zod";
+
 import { isTurboEditsV2Enabled, WorkModeSchema } from "@/lib/schemas";
 import { trackPendingWork } from "@/lib/pending-work";
+import { takePendingBackgroundCommandResults } from "@/lib/agent/background-commands";
+import { takePendingSubagentResults } from "@/lib/agents/subagent-results";
 import {
   AI_STREAMING_ERROR_MESSAGE_PREFIX,
   AI_STREAM_EMPTY_RESPONSE_FALLBACK,
@@ -181,12 +181,8 @@ import {
   pasteToAttachmentData,
 } from "../../lib/attachment-persistence";
 import type { StoredFileAttachment } from "../ipc_types";
-import { generateProgressiveRevealNote } from "../../lib/tools/ToolManifest";
 import { getModeToolAllowSets } from "../../lib/tools/mode-tool-registry";
-import { debugWriteGateResult } from "../../lib/debug/debug-hypothesis-gate";
-import { clearDebugHypothesis } from "../../lib/debug/debug-hypothesis-session";
 import { toolExecutionChatMode } from "../../lib/work-mode";
-import { ToolSessionLoader } from "../../lib/tools/ToolSessionLoader";
 import {
   createAgenticRepetitionState,
   type AgenticRepetitionOutcome,
@@ -229,19 +225,16 @@ import {
 import { SubscriptionManager } from "@/lib/SubscriptionManager";
 // Pass 7: loadInstalledSkillsForSession is now reached through the get_active_skills tool.
 import {
-  ArchitectPlanPayloadSchema,
-  DebuggerRootCauseSchema,
-  ReviewerFindingsSchema,
-} from "@/lib/agents/agent-handoff-schemas";
-import { validateStructuredOutputWithSingleRetry } from "@/lib/agents/structured-output-validation";
-import {
   requireAuthSession,
   formatAuthRequiredIpcError,
   AuthRequiredError,
 } from "../../lib/auth/require_auth_session";
 import * as Sentry from "@sentry/electron/main";
 import { PermissionInterceptor } from "./permissions/interceptor";
-import { registerInterceptor } from "./permissions/handlers";
+import {
+  registerInterceptor,
+  clearWaitTrackersForChat,
+} from "./permissions/handlers";
 import {
   appendAutonomousOp,
   autonomousOpFromPermissionExec,
@@ -249,7 +242,7 @@ import {
   getAgentActivityForTurn,
 } from "./autonomous-session-state";
 import { getSessionMemory } from "../../lib/session-memory";
-import { readAtlarixMd } from "../../lib/project-memory";
+import { readProjectInstructions } from "../../lib/project-memory";
 import {
   estimateTokens,
   getContextWindow,
@@ -265,10 +258,7 @@ import {
 import { classifyTerminalCommand } from "../../lib/terminal-command-class";
 import { runCommandGitInitGateResult } from "../../lib/git-init-command-guard";
 import { attachDelegationToolsToSet } from "../../lib/agents/register-delegation-tools";
-import {
-  getDelegationConfig,
-  shouldAutoApprovePermissions,
-} from "../../lib/agents/agent-runtime";
+import { shouldAutoApprovePermissions } from "../../lib/agents/agent-runtime";
 import { getToolActivityLabel } from "../../lib/tool-activity-labels";
 import { summarizeToolResultForActivityDetail, toolResultTextForExpand } from "@/lib/chat/stream-tool-display";
 import { captureSafe } from "../../main/lib/analytics";
@@ -449,15 +439,6 @@ function sentryCaptureExceptionSafe(
 }
 
 // v4.0 Progressive Tool Reveal: one loader per chat session
-const toolSessionLoaders = new Map<number, ToolSessionLoader>();
-function getOrCreateToolSessionLoader(chatId: number): ToolSessionLoader {
-  let loader = toolSessionLoaders.get(chatId);
-  if (!loader) {
-    loader = new ToolSessionLoader((name) => ToolRegistry.get(name));
-    toolSessionLoaders.set(chatId, loader);
-  }
-  return loader;
-}
 
 // Legacy: Ask->Build approval wait (unused on request_mode_change tool path; respond-mode-change may still resolve)
 const pendingModeChangeResolvers = new Map<
@@ -559,123 +540,6 @@ async function maybeAppendAutoMemoryAfterStream(params: {
   }
 }
 
-/**
- * Parallel reviewer + debugger after autonomous <task_complete> when files were written.
- * Callers must **not** await this before `chat:response:end` — fire-and-forget so the next
- * user message is not queued behind verification. Results surface via `chat:activity`
- * (`build_verification_complete`).
- *
- * v12 0.3 re-scope (2.5 decision): this is now the OPTIONAL post-turn DEEP
- * review — semantic/logic issues LSP can't see. Compile-level errors are
- * caught IN-LOOP before <task_complete> by the engine's postWriteVerify (LSP
- * diagnostics, gated on enableAutoFixProblems), so this pass should rarely
- * surface mechanical breakage anymore. Gated by `buildVerification.enabled`.
- */
-async function runAutonomousBuildVerificationAfterTaskComplete(params: {
-  sender: WebContents;
-  chatId: number;
-  streamStopWasTaskComplete: boolean;
-  agentMode: string | undefined;
-  appPath: string | undefined;
-  workspaceId: number | undefined;
-  streamTurnIdForLedger: string;
-  rootAssistantMessageId: number;
-  isEphemeralWorkspace: boolean;
-  settings: UserSettings;
-}): Promise<void> {
-  const {
-    sender,
-    chatId,
-    streamStopWasTaskComplete,
-    appPath,
-    workspaceId,
-    streamTurnIdForLedger,
-    rootAssistantMessageId,
-    isEphemeralWorkspace,
-    settings,
-  } = params;
-  if (!streamStopWasTaskComplete || !appPath || chatId < 0 || isEphemeralWorkspace) {
-    return;
-  }
-  if (settings.buildVerification?.enabled === false) return;
-
-  const ledger = getLedger(streamTurnIdForLedger);
-  const filesWritten = [...new Set(ledger?.steps.flatMap((s) => s.filesWritten ?? []) ?? [])].filter(
-    Boolean,
-  );
-  if (filesWritten.length === 0) return;
-
-  try {
-    const { runAgentsInParallel, buildParallelContext } = await import(
-      "../../lib/agents/parallel-runner"
-    );
-    const { enqueueSyntheticFollowUpIfUnderCap } = await import("./self_correction_followup");
-    const results = await runAgentsInParallel(
-      [
-        {
-          agentId: "reviewer",
-          task: `Review these files for correctness and quality: ${filesWritten.join(", ")}`,
-          turnId: streamTurnIdForLedger,
-          depth: 1,
-          chatId,
-          workspacePath: appPath,
-          workspaceId,
-          recordOnParentLedger: false,
-        },
-        {
-          agentId: "debugger",
-          task: `Check these files for errors or issues: ${filesWritten.join(", ")}`,
-          turnId: streamTurnIdForLedger,
-          depth: 1,
-          chatId,
-          workspacePath: appPath,
-          workspaceId,
-          recordOnParentLedger: false,
-        },
-      ],
-      120_000,
-    );
-    const combined = buildParallelContext(results);
-    const blob = combined.toLowerCase();
-    const hasIssues =
-      /\b(issue|issues|fail|failed|failure|error|errors|bug|critical|blocker|problem|problems)\b/.test(
-        blob,
-      ) || results.some((r) => !r.success);
-
-    captureSafe("autonomous_build_verification_run", {
-      files_written_count: filesWritten.length,
-      has_issues: hasIssues,
-    });
-
-    const verifyDetail = hasIssues
-      ? "Review + debug complete — issues found. See follow-up message for details."
-      : "Review + debug complete — no issues found.";
-    safeSend(sender, "chat:activity", {
-      id: `build-verify-${Date.now()}`,
-      type: "build_verification_complete",
-      label: "Build verification (review + debug)",
-      status: "done",
-      timestamp: Date.now(),
-      chatId,
-      detail: verifyDetail,
-    });
-
-    if (hasIssues) {
-      await enqueueSyntheticFollowUpIfUnderCap({
-        webContents: sender,
-        chatId,
-        rootAssistantMessageId,
-        content: `Review and debug pass found issues:\n\n${combined.slice(0, 12_000)}\n\nAddress these before considering the task complete.`,
-        label: "build verification",
-      });
-    }
-  } catch (e) {
-    logger.warn("[build-verify] parallel review/debug failed:", e);
-    if (appPath && !isEphemeralWorkspace) {
-      sentryCaptureExceptionSafe(e, { tags: { feature: "build_verify" } });
-    }
-  }
-}
 
 /**
  * FIX 6: Build an `emitActivity` callback for `runMidLoopCompaction` that
@@ -728,7 +592,7 @@ type ToolTurnDedupState = {
   callCountByTool: Map<string, number>;
 };
 
-const TOOL_DEDUP_EXEMPT = new Set(["ask_user", "stream_terminal_output"]);
+const TOOL_DEDUP_EXEMPT = new Set(["ask_user"]);
 
 /** Max distinct invocations per tool per `chat:stream` turn (exact duplicates are skipped earlier and do not count). */
 const TOOL_CALL_CAP_READ = 20;
@@ -736,21 +600,16 @@ const TOOL_CALL_CAP_WRITE = 10;
 
 const TOOL_NAMES_CAP_READ_20 = new Set([
   "read_file",
-  "search",
-  "find_file",
-  "list_files",
-  "get_file_outline",
-  "explore_folder",
-  "get_repo_overview",
+  "glob",
+  "grep",
   "get_blueprint",
 ]);
 
 const TOOL_NAMES_CAP_WRITE_10 = new Set([
   "write_file",
   "edit_file",
-  "write_multiple_files",
   "run_command",
-  "write_implementation_plan",
+  "plan",
 ]);
 
 function perTurnCallCapForTool(toolName: string): number {
@@ -1067,10 +926,11 @@ export function clearChatStreamStateForChat(chatId: number): void {
   partialResponses.delete(chatId);
   lastStreamRequest.delete(chatId);
   pendingAskUserArtifactByChatId.delete(chatId);
-  toolSessionLoaders.delete(chatId);
   partialDraftRowByChatId.delete(chatId);
   partialDraftLastFlushAtByChatId.delete(chatId);
   streamSessionByChatId.delete(chatId);
+  // v13 7B: clear any pending waiting-on-command timers + chips.
+  clearWaitTrackersForChat(chatId);
 }
 
 // ─── Issue 4: crash-safe interrupted-turn recovery ─────────────────────────
@@ -1385,29 +1245,6 @@ function queuePostTurnSelfCorrection(
  * background agents can invoke the SAME turn engine in-process with a
  * synthetic recording sender (no foreground renderer). Null until registered.
  */
-let registeredChatStreamHandler:
-  | ((event: Electron.IpcMainInvokeEvent, req: ChatStreamParams) => Promise<unknown>)
-  | null = null;
-
-export function getChatStreamHandler() {
-  return registeredChatStreamHandler;
-}
-
-/**
- * v12 2.3: abort an active stream by chatId (the `chat:abort` path, callable
- * in-process). Used by background-agent cancel. Returns true if a stream was
- * running.
- */
-export function abortChatStream(chatId: number): boolean {
-  const controller = activeStreams.get(chatId);
-  if (controller) {
-    controller.abort();
-    activeStreams.delete(chatId);
-    return true;
-  }
-  return false;
-}
-
 export function registerChatStreamHandlers() {
   ipcMain.handle(
     "respond-mode-change",
@@ -2044,7 +1881,6 @@ ${componentSnippet}
         }
       }
 
-      clearDebugHypothesis(req.chatId);
 
       const settingsBase = readSettings();
       let settings =
@@ -2834,24 +2670,110 @@ ${componentSnippet}
             }
           };
 
-          // Project-level .atlarix/ATLARIX.md (legacy memory/spec auto-migrated)
+          // Project instructions: .atlarix/atlarix.md (canonical, legacy
+          // auto-migrated), falling back to a repo's AGENTS.md / CLAUDE.md
+          // (v13.1 interop) so Atlarix is drop-in on repos configured for
+          // other agents.
           const loadAtlarixMdSection = async (): Promise<ContextSection | null> => {
             if (!(hasWorkspace && appPath)) return null;
             try {
-              const atlarixMd = await preflight.time("atlarix-md", () =>
-                readAtlarixMd(appPath),
+              const instructions = await preflight.time("atlarix-md", () =>
+                readProjectInstructions(appPath),
               );
-              if (!atlarixMd) return null;
-              logger.info("Injected atlarix.md");
+              if (!instructions) return null;
+              const heading =
+                instructions.source === "atlarix"
+                  ? "## Project memory (.atlarix/atlarix.md)"
+                  : instructions.source === "agents"
+                    ? "## Project instructions (AGENTS.md)"
+                    : "## Project instructions (CLAUDE.md)";
+              logger.info(`Injected project instructions (${instructions.source})`);
               return {
                 name: "projectMemory",
                 priority: 4,
-                content: `## Project memory (.atlarix/atlarix.md)\n${atlarixMd}`,
+                content: `${heading}\n${instructions.content}`,
               };
             } catch (memErr) {
-              logger.warn("Failed to read atlarix.md:", memErr);
+              logger.warn("Failed to read project instructions:", memErr);
               return null;
             }
+          };
+
+          // v13: .atlarix/memory.md (agent-maintained project knowledge) is
+          // auto-injected — the memory tool family was removed; the model
+          // updates the file via write_file.
+          const loadMemoryMdSection = async (): Promise<ContextSection | null> => {
+            if (!(hasWorkspace && appPath)) return null;
+            try {
+              const { readMemoryMd } = await import("@/lib/project-memory");
+              const memoryMd = await preflight.time("memory-md", () =>
+                readMemoryMd(appPath),
+              );
+              if (!memoryMd) return null;
+              return {
+                name: "projectKnowledge",
+                priority: 3.9,
+                content: `## Project knowledge (.atlarix/memory.md — update via write_file when you learn durable facts)\n${memoryMd}`,
+              };
+            } catch (memErr) {
+              logger.warn("Failed to read memory.md:", memErr);
+              return null;
+            }
+          };
+
+          // v13: installed (marketplace/global) skills are auto-injected —
+          // the get_active_skills / list_installed_skills tools were removed.
+          // Repo skills (.atlarix/skills/) are already injected above.
+          const loadInstalledSkillsSection = async (): Promise<ContextSection | null> => {
+            try {
+              const { loadInstalledSkillsForSession } = await import(
+                "@/lib/skills/installed-skills"
+              );
+              const skills = await preflight.time("installed-skills", () =>
+                loadInstalledSkillsForSession({
+                  workspacePath: appPath ?? null,
+                  maxTotalSkills: 10,
+                  maxCharsPerSkill: 6_000,
+                  maxTotalChars: 24_000,
+                }),
+              );
+              if (!skills.length) return null;
+              const body = skills
+                .map((s) => `### Skill: ${s.name} (${s.scope})\n${s.content}`)
+                .join("\n\n");
+              return {
+                name: "installedSkills",
+                priority: 3.8,
+                content: `## Installed skills\n${body}`,
+              };
+            } catch (skillErr) {
+              logger.warn("Failed to load installed skills:", skillErr);
+              return null;
+            }
+          };
+
+          // v13 7A: background command results that finished AFTER the
+          // previous turn ended — drain them into this turn's context.
+          const loadBackgroundResultsSection = (): ContextSection | null => {
+            const pending = takePendingBackgroundCommandResults(req.chatId);
+            if (!pending) return null;
+            return {
+              name: "taskProgress",
+              priority: 1.5,
+              content: pending,
+            };
+          };
+
+          // Background sub-agent results that finished after the previous turn
+          // ended — drain them into this turn's context the same way.
+          const loadSubagentResultsSection = (): ContextSection | null => {
+            const pending = takePendingSubagentResults(req.chatId);
+            if (!pending) return null;
+            return {
+              name: "taskProgress",
+              priority: 1.5,
+              content: pending,
+            };
           };
 
           const loadedSections = await Promise.all([
@@ -2861,14 +2783,14 @@ ${componentSnippet}
             loadActivePlanSection(),
             loadFsTruthSection(),
             loadAtlarixMdSection(),
+            loadMemoryMdSection(),
+            loadInstalledSkillsSection(),
+            Promise.resolve(loadBackgroundResultsSection()),
+            Promise.resolve(loadSubagentResultsSection()),
           ]);
           for (const section of loadedSections) {
             if (section) contextSections.push(section);
           }
-
-          // Pass 7: Installed skills are accessed on-demand via the
-          // get_active_skills / list_installed_skills tools (registered in skills-tools.ts).
-          // The legacy pre-injection block has been removed.
           const shouldCreateTaskLedger = false;
           if (
             shouldCreateTaskLedger &&
@@ -3017,7 +2939,6 @@ ${componentSnippet}
             }
           }
 
-          const delegationRuntime = getDelegationConfig(settings);
           const shouldInjectTaskProgress =
             settings.selectedChatMode === "build" ||
             effectiveWorkMode === "build";
@@ -3946,21 +3867,42 @@ This conversation includes one or more image attachments. When the user uploads 
               // The injected message is step-input only — it never enters
               // response.messages, so native-history folding (B1/B2) is
               // unaffected (transient steering nudge, not persisted history).
-              prepareStep: repetition
-                ? ({ messages }) => {
-                    const correction = repetition.takePendingCorrection();
-                    if (!correction) return undefined;
-                    logger.log(
-                      `[repetition] injecting mid-round correction (chat ${req.chatId})`,
-                    );
-                    return {
-                      messages: [
-                        ...messages,
-                        { role: "user" as const, content: correction },
-                      ],
-                    };
-                  }
-                : undefined,
+              prepareStep: ({ messages }) => {
+                // v13 7A: finished background-command results land on the very
+                // next step (same step-input-only contract as corrections).
+                const bgResults = takePendingBackgroundCommandResults(req.chatId);
+                // Finished background sub-agent results fold in the same way —
+                // each one as it arrives, even one at a time.
+                const subagentResults = takePendingSubagentResults(req.chatId);
+                const correction = repetition
+                  ? repetition.takePendingCorrection()
+                  : null;
+                if (!bgResults && !subagentResults && !correction) return undefined;
+                if (correction) {
+                  logger.log(
+                    `[repetition] injecting mid-round correction (chat ${req.chatId})`,
+                  );
+                }
+                if (bgResults) {
+                  logger.log(
+                    `[background-command] injecting finished result (chat ${req.chatId})`,
+                  );
+                }
+                if (subagentResults) {
+                  logger.log(
+                    `[background-subagent] injecting finished result (chat ${req.chatId})`,
+                  );
+                }
+                const injected = [bgResults, subagentResults, correction]
+                  .filter(Boolean)
+                  .join("\n\n");
+                return {
+                  messages: [
+                    ...messages,
+                    { role: "user" as const, content: injected },
+                  ],
+                };
+              },
               providerOptions,
               tools: effectiveTools,
               messages: streamMessages,
@@ -4425,7 +4367,6 @@ This conversation includes one or more image attachments. When the user uploads 
             // (registry metadata → mode allowlist → session loader →
             // capability trim, + plan-tool union + user-agent intersection)
             // lives in ONE place — resolve-toolset.ts. Both branches call it.
-            const askLoader = getOrCreateToolSessionLoader(req.chatId);
             const modeAllowlist = getModeToolAllowSets();
             const askResolved = resolveToolsetForSession({
               branch: "ask",
@@ -4433,7 +4374,6 @@ This conversation includes one or more image attachments. When the user uploads 
               hasWorkspace,
               workspaceIntegrationEligible:
                 hasWorkspace && effectiveAppId != null,
-              loader: askLoader,
               model: {
                 name: effectiveModel?.name,
                 provider: effectiveModel?.provider,
@@ -4443,13 +4383,9 @@ This conversation includes one or more image attachments. When the user uploads 
             });
             const askToolsToInclude = askResolved.tools;
             const askCapabilityProfile = askResolved.capabilityProfile;
-            // Assembly-time snapshot (resolver already ran ensureLoaded) —
-            // feeds the per-round manifest render, same as pre-S19.
-            const askLoadedNames = askLoader.getLoadedToolNames();
-            const askProgressiveNote = generateProgressiveRevealNote(
-              askToolsToInclude.map((t) => t.name),
-              effectiveWorkMode,
-            );
+            // v13: no progressive reveal — every offered tool's schema is
+            // bound upfront; the manifest lists exactly these names.
+            const askOfferedNames = askToolsToInclude.map((t) => t.name);
 
             const askTools: ToolSet = {};
             for (const tool of askToolsToInclude) {
@@ -4473,7 +4409,6 @@ This conversation includes one or more image attachments. When the user uploads 
                       typeof output === "string" ? output : JSON.stringify(output),
                   },
                 execute: async (args: any) => {
-                  askLoader.onToolCall(tool.name);
                   if (askAgenticRepetition.isEnabled()) {
                     handleAskAgenticRepetitionOutcome(
                       askAgenticRepetition.record(tool.name, args),
@@ -4519,13 +4454,6 @@ This conversation includes one or more image attachments. When the user uploads 
                       };
                       return JSON.stringify(toolResultForActivity);
                     }
-                    const debugGate = debugWriteGateResult(
-                      req.chatId,
-                      tool.name,
-                      liveWorkMode,
-                      args,
-                    );
-                    if (debugGate) return debugGate;
                     if (tool.name === "compress_context") {
                       const reason =
                         args && typeof args.reason === "string" && args.reason.trim()
@@ -4653,7 +4581,7 @@ This conversation includes one or more image attachments. When the user uploads 
                       return askUserResolvedEarly;
                     }
 
-                    if (tool.name === "write_implementation_plan") {
+                    if (tool.name === "plan") {
                       try {
                         const envelope =
                           typeof result === "string" ? JSON.parse(result) : result;
@@ -4951,7 +4879,6 @@ This conversation includes one or more image attachments. When the user uploads 
                 releaseDedupeKey: (key) => {
                   inFlightDelegationKeys.delete(key);
                 },
-                maxConcurrentDelegations: delegationRuntime.maxConcurrentDelegations,
               });
             }
 
@@ -4993,14 +4920,14 @@ This conversation includes one or more image attachments. When the user uploads 
                       ),
                       enableTurboEditsV2: false,
                       hasWorkspace,
-                      registeredToolNames: [...askLoadedNames],
+                      registeredToolNames: askOfferedNames,
                       ...promptIdentityOpts,
                     });
                     const askHeader = activeUserAgent
                       ? `${renderUserAgentSystemBlock(activeUserAgent)}\n\n${askParts.stableHeader}`
                       : askParts.stableHeader;
                     return {
-                      systemPromptOverride: askHeader + "\n\n" + askProgressiveNote,
+                      systemPromptOverride: askHeader,
                       dynamicSystemTail: askParts.dynamicTail,
                     };
                   },
@@ -5076,14 +5003,12 @@ This conversation includes one or more image attachments. When the user uploads 
             let workspaceOverride: { path: string; id: number } | null = null;
             // v12 S19 (closes 3.10): single resolution pipeline — see the
             // ask-branch note and resolve-toolset.ts.
-            const buildLoader = getOrCreateToolSessionLoader(req.chatId);
             const buildResolved = resolveToolsetForSession({
               branch: "build",
               effectiveWorkMode,
               hasWorkspace,
               workspaceIntegrationEligible:
                 hasWorkspace && effectiveAppId != null,
-              loader: buildLoader,
               model: {
                 name: effectiveModel?.name,
                 provider: effectiveModel?.provider,
@@ -5190,7 +5115,6 @@ This conversation includes one or more image attachments. When the user uploads 
                       typeof output === "string" ? output : JSON.stringify(output),
                   },
                 execute: async (args: any) => {
-                  buildLoader.onToolCall(toolName);
                   const buildToolStartMs = Date.now();
                   if (streamDebugLogging) {
                     logger.log(`[Build Tool] start`, {
@@ -5235,13 +5159,6 @@ This conversation includes one or more image attachments. When the user uploads 
                       req.workModeOverride ??
                       readSettings().workModePreference ??
                       effectiveWorkMode;
-                    const debugGateBuild = debugWriteGateResult(
-                      req.chatId,
-                      toolName,
-                      buildLiveWorkMode,
-                      args,
-                    );
-                    if (debugGateBuild) return debugGateBuild;
                     if (toolName === "compress_context") {
                       // PASS2: Compaction is model-triggered via compress_context.
                       // Emit activity + run compaction here (tool handler has no stream scope).
@@ -5693,7 +5610,6 @@ This conversation includes one or more image attachments. When the user uploads 
                 releaseDedupeKey: (key) => {
                   inFlightDelegationKeys.delete(key);
                 },
-                maxConcurrentDelegations: delegationRuntime.maxConcurrentDelegations,
               });
             }
 
@@ -6184,13 +6100,7 @@ This conversation includes one or more image attachments. When the user uploads 
                           : "agent",
                     tools,
                     repetition: agenticRepetition,
-                    buildRoundSystemPrompt: () =>
-                      systemPrompt +
-                      "\n\n" +
-                      generateProgressiveRevealNote(
-                        [...buildLoader.getLoadedToolNames()],
-                        effectiveWorkMode,
-                      ),
+                    buildRoundSystemPrompt: () => systemPrompt,
                     detectTextToolCalls: (fr) =>
                       useTextToolFallback && containsTextToolCall(fr)
                         ? (parseTextToolCalls(fr) as Array<{
@@ -6203,13 +6113,6 @@ This conversation includes one or more image attachments. When the user uploads 
                         calls as Array<{ toolName: string; args: Record<string, unknown> }>,
                       ),
                     stripTextToolXML: stripToolCallXML,
-                    // v12 0.3 (resolves 1.2): LSP diagnostics on each round's
-                    // writes, fed back so the model fixes before done. Only
-                    // attached when the enableAutoFixProblems toggle is on —
-                    // the knob finally has logic behind it.
-                    ...(settings.enableAutoFixProblems !== false && appPath
-                      ? { postWriteVerify: buildPostWriteVerify(appPath) }
-                      : {}),
                     // v12 2.2/7B: workspace `stop` hooks gate <task_complete>
                     // ("require tests before done"). Attached only when the
                     // workspace declares stop hooks (cheap pre-check).
@@ -6230,7 +6133,6 @@ This conversation includes one or more image attachments. When the user uploads 
                     seedMessages: chatMessages,
                     nativeTurnMessages,
                     initialFullResponse: fullResponse,
-                    getFilesWrittenThisTurn: () => filesWrittenInThisExchange,
                     safeSend: (channel, payload) =>
                       safeSend(event.sender, channel, payload),
                     emitCompactionActivity: emitCompactionMirroredActivity(
@@ -6351,158 +6253,6 @@ ${stopNote}`;
           streamStopWasTaskComplete ||
           askUserEndedTurn
         ) {
-          const currentSettings = readSettings();
-          const intentModeForStructured = currentSettings.intentMode ?? "ask";
-          const manualWorkMode =
-            intentModeForStructured === "auto"
-              ? undefined
-              : currentSettings.workModePreference;
-          const modeSchemaConfig: {
-            schemaName: string;
-            schemaHint: string;
-            schema: ZodTypeAny;
-          } | null =
-            manualWorkMode === "plan"
-              ? {
-                  schemaName: "ArchitectPlanPayload",
-                  schemaHint:
-                    "{ version: 1, summary: string, phases: [{ id: string, title: string, tasks: string[] }], risks?: string[] }",
-                  schema: ArchitectPlanPayloadSchema,
-                }
-              : manualWorkMode === "debug"
-                ? {
-                    schemaName: "DebuggerRootCause",
-                    schemaHint:
-                      "{ version: 1, hypothesis: string, likelyFiles: string[], nextSteps: string[] }",
-                    schema: DebuggerRootCauseSchema,
-                  }
-                : manualWorkMode === "review"
-                  ? {
-                      schemaName: "ReviewerFindings",
-                      schemaHint:
-                        "{ version: 1, severity: pass|minor|major|blocker, findings: [{ file?: string, message: string, suggestion?: string }] }",
-                      schema: ReviewerFindingsSchema,
-                    }
-                  : null;
-
-          const isBuildModeForSchema =
-            currentSettings.selectedChatMode === "build";
-
-          if (modeSchemaConfig && fullResponse.trim() && isBuildModeForSchema) {
-            const validation = await validateStructuredOutputWithSingleRetry({
-              rawText: fullResponse,
-              schema: modeSchemaConfig.schema,
-              schemaName: modeSchemaConfig.schemaName,
-              schemaHint: modeSchemaConfig.schemaHint,
-              retry: async (retryPrompt) => {
-                const retryResult = await generateText({
-                  model: modelClient.model,
-                  system: "Return only valid JSON for this response when asked.",
-                  messages: [{ role: "user", content: retryPrompt }],
-                });
-                return retryResult.text?.trim() || "";
-              },
-            });
-
-            if (validation.status === "ok") {
-              if (manualWorkMode === "plan") {
-                const v = validation.data as any;
-                const tasks = Array.isArray(v?.phases)
-                  ? v.phases
-                      .map((p: any) => `- **${p.title}** (${p.id}): ${(p.tasks ?? []).join("; ")}`)
-                      .join("\n")
-                  : "";
-                const planCardPayload = {
-                  taskGroups: Array.isArray(v?.phases)
-                    ? v.phases.map((p: any, idx: number) => ({
-                        id: String(p?.id ?? `phase-${idx + 1}`),
-                        title: String(p?.title ?? `Phase ${idx + 1}`),
-                        tasks: Array.isArray(p?.tasks)
-                          ? p.tasks.map((t: any, tIdx: number) => ({
-                              id: `${String(p?.id ?? `phase-${idx + 1}`)}-task-${tIdx + 1}`,
-                              label: String(t ?? ""),
-                              status: "pending",
-                            }))
-                          : [],
-                      }))
-                    : [],
-                  completed: false,
-                };
-                fullResponse = [
-                  "## Plan Report",
-                  "",
-                  `**Summary:** ${v?.summary ?? ""}`,
-                  "",
-                  tasks ? `**Phases**\n${tasks}` : "",
-                  "",
-                  `<!-- atlarix-plan:${JSON.stringify(planCardPayload)} -->`,
-                ]
-                  .filter(Boolean)
-                  .join("\n\n");
-              } else if (manualWorkMode === "debug") {
-                const v = validation.data as any;
-                fullResponse = [
-                  "## Debug Report",
-                  "",
-                  `**Hypothesis:** ${v?.hypothesis ?? ""}`,
-                  "",
-                  `**Likely files:** ${(v?.likelyFiles ?? []).join(", ") || "N/A"}`,
-                  "",
-                  `**Next steps:** ${(v?.nextSteps ?? []).join("; ") || "N/A"}`,
-                ].join("\n");
-              } else if (manualWorkMode === "review") {
-                const v = validation.data as any;
-                const findings = Array.isArray(v?.findings)
-                  ? v.findings
-                      .map(
-                        (f: any) =>
-                          `- ${f.file ? `\`${f.file}\` — ` : ""}${f.message}${f.suggestion ? ` _(suggestion: ${f.suggestion})_` : ""}`,
-                      )
-                      .join("\n")
-                  : "";
-                fullResponse = [
-                  "## Review Report",
-                  "",
-                  `**Severity:** ${v?.severity ?? "unknown"}`,
-                  "",
-                  findings || "No findings.",
-                ].join("\n");
-              } else {
-                fullResponse = validation.normalizedText;
-              }
-              if (validation.warning) {
-                safeSend(event.sender, "chat:activity", {
-                  id: `structured-mode-validation-${Date.now()}`,
-                  type: "background",
-                  label: `Structured output validation (${manualWorkMode})`,
-                  status: "done",
-                  timestamp: Date.now(),
-                  detail: validation.warning,
-                  chatId: req.chatId,
-                });
-              }
-            } else {
-              const fallbackWarning = `[Structured output validation warning] ${validation.warning}`;
-              fullResponse = `${fullResponse}\n\n${fallbackWarning}`;
-              safeSend(event.sender, "chat:activity", {
-                id: `structured-mode-validation-${Date.now()}`,
-                type: "background",
-                label: `Structured output validation (${manualWorkMode})`,
-                status: "error",
-                timestamp: Date.now(),
-                detail: validation.warning,
-                chatId: req.chatId,
-              });
-              if (validation.status === "fallback") {
-                sentryAddBreadcrumbSafe({
-                  category: "validation",
-                  message: `structured_output_fallback schema=${modeSchemaConfig.schemaName}`,
-                  level: "warning",
-                });
-              }
-            }
-          }
-
           if (!fullResponse.trim()) {
             fullResponse = AI_STREAM_EMPTY_RESPONSE_FALLBACK;
           }
@@ -6803,22 +6553,6 @@ ${stopNote}`;
             // renderer's authoritative finished message is the only copy.
             void clearInterruptedDraft(req.chatId);
             streamSessionByChatId.delete(req.chatId);
-            // v12 3.7: tracked (was a bare void) — it enqueues follow-ups.
-            trackPendingWork(
-              runAutonomousBuildVerificationAfterTaskComplete({
-                sender: event.sender,
-                chatId: req.chatId,
-                streamStopWasTaskComplete,
-                agentMode: settings.agentMode,
-                appPath,
-                workspaceId: effectiveAppId ?? undefined,
-                streamTurnIdForLedger,
-                rootAssistantMessageId: placeholderAssistantMessage.id,
-                isEphemeralWorkspace,
-                settings,
-              }),
-              "build-verify",
-            );
           }
         }
 
@@ -7043,7 +6777,6 @@ ${stopNote}`;
   };
 
   ipcMain.handle("chat:stream", chatStreamHandler);
-  registeredChatStreamHandler = chatStreamHandler;
 
   // Handler to cancel an ongoing stream
   ipcMain.handle("chat:cancel", async (event, chatId: number) => {
@@ -7290,8 +7023,11 @@ ${stopNote}`;
 
   ipcMain.handle(
     "revert:snapshot",
-    async (_event, payload: { chatId: number; turnId: string }) => {
-      const { chatId, turnId } = payload;
+    async (
+      _event,
+      payload: { chatId: number; turnId: string; filesOnly?: boolean },
+    ) => {
+      const { chatId, turnId, filesOnly } = payload;
       const assistantMessageId = Number(turnId);
       if (!Number.isFinite(assistantMessageId)) {
         return { success: false, error: "Invalid turnId" };
@@ -7319,7 +7055,26 @@ ${stopNote}`;
         assistantMessageId,
         workspacePath,
         workspaceId,
+        // v13.1: a "revert this turn's files" restore only rolls back the files;
+        // it must NOT flag the conversation/messages as reverted.
+        ...(filesOnly ? { options: { skipMessageFlags: true } } : {}),
       });
+    },
+  );
+
+  // v13.1: list the files a turn's snapshot would restore/delete (for the
+  // "revert this turn's file changes" confirmation dialog).
+  ipcMain.handle(
+    "snapshot:files",
+    async (_event, payload: { chatId: number; turnId: string }) => {
+      const { chatId, turnId } = payload;
+      if (!turnId) return null;
+      const workspaceId = getStreamTransportAppId(chatId);
+      if (workspaceId == null) return null;
+      const app = await db.query.apps.findFirst({ where: eq(apps.id, workspaceId) });
+      if (!app?.path) return null;
+      const { listSnapshotFiles } = await import("@/lib/snapshot/snapshot-manager");
+      return listSnapshotFiles(resolveAppPath(app.path), String(turnId));
     },
   );
 }

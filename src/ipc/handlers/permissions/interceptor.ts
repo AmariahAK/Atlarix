@@ -25,6 +25,7 @@ import {
     runShellCommandStreaming,
     killShellProcess,
     CommandResult,
+    type SandboxRunOptions,
 } from "../../utils/runShellCommand";
 import {
     isDangerousCommand,
@@ -844,7 +845,7 @@ export class PermissionInterceptor extends EventEmitter {
         if (operation?.request?.operation === "run_command") {
             const p = operation.request.preview as CommandOperationPreview;
             const raw = (p as { max_output_bytes?: number }).max_output_bytes;
-            return Math.min(300_000, Math.max(1024, Number(raw) || 80_000));
+            return Math.min(1_000_000, Math.max(1024, Number(raw) || 80_000));
         }
         return 80_000;
     }
@@ -1237,6 +1238,26 @@ export class PermissionInterceptor extends EventEmitter {
     }
 
     /**
+     * Build the per-OS sandbox options for an agent run_command, or undefined to
+     * run unsandboxed. Default ON; disabled by `sandboxRunCommand: false` in
+     * settings or the `ATLARIX_DISABLE_SANDBOX` env var. Confines writes to the
+     * workspace + caches; the wrapper itself falls back gracefully if the OS tool
+     * is missing (unless `enforce`).
+     */
+    private buildRunCommandSandbox(): SandboxRunOptions | undefined {
+        if (process.env.ATLARIX_DISABLE_SANDBOX === "1") return undefined;
+        const settings = readSettings();
+        if (settings.sandboxRunCommand === false) return undefined;
+        if (!this.workspacePath) return undefined;
+        const cfg = settings.sandboxRunCommandConfig;
+        return {
+            workspacePath: this.workspacePath,
+            extraWritablePaths: cfg?.extraWritablePaths,
+            enforce: cfg?.enforce === true,
+        };
+    }
+
+    /**
      * Execute a shell command and store output.
      * Emits 'terminal-output' event for UI updates.
      * Includes timeout protection and progress updates for long-running commands.
@@ -1244,7 +1265,7 @@ export class PermissionInterceptor extends EventEmitter {
     private async executeRunCommand(operationId: string, request: PermissionRequest): Promise<void> {
         const preview = request.preview as CommandOperationPreview;
         const maxOutputBytes = Math.min(
-            300_000,
+            1_000_000,
             Math.max(1024, Number((preview as { max_output_bytes?: number }).max_output_bytes) || 80_000),
         );
         this.commandOutputMaxBytes.set(operationId, maxOutputBytes);
@@ -1335,13 +1356,110 @@ export class PermissionInterceptor extends EventEmitter {
             logger.warn(`[DANGEROUS-COMMAND-AUDIT] User approved dangerous command | command="${commandToRun}" | cwd="${workingDir}" | explanation="${preview.dangerExplanation ?? 'N/A'}" | timestamp=${new Date().toISOString()}`);
         }
 
+        // Per-OS write-confining sandbox (workspace + caches writable, network on).
+        // Applies to agent run_command only — never the user's PTY tabs.
+        const sandboxOpts = this.buildRunCommandSandbox();
+
+        // v13 7A: background commands return to the model IMMEDIATELY; the
+        // command keeps running here and its exit result is delivered back
+        // via background-commands (prepareStep injection / next-turn drain).
+        const isBackground =
+            (preview as { background?: boolean }).background === true &&
+            !isDevServerCommand;
+
         // Emit that command is starting (use normalized command so UI shows what actually runs)
         this.emit('terminal-output', {
             operationId,
             command: commandToRun,
             output: '',
             status: 'running' as const,
+            background: isBackground,
         });
+
+        if (isBackground) {
+            const chatIdForResult = this.activeChatId;
+            const {
+                recordBackgroundCommandStart,
+                recordBackgroundCommandResult,
+            } = await import("@/lib/agent/background-commands");
+            if (chatIdForResult != null) {
+                recordBackgroundCommandStart(chatIdForResult, operationId);
+            }
+            // Resolve the model's tool result NOW.
+            this.commandOutputs.set(operationId, {
+                stdout: `Background command started: ${commandToRun}\nYou will receive its result when it exits — continue other work; do not poll.`,
+                stderr: '',
+                exitCode: 0,
+                success: true,
+            });
+
+            let bgProc: ChildProcess | null = null;
+            const bgTimeout = setTimeout(() => {
+                killShellProcess(bgProc);
+            }, timeoutMs);
+            void runShellCommandStreaming(commandToRun, workingDir, {
+                sandbox: sandboxOpts,
+                onSpawn: (proc) => {
+                    bgProc = proc;
+                },
+                onOutput: ({ stdout, stderr }) => {
+                    const output = stdout + (stderr ? `\n${stderr}` : '');
+                    this.emit('terminal-output', {
+                        operationId,
+                        command: commandToRun,
+                        output,
+                        status: 'running' as const,
+                        background: true,
+                    });
+                },
+            })
+                .then((result) => {
+                    clearTimeout(bgTimeout);
+                    const duration = Date.now() - startTime;
+                    this.emit('terminal-output', {
+                        operationId,
+                        command: commandToRun,
+                        output:
+                            result.stdout + (result.stderr ? `\n${result.stderr}` : ''),
+                        status: result.success ? ('completed' as const) : ('error' as const),
+                        exitCode: result.exitCode,
+                        duration,
+                        background: true,
+                    });
+                    if (chatIdForResult != null) {
+                        recordBackgroundCommandResult(chatIdForResult, operationId, {
+                            command: commandToRun,
+                            exitCode: result.exitCode,
+                            output:
+                                result.stdout + (result.stderr ? `\n${result.stderr}` : ''),
+                            durationMs: duration,
+                        });
+                    }
+                })
+                .catch((err) => {
+                    clearTimeout(bgTimeout);
+                    const duration = Date.now() - startTime;
+                    const msg = err instanceof Error ? err.message : String(err);
+                    this.emit('terminal-output', {
+                        operationId,
+                        command: commandToRun,
+                        output: msg,
+                        status: 'error' as const,
+                        exitCode: -1,
+                        duration,
+                        background: true,
+                    });
+                    if (chatIdForResult != null) {
+                        recordBackgroundCommandResult(chatIdForResult, operationId, {
+                            command: commandToRun,
+                            exitCode: -1,
+                            output: msg,
+                            durationMs: duration,
+                        });
+                    }
+                });
+            return;
+        }
 
         let commandProc: ChildProcess | null = null;
         let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
@@ -1363,6 +1481,7 @@ export class PermissionInterceptor extends EventEmitter {
                     }, timeoutMs);
 
                     runShellCommandStreaming(commandToRun, workingDir, {
+                        sandbox: sandboxOpts,
                         onSpawn: (proc) => {
                             commandProc = proc;
                         },

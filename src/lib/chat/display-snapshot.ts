@@ -7,6 +7,13 @@ export type DisplaySnapshotV1 = {
   completedThread: StreamThreadItem[];
   inlineTimeline?: InlineTimelineItem[];
   thinking?: CompletedTurnThinkingSnapshot;
+  /**
+   * Display-only ordered raw string (text + inline `<think>` + `<atlarix-tool-*>`
+   * tags in arrival order). The persisted `content` is `<think>`-stripped for
+   * model re-ingestion, which loses thought/text interleave on reload; this
+   * keeps the original order so the frozen view renders exactly like streaming.
+   */
+  interleavedContent?: string;
 };
 
 function isDisplaySnapshotV1(value: unknown): value is DisplaySnapshotV1 {
@@ -36,8 +43,10 @@ export function buildDisplaySnapshotV1(args: {
   completedThread: StreamThreadItem[];
   inlineTimeline?: InlineTimelineItem[];
   thinking?: CompletedTurnThinkingSnapshot | null;
+  interleavedContent?: string | null;
 }): DisplaySnapshotV1 | null {
-  if (!args.completedThread.length && !args.inlineTimeline?.length) {
+  const interleaved = args.interleavedContent?.trim() || "";
+  if (!args.completedThread.length && !args.inlineTimeline?.length && !interleaved) {
     return null;
   }
   return {
@@ -47,5 +56,6 @@ export function buildDisplaySnapshotV1(args: {
       ? { inlineTimeline: args.inlineTimeline }
       : {}),
     ...(args.thinking ? { thinking: args.thinking } : {}),
+    ...(interleaved ? { interleavedContent: interleaved } : {}),
   };
 }

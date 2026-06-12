@@ -11,8 +11,6 @@ import type {
   ChatResponseEnd,
   RevertSnapshotResult,
   ChatProblemsEvent,
-  CreateAppParams,
-  CreateAppResult,
   ListAppsResponse,
   NodeSystemInfo,
   Message,
@@ -78,7 +76,6 @@ import type {
   ActiveSkillContent,
   ListRepoSkillsResult,
 } from "./ipc_types";
-import type { Template } from "../shared/templates";
 import type {
   AppChatContext,
   AppSearchResult,
@@ -267,7 +264,15 @@ export class IpcClient {
     }) => void
   > = new Set();
   private streamPhaseHandlers: Set<
-    (payload: { chatId: number; phase: string; label: string }) => void
+    (payload: {
+      chatId: number;
+      phase: string;
+      label: string;
+      /** v13 waiting_on_command / command_done payloads. */
+      commandId?: string;
+      command?: string;
+      startedAt?: number;
+    }) => void
   > = new Set();
   private streamPulseHandlers: Set<
     (payload: { chatId: number; timestamp: number }) => void
@@ -401,9 +406,23 @@ export class IpcClient {
         "chatId" in payload &&
         "phase" in payload
       ) {
-        const p = payload as { chatId: number; phase: string; label?: string };
+        const p = payload as {
+          chatId: number;
+          phase: string;
+          label?: string;
+          commandId?: string;
+          command?: string;
+          startedAt?: number;
+        };
         this.streamPhaseHandlers.forEach((h) =>
-          h({ chatId: p.chatId, phase: p.phase, label: p.label ?? "" }),
+          h({
+            chatId: p.chatId,
+            phase: p.phase,
+            label: p.label ?? "",
+            commandId: p.commandId,
+            command: p.command,
+            startedAt: p.startedAt,
+          }),
         );
       }
     });
@@ -713,12 +732,21 @@ export class IpcClient {
     return this.ipcRenderer.invoke("autonomous:accept-all", params);
   }
 
-  /** Restore workspace files from `.atlarix/snapshots/<turnId>/`; cancels task ledger for that turn. */
+  /**
+   * Restore workspace files from a turn's shadow-git snapshot. Pass
+   * `filesOnly: true` (v13.1 "revert this turn's file changes") to restore the
+   * files WITHOUT marking the conversation/messages as reverted.
+   */
   public async revertSnapshot(
     chatId: number,
     turnId: string,
+    opts?: { filesOnly?: boolean },
   ): Promise<RevertSnapshotResult> {
-    return this.ipcRenderer.invoke("revert:snapshot", { chatId, turnId });
+    return this.ipcRenderer.invoke("revert:snapshot", {
+      chatId,
+      turnId,
+      filesOnly: opts?.filesOnly ?? false,
+    });
   }
 
   /** Whether `.atlarix/snapshots/<turnId>/manifest.json` exists for the workspace. */
@@ -727,6 +755,14 @@ export class IpcClient {
     turnId: string;
   }): Promise<boolean> {
     return this.ipcRenderer.invoke("snapshot:exists", params);
+  }
+
+  /** v13.1: the files a turn's snapshot would restore/delete (null if none). */
+  public async getSnapshotFiles(params: {
+    chatId: number;
+    turnId: string;
+  }): Promise<{ filesChanged: string[]; createdFiles: string[] } | null> {
+    return this.ipcRenderer.invoke("snapshot:files", params);
   }
 
   /** v3.9: GitHub Actions — list runs for workspace */
@@ -949,9 +985,16 @@ export class IpcClient {
     };
   }
 
-  /** Fix: Finding 4 — thinking / responding phase from main process */
+  /** Stream phase from main process (thinking/responding/done + v13 waiting_on_command/command_done). */
   public onStreamPhase(
-    handler: (payload: { chatId: number; phase: string; label: string }) => void,
+    handler: (payload: {
+      chatId: number;
+      phase: string;
+      label: string;
+      commandId?: string;
+      command?: string;
+      startedAt?: number;
+    }) => void,
   ): () => void {
     this.streamPhaseHandlers.add(handler);
     return () => {
@@ -1004,11 +1047,6 @@ export class IpcClient {
     await this.ipcRenderer.invoke("reload-env-path");
   }
 
-  // Create a new app with an initial chat
-  public async createApp(params: CreateAppParams): Promise<CreateAppResult> {
-    return this.ipcRenderer.invoke("create-app", params);
-  }
-
   public async getApp(appId: number): Promise<App> {
     return this.ipcRenderer.invoke("get-app", appId);
   }
@@ -1052,63 +1090,6 @@ export class IpcClient {
     return this.ipcRenderer.invoke("agents:list", appId);
   }
 
-  /** v12 2.3: spawn a detached background agent ("ask"=read-only, "build"=write). */
-  public async startBackgroundAgent(args: {
-    appId: number;
-    prompt: string;
-    title?: string;
-    mode?: "ask" | "build";
-  }): Promise<{ ok: boolean }> {
-    return this.ipcRenderer.invoke("agents:background:start", args);
-  }
-
-  /** v12 2.3: poll background-agent status (running/done/error). */
-  public async listBackgroundAgents(): Promise<
-    Array<{
-      sessionId: string;
-      appId: number;
-      title: string;
-      mode: "ask" | "build";
-      status: "running" | "done" | "error";
-      startedAt: number;
-      finishedAt?: number;
-      error?: string;
-      changedFiles?: string[];
-      reverted?: boolean;
-    }>
-  > {
-    return this.ipcRenderer.invoke("agents:background:list");
-  }
-
-  /** v12 S16: main pushed "a background agent started" — surface the Agents tab. */
-  public onBackgroundAgentStarted(
-    callback: (payload: { appId: number }) => void,
-  ): () => void {
-    const listener = (data: unknown) => {
-      if (data && typeof data === "object" && "appId" in data) {
-        callback(data as { appId: number });
-      }
-    };
-    this.ipcRenderer.on("agents:background:started", listener);
-    return () => {
-      this.ipcRenderer.removeListener("agents:background:started", listener);
-    };
-  }
-
-  /** v12 2.3 V2: approval gate — keep the writes or revert the turn's snapshot. */
-  public async resolveBackgroundAgent(
-    sessionId: string,
-    decision: "keep" | "revert",
-  ): Promise<{ success: boolean; reverted?: boolean; restoredFiles?: number; error?: string }> {
-    return this.ipcRenderer.invoke("agents:background:resolve", sessionId, decision);
-  }
-
-  /** v12 2.3: cancel a running background agent. */
-  public async cancelBackgroundAgent(
-    sessionId: string,
-  ): Promise<{ success: boolean }> {
-    return this.ipcRenderer.invoke("agents:background:cancel", sessionId);
-  }
 
   public async getChat(chatId: number): Promise<Chat> {
     try {
@@ -3072,19 +3053,6 @@ export class IpcClient {
     return this.ipcRenderer.invoke("open-android", params);
   }
 
-  // Template methods
-  public async getTemplates(): Promise<Template[]> {
-    return this.ipcRenderer.invoke("get-templates");
-  }
-
-  /**
-   * Get all available templates (local + API + GitHub)
-   * Returns templates ranked by quality score
-   */
-  async listTemplates(): Promise<Template[]> {
-    return this.ipcRenderer.invoke("list-templates");
-  }
-
   public async cloneRepoFromUrl(
     params: CloneRepoParams,
   ): Promise<{ app: App } | { error: string }> {
@@ -3581,84 +3549,6 @@ export class IpcClient {
     servers: Array<{ workspaceId: number; url: string | null; framework: string }>;
   }> {
     return this.ipcRenderer.invoke("dev-server:list-running");
-  }
-
-  // ═══════════════════════════════════════════════════════════
-  // LSP (Monaco live diagnostics)
-  // ═══════════════════════════════════════════════════════════
-
-  public async lspSubscribe(appId: number): Promise<{
-    success: boolean;
-    workspaceRoot?: string;
-    error?: string;
-  }> {
-    return this.ipcRenderer.invoke("lsp:subscribe", { appId });
-  }
-
-  public async lspUnsubscribe(): Promise<{ success: boolean }> {
-    return this.ipcRenderer.invoke("lsp:unsubscribe");
-  }
-
-  public async lspOpenDocument(params: {
-    appId: number;
-    filePath: string;
-    content: string;
-    version?: number;
-  }): Promise<{ success: boolean; filePath?: string; error?: string }> {
-    return this.ipcRenderer.invoke("lsp:openDocument", params);
-  }
-
-  public async lspChange(params: {
-    appId: number;
-    filePath: string;
-    content: string;
-    version?: number;
-  }): Promise<{ success: boolean; filePath?: string; error?: string }> {
-    return this.ipcRenderer.invoke("lsp:change", params);
-  }
-
-  public async lspClose(params: {
-    appId: number;
-    filePath: string;
-  }): Promise<{ success: boolean; error?: string }> {
-    return this.ipcRenderer.invoke("lsp:close", params);
-  }
-
-  public onLspDiagnostics(
-    handler: (payload: {
-      workspaceRoot: string;
-      filePath: string;
-      diagnostics: Array<{
-        range: {
-          start: { line: number; character: number };
-          end: { line: number; character: number };
-        };
-        message: string;
-        severity?: number;
-        source?: string;
-        code?: string | number;
-      }>;
-    }) => void,
-  ): () => void {
-    const subscription = (
-      _: Electron.IpcRendererEvent,
-      payload: {
-        workspaceRoot: string;
-        filePath: string;
-        diagnostics: Array<{
-          range: {
-            start: { line: number; character: number };
-            end: { line: number; character: number };
-          };
-          message: string;
-          severity?: number;
-          source?: string;
-          code?: string | number;
-        }>;
-      },
-    ) => handler(payload);
-    this.ipcRenderer.on("lsp:diagnostics", subscription);
-    return () => this.ipcRenderer.removeListener("lsp:diagnostics", subscription);
   }
 
   // ═══════════════════════════════════════════════════════════

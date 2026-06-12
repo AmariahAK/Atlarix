@@ -39,8 +39,12 @@ import {
 } from "@/ipc/utils/thinking_tags";
 import { estimateTokens } from "@/ipc/utils/token_utils";
 import { isStreamDebugLoggingEnabled } from "@/lib/stream/stream-debug";
-import { consumeDelegationAbort } from "@/lib/agents/agent-bus-monitor";
 import { STREAM_TOOL_LOOP_DURATION_CAP_MS } from "@/constants/settings_constants";
+import {
+  hasRunningSubagents,
+  hasPendingSubagentResults,
+  runningSubagentCount,
+} from "@/lib/agents/subagent-results";
 import type { AgentProfile } from "./agent-profile";
 
 const logger = log.scope("run-agent-turn");
@@ -120,13 +124,6 @@ export interface TurnRuntime {
     mode: string;
   }): Promise<unknown>;
   getLedgerStateForContinuation(): string | undefined;
-  /**
-   * v12 0.3: live view of the turn's written-file side channel (the handler's
-   * `filesWrittenInThisExchange`, appended by the permission-approved write
-   * paths). The engine snapshots its length at round start and verifies the
-   * round's delta via profile.postWriteVerify. Optional — unset for ask.
-   */
-  getFilesWrittenThisTurn?(): readonly string[];
 }
 
 export interface AgentTurnResult {
@@ -157,14 +154,21 @@ export async function runAgentTurn(
   let totalToolExecutions = 0;
   let fullResponse = rt.initialFullResponse;
   let streamContinuationAttempts = 0;
-  // v12 0.3: high-water mark into the written-files side channel — each
-  // verify pass covers the delta since the last one (text-tool writes land
-  // after the round's verify point and are picked up by the next pass).
-  let writeVerifyMark = rt.getFilesWrittenThisTurn?.().length ?? 0;
-  // A model that keeps emitting <task_complete> on broken code is nudged at
-  // most this many times before the break is honored anyway (bounded loop).
-  const MAX_VERIFY_BLOCKED_BREAKS = 3;
-  let verifyBlockedBreaks = 0;
+  // A model that keeps emitting <task_complete> while a workspace stop-hook is
+  // red is nudged at most this many times before the break is honored anyway
+  // (bounded loop). v13.1: this counter is now solely the stop-hook gate's
+  // (post-write LSP verify was removed).
+  const MAX_GATE_BLOCKED_BREAKS = 3;
+  let gateBlockedBreaks = 0;
+
+  // Sub-agent wait: when the model would END the turn but background sub-agents
+  // are still running (or have a result not yet folded in), we suppress the end
+  // and pause at the loop top until a result is ready — re-invoking the model
+  // only when there's something new to feed it. Their results arrive via the
+  // prepareStep injection on the round we run next.
+  let deferEndForSubagents = false;
+  const subagentsBlockingEnd = (): boolean =>
+    hasRunningSubagents(rt.chatId) || hasPendingSubagentResults(rt.chatId);
 
   for (;;) {
     // Stream was aborted (compass token-pool stop, user stop, task-complete
@@ -190,6 +194,33 @@ export async function runAgentTurn(
         chatId: rt.chatId,
       });
       break;
+    }
+
+    // Don't re-invoke the model while we're only waiting on background
+    // sub-agents — pause cheaply until one reports (its result injects via
+    // prepareStep on the round we run next). Bounded by abort + the 30-min cap.
+    if (deferEndForSubagents) {
+      deferEndForSubagents = false;
+      const running = runningSubagentCount(rt.chatId);
+      if (running > 0) {
+        rt.safeSend("chat:activity", {
+          id: `waiting-subagents-${rt.chatId}`,
+          type: "waiting_on_subagents",
+          label: `Waiting on ${running} sub-agent${running === 1 ? "" : "s"}`,
+          detail: "Results fold in as each finishes",
+          status: "running",
+          timestamp: Date.now(),
+          chatId: rt.chatId,
+        });
+      }
+      while (
+        !rt.abortController.signal.aborted &&
+        Date.now() - loopStartTime <= STREAM_TOOL_LOOP_DURATION_CAP_MS &&
+        hasRunningSubagents(rt.chatId) &&
+        !hasPendingSubagentResults(rt.chatId)
+      ) {
+        await new Promise((r) => setTimeout(r, 400));
+      }
     }
 
     if (!profile.singleRound) {
@@ -394,33 +425,11 @@ export async function runAgentTurn(
       });
     }
 
-    // v12 0.3: post-write verify — LSP diagnostics on the writes since the
-    // last verify pass (native writes executed inside this round's SDK loop;
-    // a previous round's text-tool writes land here too, since they execute
-    // after that round's verify point). Runs BEFORE the task-complete break
-    // so broken code can't slip out behind a same-round <task_complete>.
-    let verifyFeedback: string | null = null;
-    if (profile.postWriteVerify && rt.getFilesWrittenThisTurn) {
-      const written = rt.getFilesWrittenThisTurn();
-      const roundWrites = written.slice(writeVerifyMark);
-      writeVerifyMark = written.length;
-      if (roundWrites.length > 0) {
-        try {
-          verifyFeedback = await profile.postWriteVerify([...roundWrites]);
-        } catch (verifyErr) {
-          logger.warn(`${L} post-write verify failed: ${String(verifyErr)}`);
-        }
-      }
-    }
-
     let stopGateFeedback: string | null = null;
     if (profile.honorTaskCompleteBreak) {
       // End only on explicit <task_complete> or a completed task ledger —
-      // unless this round's writes have outstanding diagnostics (0.3) or a
-      // workspace stop-hook is red (2.2/7B): then suppress the break
+      // unless a workspace stop-hook is red (2.2/7B): then suppress the break
       // (bounded) and feed the failure back instead.
-      const verifyBlocksBreak =
-        verifyFeedback != null && verifyBlockedBreaks < MAX_VERIFY_BLOCKED_BREAKS;
       const tagComplete = isTaskComplete(fullResponse);
       const ledgerAfterRound = getLedger(rt.streamTurnIdForLedger);
       const ledgerComplete =
@@ -428,9 +437,8 @@ export async function runAgentTurn(
 
       if (
         (tagComplete || ledgerComplete) &&
-        !verifyBlocksBreak &&
         profile.taskCompleteGate &&
-        verifyBlockedBreaks < MAX_VERIFY_BLOCKED_BREAKS
+        gateBlockedBreaks < MAX_GATE_BLOCKED_BREAKS
       ) {
         try {
           stopGateFeedback = await profile.taskCompleteGate();
@@ -439,35 +447,65 @@ export async function runAgentTurn(
         }
       }
       const gateBlocksBreak =
-        stopGateFeedback != null && verifyBlockedBreaks < MAX_VERIFY_BLOCKED_BREAKS;
+        stopGateFeedback != null && gateBlockedBreaks < MAX_GATE_BLOCKED_BREAKS;
 
-      if (tagComplete && !verifyBlocksBreak && !gateBlocksBreak) {
-        logger.info(`${L} Task completed at iteration ${agenticIteration + 1}`);
-        // v12 0.2 (B2): the final round's native messages never hit the fold
-        // site — capture them for the turn envelope.
-        if (roundHadNativeToolMessages) {
-          rt.nativeTurnMessages.push(...nativeIterMessages);
+      if (tagComplete && !gateBlocksBreak) {
+        if (subagentsBlockingEnd()) {
+          // Sub-agents still in flight — suppress the end and fall through to
+          // the normal native/text folding; we wait at the loop top.
+          deferEndForSubagents = true;
+          logger.info(
+            `${L} task_complete deferred — ${runningSubagentCount(rt.chatId)} sub-agent(s) still running`,
+          );
+        } else {
+          logger.info(`${L} Task completed at iteration ${agenticIteration + 1}`);
+          // v12 0.2 (B2): the final round's native messages never hit the fold
+          // site — capture them for the turn envelope.
+          if (roundHadNativeToolMessages) {
+            rt.nativeTurnMessages.push(...nativeIterMessages);
+          }
+          break;
         }
-        break;
       }
-      if ((tagComplete || ledgerComplete) && (verifyBlocksBreak || gateBlocksBreak)) {
-        verifyBlockedBreaks++;
+      if ((tagComplete || ledgerComplete) && gateBlocksBreak) {
+        gateBlockedBreaks++;
         logger.info(
-          `${L} completion blocked by ${verifyBlocksBreak ? "post-write diagnostics" : "a stop hook"} (${verifyBlockedBreaks}/${MAX_VERIFY_BLOCKED_BREAKS}) — continuing`,
+          `${L} completion blocked by a stop hook (${gateBlockedBreaks}/${MAX_GATE_BLOCKED_BREAKS}) — continuing`,
         );
       }
 
-      if (ledgerComplete && !verifyBlocksBreak && !gateBlocksBreak) {
-        logger.info(`${L} Ledger complete at iteration ${agenticIteration + 1}`);
-        if (roundHadNativeToolMessages) {
-          rt.nativeTurnMessages.push(...nativeIterMessages);
+      if (ledgerComplete && !gateBlocksBreak) {
+        if (subagentsBlockingEnd()) {
+          deferEndForSubagents = true;
+        } else {
+          logger.info(`${L} Ledger complete at iteration ${agenticIteration + 1}`);
+          if (roundHadNativeToolMessages) {
+            rt.nativeTurnMessages.push(...nativeIterMessages);
+          }
+          break;
         }
-        break;
       }
     }
 
     // Prose-only round handling
     if (!hasTextToolCalls && !hadNativeToolExecution && !roundHadNativeToolMessages) {
+      // Sub-agents still running: don't end on a prose-only round — wait for
+      // them. Nothing to fold (no tools ran this round), so continue directly.
+      if (subagentsBlockingEnd()) {
+        deferEndForSubagents = true;
+        agenticProseOnlyStreak = 0;
+        agenticMessages.push({
+          role: "assistant" as const,
+          content: stripAssistantDisplayContent(stripXML(fullResponse)),
+        });
+        agenticMessages.push({
+          role: "user" as const,
+          content:
+            "Your spawned background sub-agent(s) are still running. Their results are delivered to you automatically as each finishes. Wait, incorporate each result, and only emit <task_complete> once all sub-agents have reported and the task is truly complete.",
+        });
+        agenticIteration++;
+        continue;
+      }
       if (profile.proseOnlyStreakMax == null) {
         // Ask semantics: the model stopped producing tool work — turn over.
         break;
@@ -484,9 +522,8 @@ export async function runAgentTurn(
         ? getRemainingSteps(ledgerAfterRound)
         : [];
       const ledgerSnap = getLedgerStateString(rt.streamTurnIdForLedger);
-      // v12 2.2/0.3: a prose-only round whose completion was SUPPRESSED
-      // (stop hook red / diagnostics outstanding) gets that failure as its
-      // nudge — not the generic "continue" line.
+      // v12 2.2: a prose-only round whose completion was SUPPRESSED (stop hook
+      // red) gets that failure as its nudge — not the generic "continue" line.
       // One streak away from the cap: give an explicit final warning so the
       // model self-completes (or acts) instead of silently dying at the cap.
       const isLastChance =
@@ -494,7 +531,6 @@ export async function runAgentTurn(
         agenticProseOnlyStreak === profile.proseOnlyStreakMax - 1;
       const nudge =
         stopGateFeedback ??
-        verifyFeedback ??
         (pendingSteps.length > 0
           ? buildPendingStepsContinuationPrompt(pendingSteps) +
             (ledgerSnap ? `\n\nCurrent task state:\n${ledgerSnap}` : "")
@@ -582,10 +618,6 @@ export async function runAgentTurn(
     // mirrored into the B2 native envelope. (The prose-only path above
     // consumed these as its nudge and `continue`d, so this only fires on
     // tool rounds whose completion was suppressed.)
-    if (verifyFeedback) {
-      agenticMessages.push({ role: "user" as const, content: verifyFeedback });
-      logger.log(`${L} post-write verify: diagnostics fed back`);
-    }
     if (stopGateFeedback) {
       agenticMessages.push({ role: "user" as const, content: stopGateFeedback });
       logger.log(`${L} stop-hook gate: failure fed back`);
@@ -655,13 +687,6 @@ export async function runAgentTurn(
       break;
     }
 
-    if (consumeDelegationAbort(rt.chatId)) {
-      logger.warn(`${L} Stopping after delegation repetition guard`);
-      fullResponse =
-        stripXML(fullResponse) +
-        "\n\n[Delegation loop guard — task stopped. Review the activity log and send a message to continue.]";
-      break;
-    }
   }
 
   return {

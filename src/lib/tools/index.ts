@@ -12,28 +12,18 @@ export * from "./registry";
 
 // Tool modules (importing registers them)
 import "./file";
-import "./repo-overview";
+import "./glob";
+import "./grep";
+import "./mcp";
 import "./edit";
-import "./search";
 import "./shell";
-import "./terminal-instances";
 import "./web";
-import "./memory";
 import "./blueprint";
 // get_diagram removed — model uses get_blueprint + inline ```graph fences
-import "./agent";
 import "./spawn-task";
 import "./workspace";
 import "./plan";
-import "./mcp";
-import "./skills";
-import "./visualize_graph";
-import "./db";
-import "./lsp-tools";
-import "./mode-tool-registry-tool";
-import "./debug-hypothesis-tool";
 import "./browser"; // v11 in-app browser agent tools
-import "./webmcp"; // v11 WebMCP bridge (navigator.modelContext pages)
 
 // Re-export registry for convenience
 import { ToolRegistry } from "./registry";

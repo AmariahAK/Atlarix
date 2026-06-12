@@ -26,8 +26,6 @@
     "@ast-grep/lang-python",
     "shiki",
     "tw-animate-css",
-    "typescript-language-server",
-    "vscode-langservers-extracted",
     "@electron-forge/publisher-github",
     "@electron-forge/shared-types",
     "@electron-forge/core-utils",

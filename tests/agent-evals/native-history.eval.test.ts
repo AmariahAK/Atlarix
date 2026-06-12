@@ -293,4 +293,33 @@ describe("native tool-call history", () => {
     );
     expect(JSON.stringify(followUp)).toContain("dataValue = 7");
   });
+
+  it("v13 legacy compat: a hallucinated call to a DELETED tool returns a graceful error, never a crash", async () => {
+    // explore_folder was removed in the v13 tool consolidation. Old sessions
+    // (and stale model habits) may still emit it — the turn must survive with
+    // a structured "Tool not found" result feeding back to the model.
+    ctx.server.register(
+      scenario("native-deleted-tool")
+        .toolCall("explore_folder", { path: "." })
+        .text("Understood — using glob instead. <task_complete>")
+        .build(),
+    );
+
+    const chatId = await ctx.newChat();
+    const { fakeIpc } = await runTurn(ctx, {
+      chatId,
+      prompt: "sc=native-deleted-tool Map the repo.",
+      mode: "build",
+    });
+
+    expectNoStreamError(fakeIpc.sends, chatId);
+    expectStreamEnded(fakeIpc.sends, chatId);
+
+    const requests = ctx.server.requestsFor(
+      "native-deleted-tool",
+    ) as RecordedRequest[];
+    const last = requests[requests.length - 1];
+    expect(JSON.stringify(last)).toContain("unavailable tool");
+    expect(JSON.stringify(last)).toContain("Available tools:");
+  });
 });

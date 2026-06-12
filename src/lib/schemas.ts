@@ -72,6 +72,7 @@ const providers = [
   "cohere",
   "perplexity",
   "cerebras",
+  "huggingface",
 ] as const;
 
 export const cloudProviders = providers.filter(
@@ -336,7 +337,6 @@ export const UserSettingsSchema = z.object({
   enableProSmartFilesContextMode: z.boolean().optional(),
   enableProWebSearch: z.boolean().optional(),
   proSmartContextOption: SmartContextModeSchema.optional(),
-  selectedTemplateId: z.string(),
   enableSupabaseWriteSqlMigration: z.boolean().optional(),
   selectedChatMode: ChatModeSchema.optional(),
   /** @deprecated Ignored — unified runtime always enables delegation. */
@@ -391,7 +391,6 @@ export const UserSettingsSchema = z.object({
   /** v10: interactive PTY terminal for user shell tabs (default true). Kill-switch per platform. */
   enablePtyTerminal: z.boolean().optional(),
 
-  enableAutoFixProblems: z.boolean().optional(),
   enableNativeGit: z.boolean().optional(),
   /** When true, run_command may execute git init. Default false. */
   allowGitInit: z.boolean().optional(),
@@ -401,6 +400,21 @@ export const UserSettingsSchema = z.object({
     .object({
       allowNetwork: z.boolean().optional(),
       customBinaryPath: z.string().optional(),
+    })
+    .optional(),
+  /**
+   * Confine agent `run_command` file writes to the workspace + caches via the
+   * per-OS sandbox (macOS Seatbelt / Linux bubblewrap / Windows AppContainer).
+   * Network stays on. Default ON where a sandbox is available; falls back to
+   * unsandboxed when the OS tool is missing (unless `enforce`).
+   */
+  sandboxRunCommand: z.boolean().optional(),
+  sandboxRunCommandConfig: z
+    .object({
+      /** Additional absolute paths the sandboxed command may write to. */
+      extraWritablePaths: z.array(z.string()).optional(),
+      /** Fail commands instead of falling back when no sandbox is available. */
+      enforce: z.boolean().optional(),
     })
     .optional(),
   enableAutoUpdate: z.boolean(),

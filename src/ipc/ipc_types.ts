@@ -192,23 +192,6 @@ export interface RevertSnapshotResult {
   restoredFiles?: number;
 }
 
-export interface CreateAppParams {
-  name: string;
-  /** Optional absolute path to create the app in. Prefer targetPath so the app lives at project root; avoid creating under atlarix-apps for new projects. When set, app.path is stored as this path so file ops and commands use it. */
-  targetPath?: string;
-}
-
-export interface CreateAppResult {
-  app: {
-    id: number;
-    name: string;
-    path: string;
-    createdAt: string;
-    updatedAt: string;
-  };
-  chatId: number;
-}
-
 export interface AttachmentInfo {
   id: string;
   filename: string;

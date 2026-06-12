@@ -3,8 +3,17 @@ import path from "path";
 import fs from "fs";
 import log from "electron-log";
 import { getAcceptableShell } from "@/lib/shell/resolve-shell";
+import { wrapCommandInSandbox } from "@/lib/sandbox/wrap-command";
 
 const logger = log.scope("runShellCommand");
+
+/** Confine a command's filesystem WRITES to the workspace + caches (network stays on). */
+export interface SandboxRunOptions {
+  workspacePath: string;
+  extraWritablePaths?: string[];
+  /** When true, refuse to run the command if no sandbox is available (default: fall back). */
+  enforce?: boolean;
+}
 
 let cachedShell: string | null = null;
 function getShell(): string {
@@ -62,15 +71,43 @@ interface RunShellProcessOptions {
   onOutput?: (accumulated: { stdout: string; stderr: string }) => void;
   /** Called immediately after spawn so callers can kill the process on timeout. */
   onSpawn?: (proc: ChildProcess) => void;
+  /** When set, confine filesystem writes via the per-OS sandbox. */
+  sandbox?: SandboxRunOptions;
 }
 
 /**
  * Spawn a shell command and resolve once on exit/close/error (single resolution).
  */
 function runShellProcess(options: RunShellProcessOptions): Promise<CommandResult> {
-  const { command, cwd, onOutput, onSpawn } = options;
+  const { command, cwd, onOutput, onSpawn, sandbox } = options;
   const shell = getShell();
   const env = { ...process.env, CI: "true" };
+
+  // Resolve how to spawn: sandboxed (explicit file+args, no shell option) or plain.
+  let spawnFile = command;
+  let spawnArgs: string[] | null = null;
+  if (sandbox) {
+    const wrapped = wrapCommandInSandbox({
+      command,
+      shell,
+      workspacePath: sandbox.workspacePath,
+      extraWritablePaths: sandbox.extraWritablePaths,
+    });
+    if (wrapped.sandboxed) {
+      spawnFile = wrapped.file;
+      spawnArgs = wrapped.args;
+    } else if (sandbox.enforce) {
+      logger.error(`Sandbox required but unavailable (${wrapped.note}); refusing to run: ${command}`);
+      return Promise.resolve({
+        stdout: "",
+        stderr: `Command sandbox is required but unavailable on this system (${wrapped.note}). Command not run.`,
+        exitCode: 1,
+        success: false,
+      });
+    } else {
+      logger.warn(`run_command not sandboxed (${wrapped.note}); running unconfined: ${command}`);
+    }
+  }
 
   return new Promise((resolve) => {
     let stdout = "";
@@ -92,12 +129,18 @@ function runShellProcess(options: RunShellProcessOptions): Promise<CommandResult
       onOutput?.({ stdout, stderr });
     };
 
-    const proc = spawn(command, {
-      shell,
-      cwd: cwd || undefined,
-      env,
-      stdio: ["ignore", "pipe", "pipe"],
-    });
+    const proc = spawnArgs
+      ? spawn(spawnFile, spawnArgs, {
+          cwd: cwd || undefined,
+          env,
+          stdio: ["ignore", "pipe", "pipe"],
+        })
+      : spawn(spawnFile, {
+          shell,
+          cwd: cwd || undefined,
+          env,
+          stdio: ["ignore", "pipe", "pipe"],
+        });
 
     onSpawn?.(proc);
 
@@ -154,6 +197,8 @@ export interface RunShellCommandStreamingOptions {
   onOutput: (accumulated: { stdout: string; stderr: string }) => void;
   /** Called immediately after spawn so callers can kill the process on timeout. */
   onSpawn?: (proc: ChildProcess) => void;
+  /** When set, confine filesystem writes via the per-OS sandbox. */
+  sandbox?: SandboxRunOptions;
 }
 
 /**
@@ -174,6 +219,7 @@ export function runShellCommandStreaming(
     cwd: resolvedCwd,
     onOutput: options?.onOutput,
     onSpawn: options?.onSpawn,
+    sandbox: options?.sandbox,
   });
 }
 

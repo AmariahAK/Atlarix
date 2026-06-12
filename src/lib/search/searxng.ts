@@ -265,7 +265,7 @@ export async function searchSearxng(
             const results: SearchResult[] = data.results.slice(0, limit).map((r, idx) => ({
                 title: r.title || 'Untitled',
                 url: r.url,
-                snippet: r.content?.substring(0, 300) || '',
+                snippet: r.content?.substring(0, 500) || '',
                 score: r.score ? r.score * 10 : (30 - idx),
                 source: r.engine || 'searxng',
                 metadata: {

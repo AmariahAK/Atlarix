@@ -3,6 +3,7 @@ import { ChevronDown, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { InlineTimelineToolStatus } from "@/lib/chat/inline-timeline";
 import {
+  defaultOpenFor,
   isToolExpandable,
   type ToolExpandView,
 } from "@/lib/chat/tool-expand-view";
@@ -51,14 +52,28 @@ export function StreamToolCallCard({
       ? { kind: "text", body: detail.trim(), isError }
       : { kind: "none" });
   const expandable = !isRunning && isToolExpandable(resolvedExpand);
-  // Failed tools open their error detail by default — no extra click to see why.
-  const [open, setOpen] = useState(isError);
+  // v13: tri-state — the user's explicit toggle wins; otherwise completed
+  // mutating tools (diff / command / error) open by default so the meaningful
+  // detail is visible without a click.
+  const [userOpen, setUserOpen] = useState<boolean | null>(null);
+  const open =
+    userOpen ??
+    defaultOpenFor(
+      resolvedExpand,
+      isRunning ? "running" : isError ? "error" : "done",
+    );
+  // Mutating tools render a fixed-height skeleton row while running so the
+  // card doesn't jump when the expand content mounts on completion.
+  const showRunningSkeleton =
+    isRunning &&
+    typeof _toolName === "string" &&
+    ["write_file", "edit_file", "run_command"].includes(_toolName);
 
   return (
     <div className={cn(streamToolCardShell, "overflow-hidden")}>
       <button
         type="button"
-        onClick={() => expandable && setOpen((o) => !o)}
+        onClick={() => expandable && setUserOpen(!open)}
         className={cn(
           streamToolCardButton,
           expandable && "cursor-pointer",
@@ -100,6 +115,11 @@ export function StreamToolCallCard({
         ) : null}
       </button>
       {expandable && open ? <ToolExpandPanel view={resolvedExpand} /> : null}
+      {showRunningSkeleton ? (
+        <div className="border-t border-border px-2.5 py-2" aria-hidden>
+          <div className="h-16 animate-pulse rounded-md border border-border/60 bg-muted/40" />
+        </div>
+      ) : null}
     </div>
   );
 }

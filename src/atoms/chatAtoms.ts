@@ -140,6 +140,16 @@ export const inlineTimelineByMessageIdAtom = atom<
   Record<number, InlineTimelineItem[]>
 >({});
 
+/**
+ * Display-only ordered raw string per completed assistant message (text +
+ * inline `<think>`/`<atlarix-tool-*>` tags in arrival order). The persisted
+ * `content` is `<think>`-stripped; this keeps the frozen view interleaved
+ * exactly like streaming. Absent for legacy messages (falls back to `content`).
+ */
+export const interleavedDisplayContentByMessageIdAtom = atom<
+  Record<number, string>
+>({});
+
 /** Live per-event thread cards while a chat is streaming (cleared on stream end). */
 export const streamThreadByChatIdAtom = atom<Map<number, StreamThreadItem[]>>(
   new Map(),
@@ -155,9 +165,34 @@ export const sourcesByAssistantMessageIdAtom = atom<
   Record<number, SourceItem[]>
 >({});
 
-/** Fix: Finding 4 — last chunk time for slow-stream warning (Build) */
+/** Last chunk time per chat — feeds the "Reconnecting…" status state. */
 export const streamLastActivityAtByChatIdAtom = atom<Map<number, number>>(new Map());
-export const streamSlowWarningByChatIdAtom = atom<Map<number, boolean>>(new Map());
+
+/**
+ * v13 Phase 7: the agent is blocked on a still-running foreground command.
+ * Set/cleared by useStreamChat from `chat:stream:phase` waiting_on_command /
+ * command_done events. Drives the waiting chip + the send/stop button flip.
+ */
+export const waitingOnCommandByChatIdAtom = atom<
+  Map<number, { commandId: string; command?: string; startedAt: number }>
+>(new Map());
+
+/**
+ * v13 Phase 7: one queued user message per chat while the agent is waiting on
+ * a command — flushed by useStreamChat when the stream ends.
+ */
+export const queuedMessageByChatIdAtom = atom<Map<number, string>>(new Map());
+
+/**
+ * v13.1: assistant message id → the shadow-git snapshot turn id captured for
+ * that turn (when its writes were snapshotted). Drives the "revert this turn's
+ * file changes" affordance. Session-lifetime only — snapshotTurnId is not
+ * persisted and renderer ids re-assign on reload, so the action only appears
+ * for turns completed in the current app session.
+ */
+export const turnSnapshotTurnIdByMessageIdAtom = atom<Map<number, string>>(
+  new Map(),
+);
 
 /** v3.5: Show the "done" phase of the Atlarix animation until this timestamp (for the given chatId). */
 export const responseDoneAnimationAtom = atom<{ chatId: number; until: number } | null>(null);

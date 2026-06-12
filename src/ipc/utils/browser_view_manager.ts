@@ -14,7 +14,7 @@
  */
 
 import { WebContentsView, BrowserWindow, session, type Session } from "electron";
-import path from "node:path";
+
 import log from "electron-log";
 import { safeSend } from "./safe_sender";
 
@@ -148,10 +148,8 @@ function wireTabEvents(id: number, view: WebContentsView): void {
   });
   // WebMCP (Phase 4): page tools are registered per-document; clear on nav.
   wc.on("did-navigate", () => {
-    void import("./webmcp_registry").then((m) => m.clearToolsForTab(id));
   });
   wc.on("destroyed", () => {
-    void import("./webmcp_registry").then((m) => m.clearToolsForTab(id));
   });
 }
 
@@ -166,7 +164,6 @@ export function createTab(url?: string): BrowserPanelState {
       contextIsolation: true,
       nodeIntegration: false,
       webSecurity: true,
-      preload: path.join(__dirname, "preload-browser.js"),
     },
   });
   const id = nextTabId++;
@@ -188,7 +185,6 @@ export function closeTab(id: number): BrowserPanelState {
     if (win) win.contentView.removeChildView(view);
     view.webContents.close();
     tabs.delete(id);
-    void import("./webmcp_registry").then((m) => m.clearToolsForTab(id));
   }
   if (activeTabId === id) {
     activeTabId = tabs.size > 0 ? [...tabs.keys()].pop()! : null;

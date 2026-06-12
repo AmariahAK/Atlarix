@@ -47,7 +47,6 @@ env:
   ATLARIX_CORE_MODEL_2: ${{ secrets.ATLARIX_CORE_MODEL_2 || secrets.COMPASS_MODEL_BALANCED }}
   ATLARIX_CORE_MODEL_3: ${{ secrets.ATLARIX_CORE_MODEL_3 || secrets.COMPASS_MODEL_THINKING }}
   ATLARIX_CORE_MODEL_4: ${{ secrets.ATLARIX_CORE_MODEL_4 }}
-  TEMPLATE_TOKEN: ${{ secrets.TEMPLATE_TOKEN }}
   OAUTH_CLIENT_ID: ${{ secrets.OAUTH_CLIENT_ID }}
   # Opt in to Node 24 action runtime now rather than waiting for the forced migration (June 2026).
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true

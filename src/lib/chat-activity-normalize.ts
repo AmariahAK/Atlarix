@@ -48,6 +48,7 @@ const VALID_TYPES = new Set<string>([
   "reasoning_complete",
   "subagent_start",
   "subagent_progress",
+  "subagent_thought",
   "subagent_complete",
 ]);
 

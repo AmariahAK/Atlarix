@@ -23,12 +23,12 @@ import { CompassProviderSettings } from "./CompassProviderSettings";
 import { ModelsSection } from "./ModelsSection";
 import { TokenBudgetInput } from "./TokenBudgetInput";
 import { LocalProviderFavoritesSelector } from "./LocalProviderFavoritesSelector";
-import { OllamaRecommenderPanel } from "./OllamaRecommenderPanel";
 
 const PROVIDERS_WITH_TOKEN_BUDGET = [
   "openai", "anthropic", "google",
   "groq", "togetherai", "mistral", "xai", "bedrock", "elastic",
   "nvidia_nim", "cohere", "perplexity", "cerebras", "openrouter",
+  "huggingface",
 ];
 
 interface ProviderSettingsPageProps {
@@ -345,22 +345,6 @@ export function ProviderSettingsPage({ provider }: ProviderSettingsPageProps) {
                     });
                   }}
                 />
-                {provider === "ollama" ? (
-                  <OllamaRecommenderPanel
-                    settings={settings}
-                    onFavoritesPatched={async ({ favoriteModelIds }) => {
-                      await updateSettings({
-                        providerSettings: {
-                          ...settings?.providerSettings,
-                          ollama: {
-                            ...(settings?.providerSettings?.ollama as object),
-                            favoriteModelIds,
-                          },
-                        },
-                      });
-                    }}
-                  />
-                ) : null}
               </div>
             ) : provider === "compass" ? (
               <CompassProviderSettings />

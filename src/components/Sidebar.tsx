@@ -292,7 +292,7 @@ export function HelpPanel() {
         },
         {
             title: 'Code Generation',
-            desc: 'Templates, scaffolding, refactoring, batch modifications',
+            desc: 'Scaffolding, refactoring, batch modifications',
         },
         {
             title: 'Visualization',

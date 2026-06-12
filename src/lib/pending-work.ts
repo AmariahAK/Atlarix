@@ -34,7 +34,7 @@ export function trackPendingWork(
 export async function drainPendingWork(timeoutMs = 5_000): Promise<number> {
   if (pending.size === 0) return 0;
   logger.info(`draining ${pending.size} pending background task(s)`);
-  const all = Promise.allSettled([...pending]);
+  const all = Promise.allSettled(pending);
   await Promise.race([all, new Promise((r) => setTimeout(r, timeoutMs))]);
   if (pending.size > 0) {
     logger.warn(

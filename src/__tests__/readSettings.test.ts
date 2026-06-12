@@ -63,7 +63,6 @@ describe("readSettings", () => {
           "buildVerification": {
             "enabled": true,
           },
-          "enableAutoFixProblems": true,
           "enableAutoUpdate": true,
           "enableContextAutoSummarize": true,
           "enableProLazyEditsMode": true,
@@ -79,7 +78,6 @@ describe("readSettings", () => {
             "name": "core-1",
             "provider": "compass",
           },
-          "selectedTemplateId": "react-vite-ts",
           "telemetryConsent": "unset",
           "telemetryUserId": "[scrubbed]",
           "workModePreference": "ask",
@@ -323,7 +321,6 @@ describe("readSettings", () => {
           "buildVerification": {
             "enabled": true,
           },
-          "enableAutoFixProblems": true,
           "enableAutoUpdate": true,
           "enableContextAutoSummarize": true,
           "enableProLazyEditsMode": true,
@@ -339,7 +336,6 @@ describe("readSettings", () => {
             "name": "core-1",
             "provider": "compass",
           },
-          "selectedTemplateId": "react-vite-ts",
           "telemetryConsent": "unset",
           "telemetryUserId": "[scrubbed]",
           "workModePreference": "ask",

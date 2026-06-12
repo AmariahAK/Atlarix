@@ -1,0 +1,415 @@
+/**
+ * runSubagent — the ONE scoped sub-agent runner behind the `task` tool.
+ *
+ * v13: replaces the specialist `runDelegation` (roster, presets, handoff
+ * schemas). A sub-agent is a read-only scout: it gets a focused system prompt
+ * (built-in `subagents/subagent` skill, or a user-defined `.atlarix/agents/`
+ * agent when `subagentType` names one), a hardcoded read-only toolset, and a
+ * streamed loop so the UI can show its live thinking + narration — not just
+ * tool labels.
+ */
+
+import { streamText, type ModelMessage, type ToolSet } from "ai";
+import log from "electron-log";
+import { normalizeToolInputSchemaForAiSdk } from "../ai/normalize-tool-schema";
+import {
+  buildContinuationPrompt,
+  shouldContinue,
+} from "../streaming/continuation-handler";
+import { runMidLoopCompaction } from "@/lib/context/mid_loop_compaction";
+import { resolveModelContextLimit } from "@/lib/context/resolve-model-context-limit";
+import { estimateTokens } from "@/ipc/utils/token_utils";
+import { recordAuxUsage } from "@/lib/usage/turn-usage-aggregator";
+import { ToolRegistry } from "@/lib/tools/registry";
+import { loadSkill } from "../skills/skill-loader";
+import { readSettings } from "../../main/settings";
+import {
+  getModelClient,
+  getEffectiveModel,
+} from "../../ipc/utils/get_model_client";
+import { recordToolUseForTurn } from "../../ipc/handlers/turn-tool-tracking";
+import {
+  formatToolResultPreview,
+  formatToolStartPreview,
+} from "@/lib/chat/stream-tool-display";
+import {
+  formatSmallRepoInventory,
+  getWorkspaceRelFilePaths,
+  SMALL_REPO_FILE_THRESHOLD,
+} from "@/lib/tools/workspace-file-hints";
+import { loadUserAgent, renderUserAgentSystemBlock } from "./user-agents";
+
+const logger = log.scope("run-subagent");
+
+const SUBAGENT_LENGTH_CONTINUATION_MAX = 3;
+
+/** Live UI events emitted while a sub-agent runs (rendered in its round card). */
+export type SubagentActivityEmit =
+  | {
+      type: "tool_use";
+      id: string;
+      toolName: string;
+      status: "running" | "done" | "error";
+      detail?: string;
+      label?: string;
+    }
+  | { type: "subagent_progress"; preview: string }
+  | {
+      /** Rolling live model output. `id` is stable per segment — the renderer
+       * upserts (replaces content) so the block grows in place. */
+      type: "subagent_thought";
+      id: string;
+      channel: "reasoning" | "text";
+      content: string;
+    };
+
+/**
+ * Read-only toolset a sub-agent may use. Hardcoded — sub-agents never write,
+ * never run commands, never spawn further sub-agents (depth 1 by construction).
+ */
+const SUBAGENT_TOOL_NAMES = [
+  "read_file",
+  "glob",
+  "grep",
+  "get_blueprint",
+  "web_search",
+  "read_url",
+] as const;
+
+/** Tools whose nested expand detail may be larger (read/search payloads). */
+const SUBAGENT_NESTED_EXPAND_TOOLS = new Set<string>([
+  "read_file",
+  "read_url",
+  "grep",
+  "glob",
+]);
+
+function subagentNestedToolDetail(toolName: string, out: string): string {
+  const max = SUBAGENT_NESTED_EXPAND_TOOLS.has(toolName) ? 12_000 : 2_000;
+  return out.length > max ? out.slice(0, max) : out;
+}
+
+/** Throttle for rolling thought/text emission (ms). */
+const THOUGHT_EMIT_INTERVAL_MS = 400;
+/** Cap per rolling segment so a chatty model can't flood the activity stream. */
+const THOUGHT_SEGMENT_CHAR_CAP = 4_000;
+
+export type RunSubagentArgs = {
+  prompt: string;
+  /** A user-defined `.atlarix/agents/<name>` agent; omit for the generic scout. */
+  subagentType?: string;
+  workspace?: string;
+  workspaceId?: number;
+  chatId?: number;
+  turnId?: string;
+  /** Parent tool-execute chat mode (gates nested registry execution). */
+  delegationChatMode?: "build" | "plan" | "ask";
+  /** Stable id correlating all UI events for this run. */
+  delegationId?: string;
+  emit?: (payload: SubagentActivityEmit) => void;
+};
+
+export type RunSubagentResult = {
+  success: boolean;
+  summary?: string;
+  stepsUsed?: number;
+  error?: string;
+};
+
+/** Rolling thought/text emitter — one growing block per stream segment. */
+function makeRollingEmitter(
+  emit: ((payload: SubagentActivityEmit) => void) | undefined,
+  delegationId: string,
+  round: number,
+) {
+  let reasoningBuf = "";
+  let textBuf = "";
+  let lastEmit = 0;
+
+  const flush = (channel: "reasoning" | "text", force: boolean) => {
+    if (!emit) return;
+    const now = Date.now();
+    if (!force && now - lastEmit < THOUGHT_EMIT_INTERVAL_MS) return;
+    const buf = channel === "reasoning" ? reasoningBuf : textBuf;
+    const content = buf.trim();
+    if (!content) return;
+    lastEmit = now;
+    emit({
+      type: "subagent_thought",
+      id:
+        channel === "reasoning"
+          ? `sub-thought-${delegationId}-r${round}`
+          : `sub-text-${delegationId}-r${round}`,
+      channel,
+      content:
+        content.length > THOUGHT_SEGMENT_CHAR_CAP
+          ? `…${content.slice(-THOUGHT_SEGMENT_CHAR_CAP)}`
+          : content,
+    });
+  };
+
+  return {
+    pushReasoning(delta: string) {
+      reasoningBuf += delta;
+      flush("reasoning", false);
+    },
+    pushText(delta: string) {
+      textBuf += delta;
+      flush("text", false);
+    },
+    finish() {
+      flush("reasoning", true);
+      flush("text", true);
+    },
+  };
+}
+
+export async function runSubagent(
+  args: RunSubagentArgs,
+): Promise<RunSubagentResult> {
+  const settings = readSettings();
+  const workspace = args.workspace ?? "";
+  const delegationChatMode = args.delegationChatMode ?? "ask";
+  const delegationId = args.delegationId?.trim() || `task-${Date.now()}`;
+  const emit = args.emit;
+
+  try {
+    const effectiveModel = getEffectiveModel(settings);
+    const { modelClient } = await getModelClient(effectiveModel, settings, {
+      delegationRole: "subagent" as const,
+      delegationDepth: 1,
+    });
+
+    // System prompt: a user-defined agent when named, else the generic scout.
+    let systemPrompt = "";
+    let userAgentTools: readonly string[] | null = null;
+    const requestedAgent = args.subagentType?.trim();
+    if (requestedAgent && workspace.trim()) {
+      const userAgent = loadUserAgent(workspace, requestedAgent);
+      if (userAgent) {
+        systemPrompt = renderUserAgentSystemBlock(userAgent);
+        if (userAgent.tools?.length) userAgentTools = userAgent.tools;
+      }
+    }
+    if (!systemPrompt.trim()) {
+      systemPrompt = (
+        await loadSkill("subagents/subagent", workspace || undefined)
+      ).trim();
+    }
+    if (!systemPrompt.trim()) {
+      return { success: false, error: "Missing sub-agent system prompt" };
+    }
+
+    // Small-repo inventory hint (cheap, prevents blind exploration).
+    if (workspace.trim()) {
+      try {
+        const { paths, count } = await getWorkspaceRelFilePaths(workspace);
+        if (count > 0 && count <= SMALL_REPO_FILE_THRESHOLD) {
+          systemPrompt += `\n\n## Workspace file inventory (authoritative)\n${formatSmallRepoInventory(paths)}`;
+        }
+      } catch (invErr) {
+        logger.debug("[Subagent] workspace inventory skipped:", invErr);
+      }
+    }
+
+    // Read-only toolset, optionally intersected with the user agent's allowlist.
+    const allowed = new Set<string>(SUBAGENT_TOOL_NAMES);
+    let toolsForAgent = ToolRegistry.getAll().filter((t) =>
+      allowed.has(t.name),
+    );
+    if (userAgentTools) {
+      toolsForAgent = toolsForAgent.filter((t) =>
+        userAgentTools!.includes(t.name),
+      );
+    }
+
+    const toolSet: ToolSet = {};
+    for (const t of toolsForAgent) {
+      toolSet[t.name] = {
+        description: t.description,
+        // ToolRegistry stores `parameters` as raw JSON Schema; the AI SDK
+        // crashes on it without the shared normalizer.
+        inputSchema: normalizeToolInputSchemaForAiSdk(t.parameters) as never,
+        execute: async (toolArgs: Record<string, unknown>) => {
+          const toolActivityId = `sub-tool-${delegationId}-${t.name}-${Date.now()}`;
+          const startPreview = formatToolStartPreview(t.name, toolArgs);
+          emit?.({
+            type: "tool_use",
+            id: toolActivityId,
+            toolName: t.name,
+            status: "running",
+            label: startPreview,
+          });
+
+          let result: unknown;
+          try {
+            result = await ToolRegistry.execute(t.name, {
+              ...toolArgs,
+              workspace: workspace || undefined,
+              workspaceId: args.workspaceId,
+              chatMode: delegationChatMode,
+              _chatSessionId: args.chatId,
+            });
+          } catch (err) {
+            const errMsg = String(err).slice(0, 200);
+            emit?.({
+              type: "tool_use",
+              id: toolActivityId,
+              toolName: t.name,
+              status: "error",
+              detail: errMsg,
+              label: startPreview,
+            });
+            throw err;
+          }
+
+          if (args.turnId) recordToolUseForTurn(args.turnId, t.name);
+
+          const out =
+            typeof result === "object" && result !== null
+              ? JSON.stringify(result)
+              : String(result);
+
+          let toolStatus: "done" | "error" = "done";
+          try {
+            const parsed = JSON.parse(out) as {
+              success?: boolean;
+              error?: string;
+            };
+            if (parsed?.error || parsed?.success === false) toolStatus = "error";
+          } catch {
+            /* plain text result */
+          }
+          emit?.({
+            type: "tool_use",
+            id: toolActivityId,
+            toolName: t.name,
+            status: toolStatus,
+            detail: subagentNestedToolDetail(t.name, out),
+            label:
+              formatToolResultPreview(t.name, out, toolStatus) ?? startPreview,
+          });
+
+          return out;
+        },
+      };
+    }
+
+    let msgs: ModelMessage[] = [{ role: "user", content: args.prompt }];
+    let lengthAttempts = 0;
+    let totalSteps = 0;
+    let round = 0;
+
+    let tierLimit = 128_000;
+    try {
+      tierLimit = (await resolveModelContextLimit(effectiveModel, settings))
+        .tierLimit;
+    } catch (e) {
+      logger.warn("[Subagent] tier-limit resolve failed; fallback 128K:", e);
+    }
+    const systemEstimate = estimateTokens(systemPrompt);
+
+    /** One streamed round; returns the SDK result pieces we need. */
+    const runRound = async () => {
+      const rolling = makeRollingEmitter(emit, delegationId, round);
+      const stream = streamText({
+        model: modelClient.model,
+        system: systemPrompt,
+        messages: msgs,
+        tools: toolSet,
+        stopWhen: [() => false],
+      } as Parameters<typeof streamText>[0]);
+
+      for await (const part of stream.fullStream) {
+        const p = part as { type: string; text?: string };
+        if (p.type === "reasoning-delta" && p.text) {
+          rolling.pushReasoning(p.text);
+        } else if (p.type === "text-delta" && p.text) {
+          rolling.pushText(p.text);
+        }
+      }
+      rolling.finish();
+
+      const [text, finishReason, usage, response, steps] = await Promise.all([
+        stream.text,
+        stream.finishReason,
+        stream.usage,
+        stream.response,
+        stream.steps,
+      ]);
+      round += 1;
+      return { text, finishReason, usage, response, steps };
+    };
+
+    let result = await runRound();
+    totalSteps += result.steps?.length ?? 0;
+    recordAuxUsage(args.chatId, result.usage, "subagent:task");
+
+    while (
+      shouldContinue(result.finishReason, {
+        attemptCount: lengthAttempts,
+        maxAttempts: SUBAGENT_LENGTH_CONTINUATION_MAX,
+      })
+    ) {
+      lengthAttempts++;
+      msgs = [
+        ...msgs,
+        ...(result.response.messages as ModelMessage[]),
+        {
+          role: "user",
+          content: buildContinuationPrompt({
+            chatId: args.chatId ?? 0,
+            turnId: args.turnId ?? "subagent",
+            attemptCount: lengthAttempts,
+            maxAttempts: SUBAGENT_LENGTH_CONTINUATION_MAX,
+            lastContent: result.text ?? "",
+          }),
+        },
+      ];
+
+      const compaction = await runMidLoopCompaction({
+        messages: msgs,
+        systemPromptEstimate: systemEstimate,
+        tierLimit,
+        enabled: settings.enableContextAutoSummarize !== false,
+        chatId: args.chatId ?? 0,
+        loopLabel: "Subagent",
+        onInfo: (msg) => logger.log(msg),
+        onWarn: (msg, err) => logger.warn(msg, err),
+      });
+      if (compaction.compacted) msgs = compaction.messages;
+
+      result = await runRound();
+      totalSteps += result.steps?.length ?? 0;
+      recordAuxUsage(args.chatId, result.usage, "subagent:task");
+    }
+
+    const toolNames: string[] = [];
+    for (const step of result.steps ?? []) {
+      const tc = (step as { toolCalls?: { toolName?: string }[] }).toolCalls;
+      if (Array.isArray(tc)) {
+        for (const c of tc) {
+          if (c?.toolName) toolNames.push(String(c.toolName));
+        }
+      }
+    }
+    const uniqTools = [...new Set(toolNames)];
+    const toolsFooter =
+      uniqTools.length > 0 ? `\n\n— Tools used: ${uniqTools.join(", ")}` : "";
+
+    logger.info(
+      `Subagent run complete (id=${delegationId}); steps=${totalSteps}`,
+    );
+    return {
+      success: true,
+      summary: (result.text?.trim() || "(No summary produced)") + toolsFooter,
+      stepsUsed: totalSteps,
+    };
+  } catch (err) {
+    logger.error(`runSubagent failed (id=${delegationId}):`, err);
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+}

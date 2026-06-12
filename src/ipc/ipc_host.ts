@@ -33,7 +33,6 @@ import { registerContextPathsHandlers } from "./handlers/context_paths_handlers"
 import { registerAppUpgradeHandlers } from "./handlers/app_upgrade_handlers";
 import { registerCapacitorHandlers } from "./handlers/capacitor_handlers";
 import { registerAppEnvVarsHandlers } from "./handlers/app_env_vars_handlers";
-import { registerTemplateHandlers } from "./handlers/template_handlers";
 import { registerPortalHandlers } from "./handlers/portal_handlers";
 import { registerHelpBotHandlers } from "./handlers/help_bot_handlers";
 import { registerMcpHandlers } from "./handlers/mcp_handlers";
@@ -46,7 +45,6 @@ import { registerFolderDialogHandler } from "./handlers/atlarix_handlers";
 import { registerSearxngHandlers } from "./handlers/searxng_handlers";
 import { registerSearxngSetupHandlers, registerSearxngAutoStop } from "./handlers/searxng_setup_handlers";
 import { registerFileHandlers } from "./handlers/file_handlers";
-import { registerLspHandlers } from "./handlers/lsp_handlers";
 import { registerAuthHandlers } from "./handlers/auth_handlers";
 import { registerCodebaseSearchHandlers } from "./handlers/codebase_search_handlers";
 import { registerWorkspaceSnapshotHandlers } from "./handlers/workspace_snapshot_handlers";
@@ -59,7 +57,6 @@ import { registerGitHubActionsHandlers } from "./handlers/github_actions_handler
 import { registerExtensionSpaceHandlers } from "./handlers/extension_space_handlers";
 import { registerTeamHandlers } from "./handlers/team_handlers";
 import { registerTourHandlers } from "./handlers/tour_handlers";
-import { registerSystemHardwareHandlers } from "./handlers/system_hardware_handlers";
 import { registerCommunityHandlers } from "./handlers/community_handlers";
 import { registerCommandPermissionHandlers } from "./handlers/command_permission_handlers";
 import { registerFilePermissionHandlers } from "./handlers/file_permission_handlers";
@@ -105,7 +102,6 @@ export function registerIpcHandlers() {
   registerAppUpgradeHandlers();
   registerCapacitorHandlers();
   registerAppEnvVarsHandlers();
-  registerTemplateHandlers();
   registerPortalHandlers();
   registerHelpBotHandlers();
   registerMcpHandlers();
@@ -119,7 +115,6 @@ export function registerIpcHandlers() {
   registerSearxngSetupHandlers();
   registerSearxngAutoStop(); // Auto-stop Docker container when app quits
   registerFileHandlers(); // File read/write for live code editor
-  registerLspHandlers(); // LSP → Monaco diagnostics in Code tab
   registerAuthHandlers(); // OAuth & user plan management
   registerCodebaseSearchHandlers(); // Codebase semantic search
   registerWorkspaceSnapshotHandlers(); // Workspace snapshots (Pro)
@@ -132,7 +127,6 @@ export function registerIpcHandlers() {
   registerExtensionSpaceHandlers(); // v4.0 per-workspace extension scope (Workforce)
   registerTeamHandlers(); // v4.0 Teams (Workforce)
   registerTourHandlers(); // Shepherd tour state (electron-store–style local JSON)
-  registerSystemHardwareHandlers(); // Hardware profile + Ollama recommender / pull
   registerCommunityHandlers(); // Discord invite metadata for Community dialog
   registerPlanArtifactHandlers();
   registerCommandPermissionHandlers();

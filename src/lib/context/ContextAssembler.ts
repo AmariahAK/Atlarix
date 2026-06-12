@@ -13,11 +13,12 @@ export type ContextSectionName =
   | "workModeHint"
   | "workspaceAnalysis"
   | "projectMemory"
+  | "projectKnowledge"
   | "contextSummary"
   | "sessionMemory"
   | "sessionLedger"
   | "parallelPrefetch"
-  | "lspDiagnostics"
+  // (v13.1: "lspDiagnostics" removed with the LSP feature.)
   | "workspaceCapabilities"
   | "activePlan";
 

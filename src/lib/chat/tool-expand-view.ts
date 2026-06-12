@@ -13,6 +13,7 @@ const WRITE_TOOLS = new Set([
   "apply_patch",
 ]);
 
+// legacy names kept: persisted sessions still contain these tool parts.
 const EXPLORE_LIST_TOOLS = new Set([
   "explore_folder",
   "list_files",
@@ -20,9 +21,11 @@ const EXPLORE_LIST_TOOLS = new Set([
 ]);
 
 const SEARCH_MATCH_TOOLS = new Set([
+  "grep",
+  "glob",
+  // legacy: persisted sessions
   "search",
   "search_code",
-  "grep",
   "grep_search",
   "semantic_search",
   "structural_search",
@@ -108,6 +111,14 @@ export type ToolExpandView =
       snippetFallback?: string;
     }
   | { kind: "text"; body: string; isError?: boolean }
+  | {
+      /** run_command result: command line + exit code + captured output. */
+      kind: "command";
+      command?: string;
+      exitCode?: number;
+      body: string;
+      isError?: boolean;
+    }
   | {
       kind: "search_results";
       query: string;
@@ -426,7 +437,7 @@ function buildWebSearchResultsView(
 function buildCommandOutputView(
   payload: Record<string, unknown>,
   plainText?: string,
-): Extract<ToolExpandView, { kind: "text" }> | null {
+): Extract<ToolExpandView, { kind: "command" }> | null {
   const output =
     typeof payload.output === "string"
       ? payload.output
@@ -441,7 +452,20 @@ function buildCommandOutputView(
           ? plainText
           : "";
   if (!output.trim()) return null;
-  return { kind: "text", body: output.trim() };
+  const exitRaw = payload.exit_code ?? payload.exitCode ?? payload.code;
+  const exitCode =
+    typeof exitRaw === "number" && Number.isFinite(exitRaw) ? exitRaw : undefined;
+  const command =
+    typeof payload.command === "string" && payload.command.trim()
+      ? payload.command.trim()
+      : undefined;
+  return {
+    kind: "command",
+    command,
+    exitCode,
+    body: output.trim(),
+    isError: exitCode != null && exitCode !== 0,
+  };
 }
 
 function buildDiffView(
@@ -913,4 +937,22 @@ export function buildToolExpandView(
 
 export function isToolExpandable(view: ToolExpandView): boolean {
   return view.kind !== "none";
+}
+
+/**
+ * v13: completed mutating tools show their meaningful detail by DEFAULT —
+ * the diff for writes/edits, the output + exit code for commands, and error
+ * detail for failures. Read/search results stay collapsed behind the chevron.
+ * Shared by the live stream card and the hydrated/persisted card path.
+ */
+export function defaultOpenFor(
+  view: ToolExpandView,
+  status: "running" | "done" | "error",
+): boolean {
+  if (status === "running") return false;
+  if (status === "error") return true;
+  if (view.kind === "diff") return true;
+  if (view.kind === "command") return true;
+  if (view.kind === "text" && view.isError) return true;
+  return false;
 }

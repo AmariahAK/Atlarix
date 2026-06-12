@@ -1014,20 +1014,6 @@ export class PageObject {
     await this.page.getByRole("link", { name: "Chat" }).click();
   }
 
-  async goToHubTab() {
-    await this.page.getByRole("link", { name: "Hub" }).click();
-  }
-
-  async selectTemplate(templateName: string) {
-    await this.page.getByRole("img", { name: templateName }).click();
-  }
-
-  async goToHubAndSelectTemplate(templateName: "Next.js Template") {
-    await this.goToHubTab();
-    await this.selectTemplate(templateName);
-    await this.goToAppsTab();
-  }
-
   ////////////////////////////////
   // Toast assertions
   ////////////////////////////////

@@ -1,7 +1,7 @@
 /**
  * v11.1: stream-failure banner renders pinned to the BOTTOM slot (above the
- * chat input, alongside SlowStreamWarningBar) — not at the top of the page —
- * and Retry restreams via continueAfterQuestions.
+ * chat input) — not at the top of the page — and Retry restreams via
+ * continueAfterQuestions.
  */
 
 import React from "react";
@@ -32,9 +32,6 @@ vi.mock("@/components/chat/InlineUserQuestions", () => ({
 }));
 vi.mock("@/components/chat/InlineStreamStatus", () => ({
   InlineStreamStatus: () => null,
-}));
-vi.mock("@/components/chat/SlowStreamWarningBar", () => ({
-  SlowStreamWarningBar: () => <div data-testid="slow-warning-slot" />,
 }));
 vi.mock("@/components/chat/LoadedSessionBanner", () => ({
   LoadedSessionBanner: () => null,
@@ -74,10 +71,6 @@ describe("chat error banner placement (v11.1)", () => {
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
 
-    // It shares the bottom slot with the slow-stream warning, above the input.
-    expect(errorBox.parentElement).toBe(
-      screen.getByTestId("slow-warning-slot").parentElement,
-    );
     expect(
       errorBox.compareDocumentPosition(screen.getByTestId("chat-input")) &
         Node.DOCUMENT_POSITION_FOLLOWING,

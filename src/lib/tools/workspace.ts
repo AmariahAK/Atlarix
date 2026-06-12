@@ -14,12 +14,12 @@ import {
     createParameters,
     stringParam,
 } from "./registry";
-import { generateCuteAppName } from "../utils";
-import { db } from "../../db";
-import { apps } from "../../db/schema";
-import { getStreamTransport } from "@/lib/chat/stream-transport";
+
+
+
+
 import path from "path";
-import os from "node:os";
+
 import { extractTextFromPdfBuffer } from "@/lib/attachment-pdf-extract";
 import { extractCsvFromBuffer } from "@/lib/attachment-csv-extract";
 import {
@@ -27,8 +27,8 @@ import {
     extractTextFromOdtBuffer,
 } from "@/lib/attachment-office-xml-extract";
 import { extractTextFromRtfBuffer } from "@/lib/attachment-rtf-extract";
-import fs from "fs/promises";
-import { SubscriptionManager } from "../SubscriptionManager";
+
+
 import { estimateTokens } from "@/ipc/utils/token_utils";
 import {
   runSteppedCompaction,
@@ -41,232 +41,6 @@ import log from "electron-log";
 import { ENV_SECRET_BLOCK_MESSAGE, isBlockedSecretBasename } from "@/lib/security/env-secret-paths";
 import { normalizeAskUserQuestions } from "./ask_user_options";
 const logger = log.scope("workspace-tools");
-
-const DEFAULT_WORKSPACE_BASE = path.join(os.homedir(), "Documents", "Atlarix");
-
-// ═══════════════════════════════════════════════════════════
-// CREATE WORKSPACE
-// ═══════════════════════════════════════════════════════════
-
-ToolRegistry.register({
-    name: "create_workspace",
-    category: ToolCategory.FILE,
-    description: "Create a new workspace (project folder) for building an app. Returns workspace ID and path. Prefer target_path (absolute) for user-chosen project root; otherwise uses ~/Documents/Atlarix/{name}.",
-    cost: 5,
-    requiresWorkspace: false,
-    isCore: true,
-    parameters: {
-        project_name: {
-            type: "string",
-            description: "Optional: Project name (will generate cute name if not provided)",
-            required: false,
-        },
-        description: {
-            type: "string",
-            description: "Brief description of what this workspace is for",
-            required: false,
-        },
-        target_path: {
-            type: "string",
-            description: "Optional: Absolute path for project root. When set, workspace is created there; otherwise ~/Documents/Atlarix/{name}.",
-            required: false,
-        },
-    },
-    handler: async (params: {
-        project_name?: string;
-        description?: string;
-        target_path?: string;
-        chatId?: number;
-    }) => {
-        try {
-            const workspaceLimitCheck = await SubscriptionManager.canCreateWorkspace();
-
-            if (!workspaceLimitCheck.allowed) {
-                const currentWorkspace = await SubscriptionManager.getCurrentWorkspaceDetails();
-
-                return {
-                    __permission_required: true,
-                    operation: 'upgrade_required',
-                    limit_type: 'workspace',
-                    current_count: workspaceLimitCheck.currentCount,
-                    max_allowed: workspaceLimitCheck.maxAllowed,
-                    current_workspace: currentWorkspace,
-                    reason: workspaceLimitCheck.reason,
-                    upgrade_message: `Free tier includes 1 workspace with all features.
-
-Your current workspace: "${currentWorkspace?.name || 'Unknown'}"
-
-To create a new workspace, you can:
-1. Delete your current workspace (loses data)
-2. Upgrade to Pro ($19/mo) for unlimited workspaces
-
-Would you like to upgrade or delete the existing workspace?`,
-                };
-            }
-
-            const projectName = params.project_name || generateCuteAppName();
-
-            const rawTarget = params.target_path?.trim();
-            const useTargetPath = rawTarget && path.isAbsolute(rawTarget);
-            const projectPath = useTargetPath
-                ? path.resolve(rawTarget!)
-                : path.join(DEFAULT_WORKSPACE_BASE, projectName);
-
-            const [app] = await db
-                .insert(apps)
-                .values({
-                    name: projectName,
-                    path: projectPath,
-                })
-                .returning();
-
-            SubscriptionManager.clearWorkspaceCache();
-
-            await fs.mkdir(projectPath, { recursive: true });
-
-            const readmeContent = `# ${projectName}\n\n${params.description || "Created with Atlarix AI"}\n`;
-            await fs.writeFile(
-                path.join(projectPath, "README.md"),
-                readmeContent,
-                "utf-8"
-            );
-
-            if (params.chatId != null) {
-                const transport = getStreamTransport(params.chatId);
-                if (transport) {
-                    transport.appId = app.id;
-                }
-            }
-
-            return {
-                success: true,
-                workspace_id: app.id,
-                workspace_name: app.name,
-                workspace_path: projectPath,
-                message: `Created workspace "${projectName}"
-
-Now you can:
-- Call apply_template() to use a starter template
-- Call write_file() to create files from scratch
-- Use run_command for git status, diff, log, and other git CLI operations
-
-What would you like to build?`,
-            };
-        } catch (error) {
-            return {
-                success: false,
-                error: error instanceof Error ? error.message : "Unknown error",
-            };
-        }
-    },
-});
-
-// ═══════════════════════════════════════════════════════════
-// LIST WORKSPACES
-// ═══════════════════════════════════════════════════════════
-
-ToolRegistry.register({
-    name: "list_workspaces",
-    category: ToolCategory.FILE,
-    description: "List all workspaces (projects) the user has created",
-    cost: 1,
-    requiresWorkspace: false,
-    isCore: true,
-    parameters: {},
-    handler: async () => {
-        try {
-            const allApps = await db.query.apps.findMany({
-                orderBy: (apps, { desc }) => [desc(apps.createdAt)],
-            });
-
-            if (allApps.length === 0) {
-                return {
-                    success: true,
-                    workspaces: [],
-                    message: "No workspaces yet. Call create_workspace() to start building!",
-                };
-            }
-
-            return {
-                success: true,
-                workspaces: allApps.map((app) => ({
-                    id: app.id,
-                    name: app.name,
-                    path: app.path,
-                    created: app.createdAt,
-                })),
-                total: allApps.length,
-            };
-        } catch (error) {
-            return {
-                success: false,
-                error: error instanceof Error ? error.message : "Unknown error",
-            };
-        }
-    },
-});
-
-// ═══════════════════════════════════════════════════════════
-// SWITCH WORKSPACE
-// ═══════════════════════════════════════════════════════════
-
-ToolRegistry.register({
-    name: "switch_workspace",
-    category: ToolCategory.FILE,
-    description: "Switch current chat to a different workspace",
-    cost: 1,
-    requiresWorkspace: false,
-    isCore: true,
-    parameters: {
-        workspace_id: {
-            type: "number",
-            description: "Workspace ID to switch to",
-            required: true,
-        },
-    },
-    handler: async (params: { workspace_id: number; chatId?: number }) => {
-        try {
-            if (!params.chatId) {
-                return {
-                    success: false,
-                    error: "No active chat to switch",
-                };
-            }
-
-            const workspace = await db.query.apps.findFirst({
-                where: (apps, { eq }) => eq(apps.id, params.workspace_id),
-            });
-
-            if (!workspace) {
-                return {
-                    success: false,
-                    error: `Workspace ${params.workspace_id} not found`,
-                };
-            }
-
-            const transport = getStreamTransport(params.chatId);
-            if (transport) {
-                transport.appId = params.workspace_id;
-            }
-
-            return {
-                success: true,
-                workspace_id: workspace.id,
-                workspace_name: workspace.name,
-                message: `Switched to workspace "${workspace.name}"`,
-            };
-        } catch (error) {
-            return {
-                success: false,
-                error: error instanceof Error ? error.message : "Unknown error",
-            };
-        }
-    },
-});
-
-// ═══════════════════════════════════════════════════════════
-// ASK USER (moved from execution-tools)
-// ═══════════════════════════════════════════════════════════
 
 ToolRegistry.register({
     name: "ask_user",

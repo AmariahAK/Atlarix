@@ -4,17 +4,14 @@ import {
   isWorkspaceIntegrationTool,
   isCoreTool,
 } from "../lib/tools/ToolManifest";
-import { ToolSessionLoader } from "../lib/tools/ToolSessionLoader";
 import { ToolRegistry } from "../lib/tools/registry";
 import "../lib/tools";
 
 describe("workspace integration tools", () => {
-  it("defines four MCP/skills discovery tools", () => {
+  it("defines the two MCP discovery tools", () => {
     expect(WORKSPACE_INTEGRATION_TOOL_NAMES).toEqual([
       "list_available_mcps",
       "mcp_call",
-      "list_installed_skills",
-      "get_active_skills",
     ]);
   });
 
@@ -30,20 +27,6 @@ describe("workspace integration tools", () => {
     const askNames = ToolRegistry.getToolsForAskMode().map((t) => t.name);
     expect(askNames).toContain("mcp_call");
     expect(askNames).toContain("list_available_mcps");
-    expect(askNames).toContain("get_active_skills");
-  });
-
-  it("ToolSessionLoader.ensureLoaded pre-registers integration tools", () => {
-    const loader = new ToolSessionLoader((name) => ToolRegistry.get(name));
-    const before = loader.getLoadedToolNames();
-    for (const name of WORKSPACE_INTEGRATION_TOOL_NAMES) {
-      expect(before.has(name)).toBe(false);
-    }
-    loader.ensureLoaded(WORKSPACE_INTEGRATION_TOOL_NAMES);
-    const after = loader.getLoadedToolNames();
-    for (const name of WORKSPACE_INTEGRATION_TOOL_NAMES) {
-      expect(after.has(name)).toBe(true);
-    }
   });
 
   it("workspace filter includes integration tools when not core", () => {

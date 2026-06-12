@@ -8,10 +8,10 @@ import {
   type ModeRegistryKey,
 } from "./mode-tool-registry";
 
-const NON_BUILD_MODES: Exclude<ModeRegistryKey, "build">[] = [
+// v13: debug is full-surface like build — only the allowlisted modes count.
+const NON_BUILD_MODES: Exclude<ModeRegistryKey, "build" | "debug">[] = [
   "ask",
   "plan",
-  "debug",
   "review",
 ];
 
@@ -20,38 +20,20 @@ export const GLOBAL_CHAT_TOOLS = new Set([
   "ask_user",
   "compress_context",
   "web_search",
-  "deep_research",
   "read_url",
   "read_attachment",
   "list_attachments",
 ]);
 
 /**
- * Workspace tools available only in Build (full surface), not on ask/plan/debug/review allowlists.
+ * Tools available only in Build/Debug (full surface), not on ask/plan/review allowlists.
  * Update when adding tools; `auditToolRegistry` fails if drift occurs.
  */
 export const BUILD_ONLY_TOOLS = [
-  "check_environment",
-  "close_terminal_instance",
-  "commit_blueprint",
-  "create_directory",
-  "create_workspace",
-  "db_list",
-  "db_mutate",
-  "db_query",
-  "db_schema",
-  "get_file_info",
-  "get_mode_tool_registry",
-  "list_terminal_instances",
-  "list_workspaces",
-  "live_preview",
-  "open_terminal_instance",
-  "read_terminal_instance",
-  "request_tools",
-  "run_tests",
-  "set_project_memory",
-  "switch_workspace",
-  "visualize_graph",
+  "browser_click",
+  "browser_fill",
+  "edit_file",
+  "write_file",
 ] as const satisfies readonly string[];
 
 const BUILD_ONLY_SET = new Set<string>(BUILD_ONLY_TOOLS);

@@ -196,21 +196,6 @@ const FEATURES: ToolFeature[] = [
     link: { label: "Home → Chat", to: "/" },
   },
   {
-    id: "autofix",
-    title: "LSP diagnostics & auto-fix",
-    shortDescription:
-      "Editor underlines from bundled TypeScript and JSON language servers; optional auto-fix follow-ups after build use LSP diagnostics on touched files.",
-    category: "code",
-    steps: [
-      "Open a file in the Code tab for live markers",
-      "Enable auto-fix after build in chat settings if you want synthetic follow-ups",
-      "Review permission queue changes from the agent's fix pass",
-    ],
-    howItWorks:
-      "Self-correction reads LSP push/pull diagnostics instead of a separate TSC worker or Problems tab. External servers (e.g. rust-analyzer) work when installed on PATH.",
-    link: { label: "Settings → Chat", to: "/settings" },
-  },
-  {
     id: "blueprint-graph",
     title: "Live Code Map (Blueprint)",
     shortDescription:
@@ -362,7 +347,7 @@ export default function ToolsPage() {
         <div className="text-center space-y-2">
           <h1 className="text-3xl font-bold text-foreground">Tools</h1>
           <p className="text-muted-foreground text-sm">
-            What the desktop app can do today—modes, attachments, section-scoped Blueprint, Skills, MCP, LSP diagnostics, and team features.
+            What the desktop app can do today—modes, attachments, section-scoped Blueprint, Skills, MCP, and team features.
           </p>
         </div>
 

@@ -119,6 +119,7 @@ export function compareThreadItems(
 const SUBAGENT_TYPES = new Set([
   "subagent_start",
   "subagent_progress",
+  "subagent_thought",
   "subagent_complete",
 ]);
 
@@ -652,6 +653,52 @@ export function mergeSubagentActivityIntoThread(
       scope: item.scope,
       status: "running",
       nestedItems: existingAgent?.nestedItems ?? [],
+    });
+    return consolidateSubagentRoundsInThread(next);
+  }
+
+  if (item.type === "subagent_thought") {
+    // v13: rolling live model output (reasoning or narration). The id is
+    // STABLE per stream segment — upsert (replace content) so the block grows
+    // in place instead of appending a line per delta.
+    const content = item.preview?.trim() || item.detail?.trim();
+    if (!content) return items;
+    const agentId =
+      (item as ActivityStreamItem & { parentDelegationId?: string })
+        .parentDelegationId || subId;
+    const prevNested = existingRound?.agents.find((a) => a.id === agentId)
+      ?.nestedItems;
+    const baseNested = prevNested ?? existingAgent?.nestedItems ?? [];
+    const idx = baseNested.findIndex(
+      (i) => i.kind === "thought" && i.id === item.id,
+    );
+    const thoughtItem = {
+      kind: "thought" as const,
+      id: item.id,
+      content,
+      ts: idx >= 0 ? (baseNested[idx]!.ts ?? ts) : ts,
+    };
+    const nestedItems =
+      idx >= 0
+        ? baseNested.map((i, n) => (n === idx ? thoughtItem : i))
+        : [...baseNested, thoughtItem];
+    const next = upsertSubagentRound(items, roundId, (agents) => {
+      const aIdx = agents.findIndex((a) => a.id === agentId);
+      if (aIdx >= 0) {
+        const copy = [...agents];
+        copy[aIdx] = { ...agents[aIdx]!, nestedItems, status: "running" };
+        return copy;
+      }
+      return [
+        ...agents,
+        {
+          id: agentId,
+          agentType,
+          label: item.label ?? agentType,
+          status: "running" as const,
+          nestedItems,
+        },
+      ];
     });
     return consolidateSubagentRoundsInThread(next);
   }

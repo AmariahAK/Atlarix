@@ -366,6 +366,16 @@ export async function fetchModelsFromNvidiaNim(
   });
 }
 
+export async function fetchModelsFromHuggingFace(
+  apiKey: string
+): Promise<LanguageModel[]> {
+  return fetchOpenAICompatibleModels({
+    providerId: "huggingface",
+    url: "https://router.huggingface.co/v1/models",
+    apiKey,
+  });
+}
+
 export async function fetchModelsFromPerplexity(
   apiKey: string
 ): Promise<LanguageModel[]> {
@@ -596,6 +606,7 @@ const FETCHERS: Record<
   perplexity: fetchModelsFromPerplexity,
   cerebras: fetchModelsFromCerebras,
   openrouter: fetchModelsFromOpenRouter,
+  huggingface: fetchModelsFromHuggingFace,
 };
 
 export async function fetchModelsFromProvider(

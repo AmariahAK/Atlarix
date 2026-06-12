@@ -136,27 +136,3 @@ testSkipIfWindows("upgrade app to select component", async ({ po }) => {
   await po.sendPrompt("[dump] make it smaller");
   await po.snapshotServerDump("last-message");
 });
-
-testSkipIfWindows("select component next.js", async ({ po }) => {
-  await po.setUp();
-
-  await po.goToHubAndSelectTemplate("Next.js Template");
-
-  await po.sendPrompt("tc=basic");
-  await po.clickTogglePreviewPanel();
-  await po.clickPreviewPickElement();
-
-  await po
-    .getPreviewIframeElement()
-    .contentFrame()
-    .getByRole("heading", { name: "Blank page" })
-    .click();
-
-  await po.snapshotPreview();
-  await po.snapshotSelectedComponentsDisplay();
-
-  await po.sendPrompt("[dump] make it smaller");
-  await po.snapshotPreview();
-
-  await po.snapshotServerDump("all-messages");
-});

@@ -35,9 +35,8 @@ import {
   getCachedSlice,
   setCachedSlice,
 } from "@/lib/blueprint/blueprint-slice-cache";
-import { snapshotBlueprintToRepo } from "@/lib/blueprint/blueprint-snapshot";
+
 import {
-  getBlueprintForWorkspace,
   getBlueprintSectionMeta,
 } from "@/ipc/handlers/blueprint_handlers";
 import {
@@ -46,12 +45,12 @@ import {
 } from "@/lib/blueprint/blueprint-quality";
 import { validateBlueprintFocusPath } from "@/lib/blueprint/section-path";
 import { getAtlarixAppPath } from "@/paths/paths";
-import { getCurrentCommitHash } from "@/ipc/utils/git_utils";
-import { SubscriptionManager } from "@/lib/SubscriptionManager";
+
+
 import { db } from "@/db";
 import { apps } from "@/db/schema";
 import { eq } from "drizzle-orm";
-import { app as electronApp } from "electron";
+
 import log from "electron-log";
 import type { Blueprint } from "@/shared/blueprint-types";
 
@@ -398,83 +397,3 @@ ToolRegistry.register({
 
 // DEAD? set_blueprint / clear_blueprint removed — architecture viz is inline via ```markmap``` in chat.
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Pass 7 — `commit_blueprint`
-// ─────────────────────────────────────────────────────────────────────────────
-
-ToolRegistry.register({
-  name: "commit_blueprint",
-  category: ToolCategory.SEARCH_INTELLIGENCE,
-  // PASS8 B1: Description trimmed to ≤ 2 sentences.
-  description:
-    "Save a Blueprint snapshot to .atlarix/blueprint.json (Workforce only). " +
-    "Ask the user first — it writes a file to the repo.",
-  cost: 1,
-  requiresWorkspace: true,
-  isCore: false,
-  isReadOnly: false,
-  allowInAskMode: false,
-  parameters: createParameters(
-    {
-      workspaceId: { type: "number", description: "Workspace ID (auto-provided)" },
-    },
-    [],
-  ),
-  handler: async (params: { workspaceId?: number; workspace?: string }) => {
-    const workspaceId = params.workspaceId;
-    if (workspaceId == null) {
-      return {
-        success: false,
-        error: "commit_blueprint requires a workspaceId (auto-provided by the runner).",
-      };
-    }
-
-    try {
-      if (SubscriptionManager.getEffectiveTier() !== "workforce") {
-        return {
-          success: false,
-          error: "Blueprint commits require Workforce tier. Upgrade in Settings to enable.",
-        };
-      }
-
-      const [appRow] = await db.select().from(apps).where(eq(apps.id, workspaceId)).limit(1);
-      if (!appRow) {
-        return { success: false, error: `Workspace ${workspaceId} not found.` };
-      }
-
-      const workspacePath = getAtlarixAppPath(appRow.path);
-      const blueprint = await getBlueprintForWorkspace(workspaceId);
-
-      let lastCommitHash: string | undefined;
-      try {
-        lastCommitHash = await getCurrentCommitHash({ path: workspacePath });
-      } catch (e) {
-        logger.warn("[commit_blueprint] No git HEAD (continuing):", e);
-      }
-
-      const result = await snapshotBlueprintToRepo({
-        workspacePath,
-        blueprint,
-        workspaceName: appRow.name,
-        atlarixVersion: electronApp.getVersion(),
-        lastCommitHash,
-      });
-
-      return {
-        success: true,
-        path: result.path,
-        nodeCount: result.nodeCount,
-        edgeCount: result.edgeCount,
-        firstCommit: result.firstCommit,
-        message: result.firstCommit
-          ? `Blueprint snapshot written to ${result.path} (first commit — consider adding it to git so your team gets the Blueprint on clone, or to .gitignore to keep it local).`
-          : `Blueprint snapshot updated at ${result.path}.`,
-      };
-    } catch (e) {
-      return {
-        success: false,
-        error: e instanceof Error ? e.message : String(e),
-      };
-    }
-  },
-});

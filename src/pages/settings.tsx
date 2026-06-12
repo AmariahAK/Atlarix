@@ -21,15 +21,17 @@ import {
 } from "@/components/ui/select";
 import { SettingsWorkspaceNav } from "@/components/settings/SettingsWorkspaceNav";
 import { useTheme } from "@/contexts/ThemeContext";
-import { AutoFixProblemsSwitch } from "@/components/AutoFixProblemsSwitch";
 import { SearchSettings } from "@/components/settings/SearchSettings";
 import { useLanguageModelProviders } from "@/hooks/useLanguageModelProviders";
 import { WorkspaceTerminalPermissions } from "@/components/settings/WorkspaceTerminalPermissions";
 import { WorkspaceFilePermissions } from "@/components/settings/WorkspaceFilePermissions";
 import { GitHubIntegration } from "@/components/GitHubIntegration";
-import { useSetAtom, useAtomValue } from "jotai";
+import { useSetAtom, useAtomValue, getDefaultStore } from "jotai";
 import { selectedAppIdAtom } from "@/atoms/appAtoms";
-import { activeSettingsSectionAtom } from "@/atoms/viewAtoms";
+import {
+  activeSettingsSectionAtom,
+  pendingSettingsScrollAtom,
+} from "@/atoms/viewAtoms";
 import { useNavigate } from "@tanstack/react-router";
 import { Server, ChevronRight, Sparkles } from "lucide-react";
 import { useAuth } from "@/lib/auth/useAuth";
@@ -48,8 +50,41 @@ export default function SettingsPage() {
   const { status } = useAuth();
 
   useEffect(() => {
-    setActiveSettingsSection("general");
-    posthog.capture("settings_opened", { section: "general" });
+    // Honor a one-shot deep-link target (e.g. ChatErrorBox → "ai", MCP prompts →
+    // "mcp"): consume it and scroll the section into view. Otherwise default to
+    // the top (general). Without this, the deep-link atom set just before
+    // navigation was clobbered here and nothing scrolled.
+    const pending = getDefaultStore().get(pendingSettingsScrollAtom);
+    if (pending) {
+      getDefaultStore().set(pendingSettingsScrollAtom, null); // one-shot consume
+      setActiveSettingsSection(pending);
+      posthog.capture("settings_opened", { section: pending });
+      // Sections are rendered at mount, but content above (provider grids) can
+      // load async and shift layout — poll briefly until the element exists,
+      // scroll, then do one settle pass.
+      let tries = 0;
+      let settled = false;
+      const tryScroll = () => {
+        const el = document.getElementById(pending);
+        if (el) {
+          el.scrollIntoView({ behavior: "smooth", block: "start" });
+          if (!settled) {
+            settled = true;
+            window.setTimeout(() => {
+              document
+                .getElementById(pending)
+                ?.scrollIntoView({ behavior: "smooth", block: "start" });
+            }, 250);
+          }
+          return;
+        }
+        if (tries++ < 8) window.setTimeout(tryScroll, 120);
+      };
+      requestAnimationFrame(tryScroll);
+    } else {
+      setActiveSettingsSection("general");
+      posthog.capture("settings_opened", { section: "general" });
+    }
   }, [setActiveSettingsSection]);
 
   const handleResetEverything = async () => {
@@ -653,10 +688,8 @@ export function AISettings() {
         <MaxChatTurnsSelector />
       </div>
 
-      <div className="mt-6 space-y-3 border-t border-border pt-6">
-        <h3 className="text-sm font-medium text-foreground">Behavior</h3>
-        <AutoFixProblemsSwitch />
-      </div>
+      {/* v13.1: the "Auto-fix from LSP" switch was removed with the LSP feature —
+          verification is the project's own checks/tests via run_command. */}
 
       {/* Pass 7: Blueprint context tier selector removed with the Blueprint subsystem. */}
 

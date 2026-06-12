@@ -4,6 +4,11 @@
  */
 
 const LABELS: Record<string, string> = {
+  // v13 surface (legacy names below are kept for persisted sessions)
+  glob: "Finding files…",
+  grep: "Searching code…",
+  plan: "Updating plan…",
+  task: "Running sub-agent…",
   read_file: "Reading files…",
   write_file: "Writing code…",
   write_multiple_files: "Writing files…",
@@ -128,6 +133,11 @@ export function getToolActivityLabelWithArgs(
 }
 
 const DONE_LABELS: Record<string, string> = {
+  // v13 surface (legacy names below are kept for persisted sessions)
+  glob: "Found files",
+  grep: "Searched code",
+  plan: "Plan updated",
+  task: "Sub-agent finished",
   read_file: "Read files",
   write_file: "Wrote file",
   write_multiple_files: "Wrote files",

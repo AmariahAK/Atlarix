@@ -30,7 +30,6 @@ import { selectedAppIdAtom } from "@/atoms/appAtoms";
 import { LoadedSessionBanner } from "@/components/chat/LoadedSessionBanner";
 import { startNewWorkspaceConversation } from "@/lib/open-workspace-session";
 import { InlineStreamStatus } from "@/components/chat/InlineStreamStatus";
-import { SlowStreamWarningBar } from "@/components/chat/SlowStreamWarningBar";
 
 interface SimpleInlineChatProps {
     chatId: number;
@@ -284,11 +283,6 @@ export function SimpleInlineChat({
                         </div>
                     </div>
                 )}
-                <SlowStreamWarningBar
-                    chatId={chatId}
-                    isStreaming={isStreaming}
-                    requireBuildMode={false}
-                />
             </div>
 
             <SimpleChatInput

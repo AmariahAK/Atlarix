@@ -13,6 +13,7 @@ import {
 } from "./chat/AtlarixMarkdownParser";
 import { AssistantMessageBody } from "./chat/AssistantMessageBody";
 import { InlineStreamStatus } from "./chat/InlineStreamStatus";
+import { RevertTurnAction } from "./chat/RevertTurnAction";
 import { Copy, Check, Bot, Edit2, RotateCw, AlertTriangle } from "lucide-react";
 import { useState } from "react";
 import { useCopyToClipboard } from "@/hooks/useCopyToClipboard";
@@ -222,9 +223,9 @@ export function SimpleMessage({
                     </div>
                 )}
 
-                {/* Actions under messages — Copy / Edit / Mode / Save / Cancel */}
+                {/* Actions under messages — Copy / Revert turn */}
                 {isAssistant && message.content && !isStreaming && (
-                    <div className="flex mt-1 justify-start opacity-0 group-hover:opacity-100 transition-opacity">
+                    <div className="flex mt-1 justify-start gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                         <button
                             type="button"
                             onClick={handleAssistantCopy}
@@ -242,6 +243,9 @@ export function SimpleMessage({
                                 </>
                             )}
                         </button>
+                        {resolvedWorkspaceAppId != null ? (
+                            <RevertTurnAction chatId={chatId ?? undefined} messageId={message.id} />
+                        ) : null}
                     </div>
                 )}
                 {isUser && (message.content || isEditing) && !isStreaming && (

@@ -1,14 +1,11 @@
 import { useEffect } from "react";
 import { toast } from "sonner";
-import { getDefaultStore } from "jotai";
 import { IpcClient } from "@/ipc/ipc_client";
 import { Button } from "@/components/ui/button";
-import { activeSettingsSectionAtom } from "@/atoms/viewAtoms";
-import { router } from "@/router";
+import { openSettingsSection } from "@/lib/open-settings-section";
 
 function openMcpSettings(): void {
-  getDefaultStore().set(activeSettingsSectionAtom, "mcp");
-  void router.navigate({ to: "/settings" });
+  openSettingsSection("mcp");
 }
 
 export function McpOAuthPrompt() {

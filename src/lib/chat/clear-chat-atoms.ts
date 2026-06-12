@@ -18,7 +18,9 @@ import {
   sourcesByAssistantMessageIdAtom,
   streamThreadByChatIdAtom,
   streamLastActivityAtByChatIdAtom,
-  streamSlowWarningByChatIdAtom,
+  waitingOnCommandByChatIdAtom,
+  queuedMessageByChatIdAtom,
+  turnSnapshotTurnIdByMessageIdAtom,
   activeChatIdAtom,
   selectedChatIdAtom,
 } from "@/atoms/chatAtoms";
@@ -73,6 +75,13 @@ export function clearChatAtomsForChat(chatId: number): void {
     for (const k of keys) next.delete(k);
     return next;
   });
+  store.set(turnSnapshotTurnIdByMessageIdAtom, (prev) => {
+    const keys = [...prev.keys()].filter((k) => messageIds.has(k));
+    if (keys.length === 0) return prev;
+    const next = new Map(prev);
+    for (const k of keys) next.delete(k);
+    return next;
+  });
   deleteMessageKeyedRecord(planSnapshotByAssistantMessageIdAtom);
   deleteMessageKeyedRecord(completedTurnThinkingByAssistantMessageIdAtom);
   deleteMessageKeyedRecord(inlineTimelineByMessageIdAtom);
@@ -86,7 +95,8 @@ export function clearChatAtomsForChat(chatId: number): void {
   deleteMapKey(chatStreamCountByIdAtom);
   deleteMapKey(streamThreadByChatIdAtom);
   deleteMapKey(streamLastActivityAtByChatIdAtom);
-  deleteMapKey(streamSlowWarningByChatIdAtom);
+  deleteMapKey(waitingOnCommandByChatIdAtom);
+  deleteMapKey(queuedMessageByChatIdAtom);
   deleteRecordKey(lastTurnHadToolCallsByChatIdAtom);
   deleteRecordKey(lastReasoningTokensByChatIdAtom);
   deleteRecordKey(lastAuxTokensByChatIdAtom);

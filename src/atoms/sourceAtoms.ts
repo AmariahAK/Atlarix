@@ -14,14 +14,13 @@ import type { PlanChangesPayload } from '@/lib/plan-changes/plan-changes';
 
 export type PanelType =
     | 'web-search'      // Source cards + iframe preview
-    | 'code-preview'    // Live preview iframe (frontend)
+    | 'code-preview'    // Live preview iframe (frontend); 'plan' rides as a tab here
     | 'terminal'        // Command output
     | 'files'           // File explorer (default)
     | 'tools'           // Tool execution activity
-    | 'plan'            // ATLARIX plan + changes summary
     | 'empty';          // No content
 
-export type PanelTab = 'sources' | 'tools' | 'debug' | 'preview' | 'code' | 'terminal' | 'logs' | 'files' | 'approve' | 'permission' | 'errors' | 'permissions' | 'search' | 'activity' | 'chat' | 'plan' | 'browser' | 'agents';
+export type PanelTab = 'sources' | 'tools' | 'debug' | 'preview' | 'code' | 'terminal' | 'logs' | 'files' | 'approve' | 'permission' | 'errors' | 'permissions' | 'search' | 'chat' | 'plan' | 'browser';
 
 export interface PanelContext {
     type: PanelType;
@@ -92,7 +91,9 @@ export function mapIntentToView(intent: AIPanelIntent | null): PanelType | null 
             return 'code-preview';
 
         case 'show-plan':
-            return 'plan';
+            // v13.1: plan is a tab within the workspace panel (the renderer sets
+            // previewTabAtom('plan')), not its own takeover panel type.
+            return 'code-preview';
 
         case 'hide':
         case 'empty':
@@ -177,6 +178,7 @@ export interface ActivityStreamItem {
     | 'reasoning_complete'
     | 'subagent_start'
     | 'subagent_progress'
+    | 'subagent_thought'
     | 'subagent_complete';
   label: string;
   status: 'running' | 'done' | 'error' | 'active';

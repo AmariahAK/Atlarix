@@ -35,18 +35,20 @@ import {
     rightPanelWidthAtom,
     rightPanelVisibleAtom,
     leftPanelVisibleAtom,
+    workspacePlanPanelAtom,
 } from '@/atoms/sourceAtoms';
 import { permissionQueueAtom, getOperationsByStatus } from '@/atoms/permissionQueueAtom';
 import { currentAppAtom, selectedAppIdAtom, selectedWorkspaceInfoAtom } from '@/atoms/appAtoms';
 
-// Tab configurations for each panel type
+// Tab configurations for each panel type. v13.1: 'plan' is no longer its own
+// panel type — it's appended as a tab to 'code-preview' when a plan is active
+// (see the context memo below), so terminal/code/preview stay usable.
 const PANEL_TABS: Record<PanelType, PanelTab[]> = {
     'web-search': [],
-    'code-preview': ['preview', 'code', 'browser', 'terminal', 'activity', 'agents', 'errors'],
-    'terminal': ['terminal', 'activity'],
+    'code-preview': ['preview', 'code', 'browser', 'terminal', 'errors'],
+    'terminal': ['terminal'],
     'files': ['files'],
     'tools': [],  // Deprecated - ThinkingCard handles tools
-    'plan': ['plan'],
     'empty': [],
 };
 
@@ -104,6 +106,7 @@ export function useRightPanelContext(): RightPanelContextResult {
     );
     const selectedAppId = useAtomValue(selectedAppIdAtom);
     const selectedWorkspaceInfo = useAtomValue(selectedWorkspaceInfoAtom);
+    const planPanel = useAtomValue(workspacePlanPanelAtom);
 
     // Get the last tool call for context detection
     const lastToolCall = toolTimeline[toolTimeline.length - 1];
@@ -178,6 +181,11 @@ export function useRightPanelContext(): RightPanelContextResult {
     // Build context object
     const context = useMemo((): PanelContext => {
         let tabs = PANEL_TABS[effectiveType] || [];
+        // v13.1: surface the Plan tab alongside the workspace tabs when a plan
+        // is active, so the user can switch plan ↔ terminal/code while building.
+        if (effectiveType === 'code-preview' && planPanel.planId != null) {
+            tabs = [...tabs, 'plan'];
+        }
         if (chatAreaHidden && !tabs.includes('chat')) {
             tabs = ['chat', ...tabs];
         }
@@ -200,7 +208,7 @@ export function useRightPanelContext(): RightPanelContextResult {
                 aiContext: aiPanelIntent?.context,
             }),
         };
-    }, [effectiveType, activeTab, sources, terminalOutput, terminalOutputs, toolTimeline, devServerUrl, browserErrors, aiPanelIntent, currentApp, selectedAppId, selectedWorkspaceInfo, chatAreaHidden]);
+    }, [effectiveType, activeTab, sources, terminalOutput, terminalOutputs, toolTimeline, devServerUrl, browserErrors, aiPanelIntent, currentApp, selectedAppId, selectedWorkspaceInfo, chatAreaHidden, planPanel.planId]);
 
     // Helper to set AI intent
     const setAIIntent = useCallback((intent: AIPanelIntent, context?: AIPanelIntentState['context']) => {

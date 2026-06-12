@@ -18,7 +18,6 @@ import { assertReadablePath } from "@/lib/security/env-secret-paths";
 import { ToolRegistry, ToolCategory } from "./registry";
 import { enrichPermissionWithBlastRadius } from "./permissions/enrich-blast-radius";
 import { isAtlarixDocWritePath } from "../project-memory";
-import { debugWriteHandlerDenied } from "../debug/debug-write-handler-gate";
 
 const logger = log.scope("edit-tools");
 
@@ -527,11 +526,6 @@ Prefer "replace" for code changes — it requires matching the existing content 
       return { error: "Edit operations not allowed in Ask mode. Switch to Build mode.", operation: "edit_file", denied: true };
     }
 
-    const debugDenied = debugWriteHandlerDenied(chatMode, _chatSessionId, rawArgs);
-    if (debugDenied) {
-      return { ...debugDenied, operation: "edit_file" };
-    }
-
     if (!filePath) return { error: "Missing required parameter: path", operation: "edit_file" };
     if (!operation) return { error: "Missing required parameter: operation", operation: "edit_file" };
 
@@ -539,7 +533,7 @@ Prefer "replace" for code changes — it requires matching the existing content 
 
     if (chatMode === "plan" && !isAtlarixPlanFile(normalizedPath)) {
       return {
-        error: "Plan mode may only edit .atlarix/atlarix.md or .atlarix/memory.md. Use write_implementation_plan for session plans. Switch to Build for application code.",
+        error: "Plan mode may only edit .atlarix/atlarix.md or .atlarix/memory.md. Use the plan tool for session plans. Switch to Build for application code.",
         operation: "edit_file",
         denied: true,
       };

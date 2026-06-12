@@ -12,7 +12,7 @@
 
 import React from 'react';
 import { useRightPanelContext } from '@/hooks/useRightPanelContext';
-import { useAtom, useAtomValue, useSetAtom } from 'jotai';
+import { useAtom, useSetAtom } from 'jotai';
 import { useSearch } from '@tanstack/react-router';
 import { rightPanelVisibleAtom, rightPanelWidthAtom, pinnedPanelAtom, rightPanelSuppressAutoOpenAtom } from '@/atoms/sourceAtoms';
 import { chatInputValueAtom } from '@/atoms/chatAtoms';
@@ -23,11 +23,8 @@ import { cn } from '@/lib/utils';
 import {
     X, Terminal, Wrench,
     Search, Eye,
-    AlertTriangle, Shield, Globe, Code2, FileText, MessageSquare, ListTree, Bot,
-} from 'lucide-react';
+    AlertTriangle, Shield, Globe, Code2, FileText, MessageSquare, ListTree, } from 'lucide-react';
 import { TerminalPanel } from './panels/TerminalPanel';
-import { ActivityPanel } from './panels/ActivityPanel';
-import { AgentsPanel } from './panels/AgentsPanel';
 import { type ParsedError } from '@/lib/devServerErrorParser';
 import { ToolCallCard, ToolStatus } from './ToolCallCard';
 import { useRef, useEffect, useState, useCallback } from 'react';
@@ -39,10 +36,9 @@ import {
 } from '@/components/ui/tooltip';
 import { type PanelType, type PanelTab } from '@/atoms/sourceAtoms';
 import { useWorkspacePlanPanel } from '@/hooks/useWorkspacePlanPanel';
-import { workspacePlanPanelAtom } from '@/atoms/sourceAtoms';
 import { PlanExecutionPanel } from '@/components/preview_panel/PlanExecutionPanel';
 import { BrowserPanel } from '@/components/browser/BrowserPanel';
-import { IpcClient } from '@/ipc/ipc_client';
+
 
 // Icon configuration for secondary tabs
 const TAB_ICONS: Record<PanelTab, { icon: React.ElementType; label: string }> = {
@@ -60,10 +56,8 @@ const TAB_ICONS: Record<PanelTab, { icon: React.ElementType; label: string }> = 
     plan: { icon: ListTree, label: 'Plan' },
     tools: { icon: Wrench, label: 'Tools' },
     debug: { icon: Terminal, label: 'Debug' },
-    activity: { icon: ListTree, label: 'Activity' },
     chat: { icon: MessageSquare, label: 'Chat' },
     browser: { icon: Globe, label: 'Browser' },
-    agents: { icon: Bot, label: 'Agents' },
 };
 
 // Primary mode categories for the toolbar
@@ -76,13 +70,13 @@ const PANEL_TYPE_TO_MODE: Record<PanelType, PrimaryMode> = {
     'terminal': 'code',
     'files': 'code',
     'tools': 'tools',
-    'plan': 'code',
     'empty': 'search',
 };
 
 export function RightPanel() {
+    // Mounts the plan-artifact listeners; the panel now renders as the 'plan'
+    // tab inside PanelContent rather than taking over the whole panel.
     useWorkspacePlanPanel();
-    const planPanel = useAtomValue(workspacePlanPanelAtom);
     const { context, setActiveTab } = useRightPanelContext();
     const [isVisible, setIsVisible] = useAtom(rightPanelVisibleAtom);
     const setSuppressRightAutoOpen = useSetAtom(rightPanelSuppressAutoOpenAtom);
@@ -206,15 +200,6 @@ Please fix these errors in priority order (structural/build errors first, then r
         };
     }, [isDragging, setWidth]);
 
-    // v12 S16: a background agent just started — surface the Agents tab so the
-    // user can watch/cancel/review it without knowing the tab exists.
-    useEffect(() => {
-        return IpcClient.getInstance().onBackgroundAgentStarted(() => {
-            setIsVisible(true);
-            setActiveTab('agents');
-        });
-    }, [setIsVisible, setActiveTab]);
-
     // Don't render if not visible
     if (!isVisible) {
         return null;
@@ -330,11 +315,7 @@ Please fix these errors in priority order (structural/build errors first, then r
 
             {/* Panel Content - scrollable */}
             <div className="flex-1 overflow-auto min-h-0">
-                {planPanel.planId ? (
-                    <PlanExecutionPanel />
-                ) : (
-                    <PanelContent context={context} onSolveWithAI={handleSolveWithAI} onSolveAllWithAI={handleSolveAllWithAI} onSwitchToCode={() => setActiveTab('code')} setActiveTab={setActiveTab} fallbackChatId={routeChatId} />
-                )}
+                <PanelContent context={context} onSolveWithAI={handleSolveWithAI} onSolveAllWithAI={handleSolveAllWithAI} onSwitchToCode={() => setActiveTab('code')} setActiveTab={setActiveTab} fallbackChatId={routeChatId} />
             </div>
         </div>
     );
@@ -368,9 +349,9 @@ function PanelContent({
         return <BrowserPanel />;
     }
 
-    // v12 2.3 background agents view
-    if (context.activeTab === 'agents') {
-        return <AgentsPanel />;
+    // v13.1: plan is a coexisting tab, not a takeover panel.
+    if (context.activeTab === 'plan') {
+        return <PlanExecutionPanel />;
     }
 
     switch (context.type) {
@@ -380,9 +361,6 @@ function PanelContent({
         case 'code-preview':
             if (context.activeTab === 'terminal') {
                 return <TerminalPanel />;
-            }
-            if (context.activeTab === 'activity') {
-                return <ActivityPanel />;
             }
             return (
                 <CodePreviewPanel
@@ -414,7 +392,6 @@ function PanelContent({
                     <ul className="text-xs mt-3 space-y-1 text-left">
                         <li><strong>Search</strong> - Web search results</li>
                         <li><strong>Code</strong> - File changes & diffs</li>
-                        <li><strong>Activity</strong> - Tool and session activity</li>
                         <li><strong>Preview</strong> - Live preview</li>
                     </ul>
                     <p className="text-xs mt-4 opacity-60">

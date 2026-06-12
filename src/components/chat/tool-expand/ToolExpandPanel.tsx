@@ -9,6 +9,7 @@ import { ToolMcpResultExpand } from "./ToolMcpResultExpand";
 import { ToolMcpAuthExpand } from "./ToolMcpAuthExpand";
 import { ToolTableExpand } from "./ToolTableExpand";
 import { ToolBrowserScreenshotExpand } from "./ToolBrowserScreenshotExpand";
+import { ToolCommandExpand } from "./ToolCommandExpand";
 import { ToolScrollableBody } from "./ToolScrollableBody";
 import { cn } from "@/lib/utils";
 
@@ -37,6 +38,7 @@ export function ToolExpandPanel({
       {view.kind === "browser_screenshot" ? (
         <ToolBrowserScreenshotExpand view={view} />
       ) : null}
+      {view.kind === "command" ? <ToolCommandExpand view={view} /> : null}
       {view.kind === "text" ? (
         <ToolScrollableBody
           text={view.body}

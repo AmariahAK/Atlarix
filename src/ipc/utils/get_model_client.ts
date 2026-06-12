@@ -482,6 +482,20 @@ async function getRegularModelClient(
         backupModelClients: [],
       };
     }
+    case "huggingface": {
+      const provider = createOpenAICompatible({
+        name: "huggingface",
+        baseURL: "https://router.huggingface.co/v1",
+        apiKey,
+      });
+      return {
+        modelClient: {
+          model: provider(model.name),
+          builtinProviderId: providerId,
+        },
+        backupModelClients: [],
+      };
+    }
     case "mistral": {
       const provider = createOpenAICompatible({
         name: "mistral",

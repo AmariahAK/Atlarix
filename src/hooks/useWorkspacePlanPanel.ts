@@ -1,7 +1,13 @@
 import { useEffect, useMemo } from "react";
-import { useAtom, useAtomValue } from "jotai";
+import { useAtom, useAtomValue, getDefaultStore } from "jotai";
 import { useSearch } from "@tanstack/react-router";
-import { workspacePlanPanelAtom, pendingProposalsAtom } from "@/atoms/sourceAtoms";
+import {
+  workspacePlanPanelAtom,
+  pendingProposalsAtom,
+  previewTabAtom,
+  rightPanelVisibleAtom,
+  rightPanelSuppressAutoOpenAtom,
+} from "@/atoms/sourceAtoms";
 import { chatMessagesByIdAtom } from "@/atoms/chatAtoms";
 import { IpcClient } from "@/ipc/ipc_client";
 import type { PlanArtifactPayload } from "@/ipc/utils/emit_plan_artifact";
@@ -102,6 +108,12 @@ export function useWorkspacePlanPanel(): void {
     const onActivated = (payload: PlanArtifactPayload) => {
       const changes = resolveChanges(messages, payload.content, proposals);
       applyPayloadToPanel(payload, setPanel, changes);
+      // v13.1: surface the Plan tab once when a session with an active plan
+      // loads; other workspace tabs stay clickable (no takeover).
+      getDefaultStore().set(previewTabAtom, "plan");
+      if (!getDefaultStore().get(rightPanelSuppressAutoOpenAtom)) {
+        getDefaultStore().set(rightPanelVisibleAtom, true);
+      }
     };
     const onUpdated = (payload: PlanArtifactPayload) => {
       setPanel((prev) => {

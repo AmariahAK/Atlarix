@@ -26,6 +26,7 @@ export const PROVIDER_TO_ENV_VAR: Record<string, string> = {
   perplexity: "PERPLEXITY_API_KEY",
   cerebras: "CEREBRAS_API_KEY",
   openrouter: "OPENROUTER_API_KEY",
+  huggingface: "HF_TOKEN",
 };
 
 export const CLOUD_PROVIDERS: Record<
@@ -34,7 +35,9 @@ export const CLOUD_PROVIDERS: Record<
     displayName: string;
     hasFreeTier?: boolean;
     websiteUrl?: string;
-    gatewayPrefix: string;
+    // Optional: providers WITHOUT a gateway prefix (e.g. Hugging Face) are not
+    // proxied by the Atlarix Pro engine, so they always use direct BYOK.
+    gatewayPrefix?: string;
     secondary?: boolean;
   }
 > = {
@@ -48,6 +51,12 @@ export const CLOUD_PROVIDERS: Record<
     hasFreeTier: true,
     websiteUrl: "https://openrouter.ai/keys",
     gatewayPrefix: "",
+  },
+  huggingface: {
+    displayName: "Hugging Face",
+    hasFreeTier: false,
+    websiteUrl: "https://huggingface.co/settings/tokens",
+    // No gatewayPrefix on purpose — HF is direct-BYOK only (not via the Pro engine).
   },
   openai: {
     displayName: "OpenAI",

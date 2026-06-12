@@ -2,6 +2,7 @@ import {
   completedStreamThreadByAssistantMessageIdAtom,
   completedTurnThinkingByAssistantMessageIdAtom,
   inlineTimelineByMessageIdAtom,
+  interleavedDisplayContentByMessageIdAtom,
 } from "@/atoms/chatAtoms";
 import {
   buildDisplaySnapshotV1,
@@ -19,6 +20,7 @@ function applySnapshotForMessage(
   completedThreads: Record<number, import("@/lib/chat/stream-thread").StreamThreadItem[]>,
   inlineTimelines: Record<number, import("@/lib/chat/inline-timeline").InlineTimelineItem[]>,
   thinking: Record<number, import("@/lib/thinking/extract-thinking-from-content").CompletedTurnThinkingSnapshot>,
+  interleaved: Record<number, string>,
 ): void {
   const thread = flattenToolGroupsInThread(
     consolidateSubagentRoundsInThread(snapshot.completedThread),
@@ -31,6 +33,9 @@ function applySnapshotForMessage(
   }
   if (snapshot.thinking) {
     thinking[messageId] = snapshot.thinking;
+  }
+  if (snapshot.interleavedContent?.trim()) {
+    interleaved[messageId] = snapshot.interleavedContent;
   }
 }
 
@@ -49,6 +54,7 @@ export function applyStreamDisplayHydration(messages: Message[]): void {
     number,
     import("@/lib/thinking/extract-thinking-from-content").CompletedTurnThinkingSnapshot
   > = {};
+  const interleaved: Record<number, string> = {};
 
   for (const m of messages) {
     if (m.role !== "assistant" || !m.displaySnapshot) continue;
@@ -58,6 +64,7 @@ export function applyStreamDisplayHydration(messages: Message[]): void {
       completedThreads,
       inlineTimelines,
       thinking,
+      interleaved,
     );
   }
 
@@ -81,6 +88,12 @@ export function applyStreamDisplayHydration(messages: Message[]): void {
         ...thinking,
       }),
     );
+  }
+  if (Object.keys(interleaved).length > 0) {
+    getDefaultStore().set(interleavedDisplayContentByMessageIdAtom, (prev) => ({
+      ...prev,
+      ...interleaved,
+    }));
   }
 }
 
@@ -120,6 +133,14 @@ export function replaceDisplayHydrationForChat(
     }
     return next;
   });
+  getDefaultStore().set(interleavedDisplayContentByMessageIdAtom, (prev) => {
+    const next = { ...prev };
+    for (const id of Object.keys(next)) {
+      const num = Number(id);
+      if (assistantIds.has(num)) delete next[num];
+    }
+    return next;
+  });
 
   applyStreamDisplayHydration(messages);
 }
@@ -130,11 +151,13 @@ export function buildDisplaySnapshotPayloadForMessage(
   completedThread: import("@/lib/chat/stream-thread").StreamThreadItem[],
   inlineTimeline?: import("@/lib/chat/inline-timeline").InlineTimelineItem[],
   thinking?: import("@/lib/thinking/extract-thinking-from-content").CompletedTurnThinkingSnapshot | null,
+  interleavedContent?: string | null,
 ): string | null {
   const snap = buildDisplaySnapshotV1({
     completedThread,
     inlineTimeline,
     thinking,
+    interleavedContent,
   });
   if (!snap) return null;
   return JSON.stringify(snap);

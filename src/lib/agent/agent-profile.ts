@@ -89,20 +89,12 @@ export interface AgentProfile {
   stripTextToolXML?(text: string): string;
 
   /**
-   * v12 0.3: post-write verification — run LSP diagnostics on the files the
-   * round wrote and return a feedback string (the ENGINE appends it as a user
-   * message so the model fixes errors before <task_complete>), or null when
-   * clean. Built by `buildPostWriteVerify` (post-write-verify.ts); attached
-   * only when `enableAutoFixProblems` is on (1.2). Unset for ask (no writes).
-   */
-  postWriteVerify?(writtenPaths: string[]): Promise<string | null>;
-
-  /**
    * v12 2.2/7B: workspace `stop` hooks ("require tests before done") — runs
    * when the model claims <task_complete>; a non-null feedback string
-   * suppresses the break (same bounded counter as postWriteVerify) and is
-   * fed back as a user message. Attached only when `.atlarix/hooks/`
-   * declares stop hooks.
+   * suppresses the break (bounded) and is fed back as a user message.
+   * Attached only when `.atlarix/hooks/` declares stop hooks. (v13.1: the
+   * post-write LSP verify that shared this counter was removed — verification
+   * is the project's own checks + tests, run via run_command.)
    */
   taskCompleteGate?(): Promise<string | null>;
 }

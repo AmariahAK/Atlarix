@@ -409,33 +409,6 @@ export async function startWorkspaceSession(workspaceId: number): Promise<{
   return { sessionId: session.id, chatId, session };
 }
 
-/**
- * v12 2.3: always create a FRESH session + bound transport (no empty-session
- * reuse) for a background agent, with its own title. Returns the ids the
- * background runner dispatches `chat:stream` against.
- */
-export async function createBackgroundWorkspaceSession(
-  workspaceId: number,
-  title: string,
-): Promise<{ sessionId: string; chatId: number }> {
-  const session = await insertWorkspaceSession(workspaceId);
-  const now = new Date();
-  await db
-    .update(chatSessions)
-    .set({
-      title: title.slice(0, 200),
-      // v12 2.3: flag the session as a background agent + mark it running so
-      // status survives a restart (hydrateBackgroundAgentsFromDb).
-      kind: "background",
-      status: "running",
-      updatedAt: now,
-    })
-    .where(eq(chatSessions.id, session.id));
-  const chatId = createStreamTransport(workspaceId);
-  await persistSessionStreamChatId(session.id, chatId);
-  return { sessionId: session.id, chatId };
-}
-
 async function insertWorkspaceSession(
   workspaceId: number,
 ): Promise<ChatSessionRow> {

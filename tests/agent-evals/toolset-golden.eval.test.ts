@@ -39,41 +39,26 @@ function offeredToolNames(scenarioId: string): string[] {
 }
 
 // Workspace turns, strong (default) model — the full surface per mode.
+// v13: opencode-minimal surface — 22 registered tools total.
 const GOLDEN = {
   ask: [
     "ask_user", "browser_navigate", "browser_read_page", "browser_screenshot",
-    "call_webmcp_tool", "compress_context", "deep_research",
-    "delegate_to_agent", "explore_folder", "find_file", "get_active_skills",
-    "get_blueprint", "get_file_outline", "get_project_history",
-    "get_project_structure", "get_repo_overview", "list_attachments",
-    "list_available_mcps", "list_files", "list_installed_skills",
-    "list_webmcp_tools", "mcp_call", "memory", "read_attachment", "read_file",
-    "read_url", "run_command", "search", "spawn_sub_agent", "task",
-    "web_search",
+    "compress_context", "get_blueprint", "glob", "grep", "list_attachments",
+    "list_available_mcps", "mcp_call", "read_attachment", "read_file",
+    "read_url", "run_command", "task", "web_search",
   ],
   plan: [
     "ask_user", "browser_navigate", "browser_read_page", "browser_screenshot",
-    "call_webmcp_tool", "compress_context", "deep_research", "explore_folder",
-    "find_file", "get_active_skills", "get_blueprint", "get_file_outline",
-    "get_plan_scope", "get_project_history", "get_project_structure",
-    "get_repo_overview", "list_attachments", "list_available_mcps",
-    "list_files", "list_installed_skills", "list_webmcp_tools", "mcp_call",
-    "memory", "read_attachment", "read_file", "read_implementation_plan",
-    "search", "update_plan_status", "update_plan_step",
-    "web_search", "write_implementation_plan",
+    "compress_context", "get_blueprint", "glob", "grep", "list_attachments",
+    "list_available_mcps", "mcp_call", "plan", "read_attachment", "read_file",
+    "read_url", "task", "web_search",
   ],
   build: [
-    "ask_user", "check_environment", "close_terminal_instance",
-    "compress_context", "create_workspace", "deep_research", "diagnose_issue",
-    "edit_file", "explore_folder", "find_file", "get_active_skills",
-    "get_blueprint", "get_file_outline", "get_project_structure",
-    "get_repo_overview", "list_attachments", "list_available_mcps",
-    "list_files", "list_installed_skills", "list_terminal_instances",
-    "list_workspaces", "lsp_diagnostics", "mcp_call",
-    "open_terminal_instance", "read_attachment", "read_file",
-    "read_terminal_instance", "read_url", "rename_file", "request_tools",
-    "run_command", "run_tests", "search", "stream_terminal_output",
-    "switch_workspace", "web_search", "write_file", "write_multiple_files",
+    "ask_user", "browser_click", "browser_fill", "browser_navigate",
+    "browser_read_page", "browser_screenshot", "compress_context", "edit_file",
+    "get_blueprint", "glob", "grep", "list_attachments", "list_available_mcps",
+    "mcp_call", "plan", "read_attachment", "read_file", "read_url",
+    "run_command", "task", "web_search", "write_file",
   ],
 } as const;
 

@@ -12,6 +12,7 @@ import path from "node:path";
 import { exec as gitExec } from "@/ipc/utils/system_git_exec";
 import {
   captureSnapshot,
+  listSnapshotFiles,
   revertSnapshot,
   revertSnapshotFiles,
   snapshotExists,
@@ -125,6 +126,27 @@ describeWithGit("shadow-git snapshots", () => {
 
     await revertSnapshot({ workspacePath: workspace, turnId: "turn:4" });
     expect(await read("brand-new.ts")).toBeNull();
+  });
+
+  it("listSnapshotFiles reports changed + created files, null for unknown turns", async () => {
+    await write("kept.ts", "orig");
+    await captureSnapshot({
+      workspacePath: workspace,
+      turnId: "turn:files",
+      relativePaths: ["kept.ts", "new.ts"], // new.ts does not exist pre-write
+    });
+    await write("kept.ts", "changed");
+    await write("new.ts", "created");
+
+    const listed = await listSnapshotFiles(workspace, "turn:files");
+    expect(listed).not.toBeNull();
+    expect(listed!.filesChanged).toEqual(
+      expect.arrayContaining(["kept.ts", "new.ts"]),
+    );
+    expect(listed!.createdFiles).toContain("new.ts");
+    expect(listed!.createdFiles).not.toContain("kept.ts");
+
+    expect(await listSnapshotFiles(workspace, "turn:nope")).toBeNull();
   });
 
   it("snapshotExists answers for shadow turns and unknown turns", async () => {

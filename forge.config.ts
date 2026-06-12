@@ -265,9 +265,6 @@ const ignore = (file: string) => {
   if (file.startsWith("/drizzle")) {
     return true;
   }
-  if (file.startsWith("/scaffold")) {
-    return !isEndToEndTestBuild;
-  }
   if (file.endsWith(".map")) {
     return true;
   }
@@ -576,10 +573,6 @@ const config: ForgeConfig = {
       const keepRoots = new Set<string>([
         ...toInstall,
         ...AST_GREP_RUNTIME_PACKAGES,
-        // Spawned (not imported) language-server binaries — never appear in
-        // rollup externals but must exist in node_modules/.bin at runtime.
-        "typescript-language-server",
-        "vscode-langservers-extracted",
       ]);
       for (const name of toInstall) {
         if (!fullDeps[name]) {
@@ -657,18 +650,6 @@ const config: ForgeConfig = {
           force: true,
         });
       }
-      // v11: vscode-langservers-extracted declares typescript (~64MB nested)
-      // but none of its webpack-bundled servers require it at runtime — strip.
-      // The html/css/json servers Atlarix spawns live in lib/ (<1MB total).
-      await fs.rm(
-        path.join(
-          buildPath,
-          "node_modules",
-          "vscode-langservers-extracted",
-          "node_modules",
-        ),
-        { recursive: true, force: true },
-      );
       await fs.rm(path.join(buildPath, "node_modules", "@playwright"), {
         recursive: true,
         force: true,
@@ -680,25 +661,14 @@ const config: ForgeConfig = {
 
       await installAstGrepRuntimePackages(buildPath, platform, arch);
       // The ast-grep install reconciles the (slimmed) package.json, which can
-      // resurrect deny-listed transitives — e.g. typescript (23MB) via
-      // typescript-language-server. Re-run the deny sweep AFTER the last
-      // install so nothing banned ships. (TS LSP resolves the workspace's own
-      // typescript at runtime — same behavior as every release to date.)
+      // resurrect deny-listed transitives — e.g. typescript (23MB). Re-run the
+      // deny sweep AFTER the last install so nothing banned ships.
       for (const pkg of RELEASE_DENY_PACKAGES) {
         await fs.rm(path.join(buildPath, "node_modules", pkg), {
           recursive: true,
           force: true,
         });
       }
-      await fs.rm(
-        path.join(
-          buildPath,
-          "node_modules",
-          "vscode-langservers-extracted",
-          "node_modules",
-        ),
-        { recursive: true, force: true },
-      );
       await stageAstGrepGrammarsForExtraResource(buildPath, platform, arch);
 
       const bindingPkg = astGrepNativeBindingPackage(platform, arch);
@@ -745,13 +715,6 @@ const config: ForgeConfig = {
         },
         {
           entry: "src/preload.ts",
-          config: "vite.preload.config.mts",
-          target: "preload",
-        },
-        {
-          // v11: dedicated preload for the in-app browser WebContentsView
-          // (WebMCP shim + execute relay; never the app preload).
-          entry: "src/preload-browser.ts",
           config: "vite.preload.config.mts",
           target: "preload",
         },

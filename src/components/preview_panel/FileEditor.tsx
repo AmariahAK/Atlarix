@@ -20,12 +20,7 @@ import {
   isTextMateGrammarsReady,
   languageUsesTextMate,
 } from "@/lib/monaco/init-textmate";
-import { isLspLanguageSupported } from "@/lib/lsp/lsp-supported-languages";
 import * as monaco from "monaco-editor";
-import {
-  applyLspMarkersToModel,
-  type LspDiagnosticPayload,
-} from "@/lib/lsp/lsp-monaco-markers";
 import { applyPreviewMarkersToModel } from "@/lib/monaco/preview-error-markers";
 import type { ParsedError } from "@/lib/devServerErrorParser";
 
@@ -124,64 +119,7 @@ export const FileEditor = ({
   const isSavingRef = useRef<boolean>(false);
   const needsSaveRef = useRef<boolean>(false);
   const currentValueRef = useRef<string | undefined>(undefined);
-  const absFilePathRef = useRef<string | null>(null);
-  const lspChangeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const lspDocVersionRef = useRef(0);
-
   const queryClient = useQueryClient();
-
-  const applyDiagnostics = useCallback((diagnostics: LspDiagnosticPayload[]) => {
-    const model = editorRef.current?.getModel();
-    if (!model) return;
-    applyLspMarkersToModel(model, diagnostics);
-  }, []);
-
-  useEffect(() => {
-    if (!appId || content === null) return;
-    if (!isLspLanguageSupported(editorLanguage)) return;
-
-    const ipc = IpcClient.getInstance();
-    let cancelled = false;
-
-    void (async () => {
-      await ipc.lspSubscribe(appId);
-      if (cancelled || content === null) return;
-      const opened = await ipc.lspOpenDocument({
-        appId,
-        filePath,
-        content,
-      });
-      if (!cancelled && opened.success && opened.filePath) {
-        absFilePathRef.current = opened.filePath;
-      }
-    })();
-
-    const removeListener = ipc.onLspDiagnostics((payload) => {
-      if (
-        absFilePathRef.current &&
-        payload.filePath !== absFilePathRef.current
-      ) {
-        return;
-      }
-      applyDiagnostics(payload.diagnostics);
-    });
-
-    return () => {
-      cancelled = true;
-      removeListener();
-      if (lspChangeTimerRef.current) {
-        clearTimeout(lspChangeTimerRef.current);
-      }
-      void ipc.lspClose({ appId, filePath });
-      void ipc.lspUnsubscribe();
-      absFilePathRef.current = null;
-      const model = editorRef.current?.getModel();
-      if (model) {
-        applyLspMarkersToModel(model, []);
-        applyPreviewMarkersToModel(model, [], filePath);
-      }
-    };
-  }, [appId, filePath, content, applyDiagnostics, editorLanguage]);
 
   // Update state when content loads
   useEffect(() => {
@@ -238,7 +176,14 @@ export const FileEditor = ({
 
   useEffect(() => {
     applyPreviewDiagnostics();
-  }, [applyPreviewDiagnostics, value]);
+    // v13.1: clear preview (dev-server) markers when switching files so they
+    // don't leak across the shared Monaco model. (This reset previously lived
+    // in the deleted LSP effect's cleanup.)
+    return () => {
+      const model = editorRef.current?.getModel();
+      if (model) applyPreviewMarkersToModel(model, [], filePath);
+    };
+  }, [applyPreviewDiagnostics, value, filePath]);
 
   // Sync the UI with the needsSave ref
   useEffect(() => {
@@ -280,21 +225,6 @@ export const FileEditor = ({
     const hasChanged = newValue !== originalValueRef.current;
     needsSaveRef.current = hasChanged;
     setDisplayUnsavedChanges(hasChanged);
-
-    if (!appId || newValue === undefined || !isLspLanguageSupported(editorLanguage))
-      return;
-    if (lspChangeTimerRef.current) {
-      clearTimeout(lspChangeTimerRef.current);
-    }
-    lspChangeTimerRef.current = setTimeout(() => {
-      lspDocVersionRef.current += 1;
-      void IpcClient.getInstance().lspChange({
-        appId,
-        filePath,
-        content: newValue,
-        version: lspDocVersionRef.current,
-      });
-    }, 300);
   };
 
   // Save the file

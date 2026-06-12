@@ -28,7 +28,7 @@ describe("run_command preview limits", () => {
     };
     expect(res.__permission_required).toBe(true);
     expect(res.preview?.timeout_ms).toBe(1_800_000);
-    expect(res.preview?.max_output_bytes).toBe(300_000);
+    expect(res.preview?.max_output_bytes).toBe(1_000_000);
   });
 });
 

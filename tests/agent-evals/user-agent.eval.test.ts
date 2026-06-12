@@ -21,7 +21,7 @@ beforeAll(async () => {
     `---
 description: Cautious reviewer
 mode: ask
-tools: [read_file, search]
+tools: [read_file, grep]
 ---
 You are AGENT-REVIEWER-SENTINEL. Review only; never propose writes.`,
   );
@@ -68,7 +68,7 @@ describe("user-defined agents (7A)", () => {
 
     // Tool allowlist intersection: ONLY the agent's two tools (∩ ask surface).
     const tools = offeredToolNames(first).sort();
-    expect(tools).toEqual(["read_file", "search"]);
+    expect(tools).toEqual(["grep", "read_file"]);
     // The agent's base mode (ask) means write tools are out regardless.
     expect(tools).not.toContain("write_file");
   });

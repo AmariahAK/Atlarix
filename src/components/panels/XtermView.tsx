@@ -141,13 +141,16 @@ function getOrCreateTerm(instanceId: string): CachedTerm {
     term.write(`\r\n\x1b[90m[shell exited (${payload.exitCode})]\x1b[0m\r\n`);
   });
 
-  // Restore last session's scrollback (best-effort) before the new shell's prompt.
+  // Restore last session's scrollback (best-effort) before the new shell's
+  // prompt. v13: a dim separator instead of the old "[restored scrollback…]"
+  // sentence — tab switches reattach silently from the in-memory cache, so
+  // this only appears once per app restart.
   const restorePromise = ipc
     .loadPtyScrollback(instanceId)
     .then((saved) => {
       if (!saved) return;
       term.write(saved);
-      term.write("\r\n\x1b[90m[restored scrollback — new shell below]\x1b[0m\r\n");
+      term.write("\r\n\x1b[2m────────\x1b[0m\r\n");
     })
     .catch(() => {});
 

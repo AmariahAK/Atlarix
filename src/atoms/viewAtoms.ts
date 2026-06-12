@@ -8,6 +8,14 @@ export const activeSettingsSectionAtom = atom<string | null>(
   "general-settings",
 );
 
+/**
+ * One-shot deep-link target: set to a settings section id (e.g. "ai", "mcp")
+ * right before navigating to /settings, then consumed + scrolled-to once on the
+ * SettingsPage mount. Distinct from activeSettingsSectionAtom (which is the
+ * scroll-position-driven highlight) so a normal settings open never re-jumps.
+ */
+export const pendingSettingsScrollAtom = atom<string | null>(null);
+
 /** Extension IDs currently added to the left panel (max 5). */
 export const activeExtensionIdsAtom = atom<string[]>([]);
 /** Currently selected extension tab in the left panel. */

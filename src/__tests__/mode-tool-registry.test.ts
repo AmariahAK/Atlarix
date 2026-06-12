@@ -15,7 +15,6 @@ describe("mode-tool-registry", () => {
     expect(block).not.toMatch(/\bwrite_file\b/);
     expect(block).toContain('<tools_registry mode="ask" label="Explore">');
     expect(block).toContain("Workspace chat:");
-    expect(block).toContain("Progressive reveal");
   });
 
   it("filterToolsForActiveMode excludes plan-only tools when mode is ask", () => {
@@ -34,16 +33,14 @@ describe("mode-tool-registry", () => {
   });
 
   it("union of plan+debug tools is not all allowed in ask", () => {
-    expect(isToolAllowedInMode("write_implementation_plan", "plan")).toBe(true);
-    expect(isToolAllowedInMode("write_implementation_plan", "ask")).toBe(false);
+    expect(isToolAllowedInMode("plan", "plan")).toBe(true);
+    expect(isToolAllowedInMode("plan", "ask")).toBe(false);
     expect(isToolAllowedInMode("write_file", "debug")).toBe(true);
     expect(isToolAllowedInMode("write_file", "ask")).toBe(false);
   });
 
-  it("ask allowlist includes delegation tools but not cross-mode registry lookup", () => {
+  it("ask allowlist includes the task sub-agent tool but not cross-mode registry lookup", () => {
     const ask = getModeToolAllowlist("ask");
-    expect(ask).toContain("delegate_to_agent");
-    expect(ask).toContain("spawn_sub_agent");
     expect(ask).toContain("task");
     expect(ask).not.toContain("get_mode_tool_registry");
   });
@@ -54,8 +51,7 @@ describe("mode-tool-registry", () => {
     expect(isToolAllowedInMode("edit_file", "plan")).toBe(false);
     expect(isToolAllowedInMode("run_command", "plan")).toBe(false);
     // Must still be able to author the plan + read the workspace.
-    expect(isToolAllowedInMode("write_implementation_plan", "plan")).toBe(true);
-    expect(isToolAllowedInMode("update_plan_step", "plan")).toBe(true);
+    expect(isToolAllowedInMode("plan", "plan")).toBe(true);
     expect(isToolAllowedInMode("read_file", "plan")).toBe(true);
     // And the advertised system tool list must not name them.
     expect(MODE_SYSTEM_TOOL_LISTS.plan).not.toContain("write_file");

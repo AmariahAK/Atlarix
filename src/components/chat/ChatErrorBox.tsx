@@ -8,15 +8,12 @@ import {
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { getDefaultStore } from "jotai";
-import { activeSettingsSectionAtom } from "@/atoms/viewAtoms";
-import { router } from "@/router";
+import { openSettingsSection } from "@/lib/open-settings-section";
 import { AI_STREAMING_ERROR_MESSAGE_PREFIX } from "@/shared/texts";
 
 /** Open Settings → AI so the user can switch provider / model or add an API key. */
 function openAiSettings() {
-  getDefaultStore().set(activeSettingsSectionAtom, "ai");
-  void router.navigate({ to: "/settings" });
+  openSettingsSection("ai");
 }
 
 /** Stable phrases emitted by the Compass token-pool guard (see compass_constants.ts). */

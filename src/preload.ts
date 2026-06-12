@@ -31,6 +31,7 @@ const validInvokeChannels = [
   "autonomous:accept-all",
   "revert:snapshot",
   "snapshot:exists",
+  "snapshot:files",
   "stream:open",                  // v3.9: open terminal/pipeline stream
   "stream:close",                 // v3.9: close stream
   "stream:get-lines",             // v3.9: get collected lines
@@ -56,14 +57,9 @@ const validInvokeChannels = [
   "messages:save-display-snapshot",
   "session-messages:save-display-snapshot",
   "chat:set-display-snapshot",
-  "create-app",
   "copy-app",
   "get-chat",
   "agents:list",
-  "agents:background:start",
-  "agents:background:list",
-  "agents:background:resolve",
-  "agents:background:cancel",
   "get-chat-logs",
   "list-apps",
   "get-app",
@@ -135,11 +131,6 @@ const validInvokeChannels = [
   "window:maximize",
   "window:close",
   "get-system-platform",
-  "system:get-hardware-profile",
-  "ollama:get-recommendations",
-  "ollama:llm-checker-available",
-  "ollama:pull-model",
-  "ollama:remove-model",
   "upload-to-signed-url",
   "start-chat-stream",
   "does-release-note-exist",
@@ -160,8 +151,6 @@ const validInvokeChannels = [
   "open-ios",
   "open-android",
   "restart-atlarix",
-  "get-templates",
-  "list-templates",
   "portal:migrate-create",
   // MCP
   "mcp:list-servers",
@@ -311,11 +300,6 @@ const validInvokeChannels = [
   "browser:set-visible",
   // File operations (Live Code Editor)
   "file:read-content",
-  "lsp:subscribe",
-  "lsp:unsubscribe",
-  "lsp:openDocument",
-  "lsp:change",
-  "lsp:close",
   "file:write-content",
   "file:get-stats",
   // Auth (OAuth Sign-In)
@@ -390,7 +374,6 @@ const validReceiveChannels = [
   "force-close-detected",
   "db-ready",                  // Main: DB initialized, renderer can show app
   "apps:status-changed",       // Main: workspace folder presence changed (focus refresh)
-  "agents:background:started", // v12 S16: auto-surface the Agents tab
   // Help bot
   "help:chat:response:chunk",
   "help:chat:response:end",
@@ -442,7 +425,6 @@ const validReceiveChannels = [
   "plan:artifact-activated",
   "plan:artifact-updated",
   "plan:file-updated",
-  "lsp:diagnostics",
   "browser:state-changed", // v11 in-app browser: main → renderer tab/nav state
   "autonomous:session-complete",
   "chat:auto-self-correct", // main → renderer: synthetic fix prompt inserted; continue stream

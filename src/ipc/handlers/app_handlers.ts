@@ -7,11 +7,10 @@ import {
   sessionMessages,
   dailyLogs,
 } from "../../db/schema";
-import { startWorkspaceSession } from "./workspace_session_handlers";
+
 import { desc, eq, like } from "drizzle-orm";
 import type {
   App,
-  CreateAppParams,
   RenameBranchParams,
   CopyAppParams,
   EditAppFileReturnType,
@@ -53,7 +52,6 @@ import { createLoggedHandler } from "./safe_handle";
 import { getLanguageModelProviders } from "../shared/language_model_helpers";
 import { startProxy } from "../utils/start_proxy_server";
 import { Worker } from "worker_threads";
-import { createFromTemplate } from "./createFromTemplate";
 import {
   gitCommit,
   gitAdd,
@@ -585,47 +583,6 @@ export function registerAppHandlers() {
     app.relaunch();
     app.quit();
   });
-
-  handle(
-    "create-app",
-    async (
-      _,
-      params: CreateAppParams,
-    ): Promise<{ app: any; chatId: number }> => {
-      // Prefer targetPath (absolute) so the app lives at project root; atlarix-apps is legacy fallback only.
-      // When targetPath is set and absolute, create there and store it. Otherwise use ~/Documents/Atlarix/{name} (no longer atlarix-apps).
-      const defaultBase = path.join(os.homedir(), "Documents", "Atlarix");
-      const useTargetPath = params.targetPath && path.isAbsolute(params.targetPath);
-      const fullAppPath = useTargetPath
-        ? path.resolve(params.targetPath!)
-        : path.join(defaultBase, params.name);
-      const storedPath = fullAppPath; // Always store absolute path for new apps
-      if (fs.existsSync(fullAppPath)) {
-        throw new Error(`App already exists at: ${fullAppPath}`);
-      }
-      // Create a new app
-      const [app] = await db
-        .insert(apps)
-        .values({
-          name: params.name,
-          path: storedPath,
-        })
-        .returning();
-
-      const { chatId } = await startWorkspaceSession(app.id);
-
-      await createFromTemplate({
-        fullAppPath,
-      });
-
-      await gitCommit({
-        path: fullAppPath,
-        message: "Init Atlarix app",
-      });
-
-      return { app, chatId };
-    },
-  );
 
   handle(
     "copy-app",

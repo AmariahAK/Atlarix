@@ -108,16 +108,54 @@ export async function migrateLegacyAtlarixFiles(workspacePath: string): Promise<
   await safeRenameToOld(legacySpecPath);
 }
 
+/** Clamp injected content to the prompt budget (shared by all readers). */
+function capInject(content: string): string {
+  if (content.length > MAX_INJECT_CHARS) {
+    return content.slice(0, MAX_INJECT_CHARS) + "\n\n...(truncated)";
+  }
+  return content;
+}
+
 export async function readAtlarixMd(workspacePath: string): Promise<string | null> {
   if (!workspacePath) return null;
   await migrateLegacyAtlarixFiles(workspacePath);
 
   const content = await safeRead(getAtlarixMdPath(workspacePath));
-  if (!content) return null;
-  if (content.length > MAX_INJECT_CHARS) {
-    return content.slice(0, MAX_INJECT_CHARS) + "\n\n...(truncated)";
-  }
-  return content;
+  return content ? capInject(content) : null;
+}
+
+/** v13: memory.md is auto-injected (the `memory` tool family was removed). */
+export async function readMemoryMd(workspacePath: string): Promise<string | null> {
+  if (!workspacePath) return null;
+  const content = await safeRead(getMemoryMdPath(workspacePath));
+  return content ? capInject(content) : null;
+}
+
+/** Where the project instructions came from (drives the injected heading). */
+export type ProjectInstructionsSource = "atlarix" | "agents" | "claude";
+
+/**
+ * v13.1: project-instruction interop. Prefer `.atlarix/atlarix.md` (canonical,
+ * with legacy migration); when it's absent/empty, fall back to a repo's
+ * `AGENTS.md` (the cross-agent standard) then `CLAUDE.md` so Atlarix is
+ * drop-in friendly on repos already configured for other agents. Read-only —
+ * never copies the fallback into `.atlarix/`.
+ */
+export async function readProjectInstructions(
+  workspacePath: string,
+): Promise<{ content: string; source: ProjectInstructionsSource } | null> {
+  if (!workspacePath) return null;
+
+  const atlarix = await readAtlarixMd(workspacePath);
+  if (atlarix) return { content: atlarix, source: "atlarix" };
+
+  const agents = await safeRead(path.join(workspacePath, "AGENTS.md"));
+  if (agents) return { content: capInject(agents), source: "agents" };
+
+  const claude = await safeRead(path.join(workspacePath, "CLAUDE.md"));
+  if (claude) return { content: capInject(claude), source: "claude" };
+
+  return null;
 }
 
 export type MemoryMdStat = {

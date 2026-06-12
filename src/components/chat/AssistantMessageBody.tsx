@@ -5,6 +5,7 @@ import {
   completedStreamThreadByAssistantMessageIdAtom,
   completedTurnThinkingByAssistantMessageIdAtom,
   inlineTimelineByMessageIdAtom,
+  interleavedDisplayContentByMessageIdAtom,
   selectedChatIdAtom,
   sourcesByAssistantMessageIdAtom,
   streamThreadByChatIdAtom,
@@ -52,6 +53,8 @@ import {
   type SubAgentRunEntry,
 } from "@/lib/chat/stream-thread";
 import { isToolExpandable as isToolExpandViewExpandable } from "@/lib/chat/tool-expand-view";
+import { groupPaginatableRuns } from "@/lib/chat/paginate-tool-runs";
+import { PaginatedToolCards } from "./PaginatedToolCards";
 import { CollapsedScrollSection } from "./CollapsedScrollSection";
 import { SubAgentCard } from "./subagent/SubAgentCard";
 import { SubAgentsRoundPanel } from "./subagent/SubAgentsRoundPanel";
@@ -89,18 +92,30 @@ export function AssistantMessageBody({
   );
   const sourcesByMessage = useAtomValue(sourcesByAssistantMessageIdAtom);
   const activityItems = useAtomValue(activityStreamItemsAtom);
+  const interleavedDisplayContentByMessage = useAtomValue(
+    interleavedDisplayContentByMessageIdAtom,
+  );
+
+  // Persisted `content` is `<think>`-stripped (for model re-ingestion), which
+  // collapses thought order on reload. When an ordered display copy exists for
+  // a completed message, render from THAT so the frozen view interleaves like
+  // streaming. During streaming, `content` already carries the live tags.
+  const effectiveContent = useMemo(() => {
+    if (isStreaming || assistantMessageId == null) return content;
+    return interleavedDisplayContentByMessage[assistantMessageId] ?? content;
+  }, [isStreaming, assistantMessageId, interleavedDisplayContentByMessage, content]);
 
   const parts = useMemo(
-    () => parseAssistantMessageParts(content, isStreaming),
-    [content, isStreaming],
+    () => parseAssistantMessageParts(effectiveContent, isStreaming),
+    [effectiveContent, isStreaming],
   );
 
   const trailingAnswer = useMemo(() => {
-    const raw = extractVisibleAnswerMarkdown(content);
+    const raw = extractVisibleAnswerMarkdown(effectiveContent);
     const sanitized = sanitizeMarkdownForDisplay(raw);
     if (!sanitized || isOnlyToolDebris(sanitized)) return "";
     return sanitized;
-  }, [content]);
+  }, [effectiveContent]);
 
   const hasMarkdownPart = useMemo(
     () => parts.some((p) => p.type === "markdown"),
@@ -109,8 +124,8 @@ export function AssistantMessageBody({
 
   const isStructured = useMemo(
     () =>
-      /<think>|<atlarix-(?:mcp-)?tool-(?:call|result)/i.test(content),
-    [content],
+      /<think>|<atlarix-(?:mcp-)?tool-(?:call|result)/i.test(effectiveContent),
+    [effectiveContent],
   );
 
   const liveThread = useMemo(() => {
@@ -354,18 +369,15 @@ export function AssistantMessageBody({
             isStreaming={false}
           />
         ) : null}
-        {interleavedBefore.map((part, index) => (
-          <AssistantMessagePartView
-            key={partKey(part, index)}
-            part={part}
-            isStreaming={isStreaming}
-            chatId={chatId}
-            citationSources={citationSources}
-            suppressDelegateTools={suppressDelegateTools}
-            onPlanArtifactBuild={onPlanArtifactBuild}
-            planArtifactBuildDisabled={planArtifactBuildDisabled}
-          />
-        ))}
+        <PaginatedPartList
+          parts={interleavedBefore}
+          isStreaming={isStreaming}
+          chatId={chatId}
+          citationSources={citationSources}
+          suppressDelegateTools={suppressDelegateTools}
+          onPlanArtifactBuild={onPlanArtifactBuild}
+          planArtifactBuildDisabled={planArtifactBuildDisabled}
+        />
         {inlineSubagentRound ? (
           <SubAgentsRoundPanel
             agents={inlineSubagentRound.agents}
@@ -373,18 +385,15 @@ export function AssistantMessageBody({
             isStreaming={isStreaming}
           />
         ) : null}
-        {interleavedAfter.map((part, index) => (
-          <AssistantMessagePartView
-            key={partKey(part, index)}
-            part={part}
-            isStreaming={isStreaming}
-            chatId={chatId}
-            citationSources={citationSources}
-            suppressDelegateTools={suppressDelegateTools}
-            onPlanArtifactBuild={onPlanArtifactBuild}
-            planArtifactBuildDisabled={planArtifactBuildDisabled}
-          />
-        ))}
+        <PaginatedPartList
+          parts={interleavedAfter}
+          isStreaming={isStreaming}
+          chatId={chatId}
+          citationSources={citationSources}
+          suppressDelegateTools={suppressDelegateTools}
+          onPlanArtifactBuild={onPlanArtifactBuild}
+          planArtifactBuildDisabled={planArtifactBuildDisabled}
+        />
         {ipcTailWhileStreaming.map((item) => (
           <StreamThreadItemView
             key={`tail-${threadItemKey(item)}`}
@@ -395,16 +404,14 @@ export function AssistantMessageBody({
             planArtifactBuildDisabled={planArtifactBuildDisabled}
           />
         ))}
-        {postStreamThreadTail.map((item) => (
-          <StreamThreadItemView
-            key={`completed-tail-${threadItemKey(item)}`}
-            item={item}
-            isStreaming={false}
-            chatId={chatId}
-            onPlanArtifactBuild={onPlanArtifactBuild}
-            planArtifactBuildDisabled={planArtifactBuildDisabled}
-          />
-        ))}
+        <PaginatedThreadList
+          items={postStreamThreadTail}
+          keyPrefix="completed-tail"
+          isStreaming={false}
+          chatId={chatId}
+          onPlanArtifactBuild={onPlanArtifactBuild}
+          planArtifactBuildDisabled={planArtifactBuildDisabled}
+        />
         {postStreamSubagentItems.map((item) => (
           <StreamThreadItemView
             key={`subagent-${threadItemKey(item)}`}
@@ -455,28 +462,23 @@ export function AssistantMessageBody({
             />
           ))
         : null}
-      {displayParts.map((part, index) => (
-        <AssistantMessagePartView
-          key={partKey(part, index)}
-          part={part}
-          isStreaming={isStreaming}
-          chatId={chatId}
-          citationSources={citationSources}
-          suppressDelegateTools={suppressDelegateTools}
-          onPlanArtifactBuild={onPlanArtifactBuild}
-          planArtifactBuildDisabled={planArtifactBuildDisabled}
-        />
-      ))}
-      {postStreamThreadTail.map((item) => (
-        <StreamThreadItemView
-          key={`legacy-tail-${threadItemKey(item)}`}
-          item={item}
-          isStreaming={false}
-          chatId={chatId}
-          onPlanArtifactBuild={onPlanArtifactBuild}
-          planArtifactBuildDisabled={planArtifactBuildDisabled}
-        />
-      ))}
+      <PaginatedPartList
+        parts={displayParts}
+        isStreaming={isStreaming}
+        chatId={chatId}
+        citationSources={citationSources}
+        suppressDelegateTools={suppressDelegateTools}
+        onPlanArtifactBuild={onPlanArtifactBuild}
+        planArtifactBuildDisabled={planArtifactBuildDisabled}
+      />
+      <PaginatedThreadList
+        items={postStreamThreadTail}
+        keyPrefix="legacy-tail"
+        isStreaming={false}
+        chatId={chatId}
+        onPlanArtifactBuild={onPlanArtifactBuild}
+        planArtifactBuildDisabled={planArtifactBuildDisabled}
+      />
       {showTrailingAnswer ? (
         <AtlarixMarkdownSegment content={trailingAnswer} isStreaming={isStreaming} />
       ) : null}
@@ -673,6 +675,94 @@ function partKey(part: AssistantMessagePart, index: number): string {
   if (part.type === "tool") return `tool-${part.id}-${index}`;
   if (part.type === "thought") return `thought-${index}`;
   return `md-${index}`;
+}
+
+type PartRenderProps = {
+  isStreaming: boolean;
+  chatId: number | null | undefined;
+  citationSources?: SourceItem[];
+  suppressDelegateTools?: boolean;
+  onPlanArtifactBuild?: (planId: string) => void;
+  planArtifactBuildDisabled?: boolean;
+};
+
+/** Render a parts list, paginating long runs of consecutive command/file cards. */
+function PaginatedPartList({
+  parts,
+  ...props
+}: { parts: AssistantMessagePart[] } & PartRenderProps) {
+  const groups = groupPaginatableRuns(parts, (p) =>
+    p.type === "tool" ? p.toolName : null,
+  );
+  return (
+    <>
+      {groups.map((g, gi) =>
+        g.type === "single" ? (
+          <AssistantMessagePartView
+            key={partKey(g.item, gi)}
+            part={g.item}
+            {...props}
+          />
+        ) : (
+          <PaginatedToolCards
+            key={`part-run-${gi}`}
+            label="steps"
+            cards={g.items.map((p, pi) => (
+              <AssistantMessagePartView
+                key={partKey(p, pi)}
+                part={p}
+                {...props}
+              />
+            ))}
+          />
+        ),
+      )}
+    </>
+  );
+}
+
+type ThreadRenderProps = {
+  isStreaming: boolean;
+  chatId: number | null | undefined;
+  keyPrefix: string;
+  onPlanArtifactBuild?: (planId: string) => void;
+  planArtifactBuildDisabled?: boolean;
+};
+
+/** Render a thread-item list, paginating long runs of consecutive command/file cards. */
+function PaginatedThreadList({
+  items,
+  keyPrefix,
+  ...props
+}: { items: StreamThreadItem[] } & ThreadRenderProps) {
+  const groups = groupPaginatableRuns(items, (i) =>
+    i.kind === "tool" ? i.toolName : null,
+  );
+  return (
+    <>
+      {groups.map((g, gi) =>
+        g.type === "single" ? (
+          <StreamThreadItemView
+            key={`${keyPrefix}-${threadItemKey(g.item)}`}
+            item={g.item}
+            {...props}
+          />
+        ) : (
+          <PaginatedToolCards
+            key={`${keyPrefix}-run-${gi}`}
+            label="steps"
+            cards={g.items.map((i) => (
+              <StreamThreadItemView
+                key={`${keyPrefix}-${threadItemKey(i)}`}
+                item={i}
+                {...props}
+              />
+            ))}
+          />
+        ),
+      )}
+    </>
+  );
 }
 
 function AssistantMessagePartView({

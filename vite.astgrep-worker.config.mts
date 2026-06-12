@@ -10,6 +10,13 @@ export default defineConfig({
       "@": path.resolve(__dirname, "./src"),
     },
   },
+  // Bundle electron-log INTO the worker (ssr would otherwise externalize it,
+  // and it then gets pruned from the package → "Cannot find module" when the
+  // worker spawns). Bundling avoids any install/prune dependency. @ast-grep/napi
+  // stays external (native module, cannot be bundled).
+  ssr: {
+    noExternal: ["electron-log"],
+  },
   build: {
     outDir: MAIN_OUT_DIR,
     emptyOutDir: false,

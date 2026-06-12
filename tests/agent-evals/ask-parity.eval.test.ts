@@ -95,7 +95,7 @@ describe("ask parity baselines", () => {
     expect(lastAssistant?.content).toContain("habari");
   });
 
-  it("plan workMode: plan-write tools are offered (v12 0.1 close-out fix)", async () => {
+  it("plan workMode: the plan tool is offered (v12 0.1 close-out fix)", async () => {
     ctx.server.register(
       scenario("ask-plan-surface")
         .text("Here is my plan outline in prose.")
@@ -125,19 +125,18 @@ describe("ask parity baselines", () => {
     // offered even though PLAN_ALLOWLIST names them and the ask wrapper has
     // dedicated artifact handling. The toolset assembly now unions them in
     // when workMode === "plan".
-    expect(tools).toContain("write_implementation_plan");
-    expect(tools).toContain("update_plan_status");
-    expect(tools).toContain("update_plan_step");
+    expect(tools).toContain("plan");
     // Still excluded outside plan mode (see the read-only flow eval above) —
     // and write/run tools stay out regardless.
     expect(tools).not.toContain("write_file");
     expect(tools).not.toContain("edit_file");
   });
 
-  it("plan workMode: write_implementation_plan executes and emits the plan artifact", async () => {
+  it("plan workMode: plan(write) executes and emits the plan artifact", async () => {
     ctx.server.register(
       scenario("ask-plan-write")
-        .toolCall("write_implementation_plan", {
+        .toolCall("plan", {
+          operation: "write",
           title: "Refactor plan",
           content:
             "# Refactor plan\n\n1. Extract the helper.\n2. Migrate call sites.",

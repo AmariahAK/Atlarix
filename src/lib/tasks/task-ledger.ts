@@ -9,7 +9,6 @@ import {
   getRemainingSteps,
   buildPendingStepsContinuationPrompt,
 } from "./completion-detector";
-import { ArchitectPlanPayloadSchema } from "../agents/agent-handoff-schemas";
 
 /** Tools that indicate substantive work finished for a single-step ledger (no plan file). */
 const LEDGER_COMPLETION_TOOLS = new Set([
@@ -360,109 +359,6 @@ export function recordToolOnLedger(
   scheduleLivingPlanSync(turnId);
   const afterMark = memoryLedgers.get(turnId);
   if (afterMark) notifyLedgerPlanUiIfRegistered(afterMark);
-}
-
-/** Flatten Architect structured plan JSON to step description lines (shared with plan-ledger mirror). */
-export function descriptionsFromArchitectPayload(payload: unknown): string[] | null {
-  const parsed = ArchitectPlanPayloadSchema.safeParse(payload);
-  if (!parsed.success) return null;
-  const { phases } = parsed.data;
-  const descriptions: string[] = [];
-  for (const ph of phases) {
-    const title = ph.title?.trim() ?? ph.id;
-    for (const t of ph.tasks) {
-      const line = t.trim();
-      if (!line) continue;
-      descriptions.push(title ? `[${title}] ${line}` : line);
-    }
-  }
-  return descriptions.length > 0 ? descriptions : null;
-}
-
-/**
- * After Architect delegation: replace a single coarse step with plan phases/tasks from structured payload.
- * Returns true if the ledger was re-seeded.
- */
-export async function seedLedgerFromHandoff(
-  turnId: string,
-  payload: unknown,
-): Promise<boolean> {
-  const descriptions = descriptionsFromArchitectPayload(payload);
-  if (!descriptions) return false;
-  await setLedgerSteps(turnId, descriptions);
-  return true;
-}
-
-/**
- * Record delegation sub-agent tool lines on the active step without advancing the step
- * (the parent turn advances once per completed delegation via `advanceLedgerAfterDelegation`).
- */
-export function recordDelegationToolOnLedger(
-  turnId: string,
-  meta: {
-    toolName: string;
-    summary: string;
-    filesRead?: string[];
-    filesWritten?: string[];
-  },
-): void {
-  const L = memoryLedgers.get(turnId);
-  if (!L || L.finishReason === "cancelled") return;
-  const step =
-    L.steps.find((s) => s.id === L.currentStepId && s.status === "in_progress") ??
-    L.steps.find((s) => s.status === "in_progress") ??
-    L.steps[L.steps.length - 1];
-  if (!step) return;
-  if (meta.filesRead?.length) {
-    step.filesRead = [
-      ...new Set([...(step.filesRead ?? []), ...meta.filesRead]),
-    ];
-  }
-  if (meta.filesWritten?.length) {
-    step.filesWritten = [
-      ...new Set([...(step.filesWritten ?? []), ...meta.filesWritten]),
-    ];
-  }
-  const line = `${meta.toolName}: ${meta.summary.slice(0, 300)}`;
-  step.result = step.result ? `${step.result}\n${line}` : line;
-  if (L.workspacePath) void persistLedgerToDisk(L);
-}
-
-/**
- * After a successful `delegate_to_agent` handoff: for multi-step ledgers, mark the active step
- * done and promote the next pending step. Single-step ledgers only append delegation summary to notes.
- */
-export function advanceLedgerAfterDelegation(
-  turnId: string,
-  resultSummary: string,
-): void {
-  const L = memoryLedgers.get(turnId);
-  if (!L || L.finishReason === "cancelled") return;
-  const summary = resultSummary.slice(0, 2000);
-  if (L.steps.length <= 1) {
-    const step = L.steps[0];
-    if (step?.status === "in_progress") {
-      const line = `[delegation] ${summary}`;
-      step.result = step.result ? `${step.result}\n${line}` : line;
-    }
-    if (L.workspacePath) void persistLedgerToDisk(L);
-    return;
-  }
-  const step =
-    L.steps.find((s) => s.id === L.currentStepId && s.status === "in_progress") ??
-    L.steps.find((s) => s.status === "in_progress");
-  if (!step) return;
-  step.status = "done";
-  step.completedAt = Date.now();
-  step.result = summary;
-  const next = L.steps.find((s) => s.status === "pending");
-  if (next) {
-    next.status = "in_progress";
-    L.currentStepId = next.id;
-  }
-  if (L.workspacePath) void persistLedgerToDisk(L);
-  scheduleLivingPlanSync(turnId);
-  notifyLedgerPlanUiIfRegistered(L);
 }
 
 /** Replace ledger steps from plan parsing (e.g. ATLARIX_PLAN.md numbered tasks). */

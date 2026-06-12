@@ -68,6 +68,18 @@ export const mainRollupExternals: readonly string[] = [
   // v11: @babel/generator and default-shell removed — nothing imports them
   // directly (default-shell is shell-env's transitive dep; npm brings it).
   "shell-env",
+  // Runtime externals that Rollup leaves as bare require()s but which were NOT
+  // listed here — so packageAfterPrune never installed them (or the slimming
+  // pruned them) and the packaged app crashed at boot with "Cannot find module".
+  // These must ALSO be listed in package.json dependencies so they survive the
+  // staged-package.json slimming (keepRoots ∩ fullDeps). domino is turndown's
+  // HTML→Markdown DOM; axios/bluebird are transitive requires left external.
+  // NOTE: electron-log must stay BUNDLED here (not external) — externalizing it
+  // makes it initialize twice and re-register its __ELECTRON_LOG__ IPC handler,
+  // crashing the main process at boot.
+  "@mixmark-io/domino",
+  "axios",
+  "bluebird",
 ];
 
 // https://vitejs.dev/config

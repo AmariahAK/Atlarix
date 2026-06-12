@@ -64,7 +64,7 @@ describe("capability trim (2.1 / 1.6)", () => {
     expect(tools.length, `offered: ${tools.join(",")}`).toBeLessThanOrEqual(12);
     // Core read surface survives the trim.
     expect(tools).toContain("read_file");
-    expect(tools).toContain("search");
+    expect(tools).toContain("grep");
   }, 30_000);
 
   it("strong model (default): full ask surface, untouched by the trim", async () => {

@@ -19,14 +19,44 @@ import {
 import { smartSearch } from "../search";
 import { extractDomain } from "@/lib/format-url";
 import { safeFetch } from "../security/url-policy";
-import createBm25Engine from "wink-bm25-text-search";
+
+import TurndownService from "turndown";
 
 const WEB_SEARCH_SETUP_HINT =
   "\n\n**Search setup:** For more reliable results, enable **SearxNG** in Settings → Search (Docker auto-setup), or configure a **search MCP** server. Atlarix cannot enable these automatically.";
 
+/** Default read budget per page (v13.1: raised from 5K — modern docs need more). */
+const READ_URL_DEFAULT_MAX = 20_000;
+const READ_URL_MAX_CAP = 50_000;
+/** Per-page content budget for deep/comprehensive web_search fetches. */
+const DEEP_FETCH_MAX = 20_000;
+/** Default page-fetch timeout (v13.1: 10–15s was too tight for CDN-slow docs). */
+const FETCH_TIMEOUT_MS = 20_000;
+const FETCH_TIMEOUT_MAX_MS = 60_000;
+/** A real browser UA used on the Cloudflare-challenge retry. */
+const BROWSER_USER_AGENT =
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
+
 // ===== HELPER FUNCTIONS (used by web tools below) =====
 
-function extractReadableContent(html: string, contentType: string): string {
+/** Lazily-built so importing this module stays cheap. */
+let _turndown: TurndownService | null = null;
+function getTurndown(): TurndownService {
+    if (!_turndown) {
+        _turndown = new TurndownService({
+            headingStyle: "atx",
+            codeBlockStyle: "fenced",
+        });
+    }
+    return _turndown;
+}
+
+/**
+ * v13.1: extract the main content and convert HTML → Markdown (preserves
+ * headings, lists, code blocks, links) via turndown. Falls back to the plain
+ * stripHtml path if turndown throws on weird markup so read_url never breaks.
+ */
+export function extractReadableContent(html: string, contentType: string): string {
     if (contentType.includes('text/plain')) {
         return html;
     }
@@ -46,7 +76,37 @@ function extractReadableContent(html: string, contentType: string): string {
         content = mainMatch[1];
     }
 
+    try {
+        const md = getTurndown().turndown(content).trim();
+        if (md) return md;
+    } catch {
+        /* fall through to the plain-text path */
+    }
     return stripHtml(content).trim();
+}
+
+/** Clamp a caller-supplied page length to [1, READ_URL_MAX_CAP]. */
+export function clampReadLength(n: unknown, fallback: number): number {
+    const v = Number(n);
+    if (!Number.isFinite(v) || v <= 0) return fallback;
+    return Math.min(READ_URL_MAX_CAP, Math.floor(v));
+}
+
+/**
+ * v13.1: fetch with a one-shot Cloudflare-challenge retry. When the first
+ * response is a 403 carrying `cf-mitigated: challenge`, retry ONCE with a real
+ * browser User-Agent (mirrors opencode's webfetch). `doFetch` receives the
+ * headers to use so the policy/redirect handling in safeFetch is re-applied.
+ */
+export async function fetchWithCfRetry(
+    doFetch: (headers: Record<string, string>) => Promise<Response>,
+    baseHeaders: Record<string, string>,
+): Promise<Response> {
+    const first = await doFetch(baseHeaders);
+    if (first.status === 403 && first.headers.get("cf-mitigated") === "challenge") {
+        return doFetch({ ...baseHeaders, "User-Agent": BROWSER_USER_AGENT });
+    }
+    return first;
 }
 
 function extractTitle(html: string): string {
@@ -88,15 +148,17 @@ interface SearchResult {
 
 async function fetchUrlContent(
     url: string,
-    maxLength: number
+    maxLength: number,
+    timeoutMs: number = FETCH_TIMEOUT_MS,
 ): Promise<{ ok: true; title: string; content: string } | { ok: false; error: string }> {
     try {
-        const response = await safeFetch(url, {
-            headers: {
+        const response = await fetchWithCfRetry(
+            (headers) => safeFetch(url, { headers }, { timeoutMs }),
+            {
                 'User-Agent': 'Atlarix/1.0 (Web Reader)',
                 'Accept': 'text/html,application/xhtml+xml,text/plain',
             },
-        }, { timeoutMs: 15_000 });
+        );
 
         if (!response.ok) {
             return { ok: false, error: `Failed to fetch URL: ${response.status} ${response.statusText}` };
@@ -141,66 +203,6 @@ function canonicalWebSearchCacheKey(
     const q = normalizeWebSearchUserQuery(query);
     const src = stableSourcesKey(sourcesStr);
     return `${src}:${q}:${numResults}`;
-}
-
-function tokenizeForSectionBm25(text: string): string[] {
-    return String(text)
-        .toLowerCase()
-        .split(/[^a-z0-9_]+/)
-        .filter((t) => t.length > 1);
-}
-
-/**
- * Ephemeral BM25 over text sections; returns best-matching slice for the focus query.
- * `search()` returns Array<[docId, score]> per wink-bm25-text-search.
- */
-function extractRelevantSection(
-    fullText: string,
-    focusQuery: string,
-    maxChars: number,
-    maxSections: number,
-): string {
-    const body = fullText.trim();
-    if (!body) return "";
-    const paras = body.split(/\n\n+/).map((p) => p.trim()).filter(Boolean);
-    const sections: string[] = [];
-    if (paras.length === 0) {
-        sections.push(body.slice(0, maxChars));
-    } else {
-        for (const p of paras) {
-            if (sections.length >= maxSections) break;
-            if (p.length <= maxChars) {
-                sections.push(p);
-            } else {
-                for (let i = 0; i < p.length && sections.length < maxSections; i += maxChars) {
-                    sections.push(p.slice(i, i + maxChars));
-                }
-            }
-        }
-    }
-    if (sections.length === 0) return body.slice(0, maxChars);
-    const q = normalizeWebSearchUserQuery(focusQuery);
-    if (!q) return sections[0].slice(0, maxChars);
-
-    const engine = createBm25Engine();
-    engine.defineConfig({ fldWeights: { body: 1 } });
-    engine.definePrepTasks([tokenizeForSectionBm25], "body");
-    let id = 0;
-    for (const s of sections) {
-        engine.addDoc({ body: s }, id);
-        id += 1;
-    }
-    engine.consolidate();
-    let results: Array<[number, number]>;
-    try {
-        results = engine.search(q, 1);
-    } catch {
-        return sections[0].slice(0, maxChars);
-    }
-    if (!results.length) return sections[0].slice(0, maxChars);
-    const bestIdx = results[0][0];
-    const picked = sections[bestIdx] ?? sections[0];
-    return picked.length > maxChars ? picked.slice(0, maxChars) : picked;
 }
 
 /** First `site:…` in query → root URL for direct fetch (ASCII or fullwidth colon; token may be full URL) */
@@ -300,7 +302,7 @@ function setGlobalWebSearchCached(cacheKey: string, results: SearchResult[]): vo
 
 ToolRegistry.register({
     name: "web_search",
-    description: "Search the web. Set `deep: true` for multi-source synthesis (formerly deep_search) — fetches full content from top results. Use `deep_research` for full agentic ResearchLedger workflows.",
+    description: "Search the web. Set `deep: true` for multi-source synthesis — fetches full content from top results and combines them with citations. Use for broad or comparative topics; plain web_search for a quick fact.",
     category: ToolCategory.WEB,
     cost: 3, // Base cost, adjusted by mode/deep
     requiresWorkspace: false,
@@ -386,7 +388,7 @@ ToolRegistry.register({
 
             const siteRoot = detectSiteRootUrl(query);
             if (siteRoot) {
-                const maxLen = searchMode === 'comprehensive' ? 5000 : searchMode === 'deep' ? 4000 : 3000;
+                const maxLen = searchMode === 'quick' ? 8000 : DEEP_FETCH_MAX;
                 const fetched = await fetchUrlContent(siteRoot, maxLen);
                 if (!fetched.ok) {
                     return {
@@ -439,25 +441,28 @@ ToolRegistry.register({
             const fetchedContent = await Promise.allSettled(
                 urlsToFetch.map(async (result) => {
                     try {
-                        const response = await fetch(result.url, {
-                            headers: {
+                        const response = await fetchWithCfRetry(
+                            (headers) =>
+                                fetch(result.url, {
+                                    headers,
+                                    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+                                }),
+                            {
                                 'User-Agent': 'Atlarix/1.0 (Web Research)',
                                 'Accept': 'text/html,application/xhtml+xml,text/plain',
                             },
-                            signal: AbortSignal.timeout(10000)
-                        });
+                        );
 
                         if (!response.ok) return null;
 
                         const text = await response.text();
                         const content = extractReadableContent(text, response.headers.get('content-type') || '');
-                        const maxLen = searchMode === 'comprehensive' ? 5000 : 3000;
 
                         return {
                             title: result.title,
                             url: result.url,
                             source: result.source,
-                            content: content.substring(0, maxLen)
+                            content: content.substring(0, DEEP_FETCH_MAX)
                         };
                     } catch {
                         return null;
@@ -543,400 +548,6 @@ _SearxNG is a privacy-respecting meta-search engine that aggregates results from
     },
 });
 
-// ═══════════════════════════════════════════════════════════
-// DEEP RESEARCH — ResearchLedger + agentic loop (chat-only friendly)
-// ═══════════════════════════════════════════════════════════
-
-type SubQuestionStatus = "pending" | "answered" | "partial" | "no_data";
-
-interface SubQuestion {
-    id: string;
-    question: string;
-    status: SubQuestionStatus;
-    attempts: number;
-    searchedQueries: string[];
-}
-
-interface ResearchFinding {
-    subQuestionId: string;
-    content: string;
-    source: string;
-    title: string;
-    relevanceScore: number;
-}
-
-interface ResearchLedger {
-    originalQuery: string;
-    subQuestions: SubQuestion[];
-    findings: ResearchFinding[];
-    iterations: number;
-    consecutiveEmptyIterations: number;
-    coverageScore: number;
-}
-
-interface DeepResearchResult {
-    query: string;
-    aspectsUsed: string[];
-    findings: ResearchFinding[];
-    sources: string[];
-    coverageScore: number;
-    iterations: number;
-    completionReason: "sufficient_coverage" | "no_new_data" | "all_answered" | "max_iterations";
-}
-
-const DEEP_RESEARCH_LIMITS = {
-    maxIterations: 8,
-    maxAttemptsPerSubQ: 3,
-    maxSourcesPerSubQ: 3,
-    maxCharsPerSource: 2000,
-    maxSectionsPerDoc: 48,
-    maxSubQuestions: 6,
-    consecutiveEmptyStop: 3,
-    sufficientCoverageThreshold: 0.75,
-    fetchTimeoutMs: 10_000,
-} as const;
-
-/** When the model omits aspects, split on semicolons/newlines or use the whole query. */
-function decomposeQuery(query: string): string[] {
-    const parts = query.split(/;\s*|\n+/).map((s) => s.trim()).filter(Boolean);
-    if (parts.length >= 2) return parts;
-    return [query];
-}
-
-function scoreRelevanceForDeepResearch(content: string, query: string): number {
-    const queryTokens = query
-        .toLowerCase()
-        .split(/\s+/)
-        .filter((w) => w.length > 3);
-    const contentLower = content.toLowerCase();
-    const matches = queryTokens.filter((t) => contentLower.includes(t)).length;
-    return queryTokens.length > 0 ? matches / queryTokens.length : 0;
-}
-
-function refineQuery(subQ: SubQuestion, ledger: ResearchLedger): string {
-    const existingFindings = ledger.findings.filter((f) => f.subQuestionId === subQ.id);
-    if (existingFindings.length === 0) {
-        return `${subQ.question} detailed explanation examples`;
-    }
-    const visitedHosts = existingFindings
-        .map((f) => {
-            try {
-                return new URL(f.source).hostname;
-            } catch {
-                return "";
-            }
-        })
-        .filter(Boolean);
-    if (visitedHosts.length > 0) {
-        return `${subQ.question} tutorial guide`;
-    }
-    return `${subQ.question} comprehensive overview`;
-}
-
-function buildResult(
-    ledger: ResearchLedger,
-    reason: DeepResearchResult["completionReason"],
-): DeepResearchResult {
-    return {
-        query: ledger.originalQuery,
-        aspectsUsed: ledger.subQuestions.map((sq) => sq.question),
-        findings: ledger.findings,
-        sources: [...new Set(ledger.findings.map((f) => f.source))],
-        coverageScore: ledger.coverageScore,
-        iterations: ledger.iterations,
-        completionReason: reason,
-    };
-}
-
-function logDeepResearchComplete(_ledger: ResearchLedger, result: DeepResearchResult): void {
-    console.log(
-        `[deep_research] Completed: ${result.completionReason} | ` +
-            `Final coverage: ${Math.round(result.coverageScore * 100)}% | ` +
-            `${result.findings.length} findings from ${result.sources.length} sources`,
-    );
-}
-
-function formatResultForModel(result: DeepResearchResult): string {
-    const lines = [
-        `## Research Results: ${result.query}`,
-        `Coverage: ${Math.round(result.coverageScore * 100)}% | ` +
-            `Iterations: ${result.iterations} | ` +
-            `Stopped: ${result.completionReason}`,
-        "",
-    ];
-
-    for (const finding of result.findings) {
-        lines.push(`### Source: ${finding.title}`);
-        lines.push(`URL: ${finding.source}`);
-        lines.push(`Relevance: ${Math.round(finding.relevanceScore * 100)}%`);
-        lines.push(finding.content);
-        lines.push("");
-    }
-
-    if (result.findings.length === 0) {
-        lines.push("No relevant findings retrieved for this query.");
-    }
-
-    return lines.join("\n");
-}
-
-async function smartReadUrlForDeepResearch(url: string): Promise<{ text: string; pageTitle: string }> {
-    try {
-        const response = await fetch(url, {
-            headers: {
-                "User-Agent": "Atlarix/1.0 (Deep Research)",
-                Accept: "text/html,application/xhtml+xml,text/plain",
-            },
-            signal: AbortSignal.timeout(DEEP_RESEARCH_LIMITS.fetchTimeoutMs),
-        });
-        if (!response.ok) return { text: "", pageTitle: "" };
-        const rawText = await response.text();
-        const ct = response.headers.get("content-type") || "";
-        const readable = extractReadableContent(rawText, ct);
-        const pageTitle = extractTitle(rawText) || "";
-        return { text: readable, pageTitle };
-    } catch {
-        return { text: "", pageTitle: "" };
-    }
-}
-
-/** Same aggregator path as web_search quick (`general`); no ToolRegistry hop. */
-async function deepResearchQuickSearch(query: string, numResults: number): Promise<SearchResult[]> {
-    const aggregator = new WebSearchAggregator();
-    const pack = await aggregator.search(query, "general", numResults);
-    return pack.sources;
-}
-
-async function runDeepResearchAgentic(query: string, aspects?: string[]): Promise<DeepResearchResult> {
-    const seed = aspects?.length ? aspects : decomposeQuery(query);
-    const capped = seed.slice(0, DEEP_RESEARCH_LIMITS.maxSubQuestions);
-    const subQuestionStrings = capped.length > 0 ? capped : [query];
-
-    const subQuestions: SubQuestion[] = subQuestionStrings.map((q, i) => ({
-        id: `sq_${i}`,
-        question: q,
-        status: "pending" as SubQuestionStatus,
-        attempts: 0,
-        searchedQueries: [],
-    }));
-
-    const ledger: ResearchLedger = {
-        originalQuery: query,
-        subQuestions,
-        findings: [],
-        iterations: 0,
-        consecutiveEmptyIterations: 0,
-        coverageScore: 0,
-    };
-
-    while (true) {
-        ledger.iterations++;
-        const findingsBeforeIteration = ledger.findings.length;
-
-        const workQueue = ledger.subQuestions.filter(
-            (sq) =>
-                sq.status === "pending" ||
-                (sq.status === "partial" && sq.attempts < DEEP_RESEARCH_LIMITS.maxAttemptsPerSubQ),
-        );
-
-        if (workQueue.length === 0) {
-            const answered = ledger.subQuestions.filter((sq) => sq.status === "answered").length;
-            ledger.coverageScore =
-                ledger.subQuestions.length > 0 ? answered / ledger.subQuestions.length : 0;
-            const result = buildResult(ledger, "all_answered");
-            logDeepResearchComplete(ledger, result);
-            return result;
-        }
-
-        console.log(
-            `[deep_research] Iteration ${ledger.iterations} | ` +
-                `Coverage: ${Math.round(ledger.coverageScore * 100)}% | ` +
-                `Findings: ${ledger.findings.length} | ` +
-                `Pending: ${ledger.subQuestions.filter((sq) => sq.status === "pending").length}`,
-        );
-
-        for (const subQ of workQueue) {
-            subQ.attempts++;
-
-            const searchQuery = subQ.attempts === 1 ? subQ.question : refineQuery(subQ, ledger);
-
-            if (subQ.searchedQueries.includes(searchQuery)) {
-                if (subQ.status === "pending") subQ.status = "no_data";
-                continue;
-            }
-            subQ.searchedQueries.push(searchQuery);
-
-            const searchResults = await deepResearchQuickSearch(
-                searchQuery,
-                DEEP_RESEARCH_LIMITS.maxSourcesPerSubQ,
-            );
-
-            if (!searchResults.length) {
-                if (subQ.attempts >= DEEP_RESEARCH_LIMITS.maxAttemptsPerSubQ) {
-                    subQ.status = "no_data";
-                }
-                continue;
-            }
-
-            for (const hit of searchResults.slice(0, 2)) {
-                const url = hit.url;
-                if (!url || !url.startsWith("http")) continue;
-
-                const alreadyFetched = ledger.findings.some((f) => f.source === url);
-                if (alreadyFetched) continue;
-
-                const { text: fullContent, pageTitle } = await smartReadUrlForDeepResearch(url);
-                if (!fullContent || fullContent.length < 100) continue;
-
-                const relevantSection = extractRelevantSection(
-                    fullContent,
-                    subQ.question,
-                    DEEP_RESEARCH_LIMITS.maxCharsPerSource,
-                    DEEP_RESEARCH_LIMITS.maxSectionsPerDoc,
-                );
-
-                if (relevantSection.length > 50) {
-                    const relevanceScore = scoreRelevanceForDeepResearch(relevantSection, subQ.question);
-
-                    ledger.findings.push({
-                        subQuestionId: subQ.id,
-                        content: relevantSection,
-                        source: url,
-                        title: pageTitle || hit.title || url,
-                        relevanceScore,
-                    });
-                }
-            }
-
-            const subQFindings = ledger.findings.filter((f) => f.subQuestionId === subQ.id);
-
-            if (subQFindings.length === 0) {
-                if (subQ.attempts >= DEEP_RESEARCH_LIMITS.maxAttemptsPerSubQ) {
-                    subQ.status = "no_data";
-                }
-            } else if (subQFindings.some((f) => f.relevanceScore > 0.35)) {
-                subQ.status = "answered";
-            } else {
-                subQ.status = "partial";
-            }
-        }
-
-        const answered = ledger.subQuestions.filter((sq) => sq.status === "answered").length;
-        ledger.coverageScore =
-            ledger.subQuestions.length > 0 ? answered / ledger.subQuestions.length : 0;
-
-        const newFindings = ledger.findings.length - findingsBeforeIteration;
-        if (newFindings === 0) {
-            ledger.consecutiveEmptyIterations++;
-        } else {
-            ledger.consecutiveEmptyIterations = 0;
-        }
-
-        if (ledger.coverageScore >= DEEP_RESEARCH_LIMITS.sufficientCoverageThreshold) {
-            const result = buildResult(ledger, "sufficient_coverage");
-            logDeepResearchComplete(ledger, result);
-            return result;
-        }
-
-        if (ledger.consecutiveEmptyIterations >= DEEP_RESEARCH_LIMITS.consecutiveEmptyStop) {
-            const result = buildResult(ledger, "no_new_data");
-            logDeepResearchComplete(ledger, result);
-            return result;
-        }
-
-        if (ledger.iterations >= DEEP_RESEARCH_LIMITS.maxIterations) {
-            const result = buildResult(ledger, "max_iterations");
-            logDeepResearchComplete(ledger, result);
-            return result;
-        }
-    }
-}
-
-ToolRegistry.register({
-    name: "deep_research",
-    description:
-        "Multi-step research: plans sub-questions, searches the web, fetches pages, and extracts the most relevant passages (BM25). Use for broad or comparative topics needing several sources. For a single quick fact or one query string, prefer web_search.",
-    category: ToolCategory.WEB,
-    cost: 6,
-    requiresWorkspace: false,
-    isCore: true,
-    isReadOnly: true,
-    parameters: createParameters(
-        {
-            query: stringParam("Main research question or topic"),
-            aspects: {
-                type: "array",
-                items: { type: "string" },
-                description:
-                    "Optional sub-questions or facets to investigate (each gets its own search pass)",
-            },
-        },
-        ["query"],
-    ),
-    handler: async (args: {
-        query?: string;
-        input?: { query?: string; aspects?: string[] };
-        aspects?: string[];
-    }) => {
-        const nested = args?.input && typeof args.input === "object" ? args.input : undefined;
-        const rawMain =
-            typeof args.query === "string" && args.query.trim() !== ""
-                ? args.query
-                : typeof nested?.query === "string"
-                  ? nested.query
-                  : "";
-        const mainQuery = normalizeWebSearchUserQuery(rawMain);
-        if (!mainQuery) {
-            return {
-                text: "⚠️ Provide a non-empty query for deep_research.",
-                sources: [] as SearchResult[],
-            };
-        }
-        const aspectsRaw = Array.isArray(args.aspects)
-            ? args.aspects
-            : Array.isArray(nested?.aspects)
-              ? nested!.aspects!
-              : undefined;
-
-        let aspectStrings: string[] | undefined;
-        if (aspectsRaw && aspectsRaw.length > 0) {
-            const normalized = aspectsRaw
-                .map((s) => normalizeWebSearchUserQuery(String(s)))
-                .filter(Boolean)
-                .slice(0, DEEP_RESEARCH_LIMITS.maxSubQuestions);
-            if (normalized.length > 0) aspectStrings = normalized;
-        }
-
-        const result = await runDeepResearchAgentic(mainQuery, aspectStrings);
-
-        const text = formatResultForModel(result);
-        const sources = result.findings.map((f) => {
-            const snippet = f.content.length > 400 ? f.content.slice(0, 400) + "…" : f.content;
-            return {
-                title: f.title,
-                url: f.source,
-                content: snippet,
-                source: "general",
-                score: Math.round(f.relevanceScore * 100),
-                metadata: {},
-                favicon: f.source
-                    ? `https://www.google.com/s2/favicons?domain=${extractDomain(f.source)}&sz=32`
-                    : undefined,
-            };
-        });
-
-        return {
-            query: result.query,
-            aspects_used: result.aspectsUsed,
-            coverage_score: result.coverageScore,
-            iterations: result.iterations,
-            completion_reason: result.completionReason,
-            findings: result.findings,
-            text,
-            sources,
-        };
-    },
-});
 
 // ═══════════════════════════════════════════════════════════
 // DEEP SEARCH IMPL — invoked by web_search({ deep: true })
@@ -955,20 +566,24 @@ async function runDeepSearch(query: string, maxSources: number = 3) {
     const fetchedContent = await Promise.allSettled(
         topUrls.map(async (result) => {
             try {
-                const response = await fetch(result.url, {
-                    headers: {
+                const response = await fetchWithCfRetry(
+                    (headers) =>
+                        fetch(result.url, {
+                            headers,
+                            signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+                        }),
+                    {
                         "User-Agent": "Atlarix/1.0 (Deep Search)",
                         Accept: "text/html,application/xhtml+xml,text/plain",
                     },
-                    signal: AbortSignal.timeout(10000),
-                });
+                );
                 if (!response.ok) return null;
                 const text = await response.text();
                 const content = extractReadableContent(text, response.headers.get("content-type") || "");
                 return {
                     title: result.title,
                     url: result.url,
-                    content: content.substring(0, 3000),
+                    content: content.substring(0, DEEP_FETCH_MAX),
                 };
             } catch {
                 return null;
@@ -1023,13 +638,22 @@ ToolRegistry.register({
             url: stringParam("URL to fetch"),
             max_length: {
                 type: "number",
-                description: "Maximum content length to return (default: 5000 chars)",
+                description: `Max content chars to return (default ${READ_URL_DEFAULT_MAX}, max ${READ_URL_MAX_CAP}). Content is returned as Markdown.`,
+            },
+            timeout: {
+                type: "number",
+                description: "Max seconds to wait for the page (default 20, max 60). Raise for slow/large pages.",
             },
         },
         ["url"]
     ),
-    handler: async ({ url, max_length = 5000 }) => {
-        const fetched = await fetchUrlContent(url, max_length);
+    handler: async ({ url, max_length, timeout }: { url: string; max_length?: number; timeout?: number }) => {
+        const maxLen = clampReadLength(max_length, READ_URL_DEFAULT_MAX);
+        const timeoutMs = Math.min(
+            FETCH_TIMEOUT_MAX_MS,
+            Math.max(1000, (Number(timeout) || 20) * 1000),
+        );
+        const fetched = await fetchUrlContent(url, maxLen, timeoutMs);
         if (!fetched.ok) {
             return fetched.error;
         }
@@ -1284,8 +908,8 @@ class WebSearchAggregator {
                 source: 'stackoverflow',
                 title: decodeHtmlEntities(item.title || ''),
                 url: item.link || '',
-                snippet: item.body_markdown?.substring(0, 300) ||
-                    stripHtml(item.body || '').substring(0, 300) || '',
+                snippet: item.body_markdown?.substring(0, 500) ||
+                    stripHtml(item.body || '').substring(0, 500) || '',
                 score: item.score || 0,
                 metadata: {
                     answers: item.answer_count || 0,
@@ -1316,7 +940,7 @@ class WebSearchAggregator {
                 source: 'github',
                 title: item.title || '',
                 url: item.html_url || '',
-                snippet: item.body?.substring(0, 300) || '',
+                snippet: item.body?.substring(0, 500) || '',
                 // Normalize score: use position-based scoring + engagement
                 // GitHub returns issue/PR data, not relevance scores
                 score: Math.max(20, 30 - (idx * 3) + Math.min(10, (item.comments || 0) / 10)),
@@ -1356,7 +980,7 @@ class WebSearchAggregator {
                     source: 'reddit',
                     title: postData.title || '',
                     url: `https://reddit.com${postData.permalink || ''}`,
-                    snippet: postData.selftext?.substring(0, 300) || '',
+                    snippet: postData.selftext?.substring(0, 500) || '',
                     // Normalize score: position-based + engagement (upvotes + comments)
                     // Reddit scores are upvotes which vary wildly, normalize to 15-35 range
                     score: Math.max(15, 25 - (index * 2) + Math.min(10, Math.log10((postData.score || 1) + 1) * 3 + (postData.num_comments || 0) / 100)),
@@ -1386,7 +1010,7 @@ class WebSearchAggregator {
                 source: 'mdn',
                 title: doc.title || '',
                 url: `https://developer.mozilla.org${doc.mdn_url || ''}`,
-                snippet: doc.summary?.substring(0, 300) || '',
+                snippet: doc.summary?.substring(0, 500) || '',
                 score: doc.score || 0,
                 metadata: {
                     locale: doc.locale || 'en-US'

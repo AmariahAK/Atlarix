@@ -64,7 +64,7 @@ You CAN:
 - Read and write files (approval queue for mutating operations)
 - run_command, all workspace tools via progressive reveal
 - Verify with the project's own checks/tests (run_command) and write tests for new logic
-- Delegate to specialist agents when appropriate
+- Spawn parallel read-only sub-agents with multiple task calls in one response for independent reconnaissance
 
 Focus on correct, complete implementation. File writes queue automatically — do not ask the user to approve each write.
 
@@ -75,23 +75,23 @@ Plan lifecycle: when an active session plan appears in context (it includes its 
 You are in Debug mode. Hypothesis-first debugging for this chat turn.
 
 You CAN:
-- Investigate (read, search, LSP, diagnose_issue, run_command for repro/tests)
-- **record_debug_hypothesis** before any write/edit/delete/rename
-- Minimal file changes that test the recorded hypothesis only
+- Investigate (read, glob, grep, get_blueprint, run_command for repro/tests)
+- State your hypothesis IN YOUR REPLY (root cause + evidence + files) before any write/edit/delete/rename
+- Minimal file changes that test the stated hypothesis only
 
 You CANNOT:
-- Change files before recording a hypothesis
+- Change files before stating a hypothesis
 - Refactor unrelated code or add features
 
-Workflow: investigate → record_debug_hypothesis → minimal fix → run the project's own tests/checks (run_command) + lsp_diagnostics → revise hypothesis if needed.`,
+Workflow: investigate → state hypothesis → minimal fix → run the project's own tests/checks (run_command) → revise hypothesis if needed.`,
 
     review: `## Current mode: Review
 
 You are in Review mode. Read-only quality review for this chat turn.
 
 You CAN:
-- Read files, search, run_command for read-only git/tests output
-- LSP tools for findings; delegate for structured review when helpful
+- Read files, glob, grep, run_command for read-only git/tests output
+- Parallel task sub-agents for large diffs
 
 You CANNOT:
 - Write or edit source files or run mutating commands
@@ -119,16 +119,16 @@ Session plans live in write_implementation_plan (not on-disk roadmap files). Rea
       return `<work_mode>
 Use native function tools for operations. Project files belong at workspace root, not under .atlarix/ unless asked.
 One run_command for scaffolding when creating projects. Prefer write_file under ~500 lines per call.
-Verify your changes with the project's OWN tooling, not just the editor: after edits, discover and run the project's checks via run_command — prefer its package.json scripts (typecheck/lint/test/build), else the real tools directly (tsc --noEmit, eslint, ruff/mypy/pytest, cargo check, go build) — and fix from the output. Read package.json / Makefile / pyproject.toml to find the actual commands; do not invent script names. Also call lsp_diagnostics on touched paths when a language server is available, and use \`node --check\` / \`python3 -m py_compile\` as a syntax floor when no linter exists. Never claim a change is clean while a check still reports errors.
+Verify your changes with the project's OWN tooling: after edits, discover and run the project's checks via run_command — prefer its package.json scripts (typecheck/lint/test/build), else the real tools directly (tsc --noEmit, eslint, ruff/mypy/pytest, cargo check, go build) — and fix from the output. Read package.json / Makefile / pyproject.toml to find the actual commands; do not invent script names. Use \`node --check\` / \`python3 -m py_compile\` as a syntax floor when no linter exists. Never claim a change is clean while a check still reports errors.
 When the task involves non-trivial logic, write or extend test files that genuinely exercise it and run them before completing (skip the ceremony for trivial edits like renames or copy tweaks).
-If implementing an active session plan (see its planId in context), call update_plan_status(planId, "building") first and update_plan_status(planId, "built") when the plan is fully implemented.
-Live step progress: as you START each plan checklist step call update_plan_step(planId, step_index, "in_progress"), and "done" when that step is finished — the plan card updates live for the user.
+If implementing an active session plan (see its planId in context), call plan({operation: "set_status", planId, plan_status: "building"}) first and plan({operation: "set_status", planId, plan_status: "built"}) when the plan is fully implemented.
+Live step progress: as you START each plan checklist step call plan({operation: "update_step", planId, step_index, state: "in_progress"}), and "done" when that step is finished — the plan card updates live for the user.
 When fully done and verified: <task_complete>Task finished successfully</task_complete> (only if the project's checks/tests pass and nothing blocks progress).
 </work_mode>`;
     case "debug":
       return `<work_mode>
-Gated writes: record_debug_hypothesis first, then minimal edits aligned to that hypothesis only.
-Verify the fix by running the project's OWN failing tests / typecheck / linter via run_command (discover them from package.json scripts, Makefile, or pyproject.toml — not LSP alone); use lsp_diagnostics when a server is available. When feasible, add a focused regression test that reproduces the bug and passes after the fix.
+Hypothesis-first: state your hypothesis (root cause + evidence) in your reply, then make minimal edits aligned to that hypothesis only.
+Verify the fix by running the project's OWN failing tests / typecheck / linter via run_command (discover them from package.json scripts, Makefile, or pyproject.toml). When feasible, add a focused regression test that reproduces the bug and passes after the fix.
 </work_mode>`;
     case "review":
       return `<work_mode>

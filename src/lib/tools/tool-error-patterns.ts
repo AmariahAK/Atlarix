@@ -60,18 +60,6 @@ export const TOOL_RECOVERY_HINTS: Record<string, string> = {
     "Project history needs an open workspace with prior sessions; it may be empty for new projects.",
   memory:
     "Memory queries need an open workspace. For durable project facts, read .atlarix/memory.md with read_file.",
-  lsp_diagnostics:
-    "LSP may still be starting or the language may be unsupported — retry once, or use search/read_file to inspect manually.",
-  lsp_definitions:
-    "Ensure the file path and position are valid; fall back to search for the symbol name.",
-  lsp_references:
-    "Ensure the file path and position are valid; fall back to search for the symbol name.",
-  lsp_hover:
-    "Ensure the file path and position are valid; fall back to read_file around that line.",
-  diagnose_issue:
-    "Provide a concrete error message or failing file; use lsp_diagnostics or run the failing command first to capture one.",
-  record_debug_hypothesis:
-    "Record a short cause→fix hypothesis string, then make the minimal matching edit.",
 };
 
 const ACTION_PATTERN =

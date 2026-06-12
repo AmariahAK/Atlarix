@@ -28,7 +28,7 @@ function otherModeHeaders(activeLabel: string): string[] {
 }
 
 describe("mode system consistency", () => {
-  for (const mode of ["ask", "plan", "debug", "review"] as const) {
+  for (const mode of ["ask", "plan", "review"] as const) {
     it(`MODE_SYSTEM_TOOL_LISTS.${mode} matches registry allowlist`, () => {
       expect(sortNames(MODE_SYSTEM_TOOL_LISTS[mode])).toEqual(
         sortNames(getModeToolAllowlist(mode)),
@@ -50,7 +50,6 @@ describe("mode system consistency", () => {
         hasWorkspace: true,
       });
       expect(stableHeader).toContain(`<tools_registry mode="${mode}" label="${label}">`);
-      expect(stableHeader).toContain("Progressive reveal");
       expect(stableHeader).toContain("Workspace chat:");
       expect(stableHeader).not.toContain("Explore, Plan, Build");
     });
@@ -86,9 +85,9 @@ describe("mode system consistency", () => {
     expect(askNames).toContain("run_command");
   });
 
-  it("debug mode allowlist includes write_file", () => {
-    expect(MODE_SYSTEM_TOOL_LISTS.debug).toContain("write_file");
-    expect(getModeToolAllowlist("debug")).toContain("write_file");
+  it("debug mode allows all tools (full-surface marker)", () => {
+    expect(MODE_SYSTEM_TOOL_LISTS.debug).toEqual(["*"]);
+    expect(isToolAllowedInMode("write_file", "debug")).toBe(true);
   });
 
   it("ask allowlist does not include get_mode_tool_registry", () => {
@@ -116,7 +115,7 @@ describe("mode system consistency", () => {
     });
   }
 
-  for (const mode of ["ask", "plan", "debug", "review"] as const) {
+  for (const mode of ["ask", "plan", "review"] as const) {
     it(`${mode} allowlist includes every-mode tools (tool_contract parity)`, () => {
       for (const tool of EVERY_MODE_TOOLS) {
         expect(getModeToolAllowlist(mode)).toContain(tool);
@@ -124,21 +123,25 @@ describe("mode system consistency", () => {
       }
     });
   }
+  it("every-mode tools are allowed in debug (full surface)", () => {
+    for (const tool of EVERY_MODE_TOOLS) {
+      expect(isToolAllowedInMode(tool, "debug")).toBe(true);
+    }
+  });
 
   it("read-only modes do not allow mutating tools", () => {
     for (const tool of ["write_file", "edit_file", "delete_file", "rename_file", "write_multiple_files"]) {
       expect(isToolAllowedInMode(tool, "ask")).toBe(false);
       expect(isToolAllowedInMode(tool, "review")).toBe(false);
     }
-    // Plan is now filesystem-read-only — it authors plans via the plan-artifact
-    // tools (write_implementation_plan, etc.), NOT write_file/run_command.
+    // Plan is filesystem-read-only — it authors plans via the `plan` tool, NOT write_file/run_command.
     expect(isToolAllowedInMode("write_file", "plan")).toBe(false);
     expect(isToolAllowedInMode("run_command", "plan")).toBe(false);
     // Build allows all.
     expect(isToolAllowedInMode("write_file", "build")).toBe(true);
   });
 
-  for (const mode of ["ask", "plan", "debug", "review"] as const) {
+  for (const mode of ["ask", "plan", "review"] as const) {
     it(`${mode} rendered tools_registry lists exactly its allowlist`, () => {
       const { stableHeader } = constructSystemPromptParts({
         chatMode: "ask",

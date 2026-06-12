@@ -9,7 +9,11 @@ import React, { useRef, useEffect } from "react";
 import { SendIcon, Paperclip, StopCircle, ChartColumnIncreasing, Upload } from "lucide-react";
 import { useSettings } from "@/hooks/useSettings";
 import { useAtom, useAtomValue } from "jotai";
-import { isStreamingByIdAtom, chatInputValueAtom } from "@/atoms/chatAtoms";
+import {
+    isStreamingByIdAtom,
+    chatInputValueAtom,
+    queuedMessageByChatIdAtom,
+} from "@/atoms/chatAtoms";
 import { ChatInputControls } from "@/components/ChatInputControls";
 import { Button } from "@/components/ui/button";
 import {
@@ -47,6 +51,12 @@ export function SimpleChatInput({ chatId, onSubmit, placeholder = "Continue the 
     const { settings } = useSettings();
     const isStreamingById = useAtomValue(isStreamingByIdAtom);
     const isStreaming = isStreamingById.get(chatId) ?? false;
+    // v13.1: while ANY turn is streaming, the user can type and queue ONE
+    // follow-up message that is sent automatically when the turn ends (the
+    // stop square stays visible; Enter/Send queues). Generalizes the v13 7B
+    // waiting-on-command queue to every streaming state.
+    const [queuedByChatId, setQueuedByChatId] = useAtom(queuedMessageByChatIdAtom);
+    const queuedMessage = queuedByChatId.get(chatId);
     const inputRef = useRef<HTMLTextAreaElement>(null);
     const { isAuthenticated, loading: authLoading } = useAuth();
     const mustSignIn = !authLoading && !isAuthenticated;
@@ -67,7 +77,13 @@ export function SimpleChatInput({ chatId, onSubmit, placeholder = "Continue the 
     } = useAttachments();
 
     const attachDisabled = isStreaming || mustSignIn;
-    const sendDisabled = (isSubmitting || isStreaming || mustSignIn || (!inputValue.trim() && attachments.length === 0));
+    const sendDisabled =
+        isSubmitting ||
+        mustSignIn ||
+        (!inputValue.trim() && attachments.length === 0) ||
+        // While streaming, the send button queues a message — disabled only
+        // once the single queue slot is full.
+        (isStreaming && queuedMessage != null);
 
     useEffect(() => {
         if (inputRef.current) {
@@ -78,7 +94,22 @@ export function SimpleChatInput({ chatId, onSubmit, placeholder = "Continue the 
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
-        if ((!inputValue.trim() && attachments.length === 0) || isStreaming || isSubmitting) return;
+        if ((!inputValue.trim() && attachments.length === 0) || isSubmitting) return;
+
+        // Streaming: queue ONE text message; useStreamChat flushes it when the
+        // turn ends. Attachments stay disabled mid-stream, so this is text-only.
+        if (isStreaming) {
+            if (queuedMessage != null || !inputValue.trim()) return;
+            const toQueue = inputValue;
+            setQueuedByChatId((prev) => {
+                const n = new Map(prev);
+                n.set(chatId, toQueue);
+                return n;
+            });
+            setInputValue("");
+            inputRef.current?.focus();
+            return;
+        }
 
         if (mustSignIn) {
             import("@/lib/toast").then(({ showError }) => {
@@ -157,7 +188,7 @@ export function SimpleChatInput({ chatId, onSubmit, placeholder = "Continue the 
                         onKeyDown={handleKeyDown}
                         onPaste={handlePaste}
                         placeholder={effectivePlaceholder}
-                        disabled={isStreaming || mustSignIn}
+                        disabled={mustSignIn}
                         rows={1}
                         className="flex-1 px-4 py-3 bg-transparent text-foreground placeholder:text-muted-foreground focus:outline-none disabled:opacity-50 resize-none max-h-40 overflow-y-auto"
                         style={{
@@ -218,6 +249,8 @@ export function SimpleChatInput({ chatId, onSubmit, placeholder = "Continue the 
                         }}
                     />
 
+                    {/* Stop stays available while streaming; Send queues a
+                        follow-up (disabled once the single slot is full). */}
                     {isStreaming ? (
                         <Button
                             type="button"
@@ -233,18 +266,39 @@ export function SimpleChatInput({ chatId, onSubmit, placeholder = "Continue the 
                         >
                             <StopCircle className="h-4 w-4" />
                         </Button>
-                    ) : (
-                        <Button
-                            type="submit"
-                            variant="ghost"
-                            size="icon"
-                            className="mx-1"
-                            disabled={sendDisabled}
-                        >
-                            <SendIcon className="h-4 w-4" />
-                        </Button>
-                    )}
+                    ) : null}
+                    <Button
+                        type="submit"
+                        variant="ghost"
+                        size="icon"
+                        className="mx-1"
+                        disabled={sendDisabled}
+                        title={isStreaming ? "Queue this message" : "Send"}
+                    >
+                        <SendIcon className="h-4 w-4" />
+                    </Button>
                 </form>
+
+                {queuedMessage != null ? (
+                    <div className="mx-3 mb-1 flex items-center gap-2 rounded-md border border-border bg-muted/40 px-2 py-1 text-[11px] text-muted-foreground">
+                        <span className="shrink-0 font-medium">Queued — sends when the turn ends:</span>
+                        <span className="truncate flex-1">{queuedMessage}</span>
+                        <button
+                            type="button"
+                            className="shrink-0 hover:text-foreground"
+                            title="Cancel queued message"
+                            onClick={() =>
+                                setQueuedByChatId((prev) => {
+                                    const n = new Map(prev);
+                                    n.delete(chatId);
+                                    return n;
+                                })
+                            }
+                        >
+                            ×
+                        </button>
+                    </div>
+                ) : null}
 
                 <div className="px-2 pb-2 flex items-center justify-between gap-2">
                     <ChatInputControls chatId={chatId} />

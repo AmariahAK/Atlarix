@@ -23,37 +23,21 @@
 import log from "electron-log";
 import { ToolRegistry, type ToolMetadata } from "./registry";
 import {
-  getModeToolAllowlist,
   includeToolForSession,
   type ModeRegistryKey,
 } from "./mode-tool-registry";
-import {
-  isCoreTool,
-  isWorkspaceIntegrationTool,
-  WORKSPACE_INTEGRATION_TOOL_NAMES,
-} from "./ToolManifest";
-import type { ToolSessionLoader } from "./ToolSessionLoader";
+import { isCoreTool, isWorkspaceIntegrationTool } from "./ToolManifest";
 import {
   getCapabilityProfile,
   trimToolsForCapability,
   type ModelCapabilityProfile,
 } from "@/lib/routing/model-capability-profile";
-import { isDelegationAllowedForWorkMode } from "@/lib/agents/agent-runtime";
-
 const logger = log.scope("resolve-toolset");
 
-/** Plan workMode routes through the ask tier but needs the plan-write tools. */
-const PLAN_WRITE_TOOLS = [
-  "write_implementation_plan",
-  "update_plan_status",
-  "update_plan_step",
-] as const;
+/** Plan workMode routes through the ask tier but needs the plan tool. */
+const PLAN_WRITE_TOOLS = ["plan"] as const;
 
-const DELEGATION_TOOL_NAMES = [
-  "delegate_to_agent",
-  "spawn_sub_agent",
-  "task",
-] as const;
+const DELEGATION_TOOL_NAMES = ["task"] as const;
 
 export interface ResolveToolsetInput {
   branch: "ask" | "build";
@@ -61,7 +45,6 @@ export interface ResolveToolsetInput {
   hasWorkspace: boolean;
   /** hasWorkspace && effectiveAppId != null — gates the integration tools. */
   workspaceIntegrationEligible: boolean;
-  loader: ToolSessionLoader;
   model: {
     name?: string;
     provider?: string;
@@ -88,8 +71,6 @@ export function resolveToolsetForSession(
     branch,
     effectiveWorkMode,
     hasWorkspace,
-    workspaceIntegrationEligible,
-    loader,
     model,
     userAgentTools,
   } = input;
@@ -113,24 +94,14 @@ export function resolveToolsetForSession(
     candidates = ToolRegistry.getToolsForContext(hasWorkspace);
   }
 
-  // Stage 3 setup — session loader reveal (branch-specific seed).
-  if (branch === "ask") {
-    const modeAllowNames = getModeToolAllowlist(effectiveWorkMode);
-    loader.ensureLoaded([
-      ...modeAllowNames.filter((n) => n !== "*"),
-      ...(workspaceIntegrationEligible ? WORKSPACE_INTEGRATION_TOOL_NAMES : []),
-    ]);
-  } else if (workspaceIntegrationEligible) {
-    loader.ensureLoaded(WORKSPACE_INTEGRATION_TOOL_NAMES);
-  }
-  const loadedNames = loader.getLoadedToolNames();
-
-  // Stages 2+3 — mode allowlist + loader filter.
+  // Stage 2 — mode allowlist. v13: progressive reveal is GONE — the surface is
+  // ~22 tools, so every allowlisted tool's schema binds upfront.
+  const allNames = new Set(candidates.map((t) => t.name));
   const modeFiltered =
     branch === "ask"
       ? candidates.filter((t) =>
           includeToolForSession(t, {
-            loaded: loadedNames,
+            loaded: allNames,
             hasWorkspace,
             mode: effectiveWorkMode,
             isCore: isCoreTool,
@@ -138,7 +109,7 @@ export function resolveToolsetForSession(
         )
       : candidates.filter(
           (t) =>
-            loadedNames.has(t.name) ||
+            allNames.has(t.name) ||
             isCoreTool(t) ||
             (hasWorkspace && isWorkspaceIntegrationTool(t.name)),
         );
@@ -148,7 +119,7 @@ export function resolveToolsetForSession(
     ? modeFiltered.filter((t) => userAgentTools.includes(t.name))
     : modeFiltered;
 
-  // Stage 4 — capability trim (v12 2.1; resolves 1.6).
+  // Stage 3 — capability trim (v12 2.1; resolves 1.6).
   const capabilityProfile = getCapabilityProfile({
     name: model.name ?? "",
     provider: model.provider,
@@ -161,18 +132,18 @@ export function resolveToolsetForSession(
     );
   }
 
-  // Delegation surface: off on trimmed profiles (a weak model orchestrating
-  // sub-agents of itself is the 1.6 failure mode; the schemas are the
-  // heaviest on offer) and off when a user agent's allowlist excludes it.
+  // Sub-agent (`task`) surface: available in EVERY mode (v13 — parallel
+  // read-only scouts help build/debug too, matching Claude Code's Task tool).
+  // Still off on trimmed profiles (a weak model orchestrating sub-agents of
+  // itself is the 1.6 failure mode) and when a user agent's allowlist
+  // excludes it.
   const agentAllowsDelegation =
     !userAgentTools ||
     userAgentTools.some((t) =>
       (DELEGATION_TOOL_NAMES as readonly string[]).includes(t),
     );
   const delegationAllowed =
-    isDelegationAllowedForWorkMode(effectiveWorkMode) &&
-    capabilityProfile.maxTools == null &&
-    agentAllowsDelegation;
+    capabilityProfile.maxTools == null && agentAllowsDelegation;
 
   return {
     tools,

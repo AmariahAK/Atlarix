@@ -10,7 +10,6 @@ import {
 } from "../lib/schemas";
 import { v4 as uuidv4 } from "uuid";
 import log from "electron-log";
-import { DEFAULT_TEMPLATE_ID } from "@/shared/templates";
 import { IS_TEST_BUILD } from "@/ipc/utils/test_utils";
 
 const logger = log.scope("settings");
@@ -73,7 +72,6 @@ const DEFAULT_SETTINGS: UserSettings = {
     writeToFile: true,
   },
   /** When true, after a build-mode turn completes, may auto-queue up to 2 synthetic fix turns (TS / dev output / tests). Ask-only chats are unaffected. */
-  enableAutoFixProblems: true,
   enableContextAutoSummarize: true, // Phase 6: context bar + auto-summarize
   // PASS6: Blueprint UI preferences — restored.
   blueprintAlwaysShowBeacons: false,
@@ -81,7 +79,6 @@ const DEFAULT_SETTINGS: UserSettings = {
   includeAtlarixCoAuthor: true,
   enableAutoUpdate: true,
   releaseChannel: "stable",
-  selectedTemplateId: DEFAULT_TEMPLATE_ID,
   isRunning: false,
   lastKnownPerformance: undefined,
 };

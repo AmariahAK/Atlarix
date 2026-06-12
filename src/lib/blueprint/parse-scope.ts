@@ -16,12 +16,9 @@ export const BLUEPRINT_PARSE_TIMEOUT_MS = 150_000;
 export const BLUEPRINT_PROGRESS_LOG_MS = 20_000;
 
 export const BLUEPRINT_FALLBACK_TOOLS = [
-  "get_repo_overview",
-  "explore_folder",
-  "search",
+  "glob",
+  "grep",
   "read_file",
-  "get_file_outline",
-  "find_file",
 ] as const;
 
 export function normalizeBlueprintFocusPath(p: string): string {

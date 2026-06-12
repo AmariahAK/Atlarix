@@ -22,7 +22,9 @@ import {
   lastTurnCostUsdByChatIdAtom,
   toolIndicatorAtom,
   streamLastActivityAtByChatIdAtom,
-  streamSlowWarningByChatIdAtom,
+  waitingOnCommandByChatIdAtom,
+  queuedMessageByChatIdAtom,
+  turnSnapshotTurnIdByMessageIdAtom,
   responseDoneAnimationAtom,
   restartedAfterMessageIdAtom,
   pendingUserQuestionByChatIdAtom,
@@ -33,6 +35,7 @@ import {
   summarizationProgressAtom,
   activeTurnScopeAtom,
   inlineTimelineByMessageIdAtom,
+  interleavedDisplayContentByMessageIdAtom,
   streamThreadByChatIdAtom,
   completedStreamThreadByAssistantMessageIdAtom,
   sourcesByAssistantMessageIdAtom,
@@ -238,7 +241,6 @@ export function useStreamChat({
   const setMessagesById = useSetAtom(chatMessagesByIdAtom);
   const setToolIndicator = useSetAtom(toolIndicatorAtom);
   const setStreamLastActivityAtByChatId = useSetAtom(streamLastActivityAtByChatIdAtom);
-  const setStreamSlowWarningByChatId = useSetAtom(streamSlowWarningByChatIdAtom);
   const setResponseDoneAnimation = useSetAtom(responseDoneAnimationAtom);
   const isStreamingById = useAtomValue(isStreamingByIdAtom);
   const setIsStreamingById = useSetAtom(isStreamingByIdAtom);
@@ -310,6 +312,41 @@ export function useStreamChat({
       messageStreamThrottleRef.current.pending.clear();
     };
   }, []);
+
+  // v13 7B: waiting-on-command phase events → waiting chip + send/stop flip.
+  useEffect(() => {
+    const unsub = IpcClient.getInstance().onStreamPhase(
+      ({ chatId: evChatId, phase, commandId, command, startedAt }) => {
+        if (phase === "waiting_on_command" && commandId) {
+          getDefaultStore().set(waitingOnCommandByChatIdAtom, (prev) => {
+            const n = new Map(prev);
+            n.set(evChatId, {
+              commandId,
+              command,
+              startedAt: startedAt ?? Date.now(),
+            });
+            return n;
+          });
+          return;
+        }
+        if (phase === "command_done" || phase === "done") {
+          getDefaultStore().set(waitingOnCommandByChatIdAtom, (prev) => {
+            if (!prev.has(evChatId)) return prev;
+            const n = new Map(prev);
+            n.delete(evChatId);
+            return n;
+          });
+        }
+      },
+    );
+    return unsub;
+  }, []);
+
+  // Late-bound handle so the stream-end queue flush (registered above the
+  // definition) can call streamMessage without a dependency cycle.
+  const streamMessageRef = useRef<
+    ((args: { prompt: string; chatId: number }) => Promise<unknown>) | null
+  >(null);
 
   const streamMessage = useCallback(
     async ({
@@ -391,11 +428,6 @@ export function useStreamChat({
         ...emptyToolIndicatorState(),
         activeChatId: chatId,
         phaseLabel: "Thinking…",
-      });
-      setStreamSlowWarningByChatId((prev) => {
-        const n = new Map(prev);
-        n.delete(chatId);
-        return n;
       });
       setStreamLastActivityAtByChatId((prev) => {
         const n = new Map(prev);
@@ -650,6 +682,11 @@ export function useStreamChat({
         );
 
         const unsubPlanArtifact = IpcClient.getInstance().onPlanArtifactUpdated((payload) => {
+          // v13.1: plan is a coexisting tab. Only steer the panel to the Plan
+          // tab on FIRST activation of a given plan — repeated content updates
+          // must not yank a user who switched to Terminal mid-build.
+          const isNewPlan =
+            getDefaultStore().get(workspacePlanPanelAtom).planId !== payload.planId;
           getDefaultStore().set(workspacePlanPanelAtom, (prev) => ({
             ...prev,
             planId: payload.planId,
@@ -657,11 +694,17 @@ export function useStreamChat({
             planStatus: payload.planStatus,
             sessionId: payload.sessionId,
           }));
-          getDefaultStore().set(aiPanelIntentAtom, {
-            intent: "show-plan",
-            timestamp: Date.now(),
-            source: "system",
-          });
+          if (isNewPlan) {
+            getDefaultStore().set(aiPanelIntentAtom, {
+              intent: "show-plan",
+              timestamp: Date.now(),
+              source: "system",
+            });
+            getDefaultStore().set(previewTabAtom, "plan");
+            if (!getDefaultStore().get(rightPanelSuppressAutoOpenAtom)) {
+              getDefaultStore().set(rightPanelVisibleAtom, true);
+            }
+          }
         });
 
         const unsubscribeChatActivity = IpcClient.getInstance().onChatActivity((payload: unknown) => {
@@ -687,6 +730,7 @@ export function useStreamChat({
             const isSubagent =
               item.type === "subagent_start" ||
               item.type === "subagent_progress" ||
+              item.type === "subagent_thought" ||
               item.type === "subagent_complete";
             if (isSubagent) {
               getDefaultStore().set(streamThreadByChatIdAtom, (prev) => {
@@ -751,6 +795,10 @@ export function useStreamChat({
               timestamp: Date.now(),
               source: "system",
             });
+            getDefaultStore().set(previewTabAtom, "plan");
+            if (!getDefaultStore().get(rightPanelSuppressAutoOpenAtom)) {
+              getDefaultStore().set(rightPanelVisibleAtom, true);
+            }
           }
 
         });
@@ -760,10 +808,9 @@ export function useStreamChat({
             if (start.chatId !== chatId) return;
             const registryName =
               start.toolId?.trim() || start.toolName?.trim() || "tool";
-            const isDelegationTool =
-              registryName === "spawn_sub_agent" ||
-              registryName === "delegate_to_agent";
-            if (isDelegationTool) {
+            // `task` sub-agents render in the sub-agent round panel — no
+            // generic tool card for the wrapping tool itself.
+            if (registryName === "task") {
               return;
             }
             const stack = toolEndStackRef.current.get(chatId) ?? [];
@@ -799,10 +846,7 @@ export function useStreamChat({
               end.toolId?.trim() ||
               end.toolName?.trim() ||
               "";
-            const isDelegationEnd =
-              endName === "spawn_sub_agent" ||
-              endName === "delegate_to_agent";
-            if (isDelegationEnd) {
+            if (endName === "task") {
               return;
             }
             const stack = toolEndStackRef.current.get(chatId) ?? [];
@@ -1111,6 +1155,29 @@ export function useStreamChat({
               next.set(chatId, false);
               return next;
             });
+            // v13 7B: clear the waiting chip and flush the one queued message
+            // the user typed while the agent was blocked on a command.
+            getDefaultStore().set(waitingOnCommandByChatIdAtom, (prev) => {
+              if (!prev.has(chatId)) return prev;
+              const n = new Map(prev);
+              n.delete(chatId);
+              return n;
+            });
+            {
+              const queued = getDefaultStore()
+                .get(queuedMessageByChatIdAtom)
+                .get(chatId);
+              if (queued?.trim()) {
+                getDefaultStore().set(queuedMessageByChatIdAtom, (prev) => {
+                  const n = new Map(prev);
+                  n.delete(chatId);
+                  return n;
+                });
+                setTimeout(() => {
+                  void streamMessageRef.current?.({ prompt: queued, chatId });
+                }, 50);
+              }
+            }
             refreshChats();
             refreshApp();
             refreshVersions();
@@ -1167,6 +1234,24 @@ export function useStreamChat({
                   [lastAssistant.id]: timeline,
                 }));
               }
+              // v13.1: if this turn captured a shadow-git snapshot, remember
+              // its turn id (= the assistant message id) so SimpleMessage can
+              // offer "revert this turn's file changes". Session-lifetime only.
+              const snapshotTurnId = response.snapshotTurnId;
+              if (
+                snapshotTurnId &&
+                Number.isFinite(Number(snapshotTurnId)) &&
+                Number(snapshotTurnId) === lastAssistant.id
+              ) {
+                getDefaultStore().set(
+                  turnSnapshotTurnIdByMessageIdAtom,
+                  (prev) => {
+                    const n = new Map(prev);
+                    n.set(lastAssistant.id, snapshotTurnId);
+                    return n;
+                  },
+                );
+              }
             }
             getDefaultStore().set(activeTurnScopeAtom, null);
 
@@ -1220,6 +1305,20 @@ export function useStreamChat({
                     completedTurnThinkingByAssistantMessageIdAtom,
                   )[lastAssistant.id]
                 : null;
+            // Persist the ordered unstripped raw ONLY when it carries `<think>`
+            // (the one thing the saved content strips). Tool tags survive in
+            // content, so tool order is already preserved there; this restores
+            // thought positions so the frozen view interleaves like streaming.
+            const interleavedForSnap =
+              rawFromRef && /<think>/i.test(rawFromRef) ? rawFromRef : undefined;
+            // Set the live atom so the just-finished turn renders interleaved
+            // immediately (the snapshot below only takes effect on reload).
+            if (interleavedForSnap && lastAssistant?.id != null) {
+              getDefaultStore().set(
+                interleavedDisplayContentByMessageIdAtom,
+                (prev) => ({ ...prev, [lastAssistant.id]: interleavedForSnap }),
+              );
+            }
             const snapshotJson =
               lastAssistant?.id != null
                 ? buildDisplaySnapshotPayloadForMessage(
@@ -1227,6 +1326,7 @@ export function useStreamChat({
                     frozenThread,
                     inlineForSnap,
                     thinkingForSnap,
+                    interleavedForSnap,
                   )
                 : null;
 
@@ -1309,11 +1409,6 @@ export function useStreamChat({
             clearActivityForChatInStore(response.chatId);
             toolEndStackRef.current.delete(response.chatId);
             setStreamLastActivityAtByChatId((prev) => {
-              const n = new Map(prev);
-              n.delete(response.chatId);
-              return n;
-            });
-            setStreamSlowWarningByChatId((prev) => {
               const n = new Map(prev);
               n.delete(response.chatId);
               return n;
@@ -1433,6 +1528,13 @@ export function useStreamChat({
                   [lastAssistantErr.id]: timeline,
                 }));
               }
+              // Interrupted turn: keep the partial reply interleaved in-session.
+              if (rawErr && /<think>/i.test(rawErr)) {
+                getDefaultStore().set(
+                  interleavedDisplayContentByMessageIdAtom,
+                  (prev) => ({ ...prev, [lastAssistantErr.id]: rawErr }),
+                );
+              }
             }
             getDefaultStore().set(activeTurnScopeAtom, null);
 
@@ -1464,11 +1566,6 @@ export function useStreamChat({
             clearActivityForChatInStore(chatId);
             toolEndStackRef.current.delete(chatId);
             setStreamLastActivityAtByChatId((prev) => {
-              const n = new Map(prev);
-              n.delete(chatId);
-              return n;
-            });
-            setStreamSlowWarningByChatId((prev) => {
               const n = new Map(prev);
               n.delete(chatId);
               return n;
@@ -1506,11 +1603,6 @@ export function useStreamChat({
             n.delete(chatId);
             return n;
           });
-          setStreamSlowWarningByChatId((prev) => {
-            const n = new Map(prev);
-            n.delete(chatId);
-            return n;
-          });
         }
         setIsStreamingById((prev) => {
           const next = new Map(prev);
@@ -1533,7 +1625,6 @@ export function useStreamChat({
       setMessagesById,
       setToolIndicator,
       setStreamLastActivityAtByChatId,
-      setStreamSlowWarningByChatId,
       setResponseDoneAnimation,
       setIsStreamingById,
       setIsPreviewOpen,
@@ -1547,6 +1638,7 @@ export function useStreamChat({
       hasChatId,
     ],
   );
+  streamMessageRef.current = streamMessage;
 
   return {
     streamMessage,

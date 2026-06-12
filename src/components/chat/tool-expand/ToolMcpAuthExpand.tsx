@@ -1,9 +1,7 @@
-import { getDefaultStore } from "jotai";
 import { ShieldAlert, LogIn, KeyRound } from "lucide-react";
 import type { ToolExpandView } from "@/lib/chat/tool-expand-view";
 import { IpcClient } from "@/ipc/ipc_client";
-import { activeSettingsSectionAtom } from "@/atoms/viewAtoms";
-import { router } from "@/router";
+import { openSettingsSection } from "@/lib/open-settings-section";
 
 export function ToolMcpAuthExpand({
   view,
@@ -18,8 +16,7 @@ export function ToolMcpAuthExpand({
     if (isOAuth) {
       void IpcClient.getInstance().startMcpOAuth({ serverId: view.serverId });
     } else {
-      getDefaultStore().set(activeSettingsSectionAtom, "mcp");
-      void router.navigate({ to: "/settings" });
+      openSettingsSection("mcp");
     }
   };
 

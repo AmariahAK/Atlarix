@@ -1,0 +1,94 @@
+/**
+ * v13 Phase 7A — background commands.
+ *
+ * run_command({ background: true }) returns to the model IMMEDIATELY after
+ * approval (the command keeps running detached); its exit result is delivered
+ * back automatically — here via the next turn's context drain (the turn ends
+ * before the echo exits in the in-loop prepareStep window).
+ */
+import { describe, expect, it, beforeAll, afterAll } from "vitest";
+import {
+  setupEvalContext,
+  runTurn,
+  getIpcHandler,
+  type EvalContext,
+} from "../infra/turn";
+import { scenario } from "../infra/scenario";
+import { expectNoStreamError, expectStreamEnded } from "../infra/assert";
+
+let ctx: EvalContext;
+
+beforeAll(async () => {
+  ctx = await setupEvalContext({
+    seedFiles: { "src/app.ts": "export const app = 1;\n" },
+  });
+});
+
+afterAll(async () => {
+  await ctx.cleanup();
+});
+
+describe("background commands (7A)", () => {
+  it("background run_command returns immediately; the exit result reaches a later turn", async () => {
+    ctx.server.register(
+      scenario("bg-cmd-start")
+        .toolCall("run_command", {
+          command: "echo background-finished-marker",
+          description: "Long task in the background",
+          background: true,
+        })
+        .text("Started the long task in the background. <task_complete>")
+        .build(),
+    );
+    ctx.server.register(
+      scenario("bg-cmd-next").text("Noted the background result. <task_complete>").build(),
+    );
+
+    const chatId = await ctx.newChat();
+    const { fakeIpc } = await runTurn(ctx, {
+      chatId,
+      prompt: "sc=bg-cmd-start Run the long task in the background.",
+      mode: "build",
+      during: async (ipc) => {
+        const permission = await ipc.waitFor(
+          "permission-request",
+          (p) => p?.chatId === chatId,
+        );
+        expect(permission.payload.request?.operation).toBe("run_command");
+        const executePermission = await getIpcHandler("execute-permission");
+        const result: unknown = await executePermission({} as never, {
+          chatId,
+          operationId: permission.payload.operationId,
+        });
+        expect((result as { approved?: boolean }).approved).toBe(true);
+      },
+    });
+
+    expectNoStreamError(fakeIpc.sends, chatId);
+    expectStreamEnded(fakeIpc.sends, chatId);
+
+    // The model's tool result came back IMMEDIATELY with the started note.
+    const startRequests = ctx.server.requestsFor("bg-cmd-start") as Array<{
+      messages: Array<{ role: string; content?: unknown }>;
+    }>;
+    const followUp = startRequests[startRequests.length - 1];
+    expect(JSON.stringify(followUp)).toContain("Background command started");
+
+    // Give the detached echo a moment to exit and record its result.
+    await new Promise((r) => setTimeout(r, 1_500));
+
+    // The NEXT turn drains the finished result into context.
+    const { fakeIpc: ipc2 } = await runTurn(ctx, {
+      chatId,
+      prompt: "sc=bg-cmd-next Anything from the background task?",
+      mode: "build",
+    });
+    expectNoStreamError(ipc2.sends, chatId);
+    expectStreamEnded(ipc2.sends, chatId);
+
+    const nextRequests = ctx.server.requestsFor("bg-cmd-next") as Array<unknown>;
+    const body = JSON.stringify(nextRequests[0]);
+    expect(body).toContain("[Background command results]");
+    expect(body).toContain("background-finished-marker");
+  }, 60_000);
+});

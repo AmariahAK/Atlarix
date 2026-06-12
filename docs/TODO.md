@@ -1,7 +1,42 @@
 # Atlarix TODO
 
-**Current Version:** v12.10.0 (released)
-**Last Updated:** 2026-06-09
+**Current Version:** v13.1.5 (released)
+**Last Updated:** 2026-06-12
+
+---
+
+## v13.0.0 — IN WORKING TREE (2026-06-11): mass simplification (unreleased — manual test before tag)
+
+> The full v13 program shipped in one working-tree pass (8 phases, each left ts/tests/knip green + boot smoke).
+> See `docs/CHANGELOG.md` [13.0.0] for the user-facing breakdown.
+
+| Phase | Notes |
+|------|-------|
+| **1. Templates removed** | ~2,600 lines: hub picker + route, git-clone/cache pipeline, bundled `scaffold/`, `create-app` IPC chain, `selectedTemplateId` setting, TEMPLATE_TOKEN (.env.example + release.yml). **Manual: delete the `TEMPLATE_TOKEN` GitHub secret + local `.env` line.** Orphaned Neon connector UI deleted with it (deeper Neon plumbing untouched). |
+| **2. Activity/Agents tabs + background agents deleted** | Panels, PanelTab entries, `agents:background:*` IPC, runner, hydrate, auto-approve branch. activity-stream lib KEPT (feeds inline UI). Migrations 0060/0061 stay; columns no longer written. |
+| **3. One parallel `task` tool** | `run-subagent.ts` (streamText) replaces `runDelegation`: live `subagent_thought` reasoning/narration upserted into SubAgentRunCard (renderer already had the `thought` item kind). 5-slot delegation-limiter keeps parallelism; specialist roster/handoff schemas/presets/corrections/bus + the structured Plan/Debug/Review report rewriting DELETED. Mode prompts amped (debug = hypothesis-first as prose). `task` offered in EVERY mode. |
+| **4. Tool surface 38 → 22** | New `glob`/`grep` (renderer match-list card reuses `ui.groups`); plan tools 5→1 (`operation:` param); memory.md + installed skills auto-injected; progressive reveal + ToolSessionLoader deleted (pipeline now 3 stages); read_file offset/limit paging; run_command output cap → 1MB; AGENTS_COMPACT/MODE_BASE + mode skills + blueprint guide rewritten for the new names; legacy names annotated in renderer maps; deleted-tool history replay eval added (graceful "unavailable tool" feedback verified). Goldens re-pinned: ask/plan = 17, build = 22. |
+| **5. Tool cards show the work** | `defaultOpenFor` (shared live + hydrated): done writes/edits open their diff, commands open output + exit-code badge (`command` expand kind + ToolCommandExpand, last-10-lines clamp), errors open, reads stay collapsed; running mutating tools render a fixed skeleton. |
+| **6. Status line replaces the long-task banner** | SlowStreamWarningBar + atom deleted; InlineStreamStatus prioritized states: waiting chip → "Reconnecting…" (10s quiet) → "· still working (1:23)" (60s+) → tool label. Terminal restore notice → dim separator. |
+| **7. Background commands + waiting UI** | `run_command background:true` returns immediately (timeout still enforced); exit result delivered via prepareStep injection (mid-turn) or next-turn context drain (`background-commands.ts`, take-once) — no polling tool. Foreground command >10s → `chat:stream:phase waiting_on_command` → chip with timer (click opens Terminal tab; stop affordance), square→send flip, ONE queued message flushed on stream end. Eval: immediate return + next-turn delivery. |
+| **8. Verification** | 169 test files / 1173 tests green, ts + ts:tests + app/e2e tsconfig clean, knip 0 unused files, boot smoke clean per phase. |
+
+### v13.1 follow-up — IN WORKING TREE (2026-06-11): plan tab, full LSP removal, web search, harness parity (same unreleased cycle)
+
+> Six items, each left ts/check:ts/tests/knip green + boot smoke. See `docs/CHANGELOG.md` [13.0.0] Added/Removed (v13.1).
+
+| Item | Notes |
+|------|-------|
+| **1. Plan = coexisting tab** | `'plan'` dropped as a PanelType; appended to code-preview tabs when `workspacePlanPanelAtom.planId` set; `mapIntentToView('show-plan') → 'code-preview'`; PanelContent renders PlanExecutionPanel for activeTab `plan`; first-activation only steers tab+visibility (no takeover, terminal stays usable). |
+| **2. Always-queue while streaming** | SimpleChatInput textarea always enabled; submit queues one msg on any `isStreaming` (single slot, flushed on stream end by useStreamChat); stop square + send both shown. |
+| **3. AGENTS.md/CLAUDE.md interop** | `readProjectInstructions()`: atlarix.md → AGENTS.md → CLAUDE.md, same inject cap, read-only; loadAtlarixMdSection labels per source (atlarix heading byte-identical for ttft eval). |
+| **4. Web search upgrades** | turndown HTML→Markdown (fallback to stripHtml); read_url 20K/50K + `max_length`/`timeout` params; deep-fetch 20K; `fetchWithCfRetry` (403 cf-mitigated → browser UA, once); 20s timeouts; snippets 300→500. `turndown` dep added (bundled by Vite, no forge work). |
+| **5. Revert-turn checkpoint** | `listSnapshotFiles` restored; `snapshot:files` IPC + `revert:snapshot {filesOnly}` (skipMessageFlags); `turnSnapshotTurnIdByMessageIdAtom` populated in useStreamChat onEnd; SimpleMessage RevertTurnAction + AlertDialog. **Session-lifetime only** (snapshotTurnId not persisted). |
+| **6. ALL LSP deleted** | Engine: postWriteVerify seam removed, stop-hook gate preserved (counter renamed `gateBlockedBreaks`, `permission-ruleset.eval` green). Setting `enableAutoFixProblems` + AutoFixProblemsSwitch gone. Editor: `src/lib/lsp/*` + lsp_handlers + preload/ipc_client methods + FileEditor LSP lifecycle deleted (preview-marker reset moved into the preview effect's cleanup). Deps `typescript-language-server`/`vscode-langservers-extracted`/`vscode-jsonrpc`/`vscode-languageserver-types` uninstalled; forge keepRoots/strip blocks + knip ignores removed (~6–8 MB). Prompts/docs/README de-LSP'd; stale v13 tool refs (record_debug_hypothesis, diagnose_issue, update_plan_*) fixed. edit-verify eval → `edit-nomatch-guidance.eval.test.ts` (no-match test only). Errors tab + dev-server TS watcher KEPT (independent). |
+
+**Release checklist (when ready to tag v13.0.0):** bump `package.json` version; manual test pass (parallel sub-agents with visible thinking, waiting chip + queued message, background command result delivery, old-session rendering incl. deleted-tool parts, template-free flow, MCP call, browser tool, plan-tab ↔ terminal switching, queue-while-streaming, revert-turn, AGENTS.md repo); launchpad copy AFTER release; delete `TEMPLATE_TOKEN` secret; `git tag v13.0.0` + push.
+
+**Deferred (consciously, from the v13 plan):** drop `maybeTruncateToDisk` for plain offset-paging; extract chat_stream_handlers.ts (7.4K lines) branch bodies; drop ToolCategory enum + cost field (stats-only); remove the capability-trim stage entirely at 22 tools; full removal of legacy handoff renderers after a soak release; stale `stream_terminal_output` comparisons in the handler (dead, benign).
 
 ---
 

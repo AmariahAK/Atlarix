@@ -1,4 +1,6 @@
 import { describe, expect, it, beforeAll, afterAll } from "vitest";
+import nodeFs from "node:fs";
+import nodePath from "node:path";
 import {
   setupEvalContext,
   runTurn,
@@ -92,5 +94,53 @@ describe("context assembly under concurrent pre-flight (S18)", () => {
         .map(([m]) => m);
     expect(order(sys2)).toEqual(order(sys1));
     expect(order(sys2)).toHaveLength(markers.length);
+  }, 30_000);
+});
+
+describe("project-instruction interop (v13.1) — AGENTS.md fallback", () => {
+  // The eval harness is single-context per file (shared sqlite), so reuse the
+  // workspace: hide .atlarix/ and add a repo-root AGENTS.md for this test, then
+  // restore so no later test is affected.
+  const AGENTS_CANARY = "ATLX-AGENTS-CANARY: this repo enforces 2-space indent.";
+  const atlarixDir = () => nodePath.join(ctx.ws.dir, ".atlarix");
+  const hiddenDir = () => nodePath.join(ctx.ws.dir, ".atlarix.hidden");
+  const agentsPath = () => nodePath.join(ctx.ws.dir, "AGENTS.md");
+
+  beforeAll(() => {
+    if (nodeFs.existsSync(atlarixDir())) {
+      nodeFs.renameSync(atlarixDir(), hiddenDir());
+    }
+    nodeFs.writeFileSync(agentsPath(), `${AGENTS_CANARY}\n`);
+  });
+
+  afterAll(() => {
+    if (nodeFs.existsSync(agentsPath())) nodeFs.rmSync(agentsPath());
+    // readProjectInstructions runs the legacy migration, which recreates an
+    // empty .atlarix/; drop it before restoring the real one.
+    if (nodeFs.existsSync(atlarixDir())) {
+      nodeFs.rmSync(atlarixDir(), { recursive: true, force: true });
+    }
+    if (nodeFs.existsSync(hiddenDir())) {
+      nodeFs.renameSync(hiddenDir(), atlarixDir());
+    }
+  });
+
+  it("injects AGENTS.md as project instructions when atlarix.md is absent", async () => {
+    ctx.server.register(
+      scenario("agents-fallback").text("ok <task_complete>").build(),
+    );
+    const chatId = await ctx.newChat();
+    const { fakeIpc } = await runTurn(ctx, {
+      chatId,
+      prompt: "sc=agents-fallback What indent does this repo use?",
+      mode: "build",
+    });
+    expectNoStreamError(fakeIpc.sends, chatId);
+    expectStreamEnded(fakeIpc.sends, chatId);
+
+    const sys = firstRequestSystemBlob("agents-fallback");
+    expect(sys).toContain("Project instructions (AGENTS.md)");
+    expect(sys).toContain(AGENTS_CANARY);
+    expect(sys).not.toContain(MEMORY_CANARY);
   }, 30_000);
 });

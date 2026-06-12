@@ -115,19 +115,22 @@ function NestedThreadItems({
       {flat.map((item) => {
         if (item.kind === "thought") {
           const isProgress = item.id.startsWith("sub-progress-");
-          const isLiveProgress =
+          const isNarration = item.id.startsWith("sub-text-");
+          const isLive =
             isStreaming &&
             agentStatus === "running" &&
-            isProgress &&
             item === flat[flat.length - 1];
           return (
             <InlineThoughtBlock
-              key={`thought-${item.id}-${item.ts}`}
+              key={`thought-${item.id}`}
               content={item.content}
-              isStreaming={isLiveProgress}
+              isStreaming={isLive}
               keepOpenAfterStream
-              // Progress lines are tool status, not model reasoning.
-              title={isProgress ? "Activity" : "Thoughts"}
+              // Progress lines are tool status; sub-text- is live narration;
+              // everything else is model reasoning.
+              title={
+                isProgress ? "Activity" : isNarration ? "Update" : "Thoughts"
+              }
             />
           );
         }

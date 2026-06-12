@@ -1,4 +1,4 @@
-import { BrowserWindow, ipcMain } from "electron";
+import { ipcMain } from "electron";
 import { db } from "../../db";
 import { apps } from "../../db/schema";
 import { eq } from "drizzle-orm";
@@ -27,12 +27,6 @@ const LEGACY_CHAT_REMOVED =
 export function registerChatHandlers() {
   // v12 0.4-C3: chat:clear-ephemeral-messages deleted — it was a no-op
   // precursor (hydrate replaces the buffer wholesale).
-
-  // v12 2.3: rebuild the background-agent status map from persisted sessions
-  // (a "running" row at boot was interrupted by the restart → marked error).
-  void import("@/lib/agents/background-agent").then((m) =>
-    m.hydrateBackgroundAgentsFromDb(),
-  );
 
   handle(
     "chat:hydrate-ephemeral-messages",
@@ -75,60 +69,6 @@ export function registerChatHandlers() {
       description: a.description,
       mode: a.mode,
     }));
-  });
-
-  // v12 2.3: spawn a detached background agent for a workspace.
-  handle(
-    "agents:background:start",
-    async (
-      _,
-      args: {
-        appId: number;
-        prompt: string;
-        title?: string;
-        mode?: "ask" | "build";
-      },
-    ) => {
-      const { startBackgroundAgent } = await import(
-        "@/lib/agents/background-agent"
-      );
-      // Fire-and-forget — runs detached; the UI polls agents:background:list.
-      const startedAt = Date.now();
-      void startBackgroundAgent({ ...args, startedAt }).catch(() => {});
-      // S16: nudge the renderer to surface the Agents tab.
-      for (const win of BrowserWindow.getAllWindows()) {
-        win.webContents.send("agents:background:started", {
-          appId: args.appId,
-        });
-      }
-      return { ok: true };
-    },
-  );
-
-  handle("agents:background:list", async () => {
-    const { listBackgroundAgents } = await import(
-      "@/lib/agents/background-agent"
-    );
-    return listBackgroundAgents();
-  });
-
-  // v12 2.3 V2: approval gate — keep the writes or revert the turn's snapshot.
-  handle(
-    "agents:background:resolve",
-    async (_, sessionId: string, decision: "keep" | "revert") => {
-      const { resolveBackgroundAgent } = await import(
-        "@/lib/agents/background-agent"
-      );
-      return resolveBackgroundAgent(sessionId, decision);
-    },
-  );
-
-  // v12 2.3: cancel a running background agent (aborts its stream by chatId).
-  handle("agents:background:cancel", async (_, sessionId: string) => {
-    const { cancelBackgroundAgent } = await import(
-      "@/lib/agents/background-agent"
-    );
-    return cancelBackgroundAgent(sessionId);
   });
 
   ipcMain.handle("get-chat", async (_, chatId: number) => {
