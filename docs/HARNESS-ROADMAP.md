@@ -12,18 +12,19 @@ _Updated 2026-06-13. Shipped-this-pass items are marked ✅ for context._
 - ✅ **Parallel writing sub-agents** — `task({ write: true })` in an isolated git worktree; diff returned for review+apply.
 - ✅ **Microcompact** — no-LLM stale-tool-output drop in `runSteppedCompaction`.
 - ✅ **Blueprint Tier-1** — RRF + field reweight + structural proximity.
-- ✅ **Model2Vec foundation** — tested embedding/fusion core + setting + fetch/bundle wiring (default-off).
 - ✅ **Browser session-recording artifact**; **keep-awake setting**; **concurrent-session** verification.
+
+## Shipped in the backlog pass (2026-06-13)
+- ✅ **Model2Vec live semantic-recall fusion** — pure-JS BERT WordPiece loader (`model2vec-loader.ts`, validated vs the real `potion-code-16M`: correct tokenization, normalized 256-d vectors, related-code > unrelated cosine) → per-doc embeddings at index build → `searchBlueprintByEmbedding` → 3rd RRF list in the grep reranker. Gated behind `semanticRecall` (default OFF). **Remaining: validate retrieval gains on a real workspace build, then flip the default on.** No new dependency; model is a `npm run fetch-model2vec` artifact (~64MB) bundled when present.
+- ✅ **snapshotTurnId persistence** (migration 0063) — revert-turn survives a restart.
+- ✅ **Removals** — capability-trim stage + `cost` + `ToolCategory` deleted (weak/local models keep schema-simplification, lose only the tool-count cap; golden counts unchanged).
+- ✅ **Plan-tool transport rebind** + **ast-grep asar unpack** — both tracked known issues fixed.
+- ✅ **Background task agents** — confirmed already functional (`task({ background: true })` + mid-turn injection + keep-awake); low-value restart-persistence polish skipped.
 
 ## Completion steps for foundations shipped this pass
 
-### Model2Vec semantic recall — wire the live lane
-Foundation done (`src/lib/search/static-embeddings.ts`, tested). Remaining:
-1. `npm run fetch-model2vec` to obtain `potion-code-16M`; validate the file bundles via `extraResource`.
-2. Implement the production `StaticEmbeddingModel` (load `model.safetensors` table + the HF `tokenizer.json`). Preferred: compile `model2vec-rs` → WASM (bundles tokenizer + inference, cross-platform, pairs with the Rust toolchain added for the sandbox); fallback: JS inference + a HF-tokenizer lib.
-3. At BM25 index build (`bm25_semantic_index.ts`), compute + cache a per-symbol embedding; refresh incrementally on the file-watcher dirty flag.
-4. In the grep reranker (`grep-blueprint-reranker.ts`) and slice ranker, add the embedding ranking as a third list in `fuseRankedLists` — gated on `settings.semanticRecall` + `hasStaticEmbeddingModel()`.
-5. Validate accuracy (fuzzy NL query retrieves the right symbol where pure BM25 missed) on a real build, then flip the default on.
+### Model2Vec — flip default-on after real-build validation
+The lane is wired + inference-verified, but `semanticRecall` stays OFF until end-to-end retrieval gains are confirmed on a real workspace (a fuzzy NL query retrieving the right symbol where pure BM25 missed). Also measure the index-build embedding latency on a large repo. Then default it on. The slice ranker (`blueprint-slice.ts`) could also fuse the embedding signal (only the grep reranker does today).
 
 ### Windows sandbox — validate on a Windows build
 The crate compiles + ACL/AppContainer behavior must be verified on `windows-latest` (the macOS host can't). Run `native/atlarix-sandbox/README.md`'s test matrix; budget one iteration for exact `windows`-crate signatures / ACL inheritance.
@@ -36,11 +37,8 @@ Add a `classifyQueryIntent()` pre-step in `bm25_semantic_index.ts` ("where do we
 ### Mid-loop microcompact (native tool pairing)
 `runSteppedCompaction` now microcompacts (string representation). The mid-loop path (`compactAgenticMessagesIfNeeded`, native tool-role messages) can't surgically drop a tool result without orphaning its `tool_call` and breaking provider pairing. To microcompact there: drop matched tool-call ⊕ tool-result PAIRS together (not individual results), then re-validate native history. Larger change; the head-summary it does today is correct in the meantime.
 
-### Removals (sequenced — coupled, do as a focused pass)
-`cost`/`ToolCategory` are still consumed by the capability-trim stage and exist to cap tools for weak/local models (the open-weight models we champion), so removing them is **not** free cleanup. Sequence, each behind its own change + green `npm test` + integration check:
-1. Decide whether weak/local models still benefit from tool-capping at 22 tools (measure first — don't assume "pointless").
-2. If removing: delete the capability-trim stage in `resolve-toolset.ts` (Stage 3, `trimToolsForCapability`/`getCapabilityProfile`) + its threading in `mode-tool-registry.ts`, `tool-model-output.ts`, `chat_stream_handlers.ts`, and `model-capability-profile.test.ts`.
-3. Then drop `cost` (read in `src/lib/tools/index.ts` `totalCost`) + `ToolCategory` from `registry.ts` and every tool definition.
+### Removals — ✅ done
+Capability-trim stage + `cost` + `ToolCategory` removed (`resolve-toolset.ts`, `model-capability-profile.ts` `trimToolsForCapability`, `registry.ts`, ~14 tool defs, tests). Weak/local models keep `getCapabilityProfile` + `simplifyToolParametersForProfile`. Open follow-up: evaluate replacing `maybeTruncateToDisk` with plain offset-paging (kept — still guards large `read_file`/`grep` outputs).
 4. Separately: evaluate replacing `maybeTruncateToDisk` with plain offset-paging (keep if it still guards large `read_file`/`grep` outputs).
 
 ### Verifiable artifacts — renderer surfacing

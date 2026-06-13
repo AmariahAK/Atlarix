@@ -98,23 +98,23 @@ One-identity rewrite across Atlarix/launchpad/releases: **"the open-weight front
 | ~~P1~~ ✅ | ~~Blueprint Tier-1 (RRF + proximity + field reweight)~~ | **Done** (query-intent routing → roadmap). |
 | ~~P1~~ ✅ | ~~Keep-awake on idle-sleep + concurrent sessions~~ | **Done** — already built; verified + `keepAwakeDuringRuns` toggle added. |
 | ~~P1~~ ✅ | ~~Auto-updating open-weight model catalog~~ | **Done** — dynamic live `/models` → models.dev. |
-| **P1** | Background *task* agents (generalize the background-command seam) | **Open** (→ roadmap) — async without cloud. |
-| ~~P2~~ 🟡 | Local semantic-recall lane (Model2Vec) | **Foundation done** (tested core + setting + fetch/bundle, default-off); live fusion → roadmap. |
+| ~~P1~~ ✅ | ~~Background *task* agents~~ | **Done (already was)** — `task({ background: true })` + mid-turn injection + keep-awake = async-while-away works; restart-persistence polish skipped as low-value. |
+| ~~P2~~ ✅ | ~~Local semantic-recall lane (Model2Vec)~~ | **Done** — live fusion: pure-JS WordPiece loader (validated vs real potion-code-16M) → per-doc embeddings → 3rd RRF list, gated behind `semanticRecall` (default OFF until validated on a real build). |
+| ~~P2~~ ✅ | ~~Persist context checkpoints across restarts (`snapshotTurnId`)~~ | **Done** — migration 0063 + persist/rehydrate; revert-turn survives restart. |
 | ~~P2~~ ✅ | ~~Verifiable artifact layer~~ | **Done** — browser session-recording walkthrough (renderer card → roadmap). |
-| **P2** | Persist context checkpoints across restarts (`snapshotTurnId`) | **Open** (→ roadmap). |
-| **P3** | Removals (capability-trim → cost/ToolCategory) | **Deferred** — coupled to weak/local-model tool-capping; sequenced steps in roadmap (measure first). |
-| **P3** | Public "build-on-Atlarix" agent SDK | **Open** — strategic/large. |
+| ~~P3~~ ✅ | ~~Removals (capability-trim → cost/ToolCategory)~~ | **Done** — trim stage + `cost` + `ToolCategory` removed; weak/local models keep schema-simplification, lose only the tool-count cap. |
+| **P3** | Public "build-on-Atlarix" agent SDK | **Deferred** (user) — strategic/large; revisit if a third-party ecosystem becomes a goal. |
 
 **De-scoped by the user (not pursued):** approval-triage/Guardian, per-model system prompts, whole-harness swapping.
 
 ---
 
-## Known issues — to fix
+## Known issues
 
-> Tracked, not yet scheduled.
+> Both fixed in the 2026-06-13 backlog pass.
 
-- **Plan tools fail when a stream transport lost its session binding.** `read_implementation_plan`/`write_implementation_plan` (`src/lib/tools/plan.ts`) return *"No workspace session for this chat"* / *"Plan not found"* when the current chat's in-memory stream transport has no resolvable workspace session — e.g. a stale/reused transport after a reload, where `resolveOrBindWorkspaceSessionForStream` (`workspace_session_handlers.ts`) can't bind one. `workspaceSessionId` is **auto-injected server-side** (`chat_stream_handlers.ts` execArgs), so the model can't influence it — its retries/"switch to Build mode" attempts are no-ops. **Proposed fix:** when `getStreamTransport` is empty but the chat's app id is known, auto-rebind the transport to the latest session for that app (reuse `pickSessionReuse`/`insertWorkspaceSession`); otherwise return a clear "start a new chat in this workspace" message instead of "Plan not found". Workaround today: start a new chat in the workspace.
-- **`@ast-grep/lang-{go,python}` are not unpacked from the asar.** They were listed in the old (ignored) `asarUnpack` array; v12.9.6 fixed the asar key for node-pty only (minimal hotfix) and did **not** fold ast-grep into `asar.unpack`. ast-grep core works (its `.node` is unpacked by `AutoUnpackNatives`), but if dynamic Go/Python AST registration needs those package files on disk, add `**/@ast-grep/lang-python/**`,`**/@ast-grep/lang-go/**` (and `**/.vite/build/astgrep_worker.js`) to the `asar.unpack` glob in `forge.config.ts`. Verify before changing — they ship in-asar today and the app works.
+- ✅ **Plan tools failing on a lost stream-transport session binding** — FIXED. `src/lib/tools/plan.ts` now auto-rebinds via `resolveOrBindWorkspaceSessionForStream` (falls back to the latest session for the chat's app) when `workspaceSessionId` is empty, and returns a clear "start a new chat in this workspace" message only when nothing can bind.
+- ✅ **`@ast-grep/lang-{go,python}` not unpacked from the asar** — FIXED. Added `**/@ast-grep/lang-python/**`, `**/@ast-grep/lang-go/**`, and `**/.vite/build/astgrep_worker.js` to the `asar.unpack` glob in `forge.config.ts` (packaged-only; verify on a real build).
 
 ---
 
