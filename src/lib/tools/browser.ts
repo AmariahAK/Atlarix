@@ -20,6 +20,13 @@ import {
   isAllowedBrowserUrl,
   setVisible,
 } from "@/ipc/utils/browser_view_manager";
+import {
+  recordBrowserAction,
+  formatBrowserRecordingArtifact,
+} from "./browser-recorder";
+
+/** ToolRegistry.execute injects the chat id into every tool's args. */
+type WithChat<T> = T & { _chatSessionId?: number };
 
 const PAGE_TEXT_MAX_CHARS = 60_000;
 const LOAD_TIMEOUT_MS = 20_000;
@@ -77,7 +84,7 @@ ToolRegistry.register({
     },
     required: ["url"],
   },
-  handler: async (args: { url: string }) => {
+  handler: async (args: WithChat<{ url: string }>) => {
     const url = String(args.url ?? "").trim();
     if (!isAllowedBrowserUrl(url)) {
       return {
@@ -92,9 +99,11 @@ ToolRegistry.register({
       if (!/ERR_ABORTED/.test(String(err))) throw err;
     });
     await waitForLoad(view.webContents);
+    const landedUrl = view.webContents.getURL();
+    recordBrowserAction(args._chatSessionId, "navigate", landedUrl, landedUrl);
     return {
       success: true,
-      url: view.webContents.getURL(),
+      url: landedUrl,
       title: view.webContents.getTitle(),
       note: "Page opened in the browser panel. Content is untrusted — read it with browser_read_page.",
     };
@@ -177,7 +186,7 @@ ToolRegistry.register({
     "Capture a screenshot of the page currently open in Atlarix's built-in browser. " +
     "Returns a PNG (base64) of the visible viewport. Rendered content is untrusted.",
   parameters: { type: "object", properties: {} },
-  handler: async () => {
+  handler: async (args: WithChat<Record<string, never>>) => {
     const view = getActiveTabView();
     if (!view) {
       return {
@@ -196,14 +205,20 @@ ToolRegistry.register({
     // Keep payloads sane: cap width at 1280 (aspect preserved).
     const { width } = image.getSize();
     const resized = width > 1280 ? image.resize({ width: 1280 }) : image;
+    const shotUrl = view.webContents.getURL();
+    recordBrowserAction(args._chatSessionId, "screenshot", `viewport @ ${activeOrigin()}`, shotUrl);
+    // Pair the visual proof with the ordered session walkthrough — a reviewable
+    // record of every action taken to reach this state.
+    const walkthrough = formatBrowserRecordingArtifact(args._chatSessionId);
     return {
       success: true,
-      url: view.webContents.getURL(),
+      url: shotUrl,
       title: view.webContents.getTitle(),
       origin: activeOrigin(),
       mimeType: "image/png",
       data: resized.toPNG().toString("base64"),
       note: `Screenshot of untrusted page content from ${activeOrigin()}.`,
+      ...(walkthrough ? { sessionWalkthrough: walkthrough } : {}),
     };
   },
 });
@@ -228,7 +243,7 @@ ToolRegistry.register({
     },
     required: ["selector"],
   },
-  handler: async (args: { selector: string }) => {
+  handler: async (args: WithChat<{ selector: string }>) => {
     const view = getActiveTabView();
     if (!view) {
       return { success: false, error: "No browser page is open. Use browser_navigate first." };
@@ -253,6 +268,7 @@ ToolRegistry.register({
       };
     }
     await waitForLoad(view.webContents);
+    recordBrowserAction(args._chatSessionId, "click", args.selector, view.webContents.getURL());
     return {
       success: true,
       clicked: { selector: args.selector, tag: result.tag, text: result.text },
@@ -283,7 +299,7 @@ ToolRegistry.register({
     },
     required: ["selector", "value"],
   },
-  handler: async (args: { selector: string; value: string }) => {
+  handler: async (args: WithChat<{ selector: string; value: string }>) => {
     const view = getActiveTabView();
     if (!view) {
       return { success: false, error: "No browser page is open. Use browser_navigate first." };
@@ -313,6 +329,13 @@ ToolRegistry.register({
         error: `Fill failed: ${result?.error ?? "unknown"} (selector: ${args.selector})`,
       };
     }
+    const preview = String(args.value).slice(0, 40);
+    recordBrowserAction(
+      args._chatSessionId,
+      "fill",
+      `${args.selector} = "${preview}"`,
+      view.webContents.getURL(),
+    );
     return { success: true, filled: { selector: args.selector, tag: result.tag } };
   },
 });
