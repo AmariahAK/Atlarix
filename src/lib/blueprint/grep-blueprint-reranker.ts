@@ -157,9 +157,12 @@ export async function suggestClosestIndexedSymbols(opts: {
       const abs = norm(hit.file);
       if (seenFiles.has(abs)) continue;
       seenFiles.add(abs);
-      const rel = abs.startsWith(root)
-        ? path.relative(root, abs)
-        : hit.file;
+      // Model-facing paths are always POSIX-style; on Windows path.relative
+      // yields backslashes, so normalize (matches grep.ts and file citations).
+      const rel = (abs.startsWith(root) ? path.relative(root, abs) : hit.file).replace(
+        /\\/g,
+        "/",
+      );
       const preview = (hit.content ?? "").trim().slice(0, 120);
       lines.push(`  ${rel}:${hit.line}${preview ? `  ${preview}` : ""}`);
     }
