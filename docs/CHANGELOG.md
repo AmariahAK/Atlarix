@@ -1,8 +1,12 @@
 # Atlarix Changelog
 
-## [Unreleased] — Retrieval: disk-backed FTS5, sharp symbol-aware grep, embedding lane removed
+## [13.5.0] (2026-06-13) — Open-weight Core providers, disk-backed FTS5 retrieval, writer sub-agents, real Windows sandbox
 
-> Code retrieval scaled to any workspace size and made sharper + lower-token, while *removing* complexity.
+> The cycle that makes "the open-weight frontier harness" literal: DeepSeek, Qwen, Kimi, and MiniMax
+> ship as first-class **Core** providers; code retrieval is rebuilt to scale to any workspace size on a
+> disk-backed lexical index (no vector DB, by design); sub-agents can now *write* in isolated git
+> worktrees; and the `run_command` sandbox gains a real Windows AppContainer helper. Net effect: sharper
+> retrieval at lower token cost, more parallel work per turn, and a lighter app (−62 MB).
 > Validated on a real giant multi-repo: the "find the signup code" query went from ~63K to ~26K turn
 > tokens with verified-accurate results (exact file:line citations across three sub-projects, zero
 > hallucination). The thesis, confirmed in data: for **code**, lexical + structural retrieval plus the
@@ -10,6 +14,11 @@
 
 ### Added
 
+- **Open-weight Core providers — DeepSeek, Qwen, Kimi, MiniMax.** The four open-weight families ship as
+  first-class managed providers, with their model lists pulled from the live `models.dev` catalog at
+  startup (cached, no repackage to add a model). Provider-id mapping handles catalog vs. API naming
+  (`qwen→alibaba`, `moonshot→moonshotai`; deepseek / minimax identity). (`src/lib/provider_model_fetchers.ts`,
+  `src/lib/core-model-overrides.ts`.) BYOK pricing resolution added (`src/lib/routing/byok-pricing.ts`).
 - **Disk-backed SQLite FTS5 lexical index** (`src/lib/search/fts5-index.ts`, pure SQL contract in
   `fts5-core.ts`). One standalone DB per workspace; ~constant low memory at any repo size (kills the
   prior in-memory OOM ceiling on giant repos), incremental per-file updates, with candidate-set rerank
@@ -18,13 +27,36 @@
 - **Symbol-aware `grep` (zoekt-style).** Each result names its enclosing function/class via a new
   `findEnclosingSymbol` ctags helper, so the model jumps straight to the symbol instead of reading files.
   Match-list cards show the symbol as a badge.
+- **Writer sub-agents in isolated git worktrees.** A `task` can now run in *implement* mode
+  (`task({ write: true })`): it works inside a throwaway git worktree branched from `HEAD`, with
+  `write_file`/`edit_file` path-confined to that worktree and `run_command` sandboxed to it. The
+  worktree's diff is captured and handed back to the main agent, which lands the changes through its
+  own approval-gated write tools — so parallel writers never touch the real tree directly and the user
+  still reviews every hunk. Requires a git repo; otherwise the sub-agent falls back to a read-only
+  scout. (`src/lib/agents/run-subagent.ts`, `src/lib/agents/subagent-worktree.ts`.)
+- **Real Windows AppContainer sandbox helper.** The `atlarix-sandbox.exe` helper (`native/atlarix-sandbox/`,
+  Rust) is now built + code-signed in CI and bundled via `extraResource`, completing the per-OS
+  write-confining sandbox for `run_command` alongside macOS Seatbelt and Linux bubblewrap.
+- **Verifiable browser session-recording + accessibility-ref tools.** The in-app browser records a
+  verifiable session artifact, and the snapshot/interact tools resolve actions by injected
+  `data-atlarix-ref` accessibility refs rather than brittle CSS selectors. (`src/lib/browser/a11y-snapshot.ts`,
+  `src/lib/tools/browser-recorder.ts`.)
+- **Microcompact: stale tool outputs dropped without an LLM call.** Tool outputs older than the last few
+  user turns are dropped outright (no summarization round-trip), reclaiming context cheaply before full
+  compaction is ever needed. (`src/lib/context/compaction.ts`.)
 
 ### Changed
 
 - **`grep` tuned for sharp, low-token output:** defaults cut hard — `max_bytes` 120K→24K,
   `max_results` 50→20, per-file lines 30→5, context 2→0 — and results lead with the most relevant file.
+- **Blueprint Tier-1 retrieval sharpened** — reciprocal-rank fusion across lexical legs, field reweighting,
+  and proximity scoring, so the most structurally relevant rooms/symbols surface first. (`src/lib/blueprint/`.)
 - **Browser tools steered snapshot-first:** `browser_screenshot` reworded to "visual confirmation only"
   (token-heavy); `browser_snapshot` is the way to find/interact; Explore + Build mode skills updated.
+- **Checkpoints survive a restart.** `snapshotTurnId` is now persisted, so revert-turn still works after
+  the app is closed and reopened (previously session-lifetime only).
+- **Keep-awake while the agent works** is a gated setting — long unattended runs no longer stall when the
+  machine sleeps, but the behavior is off unless opted in.
 
 ### Removed
 
@@ -33,6 +65,16 @@
   the `emb_src` column, the bundled 62 MB model + `fetch-model2vec`. It only engaged under a 40K-symbol
   cap (never helping giant repos), bloated the bundle, and chased recall when the real bottleneck was
   token volume. Bundle shrinks ~62 MB. Blueprint room scoring (lexical) is unaffected.
+- **The capability-TRIM stage + per-tool `cost` + the `ToolCategory` enum.** At ~22 tools the tool-count
+  cap was unnecessary, so it is gone — every model now gets the full mode allowlist. Weak/local models
+  keep only parameter-schema simplification (`getCapabilityProfile` / `simplifyToolParametersForProfile`),
+  not a reduced tool count. (`src/lib/routing/model-capability-profile.ts`, `src/lib/tools/resolve-toolset.ts`.)
+
+### Fixed
+
+- **Lost plan sessions auto-rebind** after a restart, and **ast-grep language grammars are unpacked from
+  the asar** so structural search works in packaged builds. A renderer `get_model_client` stub prevents a
+  packaging crash.
 
 ## [13.1.5] (2026-06-12) — Open-weight harness hardening: command sandbox, parallel-research orchestration, Hugging Face, Blueprint-backed grep
 

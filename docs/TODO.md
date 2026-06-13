@@ -1,11 +1,11 @@
 # Atlarix TODO
 
-**Current Version:** v13.1.5 (released)
+**Current Version:** v13.5.0 (released)
 **Last Updated:** 2026-06-13
 
 ---
 
-## v14 retrieval — IN WORKING TREE (2026-06-13): FTS5 scale, sharp grep, embeddings removed
+## Retrieval — SHIPPED in v13.5.0 (2026-06-13): FTS5 scale, sharp grep, embeddings removed
 
 > See `docs/CHANGELOG.md` [Unreleased]. Validated on a real giant multi-repo: "find the signup code"
 > went ~63K → ~26K turn tokens with verified-accurate (zero-hallucination) results.
@@ -18,7 +18,7 @@
 | ~~Local semantic-recall lane (Model2Vec / embeddings)~~ | ❌ **Removed** — code retrieval doesn't need a vector index (the LLM is the NL layer). Deleted the lane, the 62 MB model, `semanticRecall`, `emb_src`. |
 | **Blueprint** | ✅ **Audited — leave as-is.** It is the **best version for models**; tight + accurate (40-room cap, 300-line/48 KB markdown, BM25+centrality+proximity, ~2–4K tokens). **Do not touch until further notice** — no accuracy/bloat problem to solve; query-intent routing + embedding fusion intentionally not pursued. |
 
-## v13.0.0 — IN WORKING TREE (2026-06-11): mass simplification (unreleased — manual test before tag)
+## v13.0.0 — SHIPPED in v13.5.0 (2026-06-11): mass simplification
 
 > The full v13 program shipped in one working-tree pass (8 phases, each left ts/tests/knip green + boot smoke).
 > See `docs/CHANGELOG.md` [13.0.0] for the user-facing breakdown.
@@ -34,7 +34,7 @@
 | **7. Background commands + waiting UI** | `run_command background:true` returns immediately (timeout still enforced); exit result delivered via prepareStep injection (mid-turn) or next-turn context drain (`background-commands.ts`, take-once) — no polling tool. Foreground command >10s → `chat:stream:phase waiting_on_command` → chip with timer (click opens Terminal tab; stop affordance), square→send flip, ONE queued message flushed on stream end. Eval: immediate return + next-turn delivery. |
 | **8. Verification** | 169 test files / 1173 tests green, ts + ts:tests + app/e2e tsconfig clean, knip 0 unused files, boot smoke clean per phase. |
 
-### v13.1 follow-up — IN WORKING TREE (2026-06-11): plan tab, full LSP removal, web search, harness parity (same unreleased cycle)
+### v13.1 follow-up — SHIPPED in v13.5.0 (2026-06-11): plan tab, full LSP removal, web search, harness parity
 
 > Six items, each left ts/check:ts/tests/knip green + boot smoke. See `docs/CHANGELOG.md` [13.0.0] Added/Removed (v13.1).
 
@@ -53,7 +53,7 @@
 
 ---
 
-## v13.2 — IN WORKING TREE (2026-06-12): all-provider prompt caching + blueprint accuracy + send/stop swap
+## v13.2 — SHIPPED in v13.5.0 (2026-06-12): all-provider prompt caching + blueprint accuracy + send/stop swap
 
 | Item | Notes |
 |------|-------|
@@ -69,7 +69,7 @@
 
 ---
 
-## v13.3 — IN WORKING TREE (2026-06-12): ai@6 migration + caching round 2
+## v13.3 — SHIPPED in v13.5.0 (2026-06-12): ai@6 migration + caching round 2
 
 | Item | Notes |
 |------|-------|
@@ -85,7 +85,7 @@
 
 **Follow-up:** rewrite `elastic_agent_builder_adapter.ts` + `cohere_chat_adapter.ts` to `LanguageModelV3` (currently compat-wrapped with a console warning).
 
-### Multi-repo alignment sprint (2026-06-13, same working tree)
+### Multi-repo alignment sprint — SHIPPED in v13.5.0 (2026-06-13)
 
 One-identity rewrite across Atlarix/launchpad/releases: **"the open-weight frontier harness"** (DeepSeek/Qwen/Kimi/MiniMax + any-model BYOK + local-first) is now the canonical one-liner everywhere (README, package.json description, FirstRunWizard, base-provider legacy prompt, website hero/meta/Terms, releases README). Accuracy fixes: verified-edits claim softened to behavior-language (README only — never existed on the site); per-workspace permission scoping added as a stated feature (verified `workspace_file_permissions` appId-keying); pricing unified to Core 1–4 / all-plans-all-models / quota-differs + MCP 1-free-per-workspace, 10-paid (matches `mcp_handlers.ts` enforcement); website privacy now discloses GTM+GA4 and disclaims PostHog (app PostHog disclosure kept, scoped); Windows presented as available+unsigned on all surfaces (Setup.exe confirmed in v13.1.5 release assets); releases README Core-1 fixed to kimi-k2.6 (last Gemma ref purged); Nairobi pilot funnel removed (Pilot page+route deleted, CTAs/stub blog removed, OfflineSection reframed to open-weight economics; identity/legal Nairobi kept); orphans deleted (PainSolutionTable, SecurityBadges, KnowledgeDrainCalculator, PilotTeaserCard), ProviderFreedom re-themed + wired in as the landing open-weight section; PostHog debug hardcode → EU. **`auto_routed_tier` finding:** the column was ALREADY dropped with the legacy `messages` table in 0058 — no migration needed (an attempted 0063 drop broke fresh-DB creation and was reverted). "Model Bridge" survives only in historical docs (TODO history, CHANGELOG_PREVIOUS) — intentionally not rewritten.
 

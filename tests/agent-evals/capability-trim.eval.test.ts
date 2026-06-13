@@ -4,11 +4,12 @@ import { scenario } from "../infra/scenario";
 import { expectNoStreamError, expectStreamEnded } from "../infra/assert";
 
 /**
- * v12 2.1 (+1.6) — per-model capability trim, the LAST stage of the
- * tool-resolution pipeline. A clearly-weak model (small param count in the
- * id, unknown family) gets a core-first, cost-ranked trimmed toolset and
- * simplified schemas; strong models keep the full surface (the existing
- * surface evals are the full-surface regression guard).
+ * Per-model capability handling for the tool-resolution pipeline. The v13
+ * capability-TRIM stage (a core-first, cost-ranked tool-COUNT cap for weak
+ * models) was removed — at ~22 tools the cap was unnecessary, so every model
+ * now gets the full mode allowlist. What remains for a clearly-weak model
+ * (small param count in the id, unknown family) is parameter-schema
+ * simplification only; the tool COUNT matches strong models.
  */
 
 let ctx: EvalContext;
@@ -42,7 +43,7 @@ const offeredToolNames = (req: RecordedRequest): string[] =>
     .filter((n): n is string => typeof n === "string");
 
 describe("capability trim (2.1 / 1.6)", () => {
-  it("weak model: ask toolset is capped with core tools present", async () => {
+  it("weak model: ask toolset is NOT count-capped (trim removed in v13), core tools present", async () => {
     ctx.server.register(scenario("cap-weak-ask").text("Nimeelewa.").build());
 
     const chatId = await ctx.newChat();
@@ -61,8 +62,11 @@ describe("capability trim (2.1 / 1.6)", () => {
       "cap-weak-ask",
     ) as RecordedRequest[];
     const tools = offeredToolNames(requests[0]);
-    expect(tools.length, `offered: ${tools.join(",")}`).toBeLessThanOrEqual(12);
-    // Core read surface survives the trim.
+    // The trim stage was removed in v13 — a weak model now gets the full ask
+    // surface (no tool-COUNT cap), differing from strong models only by
+    // simplified parameter schemas (asserted separately below).
+    expect(tools.length, `offered: ${tools.join(",")}`).toBeGreaterThan(12);
+    // Core read surface is present.
     expect(tools).toContain("read_file");
     expect(tools).toContain("grep");
   }, 30_000);
