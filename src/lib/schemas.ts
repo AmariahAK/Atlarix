@@ -400,6 +400,13 @@ export const UserSettingsSchema = z.object({
    * override OS lid-close suspend (see power-blocker.ts).
    */
   keepAwakeDuringRuns: z.boolean().optional(),
+  /**
+   * Fuse an on-device static-embedding (Model2Vec) semantic-recall signal into
+   * Blueprint retrieval (no cloud/tokens/GPU). Default OFF until a model is
+   * bundled + validated on a real build (see static-embeddings.ts /
+   * docs/HARNESS-ROADMAP.md); when off, retrieval uses Blueprint Tier-1 only.
+   */
+  semanticRecall: z.boolean().optional(),
   /** Linux: wrap stdio MCP servers in firejail when available. Default false. */
   sandboxMcpStdio: z.boolean().optional(),
   mcpStdioFirejail: z
