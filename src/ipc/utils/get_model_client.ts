@@ -7,6 +7,7 @@ import { createAzure } from "@ai-sdk/azure";
 import { LanguageModelV2, LanguageModelV3 } from "@ai-sdk/provider";
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import { OPENROUTER_APP_HEADERS } from "../shared/openrouter_app_headers";
+import { OPENWEIGHT_PROVIDER_BASE_URLS } from "../shared/language_model_constants";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { createAmazonBedrock } from "@ai-sdk/amazon-bedrock";
 import { createElasticAgentBuilderModel } from "./elastic_agent_builder_adapter";
@@ -545,6 +546,24 @@ async function getRegularModelClient(
       const provider = createOpenAICompatible({
         name: "cerebras",
         baseURL: "https://api.cerebras.ai/v1",
+        apiKey,
+      });
+      return {
+        modelClient: {
+          model: provider(model.name),
+          builtinProviderId: providerId,
+        },
+        backupModelClients: [],
+      };
+    }
+    // Open-weight providers — all OpenAI-compatible, baseURL from the shared map.
+    case "deepseek":
+    case "qwen":
+    case "minimax":
+    case "moonshot": {
+      const provider = createOpenAICompatible({
+        name: providerId,
+        baseURL: OPENWEIGHT_PROVIDER_BASE_URLS[providerId],
         apiKey,
       });
       return {

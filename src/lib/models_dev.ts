@@ -58,6 +58,10 @@ type ModelsDevData = Record<string, ModelsDevProvider>;
 const PROVIDER_ID_MAP: Record<string, string> = {
   together: "togetherai",
   togetherai: "togetherai",
+  // Open-weight providers whose models.dev id differs from ours.
+  qwen: "alibaba", // international DashScope catalog (dashscope-intl compatible-mode)
+  moonshot: "moonshotai",
+  // deepseek + minimax already match models.dev ids (identity).
 };
 
 let cachedData: ModelsDevData | null = null;

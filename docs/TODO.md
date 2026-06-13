@@ -76,6 +76,29 @@
 
 One-identity rewrite across Atlarix/launchpad/releases: **"the open-weight frontier harness"** (DeepSeek/Qwen/Kimi/MiniMax + any-model BYOK + local-first) is now the canonical one-liner everywhere (README, package.json description, FirstRunWizard, base-provider legacy prompt, website hero/meta/Terms, releases README). Accuracy fixes: verified-edits claim softened to behavior-language (README only — never existed on the site); per-workspace permission scoping added as a stated feature (verified `workspace_file_permissions` appId-keying); pricing unified to Core 1–4 / all-plans-all-models / quota-differs + MCP 1-free-per-workspace, 10-paid (matches `mcp_handlers.ts` enforcement); website privacy now discloses GTM+GA4 and disclaims PostHog (app PostHog disclosure kept, scoped); Windows presented as available+unsigned on all surfaces (Setup.exe confirmed in v13.1.5 release assets); releases README Core-1 fixed to kimi-k2.6 (last Gemma ref purged); Nairobi pilot funnel removed (Pilot page+route deleted, CTAs/stub blog removed, OfflineSection reframed to open-weight economics; identity/legal Nairobi kept); orphans deleted (PainSolutionTable, SecurityBadges, KnowledgeDrainCalculator, PilotTeaserCard), ProviderFreedom re-themed + wired in as the landing open-weight section; PostHog debug hardcode → EU. **`auto_routed_tier` finding:** the column was ALREADY dropped with the legacy `messages` table in 0058 — no migration needed (an attempted 0063 drop broke fresh-DB creation and was reverted). "Model Bridge" survives only in historical docs (TODO history, CHANGELOG_PREVIOUS) — intentionally not rewritten.
 
+### Harness parity — invest-next (2026-06-13)
+
+> Fulfills v13.2 item 7: `docs/HARNESS-COMPARISON.md` written — Atlarix vs Claude Code / opencode /
+> Cursor / Antigravity / Codex at the harness level (▲ superior / ◆ parity / ▼ lacking). Verdict:
+> leading on open-weight support, structural retrieval (Blueprint), all-provider caching, in-harness
+> browser, eval harness, local-first; at parity on loop/sandbox/permissions/MCP/verification; lacking on
+> parallel writing sub-agents, background/cloud agents, deep extensibility, public SDK. The single
+> keystone for the "frontier open-weight harness" identity is an **open-model quality eval loop** —
+> today the claim is architectural, not measured. Backlog below; full reasoning in the report.
+
+| Pri | Item | Why |
+|:--:|---|---|
+| **P0** | Open-model eval suite (real tasks through Atlarix on DeepSeek/Qwen/Kimi/MiniMax) | Turns the open-weight claim from architectural → measured. Keystone. |
+| **P0** | Writing sub-agents (scoped, worktree-isolated, approval-merged) | Biggest mechanical gap vs opencode/Antigravity; `task` is read-only/depth-1 today. |
+| **P1** | Background *task* agents (generalize the background-command `prepareStep` seam) | Async capability without going cloud; reuses existing plumbing. |
+| ~~P1~~ ✅ | ~~Auto-updating open-weight model catalog~~ — **done** | Model lists are dynamic: live provider `/models` → models.dev (hourly-refreshed, `qwen→alibaba`/`moonshot→moonshotai`). No hardcoded lists. |
+| **P1** | Minimal hook surface (PreToolUse/PostToolUse/Stop) | Community extensibility without a full plugin marketplace. |
+| **P2** | Optional fully-local semantic-recall lane alongside Blueprint | Neutralizes the one retrieval axis where Cursor/Antigravity lead; no cloud embeddings. |
+| **P2** | Persist context checkpoints across restarts (`snapshotTurnId`) | Borrow opencode's epoch durability; finishes a deferred item. |
+| **P2** | Per-model tool-call conformance/repair + pass-tracking | Hardens open-weight reliability; feeds the eval suite. |
+| **P3** | Public "build-on-Atlarix" agent SDK | Strategic/large; only if a third-party ecosystem becomes a goal. |
+| **P3** | Finish elastic/cohere V3 adapter migration; continue v13 simplification cuts | Remove special-case weight around the open-weight core. |
+
 ---
 
 ## Known issues — to fix

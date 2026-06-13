@@ -9,6 +9,7 @@
 import log from "electron-log";
 import type { LanguageModel } from "@/ipc/ipc_types";
 import { OPENROUTER_APP_HEADERS } from "@/ipc/shared/openrouter_app_headers";
+import { OPENWEIGHT_PROVIDER_BASE_URLS } from "@/ipc/shared/language_model_constants";
 
 const logger = log.scope("provider_fetchers");
 
@@ -588,6 +589,70 @@ export async function fetchModelsFromOpenRouter(
   }
 }
 
+// ---------------------------------------------------------------------------
+// Open-weight providers (DeepSeek, Qwen, MiniMax, Kimi/Moonshot)
+// All four expose an OpenAI-compatible Chat Completions API. These vendors ship
+// new models every few days, so we DON'T hardcode model lists. Instead:
+//   1. live GET /models from the provider (newest models + the key's real access)
+//   2. fall back to the auto-updating models.dev catalog (refreshed hourly,
+//      already filtered to tool-calling models) — qwen→alibaba, moonshot→moonshotai
+//   3. otherwise empty (same graceful state as every other cloud provider)
+// ---------------------------------------------------------------------------
+
+async function fetchOpenWeightModels(
+  providerId: "deepseek" | "qwen" | "minimax" | "moonshot",
+  apiKey: string,
+): Promise<LanguageModel[]> {
+  // 1. Live provider /models — reflects newest models and the user's access.
+  const live = await fetchOpenAICompatibleModels({
+    providerId,
+    url: `${OPENWEIGHT_PROVIDER_BASE_URLS[providerId]}/models`,
+    apiKey,
+  });
+  if (live.length > 0) return live;
+
+  // 2. models.dev — auto-updating catalog. Dynamic import keeps Electron/main-only
+  //    deps out of any bundle that pulls in this module (mirrors the elastic fetcher).
+  try {
+    const { getModelsFromModelsDev } = await import("./models_dev");
+    const fromDev = await getModelsFromModelsDev(providerId);
+    if (fromDev.length > 0) {
+      toCache(providerId, fromDev);
+      return fromDev;
+    }
+  } catch (e) {
+    logger.warn(`[${providerId}] models.dev fallback failed`, e);
+  }
+
+  // 3. No usable catalog (e.g. offline first run before models.dev cached) — show
+  //    nothing rather than a stale hardcoded list; the user can add a custom model.
+  return [];
+}
+
+export async function fetchModelsFromDeepSeek(
+  apiKey: string,
+): Promise<LanguageModel[]> {
+  return fetchOpenWeightModels("deepseek", apiKey);
+}
+
+export async function fetchModelsFromQwen(
+  apiKey: string,
+): Promise<LanguageModel[]> {
+  return fetchOpenWeightModels("qwen", apiKey);
+}
+
+export async function fetchModelsFromMiniMax(
+  apiKey: string,
+): Promise<LanguageModel[]> {
+  return fetchOpenWeightModels("minimax", apiKey);
+}
+
+export async function fetchModelsFromMoonshot(
+  apiKey: string,
+): Promise<LanguageModel[]> {
+  return fetchOpenWeightModels("moonshot", apiKey);
+}
+
 const FETCHERS: Record<
   string,
   (apiKey: string) => Promise<LanguageModel[]>
@@ -607,6 +672,10 @@ const FETCHERS: Record<
   cerebras: fetchModelsFromCerebras,
   openrouter: fetchModelsFromOpenRouter,
   huggingface: fetchModelsFromHuggingFace,
+  deepseek: fetchModelsFromDeepSeek,
+  qwen: fetchModelsFromQwen,
+  minimax: fetchModelsFromMiniMax,
+  moonshot: fetchModelsFromMoonshot,
 };
 
 export async function fetchModelsFromProvider(

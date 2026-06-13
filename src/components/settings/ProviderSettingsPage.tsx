@@ -28,7 +28,7 @@ const PROVIDERS_WITH_TOKEN_BUDGET = [
   "openai", "anthropic", "google",
   "groq", "togetherai", "mistral", "xai", "bedrock", "elastic",
   "nvidia_nim", "cohere", "perplexity", "cerebras", "openrouter",
-  "huggingface",
+  "huggingface", "deepseek", "qwen", "minimax", "moonshot",
 ];
 
 interface ProviderSettingsPageProps {

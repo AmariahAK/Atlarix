@@ -4,7 +4,26 @@ export const PROVIDERS_THAT_SUPPORT_THINKING: string[] = [
   "google",
   "vertex",
   "auto",
+  // Open-weight reasoners: DeepSeek (deepseek-reasoner), Qwen3 thinking,
+  // MiniMax M2.x thinking modes.
+  "deepseek",
+  "qwen",
+  "minimax",
 ];
+
+/**
+ * Base URLs for built-in OpenAI-compatible open-weight providers.
+ * Shared by the model-client dispatch (get_model_client.ts) and the model
+ * fetchers (provider_model_fetchers.ts) so the endpoint lives in one place.
+ */
+export const OPENWEIGHT_PROVIDER_BASE_URLS: Record<string, string> = {
+  deepseek: "https://api.deepseek.com/v1",
+  // Alibaba DashScope OpenAI-compatible mode (international endpoint).
+  qwen: "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+  minimax: "https://api.minimax.io/v1",
+  // Moonshot AI / Kimi.
+  moonshot: "https://api.moonshot.ai/v1",
+};
 
 /**
  * Model lists are now fetched dynamically from models.dev (OpenCode-style).
@@ -27,6 +46,10 @@ export const PROVIDER_TO_ENV_VAR: Record<string, string> = {
   cerebras: "CEREBRAS_API_KEY",
   openrouter: "OPENROUTER_API_KEY",
   huggingface: "HF_TOKEN",
+  deepseek: "DEEPSEEK_API_KEY",
+  qwen: "DASHSCOPE_API_KEY",
+  minimax: "MINIMAX_API_KEY",
+  moonshot: "MOONSHOT_API_KEY",
 };
 
 export const CLOUD_PROVIDERS: Record<
@@ -134,6 +157,30 @@ export const CLOUD_PROVIDERS: Record<
     displayName: "Cerebras",
     hasFreeTier: false,
     websiteUrl: "https://inference-docs.cerebras.ai/",
+    gatewayPrefix: "",
+  },
+  deepseek: {
+    displayName: "DeepSeek",
+    hasFreeTier: false,
+    websiteUrl: "https://platform.deepseek.com/api_keys",
+    gatewayPrefix: "",
+  },
+  qwen: {
+    displayName: "Qwen (Alibaba)",
+    hasFreeTier: false,
+    websiteUrl: "https://bailian.console.alibabacloud.com/?apiKey=1",
+    gatewayPrefix: "",
+  },
+  minimax: {
+    displayName: "MiniMax",
+    hasFreeTier: false,
+    websiteUrl: "https://platform.minimax.io/user-center/basic-information/interface-key",
+    gatewayPrefix: "",
+  },
+  moonshot: {
+    displayName: "Kimi (Moonshot)",
+    hasFreeTier: false,
+    websiteUrl: "https://platform.moonshot.ai/console/api-keys",
     gatewayPrefix: "",
   },
 };
