@@ -10,9 +10,10 @@
 - **Per-OS write-confining sandbox for `run_command`.** Agent shell commands run inside an OS sandbox
   that confines filesystem **writes** to the workspace + temp + package caches (network stays on,
   reads stay broad): macOS **Seatbelt** (`sandbox-exec`), Linux **bubblewrap** (`bwrap`), Windows
-  **AppContainer** (bundled `atlarix-sandbox.exe` helper). Agent-only — the user's interactive PTY
-  tabs are never sandboxed. Toggle via `sandboxRunCommand` (default on where available) or
-  `ATLARIX_DISABLE_SANDBOX=1`; graceful fallback if the OS tool is missing.
+  **AppContainer** (the `atlarix-sandbox.exe` helper — `native/atlarix-sandbox/`, Rust, built + signed
+  in CI and bundled via `extraResource`; pending first validation on a Windows build). Agent-only —
+  the user's interactive PTY tabs are never sandboxed. Toggle via `sandboxRunCommand` (default on
+  where available) or `ATLARIX_DISABLE_SANDBOX=1`; graceful fallback if the OS tool/helper is missing.
   (`src/lib/sandbox/wrap-command.ts`, injected at the `run_command` spawn in `runShellCommand.ts`.)
 - **Background sub-agents: wait / work-while-waiting orchestration.** `task({ background: true })`
   returns immediately; the main agent keeps working and **each sub-agent's result folds into the turn

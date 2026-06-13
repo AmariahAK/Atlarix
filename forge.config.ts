@@ -431,6 +431,16 @@ const config: ForgeConfig = {
           : process.arch === "arm64"
             ? "linux-arm64"
             : "linux-x64"),
+      // Windows AppContainer sandbox helper (cargo-built + signed in CI before
+      // packaging). Resolves at runtime via process.resourcesPath/atlarix-sandbox.exe
+      // (see src/lib/sandbox/wrap-command.ts). Guarded so non-Windows / un-built
+      // packaging is unaffected.
+      ...(process.platform === "win32" &&
+      fs.existsSync(
+        path.join(__dirname, "native/atlarix-sandbox/target/release/atlarix-sandbox.exe"),
+      )
+        ? [path.join(__dirname, "native/atlarix-sandbox/target/release/atlarix-sandbox.exe")]
+        : []),
     ],
   },
   rebuildConfig: {

@@ -123,3 +123,5 @@ userData/
 
 # Workspace-local DB config (per-workspace prod/dev connections)
 .atlarix/
+# Rust build output for the Windows sandbox helper
+native/atlarix-sandbox/target/

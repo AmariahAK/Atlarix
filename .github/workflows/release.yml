@@ -590,6 +590,22 @@ jobs:
         env:
           NODE_OPTIONS: "--max-old-space-size=8192"
 
+      - name: Build Windows sandbox helper (Rust)
+        shell: pwsh
+        run: |
+          cargo build --release --manifest-path native/atlarix-sandbox/Cargo.toml
+          $exe = "native/atlarix-sandbox/target/release/atlarix-sandbox.exe"
+          if (-not (Test-Path $exe)) { Write-Error "atlarix-sandbox.exe was not built"; exit 1 }
+          # Sign with the same cert as the app when available (mirrors MakerSquirrel);
+          # ship unsigned otherwise (matches the app's current Windows posture).
+          if ($env:SM_CODE_SIGNING_CERT_SHA1_HASH) {
+            & signtool sign /sha1 $env:SM_CODE_SIGNING_CERT_SHA1_HASH /tr http://timestamp.digicert.com /td SHA256 /fd SHA256 $exe
+            if ($LASTEXITCODE -ne 0) { Write-Error "signtool failed for sandbox helper"; exit $LASTEXITCODE }
+          } else {
+            Write-Host "No SM_CODE_SIGNING_CERT_SHA1_HASH — shipping atlarix-sandbox.exe unsigned."
+          }
+          Write-Host "Built sandbox helper: $exe"
+
       - name: Build for Windows (package + installers)
         timeout-minutes: 55
         shell: pwsh

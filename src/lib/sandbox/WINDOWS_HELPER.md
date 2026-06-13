@@ -1,4 +1,11 @@
-# `atlarix-sandbox.exe` — Windows AppContainer helper (to be built + bundled)
+# `atlarix-sandbox.exe` — Windows AppContainer helper
+
+> **Status:** implemented in `native/atlarix-sandbox/` (Rust). Built + signed in
+> the Windows CI job and bundled via `extraResource` in `forge.config.ts`. First
+> real validation happens on a Windows build (the crate is authored on macOS);
+> see `native/atlarix-sandbox/README.md` for the test matrix. Until a Windows
+> build ships it, `wrap-command.ts` still falls back to unsandboxed with a warning.
+
 
 The macOS (`sandbox-exec`) and Linux (`bwrap`) sandboxes are command-prefix wrappers
 handled entirely in `wrap-command.ts`. Windows has no equivalent prefix, so the
