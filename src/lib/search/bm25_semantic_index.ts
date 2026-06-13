@@ -208,6 +208,18 @@ async function buildIndex(
 
   const meta: NodeMeta[] = [];
   // Per-doc text for the optional Model2Vec embedding lane (semanticRecall).
+  // Building it duplicates every snippet in memory + needs a vector per doc, so
+  // it is gated on the setting AND a size cap: on a very large symbol index that
+  // would risk OOM, so we fall back to Tier-1 there. When off (default) it is
+  // NEVER populated — zero added memory (this was an OOM regression on big repos).
+  const MAX_EMBED_DOCS = 40_000;
+  const semanticOn = ensureSemanticModel();
+  const wantEmbeddings = semanticOn && symbolDocs.length <= MAX_EMBED_DOCS;
+  if (semanticOn && !wantEmbeddings) {
+    logger.info(
+      `bm25 buildIndex: semantic recall skipped — ${symbolDocs.length} symbols exceeds the ${MAX_EMBED_DOCS} embed cap (Tier-1 only)`,
+    );
+  }
   const docTexts: string[] = [];
   let docId = 0;
   const filesSeen = new Set<string>();
@@ -228,7 +240,7 @@ async function buildIndex(
         docId,
       );
       meta.push({ absFile: s.absFile, line: s.line });
-      docTexts.push(`${s.name} ${s.signature} ${s.snippet}`);
+      if (wantEmbeddings) docTexts.push(`${s.name} ${s.signature} ${s.snippet}`);
       filesSeen.add(s.absFile);
       docId += 1;
     }
@@ -266,7 +278,7 @@ async function buildIndex(
         docId,
       );
       meta.push({ absFile, line });
-      docTexts.push(`${node.name ?? ""} ${node.description ?? ""} ${snippet}`);
+      if (wantEmbeddings) docTexts.push(`${node.name ?? ""} ${node.description ?? ""} ${snippet}`);
       filesSeen.add(absFile);
       docId += 1;
     }
@@ -280,7 +292,7 @@ async function buildIndex(
   // a no-op (and zero added latency) when the setting is off.
   let docVectors: Float32Array | null = null;
   let embDim = 0;
-  if (ensureSemanticModel()) {
+  if (wantEmbeddings && docTexts.length > 0) {
     const first = embedQuery(docTexts[0] ?? "");
     if (first) {
       embDim = first.length;
