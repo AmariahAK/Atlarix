@@ -3,6 +3,8 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 const searchMock = vi.fn();
 vi.mock("@/lib/search/bm25_semantic_index", () => ({
   searchBlueprintBm25: (...a: unknown[]) => searchMock(...a),
+  // semanticRecall off → embedding lane returns null → pure Tier-1 fusion.
+  searchBlueprintByEmbedding: async () => null,
 }));
 
 import {

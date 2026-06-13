@@ -25,6 +25,9 @@ export interface StaticEmbeddingModel {
   tokenize(text: string): number[];
   /** Static vector for a token id, or undefined for OOV ids. */
   vectorAt(tokenId: number): Float32Array | undefined;
+  /** Optional per-token SIF weight for weighted mean-pooling (Model2Vec); a
+   * missing/undefined weight defaults to 1 (plain mean). */
+  weightAt?(tokenId: number): number;
 }
 
 let activeModel: StaticEmbeddingModel | null = null;
@@ -46,17 +49,19 @@ export function embedText(
   if (ids.length === 0) return null;
 
   const acc = new Float32Array(model.dim);
-  let counted = 0;
+  let weightSum = 0;
   for (const id of ids) {
     const v = model.vectorAt(id);
     if (!v || v.length !== model.dim) continue;
-    for (let d = 0; d < model.dim; d++) acc[d] += v[d]!;
-    counted++;
+    const w = model.weightAt ? model.weightAt(id) : 1;
+    if (!(w > 0)) continue;
+    for (let d = 0; d < model.dim; d++) acc[d] += w * v[d]!;
+    weightSum += w;
   }
-  if (counted === 0) return null;
+  if (weightSum === 0) return null;
 
-  // Mean.
-  for (let d = 0; d < model.dim; d++) acc[d] /= counted;
+  // (Weighted) mean.
+  for (let d = 0; d < model.dim; d++) acc[d] /= weightSum;
   // L2 normalize so cosine similarity is a plain dot product.
   let norm = 0;
   for (let d = 0; d < model.dim; d++) norm += acc[d]! * acc[d]!;

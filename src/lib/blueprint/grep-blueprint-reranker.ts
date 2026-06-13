@@ -16,7 +16,10 @@
 
 import log from "electron-log";
 import path from "node:path";
-import { searchBlueprintBm25 } from "@/lib/search/bm25_semantic_index";
+import {
+  searchBlueprintBm25,
+  searchBlueprintByEmbedding,
+} from "@/lib/search/bm25_semantic_index";
 
 const logger = log.scope("grep-blueprint");
 
@@ -30,6 +33,9 @@ const RRF_K = 60;
 /** BM25 (topical relevance) leads the fusion; ripgrep order is a weaker
  * match-position signal that breaks near-ties rather than overriding BM25. */
 const BM25_RRF_WEIGHT = 2;
+/** Model2Vec semantic similarity (Tier-2, when semanticRecall is on): a strong
+ * fuzzy-intent signal, weighted between BM25 and ripgrep. Absent when off. */
+const EMB_RRF_WEIGHT = 1.5;
 
 function norm(p: string): string {
   return path.resolve(p);
@@ -76,12 +82,32 @@ export async function rankGrepHitsByBlueprint(
     }
     if (fileScore.size === 0) return groups;
 
-    // Reciprocal Rank Fusion of two signals: Blueprint BM25 relevance (weighted
-    // higher — it's the authoritative topical signal) and ripgrep's own file
-    // order (a weaker match-position proxy that breaks near-ties). RRF is
-    // scale-free, so the fusion is robust to BM25 score outliers while ripgrep
-    // order still influences close calls. Files with no BM25 score rank by
-    // ripgrep order among themselves.
+    // Optional Tier-2: Model2Vec semantic file ranking (null when semanticRecall
+    // is off → pure Tier-1 below). The index is already warm from the BM25 call.
+    let embRank: Map<string, number> | null = null;
+    try {
+      const embFiles = await Promise.race([
+        searchBlueprintByEmbedding(
+          opts.workspaceId,
+          opts.workspaceRootAbs,
+          query,
+          500,
+        ).catch(() => null),
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), RANK_TIMEOUT_MS)),
+      ]);
+      if (embFiles && embFiles.length > 0) {
+        embRank = new Map();
+        embFiles.forEach((f, idx) => embRank!.set(norm(f), idx + 1));
+      }
+    } catch {
+      /* Tier-1 only */
+    }
+    const worstEmbRank = (embRank?.size ?? 0) + 1;
+
+    // Reciprocal Rank Fusion: Blueprint BM25 relevance (weighted highest — the
+    // authoritative topical signal), optional Model2Vec semantic similarity, and
+    // ripgrep's own file order (a weaker match-position proxy that breaks
+    // near-ties). RRF is scale-free, so the fusion is robust to score outliers.
     const bm25Ranked = [...fileScore.entries()].sort((a, b) => b[1] - a[1]);
     const bm25Rank = new Map<string, number>();
     bm25Ranked.forEach(([file], idx) => bm25Rank.set(file, idx + 1));
@@ -91,8 +117,12 @@ export async function rankGrepHitsByBlueprint(
       const key = norm(g.file);
       const rRipgrep = i + 1;
       const rBm25 = bm25Rank.get(key) ?? worstBm25Rank;
-      const rrf =
+      let rrf =
         BM25_RRF_WEIGHT / (RRF_K + rBm25) + 1 / (RRF_K + rRipgrep);
+      if (embRank) {
+        const rEmb = embRank.get(key) ?? worstEmbRank;
+        rrf += EMB_RRF_WEIGHT / (RRF_K + rEmb);
+      }
       return { g, i, rrf };
     });
     decorated.sort((a, b) => b.rrf - a.rrf || a.i - b.i);

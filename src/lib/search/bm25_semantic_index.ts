@@ -13,6 +13,8 @@ import { resolveAppPath } from "@/paths/paths";
 import { getCurrentCommitHash } from "@/ipc/utils/git_utils";
 import { ensureSymbolIndex } from "@/lib/index/ctags-index";
 import { blueprintToRagGraph, getCodeSnippetForBuildNode } from "@/lib/blueprint/blueprint-rag";
+import { embedQuery, cosineSim } from "./static-embeddings";
+import { ensureSemanticModel } from "./model2vec-runtime";
 
 const logger = log.scope("bm25-semantic-index");
 
@@ -38,6 +40,9 @@ type CachedIndex = {
   filesIndexed: number;
   /** When set, index is discarded if git HEAD changes (cheap staleness check). */
   commitHash?: string | null;
+  /** Optional Model2Vec per-doc embeddings (semanticRecall): nDocs × embDim. */
+  docVectors?: Float32Array | null;
+  embDim?: number;
 };
 
 const indexByWorkspaceId = new Map<number, CachedIndex>();
@@ -202,6 +207,8 @@ async function buildIndex(
   engine.definePrepTasks([tokenizeForBm25]);
 
   const meta: NodeMeta[] = [];
+  // Per-doc text for the optional Model2Vec embedding lane (semanticRecall).
+  const docTexts: string[] = [];
   let docId = 0;
   const filesSeen = new Set<string>();
 
@@ -221,6 +228,7 @@ async function buildIndex(
         docId,
       );
       meta.push({ absFile: s.absFile, line: s.line });
+      docTexts.push(`${s.name} ${s.signature} ${s.snippet}`);
       filesSeen.add(s.absFile);
       docId += 1;
     }
@@ -258,6 +266,7 @@ async function buildIndex(
         docId,
       );
       meta.push({ absFile, line });
+      docTexts.push(`${node.name ?? ""} ${node.description ?? ""} ${snippet}`);
       filesSeen.add(absFile);
       docId += 1;
     }
@@ -265,6 +274,26 @@ async function buildIndex(
 
   if (docId === 0) return null;
   engine.consolidate();
+
+  // Optional Model2Vec embedding lane (semanticRecall): embed each doc once at
+  // build time so queries can fuse a semantic ranking with BM25. Gated + lazy —
+  // a no-op (and zero added latency) when the setting is off.
+  let docVectors: Float32Array | null = null;
+  let embDim = 0;
+  if (ensureSemanticModel()) {
+    const first = embedQuery(docTexts[0] ?? "");
+    if (first) {
+      embDim = first.length;
+      docVectors = new Float32Array(docTexts.length * embDim);
+      docVectors.set(first, 0);
+      for (let i = 1; i < docTexts.length; i++) {
+        const v = embedQuery(docTexts[i] ?? "");
+        if (v) docVectors.set(v, i * embDim); // else leaves a zero vector
+      }
+      logger.info(`bm25 buildIndex: embedded ${docTexts.length} docs (${embDim}d)`);
+    }
+  }
+
   let commitHash: string | null = null;
   try {
     commitHash = await getCurrentCommitHash({ path: workspaceRootAbs });
@@ -290,7 +319,7 @@ async function buildIndex(
       });
     })
     .catch(() => {});
-  return { engine, meta, filesIndexed: filesSeen.size, commitHash };
+  return { engine, meta, filesIndexed: filesSeen.size, commitHash, docVectors, embDim };
 }
 
 export type Bm25SearchResult = {
@@ -299,12 +328,11 @@ export type Bm25SearchResult = {
   filesIndexed: number;
 };
 
-export async function searchBlueprintBm25(
+/** Get the warm index for a workspace, (re)building if dirty or stale. */
+async function getCachedBlueprintIndex(
   workspaceId: number,
   workspaceRootAbs: string,
-  query: string,
-  maxResults: number,
-): Promise<Bm25SearchResult | null> {
+): Promise<CachedIndex | null> {
   const dirty = bm25DirtyByWorkspaceId.has(workspaceId);
   let cached: CachedIndex | undefined = dirty ? undefined : indexByWorkspaceId.get(workspaceId);
   if (cached) {
@@ -332,6 +360,52 @@ export async function searchBlueprintBm25(
     indexByWorkspaceId.set(workspaceId, cached);
     bm25DirtyByWorkspaceId.delete(workspaceId);
   }
+  return cached;
+}
+
+/**
+ * Optional Model2Vec semantic ranking (semanticRecall): returns files ranked by
+ * the best cosine similarity of any of their docs to the query. Null when the
+ * embedding lane is off / unavailable — callers then use BM25 alone.
+ */
+export async function searchBlueprintByEmbedding(
+  workspaceId: number,
+  workspaceRootAbs: string,
+  query: string,
+  maxResults: number,
+): Promise<string[] | null> {
+  if (!ensureSemanticModel()) return null;
+  const cached = await getCachedBlueprintIndex(workspaceId, workspaceRootAbs);
+  if (!cached?.docVectors || !cached.embDim) return null;
+  const qv = embedQuery(query.trim());
+  if (!qv || qv.length !== cached.embDim) return null;
+
+  const { docVectors, embDim, meta } = cached;
+  const nDocs = meta.length;
+  // Best per-file similarity (a file has many symbol docs).
+  const fileBest = new Map<string, number>();
+  for (let i = 0; i < nDocs; i++) {
+    const v = docVectors.subarray(i * embDim, i * embDim + embDim);
+    const sim = cosineSim(qv, v);
+    const f = meta[i]?.absFile;
+    if (!f) continue;
+    const prev = fileBest.get(f);
+    if (prev === undefined || sim > prev) fileBest.set(f, sim);
+  }
+  return [...fileBest.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, maxResults)
+    .map(([f]) => f);
+}
+
+export async function searchBlueprintBm25(
+  workspaceId: number,
+  workspaceRootAbs: string,
+  query: string,
+  maxResults: number,
+): Promise<Bm25SearchResult | null> {
+  const cached = await getCachedBlueprintIndex(workspaceId, workspaceRootAbs);
+  if (!cached) return null;
 
   const scanLimit = Math.max(maxResults, 200);
   let raw: Array<[number, number]>;
