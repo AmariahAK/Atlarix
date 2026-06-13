@@ -50,6 +50,7 @@ import {
   getOpenRouterModelIdForCoreTier,
 } from "./ipc/shared/compass_constants";
 import { isNoUsableModelOutputError } from "./ipc/utils/no_usable_model_output";
+import { isStreamStopAbort } from "./lib/stream/stream-stop-sentinels";
 import {
   openWorkspaceFromCliPath,
   parseDirectoryArgFromArgv,
@@ -82,6 +83,16 @@ process.on("unhandledRejection", (reason: unknown) => {
     );
     return;
   }
+  // v13.3 (ai@6): intentional stream-stop aborts (ask_user end-turn, loop
+  // guard, …) reject detached SDK promises with the abort reason after the
+  // turn has already finalized — benign by construction.
+  if (isStreamStopAbort(reason)) {
+    logger.warn(
+      "[main] Swallowed post-finalization stream-stop abort rejection:",
+      reason,
+    );
+    return;
+  }
   logger.error("[main] Unhandled rejection:", reason);
 });
 
@@ -95,6 +106,13 @@ process.on("uncaughtException", (error: unknown) => {
   if (isNoUsableModelOutputError(error)) {
     logger.warn(
       "[main] Swallowed uncaught AI empty-output error (handled upstream or benign):",
+      error,
+    );
+    return;
+  }
+  if (isStreamStopAbort(error)) {
+    logger.warn(
+      "[main] Swallowed post-finalization stream-stop abort:",
       error,
     );
     return;

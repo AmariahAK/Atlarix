@@ -195,7 +195,7 @@ export function FirstRunWizard() {
                 Welcome to Atlarix
               </DialogTitle>
               <DialogDescription>
-                The agent workstation for software development.
+                The open-weight frontier harness.
               </DialogDescription>
             </DialogHeader>
             <ul className="space-y-2 text-sm text-muted-foreground">

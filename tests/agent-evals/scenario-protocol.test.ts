@@ -63,7 +63,12 @@ describe("AI SDK against scenario server", () => {
     }
     console.error("DIAG parts:", parts.join(", "));
     console.error("DIAG text:", JSON.stringify(text));
-    console.error("DIAG finishReason:", await result.finishReason.catch((e) => `REJECTED: ${e}`));
+    console.error(
+      "DIAG finishReason:",
+      await Promise.resolve(result.finishReason).catch(
+        (e: unknown) => `REJECTED: ${e}`,
+      ),
+    );
     console.error("DIAG server requests:", server.requestsFor("diag-1").length);
 
     expect(text).toContain("Done reading.");

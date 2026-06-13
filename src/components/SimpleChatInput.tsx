@@ -149,7 +149,15 @@ export function SimpleChatInput({ chatId, onSubmit, placeholder = "Continue the 
 
     if (!settings) return null;
 
-    const effectivePlaceholder = mustSignIn ? "Sign in to continue…" : placeholder;
+    // v13.2: while streaming the action slot shows Stop (not Send), so the
+    // placeholder carries the queue affordance instead of a second button.
+    const effectivePlaceholder = mustSignIn
+        ? "Sign in to continue…"
+        : isStreaming
+            ? queuedMessage != null
+                ? "One message already queued…"
+                : "Type a follow-up — Enter queues it for when the turn ends…"
+            : placeholder;
 
     return (
         <div
@@ -249,8 +257,10 @@ export function SimpleChatInput({ chatId, onSubmit, placeholder = "Continue the 
                         }}
                     />
 
-                    {/* Stop stays available while streaming; Send queues a
-                        follow-up (disabled once the single slot is full). */}
+                    {/* v13.2: ONE action slot — Stop replaces Send while
+                        streaming (and vice versa). Enter still queues a
+                        follow-up mid-stream (handleSubmit); the queued chip
+                        below carries that state. */}
                     {isStreaming ? (
                         <Button
                             type="button"
@@ -262,21 +272,22 @@ export function SimpleChatInput({ chatId, onSubmit, placeholder = "Continue the 
                                     IpcClient.getInstance().cancelChatStream(chatId);
                                 });
                             }}
-                            title="Stop generation"
+                            title="Stop generation (Enter queues your typed message)"
                         >
                             <StopCircle className="h-4 w-4" />
                         </Button>
-                    ) : null}
-                    <Button
-                        type="submit"
-                        variant="ghost"
-                        size="icon"
-                        className="mx-1"
-                        disabled={sendDisabled}
-                        title={isStreaming ? "Queue this message" : "Send"}
-                    >
-                        <SendIcon className="h-4 w-4" />
-                    </Button>
+                    ) : (
+                        <Button
+                            type="submit"
+                            variant="ghost"
+                            size="icon"
+                            className="mx-1"
+                            disabled={sendDisabled}
+                            title="Send"
+                        >
+                            <SendIcon className="h-4 w-4" />
+                        </Button>
+                    )}
                 </form>
 
                 {queuedMessage != null ? (

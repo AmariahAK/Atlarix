@@ -1,10 +1,14 @@
 import { vi } from "vitest";
+import { isStreamStopAbort } from "@/lib/stream/stream-stop-sentinels";
 
 /**
  * Mirror main.ts's production safety net: the AI SDK rejects aux promises
- * (usage/finishReason/…) at flush after mid-stream aborts; main.ts:76 swallows
+ * (usage/finishReason/…) at flush after mid-stream aborts; main.ts swallows
  * NoOutputGenerated-class rejections process-wide. Without this, vitest flags
  * them as unhandled errors on every abort-path eval (loop guard, task stop).
+ * v13.3 (ai@6): detached SDK promises also reject with the intentional
+ * stream-stop abort reason itself (ask_user end-turn, loop guard) AFTER the
+ * turn finalized — same benign family, same swallow as main.ts.
  */
 process.on("unhandledRejection", (reason: unknown) => {
   const name =
@@ -13,7 +17,8 @@ process.on("unhandledRejection", (reason: unknown) => {
       : "";
   if (
     name.includes("NoOutputGeneratedError") ||
-    name.includes("NoContentGeneratedError")
+    name.includes("NoContentGeneratedError") ||
+    isStreamStopAbort(reason)
   ) {
     return; // handled upstream or benign flush — same policy as main.ts
   }

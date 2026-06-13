@@ -40,6 +40,44 @@
 
 ---
 
+## v13.2 — IN WORKING TREE (2026-06-12): all-provider prompt caching + blueprint accuracy + send/stop swap
+
+| Item | Notes |
+|------|-------|
+| **1. FIX: direct Anthropic BYOK was broken** | `@ai-sdk/anthropic@^3.0.71` is a v3-spec provider; `ai@5.x` throws `AI_UnsupportedModelVersionError` on dispatch (broken since ≥v12.10.0; unnoticed because Compass/OpenRouter dominate). Downgraded to `@ai-sdk/anthropic@^2.0.81` (v2-spec, pairs with ai v5). Keep on the 2.x line until the `ai` package moves to v6. |
+| **2. Cache markers for ALL providers** | `anthropic-cache-breakpoints.ts` generalized: `resolveCacheMarkerPlacement` gates on Claude-family models on ANY route (direct, OpenRouter/Compass, Bedrock, Vertex, custom proxies); marker carries all provider option keys at once (opencode pattern); message-level (anthropic/bedrock/vertex) vs content-level (rest) placement; breakpoints = header + last TWO history messages. Wired into main stream + `run-subagent.ts`. OpenAI gets `promptCacheKey` per chat. Tests: per-provider matrix in `anthropic-cache-breakpoints.test.ts`. |
+| **3. Cache-aware BYOK cost meter** | `byok-pricing.ts`: cache read/write rates (static table + OpenRouter row `input_cache_read/write`); anthropic-style (input EXCLUDES cache) vs OpenAI-style (includes) token semantics; OpenRouter actual `providerMetadata.openrouter.usage.cost` wins outright. Accumulators `turnCachedInputTokens`/`turnCacheCreationTokens`/`turnActualCostUsd` in chat_stream_handlers. |
+| **4. BM25 sub-token matching** | `tokenizeForBm25` emits full token + camelCase/snake_case sub-tokens (docs AND queries via definePrepTasks) — "auth callback" now matches `handleAuthCallback`. In-memory index → no schema bump needed. `bm25-tokenizer.test.ts`. |
+| **5. Zero-hit grep fallback** | grep with 0 ripgrep hits → `suggestClosestIndexedSymbols` (Blueprint BM25, ≤5 one-line file:line suggestions, 1.5s timeout, degrades silently). Saves the wasted retry round. |
+| **6. Send/stop button swap** | SimpleChatInput: ONE action slot — Stop replaces Send while streaming and vice versa; Enter still queues (placeholder carries the hint); queued chip unchanged. |
+| **7. Harness comparison** | `docs/HARNESS-COMPARISON.md` — Atlarix vs Claude Code/Codex/opencode/Cursor/Antigravity per harness dimension with ▲◆▼ verdicts + invest-next list. |
+
+**Deferred from the caching audit:** → all caching items shipped in v13.3 below. Still open: microcompact (drop stale tool results, no LLM call); sandbox network default-deny option; parallel tool execution within a step; persist `snapshotTurnId` (checkpoints across restarts).
+
+---
+
+## v13.3 — IN WORKING TREE (2026-06-12): ai@6 migration + caching round 2
+
+| Item | Notes |
+|------|-------|
+| **1. ai@6 + provider v3 majors** | `ai@^6.0.203`, `@ai-sdk/anthropic@^3.0.84` (**back on latest** — supersedes the v13.2 downgrade), openai 3.x / google 3.x / vertex 4.x / bedrock 4.x / openai-compatible 2.x / azure 3.x / xai 3.x / provider 3.x / provider-utils 4.x / mcp 1.x / `@openrouter/ai-sdk-provider@^2.9.1`. No v3-on-ai5 shim exists (vercel/ai#8249) — migrating `ai` IS the fix. Code: streamText getters are now `PromiseLike` (run-agent-turn `bundle.response`, no_usable_model_output); `ModelClient.model` widened to `LanguageModelV2 \| LanguageModelV3`; vertex/azure providerOptions key renames (google→vertex, openai→azure) in the reasoning patch. elastic/cohere adapters stay V2 via the SDK's compat wrapper (console warning; V3 rewrite = follow-up). |
+| **2. ai@6 token semantics** | Flat `usage.inputTokens` is now the cache-INCLUSIVE total for EVERY provider (verified in `asLanguageModelUsage`: `inputTokens.total`; anthropic total = input + cacheCreation + cacheRead). `byok-pricing` dropped the per-family branch → uniform `fullRate = input − cacheRead − cacheWrite`; reads `inputTokenDetails.{cacheReadTokens,cacheWriteTokens}` first (deprecated `cachedInputTokens` fallback). Handler cache accounting + `reasoningTokensFromAiUsage` (`outputTokenDetails`) updated likewise. |
+| **3. Per-step breakpoint advancement** | `advanceCacheBreakpointsForStep` (strips ONLY our cache keys — preserves co-resident providerOptions like reasoning_content — then re-marks the step's last two non-system messages; system header untouched). Wired into main `prepareStep` (after take-once injections) and a new sub-agent `prepareStep`. Matches opencode's per-request re-transform behavior (their loop re-applies `applyCaching` every request; AI SDK's inner loop needed this seam). 3 breakpoints/step, ≤4 Anthropic limit. |
+| **4. Anthropic 1h TTL on header** | Direct Anthropic only: header breakpoint `{type:"ephemeral", ttl:"1h"}` (write 2x, survives >5min between-turn gaps; ≥3 turns/hour breaks even). History stays 5m; passthrough routes stay plain (ttl passthrough undocumented). |
+| **5. OpenAI 24h retention** | `providerOptions.openai.promptCacheRetention:"24h"` next to `promptCacheKey`, gated `/^gpt-5\.[1-9]/` (SDK docs: GPT-5.1 family; free per OpenAI docs). |
+| **6. OpenRouter sticky sessions** | `x-session-id: atlarix-chat-<chatId>` header on openrouter/compass dispatches — pins the upstream provider so cache reads land on the warm instance (openrouter.ai prompt-caching guide; `session_id`, NOT `user`). |
+| **7. 55% reminder off the tail** | Reminder no longer mutates the dynamic tail mid-session (was a one-time prefix re-write); delivered via the prepareStep take-once injection seam (step-input-only, like corrections). Tail is now byte-stable for the whole session. |
+| **8. Gemini explicit CachedContent — REJECTED** | Break-even fails for chat cadence: storage $4.50/MTok/hr (2.5/3.1 Pro) vs free implicit caching at the same 90% discount → needs ~4 same-prefix req/hour. Implicit hits now accounted via `inputTokenDetails.cacheReadTokens`. Do not revisit unless a fixed-corpus, high-frequency feature appears. |
+| **9. Stream-stop sentinels → AbortError DOMExceptions** | ai@6/undici reject in-flight work with the abort reason VERBATIM; bare-string sentinels (`ask_user_pending` etc.) fail `isAbortError` and surfaced as uncaughtException after turn finalization. New `src/lib/stream/stream-stop-sentinels.ts` = single source for the 4 sentinels + `streamStopAbortReason()` (wraps in AbortError) + `abortReasonSentinel()` (comparisons) + `isStreamStopAbort()` (benign-swallow in main.ts nets AND tests/infra/setup-agent-evals — that setup's rethrow was converting the rejection into vitest's "Uncaught Exception"). |
+
+**Follow-up:** rewrite `elastic_agent_builder_adapter.ts` + `cohere_chat_adapter.ts` to `LanguageModelV3` (currently compat-wrapped with a console warning).
+
+### Multi-repo alignment sprint (2026-06-13, same working tree)
+
+One-identity rewrite across Atlarix/launchpad/releases: **"the open-weight frontier harness"** (DeepSeek/Qwen/Kimi/MiniMax + any-model BYOK + local-first) is now the canonical one-liner everywhere (README, package.json description, FirstRunWizard, base-provider legacy prompt, website hero/meta/Terms, releases README). Accuracy fixes: verified-edits claim softened to behavior-language (README only — never existed on the site); per-workspace permission scoping added as a stated feature (verified `workspace_file_permissions` appId-keying); pricing unified to Core 1–4 / all-plans-all-models / quota-differs + MCP 1-free-per-workspace, 10-paid (matches `mcp_handlers.ts` enforcement); website privacy now discloses GTM+GA4 and disclaims PostHog (app PostHog disclosure kept, scoped); Windows presented as available+unsigned on all surfaces (Setup.exe confirmed in v13.1.5 release assets); releases README Core-1 fixed to kimi-k2.6 (last Gemma ref purged); Nairobi pilot funnel removed (Pilot page+route deleted, CTAs/stub blog removed, OfflineSection reframed to open-weight economics; identity/legal Nairobi kept); orphans deleted (PainSolutionTable, SecurityBadges, KnowledgeDrainCalculator, PilotTeaserCard), ProviderFreedom re-themed + wired in as the landing open-weight section; PostHog debug hardcode → EU. **`auto_routed_tier` finding:** the column was ALREADY dropped with the legacy `messages` table in 0058 — no migration needed (an attempted 0063 drop broke fresh-DB creation and was reverted). "Model Bridge" survives only in historical docs (TODO history, CHANGELOG_PREVIOUS) — intentionally not rewritten.
+
+---
+
 ## Known issues — to fix
 
 > Tracked, not yet scheduled.

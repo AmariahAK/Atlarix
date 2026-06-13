@@ -30,7 +30,12 @@ export function reasoningTokensFromAiUsage(
   if (typeof direct === "number" && direct > 0) {
     return Math.round(direct);
   }
-  const ctd = usage.completionTokensDetails ?? usage.outputTokensDetails;
+  // ai@6 nests reasoning under `outputTokenDetails` (top-level
+  // `reasoningTokens` still set but deprecated).
+  const ctd =
+    usage.completionTokensDetails ??
+    usage.outputTokensDetails ??
+    (u["outputTokenDetails"] as LooseAiUsage["outputTokensDetails"]);
   if (ctd) {
     const r =
       (typeof ctd.reasoningTokens === "number" ? ctd.reasoningTokens : null) ??

@@ -4,7 +4,7 @@ import { createAnthropic } from "@ai-sdk/anthropic";
 import { createXai } from "@ai-sdk/xai";
 import { createVertex as createGoogleVertex } from "@ai-sdk/google-vertex";
 import { createAzure } from "@ai-sdk/azure";
-import { LanguageModelV2 } from "@ai-sdk/provider";
+import { LanguageModelV2, LanguageModelV3 } from "@ai-sdk/provider";
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import { OPENROUTER_APP_HEADERS } from "../shared/openrouter_app_headers";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
@@ -103,7 +103,10 @@ const atlarixEngineUrl =
   process.env.ATLARIX_ENGINE_URL ?? process.env.DYAD_ENGINE_URL;
 
 export interface ModelClient {
-  model: LanguageModelV2;
+  // ai@6: v3-spec providers are the norm; the two custom V2 adapters
+  // (elastic/cohere) run via the SDK's compat wrapper, so both spec
+  // versions are valid here.
+  model: LanguageModelV2 | LanguageModelV3;
   builtinProviderId?: string;
 }
 
@@ -244,7 +247,7 @@ async function getRegularModelClient(
       const provider = createAnthropic({ apiKey });
       return {
         modelClient: {
-          model: provider(model.name) as unknown as LanguageModelV2,
+          model: provider(model.name),
           builtinProviderId: providerId,
         },
         backupModelClients: [],

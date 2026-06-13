@@ -56,10 +56,11 @@ export function isNoUsableModelOutputError(err: unknown): boolean {
   return false;
 }
 
+// ai@6: streamText getters are PromiseLike, not Promise.
 type StreamTextAuxPromises = {
-  usage: Promise<unknown>;
-  finishReason: Promise<unknown>;
-  response: Promise<unknown>;
+  usage: PromiseLike<unknown>;
+  finishReason: PromiseLike<unknown>;
+  response: PromiseLike<unknown>;
 };
 
 /**
@@ -72,7 +73,7 @@ export function attachEmptyOutputSafeRejectHandlers(
   scope: string,
 ): void {
   const attach = (prop: keyof StreamTextAuxPromises) => {
-    void streamResult[prop].catch((rej: unknown) => {
+    void Promise.resolve(streamResult[prop]).catch((rej: unknown) => {
       if (isNoUsableModelOutputError(rej)) {
         logWarn(
           `[${scope}] streamText().${String(prop)} rejected (empty/no usable output)`,

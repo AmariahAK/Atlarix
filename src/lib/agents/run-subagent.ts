@@ -11,6 +11,11 @@
 
 import { streamText, type ModelMessage, type ToolSet } from "ai";
 import log from "electron-log";
+import {
+  advanceCacheBreakpointsForStep,
+  buildStreamMessagesWithCacheBreakpoints,
+  resolveCacheMarkerPlacement,
+} from "../ai/anthropic-cache-breakpoints";
 import { normalizeToolInputSchemaForAiSdk } from "../ai/normalize-tool-schema";
 import {
   buildContinuationPrompt,
@@ -308,16 +313,39 @@ export async function runSubagent(
       logger.warn("[Subagent] tier-limit resolve failed; fallback 128K:", e);
     }
     const systemEstimate = estimateTokens(systemPrompt);
+    // v13.2: sub-agent rounds are multi-step scouts — cache markers matter
+    // most here. Same provider-aware placement as the main stream.
+    const cacheMarkerPlacement = resolveCacheMarkerPlacement(
+      modelClient.builtinProviderId,
+      effectiveModel?.name,
+    );
 
     /** One streamed round; returns the SDK result pieces we need. */
     const runRound = async () => {
       const rolling = makeRollingEmitter(emit, delegationId, round);
       const stream = streamText({
         model: modelClient.model,
-        system: systemPrompt,
-        messages: msgs,
+        messages: buildStreamMessagesWithCacheBreakpoints({
+          systemHeader: systemPrompt,
+          history: msgs,
+          placement: cacheMarkerPlacement,
+        }),
         tools: toolSet,
         stopWhen: [() => false],
+        // v13.3: per-step breakpoint advancement — scouts are multi-step,
+        // so the turn's growing tool tail must cache incrementally too.
+        prepareStep:
+          cacheMarkerPlacement !== "none"
+            ? ({ messages, stepNumber }: { messages: ModelMessage[]; stepNumber: number }) =>
+                stepNumber > 0
+                  ? {
+                      messages: advanceCacheBreakpointsForStep(
+                        messages,
+                        cacheMarkerPlacement,
+                      ),
+                    }
+                  : undefined
+            : undefined,
       } as Parameters<typeof streamText>[0]);
 
       for await (const part of stream.fullStream) {

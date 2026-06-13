@@ -65,12 +65,12 @@ const FEATURES: ToolFeature[] = [
     id: "atlarix-core",
     title: "Atlarix Core",
     shortDescription:
-      "Atlarix Core is the managed provider (no API key) with real model names in the picker. Solo gets Fast only; Studio and Team unlock Balanced and Thinking.",
+      "Atlarix Core is the managed provider (no API key) with real model names in the picker. Every plan gets all four Core models — Core 1 (fastest) through Core 4 (most capable); plans differ by monthly allowance.",
     category: "models",
     steps: [
       "Sign in for Atlarix Core, or add BYOK keys under Settings → Model Providers",
-      "Pick Fast, Balanced, or Thinking in the model picker when your plan allows",
-      "Watch the context bar for long threads—Balanced/Thinking use tier-aware windows",
+      "Pick Core 1–4 in the model picker — Core 1 is fastest, Core 4 is the most capable",
+      "Watch the context bar for long threads — Core 3/4 use tier-aware context windows",
     ],
     howItWorks:
       "Atlarix Core tiers are enforced server-side. BYOK (OpenRouter, OpenAI, Anthropic, Gemini, local Ollama, etc.) can run alongside Core—pick the active model per chat.",

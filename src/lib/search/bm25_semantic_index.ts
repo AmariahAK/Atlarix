@@ -69,11 +69,34 @@ export async function resolveWorkspaceIdFromRoot(
   return null;
 }
 
-function tokenizeForBm25(text: string): string[] {
-  return String(text)
-    .toLowerCase()
-    .split(/[^a-z0-9_]+/)
-    .filter((t) => t.length > 1);
+/**
+ * v13.2: emit each word PLUS its camelCase/snake_case sub-tokens so
+ * multi-word queries match compound identifiers ("auth callback" →
+ * `handleAuthCallback`). The full lowercased token stays first — exact-name
+ * queries keep their strongest signal; generic sub-tokens ("handle", "get")
+ * are naturally down-weighted by BM25's IDF as their document frequency
+ * rises. Applied to BOTH documents and queries via definePrepTasks.
+ * Exported for the tokenizer unit test only.
+ */
+export function tokenizeForBm25(text: string): string[] {
+  const out: string[] = [];
+  for (const word of String(text).split(/[^a-zA-Z0-9_]+/)) {
+    if (!word) continue;
+    const lower = word.toLowerCase();
+    if (lower.length > 1) out.push(lower);
+    const subs = word
+      .split(/_+/)
+      .flatMap((p) =>
+        p.split(/(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])/),
+      );
+    if (subs.length > 1) {
+      for (const sub of subs) {
+        const s = sub.toLowerCase();
+        if (s.length > 1 && s !== lower) out.push(s);
+      }
+    }
+  }
+  return out;
 }
 
 /**

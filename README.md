@@ -1,13 +1,16 @@
 # Atlarix
-## The Agent Workstation for Software Development
+## The Open-Weight Frontier Harness
 
-Atlarix is a desktop environment that gives AI agents the same structural awareness
-and tool access that IDEs give human developers — without replacing your editor.
+Atlarix is the agent workstation built for the open-weight frontier labs —
+**DeepSeek, Qwen, Kimi, MiniMax** — with any-model BYOK and local-first
+execution, without replacing your editor.
 
-Your team writes code in VS Code, IntelliJ, or Vim. Atlarix gives the agent a live
-map of the codebase, a terminal, file operations, web search, and external integrations.
-Every destructive action goes through an approval queue. The agent has a workspace.
-You have control.
+Atlarix Core ships the frontier open-weight labs; **Blueprint** — the local
+structural index — is what makes any model perform like it knows your codebase;
+and everything runs through your approval, on your machine. Your team writes
+code in VS Code, IntelliJ, or Vim. Atlarix gives the agent a live map of the
+codebase, a terminal, file operations, web search, and external integrations.
+The agent has a workspace. You have control.
 
 ## How it works
 
@@ -42,15 +45,15 @@ Release notes: **[docs/CHANGELOG.md](docs/CHANGELOG.md)** (current: 13.0+). Olde
 - **Parallel sub-agents:** The `task` tool spawns scoped read-only scouts — up to five run **concurrently** per turn, with their live thinking, narration, and tool activity streaming into per-agent cards.
 - **Background commands:** The agent can run long commands detached (`run_command background:true`) and keep working; the exit result is delivered back automatically. Foreground commands that run long flip the chat into a visible **"Waiting on command"** state with a timer — you can queue a message that sends when the turn resumes.
 - **User-defined agents & portable config:** `.atlarix/agents/<name>.md` (system prompt + tools + model) shows up in the picker; `.atlarix/permissions.json` deny/ask rules and `.atlarix/hooks/` (blocking pre-tool, advisory post-tool, stop gate) are committable and enforced at the single tool-execution funnel — plus a global `~/.atlarix/` layer.
-- **Verified edits:** In **Build** and **Debug** the agent discovers and runs the project's *own* checks (package.json scripts, `tsc`/`eslint`, `ruff`/`mypy`/`pytest`) via the terminal and writes tests for non-trivial logic before declaring done — it cannot claim a task complete while a check still reports errors. Verification uses the project's real tooling, so it works on any machine with the language runtime installed.
+- **Verified edits:** In **Build** and **Debug** the agent discovers and runs the project's *own* checks (package.json scripts, `tsc`/`eslint`, `ruff`/`mypy`/`pytest`) through the terminal — every command routed through the approval queue — and writes tests for non-trivial logic. It is held to not declaring a task complete while those checks report errors. Verification uses the project's real tooling, so it works on any machine with the language runtime installed.
 - **Native tool history:** Tool calls/results ride as provider-native blocks (not flattened text) — weak and local models perform notably better, and multi-step prompt caching holds.
-- **Approval queue:** File writes and shell commands wait for explicit approval with diff preview — accept or reject **individual hunks**, not just whole files.
+- **Approval queue:** File writes and shell commands wait for explicit approval with diff preview — accept or reject **individual hunks**, not just whole files. Allow-once / always-allow decisions are **scoped to the workspace** — approvals saved in one project never carry to another.
 - **Interactive questions:** The agent can ask you **up to 5 questions in one inline card** (options + free text) and the stream genuinely pauses until you answer — no invented answers, no missed prompts.
 - **Native web search:** On providers with built-in search (Anthropic, OpenAI, Gemini 2+, OpenRouter BYOK) the provider's own search tool runs at dispatch with **inline citations that survive reload**; everywhere else the client chain (SearxNG → public SearxNG → DuckDuckGo) is the universal fallback.
 - **Prompt caching:** Dispatches are cache-friendly out of the box — Anthropic BYOK turns place `cache_control` breakpoints over the stable system header and conversation history, cutting repeat-turn input cost and latency.
 - **Real terminal:** User terminal tabs are full interactive shells (xterm.js + PTY) — Tab completion, arrows, colors, vim/top. Tabs and scrollback **persist across app restarts**, and tab labels track the shell's live cwd. Agent commands run separately with captured output and approvals.
 
-**Providers:** **Atlarix Core** (managed Model Bridge tiers) and broad **BYOK** support (OpenAI, Anthropic, Gemini, OpenRouter, Ollama, LM Studio, and more).
+**Providers:** **Atlarix Core** (managed open-weight models, Core 1–4) and broad **BYOK** support (OpenAI, Anthropic, Gemini, OpenRouter, Ollama, LM Studio, and more).
 
 ---
 
@@ -63,12 +66,12 @@ On-demand graph via `get_blueprint`—not whole-repo injection every turn. Parse
 ### AI Agents & Modes
 
 - **Work modes:** Explore, Plan, Build, Debug, Review.
-- **Atlarix Core:** Managed cloud models with catalog display names. Solo: Speed only; Studio and Team: Speed, Standard, and Deep.
+- **Atlarix Core:** Four managed open-weight models — **Core 1** (fastest) through **Core 4** (most capable). Every plan gets all four; plans differ by monthly allowance.
 
 ### Workspace Tools & Extensions
 
 - **Core tools:** A deliberately minimal 22-tool surface — `read_file`/`write_file`/`edit_file`, **`glob`** + **`grep`**, `run_command` (incl. `git` CLI and background commands), `get_blueprint`, web search/read, `task` sub-agents, `plan`, MCP, attachments, and the in-app browser tools. Explore/Plan/Review use read-only allowlists.
-- **MCP:** Up to **10** MCP servers per workspace (Studio / Team marketplace + manual; one-click OAuth connect from the marketplace). On-demand **`list_available_mcps`** / **`mcp_call`** in workspace chat.
+- **MCP:** MCP servers are configured **per workspace** — Solo connects **1** (manual config); Studio / Team get the marketplace plus up to **10** per workspace (one-click OAuth connect from the marketplace). On-demand **`list_available_mcps`** / **`mcp_call`** in workspace chat.
 - **Agent Behaviors:** Install from [atlarix-skills](https://github.com/AmariahAK/atlarix-skills). Optional **`.atlarix/skills/`** in the repo.
 
 ### Editor & diagnostics
@@ -135,11 +138,11 @@ After `npm install`, **`postinstall`** runs Electron install, **`fetch-ctags`**,
 
 | Tier      | Price   | Workspaces | Highlights |
 |-----------|---------|------------|------------|
-| **Solo**  | $0      | 1          | Model Bridge **Speed** only; BYOK / local; core tools; **1** global MCP (manual) |
-| **Studio**   | $19/mo  | Unlimited  | **Speed / Standard / Deep**; Agent Behaviors + MCP marketplace; **10** per-workspace MCPs |
-| **Team** | $79/mo | Unlimited | Studio + seats, team MCP integrations, repo behavior priority, Blueprint commit to git |
+| **Solo**  | $0      | 1          | All four Core models (**starter allowance**); BYOK / local; core tools; **1** MCP server per workspace (manual config) |
+| **Studio**   | $19/mo  | Unlimited  | All four Core models (**higher allowance**); Agent Behaviors + MCP marketplace; **10** MCP servers per workspace |
+| **Team** | $79/mo | Unlimited | Studio + seats, **team allowance pool**, team MCP integrations, repo behavior priority, Blueprint commit to git |
 
-Default Model Bridge allowances: [docs/compass-limits.md](docs/compass-limits.md).
+Every plan gets all four **Atlarix Core** models (Core 1 fastest → Core 4 most capable) — only the monthly allowance differs by tier. Default allowances: [docs/compass-limits.md](docs/compass-limits.md).
 
 ---
 

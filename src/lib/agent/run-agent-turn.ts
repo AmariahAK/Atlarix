@@ -107,7 +107,8 @@ export interface TurnRuntime {
     onStreamActivityPulse?: () => void;
     sanitizeTextDelta?: (text: string) => string;
   }): Promise<{
-    bundle: { response: Promise<{ messages: ModelMessage[] }> };
+    // ai@6: streamText getters are PromiseLike, not Promise.
+    bundle: { response: PromiseLike<{ messages: ModelMessage[] }> };
     fullResponse: string;
     finishReason: unknown;
   }>;

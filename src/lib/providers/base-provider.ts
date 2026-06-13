@@ -131,9 +131,7 @@ export abstract class BaseProvider {
      * Load the StackSense system prompt
      */
     protected _loadSystemPrompt(): string {
-        return `You are Atlarix, an intelligent AI coding assistant.
-
-**Identity**: Atlas + Axis + Intelligence
+        return `You are an AI agent running inside Atlarix, the open-weight frontier harness.
 
 You help developers build, understand, and modify projects collaboratively.
 

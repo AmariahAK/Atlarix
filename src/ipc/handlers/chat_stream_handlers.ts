@@ -18,7 +18,11 @@ import {
   type ModeSystemKey,
 } from "../../prompts/system_prompt";
 import { mergeSystemPromptParts } from "@/lib/ai/merge-system-prompt";
-import { buildStreamMessagesWithCacheBreakpoints } from "@/lib/ai/anthropic-cache-breakpoints";
+import {
+  advanceCacheBreakpointsForStep,
+  buildStreamMessagesWithCacheBreakpoints,
+  resolveCacheMarkerPlacement,
+} from "@/lib/ai/anthropic-cache-breakpoints";
 import {
   buildToolModelOutput,
   redactToolMediaForDisplay,
@@ -76,6 +80,13 @@ import {
   COMPASS_LIMIT_STREAM_STOP,
   shouldStopForCompassLimit,
 } from "../../lib/auth/compass_enforcement";
+import {
+  ASK_USER_STREAM_STOP,
+  LOOP_REPETITION_STREAM_STOP,
+  TASK_COMPLETE_STREAM_STOP,
+  abortReasonSentinel,
+  streamStopAbortReason,
+} from "../../lib/stream/stream-stop-sentinels";
 import {
   COMPASS_REACHABILITY_ERROR,
   compassExhaustedUserMessage,
@@ -453,25 +464,10 @@ export function resolveModeChange(chatId: number, approve: boolean): void {
   }
 }
 
-/** Abort reason when the task ledger shows all steps done — not a user cancel. */
-const TASK_COMPLETE_STREAM_STOP = "task_complete";
-
-/**
- * v11.1: abort reason when the model asked the user question(s) — the turn
- * ENDS cleanly (persist + chat:response:end), the user answers asynchronously,
- * and a new stream continues. Not a user cancel; no blocking wait anymore.
- */
-const ASK_USER_STREAM_STOP = "ask_user_pending";
-
-/**
- * Abort reason when the agentic repetition guard escalates to loop_abort.
- * Must abort the IN-FLIGHT stream: the AI SDK multi-step loop (stopWhen never
- * true) only returns to the outer round when the model stops calling tools,
- * so `consumeLoopBreak()` at the round boundary is unreachable for a model
- * stuck repeating tool calls — without this abort the turn runs unbounded
- * (verified by tests/agent-evals/loop-detection.eval.test.ts).
- */
-const LOOP_REPETITION_STREAM_STOP = "loop_repetition";
+// v13.3 (ai@6): sentinels + abort-reason helpers live in the shared module so
+// the process-level safety nets (main.ts, tests/infra) recognize the same
+// intentional stream-stop aborts. See stream-stop-sentinels.ts for why bare
+// strings became wrapped AbortError DOMExceptions.
 
 /** Questions captured at end-turn time so the persist path can embed them. */
 const pendingAskUserArtifactByChatId = new Map<
@@ -669,7 +665,9 @@ async function runToolExecute(
       streamOpts.onTaskLedgerComplete?.();
       if (streamOpts.abortStreamOnLedgerComplete === false) return;
       try {
-        streamOpts.abortController.abort(TASK_COMPLETE_STREAM_STOP);
+        streamOpts.abortController.abort(
+          streamStopAbortReason(TASK_COMPLETE_STREAM_STOP),
+        );
       } catch {
         /* noop */
       }
@@ -855,7 +853,7 @@ async function resolveAskUserToolResult(
     `[ask_user] Questions presented (${questionId}, ${questions.length}) — ending turn; answers arrive as the next message`,
   );
   hooks?.onAskUserEndTurn?.();
-  activeStreams.get(chatId)?.abort(ASK_USER_STREAM_STOP);
+  activeStreams.get(chatId)?.abort(streamStopAbortReason(ASK_USER_STREAM_STOP));
   // Returned as the tool result only if the abort races the SDK — it tells
   // the model (and any transcript) what happened without inventing answers.
   return JSON.stringify({
@@ -2023,6 +2021,11 @@ ${componentSnippet}
       // per-turn cost estimate emitted on chat:response:end.
       let turnInputTokens = 0;
       let turnOutputTokens = 0;
+      // v13.2 cache-aware cost: cache reads/writes priced at provider cache
+      // rates; OpenRouter's per-request usage.cost (already discounted) wins.
+      let turnCachedInputTokens = 0;
+      let turnCacheCreationTokens = 0;
+      let turnActualCostUsd = 0;
 
       // Check if this is a test prompt
       const testResponse = getTestResponse(req.prompt);
@@ -2168,7 +2171,7 @@ ${componentSnippet}
             chatId: req.chatId,
             error: `${AI_STREAMING_ERROR_MESSAGE_PREFIX}${compassExhaustedUserMessage(compassStreamTier ?? "free")}`,
           });
-          abortController.abort(COMPASS_LIMIT_STREAM_STOP);
+          abortController.abort(streamStopAbortReason(COMPASS_LIMIT_STREAM_STOP));
         };
 
         if (compassUsagePromise) {
@@ -3766,14 +3769,39 @@ This conversation includes one or more image attachments. When the user uploads 
                 };
               }
               if (reasoningPatch.google) {
-                providerOptions.google = reasoningPatch.google;
+                // ai@6 renamed the Vertex provider-options key google → vertex.
+                const googleKey =
+                  modelClient.builtinProviderId === "vertex" ? "vertex" : "google";
+                providerOptions[googleKey] = reasoningPatch.google;
               }
               if (reasoningPatch.openai) {
-                providerOptions.openai = reasoningPatch.openai;
+                // ai@6 renamed the Azure provider-options key openai → azure.
+                const openaiKey =
+                  modelClient.builtinProviderId === "azure" ? "azure" : "openai";
+                providerOptions[openaiKey] = reasoningPatch.openai;
               }
             }
 
             const isAnthropic = modelClient.builtinProviderId === "anthropic";
+            // v13.2: explicit cache markers for Claude-family models on EVERY
+            // route (OpenRouter/Compass/Bedrock/custom proxies) — they get no
+            // caching without them. Automatic-caching providers resolve "none".
+            const cacheMarkerPlacement = resolveCacheMarkerPlacement(
+              modelClient.builtinProviderId,
+              effectiveModel?.name,
+            );
+            // OpenAI prefix caching is automatic; a stable per-chat cache key
+            // improves cache-routing affinity on their side. v13.3: 24h
+            // extended retention (free) on the models that support it.
+            if (modelClient.builtinProviderId === "openai") {
+              providerOptions.openai = {
+                ...providerOptions.openai,
+                promptCacheKey: `atlarix-chat-${req.chatId}`,
+                ...(/^gpt-5\.[1-9]/i.test(effectiveModel?.name ?? "")
+                  ? { promptCacheRetention: "24h" }
+                  : {}),
+              };
+            }
 
             // v10.1: provider-native web search — when the provider ships a
             // built-in search tool, swap out the client-side `web_search` for
@@ -3822,9 +3850,15 @@ This conversation includes one or more image attachments. When the user uploads 
             preflight.reportOnce(req.chatId);
 
             const history: ModelMessage[] = chatMessages.filter((m) => m.content);
-            const tailParts = [proactiveContextReminderForStream, dynamicSystemTail].filter(
+            // v13.3: the 55% compress-context reminder no longer rides the
+            // dynamic tail (its appearance mid-session re-wrote the prefix
+            // once). It's delivered via the prepareStep injection seam below
+            // (take-once, step-input-only — same contract as corrections).
+            const tailParts = [dynamicSystemTail].filter(
               (s): s is string => typeof s === "string" && s.trim().length > 0,
             );
+            let pendingContextReminder: string | null =
+              proactiveContextReminderForStream ?? null;
 
             // v10.1 prompt caching: the per-turn tail no longer merges into the
             // `system` string (that invalidated the provider prompt cache every
@@ -3838,14 +3872,24 @@ This conversation includes one or more image attachments. When the user uploads 
                     ? mergeSystemPromptParts(tailParts[0], ...tailParts.slice(1))
                     : null,
                 history,
-                isAnthropic,
+                placement: cacheMarkerPlacement,
+                // v13.3: header prefix survives >5min between-turn gaps.
+                headerTtl1h: isAnthropic,
               });
             const streamResult = streamText({
               headers: isAnthropic
                 ? {
                   "anthropic-beta": "context-1m-2025-08-07",
                 }
-                : undefined,
+                : modelClient.builtinProviderId === "openrouter" ||
+                    modelClient.builtinProviderId === "compass"
+                  ? {
+                    // v13.3: sticky provider routing — pins the upstream from
+                    // the first request so prompt-cache reads land on the same
+                    // provider instance (openrouter.ai prompt-caching guide).
+                    "x-session-id": `atlarix-chat-${req.chatId}`,
+                  }
+                  : undefined,
               maxOutputTokens,
               temperature,
               maxRetries:
@@ -3867,7 +3911,7 @@ This conversation includes one or more image attachments. When the user uploads 
               // The injected message is step-input only — it never enters
               // response.messages, so native-history folding (B1/B2) is
               // unaffected (transient steering nudge, not persisted history).
-              prepareStep: ({ messages }) => {
+              prepareStep: ({ messages, stepNumber }) => {
                 // v13 7A: finished background-command results land on the very
                 // next step (same step-input-only contract as corrections).
                 const bgResults = takePendingBackgroundCommandResults(req.chatId);
@@ -3877,7 +3921,10 @@ This conversation includes one or more image attachments. When the user uploads 
                 const correction = repetition
                   ? repetition.takePendingCorrection()
                   : null;
-                if (!bgResults && !subagentResults && !correction) return undefined;
+                // v13.3: the 55% reminder rides this seam now (take-once) so
+                // the system tail stays byte-stable for the prompt cache.
+                const reminder = pendingContextReminder;
+                pendingContextReminder = null;
                 if (correction) {
                   logger.log(
                     `[repetition] injecting mid-round correction (chat ${req.chatId})`,
@@ -3893,15 +3940,26 @@ This conversation includes one or more image attachments. When the user uploads 
                     `[background-subagent] injecting finished result (chat ${req.chatId})`,
                   );
                 }
-                const injected = [bgResults, subagentResults, correction]
+                const injected = [reminder, bgResults, subagentResults, correction]
                   .filter(Boolean)
                   .join("\n\n");
-                return {
-                  messages: [
-                    ...messages,
-                    { role: "user" as const, content: injected },
-                  ],
-                };
+                const stepMessages = injected
+                  ? [...messages, { role: "user" as const, content: injected }]
+                  : messages;
+                // v13.3: per-step breakpoint advancement — without it, every
+                // step re-pays full price for the turn's accumulated tool
+                // results (opencode gets this free by re-running its message
+                // transform per request). Step 0 is a no-op vs the initial
+                // layout, so skip the copy unless something changed.
+                if (cacheMarkerPlacement !== "none" && (stepNumber > 0 || injected)) {
+                  return {
+                    messages: advanceCacheBreakpointsForStep(
+                      stepMessages,
+                      cacheMarkerPlacement,
+                    ),
+                  };
+                }
+                return injected ? { messages: stepMessages } : undefined;
               },
               providerOptions,
               tools: effectiveTools,
@@ -3957,13 +4015,43 @@ This conversation includes one or more image attachments. When the user uploads 
                   turnOutputTokens += split.outputTokens;
                 }
                 // v10.1 prompt caching: surface cache reads/writes per round.
+                // v13.2: also accumulated for the cache-aware cost estimate.
+                // v13.3 (ai@6): normalized inputTokenDetails carries read AND
+                // write for every provider; anthropic metadata is the fallback.
                 {
-                  const u = response.usage as { cachedInputTokens?: number } | undefined;
-                  const cacheRead = u?.cachedInputTokens;
+                  const u = response.usage as
+                    | {
+                        cachedInputTokens?: number;
+                        inputTokenDetails?: {
+                          cacheReadTokens?: number;
+                          cacheWriteTokens?: number;
+                        };
+                      }
+                    | undefined;
+                  const cacheRead =
+                    u?.inputTokenDetails?.cacheReadTokens ?? u?.cachedInputTokens;
                   const anthroMeta = response.providerMetadata?.anthropic as
                     | { cacheCreationInputTokens?: number | null }
                     | undefined;
-                  const cacheWrite = anthroMeta?.cacheCreationInputTokens;
+                  const cacheWrite =
+                    u?.inputTokenDetails?.cacheWriteTokens ??
+                    anthroMeta?.cacheCreationInputTokens;
+                  if (typeof cacheRead === "number" && cacheRead > 0) {
+                    turnCachedInputTokens += cacheRead;
+                  }
+                  if (typeof cacheWrite === "number" && cacheWrite > 0) {
+                    turnCacheCreationTokens += cacheWrite;
+                  }
+                  // OpenRouter reports the request's actual (cache-discounted)
+                  // cost in credits ≈ USD.
+                  const orUsage = (
+                    response.providerMetadata?.openrouter as
+                      | { usage?: { cost?: number | null } }
+                      | undefined
+                  )?.usage;
+                  if (typeof orUsage?.cost === "number" && orUsage.cost > 0) {
+                    turnActualCostUsd += orUsage.cost;
+                  }
                   if (
                     (typeof cacheRead === "number" && cacheRead > 0) ||
                     (typeof cacheWrite === "number" && cacheWrite > 0)
@@ -4350,7 +4438,9 @@ This conversation includes one or more image attachments. When the user uploads 
               // returns to the round boundary while the model keeps calling
               // tools, so consumeLoopBreak() alone cannot end the turn.
               try {
-                abortController.abort(LOOP_REPETITION_STREAM_STOP);
+                abortController.abort(
+                  streamStopAbortReason(LOOP_REPETITION_STREAM_STOP),
+                );
               } catch {
                 /* noop */
               }
@@ -5084,7 +5174,9 @@ This conversation includes one or more image attachments. When the user uploads 
               // returns to the round boundary while the model keeps calling
               // tools, so consumeLoopBreak() alone cannot end the turn.
               try {
-                abortController.abort(LOOP_REPETITION_STREAM_STOP);
+                abortController.abort(
+                  streamStopAbortReason(LOOP_REPETITION_STREAM_STOP),
+                );
               } catch {
                 /* noop */
               }
@@ -6186,11 +6278,14 @@ This conversation includes one or more image attachments. When the user uploads 
               // ═══════════════════════════════════════════════════════════════
 
             } catch (streamError) {
+              const stopSentinel = abortReasonSentinel(
+                abortController.signal.reason,
+              );
               const ledgerCompleteStop =
                 streamStopWasTaskComplete ||
                 askUserEndedTurn ||
-                abortController.signal.reason === TASK_COMPLETE_STREAM_STOP ||
-                abortController.signal.reason === ASK_USER_STREAM_STOP;
+                stopSentinel === TASK_COMPLETE_STREAM_STOP ||
+                stopSentinel === ASK_USER_STREAM_STOP;
               if (abortController.signal.aborted && !ledgerCompleteStop) {
                 const chatId = req.chatId;
                 const partialResponse = partialResponses.get(req.chatId);
@@ -6198,9 +6293,9 @@ This conversation includes one or more image attachments. When the user uploads 
                 if (partialResponse) {
                   try {
                     const stopNote =
-                      abortController.signal.reason === COMPASS_LIMIT_STREAM_STOP
+                      stopSentinel === COMPASS_LIMIT_STREAM_STOP
                         ? "[Stopped — monthly Atlarix Core token limit reached]"
-                        : abortController.signal.reason === LOOP_REPETITION_STREAM_STOP
+                        : stopSentinel === LOOP_REPETITION_STREAM_STOP
                           ? "[Repeated action — task stopped. Review the activity log and send a message to continue.]"
                           : "[Response cancelled by user]";
                     const cancelledContent = `${partialResponse}
@@ -6526,8 +6621,18 @@ ${stopNote}`;
                     builtinProviderId: modelClient.builtinProviderId,
                   },
                   turnInputTokens + turnOutputTokens > 0
-                    ? { inputTokens: turnInputTokens, outputTokens: turnOutputTokens }
+                    ? {
+                        inputTokens: turnInputTokens,
+                        outputTokens: turnOutputTokens,
+                        ...(turnCachedInputTokens > 0
+                          ? { cachedInputTokens: turnCachedInputTokens }
+                          : {}),
+                        ...(turnCacheCreationTokens > 0
+                          ? { cacheCreationInputTokens: turnCacheCreationTokens }
+                          : {}),
+                      }
                     : null,
+                  turnActualCostUsd > 0 ? turnActualCostUsd : null,
                 );
                 return cost != null ? { turnCostUsd: cost } : {};
               })(),
@@ -6586,7 +6691,8 @@ ${stopNote}`;
         // Finalize the turn cleanly instead of surfacing an error banner.
         if (
           abortController.signal.aborted &&
-          abortController.signal.reason === ASK_USER_STREAM_STOP
+          abortReasonSentinel(abortController.signal.reason) ===
+            ASK_USER_STREAM_STOP
         ) {
           logger.log(
             `[ask_user] Stream ended at question (benign: ${error instanceof Error ? error.name : String(error)})`,

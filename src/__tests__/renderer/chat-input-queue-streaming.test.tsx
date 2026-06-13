@@ -1,7 +1,9 @@
 /**
  * v13.1: while a turn is streaming the user can type and queue ONE follow-up
  * message (sent automatically when the turn ends). The textarea stays enabled,
- * Enter/Send queues, the stop square stays visible, and the slot is single.
+ * Enter queues, and the slot is single.
+ * v13.2: ONE action slot — Stop REPLACES Send while streaming (and flips back
+ * after); Enter remains the queue affordance mid-stream.
  */
 
 import React from "react";
@@ -78,10 +80,25 @@ describe("chat input — queue while streaming", () => {
     expect(screen.getByText(/Queued — sends when the turn ends/)).toBeInTheDocument();
   });
 
-  it("renders the stop button while streaming alongside send", () => {
+  it("swaps Send for Stop while streaming — never both", () => {
     renderWithProviders(<SimpleChatInput chatId={CHAT_ID} onSubmit={() => {}} />);
-    expect(screen.getByTitle("Stop generation")).toBeInTheDocument();
-    expect(screen.getByTitle("Queue this message")).toBeInTheDocument();
+    expect(
+      screen.getByTitle("Stop generation (Enter queues your typed message)"),
+    ).toBeInTheDocument();
+    expect(screen.queryByTitle("Send")).not.toBeInTheDocument();
+  });
+
+  it("shows Send (and no Stop) when not streaming", () => {
+    const { store } = renderWithProviders(
+      <SimpleChatInput chatId={CHAT_ID} onSubmit={() => {}} />,
+    );
+    act(() => {
+      store.set(isStreamingByIdAtom, new Map([[CHAT_ID, false]]));
+    });
+    expect(screen.getByTitle("Send")).toBeInTheDocument();
+    expect(
+      screen.queryByTitle("Stop generation (Enter queues your typed message)"),
+    ).not.toBeInTheDocument();
   });
 
   it("does not queue a second message while the slot is full", () => {

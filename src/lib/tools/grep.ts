@@ -7,7 +7,10 @@
 import { exec } from "child_process";
 import { promisify } from "util";
 import { truncateUtf8ByBytes } from "@/lib/truncate";
-import { rankGrepHitsByBlueprint } from "@/lib/blueprint/grep-blueprint-reranker";
+import {
+  rankGrepHitsByBlueprint,
+  suggestClosestIndexedSymbols,
+} from "@/lib/blueprint/grep-blueprint-reranker";
 import {
   ToolRegistry,
   ToolCategory,
@@ -181,6 +184,23 @@ ToolRegistry.register({
         const slice = g.matches.slice(0, Math.max(0, maxResults - kept));
         trimmed.push({ file: g.file, matches: slice });
         kept += slice.length;
+      }
+
+      // v13.2: zero hits → Blueprint lexical suggestions instead of a dead
+      // end (fires only on misses; prevents a wasted retry round).
+      if (trimmed.length === 0) {
+        const suggestions = await suggestClosestIndexedSymbols({
+          workspaceId: params.workspaceId,
+          workspaceRootAbs: params.workspace,
+          query: params.pattern,
+        });
+        return {
+          success: true,
+          result: `No matches for "${params.pattern}".${
+            suggestions ? `\n\n${suggestions}` : ""
+          }`,
+          ui: { groups: [] },
+        };
       }
 
       return {

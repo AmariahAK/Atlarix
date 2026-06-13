@@ -91,3 +91,59 @@ export async function rankGrepHitsByBlueprint(
     return groups;
   }
 }
+
+/**
+ * v13.2: zero-hit grep fallback. When ripgrep finds nothing, ask Blueprint's
+ * BM25 for the closest indexed symbols so the model gets a lead instead of a
+ * dead end (saves the wasted retry round). Returns a short formatted block
+ * (≤ `maxSuggestions` lines, one file each) or null when Blueprint has
+ * nothing / isn't ready — same degrade-silently discipline as ranking.
+ */
+export async function suggestClosestIndexedSymbols(opts: {
+  workspaceId?: number;
+  workspaceRootAbs?: string;
+  query: string;
+  maxSuggestions?: number;
+}): Promise<string | null> {
+  if (opts.workspaceId == null || !opts.workspaceRootAbs) return null;
+  const query = opts.query.trim();
+  if (!query) return null;
+  const max = Math.min(10, Math.max(1, opts.maxSuggestions ?? 5));
+
+  try {
+    const searchPromise = searchBlueprintBm25(
+      opts.workspaceId,
+      opts.workspaceRootAbs,
+      query,
+      50,
+    ).catch((e) => {
+      logger.debug("Blueprint zero-hit suggestion search failed:", e);
+      return null;
+    });
+    const search = await Promise.race([
+      searchPromise,
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), RANK_TIMEOUT_MS)),
+    ]);
+    if (!search || search.hits.length === 0) return null;
+
+    const root = norm(opts.workspaceRootAbs);
+    const seenFiles = new Set<string>();
+    const lines: string[] = [];
+    for (const hit of search.hits) {
+      if (lines.length >= max) break;
+      const abs = norm(hit.file);
+      if (seenFiles.has(abs)) continue;
+      seenFiles.add(abs);
+      const rel = abs.startsWith(root)
+        ? path.relative(root, abs)
+        : hit.file;
+      const preview = (hit.content ?? "").trim().slice(0, 120);
+      lines.push(`  ${rel}:${hit.line}${preview ? `  ${preview}` : ""}`);
+    }
+    if (lines.length === 0) return null;
+    return `Closest indexed symbols (Blueprint lexical match — not regex hits):\n${lines.join("\n")}`;
+  } catch (e) {
+    logger.debug("Blueprint zero-hit suggestion skipped:", e);
+    return null;
+  }
+}

@@ -5,7 +5,10 @@ vi.mock("@/lib/search/bm25_semantic_index", () => ({
   searchBlueprintBm25: (...a: unknown[]) => searchMock(...a),
 }));
 
-import { rankGrepHitsByBlueprint } from "@/lib/blueprint/grep-blueprint-reranker";
+import {
+  rankGrepHitsByBlueprint,
+  suggestClosestIndexedSymbols,
+} from "@/lib/blueprint/grep-blueprint-reranker";
 
 const g = (file: string) => ({ file, matches: [{ line: 1, content: "x" }] });
 
@@ -56,4 +59,66 @@ describe("rankGrepHitsByBlueprint", () => {
     expect(out.map((x) => x.file)).toEqual(["/ws/a.ts", "/ws/b.ts"]);
   });
 
+});
+
+describe("suggestClosestIndexedSymbols (v13.2 zero-hit fallback)", () => {
+  beforeEach(() => searchMock.mockReset());
+
+  it("formats top hits as workspace-relative one-liners, deduped by file", async () => {
+    searchMock.mockResolvedValue({
+      hits: [
+        { score: 9, file: "/ws/src/auth/login.ts", line: 42, content: "export function handleAuthCallback() {", contextBefore: [], contextAfter: [] },
+        { score: 8, file: "/ws/src/auth/login.ts", line: 99, content: "dupe same file", contextBefore: [], contextAfter: [] },
+        { score: 5, file: "/ws/src/auth/session.ts", line: 7, content: "renewSession()", contextBefore: [], contextAfter: [] },
+      ],
+      totalMatches: 3,
+      filesIndexed: 10,
+    });
+    const out = await suggestClosestIndexedSymbols({
+      workspaceId: 1,
+      workspaceRootAbs: "/ws",
+      query: "auth callback",
+    });
+    expect(out).toContain("Closest indexed symbols");
+    expect(out).toContain("src/auth/login.ts:42");
+    expect(out).toContain("handleAuthCallback");
+    expect(out).toContain("src/auth/session.ts:7");
+    // deduped: second login.ts hit dropped
+    expect(out).not.toContain(":99");
+  });
+
+  it("caps suggestions at maxSuggestions distinct files", async () => {
+    searchMock.mockResolvedValue({
+      hits: Array.from({ length: 20 }, (_, i) => ({
+        score: 20 - i,
+        file: `/ws/src/f${i}.ts`,
+        line: i + 1,
+        content: "x",
+        contextBefore: [],
+        contextAfter: [],
+      })),
+      totalMatches: 20,
+      filesIndexed: 30,
+    });
+    const out = await suggestClosestIndexedSymbols({
+      workspaceId: 1,
+      workspaceRootAbs: "/ws",
+      query: "anything",
+      maxSuggestions: 3,
+    });
+    const lineCount = (out ?? "").split("\n").length;
+    expect(lineCount).toBe(4); // header + 3 suggestions
+  });
+
+  it("returns null on no hits, null search result, or missing workspace", async () => {
+    searchMock.mockResolvedValue({ hits: [], totalMatches: 0, filesIndexed: 0 });
+    expect(
+      await suggestClosestIndexedSymbols({ workspaceId: 1, workspaceRootAbs: "/ws", query: "q" }),
+    ).toBeNull();
+    searchMock.mockResolvedValue(null);
+    expect(
+      await suggestClosestIndexedSymbols({ workspaceId: 1, workspaceRootAbs: "/ws", query: "q" }),
+    ).toBeNull();
+    expect(await suggestClosestIndexedSymbols({ query: "q" })).toBeNull();
+  });
 });

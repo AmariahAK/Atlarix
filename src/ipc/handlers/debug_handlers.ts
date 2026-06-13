@@ -107,7 +107,7 @@ async function getSystemDebugInfo({
     selectedLanguageModel:
       serializeModelForDebug(settings.selectedModel) || "unknown",
     telemetryConsent: settings.telemetryConsent || "unknown",
-    telemetryUrl: "https://us.i.posthog.com", // Hardcoded from renderer.tsx
+    telemetryUrl: "https://eu.i.posthog.com", // Matches the live PostHog host in renderer.tsx
     atlarixVersion,
     platform: process.platform,
     architecture: arch(),
