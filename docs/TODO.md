@@ -86,18 +86,26 @@ One-identity rewrite across Atlarix/launchpad/releases: **"the open-weight front
 > keystone for the "frontier open-weight harness" identity is an **open-model quality eval loop** —
 > today the claim is architectural, not measured. Backlog below; full reasoning in the report.
 
-| Pri | Item | Why |
+> **Implementation pass 2026-06-13** shipped most of this backlog. Detailed seam-grounded
+> follow-ups now live in **`docs/HARNESS-ROADMAP.md`**. Status below.
+
+| Pri | Item | Status |
 |:--:|---|---|
-| **P0** | Open-model eval suite (real tasks through Atlarix on DeepSeek/Qwen/Kimi/MiniMax) | Turns the open-weight claim from architectural → measured. Keystone. |
-| **P0** | Writing sub-agents (scoped, worktree-isolated, approval-merged) | Biggest mechanical gap vs opencode/Antigravity; `task` is read-only/depth-1 today. |
-| **P1** | Background *task* agents (generalize the background-command `prepareStep` seam) | Async capability without going cloud; reuses existing plumbing. |
-| ~~P1~~ ✅ | ~~Auto-updating open-weight model catalog~~ — **done** | Model lists are dynamic: live provider `/models` → models.dev (hourly-refreshed, `qwen→alibaba`/`moonshot→moonshotai`). No hardcoded lists. |
-| **P1** | Minimal hook surface (PreToolUse/PostToolUse/Stop) | Community extensibility without a full plugin marketplace. |
-| **P2** | Optional fully-local semantic-recall lane alongside Blueprint | Neutralizes the one retrieval axis where Cursor/Antigravity lead; no cloud embeddings. |
-| **P2** | Persist context checkpoints across restarts (`snapshotTurnId`) | Borrow opencode's epoch durability; finishes a deferred item. |
-| **P2** | Per-model tool-call conformance/repair + pass-tracking | Hardens open-weight reliability; feeds the eval suite. |
-| **P3** | Public "build-on-Atlarix" agent SDK | Strategic/large; only if a third-party ecosystem becomes a goal. |
-| **P3** | Finish elastic/cohere V3 adapter migration; continue v13 simplification cuts | Remove special-case weight around the open-weight core. |
+| **P0** | Open-model eval suite (real tasks through Atlarix on DeepSeek/Qwen/Kimi/MiniMax) | **Open** — the keystone; still the highest-leverage item (→ roadmap). |
+| ~~P0~~ ✅ | ~~Writing sub-agents (worktree-isolated, review+apply)~~ | **Done** — `task({ write: true })` in an isolated git worktree; diff returned for review+apply. |
+| ~~P1~~ ✅ | ~~Windows AppContainer sandbox (was unbundled/unsandboxed)~~ | **Done, pending Windows-CI validation** — Rust helper + CI build/sign + bundling. |
+| ~~P1~~ ✅ | ~~Microcompact (no-LLM stale-output drop)~~ | **Done** in `runSteppedCompaction` (mid-loop native-pairing variant → roadmap). |
+| ~~P1~~ ✅ | ~~Blueprint Tier-1 (RRF + proximity + field reweight)~~ | **Done** (query-intent routing → roadmap). |
+| ~~P1~~ ✅ | ~~Keep-awake on idle-sleep + concurrent sessions~~ | **Done** — already built; verified + `keepAwakeDuringRuns` toggle added. |
+| ~~P1~~ ✅ | ~~Auto-updating open-weight model catalog~~ | **Done** — dynamic live `/models` → models.dev. |
+| **P1** | Background *task* agents (generalize the background-command seam) | **Open** (→ roadmap) — async without cloud. |
+| ~~P2~~ 🟡 | Local semantic-recall lane (Model2Vec) | **Foundation done** (tested core + setting + fetch/bundle, default-off); live fusion → roadmap. |
+| ~~P2~~ ✅ | ~~Verifiable artifact layer~~ | **Done** — browser session-recording walkthrough (renderer card → roadmap). |
+| **P2** | Persist context checkpoints across restarts (`snapshotTurnId`) | **Open** (→ roadmap). |
+| **P3** | Removals (capability-trim → cost/ToolCategory) | **Deferred** — coupled to weak/local-model tool-capping; sequenced steps in roadmap (measure first). |
+| **P3** | Public "build-on-Atlarix" agent SDK | **Open** — strategic/large. |
+
+**De-scoped by the user (not pursued):** approval-triage/Guardian, per-model system prompts, whole-harness swapping.
 
 ---
 

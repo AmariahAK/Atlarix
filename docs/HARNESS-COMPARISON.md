@@ -30,6 +30,36 @@ continuously with an eval loop and model-coverage cadence, not declared once. Se
 
 ---
 
+## Addendum — second evaluation + what this pass closed (2026-06-13)
+
+A second independent deep-dive corroborated the findings and added specifics, folded in here.
+
+**Per-rival verdict (Atlarix vs each), harness-level** — ▲ ahead · ◆ par · ▼ behind
+(CC=Claude Code, OC=opencode, CU=Cursor, CX=Codex, AG=Antigravity):
+
+| Dimension | CC | OC | CU | CX | AG |
+|---|:--:|:--:|:--:|:--:|:--:|
+| Open-weight focus / BYOK | ▲ | ▲ | ▲ | ▲ | ▲ |
+| Structural index (Blueprint) | ▲ | ▲ | ▼ | ▲ | ◆ |
+| Command sandbox | ▲ | ▲ | ◆ | ◆ | ◆ |
+| Text/XML tool-call fallback (weak models) | ▲ | ▲ | ▲ | ▲ | ▲ |
+| Sub-agents (parallel *writing*) | ◆ | ◆ | ▼ | ▼ | ▼ |
+| Async / cloud execution | ▼ | ▼ | ▼ | ▼ | ▼ |
+| Context compaction | ◆ | ▼ | ▼ | ◆ | ◆ |
+| Browser control / visual verify | ▲ | ▲ | ◆ | ▲ | ▼ |
+
+**New named points (both reviews):**
+- **Text/XML tool-call fallback** is a distinct open-weight strength — Atlarix treats weak-model tool-call quirks (MiniMax/Claude-XML) as a first-class design constraint.
+- **Semantic recall** is named explicitly as a *conscious trade*, not a strict win: BM25+structural beats embeddings on precision/freshness/privacy but trails on fuzzy intent — now being closed locally by the Model2Vec lane (Task 8 Tier-2).
+- **Per-model prompt tuning** — VERIFIED in `atlarix-references/opencode`: `session/system.ts` switches the base prompt by `model.api.id` (anthropic/gpt/beast/codex/gemini/**kimi**/trinity/default). Cursor *tunes the system prompt + tools per model* (accurate phrasing — NOT the overstated "swaps the whole harness"). The user de-scoped adding per-model prompts to Atlarix for now.
+- **Approval friction** vs Codex Guardian / Antigravity auto-exec tiers — de-scoped (kept manual approval by choice).
+
+**Corrections / closures this pass:**
+- The **Windows sandbox was not real** (helper unbundled; commands ran unsandboxed despite the CHANGELOG) — now implemented in Rust + wired into CI/packaging (pending Windows-CI validation).
+- **No parallel writing** — closed: writer sub-agents now run in isolated git worktrees, diff returned for review+apply (local, no cloud).
+- **No two-tier pruning** — closed: microcompact drops stale tool outputs with no LLM call.
+- **Semantic-recall ceiling** — foundation shipped (on-device Model2Vec, default-off; live fusion is the documented completion step).
+
 ## Capability matrix
 
 Rating per harness, per dimension: **● strong · ◐ partial · ○ absent/weak**. Final column is Atlarix's
