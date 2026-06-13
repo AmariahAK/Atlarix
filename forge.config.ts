@@ -445,11 +445,6 @@ const config: ForgeConfig = {
       )
         ? [path.join(__dirname, "native/atlarix-sandbox/target/release/atlarix-sandbox.exe")]
         : []),
-      // Optional on-device Model2Vec model for semantic recall (npm run
-      // fetch-model2vec). Bundled only when present so default builds are unaffected.
-      ...(fs.existsSync(path.join(__dirname, "assets/model2vec/potion-code-16M/model.safetensors"))
-        ? [path.join(__dirname, "assets/model2vec")]
-        : []),
     ],
   },
   rebuildConfig: {

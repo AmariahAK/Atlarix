@@ -6,11 +6,14 @@
 
 import { exec } from "child_process";
 import { promisify } from "util";
+import * as path from "node:path";
 import { truncateUtf8ByBytes } from "@/lib/truncate";
 import {
   rankGrepHitsByBlueprint,
   suggestClosestIndexedSymbols,
 } from "@/lib/blueprint/grep-blueprint-reranker";
+import { ensureSymbolIndex, findEnclosingSymbol } from "@/lib/index/ctags-index";
+import type { SymbolRecord } from "@/lib/index/symbol-types";
 import {
   ToolRegistry,
   createParameters,
@@ -21,7 +24,43 @@ import {
 
 const execAsync = promisify(exec);
 
-type GrepGroup = { file: string; matches: { line: number; content: string }[] };
+type GrepGroup = {
+  file: string;
+  matches: { line: number; content: string }[];
+  /** Workspace-relative path (set during symbol annotation). */
+  relFile?: string;
+  /** Enclosing function/class of the file's top match (zoekt-style context). */
+  symbol?: SymbolRecord | null;
+};
+
+/** Compact, readable label for an enclosing symbol (e.g. `Class.method`). */
+function symbolLabel(s: SymbolRecord): string {
+  return s.scope ? `${s.scope}.${s.name}` : s.name;
+}
+
+/**
+ * Annotate each grep group with its workspace-relative path and the symbol
+ * enclosing its top match, so results read zoekt-style ("the match is inside
+ * `UserRegistrationView.create`"). Degrades silently (groups returned unchanged)
+ * when the symbol index is cold/unavailable — grep must never get worse.
+ */
+async function annotateWithSymbols(
+  groups: GrepGroup[],
+  workspaceRootAbs: string,
+): Promise<GrepGroup[]> {
+  try {
+    const cache = await ensureSymbolIndex(workspaceRootAbs);
+    for (const g of groups) {
+      g.relFile = path.relative(workspaceRootAbs, g.file).replace(/\\/g, "/");
+      const topLine = g.matches[0]?.line;
+      g.symbol =
+        topLine != null ? findEnclosingSymbol(cache, g.relFile, topLine) : null;
+    }
+  } catch {
+    /* no symbol index — leave groups unannotated */
+  }
+  return groups;
+}
 
 function parseGrepOutput(output: string): GrepGroup[] {
   const groups: GrepGroup[] = [];
@@ -79,31 +118,33 @@ function formatGrepGroupsForDisplay(
   query: string,
   opts?: { perFileCap?: number; maxBytes?: number },
 ): string {
-  const perFile = Math.min(100, Math.max(1, opts?.perFileCap ?? 30));
-  const maxBytes = Math.min(500_000, Math.max(1024, opts?.maxBytes ?? 120_000));
+  const perFile = Math.min(100, Math.max(1, opts?.perFileCap ?? 5));
+  const maxBytes = Math.min(500_000, Math.max(1024, opts?.maxBytes ?? 24_000));
   if (groups.length === 0) return `No matches for "${query}".`;
   const total = groups.reduce((s, g) => s + g.matches.length, 0);
-  let out = `Found ${total} match(es) for "${query}" across ${groups.length} file(s):\n\n`;
+  let out = `${total} match(es) for "${query}" across ${groups.length} file(s), most relevant first:\n\n`;
   for (const g of groups) {
-    out += `[file] ${g.file}\n`;
+    const head = g.relFile ?? g.file;
+    out += g.symbol ? `${head}  › ${symbolLabel(g.symbol)}\n` : `${head}\n`;
     for (const m of g.matches.slice(0, perFile)) {
       out += `  ${m.line}: ${m.content}\n`;
     }
     if (g.matches.length > perFile)
-      out += `  ... and ${g.matches.length - perFile} more in this file\n`;
+      out += `  … +${g.matches.length - perFile} more in this file\n`;
     out += "\n";
   }
   return truncateUtf8ByBytes(out, maxBytes, {
     suffix:
-      "\n\n… [output truncated by max_bytes; narrow path/include or lower max_results]",
+      "\n\n… [output truncated; narrow path/include or lower max_results]",
   });
 }
 
 ToolRegistry.register({
   name: "grep",
   description:
-    "Search file CONTENTS with a regex (ripgrep). Returns matching lines grouped by file with context, " +
-    "with the most structurally relevant files first (ranked by Blueprint, the codebase's retrieval index). " +
+    "Search file CONTENTS with a regex (ripgrep). Returns sharp, low-token results: the most relevant " +
+    "files first (ranked by Blueprint, the codebase's retrieval index), each annotated with the enclosing " +
+    "function/class so you can jump straight to the symbol. Raise max_results for a wider sweep. " +
     "Use glob to find files by NAME; use get_blueprint for structural/architecture questions. " +
     "Examples: grep({ pattern: \"handleLogin\" }), grep({ pattern: \"TODO|FIXME\", include: \"*.ts\" }).",
   requiresWorkspace: true,
@@ -119,15 +160,15 @@ ToolRegistry.register({
       ),
       case_sensitive: booleanParam("Case-sensitive match (default false)."),
       context_lines: numberParam(
-        "Lines of context around each match (default 2, max 10).",
-        2,
+        "Lines of context around each match (default 0, max 10).",
+        0,
         0,
         10,
       ),
-      max_results: numberParam("Max matching lines (default 50, max 200).", 50, 1, 200),
+      max_results: numberParam("Max matching lines (default 20, max 200).", 20, 1, 200),
       max_bytes: numberParam(
-        "Max UTF-8 bytes of formatted output (default 120000).",
-        120_000,
+        "Max UTF-8 bytes of formatted output (default 24000).",
+        24_000,
         4096,
         500_000,
       ),
@@ -147,11 +188,11 @@ ToolRegistry.register({
     workspace?: string;
     workspaceId?: number;
   }) => {
-    const maxResults = Math.min(200, Math.max(1, params.max_results ?? 50));
-    const contextLines = Math.min(10, Math.max(0, Number(params.context_lines) || 2));
+    const maxResults = Math.min(200, Math.max(1, params.max_results ?? 20));
+    const contextLines = Math.min(10, Math.max(0, Number(params.context_lines) || 0));
     const maxBytes = Math.min(
       500_000,
-      Math.max(4096, Number(params.max_bytes) || 120_000),
+      Math.max(4096, Number(params.max_bytes) || 24_000),
     );
     const workspace = params.workspace || process.cwd();
 
@@ -183,6 +224,10 @@ ToolRegistry.register({
         kept += slice.length;
       }
 
+      // Annotate each kept file with the symbol enclosing its top match
+      // (zoekt-style) so the model can jump straight to the function/class.
+      await annotateWithSymbols(trimmed, workspace);
+
       // v13.2: zero hits → Blueprint lexical suggestions instead of a dead
       // end (fires only on misses; prevents a wasted retry round).
       if (trimmed.length === 0) {
@@ -203,13 +248,16 @@ ToolRegistry.register({
       return {
         success: true,
         result: formatGrepGroupsForDisplay(trimmed, params.pattern, {
-          perFileCap: 30,
+          perFileCap: 5,
           maxBytes,
         }),
         ui: {
           groups: trimmed.map((g) => ({
             file: g.file,
             matchCount: g.matches.length,
+            ...(g.symbol
+              ? { enclosingSymbol: { name: symbolLabel(g.symbol), kind: g.symbol.kind } }
+              : {}),
           })),
         },
       };

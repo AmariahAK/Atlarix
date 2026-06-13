@@ -75,6 +75,8 @@ export type ToolExpandMatchEntry = {
   fileName: string;
   directory: string;
   matchCount: number;
+  /** Enclosing function/class of the file's top match (grep symbol annotation). */
+  enclosingSymbol?: { name: string; kind: string };
 };
 
 export type ToolExpandView =
@@ -290,7 +292,21 @@ function buildMatchListFromGroups(
     const n = matchCountFromGroup(go);
     totalMatches += n;
     const { fileName, directory } = splitPathForDisplay(filePath);
-    files.push({ path: filePath, fileName, directory, matchCount: n || 1 });
+    const sym = go.enclosingSymbol;
+    const enclosingSymbol =
+      sym && typeof sym === "object" && typeof (sym as Record<string, unknown>).name === "string"
+        ? {
+            name: String((sym as Record<string, unknown>).name),
+            kind: String((sym as Record<string, unknown>).kind ?? ""),
+          }
+        : undefined;
+    files.push({
+      path: filePath,
+      fileName,
+      directory,
+      matchCount: n || 1,
+      ...(enclosingSymbol ? { enclosingSymbol } : {}),
+    });
   }
 
   if (files.length === 0) return null;

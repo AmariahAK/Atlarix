@@ -1,5 +1,39 @@
 # Atlarix Changelog
 
+## [Unreleased] — Retrieval: disk-backed FTS5, sharp symbol-aware grep, embedding lane removed
+
+> Code retrieval scaled to any workspace size and made sharper + lower-token, while *removing* complexity.
+> Validated on a real giant multi-repo: the "find the signup code" query went from ~63K to ~26K turn
+> tokens with verified-accurate results (exact file:line citations across three sub-projects, zero
+> hallucination). The thesis, confirmed in data: for **code**, lexical + structural retrieval plus the
+> model's own reasoning beats a vector index (our references Claude Code and opencode carry no index).
+
+### Added
+
+- **Disk-backed SQLite FTS5 lexical index** (`src/lib/search/fts5-index.ts`, pure SQL contract in
+  `fts5-core.ts`). One standalone DB per workspace; ~constant low memory at any repo size (kills the
+  prior in-memory OOM ceiling on giant repos), incremental per-file updates, with candidate-set rerank
+  (scores only the files ripgrep returned) and per-package lexical scoping (`package-boundaries.ts`).
+  The public retrieval API is unchanged behind a facade.
+- **Symbol-aware `grep` (zoekt-style).** Each result names its enclosing function/class via a new
+  `findEnclosingSymbol` ctags helper, so the model jumps straight to the symbol instead of reading files.
+  Match-list cards show the symbol as a badge.
+
+### Changed
+
+- **`grep` tuned for sharp, low-token output:** defaults cut hard — `max_bytes` 120K→24K,
+  `max_results` 50→20, per-file lines 30→5, context 2→0 — and results lead with the most relevant file.
+- **Browser tools steered snapshot-first:** `browser_screenshot` reworded to "visual confirmation only"
+  (token-heavy); `browser_snapshot` is the way to find/interact; Explore + Build mode skills updated.
+
+### Removed
+
+- **The on-device Model2Vec / semantic-embedding lane — deleted wholesale.** `model2vec-runtime`/`-loader`,
+  `static-embeddings`, `searchBlueprintByEmbedding`, the embedding RRF leg, the `semanticRecall` setting,
+  the `emb_src` column, the bundled 62 MB model + `fetch-model2vec`. It only engaged under a 40K-symbol
+  cap (never helping giant repos), bloated the bundle, and chased recall when the real bottleneck was
+  token volume. Bundle shrinks ~62 MB. Blueprint room scoring (lexical) is unaffected.
+
 ## [13.1.5] (2026-06-12) — Open-weight harness hardening: command sandbox, parallel-research orchestration, Hugging Face, Blueprint-backed grep
 
 > Ships the full v13 line (see [13.0.0] and the v13.1 follow-ups below) plus this cycle's hardening.

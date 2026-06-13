@@ -1,8 +1,9 @@
 import type { ToolExpandView } from "@/lib/chat/tool-expand-view";
 import { ToolFileRow } from "./ToolFileRow";
 
-function matchLabel(n: number): string {
-  return `-- ${n} match${n === 1 ? "" : "es"}`;
+function matchLabel(n: number, symbol?: { name: string }): string {
+  const matches = `${n} match${n === 1 ? "" : "es"}`;
+  return symbol ? `${symbol.name} · ${matches}` : `-- ${matches}`;
 }
 
 export function ToolMatchListExpand({
@@ -22,7 +23,7 @@ export function ToolMatchListExpand({
             key={f.path}
             fileName={f.fileName}
             directory={f.directory}
-            trailing={matchLabel(f.matchCount)}
+            trailing={matchLabel(f.matchCount, f.enclosingSymbol)}
           />
         ))}
       </div>

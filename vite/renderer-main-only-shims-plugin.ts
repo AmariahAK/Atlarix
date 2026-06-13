@@ -21,6 +21,7 @@ const STUB_FILES = {
   mainSettings: "main-settings-renderer-stub.ts",
   tokenCounter: "token-counter-renderer-stub.ts",
   getModelClient: "get-model-client-renderer-stub.ts",
+  fts5Index: "fts5-index-renderer-stub.ts",
 } as const;
 
 function stubPath(file: string): string {
@@ -77,6 +78,11 @@ function shimForModuleId(id: string): string | null {
   // the renderer build cannot bundle.
   if (/[/\\]context[/\\]token-counter(\.ts)?$/.test(n)) {
     return stubPath(STUB_FILES.tokenCounter);
+  }
+  // fts5-index opens a native better-sqlite3 FTS5 DB (main-only). Retrieval runs
+  // in main via the tool layer; keep better-sqlite3 out of the renderer bundle.
+  if (/[/\\]search[/\\]fts5-index(\.ts)?$/.test(n)) {
+    return stubPath(STUB_FILES.fts5Index);
   }
 
   if (

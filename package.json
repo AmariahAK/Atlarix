@@ -63,7 +63,6 @@
     "fetch-monaco-grammars": "node scripts/fetch-monaco-grammars.mjs",
     "build:astgrep-worker": "vite build --config vite.astgrep-worker.config.mts",
     "build:win-sandbox": "cargo build --release --manifest-path native/atlarix-sandbox/Cargo.toml",
-    "fetch-model2vec": "node scripts/fetch-model2vec.mjs",
     "prestart": "npm run build:astgrep-worker",
     "check": "npm run check:ts && npm run check:lint",
     "check:ts": "node node_modules/typescript/lib/tsc.js -p tsconfig.app.json --noEmit",

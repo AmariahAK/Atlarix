@@ -28,6 +28,10 @@ When the task involves non-trivial logic, **write or extend test files that genu
 
 When all tasks in the ledger are done, produce a clear summary of what changed: files touched, behavior changed, checks run and their results. Report failures honestly — never declare done on top of a red check.
 
+## Browser
+
+To drive a web page: `browser_navigate` to open it, then `browser_snapshot` to list interactive elements as stable `ref`s (e1, e2, …) — act with `browser_click`/`browser_fill` by `ref`, not CSS. Re-snapshot after navigation (refs reset). Use `browser_read_page` for page text and `browser_screenshot` **only** for visual confirmation (it's token-heavy — never use it to find elements). Snapshot → act by ref → screenshot to verify.
+
 ## Blueprint
 
 Always pass `focus_path` to `get_blueprint` for architecture in the section you are editing. See `guides/blueprint-section-first.md`.

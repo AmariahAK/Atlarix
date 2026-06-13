@@ -63,6 +63,8 @@ Release notes: **[docs/CHANGELOG.md](docs/CHANGELOG.md)** (current: 13.0+). Olde
 
 On-demand graph via `get_blueprint`—not whole-repo injection every turn. Parser tiers, Live View, Blueprint canvas, and `.atlarixignore` are documented in **[docs/architecture.md](docs/architecture.md)**.
 
+Retrieval is **structural + lexical, no embeddings** — Blueprint (Universal Ctags + ast-grep edges) for architecture, and a disk-backed SQLite **FTS5** index that reranks `grep` by relevance and scales to any repo size at constant low memory. `grep` returns sharp, low-token results: the most relevant files first, each annotated with its enclosing function/class (zoekt-style) so the model jumps straight to the symbol. The model itself is the natural-language layer — the deliberate choice (like Claude Code / opencode) is to keep retrieval lexical and let the agent reason, rather than ship a vector index.
+
 ### AI Agents & Modes
 
 - **Work modes:** Explore, Plan, Build, Debug, Review.

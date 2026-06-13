@@ -295,6 +295,38 @@ export function getSymbolsForFile(cache: SymbolIndexCache, relPath: string): Sym
   return cache.symbols.filter((s) => s.path.replace(/\\/g, "/") === norm);
 }
 
+/**
+ * The symbol that encloses a given 1-indexed line in a file — i.e. the function
+ * or class the match lives inside (used to annotate grep hits zoekt-style).
+ * Prefers the innermost symbol whose `[line, endLine]` range contains the line;
+ * when `endLine` is missing (sparse on some ctags kinds) it falls back to the
+ * nearest preceding definition. Returns null when the file has no symbols.
+ */
+export function findEnclosingSymbol(
+  cache: SymbolIndexCache,
+  relPath: string,
+  line: number,
+): SymbolRecord | null {
+  const fileSymbols = getSymbolsForFile(cache, relPath);
+  if (fileSymbols.length === 0) return null;
+
+  // Innermost ranged match: deepest start line among symbols whose range covers it.
+  let ranged: SymbolRecord | null = null;
+  for (const s of fileSymbols) {
+    if (s.endLine != null && s.line <= line && line <= s.endLine) {
+      if (!ranged || s.line > ranged.line) ranged = s;
+    }
+  }
+  if (ranged) return ranged;
+
+  // Fallback: nearest definition at or above the line (no reliable end range).
+  let preceding: SymbolRecord | null = null;
+  for (const s of fileSymbols) {
+    if (s.line <= line && (!preceding || s.line > preceding.line)) preceding = s;
+  }
+  return preceding;
+}
+
 export function findSymbolsByName(
   cache: SymbolIndexCache,
   name: string,

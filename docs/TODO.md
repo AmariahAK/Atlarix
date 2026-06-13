@@ -1,9 +1,22 @@
 # Atlarix TODO
 
 **Current Version:** v13.1.5 (released)
-**Last Updated:** 2026-06-12
+**Last Updated:** 2026-06-13
 
 ---
+
+## v14 retrieval — IN WORKING TREE (2026-06-13): FTS5 scale, sharp grep, embeddings removed
+
+> See `docs/CHANGELOG.md` [Unreleased]. Validated on a real giant multi-repo: "find the signup code"
+> went ~63K → ~26K turn tokens with verified-accurate (zero-hallucination) results.
+
+| Item | Status |
+|------|--------|
+| **Disk-backed FTS5 lexical index** (per-workspace SQLite, constant low memory, kills the OOM ceiling; candidate-set rerank; per-package lexical scoping). Public API unchanged behind facade. | ✅ Done |
+| **Sharp symbol-aware `grep`** — `findEnclosingSymbol` (ctags) annotates each hit with its function/class; defaults cut (max_bytes 120K→24K, max_results 50→20, per-file 30→5, context→0); most-relevant file first; match card badge. | ✅ Done |
+| **Browser snapshot-first steering** — `browser_screenshot`="visual confirmation only", `browser_snapshot` for find/interact; Explore+Build skills. | ✅ Done |
+| ~~Local semantic-recall lane (Model2Vec / embeddings)~~ | ❌ **Removed** — code retrieval doesn't need a vector index (the LLM is the NL layer). Deleted the lane, the 62 MB model, `semanticRecall`, `emb_src`. |
+| **Blueprint** | ✅ **Audited — leave as-is.** It is the **best version for models**; tight + accurate (40-room cap, 300-line/48 KB markdown, BM25+centrality+proximity, ~2–4K tokens). **Do not touch until further notice** — no accuracy/bloat problem to solve; query-intent routing + embedding fusion intentionally not pursued. |
 
 ## v13.0.0 — IN WORKING TREE (2026-06-11): mass simplification (unreleased — manual test before tag)
 
@@ -99,7 +112,7 @@ One-identity rewrite across Atlarix/launchpad/releases: **"the open-weight front
 | ~~P1~~ ✅ | ~~Keep-awake on idle-sleep + concurrent sessions~~ | **Done** — already built; verified + `keepAwakeDuringRuns` toggle added. |
 | ~~P1~~ ✅ | ~~Auto-updating open-weight model catalog~~ | **Done** — dynamic live `/models` → models.dev. |
 | ~~P1~~ ✅ | ~~Background *task* agents~~ | **Done (already was)** — `task({ background: true })` + mid-turn injection + keep-awake = async-while-away works; restart-persistence polish skipped as low-value. |
-| ~~P2~~ ✅ | ~~Local semantic-recall lane (Model2Vec)~~ | **Done** — live fusion: pure-JS WordPiece loader (validated vs real potion-code-16M) → per-doc embeddings → 3rd RRF list, gated behind `semanticRecall` (default OFF until validated on a real build). |
+| ~~P2~~ ❌ | ~~Local semantic-recall lane (Model2Vec)~~ | **Removed 2026-06-13** — shipped then deleted. Code retrieval doesn't need embeddings (claude-code/opencode use none); the lane only engaged under a 40K cap and chased recall when the bottleneck was token volume. Kept disk-backed FTS5 + candidate rerank; made `grep` sharp + symbol-aware instead. See HARNESS-ROADMAP. |
 | ~~P2~~ ✅ | ~~Persist context checkpoints across restarts (`snapshotTurnId`)~~ | **Done** — migration 0063 + persist/rehydrate; revert-turn survives restart. |
 | ~~P2~~ ✅ | ~~Verifiable artifact layer~~ | **Done** — browser session-recording walkthrough (renderer card → roadmap). |
 | ~~P3~~ ✅ | ~~Removals (capability-trim → cost/ToolCategory)~~ | **Done** — trim stage + `cost` + `ToolCategory` removed; weak/local models keep schema-simplification, lose only the tool-count cap. |

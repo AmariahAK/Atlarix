@@ -5,7 +5,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import { updateBlueprintCacheForFiles } from "@/lib/blueprint/incremental-update";
-import { invalidateBm25Index } from "@/lib/search/bm25_semantic_index";
+import { updateBm25IndexForFile } from "@/lib/search/bm25_semantic_index";
 
 const CODE_EXT = new Set([
   ".ts",
@@ -114,7 +114,12 @@ export function registerBlueprintFileWatcher(
       try {
         const ok = await refreshBlueprintCacheFromFileTree(projectPath, batch);
         if (ok && lastWorkspaceId != null) {
-          invalidateBm25Index(lastWorkspaceId);
+          // Incremental per-file FTS5 update — no full rebuild (scales to big repos).
+          await Promise.all(
+            batch.map((rel) =>
+              updateBm25IndexForFile(lastWorkspaceId!, projectPath, rel),
+            ),
+          );
           const last = batch[batch.length - 1];
           if (last) await onUpdated?.(projectPath, last, lastWorkspaceId);
         }

@@ -3,8 +3,6 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 const searchMock = vi.fn();
 vi.mock("@/lib/search/bm25_semantic_index", () => ({
   searchBlueprintBm25: (...a: unknown[]) => searchMock(...a),
-  // semanticRecall off → embedding lane returns null → pure Tier-1 fusion.
-  searchBlueprintByEmbedding: async () => null,
 }));
 
 import {
@@ -37,6 +35,19 @@ describe("rankGrepHitsByBlueprint", () => {
       "/ws/src/util/log.ts", // next
       "/ws/src/misc/other.ts", // unranked (score 0) keeps original position last
     ]);
+  });
+
+  it("restricts the Blueprint search to the ripgrep candidate files (candidate-set rerank)", async () => {
+    searchMock.mockResolvedValue({ hits: [], totalMatches: 0, filesIndexed: 0 });
+    const groups = [g("/ws/a.ts"), g("/ws/b.ts"), g("/ws/c.ts")];
+    await rankGrepHitsByBlueprint(groups, {
+      workspaceId: 1,
+      workspaceRootAbs: "/ws",
+      query: "q",
+    });
+    const [, , , maxResults, opts] = searchMock.mock.calls[0];
+    expect(maxResults).toBe(500);
+    expect(opts).toEqual({ restrictToFiles: ["/ws/a.ts", "/ws/b.ts", "/ws/c.ts"] });
   });
 
   it("returns original order when Blueprint has no hits", async () => {
