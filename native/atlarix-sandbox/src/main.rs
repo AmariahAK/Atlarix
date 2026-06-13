@@ -27,8 +27,8 @@ use std::process::exit;
 
 use windows::core::{PCWSTR, PWSTR};
 use windows::Win32::Foundation::{
-    CloseHandle, GetLastError, ERROR_ALREADY_EXISTS, HANDLE, HLOCAL, INVALID_HANDLE_VALUE,
-    WAIT_OBJECT_0,
+    CloseHandle, GetLastError, LocalFree, ERROR_ALREADY_EXISTS, HANDLE, HLOCAL,
+    INVALID_HANDLE_VALUE, WAIT_OBJECT_0,
 };
 use windows::Win32::Security::Authorization::{
     ConvertStringSidToSidW, GetNamedSecurityInfoW, SetEntriesInAclW, SetNamedSecurityInfoW,
@@ -40,16 +40,14 @@ use windows::Win32::Security::Isolation::{
 };
 use windows::Win32::Security::{
     ACL, DACL_SECURITY_INFORMATION, PSID, SECURITY_CAPABILITIES, SID_AND_ATTRIBUTES,
+    SUB_CONTAINERS_AND_OBJECTS_INHERIT,
 };
-use windows::Win32::System::Memory::LocalFree;
-use windows::Win32::System::SystemServices::{
-    SE_GROUP_ENABLED, SUB_CONTAINERS_AND_OBJECTS_INHERIT,
-};
+use windows::Win32::System::SystemServices::SE_GROUP_ENABLED;
 use windows::Win32::System::Threading::{
     CreateProcessW, DeleteProcThreadAttributeList, GetExitCodeProcess, InitializeProcThreadAttributeList,
     UpdateProcThreadAttribute, WaitForSingleObject, EXTENDED_STARTUPINFO_PRESENT,
     LPPROC_THREAD_ATTRIBUTE_LIST, PROCESS_INFORMATION, PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES,
-    STARTUPINFOEXW, STARTUPINFOW, INFINITE,
+    STARTUPINFOEXW, INFINITE,
 };
 
 const SANDBOX_SETUP_FAILED: i32 = 87; // ERROR_INVALID_PARAMETER
