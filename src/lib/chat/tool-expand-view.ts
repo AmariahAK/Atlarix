@@ -51,6 +51,7 @@ const MAX_TABLE_CARD_ROWS = 30;
 const BROWSER_TEXT_TOOLS = new Set([
   "browser_navigate",
   "browser_read_page",
+  "browser_snapshot",
   "browser_click",
   "browser_fill",
 ]);

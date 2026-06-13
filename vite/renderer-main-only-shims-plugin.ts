@@ -20,6 +20,7 @@ const STUB_FILES = {
   readEnv: "read-env-stub.ts",
   mainSettings: "main-settings-renderer-stub.ts",
   tokenCounter: "token-counter-renderer-stub.ts",
+  getModelClient: "get-model-client-renderer-stub.ts",
 } as const;
 
 function stubPath(file: string): string {
@@ -65,6 +66,11 @@ function shimForModuleId(id: string): string | null {
   }
   if (/[/\\]main[/\\]settings(\.ts)?$/.test(n)) {
     return stubPath(STUB_FILES.mainSettings);
+  }
+  // get_model_client instantiates provider SDKs (google-vertex → gaxios, a
+  // Node-only lib) — keep them out of the renderer bundle.
+  if (/[/\\]ipc[/\\]utils[/\\]get_model_client(\.ts)?$/.test(n)) {
+    return stubPath(STUB_FILES.getModelClient);
   }
   // v10.1: tool-output budgets dynamically import the token counter from
   // registry.ts (renderer-shared); the real module pulls tiktoken wasm which

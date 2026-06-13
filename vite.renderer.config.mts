@@ -67,6 +67,11 @@ export default defineConfig({
         replacement: shims("supabase-client-renderer-stub.ts"),
       },
       { find: "@/ipc/utils/read_env", replacement: shims("read-env-stub.ts") },
+      /** get_model_client pulls provider SDKs (google-vertex → gaxios) the renderer can't bundle. */
+      {
+        find: "@/ipc/utils/get_model_client",
+        replacement: shims("get-model-client-renderer-stub.ts"),
+      },
       /** Do not alias `@/db` — it prefix-matches `@/db/schema`. DB stub is via resolve plugin (db/index only). */
       { find: "@/main/settings", replacement: shims("main-settings-renderer-stub.ts") },
       { find: "@", replacement: path.resolve(__dirname, "./src") },

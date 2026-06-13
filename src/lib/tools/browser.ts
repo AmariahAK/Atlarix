@@ -24,9 +24,24 @@ import {
   recordBrowserAction,
   formatBrowserRecordingArtifact,
 } from "./browser-recorder";
+import { getA11ySnapshot, formatA11ySnapshot } from "@/lib/browser/a11y-snapshot";
 
 /** ToolRegistry.execute injects the chat id into every tool's args. */
 type WithChat<T> = T & { _chatSessionId?: number };
+
+/**
+ * In-page JS that declares `el` by resolving a browser_snapshot `ref`
+ * (data-atlarix-ref) first, then a CSS `selector`. Both inputs are embedded only
+ * inside string literals (JSON.stringify) and the ref goes through CSS.escape —
+ * no injection surface (v12 3.5 trust boundary).
+ */
+function RESOLVE_ELEMENT_JS(ref?: string, selector?: string): string {
+  return `const __ref = ${JSON.stringify(String(ref ?? ""))};
+      const __sel = ${JSON.stringify(String(selector ?? ""))};
+      let el = null;
+      if (__ref) { try { el = document.querySelector('[data-atlarix-ref="' + CSS.escape(__ref) + '"]'); } catch (e) {} }
+      if (!el && __sel) { try { el = document.querySelector(__sel); } catch (e) {} }`;
+}
 
 const PAGE_TEXT_MAX_CHARS = 60_000;
 const LOAD_TIMEOUT_MS = 20_000;
@@ -171,6 +186,43 @@ ToolRegistry.register({
 });
 
 ToolRegistry.register({
+  name: "browser_snapshot",
+  requiresWorkspace: false,
+  isCore: false,
+  isReadOnly: true,
+  allowInAskMode: true,
+  description:
+    "Get a compact accessibility snapshot of the page open in Atlarix's built-in browser: a list of " +
+    "interactive elements (links, buttons, inputs…) each with a stable `ref` (e1, e2, …), role, and name. " +
+    "MUCH lighter than a screenshot. Prefer this to understand a page, then act with browser_click/browser_fill " +
+    "using the ref (e.g. ref:\"e3\") instead of a CSS selector. Re-snapshot after navigation (refs reset).",
+  parameters: { type: "object", properties: {} },
+  handler: async (args: WithChat<Record<string, never>>) => {
+    const view = getActiveTabView();
+    if (!view) {
+      return { success: false, error: "No browser page is open. Use browser_navigate first." };
+    }
+    await waitForLoad(view.webContents);
+    const snap = await getA11ySnapshot(view.webContents);
+    if (!snap) {
+      return {
+        success: false,
+        error: "Could not read the accessibility snapshot (use browser_read_page or browser_screenshot instead).",
+      };
+    }
+    recordBrowserAction(args._chatSessionId, "read", "a11y snapshot", snap.url);
+    return {
+      success: true,
+      url: snap.url,
+      title: snap.title,
+      origin: activeOrigin(),
+      count: snap.count,
+      content: untrustedPageEnvelope(activeOrigin(), formatA11ySnapshot(snap)),
+    };
+  },
+});
+
+ToolRegistry.register({
   name: "browser_screenshot",
   requiresWorkspace: false,
   isCore: false,
@@ -223,26 +275,34 @@ ToolRegistry.register({
   isCore: false,
   isReadOnly: false,
   description:
-    "Click an element (by CSS selector) on the page open in Atlarix's built-in browser. Best-effort: " +
-    "verify the outcome with browser_read_page or browser_screenshot afterwards.",
+    "Click an element on the page open in Atlarix's built-in browser. PREFER `ref` (a stable id from " +
+    "browser_snapshot, e.g. \"e3\") over `selector` (CSS) — refs are robust. Best-effort: verify with " +
+    "browser_snapshot/browser_screenshot afterwards.",
   parameters: {
     type: "object",
     properties: {
+      ref: {
+        type: "string",
+        description: "Element ref from browser_snapshot (e.g. \"e3\"). Preferred.",
+      },
       selector: {
         type: "string",
-        description: "CSS selector of the element to click (first match).",
+        description: "CSS selector (fallback when no ref is available).",
       },
     },
-    required: ["selector"],
   },
-  handler: async (args: WithChat<{ selector: string }>) => {
+  handler: async (args: WithChat<{ ref?: string; selector?: string }>) => {
     const view = getActiveTabView();
     if (!view) {
       return { success: false, error: "No browser page is open. Use browser_navigate first." };
     }
+    const target = args.ref?.trim() || args.selector?.trim();
+    if (!target) {
+      return { success: false, error: "Provide a ref (from browser_snapshot) or a CSS selector." };
+    }
     const script = `(() => {
-      const el = document.querySelector(${JSON.stringify(String(args.selector))});
-      if (!el) return { ok: false, error: "no element matched" };
+      ${RESOLVE_ELEMENT_JS(args.ref, args.selector)}
+      if (!el) return { ok: false, error: "no element matched (ref or selector)" };
       el.scrollIntoView({ block: "center" });
       el.click();
       return { ok: true, tag: el.tagName, text: (el.innerText || "").slice(0, 200) };
@@ -256,14 +316,14 @@ ToolRegistry.register({
     if (!result?.ok) {
       return {
         success: false,
-        error: `Click failed: ${result?.error ?? "unknown"} (selector: ${args.selector})`,
+        error: `Click failed: ${result?.error ?? "unknown"} (${target})`,
       };
     }
     await waitForLoad(view.webContents);
-    recordBrowserAction(args._chatSessionId, "click", args.selector, view.webContents.getURL());
+    recordBrowserAction(args._chatSessionId, "click", target, view.webContents.getURL());
     return {
       success: true,
-      clicked: { selector: args.selector, tag: result.tag, text: result.text },
+      clicked: { target, tag: result.tag, text: result.text },
       url: view.webContents.getURL(),
       title: view.webContents.getTitle(),
     };
@@ -276,27 +336,36 @@ ToolRegistry.register({
   isCore: false,
   isReadOnly: false,
   description:
-    "Fill a form field (by CSS selector) on the page open in Atlarix's built-in browser with the given value. " +
-    "Dispatches input/change events so frameworks react. Best-effort: verify with browser_read_page.",
+    "Fill a form field on the page open in Atlarix's built-in browser with the given value. PREFER `ref` " +
+    "(from browser_snapshot, e.g. \"e3\") over `selector` (CSS). Dispatches input/change events so frameworks " +
+    "react. Best-effort: verify with browser_snapshot.",
   parameters: {
     type: "object",
     properties: {
+      ref: {
+        type: "string",
+        description: "Element ref from browser_snapshot (e.g. \"e3\"). Preferred.",
+      },
       selector: {
         type: "string",
-        description: "CSS selector of the input/textarea/select (first match).",
+        description: "CSS selector of the input/textarea/select (fallback).",
       },
       value: { type: "string", description: "Value to set." },
     },
-    required: ["selector", "value"],
+    required: ["value"],
   },
-  handler: async (args: WithChat<{ selector: string; value: string }>) => {
+  handler: async (args: WithChat<{ ref?: string; selector?: string; value: string }>) => {
     const view = getActiveTabView();
     if (!view) {
       return { success: false, error: "No browser page is open. Use browser_navigate first." };
     }
+    const target = args.ref?.trim() || args.selector?.trim();
+    if (!target) {
+      return { success: false, error: "Provide a ref (from browser_snapshot) or a CSS selector." };
+    }
     const script = `(() => {
-      const el = document.querySelector(${JSON.stringify(String(args.selector))});
-      if (!el) return { ok: false, error: "no element matched" };
+      ${RESOLVE_ELEMENT_JS(args.ref, args.selector)}
+      if (!el) return { ok: false, error: "no element matched (ref or selector)" };
       el.focus();
       const value = ${JSON.stringify(String(args.value))};
       const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype
@@ -316,16 +385,16 @@ ToolRegistry.register({
     if (!result?.ok) {
       return {
         success: false,
-        error: `Fill failed: ${result?.error ?? "unknown"} (selector: ${args.selector})`,
+        error: `Fill failed: ${result?.error ?? "unknown"} (${target})`,
       };
     }
     const preview = String(args.value).slice(0, 40);
     recordBrowserAction(
       args._chatSessionId,
       "fill",
-      `${args.selector} = "${preview}"`,
+      `${target} = "${preview}"`,
       view.webContents.getURL(),
     );
-    return { success: true, filled: { selector: args.selector, tag: result.tag } };
+    return { success: true, filled: { target, tag: result.tag } };
   },
 });

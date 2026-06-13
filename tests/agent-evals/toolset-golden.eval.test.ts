@@ -39,23 +39,23 @@ function offeredToolNames(scenarioId: string): string[] {
 }
 
 // Workspace turns, strong (default) model — the full surface per mode.
-// v13: opencode-minimal surface — 22 registered tools total.
+// v13: opencode-minimal surface — 23 registered tools total (added browser_snapshot).
 const GOLDEN = {
   ask: [
-    "ask_user", "browser_navigate", "browser_read_page", "browser_screenshot",
+    "ask_user", "browser_navigate", "browser_read_page", "browser_screenshot", "browser_snapshot",
     "compress_context", "get_blueprint", "glob", "grep", "list_attachments",
     "list_available_mcps", "mcp_call", "read_attachment", "read_file",
     "read_url", "run_command", "task", "web_search",
   ],
   plan: [
-    "ask_user", "browser_navigate", "browser_read_page", "browser_screenshot",
+    "ask_user", "browser_navigate", "browser_read_page", "browser_screenshot", "browser_snapshot",
     "compress_context", "get_blueprint", "glob", "grep", "list_attachments",
     "list_available_mcps", "mcp_call", "plan", "read_attachment", "read_file",
     "read_url", "task", "web_search",
   ],
   build: [
     "ask_user", "browser_click", "browser_fill", "browser_navigate",
-    "browser_read_page", "browser_screenshot", "compress_context", "edit_file",
+    "browser_read_page", "browser_screenshot", "browser_snapshot", "compress_context", "edit_file",
     "get_blueprint", "glob", "grep", "list_attachments", "list_available_mcps",
     "mcp_call", "plan", "read_attachment", "read_file", "read_url",
     "run_command", "task", "web_search", "write_file",

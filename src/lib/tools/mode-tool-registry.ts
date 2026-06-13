@@ -55,6 +55,7 @@ function withEveryModeTools(list: readonly string[]): readonly string[] {
 const ASK_TOOLS = [
   "browser_navigate",
   "browser_read_page",
+  "browser_snapshot",
   "browser_screenshot",
   "get_blueprint",
   "glob",
@@ -73,6 +74,7 @@ const ASK_TOOLS = [
 const PLAN_TOOLS = [
   "browser_navigate",
   "browser_read_page",
+  "browser_snapshot",
   "browser_screenshot",
   "get_blueprint",
   "glob",
@@ -87,6 +89,7 @@ const PLAN_TOOLS = [
 const REVIEW_TOOLS = [
   "browser_navigate",
   "browser_read_page",
+  "browser_snapshot",
   "browser_screenshot",
   "get_blueprint",
   "glob",
