@@ -871,21 +871,29 @@ async function resolveAskUserToolResult(
 // CPU alive while a stream is in flight so tasks keep progressing when the
 // display sleeps (see power-blocker.ts).
 class ActiveStreamRegistry extends Map<number, AbortController> {
+  /** chatIds that actually took a blocker ref — so release can't drift if the
+   * keepAwakeDuringRuns setting is toggled mid-session. */
+  private acquired = new Set<number>();
+
   override set(chatId: number, controller: AbortController): this {
     const isNew = !this.has(chatId);
     super.set(chatId, controller);
-    if (isNew) acquirePowerSaveBlocker();
+    if (isNew && readSettings().keepAwakeDuringRuns !== false) {
+      this.acquired.add(chatId);
+      acquirePowerSaveBlocker();
+    }
     return this;
   }
 
   override delete(chatId: number): boolean {
     const existed = super.delete(chatId);
-    if (existed) releasePowerSaveBlocker();
+    if (existed && this.acquired.delete(chatId)) releasePowerSaveBlocker();
     return existed;
   }
 
   override clear(): void {
     super.clear();
+    this.acquired.clear();
     resetPowerSaveBlocker();
   }
 }

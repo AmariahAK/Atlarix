@@ -30,6 +30,9 @@ const DEFAULT_TAIL_TURNS = 2;
 const COMPACTION_THRESHOLD = 0.75;
 const PRUNE_THRESHOLD = 0.60;
 const TOOL_OUTPUT_MAX_CHARS = 2_000;
+/** Microcompact keeps tool outputs from the last N user turns; older ones are
+ * DROPPED entirely (no LLM call) — cheaper than truncation+summarization. */
+const MICROCOMPACT_KEEP_TURNS = 3;
 const PRUNE_PROTECTED_TOOLS = ["skill"];
 const MODEL_CONTEXT_SAFETY = 0.8;
 
@@ -272,6 +275,56 @@ export function pruneToolOutputs(
 }
 
 // ═══════════════════════════════════════════════════════════════
+// MICROCOMPACT (Step 1.5) — no-LLM drop of stale tool outputs
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Drop (not truncate) tool outputs older than the last `keepRecentTurns` user
+ * turns. Unlike `pruneToolOutputs` (which keeps a 2K slice), this replaces a
+ * stale tool result with a minimal marker — freeing the most tokens for the
+ * least cost, with NO LLM call. Runs before truncation + summarization so we
+ * often get back under budget without ever invoking the summarizer.
+ *
+ * Safe only on this string-content representation: here tool results are
+ * embedded as text inside assistant/user messages, so dropping one cannot
+ * orphan a native tool-call/tool-result pair (which the mid-loop native path
+ * must instead summarize as matched pairs).
+ */
+export function microcompactStaleToolOutputs(
+  msgs: MessageForCompaction[],
+  keepRecentTurns: number = MICROCOMPACT_KEEP_TURNS,
+): { messages: MessageForCompaction[]; tokensDropped: number } {
+  if (msgs.length === 0) return { messages: msgs, tokensDropped: 0 };
+
+  const out = msgs.map((m) => ({ ...m }));
+  let userTurns = 0;
+  let tokensDropped = 0;
+
+  for (let i = out.length - 1; i >= 0; i--) {
+    const m = out[i]!;
+    if (m.role === "user") userTurns++;
+    // Still inside the recent keep-window — leave everything intact.
+    if (userTurns <= keepRecentTurns) continue;
+    if (m.role !== "assistant" && m.role !== "user") continue;
+
+    const content = m.content || "";
+    if (!contentLooksLikeToolResult(content)) continue;
+    if (isContentProtectedForCompaction(content, m.filesWritten)) continue;
+    if (isToolProtected(content)) continue;
+
+    const t = exactTokenCountText(content);
+    if (t === 0) continue;
+    tokensDropped += t;
+    out[i] = {
+      ...m,
+      content: `[Earlier tool output dropped (~${t} tokens) — re-read the file or re-run the command if you still need it]`,
+    };
+  }
+
+  return { messages: out, tokensDropped };
+}
+
+// ═══════════════════════════════════════════════════════════════
 // MEDIA STRIPPING (Step 3)
 // ═══════════════════════════════════════════════════════════════
 
@@ -350,7 +403,12 @@ async function summarizeMessages(
 // COMPACTION RESULT TYPES
 // ═══════════════════════════════════════════════════════════════
 
-export type CompactionStrategy = "none" | "pruned" | "stripped_media" | "summarized";
+export type CompactionStrategy =
+  | "none"
+  | "microcompacted"
+  | "pruned"
+  | "stripped_media"
+  | "summarized";
 
 export interface RunSteppedCompactionResult {
   modelContext: MessageForCompaction[];
@@ -397,6 +455,20 @@ export async function runSteppedCompaction(
   let tokensFreed = 0;
   let strategy: CompactionStrategy = "none";
   let summaryText: string | undefined;
+
+  // Step 1.5: Microcompact — DROP stale tool outputs entirely (no LLM call).
+  // Cheapest reduction; often gets us back under budget before truncation or
+  // summarization is ever needed.
+  {
+    const { messages: micro, tokensDropped } = microcompactStaleToolOutputs(
+      modelContext,
+    );
+    if (tokensDropped > 0) {
+      modelContext = micro;
+      tokensFreed += tokensDropped;
+      strategy = "microcompacted";
+    }
+  }
 
   // Step 2: Prune tool outputs if over 60%
   if (usageRatio > PRUNE_THRESHOLD) {

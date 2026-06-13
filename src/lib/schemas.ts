@@ -394,6 +394,12 @@ export const UserSettingsSchema = z.object({
   enableNativeGit: z.boolean().optional(),
   /** When true, run_command may execute git init. Default false. */
   allowGitInit: z.boolean().optional(),
+  /**
+   * Keep the machine awake (prevent idle/display sleep) while an agent run is in
+   * flight, so away-from-keyboard tasks keep progressing. Default true. Cannot
+   * override OS lid-close suspend (see power-blocker.ts).
+   */
+  keepAwakeDuringRuns: z.boolean().optional(),
   /** Linux: wrap stdio MCP servers in firejail when available. Default false. */
   sandboxMcpStdio: z.boolean().optional(),
   mcpStdioFirejail: z
