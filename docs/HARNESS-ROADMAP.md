@@ -31,6 +31,9 @@ The crate compiles + ACL/AppContainer behavior must be verified on `windows-late
 
 ## Other local follow-ups
 
+### Browser — steer the model to snapshot-first (TODO, agreed 2026-06-13)
+The `browser_snapshot`/ref tools exist + are in the Ask allowlist, but **no prompt tells the model to use them**, so models default to screenshot-hunting (observed: ~180K tokens to find a Sign Up link on an SPA). Do: (1) rewrite `browser_screenshot`'s description to "visual confirmation ONLY — use `browser_snapshot` to find/understand interactive elements (far cheaper)"; (2) add a short browser-usage note to the mode guidance ("snapshot → act by ref → screenshot only to verify"); (3) consider surfacing in a build/ask mode skill. Also note for users: **clicking/filling needs Build mode** (Ask/Explore is read-only by design). Rebuild after.
+
 ### Blueprint Tier-1 — query-intent routing (deferred)
 Add a `classifyQueryIntent()` pre-step in `bm25_semantic_index.ts` ("where do we handle…" → boost `handle*` names; "what imports…" → structural mode). Deferred this pass because the name-weight bump already captures much of it; revisit if NL-intent queries still under-recall.
 
