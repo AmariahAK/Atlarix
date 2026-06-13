@@ -23,6 +23,15 @@ import {
   recordSubagentStart,
   recordSubagentResult,
 } from "../agents/subagent-results";
+import {
+  createSubagentWorktree,
+  captureWorktreeDiff,
+  removeSubagentWorktree,
+  type SubagentWorktree,
+} from "../agents/subagent-worktree";
+
+/** Cap the proposed-diff size folded into the task result to protect context. */
+const MAX_DIFF_CHARS = 20_000;
 
 /** Wall-clock cap for a background sub-agent so a hung one can't stall the turn. */
 const DEFAULT_BACKGROUND_TIMEOUT_MS = 5 * 60_000;
@@ -61,8 +70,9 @@ function taskEnvelope(
 ToolRegistry.register({
   name: "task",
   description:
-    "Spawn a scoped read-only sub-agent for an independent piece of work (exploring a folder, researching a question, mapping a subsystem). " +
+    "Spawn a scoped sub-agent for an independent piece of work (exploring a folder, researching a question, mapping a subsystem, or — with write=true — implementing a change). " +
     "For independent scopes, issue MULTIPLE task calls in ONE response — they run concurrently (up to 5 per turn). " +
+    "By default a sub-agent is READ-ONLY. Set write=true to let it implement changes inside an ISOLATED git worktree; its proposed diff comes back for you to review and apply with your own write tools (the workspace is never touched directly). " +
     "Optional subagent_type names a user-defined .atlarix/agents/ agent. " +
     "Set background=true to return immediately with a task id; pass task_id later to collect the result.",
   category: ToolCategory.TASK,
@@ -83,6 +93,9 @@ ToolRegistry.register({
       background: booleanParam(
         "When true, run async and return immediately with task id",
       ),
+      write: booleanParam(
+        "When true, the sub-agent may implement changes inside an isolated git worktree; its proposed diff is returned for you to review and apply (requires a git workspace).",
+      ),
     },
     ["description", "prompt"],
   ),
@@ -92,6 +105,7 @@ ToolRegistry.register({
     subagent_type?: string;
     task_id?: string;
     background?: boolean;
+    write?: boolean;
     workspace?: string;
     workspaceId?: number;
     chatId?: number;
@@ -136,27 +150,70 @@ ToolRegistry.register({
     const subagentType = args.subagent_type?.trim() || "";
 
     const run = async () => {
-      const outcome = await runSubagent({
-        prompt: args.prompt,
-        subagentType: subagentType || undefined,
-        workspace: args.workspace,
-        workspaceId: args.workspaceId,
-        chatId: args.chatId,
-        turnId: args.turnId,
-        delegationChatMode: args.delegationChatMode,
-        delegationId: args.parentDelegationId ?? taskId,
-        emit: args.emitSubagentActivity,
-      });
-      const rec = taskStore.get(taskId);
-      if (!rec) return;
-      if (outcome.success) {
-        rec.state = "completed";
-        rec.resultText = outcome.summary ?? "";
-      } else {
-        rec.state = "error";
-        rec.error = outcome.error ?? "Sub-agent run failed";
+      // Writer mode: isolate the sub-agent's writes in a throwaway git worktree.
+      let worktree: SubagentWorktree | null = null;
+      let modeNote = "";
+      if (args.write && args.workspace?.trim()) {
+        worktree = await createSubagentWorktree(args.workspace, taskId);
+        if (!worktree) {
+          modeNote =
+            "\n\n(Note: workspace is not a git repository — ran read-only; could not isolate writes.)";
+        }
       }
-      rec.finishedAt = Date.now();
+
+      try {
+        const outcome = await runSubagent({
+          prompt: args.prompt,
+          subagentType: subagentType || undefined,
+          workspace: args.workspace,
+          mode: worktree ? "implement" : "scout",
+          worktreePath: worktree?.worktreePath,
+          workspaceId: args.workspaceId,
+          chatId: args.chatId,
+          turnId: args.turnId,
+          delegationChatMode: args.delegationChatMode,
+          delegationId: args.parentDelegationId ?? taskId,
+          emit: args.emitSubagentActivity,
+        });
+
+        // Capture the proposed diff before teardown so the main agent can review
+        // and apply it through its own (approval-gated) write tools.
+        let diffBlock = "";
+        if (worktree) {
+          try {
+            const diff = await captureWorktreeDiff(worktree);
+            if (diff.changedFiles.length > 0) {
+              const body =
+                diff.unifiedDiff.length > MAX_DIFF_CHARS
+                  ? diff.unifiedDiff.slice(0, MAX_DIFF_CHARS) + "\n…[diff truncated]"
+                  : diff.unifiedDiff;
+              diffBlock =
+                `\n\n## Proposed changes (isolated worktree — review, then apply with your write tools)\n` +
+                `Changed files: ${diff.changedFiles.join(", ")}\n\n` +
+                "```diff\n" + body + "\n```";
+            } else {
+              diffBlock = "\n\n(The writer sub-agent made no file changes.)";
+            }
+          } catch {
+            diffBlock = "\n\n(Could not capture the worktree diff.)";
+          }
+        }
+
+        const rec = taskStore.get(taskId);
+        if (!rec) return;
+        if (outcome.success) {
+          rec.state = "completed";
+          rec.resultText = (outcome.summary ?? "") + modeNote + diffBlock;
+        } else {
+          rec.state = "error";
+          rec.error = (outcome.error ?? "Sub-agent run failed") + modeNote;
+        }
+        rec.finishedAt = Date.now();
+      } finally {
+        if (worktree && args.workspace) {
+          await removeSubagentWorktree(args.workspace, worktree);
+        }
+      }
     };
 
     taskStore.set(taskId, {

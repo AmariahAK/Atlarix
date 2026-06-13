@@ -81,6 +81,25 @@ const SUBAGENT_TOOL_NAMES = [
   "read_url",
 ] as const;
 
+/**
+ * Writer sub-agents (`task({ write: true })`) additionally get scoped FILE
+ * write tools. They run with `workspace` pointed at an isolated git worktree;
+ * `write_file`/`edit_file` resolve every path under that worktree
+ * (`resolvePathUnderWorkspace`), so writes are provably confined to the
+ * throwaway tree and the real workspace is never touched until the main agent
+ * applies the captured diff.
+ *
+ * `run_command` is deliberately NOT exposed here: its write confinement depends
+ * on the OS sandbox, which sub-agent tool execution can bypass — an absolute
+ * path could escape the worktree and dodge the review gate. Commands/tests run
+ * on the MAIN agent after the reviewed diff is applied.
+ */
+const WRITER_SUBAGENT_TOOL_NAMES = [
+  ...SUBAGENT_TOOL_NAMES,
+  "write_file",
+  "edit_file",
+] as const;
+
 /** Tools whose nested expand detail may be larger (read/search payloads). */
 const SUBAGENT_NESTED_EXPAND_TOOLS = new Set<string>([
   "read_file",
@@ -104,6 +123,13 @@ export type RunSubagentArgs = {
   /** A user-defined `.atlarix/agents/<name>` agent; omit for the generic scout. */
   subagentType?: string;
   workspace?: string;
+  /**
+   * "implement" exposes scoped write tools and runs them against `worktreePath`
+   * (an isolated git worktree). Default "scout" = read-only. The caller owns the
+   * worktree lifecycle (create → run → capture diff → remove).
+   */
+  mode?: "scout" | "implement";
+  worktreePath?: string;
   workspaceId?: number;
   chatId?: number;
   turnId?: string;
@@ -178,6 +204,13 @@ export async function runSubagent(
   const delegationId = args.delegationId?.trim() || `task-${Date.now()}`;
   const emit = args.emit;
 
+  // Writer mode: tools execute against the isolated worktree (not the real
+  // workspace) in build mode. Prompt/agent loading still uses the real
+  // workspace so `.atlarix/agents` and the file inventory resolve correctly.
+  const isImplement = args.mode === "implement" && !!args.worktreePath?.trim();
+  const execWorkspace = isImplement ? args.worktreePath!.trim() : workspace;
+  const execChatMode = isImplement ? "build" : delegationChatMode;
+
   try {
     const effectiveModel = getEffectiveModel(settings);
     const { modelClient } = await getModelClient(effectiveModel, settings, {
@@ -217,8 +250,11 @@ export async function runSubagent(
       }
     }
 
-    // Read-only toolset, optionally intersected with the user agent's allowlist.
-    const allowed = new Set<string>(SUBAGENT_TOOL_NAMES);
+    // Toolset: read-only scout by default, or read+scoped-write for writer mode,
+    // optionally intersected with the user agent's allowlist.
+    const allowed = new Set<string>(
+      isImplement ? WRITER_SUBAGENT_TOOL_NAMES : SUBAGENT_TOOL_NAMES,
+    );
     let toolsForAgent = ToolRegistry.getAll().filter((t) =>
       allowed.has(t.name),
     );
@@ -250,9 +286,10 @@ export async function runSubagent(
           try {
             result = await ToolRegistry.execute(t.name, {
               ...toolArgs,
-              workspace: workspace || undefined,
+              // Writer mode confines every tool to the isolated worktree.
+              workspace: execWorkspace || undefined,
               workspaceId: args.workspaceId,
-              chatMode: delegationChatMode,
+              chatMode: execChatMode,
               _chatSessionId: args.chatId,
             });
           } catch (err) {
