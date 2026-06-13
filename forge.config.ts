@@ -134,6 +134,39 @@ async function stageAstGrepGrammarsForExtraResource(
   console.log(`[packageAfterPrune] staged ast-grep grammars at ${AST_GREP_GRAMMARS_STAGING}`);
 }
 
+/**
+ * Remove every `@ast-grep/lang-*` prebuild EXCEPT the target's `prebuild-<OS>-<ARCH>`.
+ * Shipping other arches' `parser.so` bloats the package and — critically — breaks
+ * the Linux rpm maker: rpmbuild's `%install` runs brp-strip over every ELF and
+ * aborts ("Unable to recognise the format of the input file") on a foreign-arch
+ * .so (e.g. a `prebuild-Linux-ARM64/parser.so` inside the x86_64 rpm). The target
+ * grammar is already copied out to the extraResource staging dir, so the in-package
+ * prebuilds are only needed for the running architecture.
+ */
+async function pruneForeignAstGrepPrebuilds(
+  buildPath: string,
+  platform: string,
+  arch: string,
+): Promise<void> {
+  const fs = await import("node:fs/promises");
+  const keep = astGrepPrebuildDir(platform, arch);
+  for (const pkg of AST_GREP_RUNTIME_PACKAGES) {
+    if (pkg === "@ast-grep/napi") continue; // napi ships .node bindings, no prebuilds/ tree
+    const prebuildsDir = path.join(buildPath, "node_modules", pkg, "prebuilds");
+    let entries: string[];
+    try {
+      entries = await fs.readdir(prebuildsDir);
+    } catch {
+      continue; // no prebuilds dir for this package — nothing to prune
+    }
+    for (const entry of entries) {
+      if (entry === keep || !entry.startsWith("prebuild-")) continue;
+      await fs.rm(path.join(prebuildsDir, entry), { recursive: true, force: true });
+      console.log(`[packageAfterPrune] pruned foreign ast-grep prebuild ${pkg}/${entry}`);
+    }
+  }
+}
+
 function astGrepNativeBindingPackage(platform: string, arch: string): string | null {
   if (platform === "darwin") {
     if (arch === "arm64") return "@ast-grep/napi-darwin-arm64";
@@ -684,6 +717,7 @@ const config: ForgeConfig = {
         });
       }
       await stageAstGrepGrammarsForExtraResource(buildPath, platform, arch);
+      await pruneForeignAstGrepPrebuilds(buildPath, platform, arch);
 
       const bindingPkg = astGrepNativeBindingPackage(platform, arch);
       // On Windows CI, force rebuild after npm install — ABI skip checks can throw when
