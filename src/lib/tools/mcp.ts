@@ -13,7 +13,7 @@
  * (see chat_stream_handlers.ts).
  */
 
-import { ToolRegistry, ToolCategory } from "./registry";
+import { ToolRegistry } from "./registry";
 import { db } from "../../db";
 import { mcpServers } from "../../db/schema";
 import { and, eq, or } from "drizzle-orm";
@@ -116,8 +116,6 @@ async function listConfiguredMcps(workspaceId: number | null | undefined): Promi
 
 ToolRegistry.register({
   name: "list_available_mcps",
-  category: ToolCategory.WEB,
-  cost: 1,
   requiresWorkspace: false,
   isCore: false,
   isReadOnly: true,
@@ -148,8 +146,6 @@ ToolRegistry.register({
 
 ToolRegistry.register({
   name: "mcp_call",
-  category: ToolCategory.WEB,
-  cost: 3,
   requiresWorkspace: false,
   isCore: false,
   isReadOnly: false,

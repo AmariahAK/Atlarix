@@ -15,7 +15,7 @@ import * as fs from "fs";
 import * as path from "path";
 import log from "electron-log";
 import { assertReadablePath } from "@/lib/security/env-secret-paths";
-import { ToolRegistry, ToolCategory } from "./registry";
+import { ToolRegistry } from "./registry";
 import { enrichPermissionWithBlastRadius } from "./permissions/enrich-blast-radius";
 import { isAtlarixDocWritePath } from "../project-memory";
 
@@ -466,7 +466,6 @@ async function runSection(
 
 ToolRegistry.register({
   name: "edit_file",
-  category: ToolCategory.FILE,
   description: `Edit a file with surgical precision. Supports four operations:
 - replace: find exact text and replace with new text (safest; requires old_content to match exactly)
 - insert: insert new_content at a specific line (1-indexed; 0 = beginning of file)
@@ -474,7 +473,6 @@ ToolRegistry.register({
 - section: replace a named function/class/variable section without computing line numbers
 
 Prefer "replace" for code changes — it requires matching the existing content exactly. Use "insert" for adding new code blocks. Use "delete" only for removing dead code. Use "section" when you know the symbol name but not the exact text.`,
-  cost: 3,
   requiresWorkspace: true,
   isCore: true,
   isReadOnly: false,

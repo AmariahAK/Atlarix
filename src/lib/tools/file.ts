@@ -15,7 +15,6 @@ import * as path from "path";
 
 import {
     ToolRegistry,
-    ToolCategory,
     createParameters,
     stringParam,
     numberParam,
@@ -159,10 +158,8 @@ function smartSliceFile(lines: string[], maxLines: number, context: SliceContext
 
 ToolRegistry.register({
     name: "read_file",
-    category: ToolCategory.FILE,
     description:
         "Read file contents. Default ~2000 lines / 80KB per call; for larger files page with offset (1-based start line) + limit, repeating until the footer no longer says more lines remain. Use context or start_line/end_line to focus.",
-    cost: 1,
     requiresWorkspace: true,
     isCore: true,
     isReadOnly: true,
@@ -374,10 +371,8 @@ ToolRegistry.register({
 
 ToolRegistry.register({
     name: "write_file",
-    category: ToolCategory.FILE,
     description:
         "Create or overwrite a file in the workspace. ALWAYS use this tool to create or modify files - never describe what you would write.",
-    cost: 5,
     requiresWorkspace: true,
     isCore: true,
     isReadOnly: false,

@@ -4,7 +4,7 @@
  * guidance keep it untouched.
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { ToolRegistry, ToolCategory } from "@/lib/tools/registry";
+import { ToolRegistry } from "@/lib/tools/registry";
 import {
   TOOL_RECOVERY_HINTS,
   hasActionableGuidance,
@@ -24,8 +24,6 @@ function registerThrowing(name: string, message: string) {
   ToolRegistry.register({
     name,
     description: "test tool",
-    category: ToolCategory.FILE,
-    cost: 1,
     parameters: { type: "object", properties: {}, required: [] },
     handler: async () => {
       throw new Error(message);
@@ -38,8 +36,6 @@ function registerStructuredFail(name: string, fail: Record<string, unknown>) {
   ToolRegistry.register({
     name,
     description: "test tool",
-    category: ToolCategory.FILE,
-    cost: 1,
     parameters: { type: "object", properties: {}, required: [] },
     handler: async () => fail,
   } as any);

@@ -13,7 +13,6 @@ import {
 } from "@/lib/blueprint/grep-blueprint-reranker";
 import {
   ToolRegistry,
-  ToolCategory,
   createParameters,
   stringParam,
   booleanParam,
@@ -102,13 +101,11 @@ function formatGrepGroupsForDisplay(
 
 ToolRegistry.register({
   name: "grep",
-  category: ToolCategory.SEARCH_INTELLIGENCE,
   description:
     "Search file CONTENTS with a regex (ripgrep). Returns matching lines grouped by file with context, " +
     "with the most structurally relevant files first (ranked by Blueprint, the codebase's retrieval index). " +
     "Use glob to find files by NAME; use get_blueprint for structural/architecture questions. " +
     "Examples: grep({ pattern: \"handleLogin\" }), grep({ pattern: \"TODO|FIXME\", include: \"*.ts\" }).",
-  cost: 2,
   requiresWorkspace: true,
   isCore: true,
   isReadOnly: true,

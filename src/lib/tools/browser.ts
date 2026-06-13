@@ -13,7 +13,7 @@
  * instructs the model not to follow embedded instructions.
  */
 
-import { ToolRegistry, ToolCategory } from "./registry";
+import { ToolRegistry } from "./registry";
 import {
   ensureTab,
   getActiveTabView,
@@ -64,8 +64,6 @@ function waitForLoad(wc: Electron.WebContents): Promise<void> {
 
 ToolRegistry.register({
   name: "browser_navigate",
-  category: ToolCategory.WEB,
-  cost: 2,
   requiresWorkspace: false,
   isCore: false,
   isReadOnly: true,
@@ -112,8 +110,6 @@ ToolRegistry.register({
 
 ToolRegistry.register({
   name: "browser_read_page",
-  category: ToolCategory.WEB,
-  cost: 2,
   requiresWorkspace: false,
   isCore: false,
   isReadOnly: true,
@@ -176,8 +172,6 @@ ToolRegistry.register({
 
 ToolRegistry.register({
   name: "browser_screenshot",
-  category: ToolCategory.WEB,
-  cost: 2,
   requiresWorkspace: false,
   isCore: false,
   isReadOnly: true,
@@ -225,8 +219,6 @@ ToolRegistry.register({
 
 ToolRegistry.register({
   name: "browser_click",
-  category: ToolCategory.WEB,
-  cost: 3,
   requiresWorkspace: false,
   isCore: false,
   isReadOnly: false,
@@ -280,8 +272,6 @@ ToolRegistry.register({
 
 ToolRegistry.register({
   name: "browser_fill",
-  category: ToolCategory.WEB,
-  cost: 3,
   requiresWorkspace: false,
   isCore: false,
   isReadOnly: false,

@@ -7,7 +7,6 @@
 
 import {
   ToolRegistry,
-  ToolCategory,
   createParameters,
   stringParam,
   enumParam,
@@ -224,8 +223,6 @@ ToolRegistry.register({
     "'read' (latest plan, or by planId / status filter), " +
     "'set_status' (planId + plan_status: plan → building → built), " +
     "'update_step' (planId + state in_progress|done|todo|blocked + step_index or step_text — call as you start/finish each step so the card shows live progress).",
-  category: ToolCategory.TASK,
-  cost: 2,
   requiresWorkspace: true,
   isCore: false,
   isReadOnly: false,

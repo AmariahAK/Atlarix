@@ -33,7 +33,6 @@ export interface GuardOptions<T> {
 
 export interface GuardError {
   success: false;
-  cost: 0;
   error: "INVALID_PARAMS" | "TOOL_ERROR";
   message: string;
   tool: string;
@@ -78,7 +77,6 @@ export async function guardToolCall<T>(
     const received = args && typeof args === "object" ? Object.keys(args as Record<string, unknown>) : [];
     return {
       success: false,
-      cost: 0,
       error: "INVALID_PARAMS",
       tool: toolName,
       message: `Missing required parameter(s): ${missing.join(", ")}. Please retry with all required fields.`,
@@ -126,7 +124,6 @@ export async function guardToolCall<T>(
     const message = err instanceof Error ? err.message : String(err);
     return {
       success: false,
-      cost: 0,
       error: "TOOL_ERROR",
       tool: toolName,
       message: `Tool execution failed: ${message}. Please try a different approach.`,

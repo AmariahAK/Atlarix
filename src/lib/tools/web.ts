@@ -12,7 +12,6 @@
 
 import {
     ToolRegistry,
-    ToolCategory,
     createParameters,
     stringParam,
 } from "./registry";
@@ -303,8 +302,6 @@ function setGlobalWebSearchCached(cacheKey: string, results: SearchResult[]): vo
 ToolRegistry.register({
     name: "web_search",
     description: "Search the web. Set `deep: true` for multi-source synthesis — fetches full content from top results and combines them with citations. Use for broad or comparative topics; plain web_search for a quick fact.",
-    category: ToolCategory.WEB,
-    cost: 3, // Base cost, adjusted by mode/deep
     requiresWorkspace: false,
     isCore: true,
     isReadOnly: true,
@@ -628,8 +625,6 @@ ToolRegistry.register({
     name: "read_url",
     description:
         "Fetch and read content from a URL. Extracts main content and provides a clean, readable summary.",
-    category: ToolCategory.WEB,
-    cost: 2,
     requiresWorkspace: false,
     isCore: true,
     isReadOnly: true, // Safe for Ask mode - only reads URL content

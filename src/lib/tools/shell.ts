@@ -11,7 +11,6 @@
 
 import {
     ToolRegistry,
-    ToolCategory,
     createParameters,
     stringParam,
     booleanParam,
@@ -40,8 +39,6 @@ ToolRegistry.register({
         "For project scaffolding (e.g. npm create vite@latest <path>), pass all options so the command is non-interactive: use --template and, for create-vite, --no-interactive to avoid prompts. " +
         "Limits are optional knobs: pass smaller timeout_ms or max_output_bytes when you expect huge logs. " +
         "Set background=true for long-running work you don't need to block on (long builds, installs, watch tasks): the call returns immediately and the result is delivered to you automatically when the command exits — continue other work, never poll.",
-    category: ToolCategory.EXECUTION,
-    cost: 3,
     requiresWorkspace: true,
     isCore: true,
     isReadOnly: false,

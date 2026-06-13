@@ -6,7 +6,6 @@
 
 import {
   ToolRegistry,
-  ToolCategory,
   createParameters,
   stringParam,
   enumParam,
@@ -84,12 +83,10 @@ function sliceToPanelGraph(slice: SliceResult): {
 
 ToolRegistry.register({
   name: "get_blueprint",
-  category: ToolCategory.SEARCH_INTELLIGENCE,
   // PASS8 B1: Description trimmed to ≤ 2 sentences.
   description:
     "Section-scoped architecture slice (requires focus_path). Work sequentially: overview → pick section → get_blueprint. " +
     "Optional topic filters rooms; include_raw / include_panel_graph for graph payloads.",
-  cost: 3,
   requiresWorkspace: true,
   isCore: false,
   isReadOnly: true,

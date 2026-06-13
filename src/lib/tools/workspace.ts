@@ -10,7 +10,6 @@
 
 import {
     ToolRegistry,
-    ToolCategory,
     createParameters,
     stringParam,
 } from "./registry";
@@ -46,8 +45,6 @@ ToolRegistry.register({
     name: "ask_user",
     description:
         "Ask the user one or more questions — YOUR TURN ENDS after asking. The user answers asynchronously and their answers arrive as the next user message, where you continue the task (or ask follow-ups). Because the turn ends, batch ALL questions you need into ONE call via `questions` (max 5, each with up to 4 `options`) — ask everything up front, never one at a time. A single `question` + `options` also works. The UI shows option buttons plus a free-text field per question.",
-    category: ToolCategory.EXECUTION,
-    cost: 0,
     requiresWorkspace: false,
     isCore: true,
     isReadOnly: true,
@@ -265,8 +262,6 @@ ToolRegistry.register({
     isReadOnly: true,
     allowInAskMode: true,
     isCore: true,
-    category: ToolCategory.ANALYSIS,
-    cost: 0,
     description:
         "Summarize and compress older turns of this conversation into a session summary to free context. " +
         "Use on long threads, after substantial tool output, or when context is filling up—especially before more heavy tools. " +
@@ -722,8 +717,6 @@ ToolRegistry.register({
         "Call it whenever the user references an uploaded file or attachment. " +
         "Use this when you need to analyze or process files the user has attached to the conversation. " +
         "If content extraction fails, check rawBase64 for the original file data.",
-    category: ToolCategory.FILE,
-    cost: 0,
     requiresWorkspace: false,
     isCore: true,
     isReadOnly: true,
@@ -852,8 +845,6 @@ ToolRegistry.register({
         "This tool is available in Ask, Plan, Build, Debug, and Review modes. " +
         "Call it whenever the user references an uploaded file or attachment. " +
         "Use this to find the ID of an attachment you want to read with read_attachment.",
-    category: ToolCategory.FILE,
-    cost: 0,
     requiresWorkspace: false,
     isCore: true,
     isReadOnly: true,

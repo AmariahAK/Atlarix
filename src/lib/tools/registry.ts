@@ -131,38 +131,15 @@ export async function maybeTruncateToDisk(
 }
 
 // ═══════════════════════════════════════════════════════════
-// TOOL CATEGORIES & COSTS
+// TOOL METADATA
 // ═══════════════════════════════════════════════════════════
-
-export enum ToolCategory {
-    // NO WORKSPACE NEEDED
-    DATETIME = "datetime",
-    WEB = "web",
-
-    // WORKSPACE REQUIRED - CORE (shown by default)
-    FILE = "file",
-    FILE_ADVANCED = "file_advanced",
-    CODE = "code",
-    SEARCH = "search",
-    DIAGRAM = "diagram",
-    GIT = "git",
-    COMMAND = "command",
-    TASK = "task",
-
-    // WORKSPACE REQUIRED - OPTIONAL (loaded on demand)
-    MEMORY = "memory",
-    SEARCH_INTELLIGENCE = "search_intelligence",
-    EXECUTION = "execution",
-    ANALYSIS = "analysis",
-    REFACTORING = "refactoring",
-    TESTING = "testing",
-}
+// v13: ToolCategory + per-tool `cost` removed — they were only consumed by the
+// capability-trim stage (also removed). Tool inclusion is governed by the mode
+// allowlist + workspace/core flags below.
 
 export interface ToolMetadata {
     name: string;
     description: string;
-    category: ToolCategory;
-    cost: number; // Credits
     parameters: any;
     handler: (args: any, context?: any) => Promise<any>;
     requiresWorkspace?: boolean; // True if tool needs a workspace to function
@@ -198,13 +175,6 @@ export class ToolRegistry {
      */
     static getAll(): ToolMetadata[] {
         return Array.from(this.tools.values());
-    }
-
-    /**
-     * Get tools by category
-     */
-    static getByCategory(category: ToolCategory): ToolMetadata[] {
-        return this.getAll().filter((tool) => tool.category === category);
     }
 
     /**
@@ -258,17 +228,6 @@ export class ToolRegistry {
     }
 
     /**
-     * Get tools by categories (for request_tools dynamic loading)
-     * @param categories - Array of category names to load
-     * @returns Tools matching the requested categories
-     */
-    static getToolsByCategories(categories: ToolCategory[]): ToolMetadata[] {
-        return this.getAll().filter(
-            (tool) => categories.includes(tool.category)
-        );
-    }
-
-    /**
      * Convert to AI SDK format
      */
     static toAISDKFormat(): Tool[] {
@@ -314,7 +273,6 @@ export class ToolRegistry {
         if (!tool) {
             return {
                 success: false,
-                cost: 0,
                 error: "TOOL_ERROR",
                 tool: name,
                 message: `Tool not found: ${name}. Please try a different approach.`,
@@ -333,7 +291,6 @@ export class ToolRegistry {
                     const message = err instanceof Error ? err.message : String(err);
                     return {
                         success: false,
-                        cost: tool.cost,
                         error: "TOOL_ERROR",
                         tool: name,
                         message: `Tool execution failed: ${message}`,
@@ -375,7 +332,6 @@ export class ToolRegistry {
                         fail.message ?? fail.error ?? "Tool returned an error";
                     return {
                         success: false,
-                        cost: tool.cost,
                         tool: name,
                         error: fail.error ?? "TOOL_ERROR",
                         message: failMessage,
@@ -396,7 +352,6 @@ export class ToolRegistry {
                 return {
                     success: true,
                     result: truncation.value,
-                    cost: tool.cost,
                     _truncatedOutput: truncation.truncated,
                     _originalSize: truncation.truncated ? truncation.totalChars : undefined,
                 };

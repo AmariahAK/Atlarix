@@ -9,7 +9,6 @@ import * as fsp from "fs/promises";
 import { glob as runGlob } from "glob";
 import {
     ToolRegistry,
-    ToolCategory,
     createParameters,
     stringParam,
     numberParam,
@@ -25,11 +24,9 @@ const MAX_LIMIT = 1000;
 
 ToolRegistry.register({
     name: "glob",
-    category: ToolCategory.FILE,
     description:
         "Find files by glob pattern (e.g. '**/*.ts', 'src/**/auth*'). Returns workspace-relative paths sorted by modification time (newest first). " +
         "Use this for file discovery; use grep to search file CONTENTS. A bare directory listing is `glob` with pattern '*' and a path.",
-    cost: 1,
     requiresWorkspace: true,
     isCore: true,
     isReadOnly: true,

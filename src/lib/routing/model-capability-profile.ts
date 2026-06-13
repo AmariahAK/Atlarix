@@ -108,27 +108,9 @@ export function getCapabilityProfile(model: {
   return { ...FULL, supportsToolMedia };
 }
 
-/**
- * Apply the profile's tool cap AFTER mode filtering (the documented last
- * stage of the resolution pipeline — see mode-tool-registry.ts).
- * Keep-priority: core tools first, then ascending registry `cost` (the
- * 3.9 follow-up — cost finally weights the toolset). The RETURNED list
- * preserves the input's relative order so downstream manifest rendering
- * stays stable.
- */
-export function trimToolsForCapability<
-  T extends { name: string; cost?: number },
->(tools: T[], profile: ModelCapabilityProfile, isCore: (t: T) => boolean): T[] {
-  if (profile.maxTools == null || tools.length <= profile.maxTools)
-    return tools;
-  const ranked = [...tools].sort((a, b) => {
-    const coreDelta = Number(isCore(b)) - Number(isCore(a));
-    if (coreDelta !== 0) return coreDelta;
-    return (a.cost ?? 99) - (b.cost ?? 99);
-  });
-  const keep = new Set(ranked.slice(0, profile.maxTools).map((t) => t.name));
-  return tools.filter((t) => keep.has(t.name));
-}
+// trimToolsForCapability removed in v13 — the tool-count cap is gone at ~22
+// tools. getCapabilityProfile (above) and simplifyToolParametersForProfile (the
+// parameter-schema simplification for weak models) remain.
 
 /**
  * For "simplified" profiles, drop OPTIONAL parameters beyond the first few —

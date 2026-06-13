@@ -20,7 +20,6 @@
  * Output order preserves the input metadata order (manifest rendering stable).
  */
 
-import log from "electron-log";
 import { ToolRegistry, type ToolMetadata } from "./registry";
 import {
   includeToolForSession,
@@ -29,10 +28,8 @@ import {
 import { isCoreTool, isWorkspaceIntegrationTool } from "./ToolManifest";
 import {
   getCapabilityProfile,
-  trimToolsForCapability,
   type ModelCapabilityProfile,
 } from "@/lib/routing/model-capability-profile";
-const logger = log.scope("resolve-toolset");
 
 /** Plan workMode routes through the ask tier but needs the plan tool. */
 const PLAN_WRITE_TOOLS = ["plan"] as const;
@@ -119,24 +116,22 @@ export function resolveToolsetForSession(
     ? modeFiltered.filter((t) => userAgentTools.includes(t.name))
     : modeFiltered;
 
-  // Stage 3 — capability trim (v12 2.1; resolves 1.6).
+  // v13: the capability TRIM stage (tool-count cap) is gone — at ~22 tools the
+  // surface is already minimal, so every model gets the full mode allowlist.
+  // The capability PROFILE is still resolved for parameter-schema simplification
+  // and the delegation gate below.
   const capabilityProfile = getCapabilityProfile({
     name: model.name ?? "",
     provider: model.provider,
     builtinProviderId: model.builtinProviderId,
   });
-  const tools = trimToolsForCapability(preTrim, capabilityProfile, isCoreTool);
-  if (tools.length < preTrim.length) {
-    logger.log(
-      `[capability] ${branch === "ask" ? "Ask" : "Build"} toolset trimmed ${preTrim.length}→${tools.length} for ${model.name}`,
-    );
-  }
+  const tools = preTrim;
 
   // Sub-agent (`task`) surface: available in EVERY mode (v13 — parallel
   // read-only scouts help build/debug too, matching Claude Code's Task tool).
-  // Still off on trimmed profiles (a weak model orchestrating sub-agents of
-  // itself is the 1.6 failure mode) and when a user agent's allowlist
-  // excludes it.
+  // Still off on weak (maxTools-capped) profiles (a weak model orchestrating
+  // sub-agents of itself is the 1.6 failure mode) and when a user agent's
+  // allowlist excludes it.
   const agentAllowsDelegation =
     !userAgentTools ||
     userAgentTools.some((t) =>

@@ -5,7 +5,6 @@
 import { describe, expect, it } from "vitest";
 import {
   getCapabilityProfile,
-  trimToolsForCapability,
   simplifyToolParametersForProfile,
   providerSupportsToolMedia,
 } from "@/lib/routing/model-capability-profile";
@@ -73,58 +72,6 @@ describe("getCapabilityProfile", () => {
     ).toBe(false);
     expect(providerSupportsToolMedia("google")).toBe(true);
     expect(providerSupportsToolMedia(undefined)).toBe(false);
-  });
-});
-
-describe("trimToolsForCapability", () => {
-  const tool = (name: string, cost: number, core = false) => ({
-    name,
-    cost,
-    core,
-  });
-  const isCore = (t: { core: boolean }) => t.core;
-
-  it("keeps core tools first, then cheapest, preserving input order", () => {
-    const tools = [
-      tool("z-expensive", 9),
-      tool("core-late", 5, true),
-      tool("cheap", 1),
-      tool("mid", 3),
-      tool("core-early", 8, true),
-    ];
-    const out = trimToolsForCapability(
-      tools,
-      { maxTools: 3, schemaComplexity: "simplified", supportsToolMedia: false },
-      isCore,
-    );
-    // Keep-set: both cores + the cheapest non-core; output preserves input order.
-    expect(out.map((t) => t.name)).toEqual([
-      "core-late",
-      "cheap",
-      "core-early",
-    ]);
-  });
-
-  it("no-op when under the cap or uncapped", () => {
-    const tools = [tool("a", 1), tool("b", 2)];
-    expect(
-      trimToolsForCapability(
-        tools,
-        { maxTools: null, schemaComplexity: "full", supportsToolMedia: false },
-        isCore,
-      ),
-    ).toBe(tools);
-    expect(
-      trimToolsForCapability(
-        tools,
-        {
-          maxTools: 5,
-          schemaComplexity: "simplified",
-          supportsToolMedia: false,
-        },
-        isCore,
-      ),
-    ).toBe(tools);
   });
 });
 

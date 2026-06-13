@@ -10,7 +10,6 @@
 import { randomUUID } from "node:crypto";
 import {
   ToolRegistry,
-  ToolCategory,
   createParameters,
   stringParam,
   booleanParam,
@@ -75,8 +74,6 @@ ToolRegistry.register({
     "By default a sub-agent is READ-ONLY. Set write=true to let it implement changes inside an ISOLATED git worktree; its proposed diff comes back for you to review and apply with your own write tools (the workspace is never touched directly). " +
     "Optional subagent_type names a user-defined .atlarix/agents/ agent. " +
     "Set background=true to return immediately with a task id; pass task_id later to collect the result.",
-  category: ToolCategory.TASK,
-  cost: 3,
   requiresWorkspace: false,
   isCore: false,
   isReadOnly: false,
