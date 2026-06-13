@@ -193,8 +193,11 @@ async function buildIndex(
   const engine = createBm25Engine();
   engine.defineConfig({
     // v12 S20: `nameGeneric` carries stop-set names at weight 1 (see
-    // GENERIC_IDENTIFIER_NAMES); specific names keep the full name:4.
-    fldWeights: { name: 4, nameGeneric: 1, signature: 2, path: 1, snippet: 2, kind: 1, scope: 1 },
+    // GENERIC_IDENTIFIER_NAMES); specific names keep the full name weight.
+    // Tier-1 reweight: symbol NAMES carry the most query intent for structural
+    // search (name 4→5); the noisier snippet/scope fields are damped so a name
+    // match outranks an incidental snippet/scope match for "where is X" queries.
+    fldWeights: { name: 5, nameGeneric: 1, signature: 2, path: 1, snippet: 1.5, kind: 1, scope: 0.5 },
   });
   engine.definePrepTasks([tokenizeForBm25]);
 
@@ -231,7 +234,8 @@ async function buildIndex(
     if (graph.nodes.length === 0) return null;
 
     engine.defineConfig({
-      fldWeights: { name: 3, description: 2, path: 1, snippet: 2 },
+      // Same Tier-1 intent: lean on the room name over its snippet.
+      fldWeights: { name: 4, description: 2, path: 1, snippet: 1.5 },
     });
 
     const emptyRanges = new Map();

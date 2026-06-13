@@ -25,6 +25,12 @@ export type RankableGrepGroup = { file: string; matches: { line: number; content
 /** Don't let a cold index build stall an interactive grep. */
 const RANK_TIMEOUT_MS = 1_500;
 
+/** Reciprocal Rank Fusion constant (standard default). Larger = flatter fusion. */
+const RRF_K = 60;
+/** BM25 (topical relevance) leads the fusion; ripgrep order is a weaker
+ * match-position signal that breaks near-ties rather than overriding BM25. */
+const BM25_RRF_WEIGHT = 2;
+
 function norm(p: string): string {
   return path.resolve(p);
 }
@@ -70,13 +76,26 @@ export async function rankGrepHitsByBlueprint(
     }
     if (fileScore.size === 0) return groups;
 
-    // Stable sort: Blueprint-relevant files first, original order within ties.
-    const decorated = groups.map((g, i) => ({
-      g,
-      i,
-      score: fileScore.get(norm(g.file)) ?? 0,
-    }));
-    decorated.sort((a, b) => (b.score - a.score) || (a.i - b.i));
+    // Reciprocal Rank Fusion of two signals: Blueprint BM25 relevance (weighted
+    // higher — it's the authoritative topical signal) and ripgrep's own file
+    // order (a weaker match-position proxy that breaks near-ties). RRF is
+    // scale-free, so the fusion is robust to BM25 score outliers while ripgrep
+    // order still influences close calls. Files with no BM25 score rank by
+    // ripgrep order among themselves.
+    const bm25Ranked = [...fileScore.entries()].sort((a, b) => b[1] - a[1]);
+    const bm25Rank = new Map<string, number>();
+    bm25Ranked.forEach(([file], idx) => bm25Rank.set(file, idx + 1));
+    const worstBm25Rank = bm25Ranked.length + 1;
+
+    const decorated = groups.map((g, i) => {
+      const key = norm(g.file);
+      const rRipgrep = i + 1;
+      const rBm25 = bm25Rank.get(key) ?? worstBm25Rank;
+      const rrf =
+        BM25_RRF_WEIGHT / (RRF_K + rBm25) + 1 / (RRF_K + rRipgrep);
+      return { g, i, rrf };
+    });
+    decorated.sort((a, b) => b.rrf - a.rrf || a.i - b.i);
     const ranked = decorated.map((d) => d.g);
 
     const moved = ranked.some((g, idx) => g !== groups[idx]);

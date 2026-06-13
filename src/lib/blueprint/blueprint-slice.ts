@@ -240,13 +240,23 @@ export function buildSlice(
   const MAX_ROOMS_IN_SLICE = 40;
   const keptRooms = blueprint.rooms.filter((r) => keepIds.has(r.id));
   const matchedIds = new Set(matched.map((r) => r.id));
+  // Tier-1 structural proximity: rooms one hop from a BM25-matched room are
+  // likely the related code the query is really about (a caller/callee of the
+  // match), so give those neighbors a boost above unrelated structural hubs.
+  const adjacentToMatch = new Set<string>();
+  for (const e of allEdges) {
+    if (matchedIds.has(e.from) && keepIds.has(e.to)) adjacentToMatch.add(e.to);
+    if (matchedIds.has(e.to) && keepIds.has(e.from)) adjacentToMatch.add(e.from);
+  }
   // v12 Tier 6 #1: fuse text relevance with centrality. BM25 dominates (W=2)
   // but normalized edge-degree breaks ties — so the topic-relevant module
-  // ranks first AND structural hubs still surface.
+  // ranks first AND structural hubs still surface. Tier-1 adds a proximity term.
   const BM25_WEIGHT = 2.0;
+  const PROXIMITY_BOOST = 0.5;
   const rankScore = (id: string): number =>
     (bm25ScoreByRoom?.get(id) ?? 0) * BM25_WEIGHT +
-    (degree.get(id) ?? 0) / maxDegree;
+    (degree.get(id) ?? 0) / maxDegree +
+    (adjacentToMatch.has(id) && !matchedIds.has(id) ? PROXIMITY_BOOST : 0);
   const rankedRooms = [...keptRooms].sort((a, b) => {
     // Directly-matched rooms always outrank edge-expanded ones.
     const am = matchedIds.has(a.id) ? 1 : 0;
