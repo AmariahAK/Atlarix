@@ -26,11 +26,15 @@ import {
   type PlanStepState,
 } from "@/lib/tasks/plan-checklist";
 import { broadcastPlanArtifactUpdated } from "@/ipc/utils/emit_plan_artifact";
+import { resolveOrBindWorkspaceSessionForStream } from "@/ipc/handlers/workspace_session_handlers";
 import type { PlanArtifactStatus } from "@/db/schema";
 
 type PlanToolArgs = {
   operation: "read" | "write" | "set_status" | "update_step";
   workspaceSessionId?: string;
+  /** Injected by the tool funnel; used to auto-rebind a lost session. */
+  chatId?: number;
+  workspaceAppId?: number;
   planId?: string;
   /** write */
   content?: string;
@@ -45,6 +49,28 @@ type PlanToolArgs = {
   step_text?: string;
 };
 
+/**
+ * Resolve the workspace session id, auto-rebinding when the stream transport
+ * lost its binding (a reload can leave `workspaceSessionId` empty). Returns null
+ * only when nothing can be bound (e.g. no transport for this chat).
+ */
+async function resolveSessionId(args: PlanToolArgs): Promise<string | null> {
+  const provided = args.workspaceSessionId?.trim();
+  if (provided) return provided;
+  if (args.chatId == null) return null;
+  try {
+    return await resolveOrBindWorkspaceSessionForStream({
+      chatId: args.chatId,
+      workspaceAppId: args.workspaceAppId ?? null,
+    });
+  } catch {
+    return null;
+  }
+}
+
+const NO_SESSION_ERROR =
+  "No workspace session for this chat — start a new chat in this workspace and retry.";
+
 async function readPlan(args: PlanToolArgs) {
   if (args.planId) {
     const row = await getPlanArtifact(args.planId);
@@ -57,11 +83,12 @@ async function readPlan(args: PlanToolArgs) {
       marker: planArtifactMarker(row.id),
     };
   }
-  if (!args.workspaceSessionId) {
-    return { success: false, error: "No workspace session for this chat." };
+  const sessionId = await resolveSessionId(args);
+  if (!sessionId) {
+    return { success: false, error: NO_SESSION_ERROR };
   }
   const filter = args.status as PlanArtifactStatus | undefined;
-  const row = await getLatestPlanArtifact(args.workspaceSessionId, filter);
+  const row = await getLatestPlanArtifact(sessionId, filter);
   if (!row) {
     return { success: true, content: null, message: "No plan in this session yet." };
   }
@@ -75,15 +102,16 @@ async function readPlan(args: PlanToolArgs) {
 }
 
 async function writePlan(args: PlanToolArgs) {
-  if (!args.workspaceSessionId) {
-    return { success: false, error: "No workspace session for this chat." };
+  const sessionId = await resolveSessionId(args);
+  if (!sessionId) {
+    return { success: false, error: NO_SESSION_ERROR };
   }
   if (!args.content?.trim()) {
     return { success: false, error: "Plan content is required for operation 'write'." };
   }
   const row = args.planId
     ? await updatePlanArtifactContent(args.planId, args.content)
-    : await createPlanArtifact(args.workspaceSessionId, args.content, args.title);
+    : await createPlanArtifact(sessionId, args.content, args.title);
   if (!row) {
     return {
       success: false,

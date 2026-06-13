@@ -412,8 +412,12 @@ const config: ForgeConfig = {
     // node-pty resolves the helper to app.asar.unpacked/.../spawn-helper (absent)
     // and the shell dies with "posix_spawnp failed" (can't exec inside an asar).
     asar: {
+      // node-pty platform binaries + the ast-grep dynamic language packages
+      // (@ast-grep/lang-{python,go}) and the ast-grep worker — the latter are
+      // loaded from disk at runtime by ensureAstGrepDynamicLangs (Python/Go edge
+      // registration), so they must live outside the asar.
       unpack:
-        "{**/@lydell/node-pty-darwin-*/**,**/@lydell/node-pty-linux-*/**,**/@lydell/node-pty-win32-*/**}",
+        "{**/@lydell/node-pty-darwin-*/**,**/@lydell/node-pty-linux-*/**,**/@lydell/node-pty-win32-*/**,**/@ast-grep/lang-python/**,**/@ast-grep/lang-go/**,**/.vite/build/astgrep_worker.js}",
     },
     ignore,
     extraResource: [
