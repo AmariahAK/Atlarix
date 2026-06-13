@@ -1,0 +1,1 @@
+ALTER TABLE `session_messages` ADD COLUMN `snapshot_turn_id` text;

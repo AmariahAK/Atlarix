@@ -57,12 +57,15 @@ export type SessionMessageRow = {
   modelContent?: string | null;
   pasteAttachments?: PasteAttachmentMeta[] | null;
   fileAttachments?: StoredFileAttachment[] | null;
+  /** Shadow-git revert checkpoint id; lets revert-turn survive a restart. */
+  snapshotTurnId?: string | null;
 };
 
 export type SessionMessageExtras = {
   modelContent?: string | null;
   pasteAttachments?: PasteAttachmentMeta[] | null;
   fileAttachments?: StoredFileAttachment[] | null;
+  snapshotTurnId?: string | null;
 };
 
 function mapSession(row: typeof chatSessions.$inferSelect): ChatSessionRow {
@@ -88,6 +91,7 @@ function mapMessage(row: typeof sessionMessages.$inferSelect): SessionMessageRow
     modelContent: row.modelContent ?? null,
     pasteAttachments: row.pasteAttachments ?? null,
     fileAttachments: row.fileAttachments ?? null,
+    snapshotTurnId: row.snapshotTurnId ?? null,
   };
 }
 
@@ -180,6 +184,7 @@ export async function addSessionMessageDirect(
       modelContent: extras?.modelContent ?? null,
       pasteAttachments: extras?.pasteAttachments ?? null,
       fileAttachments: extras?.fileAttachments ?? null,
+      snapshotTurnId: extras?.snapshotTurnId ?? null,
       createdAt: now,
     })
     .returning();

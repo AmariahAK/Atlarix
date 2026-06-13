@@ -1373,16 +1373,26 @@ export function useStreamChat({
               const assistantContent = lastAssistant?.content?.trim();
               if (!assistantContent) return;
               try {
+                // v12 0.2 (B2): native-history envelope round-trips into the
+                // session store so reloads replay native tool parts. Also persist
+                // the shadow-git revert-checkpoint id so revert-turn survives a
+                // restart (the snapshots themselves already live on disk).
+                const persistExtras: {
+                  modelContent?: string | null;
+                  snapshotTurnId?: string | null;
+                } = {};
+                if (response.assistantModelContent) {
+                  persistExtras.modelContent = response.assistantModelContent;
+                }
+                if (response.snapshotTurnId) {
+                  persistExtras.snapshotTurnId = response.snapshotTurnId;
+                }
                 await IpcClient.getInstance().addSessionMessage(
                   sessionIdForPersist,
                   "assistant",
                   assistantContent,
                   snapshotJson ?? undefined,
-                  // v12 0.2 (B2): native-history envelope round-trips into the
-                  // session store so reloads replay native tool parts.
-                  response.assistantModelContent
-                    ? { modelContent: response.assistantModelContent }
-                    : undefined,
+                  Object.keys(persistExtras).length > 0 ? persistExtras : undefined,
                 );
                 if (!sessionTitleGeneratedRef.current.has(response.chatId)) {
                   sessionTitleGeneratedRef.current.add(response.chatId);

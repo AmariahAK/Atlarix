@@ -1398,6 +1398,7 @@ export class IpcClient {
       modelContent?: string | null;
       pasteAttachments?: import("./ipc_types").PasteAttachmentMeta[] | null;
       fileAttachments?: import("./ipc_types").StoredFileAttachment[] | null;
+      snapshotTurnId?: string | null;
     },
   ) {
     return this.ipcRenderer.invoke(

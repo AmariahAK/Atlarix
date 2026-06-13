@@ -161,6 +161,12 @@ export const sessionMessages = sqliteTable("session_messages", {
   fileAttachments: text("file_attachments", { mode: "json" }).$type<
     import("../ipc/ipc_types").StoredFileAttachment[] | null
   >(),
+  /**
+   * Shadow-git revert checkpoint for this assistant turn. Persisted so the
+   * revert-turn affordance survives an app restart (the snapshots themselves
+   * already live on disk; this couples them to the message history).
+   */
+  snapshotTurnId: text("snapshot_turn_id"),
   createdAt: integer("created_at", { mode: "timestamp" })
     .notNull()
     .default(sql`(unixepoch())`),

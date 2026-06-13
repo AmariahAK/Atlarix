@@ -23,7 +23,9 @@ import {
   chatMessagesByIdAtom,
   isStreamingByIdAtom,
   selectedChatIdAtom,
+  turnSnapshotTurnIdByMessageIdAtom,
 } from "@/atoms/chatAtoms";
+import { buildRevertSnapshotMap } from "@/lib/chat/revert-snapshot-rehydrate";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -116,6 +118,7 @@ export function WorkspaceSessionList({
     backgroundStreamingSessionIdsAtom,
   );
   const setMessagesById = useSetAtom(chatMessagesByIdAtom);
+  const setTurnSnapshotMap = useSetAtom(turnSnapshotTurnIdByMessageIdAtom);
   const setActiveChatId = useSetAtom(activeChatIdAtom);
   const activeChatIdValue = useAtomValue(activeChatIdAtom);
   const setSelectedChatId = useSetAtom(selectedChatIdAtom);
@@ -238,6 +241,15 @@ export function WorkspaceSessionList({
         next.set(chatId, uiMessages);
         return next;
       });
+      // Rehydrate revert-turn checkpoints so the affordance survives a restart.
+      const restoredSnapshots = buildRevertSnapshotMap(messages, uiMessages);
+      if (restoredSnapshots.size > 0) {
+        setTurnSnapshotMap((prev) => {
+          const next = new Map(prev);
+          for (const [id, sid] of restoredSnapshots) next.set(id, sid);
+          return next;
+        });
+      }
       const { replaceDisplayHydrationForChat } = await import(
         "@/lib/chat/apply-stream-display-hydration"
       );

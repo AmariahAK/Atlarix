@@ -229,6 +229,8 @@ export function isJournalMigrationApplied(
         !tableExists(sqlite, "diagrams") &&
         !tableExists(sqlite, "workspace_diagrams")
       );
+    case "0063_session_message_snapshot_turn":
+      return columnExists(sqlite, "session_messages", "snapshot_turn_id");
     case "0053_message_paste_attachments":
       return columnExists(sqlite, "messages", "paste_attachments");
     case "0054_message_file_attachments":
