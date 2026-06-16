@@ -11,7 +11,30 @@
 import { ipcMain } from "electron";
 import * as fs from "fs/promises";
 import * as path from "node:path";
+import { eq } from "drizzle-orm";
 import { assertFileUnderRegisteredWorkspace } from "@/lib/security/workspace-path";
+import { db } from "../../db";
+import { apps } from "../../db/schema";
+import { getAtlarixAppPath } from "../../paths/paths";
+import { getProjectFiles } from "../utils/project-files";
+
+/** Cap on entries returned to the @-mention autocomplete (keeps the menu/list snappy). */
+const MENTION_PATHS_LIMIT = 4000;
+
+/** Derive the set of folder paths implied by a list of relative file paths. */
+function deriveDirs(files: string[]): string[] {
+  const dirs = new Set<string>();
+  for (const f of files) {
+    const parts = f.split("/");
+    parts.pop(); // drop filename
+    let acc = "";
+    for (const seg of parts) {
+      acc = acc ? `${acc}/${seg}` : seg;
+      dirs.add(acc);
+    }
+  }
+  return [...dirs].sort();
+}
 
 const logger = {
   log: (...args: unknown[]) => console.log("[FileHandlers]", ...args),
@@ -82,5 +105,26 @@ export function registerFileHandlers() {
     }
   });
 
-  logger.log("[File Handlers] Registered file:read-content, file:write-content, file:get-stats");
+  // Powers the chat composer `@` autocomplete: files + folders in the current
+  // workspace (gitignore-aware via getProjectFiles). Returns relative paths.
+  ipcMain.handle(
+    "workspace:list-paths",
+    async (_, params: { appId: number }) => {
+      try {
+        const app = await db.query.apps.findFirst({
+          where: eq(apps.id, params.appId),
+        });
+        if (!app) return { files: [], dirs: [] };
+        const appPath = getAtlarixAppPath(app.path);
+        const { files } = await getProjectFiles(appPath);
+        const capped = files.slice(0, MENTION_PATHS_LIMIT);
+        return { files: capped, dirs: deriveDirs(capped) };
+      } catch (error) {
+        logger.error("[workspace:list-paths] Failed:", error);
+        return { files: [], dirs: [] };
+      }
+    },
+  );
+
+  logger.log("[File Handlers] Registered file:read-content, file:write-content, file:get-stats, workspace:list-paths");
 }

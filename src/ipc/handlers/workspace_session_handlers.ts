@@ -2,7 +2,8 @@ import { randomUUID } from "node:crypto";
 import log from "electron-log";
 import { db } from "../../db";
 import { chatSessions, sessionMessages } from "../../db/schema";
-import { eq, desc, asc, sql, inArray } from "drizzle-orm";
+import { eq, desc, asc, sql, inArray, and, gte, like } from "drizzle-orm";
+import { COMPACTION_SUMMARY_PREFIX } from "@/lib/context/compaction";
 import { createLoggedHandler } from "./safe_handle";
 import {
   SESSION_LOAD_MESSAGE_LIMIT,
@@ -30,6 +31,7 @@ import {
   getStreamTransport,
   getStreamTransportAppId,
   isStreamTransportId,
+  seedEphemeralChatCounterBelow,
 } from "@/lib/chat/stream-transport";
 
 const DEFAULT_SESSION_TITLES = new Set(["Untitled", "New session", "New chat"]);
@@ -372,6 +374,27 @@ async function listSessionsWithMessageCounts(
     .orderBy(desc(chatSessions.updatedAt));
 }
 
+/**
+ * Startup: seed the ephemeral transport counter below the most-negative
+ * persisted `streamChatId` so newly created transports can never collide with a
+ * persisted session's id (which would make `allocateSessionTransport` reuse one
+ * live transport for two sessions — the cross-session pending-question leak).
+ * Best-effort; safe to call before any transport is created.
+ */
+export async function seedEphemeralCounterFromSessions(): Promise<void> {
+  try {
+    const [row] = await db
+      .select({ min: sql<number | null>`min(${chatSessions.streamChatId})` })
+      .from(chatSessions);
+    const min = row?.min;
+    if (typeof min === "number" && min < 0) {
+      seedEphemeralChatCounterBelow(min);
+    }
+  } catch (e) {
+    logger.warn("seedEphemeralCounterFromSessions failed (non-fatal)", e);
+  }
+}
+
 export async function startWorkspaceSession(workspaceId: number): Promise<{
   sessionId: string;
   chatId: number;
@@ -450,7 +473,22 @@ export function registerWorkspaceSessionHandlers(): void {
       .from(chatSessions)
       .where(eq(chatSessions.workspaceId, workspaceId))
       .orderBy(desc(chatSessions.updatedAt));
-    return rows.map(mapSession);
+    // Flag sessions that have a compaction summary marker so the sidebar can
+    // offer "resume from summary" vs "load full history" on reopen.
+    const ids = rows.map((r) => r.id);
+    const markerSessions = ids.length
+      ? await db
+          .selectDistinct({ sessionId: sessionMessages.sessionId })
+          .from(sessionMessages)
+          .where(
+            and(
+              inArray(sessionMessages.sessionId, ids),
+              like(sessionMessages.content, `${COMPACTION_SUMMARY_PREFIX}%`),
+            ),
+          )
+      : [];
+    const withSummary = new Set(markerSessions.map((m) => m.sessionId));
+    return rows.map((r) => ({ ...mapSession(r), hasSummary: withSummary.has(r.id) }));
   });
 
   handle(
@@ -543,7 +581,11 @@ export function registerWorkspaceSessionHandlers(): void {
 
   handle(
     "sessions:get",
-    async (_event, sessionId: string, opts?: { limit?: number }) => {
+    async (
+      _event,
+      sessionId: string,
+      opts?: { limit?: number; fromSummary?: boolean },
+    ) => {
       const session = await db.query.chatSessions.findFirst({
         where: eq(chatSessions.id, sessionId),
       });
@@ -556,23 +598,59 @@ export function registerWorkspaceSessionHandlers(): void {
         .where(eq(sessionMessages.sessionId, sessionId));
       const totalCount = Number(countRow?.count ?? 0);
 
-      const recent = await db
-        .select()
+      // Detect a persisted compaction summary marker so the renderer can offer
+      // "resume from summary" (cheaper) vs "load full history" on reopen. The
+      // model dispatch already slices from the last marker; this controls what
+      // gets loaded into the UI.
+      const [markerRow] = await db
+        .select({ createdAt: sessionMessages.createdAt })
         .from(sessionMessages)
-        .where(eq(sessionMessages.sessionId, sessionId))
-        .orderBy(desc(sessionMessages.createdAt))
-        .limit(limit);
+        .where(
+          and(
+            eq(sessionMessages.sessionId, sessionId),
+            like(sessionMessages.content, `${COMPACTION_SUMMARY_PREFIX}%`),
+          ),
+        )
+        .orderBy(desc(sessionMessages.createdAt), desc(sessionMessages.id))
+        .limit(1);
+      const summaryAvailable = Boolean(markerRow);
 
-      const messages = [...recent]
-        .reverse()
+      let rows: (typeof sessionMessages.$inferSelect)[];
+      if (opts?.fromSummary && markerRow) {
+        // Summary + recent tail: everything from the last compaction marker on.
+        rows = await db
+          .select()
+          .from(sessionMessages)
+          .where(
+            and(
+              eq(sessionMessages.sessionId, sessionId),
+              gte(sessionMessages.createdAt, markerRow.createdAt),
+            ),
+          )
+          .orderBy(asc(sessionMessages.createdAt), asc(sessionMessages.id));
+      } else {
+        const recent = await db
+          .select()
+          .from(sessionMessages)
+          .where(eq(sessionMessages.sessionId, sessionId))
+          .orderBy(desc(sessionMessages.createdAt))
+          .limit(limit);
+        rows = [...recent].reverse();
+      }
+
+      const messages = rows
         .map(mapMessage)
         .filter((m) => m.kind !== "plan");
       hydrateAttachmentStoreFromMessages(messages);
       return {
         session: mapSession(session),
         messages,
-        truncated: totalCount > limit,
+        truncated: opts?.fromSummary
+          ? messages.length < totalCount
+          : totalCount > limit,
         totalCount,
+        summaryAvailable,
+        loadedFromSummary: Boolean(opts?.fromSummary && markerRow),
       };
     },
   );

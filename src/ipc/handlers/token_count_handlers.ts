@@ -1,15 +1,8 @@
-import { db } from "../../db";
-import { apps } from "../../db/schema";
-import { eq } from "drizzle-orm";
 import {
   constructSystemPrompt,
   type ModeSystemKey,
 } from "../../prompts/system_prompt";
 import type { WorkMode } from "@/lib/schemas";
-import {
-  SUPABASE_AVAILABLE_SYSTEM_PROMPT,
-  SUPABASE_NOT_AVAILABLE_SYSTEM_PROMPT,
-} from "../../prompts/supabase_prompt";
 import log from "electron-log";
 // extractCodebase removed - using diagram-first context system
 
@@ -18,8 +11,6 @@ import { TokenCountResult } from "../ipc_types";
 import { estimateTokens, getContextWindow, getEffectiveBudget } from "../utils/token_utils";
 import { createLoggedHandler } from "./safe_handle";
 import { readSettings } from "@/main/settings";
-import { extractMentionedAppsCodebases } from "../utils/mention_apps";
-import { parseAppMentions } from "@/shared/parse_mention_apps";
 import { isTurboEditsV2Enabled } from "@/lib/schemas";
 import { getStreamTransport, isStreamTransportId } from "@/lib/chat/stream-transport";
 
@@ -34,12 +25,6 @@ type TokenCountMessageRow = {
   maxTokensUsed?: number | null;
   createdAt?: Date;
 };
-
-type AppRowForTokens = {
-  id: number;
-  supabaseProjectId: string | null;
-  neonProjectId: string | null;
-} | null;
 
 // ═══════════════════════════════════════════════════════════════════
 // PASS8 E1: System-prompt token estimate cache.
@@ -69,16 +54,12 @@ function systemPromptCacheKey(args: {
   effectiveWorkMode?: ModeSystemKey;
   contextSize: number;
   turboEditsV2: boolean;
-  appSupabaseConfigured: boolean;
-  appNeonConfigured: boolean;
 }): SystemPromptCacheKey {
   return [
     args.chatMode,
     args.effectiveWorkMode ?? "legacy",
     args.contextSize,
     args.turboEditsV2 ? "turbo" : "noturbo",
-    args.appSupabaseConfigured ? "sup" : "nosup",
-    args.appNeonConfigured ? "neon" : "noneon",
   ].join(":");
 }
 
@@ -87,8 +68,6 @@ function getOrComputeSystemPromptTokens(args: {
   effectiveWorkMode?: ModeSystemKey;
   contextSize: number;
   turboEditsV2: boolean;
-  appSupabaseConfigured: boolean;
-  appNeonConfigured: boolean;
 }): number {
   const key = systemPromptCacheKey(args);
   const cached = SYSTEM_PROMPT_TOKEN_CACHE.get(key);
@@ -96,18 +75,13 @@ function getOrComputeSystemPromptTokens(args: {
   if (cached && now - cached.builtAt < SYSTEM_PROMPT_CACHE_TTL_MS) {
     return cached.tokens;
   }
-  let systemPrompt = constructSystemPrompt({
+  const systemPrompt = constructSystemPrompt({
     chatMode: args.chatMode,
     effectiveWorkMode: args.effectiveWorkMode,
     contextSize: args.contextSize,
     enableTurboEditsV2: args.turboEditsV2,
     hasWorkspace: true,
   });
-  if (args.appSupabaseConfigured) {
-    systemPrompt += "\n\n" + SUPABASE_AVAILABLE_SYSTEM_PROMPT;
-  } else if (!args.appNeonConfigured) {
-    systemPrompt += "\n\n" + SUPABASE_NOT_AVAILABLE_SYSTEM_PROMPT;
-  }
   const tokens = estimateTokens(systemPrompt);
   SYSTEM_PROMPT_TOKEN_CACHE.set(key, { tokens, builtAt: now });
   return tokens;
@@ -173,7 +147,6 @@ function computeDeltaTailTokens(
 async function computeTokenCountResult(
   req: TokenCountParams,
   messages: TokenCountMessageRow[],
-  app: AppRowForTokens,
 ): Promise<TokenCountResult> {
   const ordered = [...messages].sort((a, b) => {
     const ta = a.createdAt?.getTime() ?? 0;
@@ -189,8 +162,6 @@ async function computeTokenCountResult(
   const inputTokens = estimateTokens(req.input);
 
   const settings = readSettings();
-
-  const mentionedAppNames = parseAppMentions(req.input);
 
   const contextSize = await getContextWindow(settings.selectedModel, req.chatId);
 
@@ -217,41 +188,16 @@ async function computeTokenCountResult(
     effectiveWorkMode: tokenWorkMode,
     contextSize,
     turboEditsV2: isTurboEditsV2Enabled(settings),
-    appSupabaseConfigured: Boolean(app?.supabaseProjectId),
-    appNeonConfigured: Boolean(app?.neonProjectId),
   });
 
-  let codebaseTokens = 0;
+  // PASS8 I: codebase tokens stay 0 — diagrams are model-driven only
+  // (no auto-injection on workspace open).
+  const codebaseTokens = 0;
 
-  if (app) {
-    // PASS8 I: DIAGRAM_CONTEXT_TOKENS is 0 — diagrams are model-driven only
-    // (no auto-injection on workspace open). Stays at 0 here and in
-    // proposal_handlers for parity.
-    const DIAGRAM_CONTEXT_TOKENS = 0;
-    codebaseTokens = DIAGRAM_CONTEXT_TOKENS;
-  }
-
-  const mentionedAppsCodebases = await extractMentionedAppsCodebases(
-    mentionedAppNames,
-    app?.id,
-  );
-
-  let mentionedAppsTokens = 0;
-  if (mentionedAppsCodebases.length > 0) {
-    const mentionedAppsContent = mentionedAppsCodebases
-      .map(
-        ({ appName, codebaseInfo }) =>
-          `\n\n=== Referenced App: ${appName} ===\n${codebaseInfo}`,
-      )
-      .join("");
-
-    mentionedAppsTokens = estimateTokens(mentionedAppsContent);
-
-    // PASS8 F1: Estimated counts (~) only; not exact provider counts.
-    logger.log(
-      `Extracted ${mentionedAppsCodebases.length} mentioned app codebases, ~${mentionedAppsTokens} est. tokens`,
-    );
-  }
+  // @-mention (file/folder) context is injected at dispatch; we don't read those
+  // files on every keystroke for the live estimate. Its real cost shows up in the
+  // [budget]/[TTFT] logs and is handled by compaction.
+  const mentionedAppsTokens = 0;
 
   const totalTokens =
     messageHistoryTokens +
@@ -295,14 +241,7 @@ export function registerTokenCountHandlers() {
           // renderer's debounced request and now. Token count is a non-critical
           // estimate — return an empty result instead of throwing (was: Sentry
           // noise "Chat not found: -1" + a user-facing error toast).
-          return computeTokenCountResult(req, [], null);
-        }
-        let app: AppRowForTokens = null;
-        if (ephemeral.appId != null) {
-          app =
-            (await db.query.apps.findFirst({
-              where: eq(apps.id, ephemeral.appId),
-            })) ?? null;
+          return computeTokenCountResult(req, []);
         }
         const rows: TokenCountMessageRow[] = (ephemeral.messages ?? []).map((m) => ({
           content: typeof m.content === "string" ? m.content : "",
@@ -316,7 +255,7 @@ export function registerTokenCountHandlers() {
               ? m.createdAt
               : undefined,
         }));
-        return computeTokenCountResult(req, rows, app);
+        return computeTokenCountResult(req, rows);
       }
 
       throw new Error(

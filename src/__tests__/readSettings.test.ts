@@ -167,39 +167,6 @@ describe("readSettings", () => {
       });
     });
 
-    it("should decrypt encrypted Supabase tokens", () => {
-      const mockFileContent = {
-        supabase: {
-          accessToken: {
-            value: "encrypted-access-token",
-            encryptionType: "electron-safe-storage",
-          },
-          refreshToken: {
-            value: "encrypted-refresh-token",
-            encryptionType: "electron-safe-storage",
-          },
-        },
-      };
-
-      mockFs.existsSync.mockReturnValue(true);
-      mockFs.readFileSync.mockReturnValue(JSON.stringify(mockFileContent));
-      mockSafeStorage.decryptString
-        .mockReturnValueOnce("decrypted-refresh-token")
-        .mockReturnValueOnce("decrypted-access-token");
-
-      const result = readSettings();
-
-      expect(mockSafeStorage.decryptString).toHaveBeenCalledTimes(2);
-      expect(result.supabase?.refreshToken).toEqual({
-        value: "decrypted-refresh-token",
-        encryptionType: "electron-safe-storage",
-      });
-      expect(result.supabase?.accessToken).toEqual({
-        value: "decrypted-access-token",
-        encryptionType: "electron-safe-storage",
-      });
-    });
-
     it("should handle plaintext secrets without decryption", () => {
       const mockFileContent = {
         githubAccessToken: {
@@ -420,6 +387,27 @@ describe("readSettings", () => {
         name: "core-2",
         provider: "compass",
       });
+    });
+
+    it("coerces removed fast/balanced summarization & review tiers to 'same' (v13.6)", () => {
+      mockFs.existsSync.mockReturnValue(true);
+      mockFs.readFileSync.mockReturnValue(
+        JSON.stringify({
+          aiConfiguration: {
+            contextSummarization: { summarizationModel: "balanced" },
+            selfReview: { reviewModel: "fast" },
+            guided: { agentModel: "fast" },
+          },
+        }),
+      );
+
+      const result = readSettings();
+
+      expect(result.aiConfiguration?.contextSummarization?.summarizationModel).toBe(
+        "same",
+      );
+      expect(result.aiConfiguration?.selfReview?.reviewModel).toBe("same");
+      expect(result.aiConfiguration?.guided?.agentModel).toBe("same");
     });
   });
 

@@ -825,8 +825,6 @@ async function handleCloneRepoFromUrl(
           | Record<string, unknown>
           | null,
         path: fullAppPath,
-        supabaseProjectName: null,
-        vercelTeamSlug: null,
       },
       chatId,
     };

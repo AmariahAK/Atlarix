@@ -6,9 +6,7 @@
  * v12.7: MCP entry removed — MCP management lives in Settings → MCP Servers.
  */
 
-import { useAtom } from "jotai";
 import { useSettings } from "@/hooks/useSettings";
-import { forceDeepThinkNextAtom } from "@/atoms/chatAtoms";
 import { useLanguageModelsByProviders } from "@/hooks/useLanguageModelsByProviders";
 import { useLocalModels } from "@/hooks/useLocalModels";
 import { useLocalLMSModels } from "@/hooks/useLMStudioModels";
@@ -18,18 +16,9 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Switch } from "@/components/ui/switch";
-import {
-  SlidersHorizontal,
-  Cpu,
-  Brain,
-} from "lucide-react";
-import type { UserSettings } from "@/lib/schemas";
-import { resolveContextBudgetTier } from "@/lib/routing/context_budget_routing";
-import { PROVIDERS_THAT_SUPPORT_THINKING } from "@/ipc/shared/language_model_constants";
+import { SlidersHorizontal, Cpu } from "lucide-react";
 import { useAtlarixCoreCatalog } from "@/hooks/useAtlarixCoreCatalog";
 import { resolveModelDisplayLabel } from "@/lib/resolve-model-display-label";
 import {
@@ -37,15 +26,6 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-
-/** Deep think toggle when the selected model supports thinking-tier context. */
-function showDeepThinkNextToggle(settings: UserSettings | undefined | null): boolean {
-  if (!settings?.selectedModel) return false;
-  if (resolveContextBudgetTier(settings.selectedModel, settings) === "thinking") {
-    return true;
-  }
-  return PROVIDERS_THAT_SUPPORT_THINKING.includes(settings.selectedModel.provider);
-}
 
 export function useModelDisplayName(): string {
   const { settings } = useSettings();
@@ -71,10 +51,7 @@ export function ChatConfigDropdown({
 }: {
   onOpenModelPicker?: () => void;
 }) {
-  const { settings } = useSettings();
   const modelDisplayName = useModelDisplayName();
-  const [forceDeepThinkNext, setForceDeepThinkNext] = useAtom(forceDeepThinkNextAtom);
-  const deepThinkVisible = showDeepThinkNextToggle(settings ?? null);
 
   return (
     <DropdownMenu>
@@ -120,29 +97,6 @@ export function ChatConfigDropdown({
           >
             Change model
           </DropdownMenuItem>
-
-          {deepThinkVisible ? (
-            <>
-              <DropdownMenuSeparator />
-              <DropdownMenuLabel className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
-                <Brain className="h-3.5 w-3.5" />
-                Deep reasoning
-              </DropdownMenuLabel>
-              <div className="flex items-center justify-between px-2 py-2 gap-2">
-                <span className="text-sm">Deep think next message</span>
-                <Switch
-                  checked={forceDeepThinkNext}
-                  onCheckedChange={setForceDeepThinkNext}
-                  onClick={(e) => e.stopPropagation()}
-                />
-              </div>
-              <p className="px-2 pb-2 text-xs text-muted-foreground">
-                Next send uses the full thinking-tier context budget for your current model.
-              </p>
-            </>
-          ) : null}
-
-          {/* Pass 7: Blueprint prompt-tier selector removed with Blueprint subsystem. */}
         </div>
       </DropdownMenuContent>
     </DropdownMenu>

@@ -1,6 +1,6 @@
 # Atlarix Core token limits (Compass pool)
 
-> **v11:** The three Compass tiers (fast/balanced/thinking) were replaced by four
+> **v11:** The earlier multi-tier Compass model abstraction was replaced by four
 > **Core** model slots (`core-1`…`core-4`, env `ATLARIX_CORE_MODEL_1..4`). Every
 > plan can use **all** Core models; access is metered strictly by this shared
 > token pool. The Supabase objects keep their `compass_*` names — nothing in

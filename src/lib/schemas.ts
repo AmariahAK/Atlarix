@@ -153,7 +153,7 @@ export const AgentModeSchema = z.enum(["direct", "guided", "autonomous"]);
 /** v2.1: Guided mode config. */
 export const GuidedConfigSchema = z.object({
   maxDelegationsPerTurn: z.number().min(1).max(10).default(3),
-  agentModel: z.enum(["same", "fast", "custom"]).default("fast"),
+  agentModel: z.enum(["same", "custom"]).default("same"),
   customAgentModel: LargeLanguageModelSchema.optional(),
 });
 
@@ -181,7 +181,7 @@ export const SelfReviewConfigSchema = z.object({
   strategy: z.enum(["runtime", "agentLightning", "both"]).default("both"),
   maxIterations: z.number().min(1).max(3).default(2),
   qualityThreshold: z.number().min(0.7).max(0.95).default(0.85),
-  reviewModel: z.enum(["same", "fast", "custom"]).default("fast"),
+  reviewModel: z.enum(["same", "custom"]).default("same"),
   customReviewModel: LargeLanguageModelSchema.optional(),
   criteria: z.array(z.string()).default(["completeness", "correctness", "clarity", "safety", "best_practices"]),
   showInActivityStream: z.boolean().default(true),
@@ -189,7 +189,7 @@ export const SelfReviewConfigSchema = z.object({
 
 /** v2.1: Context and summarization config. */
 export const ContextSummarizationConfigSchema = z.object({
-  summarizationModel: z.enum(["fast", "balanced", "same", "custom"]).default("balanced"),
+  summarizationModel: z.enum(["same", "custom"]).default("same"),
   customSummarizationModel: LargeLanguageModelSchema.optional(),
   compactionThreshold: z.number().min(0.6).max(0.9).default(0.75),
   adaptiveThreshold: z.boolean().default(true),
@@ -224,20 +224,6 @@ export const AIConfigurationSchema = z.object({
 
 export const GithubUserSchema = z.object({
   email: z.string(),
-});
-
-export const SupabaseSchema = z.object({
-  accessToken: SecretSchema.optional(),
-  refreshToken: SecretSchema.optional(),
-  expiresIn: z.number().optional(),
-  tokenTimestamp: z.number().optional(),
-});
-
-export const NeonSchema = z.object({
-  accessToken: SecretSchema.optional(),
-  refreshToken: SecretSchema.optional(),
-  expiresIn: z.number().optional(),
-  tokenTimestamp: z.number().optional(),
 });
 
 export const AtlarixProBudgetSchema = z.object({
@@ -320,9 +306,6 @@ export const UserSettingsSchema = z.object({
   providerSettings: z.record(z.string(), ProviderSettingSchema),
   githubUser: GithubUserSchema.optional(),
   githubAccessToken: SecretSchema.optional(),
-  vercelAccessToken: SecretSchema.optional(),
-  supabase: SupabaseSchema.optional(),
-  neon: NeonSchema.optional(),
   telemetryConsent: z.enum(["opted_in", "opted_out", "unset"]).optional(),
   telemetryUserId: z.string().optional(),
   hasRunBefore: z.boolean().optional(),
@@ -490,7 +473,6 @@ export interface FileChange {
   path: string;
   summary: string;
   type: "write" | "rename" | "delete";
-  isServerFunction: boolean;
 }
 
 export interface CodeProposal {
@@ -499,7 +481,6 @@ export interface CodeProposal {
   securityRisks: SecurityRisk[];
   filesChanged: FileChange[];
   packagesAdded: string[];
-  sqlQueries: SqlQuery[];
 }
 
 export type SuggestedAction =
@@ -562,9 +543,4 @@ export interface ProposalResult {
   proposal: Proposal;
   chatId: number;
   messageId: number;
-}
-
-export interface SqlQuery {
-  content: string;
-  description?: string;
 }

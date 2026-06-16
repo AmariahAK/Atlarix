@@ -31,10 +31,8 @@ import {
     aiPanelIntentAtom,
     mapIntentToView,
     browserErrorsAtom,
-    leftPanelWidthAtom,
     rightPanelWidthAtom,
     rightPanelVisibleAtom,
-    leftPanelVisibleAtom,
     workspacePlanPanelAtom,
 } from '@/atoms/sourceAtoms';
 import { permissionQueueAtom, getOperationsByStatus } from '@/atoms/permissionQueueAtom';
@@ -88,10 +86,8 @@ export function useRightPanelContext(): RightPanelContextResult {
     const [aiPanelIntent, setAIPanelIntentState] = useAtom(aiPanelIntentAtom);
     const permissionQueue = useAtomValue(permissionQueueAtom);
     const currentApp = useAtomValue(currentAppAtom);
-    const leftPanelWidth = useAtomValue(leftPanelWidthAtom);
     const rightPanelWidth = useAtomValue(rightPanelWidthAtom);
     const rightPanelVisible = useAtomValue(rightPanelVisibleAtom);
-    const leftPanelVisible = useAtomValue(leftPanelVisibleAtom);
     const [windowWidth, setWindowWidth] = useState(typeof window !== 'undefined' ? window.innerWidth : 1024);
 
     useEffect(() => {
@@ -101,8 +97,7 @@ export function useRightPanelContext(): RightPanelContextResult {
     }, []);
 
     const chatAreaHidden = Boolean(
-        rightPanelVisible &&
-        (leftPanelVisible ? leftPanelWidth : 0) + rightPanelWidth >= windowWidth - 80
+        rightPanelVisible && rightPanelWidth >= windowWidth - 80
     );
     const selectedAppId = useAtomValue(selectedAppIdAtom);
     const selectedWorkspaceInfo = useAtomValue(selectedWorkspaceInfoAtom);

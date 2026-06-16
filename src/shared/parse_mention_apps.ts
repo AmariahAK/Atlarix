@@ -1,15 +1,20 @@
-export const MENTION_REGEX = /@app:([a-zA-Z0-9_-]+)/g;
+/**
+ * Parse `@`-mentions of files and folders in the current workspace.
+ * Tokens are inserted by the composer autocomplete as `@file:<relpath>` and
+ * `@dir:<relpath>` (paths contain no spaces). Replaces the old `@app:` mention
+ * that injected another workspace's whole codebase.
+ */
 
-// Helper function to parse app mentions from prompt
-export function parseAppMentions(prompt: string): string[] {
-  // Match @app:AppName patterns in the prompt (supports letters, digits, underscores, and hyphens, but NOT spaces)
+const FILE_MENTION_REGEX = /@file:([^\s]+)/g;
+const DIR_MENTION_REGEX = /@dir:([^\s]+)/g;
 
-  const mentions: string[] = [];
-  let match;
+export interface ContextMentions {
+  files: string[];
+  dirs: string[];
+}
 
-  while ((match = MENTION_REGEX.exec(prompt)) !== null) {
-    mentions.push(match[1]);
-  }
-
-  return mentions;
+export function parseContextMentions(prompt: string): ContextMentions {
+  const files = [...prompt.matchAll(FILE_MENTION_REGEX)].map((m) => m[1]);
+  const dirs = [...prompt.matchAll(DIR_MENTION_REGEX)].map((m) => m[1]);
+  return { files: [...new Set(files)], dirs: [...new Set(dirs)] };
 }

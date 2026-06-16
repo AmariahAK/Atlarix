@@ -1,5 +1,72 @@
 # Atlarix Changelog
 
+## [13.6.0] (2026-06-16) — Surface simplification: scoped `@` mentions, tiers collapsed to Core 1–4, deploy connectors removed, Review absorbs security
+
+> The cycle that shrinks the product surface to what's actually used. Model selection drops the
+> Fast/Balanced/Thinking tier abstraction — there are simply four individual **Core** models (Core 1–4),
+> every plan can use every one, and nothing in the app is hardcoded to a tier anymore. The `@` mention
+> was rebuilt from a cross-workspace whole-codebase dump into **scoped file/folder context** in the
+> current workspace (a token bomb becomes a scalpel). The `/` slash-command system — which only
+> duplicated the mode picker behind a hidden editor — is gone. The bespoke deploy connectors
+> (Supabase / Neon / Vercel / GitHub Actions panels) are removed in favor of a **terminal-first** flow
+> plus **MCP-only** SaaS connectors, and the standalone `/security-review` is folded into **Review** mode
+> so one reviewer covers correctness *and* security. BYOK context limits now come live from each
+> provider's API — no hardcoded model windows.
+
+### Added
+
+- **Scoped `@` file & folder mentions (current workspace).** Typing `@` in the composer lists workspace
+  files + folders via a new gitignore-aware `workspace:list-paths` IPC (reuses `getProjectFiles`). A
+  mentioned **file** injects its contents (capped 60 KB/file, 200 KB total); a mentioned **folder**
+  injects only its file *listing* (capped, paths re-rooted under the folder) so the agent `grep`s/reads
+  within that scope. Parsed by `parseContextMentions` (`@file:`/`@dir:`), built by `extractMentionedContext`,
+  injected provider-agnostically as a single read-only prefix message. Replaces the old `@app:` whole-other-app
+  codebase dump. (`src/shared/parse_mention_apps.ts`, `src/ipc/utils/mention_apps.ts`,
+  `src/components/chat/ComposerAutocomplete.tsx`.)
+- **Live BYOK context limits.** Per-provider context windows are resolved from each provider's own
+  catalog/API at dispatch and display time rather than hardcoded — switching from a 1M-token model to a
+  268K one (or any model) reflects the real limit everywhere (budget, compaction, the context bar).
+- **Session-resume prompt + model-switch notice.** Reopening a workspace offers to resume the prior
+  session, and switching the active model mid-thread surfaces a notice when the context window changes.
+- **MCP OAuth marketplace connect.** One-click OAuth connect for marketplace MCP servers (interactive
+  Connect flow distinct from the silent runtime auth-and-retry path; the agent never opens a browser
+  mid-turn).
+- **README ↔ JSON workspace docs** auto-generation kept in sync.
+
+### Changed
+
+- **Model selection: tiers → four individual Core models.** The Fast/Balanced/Thinking tier abstraction
+  is removed; Core is just **Core 1–4**, every plan can use every model, and per-role model settings
+  (summarization/review/agent) bind to actual models. Persisted legacy selections are coerced forward
+  (`fast`/`balanced` → `same`; `compass-fast/-balanced/-thinking` → `core-1/-2/-3`) in
+  `src/main/settings.ts` + the compass alias maps. No tier names remain in user-facing copy.
+- **Review mode now covers security.** The standalone `/security-review` (which didn't reliably work) is
+  merged into **Review** so a single pass audits correctness, maintainability, *and* security concerns.
+- **SaaS integrations are terminal-first + MCP-only.** Databases and CI/CD are driven through the
+  sandboxed terminal (`git`/CLI); third-party SaaS connects via the MCP marketplace (Team adds one-click
+  OAuth) instead of bespoke in-app connector panels.
+
+### Removed
+
+- **The `/` slash-command system — deleted wholesale.** It only duplicated the mode picker behind an
+  already-hidden editor. Gone: `commands_handlers.ts`, `src/lib/commands/custom-commands.ts`, the dispatch
+  expansion, the `commands:*` IPC channels + client methods, the Custom-commands settings UI (Hooks
+  settings retained), and the `custom_commands` table (migration `0065_drop_custom_commands`). The
+  composer autocomplete is now `@`-only.
+- **User-facing deploy connectors — Supabase / Neon / Vercel / GitHub Actions.** The connector panels and
+  their handlers are removed (`SupabaseConnector`, `DBPanel`, `GitHubActionsPanel`, `neon_handlers`,
+  `db_extension_handlers`, `extension_space_handlers`, `github_actions_handlers`, the Supabase e2e
+  fixtures/specs). **Atlarix's own prod Supabase (account auth + Core metering) is untouched** — only the
+  per-app deploy machinery was removed.
+- **The `security_handlers` / standalone security-review path** (folded into Review, above).
+
+### Fixed
+
+- **`ask_user` no longer leaks across sessions.** A question left pending when the app closed mid-turn no
+  longer reappears in a new session, and closing the app on a pending question no longer raises an
+  `AbortError: ask_user_pending` (with the matching Sentry noise suppressed).
+- **Stale Core selection** corrected when a previously-selected Core model is no longer present.
+
 ## [13.5.0] (2026-06-13) — Open-weight Core providers, disk-backed FTS5 retrieval, writer sub-agents, real Windows sandbox
 
 > The cycle that makes "the open-weight frontier harness" literal: DeepSeek, Qwen, Kimi, and MiniMax

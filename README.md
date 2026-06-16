@@ -24,7 +24,7 @@ The agent has a workspace. You have control.
 
 **Created by [NorahLabs](https://norahlabs.com)** (Nairobi, Kenya)  
 **Website:** [atlarix.dev](https://atlarix.dev)  
-**Current release:** **v13.5.0**
+**Current release:** **v13.6.0**
 
 **Downloads:** Installers for **macOS**, **Linux**, and **Windows** are on [atlarix.dev](https://atlarix.dev). *(Windows builds are currently unsigned; code signing is coming soon.)*
 
@@ -41,6 +41,7 @@ Release notes: **[docs/CHANGELOG.md](docs/CHANGELOG.md)** (current: 13.0+). Olde
 - **Work modes:** **Explore** (read-only), **Plan**, **Build**, **Debug**, **Review**.
 - **On-demand file discovery:** Opening a workspace does not scan the whole repo via git. The Code tab loads the file tree when you need it (plus a **Cmd/Ctrl+P** fuzzy file opener); the sidebar stays focused on sessions; the agent uses `glob`, `grep`, and `get_blueprint`.
 - **Attachments:** Paste text, terminal output, and files into chat. After send they appear as chips with preview; content persists across session reload.
+- **`@` file & folder mentions:** Type `@` in the composer to point the agent at part of the current workspace. Mentioning a **file** injects its contents (capped); mentioning a **folder** injects just its file listing, so the agent then `grep`s/reads within that scope instead of dumping a whole tree — precise context, low token cost.
 - **Agent Behaviors & workspace memory:** Project instructions in `.atlarix/atlarix.md` and behaviors under `.atlarix/skills/` shape the agent without repeating yourself every turn.
 - **Parallel sub-agents:** The `task` tool spawns scoped read-only scouts — up to five run **concurrently** per turn, with their live thinking, narration, and tool activity streaming into per-agent cards.
 - **Background commands:** The agent can run long commands detached (`run_command background:true`) and keep working; the exit result is delivered back automatically. Foreground commands that run long flip the chat into a visible **"Waiting on command"** state with a timer — you can queue a message that sends when the turn resumes.

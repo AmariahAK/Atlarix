@@ -11,19 +11,6 @@ export interface AppOutput {
   appId: number;
 }
 
-export interface SecurityFinding {
-  title: string;
-  level: "critical" | "high" | "medium" | "low";
-  description: string;
-}
-
-export interface SecurityReviewResult {
-  findings: SecurityFinding[];
-  timestamp: string;
-  /** null for workspace-session reviews (keyed by sessionId, not a numeric chat). */
-  chatId: number | null;
-}
-
 export interface RespondToAppInputParams {
   appId: number;
   response: string;
@@ -66,8 +53,6 @@ export interface ChatStreamParams {
   };
   /** Custom slash command: override chat mode for this stream only. */
   streamChatModeOverride?: "ask" | "agent" | "build";
-  /** When true (Auto routing): use thinking tier for this message. */
-  forceThinkingTier?: boolean;
   /** Resend/edit: use this work mode for prompt + tool allowlist for this turn only. */
   workModeOverride?: WorkMode;
   /** v12 7A: run this turn as a user-defined agent (.atlarix/agents/<name>.md). */
@@ -258,8 +243,6 @@ export interface Message {
   filesWritten?: string[] | null;
   /** Non-destructive revert: message stays in transcript, styled as reverted. */
   isReverted?: boolean | null;
-  /** When this assistant turn used Auto routing, the resolved tier (ephemeral / UI). */
-  autoRoutedTier?: "fast" | "balanced" | "thinking" | null;
   /** Compaction: auto-inserted continuation user line. */
   isSynthetic?: boolean | null;
   /** Work mode when this user message was sent. */
@@ -298,16 +281,6 @@ export interface App {
   githubOrg: string | null;
   githubRepo: string | null;
   githubBranch: string | null;
-  supabaseProjectId: string | null;
-  supabaseParentProjectId: string | null;
-  supabaseProjectName: string | null;
-  neonProjectId: string | null;
-  neonDevelopmentBranchId: string | null;
-  neonPreviewBranchId: string | null;
-  vercelProjectId: string | null;
-  vercelProjectName: string | null;
-  vercelTeamSlug: string | null;
-  vercelDeploymentUrl: string | null;
   installCommand: string | null;
   startCommand: string | null;
   isFavorite: boolean;
@@ -334,7 +307,6 @@ export interface Version {
   oid: string;
   message: string;
   timestamp: number;
-  dbTimestamp?: string | null;
 }
 
 export type BranchResult = { branch: string };
@@ -528,52 +500,6 @@ export interface GetAppEnvVarsParams {
   appId: number;
 }
 
-export interface ConnectToExistingVercelProjectParams {
-  projectId: string;
-  appId: number;
-}
-
-export interface IsVercelProjectAvailableResponse {
-  available: boolean;
-  error?: string;
-}
-
-export interface CreateVercelProjectParams {
-  name: string;
-  appId: number;
-}
-
-export interface GetVercelDeploymentsParams {
-  appId: number;
-}
-
-export interface VercelDeployment {
-  uid: string;
-  url: string;
-  state: string;
-  createdAt: number;
-  target: string;
-  readyState: string;
-}
-
-export interface DisconnectVercelProjectParams {
-  appId: number;
-}
-
-export interface IsVercelProjectAvailableParams {
-  name: string;
-}
-
-export interface SaveVercelAccessTokenParams {
-  token: string;
-}
-
-export interface VercelProject {
-  id: string;
-  name: string;
-  framework: string | null;
-}
-
 export interface UpdateChatParams {
   chatId: number;
   title: string;
@@ -603,39 +529,6 @@ export interface FileAttachment {
   };
 }
 
-// --- Neon Types ---
-export interface CreateNeonProjectParams {
-  name: string;
-  appId: number;
-}
-
-export interface NeonProject {
-  id: string;
-  name: string;
-  connectionString: string;
-  branchId: string;
-}
-
-export interface NeonBranch {
-  type: "production" | "development" | "snapshot" | "preview";
-  branchId: string;
-  branchName: string;
-  lastUpdated: string; // ISO timestamp
-  parentBranchId?: string; // ID of the parent branch
-  parentBranchName?: string; // Name of the parent branch
-}
-
-export interface GetNeonProjectParams {
-  appId: number;
-}
-
-export interface GetNeonProjectResponse {
-  projectId: string;
-  projectName: string;
-  orgId: string;
-  branches: NeonBranch[];
-}
-
 export interface RevertVersionParams {
   appId: number;
   previousVersionId: string;
@@ -658,6 +551,8 @@ export interface WorkspaceChatSession {
   title: string;
   createdAt: Date;
   updatedAt: Date;
+  /** True when the session has a persisted compaction summary marker (offer "resume from summary" on reopen). */
+  hasSummary?: boolean;
 }
 
 // --- MCP Types ---
@@ -811,19 +706,6 @@ export type CloneRepoReturnType =
     error: string;
   };
 
-export interface SupabaseBranch {
-  id: string;
-  name: string;
-  isDefault: boolean;
-  projectRef: string;
-  parentProjectRef: string;
-}
-
-export interface SetSupabaseAppProjectParams {
-  projectId: string;
-  parentProjectId?: string;
-  appId: number;
-}
 export interface SelectNodeFolderResult {
   path: string | null;
   canceled?: boolean;

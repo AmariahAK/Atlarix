@@ -41,14 +41,9 @@ import os from "node:os";
 import { restoreAuthSessionOnStartup } from "./lib/auth/supabase-client";
 import { SubscriptionManager } from "./lib/SubscriptionManager";
 import { resolveSystemPath } from "./lib/resolve-path";
-import { warmTierContextCache } from "./lib/routing/tier-context-limits";
+import { warmOpenRouterModelCache } from "./lib/routing/tier-context-limits";
 import { warmCoreModelOverrides } from "./lib/routing/core-model-overrides";
-import {
-  CORE_TIER_1,
-  CORE_TIER_2,
-  CORE_TIER_3,
-  getOpenRouterModelIdForCoreTier,
-} from "./ipc/shared/compass_constants";
+import { seedEphemeralCounterFromSessions } from "./ipc/handlers/workspace_session_handlers";
 import { isNoUsableModelOutputError } from "./ipc/utils/no_usable_model_output";
 import { isStreamStopAbort } from "./lib/stream/stream-stop-sentinels";
 import {
@@ -267,6 +262,12 @@ export async function onReady() {
     app.quit();
     return;
   }
+
+  // Seed the ephemeral transport counter below all persisted session ids BEFORE
+  // any session/transport can be allocated, so a new session can never reuse a
+  // prior session's chatId (which leaked pending ask_user questions across
+  // sessions). Best-effort; never blocks startup fatally.
+  await seedEphemeralCounterFromSessions();
   sendDbReadyToWindow();
 
   const cliDir = parseDirectoryArgFromArgv(process.argv, process.cwd());
@@ -303,18 +304,14 @@ export async function onReady() {
 
   // Pass 7.3: OpenTelemetry init removed (heavy main-bundle dep, startup crash on packaged builds).
 
-  // Runtime Core-tier model overrides (hosted core-models.json). Sync-preloads the
+  // Runtime Core model overrides (hosted core-models.json). Sync-preloads the
   // disk cache so the warm below + the first stream see last-known-good ids, then
-  // refreshes from the network in the background. Must run before warmTierContextCache.
+  // refreshes from the network in the background. Must run before the cache warm.
   warmCoreModelOverrides();
 
-  // Core 4 needs no slot here — the warm fetch caches the full OpenRouter
-  // catalog, and per-model limits resolve via `resolveModelContextLimit`.
-  void warmTierContextCache(
-    getOpenRouterModelIdForCoreTier(CORE_TIER_1) ?? "",
-    getOpenRouterModelIdForCoreTier(CORE_TIER_2) ?? "",
-    getOpenRouterModelIdForCoreTier(CORE_TIER_3) ?? "",
-  ).catch(() => {
+  // Warm the OpenRouter model catalog so per-model context limits resolve via
+  // `resolveModelContextLimit` without a cold first turn.
+  void warmOpenRouterModelCache().catch(() => {
     /* best-effort */
   });
 

@@ -337,14 +337,8 @@ export const workspacePlanPanelAtom = atom<{
 
 export const rightPanelSuppressAutoOpenAtom = atom<boolean>(false);
 
-/** Whether left panel is visible (extension panel). Toggled by Cmd+I / Ctrl+I when Pro. */
-export const leftPanelVisibleAtom = atom<boolean>(false);
-
 /** Panel width in pixels (for resize). Persisted in localStorage (atlarix-right-panel-width) by RightPanel. */
 export const rightPanelWidthAtom = atom<number>(400);
-
-/** Left panel width in pixels (for resize). Persisted in localStorage (atlarix-left-panel-width) by LeftPanel. Default 280. */
-export const leftPanelWidthAtom = atom<number>(280);
 
 /** Dev server URL for live preview (Lovable-style) */
 export const devServerUrlAtom = atom<string | null>(null);

@@ -359,7 +359,6 @@ export function useStreamChat({
       onSettled,
       continueAfterQuestions,
       prefillTaskLedger,
-      forceThinkingTier,
       workModeOverride,
     }: {
       prompt: string;
@@ -375,8 +374,6 @@ export function useStreamChat({
         steps: { description: string }[];
         sourcePlanMessageId?: number;
       };
-      /** Auto: one-shot thinking tier for this message. */
-      forceThinkingTier?: boolean;
       /** Resend/edit: work mode for this stream turn only. */
       workModeOverride?: import("@/lib/schemas").WorkMode;
       /** Persisted workspace session id for this stream turn. */
@@ -960,7 +957,6 @@ export function useStreamChat({
           continueAfterQuestions,
           workspaceSessionId: workspaceSessionId ?? undefined,
           prefillTaskLedger,
-          forceThinkingTier,
           workModeOverride,
           onUpdate: (updatedMessages: Message[]) => {
             // v11.1: no freeze-baseline clamp — the turn ends at ask_user, so

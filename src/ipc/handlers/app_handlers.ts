@@ -44,10 +44,6 @@ import { readSettings } from "../../main/settings";
 import killPort from "kill-port";
 import util from "util";
 import log from "electron-log";
-import {
-  deploySupabaseFunction,
-  getSupabaseProjectName,
-} from "../../supabase_admin/supabase_management_client";
 import { createLoggedHandler } from "./safe_handle";
 import { getLanguageModelProviders } from "../shared/language_model_helpers";
 import { startProxy } from "../utils/start_proxy_server";
@@ -60,14 +56,6 @@ import {
 } from "../utils/git_utils";
 import { safeSend } from "../utils/safe_sender";
 import { normalizePath } from "../../../shared/normalizePath";
-import {
-  isServerFunction,
-  isSharedServerModule,
-  deployAllSupabaseFunctions,
-  extractFunctionNameFromPath,
-} from "@/supabase_admin/supabase_utils";
-import { getVercelTeamSlug } from "../utils/vercel_utils";
-import { storeDbTimestampAtCurrentVersion } from "../utils/neon_timestamp_utils";
 import { AppSearchResult } from "@/lib/schemas";
 import { onWorkspaceRemoved } from "../../db/workspace_cleanup";
 import { capture as analyticsCapture } from "../../main/lib/analytics";
@@ -107,14 +95,12 @@ async function executeApp({
   appPath,
   appId,
   event, // Keep event for local-node case
-  isNeon,
   installCommand,
   startCommand,
 }: {
   appPath: string;
   appId: number;
   event: Electron.IpcMainInvokeEvent;
-  isNeon: boolean;
   installCommand?: string | null;
   startCommand?: string | null;
 }): Promise<void> {
@@ -130,7 +116,6 @@ async function executeApp({
       appPath,
       appId,
       event,
-      isNeon,
       installCommand,
       startCommand,
     });
@@ -139,7 +124,6 @@ async function executeApp({
       appPath,
       appId,
       event,
-      isNeon,
       installCommand,
       startCommand,
     });
@@ -150,14 +134,12 @@ async function executeAppLocalNode({
   appPath,
   appId,
   event,
-  isNeon,
   installCommand,
   startCommand,
 }: {
   appPath: string;
   appId: number;
   event: Electron.IpcMainInvokeEvent;
-  isNeon: boolean;
   installCommand?: string | null;
   startCommand?: string | null;
 }): Promise<void> {
@@ -223,7 +205,6 @@ Details: ${details || "n/a"}
   listenToProcess({
     process: spawnedProcess,
     appId,
-    isNeon,
     event,
   });
 }
@@ -231,12 +212,10 @@ Details: ${details || "n/a"}
 function listenToProcess({
   process: spawnedProcess,
   appId,
-  isNeon,
   event,
 }: {
   process: ChildProcess;
   appId: number;
-  isNeon: boolean;
   event: Electron.IpcMainInvokeEvent;
 }) {
   // Log output
@@ -245,19 +224,6 @@ function listenToProcess({
     logger.debug(
       `App ${appId} (PID: ${spawnedProcess.pid}) stdout: ${message}`,
     );
-
-    // This is a hacky heuristic to pick up when drizzle is asking for user
-    // to select from one of a few choices. We automatically pick the first
-    // option because it's usually a good default choice. We guard this with
-    // isNeon because: 1) only Neon apps (for the official Atlarix templates) should
-    // get this template and 2) it's safer to do this with Neon apps because
-    // their databases have point in time restore built-in.
-    if (isNeon && message.includes("created or renamed from another")) {
-      spawnedProcess.stdin?.write(`\r\n`);
-      logger.info(
-        `App ${appId} (PID: ${spawnedProcess.pid}) wrote enter to stdin to automatically respond to drizzle push input`,
-      );
-    }
 
     // Check if this is an interactive prompt requiring user input
     const inputRequestPattern = /\s*›\s*\([yY]\/[nN]\)\s*$/;
@@ -327,14 +293,12 @@ async function executeAppInDocker({
   appPath,
   appId,
   event,
-  isNeon,
   installCommand,
   startCommand,
 }: {
   appPath: string;
   appId: number;
   event: Electron.IpcMainInvokeEvent;
-  isNeon: boolean;
   installCommand?: string | null;
   startCommand?: string | null;
 }): Promise<void> {
@@ -515,7 +479,6 @@ ${errorOutput || "(empty)"}`,
   listenToProcess({
     process,
     appId,
-    isNeon,
     event,
   });
 }
@@ -645,7 +608,6 @@ export function registerAppHandlers() {
           // Explicitly set these to null because we don't want to copy them over.
           // Note: we could just leave them out since they're nullable field, but this
           // is to make it explicit we intentionally don't want to copy them over.
-          supabaseProjectId: null,
           githubOrg: null,
           githubRepo: null,
           installCommand: originalApp.installCommand,
@@ -740,19 +702,6 @@ export function registerAppHandlers() {
       void bootstrapAtlarixWorkspaceFolder(appPath);
     }
 
-    let supabaseProjectName: string | null = null;
-    const settings = readSettings();
-    if (app.supabaseProjectId && settings.supabase?.accessToken?.value) {
-      supabaseProjectName = await getSupabaseProjectName(
-        app.supabaseParentProjectId || app.supabaseProjectId,
-      );
-    }
-
-    let vercelTeamSlug: string | null = null;
-    if (app.vercelTeamId) {
-      vercelTeamSlug = await getVercelTeamSlug(app.vercelTeamId);
-    }
-
     analyticsCapture("workspace_opened", { appId });
     perfMark(`workspace-open:${appId}`);
     const status = pathExists ? ("active" as const) : ("missing" as const);
@@ -761,8 +710,6 @@ export function registerAppHandlers() {
       remoteConnection: (app.remoteConnection ?? null) as
         | Record<string, unknown>
         | null,
-      supabaseProjectName,
-      vercelTeamSlug,
       pathExists,
       status,
     };
@@ -863,7 +810,6 @@ export function registerAppHandlers() {
             appPath,
             appId,
             event,
-            isNeon: !!app.neonProjectId,
             installCommand: app.installCommand,
             startCommand: app.startCommand,
           });
@@ -1018,7 +964,6 @@ export function registerAppHandlers() {
             appPath,
             appId,
             event,
-            isNeon: !!app.neonProjectId,
             installCommand: app.installCommand,
             startCommand: app.startCommand,
           }); // This will handle starting either mode
@@ -1060,23 +1005,6 @@ export function registerAppHandlers() {
         throw new Error("Invalid file path");
       }
 
-      if (app.neonProjectId && app.neonDevelopmentBranchId) {
-        try {
-          await storeDbTimestampAtCurrentVersion({
-            appId: app.id,
-          });
-        } catch (error) {
-          logger.error(
-            "Error storing Neon timestamp at current version:",
-            error,
-          );
-          throw new Error(
-            "Could not store Neon timestamp at current version; database versioning functionality is not working: " +
-            error,
-          );
-        }
-      }
-
       // Ensure directory exists
       const dirPath = path.dirname(fullPath);
       await fsPromises.mkdir(dirPath, { recursive: true });
@@ -1098,51 +1026,6 @@ export function registerAppHandlers() {
         throw new Error(`Failed to write file: ${error.message}`);
       }
 
-      if (app.supabaseProjectId) {
-        // Check if shared module was modified - redeploy all functions
-        if (isSharedServerModule(filePath)) {
-          try {
-            logger.info(
-              `Shared module ${filePath} modified, redeploying all Supabase functions`,
-            );
-            const deployErrors = await deployAllSupabaseFunctions({
-              appPath,
-              supabaseProjectId: app.supabaseProjectId,
-            });
-            if (deployErrors.length > 0) {
-              return {
-                warning: `File saved, but some Supabase functions failed to deploy: ${deployErrors.join(", ")}`,
-              };
-            }
-          } catch (error) {
-            logger.error(
-              `Error redeploying Supabase functions after shared module change:`,
-              error,
-            );
-            return {
-              warning: `File saved, but failed to redeploy Supabase functions: ${error}`,
-            };
-          }
-        } else if (isServerFunction(filePath)) {
-          // Regular function file - deploy just this function
-          try {
-            const functionName = extractFunctionNameFromPath(filePath);
-            await deploySupabaseFunction({
-              supabaseProjectId: app.supabaseProjectId,
-              functionName,
-              appPath,
-            });
-          } catch (error) {
-            logger.error(
-              `Error deploying Supabase function ${filePath}:`,
-              error,
-            );
-            return {
-              warning: `File saved, but failed to deploy Supabase function: ${filePath}: ${error}`,
-            };
-          }
-        }
-      }
       return {};
     },
   );

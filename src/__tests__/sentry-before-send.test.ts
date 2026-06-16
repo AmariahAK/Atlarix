@@ -41,6 +41,18 @@ describe("sentryBeforeSendDropExpected", () => {
     }
   });
 
+  it("drops intentional stream-stop aborts (ask_user_pending)", () => {
+    const event = {
+      exception: { values: [{ type: "AbortError", value: "ask_user_pending" }] },
+    };
+    const abort = new DOMException("ask_user_pending", "AbortError");
+    expect(
+      sentryBeforeSendDropExpected(event as ErrorEvent, {
+        originalException: abort,
+      }),
+    ).toBeNull();
+  });
+
   it("passes through unexpected errors", () => {
     const event = {
       exception: { values: [{ type: "Error", value: "Database connection lost" }] },

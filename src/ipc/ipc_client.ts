@@ -38,22 +38,8 @@ import type {
   EditAppFileReturnType,
   GetAppEnvVarsParams,
   SetAppEnvVarsParams,
-  ConnectToExistingVercelProjectParams,
-  IsVercelProjectAvailableResponse,
-  CreateVercelProjectParams,
-  VercelDeployment,
-  GetVercelDeploymentsParams,
-  DisconnectVercelProjectParams,
-  SecurityReviewResult,
-  IsVercelProjectAvailableParams,
-  SaveVercelAccessTokenParams,
-  VercelProject,
   UpdateChatParams,
   FileAttachment,
-  CreateNeonProjectParams,
-  NeonProject,
-  GetNeonProjectParams,
-  GetNeonProjectResponse,
   RevertVersionResponse,
   RevertVersionParams,
   RespondToAppInputParams,
@@ -61,8 +47,6 @@ import type {
   CreateMcpServer,
   CloneRepoParams,
   GithubCloneProgress,
-  SupabaseBranch,
-  SetSupabaseAppProjectParams,
   SelectNodeFolderResult,
   ApplyVisualEditingChangesParams,
   AnalyseComponentParams,
@@ -280,6 +264,7 @@ export class IpcClient {
   private modelsDevStatusHandlers: Set<
     (payload: { message: string; timedOut?: boolean }) => void
   > = new Set();
+  private coreModelsChangedHandlers: Set<() => void> = new Set();
   private windowFullscreenHandlers: Set<(payload: { fullscreen: boolean }) => void> = new Set();
   private chatActivityHandlers: Set<(payload: { label?: string; status?: string; chatId?: number }) => void> = new Set();
   private updateDownloadingHandlers: Set<(payload: { version: string }) => void> = new Set();
@@ -444,6 +429,10 @@ export class IpcClient {
         const p = payload as { message: string; timedOut?: boolean };
         this.modelsDevStatusHandlers.forEach((h) => h(p));
       }
+    });
+
+    this.ipcRenderer.on("core-models:changed", () => {
+      this.coreModelsChangedHandlers.forEach((h) => h());
     });
 
     this.ipcRenderer.on("window:fullscreen-changed", (_e, payload: unknown) => {
@@ -765,62 +754,6 @@ export class IpcClient {
     return this.ipcRenderer.invoke("snapshot:files", params);
   }
 
-  /** v3.9: GitHub Actions — list runs for workspace */
-  public async githubActionsListRuns(workspacePath: string): Promise<{
-    repo: { owner: string; repo: string } | null;
-    runs: Array<{
-      id: number;
-      name: string;
-      headBranch: string;
-      status: string;
-      conclusion: string | null;
-      createdAt: Date;
-      htmlUrl?: string;
-    }>;
-  }> {
-    return this.ipcRenderer.invoke("github-actions:list-runs", workspacePath);
-  }
-
-  /** v3.9: GitHub Actions — get jobs for a run */
-  public async githubActionsGetJobs(
-    owner: string,
-    repo: string,
-    runId: number
-  ): Promise<Array<{ id: number; name: string; status: string; conclusion: string | null; steps: unknown[]; htmlUrl?: string }>> {
-    return this.ipcRenderer.invoke("github-actions:get-jobs", owner, repo, runId);
-  }
-
-  /** v3.9: GitHub Actions — get job logs */
-  public async githubActionsGetLogs(
-    owner: string,
-    repo: string,
-    jobId: number
-  ): Promise<string> {
-    return this.ipcRenderer.invoke("github-actions:get-logs", owner, repo, jobId);
-  }
-
-  /** v3.9: GitHub Actions — start log stream (emits github-actions:log-chunk) */
-  public async githubActionsStartStream(
-    owner: string,
-    repo: string,
-    jobId: number,
-    filter?: string | null
-  ): Promise<{ success: boolean; jobId: number }> {
-    return this.ipcRenderer.invoke("github-actions:start-stream", owner, repo, jobId, filter ?? undefined);
-  }
-
-  /** v3.9: GitHub Actions — stop log stream */
-  public async githubActionsStopStream(jobId: number): Promise<{ success: boolean }> {
-    return this.ipcRenderer.invoke("github-actions:stop-stream", jobId);
-  }
-
-  /** v3.9: Subscribe to GitHub Actions log stream chunks */
-  public onGitHubActionsLogChunk(handler: (payload: { jobId: number; line?: string; error?: string }) => void): () => void {
-    const subscription = (_: Electron.IpcRendererEvent, payload: { jobId: number; line?: string; error?: string }) => handler(payload);
-    this.ipcRenderer.on("github-actions:log-chunk", subscription);
-    return () => this.ipcRenderer.removeListener("github-actions:log-chunk", subscription);
-  }
-
   /** Main → renderer: live task-ledger plan for PlanCard. */
   public onPlanUpdate(chatId: number, handler: (payload: PlanUpdatePayload) => void): () => void {
     let set = this.planUpdateHandlers.get(chatId);
@@ -1022,6 +955,14 @@ export class IpcClient {
     };
   }
 
+  /** Atlarix Core model ids changed at runtime (hosted core-models.json refresh). */
+  public onCoreModelsChanged(handler: () => void): () => void {
+    this.coreModelsChangedHandlers.add(handler);
+    return () => {
+      this.coreModelsChangedHandlers.delete(handler);
+    };
+  }
+
   /** Fix: Finding 1 — Electron fullscreen enter/leave */
   public onWindowFullscreenChanged(
     handler: (payload: { fullscreen: boolean }) => void,
@@ -1197,8 +1138,6 @@ export class IpcClient {
         steps: { description: string }[];
         sourcePlanMessageId?: number;
       };
-      /** Auto routing: one-shot thinking tier for this message. */
-      forceThinkingTier?: boolean;
       /** Resend/edit: work mode for this turn only. */
       workModeOverride?: import("@/lib/schemas").WorkMode;
     },
@@ -1216,7 +1155,6 @@ export class IpcClient {
       continueAfterQuestions,
       workspaceSessionId,
       prefillTaskLedger,
-      forceThinkingTier,
       workModeOverride,
       displayPrompt,
       pasteAttachments,
@@ -1244,7 +1182,6 @@ export class IpcClient {
               continueAfterQuestions: continueAfterQuestions ?? undefined,
               workspaceSessionId: workspaceSessionId ?? undefined,
               prefillTaskLedger: prefillTaskLedger ?? undefined,
-              forceThinkingTier: forceThinkingTier ?? undefined,
               workModeOverride: workModeOverride ?? undefined,
             })
             .catch((err) => {
@@ -1275,7 +1212,6 @@ export class IpcClient {
           continueAfterQuestions: continueAfterQuestions ?? undefined,
           workspaceSessionId: workspaceSessionId ?? undefined,
           prefillTaskLedger: prefillTaskLedger ?? undefined,
-          forceThinkingTier: forceThinkingTier ?? undefined,
           workModeOverride: workModeOverride ?? undefined,
         })
         .catch((err) => {
@@ -1371,7 +1307,7 @@ export class IpcClient {
 
   public async getWorkspaceSession(
     sessionId: string,
-    opts?: { limit?: number },
+    opts?: { limit?: number; fromSummary?: boolean },
   ) {
     return this.ipcRenderer.invoke("sessions:get", sessionId, opts);
   }
@@ -1771,50 +1707,6 @@ export class IpcClient {
   }
   // --- End GitHub Repo Management ---
 
-  // --- Vercel Token Management ---
-  public async saveVercelAccessToken(
-    params: SaveVercelAccessTokenParams,
-  ): Promise<void> {
-    await this.ipcRenderer.invoke("vercel:save-token", params);
-  }
-  // --- End Vercel Token Management ---
-
-  // --- Vercel Project Management ---
-  public async listVercelProjects(): Promise<VercelProject[]> {
-    return this.ipcRenderer.invoke("vercel:list-projects", undefined);
-  }
-
-  public async connectToExistingVercelProject(
-    params: ConnectToExistingVercelProjectParams,
-  ): Promise<void> {
-    await this.ipcRenderer.invoke("vercel:connect-existing-project", params);
-  }
-
-  public async isVercelProjectAvailable(
-    params: IsVercelProjectAvailableParams,
-  ): Promise<IsVercelProjectAvailableResponse> {
-    return this.ipcRenderer.invoke("vercel:is-project-available", params);
-  }
-
-  public async createVercelProject(
-    params: CreateVercelProjectParams,
-  ): Promise<void> {
-    await this.ipcRenderer.invoke("vercel:create-project", params);
-  }
-
-  // Get Vercel Deployments
-  public async getVercelDeployments(
-    params: GetVercelDeploymentsParams,
-  ): Promise<VercelDeployment[]> {
-    return this.ipcRenderer.invoke("vercel:get-deployments", params);
-  }
-
-  public async disconnectVercelProject(
-    params: DisconnectVercelProjectParams,
-  ): Promise<void> {
-    await this.ipcRenderer.invoke("vercel:disconnect", params);
-  }
-  // --- End Vercel Project Management ---
 
   // Get the main app version
   public async getAppVersion(): Promise<string> {
@@ -2056,32 +1948,11 @@ export class IpcClient {
     return this.ipcRenderer.invoke("skills:list-repo-skills", { workspaceId: workspaceId ?? null });
   }
 
-  // --- Custom slash commands ---
-  public async listCustomCommands(workspaceId?: number | null) {
-    return this.ipcRenderer.invoke("commands:list", workspaceId ?? null);
-  }
-
-  public async createCustomCommand(params: {
-    name: string;
-    promptTemplate: string;
-    modeOverride?: string | null;
-    workspaceId?: number | null;
-  }) {
-    return this.ipcRenderer.invoke("commands:create", params);
-  }
-
-  public async updateCustomCommand(params: {
-    id: number;
-    name?: string;
-    promptTemplate?: string;
-    modeOverride?: string | null;
-    workspaceId?: number | null;
-  }) {
-    return this.ipcRenderer.invoke("commands:update", params);
-  }
-
-  public async deleteCustomCommand(id: number) {
-    return this.ipcRenderer.invoke("commands:delete", id);
+  /** Files + folders in a workspace, for the chat composer `@` autocomplete. */
+  public async listWorkspacePaths(
+    appId: number,
+  ): Promise<{ files: string[]; dirs: string[] }> {
+    return this.ipcRenderer.invoke("workspace:list-paths", { appId });
   }
 
   public onMcpToolConsentRequest(
@@ -2673,59 +2544,6 @@ export class IpcClient {
   }
   // --- End Permission Management ---
 
-  // --- Supabase Management ---
-  public async listSupabaseProjects(): Promise<any[]> {
-    return this.ipcRenderer.invoke("supabase:list-projects");
-  }
-
-  public async listSupabaseBranches(params: {
-    projectId: string;
-  }): Promise<SupabaseBranch[]> {
-    return this.ipcRenderer.invoke("supabase:list-branches", params);
-  }
-
-  public async setSupabaseAppProject(
-    params: SetSupabaseAppProjectParams,
-  ): Promise<void> {
-    await this.ipcRenderer.invoke("supabase:set-app-project", params);
-  }
-
-  public async unsetSupabaseAppProject(app: number): Promise<void> {
-    await this.ipcRenderer.invoke("supabase:unset-app-project", {
-      app,
-    });
-  }
-
-  public async fakeHandleSupabaseConnect(params: {
-    appId: number;
-    fakeProjectId: string;
-  }): Promise<void> {
-    await this.ipcRenderer.invoke(
-      "supabase:fake-connect-and-set-project",
-      params,
-    );
-  }
-
-  // --- End Supabase Management ---
-
-  // --- Neon Management ---
-  public async fakeHandleNeonConnect(): Promise<void> {
-    await this.ipcRenderer.invoke("neon:fake-connect");
-  }
-
-  public async createNeonProject(
-    params: CreateNeonProjectParams,
-  ): Promise<NeonProject> {
-    return this.ipcRenderer.invoke("neon:create-project", params);
-  }
-
-  public async getNeonProject(
-    params: GetNeonProjectParams,
-  ): Promise<GetNeonProjectResponse> {
-    return this.ipcRenderer.invoke("neon:get-project", params);
-  }
-
-  // --- End Neon Management ---
 
   // --- Portal Management ---
   public async portalMigrateCreate(params: {
@@ -2970,12 +2788,6 @@ export class IpcClient {
 
   public async getNodePath(): Promise<string | null> {
     return this.ipcRenderer.invoke("get-node-path");
-  }
-
-  public async getLatestSecurityReview(
-    appId: number,
-  ): Promise<SecurityReviewResult> {
-    return this.ipcRenderer.invoke("get-latest-security-review", appId);
   }
 
   public async importApp(params: ImportAppParams): Promise<ImportAppResult> {
@@ -3351,84 +3163,6 @@ export class IpcClient {
     workspaceId: number;
   }): Promise<{ success: boolean; summary?: string; error?: string }> {
     return this.ipcRenderer.invoke("blueprint:simplify-architecture", params);
-  }
-
-  /** DB Extension: list connections and active id for workspace */
-  public async dbListConnections(workspaceId: number | null): Promise<{
-    connections: Array<{ id: string; name: string; type: string; status: string; isProd?: boolean }>;
-    activeId: string | null;
-  }> {
-    return this.ipcRenderer.invoke("db:list-connections", { workspaceId });
-  }
-
-  /** DB Extension: save a new connection */
-  public async dbSaveConnection(params: {
-    name: string;
-    type: string;
-    config: Record<string, unknown>;
-    isProd?: boolean;
-  }): Promise<{ id: string; success: boolean }> {
-    return this.ipcRenderer.invoke("db:save-connection", params);
-  }
-
-  /** DB Extension: delete a connection */
-  public async dbDeleteConnection(connectionId: string): Promise<{ success: boolean }> {
-    return this.ipcRenderer.invoke("db:delete-connection", { connectionId });
-  }
-
-  /** DB Extension: open live connection */
-  public async dbConnect(connectionId: string): Promise<{ success?: boolean; error?: string }> {
-    return this.ipcRenderer.invoke("db:connect", { connectionId });
-  }
-
-  /** DB Extension: close live connection */
-  public async dbDisconnect(connectionId: string): Promise<{ success: boolean }> {
-    return this.ipcRenderer.invoke("db:disconnect", { connectionId });
-  }
-
-  /** DB Extension: set active connection for workspace or global */
-  public async dbSetActiveConnection(workspaceId: number | null, connectionId: string | null): Promise<{ success: boolean }> {
-    return this.ipcRenderer.invoke("db:set-active-connection", { workspaceId, connectionId });
-  }
-
-  /** DB Extension: test connection by id or by config (before save) */
-  public async dbTestConnection(
-    payload: { connectionId: string } | { type: string; config: Record<string, unknown> }
-  ): Promise<{ success: boolean; error?: string }> {
-    return this.ipcRenderer.invoke("db:test-connection", payload);
-  }
-
-  /** DB Extension: parse connection string to get type and config */
-  public async dbParseConnectionString(connectionString: string): Promise<{
-    type: string;
-    config: Record<string, unknown>;
-    database?: string;
-  } | null> {
-    return this.ipcRenderer.invoke("db:parse-connection-string", { connectionString });
-  }
-
-  /** DB Extension: get schema for active connection */
-  public async dbGetSchema(workspaceId: number | null): Promise<{
-    tables: Array<{ name: string; columns: Array<{ name: string; type: string }> }>;
-    foreignKeys: Array<{ table: string; column: string; referencedTable: string; referencedColumn: string }>;
-  } | null> {
-    return this.ipcRenderer.invoke("db:get-schema", { workspaceId });
-  }
-
-  /** DB Extension: run read-only query */
-  public async dbRunQuery(
-    workspaceId: number | null,
-    query: string
-  ): Promise<{ rows?: unknown[]; error?: string }> {
-    return this.ipcRenderer.invoke("db:run-query", { workspaceId, query });
-  }
-
-  /** DB Extension: get table data (first 50 rows) */
-  public async dbGetTableData(
-    workspaceId: number | null,
-    table: string
-  ): Promise<{ rows?: unknown[]; error?: string }> {
-    return this.ipcRenderer.invoke("db:get-table-data", { workspaceId, table });
   }
 
   /** Workforce Feature 2: commit Blueprint snapshot to `.atlarix/blueprint.json`. */

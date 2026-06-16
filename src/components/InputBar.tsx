@@ -5,6 +5,7 @@
  */
 
 import { useState, useRef, KeyboardEvent } from 'react';
+import { useComposerAutocomplete } from '@/components/chat/ComposerAutocomplete';
 
 interface InputBarProps {
     onSendMessage: (message: string, attachments?: File[]) => void;
@@ -17,6 +18,8 @@ export function InputBar({ onSendMessage, disabled }: InputBarProps) {
     const [showFilePickerMenu, setShowFilePickerMenu] = useState(false);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const { menu: autocompleteMenu, onKeyDown: autocompleteKeyDown } =
+        useComposerAutocomplete({ value: message, setValue: setMessage, textareaRef });
 
     const handleSend = () => {
         if (message.trim() || attachments.length > 0) {
@@ -27,6 +30,7 @@ export function InputBar({ onSendMessage, disabled }: InputBarProps) {
     };
 
     const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+        if (autocompleteKeyDown(e)) return;
         if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault();
             handleSend();
@@ -65,8 +69,10 @@ export function InputBar({ onSendMessage, disabled }: InputBarProps) {
                     borderRadius: '12px',
                     border: '1px solid var(--graphite-border)',
                     padding: '12px',
+                    position: 'relative',
                 }}
             >
+                {autocompleteMenu}
                 {/* Attach Button */}
                 <div style={{ position: 'relative' }}>
                     <button

@@ -67,6 +67,8 @@ import raw_60_0060_background_agent_session_status from "../../../drizzle/0060_b
 import raw_61_0061_background_agent_meta from "../../../drizzle/0061_background_agent_meta.sql?raw";
 import raw_62_0062_drop_legacy_diagram_tables from "../../../drizzle/0062_drop_legacy_diagram_tables.sql?raw";
 import raw_63_0063_session_message_snapshot_turn from "../../../drizzle/0063_session_message_snapshot_turn.sql?raw";
+import raw_64_0064_drop_deploy_connector_columns from "../../../drizzle/0064_drop_deploy_connector_columns.sql?raw";
+import raw_65_0065_drop_custom_commands from "../../../drizzle/0065_drop_custom_commands.sql?raw";
 
 export type BundledMigration = {
   name: string;
@@ -141,6 +143,8 @@ export const BUNDLED_MIGRATIONS: BundledMigration[] = [
   { name: "0061_background_agent_meta", sql: raw_61_0061_background_agent_meta as string, drizzleHash: "051367e12c9dbddf34f4e9f9296ce394772e02703bfb69e65425ca3b16efb260", when: 1780050000000 },
   { name: "0062_drop_legacy_diagram_tables", sql: raw_62_0062_drop_legacy_diagram_tables as string, drizzleHash: "53074fc43241070d7504655f41e74c72c171915ccf1192f204e700c326648183", when: 1780150000000 },
   { name: "0063_session_message_snapshot_turn", sql: raw_63_0063_session_message_snapshot_turn as string, drizzleHash: "f6c4cdb73fea5bcf651cd7ea2d5cf9c8fa3e73359c378bcb7c1d0f250365383b", when: 1780250000000 },
+  { name: "0064_drop_deploy_connector_columns", sql: raw_64_0064_drop_deploy_connector_columns as string, drizzleHash: "86bdddf8172894484b41f2ed6da6ec5ca04913b7b85508875fa2e9f71f39da42", when: 1780350000000 },
+  { name: "0065_drop_custom_commands", sql: raw_65_0065_drop_custom_commands as string, drizzleHash: "4d9a9f8e066c8e7a2ae836348de507c70dc9114832ce8ba431d47e471d49ac8c", when: 1780450000000 },
 ];
 
 /** Map Drizzle __drizzle_migrations.hash → migration tag for bridge. */
@@ -209,4 +213,6 @@ export const DRIZZLE_HASH_TO_NAME: Record<string, string> = {
   "051367e12c9dbddf34f4e9f9296ce394772e02703bfb69e65425ca3b16efb260": "0061_background_agent_meta",
   "53074fc43241070d7504655f41e74c72c171915ccf1192f204e700c326648183": "0062_drop_legacy_diagram_tables",
   "f6c4cdb73fea5bcf651cd7ea2d5cf9c8fa3e73359c378bcb7c1d0f250365383b": "0063_session_message_snapshot_turn",
+  "86bdddf8172894484b41f2ed6da6ec5ca04913b7b85508875fa2e9f71f39da42": "0064_drop_deploy_connector_columns",
+  "4d9a9f8e066c8e7a2ae836348de507c70dc9114832ce8ba431d47e471d49ac8c": "0065_drop_custom_commands",
 };

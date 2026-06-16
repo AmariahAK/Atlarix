@@ -1,6 +1,5 @@
 import { normalizePath } from "../../../shared/normalizePath";
 import log from "electron-log";
-import { SqlQuery } from "../../lib/schemas";
 
 const logger = log.scope("atlarix_tag_parser");
 
@@ -83,35 +82,6 @@ export function getAtlarixChatSummaryTag(fullResponse: string): string | null {
     return match[1].trim();
   }
   return null;
-}
-
-export function getAtlarixExecuteSqlTags(fullResponse: string): SqlQuery[] {
-  const atlarixExecuteSqlRegex =
-    /<atlarix-execute-sql([^>]*)>([\s\S]*?)<\/atlarix-execute-sql>/g;
-  const descriptionRegex = /description="([^"]+)"/;
-  let match;
-  const queries: { content: string; description?: string }[] = [];
-
-  while ((match = atlarixExecuteSqlRegex.exec(fullResponse)) !== null) {
-    const attributesString = match[1] || "";
-    let content = match[2].trim();
-    const descriptionMatch = descriptionRegex.exec(attributesString);
-    const description = descriptionMatch?.[1];
-
-    // Handle markdown code blocks if present
-    const contentLines = content.split("\n");
-    if (contentLines[0]?.startsWith("```")) {
-      contentLines.shift();
-    }
-    if (contentLines[contentLines.length - 1]?.startsWith("```")) {
-      contentLines.pop();
-    }
-    content = contentLines.join("\n");
-
-    queries.push({ content, description });
-  }
-
-  return queries;
 }
 
 export function getAtlarixCommandTags(fullResponse: string): string[] {

@@ -36,11 +36,6 @@ const validInvokeChannels = [
   "stream:close",                 // v3.9: close stream
   "stream:get-lines",             // v3.9: get collected lines
   "stream:feed-terminal",         // v3.9: feed terminal output (main process)
-  "github-actions:list-runs",
-  "github-actions:get-jobs",
-  "github-actions:get-logs",
-  "github-actions:start-stream",
-  "github-actions:stop-stream",
   "chat:count-tokens",
   "chat:hydrate-ephemeral-messages",
   "sessions:list",
@@ -81,10 +76,7 @@ const validInvokeChannels = [
   "rename-app",
   "get-user-settings",
   "set-user-settings",
-  "commands:list",
-  "commands:create",
-  "commands:update",
-  "commands:delete",
+  "workspace:list-paths",
   "get-env-vars",
   "get-db-ready",
   "open-external-url",
@@ -102,16 +94,6 @@ const validInvokeChannels = [
   "github:connect-existing-repo",
   "github:push",
   "github:disconnect",
-  "neon:create-project",
-  "neon:get-project",
-  "neon:delete-branch",
-  "vercel:save-token",
-  "vercel:list-projects",
-  "vercel:is-project-available",
-  "vercel:create-project",
-  "vercel:connect-existing-project",
-  "vercel:get-deployments",
-  "vercel:disconnect",
   "get-app-version",
   "get-sentry-config",
   "perf:tool-snapshot",
@@ -121,10 +103,6 @@ const validInvokeChannels = [
   "approve-proposal",
   "reject-proposal",
   "get-system-debug-info",
-  "supabase:list-projects",
-  "supabase:list-branches",
-  "supabase:set-app-project",
-  "supabase:unset-app-project",
   "local-models:list-ollama",
   "local-models:list-lmstudio",
   "window:minimize",
@@ -189,7 +167,6 @@ const validInvokeChannels = [
   "add-to-favorite",
   "github:clone-repo-from-url",
   "github:cancel-clone",
-  "get-latest-security-review",
   // Provider API Keys
   "provider:get-api-key",
   "provider:set-api-key",
@@ -233,10 +210,6 @@ const validInvokeChannels = [
   "searxng:stop",
   "searxng:logs",
   // Test-only channels
-  // These should ALWAYS be guarded with IS_TEST_BUILD in the main process.
-  // We can't detect with IS_TEST_BUILD in the preload script because
-  // it's a separate process from the main process.
-  "supabase:fake-connect-and-set-project",
   // Permission system (Build mode)
   "execute-permission",
   "reject-permission",
@@ -319,18 +292,6 @@ const validInvokeChannels = [
   "onboarding:set-completed",
   "tour:get-state",
   "tour:set-state",
-  // DB Extension (Pro / Workforce preview)
-  "db:list-connections",
-  "db:save-connection",
-  "db:delete-connection",
-  "db:connect",
-  "db:disconnect",
-  "db:get-schema",
-  "db:run-query",
-  "db:get-table-data",
-  "db:set-active-connection",
-  "db:test-connection",
-  "db:parse-connection-string",
   // v4.0 Teams (Workforce)
   "team:get",
   "team:list-members",
@@ -362,6 +323,7 @@ const validReceiveChannels = [
   "chat:stream:reset-partial",  // backend will (re)start streaming; clear in-flight buffer
   "theme:system-updated",
   "models-dev:status",
+  "core-models:changed",
   "window:fullscreen-changed",
   "app:output",
   "github:clone:progress",
@@ -435,8 +397,6 @@ const validReceiveChannels = [
   "blueprint:edges-updated",
   // OAuth callback from main process
   "oauth-callback-success",
-  // v3.9: GitHub Actions log stream
-  "github-actions:log-chunk",
   "open-community-dialog",
   // Auto-updater
   "update:downloading",   // update is being fetched in background; payload: { version: string }

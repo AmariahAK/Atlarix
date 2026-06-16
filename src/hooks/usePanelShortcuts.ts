@@ -2,15 +2,13 @@
  * Global keyboard shortcuts for panels and work modes.
  * - Cmd+B / Ctrl+B: toggle right panel (everyone).
  * - Shift+Tab: cycle work mode Explore → Plan → Build → Debug → Review (workspace chats).
- * - Cmd+I / Ctrl+I: left panel, Cmd+O / Ctrl+O: right panel (Pro; shows upgrade toast otherwise).
+ * - Cmd+O / Ctrl+O: right panel (Pro; shows upgrade toast otherwise).
  * Panels open at 30% window width; close does not change stored width.
  */
 
 import { useEffect } from "react";
 import { useAtomValue, useSetAtom } from "jotai";
 import {
-  leftPanelVisibleAtom,
-  leftPanelWidthAtom,
   rightPanelVisibleAtom,
   rightPanelWidthAtom,
   rightPanelSuppressAutoOpenAtom,
@@ -36,10 +34,6 @@ const isInputLike = (el: EventTarget | null): boolean => {
 export function usePanelShortcuts() {
   const { status } = useAuth();
   const isPro = status?.plan === "pro";
-
-  const leftPanelVisible = useAtomValue(leftPanelVisibleAtom);
-  const setLeftPanelVisible = useSetAtom(leftPanelVisibleAtom);
-  const setLeftPanelWidth = useSetAtom(leftPanelWidthAtom);
 
   const rightPanelVisible = useAtomValue(rightPanelVisibleAtom);
   const setRightPanelVisible = useSetAtom(rightPanelVisibleAtom);
@@ -92,27 +86,10 @@ export function usePanelShortcuts() {
         return;
       }
 
-      if (mod && e.key === "i") {
-        e.preventDefault();
-        if (!isPro) {
-          showInfo("Panel shortcuts are available on Pro. Upgrade to use Cmd+I / Cmd+O.");
-          triggerUpgrade();
-          return;
-        }
-        if (leftPanelVisible) {
-          setLeftPanelVisible(false);
-        } else {
-          const w = Math.max(200, Math.floor(window.innerWidth * 0.3));
-          setLeftPanelWidth(w);
-          setLeftPanelVisible(true);
-        }
-        return;
-      }
-
       if (mod && e.key === "o") {
         e.preventDefault();
         if (!isPro) {
-          showInfo("Panel shortcuts are available on Pro. Upgrade to use Cmd+I / Cmd+O.");
+          showInfo("Panel shortcuts are available on Pro. Upgrade to use Cmd+O.");
           triggerUpgrade();
           return;
         }
@@ -125,9 +102,6 @@ export function usePanelShortcuts() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [
     isPro,
-    leftPanelVisible,
-    setLeftPanelVisible,
-    setLeftPanelWidth,
     rightPanelVisible,
     setRightPanelVisible,
     setRightPanelWidth,

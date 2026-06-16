@@ -53,10 +53,6 @@ const LABELS: Record<string, string> = {
   set_project_memory: "Updating project memory…",
   get_atlarixignore: "Reading ignore rules…",
   update_atlarixignore: "Updating ignore rules…",
-  db_query: "Querying database…",
-  db_schema: "Reading database schema…",
-  db_list: "Listing database connections…",
-  db_mutate: "Updating database…",
 };
 
 /**
@@ -181,10 +177,6 @@ const DONE_LABELS: Record<string, string> = {
   set_project_memory: "Updated project memory",
   get_atlarixignore: "Read ignore rules",
   update_atlarixignore: "Updated ignore rules",
-  db_query: "Queried database",
-  db_schema: "Read database schema",
-  db_list: "Listed database connections",
-  db_mutate: "Updated database",
 };
 
 /** Past-tense label for completed tool cards. */

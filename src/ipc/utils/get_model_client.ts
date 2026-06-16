@@ -29,59 +29,6 @@ export function getEffectiveModelForOptions(settings: UserSettings): LargeLangua
   return settings.selectedModel;
 }
 
-/**
- * Returns the "fast" model for the current provider: Auto's first model, or manual's first favorite.
- * Used for summarization, diagram fallback, and any flow that should use the user's chosen fast model.
- */
-export function getFastModelForCurrentProvider(
-  settings: UserSettings,
-  _openRouterFavoriteIds?: string[],
-): LargeLanguageModel | null {
-  const effective = settings.selectedModel;
-  if (!effective?.provider) return null;
-  if (effective.provider === "compass") {
-    return { provider: "compass", name: CORE_TIER_1 };
-  }
-  if (effective.provider === "openrouter" && effective.name?.trim()) {
-    return { provider: "openrouter", name: effective.name.trim() };
-  }
-  const ollamaFavs = (settings.providerSettings?.ollama as { favoriteModelIds?: string[] })?.favoriteModelIds;
-  if (effective.provider === "ollama" && ollamaFavs?.length) {
-    return { provider: "ollama", name: ollamaFavs[0] };
-  }
-  const lmStudioFavs = (settings.providerSettings?.lmstudio as { favoriteModelIds?: string[] })?.favoriteModelIds;
-  if (effective.provider === "lmstudio" && lmStudioFavs?.length) {
-    return { provider: "lmstudio", name: lmStudioFavs[0] };
-  }
-  return null;
-}
-
-/**
- * v3.6: Returns the balanced (second-tier) model for summarization when session is complex.
- */
-export function getBalancedModelForCurrentProvider(
-  settings: UserSettings,
-  _openRouterFavoriteIds?: string[],
-): LargeLanguageModel | null {
-  const effective = settings.selectedModel;
-  if (!effective?.provider) return null;
-  if (effective.provider === "compass") {
-    return { provider: "compass", name: CORE_TIER_2 };
-  }
-  if (effective.provider === "openrouter" && effective.name?.trim()) {
-    return { provider: "openrouter", name: effective.name.trim() };
-  }
-  const ollamaFavs = (settings.providerSettings?.ollama as { favoriteModelIds?: string[] })?.favoriteModelIds;
-  if (effective.provider === "ollama" && ollamaFavs && ollamaFavs.length >= 2) {
-    return { provider: "ollama", name: ollamaFavs[1] };
-  }
-  const lmStudioFavs = (settings.providerSettings?.lmstudio as { favoriteModelIds?: string[] })?.favoriteModelIds;
-  if (effective.provider === "lmstudio" && lmStudioFavs && lmStudioFavs.length >= 2) {
-    return { provider: "lmstudio", name: lmStudioFavs[1] };
-  }
-  return null;
-}
-
 import { getEnvVar } from "./read_env";
 import log from "electron-log";
 import { getLanguageModelProviders } from "../shared/language_model_helpers";
@@ -89,15 +36,13 @@ import { getProviderApiKey } from "../shared/provider_api_keys";
 import { LanguageModelProvider } from "../ipc_types";
 import { createAtlarixEngine } from "./llm_engine_provider";
 import {
-  CORE_TIER_1,
-  CORE_TIER_2,
   getCompassMasterApiKey,
   getOpenRouterModelIdForCoreTier,
 } from "../shared/compass_constants";
 import { LM_STUDIO_BASE_URL } from "./lm_studio_utils";
 import { createOllamaProvider } from "./ollama_provider";
 import { getOllamaApiUrl } from "../handlers/local_model_ollama_handler";
-import { resolveContextBudgetTier } from "../../lib/routing/context_budget_routing";
+import { hasNativeDeepThinkingSupport } from "../../lib/routing/reasoning-detector";
 
 /** Primary: `ATLARIX_ENGINE_URL`. Deprecated alias: `DYAD_ENGINE_URL`. */
 const atlarixEngineUrl =
@@ -158,8 +103,11 @@ export async function getModelClient(
     // so we do a nullish and not a truthy check here.
     if (providerConfig.gatewayPrefix != null || atlarixEngineUrl) {
       const enableSmartFilesContext = settings.enableProSmartFilesContextMode;
-      const includeExtendedThinking =
-        resolveContextBudgetTier(model, settings) === "thinking";
+      const includeExtendedThinking = hasNativeDeepThinkingSupport(
+        model,
+        model.provider,
+        settings,
+      );
       const provider = createAtlarixEngine({
         apiKey: atlarixProApiKey,
         baseURL: atlarixEngineUrl ?? "https://engine.atlarix.dev/v1",

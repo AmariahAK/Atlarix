@@ -8,12 +8,9 @@ import { registerTerminalInstancesHandlers } from "./handlers/terminal_instances
 import { registerPtyHandlers } from "./handlers/pty_handlers";
 import { registerCliHandlers } from "./handlers/cli_handlers";
 import { registerGithubHandlers } from "./handlers/github_handlers";
-import { registerVercelHandlers } from "./handlers/vercel_handlers";
 import { registerNodeHandlers } from "./handlers/node_handlers";
 import { registerProposalHandlers } from "./handlers/proposal_handlers";
 import { registerDebugHandlers } from "./handlers/debug_handlers";
-import { registerSupabaseHandlers } from "./handlers/supabase_handlers";
-import { registerNeonHandlers } from "./handlers/neon_handlers";
 import { registerLocalModelHandlers } from "./handlers/local_model_handlers";
 import { registerTokenCountHandlers } from "./handlers/token_count_handlers";
 import { registerWindowHandlers } from "./handlers/window_handlers";
@@ -39,7 +36,6 @@ import { registerMcpHandlers } from "./handlers/mcp_handlers";
 import { registerMcpOAuthHandlers } from "./handlers/mcp_oauth_handlers";
 import { registerBrowserHandlers } from "./handlers/browser_handlers";
 import { registerSkillsHandlers } from "./handlers/skills_handlers";
-import { registerSecurityHandlers } from "./handlers/security_handlers";
 import { registerVisualEditingHandlers } from "../pro/main/ipc/handlers/visual_editing_handlers";
 import { registerFolderDialogHandler } from "./handlers/atlarix_handlers";
 import { registerSearxngHandlers } from "./handlers/searxng_handlers";
@@ -50,11 +46,7 @@ import { registerCodebaseSearchHandlers } from "./handlers/codebase_search_handl
 import { registerWorkspaceSnapshotHandlers } from "./handlers/workspace_snapshot_handlers";
 // PASS6: Blueprint subsystem restored.
 import { registerBlueprintHandlers } from "./handlers/blueprint_handlers";
-import { registerDbExtensionHandlers } from "./handlers/db_extension_handlers";
-import { registerCommandsHandlers } from "./handlers/commands_handlers";
 import { registerStreamHandlers } from "./handlers/stream_handlers";
-import { registerGitHubActionsHandlers } from "./handlers/github_actions_handlers";
-import { registerExtensionSpaceHandlers } from "./handlers/extension_space_handlers";
 import { registerTeamHandlers } from "./handlers/team_handlers";
 import { registerTourHandlers } from "./handlers/tour_handlers";
 import { registerCommunityHandlers } from "./handlers/community_handlers";
@@ -78,12 +70,9 @@ export function registerIpcHandlers() {
   registerPtyHandlers(); // v10 interactive terminal
   registerCliHandlers();
   registerGithubHandlers();
-  registerVercelHandlers();
   registerNodeHandlers();
   registerProposalHandlers();
   registerDebugHandlers();
-  registerSupabaseHandlers();
-  registerNeonHandlers();
   registerLocalModelHandlers();
   registerTokenCountHandlers();
   registerWindowHandlers();
@@ -107,7 +96,6 @@ export function registerIpcHandlers() {
   registerMcpHandlers();
   registerMcpOAuthHandlers();
   registerSkillsHandlers();
-  registerSecurityHandlers();
   registerVisualEditingHandlers();
   // Atlarix handlers
   registerFolderDialogHandler();
@@ -120,11 +108,7 @@ export function registerIpcHandlers() {
   registerWorkspaceSnapshotHandlers(); // Workspace snapshots (Pro)
   // PASS6: Blueprint subsystem restored.
   registerBlueprintHandlers();
-  registerDbExtensionHandlers(); // DB Studio extension (Pro)
-  registerCommandsHandlers(); // v3.6 Auto routing preview
   registerStreamHandlers(); // v3.9 Stream tools (terminal/pipeline)
-  registerGitHubActionsHandlers(); // v3.9 GitHub Actions panel
-  registerExtensionSpaceHandlers(); // v4.0 per-workspace extension scope (Workforce)
   registerTeamHandlers(); // v4.0 Teams (Workforce)
   registerTourHandlers(); // Shepherd tour state (electron-store–style local JSON)
   registerCommunityHandlers(); // Discord invite metadata for Community dialog

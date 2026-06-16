@@ -147,10 +147,6 @@ export function createAtlarixEngine(
           if ("dyadDisableFiles" in parsedBody) {
             delete parsedBody.dyadDisableFiles;
           }
-          const mentionedAppsPayload = parsedBody.dyadMentionedApps;
-          if ("dyadMentionedApps" in parsedBody) {
-            delete parsedBody.dyadMentionedApps;
-          }
           const smartContextModePayload = parsedBody.dyadSmartContextMode;
           if ("dyadSmartContextMode" in parsedBody) {
             delete parsedBody.dyadSmartContextMode;
@@ -176,9 +172,6 @@ export function createAtlarixEngine(
               enable_web_search: options.atlarixEngineOptions.enableWebSearch,
               app_id: appIdPayload,
             };
-            if (mentionedAppsPayload?.length) {
-              parsedBody.dyad_options.mentioned_apps = mentionedAppsPayload;
-            }
           }
 
           // Return modified request with files included and requestId in headers

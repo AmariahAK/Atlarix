@@ -21,20 +21,6 @@ export function getEffectiveModelForOptions(
   return settings.selectedModel;
 }
 
-export function getFastModelForCurrentProvider(
-  _settings: UserSettings,
-  _openRouterFavoriteIds?: string[],
-): LargeLanguageModel | null {
-  return null;
-}
-
-export function getBalancedModelForCurrentProvider(
-  _settings: UserSettings,
-  _openRouterFavoriteIds?: string[],
-): LargeLanguageModel | null {
-  return null;
-}
-
 export async function getModelClient(): Promise<never> {
   throw new Error(
     "getModelClient() is main-process only — model dispatch must go through IPC, not the renderer.",

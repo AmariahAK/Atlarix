@@ -1,3 +1,5 @@
+import { useEffect, useRef } from "react";
+import { toast } from "sonner";
 import {
   Tooltip,
   TooltipContent,
@@ -52,6 +54,37 @@ export function TokenBar({
   const lastAuxTokens = chatId != null ? auxTokensByChat[chatId] : undefined;
   const turnCostByChat = useAtomValue(lastTurnCostUsdByChatIdAtom);
   const lastTurnCostUsd = chatId != null ? turnCostByChat[chatId] : undefined;
+
+  // #3: notify when switching to a model whose context window is smaller than
+  // the current usage. The dispatch already auto-compacts to fit; this is a
+  // one-time transparency toast. Re-evaluated once the token count refetches
+  // with the newly selected model's window.
+  const modelKey = settings?.selectedModel
+    ? `${settings.selectedModel.provider}/${settings.selectedModel.name}`
+    : "";
+  const prevModelKeyRef = useRef(modelKey);
+  const awaitingSwitchRef = useRef(false);
+  useEffect(() => {
+    if (modelKey && modelKey !== prevModelKeyRef.current) {
+      prevModelKeyRef.current = modelKey;
+      awaitingSwitchRef.current = true;
+    }
+  }, [modelKey]);
+  useEffect(() => {
+    if (!awaitingSwitchRef.current || !result) return;
+    awaitingSwitchRef.current = false;
+    const window = result.contextWindow;
+    if (window && result.estimatedTotalTokens > window) {
+      const w =
+        window >= 1_000_000
+          ? `${(window / 1_000_000).toFixed(1)}M`
+          : `${Math.round(window / 1000)}K`;
+      toast.message(
+        `Switched to a ${w}-context model. Older context will be compacted to fit.`,
+        { duration: 6000 },
+      );
+    }
+  }, [result]);
 
   if (chatId == null || !result) {
     return null;
@@ -155,7 +188,7 @@ export function TokenBar({
                   <span>{codebaseTokens.toLocaleString()}</span>
 
                   <ExternalLink size={12} className="text-orange-500" />
-                  <span>Mentioned Apps</span>
+                  <span>Mentioned files</span>
                   <span>{mentionedAppsTokens.toLocaleString()}</span>
 
                   <Bot size={12} className="text-purple-500" />

@@ -3,6 +3,7 @@ import { isPlanLimitError } from "@/lib/plan-limit-error";
 import { sentryMessageMatchesIgnoredPattern } from "@/lib/sentry-ignore-patterns";
 import { normalizeSentryErrorText } from "@/lib/sentry-decode-message";
 import { isNoUsableModelOutputError } from "@/ipc/utils/no_usable_model_output";
+import { isStreamStopAbort } from "@/lib/stream/stream-stop-sentinels";
 
 /**
  * Drop expected non-errors so Sentry alerts stay actionable.
@@ -23,6 +24,11 @@ export function sentryBeforeSendDropExpected(
     }
   }
   const original = hint?.originalException;
+  // Intentional stream-stop aborts (ask_user_pending, task_complete, loop guard,
+  // compass limit) end turns by design — the main-process safety net already
+  // swallows them, but Sentry's own onunhandledrejection integration captures
+  // them independently, so drop them here too.
+  if (isStreamStopAbort(original)) return null;
   if (isPlanLimitError(original)) return null;
   // Structured match catches the benign empty-output family even when the
   // serialized message text varies (AI SDK wraps/nests these).

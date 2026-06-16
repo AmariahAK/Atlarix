@@ -34,6 +34,7 @@ import { IpcClient } from "@/ipc/ipc_client";
 import { useAuth } from "@/lib/auth/useAuth";
 import {
   DEFAULT_MCP_REGISTRY_URL,
+  getMcpOAuthScopes,
   type McpRegistryEntry,
   type McpRegistryIndex,
 } from "@/shared/mcp-registry";
@@ -194,7 +195,7 @@ export function McpMarketplaceTab({
           try {
             await ipc.startMcpOAuth({
               serverId: res.serverId,
-              scopes: entry.oauthScopes,
+              scopes: getMcpOAuthScopes(entry),
             });
             showSuccess(`Opening browser to sign in to ${entry.name}…`);
           } catch (e) {

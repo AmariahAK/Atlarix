@@ -36,6 +36,7 @@ import { cn } from "@/lib/utils";
 import { useAttachments } from "@/hooks/useAttachments";
 import { AttachmentsList } from "@/components/chat/AttachmentsList";
 import { DragDropOverlay } from "@/components/chat/DragDropOverlay";
+import { useComposerAutocomplete } from "@/components/chat/ComposerAutocomplete";
 
 interface SimpleChatInputProps {
     chatId: number;
@@ -58,6 +59,12 @@ export function SimpleChatInput({ chatId, onSubmit, placeholder = "Continue the 
     const [queuedByChatId, setQueuedByChatId] = useAtom(queuedMessageByChatIdAtom);
     const queuedMessage = queuedByChatId.get(chatId);
     const inputRef = useRef<HTMLTextAreaElement>(null);
+    const { menu: autocompleteMenu, onKeyDown: autocompleteKeyDown } =
+        useComposerAutocomplete({
+            value: inputValue,
+            setValue: setInputValue,
+            textareaRef: inputRef,
+        });
     const { isAuthenticated, loading: authLoading } = useAuth();
     const mustSignIn = !authLoading && !isAuthenticated;
     const [isSubmitting, setIsSubmitting] = useState(false);
@@ -141,6 +148,8 @@ export function SimpleChatInput({ chatId, onSubmit, placeholder = "Continue the 
     };
 
     const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+        // The `/` `@` autocomplete menu gets first crack at nav/select/esc keys.
+        if (autocompleteKeyDown(e)) return;
         if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault();
             handleSubmit(e as unknown as React.FormEvent);
@@ -181,6 +190,7 @@ export function SimpleChatInput({ chatId, onSubmit, placeholder = "Continue the 
                     isDraggingOver && "ring-2 ring-blue-500 border-blue-500",
                 )}
             >
+                {autocompleteMenu}
                 <AttachmentsList
                     attachments={attachments}
                     onRemove={removeAttachment}

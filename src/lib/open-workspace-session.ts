@@ -28,6 +28,7 @@ import { loadedSessionTruncatedAtom } from "@/atoms/sessionAtoms";
 import { pushRecentWorkspace } from "@/lib/workspace-recents";
 import { showError } from "@/lib/toast";
 import { resetTerminalInstancesForNewChat } from "@/lib/reset-terminal-instances";
+import { clearChatAtomsForChat } from "@/lib/chat/clear-chat-atoms";
 
 /**
  * Add or update an open-session tab (dedupe by chatId), preserving the order
@@ -116,6 +117,9 @@ export async function startNewWorkspaceConversation(
     const { sessionId, chatId } =
       await ipc.startWorkspaceConversation(workspaceId);
     resetTerminalInstancesForNewChat();
+    // Defensive: a brand-new conversation must never inherit stale per-chat
+    // state (e.g. a pending ask_user question) if this chatId was ever reused.
+    clearChatAtomsForChat(chatId);
     const store = getDefaultStore();
 
     attachWorkspaceToChat(chatId, workspaceId, {

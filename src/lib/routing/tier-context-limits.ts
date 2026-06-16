@@ -1,24 +1,12 @@
 /**
- * Dynamic per-tier context limits from OpenRouter's public models API.
- * Cached 24h; no hardcoded model windows for budgeting beyond fallbacks.
- * Also caches full model rows for reasoning-capability lookup (same refresh).
+ * OpenRouter model catalog cache (24h) for context-budget sizing.
+ * No hardcoded model windows: real per-model limits come from the live
+ * OpenRouter response and are read via `getCachedOpenRouterModelRow`. Also backs
+ * reasoning-capability lookups (same refresh).
  */
 
 import { OPENROUTER_APP_HEADERS } from "@/ipc/shared/openrouter_app_headers";
 
-export interface TierContextLimits {
-  fast: number;
-  balanced: number;
-  thinking: number;
-}
-
-const SAFETY_FACTOR = 0.8;
-// Single generous fallback used by BOTH miss paths (per-model lookup miss and
-// whole-fetch failure) so they agree. Real limits come from the live
-// OpenRouter response; this only applies when that data is unavailable.
-// Modern models routinely exceed 128K (Qwen3.5-Flash advertises 1M) — a low
-// cap here caused false "context full" warnings and premature compaction.
-const FALLBACK_LIMIT = 200_000;
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 
 export interface OpenRouterModelRowExtended {
@@ -34,22 +22,9 @@ interface OpenRouterModelsResponse {
   data?: OpenRouterModelRowExtended[];
 }
 
-let cachedLimits: TierContextLimits | null = null;
 let cacheTimestamp = 0;
-let cacheKey = "";
 /** Populated on last successful models fetch; keyed by OpenRouter model id (e.g. anthropic/claude-3.5-sonnet). */
 let openRouterModelsById: Map<string, OpenRouterModelRowExtended> | null = null;
-
-function fallbackLimitsOnFetchFailure(): TierContextLimits {
-  // Last-resort fallbacks when the OpenRouter models fetch fails. Uses the same
-  // FALLBACK_LIMIT as the per-model-miss path so both agree; never the
-  // operating limit in practice (real limits come from the live response).
-  return {
-    fast: FALLBACK_LIMIT,
-    balanced: FALLBACK_LIMIT,
-    thinking: FALLBACK_LIMIT,
-  };
-}
 
 function rebuildModelIndex(data: OpenRouterModelRowExtended[]): void {
   const m = new Map<string, OpenRouterModelRowExtended>();
@@ -61,7 +36,7 @@ function rebuildModelIndex(data: OpenRouterModelRowExtended[]): void {
   openRouterModelsById = m;
 }
 
-/** Sync lookup from the last successful OpenRouter models fetch (same 24h cache as tier limits). */
+/** Sync lookup from the last successful OpenRouter models fetch (24h cache). */
 export function getCachedOpenRouterModelRow(
   modelId: string,
 ): OpenRouterModelRowExtended | undefined {
@@ -69,20 +44,16 @@ export function getCachedOpenRouterModelRow(
   return openRouterModelsById.get(modelId.trim());
 }
 
-export async function getTierContextLimits(
-  fastModelId: string,
-  balancedModelId: string,
-  thinkingModelId: string,
-): Promise<TierContextLimits> {
-  const key = `${fastModelId}\0${balancedModelId}\0${thinkingModelId}`;
-  if (
-    cachedLimits &&
-    cacheKey === key &&
-    Date.now() - cacheTimestamp < CACHE_TTL_MS
-  ) {
-    return cachedLimits;
+/**
+ * Ensure the OpenRouter model catalog is loaded (24h TTL) so per-model context
+ * windows and reasoning capability resolve via `getCachedOpenRouterModelRow`.
+ * Fetches the full catalog regardless of which model is in use; never throws —
+ * on failure the stale/empty index stands and callers fall back to heuristics.
+ */
+export async function warmOpenRouterModelCache(): Promise<void> {
+  if (openRouterModelsById && Date.now() - cacheTimestamp < CACHE_TTL_MS) {
+    return;
   }
-
   try {
     const res = await fetch("https://openrouter.ai/api/v1/models", {
       headers: {
@@ -90,39 +61,12 @@ export async function getTierContextLimits(
         "Content-Type": "application/json",
       },
     });
-    if (!res.ok) {
-      return fallbackLimitsOnFetchFailure();
-    }
+    if (!res.ok) return;
     const json = (await res.json()) as OpenRouterModelsResponse;
     const data = Array.isArray(json.data) ? json.data : [];
     rebuildModelIndex(data);
-
-    const getLimit = (id: string): number => {
-      if (!id.trim()) return FALLBACK_LIMIT;
-      const model = data.find((m) => m.id === id);
-      if (model?.context_length == null || typeof model.context_length !== "number") {
-        return FALLBACK_LIMIT;
-      }
-      return Math.floor(model.context_length * SAFETY_FACTOR);
-    };
-
-    cachedLimits = {
-      fast: getLimit(fastModelId),
-      balanced: getLimit(balancedModelId),
-      thinking: getLimit(thinkingModelId),
-    };
-    cacheKey = key;
     cacheTimestamp = Date.now();
-    return cachedLimits;
   } catch {
-    return fallbackLimitsOnFetchFailure();
+    // Keep whatever index we have; resolveModelContextLimit falls back to heuristics.
   }
-}
-
-export async function warmTierContextCache(
-  fastModelId: string,
-  balancedModelId: string,
-  thinkingModelId: string,
-): Promise<void> {
-  await getTierContextLimits(fastModelId, balancedModelId, thinkingModelId);
 }

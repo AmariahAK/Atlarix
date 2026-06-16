@@ -9,7 +9,6 @@ export class ContextBudgetTracker {
   constructor(
     private readonly tierLimit: number,
     private readonly estimatedTokens: number,
-    private readonly tier: "fast" | "balanced" | "thinking",
   ) {}
 
   getUsageRatio(): number {
@@ -39,10 +38,6 @@ export class ContextBudgetTracker {
 
   isOverLimit(): boolean {
     return this.getBudgetTier() === "over";
-  }
-
-  getTier(): "fast" | "balanced" | "thinking" {
-    return this.tier;
   }
 
   getTierLimit(): number {

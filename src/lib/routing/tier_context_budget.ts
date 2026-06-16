@@ -1,6 +1,5 @@
 import type { ModelMessage } from "ai";
 import type { LargeLanguageModel, UserSettings } from "../schemas";
-import type { ModelTier } from "./capability-registry";
 import { summarizeMessagesWithCompactionPrompt } from "../context/compaction";
 import { estimateTokens } from "../../ipc/utils/token_utils";
 import { resolveModelContextLimit } from "../context/resolve-model-context-limit";
@@ -12,8 +11,7 @@ export interface BudgetHistoryMessage {
   commitHash?: string;
 }
 
-export interface EnforceTierContextBudgetParams {
-  resolvedTier: ModelTier;
+export interface EnforceContextBudgetParams {
   settings: UserSettings;
   effectiveModel: LargeLanguageModel;
   userPrompt: string;
@@ -25,7 +23,7 @@ export interface EnforceTierContextBudgetParams {
   otherCodebasePrefixMessages: readonly ModelMessage[];
 }
 
-export interface EnforceTierContextBudgetResult {
+export interface EnforceContextBudgetResult {
   systemPrompt: string;
   limitedMessageHistory: BudgetHistoryMessage[];
   contextAssemblerBlob: string;
@@ -152,11 +150,11 @@ function trimContextAssemblerBlobOneStep(blob: string, userPrompt: string): stri
 }
 
 /**
- * Pre-dispatch budgeting: model context limit (any tier), with LLM summarize only as last resort.
+ * Pre-dispatch budgeting: model context limit, with LLM summarize only as last resort.
  */
-export async function enforceTierContextBudget(
-  params: EnforceTierContextBudgetParams,
-): Promise<EnforceTierContextBudgetResult> {
+export async function enforceContextBudget(
+  params: EnforceContextBudgetParams,
+): Promise<EnforceContextBudgetResult> {
   const { settings, codebasePrefixMessages, otherCodebasePrefixMessages } = params;
 
   let systemPrompt = params.systemPrompt;

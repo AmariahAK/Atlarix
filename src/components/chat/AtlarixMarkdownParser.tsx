@@ -5,8 +5,6 @@ import remarkGfm from "remark-gfm";
 import { AtlarixWrite } from "./AtlarixWrite";
 import { AtlarixRename } from "./AtlarixRename";
 import { AtlarixDelete } from "./AtlarixDelete";
-import { AtlarixExecuteSql } from "./AtlarixExecuteSql";
-import { AtlarixAddIntegration } from "./AtlarixAddIntegration";
 import { AtlarixEdit } from "./AtlarixEdit";
 import { AtlarixSearchReplace } from "./AtlarixSearchReplace";
 import { AtlarixCodebaseContext } from "./AtlarixCodebaseContext";
@@ -209,8 +207,6 @@ function preprocessUnclosedTags(content: string): {
     "atlarix-write",
     "atlarix-rename",
     "atlarix-delete",
-    "atlarix-execute-sql",
-    "atlarix-add-integration",
     "atlarix-output",
     "atlarix-problem-report",
     "atlarix-chat-summary",
@@ -288,8 +284,6 @@ const REGEX_CUSTOM_TAG_NAMES = [
   "atlarix-write",
   "atlarix-rename",
   "atlarix-delete",
-  "atlarix-execute-sql",
-  "atlarix-add-integration",
   "atlarix-output",
   "atlarix-problem-report",
   "atlarix-chat-summary",
@@ -563,33 +557,6 @@ function renderCustomTag(
         >
           {content}
         </AtlarixDelete>
-      );
-
-    case "atlarix-execute-sql":
-      return (
-        <AtlarixExecuteSql
-          node={{
-            properties: {
-              state: getState({ isStreaming, inProgress }),
-              description: attributes.description || "",
-            },
-          }}
-        >
-          {content}
-        </AtlarixExecuteSql>
-      );
-
-    case "atlarix-add-integration":
-      return (
-        <AtlarixAddIntegration
-          node={{
-            properties: {
-              provider: attributes.provider || "",
-            },
-          }}
-        >
-          {content}
-        </AtlarixAddIntegration>
       );
 
     case "atlarix-edit":

@@ -5,8 +5,6 @@ const CUSTOM_TAG_NAMES = [
   "atlarix-write",
   "atlarix-rename",
   "atlarix-delete",
-  "atlarix-execute-sql",
-  "atlarix-add-integration",
   "atlarix-output",
   "atlarix-problem-report",
   "atlarix-chat-summary",
@@ -146,21 +144,6 @@ export const useCopyToClipboard = () => {
       case "atlarix-delete": {
         const deletePath = attributes.path || "";
         return `### Delete: ${deletePath}\n\n`;
-      }
-
-      case "atlarix-execute-sql": {
-        const sqlDesc = attributes.description || "";
-        let sqlResult = `### Execute SQL\n\n`;
-        if (sqlDesc) {
-          sqlResult += `${sqlDesc}\n\n`;
-        }
-        sqlResult += `\`\`\`sql\n${content}\n\`\`\`\n\n`;
-        return sqlResult;
-      }
-
-      case "atlarix-add-integration": {
-        const provider = attributes.provider || "";
-        return `### Add Integration: ${provider}\n\n`;
       }
 
       case "atlarix-codebase-context": {

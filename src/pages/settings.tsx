@@ -513,40 +513,7 @@ export function WorkflowSettings() {
   );
 }
 
-type CommandRow = {
-  id: number;
-  name: string;
-  promptTemplate: string;
-  modeOverride?: string | null;
-  workspaceId?: number | null;
-};
-
-/** Slash-command editor is hidden until we are ready to surface it in the product UI. */
-const SHOW_CUSTOM_COMMANDS_SETTINGS = false;
-
-function HooksAndCommandsSettings() {
-  const appId = useAtomValue(selectedAppIdAtom);
-  const [commands, setCommands] = useState<CommandRow[]>([]);
-  const [cmdName, setCmdName] = useState("");
-  const [cmdTemplate, setCmdTemplate] = useState("{{input}}");
-  const [cmdMode, setCmdMode] = useState("");
-
-  const reload = useCallback(async () => {
-    const ipc = IpcClient.getInstance();
-    try {
-      const c = SHOW_CUSTOM_COMMANDS_SETTINGS
-        ? ((await ipc.listCustomCommands(appId ?? null)) as CommandRow[])
-        : [];
-      setCommands(Array.isArray(c) ? c : []);
-    } catch {
-      setCommands([]);
-    }
-  }, [appId]);
-
-  useEffect(() => {
-    void reload();
-  }, [reload]);
-
+function HooksSettings() {
   return (
     <div className="mt-6 space-y-8 border-t border-border pt-6">
       <div className="space-y-3">
@@ -561,89 +528,6 @@ function HooksAndCommandsSettings() {
           the repo. See the workspace contract docs for the format.
         </p>
       </div>
-
-      {SHOW_CUSTOM_COMMANDS_SETTINGS ? (
-        <div className="space-y-3">
-          <h3 className="text-sm font-medium text-foreground">Custom commands</h3>
-          <p className="text-xs text-muted-foreground max-w-2xl">
-            Type <code className="text-[11px]">/name</code> in chat to expand the template. Use{" "}
-            <code className="text-[11px]">{"{{input}}"}</code> for text after the command. Defaults{" "}
-            <code className="text-[11px]">/review</code>, <code className="text-[11px]">/explain</code>,{" "}
-            <code className="text-[11px]">/fix</code> are created on first load.
-          </p>
-          <div className="flex flex-wrap gap-2 items-end max-w-2xl">
-            <Input
-              placeholder="name"
-              value={cmdName}
-              onChange={(e) => setCmdName(e.target.value)}
-              className="w-28"
-            />
-            <Input
-              placeholder="Prompt template"
-              value={cmdTemplate}
-              onChange={(e) => setCmdTemplate(e.target.value)}
-              className="flex-1 min-w-[10rem]"
-            />
-            <Select value={cmdMode || "__none__"} onValueChange={(v) => setCmdMode(v === "__none__" ? "" : v)}>
-              <SelectTrigger className="w-[8rem]">
-                <SelectValue placeholder="Mode" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="__none__">Default mode</SelectItem>
-                <SelectItem value="ask">ask</SelectItem>
-                <SelectItem value="agent">agent</SelectItem>
-                <SelectItem value="build">build</SelectItem>
-              </SelectContent>
-            </Select>
-            <Button
-              type="button"
-              size="sm"
-              variant="secondary"
-              onClick={async () => {
-                await IpcClient.getInstance().createCustomCommand({
-                  name: cmdName,
-                  promptTemplate: cmdTemplate,
-                  modeOverride: cmdMode || null,
-                  workspaceId: appId ?? null,
-                });
-                setCmdName("");
-                void reload();
-              }}
-            >
-              Add command
-            </Button>
-          </div>
-          <ul className="text-xs space-y-1 max-w-2xl">
-            {commands.map((c) => (
-              <li
-                key={c.id}
-                className="flex flex-wrap items-center gap-2 border border-border/60 rounded px-2 py-1"
-              >
-                <span className="font-medium">/{c.name}</span>
-                <span className="text-muted-foreground truncate max-w-[20rem]">
-                  {c.promptTemplate.slice(0, 80)}
-                  {c.promptTemplate.length > 80 ? "…" : ""}
-                </span>
-                {c.workspaceId == null ? (
-                  <span className="text-[10px] uppercase text-muted-foreground">global</span>
-                ) : null}
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="h-6 text-[11px] text-destructive"
-                  onClick={async () => {
-                    await IpcClient.getInstance().deleteCustomCommand(c.id);
-                    void reload();
-                  }}
-                >
-                  Delete
-                </Button>
-              </li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
     </div>
   );
 }
@@ -725,7 +609,7 @@ export function AISettings() {
         </div>
       </div>
 
-      <HooksAndCommandsSettings />
+      <HooksSettings />
 
       <p className="text-xs text-muted-foreground mt-2">
         Token budget caps are configured per provider in each provider&apos;s

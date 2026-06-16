@@ -15,20 +15,6 @@ export const apps = sqliteTable("apps", {
   githubOrg: text("github_org"),
   githubRepo: text("github_repo"),
   githubBranch: text("github_branch"),
-  supabaseProjectId: text("supabase_project_id"),
-  // If supabaseProjectId is a branch, then the parent project id set.
-  // This is because there's no way to retrieve ALL the branches for ALL projects
-  // in a single API call
-  // This is only used for display purposes but is NOT used for any actual
-  // supabase management logic.
-  supabaseParentProjectId: text("supabase_parent_project_id"),
-  neonProjectId: text("neon_project_id"),
-  neonDevelopmentBranchId: text("neon_development_branch_id"),
-  neonPreviewBranchId: text("neon_preview_branch_id"),
-  vercelProjectId: text("vercel_project_id"),
-  vercelProjectName: text("vercel_project_name"),
-  vercelTeamId: text("vercel_team_id"),
-  vercelDeploymentUrl: text("vercel_deployment_url"),
   installCommand: text("install_command"),
   startCommand: text("start_command"),
   chatContext: text("chat_context", { mode: "json" }),
@@ -208,20 +194,6 @@ export const atlarixHooks = sqliteTable("atlarix_hooks", {
 });
 
 /** Workspace-scoped slash commands: expand user message before stream. */
-export const customCommands = sqliteTable("custom_commands", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
-  name: text("name").notNull(),
-  promptTemplate: text("prompt_template").notNull(),
-  modeOverride: text("mode_override"),
-  workspaceId: integer("workspace_id"),
-  createdAt: integer("created_at", { mode: "timestamp" })
-    .notNull()
-    .default(sql`(unixepoch())`),
-  updatedAt: integer("updated_at", { mode: "timestamp" })
-    .notNull()
-    .default(sql`(unixepoch())`),
-});
-
 export const versions = sqliteTable(
   "versions",
   {
@@ -230,7 +202,6 @@ export const versions = sqliteTable(
       .notNull()
       .references(() => apps.id, { onDelete: "cascade" }),
     commitHash: text("commit_hash").notNull(),
-    neonDbTimestamp: text("neon_db_timestamp"),
     createdAt: integer("created_at", { mode: "timestamp" })
       .notNull()
       .default(sql`(unixepoch())`),

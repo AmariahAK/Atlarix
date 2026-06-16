@@ -34,6 +34,28 @@ export interface McpRegistryEnvVar {
 export type McpRegistryAuthType = "none" | "env" | "oauth";
 export type McpRegistryTier = "free" | "workforce";
 
+/**
+ * Structured OAuth config for `authType: "oauth"` HTTP MCPs.
+ *
+ * The marketplace flow (interactive Connect → browser → loopback callback) is in
+ * `src/lib/mcp/*`; most servers support OAuth metadata discovery + dynamic client
+ * registration, so every field here is optional. Provide `clientId` only when the
+ * server uses a pre-registered app, and `discoveryUrl`/`serverUrl` only when the
+ * server's `.well-known` metadata isn't reachable from `url` directly.
+ */
+export interface McpRegistryOAuthConfig {
+  /** Authorization server base URL (e.g. "https://slack.com/oauth"). */
+  serverUrl?: string;
+  /** Static client id, when the MCP uses a pre-registered app. Omit for dynamic registration (RFC 7591). */
+  clientId?: string;
+  /** OAuth scopes to request. Preferred location; falls back to top-level `oauthScopes`. */
+  scopes?: string[];
+  /** OAuth/OIDC metadata discovery URL (RFC 8414 / 9728). */
+  discoveryUrl?: string;
+  /** Whether the server supports dynamic client registration. Defaults to true. */
+  supportsDynamicRegistration?: boolean;
+}
+
 export interface McpRegistryEntry {
   /** Stable identifier, mirrors the directory in the source repo. */
   id: string;
@@ -51,8 +73,13 @@ export interface McpRegistryEntry {
   installUrl?: string;
   /** Remote HTTP MCP endpoint — required when `authType === "oauth"`. */
   url?: string;
-  /** Optional OAuth scopes for authorization request (HTTP OAuth MCPs). */
+  /**
+   * Optional OAuth scopes for authorization request (HTTP OAuth MCPs).
+   * @deprecated Prefer `oauth.scopes`. Kept for backward compatibility; read via `getMcpOAuthScopes`.
+   */
   oauthScopes?: string[];
+  /** Structured OAuth config (HTTP OAuth MCPs). Supersedes top-level `oauthScopes`. */
+  oauth?: McpRegistryOAuthConfig;
   authType: McpRegistryAuthType;
   envVars: McpRegistryEnvVar[];
   tags?: string[];
@@ -84,6 +111,11 @@ export function parseInstallUrl(installUrl: string): {
   const parts = trimmed.split(/\s+/);
   const [command, ...args] = parts;
   return { command, args };
+}
+
+/** Resolve OAuth scopes for an entry, preferring the structured `oauth.scopes`. */
+export function getMcpOAuthScopes(entry: McpRegistryEntry): string[] | undefined {
+  return entry.oauth?.scopes ?? entry.oauthScopes;
 }
 
 /** Validate registry entry shape for OAuth HTTP MCPs. */

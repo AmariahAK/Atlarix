@@ -34,6 +34,16 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
 import { appsListAtom } from "@/atoms/appAtoms";
 import { attachWorkspaceToChat } from "@/lib/chat-workspace-binding";
@@ -102,6 +112,8 @@ export function WorkspaceSessionList({
   const overlayTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
+  /** Session pending a "resume from summary vs full" choice (set when a compacted session is clicked). */
+  const [pendingResume, setPendingResume] = useState<WorkspaceChatSession | null>(null);
   const setActiveSessionId = useSetAtom(activeWorkspaceSessionIdAtom);
   const setLoadedResume = useSetAtom(loadedSessionResumeAtom);
   const setLoadedTruncated = useSetAtom(loadedSessionTruncatedAtom);
@@ -143,7 +155,10 @@ export function WorkspaceSessionList({
     void loadSessions();
   }, [loadSessions, sessionsRefreshKey]);
 
-  const handleSelectSession = async (sessionId: string) => {
+  const handleSelectSession = async (
+    sessionId: string,
+    selectOpts?: { fromSummary?: boolean },
+  ) => {
     if (sessionSwitchBusy) return;
 
     const mappedChatId = sessionIdToChatId.get(sessionId);
@@ -197,6 +212,7 @@ export function WorkspaceSessionList({
       const { session, messages, truncated } =
         await IpcClient.getInstance().getWorkspaceSession(sessionId, {
           limit: SESSION_LOAD_MESSAGE_LIMIT,
+          fromSummary: selectOpts?.fromSummary,
         });
       let chatId = sessionIdToChatId.get(sessionId);
       if (chatId == null) {
@@ -367,6 +383,7 @@ export function WorkspaceSessionList({
   }
 
   return (
+    <>
     <div className="space-y-0.5 pb-1">
       {sessions.map((session) => (
         <div
@@ -378,6 +395,13 @@ export function WorkspaceSessionList({
           )}
           onClick={() => {
             if (renamingId === session.id) return;
+            if (activeSessionId === session.id) return;
+            // Compacted sessions: ask whether to resume from the summary
+            // (cheaper) or load the full history. Others load directly.
+            if (session.hasSummary) {
+              setPendingResume(session);
+              return;
+            }
             void handleSelectSession(session.id);
           }}
         >
@@ -460,5 +484,42 @@ export function WorkspaceSessionList({
         </div>
       ))}
     </div>
+    <AlertDialog
+      open={pendingResume != null}
+      onOpenChange={(open) => {
+        if (!open) setPendingResume(null);
+      }}
+    >
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Resume this chat</AlertDialogTitle>
+          <AlertDialogDescription>
+            This chat was long enough to be summarized. Continue from the summary
+            plus recent messages to save tokens, or load the full history.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel
+            onClick={() => {
+              const s = pendingResume;
+              setPendingResume(null);
+              if (s) void handleSelectSession(s.id, { fromSummary: false });
+            }}
+          >
+            Load full history
+          </AlertDialogCancel>
+          <AlertDialogAction
+            onClick={() => {
+              const s = pendingResume;
+              setPendingResume(null);
+              if (s) void handleSelectSession(s.id, { fromSummary: true });
+            }}
+          >
+            Continue from summary
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+    </>
   );
 }

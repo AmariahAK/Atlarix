@@ -2,12 +2,8 @@
  * Atlarix Core (internal provider `compass`): env-backed OpenRouter models per Core slot.
  */
 
-import type { ModelTier } from "@/lib/routing/capability-registry";
 import {
-  CORE_TIER_1,
-  CORE_TIER_2,
-  CORE_TIER_3,
-  CORE_TIER_4,
+  CORE_TIER_ORDER,
   getOpenRouterModelIdForCoreTier,
   normalizeCoreTierId,
 } from "@/ipc/shared/compass_constants";
@@ -16,11 +12,8 @@ import {
   formatModelWithProvider,
 } from "@/lib/format-openrouter-model-label";
 
-export type AtlarixCoreTierSlot = ModelTier;
-
 export type AtlarixCoreTierPresentation = {
-  /** Routing capability class (context budgeting); Core 3 and 4 both route as `thinking`. */
-  slot: AtlarixCoreTierSlot;
+  /** Canonical Core model id (`core-1`..`core-4`). */
   internalTierId: string;
   openRouterModelId: string;
   modelDisplayName: string;
@@ -35,15 +28,7 @@ function providerSlugFromOpenRouterId(openRouterModelId: string): string {
   return trimmed.split("/")[0]?.toLowerCase() || "openrouter";
 }
 
-const SLOT_TO_INTERNAL: { slot: AtlarixCoreTierSlot; internalTierId: string }[] = [
-  { slot: "fast", internalTierId: CORE_TIER_1 },
-  { slot: "balanced", internalTierId: CORE_TIER_2 },
-  { slot: "thinking", internalTierId: CORE_TIER_3 },
-  { slot: "thinking", internalTierId: CORE_TIER_4 },
-];
-
 function presentationForInternalTier(
-  slot: AtlarixCoreTierSlot,
   internalTierId: string,
 ): AtlarixCoreTierPresentation {
   const openRouterModelId =
@@ -53,7 +38,6 @@ function presentationForInternalTier(
     : formatModelApiNameForDisplay(internalTierId.replace(/^(compass|core)-/, "Core "));
   const providerSlug = providerSlugFromOpenRouterId(openRouterModelId);
   return {
-    slot,
     internalTierId,
     openRouterModelId,
     modelDisplayName,
@@ -62,10 +46,10 @@ function presentationForInternalTier(
   };
 }
 
-/** Build catalog from build-time env (`ATLARIX_CORE_MODEL_*`). Main process / IPC only. */
+/** Build catalog of the four Core models. Resolves current ids (override or env). */
 export function buildAtlarixCoreTierCatalog(): AtlarixCoreTierPresentation[] {
-  return SLOT_TO_INTERNAL.map(({ slot, internalTierId }) =>
-    presentationForInternalTier(slot, internalTierId),
+  return CORE_TIER_ORDER.map((internalTierId) =>
+    presentationForInternalTier(internalTierId),
   );
 }
 

@@ -17,7 +17,7 @@ import {
 } from "@/lib/provider_model_fetchers";
 import { getProviderApiKey } from "./provider_api_keys";
 import { getEnvVar } from "../utils/read_env";
-import { COMPASS_PROVIDER_ID, COMPASS_SYNTHETIC_MODELS } from "./compass_constants";
+import { COMPASS_PROVIDER_ID, getCompassSyntheticModels } from "./compass_constants";
 
 /**
  * Fetches language model providers from both the database (custom) and hardcoded constants (cloud),
@@ -113,7 +113,7 @@ export async function getLanguageModels({
   }
 
   if (providerId === COMPASS_PROVIDER_ID) {
-    return [...COMPASS_SYNTHETIC_MODELS];
+    return getCompassSyntheticModels();
   }
 
   // Get custom models from DB for all provider types

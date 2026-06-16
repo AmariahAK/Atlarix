@@ -92,9 +92,7 @@ import {
   compassExhaustedUserMessage,
 } from "../shared/compass_constants";
 import log from "electron-log";
-import { getSupabaseClientCode } from "../../supabase_admin/supabase_context";
 import { SUMMARIZE_CHAT_SYSTEM_PROMPT } from "../../prompts/summarize_chat_system_prompt";
-import { SECURITY_REVIEW_SYSTEM_PROMPT } from "../../prompts/security_review_prompt";
 import fs from "node:fs";
 import * as path from "path";
 import * as os from "os";
@@ -140,8 +138,8 @@ import {
   stripThinkBlocks,
 } from "../utils/thinking_tags";
 import { FileUploadsState } from "../utils/file_uploads_state";
-import { extractMentionedAppsCodebases } from "../utils/mention_apps";
-import { parseAppMentions } from "@/shared/parse_mention_apps";
+import { extractMentionedContext } from "../utils/mention_apps";
+import { parseContextMentions } from "@/shared/parse_mention_apps";
 
 import { isTurboEditsV2Enabled, WorkModeSchema } from "@/lib/schemas";
 import { trackPendingWork } from "@/lib/pending-work";
@@ -164,18 +162,13 @@ import {
   ChatPromptSafetyError,
 } from "../../lib/security/chat-prompt-gate";
 import { sanitizeAssistantOutput } from "../../lib/security/profanity-filter";
-import type { ModelTier } from "@/lib/routing/capability-registry";
-import {
-  needsOpenRouterContextSafety,
-  resolveContextBudgetTier,
-} from "@/lib/routing/context_budget_routing";
 import {
   buildReasoningProviderOptions,
   detectReasoningCapability,
   resolveReasoningCatalogModelId,
   hasNativeDeepThinkingSupport,
 } from "@/lib/routing/reasoning-detector";
-import { enforceTierContextBudget } from "@/lib/routing/tier_context_budget";
+import { enforceContextBudget } from "@/lib/routing/tier_context_budget";
 import { processStreamChunks } from "../utils/stream_chunk_tags";
 import { createSnapshot } from "../../lib/workspace-snapshots";
 import { revertSnapshot, revertSnapshotFiles, snapshotExists } from "../../lib/snapshot/snapshot-manager";
@@ -1101,44 +1094,6 @@ if (!fs.existsSync(TEMP_DIR)) {
   fs.mkdirSync(TEMP_DIR, { recursive: true });
 }
 
-type TierSourceTag = "user_setting" | "override" | "force_thinking";
-
-function tierLabelForActivity(tier: string): string {
-  switch (tier) {
-    case "thinking":
-      return "Deep-thinking tier";
-    case "balanced":
-      return "Balanced tier";
-    case "fast":
-      return "Fast tier";
-    default:
-      return `${tier} tier`;
-  }
-}
-
-function tierDetailForActivity(args: {
-  tier: string;
-  source: TierSourceTag;
-  providerId: string;
-  modelName: string;
-  reason?: string;
-}): string {
-  const friendlySource = (() => {
-    switch (args.source) {
-      case "user_setting":
-        return "manual model selection";
-      case "override":
-        return "per-turn override";
-      case "force_thinking":
-        return "force-thinking opt-in";
-      default:
-        return args.source;
-    }
-  })();
-  const base = `${args.providerId}/${args.modelName} · source: ${friendlySource}`;
-  return args.reason ? `${base} · ${args.reason}` : base;
-}
-
 /** Full snapshot revert + ledger cancel + message `isReverted` flags + blueprint (via `revertSnapshot` or partial files + sync). */
 async function performFullRevert(params: {
   chatId: number;
@@ -1584,50 +1539,6 @@ export function registerChatStreamHandlers() {
       // this stream's partial output without a request object.
       if (req.workspaceSessionId) {
         streamSessionByChatId.set(req.chatId, req.workspaceSessionId);
-      }
-
-      if (!req.continueAfterQuestions) {
-        try {
-          const { parseCommandFromMessage, buildCommandPrompt } = await import(
-            "@/lib/commands/custom-commands"
-          );
-          const { customCommands: customCommandsTable } = await import("@/db/schema");
-          const { or, eq, isNull, desc } = await import("drizzle-orm");
-          const appId = chat.app?.id ?? null;
-          const scope =
-            appId != null
-              ? or(
-                  isNull(customCommandsTable.workspaceId),
-                  eq(customCommandsTable.workspaceId, appId),
-                )
-              : isNull(customCommandsTable.workspaceId);
-          const cmdRows = await preflight.time("custom-commands", () =>
-            db
-              .select()
-              .from(customCommandsTable)
-              .where(scope)
-              .orderBy(desc(customCommandsTable.id)),
-          );
-          const parsed = parseCommandFromMessage(req.prompt, cmdRows);
-          if (parsed) {
-            const row = cmdRows.find(
-              (c) => c.name.toLowerCase() === parsed.name.toLowerCase(),
-            );
-            if (row) {
-              req.prompt = buildCommandPrompt(row.promptTemplate, parsed.rest);
-              const mo = row.modeOverride?.trim().toLowerCase();
-              if (mo === "ask" || mo === "build") {
-                req.streamChatModeOverride = mo;
-              } else if (mo === "agent") {
-                // v12 0.1: the "agent" chat-mode path was deleted — legacy
-                // command overrides coerce to build (same loop, correctly wired).
-                req.streamChatModeOverride = "build";
-              }
-            }
-          }
-        } catch (e) {
-          logger.warn("[chat:stream] custom command expansion skipped:", e);
-        }
       }
 
       // v3.9: Set in Build block; used when updating assistant message after stream (must be in same scope as onFinish)
@@ -2093,56 +2004,18 @@ ${componentSnippet}
         compassUsagePromise?.catch(() => {});
         const isEngineEnabled = initialModelClientBundle.isEngineEnabled;
         const isSmartContextEnabled = initialModelClientBundle.isSmartContextEnabled;
-        const forceThinkingNativeSupported =
-          req.forceThinkingTier === true
-            ? hasNativeDeepThinkingSupport(
-                effectiveModel,
-                modelClient.builtinProviderId,
-                settings,
-              )
-            : false;
-
-        let contextBudgetTier = resolveContextBudgetTier(effectiveModel, settings);
-        if (req.forceThinkingTier === true && forceThinkingNativeSupported) {
-          contextBudgetTier = "thinking";
-        }
-
-        // FIX 3: tier diagnostic log. Ephemeral workspace chats already share
-        // the same resolution path as persisted chats; this log surfaces the
-        // actual source so we can confirm whether any "stuck on fast" symptom
-        // originates from user_setting (settings.selectedModel), auto routing,
-        // an explicit override, or the forceThinking branch above.
-        const tierSource: "user_setting" | "override" | "force_thinking" =
-          req.forceThinkingTier === true && forceThinkingNativeSupported
-            ? "force_thinking"
-            : req.modelOverride
-              ? "override"
-              : "user_setting";
-        logger.log(
-          `[stream:${req.chatId}] tier=${contextBudgetTier} ` +
-          `source=${tierSource} model=${effectiveModel.provider}/${effectiveModel.name} ` +
-          `ephemeral=${isEphemeralWorkspace}`,
+        // Native extended-thinking/reasoning turns on whenever the selected
+        // model + gateway support it (the fast/balanced/thinking tiers are gone;
+        // a model now delivers its full capability).
+        const enableNativeReasoning = hasNativeDeepThinkingSupport(
+          effectiveModel,
+          modelClient.builtinProviderId,
+          settings,
         );
-
-        // Surface the tier decision to the UI activity log so the user can see
-        // exactly why a turn used `fast` (e.g. "source=user_setting" = manual
-        // selection so no auto-routing inspected the prompt). Mirrors the
-        // `model_selection` shape so the renderer needs no new render code.
-        safeSend(event.sender, "chat:activity", {
-          id: `tier-selection-${req.chatId}-${Date.now()}`,
-          type: "tier_selection",
-          label: tierLabelForActivity(contextBudgetTier),
-          detail: tierDetailForActivity({
-            tier: contextBudgetTier,
-            source: tierSource,
-            providerId: effectiveModel.provider,
-            modelName: effectiveModel.name,
-          }),
-          status: "done",
-          timestamp: Date.now(),
-          chatId: req.chatId,
-          modelId: `${effectiveModel.provider}/${effectiveModel.name}`,
-        });
+        logger.log(
+          `[stream:${req.chatId}] model=${effectiveModel.provider}/${effectiveModel.name} ` +
+          `reasoning=${enableNativeReasoning} ephemeral=${isEphemeralWorkspace}`,
+        );
 
         // FIX 5: log the true context window for this dispatch. The first
         // lookup per (provider, model) hits "live" (catalog fetch); subsequent
@@ -2155,10 +2028,6 @@ ${componentSnippet}
           `contextWindow=${budgetDetail.contextWindow} source=${budgetDetail.source}`,
         );
 
-        // (Renamed from ...ForDeepCounsel with the counsel-scaffold purge —
-        // this is about forced-thinking-tier requests, nothing else.)
-        const suppressNativeThinkingForForcedTier =
-          req.forceThinkingTier === true && !forceThinkingNativeSupported;
         const usedCompassThisStream = modelClient.builtinProviderId === "compass";
         let compassStreamTier: string | undefined;
         let compassStreamTokens: number | undefined;
@@ -2292,37 +2161,30 @@ ${componentSnippet}
           }
         }
 
-        // Parse app mentions from the prompt
-        const mentionedAppNames = parseAppMentions(req.prompt);
-
-        // Extract codebases for mentioned apps
-        const mentionedAppsCodebases = await extractMentionedAppsCodebases(
-          mentionedAppNames,
-          effectiveAppId ?? 0, // Exclude current effective app
-        );
+        // Parse @file:/@dir: mentions and build a scoped context block
+        // (file contents + folder listings, capped). Replaces the old
+        // whole-other-app codebase dump.
+        const contextMentions = parseContextMentions(req.prompt);
+        const mentionedContextBlock = hasWorkspace
+          ? await extractMentionedContext({
+              appPath,
+              files: contextMentions.files,
+              dirs: contextMentions.dirs,
+            })
+          : "";
 
         const isDeepContextEnabled =
           isEngineEnabled &&
           settings.enableProSmartFilesContextMode &&
           // Anything besides balanced will use deep context.
           settings.proSmartContextOption !== "balanced" &&
-          mentionedAppsCodebases.length === 0;
+          !mentionedContextBlock;
         logger.log(`isDeepContextEnabled: ${isDeepContextEnabled}`);
 
-        // Combine current app codebase with mentioned apps' codebases
-        let otherAppsCodebaseInfo = "";
-        if (mentionedAppsCodebases.length > 0) {
-          const mentionedAppsSection = mentionedAppsCodebases
-            .map(
-              ({ appName, codebaseInfo }) =>
-                `\n\n=== Referenced App: ${appName} ===\n${codebaseInfo}`,
-            )
-            .join("");
-
-          otherAppsCodebaseInfo = mentionedAppsSection;
-
+        const otherAppsCodebaseInfo = mentionedContextBlock;
+        if (otherAppsCodebaseInfo) {
           logger.log(
-            `Added ${mentionedAppsCodebases.length} mentioned app codebases`,
+            `Injected @-mention context: ${contextMentions.files.length} file(s), ${contextMentions.dirs.length} folder(s)`,
           );
         }
 
@@ -2618,8 +2480,7 @@ ${componentSnippet}
             if (
               !req.workspaceSessionId ||
               !hasWorkspace ||
-              req.prompt.startsWith("Summarize from chat-id=") ||
-              req.prompt.startsWith("/security-review")
+              req.prompt.startsWith("Summarize from chat-id=")
             ) {
               return null;
             }
@@ -2660,8 +2521,7 @@ ${componentSnippet}
               !shouldInjectFileSystemTruth ||
               !hasWorkspace ||
               !appPath ||
-              req.prompt.startsWith("Summarize from chat-id=") ||
-              req.prompt.startsWith("/security-review")
+              req.prompt.startsWith("Summarize from chat-id=")
             ) {
               return null;
             }
@@ -2805,8 +2665,7 @@ ${componentSnippet}
           const shouldCreateTaskLedger = false;
           if (
             shouldCreateTaskLedger &&
-            !req.prompt.startsWith("Summarize from chat-id=") &&
-            !req.prompt.startsWith("/security-review")
+            !req.prompt.startsWith("Summarize from chat-id=")
           ) {
             let shouldEmitPlanCreated = false;
             const wsId = effectiveAppId ?? req.appId ?? undefined;
@@ -3064,33 +2923,8 @@ ${componentSnippet}
                   s.included &&
                   (s.name === "workspaceAnalysis"),
               );
-            if (otherAppsCodebaseInfo) {
-              const mentionedAppsList = mentionedAppsCodebases
-                .map(({ appName }) => appName)
-                .join(", ");
-
-              systemPrompt += `\n\n# Referenced Apps\nThe user has mentioned the following apps in their prompt: ${mentionedAppsList}. Their codebases have been included in the context for your reference. When referring to these apps, you can understand their structure and code to provide better assistance, however you should NOT edit the files in these referenced apps. The referenced apps are NOT part of the current app and are READ-ONLY.`;
-            }
-
-            const isSecurityReviewIntent =
-              req.prompt.startsWith("/security-review");
-            if (isSecurityReviewIntent) {
-              systemPrompt = SECURITY_REVIEW_SYSTEM_PROMPT;
-              try {
-                const rulesPath = path.join(appPath, "SECURITY_RULES.md");
-                let securityRules = "";
-
-                await fs.promises.access(rulesPath);
-                securityRules = await fs.promises.readFile(rulesPath, "utf8");
-
-                if (securityRules && securityRules.trim().length > 0) {
-                  systemPrompt +=
-                    "\n\n# Project-specific security rules:\n" + securityRules;
-                }
-              } catch (error) {
-                logger.info("Failed to read security rules", error);
-              }
-            }
+            // The @-mention context block (file contents / folder listings) is
+            // injected as a prefix message below, not into the cached system prompt.
 
             // PASS5: Supabase context is injected by the Supabase tool handler
             // when the model actually calls a Supabase tool (v11.1: dead
@@ -3142,19 +2976,18 @@ This conversation includes one or more image attachments. When the user uploads 
             // tools when needed (v11.1: dead synthetic-turn block deleted).
             const codebasePrefix: readonly ModelMessage[] = []; // PASS5: always empty now
 
-            const otherCodebasePrefix =
-              otherAppsCodebaseInfo && !isEngineEnabled
-                ? ([
-                    {
-                      role: "user",
-                      content: createOtherAppsCodebasePrompt(otherAppsCodebaseInfo),
-                    },
-                    {
-                      role: "assistant",
-                      content: "OK.",
-                    },
-                  ] as const)
-                : [];
+            const otherCodebasePrefix = otherAppsCodebaseInfo
+              ? ([
+                  {
+                    role: "user",
+                    content: otherAppsCodebaseInfo,
+                  },
+                  {
+                    role: "assistant",
+                    content: "OK.",
+                  },
+                ] as const)
+              : [];
 
             return {
               systemPrompt,
@@ -3195,12 +3028,6 @@ This conversation includes one or more image attachments. When the user uploads 
               modelContextResolved.rawContextLength,
             );
           }
-          const mapTierLabel = (t: ModelTier): "fast" | "balanced" | "thinking" => {
-            if (t === "thinking") return "thinking";
-            if (t === "balanced") return "balanced";
-            return "fast";
-          };
-
           /** Catalog / heuristic raw context length (not tierLimit × 0.8). */
           const contextWindowTokens =
             modelContextResolved.rawContextLength != null &&
@@ -3224,7 +3051,6 @@ This conversation includes one or more image attachments. When the user uploads 
           let budgetTracker = new ContextBudgetTracker(
             modelContextResolved.tierLimit,
             dispatchEstimate,
-            mapTierLabel(contextBudgetTier),
           );
           let contextBudgetPruningApplied = false;
           let workingSections = [...contextSections];
@@ -3256,12 +3082,10 @@ This conversation includes one or more image attachments. When the user uploads 
             budgetTracker = new ContextBudgetTracker(
               modelContextResolved.tierLimit,
               dispatchEstimate,
-              mapTierLabel(contextBudgetTier),
             );
           }
 
-          const tierBudgeted = await enforceTierContextBudget({
-            resolvedTier: contextBudgetTier,
+          const tierBudgeted = await enforceContextBudget({
             settings,
             effectiveModel,
             userPrompt,
@@ -3285,7 +3109,6 @@ This conversation includes one or more image attachments. When the user uploads 
           budgetTracker = new ContextBudgetTracker(
             modelContextResolved.tierLimit,
             dispatchEstimate,
-            mapTierLabel(contextBudgetTier),
           );
 
           let proactiveContextReminderForStream: string | undefined;
@@ -3418,8 +3241,7 @@ This conversation includes one or more image attachments. When the user uploads 
                 codebasePrefix,
                 otherCodebasePrefix,
               } = promptBundle);
-              const tierBudgetedR = await enforceTierContextBudget({
-                resolvedTier: contextBudgetTier,
+              const tierBudgetedR = await enforceContextBudget({
                 settings,
                 effectiveModel,
                 userPrompt,
@@ -3441,7 +3263,6 @@ This conversation includes one or more image attachments. When the user uploads 
               budgetTracker = new ContextBudgetTracker(
                 modelContextResolved.tierLimit,
                 dispatchEstimate,
-                mapTierLabel(contextBudgetTier),
               );
               return {
                 ok: true,
@@ -3574,7 +3395,7 @@ This conversation includes one or more image attachments. When the user uploads 
                   modelClient.builtinProviderId === "compass") &&
                 (budgetTracker.isCritical() || budgetTracker.isOverLimit());
               logger.log(
-                `[TTFT] tier=${String(contextBudgetTier)} provider=${String(modelClient.builtinProviderId)} model=${String((effectiveModel as { name?: string })?.name ?? "")} contextLength=${modelContextResolved.rawContextLength ?? "unknown"} ttft=${Date.now() - ttftStartRef.ms}ms budgetTier=${budgetTracker.getBudgetTier()} estimatedTokens=${dispatchEstimate} pruningApplied=${contextBudgetPruningApplied} compressionApplied=${openRouterCompressionApplied} compactionApplied=${llmCompactionApplied}`,
+                `[TTFT] provider=${String(modelClient.builtinProviderId)} model=${String((effectiveModel as { name?: string })?.name ?? "")} contextLength=${modelContextResolved.rawContextLength ?? "unknown"} ttft=${Date.now() - ttftStartRef.ms}ms budgetTier=${budgetTracker.getBudgetTier()} estimatedTokens=${dispatchEstimate} pruningApplied=${contextBudgetPruningApplied} compressionApplied=${openRouterCompressionApplied} compactionApplied=${llmCompactionApplied}`,
               );
             };
           })();
@@ -3620,9 +3441,13 @@ This conversation includes one or more image attachments. When the user uploads 
             return [baseMsg as ModelMessage];
           });
 
-          // OpenRouter (Compass + BYOK): last-resort safety cap for balanced/thinking tiers.
-          // Tier pre-budget runs first; this only kicks in when history is still very large.
-          if (needsOpenRouterContextSafety(modelClient.builtinProviderId, contextBudgetTier)) {
+          // OpenRouter-backed (Compass + BYOK): last-resort safety cap. The
+          // per-model budget pass runs first; this only kicks in when history is
+          // still over the window.
+          const isOpenRouterBacked =
+            modelClient.builtinProviderId === "compass" ||
+            modelClient.builtinProviderId === "openrouter";
+          if (isOpenRouterBacked && budgetTracker.isOverLimit()) {
             const nonSystem = limitedHistoryChatMessages.filter((m: ModelMessage) => m.role !== "system");
             const MAX_EXCHANGES = 7;
             const maxMsgs = MAX_EXCHANGES * 2;
@@ -3728,8 +3553,7 @@ This conversation includes one or more image attachments. When the user uploads 
               ? "deep"
               : "balanced";
             const optionsModel = getEffectiveModelForOptions(settings);
-            const thinkingTier =
-              contextBudgetTier === "thinking" && !suppressNativeThinkingForForcedTier;
+            const thinkingTier = enableNativeReasoning;
             const providerOptions: Record<string, any> = {
               "dyad-engine": {
                 dyadAppId: effectiveAppId ?? updatedChat.app?.id,
@@ -3738,12 +3562,6 @@ This conversation includes one or more image attachments. When the user uploads 
                 dyadSmartContextMode: smartContextMode,
                 dyadFiles: versionedFiles ? undefined : files,
                 dyadVersionedFiles: versionedFiles,
-                dyadMentionedApps: mentionedAppsCodebases.map(
-                  ({ files, appName }) => ({
-                    appName,
-                    files,
-                  }),
-                ),
               },
               "dyad-gateway": getExtraProviderOptions(
                 modelClient.builtinProviderId,
@@ -4318,18 +4136,6 @@ This conversation includes one or more image attachments. When the user uploads 
           }: {
             fullResponse: string;
           }) => {
-            if (
-              fullResponse.includes("$$SUPABASE_CLIENT_CODE$$") &&
-              effectiveApp?.supabaseProjectId
-            ) {
-              const supabaseClientCode = await getSupabaseClientCode({
-                projectId: effectiveApp.supabaseProjectId,
-              });
-              fullResponse = fullResponse.replace(
-                "$$SUPABASE_CLIENT_CODE$$",
-                supabaseClientCode,
-              );
-            }
             // Store the current partial response
             partialResponses.set(req.chatId, fullResponse);
             // Issue 4: throttled crash-safe persistence of the partial turn.
@@ -7296,16 +7102,6 @@ export function hasUnclosedAtlarixWrite(text: string): boolean {
 }
 
 // v11.1: dead createDiagramFirstPrompt deleted (only caller was a removed if(false) block).
-
-function createOtherAppsCodebasePrompt(otherAppsCodebaseInfo: string): string {
-  return `
-# Referenced Apps
-
-These are the other apps that I've mentioned in my prompt. These other apps' codebases are READ-ONLY.
-
-${otherAppsCodebaseInfo}
-`;
-}
 
 // `normalizeToolInputSchemaForAiSdk` + `PERMISSIVE_TOOL_JSON_SCHEMA` were moved
 // to `@/lib/ai/normalize-tool-schema` so that delegation sub-agents

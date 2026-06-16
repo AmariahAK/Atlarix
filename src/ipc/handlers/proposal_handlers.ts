@@ -10,14 +10,12 @@ import { eq } from "drizzle-orm";
 import { getStreamTransport, getStreamTransportAppId } from "@/lib/chat/stream-transport";
 import type { Message } from "../ipc_types";
 import path from "node:path"; // Import path for basename
-import { isServerFunction } from "../../supabase_admin/supabase_utils";
 // Import tag parsers
 import { processFullResponseActions } from "../processors/response_processor";
 import {
   getAtlarixWriteTags,
   getAtlarixRenameTags,
   getAtlarixDeleteTags,
-  getAtlarixExecuteSqlTags,
   getAtlarixChatSummaryTag,
   getAtlarixCommandTags,
   getAtlarixSearchReplaceTags,
@@ -164,7 +162,6 @@ const getProposalHandler = async (
           getAtlarixSearchReplaceTags(messageContent);
         const proposalRenameFiles = getAtlarixRenameTags(messageContent);
         const proposalDeleteFiles = getAtlarixDeleteTags(messageContent);
-        const proposalExecuteSqlQueries = getAtlarixExecuteSqlTags(messageContent);
 
         const filesChanged = [
           ...proposalWriteFiles
@@ -174,28 +171,22 @@ const getProposalHandler = async (
               path: tag.path,
               summary: tag.description ?? "(no change summary found)", // Generic summary
               type: "write" as const,
-              isServerFunction: isServerFunction(tag.path),
             })),
           ...proposalRenameFiles.map((tag) => ({
             name: path.basename(tag.to),
             path: tag.to,
             summary: `Rename from ${tag.from} to ${tag.to}`,
             type: "rename" as const,
-            isServerFunction: isServerFunction(tag.to),
           })),
           ...proposalDeleteFiles.map((tag) => ({
             name: path.basename(tag),
             path: tag,
             summary: `Delete file`,
             type: "delete" as const,
-            isServerFunction: isServerFunction(tag),
           })),
         ];
         // Check if we have enough information to create a proposal
-        if (
-          filesChanged.length > 0 ||
-          proposalExecuteSqlQueries.length > 0
-        ) {
+        if (filesChanged.length > 0) {
           const proposal: CodeProposal = {
             type: "code-proposal",
             // Use parsed title or a default title if summary tag is missing but write tags exist
@@ -203,10 +194,6 @@ const getProposalHandler = async (
             securityRisks: [], // Keep empty
             filesChanged,
             packagesAdded: [], // Dependencies now go through run_command
-            sqlQueries: proposalExecuteSqlQueries.map((query) => ({
-              content: query.content,
-              description: query.description,
-            })),
           };
           logger.log(
             "Generated code proposal. title=",

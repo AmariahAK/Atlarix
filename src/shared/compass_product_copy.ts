@@ -26,25 +26,13 @@ export function isCompassTierId(tierId: string): boolean {
   );
 }
 
+// The four Atlarix Core models, shown individually in the picker. The real
+// model name + provider (resolved from core-models.json) carries the meaning;
+// no fast/balanced/thinking framing. `label` is only a fallback when no
+// OpenRouter id resolves. Order = display order.
 export const CORE_TIER_ROWS = [
-  {
-    id: "core-1",
-    label: "Core 1",
-    description: "Fastest — everyday coding, edits, and exploration",
-  },
-  {
-    id: "core-2",
-    label: "Core 2",
-    description: "Balanced all-rounder for planning and building",
-  },
-  {
-    id: "core-3",
-    label: "Core 3",
-    description: "Deeper reasoning for complex, multi-step work",
-  },
-  {
-    id: "core-4",
-    label: "Core 4",
-    description: "Most capable — heavy reasoning and long-horizon tasks",
-  },
+  { id: "core-1", label: "Core 1", description: "" },
+  { id: "core-2", label: "Core 2", description: "" },
+  { id: "core-3", label: "Core 3", description: "" },
+  { id: "core-4", label: "Core 4", description: "" },
 ] as const;

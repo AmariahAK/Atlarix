@@ -21,25 +21,23 @@ import type { ZoomLevel } from "@/lib/schemas";
 import { selectedComponentsPreviewAtom } from "@/atoms/previewAtoms";
 import { chatInputValueAtom, activeChatIdAtom, selectedChatIdAtom } from "@/atoms/chatAtoms";
 import { useNavigate } from "@tanstack/react-router";
+import { useQueryClient } from "@tanstack/react-query";
 import { useAIPanelListener } from "@/hooks/useAIPanelListener";
 import { useLocation } from "@tanstack/react-router";
 import { SimpleInlineChat } from "@/components/SimpleInlineChat";
 import { ChatTabStrip } from "@/components/chat/ChatTabStrip";
 import { RightPanel } from "@/components/RightPanel";
-import { LeftPanel } from "@/components/layout/LeftPanel";
 import { WorkspaceNotFoundBanner } from "@/components/WorkspaceNotFoundBanner";
 import { PendingInviteBanner } from "@/components/PendingInviteBanner";
 import { UpdateBanner } from "@/components/UpdateBanner";
 import { AnalyticsConsentModal } from "@/components/AnalyticsConsentModal";
 import {
-  leftPanelVisibleAtom,
   sourceListAtom,
   selectedSourceAtom,
   rightPanelSuppressAutoOpenAtom,
   pinnedPanelAtom,
   previewTabAtom,
 } from "@/atoms/sourceAtoms";
-import { activeExtensionIdsAtom } from "@/atoms/viewAtoms";
 import { usePanelShortcuts } from "@/hooks/usePanelShortcuts";
 import { useStreamChat } from "@/hooks/useStreamChat";
 import { useAuth } from "@/lib/auth/useAuth";
@@ -258,10 +256,8 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   const setSelectedChatId = useSetAtom(selectedChatIdAtom);
   const setActiveChatId = useSetAtom(activeChatIdAtom);
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const { visible: rightPanelVisible, toggle: toggleRightPanel } = useRightPanelUserPreference();
-  const leftPanelVisible = useAtomValue(leftPanelVisibleAtom);
-  const setLeftPanelVisible = useSetAtom(leftPanelVisibleAtom);
-  const activeExtensionIds = useAtomValue(activeExtensionIdsAtom);
   const activeChatId = useAtomValue(activeChatIdAtom);
   const location = useLocation();
 
@@ -276,12 +272,6 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     preloadSounds();
   }, []);
 
-  // When user adds first extension, open the left panel
-  useEffect(() => {
-    if (activeExtensionIds.length > 0 && !leftPanelVisible) {
-      setLeftPanelVisible(true);
-    }
-  }, [activeExtensionIds.length, leftPanelVisible, setLeftPanelVisible]);
   // Home = "/" or "/chat". Show right panel and Diagram|Preview|Code bar on home when workspace or chat is active.
   const isOnChatPage = location.pathname === "/" || location.pathname.startsWith("/chat");
   const showWorkspaceChrome = selectedAppId != null;
@@ -391,6 +381,16 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     return () => unsub();
   }, []);
 
+  // Atlarix Core ids changed at runtime (hosted core-models.json) — re-fetch
+  // model lists so the picker/display update live, no app restart needed.
+  useEffect(() => {
+    const unsub = IpcClient.getInstance().onCoreModelsChanged(() => {
+      queryClient.invalidateQueries({ queryKey: ["language-models-by-providers"] });
+      queryClient.invalidateQueries({ queryKey: ["languageModelProviders"] });
+    });
+    return () => unsub();
+  }, [queryClient]);
+
   useEffect(() => {
     return subscribeAutoSelfCorrect(({ chatId }) => {
       void streamMessageRef.current({
@@ -428,7 +428,6 @@ export default function RootLayout({ children }: { children: ReactNode }) {
               id="layout-main-content-container"
               className="relative flex h-screenish w-full overflow-hidden mt-12 mb-4 mr-4 border-t border-l border-border rounded-lg bg-background"
             >
-              {showWorkspaceChrome && leftPanelVisible ? <LeftPanel /> : null}
               {/* Top-right panel toggle: always on chat page so panel works for web-only chats too */}
               {isOnChatPage && showWorkspaceChrome && (
                 <button

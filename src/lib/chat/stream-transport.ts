@@ -108,6 +108,21 @@ const ephemeralChats = new Map<
 
 let ephemeralChatCounter = -1;
 
+/**
+ * Seed the counter below the most-negative persisted `streamChatId` at startup.
+ * The counter resets to -1 each launch, so without this a freshly-allocated
+ * transport id can collide with a *different* session's persisted id, and
+ * `allocateSessionTransport` would then reuse one live transport for two
+ * sessions (shared message buffer + pending-question state — the cross-session
+ * leak). Only ever moves the counter MORE negative; no `db` import here so this
+ * module stays renderer-safe (the caller in main does the query).
+ */
+export function seedEphemeralChatCounterBelow(minPersistedId: number): void {
+  if (minPersistedId - 1 < ephemeralChatCounter) {
+    ephemeralChatCounter = minPersistedId - 1;
+  }
+}
+
 export function createStreamTransport(appId: number): number {
   const id = ephemeralChatCounter--;
   ephemeralChats.set(id, {
@@ -209,7 +224,6 @@ export function appendTransportMessage(
   message: {
     role: string;
     content: string;
-    autoRoutedTier?: "fast" | "balanced" | "thinking";
   },
 ): void {
   const chat = ephemeralChats.get(chatId);

@@ -162,67 +162,30 @@ export function readSettings(): UserSettings {
     if (combinedSettings.selectedChatMode === "agent") {
       combinedSettings.selectedChatMode = "build";
     }
-    const supabase = combinedSettings.supabase;
-    if (supabase) {
-      if (supabase.refreshToken) {
-        const encryptionType = supabase.refreshToken.encryptionType;
-        if (encryptionType) {
-          const value = tryDecryptSecret(supabase.refreshToken, onDecryptFailure);
-          if (value !== undefined) {
-            supabase.refreshToken = {
-              value,
-              encryptionType,
-            };
-          } else {
-            delete supabase.refreshToken;
-          }
+    // v13.6: the fast/balanced/thinking model tiers were removed. Persisted
+    // `summarizationModel`/`reviewModel`/`agentModel` values of "fast"/"balanced"
+    // are no longer valid enum members — coerce to "same" BEFORE the zod parse
+    // below or it would reject and reset the whole settings file. Users keep
+    // their explicit "custom" picks. (Mirrors the compass-* mapping above.)
+    const ai = combinedSettings.aiConfiguration as
+      | {
+          contextSummarization?: { summarizationModel?: string };
+          selfReview?: { reviewModel?: string };
+          guided?: { agentModel?: string };
         }
-      }
-      if (supabase.accessToken) {
-        const encryptionType = supabase.accessToken.encryptionType;
-        if (encryptionType) {
-          const value = tryDecryptSecret(supabase.accessToken, onDecryptFailure);
-          if (value !== undefined) {
-            supabase.accessToken = {
-              value,
-              encryptionType,
-            };
-          } else {
-            delete supabase.accessToken;
-          }
-        }
-      }
+      | undefined;
+    const coerceTierModel = (v: string | undefined): string | undefined =>
+      v === "fast" || v === "balanced" ? "same" : v;
+    if (ai?.contextSummarization?.summarizationModel) {
+      ai.contextSummarization.summarizationModel = coerceTierModel(
+        ai.contextSummarization.summarizationModel,
+      );
     }
-    const neon = combinedSettings.neon;
-    if (neon) {
-      if (neon.refreshToken) {
-        const encryptionType = neon.refreshToken.encryptionType;
-        if (encryptionType) {
-          const value = tryDecryptSecret(neon.refreshToken, onDecryptFailure);
-          if (value !== undefined) {
-            neon.refreshToken = {
-              value,
-              encryptionType,
-            };
-          } else {
-            delete neon.refreshToken;
-          }
-        }
-      }
-      if (neon.accessToken) {
-        const encryptionType = neon.accessToken.encryptionType;
-        if (encryptionType) {
-          const value = tryDecryptSecret(neon.accessToken, onDecryptFailure);
-          if (value !== undefined) {
-            neon.accessToken = {
-              value,
-              encryptionType,
-            };
-          } else {
-            delete neon.accessToken;
-          }
-        }
-      }
+    if (ai?.selfReview?.reviewModel) {
+      ai.selfReview.reviewModel = coerceTierModel(ai.selfReview.reviewModel);
+    }
+    if (ai?.guided?.agentModel) {
+      ai.guided.agentModel = coerceTierModel(ai.guided.agentModel);
     }
     if (combinedSettings.githubAccessToken) {
       const encryptionType = combinedSettings.githubAccessToken.encryptionType;
@@ -237,21 +200,6 @@ export function readSettings(): UserSettings {
         };
       } else {
         delete combinedSettings.githubAccessToken;
-      }
-    }
-    if (combinedSettings.vercelAccessToken) {
-      const encryptionType = combinedSettings.vercelAccessToken.encryptionType;
-      const value = tryDecryptSecret(
-        combinedSettings.vercelAccessToken,
-        onDecryptFailure,
-      );
-      if (value !== undefined) {
-        combinedSettings.vercelAccessToken = {
-          value,
-          encryptionType,
-        };
-      } else {
-        delete combinedSettings.vercelAccessToken;
       }
     }
     for (const provider in combinedSettings.providerSettings) {
@@ -311,35 +259,6 @@ export function writeSettings(settings: Partial<UserSettings>): void {
       newSettings.githubAccessToken = encrypt(
         newSettings.githubAccessToken.value,
       );
-    }
-    if (newSettings.vercelAccessToken) {
-      newSettings.vercelAccessToken = encrypt(
-        newSettings.vercelAccessToken.value,
-      );
-    }
-    if (newSettings.supabase) {
-      if (newSettings.supabase.accessToken) {
-        newSettings.supabase.accessToken = encrypt(
-          newSettings.supabase.accessToken.value,
-        );
-      }
-      if (newSettings.supabase.refreshToken) {
-        newSettings.supabase.refreshToken = encrypt(
-          newSettings.supabase.refreshToken.value,
-        );
-      }
-    }
-    if (newSettings.neon) {
-      if (newSettings.neon.accessToken) {
-        newSettings.neon.accessToken = encrypt(
-          newSettings.neon.accessToken.value,
-        );
-      }
-      if (newSettings.neon.refreshToken) {
-        newSettings.neon.refreshToken = encrypt(
-          newSettings.neon.refreshToken.value,
-        );
-      }
     }
     for (const provider in newSettings.providerSettings) {
       if (newSettings.providerSettings[provider].apiKey) {

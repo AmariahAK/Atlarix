@@ -14,6 +14,7 @@ import * as fs from "node:fs/promises";
 import { readFileSync } from "node:fs";
 import * as path from "node:path";
 import log from "electron-log";
+import { BrowserWindow } from "electron";
 import { getUserDataPath } from "@/paths/paths";
 import {
   CORE_TIER_ORDER,
@@ -39,8 +40,38 @@ interface CoreModelsPayload {
 
 let refreshTimer: ReturnType<typeof setInterval> | null = null;
 
+/** Last applied override map (sorted-serialized) so we only broadcast on real changes. */
+let lastAppliedSerialized: string | null = null;
+
 function getCachePath(): string {
   return path.join(getUserDataPath(), "cache", "core-models.json");
+}
+
+/** Notify renderer windows that Core model ids changed, so model lists re-fetch. */
+function broadcastCoreModelsChanged(): void {
+  try {
+    for (const win of BrowserWindow.getAllWindows()) {
+      if (!win.isDestroyed()) win.webContents.send("core-models:changed");
+    }
+  } catch (e) {
+    logger.warn("core-models change broadcast failed", e);
+  }
+}
+
+/**
+ * Apply overrides to the store and, when the resolved map actually changed since
+ * the last apply, broadcast so the renderer invalidates its cached model lists
+ * (Core display name updates live, without an app restart).
+ */
+function applyOverridesAndNotify(map: Record<string, string> | null): void {
+  setCoreModelOverrides(map);
+  const serialized = map
+    ? JSON.stringify(Object.entries(map).sort(([a], [b]) => a.localeCompare(b)))
+    : null;
+  if (serialized !== lastAppliedSerialized) {
+    lastAppliedSerialized = serialized;
+    broadcastCoreModelsChanged();
+  }
 }
 
 /**
@@ -91,8 +122,17 @@ export async function refreshCoreModelOverrides(): Promise<void> {
   try {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-    const res = await fetch(REMOTE_URL, {
-      headers: { "User-Agent": "Atlarix/1.0" },
+    // Cache-bust: the raw.githubusercontent CDN can serve a stale body for
+    // minutes after a commit. A unique query param + no-store defeats it so a
+    // `core-models.json` edit is picked up promptly.
+    const url = `${REMOTE_URL}${REMOTE_URL.includes("?") ? "&" : "?"}t=${Date.now()}`;
+    const res = await fetch(url, {
+      headers: {
+        "User-Agent": "Atlarix/1.0",
+        "Cache-Control": "no-cache",
+        Pragma: "no-cache",
+      },
+      cache: "no-store",
       signal: controller.signal,
     });
     clearTimeout(timeout);
@@ -102,7 +142,7 @@ export async function refreshCoreModelOverrides(): Promise<void> {
     const map = parseCoreModelsPayload(raw);
     if (map) {
       await saveToCache(raw);
-      setCoreModelOverrides(map);
+      applyOverridesAndNotify(map);
       logger.info(
         `loaded ${Object.keys(map).length} Core model override(s)`,
         map,
@@ -114,7 +154,7 @@ export async function refreshCoreModelOverrides(): Promise<void> {
     logger.warn("core-models fetch failed, trying cache", e);
     const cached = await loadFromCache();
     if (cached) {
-      setCoreModelOverrides(cached);
+      applyOverridesAndNotify(cached);
       logger.info(`applied ${Object.keys(cached).length} cached Core override(s)`);
     }
   }
@@ -131,7 +171,7 @@ export function warmCoreModelOverrides(): void {
     const map = parseCoreModelsPayload(
       JSON.parse(readFileSync(getCachePath(), "utf-8")),
     );
-    if (map) setCoreModelOverrides(map);
+    if (map) applyOverridesAndNotify(map);
   } catch {
     // no cache yet — env fallback until the network refresh below completes
   }

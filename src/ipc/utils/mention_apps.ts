@@ -1,58 +1,88 @@
-import { db } from "../../db";
-import { getAtlarixAppPath } from "../../paths/paths";
-import { CodebaseFile, extractCodebaseCached } from "../../utils/codebase";
-import { validateChatContext } from "../utils/context_paths_utils";
+/**
+ * Build the context block for `@`-mentioned files and folders (current workspace).
+ *
+ * - A mentioned FILE → its contents (capped) are injected.
+ * - A mentioned FOLDER → only its file LISTING is injected (capped), so the agent
+ *   then greps / reads within that scope instead of dumping a whole tree.
+ *
+ * Token-frugal by design (per-file + total caps). Replaces the old whole-codebase
+ * "@app" dump.
+ */
+import * as fs from "node:fs/promises";
 import log from "electron-log";
+import { safeJoin } from "./path_utils";
+import { getProjectFiles } from "./project-files";
 
-const logger = log.scope("mention_apps");
+const logger = log.scope("mention_context");
 
-// Helper function to extract codebases from mentioned apps
-export async function extractMentionedAppsCodebases(
-  mentionedAppNames: string[],
-  excludeCurrentAppId?: number,
-): Promise<{ appName: string; codebaseInfo: string; files: CodebaseFile[] }[]> {
-  if (mentionedAppNames.length === 0) {
-    return [];
-  }
+const PER_FILE_CAP = 60_000; // chars
+const TOTAL_CAP = 200_000; // chars across all mentioned files
+const DIR_LISTING_CAP = 200; // entries per folder
 
-  // Get all apps
-  const allApps = await db.query.apps.findMany();
+function fenceLang(relPath: string): string {
+  const ext = relPath.split(".").pop()?.toLowerCase() ?? "";
+  return /^[a-z0-9]+$/.test(ext) ? ext : "";
+}
 
-  const mentionedApps = allApps.filter(
-    (app) =>
-      mentionedAppNames.some(
-        (mentionName) => app.name.toLowerCase() === mentionName.toLowerCase(),
-      ) && app.id !== excludeCurrentAppId,
-  );
+export async function extractMentionedContext({
+  appPath,
+  files,
+  dirs,
+}: {
+  appPath: string;
+  files: string[];
+  dirs: string[];
+}): Promise<string> {
+  if (files.length === 0 && dirs.length === 0) return "";
 
-  const results: {
-    appName: string;
-    codebaseInfo: string;
-    files: CodebaseFile[];
-  }[] = [];
+  const parts: string[] = [];
+  let total = 0;
 
-  for (const app of mentionedApps) {
+  for (const rel of files) {
+    if (total >= TOTAL_CAP) break;
     try {
-      const appPath = getAtlarixAppPath(app.path);
-      const chatContext = validateChatContext(app.chatContext);
-
-      const { formattedOutput, files } = await extractCodebaseCached({
-        appPath,
-        chatContext,
-      });
-
-      results.push({
-        appName: app.name,
-        codebaseInfo: formattedOutput,
-        files,
-      });
-
-      logger.log(`Extracted codebase for mentioned app: ${app.name}`);
+      const abs = safeJoin(appPath, rel);
+      let content = await fs.readFile(abs, "utf-8");
+      let truncated = false;
+      if (content.length > PER_FILE_CAP) {
+        content = content.slice(0, PER_FILE_CAP);
+        truncated = true;
+      }
+      total += content.length;
+      parts.push(
+        `### File: ${rel}${truncated ? " (truncated)" : ""}\n\`\`\`${fenceLang(rel)}\n${content}\n\`\`\``,
+      );
     } catch (error) {
-      logger.error(`Error extracting codebase for app ${app.name}:`, error);
-      // Continue with other apps even if one fails
+      logger.warn(`Could not read mentioned file ${rel}`, error);
+      parts.push(`### File: ${rel}\n(could not read this file)`);
     }
   }
 
-  return results;
+  for (const rel of dirs) {
+    if (total >= TOTAL_CAP) break;
+    try {
+      const { files: dirFiles } = await getProjectFiles(appPath, { scopePath: rel });
+      // getProjectFiles returns paths relative to the scope; re-root them under the
+      // mentioned folder so the agent can grep/read_file them directly.
+      const rooted = dirFiles.map((f) => `${rel.replace(/\/$/, "")}/${f}`);
+      const listing = rooted.slice(0, DIR_LISTING_CAP);
+      const more =
+        dirFiles.length > DIR_LISTING_CAP
+          ? `\n…(${dirFiles.length - DIR_LISTING_CAP} more)`
+          : "";
+      total += listing.join("\n").length;
+      parts.push(
+        `### Folder: ${rel} (${dirFiles.length} files — listing only; use grep/read_file to inspect)\n${listing.join("\n")}${more}`,
+      );
+    } catch (error) {
+      logger.warn(`Could not list mentioned folder ${rel}`, error);
+      parts.push(`### Folder: ${rel}\n(could not list this folder)`);
+    }
+  }
+
+  return (
+    `# Referenced files & folders\n` +
+    `The user referenced these with @ — included for context (read-only; not necessarily the only relevant files):\n\n` +
+    parts.join("\n\n")
+  );
 }

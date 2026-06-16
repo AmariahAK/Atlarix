@@ -4,9 +4,9 @@
  */
 
 import type { LargeLanguageModel, UserSettings } from "@/lib/schemas";
-import { getTierContextLimits, getCachedOpenRouterModelRow } from "@/lib/routing/tier-context-limits";
-import { resolveTierLimitModelIds } from "@/lib/routing/context_budget_routing";
+import { warmOpenRouterModelCache, getCachedOpenRouterModelRow } from "@/lib/routing/tier-context-limits";
 import { getOpenRouterModelIdForCoreTier } from "@/ipc/shared/compass_constants";
+import { findLanguageModel } from "@/ipc/utils/findLanguageModel";
 
 const SAFETY_FACTOR = 0.8;
 
@@ -191,10 +191,9 @@ export type ResolvedModelContextLimit = {
  */
 export async function resolveModelContextLimit(
   model: LargeLanguageModel,
-  settings: UserSettings,
+  _settings: UserSettings,
 ): Promise<ResolvedModelContextLimit> {
-  const ids = resolveTierLimitModelIds(settings, { effectiveModel: model });
-  await getTierContextLimits(ids.fast, ids.balanced, ids.thinking);
+  await warmOpenRouterModelCache();
 
   const clamp = overflowClampFor(model);
 
@@ -218,6 +217,22 @@ export async function resolveModelContextLimit(
     if (typeof real === "number" && real > 0) {
       return { tierLimit: floorSafe(real * clamp), rawContextLength: real };
     }
+  }
+
+  // BYOK cloud providers (the user's own Anthropic/OpenAI/Google/etc. key): use
+  // the per-model window the provider API already reported (models.dev / native
+  // /models), the same source the token bar uses via getContextWindowDetailed —
+  // so the compaction budget matches the real window instead of guessing.
+  try {
+    const fetched = await findLanguageModel(model);
+    if (fetched?.contextWindow && fetched.contextWindow > 0) {
+      return {
+        tierLimit: floorSafe(fetched.contextWindow * clamp),
+        rawContextLength: fetched.contextWindow,
+      };
+    }
+  } catch {
+    // fall through to heuristic
   }
 
   const rawHeuristic = heuristicRawContextLength(model);

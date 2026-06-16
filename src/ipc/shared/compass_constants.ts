@@ -51,9 +51,18 @@ function compassProviderSlug(openRouterModelId: string): string {
   return openRouterModelId.split("/")[0]?.toLowerCase() || "openrouter";
 }
 
-export const COMPASS_SYNTHETIC_MODELS: LanguageModel[] = CORE_TIER_ROWS.map(
-  (row) => {
-    const openRouterModelId = getOpenRouterModelIdForCoreTier(row.id)?.trim() ?? "";
+/**
+ * Build the four synthetic Core models for display/selection.
+ *
+ * Computed lazily (NOT a module-level const) so the display name + provider
+ * slug always reflect the CURRENT runtime override (hosted `core-models.json`).
+ * A const snapshot would freeze to the build-time env at import time and never
+ * pick up a `core-models.json` change without an app restart.
+ */
+export function getCompassSyntheticModels(): LanguageModel[] {
+  return CORE_TIER_ROWS.map((row) => {
+    const openRouterModelId =
+      getOpenRouterModelIdForCoreTier(row.id)?.trim() ?? "";
     const modelDisplayName = openRouterModelId
       ? formatModelApiNameForDisplay(openRouterModelId)
       : row.id;
@@ -61,20 +70,20 @@ export const COMPASS_SYNTHETIC_MODELS: LanguageModel[] = CORE_TIER_ROWS.map(
       ? compassProviderSlug(openRouterModelId)
       : "openrouter";
     return {
-    apiName: row.id,
-    displayName: formatModelWithProvider(modelDisplayName, slug),
-    description: row.description,
-    type: "cloud" as const,
-    dollarSigns: 0,
-    maxOutputTokens: 32_000,
-    // Core is a synthetic provider — the real context window is captured
-    // per-chat at TTFT (often 1M+). 200_000 matches the pre-TTFT fallback in
-    // `getContextWindowDetailed` so any catalog-only consumer (autorouter,
-    // proposal handler) reads the same conservative ceiling the stream uses.
-    contextWindow: 200_000,
-  };
-  },
-);
+      apiName: row.id,
+      displayName: formatModelWithProvider(modelDisplayName, slug),
+      description: row.description,
+      type: "cloud" as const,
+      dollarSigns: 0,
+      maxOutputTokens: 32_000,
+      // Core is a synthetic provider — the real context window is captured
+      // per-chat at TTFT (often 1M+). 200_000 matches the pre-TTFT fallback in
+      // `getContextWindowDetailed` so any catalog-only consumer (autorouter,
+      // proposal handler) reads the same conservative ceiling the stream uses.
+      contextWindow: 200_000,
+    };
+  });
+}
 
 /** Main-process only; renderer has no `process.env`. */
 function trimEnv(value: string | undefined): string | undefined {

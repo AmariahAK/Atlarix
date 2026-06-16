@@ -1,9 +1,25 @@
 # Atlarix TODO
 
-**Current Version:** v13.5.0 (released)
-**Last Updated:** 2026-06-13
+**Current Version:** v13.6.0 (released)
+**Last Updated:** 2026-06-16
 
 ---
+
+## v13.6.0 — SHIPPED (2026-06-16): surface simplification
+
+> See `docs/CHANGELOG.md` [13.6.0]. Implemented in one working-tree pass; ts (main/app/tests) + oxlint
+> clean, full suite green (1222 tests), packaged + boot-smoked.
+
+| Item | Status |
+|------|--------|
+| **Scoped `@` mentions** — `@file:` injects capped contents, `@dir:` injects a file listing only (agent greps within scope); `workspace:list-paths` IPC, `parseContextMentions`/`extractMentionedContext`, `@`-only composer autocomplete. Replaces the old `@app:` whole-codebase dump. | ✅ Done |
+| **`/` slash-command system removed** — handlers/lib/IPC/settings UI deleted; `custom_commands` table dropped (migration 0065). | ✅ Done |
+| **Tiers → Core 1–4** — Fast/Balanced/Thinking abstraction removed; every plan uses every Core model; legacy persisted selections coerced forward. | ✅ Done |
+| **Deploy connectors removed** — Supabase/Neon/Vercel/GitHub-Actions panels + handlers + e2e fixtures deleted; terminal-first + MCP-only SaaS. **Prod Supabase auth/metering untouched.** | ✅ Done |
+| **Security review merged into Review mode** — `security_handlers` deleted; one reviewer covers correctness + security. | ✅ Done |
+| **Live BYOK context limits** — per-provider windows resolved from each API, nothing hardcoded. | ✅ Done |
+| **Session-resume prompt, model-switch notice, stale-Core fix, MCP OAuth marketplace connect, README↔JSON.** | ✅ Done |
+| **`ask_user` cross-session leak + `AbortError: ask_user_pending` Sentry noise** fixed. | ✅ Done |
 
 ## Retrieval — SHIPPED in v13.5.0 (2026-06-13): FTS5 scale, sharp grep, embeddings removed
 

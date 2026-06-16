@@ -1,79 +1,50 @@
 /**
- * v2.1: Resolve the model to use for summarization (compaction, titles).
- * Fast (recommended) / same as main / custom per AI Configuration.
- * "Fast" uses the user's chosen fast model for the current provider (Auto first model, or first favorite for OpenRouter/Ollama/LM Studio).
+ * Resolve the model to use for summarization (compaction, titles).
+ * Either the same model as the main chat, or an explicit custom model picked in
+ * AI Configuration. (The old fast/balanced tiers were removed — a user who wants
+ * a cheaper summarizer picks one explicitly via `customSummarizationModel`.)
  */
 
 import type { UserSettings } from "./schemas";
-import { getFastModelForCurrentProvider, getBalancedModelForCurrentProvider } from "../ipc/utils/get_model_client";
 
-/**
- * Returns the LargeLanguageModel to use for summarization and title generation (sync).
- * For "fast" mode use getSummarizationModelAsync so the correct provider fast model is used.
- */
+/** Returns the LargeLanguageModel to use for summarization and title generation. */
 export function getSummarizationModel(settings: UserSettings): {
   provider: string;
   name: string;
   customModelId?: number;
 } {
-  const mode = settings.aiConfiguration?.contextSummarization?.summarizationModel ?? "fast";
-  if (mode === "same") {
-    return settings.selectedModel;
-  }
-  if (mode === "custom" && settings.aiConfiguration?.contextSummarization?.customSummarizationModel) {
-    return settings.aiConfiguration.contextSummarization.customSummarizationModel;
+  const cfg = settings.aiConfiguration?.contextSummarization;
+  const mode = cfg?.summarizationModel ?? "same";
+  if (mode === "custom" && cfg?.customSummarizationModel) {
+    return cfg.customSummarizationModel;
   }
   return settings.selectedModel;
 }
 
 /**
- * v3.6: Session stats to prefer balanced model when complex (tool calls > 15 or delegations > 5).
+ * Session stats are retained in the signature for caller compatibility but no
+ * longer influence model choice (no balanced-tier escalation anymore).
  */
 export interface SummarizationSessionStats {
   toolCallCount?: number;
   delegationCount?: number;
 }
 
-/**
- * Async version: when mode is "fast", uses the fast model for the current provider.
- * When session is complex (toolCallCount > 15 or delegationCount > 5), prefers balanced model for coherence.
- * - Auto ON: first of the 3 Auto models (Fast) or second (Balanced) when complex.
- * - Manual: first/second favorite when available.
- */
+/** Async variant kept for callers; resolves the same way as the sync version. */
 export async function getSummarizationModelAsync(
   settings: UserSettings,
-  sessionStats?: SummarizationSessionStats
+  _sessionStats?: SummarizationSessionStats,
 ): Promise<{
   provider: string;
   name: string;
   customModelId?: number;
 }> {
-  const mode = settings.aiConfiguration?.contextSummarization?.summarizationModel ?? "balanced";
-  if (mode === "same") {
-    return settings.selectedModel;
-  }
-  if (mode === "custom" && settings.aiConfiguration?.contextSummarization?.customSummarizationModel) {
-    return settings.aiConfiguration.contextSummarization.customSummarizationModel;
-  }
-  const preferBalanced =
-    (sessionStats?.toolCallCount ?? 0) > 15 || (sessionStats?.delegationCount ?? 0) > 5;
-  if ((mode === "balanced" || mode === "fast") && preferBalanced) {
-    const balancedModel = getBalancedModelForCurrentProvider(settings);
-    if (balancedModel) return balancedModel;
-  }
-  if (mode === "fast" || mode === "balanced") {
-    const fastModel = getFastModelForCurrentProvider(settings);
-    if (fastModel) return fastModel;
-  }
   return getSummarizationModel(settings);
 }
 
-/**
- * Compaction summarization only: always prefer the fast tier model (ignore complex-session bump).
- */
+/** Compaction summarization: use the selected (or custom) summarization model. */
 export async function getCompactionSummarizationModel(
   settings: UserSettings,
 ): Promise<{ provider: string; name: string; customModelId?: number }> {
-  const fast = getFastModelForCurrentProvider(settings);
-  return fast ?? settings.selectedModel;
+  return getSummarizationModel(settings);
 }

@@ -9,36 +9,20 @@ import { safeJoin } from "../utils/path_utils";
 
 import log from "electron-log";
 import {
-  deleteSupabaseFunction,
-  deploySupabaseFunction,
-  executeSupabaseSql,
-} from "../../supabase_admin/supabase_management_client";
-import {
-  isServerFunction,
-  isSharedServerModule,
-  deployAllSupabaseFunctions,
-  extractFunctionNameFromPath,
-} from "../../supabase_admin/supabase_utils";
-import { UserSettings } from "../../lib/schemas";
-import {
   gitCommit,
   gitAdd,
   gitRemove,
   gitAddAll,
   getGitUncommittedFiles,
 } from "../utils/git_utils";
-import { readSettings } from "@/main/settings";
 import { isFsAccessDenied } from "../utils/fs-access-errors";
-import { writeMigrationFile } from "../utils/file_utils";
 import {
   getAtlarixWriteTags,
   getAtlarixRenameTags,
   getAtlarixDeleteTags,
-  getAtlarixExecuteSqlTags,
   getAtlarixSearchReplaceTags,
 } from "../utils/atlarix_tag_parser";
 import { applySearchReplace } from "../../pro/main/ipc/processors/search_replace_processor";
-import { storeDbTimestampAtCurrentVersion } from "../utils/neon_timestamp_utils";
 
 import { FileUploadsState } from "../utils/file_uploads_state";
 
@@ -79,28 +63,11 @@ export async function processFullResponseActions(
     return {};
   }
 
-  if (app.neonProjectId && app.neonDevelopmentBranchId) {
-    try {
-      await storeDbTimestampAtCurrentVersion({
-        appId: app.id,
-      });
-    } catch (error) {
-      logger.error("Error creating Neon branch at current version:", error);
-      throw new Error(
-        "Could not create Neon branch; database versioning functionality is not working: " +
-        error,
-      );
-    }
-  }
-
-  const settings: UserSettings = readSettings();
   const appPath = getAtlarixAppPath(app.path);
   const writtenFiles: string[] = [];
   const renamedFiles: string[] = [];
   const deletedFiles: string[] = [];
   let hasChanges = false;
-  // Track if any shared modules were modified
-  let sharedModulesChanged = false;
 
   const warnings: Output[] = [];
   const errors: Output[] = [];
@@ -111,9 +78,6 @@ export async function processFullResponseActions(
     const atlarixWriteTags = getAtlarixWriteTags(fullResponse);
     const atlarixRenameTags = getAtlarixRenameTags(fullResponse);
     const atlarixDeletePaths = getAtlarixDeleteTags(fullResponse);
-    const atlarixExecuteSqlQueries = app.supabaseProjectId
-      ? getAtlarixExecuteSqlTags(fullResponse)
-      : [];
 
     const message = ephemeralChat?.messages.find(
       (m) => m.id === messageId && m.role === "assistant",
@@ -123,43 +87,6 @@ export async function processFullResponseActions(
       logger.error(`No ephemeral message found for ID: ${messageId}`);
       return {};
     }
-
-    // Handle SQL execution tags
-    if (atlarixExecuteSqlQueries.length > 0) {
-      for (const query of atlarixExecuteSqlQueries) {
-        try {
-          await executeSupabaseSql({
-            supabaseProjectId: app.supabaseProjectId!,
-            query: query.content,
-          });
-
-          // Only write migration file if SQL execution succeeded
-          if (settings.enableSupabaseWriteSqlMigration) {
-            try {
-              const migrationFilePath = await writeMigrationFile(
-                appPath,
-                query.content,
-                query.description,
-              );
-              writtenFiles.push(migrationFilePath);
-            } catch (error) {
-              errors.push({
-                message: `Failed to write SQL migration file for: ${query.description}`,
-                error: error,
-              });
-            }
-          }
-        } catch (error) {
-          errors.push({
-            message: `Failed to execute SQL query: ${query.content}`,
-            error: error,
-          });
-        }
-      }
-      logger.log(`Executed ${atlarixExecuteSqlQueries.length} SQL queries`);
-    }
-
-
 
     //////////////////////
     // File operations //
@@ -176,11 +103,6 @@ export async function processFullResponseActions(
     // Process all file deletions
     for (const filePath of atlarixDeletePaths) {
       const fullFilePath = safeJoin(appPath, filePath);
-
-      // Track if this is a shared module
-      if (isSharedServerModule(filePath)) {
-        sharedModulesChanged = true;
-      }
 
       // Delete the file if it exists
       if (fs.existsSync(fullFilePath)) {
@@ -214,31 +136,12 @@ export async function processFullResponseActions(
       } else {
         logger.warn(`File to delete does not exist: ${fullFilePath}`);
       }
-      // Only delete individual functions, not shared modules
-      if (isServerFunction(filePath)) {
-        try {
-          await deleteSupabaseFunction({
-            supabaseProjectId: app.supabaseProjectId!,
-            functionName: extractFunctionNameFromPath(filePath),
-          });
-        } catch (error) {
-          errors.push({
-            message: `Failed to delete Supabase function: ${filePath}`,
-            error: error,
-          });
-        }
-      }
     }
 
     // Process all file renames
     for (const tag of atlarixRenameTags) {
       const fromPath = safeJoin(appPath, tag.from);
       const toPath = safeJoin(appPath, tag.to);
-
-      // Track if this involves shared modules
-      if (isSharedServerModule(tag.from) || isSharedServerModule(tag.to)) {
-        sharedModulesChanged = true;
-      }
 
       // Ensure target directory exists
       const dirPath = path.dirname(toPath);
@@ -262,34 +165,6 @@ export async function processFullResponseActions(
         logger.warn(`Source file for rename does not exist: ${fromPath}`);
       }
       // Only handle individual functions, not shared modules
-      if (isServerFunction(tag.from)) {
-        try {
-          await deleteSupabaseFunction({
-            supabaseProjectId: app.supabaseProjectId!,
-            functionName: extractFunctionNameFromPath(tag.from),
-          });
-        } catch (error) {
-          warnings.push({
-            message: `Failed to delete Supabase function: ${tag.from} as part of renaming ${tag.from} to ${tag.to}`,
-            error: error,
-          });
-        }
-      }
-      // Deploy renamed function (skip if shared modules changed - will be handled later)
-      if (isServerFunction(tag.to) && !sharedModulesChanged) {
-        try {
-          await deploySupabaseFunction({
-            supabaseProjectId: app.supabaseProjectId!,
-            functionName: extractFunctionNameFromPath(tag.to),
-            appPath,
-          });
-        } catch (error) {
-          errors.push({
-            message: `Failed to deploy Supabase function: ${tag.to} as part of renaming ${tag.from} to ${tag.to}`,
-            error: error,
-          });
-        }
-      }
     }
 
     // Process all search-replace edits
@@ -297,11 +172,6 @@ export async function processFullResponseActions(
     for (const tag of atlarixSearchReplaceTags) {
       const filePath = tag.path;
       const fullFilePath = safeJoin(appPath, filePath);
-
-      // Track if this is a shared module
-      if (isSharedServerModule(filePath)) {
-        sharedModulesChanged = true;
-      }
 
       try {
         if (!fs.existsSync(fullFilePath)) {
@@ -321,22 +191,6 @@ export async function processFullResponseActions(
         // Write modified content
         fs.writeFileSync(fullFilePath, result.content);
         writtenFiles.push(filePath);
-
-        // If server function (not shared), redeploy (skip if shared modules changed)
-        if (isServerFunction(filePath) && !sharedModulesChanged) {
-          try {
-            await deploySupabaseFunction({
-              supabaseProjectId: app.supabaseProjectId!,
-              functionName: extractFunctionNameFromPath(filePath),
-              appPath,
-            });
-          } catch (error) {
-            errors.push({
-              message: `Failed to deploy Supabase function after search-replace: ${filePath}`,
-              error: error,
-            });
-          }
-        }
       } catch (error) {
         errors.push({
           message: `Error applying search-replace to ${filePath}`,
@@ -350,11 +204,6 @@ export async function processFullResponseActions(
       const filePath = tag.path;
       let content: string | Buffer = tag.content;
       const fullFilePath = safeJoin(appPath, filePath);
-
-      // Track if this is a shared module
-      if (isSharedServerModule(filePath)) {
-        sharedModulesChanged = true;
-      }
 
       // Check if content (stripped of whitespace) exactly matches a file ID and replace with actual file content
       if (fileUploadsMap) {
@@ -388,53 +237,6 @@ export async function processFullResponseActions(
       fs.writeFileSync(fullFilePath, content);
       logger.log(`Successfully wrote file: ${fullFilePath}`);
       writtenFiles.push(filePath);
-      // Deploy individual function (skip if shared modules changed - will be handled later)
-      if (
-        isServerFunction(filePath) &&
-        typeof content === "string" &&
-        !sharedModulesChanged
-      ) {
-        try {
-          await deploySupabaseFunction({
-            supabaseProjectId: app.supabaseProjectId!,
-            functionName: extractFunctionNameFromPath(filePath),
-            appPath,
-          });
-        } catch (error) {
-          errors.push({
-            message: `Failed to deploy Supabase function: ${filePath}`,
-            error: error,
-          });
-        }
-      }
-    }
-
-    // If shared modules changed, redeploy all functions
-    if (sharedModulesChanged && app.supabaseProjectId) {
-      try {
-        logger.info(
-          "Shared modules changed, redeploying all Supabase functions",
-        );
-        const deployErrors = await deployAllSupabaseFunctions({
-          appPath,
-          supabaseProjectId: app.supabaseProjectId,
-        });
-        if (deployErrors.length > 0) {
-          for (const err of deployErrors) {
-            errors.push({
-              message:
-                "Failed to deploy Supabase function after shared module change",
-              error: err,
-            });
-          }
-        }
-      } catch (error) {
-        errors.push({
-          message:
-            "Failed to redeploy all Supabase functions after shared module change",
-          error: error,
-        });
-      }
     }
 
     // If we have any file changes, commit them all at once
@@ -460,8 +262,6 @@ export async function processFullResponseActions(
         changes.push(`renamed ${renamedFiles.length} file(s)`);
       if (deletedFiles.length > 0)
         changes.push(`deleted ${deletedFiles.length} file(s)`);
-      if (atlarixExecuteSqlQueries.length > 0)
-        changes.push(`executed ${atlarixExecuteSqlQueries.length} SQL queries`);
 
       let message = chatSummary
         ? `[atlarix] ${chatSummary} - ${changes.join(", ")}`
