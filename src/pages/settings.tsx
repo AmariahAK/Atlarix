@@ -11,7 +11,6 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
@@ -26,8 +25,7 @@ import { useLanguageModelProviders } from "@/hooks/useLanguageModelProviders";
 import { WorkspaceTerminalPermissions } from "@/components/settings/WorkspaceTerminalPermissions";
 import { WorkspaceFilePermissions } from "@/components/settings/WorkspaceFilePermissions";
 import { GitHubIntegration } from "@/components/GitHubIntegration";
-import { useSetAtom, useAtomValue, getDefaultStore } from "jotai";
-import { selectedAppIdAtom } from "@/atoms/appAtoms";
+import { useSetAtom, getDefaultStore } from "jotai";
 import {
   activeSettingsSectionAtom,
   pendingSettingsScrollAtom,
