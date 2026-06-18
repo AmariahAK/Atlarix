@@ -21,7 +21,6 @@ const ROOT = path.resolve(__dirname, "..");
 /** Pin nightly snapshot (Universal Ctags 6.x). Updated periodically. */
 const CTAGS_NIGHTLY_TAG = "2026.05.14+173707379ee89beaea30896652bd23931cb2f08d";
 const CTAGS_WIN32_API = "https://api.github.com/repos/universal-ctags/ctags-win32/releases";
-const NIGHTLY_API = "https://api.github.com/repos/universal-ctags/ctags-nightly-build/releases/tags/";
 
 function platformKey() {
   const p = process.platform;
@@ -163,10 +162,6 @@ async function extractTarXz(archivePath, destDirPath, innerBinPath) {
     return found;
   }
   return extracted;
-}
-
-function nightlyDownloadUrl(assetFile) {
-  return `${NIGHTLY_API.replace("/releases/tags/", "/releases/download/")}${encodeURIComponent(CTAGS_NIGHTLY_TAG)}/${assetFile}`;
 }
 
 async function fetchNightlyTar(assetFile, innerBinPath) {

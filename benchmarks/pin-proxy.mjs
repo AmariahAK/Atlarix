@@ -94,6 +94,7 @@ const server = http.createServer(async (req, res) => {
     const upstream = await fetch(UPSTREAM + req.url, {
       method: req.method,
       headers,
+      // eslint-disable-next-line unicorn/no-invalid-fetch-options -- body is already nullified for GET/HEAD via the ternary; the rule can't see through it
       body: req.method === "GET" || req.method === "HEAD" ? undefined : bodyBuf,
     });
 

@@ -111,7 +111,7 @@ export async function packageAppDirect(tag) {
   fs.mkdirSync(PACKAGER_TMP, { recursive: true });
 
   const afterCopyHooks = [
-    async (buildPath, ev, pPlatform, pArch) => {
+    async (buildPath, _ev, _pPlatform, _pArch) => {
       const bins = await fg(path.join(buildPath, "**/.bin/**/*"));
       for (const bin of bins) {
         await fsExtra.remove(bin);
@@ -132,7 +132,7 @@ export async function packageAppDirect(tag) {
         });
       }
     },
-    async (buildPath, ev, pPlatform, pArch) => {
+    async (buildPath, _ev, _pPlatform, _pArch) => {
       const copiedPackageJSON = await readMutatedPackageJson(buildPath, forgeConfig);
       if (copiedPackageJSON.config?.forge) {
         delete copiedPackageJSON.config.forge;
@@ -161,7 +161,6 @@ export async function packageAppDirect(tag) {
 
   const packageOpts = {
     overwrite: true,
-    ignore: [/^\/out\//g],
     tmpdir: packagerTmpdir,
     ...forgeConfig.packagerConfig,
     download: {
