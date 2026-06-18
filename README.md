@@ -108,6 +108,20 @@ Releases are built from **this repository** via GitHub Actions ([**Atlarix CI**]
 
 See [`.github/workflows/release.yml`](.github/workflows/release.yml) and [docs/CREDENTIALS_SETUP.md](docs/CREDENTIALS_SETUP.md) for secrets and migration bundling (`npm run db:bundle-sql` after Drizzle changes).
 
+### Headless agent (benchmarking / CI)
+
+`npm run build:headless` bundles an **Electron-free CLI** (`src/headless/`) that drives the real agent loop in plain Node — used by the Terminal-Bench (Harbor) and SWE-bench adapters under [`benchmarks/`](benchmarks/). A prebuilt `linux/amd64` bundle is published as the [`headless-bench`](https://github.com/AmariahAK/atlarix-releases/releases/tag/headless-bench) release on atlarix-releases.
+
+```bash
+node dist-headless/atlarix-headless.mjs \
+  --workspace /path/to/repo --prompt-file task.md \
+  --provider-id openrouter --model deepseek/deepseek-v4-pro \
+  --api-key "$OPENROUTER_API_KEY" \
+  --openrouter-provider '{"order":["deepinfra"],"allow_fallbacks":false}'
+```
+
+All flags have `ATLARIX_HEADLESS_*` env-var equivalents; `--mode build|ask`; exit `0` = completed. Custom OpenAI-compatible endpoints via `--provider-url`.
+
 ---
 
 ## Installation

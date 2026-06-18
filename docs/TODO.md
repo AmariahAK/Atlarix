@@ -1,9 +1,26 @@
 # Atlarix TODO
 
-**Current Version:** v13.6.0 (released)
-**Last Updated:** 2026-06-16
+**Current Version:** v13.7.0 (released)
+**Last Updated:** 2026-06-18
 
 ---
+
+## v13.7.0 — SHIPPED (2026-06-18): silent-grep Blueprint, `@` chips, hardened agent loop + headless CLI
+
+> See `docs/CHANGELOG.md` [13.7.0]. ts (main/app/tests) + oxlint clean (0/0 across the whole tree),
+> full suite green (1226 tests), headless bundle smoke-tested, packaged + boot-smoked.
+
+| Item | Status |
+|------|--------|
+| **`get_blueprint` tool removed; Blueprint = silent grep substrate** — FTS5+Ctags index, ast-grep edges, token-free grep reranker, edit-time blast-radius all stay; only the agent-facing tool affordance moved into `grep`. | ✅ Done |
+| **`@` mentions render as removable chips** — `MentionAttachmentChip`, `src/lib/chat/mention-attachment.ts`; scoped/capped extraction unchanged. | ✅ Done |
+| **Editable plans before & during build** — "Quick add step", `plan({operation:"append_step"})` + `plans:append-step` IPC; build re-reads the plan mid-run. | ✅ Done |
+| **`task_complete` completion tool** — first-class build/debug-only read-only tool replaces the `<task_complete>` XML sentinel as the done-signal. `src/lib/tools/task-complete.ts` + completion-detector. | ✅ Done |
+| **Edit & command mutation verifiers** — `run_command` failure guidance (exit 127/126/timeout/missing-file) symmetric with post-write edit verification; failed mutations block a premature `task_complete`. `mutation-verify.ts`, `run-command-guidance.ts`. | ✅ Done |
+| **Natural termination, no hard stoppers** — repetition hard loop-break demoted to advisory + bounded prose-only safety net (≤3 nudges); unintended per-tool iteration caps / loop-stoppers removed across the loop. | ✅ Done |
+| **Headless agent CLI + benchmark harness** — `npm run build:headless` (Electron-free bundle, native FC, no browser tools); Terminal-Bench (Harbor) + SWE-bench adapters under `benchmarks/` + `tests/bench/`; distributed via the `headless-bench` pre-release on `atlarix-releases`. | ✅ Done |
+| **Fewer Supabase pings, OAuth-token log scrub, MCP env encrypted at rest, stale-worktree reaping, macOS GPU sandbox kept.** | ✅ Done |
+| **Cleanup** — flaky `snapshot_shadow_git` stabilized (file-scoped 30s timeout), 19 src + 7 non-src oxlint warnings/errors cleared, two safe deprecation swaps (`rmdirSync`→`rmSync`, `substr`→`slice`). Refactor-deep deprecations + breaking dep upgrades (eslint v9, ts-eslint v7) deferred. | ✅ Done |
 
 ## v13.6.0 — SHIPPED (2026-06-16): surface simplification
 

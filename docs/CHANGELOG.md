@@ -1,6 +1,6 @@
 # Atlarix Changelog
 
-## [13.7.0] (2026-06-17) — Blueprint becomes the silent grep substrate, `@` mentions as chips, fewer Supabase pings, editable plans
+## [13.7.0] (2026-06-18) — Blueprint becomes the silent grep substrate, `@` mentions as chips, fewer Supabase pings, editable plans, a hardened agent loop + headless CLI
 
 > Retrieval gets simpler and sharper: the `get_blueprint` **tool** is gone, but the Blueprint
 > index stays — now it silently reranks every `grep` (and powers edit-time blast-radius) instead of
@@ -11,7 +11,11 @@
 > attachments) instead of inline `@file:` text, while preserving the existing capped, scoped
 > extraction. Account/plan state is cached so a single user no longer triggers redundant Supabase
 > round-trips on every auth event, and session plans can be added to/edited before and during a
-> build with the agent picking up the changes.
+> build with the agent picking up the changes. The agentic loop is hardened: completion is now an
+> explicit **`task_complete` tool** (replacing the `<task_complete>` text sentinel), edits and
+> `run_command` calls are verified after they run and block a premature finish, and unintended
+> tool-call caps / hard loop-breaks are gone in favor of natural termination. A new **headless agent
+> CLI** + benchmark harness (Terminal-Bench / SWE-bench) runs the real agent loop without Electron.
 
 ### Added
 
@@ -27,6 +31,18 @@
   the Plan panel; a new `plan({operation:"append_step"})` op + `plans:append-step` IPC add a checklist
   item without a full rewrite. Build-mode guidance tells the agent to re-read the plan (`plan({operation:"read"})`)
   so user additions made mid-build are honored.
+- **`task_complete` completion tool.** A first-class `task_complete` tool (build/debug-only, read-only,
+  no workspace) replaces the `<task_complete>` XML sentinel as the agent's done-signal — less parsing,
+  same accuracy, matching how the reference harnesses terminate. (`src/lib/tools/task-complete.ts`,
+  completion-detector wiring.)
+- **Edit & command mutation verifiers.** Post-write verification is now symmetric for terminal commands:
+  `run_command` failures produce targeted guidance (exit 127 → PATH, 126 → chmod, missing file → re-read,
+  timeouts) and edit/write outcomes are confirmed through the permission interceptor. A failed mutation
+  **blocks** a premature `task_complete` until it's addressed. (`mutation-verify.ts`, `run-command-guidance.ts`.)
+- **Headless agent CLI + benchmark harness.** `npm run build:headless` bundles an Electron-free CLI
+  (`src/headless/`) that drives the real `chat:stream` loop in plain Node; adapters for Terminal-Bench
+  (Harbor) and SWE-bench live under `benchmarks/` and `tests/bench/`. The headless build forces native
+  function-calling and drops browser tools.
 
 ### Changed
 
@@ -38,6 +54,10 @@
   invalidated on sign-out / realtime plan change / explicit refresh, so repeated auth events and
   `auth:get-plan-info` calls don't each re-query. The team-membership lookup is skipped when the user
   is already at the max tier. No polling timer added (realtime remains the upgrade signal).
+- **Agent ends turns by natural termination, not a hard stopper.** The repetition detector's hard
+  loop-break is now advisory only; a bounded prose-only safety net (≤3 nudges) lets the model finish on
+  its own once work is done. Unintended per-tool iteration caps / loop-stoppers were removed across the
+  loop so no tool (e.g. `run_command`) is silently capped.
 
 ### Fixed / Security
 
