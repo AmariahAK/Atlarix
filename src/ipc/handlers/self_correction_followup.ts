@@ -11,7 +11,7 @@ const pendingSelfCorrectionRootByChatId = new Map<number, number>();
 
 export function clearSelfCorrectionAttemptsForChat(chatId: number): void {
   pendingSelfCorrectionRootByChatId.delete(chatId);
-  for (const k of [...correctionAttempts.keys()]) {
+  for (const k of Array.from(correctionAttempts.keys())) {
     if (k.startsWith(`${chatId}:`)) correctionAttempts.delete(k);
   }
 }

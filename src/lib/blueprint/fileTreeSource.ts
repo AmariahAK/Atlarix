@@ -103,6 +103,7 @@ interface WalkEntry {
 
 async function walkDir(
   dir: string,
+  // eslint-disable-next-line oxc/only-used-in-recursion -- baseDir is threaded through the recursion for callers that compute paths relative to the walk root
   baseDir: string,
   relativePrefix: string,
   entries: WalkEntry[],

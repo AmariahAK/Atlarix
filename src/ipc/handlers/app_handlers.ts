@@ -1197,6 +1197,7 @@ export function registerAppHandlers() {
         if (pathChanged) {
           const invalidChars = /[<>:"|?*/\\]/;
           const hasInvalidChars =
+            // eslint-disable-next-line no-control-regex -- detect ASCII control chars in path
             invalidChars.test(appPath) || /[\x00-\x1f]/.test(appPath);
 
           if (hasInvalidChars) {

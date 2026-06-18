@@ -5,7 +5,7 @@
  * Skips when no git binary is available on PATH (v11: dugite removed; the
  * app shells out to system git).
  */
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -18,6 +18,13 @@ import {
   snapshotExists,
   _setShadowSnapshotsRootForTests,
 } from "@/lib/snapshot/snapshot-manager";
+
+// Every test here shells out to system `git`; under the parallel `node` vitest
+// project the default 5s timeout can be exceeded purely by subprocess startup
+// contention (the suite runs ~3x slower under load than in isolation). Raise
+// the per-test timeout for this file so slowness can't cause spurious failures
+// (combined with the project's retry: 2, this is robust). No logic change.
+vi.setConfig({ testTimeout: 30_000 });
 
 const gitAvailable = await gitExec(["--version"], os.tmpdir())
   .then((r) => r.exitCode === 0)

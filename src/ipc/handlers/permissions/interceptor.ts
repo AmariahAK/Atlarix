@@ -359,7 +359,7 @@ export class PermissionInterceptor extends EventEmitter {
      * Generate unique operation ID
      */
     generateOperationId(): string {
-        return `op_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        return `op_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
     }
 
     /** Pre-execute writes for batch auto-allow paths (file scope preflight). */

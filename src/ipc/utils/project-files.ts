@@ -371,7 +371,7 @@ export function clearFileListCache(workspacePath?: string): void {
     if (workspacePath) {
         clearWorkspaceDiscoverySessionCache(workspacePath);
         const resolved = path.resolve(workspacePath);
-        for (const key of [...fileListCache.keys()]) {
+        for (const key of Array.from(fileListCache.keys())) {
             if (key.startsWith(resolved)) fileListCache.delete(key);
         }
     } else {

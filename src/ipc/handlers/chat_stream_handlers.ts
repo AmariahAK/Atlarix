@@ -175,7 +175,7 @@ import { revertSnapshot, revertSnapshotFiles, snapshotExists } from "../../lib/s
 import { feedTerminalOutput } from "../../lib/streams/StreamManager";
 import {
   processChatMessagesWithVersionedFiles as getVersionedFiles,
-  VersionedFiles as VersionedFiles,
+  VersionedFiles,
 } from "../utils/versioned_codebase_context";
 import { ToolRegistry } from "../../lib/tools";
 import { AttachmentStore } from "../../lib/attachment-store";
@@ -1256,6 +1256,7 @@ export function registerChatStreamHandlers() {
     let retriedAfterOverflowCompaction = false;
 
     const runStream = async () => {
+      // eslint-disable-next-line no-unassigned-vars -- WIP: assigned by in-progress orchestrator wiring; invoked via optional-chain below
       let stopAgentOrchestrator: (() => void) | undefined;
       let streamTerminated = false;
       // v12 2.3: the snapshot/ledger turn id for THIS turn, captured for the

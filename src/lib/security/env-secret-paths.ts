@@ -35,6 +35,7 @@ function decodePercentEncoding(input: string): string {
  */
 export function sanitizePathInput(p: string): string {
   if (!p || typeof p !== "string") return "";
+  // eslint-disable-next-line no-control-regex -- intentionally strip NUL bytes
   let s = p.replace(/\0/g, "");
   s = decodePercentEncoding(s);
   return s.replace(/\\/g, "/");

@@ -42,6 +42,7 @@ const sessions = new Map<string, Session>();
  */
 function parseCwdFromChunk(data: string): string | null {
   let cwd: string | null = null;
+  // eslint-disable-next-line no-control-regex -- parse OSC 7 terminal escape sequence
   const osc7 = data.matchAll(/\x1b\]7;file:\/\/[^/]*([^\x07\x1b]*)(?:\x07|\x1b\\)/g);
   for (const m of osc7) {
     try {
@@ -50,6 +51,7 @@ function parseCwdFromChunk(data: string): string | null {
       cwd = m[1] || cwd;
     }
   }
+  // eslint-disable-next-line no-control-regex -- parse OSC 1337 terminal escape sequence
   const osc1337 = data.matchAll(/\x1b\]1337;CurrentDir=([^\x07\x1b]*)(?:\x07|\x1b\\)/g);
   for (const m of osc1337) {
     cwd = m[1] || cwd;

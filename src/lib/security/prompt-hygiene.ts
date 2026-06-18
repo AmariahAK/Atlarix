@@ -9,6 +9,7 @@ export function sanitizePromptInput(raw: string): string {
   if (typeof raw !== "string") {
     throw new Error("Invalid prompt");
   }
+  // eslint-disable-next-line no-control-regex -- intentionally strip NUL bytes
   const s = raw.replace(/\0/g, "").normalize("NFC").trim();
   if (s.length > MAX_USER_CHAT_PROMPT_CHARS) {
     throw new Error(

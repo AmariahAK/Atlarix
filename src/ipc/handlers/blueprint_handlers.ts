@@ -471,7 +471,7 @@ export function invalidateBlueprintCache(workspaceId: number, focusPath?: string
     blueprintCache.delete(blueprintCacheKey(workspaceId, focusPath));
   } else {
     const prefix = `${workspaceId}:`;
-    for (const key of [...blueprintCache.keys()]) {
+    for (const key of Array.from(blueprintCache.keys())) {
       if (key.startsWith(prefix)) blueprintCache.delete(key);
     }
   }

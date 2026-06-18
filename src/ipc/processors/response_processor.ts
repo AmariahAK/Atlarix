@@ -119,7 +119,7 @@ export async function processFullResponseActions(
           throw statErr;
         }
         if (isDirectory) {
-          fs.rmdirSync(fullFilePath, { recursive: true });
+          fs.rmSync(fullFilePath, { recursive: true, force: true });
         } else {
           fs.unlinkSync(fullFilePath);
         }

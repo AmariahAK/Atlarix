@@ -255,6 +255,7 @@ function getDataForType(
 ) {
     // Helper to prepare terminal output
     const prepareTerminalOutput = () => {
+        // eslint-disable-next-line no-control-regex -- strip ANSI SGR escape sequences
         const stripAnsi = (str: string) => str.replace(/\x1b\[[0-9;]*m/g, '');
         const rawOutput = state.terminalOutput?.output || '';
         const cleanOutput = stripAnsi(rawOutput);

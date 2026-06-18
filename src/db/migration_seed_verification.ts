@@ -231,17 +231,6 @@ export function isJournalMigrationApplied(
       );
     case "0063_session_message_snapshot_turn":
       return columnExists(sqlite, "session_messages", "snapshot_turn_id");
-    case "0053_message_paste_attachments":
-      return columnExists(sqlite, "messages", "paste_attachments");
-    case "0054_message_file_attachments":
-      return columnExists(sqlite, "messages", "file_attachments");
-    case "0055_session_message_attachments":
-      return (
-        columnExists(sqlite, "session_messages", "model_content") &&
-        columnExists(sqlite, "session_messages", "file_attachments")
-      );
-    case "0056_workspace_command_permissions":
-      return tableExists(sqlite, "workspace_command_permissions");
     default:
       return false;
   }

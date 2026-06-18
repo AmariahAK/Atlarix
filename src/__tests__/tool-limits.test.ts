@@ -57,6 +57,7 @@ describe("read_file limits", () => {
 
 describe("search max_results clamp", () => {
   it("clamps requested max to 200", () => {
+    // eslint-disable-next-line oxc/bad-min-max-func -- intentionally asserts the clamp formula's constant result
     expect(Math.min(200, Math.max(1, 9999))).toBe(200);
   });
 });
