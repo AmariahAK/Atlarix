@@ -9,6 +9,10 @@ import os from "node:os";
 import { createLoggedHandler } from "./safe_handle";
 import log from "electron-log";
 import sudoPrompt from "@vscode/sudo-prompt";
+import {
+  consumePendingCliWorkspace,
+  type CliWorkspacePayload,
+} from "../../main/open_workspace_from_cli";
 
 const logger = log.scope("cli-handlers");
 const handle = createLoggedHandler(logger);
@@ -34,7 +38,11 @@ if [ ! -f "$ATLARIX_APP" ]; then
   echo "atlarix: Atlarix.app not found. Install Atlarix in /Applications." >&2
   exit 1
 fi
-"$ATLARIX_APP" "$@" > /dev/null 2>&1 &
+# Fully detach from the terminal: stdin from /dev/null (so the app never holds
+# the controlling TTY — otherwise the shell sees "error on TTY read"), stdout/
+# stderr discarded, backgrounded + disowned. Launch the binary directly (not
+# 'open -a') so relative paths like '.' resolve against the shell's cwd.
+nohup "$ATLARIX_APP" "$@" < /dev/null > /dev/null 2>&1 &
 disown $! 2>/dev/null || true
 `;
 }
@@ -48,7 +56,8 @@ for ATLARIX_BIN in \\
   "$HOME/.local/bin/Atlarix" \\
   "$HOME/Applications/Atlarix.AppImage"; do
   if [ -f "$ATLARIX_BIN" ]; then
-    "$ATLARIX_BIN" "$@" > /dev/null 2>&1 &
+    # Detach stdin too (< /dev/null) so the app doesn't hold the controlling TTY.
+    nohup "$ATLARIX_BIN" "$@" < /dev/null > /dev/null 2>&1 &
     disown $! 2>/dev/null || true
     exit 0
   fi
@@ -70,6 +79,37 @@ if not exist "%ATLARIX_EXE%" (
 )
 start "" "%ATLARIX_EXE%" %*
 `;
+}
+
+/** Present only in the TTY-detach-fixed launcher; used to detect a stale install. */
+const CLI_LAUNCHER_FIX_MARKER = "< /dev/null";
+/** Comment line our generated scripts carry, so self-heal never clobbers a foreign file. */
+const CLI_LAUNCHER_SIGNATURE = "Atlarix CLI launcher";
+
+/**
+ * Best-effort: if a previously-installed `atlarix` launcher predates the
+ * TTY-detach fix, rewrite it in place so the user doesn't have to re-install.
+ * Silent + non-elevated — if the file isn't ours or isn't writable (e.g. it was
+ * installed with sudo), we skip and leave re-install to Settings. Call at startup.
+ */
+export function refreshCliLauncherIfStale(): void {
+  if (process.platform === "win32") return; // `start` already detaches on Windows
+  try {
+    const { file } = cliTargetPath();
+    if (!fs.existsSync(file)) return;
+    const current = fs.readFileSync(file, "utf8");
+    if (current.includes(CLI_LAUNCHER_FIX_MARKER)) return; // already fixed
+    if (!current.includes(CLI_LAUNCHER_SIGNATURE)) return; // not our script — don't touch
+    const content =
+      process.platform === "darwin" ? macLauncherScript() : linuxLauncherScript();
+    fs.writeFileSync(file, content, { mode: 0o755 });
+    logger.info("Refreshed stale atlarix CLI launcher with the TTY-detach fix");
+  } catch (err) {
+    logger.info(
+      "CLI launcher self-heal skipped (re-install from Settings if needed):",
+      err instanceof Error ? err.message : String(err),
+    );
+  }
 }
 
 function cliTargetPath(): { dir: string; file: string } {
@@ -309,4 +349,12 @@ export function registerCliHandlers(): void {
     const { file } = cliTargetPath();
     return { installed: fs.existsSync(file), path: file };
   });
+
+  // Renderer pulls (and clears) any CLI workspace buffered before it mounted,
+  // so `atlarix .` on a cold start lands in the folder instead of the welcome
+  // screen even when the push event raced ahead of the listener.
+  handle(
+    "workspace:consume-pending-cli",
+    async (): Promise<CliWorkspacePayload | null> => consumePendingCliWorkspace(),
+  );
 }

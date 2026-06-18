@@ -1,5 +1,6 @@
 import type { mcpServers } from "@/db/schema";
 import { oauthConnectedFromRow } from "@/lib/mcp/oauth-token-utils";
+import { decryptEnvFromDb } from "@/lib/security/db-secrets";
 
 type McpServerRow = typeof mcpServers.$inferSelect;
 
@@ -28,6 +29,10 @@ export function sanitizeMcpServerForIpc<T extends McpServerRow | null | undefine
   } = row;
   return {
     ...rest,
+    // Stored encrypted at rest — decrypt for the (trusted, context-isolated)
+    // renderer so the config UI shows real env values for editing. Preserve
+    // null so "no env" stays distinguishable from "empty env".
+    envJson: row.envJson ? decryptEnvFromDb(row.envJson) : row.envJson,
     oauthConnected: oauthConnectedFromRow(row),
   } as never;
 }

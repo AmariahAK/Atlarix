@@ -7,6 +7,10 @@ import {
 import {
   isTextPasteAttachment,
 } from "@/lib/chat/text-paste-attachment";
+import {
+  isMentionAttachment,
+  mentionToken,
+} from "@/lib/chat/mention-attachment";
 
 export function escapeXmlAttr(value: string): string {
   return value
@@ -39,10 +43,16 @@ export function buildPastePromptsFromAttachments(
   const fileAttachments: FileAttachment[] = [];
   const modelBlocks: string[] = [];
   const displayBlocks: string[] = [];
+  // `@file:`/`@dir:` tokens reconstructed from mention chips. They go into BOTH
+  // prompts: the model prompt so parseContextMentions expands them, the display
+  // prompt so the sent message still shows what was referenced.
+  const mentionTokens: string[] = [];
   let body = prompt.trim();
 
   for (const att of attachments) {
-    if (isTextPasteAttachment(att)) {
+    if (isMentionAttachment(att)) {
+      mentionTokens.push(mentionToken(att));
+    } else if (isTextPasteAttachment(att)) {
       const name = att.textPaste.displayName;
       modelBlocks.push(buildTextPasteModelBlock(name, att.textPaste.content));
       displayBlocks.push(buildTextPasteDisplayBlock(name));
@@ -56,13 +66,17 @@ export function buildPastePromptsFromAttachments(
   modelBlocks.push(...buildTerminalPasteBlocks(attachments));
   displayBlocks.push(...buildTerminalPasteDisplayBlocks(attachments));
 
-  if (modelBlocks.length > 0) {
-    body = [body, ...modelBlocks].filter(Boolean).join("\n\n");
+  const mentionLine = mentionTokens.join(" ");
+
+  if (mentionLine || modelBlocks.length > 0) {
+    body = [body, mentionLine, ...modelBlocks].filter(Boolean).join("\n\n");
   }
 
   let displayBody = prompt.trim();
-  if (displayBlocks.length > 0) {
-    displayBody = [displayBody, ...displayBlocks].filter(Boolean).join("\n\n");
+  if (mentionLine || displayBlocks.length > 0) {
+    displayBody = [displayBody, mentionLine, ...displayBlocks]
+      .filter(Boolean)
+      .join("\n\n");
   }
 
   return {

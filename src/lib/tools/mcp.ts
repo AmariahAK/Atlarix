@@ -59,9 +59,13 @@ function formatMcpError(
   _serverName: string,
 ): { error: string; needsOAuth?: boolean; authRequired?: McpAuthRequired } {
   if (err instanceof McpNeedsAuthError) {
+    const isOAuth = err instanceof McpNeedsOAuthError;
+    const fix = isOAuth
+      ? `Tell the user to open Settings → Tools & MCP and click Connect on "${err.serverName}" to authorize it, then call this tool again.`
+      : `Tell the user to set the ${err.authType === "api_key" ? "API key" : "credentials"} for "${err.serverName}" in Settings → Tools & MCP, then call this tool again.`;
     return {
-      error: err.message,
-      ...(err instanceof McpNeedsOAuthError ? { needsOAuth: true } : {}),
+      error: `[MCP needs ${isOAuth ? "OAuth sign-in" : "authentication"}] "${err.serverName}" is not authenticated (${err.reason}). ${fix}`,
+      ...(isOAuth ? { needsOAuth: true } : {}),
       authRequired: {
         serverId: err.serverId,
         serverName: err.serverName,

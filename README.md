@@ -6,15 +6,15 @@ Atlarix is the agent workstation built for the open-weight frontier labs —
 execution, without replacing your editor.
 
 Atlarix Core ships the frontier open-weight labs; **Blueprint** — the local
-structural index — is what makes any model perform like it knows your codebase;
-and everything runs through your approval, on your machine. Your team writes
-code in VS Code, IntelliJ, or Vim. Atlarix gives the agent a live map of the
-codebase, a terminal, file operations, web search, and external integrations.
-The agent has a workspace. You have control.
+structural index — silently sharpens every `grep` so any model performs like it
+knows your codebase; and everything runs through your approval, on your machine.
+Your team writes code in VS Code, IntelliJ, or Vim. Atlarix gives the agent a
+fast, relevance-ranked view of the codebase, a terminal, file operations, web
+search, and external integrations. The agent has a workspace. You have control.
 
 ## How it works
 
-**Map** — Atlarix builds a live **Blueprint** per workspace section (Universal Ctags + ast-grep edges). The agent calls `get_blueprint` with a folder path—one monorepo area at a time—with validation, hybrid backfill on thin indexes, and compact Markdown slices—not whole-repo dumps.
+**Map** — Atlarix builds a live **Blueprint** per workspace (Universal Ctags + ast-grep edges) into a disk-backed SQLite **FTS5** index. There's no map tool to call: Blueprint silently reranks every `grep` by structural relevance (most relevant files first, each annotated with its enclosing function/class) and powers edit-time blast-radius — no whole-repo dumps, no embeddings, constant low memory at any size.
 
 **Connect** — Wire in any LLM: local **Ollama / LM Studio**, OpenAI, Anthropic, Google Gemini, OpenRouter, Groq, Mistral, xAI, **Hugging Face**, Azure, Bedrock, or **Atlarix Core** (managed models with real catalog names, not raw tier ids — the Core tiers are configured remotely, so the underlying models stay current without an app update).
 
@@ -24,7 +24,7 @@ The agent has a workspace. You have control.
 
 **Created by [NorahLabs](https://norahlabs.com)** (Nairobi, Kenya)  
 **Website:** [atlarix.dev](https://atlarix.dev)  
-**Current release:** **v13.6.0**
+**Current release:** **v13.7.0**
 
 **Downloads:** Installers for **macOS**, **Linux**, and **Windows** are on [atlarix.dev](https://atlarix.dev). *(Windows builds are currently unsigned; code signing is coming soon.)*
 
@@ -36,10 +36,10 @@ Release notes: **[docs/CHANGELOG.md](docs/CHANGELOG.md)** (current: 13.0+). Olde
 
 ## What makes Atlarix different
 
-- **Live Code Map:** Your repo is parsed into a live graph (rooms, beacons, edges). The agent queries structure first—not just open files. Technical details: [docs/architecture.md](docs/architecture.md).
+- **Live Code Map:** Your repo is parsed into a live structural index (Ctags symbols + ast-grep edges) that reranks `grep` and drives edit-time blast-radius — the agent gets relevance-ranked, symbol-annotated results without a separate map tool. Technical details: [docs/architecture.md](docs/architecture.md).
 - **Workspace-first:** Open a folder from the welcome screen. Chat, sessions, MCP, and Skills belong to that workspace—no global chat without a project.
 - **Work modes:** **Explore** (read-only), **Plan**, **Build**, **Debug**, **Review**.
-- **On-demand file discovery:** Opening a workspace does not scan the whole repo via git. The Code tab loads the file tree when you need it (plus a **Cmd/Ctrl+P** fuzzy file opener); the sidebar stays focused on sessions; the agent uses `glob`, `grep`, and `get_blueprint`.
+- **On-demand file discovery:** Opening a workspace does not scan the whole repo via git. The Code tab loads the file tree when you need it (plus a **Cmd/Ctrl+P** fuzzy file opener); the sidebar stays focused on sessions; the agent uses `glob` and `grep` (Blueprint-reranked).
 - **Attachments:** Paste text, terminal output, and files into chat. After send they appear as chips with preview; content persists across session reload.
 - **`@` file & folder mentions:** Type `@` in the composer to point the agent at part of the current workspace. Mentioning a **file** injects its contents (capped); mentioning a **folder** injects just its file listing, so the agent then `grep`s/reads within that scope instead of dumping a whole tree — precise context, low token cost.
 - **Agent Behaviors & workspace memory:** Project instructions in `.atlarix/atlarix.md` and behaviors under `.atlarix/skills/` shape the agent without repeating yourself every turn.
@@ -62,9 +62,7 @@ Release notes: **[docs/CHANGELOG.md](docs/CHANGELOG.md)** (current: 13.0+). Olde
 
 ### Live Code Map & Blueprint
 
-On-demand graph via `get_blueprint`—not whole-repo injection every turn. Parser tiers, Live View, Blueprint canvas, and `.atlarixignore` are documented in **[docs/architecture.md](docs/architecture.md)**.
-
-Retrieval is **structural + lexical, no embeddings** — Blueprint (Universal Ctags + ast-grep edges) for architecture, and a disk-backed SQLite **FTS5** index that reranks `grep` by relevance and scales to any repo size at constant low memory. `grep` returns sharp, low-token results: the most relevant files first, each annotated with its enclosing function/class (zoekt-style) so the model jumps straight to the symbol. The model itself is the natural-language layer — the deliberate choice (like Claude Code / opencode) is to keep retrieval lexical and let the agent reason, rather than ship a vector index.
+Retrieval is **structural + lexical, no embeddings, no map tool**. Blueprint (Universal Ctags + ast-grep edges) feeds a disk-backed SQLite **FTS5** index that reranks `grep` by relevance and scales to any repo size at constant low memory. `grep` returns sharp, low-token results: the most relevant files first, each annotated with its enclosing function/class (zoekt-style) so the model jumps straight to the symbol — and the same index drives edit-time blast-radius. There's no separate structural tool for the agent to call; like **Claude Code** and **opencode**, retrieval stays lexical and the agent reasons over ranked results rather than a vector index. `.atlarixignore` and parser tiers are documented in **[docs/architecture.md](docs/architecture.md)**.
 
 ### AI Agents & Modes
 
@@ -73,7 +71,7 @@ Retrieval is **structural + lexical, no embeddings** — Blueprint (Universal Ct
 
 ### Workspace Tools & Extensions
 
-- **Core tools:** A deliberately minimal 22-tool surface — `read_file`/`write_file`/`edit_file`, **`glob`** + **`grep`**, `run_command` (incl. `git` CLI and background commands), `get_blueprint`, web search/read, `task` sub-agents, `plan`, MCP, attachments, and the in-app browser tools. Explore/Plan/Review use read-only allowlists.
+- **Core tools:** A deliberately minimal tool surface — `read_file`/`write_file`/`edit_file`, **`glob`** + **`grep`** (Blueprint-reranked), `run_command` (incl. `git` CLI and background commands), web search/read, `task` sub-agents, `plan`, MCP, attachments, and the in-app browser tools. Explore/Plan/Review use read-only allowlists.
 - **MCP:** MCP servers are configured **per workspace** — Solo connects **1** (manual config); Studio / Team get the marketplace plus up to **10** per workspace (one-click OAuth connect from the marketplace). On-demand **`list_available_mcps`** / **`mcp_call`** in workspace chat.
 - **Agent Behaviors:** Install from [atlarix-skills](https://github.com/AmariahAK/atlarix-skills). Optional **`.atlarix/skills/`** in the repo.
 
@@ -143,7 +141,7 @@ After `npm install`, **`postinstall`** runs Electron install, **`fetch-ctags`**,
 |-----------|---------|------------|------------|
 | **Solo**  | $0      | 1          | All four Core models (**starter allowance**); BYOK / local; core tools; **1** MCP server per workspace (manual config) |
 | **Studio**   | $19/mo  | Unlimited  | All four Core models (**higher allowance**); Agent Behaviors + MCP marketplace; **10** MCP servers per workspace |
-| **Team** | $79/mo | Unlimited | Studio + seats, **team allowance pool**, team MCP integrations, repo behavior priority, Blueprint commit to git |
+| **Team** | $79/mo | Unlimited | Studio + seats, **team allowance pool**, team MCP integrations, repo behavior priority |
 
 Every plan gets all four **Atlarix Core** models (Core 1 fastest → Core 4 most capable) — only the monthly allowance differs by tier. Default allowances: [docs/compass-limits.md](docs/compass-limits.md).
 

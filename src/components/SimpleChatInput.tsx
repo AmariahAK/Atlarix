@@ -64,6 +64,7 @@ export function SimpleChatInput({ chatId, onSubmit, placeholder = "Continue the 
             value: inputValue,
             setValue: setInputValue,
             textareaRef: inputRef,
+            mentionChips: true,
         });
     const { isAuthenticated, loading: authLoading } = useAuth();
     const mustSignIn = !authLoading && !isAuthenticated;

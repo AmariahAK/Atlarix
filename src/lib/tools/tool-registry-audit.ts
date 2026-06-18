@@ -30,9 +30,8 @@ export const GLOBAL_CHAT_TOOLS = new Set([
  * Update when adding tools; `auditToolRegistry` fails if drift occurs.
  */
 export const BUILD_ONLY_TOOLS = [
-  "browser_click",
-  "browser_fill",
   "edit_file",
+  "task_complete",
   "write_file",
 ] as const satisfies readonly string[];
 

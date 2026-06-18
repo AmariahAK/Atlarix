@@ -8,8 +8,8 @@
 import * as fs from "fs/promises";
 import * as path from "path";
 import { db } from "@/db";
-import { apps, projectMemory, projectSnapshots } from "@/db/schema";
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { apps, projectSnapshots } from "@/db/schema";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import { getAtlarixAppPath } from "@/paths/paths";
 import { getCurrentCommitHash } from "@/ipc/utils/git_utils";
 const PLAN_FILE = ".atlarix/ATLARIX_PLAN.md";
@@ -164,39 +164,6 @@ export async function flushSessionEndSnapshots(): Promise<void> {
   }
 }
 
-export async function listProjectSnapshots(
-  workspaceId: number,
-  limit = 30,
-): Promise<
-  Array<{
-    id: number;
-    createdAt: Date;
-    trigger: string;
-    sessionSummary: string | null;
-    planExcerpt: string | null;
-  }>
-> {
-  const rows = await db
-    .select({
-      id: projectSnapshots.id,
-      createdAt: projectSnapshots.createdAt,
-      trigger: projectSnapshots.trigger,
-      sessionSummary: projectSnapshots.sessionSummary,
-      planMd: projectSnapshots.planMd,
-    })
-    .from(projectSnapshots)
-    .where(eq(projectSnapshots.workspaceId, workspaceId))
-    .orderBy(desc(projectSnapshots.createdAt))
-    .limit(limit);
-  return rows.map((r) => ({
-    id: r.id,
-    createdAt: r.createdAt as Date,
-    trigger: r.trigger,
-    sessionSummary: r.sessionSummary,
-    planExcerpt: r.planMd ? r.planMd.slice(0, 400) : null,
-  }));
-}
-
 export async function getProjectSnapshotRow(
   snapshotId: number,
   workspaceId: number,
@@ -232,30 +199,6 @@ export async function applyProjectSnapshotRevert(
       error: e instanceof Error ? e.message : String(e),
     };
   }
-}
-
-export async function listProjectMemoryKeys(workspaceId: number): Promise<Array<{ key: string; value: string }>> {
-  return db
-    .select({ key: projectMemory.key, value: projectMemory.value })
-    .from(projectMemory)
-    .where(eq(projectMemory.workspaceId, workspaceId));
-}
-
-export async function upsertProjectMemoryKey(
-  workspaceId: number,
-  key: string,
-  value: string,
-): Promise<void> {
-  markTouched(workspaceId);
-  const k = key.slice(0, 256);
-  const v = value.slice(0, 16_000);
-  await db.delete(projectMemory).where(and(eq(projectMemory.workspaceId, workspaceId), eq(projectMemory.key, k)));
-  await db.insert(projectMemory).values({
-    workspaceId,
-    key: k,
-    value: v,
-    updatedAt: sql`(unixepoch())`,
-  });
 }
 
 // v11.1: buildProjectMemoryPromptBlock deleted — prompt pre-injection was

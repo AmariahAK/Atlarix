@@ -8,6 +8,9 @@
     "src/routes/**/*.{ts,tsx}",
     "src/ipc/ipc_host.ts",
     "src/lib/tools/index.ts",
+    "src/headless/atlarix-headless.mts",
+    "src/headless/electron-stub.ts",
+    "src/headless/sentry-stub.ts",
     "forge.config.ts",
     "vite.*.config.mts"
   ],
@@ -35,7 +38,10 @@
     "@shikijs/themes",
     "@shikijs/langs",
     "hast",
-    "lint-staged"
+    "lint-staged",
+    "fs-extra",
+    "@types/fs-extra",
+    "esbuild"
   ],
   "ignoreBinaries": [
     "tsx",

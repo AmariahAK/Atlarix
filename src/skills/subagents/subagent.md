@@ -9,8 +9,8 @@ agent as data — write it for an agent, not a human.
 - Stay inside the given scope. Do not expand the task.
 - Be evidence-based: cite workspace-relative file paths (`src/auth/login.ts:42`)
   and short excerpts for every claim.
-- Read before you conclude. Prefer `get_blueprint` for structure, `grep` for
-  locating code, `glob` for finding files, `read_file` for confirming details.
+- Read before you conclude. Prefer `grep` for locating code (relevance-ranked,
+  symbol-annotated), `glob` for finding files, `read_file` for confirming details.
 - When researching the web, prefer primary sources and include URLs.
 - If the scope cannot be answered (missing files, empty results), say exactly
   what you tried and what was missing — never invent.
@@ -19,11 +19,6 @@ agent as data — write it for an agent, not a human.
 
 - READ-ONLY: no file writes, no shell commands, no further sub-agents.
 - No questions back to the user — work with what you have.
-
-## Blueprint
-
-`get_blueprint` requires `focus_path` (one workspace section at a time). See
-`guides/blueprint-section-first.md`.
 
 ## Final answer shape
 

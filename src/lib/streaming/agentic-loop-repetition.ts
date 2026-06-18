@@ -129,14 +129,12 @@ export function createAgenticRepetitionState(): AgenticRepetitionState {
   let windowKeys: string[] = [];
   let correctionsInjected = 0;
   let pendingCorrection: string | null = null;
-  let loopBreakPending = false;
 
   return {
     setEnabled(v: boolean) {
       enabled = v;
       windowKeys = [];
       pendingCorrection = null;
-      loopBreakPending = false;
       correctionsInjected = 0;
     },
     isEnabled() {
@@ -176,7 +174,9 @@ export function createAgenticRepetitionState(): AgenticRepetitionState {
         };
       }
 
-      loopBreakPending = true;
+      // Repetition detected past the nudge budget. The hard loop-break is
+      // disabled (consumeLoopBreak always returns false), so this is now an
+      // advisory classification only — the loop continues.
       return {
         kind: "loop_abort",
         toolName: op,
@@ -190,9 +190,11 @@ export function createAgenticRepetitionState(): AgenticRepetitionState {
       return t;
     },
     consumeLoopBreak() {
-      const b = loopBreakPending;
-      loopBreakPending = false;
-      return b;
+      // Hard loop-break on repetition is DISABLED: a repeated tool call no
+      // longer ends the turn (it was an unintended stopper). The ≤2 nudge
+      // corrections above still fire as benign steering; the model decides when
+      // it is done.
+      return false;
     },
   };
 }

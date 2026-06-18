@@ -27,11 +27,11 @@ const TOOL_OUTPUT_TOKEN_BUDGET = 6_000;
 const TOOL_OUTPUT_PREVIEW_HEAD_TOKENS = 1_500;
 const TOOL_OUTPUT_PREVIEW_TAIL_TOKENS = 500;
 // PASS8 B3: All tools go through the standard disk-truncation envelope.
-// Previously this exempted `read_file`, `get_blueprint`, and `get_active_skills`.
-// Each of those is now bounded (read_file by request range, get_blueprint by the
-// 300-line markdown cap added in B4, get_active_skills by its internal char cap),
-// so the envelope is a safety net rather than a removed feature. Single global
-// policy mirrors opencode's max-bytes envelope — no per-tool / per-tier carve-outs.
+// Previously this exempted `read_file` and `get_active_skills`.
+// Each of those is now bounded (read_file by request range, get_active_skills by
+// its internal char cap), so the envelope is a safety net rather than a removed
+// feature. Single global policy mirrors opencode's max-bytes envelope — no
+// per-tool / per-tier carve-outs.
 // v12 0.2: browser_screenshot's base64 PNG must reach toModelOutput intact
 // (it becomes a media content part, not text tokens) — head/tail truncation
 // would corrupt the image.

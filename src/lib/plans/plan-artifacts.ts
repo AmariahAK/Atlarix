@@ -60,6 +60,26 @@ export async function updatePlanArtifactContent(
   return row ? mapRow(row) : null;
 }
 
+/**
+ * Append a single checklist step to a plan without rewriting the whole body.
+ * Lets the user (and the agent) add items mid-flight without a lossy full
+ * overwrite. Returns null if the plan no longer exists.
+ */
+export async function appendStepToPlanArtifact(
+  planId: string,
+  stepText: string,
+): Promise<PlanArtifactRow | null> {
+  const existing = await getPlanArtifact(planId);
+  if (!existing) return null;
+  const clean = stepText
+    .trim()
+    .replace(/^[-*+]\s*/, "") // strip a leading bullet if the caller added one
+    .replace(/^\[[ x~!]?\]\s*/i, ""); // strip a leading checkbox too
+  if (!clean) return existing;
+  const content = `${existing.content.trimEnd()}\n- [ ] ${clean}\n`;
+  return updatePlanArtifactContent(planId, content);
+}
+
 export async function setPlanArtifactStatus(
   planId: string,
   planStatus: PlanArtifactStatus,

@@ -13,6 +13,10 @@ import { ATLARIX_GIT_AUTHOR_EMAIL } from "@/ipc/utils/git_author";
 export const GIT_VIA_TERMINAL_NOTE =
   "Git operations should use the **run_command** tool with standard git CLI (git status, git log, git diff, git show). Do not parse .git/objects manually when run_command can answer.";
 
+/** Steers the model to cheap a11y refs before costly screenshots when using the in-app browser. */
+export const BROWSER_NOTE =
+  "Browser: to read or interact with a page, call **browser_snapshot** first (a compact list of accessibility refs — cheap) before **browser_screenshot** (a costly image). Use the returned refs with browser_click / browser_fill.";
+
 /** Git note plus per-stream commit-author guidance (commit-capable modes only). */
 export function getGitTerminalNote(gitAuthorName?: string): string {
   if (!gitAuthorName) return GIT_VIA_TERMINAL_NOTE;
@@ -28,9 +32,9 @@ export function getActiveModeHeaderBlock(mode: ModeRegistryKey): string {
 You are in Explore mode. This is a read-only investigation mode for this chat turn.
 
 You CAN:
-- Read files and search the codebase
+- Read files and search the codebase with glob / grep (grep results are relevance-ranked)
 - Use **run_command** for read-only shell/git (git status, git log, git diff, ls, cat)
-- Use get_blueprint, search, web_search / deep_research (one per topic per turn)
+- Use web_search (one per topic per turn)
 - Answer questions and use attachments (read_attachment, list_attachments)
 
 You CANNOT:
@@ -49,7 +53,7 @@ You CAN:
 - Read and search the codebase; run_command for read-only git/shell
 - write_implementation_plan, read_implementation_plan, update_plan_status
 - write_file / edit_file only for .atlarix/atlarix.md and .atlarix/memory.md
-- get_blueprint and session plan tools
+- glob / grep to navigate the codebase and the session plan tools
 
 You CANNOT:
 - Edit application source code or run build/install commands
@@ -75,7 +79,7 @@ Plan lifecycle: when an active session plan appears in context (it includes its 
 You are in Debug mode. Hypothesis-first debugging for this chat turn.
 
 You CAN:
-- Investigate (read, glob, grep, get_blueprint, run_command for repro/tests)
+- Investigate (read, glob, grep, run_command for repro/tests)
 - State your hypothesis IN YOUR REPLY (root cause + evidence + files) before any write/edit/delete/rename
 - Minimal file changes that test the stated hypothesis only
 
@@ -106,10 +110,9 @@ function getActiveModeWorkExtras(mode: ModeRegistryKey): string {
   switch (mode) {
     case "ask":
       return `<work_mode>
-Discovery: explore_folder / list_files on paths tied to the question; get_repo_overview with focus_path for large trees (avoid workspace root unless needed).
-search (auto | text | semantic | structural) → get_file_outline → read_file for exact ranges.
-get_blueprint requires focus_path. At most 5 spawn_sub_agent calls per turn when batching scopes.
-Do not use write_file, edit_file, write_implementation_plan, or mutating run_command.
+Discovery: glob to find files by NAME (mtime-sorted); grep to search file CONTENTS (results are relevance-ranked, most relevant files first); then read_file for exact ranges.
+At most 5 task calls per turn when batching independent scopes.
+Do not use write_file, edit_file, or mutating run_command.
 </work_mode>`;
     case "plan":
       return `<work_mode>
@@ -123,12 +126,14 @@ Verify your changes with the project's OWN tooling: after edits, discover and ru
 When the task involves non-trivial logic, write or extend test files that genuinely exercise it and run them before completing (skip the ceremony for trivial edits like renames or copy tweaks).
 If implementing an active session plan (see its planId in context), call plan({operation: "set_status", planId, plan_status: "building"}) first and plan({operation: "set_status", planId, plan_status: "built"}) when the plan is fully implemented.
 Live step progress: as you START each plan checklist step call plan({operation: "update_step", planId, step_index, state: "in_progress"}), and "done" when that step is finished — the plan card updates live for the user.
-When fully done and verified: <task_complete>Task finished successfully</task_complete> (only if the project's checks/tests pass and nothing blocks progress).
+The user can add items to the plan while you build. Before moving to the next step, call plan({operation: "read", planId}) to pick up any additions, and honor them. To add a step yourself, use plan({operation: "append_step", planId, step_text}) rather than rewriting the whole plan.
+When fully done and verified, call the **task_complete** tool with a brief \`summary\` — only once the project's checks/tests pass and nothing is still pending or failing. That ends your turn.
 </work_mode>`;
     case "debug":
       return `<work_mode>
 Hypothesis-first: state your hypothesis (root cause + evidence) in your reply, then make minimal edits aligned to that hypothesis only.
 Verify the fix by running the project's OWN failing tests / typecheck / linter via run_command (discover them from package.json scripts, Makefile, or pyproject.toml). When feasible, add a focused regression test that reproduces the bug and passes after the fix.
+When the fix is verified and the failing checks pass, call the **task_complete** tool with a brief \`summary\`. That ends your turn.
 </work_mode>`;
     case "review":
       return `<work_mode>
@@ -154,6 +159,8 @@ export function renderModePromptBundle(
     getActiveModeHeaderBlock(mode),
     getActiveModeWorkExtras(mode),
     renderActiveModeToolsRegistry(mode, opts),
+    // browser_* tools are dropped from the headless toolset — don't advertise them.
+    process.env.ATLARIX_HEADLESS === "1" ? "" : BROWSER_NOTE,
     canCommit ? getGitTerminalNote(opts?.gitAuthorName) : GIT_VIA_TERMINAL_NOTE,
   ]
     .filter((s) => s.length > 0)

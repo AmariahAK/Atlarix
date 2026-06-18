@@ -132,19 +132,6 @@ function getCachedBlueprint(
   return blueprintCache.get(blueprintCacheKey(workspaceId, focusPath));
 }
 
-/** Parse engine label + scan-honesty counters for a section (AI tool metadata). */
-export function getBlueprintSectionMeta(
-  workspaceId: number,
-  focusPath: string,
-): {
-  engine?: "ast-grep+ctags" | "file-tree" | "hybrid";
-  dynamicCallCount?: number;
-} {
-  const fp = normalizeBlueprintFocusPath(focusPath) || ".";
-  const mem = getCachedBlueprint(workspaceId, fp);
-  return { engine: mem?.engine, dynamicCallCount: mem?.dynamicCallCount };
-}
-
 const INVALID_ROOM_NAMES = new Set([".", "..", ""]);
 
 function sanitizeBlueprint(b: Blueprint): Blueprint {

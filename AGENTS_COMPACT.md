@@ -19,18 +19,15 @@ Use **native function calling** for all tools. Every allowlisted tool's schema i
 - **MCP:** `list_available_mcps` + `mcp_call`.
 - **User:** `ask_user` (batch up to 5 questions; your turn ends), `read_attachment` / `list_attachments`, `compress_context`.
 
-## Blueprint (section-scoped — `get_blueprint` only)
+## Code retrieval
 
-Blueprint is **lazy** and **section-scoped** — parse runs under `focus_path`, never the whole workspace. See `src/skills/guides/blueprint-section-first.md`.
-
-- `get_blueprint({ focus_path, scope, path?, depth?, topic?, include_raw?, include_panel_graph? })` — **`focus_path` required** (e.g. `"packages/api"`). Optional `topic` filters rooms (`payment|stripe`).
-- On failure: use `fallback_tools` in the JSON (`grep`, `glob`, `read_file`, …). Set `do_not_retry_full_workspace_blueprint: true` after timeout.
+`grep` is the primary structural retrieval tool: it searches file CONTENTS (ripgrep regex) and returns **relevance-ranked** results — the most relevant files first, each annotated with its enclosing function/class — so you jump straight to the symbol. This ranking is automatic (Atlarix's local index backs it); no separate tool call is needed.
 
 ## Architecture exploration flow
 
-1. `glob({ pattern: "*", path: "." })` for cold-session layout — no Blueprint parse
-2. `get_blueprint` when you need a structural map — **always pass `focus_path`**
-3. `glob` / `grep` to navigate and locate, then `read_file` for exact ranges
+1. `glob({ pattern: "*", path: "." })` for cold-session layout
+2. `grep` to locate symbols/usages across the codebase (ranked, symbol-annotated)
+3. `glob` / `grep` to navigate, then `read_file` for exact ranges
 
 ## Memory
 

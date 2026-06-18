@@ -532,23 +532,83 @@ export async function getUserPlan(userId: string): Promise<UserPlanDb> {
 }
 
 /**
+ * Session-scoped effective-tier cache. `getEffectiveTier` is otherwise called
+ * with 2–3 Supabase queries on EVERY auth event (incl. hourly token refresh)
+ * and every plan-info fetch — for a single user that's a lot of redundant
+ * round-trips. The cache dedupes them; correctness is preserved because the
+ * realtime plan-change subscription invalidates on upgrade/downgrade and the
+ * TTL bounds staleness for the rare missed event. Lazy refresh (re-fetch on
+ * next access after TTL) — no polling timer is added, which would defeat the
+ * purpose.
+ */
+const EFFECTIVE_TIER_TTL_MS = 5 * 60 * 1000;
+let _tierCache: { userId: string; tier: UserPlanDb; at: number } | null = null;
+let _subDetailCache:
+    | { email: string; status: string | null; endsAt: string | null; at: number }
+    | null = null;
+
+/** Drop cached plan state (on sign-out, realtime plan change, or forced refresh). */
+export function invalidatePlanCaches(): void {
+    _tierCache = null;
+    _subDetailCache = null;
+}
+
+/**
+ * Subscription status/end-date for the account, TTL-cached so repeated
+ * `auth:get-plan-info` calls (app mount, OAuth success, UI refreshes) don't each
+ * hit Supabase. The realtime plan-change subscription invalidates on change.
+ */
+export async function getSubscriptionDetails(
+    email: string,
+): Promise<{ status: string | null; endsAt: string | null }> {
+    const c = _subDetailCache;
+    if (c && c.email === email && Date.now() - c.at < EFFECTIVE_TIER_TTL_MS) {
+        return { status: c.status, endsAt: c.endsAt };
+    }
+    try {
+        const supabase = getSupabaseClient();
+        const { data } = await supabase
+            .from('users')
+            .select('subscription_status, subscription_ends_at')
+            .eq('email', email)
+            .single();
+        const status = (data?.subscription_status as string | null) ?? null;
+        const endsAt = (data?.subscription_ends_at as string | null) ?? null;
+        _subDetailCache = { email, status, endsAt, at: Date.now() };
+        return { status, endsAt };
+    } catch (err) {
+        logger.warn('[Supabase] getSubscriptionDetails error:', err);
+        return { status: null, endsAt: null };
+    }
+}
+
+/**
  * v4.0: Get effective tier (max of own plan, users row, or active team owner's plan).
  */
 export async function getEffectiveTier(userId: string, ownPlan?: UserPlanDb): Promise<UserPlanDb> {
+    const cached = _tierCache;
+    if (cached && cached.userId === userId && Date.now() - cached.at < EFFECTIVE_TIER_TTL_MS) {
+        return cached.tier;
+    }
     try {
         const supabase = getSupabaseClient();
         const { data, error } = await fetchPlanRowForUser(supabase, userId);
 
+        let tier: UserPlanDb;
         if (error || !data) {
             const fallback = ownPlan || 'free';
             const fromTeam = await tierFromActiveTeamMembership(supabase, userId);
-            return fromTeam ? maxUserPlan(fallback, fromTeam) : fallback;
+            tier = fromTeam ? maxUserPlan(fallback, fromTeam) : fallback;
+        } else {
+            tier = computeEntitledPlan(data);
+            // Already at the max tier — a team membership can't upgrade further,
+            // so skip the team_members/teams lookups (2 fewer queries).
+            if (tier !== 'workforce') {
+                const fromTeam = await tierFromActiveTeamMembership(supabase, userId);
+                if (fromTeam) tier = maxUserPlan(tier, fromTeam);
+            }
         }
-        let tier = computeEntitledPlan(data);
-        const fromTeam = await tierFromActiveTeamMembership(supabase, userId);
-        if (fromTeam) {
-            tier = maxUserPlan(tier, fromTeam);
-        }
+        _tierCache = { userId, tier, at: Date.now() };
         return tier;
     } catch (err) {
         logger.warn('[Supabase] getEffectiveTier exception:', err);

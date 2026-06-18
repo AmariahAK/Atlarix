@@ -9,13 +9,9 @@
  * Tier-1 RRF/proximity logic are unchanged.
  */
 
-import { db } from "@/db";
-import { apps } from "@/db/schema";
-import { resolveAppPath } from "@/paths/paths";
 import {
   type Bm25BeaconHit,
   type Bm25SearchResult,
-  normalizeFs,
   tokenizeForBm25,
   isGenericIdentifierName,
 } from "./retrieval-common";
@@ -26,7 +22,6 @@ import {
   updateFtsForFile,
   type FtsSearchOpts,
 } from "./fts5-index";
-import * as path from "node:path";
 
 // Re-exports preserve the existing import sites.
 export type { Bm25BeaconHit, Bm25SearchResult };
@@ -49,18 +44,6 @@ export function updateBm25IndexForFile(
   relFile: string,
 ): Promise<void> {
   return updateFtsForFile(workspaceId, workspaceRootAbs, relFile);
-}
-
-export async function resolveWorkspaceIdFromRoot(
-  workspaceRootAbs: string,
-): Promise<number | null> {
-  const want = normalizeFs(path.resolve(workspaceRootAbs));
-  const rows = await db.select({ id: apps.id, storedPath: apps.path }).from(apps);
-  for (const row of rows) {
-    const abs = normalizeFs(resolveAppPath(row.storedPath));
-    if (abs === want) return row.id;
-  }
-  return null;
 }
 
 /**

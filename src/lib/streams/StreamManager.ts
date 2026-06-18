@@ -174,14 +174,3 @@ export function feedTerminalOutput(chatId: number, output: string): void {
     }
   }
 }
-
-export function setStreamInactive(streamId: string): void {
-  const stream = streams.get(streamId);
-  if (stream) {
-    stream.active = false;
-    if (stream.timeoutHandle) {
-      clearTimeout(stream.timeoutHandle);
-      stream.timeoutHandle = null;
-    }
-  }
-}

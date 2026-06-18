@@ -7,6 +7,7 @@ import {
   listPlanArtifactsForSession,
   setPlanArtifactStatus,
   updatePlanArtifactContent,
+  appendStepToPlanArtifact,
   type PlanArtifactRow,
 } from "@/lib/plans/plan-artifacts";
 import type { PlanArtifactStatus } from "@/db/schema";
@@ -59,6 +60,20 @@ export function registerPlanArtifactHandlers(): void {
       params: { planId: string; content: string },
     ): Promise<PlanArtifactPayload> => {
       const row = await updatePlanArtifactContent(params.planId, params.content);
+      if (!row) throw new Error("Plan artifact not found");
+      const payload = toPayload(row);
+      broadcastPlanEvent("plan:artifact-updated", payload);
+      return payload;
+    },
+  );
+
+  handle(
+    "plans:append-step",
+    async (
+      _event,
+      params: { planId: string; stepText: string },
+    ): Promise<PlanArtifactPayload> => {
+      const row = await appendStepToPlanArtifact(params.planId, params.stepText);
       if (!row) throw new Error("Plan artifact not found");
       const payload = toPayload(row);
       broadcastPlanEvent("plan:artifact-updated", payload);

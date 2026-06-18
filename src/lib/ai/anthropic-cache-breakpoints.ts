@@ -96,7 +96,7 @@ function markContentLevel(m: ModelMessage): ModelMessage {
   const markedLast = {
     ...(last as Record<string, unknown>),
     providerOptions: {
-      ...((last as WithProviderOptions).providerOptions ?? {}),
+      ...(last as WithProviderOptions).providerOptions,
       ...CACHE_MARKER,
     },
   };

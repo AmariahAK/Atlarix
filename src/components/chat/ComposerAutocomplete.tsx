@@ -12,9 +12,11 @@
  */
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { useAtomValue } from "jotai";
+import { useAtomValue, useSetAtom } from "jotai";
 import { IpcClient } from "@/ipc/ipc_client";
 import { selectedAppIdAtom } from "@/atoms/appAtoms";
+import { attachmentsAtom } from "@/atoms/chatAtoms";
+import { mentionDisplayName } from "@/lib/chat/mention-attachment";
 import { cn } from "@/lib/utils";
 
 type Trigger = {
@@ -43,13 +45,22 @@ export function useComposerAutocomplete(opts: {
   value: string;
   setValue: (v: string) => void;
   textareaRef: RefObject<HTMLTextAreaElement | null>;
+  /**
+   * When true, a picked file/folder becomes a removable attachment chip (added
+   * to the shared attachments atom) instead of inline `@file:`/`@dir:` text;
+   * the token is re-emitted into the prompt at send. Composers that don't use
+   * the attachments atom (e.g. the simple InputBar) leave this off and keep the
+   * legacy inline-insert behavior.
+   */
+  mentionChips?: boolean;
 }): {
   menu: React.ReactNode;
   /** Returns true if the keypress was consumed by the menu (caller should not submit). */
   onKeyDown: (e: React.KeyboardEvent<HTMLTextAreaElement>) => boolean;
 } {
-  const { value, setValue, textareaRef } = opts;
+  const { value, setValue, textareaRef, mentionChips = false } = opts;
   const workspaceId = useAtomValue(selectedAppIdAtom);
+  const setAttachments = useSetAtom(attachmentsAtom);
   const [trigger, setTrigger] = useState<Trigger | null>(null);
   const [index, setIndex] = useState(0);
   // Suppress reopening for the exact value the user dismissed with Esc.
@@ -98,9 +109,50 @@ export function useComposerAutocomplete(opts: {
 
   const select = (item: Item) => {
     if (!trigger) return;
-    const next = value.slice(0, trigger.start) + item.insert + value.slice(trigger.end);
-    setValue(next);
-    const pos = trigger.start + item.insert.length;
+
+    // Caret position after the edit (chip path strips the token; inline path
+    // lands after the inserted text).
+    let pos: number;
+    if (mentionChips) {
+      // Strip the in-progress `@…` token — the mention becomes a removable chip
+      // added to the shared attachments atom instead of inline text. The
+      // `@file:`/`@dir:` token is re-emitted into the prompt at send time, so
+      // the existing scoped/capped extraction is unchanged.
+      const next = value.slice(0, trigger.start) + value.slice(trigger.end);
+      setValue(next);
+      pos = trigger.start;
+
+      const kind: "file" | "dir" = item.id.startsWith("dir:") ? "dir" : "file";
+      const relpath = item.id.slice(kind.length + 1); // strip "dir:" / "file:"
+      setAttachments((prev) => {
+        if (
+          prev.some(
+            (a) => a.mention?.kind === kind && a.mention?.relpath === relpath,
+          )
+        ) {
+          return prev; // already mentioned — no duplicate chip
+        }
+        return [
+          ...prev,
+          {
+            type: "chat-context",
+            id: crypto.randomUUID(),
+            mention: {
+              kind,
+              relpath,
+              displayName: mentionDisplayName(kind, relpath),
+            },
+          },
+        ];
+      });
+    } else {
+      // Legacy inline insert (composers without the attachments atom).
+      const next =
+        value.slice(0, trigger.start) + item.insert + value.slice(trigger.end);
+      setValue(next);
+      pos = trigger.start + item.insert.length;
+    }
+
     setTrigger(null);
     requestAnimationFrame(() => {
       const ta = textareaRef.current;

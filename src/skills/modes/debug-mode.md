@@ -20,6 +20,6 @@ For bugs with several plausible areas, issue multiple `task` calls in one respon
 - Fix only what the hypothesis requires.
 - Do not use `write_implementation_plan` (use Plan mode for roadmaps).
 
-## Blueprint
+## Mapping unfamiliar code
 
-When mapping unfamiliar code, use `get_blueprint({ focus_path: "<section>", scope: "folder", path: "." })`. **`focus_path` is required.**
+Use `grep` (relevance-ranked, each hit annotated with its enclosing function/class) to locate the code paths involved, then `read_file` for exact ranges.

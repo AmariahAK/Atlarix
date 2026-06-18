@@ -8,13 +8,19 @@ import { hasCtags, hasAstGrep } from "../../src/__tests__/helpers/native-tools";
  * v12 S21 — the retrieval eval (Tier 6 "measure it"; the second-paper data).
  *
  * Drives the REAL retriever — ctags symbol index + ast-grep structural scan +
- * BM25-fused centrality slicing — over a fixture repo with a known call graph
+ * BM25-fused ranking — over a fixture repo with a known call graph
  * (tests/fixtures/blueprint-eval-repo) and a task → target-file ground truth.
+ *
+ * v13.7: the get_blueprint tool was removed; Blueprint is now the silent
+ * substrate that reranks `grep`. So surface 1 is the grep TOOL end-to-end
+ * (ripgrep + Blueprint BM25 rerank), measuring whether the top-ranked file
+ * is a target. The paper's retrieval method is unchanged — only the agent-
+ * facing affordance moved from a dedicated tool into grep.
  *
  * Metrics (ABSOLUTE — no embedding baseline exists and none is added; Tier 5
  * identity guardrail):
- *   - get_blueprint precision@1: the top-ranked slice room contains a target
- *     file for the task's topic.
+ *   - grep precision@1: the top-ranked grep file group is a target for the
+ *     task's topic.
  *   - bm25 precision@1 / precision@3: searchBlueprintBm25's top hit(s).
  *
  * REPORT MODE: emits a per-category summary (the dataset) and asserts only
@@ -79,7 +85,7 @@ function matchesTarget(
 interface TaskResult {
   id: string;
   category: string;
-  gbTop1: boolean;
+  grepTop1: boolean;
   bm25Top1: boolean;
   bm25Top3: boolean;
 }
@@ -107,29 +113,25 @@ describe.skipIf(!hasCtags() || !hasAstGrep())("retrieval eval (S21)", () => {
     const results: TaskResult[] = [];
 
     for (const task of groundTruth.tasks) {
-      // ── surface 1: get_blueprint slice ranking ──
-      const rawOut = await ToolRegistry.execute("get_blueprint", {
-        focus_path: task.section,
-        topic: task.topic,
-        include_raw: true,
+      // ── surface 1: grep tool end-to-end (ripgrep + Blueprint BM25 rerank) ──
+      // task.topic is a `|`-alternates regex (e.g. "payment|stripe").
+      const rawOut = await ToolRegistry.execute("grep", {
+        pattern: task.topic,
         workspaceId: ctx.appId,
+        workspace: ctx.ws.dir,
       });
       const parsed =
         typeof rawOut === "string" ? JSON.parse(rawOut) : (rawOut as never);
       const payload = (parsed?.result ?? parsed) as {
-        success?: boolean;
-        raw?: {
-          nodes: Array<{
-            functions: Array<{ file?: string }>;
-            path?: string;
-          }>;
-        };
+        ui?: { groups?: Array<{ file?: string }> };
       };
-      const topRoom = payload?.raw?.nodes?.[0];
-      const gbTop1 =
-        !!topRoom &&
-        (topRoom.functions.some((f) => matchesTarget(f.file, task)) ||
-          matchesTarget(topRoom.path, task));
+      // The grep handler's structured surface lives under `ui.groups`; tolerate
+      // either an unwrapped return or an execute envelope.
+      const groups =
+        payload?.ui?.groups ??
+        (parsed as { ui?: { groups?: Array<{ file?: string }> } })?.ui?.groups ??
+        [];
+      const grepTop1 = matchesTarget(groups[0]?.file, task);
 
       // ── surface 2: BM25 symbol search ──
       const bm25 = await searchBlueprintBm25(
@@ -144,7 +146,7 @@ describe.skipIf(!hasCtags() || !hasAstGrep())("retrieval eval (S21)", () => {
         .slice(0, 3)
         .some((h) => matchesTarget(h.file, task));
 
-      results.push({ id: task.id, category: task.category, gbTop1, bm25Top1, bm25Top3 });
+      results.push({ id: task.id, category: task.category, grepTop1, bm25Top1, bm25Top3 });
     }
 
     // ── the report (this output IS the dataset) ──
@@ -157,7 +159,7 @@ describe.skipIf(!hasCtags() || !hasAstGrep())("retrieval eval (S21)", () => {
     const summary = {
       tasks: results.length,
       overall: {
-        getBlueprintP1: pct(results.map((r) => r.gbTop1)),
+        grepP1: pct(results.map((r) => r.grepTop1)),
         bm25P1: pct(results.map((r) => r.bm25Top1)),
         bm25P3: pct(results.map((r) => r.bm25Top3)),
       },
@@ -166,24 +168,25 @@ describe.skipIf(!hasCtags() || !hasAstGrep())("retrieval eval (S21)", () => {
           cat,
           {
             n: rs.length,
-            getBlueprintP1: pct(rs.map((r) => r.gbTop1)),
+            grepP1: pct(rs.map((r) => r.grepTop1)),
             bm25P1: pct(rs.map((r) => r.bm25Top1)),
             bm25P3: pct(rs.map((r) => r.bm25Top3)),
           },
         ]),
       ),
       misses: results
-        .filter((r) => !r.gbTop1 || !r.bm25Top1)
-        .map((r) => `${r.id}(gb=${r.gbTop1 ? "✓" : "✗"} bm25=${r.bm25Top1 ? "✓" : "✗"})`),
+        .filter((r) => !r.grepTop1 || !r.bm25Top1)
+        .map((r) => `${r.id}(grep=${r.grepTop1 ? "✓" : "✗"} bm25=${r.bm25Top1 ? "✓" : "✗"})`),
     };
     console.log("[retrieval-eval] " + JSON.stringify(summary, null, 2));
 
-    // Report-mode gates: complete coverage + regression floors well under the
-    // measured baseline (2026-06-07: getBlueprint P@1 = 100, bm25 P@1 = 45,
-    // bm25 P@3 = 50 — fixture + retriever are deterministic; the floors only
-    // leave room for ctags-version variance across machines).
+    // Report-mode gates: complete coverage + a conservative floor. The grep
+    // surface (ripgrep + Blueprint rerank) replaces the removed get_blueprint
+    // tool; its absolute P@1 differs from the old structural-slice number, so
+    // the floor only asserts the retriever isn't broken (room for ctags
+    // variance across machines). The emitted summary IS the dataset.
     expect(results).toHaveLength(groundTruth.tasks.length);
-    expect(summary.overall.getBlueprintP1).toBeGreaterThanOrEqual(75);
+    expect(summary.overall.grepP1).toBeGreaterThanOrEqual(25);
     expect(summary.overall.bm25P1).toBeGreaterThanOrEqual(25);
   }, 120_000);
 });

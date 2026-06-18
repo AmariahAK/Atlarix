@@ -214,7 +214,14 @@ import { emitPlanUpdate } from "@/ipc/utils/emit_plan_update";
 import {
   isTaskComplete as isLedgerTaskComplete,
   responseHasTaskCompleteTag as isTaskComplete,
+  markTaskCompleteToolCalled,
+  clearTaskCompleteToolCalled,
 } from "@/lib/tasks/completion-detector";
+import { runCommandFailureGuidance } from "@/lib/tools/run-command-guidance";
+import {
+  recordMutationOutcome,
+  clearMutationOutcomes,
+} from "@/lib/agent/mutation-verify";
 import { assembleContextSections, type ContextSection } from "@/lib/context/ContextAssembler";
 import { ContextBudgetTracker } from "@/lib/context/context-budget-tracker";
 import { pruneContextSectionsForBudget } from "@/lib/context/context-budget-pruning";
@@ -575,66 +582,12 @@ function emitCompactionMirroredActivity(
   };
 }
 
-/** Per `chat:stream` invocation — duplicate tool collapse + hard per-tool cap. */
-type ToolTurnDedupState = {
-  dedupeByKey: Map<string, unknown>;
-  callCountByTool: Map<string, number>;
-};
-
-const TOOL_DEDUP_EXEMPT = new Set(["ask_user"]);
-
-/** Max distinct invocations per tool per `chat:stream` turn (exact duplicates are skipped earlier and do not count). */
-const TOOL_CALL_CAP_READ = 20;
-const TOOL_CALL_CAP_WRITE = 10;
-
-const TOOL_NAMES_CAP_READ_20 = new Set([
-  "read_file",
-  "glob",
-  "grep",
-  "get_blueprint",
-]);
-
-const TOOL_NAMES_CAP_WRITE_10 = new Set([
-  "write_file",
-  "edit_file",
-  "run_command",
-  "plan",
-]);
-
-function perTurnCallCapForTool(toolName: string): number {
-  if (TOOL_NAMES_CAP_READ_20.has(toolName)) return TOOL_CALL_CAP_READ;
-  if (TOOL_NAMES_CAP_WRITE_10.has(toolName)) return TOOL_CALL_CAP_WRITE;
-  return TOOL_CALL_CAP_WRITE;
-}
-
-const TOOL_CALL_LIMIT_ERROR = (toolName: string) =>
-  JSON.stringify({
-    success: false,
-    error: `Per-turn call limit reached for ${toolName}. Summarize your findings so far and respond to the user — do not attempt more ${toolName} calls this turn.`,
-  });
-
-function stableNormalizeForToolDedup(value: unknown): unknown {
-  if (value === null || typeof value !== "object") {
-    return value;
-  }
-  if (Array.isArray(value)) {
-    return value.map(stableNormalizeForToolDedup);
-  }
-  const o = value as Record<string, unknown>;
-  const keys = Object.keys(o)
-    .filter((k) => !k.startsWith("_"))
-    .sort();
-  const out: Record<string, unknown> = {};
-  for (const k of keys) {
-    out[k] = stableNormalizeForToolDedup(o[k]);
-  }
-  return out;
-}
-
-function hashToolArgsForDedup(executeArgs: Record<string, unknown>): string {
-  const normalized = stableNormalizeForToolDedup(executeArgs) as Record<string, unknown>;
-  return crypto.createHash("sha256").update(JSON.stringify(normalized)).digest("hex");
-}
+// Per-turn tool-call caps and duplicate-call dedup were removed: they were
+// never intended for autonomous/headless operation, where the entire task is a
+// single `chat:stream` turn — capping run_command/etc. at 10 per task crippled
+// long tasks, and collapsing "duplicate" calls returned stale cached results
+// for stateful tools (e.g. run_command). Every tool call now executes every
+// time. (Output-size truncation in src/lib/tools still bounds individual results.)
 
 /** Execute a tool through ToolRegistry, recording ledger updates and honoring task-complete signals. */
 async function runToolExecute(
@@ -648,7 +601,6 @@ async function runToolExecute(
     onTaskLedgerComplete?: () => void;
     /** When false, ledger "task complete" does not abort the chat stream (Ask tier). Default true. */
     abortStreamOnLedgerComplete?: boolean;
-    toolTurnDedup?: ToolTurnDedupState;
   },
 ): Promise<unknown> {
   const maybeStopStreamForCompleteLedger = () => {
@@ -667,39 +619,7 @@ async function runToolExecute(
     }
   };
 
-  const dedup = streamOpts?.toolTurnDedup;
-
-  // Exact-duplicate collapse first: same tool + same args does not consume the per-turn cap.
-  if (dedup && !TOOL_DEDUP_EXEMPT.has(toolName)) {
-    const argHashEarly = hashToolArgsForDedup(executeArgs);
-    const dedupeKeyEarly = `${toolName}\0${argHashEarly}`;
-    const cached = dedup.dedupeByKey.get(dedupeKeyEarly);
-    if (cached !== undefined) {
-      logger.warn(`[tool-dedup] Skipped duplicate call: ${toolName} (already ran this turn)`);
-      if (streamOpts?.turnId) {
-        recordToolUseForTurn(streamOpts.turnId, toolName);
-      }
-      maybeStopStreamForCompleteLedger();
-      return cached;
-    }
-  }
-
-  if (dedup) {
-    const cap = perTurnCallCapForTool(toolName);
-    const prev = dedup.callCountByTool.get(toolName) ?? 0;
-    const next = prev + 1;
-    dedup.callCountByTool.set(toolName, next);
-    if (next > cap) {
-      logger.warn(
-        `[tool-dedup] Per-turn call cap exceeded for ${toolName} (cap=${cap}, chatId=${chatId})`,
-      );
-      if (streamOpts?.turnId) {
-        recordToolUseForTurn(streamOpts.turnId, toolName);
-      }
-      maybeStopStreamForCompleteLedger();
-      return TOOL_CALL_LIMIT_ERROR(toolName);
-    }
-  }
+  // No per-turn call cap or duplicate-call dedup: every tool call executes.
 
   // v12 2.2: unified permission ruleset + blocking pre_tool_use hooks at the
   // SINGLE execution funnel — covers ask+build, native AND text-tool paths
@@ -754,10 +674,38 @@ async function runToolExecute(
   if (gateWorkspace) {
     runPostToolUseHooks(gateWorkspace, toolName, executeArgs);
   }
-  if (dedup && !TOOL_DEDUP_EXEMPT.has(toolName)) {
-    const argHash = hashToolArgsForDedup(executeArgs);
-    const dedupeKey = `${toolName}\0${argHash}`;
-    dedup.dedupeByKey.set(dedupeKey, result);
+  // Explicit completion signal (native FC): record that the model called
+  // task_complete this turn. The agentic loop (run-agent-turn) reads this like
+  // the <task_complete> tag, runs the completion gates, then ends the turn.
+  if (toolName === "task_complete" && streamOpts?.turnId) {
+    const summary =
+      typeof executeArgs?.summary === "string" ? executeArgs.summary : null;
+    markTaskCompleteToolCalled(streamOpts.turnId, summary);
+  }
+  // Mutation verification (run_command + edits): record the most recent
+  // state-changing mutation's outcome so the completion gate can refuse to
+  // finish on a failed/unverified one, and enrich a failed command with
+  // recovery guidance (mirrors edit_file's near-miss hint).
+  // NOTE: run_command returns its real execution result here, so we verify it
+  // inline. Edit/write tools return a *permission payload* (the write happens
+  // later in the interceptor after approval), so their verification is done in
+  // the interceptor's executeOperation (B1), not here.
+  if (
+    toolName === "run_command" &&
+    streamOpts?.turnId &&
+    result &&
+    typeof result === "object"
+  ) {
+    const r = result as Record<string, unknown>;
+    const cmd =
+      typeof executeArgs?.command === "string" ? executeArgs.command : "";
+    const guidance = runCommandFailureGuidance(cmd, r);
+    if (guidance) {
+      if (typeof r.guidance !== "string") r.guidance = guidance;
+      recordMutationOutcome(streamOpts.turnId, false, guidance);
+    } else {
+      recordMutationOutcome(streamOpts.turnId, true);
+    }
   }
   if (streamOpts?.turnId) {
     recordToolUseForTurn(streamOpts.turnId, toolName);
@@ -1310,10 +1258,6 @@ export function registerChatStreamHandlers() {
     const runStream = async () => {
       let stopAgentOrchestrator: (() => void) | undefined;
       let streamTerminated = false;
-      const toolTurnDedupState: ToolTurnDedupState = {
-        dedupeByKey: new Map<string, unknown>(),
-        callCountByTool: new Map<string, number>(),
-      };
       // v12 2.3: the snapshot/ledger turn id for THIS turn, captured for the
       // terminal payload so a detached background agent can revert. Set once
       // streamTurnIdForLedger is established (below).
@@ -1924,7 +1868,6 @@ ${componentSnippet}
         onTaskLedgerComplete: () => {
           streamStopWasTaskComplete = true;
         },
-        toolTurnDedup: toolTurnDedupState,
       });
 
       // Send the messages right away so that the loading state is shown for the message.
@@ -2502,7 +2445,7 @@ ${componentSnippet}
               return {
                 name: "activePlan",
                 priority: 0.05,
-                content: `Active session plan (planId: ${activePlan.id}, status: ${activePlan.planStatus}) — advance it with update_plan_status("${activePlan.id}", "building" | "built"):\n\n${snippet}`,
+                content: `Active session plan (planId: ${activePlan.id}, status: ${activePlan.planStatus}) — advance it with plan({operation: "set_status", planId: "${activePlan.id}", plan_status: "building" | "built"}). The user may edit or add to this plan while you work; before starting the next step, call plan({operation: "read", planId: "${activePlan.id}"}) to pick up any changes and honor them.\n\n${snippet}`,
               };
             } catch (planCtxErr) {
               logger.warn("[plan-artifact] context inject failed:", planCtxErr);
@@ -3499,8 +3442,10 @@ This conversation includes one or more image attachments. When the user uploads 
             ];
           }
 
-          /** Shared cap for length + pending-step continuations per user turn */
-          const STREAM_CONTINUATION_MAX = 3;
+          /** Shared cap for length + pending-step continuations per user turn.
+           *  Raised 3 → 50 so a long, legitimately-truncated (finish_reason=length)
+           *  response isn't cut short; high but finite to avoid pathological runaway. */
+          const STREAM_CONTINUATION_MAX = 50;
           /** One retry after 1s when the model returns no usable output (cold start / provider flake). */
           const MAX_STREAM_EMPTY_OUTPUT_ATTEMPTS = 2;
           const STREAM_EMPTY_OUTPUT_RETRY_DELAY_MS = 1000;
@@ -3569,6 +3514,26 @@ This conversation includes one or more image attachments. When the user uploads 
                 thinkingTier,
               ),
             };
+
+            // OpenRouter provider-routing pin (benchmarks: lock one provider +
+            // quantization so the backend is identical across harnesses).
+            // ATLARIX_OPENROUTER_PROVIDER_JSON = e.g.
+            //   {"order":["deepinfra"],"allow_fallbacks":false,"quantizations":["fp8"]}
+            if (modelClient.builtinProviderId === "openrouter") {
+              const pinJson = process.env.ATLARIX_OPENROUTER_PROVIDER_JSON;
+              if (pinJson) {
+                try {
+                  providerOptions.openrouter = {
+                    ...providerOptions.openrouter,
+                    provider: JSON.parse(pinJson),
+                  };
+                } catch (e) {
+                  logger.warn(
+                    `Ignoring invalid ATLARIX_OPENROUTER_PROVIDER_JSON: ${e instanceof Error ? e.message : String(e)}`,
+                  );
+                }
+              }
+            }
 
             const useOpenRouterContextCompression =
               (modelClient.builtinProviderId === "openrouter" ||
@@ -4264,7 +4229,6 @@ This conversation includes one or more image attachments. When the user uploads 
               turnId: streamTurnIdForLedger,
               abortController,
               abortStreamOnLedgerComplete: false,
-              toolTurnDedup: toolTurnDedupState,
             });
 
             // v12 S19 (closes 3.10): the 4-stage resolution pipeline
@@ -5571,14 +5535,15 @@ This conversation includes one or more image attachments. When the user uploads 
             // ═══════════════════════════════════════════════════════════════
             const loopStartTime = Date.now();
             let agenticIteration = 0;
-            /** Safety cap when the model keeps replying without tools or <task_complete>. */
-            const AGENTIC_PROSE_ONLY_MAX_DEFAULT = 5;
-            // Reasoning models (DeepSeek-R1 / -V "thinking", o-series, Gemini
-            // thoughts, etc.) emit many tool-less reasoning rounds between
-            // actions; a flat cap of 5 ended their turns prematurely
-            // (completedNaturally:false, task abandoned mid-way). Give them more
-            // headroom before the safety cap fires.
-            const AGENTIC_PROSE_ONLY_MAX_REASONING = 12;
+            // Prose-only-streak break DISABLED (Infinity): the loop no longer
+            // ends a turn just because the model replied without tools or
+            // <task_complete> for N rounds — that was an unintended limit that
+            // abandoned tasks mid-way. The "continue" nudge below still fires;
+            // the turn ends only on <task_complete>, abort, or the model
+            // genuinely yielding. (Ask tier's proseOnlyStreakMax == null branch
+            // is unaffected.)
+            const AGENTIC_PROSE_ONLY_MAX_DEFAULT = Number.POSITIVE_INFINITY;
+            const AGENTIC_PROSE_ONLY_MAX_REASONING = Number.POSITIVE_INFINITY;
             const isReasoningModelForCap = (() => {
               try {
                 const cap = detectReasoningCapability(
@@ -6352,6 +6317,8 @@ ${stopNote}`;
               }
             }
             markLedgerStreamComplete(streamTurnIdForLedger);
+            clearTaskCompleteToolCalled(streamTurnIdForLedger);
+            clearMutationOutcomes(streamTurnIdForLedger);
             inFlightDelegationKeys.clear();
             notifyPlanUiForTurnIfPresent(streamTurnIdForLedger);
             {
@@ -6683,8 +6650,6 @@ ${stopNote}`;
         streamTerminated = true;
         FileUploadsState.getInstance().clear(req.chatId);
       } finally {
-        toolTurnDedupState.dedupeByKey.clear();
-        toolTurnDedupState.callCountByTool.clear();
         stopAgentOrchestrator?.();
         unregisterLedgerPlanUiNotifier(req.chatId);
         clearActiveModelDisplayName();

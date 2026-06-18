@@ -69,6 +69,12 @@ export function getTypeScriptCachePath(): string {
 }
 
 export function getUserDataPath(): string {
+  // Headless/automation override (the Electron-free agent CLI sets this to a
+  // disposable per-run dir for its real sqlite DB + settings).
+  if (process.env.ATLARIX_USER_DATA_DIR) {
+    return process.env.ATLARIX_USER_DATA_DIR;
+  }
+
   const electron = getElectron();
 
   if (process.env.NODE_ENV !== "development" && electron) {

@@ -34,7 +34,7 @@ ToolRegistry.register({
     description:
         "Execute a shell command in the workspace. Commands run at the workspace (project) root; do not use paths under atlarix-apps. " +
         "Allowed per current work mode allowlist; read-only git/shell in read-only modes; mutating commands only when the active mode permits. " +
-        "Shows permission dialog before running. Use the cwd parameter for the working directory instead of 'cd ... && command'. " +
+        "Use the cwd parameter for the working directory instead of 'cd ... && command'. " +
         "Prefer one command per intent; for scaffolding, use one run_command that creates the project (do not emit multiple create/scaffold commands in the same turn). " +
         "For project scaffolding (e.g. npm create vite@latest <path>), pass all options so the command is non-interactive: use --template and, for create-vite, --no-interactive to avoid prompts. " +
         "Limits are optional knobs: pass smaller timeout_ms or max_output_bytes when you expect huge logs. " +

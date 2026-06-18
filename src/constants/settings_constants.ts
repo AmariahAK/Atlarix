@@ -3,10 +3,12 @@ export const MAX_CHAT_TURNS_IN_CONTEXT = 10;
 
 /**
  * Wall-clock cap for long-running multi-round workspace tool streams.
- * Applies regardless of chat tier (ask/build/agent), work mode (ask/plan/build/debug/review),
- * or agent mode (direct/guided/autonomous).
+ * Disabled (Infinity): the agentic loop runs until the model finishes, the user
+ * aborts, or the abort signal fires — no internal time cap. (The benchmark
+ * harness imposes its own per-task timeout.) Was 30 min; removed as an
+ * unintended limit on autonomous/headless runs.
  */
-export const STREAM_TOOL_LOOP_DURATION_CAP_MS = 30 * 60 * 1000;
+export const STREAM_TOOL_LOOP_DURATION_CAP_MS = Number.POSITIVE_INFINITY;
 
 /**
  * Memory pressure threshold for large operations (1.5GB).

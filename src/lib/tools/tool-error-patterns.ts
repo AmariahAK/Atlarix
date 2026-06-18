@@ -25,9 +25,7 @@ export const TOOL_RECOVERY_HINTS: Record<string, string> = {
   get_file_outline:
     "Use read_file to inspect the file directly; outlines need a parseable source file.",
   search:
-    "Try mode: \"text\" with a simpler query, or browse with list_files / explore_folder. For architecture questions use get_blueprint with a focus_path.",
-  get_blueprint:
-    "Pass a valid focus_path (a folder that exists). Use get_repo_overview or list_files to find one.",
+    "Try a simpler query, or browse with glob / read_file. For architecture and usage, grep returns relevance-ranked, symbol-annotated hits.",
   run_command:
     "If it timed out, pass a larger timeout_ms or split the command. If it needs interaction, add non-interactive flags (e.g. --yes, CI=true).",
   stream_terminal_output:

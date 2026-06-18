@@ -6,7 +6,7 @@
  *   description: Cautious reviewer
  *   mode: ask              # base work-mode profile (default: build)
  *   model: anthropic/claude-opus-4-8   # optional per-turn model override
- *   tools: [read_file, search, get_blueprint]   # optional allowlist subset
+ *   tools: [read_file, glob, grep]   # optional allowlist subset
  *   ---
  *   <system prompt body — prepended into the turn's system header>
  *

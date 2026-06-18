@@ -102,5 +102,3 @@ export function OAuthSignInButtons({
     </div>
   );
 }
-
-export default OAuthSignInButtons;

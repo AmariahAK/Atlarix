@@ -34,3 +34,24 @@ export function makeTempWorkspace(
     cleanup: () => fs.rmSync(dir, { recursive: true, force: true }),
   };
 }
+
+/**
+ * Use an EXISTING directory (e.g. a cloned benchmark repo at its base commit)
+ * as the workspace, instead of a throwaway temp dir. `cleanup` is a no-op — the
+ * caller owns the directory's lifecycle (and reads `git diff` from it after).
+ */
+export function existingWorkspace(dir: string): TempWorkspace {
+  return {
+    dir,
+    write: (rel, content) => {
+      const abs = path.join(dir, rel);
+      fs.mkdirSync(path.dirname(abs), { recursive: true });
+      fs.writeFileSync(abs, content);
+    },
+    read: (rel) => fs.readFileSync(path.join(dir, rel), "utf-8"),
+    exists: (rel) => fs.existsSync(path.join(dir, rel)),
+    cleanup: () => {
+      /* caller-owned directory — no-op */
+    },
+  };
+}

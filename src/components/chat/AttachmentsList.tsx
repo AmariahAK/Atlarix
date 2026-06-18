@@ -2,12 +2,17 @@ import { FileText, X } from "lucide-react";
 import type { FileAttachment } from "@/ipc/ipc_types";
 import { isTextPasteAttachment } from "@/lib/chat/text-paste-attachment";
 import { isTerminalPasteAttachment } from "@/lib/chat/terminal-paste-attachment";
+import { isMentionAttachment } from "@/lib/chat/mention-attachment";
 import { PastedTextAttachmentChip } from "./PastedTextAttachmentChip";
 import { TerminalOutputAttachmentChip } from "./TerminalOutputAttachmentChip";
+import { MentionAttachmentChip } from "./MentionAttachmentChip";
 
-function isPasteChipAttachment(attachment: FileAttachment): boolean {
+/** Attachments rendered as their own chip (not the generic file-attachment tile). */
+function isChipAttachment(attachment: FileAttachment): boolean {
   return (
-    isTextPasteAttachment(attachment) || isTerminalPasteAttachment(attachment)
+    isTextPasteAttachment(attachment) ||
+    isTerminalPasteAttachment(attachment) ||
+    isMentionAttachment(attachment)
   );
 }
 
@@ -22,11 +27,21 @@ export function AttachmentsList({
 }: AttachmentsListProps) {
   if (attachments.length === 0) return null;
 
-  const fileAttachments = attachments.filter((a) => !isPasteChipAttachment(a));
+  const fileAttachments = attachments.filter((a) => !isChipAttachment(a));
 
   return (
     <div className="px-2 pt-2 flex flex-wrap gap-1">
       {attachments.map((attachment, index) => {
+        if (isMentionAttachment(attachment)) {
+          return (
+            <MentionAttachmentChip
+              key={`mention-${index}`}
+              kind={attachment.mention.kind}
+              displayName={attachment.mention.displayName}
+              onRemove={() => onRemove(index)}
+            />
+          );
+        }
         if (isTextPasteAttachment(attachment)) {
           return (
             <PastedTextAttachmentChip
@@ -53,7 +68,7 @@ export function AttachmentsList({
       {fileAttachments.length > 0 ? (
         <>
           {attachments.map((attachment, index) => {
-            if (isPasteChipAttachment(attachment)) return null;
+            if (isChipAttachment(attachment)) return null;
             return (
               <div
                 key={`file-${index}`}

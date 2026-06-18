@@ -6,7 +6,7 @@ import { randomUUID } from "crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { BrowserWindow } from "electron";
-import type { TerminalInstance, TerminalLine } from "@/atoms/terminalInstancesAtoms";
+import type { TerminalInstance } from "@/atoms/terminalInstancesAtoms";
 import { terminalScopeKey } from "@/atoms/terminalInstancesAtoms";
 import {
   defaultAgentInstanceLabel,
@@ -253,21 +253,4 @@ export function closeTerminalInstance(scopeKey: string, instanceId: string) {
   schedulePersist();
   broadcastScope(scopeKey);
   return { success: true as const, instanceId };
-}
-
-export function appendTerminalInstanceLines(
-  scopeKey: string,
-  instanceId: string,
-  lines: TerminalLine[],
-): void {
-  const scope = getScope(scopeKey);
-  const idx = scope.instances.findIndex((i) => i.id === instanceId);
-  if (idx < 0) return;
-  const inst = scope.instances[idx];
-  scope.instances[idx] = {
-    ...inst,
-    lines: capTerminalLines([...inst.lines, ...lines]),
-  };
-  schedulePersist();
-  broadcastScope(scopeKey);
 }

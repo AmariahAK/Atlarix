@@ -13,7 +13,6 @@ const CORE_TOOL_NAMES = new Set([
   "glob",
   "grep",
   "run_command",
-  "get_blueprint",
 ]);
 
 /** MCP discovery tools pre-registered for workspace-bound chats. */

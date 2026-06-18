@@ -21,7 +21,7 @@ import {
   validateMcpRegistryEntry,
   type McpRegistryIndex,
 } from "@/shared/mcp-registry";
-import { serializeApiKeyForDb } from "@/lib/security/db-secrets";
+import { serializeApiKeyForDb, encryptEnvForDb } from "@/lib/security/db-secrets";
 import {
   sanitizeMcpServerForIpc,
   sanitizeMcpServersForIpc,
@@ -151,7 +151,7 @@ export function registerMcpHandlers() {
           transport,
           command: command || null,
           args: args || null,
-          envJson: envJson || null,
+          envJson: encryptEnvForDb(envJson),
           url: url || null,
           apiKey: apiKey?.trim() ? serializeApiKeyForDb(apiKey.trim()) : null,
           enabled: !!enabled,
@@ -196,7 +196,7 @@ export function registerMcpHandlers() {
       if (params.command !== undefined) update.command = params.command;
       if (params.args !== undefined) update.args = params.args || null;
       if (params.cwd !== undefined) update.cwd = params.cwd;
-      if (params.envJson !== undefined) update.envJson = params.envJson || null;
+      if (params.envJson !== undefined) update.envJson = encryptEnvForDb(params.envJson);
       if (params.url !== undefined) update.url = params.url;
       if (params.apiKey !== undefined) {
         update.apiKey = params.apiKey?.trim()

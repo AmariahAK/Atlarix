@@ -280,7 +280,6 @@ export const DBConnectionStoredSchema = z.object({
   scope: z.enum(["global", "workspace"]).optional(),
   workspaceId: z.number().nullable().optional(),
 });
-export type DBConnectionStored = z.infer<typeof DBConnectionStoredSchema>;
 
 export const SmartContextModeSchema = z.enum([
   "balanced",

@@ -112,7 +112,12 @@ export default defineConfig({
                   "./vitest.setup.ts",
                   "./tests/infra/setup-agent-evals.ts",
                 ],
-                include: ["tests/agent-evals/**/*.test.ts"],
+                include: [
+                  "tests/agent-evals/**/*.test.ts",
+                  // The SWE-bench runner + its smoke test reuse the same
+                  // in-process harness (real DB + agent loop).
+                  "tests/bench/**/*.test.ts",
+                ],
                 exclude: sharedExclude,
                 // Real sqlite migrations + streamed fake-LLM turns are slower
                 // than pure unit tests; evals drive full agent turns end-to-end.

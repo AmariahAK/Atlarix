@@ -51,6 +51,9 @@ let AGENTS_MD_COMPACT = "";
 const loadAgentsFile = (filename: string): string => {
     const paths: string[] = [
         path.join(process.cwd(), filename),
+        // Headless bundle ships AGENTS*.md beside the .mjs (build-headless.mjs);
+        // __dirname is the bundle dir there. Harmless in Electron (no match).
+        path.join(__dirname, filename),
         path.join(__dirname, "../../", filename),
         path.join(__dirname, "../../../", filename),
     ];
@@ -131,6 +134,21 @@ export type ModeSystemKey = ModeRegistryKey;
 export const getAgentsMdForWorkMode = (_mode: ModeSystemKey): string => {
     return AGENTS_MD_MODE_BASE || AGENTS_MD_COMPACT || "";
 };
+
+/**
+ * Headless/autonomous: the offered toolset (resolve-toolset.ts HEADLESS_DROP)
+ * removes ask_user, MCP, web_search/read_url, and attachment tools, and there is
+ * no approval queue (writes auto-apply). Strip the matching AGENTS bullets so the
+ * prompt never advertises a tool the model can't call (the dynamic tail already
+ * swaps the ask_user guidance for autonomous guidance). Electron app path keeps
+ * the full text. Label-anchored so it survives line edits.
+ */
+const HEADLESS_STRIP_BULLET = /^\s*-\s+\*\*(Approvals|Web|MCP|User):\*\*/;
+const stripHeadlessUnboundBullets = (md: string): string =>
+    md
+        .split("\n")
+        .filter((line) => !HEADLESS_STRIP_BULLET.test(line))
+        .join("\n");
 
 const MODE_SYSTEM_DESCRIPTIONS: Record<ModeSystemKey, string> = {
   ask: "Explore (read-only). Answer questions, summarise code, and never mutate the workspace.",
@@ -238,16 +256,22 @@ export const constructSystemPromptParts = ({
     registeredToolNames,
     hasWorkspace,
 }: ConstructSystemPromptParams): SystemPromptParts => {
-    const base =
+    const headless = process.env.ATLARIX_HEADLESS === "1";
+    const baseRaw =
         optionalProjectInstructions ??
         (effectiveWorkMode
             ? getAgentsMdForWorkMode(effectiveWorkMode)
             : getAgentsMdForContextSize(contextSize));
+    const base = headless ? stripHeadlessUnboundBullets(baseRaw) : baseRaw;
 
     // PASS8 A3: <tool_contract> slimmed to the contract itself; verbose prose dropped.
+    // Headless drops the every-mode tools not bound autonomously (resolve-toolset.ts).
+    const everyModeTools = headless
+        ? "compress_context"
+        : "read_attachment, list_attachments, compress_context, web_search, read_url, ask_user";
     const toolContract = `<tool_contract>
-Every-mode tools: read_attachment, list_attachments, compress_context, web_search, read_url, ask_user.
-Workspace tools (file read/write, glob, grep, get_blueprint, run_command, etc.) require an open workspace folder.
+Every-mode tools: ${everyModeTools}.
+Workspace tools (file read/write, glob, grep, run_command, etc.) require an open workspace folder.
 If a tool is in your tool list, call it; do not claim it is missing.
 Use **native function calling only**. Never emit \`<atlarix-tool-call>\`, \`<atlarix-tool_calls>\`, or other XML tool syntax in visible text.
 Optional caps (max_bytes, max_lines, timeout_ms, max_output_bytes, etc.) are tuning knobs—use higher values only when the default would block legitimate work.
@@ -266,8 +290,11 @@ If \`web_search\` returns nothing or errors, tell the user they can enable **Sea
 
     const includeWeb =
         effectiveWorkMode == null || modeAllowlistIncludesWebResearch(effectiveWorkMode);
+    // Headless drops the visual-artifacts guidance + get_active_skills mention —
+    // not bound/relevant to autonomous terminal tasks.
     const includeViz =
-        effectiveWorkMode == null || modeAllowlistIncludesVisualTools(effectiveWorkMode);
+        !headless &&
+        (effectiveWorkMode == null || modeAllowlistIncludesVisualTools(effectiveWorkMode));
     const visualArtifactsGuide = includeViz ? loadVisualArtifactsGuide() : "";
     const inlineVizRules = includeViz
         ? `**Inline visualizations (Visual Artifacts skill)**
@@ -296,8 +323,13 @@ ${visualArtifactsGuide ? visualArtifactsGuide.trim() : ""}`
               })
             : renderModeSystemBlock(undefined);
     const appVersion = getAppVersion();
+    // Headless/autonomous: drop the workstation branding/identity block — it's
+    // pure app-context (who built Atlarix, app version) and irrelevant to solving
+    // a benchmark task. Empty string is filtered out of stableHeader below.
     const runtimeIdentity =
-        activeModel != null || modelDisplayName
+        process.env.ATLARIX_HEADLESS === "1"
+            ? ""
+            : activeModel != null || modelDisplayName
             ? buildWorkstationIdentityBlock({
                   modelDisplayName:
                       modelDisplayName ??
@@ -320,7 +352,9 @@ You run inside **Atlarix** ([atlarix.dev](https://atlarix.dev)) — an agent wor
         outputStyleRule,
         inlineVizRules,
         modeBundle,
-        includeWeb ? webResearchRules : "",
+        // Headless drops web_search/read_url from the toolset, so omit the web
+        // research rules (incl. the "enable SearxNG in Settings" UI guidance).
+        includeWeb && !headless ? webResearchRules : "",
         runtimeIdentity,
     ].filter((s) => s.length > 0).join("\n\n");
 
@@ -334,13 +368,22 @@ You run inside **Atlarix** ([atlarix.dev](https://atlarix.dev)) — an agent wor
         day: "numeric",
     });
     let tail = `# Current date
-Today is ${currentDate}. Use this date when answering questions about "today", "current", or "latest", and when using web_search for time-sensitive queries.`;
+Today is ${currentDate}. Use this date when answering questions about "today", "current", or "latest"${headless ? "." : ', and when using web_search for time-sensitive queries.'}`;
 
     if (userPrompt && userPrompt.trim().length > 0) {
         tail += `\n\n<user_context>\n${userPrompt.trim()}\n</user_context>`;
     }
-    tail += `\n\n# User input
+    // Headless/autonomous runs have no human responder and ask_user is removed
+    // from the toolset (resolve-toolset.ts) — so do NOT advertise it, or the
+    // model wastes a turn trying to "ask" and ends the run unfinished. Tell it to
+    // decide autonomously instead.
+    if (process.env.ATLARIX_HEADLESS === "1") {
+        tail += `\n\n# Autonomous operation
+There is no user to ask. Never wait for clarification or approval. When scope, design, or a destructive step is ambiguous, make the most reasonable assumption, state it briefly, and proceed to finish the task end-to-end.`;
+    } else {
+        tail += `\n\n# User input
 When you need clarification or a decision from the user (architecture choices, destructive operations, ambiguous scope), call the **ask_user** tool — **your turn ENDS after asking**; their answers arrive as the next user message and you continue from there. Because the turn ends, gather ALL questions you need UP FRONT and batch them into ONE call via the \`questions\` array (max 5, each with up to 4 \`options\`) — never ask one at a time across multiple calls. Do not emit \`<questions>\` XML blocks or inline multiple-choice JSON in prose. When the answers arrive, proceed without re-asking the same decision.`;
+    }
 
     return { stableHeader, dynamicTail: tail };
 };

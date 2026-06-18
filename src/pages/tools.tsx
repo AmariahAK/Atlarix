@@ -172,9 +172,9 @@ const FEATURES: ToolFeature[] = [
     shortDescription:
       "Single search tool for keyword, semantic, or structural queries across the repo (replaces scattered find helpers).",
     category: "code",
-    steps: ["Ask in Build mode to locate symbols, routes, or text", "Mention files or folders to narrow scope", "Pair with Blueprint for graph-backed structural lookups"],
+    steps: ["Ask in Build mode to locate symbols, routes, or text", "Mention files or folders to narrow scope", "grep results are relevance-ranked and symbol-annotated"],
     howItWorks:
-      "Search modes share one entry point; structural mode leans on Blueprint data after you load the graph.",
+      "glob finds files by name; grep searches contents and is reranked by the Blueprint index so the most relevant files surface first.",
     link: { label: "Home → Chat", to: "/" },
   },
   {
@@ -197,27 +197,18 @@ const FEATURES: ToolFeature[] = [
   },
   {
     id: "blueprint-graph",
-    title: "Live Code Map (Blueprint)",
+    title: "Code Map (Blueprint retrieval substrate)",
     shortDescription:
-      "Section-scoped architecture via get_blueprint with focus_path—one folder at a time in monorepos, with path validation and compact Markdown for the model.",
+      "Blueprint is the local retrieval index — Universal Ctags symbols + ast-grep import/call/route edges — that powers grep behind the scenes. There is no separate tool to call: grep just returns sharper results.",
     category: "blueprint",
     steps: [
       "Open a workspace with your repo",
-      "In Build, ask the agent to map one top-level folder (e.g. packages/api) via get_blueprint",
-      "Use the Blueprint canvas for Live view; chat uses the tool output, not whole-repo dumps",
+      "Use grep normally — results come back relevance-ranked, most relevant files first",
+      "Each hit is annotated with its enclosing function/class so the agent jumps straight to the symbol",
     ],
     howItWorks:
-      "Ctags symbols plus ast-grep import/call/route edges feed a richness gate; thin graphs get hybrid file-tree supplement. Default scope is full section; typos return did-you-mean suggestions. Agents follow the blueprint-section-first skill in-repo.",
-    link: { label: "Home → Blueprint", to: "/" },
-  },
-  {
-    id: "blueprint-commit",
-    title: "Blueprint snapshot to git (Workforce)",
-    shortDescription: "Serialize approved Blueprint snapshots back into the repository—gated to Workforce.",
-    category: "blueprint",
-    steps: ["Upgrade to Workforce", "Finalize a Blueprint layout", "Run commit_blueprint / snapshot flow from chat when enabled"],
-    howItWorks: "This keeps design artifacts versioned beside code; Pro and Free tiers can still edit locally without auto-commit.",
-    link: { label: "Settings → Subscription", to: "/settings" },
+      "A disk-backed SQLite FTS5 index (Ctags symbols + ast-grep edges) reranks ripgrep's hits by structural relevance and also drives edit-time blast-radius — no embeddings, no whole-repo dumps, constant low memory at any repo size. The agent reasons over the ranked results rather than calling a separate map tool (the same approach as Claude Code / opencode).",
+    link: { label: "Home → Chat", to: "/" },
   },
   {
     id: "skills-marketplace",

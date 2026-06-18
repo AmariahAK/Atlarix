@@ -20,7 +20,7 @@
  */
 
 import path from "node:path";
-import { rm } from "node:fs/promises";
+import { rm, readdir } from "node:fs/promises";
 import log from "electron-log";
 import { exec } from "@/ipc/utils/system_git_exec";
 import { getUserDataPath } from "@/paths/paths";
@@ -60,6 +60,42 @@ export async function isGitRepo(workspacePath: string): Promise<boolean> {
   return r.exitCode === 0 && r.stdout.trim() === "true";
 }
 
+/** Workspace-keyed directory holding this workspace's sub-agent worktrees. */
+function worktreeDirForWorkspace(workspacePath: string): string {
+  const workspaceKey = norm(workspacePath).replace(/[^a-zA-Z0-9]/g, "_").slice(-64);
+  return path.join(getUserDataPath(), "subagent-worktrees", workspaceKey);
+}
+
+/**
+ * Remove worktrees orphaned by a crashed/killed writer sub-agent (the process
+ * died before `removeSubagentWorktree` ran), leaving a leaked dir and a stale
+ * entry in the repo's worktree registry. Idempotent and best-effort: prunes the
+ * registry, drops leftover dirs not in use this session, prunes again. Called
+ * before creating a new worktree so leaks never accumulate.
+ */
+export async function cleanupStaleSubagentWorktrees(
+  workspacePath: string,
+): Promise<void> {
+  try {
+    if (!(await isGitRepo(workspacePath))) return;
+    await exec(["worktree", "prune"], workspacePath).catch(() => {});
+    const dir = worktreeDirForWorkspace(workspacePath);
+    const entries = await readdir(dir, { withFileTypes: true }).catch(() => []);
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      const full = path.join(dir, entry.name);
+      if (activeWorktreeRoots.has(norm(full))) continue; // owned this session
+      await exec(["worktree", "remove", "--force", full], workspacePath).catch(
+        () => {},
+      );
+      await rm(full, { recursive: true, force: true }).catch(() => {});
+    }
+    await exec(["worktree", "prune"], workspacePath).catch(() => {});
+  } catch (e) {
+    logger.debug("stale sub-agent worktree cleanup skipped:", e);
+  }
+}
+
 /**
  * Create an isolated worktree for a writing sub-agent, or null when the
  * workspace is not a git repo (caller falls back to a read-only scout).
@@ -73,6 +109,9 @@ export async function createSubagentWorktree(
     return null;
   }
 
+  // Reap any worktrees a previously-crashed writer left behind before adding one.
+  await cleanupStaleSubagentWorktrees(workspacePath);
+
   const head = await exec(["rev-parse", "HEAD"], workspacePath);
   if (head.exitCode !== 0) {
     logger.warn("Could not resolve HEAD — writer sub-agent unavailable:", head.stderr.trim());
@@ -82,13 +121,7 @@ export async function createSubagentWorktree(
 
   // Unique, sanitized worktree path under userData (never inside the workspace).
   const safeId = taskId.replace(/[^a-zA-Z0-9_-]/g, "");
-  const workspaceKey = norm(workspacePath).replace(/[^a-zA-Z0-9]/g, "_").slice(-64);
-  const worktreePath = path.join(
-    getUserDataPath(),
-    "subagent-worktrees",
-    workspaceKey,
-    safeId,
-  );
+  const worktreePath = path.join(worktreeDirForWorkspace(workspacePath), safeId);
 
   const add = await exec(
     ["worktree", "add", "--detach", worktreePath, baseRef],

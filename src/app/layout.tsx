@@ -280,15 +280,34 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   useLoadApp(selectedAppId);
 
   useEffect(() => {
-    const unsub = IpcClient.getInstance().onWorkspaceOpenedFromCli(
-      ({ appId, chatId, path }) => {
-        setSelectedAppId(appId);
-        setSelectedChatId(chatId);
-        setActiveChatId(chatId);
-        navigate({ to: "/" });
-        toast.success(`Opened workspace: ${path}`);
-      },
-    );
+    const ipc = IpcClient.getInstance();
+    const applyCliWorkspace = ({
+      appId,
+      chatId,
+      path,
+    }: {
+      appId: number;
+      chatId: number;
+      path: string;
+      name: string;
+    }) => {
+      setSelectedAppId(appId);
+      setSelectedChatId(chatId);
+      setActiveChatId(chatId);
+      navigate({ to: "/" });
+      toast.success(`Opened workspace: ${path}`);
+    };
+    // Live push (covers `atlarix .` while the app is already running). Also drain
+    // the pending buffer so a later mount can't re-open the same workspace.
+    const unsub = ipc.onWorkspaceOpenedFromCli((payload) => {
+      void ipc.consumePendingCliWorkspace();
+      applyCliWorkspace(payload);
+    });
+    // Cold-start pull: the push above raced ahead of this listener, so grab the
+    // buffered CLI workspace (if any) now that we're mounted.
+    void ipc.consumePendingCliWorkspace().then((pending) => {
+      if (pending) applyCliWorkspace(pending);
+    });
     return unsub;
   }, [navigate, setSelectedAppId, setSelectedChatId, setActiveChatId]);
 

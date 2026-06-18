@@ -143,9 +143,9 @@ ToolRegistry.register({
   name: "grep",
   description:
     "Search file CONTENTS with a regex (ripgrep). Returns sharp, low-token results: the most relevant " +
-    "files first (ranked by Blueprint, the codebase's retrieval index), each annotated with the enclosing " +
-    "function/class so you can jump straight to the symbol. Raise max_results for a wider sweep. " +
-    "Use glob to find files by NAME; use get_blueprint for structural/architecture questions. " +
+    "files first (relevance-ranked by the codebase's local index), each annotated with the enclosing " +
+    "function/class so you can jump straight to the symbol. This is the primary tool for structural/architecture " +
+    "questions. Raise max_results for a wider sweep. Use glob to find files by NAME. " +
     "Examples: grep({ pattern: \"handleLogin\" }), grep({ pattern: \"TODO|FIXME\", include: \"*.ts\" }).",
   requiresWorkspace: true,
   isCore: true,

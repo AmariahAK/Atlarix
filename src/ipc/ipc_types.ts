@@ -527,6 +527,18 @@ export interface FileAttachment {
     lineStart: number;
     lineEnd: number;
   };
+  /**
+   * `@`-mention of a workspace file/folder picked in the composer — UI chip only.
+   * On send, the `@file:`/`@dir:` token is re-emitted into the prompt so the
+   * existing scoped, capped extraction (parseContextMentions →
+   * extractMentionedContext) runs unchanged. Never base64-encoded.
+   */
+  mention?: {
+    kind: "file" | "dir";
+    /** Workspace-relative path (no leading `./`, no spaces). */
+    relpath: string;
+    displayName: string;
+  };
 }
 
 export interface RevertVersionParams {

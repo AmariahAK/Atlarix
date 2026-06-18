@@ -26,7 +26,10 @@ import {
   responseHasTaskCompleteTag as isTaskComplete,
   getRemainingSteps,
   buildPendingStepsContinuationPrompt,
+  wasTaskCompleteToolCalled,
+  clearTaskCompleteToolCalled,
 } from "@/lib/tasks/completion-detector";
+import { getMutationFailureFeedback } from "@/lib/agent/mutation-verify";
 import { runMidLoopCompaction } from "@/lib/context/mid_loop_compaction";
 import {
   hasNativeToolParts,
@@ -161,6 +164,11 @@ export async function runAgentTurn(
   // (post-write LSP verify was removed).
   const MAX_GATE_BLOCKED_BREAKS = 3;
   let gateBlockedBreaks = 0;
+  // Natural-termination safety-net: when the model yields a prose-only round
+  // (no tool calls) without calling task_complete, end the turn — but if there
+  // are pending ledger steps / a red gate, nudge it on at most this many times
+  // before ending anyway, so a forgotten task_complete can never loop.
+  const PROSE_YIELD_MAX_NUDGES = 3;
 
   // Sub-agent wait: when the model would END the turn but background sub-agents
   // are still running (or have a result not yet folded in), we suppress the end
@@ -431,20 +439,31 @@ export async function runAgentTurn(
       // End only on explicit <task_complete> or a completed task ledger —
       // unless a workspace stop-hook is red (2.2/7B): then suppress the break
       // (bounded) and feed the failure back instead.
-      const tagComplete = isTaskComplete(fullResponse);
+      // Explicit completion = the `task_complete` TOOL was called (preferred,
+      // native FC) OR the legacy `<task_complete>` XML tag (back-compat).
+      const tagComplete =
+        isTaskComplete(fullResponse) ||
+        wasTaskCompleteToolCalled(rt.streamTurnIdForLedger);
       const ledgerAfterRound = getLedger(rt.streamTurnIdForLedger);
       const ledgerComplete =
         !!ledgerAfterRound && isLedgerTaskComplete(ledgerAfterRound);
 
       if (
         (tagComplete || ledgerComplete) &&
-        profile.taskCompleteGate &&
         gateBlockedBreaks < MAX_GATE_BLOCKED_BREAKS
       ) {
-        try {
-          stopGateFeedback = await profile.taskCompleteGate();
-        } catch (gateErr) {
-          logger.warn(`${L} stop-hook gate failed to run: ${String(gateErr)}`);
+        if (profile.taskCompleteGate) {
+          try {
+            stopGateFeedback = await profile.taskCompleteGate();
+          } catch (gateErr) {
+            logger.warn(`${L} stop-hook gate failed to run: ${String(gateErr)}`);
+          }
+        }
+        // Mutation-verify gate: also refuse to finish when the most recent
+        // state-changing mutation (a failed run_command, or an edit that didn't
+        // verify) is unresolved — the run_command/edit symmetry to stop-hooks.
+        if (stopGateFeedback == null) {
+          stopGateFeedback = getMutationFailureFeedback(rt.streamTurnIdForLedger);
         }
       }
       const gateBlocksBreak =
@@ -470,6 +489,10 @@ export async function runAgentTurn(
       }
       if ((tagComplete || ledgerComplete) && gateBlocksBreak) {
         gateBlockedBreaks++;
+        // Clear the tool-completion flag so the model must re-signal once it has
+        // addressed the gate's feedback (the XML tag re-evaluates from the next
+        // response naturally).
+        clearTaskCompleteToolCalled(rt.streamTurnIdForLedger);
         logger.info(
           `${L} completion blocked by a stop hook (${gateBlockedBreaks}/${MAX_GATE_BLOCKED_BREAKS}) — continuing`,
         );
@@ -502,7 +525,7 @@ export async function runAgentTurn(
         agenticMessages.push({
           role: "user" as const,
           content:
-            "Your spawned background sub-agent(s) are still running. Their results are delivered to you automatically as each finishes. Wait, incorporate each result, and only emit <task_complete> once all sub-agents have reported and the task is truly complete.",
+            "Your spawned background sub-agent(s) are still running. Their results are delivered to you automatically as each finishes. Wait, incorporate each result, and only call task_complete once all sub-agents have reported and the task is truly complete.",
         });
         agenticIteration++;
         continue;
@@ -511,33 +534,37 @@ export async function runAgentTurn(
         // Ask semantics: the model stopped producing tool work — turn over.
         break;
       }
-      agenticProseOnlyStreak++;
-      if (agenticProseOnlyStreak >= profile.proseOnlyStreakMax) {
-        logger.warn(
-          `${L} Prose-only cap (${profile.proseOnlyStreakMax}) reached; ending loop`,
-        );
-        break;
-      }
+      // Natural-termination safety-net (build/debug): a prose-only round means
+      // the model yielded with no tool calls and without calling task_complete.
+      // End the turn — UNLESS there's a concrete reason to nudge it on (a red
+      // stop-hook this round, or pending ledger steps), and even then only a
+      // bounded number of times so a forgotten task_complete can never loop.
+      // Supersedes the old prose-only streak cap.
       const ledgerAfterRound = getLedger(rt.streamTurnIdForLedger);
       const pendingSteps = ledgerAfterRound
         ? getRemainingSteps(ledgerAfterRound)
         : [];
       const ledgerSnap = getLedgerStateString(rt.streamTurnIdForLedger);
-      // v12 2.2: a prose-only round whose completion was SUPPRESSED (stop hook
-      // red) gets that failure as its nudge — not the generic "continue" line.
-      // One streak away from the cap: give an explicit final warning so the
-      // model self-completes (or acts) instead of silently dying at the cap.
-      const isLastChance =
-        profile.proseOnlyStreakMax != null &&
-        agenticProseOnlyStreak === profile.proseOnlyStreakMax - 1;
-      const nudge =
+      // A clean yield ends the turn; a failed/unverified mutation or pending
+      // ledger steps nudge it on (bounded). The mutation gate applies here too,
+      // so the model can't "go quiet" right after a broken edit/command.
+      const gateFeedback =
         stopGateFeedback ??
+        getMutationFailureFeedback(rt.streamTurnIdForLedger);
+      const wantsNudge = gateFeedback != null || pendingSteps.length > 0;
+      if (!wantsNudge || agenticProseOnlyStreak >= PROSE_YIELD_MAX_NUDGES) {
+        logger.info(
+          `${L} Model yielded (no tool calls) — ending turn at iteration ${agenticIteration + 1}`,
+        );
+        break;
+      }
+      agenticProseOnlyStreak++;
+      const nudge =
+        gateFeedback ??
         (pendingSteps.length > 0
           ? buildPendingStepsContinuationPrompt(pendingSteps) +
             (ledgerSnap ? `\n\nCurrent task state:\n${ledgerSnap}` : "")
-          : isLastChance
-            ? "You have replied several times without using tools. This is your last turn before the loop ends: if the task is COMPLETE, emit <task_complete> NOW; otherwise call the required tools immediately."
-            : "You replied without using tools or finishing. Continue the task: call tools as needed, then emit <task_complete> when fully done.");
+          : "You replied without using tools or finishing. Continue the task: call the tools you need, then call task_complete when fully done.");
       agenticMessages.push({
         role: "assistant" as const,
         content: stripAssistantDisplayContent(stripXML(fullResponse)),
@@ -548,7 +575,7 @@ export async function runAgentTurn(
       });
       agenticIteration++;
       logger.log(
-        `${L} Prose-only streak ${agenticProseOnlyStreak}/${profile.proseOnlyStreakMax}; continuing`,
+        `${L} Prose-only nudge ${agenticProseOnlyStreak}/${PROSE_YIELD_MAX_NUDGES}; continuing`,
       );
       continue;
     }

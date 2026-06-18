@@ -128,3 +128,13 @@ native/atlarix-sandbox/target/
 
 # On-device Model2Vec model (build artifact, fetched via npm run fetch-model2vec)
 assets/model2vec/
+
+# Headless agent CLI bundle
+dist-headless/
+# Headless agent CLI tarball (build artifact)
+dist-headless-tarball/
+# Stray root bundle emitted by some local builds (real entry is .vite/build/main.js)
+/main.js
+# Python bytecode (benchmark harness tooling)
+__pycache__/
+*.pyc

@@ -16,6 +16,31 @@ import {
 
 const logger = log.scope("open-workspace-cli");
 
+export type CliWorkspacePayload = {
+  appId: number;
+  chatId: number;
+  path: string;
+  name: string;
+};
+
+/**
+ * Last CLI workspace open that may not have reached a subscribed renderer.
+ * On a COLD start, `openWorkspaceFromCliPath` runs in `onReady()` and pushes the
+ * `workspace:opened-from-cli` event before the renderer has mounted its
+ * listener — so the event is lost and the welcome screen shows. We buffer the
+ * payload here and the renderer pulls it on mount (`workspace:consume-pending-cli`),
+ * which closes the race regardless of timing. The live event still covers the
+ * already-running (second-instance) case.
+ */
+let pendingCliWorkspace: CliWorkspacePayload | null = null;
+
+/** Returns and clears the buffered CLI workspace (renderer pulls this on mount). */
+export function consumePendingCliWorkspace(): CliWorkspacePayload | null {
+  const p = pendingCliWorkspace;
+  pendingCliWorkspace = null;
+  return p;
+}
+
 export function parseDirectoryArgFromArgv(
   argv: string[],
   baseCwd: string = process.cwd(),
@@ -54,12 +79,16 @@ export async function openWorkspaceFromCliPath(
     });
     logger.log(`[openWorkspaceFromCliPath] Opened ${resolved} appId=${appId} chatId=${chatId}`);
 
-    const payload = {
+    const payload: CliWorkspacePayload = {
       appId,
       chatId,
       path: resolved,
       name: appName,
     };
+
+    // Buffer for the renderer to pull on mount (closes the cold-start race where
+    // the event below is pushed before the renderer subscribes).
+    pendingCliWorkspace = payload;
 
     if (options?.forceNewWindow) {
       const win = focusOrOpenWorkspaceWindow(resolved, () => createAppBrowserWindow());

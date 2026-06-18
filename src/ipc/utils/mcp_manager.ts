@@ -25,7 +25,7 @@ import {
   resolveOAuthRedirectUrlFromRow,
   type StoredOAuthTokens,
 } from "@/lib/mcp/oauth-token-utils";
-import { deserializeApiKeyFromDb } from "@/lib/security/db-secrets";
+import { deserializeApiKeyFromDb, decryptEnvFromDb } from "@/lib/security/db-secrets";
 import { readSettings } from "@/main/settings";
 import { wrapStdioSpawnForFirejail } from "@/lib/mcp/firejail";
 
@@ -110,7 +110,7 @@ class McpManager {
       const args = s.args ?? [];
       const apiKey = deserializeApiKeyFromDb(s.apiKey)?.trim();
       const env: Record<string, string> | undefined = {
-        ...s.envJson,
+        ...decryptEnvFromDb(s.envJson),
         ...(apiKey ? { MCP_API_KEY: apiKey } : {}),
       };
       const envForTransport =

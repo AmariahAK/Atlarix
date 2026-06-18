@@ -1,5 +1,72 @@
 # Atlarix Changelog
 
+## [13.7.0] (2026-06-17) — Blueprint becomes the silent grep substrate, `@` mentions as chips, fewer Supabase pings, editable plans
+
+> Retrieval gets simpler and sharper: the `get_blueprint` **tool** is gone, but the Blueprint
+> index stays — now it silently reranks every `grep` (and powers edit-time blast-radius) instead of
+> being a separate, token-heavy call the model rarely chose over grep. This matches the reference
+> harnesses (Claude Code, opencode), which ship no structural-map tool; the published retrieval
+> method is unchanged (the index still exists), only the agent-facing affordance moved into `grep`.
+> The composer's `@` file/folder mentions now appear as removable chips (like pasted-text / terminal
+> attachments) instead of inline `@file:` text, while preserving the existing capped, scoped
+> extraction. Account/plan state is cached so a single user no longer triggers redundant Supabase
+> round-trips on every auth event, and session plans can be added to/edited before and during a
+> build with the agent picking up the changes.
+
+### Added
+
+- **`@` mentions render as chips.** Picking a file/folder from the `@` autocomplete adds a removable
+  chip in the attachments row instead of inserting `@file:`/`@dir:` text inline. On send the token is
+  re-emitted into the prompt so the scoped, capped extraction (60 KB/file, 200 KB total; folder =
+  listing only) is unchanged; mentions are never base64-encoded. (`MentionAttachmentChip`,
+  `src/lib/chat/mention-attachment.ts`, `ComposerAutocomplete` `mentionChips`.)
+- **Browser interaction in read-only modes.** `browser_click` / `browser_fill` are now offered in
+  Explore/Plan/Review (they mutate only the open page, never the workspace) so research can drive
+  dynamic pages. Prompt guidance steers `browser_snapshot` (cheap refs) before `browser_screenshot`.
+- **Editable plans before & during build.** A "Quick add step" input and an "unsaved edits" hint in
+  the Plan panel; a new `plan({operation:"append_step"})` op + `plans:append-step` IPC add a checklist
+  item without a full rewrite. Build-mode guidance tells the agent to re-read the plan (`plan({operation:"read"})`)
+  so user additions made mid-build are honored.
+
+### Changed
+
+- **Retrieval: `get_blueprint` tool removed; Blueprint is the grep substrate.** The tool, its registry
+  entry, prompting, sub-agent toolset entry, and help-page card are gone. The FTS5 + Ctags index,
+  ast-grep edges, the token-free grep reranker, and edit-time blast-radius all stay. README "Map"
+  positioning reframed; the retrieval eval retargets onto the `grep` surface; tool goldens re-pinned.
+- **Fewer Supabase pings.** Effective tier and subscription details are TTL-cached per session and
+  invalidated on sign-out / realtime plan change / explicit refresh, so repeated auth events and
+  `auth:get-plan-info` calls don't each re-query. The team-membership lookup is skipped when the user
+  is already at the max tier. No polling timer added (realtime remains the upgrade signal).
+
+### Fixed / Security
+
+- **OAuth tokens no longer logged.** The deep-link handler no longer logs the full callback URL (which
+  can carry `#access_token=…`/`?code=…`) and the protocol-mismatch dialog no longer echoes it.
+- **MCP env vars encrypted at rest.** `envJson` values are now stored encrypted (mirroring `apiKey`)
+  and decrypted only for the spawned MCP process and the (trusted) settings UI; legacy plaintext is
+  read transparently and migrated on next save.
+- **Stale sub-agent worktrees reaped.** Worktrees leaked by a crashed writer sub-agent are pruned
+  before a new one is created (registry prune + leftover-dir removal), preventing accumulation.
+- **Clearer MCP auth errors** ("[MCP needs OAuth sign-in] … click Connect …, then call this tool
+  again") so the agent can guide the user and retry.
+- **GPU sandbox kept on macOS.** `disable-gpu-sandbox` is now applied only on Linux/Windows (where the
+  `SharedImageManager::ProduceSkia` bug occurs); macOS keeps the hardening. `ATLARIX_DISABLE_GPU_SANDBOX=1`
+  forces it off everywhere.
+
+### Removed
+
+- Dead code: `blueprint-rag.ts` (leftover from the embeddings removal), `retryOnLocked.ts`,
+  `sql-exec-guards.ts`, the orphaned Blueprint focus-path error builders, and the unused `commit_blueprint`
+  suggestion path. Unused deps `@mixmark-io/domino`, `axios`, `bluebird` uninstalled.
+- Dead-export sweep (knip): removed ~14 unused exported functions/types left over from retired
+  features — deploy-connector env helpers (`updatePostgresUrlEnvVar`, `updateDbPushEnvVar`,
+  `readEnvFile`), `writeMigrationFile`, `getBlueprintSectionMeta`, `resolveWorkspaceIdFromRoot`,
+  `setStreamInactive`, `appendTerminalInstanceLines`, project-memory list/upsert helpers,
+  `createTestOnlyLoggedHandler`, the `DBConnectionStored` type, and a duplicate `OAuthSignInButtons`
+  default export — plus the imports they orphaned. Unused exports 51 → 38 (remaining are vendored
+  shadcn re-exports + e2e-only sentinels). Vendored UI re-exports left intact.
+
 ## [13.6.0] (2026-06-16) — Surface simplification: scoped `@` mentions, tiers collapsed to Core 1–4, deploy connectors removed, Review absorbs security
 
 > The cycle that shrinks the product surface to what's actually used. Model selection drops the

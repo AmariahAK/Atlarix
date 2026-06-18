@@ -161,7 +161,7 @@ export async function analyzeBlastRadius(args: {
       summary:
         startIds.length === 0
           ? `No indexed symbols in \`${relFile}\`; blast radius unknown (ctags may be warming).`
-          : `No Blueprint flow edges yet for \`${relFile}\`; run get_blueprint or refresh-from-code for graph-backed impact.`,
+          : `No Blueprint flow edges yet for \`${relFile}\` (index may be warming); grep for the symbol to find callers/usages.`,
       affectedSymbols,
       affectedFiles: [...affectedFiles],
       callerCount: 0,

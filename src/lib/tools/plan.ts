@@ -16,6 +16,7 @@ import {
   getLatestPlanArtifact,
   getPlanArtifact,
   updatePlanArtifactContent,
+  appendStepToPlanArtifact,
   setPlanArtifactStatus,
   planArtifactMarker,
 } from "@/lib/plans/plan-artifacts";
@@ -29,7 +30,7 @@ import { resolveOrBindWorkspaceSessionForStream } from "@/ipc/handlers/workspace
 import type { PlanArtifactStatus } from "@/db/schema";
 
 type PlanToolArgs = {
-  operation: "read" | "write" | "set_status" | "update_step";
+  operation: "read" | "write" | "set_status" | "update_step" | "append_step";
   workspaceSessionId?: string;
   /** Injected by the tool funnel; used to auto-rebind a lost session. */
   chatId?: number;
@@ -215,14 +216,39 @@ async function updateStep(args: PlanToolArgs) {
   };
 }
 
+async function appendStep(args: PlanToolArgs) {
+  if (!args.planId) {
+    return { success: false, error: "planId is required for operation 'append_step'." };
+  }
+  if (!args.step_text?.trim()) {
+    return { success: false, error: "step_text is required for operation 'append_step'." };
+  }
+  const row = await appendStepToPlanArtifact(args.planId, args.step_text);
+  if (!row) return { success: false, error: "Plan not found." };
+  broadcastPlanArtifactUpdated({
+    planId: row.id,
+    sessionId: row.sessionId,
+    content: row.content,
+    planStatus: row.planStatus,
+  });
+  const steps = parsePlanChecklist(row.content);
+  return {
+    success: true,
+    planId: row.id,
+    stepCount: steps.length,
+    message: "Step appended.",
+  };
+}
+
 ToolRegistry.register({
   name: "plan",
   description:
     "Session implementation plan (stored in the database, shown as a card in chat). Operations: " +
     "'write' (create/update the plan markdown — include the returned marker comment in your reply so the card renders; pass planId to update), " +
-    "'read' (latest plan, or by planId / status filter), " +
+    "'read' (latest plan, or by planId / status filter — re-read before continuing if the user may have edited the plan), " +
     "'set_status' (planId + plan_status: plan → building → built), " +
-    "'update_step' (planId + state in_progress|done|todo|blocked + step_index or step_text — call as you start/finish each step so the card shows live progress).",
+    "'update_step' (planId + state in_progress|done|todo|blocked + step_index or step_text — call as you start/finish each step so the card shows live progress), " +
+    "'append_step' (planId + step_text — add a new checklist item without rewriting the plan).",
   requiresWorkspace: true,
   isCore: false,
   isReadOnly: false,
@@ -234,6 +260,7 @@ ToolRegistry.register({
         "write",
         "set_status",
         "update_step",
+        "append_step",
       ]),
       workspaceSessionId: stringParam("Workspace session id (auto-injected)"),
       planId: {
@@ -287,6 +314,8 @@ ToolRegistry.register({
         return setStatus(args);
       case "update_step":
         return updateStep(args);
+      case "append_step":
+        return appendStep(args);
       case "read":
       default:
         return readPlan(args);

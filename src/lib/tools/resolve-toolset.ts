@@ -125,7 +125,34 @@ export function resolveToolsetForSession(
     provider: model.provider,
     builtinProviderId: model.builtinProviderId,
   });
-  const tools = preTrim;
+  // Headless (Electron-free, autonomous) runs drop tools that can't work or are
+  // actively harmful with no human/UI in the loop. Electron app path unaffected:
+  //  - browser_*: no WebContentsView to drive (always fail).
+  //  - ask_user: there is NO responder headless — calling it ENDS the turn and
+  //    the process exits "completed" WITHOUT finishing the task (a silent
+  //    false-success). An autonomous agent must never hand control to a human.
+  //  - mcp_call / list_available_mcps: no MCP servers are configured in a
+  //    headless container, so they only waste schema slots + turns.
+  //  - web_search / read_url: no search infra in autonomous containers; the
+  //    model otherwise burns turns on web tools that can't help. (read_attachment
+  //    / list_attachments are dead weight too — no attachments headless.)
+  // KEPT headless: plan (feeds the task-ledger/completion logic), task
+  // (parallel scouts can help on hard tasks), compress_context.
+  const HEADLESS_DROP = new Set([
+    "ask_user",
+    "mcp_call",
+    "list_available_mcps",
+    "web_search",
+    "read_url",
+    "read_attachment",
+    "list_attachments",
+  ]);
+  const tools =
+    process.env.ATLARIX_HEADLESS === "1"
+      ? preTrim.filter(
+          (t) => !t.name.startsWith("browser_") && !HEADLESS_DROP.has(t.name),
+        )
+      : preTrim;
 
   // Sub-agent (`task`) surface: available in EVERY mode (v13 — parallel
   // read-only scouts help build/debug too, matching Claude Code's Task tool).

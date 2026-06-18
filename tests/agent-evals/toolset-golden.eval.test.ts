@@ -39,26 +39,29 @@ function offeredToolNames(scenarioId: string): string[] {
 }
 
 // Workspace turns, strong (default) model — the full surface per mode.
-// v13: opencode-minimal surface — 23 registered tools total (added browser_snapshot).
+// v13.7: get_blueprint removed (Blueprint is now the silent grep substrate);
+// browser_click / browser_fill added to the read-only modes (page-only mutation).
 const GOLDEN = {
   ask: [
-    "ask_user", "browser_navigate", "browser_read_page", "browser_screenshot", "browser_snapshot",
-    "compress_context", "get_blueprint", "glob", "grep", "list_attachments",
+    "ask_user", "browser_click", "browser_fill", "browser_navigate",
+    "browser_read_page", "browser_screenshot", "browser_snapshot",
+    "compress_context", "glob", "grep", "list_attachments",
     "list_available_mcps", "mcp_call", "read_attachment", "read_file",
     "read_url", "run_command", "task", "web_search",
   ],
   plan: [
-    "ask_user", "browser_navigate", "browser_read_page", "browser_screenshot", "browser_snapshot",
-    "compress_context", "get_blueprint", "glob", "grep", "list_attachments",
+    "ask_user", "browser_click", "browser_fill", "browser_navigate",
+    "browser_read_page", "browser_screenshot", "browser_snapshot",
+    "compress_context", "glob", "grep", "list_attachments",
     "list_available_mcps", "mcp_call", "plan", "read_attachment", "read_file",
     "read_url", "task", "web_search",
   ],
   build: [
     "ask_user", "browser_click", "browser_fill", "browser_navigate",
     "browser_read_page", "browser_screenshot", "browser_snapshot", "compress_context", "edit_file",
-    "get_blueprint", "glob", "grep", "list_attachments", "list_available_mcps",
+    "glob", "grep", "list_attachments", "list_available_mcps",
     "mcp_call", "plan", "read_attachment", "read_file", "read_url",
-    "run_command", "task", "web_search", "write_file",
+    "run_command", "task", "task_complete", "web_search", "write_file",
   ],
 } as const;
 

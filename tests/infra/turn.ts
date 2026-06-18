@@ -1,6 +1,10 @@
 import { vi } from "vitest";
 import { makeTestDb, type TestDb } from "./db";
-import { makeTempWorkspace, type TempWorkspace } from "./workspace";
+import {
+  makeTempWorkspace,
+  existingWorkspace,
+  type TempWorkspace,
+} from "./workspace";
 import { startFakeLlmServer, type FakeLlmServer } from "./scenario";
 import { writeTestSettings } from "./settings";
 import { makeFakeIpcEvent, type FakeIpcEvent } from "./ipc";
@@ -24,12 +28,24 @@ export interface EvalContext {
 
 export async function setupEvalContext(opts?: {
   seedFiles?: Record<string, string>;
+  /** Use this existing dir as the workspace (e.g. a cloned benchmark repo). */
+  workspaceDir?: string;
+  /**
+   * Route the agent at a REAL OpenAI-compatible provider instead of the fake
+   * server (for benchmark runs). The API key is supplied per-turn via
+   * `runTurn`'s settings (`providerSettings[providerId].apiKey.value`). The fake
+   * server is still started but goes unused.
+   */
+  provider?: { baseUrl: string; model: string };
 }): Promise<EvalContext> {
   const testDb = await makeTestDb();
-  const ws = makeTempWorkspace(opts?.seedFiles);
+  const ws = opts?.workspaceDir
+    ? existingWorkspace(opts.workspaceDir)
+    : makeTempWorkspace(opts?.seedFiles);
   const server = await startFakeLlmServer();
   const { providerId, modelName } = await testDb.seedTestingProvider(
-    server.baseURL,
+    opts?.provider?.baseUrl ?? server.baseURL,
+    opts?.provider ? { modelName: opts.provider.model } : undefined,
   );
   const { appId } = await testDb.seedApp({ path: ws.dir });
 

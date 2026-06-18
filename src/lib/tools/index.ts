@@ -18,11 +18,10 @@ import "./mcp";
 import "./edit";
 import "./shell";
 import "./web";
-import "./blueprint";
-// get_diagram removed — model uses get_blueprint + inline ```graph fences
 import "./spawn-task";
 import "./workspace";
 import "./plan";
+import "./task-complete"; // explicit completion signal (native FC; replaces <task_complete> XML)
 import "./browser"; // v11 in-app browser agent tools
 
 // Re-export registry for convenience

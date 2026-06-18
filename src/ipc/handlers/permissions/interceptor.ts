@@ -10,6 +10,7 @@
 import * as fs from "fs/promises";
 import * as path from "path";
 import { createHash } from "crypto";
+import { recordMutationOutcome } from "@/lib/agent/mutation-verify";
 import log from "electron-log";
 import { EventEmitter } from "events";
 import { BrowserWindow } from "electron";
@@ -48,7 +49,6 @@ import {
 } from "../../../lib/terminal-instance-store";
 import { runCommandGitInitGateResult } from "../../../lib/git-init-command-guard";
 import { injectAgentGitIdentity } from "../../utils/git_author";
-import { SubscriptionManager } from "../../../lib/SubscriptionManager";
 
 const logger = log.scope("permission-interceptor");
 
@@ -606,6 +606,13 @@ export class PermissionInterceptor extends EventEmitter {
 
             logger.log(`[executeOperation] Executed ${operationId}: ${request.operation}`);
 
+            // Edit-file verifier (B1): the write landed. Clear any prior mutation
+            // failure for the turn so the completion gate (mutation-verify) won't
+            // hold the model back. Failures are recorded in the catch below.
+            if (this.snapshotTurnId && CONTENT_WRITE_OPS.has(request.operation)) {
+              recordMutationOutcome(this.snapshotTurnId, true);
+            }
+
             const preview = request.preview as FileOperationPreview;
 
             if (this.workspaceId && (request.operation === "write_file" || request.operation === "write_multiple_files")) {
@@ -664,6 +671,17 @@ export class PermissionInterceptor extends EventEmitter {
 
             logger.error(`[executeOperation] Failed ${operationId}:`, error);
 
+            // Edit-file verifier (B1): the write genuinely failed — record it so
+            // the completion gate refuses to finish on an unapplied edit
+            // (bounded; the model is nudged to fix and retry first).
+            if (this.snapshotTurnId && CONTENT_WRITE_OPS.has(request.operation)) {
+              recordMutationOutcome(
+                this.snapshotTurnId,
+                false,
+                `Your ${request.operation} did not apply (${errorMessage}). Re-check the file/path and retry the edit before finishing.`,
+              );
+            }
+
             // Resolve with false on error so AI knows it failed
             this.resolveApproval(operationId, false);
 
@@ -673,32 +691,6 @@ export class PermissionInterceptor extends EventEmitter {
                 error: error instanceof Error ? error.message : String(error),
             };
         }
-    }
-
-    /**
-     * Pass 7: when the AI runs `git commit ...` in a Workforce workspace,
-     * append a structured suggestion to the result so the model can ask the
-     * user "would you also like a Blueprint snapshot?". No side-effect, no
-     * automation — the AI calls `commit_blueprint` only if the user agrees.
-     */
-    private maybeAttachBlueprintSuggestion(
-        command: string | undefined,
-        success: boolean,
-        base: Record<string, unknown>,
-    ): Record<string, unknown> {
-        if (!success) return base;
-        if (!command || !/git\s+commit/.test(command)) return base;
-        try {
-            if (SubscriptionManager.getEffectiveTier() !== "workforce") return base;
-        } catch {
-            return base;
-        }
-        return {
-            ...base,
-            blueprintSuggestion: true,
-            blueprintSuggestionMessage:
-                "Commit successful. You can also call `commit_blueprint` to save a `.atlarix/blueprint.json` snapshot so your team gets the current architecture state. Ask the user before running it.",
-        };
     }
 
     /**
@@ -712,8 +704,6 @@ export class PermissionInterceptor extends EventEmitter {
         output?: string;
         exitCode?: number;
         duration?: number;
-        blueprintSuggestion?: boolean;
-        blueprintSuggestionMessage?: string;
         operation?: string;
         oldContent?: string;
         newContent?: string;
@@ -754,7 +744,6 @@ export class PermissionInterceptor extends EventEmitter {
             if (operation.request.operation === 'run_command') {
                 const cmdResult = this.commandOutputs.get(operationId);
                 if (cmdResult) {
-                    const cmdPreview = operation.request.preview as { command?: string } | undefined;
                     const base = {
                         success: cmdResult.success,
                         output: this.formatCommandOutput(
@@ -765,11 +754,7 @@ export class PermissionInterceptor extends EventEmitter {
                         exitCode: cmdResult.exitCode,
                         error: cmdResult.success ? undefined : cmdResult.stderr.slice(0, 500),
                     };
-                    return this.maybeAttachBlueprintSuggestion(
-                        cmdPreview?.command,
-                        cmdResult.success,
-                        base,
-                    ) as ReturnType<PermissionInterceptor['getExecutionResult']>;
+                    return base;
                 }
             }
 

@@ -76,7 +76,6 @@ const SUBAGENT_TOOL_NAMES = [
   "read_file",
   "glob",
   "grep",
-  "get_blueprint",
   "web_search",
   "read_url",
 ] as const;

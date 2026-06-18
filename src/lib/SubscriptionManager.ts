@@ -15,6 +15,7 @@ import {
     getUserPlan,
     getEffectiveTier,
     getHasDbStudioLegacy,
+    invalidatePlanCaches,
     signInWithOAuth,
     signOut,
     onAuthStateChange,
@@ -103,6 +104,7 @@ export class SubscriptionManager {
                     await this.updateSession(session);
                 } else {
                     this.session = null;
+                    invalidatePlanCaches();
                     if (this.realtimeCleanup) {
                         this.realtimeCleanup();
                         this.realtimeCleanup = null;
@@ -193,6 +195,9 @@ export class SubscriptionManager {
                 }
                 this.lastPlanFingerprint = fp;
                 this.lastPlanFingerprintAt = now;
+                // Plan changed upstream — drop the cached tier so any later
+                // getEffectiveTier reads the new value rather than the stale one.
+                invalidatePlanCaches();
 
                 logger.log(`[SubscriptionManager] 🎉 Subscription changed via realtime:`, {
                     plan: `${oldData.plan} → ${newData.plan}`,
@@ -299,6 +304,8 @@ export class SubscriptionManager {
             return 'free';
         }
 
+        // Explicit refresh (e.g. after payment) must bypass the tier cache.
+        invalidatePlanCaches();
         const newPlan = await getUserPlan(this.session.id);
         const effectiveTier = await getEffectiveTier(this.session.id, newPlan);
         const hasDbStudioLegacy = await getHasDbStudioLegacy(this.session.id);
@@ -334,6 +341,7 @@ export class SubscriptionManager {
     static async signOut(): Promise<void> {
         await signOut();
         this.session = null;
+        invalidatePlanCaches();
         if (this.realtimeCleanup) {
             this.realtimeCleanup();
             this.realtimeCleanup = null;

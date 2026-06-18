@@ -15,12 +15,6 @@ export type BlueprintParseOptions = {
 export const BLUEPRINT_PARSE_TIMEOUT_MS = 150_000;
 export const BLUEPRINT_PROGRESS_LOG_MS = 20_000;
 
-export const BLUEPRINT_FALLBACK_TOOLS = [
-  "glob",
-  "grep",
-  "read_file",
-] as const;
-
 export function normalizeBlueprintFocusPath(p: string): string {
   return String(p ?? "")
     .trim()
@@ -35,25 +29,6 @@ export function isWorkspaceRootFocusPath(focusPath: string): boolean {
   return !fp || fp === "." || fp === "..";
 }
 
-export function blueprintWorkspaceRootFocusPathError(suggestions: string[]) {
-  return {
-    success: false as const,
-    error:
-      'get_blueprint does not accept workspace root ("."). Pick one top-level folder as focus_path.',
-    hint:
-      "Call get_repo_overview or explore_folder on '.' first, then get_blueprint({ focus_path: 'your-section' }).",
-    suggestions,
-    sequential_workflow: true,
-    do_not_retry_full_workspace_blueprint: true,
-    fallback_tools: [...BLUEPRINT_FALLBACK_TOOLS],
-    recommended_workflow: [
-      "1. get_repo_overview or explore_folder to list top-level folders",
-      "2. get_blueprint({ focus_path: 'one-folder' }) for that section only",
-      "3. explore_folder / search within that section",
-    ],
-  };
-}
-
 export function blueprintCacheKey(workspaceId: number, focusPath: string): string {
   const fp = normalizeBlueprintFocusPath(focusPath);
   return `${workspaceId}:${fp || "."}`;
@@ -63,40 +38,6 @@ export function resolveScanRoot(workspacePath: string, focusPath: string): strin
   const fp = normalizeBlueprintFocusPath(focusPath);
   if (!fp || fp === ".") return workspacePath;
   return path.join(workspacePath, fp);
-}
-
-export function blueprintRequiresFocusPathError() {
-  return {
-    success: false as const,
-    error: "get_blueprint requires focus_path (workspace-relative folder section).",
-    hint:
-      "Work sequentially: get_repo_overview or explore_folder on '.' to pick a section, then get_blueprint({ focus_path: 'your-package' }).",
-    sequential_workflow: true,
-    fallback_tools: [...BLUEPRINT_FALLBACK_TOOLS],
-    recommended_workflow: [
-      "1. get_repo_overview or explore_folder to pick ONE section",
-      "2. explore_folder / search (text) within that section",
-      "3. get_blueprint({ focus_path }) or search(structural, path: focus_path)",
-      "4. read_file on specific files",
-    ],
-  };
-}
-
-export function blueprintFailureEnvelope(
-  error: string,
-  extra?: { focusPath?: string; timedOut?: boolean },
-) {
-  return {
-    success: false as const,
-    error,
-    hint: extra?.timedOut
-      ? "Parse timed out. Use search + explore_folder + read_file in the same focus_path; do not retry workspace-root get_blueprint."
-      : "Use search, explore_folder, and read_file in the target section. Do not retry full-workspace get_blueprint.",
-    sequential_workflow: true,
-    fallback_tools: [...BLUEPRINT_FALLBACK_TOOLS],
-    do_not_retry_full_workspace_blueprint: true,
-    focus_path: extra?.focusPath,
-  };
 }
 
 /** Split topic on | for alternates (e.g. payment|stripe|billing). */

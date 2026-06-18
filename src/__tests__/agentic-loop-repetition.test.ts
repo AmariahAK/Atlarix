@@ -94,7 +94,7 @@ describe("createAgenticRepetitionState — write/run threshold (3 of 5)", () => 
     expect(s.takePendingCorrection()).toBeNull();
   });
 
-  it("escalates to loop_abort after two ignored corrections", () => {
+  it("classifies loop_abort after two ignored corrections, but the hard break is disabled", () => {
     const s = createAgenticRepetitionState();
     s.setEnabled(true);
     // First trigger.
@@ -106,8 +106,11 @@ describe("createAgenticRepetitionState — write/run threshold (3 of 5)", () => 
     // Third trigger — abort.
     for (let i = 0; i < 2; i++) s.record("write_file", { path: "x.ts" });
     const r = s.record("write_file", { path: "x.ts" });
+    // The classification still escalates to loop_abort (advisory), but the hard
+    // loop-break was intentionally disabled — natural termination / task_complete
+    // now ends turns — so consumeLoopBreak always reports false.
     expect(r.kind).toBe("loop_abort");
-    expect(s.consumeLoopBreak()).toBe(true);
+    expect(s.consumeLoopBreak()).toBe(false);
     expect(s.consumeLoopBreak()).toBe(false);
   });
 });

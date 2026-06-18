@@ -138,8 +138,13 @@ if (SENTRY_DSN) {
   });
 }
 
-// Mitigate GPU SharedImageManager::ProduceSkia errors (Chromium/Electron on some systems)
-app.commandLine.appendSwitch("disable-gpu-sandbox");
+// Mitigate GPU SharedImageManager::ProduceSkia errors (Chromium/Electron). This
+// only manifests on Linux/Windows GPU stacks; macOS doesn't hit it, so keep the
+// GPU sandbox enabled there (it's a real hardening layer). `ATLARIX_DISABLE_GPU_SANDBOX`
+// forces it off everywhere for users who still see the bug on macOS.
+if (process.platform !== "darwin" || process.env.ATLARIX_DISABLE_GPU_SANDBOX === "1") {
+  app.commandLine.appendSwitch("disable-gpu-sandbox");
+}
 app.commandLine.appendSwitch("disable-software-rasterizer");
 // Raise V8 old-space ceiling before Chromium hits partition_alloc hard OOM on heavy renderer work
 app.commandLine.appendSwitch("js-flags", "--max-old-space-size=4096");
@@ -269,6 +274,11 @@ export async function onReady() {
   // sessions). Best-effort; never blocks startup fatally.
   await seedEphemeralCounterFromSessions();
   sendDbReadyToWindow();
+
+  // Self-heal a previously-installed launcher that predates the TTY-detach fix.
+  void import("./ipc/handlers/cli_handlers").then((m) =>
+    m.refreshCliLauncherIfStale(),
+  );
 
   const cliDir = parseDirectoryArgFromArgv(process.argv, process.cwd());
   if (cliDir) {
@@ -916,9 +926,10 @@ app.on("open-url", (event, url) => {
 });
 
 function handleDeepLinkReturn(url: string) {
-  // DEBUG: Log what URL we actually receive
+  // Deep-link URLs can carry OAuth secrets in the hash/query
+  // (#access_token=…, ?code=…), which persist in electron-log files — never
+  // log the full URL. Structural flags only.
   log.log("=== DEEP LINK RECEIVED ===");
-  log.log("Full URL:", url);
   log.log("URL length:", url.length);
   log.log("Has hash (#):", url.includes('#'));
   log.log("Has query (?):", url.includes('?'));
@@ -943,7 +954,7 @@ function handleDeepLinkReturn(url: string) {
   if (parsed.protocol !== "atlarix:") {
     dialog.showErrorBox(
       "Invalid Protocol",
-      `Expected atlarix://, got ${parsed.protocol}. Full URL: ${url}`,
+      `Expected atlarix://, got ${parsed.protocol}.`,
     );
     return;
   }

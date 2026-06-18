@@ -25,6 +25,7 @@ const validInvokeChannels = [
   "chat:submit-user-question-answer", // ask_user tool: submit answer from UI
   "workspace:prewarm-cache",
   "workspace:open-in-new-window",
+  "workspace:consume-pending-cli",
   "chat:edit-message",             // v3.9: edit user message and truncate after
   "chat:revert-to-message",        // v3.9: revert conversation to assistant message
   "autonomous:revert-op",
@@ -191,6 +192,7 @@ const validInvokeChannels = [
   "workspace-snapshot:get-metadata",
   "plans:create",
   "plans:update",
+  "plans:append-step",
   "plans:get",
   "plans:list-by-session",
   "plans:set-status",

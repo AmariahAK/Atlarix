@@ -876,6 +876,13 @@ export class IpcClient {
     return this.ipcRenderer.invoke("plans:set-status", { planId, planStatus });
   }
 
+  public async appendPlanArtifactStep(
+    planId: string,
+    stepText: string,
+  ): Promise<import("./utils/emit_plan_artifact").PlanArtifactPayload> {
+    return this.ipcRenderer.invoke("plans:append-step", { planId, stepText });
+  }
+
   public async getPlanArtifact(
     planId: string,
   ): Promise<import("./utils/emit_plan_artifact").PlanArtifactPayload | null> {
@@ -2218,6 +2225,16 @@ export class IpcClient {
     return () => {
       this.ipcRenderer.removeListener("workspace:opened-from-cli", listener);
     };
+  }
+
+  /** Pull (and clear) a CLI workspace buffered before this renderer mounted. */
+  public consumePendingCliWorkspace(): Promise<{
+    appId: number;
+    chatId: number;
+    path: string;
+    name: string;
+  } | null> {
+    return this.ipcRenderer.invoke("workspace:consume-pending-cli");
   }
 
   public async executePermission({

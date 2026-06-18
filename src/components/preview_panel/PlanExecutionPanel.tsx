@@ -6,7 +6,7 @@ import { useSettings } from "@/hooks/useSettings";
 import { settingsPatchForWorkMode } from "@/lib/work-mode";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { ClipboardList, Hammer, CircleCheck, Loader2 } from "lucide-react";
+import { ClipboardList, Hammer, CircleCheck, Loader2, Plus } from "lucide-react";
 import { workspacePlanPanelAtom } from "@/atoms/sourceAtoms";
 import { PlanChangesCard } from "./PlanChangesCard";
 import { CHAT_MESSAGE_MARKDOWN_PROSE } from "@/components/chat/AtlarixMarkdownParser";
@@ -15,6 +15,7 @@ import { cn } from "@/lib/utils";
 import { IpcClient } from "@/ipc/ipc_client";
 import type { PlanArtifactStatus } from "@/db/schema";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { PlanChecklistProgress } from "@/components/chat/PlanArtifactCard";
 
 function statusLabel(status: PlanArtifactStatus | null): string {
@@ -33,6 +34,7 @@ export function PlanExecutionPanel() {
   const [panel, setPanel] = useAtom(workspacePlanPanelAtom);
   const [draft, setDraft] = useState("");
   const [saving, setSaving] = useState(false);
+  const [quickStep, setQuickStep] = useState("");
   const activeChatId = useAtomValue(activeChatIdAtom);
   const { streamMessage, isStreaming } = useStreamChat();
   const { updateSettings } = useSettings();
@@ -60,6 +62,32 @@ export function PlanExecutionPanel() {
       setSaving(false);
     }
   }, [panel.planId, draft, setPanel]);
+
+  const addQuickStep = useCallback(async () => {
+    const text = quickStep.trim();
+    if (!panel.planId || !text) return;
+    try {
+      const updated = await IpcClient.getInstance().appendPlanArtifactStep(
+        panel.planId,
+        text,
+      );
+      setPanel((prev) => ({
+        ...prev,
+        content: updated.content,
+        planStatus: updated.planStatus,
+      }));
+      setDraft(updated.content);
+      setQuickStep("");
+    } catch (e) {
+      console.error("Failed to add step:", e);
+    }
+  }, [panel.planId, quickStep, setPanel]);
+
+  // While building, local edits the user hasn't saved yet aren't visible to the
+  // agent until they Save (then the agent re-reads the plan on its next step).
+  const dirtySinceBuild =
+    panel.planStatus === "building" &&
+    draft.trim() !== (panel.content ?? "").trim();
 
   const setStatus = async (planStatus: PlanArtifactStatus) => {
     if (!panel.planId) return;
@@ -122,6 +150,36 @@ export function PlanExecutionPanel() {
                     onChange={(e) => setDraft(e.target.value)}
                     onBlur={() => void saveDraft()}
                   />
+                  <div className="flex items-center gap-2">
+                    <Input
+                      value={quickStep}
+                      onChange={(e) => setQuickStep(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          void addQuickStep();
+                        }
+                      }}
+                      placeholder="Add a step…"
+                      className="h-8 text-sm"
+                    />
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="gap-1 shrink-0"
+                      disabled={!quickStep.trim()}
+                      onClick={() => void addQuickStep()}
+                    >
+                      <Plus className="h-3.5 w-3.5" aria-hidden />
+                      Add step
+                    </Button>
+                  </div>
+                  {dirtySinceBuild ? (
+                    <p className="text-xs text-amber-600 dark:text-amber-400">
+                      Unsaved edits — click Save so the agent picks them up on its next step.
+                    </p>
+                  ) : null}
                   <div className="flex flex-wrap gap-2">
                     <Button
                       type="button"
@@ -177,8 +235,8 @@ export function PlanExecutionPanel() {
                 </>
               ) : (
                 <p className="text-sm text-muted-foreground">
-                  No plan selected. Click a plan card in chat to open it here, or create one in
-                  Plan mode with <code className="text-xs">write_implementation_plan</code>.
+                  No plan selected. Click a plan card in chat to open it here, or ask the
+                  agent in Plan mode to draft one.
                 </p>
               )}
             </div>

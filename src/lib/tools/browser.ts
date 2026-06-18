@@ -278,6 +278,10 @@ ToolRegistry.register({
   requiresWorkspace: false,
   isCore: false,
   isReadOnly: false,
+  // Mutates only the open page, never the workspace — safe to offer in the
+  // read-only modes (Explore/Plan/Review) so research can drive dynamic pages
+  // (expand "Load more", submit a search). Mode allowlist still gates it.
+  allowInAskMode: true,
   description:
     "Click an element on the page open in Atlarix's built-in browser. PREFER `ref` (a stable id from " +
     "browser_snapshot, e.g. \"e3\") over `selector` (CSS) — refs are robust. Best-effort: verify with " +
@@ -339,6 +343,8 @@ ToolRegistry.register({
   requiresWorkspace: false,
   isCore: false,
   isReadOnly: false,
+  // See browser_click: page-only mutation, offered in read-only modes too.
+  allowInAskMode: true,
   description:
     "Fill a form field on the page open in Atlarix's built-in browser with the given value. PREFER `ref` " +
     "(from browser_snapshot, e.g. \"e3\") over `selector` (CSS). Dispatches input/change events so frameworks " +
