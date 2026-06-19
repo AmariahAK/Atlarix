@@ -72,13 +72,14 @@ describe("agent mode coerces to build", () => {
     // the follow-up request carries the seeded file content.
     expect(JSON.stringify(requests[1])).toContain("zamani");
 
-    // Build toolset surface: write tools ARE offered (ask would exclude them).
+    // Build toolset surface: the write tool IS offered (ask would exclude it).
+    // v13.8: write_file folded into edit_file (operation:"write").
     const tools = (requests[0].tools ?? [])
       .map((t) => t.function?.name)
       .filter((n): n is string => typeof n === "string");
     expect(tools).toContain("read_file");
-    expect(tools).toContain("write_file");
     expect(tools).toContain("edit_file");
+    expect(tools).not.toContain("write_file");
 
     // Build termination semantics: <task_complete> ended the turn and is
     // stripped from the persisted assistant content.

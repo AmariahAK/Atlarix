@@ -166,6 +166,21 @@ export const sourcesByAssistantMessageIdAtom = atom<
 export const streamLastActivityAtByChatIdAtom = atom<Map<number, number>>(new Map());
 
 /**
+ * Live partial tool-call arguments per chat — the file path + content building up
+ * while the model streams an `edit_file` write/replace, BEFORE the tool-call
+ * completes and the approval card opens. Drives the streaming preview so a long
+ * write feels instant (like opencode). Cleared when the real tool card / approval
+ * arrives or the stream ends.
+ */
+export interface LiveToolInput {
+  toolName: string;
+  path?: string;
+  content?: string;
+  operation?: string;
+}
+export const liveToolInputByChatIdAtom = atom<Map<number, LiveToolInput>>(new Map());
+
+/**
  * v13 Phase 7: the agent is blocked on a still-running foreground command.
  * Set/cleared by useStreamChat from `chat:stream:phase` waiting_on_command /
  * command_done events. Drives the waiting chip + the send/stop button flip.

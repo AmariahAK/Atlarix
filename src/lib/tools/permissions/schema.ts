@@ -25,6 +25,10 @@ export const FileOperationPreviewSchema = z.object({
         .describe(
             "Audit note surfaced to the model and activity card (e.g. fuzzy-match indent/EOL drift)",
         ),
+    // Set at execute time: did the on-disk bytes match what we intended to
+    // write? Stashed here so the (sync) getExecutionResult can report it. Used
+    // by the end-of-turn self-review gate; never sent to the model on success.
+    verified: z.boolean().optional(),
     // For rename operations
     fromPath: z.string().optional().describe("Original path (for rename)"),
     toPath: z.string().optional().describe("New path (for rename)"),

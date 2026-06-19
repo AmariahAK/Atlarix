@@ -615,7 +615,9 @@ export class PermissionInterceptor extends EventEmitter {
 
             const preview = request.preview as FileOperationPreview;
 
-            if (this.workspaceId && (request.operation === "write_file" || request.operation === "write_multiple_files")) {
+            // v13.8: write_file folded into edit_file (operation:"write"), so the
+            // ATLARIX_PLAN.md / .atlarixignore detection keys off any content write.
+            if (this.workspaceId && (CONTENT_WRITE_OPS.has(request.operation) || request.operation === "write_multiple_files")) {
                 const previews = Array.isArray(request.preview)
                     ? (request.preview as FileOperationPreview[])
                     : preview?.path
@@ -707,6 +709,8 @@ export class PermissionInterceptor extends EventEmitter {
         operation?: string;
         oldContent?: string;
         newContent?: string;
+        command?: string;
+        verified?: boolean;
     } {
         const operation = this.pendingOperations.get(operationId);
 
@@ -744,8 +748,12 @@ export class PermissionInterceptor extends EventEmitter {
             if (operation.request.operation === 'run_command') {
                 const cmdResult = this.commandOutputs.get(operationId);
                 if (cmdResult) {
+                    // Carry the command string so the chat thread can render a
+                    // PERSISTENT command+output+exit card (not just transient output).
+                    const cmdPreview = operation.request.preview as { command?: string } | undefined;
                     const base = {
                         success: cmdResult.success,
+                        command: typeof cmdPreview?.command === "string" ? cmdPreview.command : undefined,
                         output: this.formatCommandOutput(
                             cmdResult.stdout,
                             cmdResult.stderr,
@@ -781,6 +789,9 @@ export class PermissionInterceptor extends EventEmitter {
                     operation: opType,
                     oldContent: preview.oldContent ?? "",
                     newContent: preview.content ?? "",
+                    // Did the on-disk bytes match what we intended (set in
+                    // executeWriteFile)? Consumed by the self-review gate.
+                    ...(typeof preview.verified === "boolean" ? { verified: preview.verified } : {}),
                     // Audit note (e.g. edit_file fuzzy-match drift) — flows to
                     // the model via jsonAfterSuccessfulExec's `output`.
                     ...(preview.notice ? { output: preview.notice } : {}),
@@ -1077,8 +1088,19 @@ export class PermissionInterceptor extends EventEmitter {
         await fs.mkdir(path.dirname(fullPath), { recursive: true });
 
         // Write file
-        await fs.writeFile(fullPath, preview.content || "", "utf-8");
+        const intended = preview.content || "";
+        await fs.writeFile(fullPath, intended, "utf-8");
         logger.log(`Wrote file: ${fullPath}`);
+        // Self-recheck: re-read the bytes we just wrote and confirm they landed.
+        // Near-always true, but catches a truncated/failed write that didn't
+        // throw. Silent on success; a false here is surfaced ONLY at the
+        // end-of-turn task_complete gate (no per-edit token cost).
+        try {
+            const onDisk = await fs.readFile(fullPath, "utf-8");
+            preview.verified = onDisk === intended;
+        } catch {
+            preview.verified = false;
+        }
         if (this.snapshotTurnId) {
             appendLedgerFilesWritten(this.snapshotTurnId, [
                 this.toWorkspaceRelativePosix(preview.path),

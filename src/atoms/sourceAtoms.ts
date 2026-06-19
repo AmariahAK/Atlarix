@@ -302,6 +302,8 @@ export interface TerminalOutput {
     exitCode?: number;
     duration?: number;      // Execution time in ms
     startTime: number;      // When command started (Date.now())
+    /** A long-running/background process (server) — gets its own terminal tab. */
+    background?: boolean;
 }
 
 /** Map of operationId → TerminalOutput for multiple concurrent commands */

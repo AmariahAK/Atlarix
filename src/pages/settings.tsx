@@ -21,6 +21,7 @@ import {
 import { SettingsWorkspaceNav } from "@/components/settings/SettingsWorkspaceNav";
 import { useTheme } from "@/contexts/ThemeContext";
 import { SearchSettings } from "@/components/settings/SearchSettings";
+import { UpdateDiagnostics } from "@/components/settings/UpdateDiagnostics";
 import { useLanguageModelProviders } from "@/hooks/useLanguageModelProviders";
 import { WorkspaceTerminalPermissions } from "@/components/settings/WorkspaceTerminalPermissions";
 import { WorkspaceFilePermissions } from "@/components/settings/WorkspaceFilePermissions";
@@ -382,6 +383,7 @@ export function GeneralSettings({ appVersion }: { appVersion: string | null }) {
           </Select>
         </div>
         <CliLauncherSettings />
+        <UpdateDiagnostics />
         <div className="pt-4 border-t border-border mt-4">
           <Button variant="outline" size="sm" onClick={handleRestartOnboarding}>
             Restart onboarding guide

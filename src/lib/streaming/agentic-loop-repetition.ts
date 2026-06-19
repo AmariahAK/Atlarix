@@ -50,6 +50,7 @@ function normalizeFsPath(raw: string): string {
 export function buildRepetitionKey(toolName: string, args: unknown): string | null {
   if (
     toolName !== "write_file" &&
+    toolName !== "edit_file" &&
     toolName !== "run_command" &&
     !READ_TOOL_NAMES.has(toolName)
   ) {
@@ -58,6 +59,14 @@ export function buildRepetitionKey(toolName: string, args: unknown): string | nu
   if (!args || typeof args !== "object") return null;
   const o = args as Record<string, unknown>;
   if (toolName === "write_file") {
+    if (typeof o.path !== "string" || !o.path.trim()) return null;
+    return `write_file:${normalizeWriteFileTarget(o.path)}`;
+  }
+  if (toolName === "edit_file") {
+    // v13.8: edit_file absorbed write_file. Track whole-file writes in the SAME
+    // key space as the old write_file so write-loops are still caught; leave the
+    // surgical ops untracked (distinct edits to one file are normal, not a loop).
+    if (o.operation !== "write") return null;
     if (typeof o.path !== "string" || !o.path.trim()) return null;
     return `write_file:${normalizeWriteFileTarget(o.path)}`;
   }

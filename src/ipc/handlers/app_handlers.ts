@@ -633,8 +633,26 @@ export function registerAppHandlers() {
       const fileDiscoveryWarnings = result.accessWarnings?.length
         ? [...new Set(result.accessWarnings as string[])]
         : undefined;
+      // Hide IDE/VCS cruft (.git, .vscode, .idea…) and anything .gitignored from
+      // the Code tab's file tree, reusing the shared ignore composition (built-in
+      // baseline + project .gitignore + nested + .atlarixignore). This is
+      // display-only — the agent's retrieval/indexing path (getProjectFiles) is
+      // intentionally untouched. Best-effort: a failure leaves the list as-is.
+      let files = result.files;
+      try {
+        const { loadIgnorerForProject, isRelPathIgnored } = await import(
+          "@/lib/atlarix/atlarix-ignore"
+        );
+        const ignorer = await loadIgnorerForProject(appPath);
+        files = files.filter((f) => !isRelPathIgnored(ignorer, f));
+      } catch (filterErr) {
+        logger.warn(
+          `[workspace] code-tree ignore filter failed for ${appPath}:`,
+          filterErr,
+        );
+      }
       return {
-        files: result.files,
+        files,
         fileDiscoveryWarnings,
         strategy: result.strategy,
       };

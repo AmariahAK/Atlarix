@@ -29,7 +29,11 @@ import {
   wasTaskCompleteToolCalled,
   clearTaskCompleteToolCalled,
 } from "@/lib/tasks/completion-detector";
-import { getMutationFailureFeedback } from "@/lib/agent/mutation-verify";
+import {
+  getMutationFailureFeedback,
+  getUnverifiedEditFeedback,
+} from "@/lib/agent/mutation-verify";
+import { trackTaskStarted, trackTaskCompleted } from "@/main/lib/analytics";
 import { runMidLoopCompaction } from "@/lib/context/mid_loop_compaction";
 import {
   hasNativeToolParts,
@@ -107,6 +111,7 @@ export interface TurnRuntime {
     onFirstTextAfterReasoning?: () => void;
     onStreamStall?: () => void;
     onToolInputProgress?: (info: { toolName: string; deltaCount: number }) => void;
+    onToolInputDelta?: (info: { toolCallId: string; toolName: string; argsTextSoFar: string }) => void;
     onStreamActivityPulse?: () => void;
     sanitizeTextDelta?: (text: string) => string;
   }): Promise<{
@@ -119,6 +124,7 @@ export interface TurnRuntime {
   onFirstTextDelta(): void;
   onStreamStall(): void;
   onToolInputProgress(info: { toolName: string; deltaCount: number }): void;
+  onToolInputDelta?(info: { toolCallId: string; toolName: string; argsTextSoFar: string }): void;
   onStreamActivityPulse(): void;
   sanitizeTextDelta(text: string): string;
   applyTierEscalation(args: {
@@ -149,6 +155,9 @@ export async function runAgentTurn(
   const L = profile.loopLogLabel;
   const streamDebugLogging = isStreamDebugLoggingEnabled();
   const stripXML = profile.stripTextToolXML ?? ((t: string) => t);
+
+  // Funnel: a real agent turn is starting (fires first_task_started once).
+  trackTaskStarted({ mode: profile.mode });
 
   const loopStartTime = Date.now();
   let agenticIteration = 0;
@@ -313,6 +322,7 @@ export async function runAgentTurn(
         },
         onStreamStall: rt.onStreamStall,
         onToolInputProgress: rt.onToolInputProgress,
+        onToolInputDelta: rt.onToolInputDelta,
         onStreamActivityPulse: rt.onStreamActivityPulse,
         sanitizeTextDelta: rt.sanitizeTextDelta,
       });
@@ -465,6 +475,12 @@ export async function runAgentTurn(
         if (stopGateFeedback == null) {
           stopGateFeedback = getMutationFailureFeedback(rt.streamTurnIdForLedger);
         }
+        // End-of-turn self review: block completion once if any edit this turn
+        // didn't verify on disk, naming the file(s) to re-check. Consolidated
+        // and fires only on a real failure.
+        if (stopGateFeedback == null) {
+          stopGateFeedback = getUnverifiedEditFeedback(rt.streamTurnIdForLedger);
+        }
       }
       const gateBlocksBreak =
         stopGateFeedback != null && gateBlockedBreaks < MAX_GATE_BLOCKED_BREAKS;
@@ -550,7 +566,8 @@ export async function runAgentTurn(
       // so the model can't "go quiet" right after a broken edit/command.
       const gateFeedback =
         stopGateFeedback ??
-        getMutationFailureFeedback(rt.streamTurnIdForLedger);
+        getMutationFailureFeedback(rt.streamTurnIdForLedger) ??
+        getUnverifiedEditFeedback(rt.streamTurnIdForLedger);
       const wantsNudge = gateFeedback != null || pendingSteps.length > 0;
       if (!wantsNudge || agenticProseOnlyStreak >= PROSE_YIELD_MAX_NUDGES) {
         logger.info(
@@ -716,6 +733,15 @@ export async function runAgentTurn(
     }
 
   }
+
+  // Funnel: the turn ran to a natural end (fires first_task_completed once,
+  // then task_completed on every subsequent success). A thrown turn never
+  // reaches here, so failures/aborts are not counted as completed.
+  trackTaskCompleted({
+    mode: profile.mode,
+    iterations: agenticIteration,
+    toolExecutions: totalToolExecutions,
+  });
 
   return {
     fullResponse,

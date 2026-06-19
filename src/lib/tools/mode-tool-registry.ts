@@ -53,12 +53,9 @@ function withEveryModeTools(list: readonly string[]): readonly string[] {
 }
 
 const ASK_TOOLS = [
-  "browser_click",
-  "browser_fill",
+  "browser_inspect",
+  "browser_interact",
   "browser_navigate",
-  "browser_read_page",
-  "browser_snapshot",
-  "browser_screenshot",
   "glob",
   "grep",
   "list_available_mcps",
@@ -73,12 +70,9 @@ const ASK_TOOLS = [
 // destructive run_command stay excluded from the advertised list and the
 // execute-gate (incl. the text-tool fallback path).
 const PLAN_TOOLS = [
-  "browser_click",
-  "browser_fill",
+  "browser_inspect",
+  "browser_interact",
   "browser_navigate",
-  "browser_read_page",
-  "browser_snapshot",
-  "browser_screenshot",
   "glob",
   "grep",
   "list_available_mcps",
@@ -89,12 +83,9 @@ const PLAN_TOOLS = [
 ] as const;
 
 const REVIEW_TOOLS = [
-  "browser_click",
-  "browser_fill",
+  "browser_inspect",
+  "browser_interact",
   "browser_navigate",
-  "browser_read_page",
-  "browser_snapshot",
-  "browser_screenshot",
   "glob",
   "grep",
   "list_available_mcps",

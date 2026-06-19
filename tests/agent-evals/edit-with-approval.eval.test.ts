@@ -15,8 +15,8 @@ import {
 /**
  * Eval 2 (Tier 4): multi-turn edit-with-approval — Build mode.
  *
- * The model (scripted) calls write_file; auto-approve is OFF, so the
- * PermissionInterceptor buffers the operation, the stream emits
+ * The model (scripted) calls edit_file(operation:"write"); auto-approve is OFF,
+ * so the PermissionInterceptor buffers the operation, the stream emits
  * `permission-request` and BLOCKS on waitForApproval. The test plays the
  * renderer: it observes the event and invokes the real `execute-permission`
  * handler. Asserts the approval round-trip, the file on disk, and a clean
@@ -37,7 +37,8 @@ describe("edit with approval (build mode)", () => {
   it("buffers write_file for approval, applies it on approve", async () => {
     ctx.server.register(
       scenario("edit-approve")
-        .toolCall("write_file", {
+        .toolCall("edit_file", {
+          operation: "write",
           path: "src/answer.ts",
           content: "export const answer = 42;\n",
           description: "Answer module",
@@ -58,7 +59,7 @@ describe("edit with approval (build mode)", () => {
           (p) => p?.chatId === chatId,
         );
         expect(permission.payload.operationId).toBeTruthy();
-        expect(permission.payload.request?.operation).toBe("write_file");
+        expect(permission.payload.request?.operation).toBe("edit_file");
 
         // File must NOT exist while the approval is pending.
         expect(ctx.ws.exists("src/answer.ts")).toBe(false);
@@ -93,7 +94,8 @@ describe("edit with approval (build mode)", () => {
   it("does NOT write the file when the user rejects", async () => {
     ctx.server.register(
       scenario("edit-reject")
-        .toolCall("write_file", {
+        .toolCall("edit_file", {
+          operation: "write",
           path: "src/rejected.ts",
           content: "export const nope = true;\n",
           description: "Module the user will reject",

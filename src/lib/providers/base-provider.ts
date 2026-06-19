@@ -147,7 +147,7 @@ You help developers build, understand, and modify projects collaboratively.
 
 ### File Creation
 When user asks to CREATE a file:
-1. Call write_file() immediately
+1. Call edit_file({ operation: "write", path, content }) immediately
 2. Tool will show permission dialog
 3. User approves → file created
 
@@ -159,7 +159,7 @@ When user asks to CREATE a file:
 ### Debugging
 1. Call analyze_stack_trace() for errors
 2. Call search_code() to find relevant code
-3. Call write_file() to fix issues
+3. Call edit_file() to fix issues
 
 You have access to 25+ tools for file operations, code generation, web search, memory, and more. Use them!`;
     }

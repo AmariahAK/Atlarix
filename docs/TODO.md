@@ -1,7 +1,26 @@
 # Atlarix TODO
 
-**Current Version:** v13.7.0 (released)
-**Last Updated:** 2026-06-18
+**Current Version:** v13.9.0 (released)
+**Last Updated:** 2026-06-19
+
+---
+
+## v13.9.0 — SHIPPED (2026-06-19): reliability pass + funnel analytics
+
+> See `docs/CHANGELOG.md` [13.9.0]. tsc (main + tests) + oxlint clean, full suite green (1127 unit + 58 evals).
+
+| Item | Status |
+|------|--------|
+| Airtight auto-approved overwrite diffs (display-only, 0 tokens) | ✅ |
+| Post-write on-disk self-review gate (mutation-verify) | ✅ |
+| Cross-platform auto-updater (visible status + periodic re-check + /Applications guidance) | ✅ |
+| `harness-comparison.md` rewritten — open-weight frontier workstation | ✅ |
+| PostHog activation funnel (app_opened → model_connected → first/task_completed) | ✅ |
+| AI terminal: foreground commands reuse one "Agent" tab + pre-created tab | ✅ |
+| Plan write streams live (no false Reconnecting) | ✅ |
+| Activity pulse during long tool runs; 20s reconnect window | ✅ |
+| Robust auth session restore on relaunch (retry read + refresh) | ✅ |
+| Code tab hides IDE/VCS + .gitignored folders | ✅ |
 
 ---
 

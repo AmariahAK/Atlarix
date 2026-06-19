@@ -50,12 +50,18 @@ const MAX_TABLE_CARD_ROWS = 30;
 // v11 in-app browser + WebMCP bridge
 const BROWSER_TEXT_TOOLS = new Set([
   "browser_navigate",
+  "browser_inspect",
+  "browser_interact",
+  // Legacy tool names (pre-v13.8) kept so persisted sessions still render.
   "browser_read_page",
   "browser_snapshot",
   "browser_click",
   "browser_fill",
 ]);
-const BROWSER_SCREENSHOT_TOOLS = new Set(["browser_screenshot"]);
+// browser_inspect(mode:"screenshot") returns a PNG payload; the screenshot
+// block below guards on `payload.data`, so non-screenshot inspect results fall
+// through to the text block. "browser_screenshot" stays for old sessions.
+const BROWSER_SCREENSHOT_TOOLS = new Set(["browser_inspect", "browser_screenshot"]);
 const WEBMCP_LIST_TOOLS = new Set(["list_webmcp_tools"]);
 const WEBMCP_CALL_TOOLS = new Set(["call_webmcp_tool"]);
 
@@ -169,6 +175,15 @@ export type ToolExpandView =
       url: string;
       title: string;
       dataUrl: string;
+    }
+  | {
+      // Antigravity/Codex-style session record: the ordered list of what the
+      // agent did in the in-app browser, with an optional final screenshot.
+      kind: "browser_recording";
+      steps: { type: string; detail: string; url?: string }[];
+      url?: string;
+      title?: string;
+      dataUrl?: string;
     };
 
 export function splitPathForDisplay(fullPath: string): {
@@ -496,14 +511,29 @@ function buildDiffView(
     pathFromArgs(args) ||
     "";
 
+  // v13.8.1: the diff content is sourced from the model's own tool-call ARGS
+  // (which already hold it — it's in the transcript exactly once), NOT echoed in
+  // the result. So a completed/persisted write card renders an accurate diff with
+  // ZERO extra tokens. Falls back to the result payload for older sessions.
+  const a = args && typeof args === "object" ? (args as Record<string, unknown>) : {};
+  const argNew =
+    typeof a.content === "string"
+      ? a.content
+      : typeof a.new_content === "string"
+        ? a.new_content
+        : undefined;
+  const argOld = typeof a.old_content === "string" ? a.old_content : undefined;
+
   const oldContent =
-    typeof payload.oldContent === "string"
+    argOld ??
+    (typeof payload.oldContent === "string"
       ? payload.oldContent
       : typeof payload.old_content === "string"
         ? payload.old_content
-        : "";
+        : "");
   const newContent =
-    typeof payload.newContent === "string"
+    argNew ??
+    (typeof payload.newContent === "string"
       ? payload.newContent
       : typeof payload.new_content === "string"
         ? payload.new_content
@@ -511,15 +541,20 @@ function buildDiffView(
           ? payload.content
           : plainText?.trim() && !plainText.trim().startsWith("{")
             ? plainText
-            : "";
+            : "");
 
-  const operationRaw = payload.operation ?? payload.type;
+  const operationRaw = payload.operation ?? payload.type ?? a.operation;
   const operation: "create" | "update" | "delete" =
     operationRaw === "create" || operationRaw === "delete"
       ? operationRaw
       : oldContent ? "update" : "create";
 
-  if (path && (oldContent || newContent)) {
+  // Prefer the precise line counts the backend sent (cheap numbers), falling
+  // back to a line-delta estimate from whatever content we have.
+  const payloadAdded = typeof payload.added === "number" ? payload.added : undefined;
+  const payloadRemoved = typeof payload.removed === "number" ? payload.removed : undefined;
+
+  if (path && (oldContent || newContent || payloadAdded != null || payloadRemoved != null)) {
     const { fileName } = splitPathForDisplay(path);
     const oldLines = oldContent ? oldContent.split(/\r?\n/).length : 0;
     const newLines = newContent ? newContent.split(/\r?\n/).length : 0;
@@ -530,8 +565,10 @@ function buildDiffView(
       operation,
       oldContent: trimDiffContent(oldContent),
       newContent: trimDiffContent(newContent),
-      addedCount: Math.max(0, newLines - (operation === "create" ? 0 : oldLines)),
-      removedCount: operation === "delete" ? oldLines : Math.max(0, oldLines - newLines),
+      addedCount:
+        payloadAdded ?? Math.max(0, newLines - (operation === "create" ? 0 : oldLines)),
+      removedCount:
+        payloadRemoved ?? (operation === "delete" ? oldLines : Math.max(0, oldLines - newLines)),
     };
   }
 
@@ -793,6 +830,13 @@ export function buildToolExpandView(
   const envelope = parseToolResultEnvelope(resultText);
   if (!envelope) return { kind: "none" };
 
+  // run_command renders as a command card (command + output + exit) even on
+  // failure, so the user sees WHAT ran and its output — not just an error line.
+  if (RUN_COMMAND_TOOLS.has(toolName)) {
+    const cmd = buildCommandOutputView(envelope.payload, envelope.plainText);
+    if (cmd) return cmd;
+  }
+
   if (streamStatus === "error" || envelope.error) {
     const msg =
       envelope.error ??
@@ -830,11 +874,6 @@ export function buildToolExpandView(
     if (search) return search;
   }
 
-  if (RUN_COMMAND_TOOLS.has(toolName)) {
-    const cmd = buildCommandOutputView(payload, plain);
-    if (cmd) return cmd;
-  }
-
   if (MCP_LIST_TOOLS.has(toolName)) {
     if (typeof payload.error === "string" && payload.error.trim()) {
       return { kind: "text", body: payload.error.trim(), isError: true };
@@ -861,12 +900,36 @@ export function buildToolExpandView(
   }
 
   if (BROWSER_SCREENSHOT_TOOLS.has(toolName)) {
-    if (typeof payload.data === "string" && payload.data.length > 0) {
+    const hasImage = typeof payload.data === "string" && payload.data.length > 0;
+    const dataUrl = hasImage
+      ? `data:${typeof payload.mimeType === "string" ? payload.mimeType : "image/png"};base64,${payload.data}`
+      : undefined;
+    // When the result carries a session record, show the action timeline (with
+    // the screenshot, if any) instead of a bare image.
+    const rawSteps = Array.isArray(payload.sessionSteps) ? payload.sessionSteps : null;
+    if (rawSteps && rawSteps.length > 0) {
+      const steps = rawSteps
+        .filter((s): s is Record<string, unknown> => !!s && typeof s === "object")
+        .map((s) => ({
+          type: typeof s.type === "string" ? s.type : "",
+          detail: typeof s.detail === "string" ? s.detail : "",
+          url: typeof s.url === "string" ? s.url : undefined,
+        }))
+        .slice(0, 200);
+      return {
+        kind: "browser_recording",
+        steps,
+        url: typeof payload.url === "string" ? payload.url : undefined,
+        title: typeof payload.title === "string" ? payload.title : undefined,
+        dataUrl,
+      };
+    }
+    if (hasImage) {
       return {
         kind: "browser_screenshot",
         url: typeof payload.url === "string" ? payload.url : "",
         title: typeof payload.title === "string" ? payload.title : "",
-        dataUrl: `data:${typeof payload.mimeType === "string" ? payload.mimeType : "image/png"};base64,${payload.data}`,
+        dataUrl: dataUrl!,
       };
     }
     if (typeof payload.error === "string" && payload.error.trim()) {

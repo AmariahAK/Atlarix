@@ -30,4 +30,4 @@ When all tasks in the ledger are done, produce a clear summary of what changed: 
 
 ## Browser
 
-To drive a web page: `browser_navigate` to open it, then `browser_snapshot` to list interactive elements as stable `ref`s (e1, e2, …) — act with `browser_click`/`browser_fill` by `ref`, not CSS. Re-snapshot after navigation (refs reset). Use `browser_read_page` for page text and `browser_screenshot` **only** for visual confirmation (it's token-heavy — never use it to find elements). Snapshot → act by ref → screenshot to verify.
+To drive a web page: `browser_navigate` to open it, then `browser_inspect` with `mode:"snapshot"` to list interactive elements as stable `ref`s (e1, e2, …) — act with `browser_interact` (`action:"click"`/`"fill"`) by `ref`, not CSS. Re-snapshot after navigation (refs reset). Use `mode:"text"` for page text and `mode:"screenshot"` **only** for visual confirmation (it's token-heavy — never use it to find elements). Snapshot → act by ref → screenshot to verify.

@@ -114,9 +114,12 @@ export function getToolActivityLabelWithArgs(
   args?: Record<string, unknown> | null,
 ): string {
   if (toolName && args) {
+    // v13.8: edit_file absorbed write_file — a whole-file write reads as
+    // "Writing …", surgical ops as "Editing …".
+    const isWholeFileWrite = toolName === "edit_file" && args.operation === "write";
     const subject = subjectFromArgs(toolName, args);
     if (subject) {
-      const verb = ARG_VERBS[toolName];
+      const verb = isWholeFileWrite ? "Writing" : ARG_VERBS[toolName];
       if (verb) return `${verb} ${subject}…`;
       if (toolName === "web_search") return `Searching: ${subject}…`;
       if (toolName === "search" || toolName === "search_code")

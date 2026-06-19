@@ -18,6 +18,50 @@ type MutationOutcome = { feedback: string } | null;
 const lastMutationByTurn = new Map<string, MutationOutcome>();
 
 /**
+ * Per-turn set of files whose write did NOT verify on disk (the bytes we
+ * intended didn't match what was read back — a truncated/failed write). This
+ * accumulates the running true/false state across all edits in the turn so a
+ * single consolidated "self review" can fire at the task_complete gate, instead
+ * of nagging after every edit. A later successful write of the same path clears
+ * it ("most recent wins"). Spends ZERO model tokens on the happy path.
+ */
+const unverifiedEditsByTurn = new Map<string, Set<string>>();
+
+/** Mark a file's write as not-yet-verified (bytes didn't match on re-read). */
+export function recordUnverifiedEdit(turnId: string, path: string): void {
+  let set = unverifiedEditsByTurn.get(turnId);
+  if (!set) {
+    set = new Set<string>();
+    unverifiedEditsByTurn.set(turnId, set);
+  }
+  set.add(path);
+}
+
+/** Clear a prior not-verified flag for a path (a later write of it landed). */
+export function clearUnverifiedEdit(turnId: string, path: string): void {
+  unverifiedEditsByTurn.get(turnId)?.delete(path);
+}
+
+/**
+ * End-of-turn self review: if any edit this turn never verified on disk, return
+ * a single consolidated nudge naming those files so the model re-checks them
+ * before finishing. Null when everything landed — so it costs nothing unless
+ * something actually failed.
+ */
+export function getUnverifiedEditFeedback(turnId: string | undefined): string | null {
+  if (turnId == null) return null;
+  const set = unverifiedEditsByTurn.get(turnId);
+  if (!set || set.size === 0) return null;
+  const list = [...set].map((p) => `- ${p}`).join("\n");
+  return (
+    "Before finishing, re-check these file(s) — their on-disk content did not " +
+    "match what you wrote (the write may have failed or been altered):\n" +
+    `${list}\n` +
+    "Re-read each, re-apply the change if needed, then finish."
+  );
+}
+
+/**
  * Record the outcome of a state-changing mutation. `ok=true` clears any prior
  * failure for the turn; `ok=false` stores the feedback to surface at the gate.
  */
@@ -38,5 +82,8 @@ export function getMutationFailureFeedback(
 }
 
 export function clearMutationOutcomes(turnId: string | undefined): void {
-  if (turnId != null) lastMutationByTurn.delete(turnId);
+  if (turnId != null) {
+    lastMutationByTurn.delete(turnId);
+    unverifiedEditsByTurn.delete(turnId);
+  }
 }

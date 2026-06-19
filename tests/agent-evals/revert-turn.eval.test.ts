@@ -30,7 +30,8 @@ describe("revert turn file changes (v13.1)", () => {
   it("restores the file and does NOT flag the conversation as reverted", async () => {
     ctx.server.register(
       scenario("revert-turn")
-        .toolCall("write_file", {
+        .toolCall("edit_file", {
+          operation: "write",
           path: "src/keep.ts",
           content: "export const keep = 999;\n",
           description: "Bump keep",

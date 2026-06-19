@@ -1,6 +1,11 @@
 /**
- * Blocks `git init` from AI run_command unless the user opts in via settings.
- * Atlarix never initializes git on behalf of the user by default.
+ * Gate for `git init` from AI run_command.
+ *
+ * v13.8: git is agent-managed (terminal-first), and every run_command already
+ * goes through the approval queue — the user sees and approves the exact
+ * `git init` (with its cwd) before it runs. So git init is ALLOWED by default;
+ * the `allowGitInit: false` setting remains as an explicit opt-out for users who
+ * never want the agent to create a repository.
  */
 
 const GIT_INIT_RE =
@@ -16,12 +21,13 @@ export function runCommandGitInitGateResult(
   command: string,
   allowGitInit: boolean | undefined,
 ): string | null {
-  if (allowGitInit === true) return null;
+  // Allowed by default; only an explicit `allowGitInit: false` blocks it.
+  if (allowGitInit !== false) return null;
   if (!isGitInitCommand(command)) return null;
   return JSON.stringify({
     success: false,
     error:
-      "git init is blocked by default. Atlarix does not create repositories automatically. " +
-      "Initialize git in your project folder manually, or enable allowGitInit in settings if you explicitly want the agent to run git init.",
+      "git init is disabled in this workspace's settings (allowGitInit: false). " +
+      "Re-enable it in Settings if you want the agent to initialize a repository.",
   });
 }

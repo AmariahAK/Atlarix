@@ -15,7 +15,7 @@ export const GIT_VIA_TERMINAL_NOTE =
 
 /** Steers the model to cheap a11y refs before costly screenshots when using the in-app browser. */
 export const BROWSER_NOTE =
-  "Browser: to read or interact with a page, call **browser_snapshot** first (a compact list of accessibility refs — cheap) before **browser_screenshot** (a costly image). Use the returned refs with browser_click / browser_fill.";
+  "Browser: to read or interact with a page, call **browser_inspect** (mode:\"snapshot\" — a compact list of accessibility refs, cheap) before mode:\"screenshot\" (a costly image). Use the returned refs with **browser_interact** (action:\"click\"|\"fill\").";
 
 /** Git note plus per-stream commit-author guidance (commit-capable modes only). */
 export function getGitTerminalNote(gitAuthorName?: string): string {
@@ -52,7 +52,7 @@ You are in Plan mode. Planning and architecture for this chat turn.
 You CAN:
 - Read and search the codebase; run_command for read-only git/shell
 - write_implementation_plan, read_implementation_plan, update_plan_status
-- write_file / edit_file only for .atlarix/atlarix.md and .atlarix/memory.md
+- edit_file (operation:"write") only for .atlarix/atlarix.md and .atlarix/memory.md
 - glob / grep to navigate the codebase and the session plan tools
 
 You CANNOT:
@@ -112,16 +112,16 @@ function getActiveModeWorkExtras(mode: ModeRegistryKey): string {
       return `<work_mode>
 Discovery: glob to find files by NAME (mtime-sorted); grep to search file CONTENTS (results are relevance-ranked, most relevant files first); then read_file for exact ranges.
 At most 5 task calls per turn when batching independent scopes.
-Do not use write_file, edit_file, or mutating run_command.
+Do not use edit_file or mutating run_command.
 </work_mode>`;
     case "plan":
       return `<work_mode>
-Session plans live in write_implementation_plan (not on-disk roadmap files). Read read_implementation_plan before revising. After saving, include the returned marker comment in your reply so the UI shows a plan card. write_file / edit_file are for .atlarix docs only: atlarix.md (durable project instructions) and memory.md (project knowledge: stack, architecture, layout).
+Session plans live in write_implementation_plan (not on-disk roadmap files). Read read_implementation_plan before revising. After saving, include the returned marker comment in your reply so the UI shows a plan card. edit_file is for .atlarix docs only: atlarix.md (durable project instructions) and memory.md (project knowledge: stack, architecture, layout).
 </work_mode>`;
     case "build":
       return `<work_mode>
 Use native function tools for operations. Project files belong at workspace root, not under .atlarix/ unless asked.
-One run_command for scaffolding when creating projects. Prefer write_file under ~500 lines per call.
+One run_command for scaffolding when creating projects. Prefer edit_file (operation:"write") under ~500 lines per call.
 Verify your changes with the project's OWN tooling: after edits, discover and run the project's checks via run_command — prefer its package.json scripts (typecheck/lint/test/build), else the real tools directly (tsc --noEmit, eslint, ruff/mypy/pytest, cargo check, go build) — and fix from the output. Read package.json / Makefile / pyproject.toml to find the actual commands; do not invent script names. Use \`node --check\` / \`python3 -m py_compile\` as a syntax floor when no linter exists. Never claim a change is clean while a check still reports errors.
 When the task involves non-trivial logic, write or extend test files that genuinely exercise it and run them before completing (skip the ceremony for trivial edits like renames or copy tweaks).
 If implementing an active session plan (see its planId in context), call plan({operation: "set_status", planId, plan_status: "building"}) first and plan({operation: "set_status", planId, plan_status: "built"}) when the plan is fully implemented.

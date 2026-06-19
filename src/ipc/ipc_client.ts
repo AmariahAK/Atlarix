@@ -205,6 +205,24 @@ interface PreloadIpcRenderer {
   removeAllListeners(channel: string): void;
 }
 
+export type UpdateResultKind =
+  | "idle"
+  | "checking"
+  | "up-to-date"
+  | "available"
+  | "downloading"
+  | "downloaded"
+  | "error"
+  | "unsupported";
+
+export interface UpdateStatusPayload {
+  currentVersion: string;
+  lastCheckAt: number | null;
+  lastResult: UpdateResultKind;
+  detail?: string;
+  availableVersion?: string;
+}
+
 export class IpcClient {
   private static instance: IpcClient;
   private ipcRenderer: PreloadIpcRenderer;
@@ -261,6 +279,23 @@ export class IpcClient {
   private streamPulseHandlers: Set<
     (payload: { chatId: number; timestamp: number }) => void
   > = new Set();
+  private streamToolInputHandlers: Set<
+    (payload: {
+      chatId: number;
+      toolCallId: string;
+      toolName: string;
+      argsTextSoFar: string;
+    }) => void
+  > = new Set();
+  private streamWritePreviewHandlers: Set<
+    (payload: {
+      chatId: number;
+      path: string;
+      operation: string;
+      oldContent: string;
+      content: string;
+    }) => void
+  > = new Set();
   private modelsDevStatusHandlers: Set<
     (payload: { message: string; timedOut?: boolean }) => void
   > = new Set();
@@ -272,6 +307,7 @@ export class IpcClient {
     (payload: { currentVersion: string; latestVersion: string; releaseUrl: string }) => void
   > = new Set();
   private updateDownloadedHandlers: Set<(payload: { version: string }) => void> = new Set();
+  private updateStatusHandlers: Set<(payload: UpdateStatusPayload) => void> = new Set();
   private planUpdateHandlers = new Map<number, Set<(payload: PlanUpdatePayload) => void>>();
   private planArtifactHandlers = new Set<
     (payload: import("./utils/emit_plan_artifact").PlanArtifactPayload) => void
@@ -421,6 +457,40 @@ export class IpcClient {
       ) {
         const p = payload as { chatId: number; timestamp: number };
         this.streamPulseHandlers.forEach((h) => h(p));
+      }
+    });
+
+    this.ipcRenderer.on("chat:stream:tool-input", (_e, payload: unknown) => {
+      if (
+        payload &&
+        typeof payload === "object" &&
+        "chatId" in payload &&
+        "argsTextSoFar" in payload
+      ) {
+        const p = payload as {
+          chatId: number;
+          toolCallId: string;
+          toolName: string;
+          argsTextSoFar: string;
+        };
+        this.streamToolInputHandlers.forEach((h) => h(p));
+      }
+    });
+    this.ipcRenderer.on("chat:stream:write-preview", (_e, payload: unknown) => {
+      if (
+        payload &&
+        typeof payload === "object" &&
+        "chatId" in payload &&
+        "path" in payload
+      ) {
+        const p = payload as {
+          chatId: number;
+          path: string;
+          operation: string;
+          oldContent: string;
+          content: string;
+        };
+        this.streamWritePreviewHandlers.forEach((h) => h(p));
       }
     });
 
@@ -664,6 +734,12 @@ export class IpcClient {
             },
           ),
         );
+      }
+    });
+
+    this.ipcRenderer.on("update:status", (data) => {
+      if (data && typeof data === "object" && "lastResult" in data) {
+        this.updateStatusHandlers.forEach((h) => h(data as UpdateStatusPayload));
       }
     });
 
@@ -949,6 +1025,41 @@ export class IpcClient {
     this.streamPulseHandlers.add(handler);
     return () => {
       this.streamPulseHandlers.delete(handler);
+    };
+  }
+
+  /** Live partial tool-call arguments → renderer streaming preview. */
+  public onStreamToolInput(
+    handler: (payload: {
+      chatId: number;
+      toolCallId: string;
+      toolName: string;
+      argsTextSoFar: string;
+    }) => void,
+  ): () => void {
+    this.streamToolInputHandlers.add(handler);
+    return () => {
+      this.streamToolInputHandlers.delete(handler);
+    };
+  }
+
+  /**
+   * Display-only old/new content for an AUTO-APPROVED write (no permission
+   * preview reached the renderer). Lets the completed card render an accurate
+   * red/green overwrite diff. Never part of the model conversation.
+   */
+  public onStreamWritePreview(
+    handler: (payload: {
+      chatId: number;
+      path: string;
+      operation: string;
+      oldContent: string;
+      content: string;
+    }) => void,
+  ): () => void {
+    this.streamWritePreviewHandlers.add(handler);
+    return () => {
+      this.streamWritePreviewHandlers.delete(handler);
     };
   }
 
@@ -2491,6 +2602,7 @@ export class IpcClient {
       output: string;
       status: 'running' | 'completed' | 'error';
       exitCode?: number;
+      background?: boolean; // A long-running/background process — gets its own tab
       isPermissionBased?: boolean; // True if this command came from permission system
     }) => void
   ): () => void {
@@ -3369,6 +3481,19 @@ export class IpcClient {
 
   public async installUpdateNow(): Promise<void> {
     await this.ipcRenderer.invoke("update:install-now");
+  }
+
+  public async getUpdateStatus(): Promise<UpdateStatusPayload> {
+    return (await this.ipcRenderer.invoke("update:get-status")) as UpdateStatusPayload;
+  }
+
+  public async checkForUpdatesNow(): Promise<UpdateStatusPayload> {
+    return (await this.ipcRenderer.invoke("update:check-now")) as UpdateStatusPayload;
+  }
+
+  public onUpdateStatus(handler: (payload: UpdateStatusPayload) => void): () => void {
+    this.updateStatusHandlers.add(handler);
+    return () => this.updateStatusHandlers.delete(handler);
   }
 }
 

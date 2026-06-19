@@ -81,9 +81,9 @@ const SUBAGENT_TOOL_NAMES = [
 ] as const;
 
 /**
- * Writer sub-agents (`task({ write: true })`) additionally get scoped FILE
- * write tools. They run with `workspace` pointed at an isolated git worktree;
- * `write_file`/`edit_file` resolve every path under that worktree
+ * Writer sub-agents (`task({ write: true })`) additionally get the scoped FILE
+ * mutation tool. They run with `workspace` pointed at an isolated git worktree;
+ * `edit_file` resolves every path under that worktree
  * (`resolvePathUnderWorkspace`), so writes are provably confined to the
  * throwaway tree and the real workspace is never touched until the main agent
  * applies the captured diff.
@@ -95,7 +95,6 @@ const SUBAGENT_TOOL_NAMES = [
  */
 const WRITER_SUBAGENT_TOOL_NAMES = [
   ...SUBAGENT_TOOL_NAMES,
-  "write_file",
   "edit_file",
 ] as const;
 

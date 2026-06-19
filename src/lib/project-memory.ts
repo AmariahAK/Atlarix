@@ -203,7 +203,7 @@ export async function buildProjectDocsPromptHint(
     );
   } else if (canWrite) {
     lines.push(
-      "No `.atlarix/memory.md` yet. After substantial exploration, you may create it (write_file) with the project's tech stack, architecture, and layout so future sessions can skip a full re-scan. Optional — do not interrupt the user's task for it.",
+      "No `.atlarix/memory.md` yet. After substantial exploration, you may create it (edit_file with operation:\"write\") with the project's tech stack, architecture, and layout so future sessions can skip a full re-scan. Optional — do not interrupt the user's task for it.",
     );
   }
   lines.push("</project_docs>");

@@ -9,9 +9,8 @@ import log from "electron-log";
 import type { RTEParseResult, SupportedLanguage } from "./types";
 import {
   ensureDefaultAtlarixIgnore,
-  readAtlarixIgnoreSource,
+  composeIgnoreSource,
   createIgnorerFromSource,
-  DEFAULT_ATLARIXIGNORE,
   filterRteNodesByIgnore,
   filterRteEdgesByNodes,
 } from "@/lib/atlarix/atlarix-ignore";
@@ -66,8 +65,9 @@ function dedupeEdges(edges: RTEParseResult["edges"]): RTEParseResult["edges"] {
  */
 export async function generateBlueprint(projectPath: string): Promise<RTEParseResult | null> {
   await ensureDefaultAtlarixIgnore(projectPath);
-  const ignoreRaw = await readAtlarixIgnoreSource(projectPath);
-  const ignoreSourceForCache = ignoreRaw.trim() ? ignoreRaw : DEFAULT_ATLARIXIGNORE;
+  // Composed source = built-in baseline ∪ project .gitignore ∪ .atlarixignore.
+  // Stored on the result as the cache key so a change to any layer re-indexes.
+  const ignoreSourceForCache = await composeIgnoreSource(projectPath);
   const ig = createIgnorerFromSource(ignoreSourceForCache);
 
   const language = await detectLanguage(projectPath);

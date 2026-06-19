@@ -17,6 +17,7 @@ import { analyzeWorkspaceWithActivity, type ProjectCandidate } from "@/lib/bluep
 import { loadBlueprintCache, saveBlueprintCache, saveUserBlueprint, loadUserBlueprint, getUserBlueprintMtime } from "@/lib/cache/blueprint-cache";
 import {
   ATLARIX_IGNORE_REL,
+  composeIgnoreSource,
   createIgnorerFromSource,
   ensureDefaultAtlarixIgnore,
   filterRteEdgesByNodes,
@@ -223,7 +224,7 @@ async function inferBlueprint(workspaceId: number, focusPath: string): Promise<B
     if (rteResult && rteResult.nodes.length > 0) {
       const ignoreSrc =
         rteResult.atlarixIgnoreSource?.trim() ||
-        (await readAtlarixIgnoreSource(scanRoot)).trim();
+        (await composeIgnoreSource(scanRoot)).trim();
       const engine = blueprintEngineLabel(rteResult, {
         supplemented: rteResult.supplemented,
       });
@@ -626,7 +627,7 @@ export function registerBlueprintHandlers() {
           if (rteResult && rteResult.nodes.length > 0) {
             const ignoreSrc =
               rteResult.atlarixIgnoreSource?.trim() ||
-              (await readAtlarixIgnoreSource(workspacePath)).trim();
+              (await composeIgnoreSource(workspacePath)).trim();
             await saveBlueprintCache(workspacePath, {
               manifest: {
                 projectPath: workspacePath,

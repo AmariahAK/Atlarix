@@ -300,28 +300,57 @@ export async function signOut(): Promise<void> {
 /**
  * Restore session on app startup: refresh if access token is expired or near expiry.
  * Call from main after app.ready, before showing the main window.
+ *
+ * Robustness (v13.9): the intermittent "reopen logs me out" bug came from two
+ * transient conditions being treated as terminal — (1) `safeStorage`/keychain not
+ * being ready the instant we read, so `getSession()` returns null even though a
+ * valid session is on disk, and (2) a single `refreshSession()` failure (offline
+ * at launch). We now retry the read once and the refresh with backoff, and we
+ * NEVER clear the stored session on a transient failure — `autoRefreshToken`
+ * recovers it once connectivity/keychain returns.
  */
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
 export async function restoreAuthSessionOnStartup(): Promise<void> {
     try {
         const supabase = getSupabaseClient();
-        const { data: { session } } = await supabase.auth.getSession();
+
+        // (1) Read the stored session, retrying once if the first read comes back
+        // empty — secure storage can be momentarily unavailable right at launch.
+        let session = (await supabase.auth.getSession()).data.session;
+        if (!session) {
+            await sleep(400);
+            session = (await supabase.auth.getSession()).data.session;
+        }
         if (!session) {
             logger.log('[Supabase] No stored session on startup');
             return;
         }
+
         const exp = session.expires_at;
-        if (exp) {
-            const expiresMs = exp * 1000;
-            const skewMs = 120_000;
-            if (expiresMs < Date.now() + skewMs) {
-                const { data, error } = await supabase.auth.refreshSession();
-                if (error) {
-                    logger.warn('[Supabase] Startup refresh failed (user may need to sign in again):', error.message);
-                } else if (data.session) {
-                    logger.log('[Supabase] Session refreshed on startup');
-                }
+        if (!exp) return;
+        const expiresMs = exp * 1000;
+        const skewMs = 120_000;
+        if (expiresMs >= Date.now() + skewMs) return; // still valid — nothing to do
+
+        // (2) Refresh with bounded backoff. A transient failure must NOT drop the
+        // session — keep it and let autoRefreshToken try again in the background.
+        const delaysMs = [0, 1_000, 3_000];
+        for (let attempt = 0; attempt < delaysMs.length; attempt++) {
+            if (delaysMs[attempt]) await sleep(delaysMs[attempt]);
+            const { data, error } = await supabase.auth.refreshSession();
+            if (!error && data.session) {
+                logger.log('[Supabase] Session refreshed on startup');
+                return;
             }
+            logger.warn(
+                `[Supabase] Startup refresh attempt ${attempt + 1}/${delaysMs.length} failed:`,
+                error?.message ?? 'no session returned',
+            );
         }
+        logger.warn(
+            '[Supabase] Startup refresh exhausted — keeping the stored session; autoRefreshToken will retry.',
+        );
     } catch (err) {
         logger.warn('[Supabase] restoreAuthSessionOnStartup skipped:', err instanceof Error ? err.message : err);
     }

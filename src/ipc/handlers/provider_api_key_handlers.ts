@@ -10,6 +10,7 @@ import {
     toProviderApiKeyStatus,
     type ProviderApiKeyStatus,
 } from "../shared/provider_api_key_mask";
+import { trackModelConnected } from "../../main/lib/analytics";
 
 const logger = log.scope("provider_api_key_handlers");
 const handle = createLoggedHandler(logger);
@@ -31,6 +32,8 @@ export function registerProviderApiKeyHandlers() {
             logger.log(`Setting API key for provider: ${params.providerId}, key length: ${params.apiKey?.length || 0}`);
             await setProviderApiKey(params.providerId, params.apiKey);
             logger.log(`API key saved successfully for: ${params.providerId}`);
+            // Funnel: a BYOK model is now wired up.
+            trackModelConnected({ type: "byok", provider: params.providerId });
         }
     );
 

@@ -177,8 +177,9 @@ describe("permission ruleset + file hooks (2.2/7B)", () => {
         // Round 1: claim done with no writes → stop hook is red → blocked.
         .text("All done. <task_complete>")
         // Round 2 (exists only because the gate blocked): create the sentinel
-        // via a write_file, then claim done again.
-        .toolCall("write_file", {
+        // via edit_file(operation:"write"), then claim done again.
+        .toolCall("edit_file", {
+          operation: "write",
           path: ".ready",
           content: "ok\n",
           description: "mark ready",

@@ -15,7 +15,7 @@ export const TOOL_RECOVERY_HINTS: Record<string, string> = {
   write_file:
     "Check the path is workspace-relative and the parent directory exists (create_directory). In Plan mode only .atlarix/atlarix.md and .atlarix/memory.md are writable.",
   edit_file:
-    "Re-read the file with read_file first — the target content may have changed. For larger rewrites use write_file.",
+    "Re-read the file with read_file first — the target content may have changed. To create a file or fully rewrite it, use operation:\"write\" with the full content.",
   list_files:
     "Try explore_folder on a specific directory, or find_file with a narrower glob pattern.",
   explore_folder:

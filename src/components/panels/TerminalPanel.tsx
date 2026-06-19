@@ -46,6 +46,14 @@ function mergeLines(prev: TerminalLine[], add: TerminalLine[]): TerminalLine[] {
   return capTerminalLines([...prev, ...add]);
 }
 
+/**
+ * Reserved per-scope key pointing at the shared foreground "Agent" tab. All
+ * foreground agent commands append to this one instance (shell-session style);
+ * background processes get their own command-labelled tab.
+ */
+const AGENT_FG_KEY = "__agent_fg__";
+const AGENT_FG_LABEL = "Agent";
+
 function upsertAgentOutputLines(
   instances: TerminalInstance[],
   instanceId: string,
@@ -262,20 +270,41 @@ export function TerminalPanel() {
 
   const ensureDefaultInstance = useCallback(() => {
     if ((instancesByScope[scopeKey]?.length ?? 0) > 0) return;
-    const id = `user-${Date.now()}`;
-    const inst: TerminalInstance = {
-      id,
+    const userId = `user-${Date.now()}`;
+    const agentId = `agent-${Date.now()}-fg`;
+    const shell: TerminalInstance = {
+      id: userId,
       label: "Shell 1",
       owner: "user",
       lines: [],
       createdAt: Date.now(),
     };
+    // Pre-create the shared "Agent" tab so the agent terminal is visible from
+    // the start (not only after the first command), and so foreground commands
+    // append to it (see getOrCreateAgentInstance).
+    const agent: TerminalInstance = {
+      id: agentId,
+      label: AGENT_FG_LABEL,
+      owner: "agent",
+      lines: [],
+      createdAt: Date.now(),
+    };
     setInstancesByScope((prev) => ({
       ...prev,
-      [scopeKey]: [inst],
+      [scopeKey]: [shell, agent],
     }));
-    setActiveByScope((prev) => ({ ...prev, [scopeKey]: id }));
-  }, [scopeKey, instancesByScope, setInstancesByScope, setActiveByScope]);
+    setActiveByScope((prev) => ({ ...prev, [scopeKey]: userId }));
+    setAgentOpMapByScope((prev) => ({
+      ...prev,
+      [scopeKey]: { ...prev[scopeKey], [AGENT_FG_KEY]: agentId },
+    }));
+  }, [
+    scopeKey,
+    instancesByScope,
+    setInstancesByScope,
+    setActiveByScope,
+    setAgentOpMapByScope,
+  ]);
 
   useEffect(() => {
     ensureDefaultInstance();
@@ -355,32 +384,67 @@ export function TerminalPanel() {
   );
 
   const getOrCreateAgentInstance = useCallback(
-    (operationId: string, command: string) => {
+    (operationId: string, command: string, background?: boolean) => {
       const map = agentOpMapByScope[scopeKey] ?? {};
-      let instanceId = map[operationId];
-      if (!instanceId) {
-        instanceId = createInstance(
-          "agent",
-          defaultAgentInstanceLabel(
-            command,
-            instancesByScope[scopeKey] ?? [],
-          ),
-          command,
-        );
+      const list = instancesByScope[scopeKey] ?? [];
+
+      // Already routed (e.g. a later output event for the same command).
+      const mapped = map[operationId];
+      if (mapped && list.some((i) => i.id === mapped)) return mapped;
+
+      // Foreground commands (ls, git status, curl…) share ONE persistent "Agent"
+      // tab and read like a shell session — only background processes (servers)
+      // get their own tab. AGENT_FG_KEY is a reserved per-scope pointer to the
+      // shared foreground instance.
+      if (!background) {
+        const fgId = map[AGENT_FG_KEY];
+        if (fgId && list.some((i) => i.id === fgId)) {
+          setAgentOpMapByScope((prev) => ({
+            ...prev,
+            [scopeKey]: { ...prev[scopeKey], [operationId]: fgId },
+          }));
+          return fgId;
+        }
+        const newFgId = createInstance("agent", AGENT_FG_LABEL);
         setAgentOpMapByScope((prev) => ({
           ...prev,
-          [scopeKey]: { ...prev[scopeKey], [operationId]: instanceId! },
+          [scopeKey]: {
+            ...prev[scopeKey],
+            [AGENT_FG_KEY]: newFgId,
+            [operationId]: newFgId,
+          },
         }));
         void IpcClient.getInstance()
           .openTerminalInstance({
             chatId,
             appId,
             owner: "agent",
-            commandHint: command,
+            commandHint: AGENT_FG_LABEL,
             operationId,
           })
           .catch(() => {});
+        return newFgId;
       }
+
+      // Background → a dedicated tab labelled by the command.
+      const instanceId = createInstance(
+        "agent",
+        defaultAgentInstanceLabel(command, list),
+        command,
+      );
+      setAgentOpMapByScope((prev) => ({
+        ...prev,
+        [scopeKey]: { ...prev[scopeKey], [operationId]: instanceId },
+      }));
+      void IpcClient.getInstance()
+        .openTerminalInstance({
+          chatId,
+          appId,
+          owner: "agent",
+          commandHint: command,
+          operationId,
+        })
+        .catch(() => {});
       return instanceId;
     },
     [
@@ -402,6 +466,7 @@ export function TerminalPanel() {
       const instanceId = getOrCreateAgentInstance(
         payload.commandId,
         payload.command,
+        payload.background,
       );
       setInstances((prev) =>
         upsertAgentOutputLines(
@@ -427,7 +492,11 @@ export function TerminalPanel() {
       if (out.operationId.startsWith("user-")) continue;
       seenOps.current.add(key);
       if (out.status === "running" && !out.output?.trim()) continue;
-      const instanceId = getOrCreateAgentInstance(out.operationId, out.command);
+      const instanceId = getOrCreateAgentInstance(
+        out.operationId,
+        out.command,
+        out.background,
+      );
       setInstances((prev) =>
         upsertAgentOutputLines(
           prev,

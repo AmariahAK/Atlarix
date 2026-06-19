@@ -310,6 +310,8 @@ const validInvokeChannels = [
   // Auto-updater
   "update:defer",        // write defer flag to userData; install on next cold start
   "update:install-now",  // quit and install downloaded update immediately
+  "update:get-status",   // read current update diagnostics
+  "update:check-now",    // manual "check for updates now"
 ];
 
 const validReceiveChannels = [
@@ -317,6 +319,8 @@ const validReceiveChannels = [
   "chat:response:end",
   "chat:response:error",
   "chat:stream:pulse",
+  "chat:stream:tool-input", // live partial tool-call args for a streaming preview
+  "chat:stream:write-preview", // display-only old/new content for an auto-approved write
   "chat:tool:start",
   "chat:tool:end",
   "chat:stream:phase",
@@ -404,6 +408,7 @@ const validReceiveChannels = [
   "update:downloading",   // update is being fetched in background; payload: { version: string }
   "update:downloaded",    // update ready to install; payload: { version: string }
   "update:available",     // notify-only: newer release on GitHub; payload: { currentVersion, latestVersion, releaseUrl }
+  "update:status",        // live update diagnostics for the Settings panel
 ] as const;
 
 type ValidInvokeChannel = (typeof validInvokeChannels)[number];

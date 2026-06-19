@@ -8,7 +8,7 @@ import type { ToolMetadata } from "./registry";
 
 const CORE_TOOL_NAMES = new Set([
   "read_file",
-  "write_file",
+  // v13.8: write_file merged into edit_file (operation:"write").
   "edit_file",
   "glob",
   "grep",

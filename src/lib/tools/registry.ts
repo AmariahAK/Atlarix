@@ -8,6 +8,7 @@ import type { Tool } from "../providers/base-provider";
 import { isMainProcessNode } from "../runtime/is-main-node";
 import { guardToolCall } from "./guard";
 import { resolveRecoverySuggestion } from "./tool-error-patterns";
+import { extractScreenshotMedia } from "@/lib/ai/tool-model-output";
 
 // NOTE: this module is imported by both the Electron main process AND the renderer
 // (e.g. `ToolIndicator.tsx` reads `ToolRegistry` for UI metadata). Anything that
@@ -32,9 +33,12 @@ const TOOL_OUTPUT_PREVIEW_TAIL_TOKENS = 500;
 // its internal char cap), so the envelope is a safety net rather than a removed
 // feature. Single global policy mirrors opencode's max-bytes envelope — no
 // per-tool / per-tier carve-outs.
-// v12 0.2: browser_screenshot's base64 PNG must reach toModelOutput intact
-// (it becomes a media content part, not text tokens) — head/tail truncation
-// would corrupt the image.
+// v12 0.2: a screenshot's base64 PNG must reach toModelOutput intact (it
+// becomes a media content part, not text tokens) — head/tail truncation would
+// corrupt the image. v13.8: screenshots now arrive via browser_inspect
+// (mode:"screenshot") as well as the legacy browser_screenshot tool, so we
+// detect them by RESULT SHAPE (extractScreenshotMedia) rather than tool name;
+// browser_inspect's text/snapshot modes still truncate normally.
 const NEVER_TRUNCATE = new Set<string>(["browser_screenshot"]);
 
 let _toolOutputDirPath: string | null = null;
@@ -74,7 +78,7 @@ export async function maybeTruncateToDisk(
     toolName: string,
     result: unknown,
 ): Promise<{ value: unknown; truncated: boolean; totalChars: number }> {
-    if (NEVER_TRUNCATE.has(toolName)) {
+    if (NEVER_TRUNCATE.has(toolName) || extractScreenshotMedia(result)) {
         return { value: result, truncated: false, totalChars: 0 };
     }
     const resultStr = typeof result === "string" ? result : JSON.stringify(result);

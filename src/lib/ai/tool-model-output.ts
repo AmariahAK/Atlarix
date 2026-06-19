@@ -73,7 +73,12 @@ export function buildToolModelOutput(
   output: unknown,
   ctx: { builtinProviderId?: string },
 ): LanguageModelV2ToolResultOutput | undefined {
-  if (toolName !== "browser_screenshot") return undefined;
+  // v13.8: screenshots arrive via browser_inspect(mode:"screenshot") and the
+  // legacy browser_screenshot tool (old sessions). The shape check below is the
+  // real gate — extractScreenshotMedia returns null for text/snapshot results.
+  if (toolName !== "browser_inspect" && toolName !== "browser_screenshot") {
+    return undefined;
+  }
 
   const media = extractScreenshotMedia(output);
   if (!media) return undefined; // failure results keep the normal path
@@ -90,7 +95,7 @@ export function buildToolModelOutput(
 
   return {
     type: "text",
-    value: `[screenshot captured: ${media.url ?? "current page"}${media.title ? ` (${media.title})` : ""} — this model/provider cannot view images, so the image was not sent. Use browser_read_page for textual page content.]`,
+    value: `[screenshot captured: ${media.url ?? "current page"}${media.title ? ` (${media.title})` : ""} — this model/provider cannot view images, so the image was not sent. Use browser_inspect(mode:"text") for textual page content.]`,
   };
 }
 

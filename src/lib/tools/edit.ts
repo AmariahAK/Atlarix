@@ -1,14 +1,16 @@
 /**
- * Atlarix unified edit_file tool (Pass 7 consolidation).
+ * Atlarix unified edit_file tool (Pass 7 consolidation; v13.8 absorbed write_file).
  *
- * Replaces replace_code, insert_code, delete_lines, edit_file_section.
- * Supports four operations under one schema:
+ * The single file-mutation tool. Supports five operations under one schema:
+ *   - write:   create a new file or fully overwrite an existing one (`content`)
  *   - replace: find exact `old_content` and replace with `new_content`
- *   - insert: insert `new_content` at `line` (1-indexed; 0 = beginning)
- *   - delete: delete inclusive line range [start_line, end_line]
+ *   - insert:  insert `new_content` at `line` (1-indexed; 0 = beginning)
+ *   - delete:  delete inclusive line range [start_line, end_line]
  *   - section: replace a function/class/variable section by name
  *
- * Plan-mode and Ask-mode gating is preserved from the previous tools.
+ * Plan-mode and Ask-mode gating is preserved from the previous tools (write_file
+ * + the four surgical ops): Ask denies all mutation; Plan allows only the
+ * .atlarix/*.md docs.
  */
 
 import * as fs from "fs";
@@ -121,12 +123,13 @@ function fuzzyFindString(content: string, oldString: string): FuzzyMatch | null 
   return { index: charOffset, matchLength, fuzzy: true, occurrences };
 }
 
-type EditOperation = "replace" | "insert" | "delete" | "section";
+type EditOperation = "write" | "replace" | "insert" | "delete" | "section";
 
 interface EditFileArgs {
   path: string;
   operation: EditOperation;
   description?: string;
+  content?: string;
   old_content?: string;
   new_content?: string;
   line?: number;
@@ -205,6 +208,56 @@ async function permissionPayloadWithBlastRadius(
     ? await enrichPermissionWithBlastRadius(workspace, args.normalizedPath, blastOpts)
     : undefined;
   return permissionPayload({ ...args, metadata });
+}
+
+async function runWrite(
+  args: EditFileArgs,
+  normalizedPath: string,
+  fullPath: string,
+  workspace?: string,
+  blastOpts?: { agentMode?: string; chatSessionId?: number; workspaceId?: number },
+) {
+  const { content, description } = args;
+  if (content === undefined) {
+    return {
+      error: "operation=write requires content (the full file body to create or overwrite)",
+      operation: "edit_file",
+    };
+  }
+
+  // Detect create vs overwrite so the approval card reads "Creating" / "Modifying"
+  // and the diff shows the prior body (mirrors the old write_file behavior).
+  let fileType: "create" | "update" = "create";
+  let oldContent: string | undefined;
+  if (workspace) {
+    try {
+      assertReadablePath(normalizedPath, workspace);
+      await fs.promises.access(fullPath);
+      fileType = "update";
+      oldContent = await fs.promises.readFile(fullPath, "utf-8");
+    } catch {
+      fileType = "create";
+    }
+  }
+
+  const metadata = workspace
+    ? await enrichPermissionWithBlastRadius(workspace, normalizedPath, blastOpts)
+    : undefined;
+
+  return {
+    __permission_required: true,
+    operation: "edit_file",
+    preview: {
+      path: normalizedPath,
+      content,
+      ...(oldContent !== undefined ? { oldContent } : {}),
+      description: description ?? (fileType === "update" ? "Overwrite file" : "Create file"),
+      type: fileType,
+      lines: content.split("\n").length,
+    },
+    reasoning: `${fileType === "update" ? "Modifying" : "Creating"} ${normalizedPath}: ${description ?? "(no description)"}`,
+    ...(metadata ? { metadata } : {}),
+  };
 }
 
 async function runReplace(
@@ -466,13 +519,14 @@ async function runSection(
 
 ToolRegistry.register({
   name: "edit_file",
-  description: `Edit a file with surgical precision. Supports four operations:
+  description: `Create, overwrite, or surgically edit a file — the single tool for all file changes. Supports five operations:
+- write: create a NEW file, or fully overwrite an existing one, with \`content\` (the complete file body)
 - replace: find exact text and replace with new text (safest; requires old_content to match exactly)
 - insert: insert new_content at a specific line (1-indexed; 0 = beginning of file)
 - delete: delete a range of lines [start_line..end_line] (1-indexed, inclusive)
 - section: replace a named function/class/variable section without computing line numbers
 
-Prefer "replace" for code changes — it requires matching the existing content exactly. Use "insert" for adding new code blocks. Use "delete" only for removing dead code. Use "section" when you know the symbol name but not the exact text.`,
+Use "write" for a new file or a full rewrite. For ANY change to an existing file prefer the surgical ops — "replace" (matches existing content exactly), "insert" for new blocks, "delete" for dead code, "section" when you know the symbol name but not the exact text. Surgical ops are faster and safer than rewriting a large file. Never describe an edit instead of making it.`,
   requiresWorkspace: true,
   isCore: true,
   isReadOnly: false,
@@ -485,10 +539,14 @@ Prefer "replace" for code changes — it requires matching the existing content 
       },
       operation: {
         type: "string",
-        enum: ["replace", "insert", "delete", "section"],
+        enum: ["write", "replace", "insert", "delete", "section"],
         description: "Edit operation to perform.",
       },
       description: { type: "string", description: "Brief description of what this edit does." },
+      content: {
+        type: "string",
+        description: "(write) Full file body to create or overwrite. Required for operation=write.",
+      },
       old_content: {
         type: "string",
         description: "(replace) Exact content to find and replace. Must match exactly, whitespace included.",
@@ -543,6 +601,8 @@ Prefer "replace" for code changes — it requires matching the existing content 
     }
 
     switch (operation) {
+      case "write":
+        return runWrite(rawArgs, normalizedPath, fullPath, workspace, blastOpts);
       case "replace":
         return runReplace(rawArgs, normalizedPath, fullPath, workspace, blastOpts);
       case "insert":
@@ -552,7 +612,7 @@ Prefer "replace" for code changes — it requires matching the existing content 
       case "section":
         return runSection(rawArgs, normalizedPath, fullPath, workspace, blastOpts);
       default:
-        return { error: `Unknown operation: ${operation}. Use replace | insert | delete | section.`, operation: "edit_file" };
+        return { error: `Unknown operation: ${operation}. Use write | replace | insert | delete | section.`, operation: "edit_file" };
     }
   },
 });

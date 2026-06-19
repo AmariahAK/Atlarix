@@ -39,29 +39,28 @@ function offeredToolNames(scenarioId: string): string[] {
 }
 
 // Workspace turns, strong (default) model — the full surface per mode.
-// v13.7: get_blueprint removed (Blueprint is now the silent grep substrate);
-// browser_click / browser_fill added to the read-only modes (page-only mutation).
+// v13.7: get_blueprint removed (Blueprint is now the silent grep substrate).
+// v13.8: browser tools consolidated 6→3 (browser_inspect/browser_interact/
+// browser_navigate); write_file merged into edit_file (operation:"write").
 const GOLDEN = {
   ask: [
-    "ask_user", "browser_click", "browser_fill", "browser_navigate",
-    "browser_read_page", "browser_screenshot", "browser_snapshot",
+    "ask_user", "browser_inspect", "browser_interact", "browser_navigate",
     "compress_context", "glob", "grep", "list_attachments",
     "list_available_mcps", "mcp_call", "read_attachment", "read_file",
     "read_url", "run_command", "task", "web_search",
   ],
   plan: [
-    "ask_user", "browser_click", "browser_fill", "browser_navigate",
-    "browser_read_page", "browser_screenshot", "browser_snapshot",
+    "ask_user", "browser_inspect", "browser_interact", "browser_navigate",
     "compress_context", "glob", "grep", "list_attachments",
     "list_available_mcps", "mcp_call", "plan", "read_attachment", "read_file",
     "read_url", "task", "web_search",
   ],
   build: [
-    "ask_user", "browser_click", "browser_fill", "browser_navigate",
-    "browser_read_page", "browser_screenshot", "browser_snapshot", "compress_context", "edit_file",
+    "ask_user", "browser_inspect", "browser_interact", "browser_navigate",
+    "compress_context", "edit_file",
     "glob", "grep", "list_attachments", "list_available_mcps",
     "mcp_call", "plan", "read_attachment", "read_file", "read_url",
-    "run_command", "task", "task_complete", "web_search", "write_file",
+    "run_command", "task", "task_complete", "web_search",
   ],
 } as const;
 

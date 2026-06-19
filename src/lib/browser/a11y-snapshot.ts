@@ -5,9 +5,8 @@
  * An injected DOM walker tags every interactive/landmark element with a stable
  * `data-atlarix-ref` ("e1", "e2", …) and returns a compact `{ ref, role, name }`
  * list. The model reads this (far lighter than a screenshot or full DOM) and
- * acts via `browser_click`/`browser_fill({ ref })`, resolving the ref by
- * attribute instead of a brittle CSS selector. Re-run per page; refs reset on
- * navigation.
+ * acts via `browser_interact({ action, ref })`, resolving the ref by attribute
+ * instead of a brittle CSS selector. Re-run per page; refs reset on navigation.
  *
  * Runs through the same `executeJavaScript(script, true)` channel as the other
  * browser tools — the script is a static template (no model input interpolated),
@@ -93,6 +92,6 @@ export function formatA11ySnapshot(snap: A11ySnapshot): string {
     if (e.value) bits.push(`value="${e.value}"`);
     return bits.join(" ");
   });
-  const header = `Accessibility snapshot — ${snap.count} interactive element(s)${snap.truncated ? ` (capped at ${MAX_ELEMENTS})` : ""}. Act on these with browser_click/browser_fill using the ref (e.g. ref:"e3").`;
+  const header = `Accessibility snapshot — ${snap.count} interactive element(s)${snap.truncated ? ` (capped at ${MAX_ELEMENTS})` : ""}. Act on these with browser_interact (action:"click"|"fill") using the ref (e.g. ref:"e3").`;
   return `${header}\n${lines.join("\n")}`;
 }

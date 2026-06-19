@@ -1,5 +1,6 @@
 import { getToolActivityLabel, getToolDoneLabel } from "@/lib/tool-activity-labels";
 import type { StreamThreadToolStatus } from "@/lib/chat/stream-thread";
+import { computeDiffHunks } from "@/lib/diff/compose-hunks";
 
 const WRITE_TOOLS = new Set([
   "write_file",
@@ -273,6 +274,44 @@ function formatWritePreview(
   payload: Record<string, unknown>,
   plainText?: string,
 ): string {
+  // v13.8.1: the result carries tiny `added`/`removed` line counts (not content
+  // — that lives in the tool-call args). Use them directly for the +/- summary.
+  const added = typeof payload.added === "number" ? payload.added : undefined;
+  const removed = typeof payload.removed === "number" ? payload.removed : undefined;
+  if (added != null || removed != null) {
+    const a = added ?? 0;
+    const r = removed ?? 0;
+    if (r === 0) return `+${a}`;
+    if (a === 0) return `-${r}`;
+    return `+${a} -${r}`;
+  }
+
+  // Legacy fallback: older results echoed the content; derive the summary from it.
+  const newContent =
+    typeof payload.newContent === "string"
+      ? payload.newContent
+      : typeof payload.content === "string"
+        ? payload.content
+        : undefined;
+  if (newContent !== undefined) {
+    const oldContent = typeof payload.oldContent === "string" ? payload.oldContent : "";
+    const isCreate =
+      payload.operation === "create" || (!oldContent && payload.operation !== "update");
+    if (isCreate) {
+      const n = newContent ? newContent.split(/\r?\n/).length : 0;
+      return `+${n}`;
+    }
+    try {
+      const hunks = computeDiffHunks(oldContent, newContent, 0);
+      const added = hunks.reduce((a, h) => a + h.addedCount, 0);
+      const removed = hunks.reduce((a, h) => a + h.removedCount, 0);
+      if (added || removed) return `+${added} -${removed}`;
+      return "no changes";
+    } catch {
+      /* fall through to legacy summary */
+    }
+  }
+
   const resultText =
     plainText?.trim() ||
     (typeof payload.result === "string" ? payload.result : undefined);

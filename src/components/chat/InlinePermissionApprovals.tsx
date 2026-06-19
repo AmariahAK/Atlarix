@@ -148,13 +148,16 @@ function FilePermissionCard({
         </p>
       ) : null}
       <div className="px-2 pb-2">
-        {operation.path && operation.content != null && operation.oldContent !== undefined ? (
+        {operation.path && operation.content != null && !isDeleteOrRename ? (
           <SmartDiffView
             path={operation.path}
-            oldContent={operation.oldContent}
+            oldContent={operation.oldContent ?? ""}
             newContent={operation.content}
             description={operation.description}
-            operation="update"
+            // A create (no prior content) renders as all-added; an overwrite/edit
+            // diffs against the prior content. Inferred so we needn't plumb the
+            // preview's create/update type all the way here.
+            operation={operation.oldContent ? "update" : "create"}
             maxHeight="max-h-56"
             selectable
             onHunkSelectionChange={

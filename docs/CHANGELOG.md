@@ -1,5 +1,159 @@
 # Atlarix Changelog
 
+## [13.9.0] (2026-06-19) — Reliability pass: terminal reuse, live plan preview, steadier long runs, robust sign-in, tidy file tree + accurate diffs, self-review, cross-platform updater
+
+> The v13.9.0 release. Bundles the 13.8.0/13.8.1 work below plus this reliability pass. (PostHog activation-funnel events — `app_opened`, `model_connected`, `first_task_started`, `first_task_completed`, `task_completed` — also shipped this cycle.)
+>
+> **UX reliability fixes in this pass:**
+> - **AI terminal reuses one "Agent" tab for foreground commands.** Sequential short commands (ls, git status, curl) append to a single persistent "Agent" tab like a shell session instead of spawning a new tab (A, A2, A3…) per command; only background processes (dev servers) get their own tab. The Agent tab is **pre-created** so the terminal is visible before the first command. (`TerminalPanel.tsx` `getOrCreateAgentInstance`/`ensureDefaultInstance`, `terminal-output` `background` flag through `interceptor.ts`/`chat_stream_handlers.ts`/`ipc_client.ts`/`useStreamChat.ts`/`sourceAtoms.ts`.)
+> - **The plan write streams live** instead of sitting on a false "Reconnecting…": `extractPartialToolArgs` now surfaces the `plan` tool's markdown body (and its tool-input keeps the activity pulse fresh), same as `edit_file`. (`partial-tool-args.ts`.)
+> - **No more false "stopped/Reconnecting" during long work.** The activity pulse now fires on tool-call start and every ~15s while a tool runs (a 60s+ command, a sub-agent), and the renderer's reconnect window is a more forgiving 20s — so a long turn reads "still working", not "Reconnecting". Typing mid-turn continues to **queue** a follow-up (Enter), it never aborts the turn. (`stream_chunk_tags.ts`, `InlineStreamStatus.tsx`.)
+> - **Sign-in survives relaunch.** Startup session restore now retries the secure-storage read (keychain not ready at launch) and retries token refresh with backoff, and never drops a valid stored session on a transient/offline failure — fixing the intermittent "reopen logs me out". (`supabase-client.ts` `restoreAuthSessionOnStartup`.)
+> - **The Code tab hides IDE/VCS cruft.** The file tree filters `.git`/`.vscode`/`.idea`/`node_modules` and anything `.gitignore`d, reusing the shared ignore composition (built-in baseline + project `.gitignore` + `.atlarixignore`) — display-only; the agent's retrieval index is untouched. (`app_handlers.ts` `loadAppFileIndex` via `atlarix-ignore.ts`.)
+
+## [13.9.0-pre] — Airtight overwrite diffs, on-disk edit self-review, and a real cross-platform auto-updater
+
+> Three reliability fixes plus a positioning doc.
+>
+> **1 — Auto-approved overwrites are now accurate too.** The zero-token diff (13.8.1) sourced
+> old→new content from the permission preview, which a *manually*-approved write always produces.
+> An **auto-approved** write ("always allow" this file/dir, or a fully autonomous Build turn) skips
+> that preview, so its card used to fall back to all-added. A new **display-only**
+> `chat:stream:write-preview` event carries the old+new content (uncapped) from the point where both
+> are already known, merged onto the tool card exactly like the manual path — so creates, surgical
+> edits, **and** full overwrites all render true red/green diffs, on the live card and after reload,
+> at **zero model tokens**. (`chat_stream_handlers.ts` `emitAutoApprovedWritePreview`, `ipc_client.ts`
+> `onStreamWritePreview`, `preload.ts`, `useStreamChat.ts` `mergeWritePreviewIntoThread`.)
+>
+> **2 — Edits now self-review against disk before finishing.** Each write is re-read from disk
+> immediately after it lands and compared to what was intended (a silent, true/false state — **zero
+> tokens on the happy path**, no per-edit echo). The running state accumulates across the turn, and a
+> single consolidated self-review fires at the `task_complete` gate **only if** an edit didn't verify,
+> naming the file(s) to re-check. Commands are unchanged (`exitCode` + output is already ground truth).
+> (`interceptor.ts` `executeWriteFile` re-read, `mutation-verify.ts` `recordUnverifiedEdit` /
+> `getUnverifiedEditFeedback`, `run-agent-turn.ts` gate.)
+>
+> **3 — The background auto-updater works on all platforms, and failures are visible.** The mechanism
+> existed (electron-updater → `atlarix-releases`, signed/notarized, defer-to-next-launch) but failed
+> *silently*. Now: errors are recorded (not swallowed) and surfaced in a new **Settings → Updates**
+> diagnostics panel (current version, last check, last result/error, **Check for updates now**, and
+> **Restart & install** when ready); a **periodic re-check** keeps long-running sessions current; the
+> redundant notify-only GitHub banner is **gated** so it no longer double-fires alongside a silent
+> download (it's now a bridge only for installs electron-updater can't update); and the macOS
+> not-in-`/Applications` case **explains itself** instead of no-op'ing. True background download +
+> "later → next launch" now works on macOS (in /Applications), Windows, and Linux AppImage; Linux
+> deb/rpm stays notify-only (a packaging limit). **Note:** builds already shipped without a working
+> updater can't be fixed remotely — the notify banner is their only forward path. (`main.ts`,
+> `main/update-helpers.ts`, `components/settings/UpdateDiagnostics.tsx`, `UpdateBanner.tsx`.)
+>
+> **Docs:** `docs/harness-comparison.md` rewritten to answer "is Atlarix the frontier harness for
+> open-weight models?" — GUI-to-GUI vs Cursor/Antigravity/Claude Code/Codex, capability-only vs the
+> CLI harnesses (opencode/pi), with an honest gap list. Verdict: **the open-weight frontier
+> _workstation_**.
+
+## [13.8.1] (unreleased) — Zero-token, accurate file diffs (display-only, never re-sent to the model)
+
+> The write/edit diff cards no longer echo file content into the model transcript. The content was a
+> pure duplicate — the model's own tool-call arguments already contain it (exactly once) — so re-sending
+> it in the tool result wasted tokens on **every** subsequent turn. Now the completed and reloaded diff
+> cards render from a **display-only** source that is never sent to the model: the tool-call args carried
+> on the thread item, plus the full uncapped old+new content from the permission preview merged onto that
+> item (it persists in the display snapshot, which the model never sees). The result carries only tiny
+> `added`/`removed` line counts for the collapsed summary.
+>
+> Net: diffs are **accurate and uncapped — including a full overwrite of an existing file** (true
+> old→new red/green) — at **zero model-token cost**, and they survive a session reload. (`tool-expand-view.ts`
+> `buildDiffView`, `chat_stream_handlers.ts`, `stream-tool-display.ts`, `useStreamChat.ts` tool-start +
+> permission-preview merge.)
+
+## [13.8.0] (unreleased) — One file-mutation tool, fewer browser tools, no more false "Reconnecting…"
+
+> The write surface gets simpler and the streaming UI gets honest. `write_file` is **merged into
+> `edit_file`** as `operation:"write"`, so the model now reaches for a single file-mutation tool
+> (create/overwrite via `write`, plus the existing surgical `replace`/`insert`/`delete`/`section`) —
+> matching Codex's one-tool `apply_patch` philosophy while keeping Atlarix's confirm-edit diff card,
+> per-file/dir/ext permission scopes, fuzzy matching, and post-write verify. The six in-app browser
+> tools collapse to **three** (`browser_navigate`, `browser_inspect` with `mode:"text"|"snapshot"|
+> "screenshot"`, `browser_interact` with `action:"click"|"fill"`). Net agent surface drops from 24 to
+> 20 tools. Separately, a long `edit_file` whole-file write no longer makes the chat falsely show
+> "Reconnecting…": the renderer now subscribes to the activity pulse the backend was already emitting
+> during tool-argument streaming.
+
+### Changed
+
+- **`write_file` merged into `edit_file` (`operation:"write"`).** The single mutation tool now
+  creates a new file or fully overwrites an existing one via `operation:"write"` + `content`, in
+  addition to the surgical ops. The approval card still reads "Creating"/"Modifying", the activity
+  line reads "Writing …" for a whole-file write and "Editing …" for surgical ops, and screenshots,
+  blast-radius, mutation-verify, and the agentic loop-repetition guard all keep working. Legacy
+  `write_file` names are retained in display/permission back-compat paths so persisted sessions still
+  render. (`edit.ts` `runWrite`, `file.ts`, `ToolManifest.ts`, `tool-registry-audit.ts`.)
+- **Browser tools consolidated 6 → 3.** `browser_read_page`/`browser_snapshot`/`browser_screenshot`
+  → `browser_inspect({ mode })`; `browser_click`/`browser_fill` → `browser_interact({ action })`;
+  `browser_navigate` unchanged. Screenshot media detection is now result-shape-based (so a screenshot
+  from `browser_inspect` is never truncated and still becomes a native media part). (`browser.ts`,
+  `mode-tool-registry.ts`, `tool-model-output.ts`, `registry.ts`.)
+- **`git init` is allowed by default.** It was hard-blocked unless `allowGitInit` was explicitly set —
+  redundant now that git is agent-managed and every `run_command` already shows the exact command for
+  approval. Git init now runs through normal command approval; `allowGitInit: false` remains as an
+  explicit opt-out, and it's no longer flagged as a "dangerous" command (it creates `.git`, not data
+  loss). (`git-init-command-guard.ts`, `dangerous-commands.ts`.)
+- **`glob` honors `.atlarixignore`.** File discovery now filters through the same workspace ignore
+  rules as the Blueprint index instead of a thin hardcoded list, and the default ignores gained the
+  OS/editor cruft (`.DS_Store`, `.vscode/`, `.idea/`, `Thumbs.db`, `*.swp`, `*.log`) — so the agent
+  no longer sees or pokes at that noise, and the startup index skips it. (`glob.ts`, `atlarix-ignore.ts`.)
+- **Ignore rules now respect the project's `.gitignore` (incl. monorepos/multi-repos).** Instead of
+  hand-maintaining a per-language exclude list, the ignorer is composed from layers: a small in-memory
+  **baseline** (dependency/build/cache dirs + OS/editor cruft, covers projects with no `.gitignore`),
+  the project's own **`.gitignore`** + `.git/info/exclude`, **nested per-directory `.gitignore` files**
+  scoped to their directory (so each package/sub-repo's rules apply only under it, never leaking to
+  siblings or root), and the **`.atlarixignore`** — now reserved purely for what the user/AI add for
+  that project (new workspaces get a minimal template, not the old giant list). One composed source
+  feeds `glob`, Blueprint, RTE, and the analyzer, and a change to any ignore file re-indexes. The
+  nested walk is depth- and count-bounded and prunes heavy dirs. (`atlarix-ignore.ts`
+  `composeIgnoreSource`/`collectNestedGitignores`/`scopeGitignoreToDir`, `blueprint/rte/parsers`,
+  `blueprint_handlers.ts`.)
+
+### Added
+
+- **Live streaming preview for file writes (feels instant, like opencode).** The model streams a
+  tool-call's arguments incrementally, but Atlarix used to discard them and show only a "Writing…"
+  skeleton until the *whole* file finished — so a large write felt slow even though generation speed
+  matched opencode. Now the partial `edit_file` write/replace content streams into a live preview
+  (path + content building up) BEFORE the approval card opens. Backend accumulates `tool-input-delta`
+  per tool-call and emits `chat:stream:tool-input` (~120ms throttle); a tolerant partial-JSON
+  extractor (never `JSON.parse`s an incomplete buffer) feeds the preview, with a safe fallback to the
+  old skeleton on any parse failure. (`stream_chunk_tags.ts`, `chat_stream_handlers.ts`,
+  `run-agent-turn.ts`, `ipc_client.ts`, `preload.ts`, `partial-tool-args.ts`, `useStreamChat.ts`,
+  `InlineStreamStatus.tsx`.)
+- **Browser session record (timeline artifact).** The in-app browser already recorded every
+  navigate/click/fill/read/screenshot; now a `browser_inspect(mode:"screenshot")` result renders an
+  ordered, Antigravity/Codex-style timeline of those steps (with the final screenshot) in the tool
+  card, instead of dropping the walkthrough. New `browser_recording` expand kind +
+  `ToolBrowserRecordingExpand`. (`browser.ts`, `tool-expand-view.ts`, `ToolExpandPanel.tsx`.)
+- **Visible AI cursor in the browser.** Before the agent clicks or fills, a brief green cursor + ripple
+  / outline animates over the target element in the in-app browser so you can see what it's doing. The
+  overlay is `pointer-events:none` (never intercepts the action), self-removes (~600ms), and is
+  best-effort (CSP-tolerant). (`browser.ts` `HIGHLIGHT_ELEMENT_JS`, `browser_interact`.)
+
+### Fixed
+
+- **File-write cards now show a real diff.** A create/overwrite via `edit_file(operation:"write")` was
+  rendering only "File saved" with no +/- lines. The post-execution result JSON dropped the fields the
+  diff view needs; it now carries `operation` + `oldContent`/`newContent` (capped ~12KB) so both the
+  approval card and the completed card render an added/removed diff (a create shows as all-added), and
+  the collapsed summary shows `+added / -removed`. (`interceptor.ts` getExecutionResult,
+  `chat_stream_handlers.ts` success-JSON builders, `InlinePermissionApprovals.tsx`, `stream-tool-display.ts`.)
+- **`run_command` leaves a persistent command card.** The command text + output + exit code were only
+  in a transient indicator (cleared on tool-end) and a hidden terminal tab (wiped after 5s). The result
+  now carries `command` + `exitCode`, so the chat thread shows a persistent card with the command, its
+  output, and exit status — including for failed commands (rendered before the generic error fallback).
+  (`interceptor.ts`, `chat_stream_handlers.ts`, `tool-expand-view.ts`.)
+- **No more false "Reconnecting…" during long writes.** The backend already pulsed activity every ~2s
+  on `tool-input-delta`, but no renderer subscriber consumed it, so a >10s whole-file write tripped
+  the stale-stream indicator. `useStreamChat` now subscribes to `onStreamPulse` and refreshes the
+  activity clock, also covering long reasoning / MCP-arg streams. (`useStreamChat.ts`.)
+
 ## [13.7.0] (2026-06-18) — Blueprint becomes the silent grep substrate, `@` mentions as chips, fewer Supabase pings, editable plans, a hardened agent loop + headless CLI
 
 > Retrieval gets simpler and sharper: the `get_blueprint` **tool** is gone, but the Blueprint

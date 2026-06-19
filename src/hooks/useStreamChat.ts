@@ -22,6 +22,7 @@ import {
   lastTurnCostUsdByChatIdAtom,
   toolIndicatorAtom,
   streamLastActivityAtByChatIdAtom,
+  liveToolInputByChatIdAtom,
   waitingOnCommandByChatIdAtom,
   queuedMessageByChatIdAtom,
   turnSnapshotTurnIdByMessageIdAtom,
@@ -53,8 +54,10 @@ import {
   upsertStreamThreadItem,
   mergeSubagentActivityIntoThread,
   mergeNestedToolActivityIntoSubagentRound,
+  type StreamThreadItem,
 } from "@/lib/chat/stream-thread";
 import { buildInlineTimelineFromActivity } from "@/lib/chat/inline-timeline";
+import { extractPartialToolArgs } from "@/lib/chat/partial-tool-args";
 import { buildDisplaySnapshotPayloadForMessage } from "@/lib/chat/apply-stream-display-hydration";
 import { parseDisplaySnapshot } from "@/lib/chat/display-snapshot";
 import {
@@ -188,6 +191,62 @@ function findLatestToolActivityResult(
   return {};
 }
 
+/**
+ * Stash the diff content (old + new) onto the matching thread tool item's
+ * toolArgs so the COMPLETED/persisted card renders an ACCURATE red/green diff —
+ * including a full overwrite of an existing file — without echoing content into
+ * the model transcript. The display snapshot (which persists toolArgs) is never
+ * sent to the model, so this costs ZERO model tokens.
+ *
+ * Used by both the permission-preview path (manual approval) and the
+ * write-preview channel (auto-approved writes, which skip the preview).
+ */
+export function mergeWritePreviewIntoThread(
+  chatId: number,
+  targetPath: string,
+  operation: string,
+  oldContent: string | null,
+  content: string | null,
+): void {
+  if (oldContent == null && content == null) return;
+  getDefaultStore().set(streamThreadByChatIdAtom, (prevMap) => {
+    const cur = prevMap.get(chatId);
+    if (!cur) return prevMap;
+    let idx = -1;
+    for (let i = cur.length - 1; i >= 0; i--) {
+      const it = cur[i];
+      if (
+        it.kind === "tool" &&
+        (it.toolArgs as { path?: unknown } | undefined)?.path === targetPath
+      ) {
+        idx = i;
+        break;
+      }
+    }
+    if (idx === -1) {
+      for (let i = cur.length - 1; i >= 0; i--) {
+        const it = cur[i];
+        if (it.kind === "tool" && it.status === "running") {
+          idx = i;
+          break;
+        }
+      }
+    }
+    if (idx === -1) return prevMap;
+    const item = cur[idx] as Extract<StreamThreadItem, { kind: "tool" }>;
+    const mergedArgs: Record<string, unknown> = {
+      ...item.toolArgs,
+      path: targetPath,
+      operation,
+      ...(oldContent != null ? { old_content: oldContent } : {}),
+      ...(content != null ? { content } : {}),
+    };
+    const next = [...cur];
+    next[idx] = { ...item, toolArgs: mergedArgs };
+    return new Map(prevMap).set(chatId, next);
+  });
+}
+
 function persistAndClearLiveStreamThread(
   chatId: number,
   assistantMessageId: number | undefined,
@@ -242,6 +301,7 @@ export function useStreamChat({
   const setMessagesById = useSetAtom(chatMessagesByIdAtom);
   const setToolIndicator = useSetAtom(toolIndicatorAtom);
   const setStreamLastActivityAtByChatId = useSetAtom(streamLastActivityAtByChatIdAtom);
+  const setLiveToolInputByChatId = useSetAtom(liveToolInputByChatIdAtom);
   const setResponseDoneAnimation = useSetAtom(responseDoneAnimationAtom);
   const isStreamingById = useAtomValue(isStreamingByIdAtom);
   const setIsStreamingById = useSetAtom(isStreamingByIdAtom);
@@ -511,6 +571,26 @@ export function useStreamChat({
               }]
               : [];
 
+            // Stash the diff content (old + new, uncapped) from the permission
+            // preview onto the matching thread tool item's toolArgs, so the
+            // COMPLETED/persisted card renders an ACCURATE diff — including a full
+            // overwrite of an existing file — without echoing content into the
+            // model transcript. The display snapshot (which persists toolArgs) is
+            // never sent to the model, so this costs ZERO model tokens.
+            for (const p of previews as Array<Record<string, unknown>>) {
+              if (!p || typeof p.path !== "string") continue;
+              if (p.content == null && p.oldContent == null) continue;
+              const op =
+                p.type === "create" ? "create" : p.type === "delete" ? "delete" : "update";
+              mergeWritePreviewIntoThread(
+                chatId,
+                p.path,
+                op,
+                typeof p.oldContent === "string" ? p.oldContent : null,
+                typeof p.content === "string" ? p.content : null,
+              );
+            }
+
             const allProposals = [...fileProposals, ...commandProposals];
 
             // Add to pending proposals (with deduplication)
@@ -623,6 +703,7 @@ export function useStreamChat({
                 output: payload.output || '',
                 status: payload.status,
                 exitCode: payload.exitCode,
+                background: payload.background === true,
                 startTime: existing?.startTime || Date.now(),
                 duration: existing?.startTime
                   ? Date.now() - existing.startTime
@@ -816,11 +897,23 @@ export function useStreamChat({
             toolEndStackRef.current.set(chatId, stack);
             const threadItem = streamThreadItemFromToolStart({
               toolId: registryName,
+              // Carry the tool-call args (incl. write content) onto the thread
+              // item so the completed/persisted card renders its diff from the
+              // model's OWN args — never re-sent to the model (display-only).
+              toolArgs: start.toolArgs ?? undefined,
             });
             getDefaultStore().set(streamThreadByChatIdAtom, (prev) => {
               const n = new Map(prev);
               const cur = n.get(chatId) ?? [];
               n.set(chatId, upsertStreamThreadItem(cur, threadItem));
+              return n;
+            });
+            // The authoritative tool card is now open — drop the streaming
+            // partial-args preview for this chat.
+            setLiveToolInputByChatId((prev) => {
+              if (!prev.has(chatId)) return prev;
+              const n = new Map(prev);
+              n.delete(chatId);
               return n;
             });
             setToolIndicator((prev) => ({
@@ -853,7 +946,8 @@ export function useStreamChat({
               popped?.toolName ?? end.toolName ?? end.toolId ?? "";
             if (
               end.status !== "error" &&
-              (toolName === "write_file" ||
+              (toolName === "edit_file" ||
+                toolName === "write_file" ||
                 toolName === "write_multiple_files" ||
                 toolName === "run_command")
             ) {
@@ -900,6 +994,48 @@ export function useStreamChat({
           },
         );
 
+        // Keep the activity clock fresh during silent stream phases (e.g. a
+        // long `edit_file` whole-file write streams its content as one
+        // tool-input-delta and produces no renderable chunk). The backend
+        // already emits `chat:stream:pulse` ~every 2s; without this subscriber
+        // `streamLastActivityAtByChatIdAtom` would go stale and the UI would
+        // falsely flip to "Reconnecting…" after 10s even though nothing dropped.
+        const unsubscribePulse = IpcClient.getInstance().onStreamPulse(
+          ({ chatId: evChatId }) => {
+            setStreamLastActivityAtByChatId((prev) => {
+              const n = new Map(prev);
+              n.set(evChatId, Date.now());
+              return n;
+            });
+          },
+        );
+
+        // Live partial tool-call args → streaming preview (e.g. an edit_file
+        // write's content building up) before the approval card opens. Best-
+        // effort: a tolerant extractor; on no usable data we leave today's
+        // skeleton untouched. Cleared when the real tool card / stream end lands.
+        const unsubscribeToolInput = IpcClient.getInstance().onStreamToolInput(
+          ({ chatId: evChatId, toolName, argsTextSoFar }) => {
+            const partial = extractPartialToolArgs(toolName, argsTextSoFar);
+            if (!partial) return;
+            setLiveToolInputByChatId((prev) => {
+              const n = new Map(prev);
+              n.set(evChatId, { toolName, ...partial });
+              return n;
+            });
+          },
+        );
+
+        // Auto-approved write → no permission preview reached the renderer, so
+        // merge its (display-only) old/new content into the matching tool card
+        // the same way the manual-approval preview does. Accurate overwrite diff
+        // at ZERO model tokens (the snapshot is never sent to the model).
+        const unsubscribeWritePreview = IpcClient.getInstance().onStreamWritePreview(
+          ({ chatId: evChatId, path, operation, oldContent, content }) => {
+            mergeWritePreviewIntoThread(evChatId, path, operation, oldContent, content);
+          },
+        );
+
         cleanupStreamListeners = () => {
           if (toolLiveFlushTimer) {
             clearTimeout(toolLiveFlushTimer);
@@ -908,6 +1044,11 @@ export function useStreamChat({
           // Best-effort: flush anything pending once at the end.
           flushToolLive();
 
+          // Tear down the pulse subscriber first so a late pulse can't re-add a
+          // chat entry that onEnd/onError is about to delete.
+          unsubscribePulse?.();
+          unsubscribeToolInput?.();
+          unsubscribeWritePreview?.();
           unsubscribeUserQuestion?.();
           unsubscribePermission?.();
           unsubscribeTerminal?.();
@@ -915,6 +1056,13 @@ export function useStreamChat({
           unsubscribeChatActivity?.();
           unsubPlanArtifact?.();
           unsubscribeToolIndicator?.();
+          // Drop any leftover streaming preview for this chat.
+          setLiveToolInputByChatId((prev) => {
+            if (!prev.has(chatId)) return prev;
+            const n = new Map(prev);
+            n.delete(chatId);
+            return n;
+          });
         };
 
         // Pass 7: Blueprint injection-mode + debug-trace plumbing removed.
@@ -1632,6 +1780,7 @@ export function useStreamChat({
       setMessagesById,
       setToolIndicator,
       setStreamLastActivityAtByChatId,
+      setLiveToolInputByChatId,
       setResponseDoneAnimation,
       setIsStreamingById,
       setIsPreviewOpen,

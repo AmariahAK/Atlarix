@@ -87,6 +87,91 @@ describe("buildToolExpandView", () => {
     }
   });
 
+  it("formats edit_file operation=write (create) as an all-added diff", () => {
+    const raw = JSON.stringify({
+      success: true,
+      path: ".gitignore",
+      operation: "create",
+      oldContent: "",
+      newContent: "node_modules/\n.env\n__pycache__/",
+    });
+    const view = buildToolExpandView("edit_file", { path: ".gitignore", operation: "write" }, raw, "done");
+    expect(view.kind).toBe("diff");
+    if (view.kind === "diff") {
+      expect(view.operation).toBe("create");
+      expect(view.addedCount).toBe(3);
+      expect(view.removedCount).toBe(0);
+      expect(view.newContent).toContain("node_modules/");
+    }
+  });
+
+  it("renders a write diff from the tool-call ARGS (content not echoed in the result)", () => {
+    // v13.8.1: the result carries only line counts; the content lives in args.
+    const raw = JSON.stringify({
+      success: true,
+      path: ".gitignore",
+      operation: "create",
+      added: 3,
+      removed: 0,
+    });
+    const args = { operation: "write", path: ".gitignore", content: "node_modules/\n.env\ndist/" };
+    const view = buildToolExpandView("edit_file", args, raw, "done");
+    expect(view.kind).toBe("diff");
+    if (view.kind === "diff") {
+      expect(view.newContent).toContain("node_modules/"); // sourced from args
+      expect(view.addedCount).toBe(3); // sourced from result counts
+      expect(view.removedCount).toBe(0);
+    }
+  });
+
+  it("renders a surgical replace diff from args old/new fragments", () => {
+    const raw = JSON.stringify({ success: true, path: "a.ts", operation: "update", added: 1, removed: 1 });
+    const args = { operation: "replace", path: "a.ts", old_content: "const x = 1;", new_content: "const x = 2;" };
+    const view = buildToolExpandView("edit_file", args, raw, "done");
+    expect(view.kind).toBe("diff");
+    if (view.kind === "diff") {
+      expect(view.oldContent).toContain("const x = 1;");
+      expect(view.newContent).toContain("const x = 2;");
+    }
+  });
+
+  it("formats run_command result as a command card with command + exit code", () => {
+    const raw = JSON.stringify({
+      success: false,
+      command: "npm test",
+      output: "1 failing",
+      exitCode: 1,
+    });
+    const view = buildToolExpandView("run_command", { command: "npm test" }, raw, "done");
+    expect(view.kind).toBe("command");
+    if (view.kind === "command") {
+      expect(view.command).toBe("npm test");
+      expect(view.exitCode).toBe(1);
+      expect(view.body).toContain("1 failing");
+    }
+  });
+
+  it("formats a browser screenshot result with sessionSteps as a recording timeline", () => {
+    const raw = JSON.stringify({
+      success: true,
+      url: "https://example.com",
+      title: "Example",
+      mimeType: "image/png",
+      data: "QUJD",
+      sessionSteps: [
+        { type: "navigate", detail: "https://example.com", url: "https://example.com" },
+        { type: "click", detail: "e3", url: "https://example.com" },
+      ],
+    });
+    const view = buildToolExpandView("browser_inspect", { mode: "screenshot" }, raw, "done");
+    expect(view.kind).toBe("browser_recording");
+    if (view.kind === "browser_recording") {
+      expect(view.steps).toHaveLength(2);
+      expect(view.steps[0]!.type).toBe("navigate");
+      expect(view.dataUrl).toContain("data:image/png;base64,QUJD");
+    }
+  });
+
   it("uses text fallback for errors without JSON dump", () => {
     const raw = JSON.stringify({ success: false, error: "Permission denied" });
     const view = buildToolExpandView("read_file", {}, raw, "error");

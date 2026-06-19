@@ -7,7 +7,7 @@ import path from "node:path";
 import fs from "node:fs";
 import { app } from "electron";
 import { PostHog } from "posthog-node";
-import { readSettings } from "../settings";
+import { readSettings, writeSettings } from "../settings";
 import { v4 as uuidv4 } from "uuid";
 
 const ANALYTICS_ID_FILE = "analytics-id.json";
@@ -82,6 +82,49 @@ export function captureSafe(
     capture(event, properties);
   } catch {
     /* noop */
+  }
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Activation funnel: app_opened → model_connected → first_task_started →
+// first_task_completed → task_completed (repeat). Each helper is fire-and-forget
+// and never throws. The first_* events fire exactly once via persisted markers;
+// nothing is recorded (and no marker is advanced) unless the user opted in, so
+// the funnel starts cleanly if consent is granted later.
+// ────────────────────────────────────────────────────────────────────────────
+
+/** A user wired up a usable model (Core sign-in or a BYOK provider key). */
+export function trackModelConnected(properties?: Record<string, unknown>): void {
+  captureSafe("model_connected", properties);
+}
+
+/** The first real agent turn in a workspace started (fires once). */
+export function trackTaskStarted(properties?: Record<string, unknown>): void {
+  try {
+    if (!isOptedIn()) return;
+    if (readSettings().firstTaskStartedAt) return;
+    writeSettings({ firstTaskStartedAt: Date.now() });
+    captureSafe("first_task_started", properties);
+  } catch {
+    /* analytics must never break the turn */
+  }
+}
+
+/**
+ * An agent turn finished successfully. The first success fires
+ * `first_task_completed`; every success after that fires `task_completed`.
+ */
+export function trackTaskCompleted(properties?: Record<string, unknown>): void {
+  try {
+    if (!isOptedIn()) return;
+    if (!readSettings().firstTaskCompletedAt) {
+      writeSettings({ firstTaskCompletedAt: Date.now() });
+      captureSafe("first_task_completed", properties);
+    } else {
+      captureSafe("task_completed", properties);
+    }
+  } catch {
+    /* analytics must never break the turn */
   }
 }
 

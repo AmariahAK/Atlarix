@@ -13,6 +13,12 @@ import {
 } from "./main/settings";
 import { handleAtlarixProReturn } from "./main/pro";
 import { IS_TEST_BUILD } from "./ipc/utils/test_utils";
+import {
+  isNewer,
+  shouldRunNotifyOnlyCheck,
+  canElectronUpdaterRun,
+  type UpdateStatus,
+} from "./main/update-helpers";
 import { BackupManager } from "./backup_manager";
 import { getDatabasePath, initializeDatabase } from "./db/index";
 import { UserSettings } from "./lib/schemas";
@@ -362,19 +368,85 @@ export async function onReady() {
     platform: process.platform,
     arch: os.arch(),
   });
+  // Activation-funnel entry point (top of funnel).
+  analyticsCapture("app_opened", {
+    version: app.getVersion(),
+    platform: process.platform,
+  });
 
   logger.info("Auto-update enabled=", settings.enableAutoUpdate);
+  // Status IPC is registered regardless of the toggle so the Settings panel and
+  // a manual "Check now" always work, even with auto-update off.
+  registerUpdateStatusIpc();
   if (settings.enableAutoUpdate) {
     initAutoUpdater();
   }
 
+  // Notify-only GitHub check is a BRIDGE for installs electron-updater can't
+  // silently update (deb/rpm, mac-not-in-/Applications, feed failure). When the
+  // real updater is active it would only double-fire a confusing banner, so we
+  // suppress it there.
   setTimeout(() => {
-    void checkForUpdatesNotify();
+    if (
+      shouldRunNotifyOnlyCheck({
+        isPackaged: app.isPackaged,
+        electronUpdaterActive,
+      })
+    ) {
+      void checkForUpdatesNotify();
+    }
   }, 5000);
 }
 
 const ATLARIX_RELEASES_API =
   "https://api.github.com/repos/AmariahAK/atlarix-releases/releases/latest";
+
+const UPDATE_RECHECK_INTERVAL_MS = 4 * 60 * 60 * 1000; // 4h — long-running sessions
+
+/** True once electron-updater is wired and able to drive a silent update. */
+let electronUpdaterActive = false;
+let updateRecheckTimer: ReturnType<typeof setInterval> | null = null;
+
+const updateStatus: UpdateStatus = {
+  currentVersion: "",
+  lastCheckAt: null,
+  lastResult: "idle",
+};
+
+/** Merge into the in-memory status and push it to the renderer (Settings panel). */
+function setUpdateStatus(partial: Partial<UpdateStatus>): void {
+  Object.assign(updateStatus, partial);
+  if (mainWindow && !mainWindow.webContents.isDestroyed()) {
+    mainWindow.webContents.send("update:status", { ...updateStatus });
+  }
+}
+
+/** IPC: live status + a manual "Check for updates now". Always registered. */
+function registerUpdateStatusIpc(): void {
+  updateStatus.currentVersion = app.getVersion();
+  ipcMain.handle("update:get-status", () => ({ ...updateStatus }));
+  ipcMain.handle("update:check-now", async () => {
+    setUpdateStatus({ lastResult: "checking", detail: undefined });
+    try {
+      if (electronUpdaterActive) {
+        await autoUpdater.checkForUpdates();
+      } else {
+        await checkForUpdatesNotify();
+        // checkForUpdatesNotify sets 'available' or stays put; reflect a check ran.
+        if (updateStatus.lastResult === "checking") {
+          setUpdateStatus({ lastResult: "up-to-date", lastCheckAt: Date.now() });
+        }
+      }
+    } catch (err) {
+      setUpdateStatus({
+        lastResult: "error",
+        detail: err instanceof Error ? err.message : String(err),
+        lastCheckAt: Date.now(),
+      });
+    }
+    return { ...updateStatus };
+  });
+}
 
 /**
  * Notify-only update check (all platforms). Complements electron-updater silent install.
@@ -396,11 +468,18 @@ async function checkForUpdatesNotify(): Promise<void> {
       log.info(
         `[UpdateNotify] up to date (current=${currentVersion}, latest=${latestVersion || "n/a"})`,
       );
+      setUpdateStatus({ lastResult: "up-to-date", lastCheckAt: Date.now() });
       return;
     }
     const releaseUrl =
       data.html_url ?? "https://github.com/AmariahAK/atlarix-releases/releases/latest";
     log.info(`[UpdateNotify] Update available: ${latestVersion} (current ${currentVersion})`);
+    setUpdateStatus({
+      lastResult: "available",
+      availableVersion: latestVersion,
+      lastCheckAt: Date.now(),
+      detail: updateStatus.detail, // preserve an /Applications/unsupported hint if set
+    });
     if (mainWindow && !mainWindow.webContents.isDestroyed()) {
       mainWindow.webContents.send("update:available", {
         currentVersion,
@@ -410,6 +489,11 @@ async function checkForUpdatesNotify(): Promise<void> {
     }
   } catch (err) {
     log.warn("[UpdateNotify] check failed:", (err as Error)?.message ?? err);
+    setUpdateStatus({
+      lastResult: "error",
+      detail: (err as Error)?.message ?? String(err),
+      lastCheckAt: Date.now(),
+    });
   }
 }
 
@@ -436,10 +520,27 @@ function initAutoUpdater(): void {
   // Route electron-updater logs through electron-log so update history is traceable.
   autoUpdater.logger = log;
 
-  // Linux non-AppImage installs (deb/rpm) cannot be replaced by electron-updater
-  // without root. Fall back to a native notification + GitHub release page link.
-  if (process.platform === "linux" && app.isPackaged && !process.env.APPIMAGE) {
-    void checkLinuxPackageUpdate();
+  // Can electron-updater actually drive a silent update for THIS install? On
+  // macOS it must live in /Applications; deb/rpm and dev builds can't.
+  const isAppImage = Boolean(process.env.APPIMAGE);
+  const capability = canElectronUpdaterRun({
+    platform: process.platform,
+    isPackaged: app.isPackaged,
+    isAppImage,
+    isInApplicationsFolder:
+      process.platform !== "darwin" || safeIsInApplicationsFolder(),
+  });
+  if (!capability.ok) {
+    // Surface WHY rather than silently no-op'ing, then let the notify-only
+    // bridge (gated separately) point the user at a manual download.
+    if (capability.reason) {
+      setUpdateStatus({ lastResult: capability.reason, detail: capability.detail });
+    }
+    log.info(`[AutoUpdater] electron-updater inactive: ${capability.detail ?? "n/a"}`);
+    // deb/rpm: still offer a native notification with the release page.
+    if (process.platform === "linux" && app.isPackaged && !isAppImage) {
+      void checkLinuxPackageUpdate();
+    }
     return;
   }
 
@@ -454,9 +555,15 @@ function initAutoUpdater(): void {
     });
   } catch (err: unknown) {
     log.warn("[AutoUpdater] setFeedURL failed:", err instanceof Error ? err.message : String(err));
+    setUpdateStatus({
+      lastResult: "error",
+      detail: err instanceof Error ? err.message : String(err),
+    });
     // Skip update check gracefully - never throw to user
     return;
   }
+
+  electronUpdaterActive = true;
 
   // Allow pre-releases to be downloaded if they are published (matches existing releaseChannel behavior).
   autoUpdater.allowPrerelease = false;
@@ -464,10 +571,16 @@ function initAutoUpdater(): void {
 
   autoUpdater.on("checking-for-update", () => {
     log.info("[AutoUpdater] Checking for update…");
+    setUpdateStatus({ lastResult: "checking" });
   });
 
   autoUpdater.on("update-available", (info) => {
     log.info("[AutoUpdater] Update available:", info.version);
+    setUpdateStatus({
+      lastResult: "downloading",
+      availableVersion: info.version,
+      lastCheckAt: Date.now(),
+    });
     // Send a subtle in-app notice to the renderer so the user knows a download is happening.
     if (mainWindow && !mainWindow.webContents.isDestroyed()) {
       mainWindow.webContents.send("update:downloading", { version: info.version });
@@ -476,14 +589,21 @@ function initAutoUpdater(): void {
 
   autoUpdater.on("update-not-available", (info) => {
     log.info("[AutoUpdater] Up to date:", info.version);
+    setUpdateStatus({ lastResult: "up-to-date", lastCheckAt: Date.now() });
   });
 
   autoUpdater.on("download-progress", (progress) => {
     log.info(`[AutoUpdater] Download progress: ${Math.round(progress.percent)}%`);
+    setUpdateStatus({ lastResult: "downloading" });
   });
 
   autoUpdater.on("update-downloaded", (info) => {
     log.info("[AutoUpdater] Update downloaded:", info.version);
+    setUpdateStatus({
+      lastResult: "downloaded",
+      availableVersion: info.version,
+      lastCheckAt: Date.now(),
+    });
     if (mainWindow && !mainWindow.webContents.isDestroyed()) {
       mainWindow.webContents.send("update:downloaded", { version: info.version });
     }
@@ -491,13 +611,27 @@ function initAutoUpdater(): void {
 
   autoUpdater.on("error", (err) => {
     log.error("[AutoUpdater] Error:", err?.message ?? err);
-    // Don't surface to user — update errors are non-blocking.
+    // Record it so the Settings panel can show WHY — previously swallowed.
+    setUpdateStatus({
+      lastResult: "error",
+      detail: err?.message ?? String(err),
+      lastCheckAt: Date.now(),
+    });
   });
 
   // Kick off the check. Errors are caught by the 'error' event handler above.
   autoUpdater.checkForUpdatesAndNotify().catch((err) => {
     log.warn("[AutoUpdater] checkForUpdatesAndNotify failed:", err?.message ?? err);
   });
+
+  // Periodic re-check so a long-running session still updates (Cursor-style).
+  if (!updateRecheckTimer) {
+    updateRecheckTimer = setInterval(() => {
+      autoUpdater.checkForUpdates().catch((err) => {
+        log.warn("[AutoUpdater] periodic re-check failed:", err?.message ?? err);
+      });
+    }, UPDATE_RECHECK_INTERVAL_MS);
+  }
 
   // IPC: renderer requests immediate install
   ipcMain.handle("update:install-now", () => {
@@ -552,15 +686,13 @@ async function checkLinuxPackageUpdate(): Promise<void> {
   }
 }
 
-function isNewer(a: string, b: string): boolean {
-  const pa = a.split(".").map(Number);
-  const pb = b.split(".").map(Number);
-  for (let i = 0; i < 3; i++) {
-    const x = pa[i] ?? 0;
-    const y = pb[i] ?? 0;
-    if (x !== y) return x > y;
+/** `app.isInApplicationsFolder()` throws off-darwin; guard it. */
+function safeIsInApplicationsFolder(): boolean {
+  try {
+    return app.isInApplicationsFolder();
+  } catch {
+    return false;
   }
-  return false;
 }
 
 /**
@@ -1229,6 +1361,12 @@ app.on("will-quit", () => {
   // v10: tear down interactive terminal shells.
   killAllPtys();
   analyticsShutdown();
+
+  // Stop the periodic update re-check.
+  if (updateRecheckTimer) {
+    clearInterval(updateRecheckTimer);
+    updateRecheckTimer = null;
+  }
 
   // Stop performance monitoring and capture final metrics
   stopPerformanceMonitoring();

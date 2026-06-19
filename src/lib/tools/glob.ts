@@ -18,9 +18,26 @@ import {
     stripToolPathPrefixes,
 } from "../../ipc/utils/safeWorkspaceRelativePath";
 import { isBlockedSecretBasename } from "@/lib/security/env-secret-paths";
+import { loadIgnorerForProject, isRelPathIgnored } from "@/lib/atlarix/atlarix-ignore";
 
 const DEFAULT_LIMIT = 100;
 const MAX_LIMIT = 1000;
+
+// Pruned during traversal so we never walk into heavy dirs (perf). Finer
+// exclusions (.DS_Store, .vscode, .idea, user-defined) are applied afterward
+// via the workspace .atlarixignore — the same rules Blueprint/RTE use.
+const TRAVERSAL_PRUNE = [
+    "node_modules/**",
+    "**/node_modules/**",
+    ".git/**",
+    "dist/**",
+    "build/**",
+    "out/**",
+    "coverage/**",
+    ".next/**",
+    ".cache/**",
+    ".turbo/**",
+];
 
 ToolRegistry.register({
     name: "glob",
@@ -64,14 +81,26 @@ ToolRegistry.register({
                 : path.resolve(stripToolPathPrefixes(searchPath || ".") || ".");
             const matched = await runGlob(pattern, {
                 cwd: fullPath,
-                ignore: ["node_modules/**", ".git/**", "dist/**", "out/**"],
+                ignore: TRAVERSAL_PRUNE,
                 nodir: true,
             });
             // Secret-path denylist: never enumerate .env-style files — listing
             // names leaks that secrets exist and invites a follow-up read.
-            const files = matched.filter(
+            let files = matched.filter(
                 (f) => !isBlockedSecretBasename(path.basename(f)),
             );
+            // Honor the workspace .atlarixignore (same source of truth as the
+            // Blueprint index), so OS/editor cruft like .DS_Store / .vscode /
+            // .idea — and any user-defined excludes — never reach the model.
+            if (workspace) {
+                const ig = await loadIgnorerForProject(workspace);
+                files = files.filter((f) => {
+                    const relToWs = path
+                        .relative(workspace, path.join(fullPath, f))
+                        .replace(/\\/g, "/");
+                    return !relToWs || !isRelPathIgnored(ig, relToWs);
+                });
+            }
 
             if (files.length === 0) {
                 return `No files found matching pattern: ${pattern}. Often an extension or casing issue — try a broader glob (e.g. "**/${pattern}"), or use grep to find the file by its content.`;

@@ -26,6 +26,7 @@ import {
 import {
   buildToolModelOutput,
   redactToolMediaForDisplay,
+  extractScreenshotMedia,
 } from "@/lib/ai/tool-model-output";
 import {
   hasNativeToolParts,
@@ -221,6 +222,8 @@ import { runCommandFailureGuidance } from "@/lib/tools/run-command-guidance";
 import {
   recordMutationOutcome,
   clearMutationOutcomes,
+  recordUnverifiedEdit,
+  clearUnverifiedEdit,
 } from "@/lib/agent/mutation-verify";
 import { assembleContextSections, type ContextSection } from "@/lib/context/ContextAssembler";
 import { ContextBudgetTracker } from "@/lib/context/context-budget-tracker";
@@ -268,6 +271,7 @@ import {
 } from "../../lib/work-mode";
 import { classifyTerminalCommand } from "../../lib/terminal-command-class";
 import { runCommandGitInitGateResult } from "../../lib/git-init-command-guard";
+import { computeDiffHunks } from "@/lib/diff/compose-hunks";
 import { attachDelegationToolsToSet } from "../../lib/agents/register-delegation-tools";
 import { shouldAutoApprovePermissions } from "../../lib/agents/agent-runtime";
 import { getToolActivityLabel } from "../../lib/tool-activity-labels";
@@ -341,7 +345,8 @@ function emitFilePermissionActivity(
   safeSend(sender, "chat:activity", {
     id: `file-perm-${chatId}-${Date.now()}`,
     type: "tool_use",
-    toolName: "write_file",
+    // v13.8: edit_file is the single file-mutation tool (absorbed write_file).
+    toolName: "edit_file",
     label,
     detail: path.slice(0, 200),
     status: "done",
@@ -358,6 +363,45 @@ function enrichPermissionRequestForUi(
     return enrichRunCommandPermissionRequest(permRequest, appId);
   }
   return enrichFilePermissionRequest(permRequest as import("@/lib/tools/permissions/schema").PermissionRequest, appId);
+}
+
+/**
+ * Display-only overwrite preview for AUTO-APPROVED writes.
+ *
+ * A manually-approved write reaches the renderer via the `permission-request`
+ * preview (which carries the uncapped old/new content), so its completed card
+ * renders an accurate red/green diff. An auto-approved write ("always allow"
+ * this file/dir, or a fully autonomous Build turn) skips that preview entirely,
+ * so the renderer never learns the old content and the card falls back to
+ * all-added. This pushes the same old/new content over a display-only channel
+ * so the auto-approved card is just as accurate.
+ *
+ * This is NEVER sent to the model — it only lands in the display snapshot
+ * (zero model tokens; the model result still carries only line counts).
+ */
+function emitAutoApprovedWritePreview(
+  sender: Electron.WebContents | null | undefined,
+  chatId: number,
+  operation: string,
+  execResult: {
+    path?: string;
+    operation?: string;
+    oldContent?: string;
+    newContent?: string;
+  },
+): void {
+  if (operation !== "write_file" && operation !== "edit_file") return;
+  if (!execResult.path) return;
+  if (typeof execResult.newContent !== "string" && typeof execResult.oldContent !== "string") {
+    return;
+  }
+  safeSend(sender, "chat:stream:write-preview", {
+    chatId,
+    path: execResult.path,
+    operation: execResult.operation ?? "update",
+    oldContent: execResult.oldContent ?? "",
+    content: execResult.newContent ?? "",
+  });
 }
 
 /** Category DB gate for run_command; returns tool JSON to return early, or null to continue permission UI. */
@@ -1323,6 +1367,24 @@ export function registerChatStreamHandlers() {
         safeSend(event.sender, "chat:stream:pulse", {
           chatId: req.chatId,
           timestamp: Date.now(),
+        });
+      };
+      // Live partial tool-call arguments → renderer streaming preview (e.g. an
+      // edit_file diff building up before the approval card opens).
+      const handleToolInputDelta = ({
+        toolCallId,
+        toolName,
+        argsTextSoFar,
+      }: {
+        toolCallId: string;
+        toolName: string;
+        argsTextSoFar: string;
+      }) => {
+        safeSend(event.sender, "chat:stream:tool-input", {
+          chatId: req.chatId,
+          toolCallId,
+          toolName,
+          argsTextSoFar,
         });
       };
 
@@ -2516,7 +2578,7 @@ ${componentSnippet}
 
           // v13: .atlarix/memory.md (agent-maintained project knowledge) is
           // auto-injected — the memory tool family was removed; the model
-          // updates the file via write_file.
+          // updates the file via edit_file.
           const loadMemoryMdSection = async (): Promise<ContextSection | null> => {
             if (!(hasWorkspace && appPath)) return null;
             try {
@@ -2528,7 +2590,7 @@ ${componentSnippet}
               return {
                 name: "projectKnowledge",
                 priority: 3.9,
-                content: `## Project knowledge (.atlarix/memory.md — update via write_file when you learn durable facts)\n${memoryMd}`,
+                content: `## Project knowledge (.atlarix/memory.md — update via edit_file when you learn durable facts)\n${memoryMd}`,
               };
             } catch (memErr) {
               logger.warn("Failed to read memory.md:", memErr);
@@ -3987,6 +4049,11 @@ This conversation includes one or more image attachments. When the user uploads 
               toolName: string;
               deltaCount: number;
             }) => void;
+            onToolInputDelta?: (info: {
+              toolCallId: string;
+              toolName: string;
+              argsTextSoFar: string;
+            }) => void;
             onStreamActivityPulse?: () => void;
           }): Promise<{
             bundle: SimpleStreamTextBundle;
@@ -4017,6 +4084,7 @@ This conversation includes one or more image attachments. When the user uploads 
                   onStreamStall: params.onStreamStall,
                   sanitizeTextDelta: params.sanitizeTextDelta,
                   onToolInputProgress: params.onToolInputProgress,
+                  onToolInputDelta: params.onToolInputDelta,
                   onStreamActivityPulse: params.onStreamActivityPulse,
                 });
                 fullResponse = chunkResult.fullResponse;
@@ -4641,9 +4709,13 @@ This conversation includes one or more image attachments. When the user uploads 
 
                             return JSON.stringify({
                               success: true,
-                              message: `Successfully ${permRequest.operation === "write_file" ? "wrote" : "executed"} ${(permRequest.preview as { path?: string }).path || "operation"}`,
+                              message: `Successfully ${(permRequest.operation === "write_file" || permRequest.operation === "edit_file") ? "wrote" : "executed"} ${(permRequest.preview as { path?: string }).path || "operation"}`,
                               path: execResult.path,
                               output: execResult.output,
+                              // Persist the command + exit code so the thread renders
+                              // a command card (Ask mode is read-only: run_command only).
+                              ...(execResult.command ? { command: execResult.command } : {}),
+                              ...(execResult.exitCode !== undefined ? { exitCode: execResult.exitCode } : {}),
                             });
                           } else {
                             const execResultRejected = askPermissionInterceptor.getExecutionResult(operationId);
@@ -4688,7 +4760,11 @@ This conversation includes one or more image attachments. When the user uploads 
                     // v12 0.2: redacted display copy + structured screenshot
                     // return (media part via toModelOutput).
                     toolResultForActivity = redactToolMediaForDisplay(result);
-                    if (tool.name === "browser_screenshot" && result && typeof result === "object") {
+                    // v13.8: a screenshot payload (browser_inspect mode:"screenshot"
+                    // or legacy browser_screenshot) returns the STRUCTURED object so
+                    // toModelOutput can emit a native media part; detect by shape so
+                    // browser_inspect's text/snapshot results keep the string contract.
+                    if (extractScreenshotMedia(result)) {
                       return result;
                     }
                     return typeof result === "string" ? result : JSON.stringify(result);
@@ -4835,6 +4911,7 @@ This conversation includes one or more image attachments. When the user uploads 
                   onFirstTextDelta: logTtftOnce,
                   onStreamStall: handleStreamStall,
                   onToolInputProgress: handleToolInputProgress,
+                  onToolInputDelta: handleToolInputDelta,
                   onStreamActivityPulse: handleStreamActivityPulse,
                   // Legacy ask streams deltas unsanitized (native-only mode —
                   // no hallucinated-XML stripping, unlike build).
@@ -4910,6 +4987,7 @@ This conversation includes one or more image attachments. When the user uploads 
                 output: payload.output,
                 status: payload.status,
                 exitCode: payload.exitCode,
+                background: payload.background === true,
                 source: "agent",
                 isPermissionBased: true, // Don't force-switch to terminal tab
               });
@@ -5222,12 +5300,34 @@ This conversation includes one or more image attachments. When the user uploads 
                         output?: string;
                         exitCode?: number;
                         error?: string;
+                        operation?: string;
+                        oldContent?: string;
+                        newContent?: string;
+                        command?: string;
+                        verified?: boolean;
                       }) => {
                         if (!permRequest) return "";
                         pushWrittenPaths();
+                        // Self-review state: accumulate the running true/false of
+                        // each write's disk re-check under the turn. A consolidated
+                        // nudge fires only at the task_complete gate (zero tokens on
+                        // the happy path); a later good write of the same path clears
+                        // its prior failure.
+                        if (
+                          execResult.path &&
+                          (permRequest.operation === "write_file" ||
+                            permRequest.operation === "edit_file")
+                        ) {
+                          if (execResult.verified === false) {
+                            recordUnverifiedEdit(streamTurnIdForLedger, execResult.path);
+                          } else {
+                            clearUnverifiedEdit(streamTurnIdForLedger, execResult.path);
+                          }
+                        }
                         if (
                           agenticRepetition.isEnabled() &&
                           (permRequest.operation === "write_file" ||
+                            permRequest.operation === "edit_file" ||
                             permRequest.operation === "run_command")
                         ) {
                           const pv = permRequest.preview as { path?: string; command?: string };
@@ -5245,6 +5345,45 @@ This conversation includes one or more image attachments. When the user uploads 
                           output: execResult.output?.slice(0, 200),
                         });
                         const output = execResult.output || "";
+                        // The chat-thread cards need: a write/edit → a diff; a
+                        // command → command + exit code. v13.8.1: the diff content
+                        // is NO LONGER echoed into the model result (the model's own
+                        // tool-call args already hold the content — echoing it is a
+                        // pure duplicate). The completed/persisted card renders the
+                        // diff from those args (see buildDiffView). We send only tiny
+                        // line COUNTS so the collapsed summary stays accurate without
+                        // costing transcript tokens.
+                        const isFileWrite =
+                          permRequest.operation === "write_file" ||
+                          permRequest.operation === "edit_file" ||
+                          permRequest.operation === "write_multiple_files";
+                        const displayFields: Record<string, unknown> = isFileWrite
+                          ? (() => {
+                              const oldC =
+                                typeof execResult.oldContent === "string" ? execResult.oldContent : "";
+                              const newC =
+                                typeof execResult.newContent === "string" ? execResult.newContent : "";
+                              let added = 0;
+                              let removed = 0;
+                              try {
+                                const hunks = computeDiffHunks(oldC, newC, 0);
+                                added = hunks.reduce((a, h) => a + h.addedCount, 0);
+                                removed = hunks.reduce((a, h) => a + h.removedCount, 0);
+                              } catch {
+                                /* counts best-effort */
+                              }
+                              return {
+                                ...(execResult.operation ? { operation: execResult.operation } : {}),
+                                added,
+                                removed,
+                              };
+                            })()
+                          : permRequest.operation === "run_command"
+                            ? {
+                                ...(execResult.command ? { command: execResult.command } : {}),
+                                ...(execResult.exitCode !== undefined ? { exitCode: execResult.exitCode } : {}),
+                              }
+                            : {};
                         const hasCompilationErrors =
                           /error:|Error:|ERROR:|failed to|Failed to|Cannot find|cannot find|is not defined|is not a function|SyntaxError|TypeError|ReferenceError/i.test(
                             output,
@@ -5259,13 +5398,15 @@ This conversation includes one or more image attachments. When the user uploads 
                             message: `Command started but output shows errors`,
                             path: execResult.path,
                             output: output.slice(-2000),
+                            ...displayFields,
                           });
                         }
                         return JSON.stringify({
                           success: true,
-                          message: `Successfully ${permRequest.operation === "write_file" ? "wrote" : "executed"} ${(permRequest.preview as { path?: string }).path || "operation"}`,
+                          message: `Successfully ${(permRequest.operation === "write_file" || permRequest.operation === "edit_file") ? "wrote" : "executed"} ${(permRequest.preview as { path?: string }).path || "operation"}`,
                           path: execResult.path,
                           output: execResult.output,
+                          ...displayFields,
                         });
                       };
 
@@ -5286,6 +5427,14 @@ This conversation includes one or more image attachments. When the user uploads 
                           );
                           if (execMeta.approved) {
                             logger.log(`[Build Mode] Autonomous permission executed: ${operationId}`);
+                            // Auto-approved write → no preview reached the renderer;
+                            // push the diff content display-only so the card is accurate.
+                            emitAutoApprovedWritePreview(
+                              event.sender,
+                              req.chatId,
+                              permRequest.operation,
+                              execResult,
+                            );
                             return jsonAfterSuccessfulExec(execResult);
                           }
                           if (execResult.exitCode !== undefined) {
@@ -5403,8 +5552,10 @@ This conversation includes one or more image attachments. When the user uploads 
                     toolResultForActivity = redactToolMediaForDisplay(result);
                     // Screenshot returns the STRUCTURED object so toModelOutput
                     // can emit a native media content part; other tools keep
-                    // the string contract.
-                    if (toolName === "browser_screenshot" && result && typeof result === "object") {
+                    // the string contract. v13.8: detect by shape so screenshots
+                    // from browser_inspect(mode:"screenshot") are covered while its
+                    // text/snapshot results stay stringified.
+                    if (extractScreenshotMedia(result)) {
                       return result;
                     }
                     return typeof result === "string" ? result : JSON.stringify(result);
@@ -5655,7 +5806,7 @@ This conversation includes one or more image attachments. When the user uploads 
                   resultStr: string,
                 ) => {
                   if (!agenticRepetition.isEnabled()) return;
-                  if (name !== "write_file" && name !== "run_command") return;
+                  if (name !== "write_file" && name !== "edit_file" && name !== "run_command") return;
                   if (resultStr.startsWith("Error:")) return;
                   try {
                     const j = JSON.parse(resultStr) as { success?: boolean };
@@ -5820,6 +5971,12 @@ This conversation includes one or more image attachments. When the user uploads 
                             );
                             if (execMeta.approved) {
                               pushAgenticWrittenPaths();
+                              emitAutoApprovedWritePreview(
+                                event.sender,
+                                req.chatId,
+                                permRequest.operation,
+                                execResult,
+                              );
                               const okPermResult = JSON.stringify({
                                 success: true,
                                 message: `Operation completed`,
@@ -6025,6 +6182,7 @@ This conversation includes one or more image attachments. When the user uploads 
                     onFirstTextDelta: logTtftOnce,
                     onStreamStall: handleStreamStall,
                     onToolInputProgress: handleToolInputProgress,
+                    onToolInputDelta: handleToolInputDelta,
                     onStreamActivityPulse: handleStreamActivityPulse,
                     sanitizeTextDelta: stripHallucinatedAtlarixToolTagsFromDelta,
                     applyTierEscalation,

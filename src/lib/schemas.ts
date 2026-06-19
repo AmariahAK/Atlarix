@@ -308,6 +308,10 @@ export const UserSettingsSchema = z.object({
   telemetryConsent: z.enum(["opted_in", "opted_out", "unset"]).optional(),
   telemetryUserId: z.string().optional(),
   hasRunBefore: z.boolean().optional(),
+  // Activation-funnel markers (analytics): epoch ms of the first agent turn
+  // started / completed, so first_task_* events each fire exactly once.
+  firstTaskStartedAt: z.number().optional(),
+  firstTaskCompletedAt: z.number().optional(),
   enableAtlarixPro: z.boolean().optional(),
   lastShownReleaseNotesVersion: z.string().optional(),
   maxChatTurnsInContext: z.number().optional(),

@@ -4,6 +4,7 @@ import {
   activeTurnScopeAtom,
   isStreamingByIdAtom,
   streamLastActivityAtByChatIdAtom,
+  liveToolInputByChatIdAtom,
   toolIndicatorAtom,
   waitingOnCommandByChatIdAtom,
 } from "@/atoms/chatAtoms";
@@ -24,8 +25,13 @@ export function formatWaitElapsed(ms: number): string {
   return `${mins}:${String(secs).padStart(2, "0")}`;
 }
 
-/** No stream chunk for this long → "Reconnecting…" (clears on the next chunk). */
-const RECONNECTING_AFTER_MS = 10_000;
+/**
+ * No activity pulse for this long → "Reconnecting…" (clears on the next pulse).
+ * The backend pulses on every chunk, on tool-call start, and every ~15s while a
+ * tool runs, so 20s comfortably absorbs the in-flight cadence yet still surfaces
+ * a genuine stall before the backend's 45s abort+retry.
+ */
+const RECONNECTING_AFTER_MS = 20_000;
 /** Turn older than this shows the subtle elapsed note (replaces the old banner). */
 const STILL_WORKING_AFTER_MS = 60_000;
 
@@ -81,6 +87,7 @@ export function InlineStreamStatus({
   const activityItems = useAtomValue(activityStreamItemsAtom);
   const waitingByChatId = useAtomValue(waitingOnCommandByChatIdAtom);
   const lastActivityByChatId = useAtomValue(streamLastActivityAtByChatIdAtom);
+  const liveToolInputByChatId = useAtomValue(liveToolInputByChatIdAtom);
   const activeTurnScope = useAtomValue(activeTurnScopeAtom);
   const setPanelIntent = useSetAtom(aiPanelIntentAtom);
   const workMode = settings?.workModePreference;
@@ -200,6 +207,22 @@ export function InlineStreamStatus({
     state.liveErrorLines.length > 0 ? state.liveErrorLines : state.liveOutputLines
   ).join("\n");
 
+  // Live partial-args preview: the file content building up while the model
+  // streams an edit_file write/replace, before the approval card opens.
+  const live = chatId != null ? liveToolInputByChatId.get(chatId) : undefined;
+  const liveWritePreview =
+    live && live.content
+      ? (() => {
+          const lines = live.content.split("\n");
+          const tail = lines.slice(-12);
+          return {
+            path: live.path,
+            text: tail.join("\n"),
+            more: lines.length - tail.length,
+          };
+        })()
+      : null;
+
   if (waiting) {
     // Persistent waiting chip — the model paused for a long-running command.
     // Clicking opens the right-panel Terminal tab on the agent's command.
@@ -266,6 +289,19 @@ export function InlineStreamStatus({
         <pre className="mt-1 px-2 py-1.5 max-h-40 overflow-auto text-[10px] font-mono bg-background/50 border border-border rounded whitespace-pre-wrap break-words">
           {liveText || "(no output yet)"}
         </pre>
+      )}
+      {liveWritePreview && (
+        <div className="mt-1">
+          {liveWritePreview.path ? (
+            <div className="px-1 text-[10px] font-mono text-foreground/70 truncate">
+              {liveWritePreview.path}
+            </div>
+          ) : null}
+          <pre className="mt-0.5 px-2 py-1.5 max-h-40 overflow-auto text-[10px] font-mono bg-[var(--diff-add-bg,theme(colors.emerald.500/10))] border border-border rounded whitespace-pre-wrap break-words">
+            {liveWritePreview.more > 0 ? `… (+${liveWritePreview.more} lines above)\n` : ""}
+            {liveWritePreview.text}
+          </pre>
+        </div>
       )}
     </div>
   );

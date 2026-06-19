@@ -20,7 +20,6 @@ import {
     numberParam,
 } from "./registry";
 
-import { enrichPermissionWithBlastRadius } from "./permissions/enrich-blast-radius";
 import {
     resolvePathUnderWorkspace,
     safeRelativePathUnderWorkspace,
@@ -368,85 +367,6 @@ ToolRegistry.register({
 // ═══════════════════════════════════════════════════════════
 // FILE WRITING
 // ═══════════════════════════════════════════════════════════
-
-ToolRegistry.register({
-    name: "write_file",
-    description:
-        "Create or overwrite a file in the workspace. ALWAYS use this tool to create or modify files - never describe what you would write.",
-    requiresWorkspace: true,
-    isCore: true,
-    isReadOnly: false,
-    parameters: createParameters(
-        {
-            path: stringParam("Path to the file to write (relative to workspace)"),
-            content: stringParam("Content to write to the file"),
-            description: stringParam("Brief description of what this file does"),
-        },
-        ["path", "content", "description"]
-    ),
-    handler: async ({ path: filePath, content, description, workspace, chatMode, agentMode, _chatSessionId, workspaceId }) => {
-        if (!chatMode) {
-            console.error('[write_file] chatMode is undefined - using default "build"');
-        }
-
-        if (chatMode === "ask") {
-            return {
-                error: "Write operations not allowed in Ask mode. Switch to Plan mode for the plan file, or Build mode to make code changes.",
-                operation: "write_file",
-                denied: true,
-            };
-        }
-
-        const normalizedPath = safeRelativePathUnderWorkspace(filePath);
-
-        if (chatMode === "plan") {
-            const norm = normalizedPath.replace(/\\/g, "/").replace(/^\/+/, "");
-            const { isAtlarixDocWritePath } = await import("../project-memory");
-            if (!isAtlarixDocWritePath(norm)) {
-                return {
-                    error:
-                        "Plan mode may only write .atlarix/atlarix.md or .atlarix/memory.md (use write_implementation_plan for session plans). Switch to Build for application code.",
-                    operation: "write_file",
-                    denied: true,
-                };
-            }
-        }
-
-        let fileType: "create" | "update" = "create";
-        let oldContent: string | undefined;
-        if (workspace) {
-            try {
-                const fullPath = resolvePathUnderWorkspace(workspace, normalizedPath);
-                assertReadablePath(normalizedPath, workspace);
-                await fs.promises.access(fullPath);
-                fileType = "update";
-                oldContent = await fs.promises.readFile(fullPath, "utf-8");
-            } catch {
-                fileType = "create";
-            }
-        }
-
-        const metadata = workspace
-            ? await enrichPermissionWithBlastRadius(workspace, normalizedPath, {
-                agentMode,
-                chatSessionId: _chatSessionId,
-                workspaceId,
-            })
-            : undefined;
-
-        return {
-            __permission_required: true,
-            operation: "write_file",
-            preview: {
-                path: normalizedPath,
-                content,
-                ...(oldContent !== undefined && { oldContent }),
-                description,
-                type: fileType,
-                lines: content.split("\n").length,
-            },
-            reasoning: `${fileType === "update" ? "Modifying" : "Creating"} ${normalizedPath}: ${description}`,
-            ...(metadata ? { metadata } : {}),
-        };
-    },
-});
+// v13.8: write_file was merged into edit_file (operation:"write"). File
+// creation/overwrite now lives in src/lib/tools/edit.ts so the model has one
+// mutation tool. See edit.ts runWrite().

@@ -15,6 +15,8 @@ const logger = log.scope("stream-chunk-tags");
 export const STREAM_STALL_TIMEOUT_MS = 45_000;
 const HEARTBEAT_LOG_INTERVAL_MS = 15_000;
 const TOOL_INPUT_PROGRESS_INTERVAL_MS = 2_000;
+/** Faster cadence for the live partial-args preview (feels streaming, bounded IPC). */
+const TOOL_INPUT_DELTA_EMIT_MS = 120;
 
 type AsyncIterableStream<T> = AsyncIterable<T> & ReadableStream<T>;
 
@@ -55,6 +57,16 @@ export type ProcessStreamChunksParams = {
     toolName: string;
     deltaCount: number;
   }) => void;
+  /**
+   * Throttled live partial tool-call arguments (the raw JSON text accumulated so
+   * far) — lets the UI render a streaming preview (e.g. an edit_file diff
+   * building up) BEFORE the tool-call completes. Cleared at tool-call end.
+   */
+  onToolInputDelta?: (info: {
+    toolCallId: string;
+    toolName: string;
+    argsTextSoFar: string;
+  }) => void;
   /** Lightweight pulse for UI scroll / slow-stream timers during silent phases. */
   onStreamActivityPulse?: () => void;
   stallTimeoutMs?: number;
@@ -81,6 +93,7 @@ export async function processStreamChunks({
   onFirstTextAfterReasoning,
   onStreamStall,
   onToolInputProgress,
+  onToolInputDelta,
   onStreamActivityPulse,
   stallTimeoutMs = STREAM_STALL_TIMEOUT_MS,
 }: ProcessStreamChunksParams): Promise<{
@@ -108,7 +121,21 @@ export async function processStreamChunks({
   let pendingInputToolName: string | undefined;
   let toolInputDeltaCount = 0;
   let lastToolInputNotifyAt = 0;
+  // Per tool-call accumulator of the raw JSON argument text streamed so far, so
+  // the UI can render a live preview before the tool-call completes.
+  const toolInputBuffers = new Map<string, { toolName: string; text: string }>();
+  let lastToolInputDeltaEmitAt = 0;
   const streamDebug = isStreamDebugLoggingEnabled();
+
+  const emitToolInputDelta = (toolCallId: string, force = false) => {
+    if (!onToolInputDelta) return;
+    const buf = toolInputBuffers.get(toolCallId);
+    if (!buf) return;
+    const now = Date.now();
+    if (!force && now - lastToolInputDeltaEmitAt < TOOL_INPUT_DELTA_EMIT_MS) return;
+    lastToolInputDeltaEmitAt = now;
+    onToolInputDelta({ toolCallId, toolName: buf.toolName, argsTextSoFar: buf.text });
+  };
 
   const markFirstModelActivity = () => {
     if (firstModelActivitySent || !onFirstModelActivity) return;
@@ -144,6 +171,10 @@ export async function processStreamChunks({
     // tools enforce their own timeouts.
     if (toolExecutionInFlight > 0) {
       lastChunkAt = Date.now();
+      // Keep the renderer's activity clock fresh while a long tool runs (a
+      // 60s+ command, a sub-agent) so it shows "still working", not a false
+      // "Reconnecting…". The tool enforces its own timeout; this is display-only.
+      onStreamActivityPulse?.();
       return;
     }
     const now = Date.now();
@@ -239,13 +270,32 @@ export async function processStreamChunks({
         if (toolKey) {
           pendingInputToolName = parseMcpToolKey(toolKey).toolName || toolKey;
         }
+        const startId = (part as { toolCallId?: string }).toolCallId;
+        if (startId && toolKey) {
+          toolInputBuffers.set(startId, {
+            toolName: parseMcpToolKey(toolKey).toolName || toolKey,
+            text: "",
+          });
+        }
         toolInputDeltaCount = 0;
         markFirstModelActivity();
         notifyToolInputProgress(true);
       } else if (part.type === "tool-input-delta") {
         toolInputDeltaCount += 1;
+        const deltaId = (part as { toolCallId?: string }).toolCallId;
+        const deltaText = (part as { inputTextDelta?: string }).inputTextDelta;
+        if (deltaId && typeof deltaText === "string") {
+          const buf = toolInputBuffers.get(deltaId);
+          if (buf) {
+            buf.text += deltaText;
+            emitToolInputDelta(deltaId, false);
+          }
+        }
         markFirstModelActivity();
         notifyToolInputProgress(false);
+      } else if (part.type === "tool-input-end") {
+        const endId = (part as { toolCallId?: string }).toolCallId;
+        if (endId) toolInputBuffers.delete(endId);
       } else if (part.type === "text-delta") {
         let text = part.text ?? "";
         if (sanitizeTextDelta) {
@@ -292,8 +342,16 @@ export async function processStreamChunks({
       } else if (part.type === "tool-call") {
         pendingInputToolName = undefined;
         toolInputDeltaCount = 0;
+        // Final args are authoritative now — drop the partial buffer so the UI
+        // stops showing the streaming preview for this call.
+        const callId = (part as { toolCallId?: string }).toolCallId;
+        if (callId) toolInputBuffers.delete(callId);
         toolExecutionInFlight += 1;
         markFirstModelActivity();
+        // A tool now runs and will emit no stream chunks until it returns — pulse
+        // immediately so the renderer's activity clock resets before the tool's
+        // (possibly long) execution, and keep pulsing from the stall timer below.
+        onStreamActivityPulse?.();
         const toolKey =
           typeof part.toolName === "string" ? part.toolName : "tool";
         const { serverName, toolName } = parseMcpToolKey(toolKey);

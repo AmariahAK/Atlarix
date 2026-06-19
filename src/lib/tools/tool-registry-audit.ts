@@ -32,7 +32,6 @@ export const GLOBAL_CHAT_TOOLS = new Set([
 export const BUILD_ONLY_TOOLS = [
   "edit_file",
   "task_complete",
-  "write_file",
 ] as const satisfies readonly string[];
 
 const BUILD_ONLY_SET = new Set<string>(BUILD_ONLY_TOOLS);

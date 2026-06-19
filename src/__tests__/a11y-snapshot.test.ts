@@ -23,7 +23,7 @@ describe("formatA11ySnapshot", () => {
     expect(out).toContain('[e2] input placeholder="Email"');
     expect(out).toContain('[e3] button "Sign in"');
     // The header tells the model how to act on refs.
-    expect(out).toContain("browser_click/browser_fill");
+    expect(out).toContain("browser_interact");
   });
 
   it("flags truncation and shows current values", () => {

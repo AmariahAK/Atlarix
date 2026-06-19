@@ -24,7 +24,7 @@ search, and external integrations. The agent has a workspace. You have control.
 
 **Created by [NorahLabs](https://norahlabs.com)** (Nairobi, Kenya)  
 **Website:** [atlarix.dev](https://atlarix.dev)  
-**Current release:** **v13.7.0**
+**Current release:** **v13.9.0**
 
 **Downloads:** Installers for **macOS**, **Linux**, and **Windows** are on [atlarix.dev](https://atlarix.dev). *(Windows builds are currently unsigned; code signing is coming soon.)*
 
@@ -71,7 +71,7 @@ Retrieval is **structural + lexical, no embeddings, no map tool**. Blueprint (Un
 
 ### Workspace Tools & Extensions
 
-- **Core tools:** A deliberately minimal tool surface — `read_file`/`write_file`/`edit_file`, **`glob`** + **`grep`** (Blueprint-reranked), `run_command` (incl. `git` CLI and background commands), web search/read, `task` sub-agents, `plan`, MCP, attachments, and the in-app browser tools. Explore/Plan/Review use read-only allowlists.
+- **Core tools:** A deliberately minimal tool surface — `read_file`, a single `edit_file` (one tool for create/overwrite via `operation:"write"` plus surgical replace/insert/delete/section), **`glob`** + **`grep`** (Blueprint-reranked), `run_command` (incl. `git` CLI and background commands), web search/read, `task` sub-agents, `plan`, MCP, attachments, and three in-app browser tools (`browser_navigate`/`browser_inspect`/`browser_interact`). Explore/Plan/Review use read-only allowlists.
 - **MCP:** MCP servers are configured **per workspace** — Solo connects **1** (manual config); Studio / Team get the marketplace plus up to **10** per workspace (one-click OAuth connect from the marketplace). On-demand **`list_available_mcps`** / **`mcp_call`** in workspace chat.
 - **Agent Behaviors:** Install from [atlarix-skills](https://github.com/AmariahAK/atlarix-skills). Optional **`.atlarix/skills/`** in the repo.
 
