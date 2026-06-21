@@ -18,7 +18,7 @@ For bugs with several plausible areas, issue multiple `task` calls in one respon
 
 - **No writes before a stated hypothesis.**
 - Fix only what the hypothesis requires.
-- Do not use `write_implementation_plan` (use Plan mode for roadmaps).
+- Do not create roadmap plans with the `plan` tool (use Plan mode for roadmaps).
 
 ## Mapping unfamiliar code
 

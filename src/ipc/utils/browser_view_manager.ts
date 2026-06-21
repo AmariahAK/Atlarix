@@ -35,6 +35,14 @@ export type BrowserPanelState = {
   visible: boolean;
 };
 
+/** A captured preview-surface error (console.error / load failure / crash). */
+export type PreviewErrorEntry = {
+  type: "console-error" | "load-failed" | "render-gone";
+  message: string;
+  url?: string;
+  timestamp: number;
+};
+
 type Rect = { x: number; y: number; width: number; height: number };
 
 const BROWSER_PARTITION = "persist:atlarix-browser";
@@ -268,4 +276,164 @@ export function ensureTab(): WebContentsView {
   const created = getActiveTabView();
   if (!created) throw new Error("Failed to create browser tab");
   return created;
+}
+
+// ── Preview surface (workstream 1) ───────────────────────────────────────────
+// The preview pane renders the user's dev server in its OWN WebContentsView,
+// independent of the browser tabs (own bounds/visibility) so it can be shown in
+// the Preview tab while the Browser panel manages its own tabs. The agent drives
+// this exact surface via the browser tools with target:"preview". Unlike the old
+// iframe, a WebContentsView exposes console/load events natively — captured here
+// and surfaced to both the Errors tab and the agent (preview:get-errors).
+
+const PREVIEW_ERROR_BUFFER_MAX = 50;
+
+let previewView: WebContentsView | null = null;
+let previewBounds: Rect | null = null;
+let previewVisible = false;
+let previewErrors: PreviewErrorEntry[] = [];
+
+export function getPreviewView(): WebContentsView | null {
+  return previewView && !previewView.webContents.isDestroyed() ? previewView : null;
+}
+
+export function getPreviewErrors(): PreviewErrorEntry[] {
+  return [...previewErrors];
+}
+
+export function clearPreviewErrors(): void {
+  previewErrors = [];
+}
+
+function pushPreviewError(entry: PreviewErrorEntry): void {
+  previewErrors.push(entry);
+  if (previewErrors.length > PREVIEW_ERROR_BUFFER_MAX) {
+    previewErrors = previewErrors.slice(-PREVIEW_ERROR_BUFFER_MAX);
+  }
+  const win = hostWindow();
+  if (win) safeSend(win.webContents, "preview:error", entry);
+}
+
+function nowTs(): number {
+  return Date.now();
+}
+
+function wirePreviewEvents(wc: Electron.WebContents): void {
+  // console.error / uncaught errors / unhandled rejections all surface as a
+  // level-"error" console message in Chromium. Signature differs across
+  // Electron majors (positional <35, event object >=35) — handle both.
+  wc.on("console-message", (...a: unknown[]) => {
+    let level: string | number | undefined;
+    let message = "";
+    let sourceUrl: string | undefined;
+    if (typeof a[1] === "number") {
+      level = a[1] as number;
+      message = String(a[2] ?? "");
+      sourceUrl = typeof a[4] === "string" ? (a[4] as string) : undefined;
+    } else {
+      const ev = (a[0] ?? {}) as {
+        level?: string;
+        message?: string;
+        sourceId?: string;
+      };
+      level = ev.level;
+      message = String(ev.message ?? "");
+      sourceUrl = ev.sourceId;
+    }
+    const isErrorOrWarn =
+      level === "error" || level === "warning" || level === 2 || level === 3;
+    if (!isErrorOrWarn || !message) return;
+    pushPreviewError({
+      type: "console-error",
+      message: message.slice(0, 4000),
+      url: sourceUrl,
+      timestamp: nowTs(),
+    });
+  });
+  wc.on("did-fail-load", (_e, code, desc, url) => {
+    if (code === -3 /* aborted (redirects/SPAs) */) return;
+    pushPreviewError({
+      type: "load-failed",
+      message: `${desc} (${code})`,
+      url,
+      timestamp: nowTs(),
+    });
+  });
+  wc.on("render-process-gone", (_e, details) => {
+    pushPreviewError({
+      type: "render-gone",
+      message: `Preview renderer gone: ${details?.reason ?? "unknown"}`,
+      timestamp: nowTs(),
+    });
+  });
+  // Block protocol-downgrade/external schemes (same policy as browser tabs).
+  wc.on("will-navigate", (event, url) => {
+    if (!isAllowedBrowserUrl(url)) {
+      logger.warn(`[preview] blocked navigation to ${url}`);
+      event.preventDefault();
+    }
+  });
+  wc.setWindowOpenHandler(({ url }) => {
+    if (isAllowedBrowserUrl(url)) void wc.loadURL(url);
+    return { action: "deny" };
+  });
+}
+
+export function ensurePreviewView(): WebContentsView {
+  const existing = getPreviewView();
+  if (existing) return existing;
+  const view = new WebContentsView({
+    webPreferences: {
+      session: browserSession(),
+      sandbox: true,
+      contextIsolation: true,
+      nodeIntegration: false,
+      webSecurity: true,
+    },
+  });
+  previewView = view;
+  wirePreviewEvents(view.webContents);
+  return view;
+}
+
+function attachPreview(): void {
+  const win = hostWindow();
+  const view = getPreviewView();
+  if (!win || !view) return;
+  win.contentView.addChildView(view);
+  if (previewBounds) view.setBounds(previewBounds);
+}
+
+function detachPreview(): void {
+  const win = hostWindow();
+  const view = getPreviewView();
+  if (!win || !view) return;
+  win.contentView.removeChildView(view);
+}
+
+/** Load (or reload) a URL into the preview surface. http(s) only. */
+export function loadPreview(url: string): boolean {
+  if (!isAllowedBrowserUrl(url)) return false;
+  const view = ensurePreviewView();
+  clearPreviewErrors();
+  void view.webContents.loadURL(url).catch((err: Error) => {
+    if (!/ERR_ABORTED/.test(String(err))) {
+      logger.warn(`[preview] load failed: ${String(err)}`);
+    }
+  });
+  if (previewVisible) attachPreview();
+  return true;
+}
+
+export function setPreviewBounds(rect: Rect): void {
+  previewBounds = rect;
+  const view = getPreviewView();
+  if (view && previewVisible) view.setBounds(rect);
+}
+
+export function setPreviewVisible(nextVisible: boolean): void {
+  previewVisible = nextVisible;
+  if (!getPreviewView()) return;
+  if (nextVisible) attachPreview();
+  else detachPreview();
 }

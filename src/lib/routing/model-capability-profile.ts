@@ -15,6 +15,8 @@
  * 0.2 parked in tool-model-output.ts.
  */
 
+import { getCachedOpenRouterModelRow } from "./tier-context-limits";
+
 export interface ModelCapabilityProfile {
   /** Max tools to OFFER per turn; null = no cap (full surface). */
   maxTools: number | null;
@@ -37,21 +39,62 @@ const LOW: ModelCapabilityProfile = {
   supportsToolMedia: false,
 };
 
-/** Providers whose tool-result messages accept image content parts (0.2). */
-const TOOL_MEDIA_PROVIDERS: ReadonlySet<string> = new Set([
+/**
+ * Providers whose tool-result messages natively accept image content parts —
+ * the fast path. Other providers are NOT assumed image-blind: a catalog modality
+ * lookup (below) lets any vision-capable model (Grok, Pixtral/Qwen-VL via
+ * OpenRouter, BYO multimodal endpoints) receive screenshots too.
+ */
+const NATIVE_VISION_PROVIDERS: ReadonlySet<string> = new Set([
   "anthropic",
   "openai",
   "google",
 ]);
 
 /**
+ * Does an OpenRouter-style modality string indicate the model accepts IMAGE
+ * input? OpenRouter uses e.g. "text+image->text"; some catalogs say
+ * "multimodal". Only the input side (left of "->") matters for vision input.
+ */
+function modalityAcceptsImages(modality: string | undefined): boolean {
+  if (!modality) return false;
+  const m = modality.toLowerCase();
+  const input = m.includes("->") ? (m.split("->")[0] ?? m) : m;
+  return input.includes("image") || input.includes("multimodal");
+}
+
+/**
+ * Capability-based vision gate (replaces the old hardcoded 3-provider allowlist
+ * so user-supplied / open-weight vision models are no longer handicapped).
+ * Known-native providers are always true; everything else is resolved from the
+ * live OpenRouter catalog modality. Unknown models fall back to text (no
+ * regression vs. before, and never sends raw base64 to a non-vision model).
+ */
+export function detectVisionCapability(
+  builtinProviderId: string | undefined,
+  modelApiId?: string,
+): boolean {
+  if (builtinProviderId && NATIVE_VISION_PROVIDERS.has(builtinProviderId)) {
+    return true;
+  }
+  const id = (modelApiId ?? "").trim();
+  if (id.includes("/")) {
+    const row = getCachedOpenRouterModelRow(id);
+    if (modalityAcceptsImages(row?.architecture?.modality)) return true;
+  }
+  return false;
+}
+
+/**
  * v12 2.1 absorbed the 0.2 media gate — the single source of truth for
- * whether tool results may carry image parts (browser_screenshot).
+ * whether tool results may carry image parts (browser screenshots). Now
+ * capability-based: pass the model id so non-native vision models are detected.
  */
 export function providerSupportsToolMedia(
   builtinProviderId: string | undefined,
+  modelApiId?: string,
 ): boolean {
-  return !!builtinProviderId && TOOL_MEDIA_PROVIDERS.has(builtinProviderId);
+  return detectVisionCapability(builtinProviderId, modelApiId);
 }
 
 /**
@@ -81,9 +124,10 @@ export function getCapabilityProfile(model: {
   builtinProviderId?: string;
 }): ModelCapabilityProfile {
   const name = model.name ?? "";
-  const supportsToolMedia =
-    !!model.builtinProviderId &&
-    TOOL_MEDIA_PROVIDERS.has(model.builtinProviderId);
+  const supportsToolMedia = detectVisionCapability(
+    model.builtinProviderId,
+    name,
+  );
 
   // Catalog: known-strong families keep the full surface regardless of size
   // suffixes ("gpt-4o-mini", "gemini-flash", "claude-haiku" are capable).

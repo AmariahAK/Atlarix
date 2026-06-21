@@ -239,8 +239,10 @@ function flattenOutputText(output: unknown): string {
 export function regateNativeMediaForProvider(
   messages: ModelMessage[],
   currentBuiltinProviderId: string | undefined,
+  currentModelApiId?: string,
 ): ModelMessage[] {
-  if (providerSupportsToolMedia(currentBuiltinProviderId)) return messages;
+  if (providerSupportsToolMedia(currentBuiltinProviderId, currentModelApiId))
+    return messages;
 
   let changed = false;
   const out = messages.map((m) => {

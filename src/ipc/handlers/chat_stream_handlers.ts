@@ -53,7 +53,11 @@ import {
   estimateTurnCostUsd,
   inputOutputTokensFromUsage,
 } from "@/lib/routing/byok-pricing";
-import { getNativeWebSearchSupport } from "../utils/native_web_search";
+import {
+  getNativeWebSearchSupport,
+  reservedNativeToolNames,
+} from "../utils/native_web_search";
+import { finalizeReels } from "../utils/browser-reel";
 import { perfReportOnce } from "@/lib/perf-marks";
 import { PreflightTimer } from "@/lib/agent/preflight-timing";
 import { buildAttachmentRecord } from "@/lib/attachment-upload";
@@ -3419,6 +3423,7 @@ This conversation includes one or more image attachments. When the user uploads 
                 return regateNativeMediaForProvider(
                   envelope.messages,
                   modelClient.builtinProviderId,
+                  resolveReasoningCatalogModelId(effectiveModel),
                 );
               }
             }
@@ -3667,21 +3672,30 @@ This conversation includes one or more image attachments. When the user uploads 
                 modelClient.builtinProviderId,
                 effectiveModel?.name,
               );
-              if (nativeWeb?.kind === "tool") {
-                const { web_search: _clientWebSearch, ...rest } = tools;
-                effectiveTools = { ...rest, [nativeWeb.key]: nativeWeb.tool };
-                logger.log(
-                  `[native-web-search] using provider tool ${nativeWeb.key} (${modelClient.builtinProviderId})`,
+              if (nativeWeb) {
+                // Provider-agnostic: a native web search supersedes the client
+                // `web_search` for ALL providers. Strip every client tool whose
+                // name the provider will inject (covers the OpenRouter `web`
+                // plugin's server-side web_search — the xAI/Grok duplicate bug),
+                // then add the native tool / enable the plugin.
+                const reserved = new Set(reservedNativeToolNames(nativeWeb));
+                effectiveTools = Object.fromEntries(
+                  Object.entries(tools).filter(([name]) => !reserved.has(name)),
                 );
-              } else if (nativeWeb?.kind === "openrouter-plugin") {
-                providerOptions.openrouter = {
-                  ...providerOptions.openrouter,
-                  plugins: [
-                    ...(providerOptions.openrouter?.plugins ?? []),
-                    { id: "web" },
-                  ],
-                };
-                logger.log("[native-web-search] enabled OpenRouter web plugin");
+                if (nativeWeb.kind === "tool") {
+                  effectiveTools[nativeWeb.key] = nativeWeb.tool;
+                } else if (nativeWeb.kind === "openrouter-plugin") {
+                  providerOptions.openrouter = {
+                    ...providerOptions.openrouter,
+                    plugins: [
+                      ...(providerOptions.openrouter?.plugins ?? []),
+                      { id: "web" },
+                    ],
+                  };
+                }
+                logger.log(
+                  `[native-web-search] ${nativeWeb.kind} active (${modelClient.builtinProviderId}); dropped client tools: ${[...reserved].join(", ")}`,
+                );
               }
             }
 
@@ -4340,6 +4354,7 @@ This conversation includes one or more image attachments. When the user uploads 
                 toModelOutput: (output: unknown) =>
                   buildToolModelOutput(tool.name, output, {
                     builtinProviderId: modelClient.builtinProviderId,
+                    modelApiId: resolveReasoningCatalogModelId(effectiveModel),
                   }) ?? {
                     type: "text",
                     value:
@@ -4980,6 +4995,9 @@ This conversation includes one or more image attachments. When the user uploads 
             // Listen for terminal output events and forward to frontend; v3.9: also feed to StreamManager for stream_terminal_output
             permissionInterceptor.on('terminal-output', (payload: any) => {
               feedTerminalOutput(req.chatId, payload.output ?? "");
+              // Streaming output IS activity — pulse so the inline status doesn't
+              // falsely flip to "Reconnecting…" during a long/quiet command.
+              handleStreamActivityPulse();
               safeSend(event.sender, "terminal-output", {
                 chatId: req.chatId,
                 commandId: payload.operationId,
@@ -5058,6 +5076,7 @@ This conversation includes one or more image attachments. When the user uploads 
                 toModelOutput: (output: unknown) =>
                   buildToolModelOutput(toolName, output, {
                     builtinProviderId: modelClient.builtinProviderId,
+                    modelApiId: resolveReasoningCatalogModelId(effectiveModel),
                   }) ?? {
                     type: "text",
                     value:
@@ -6809,6 +6828,20 @@ ${stopNote}`;
         streamTerminated = true;
         FileUploadsState.getInstance().clear(req.chatId);
       } finally {
+        // Finalize any browser/preview session recordings captured this turn and
+        // hand the renderer a reference to play them back (proof of work).
+        const recordingMessageId = snapshotTurnIdForTerminal;
+        void finalizeReels(req.chatId)
+          .then((recordings) => {
+            if (recordings.length > 0 && recordingMessageId) {
+              safeSend(event.sender, "chat:stream:browser-recording", {
+                chatId: req.chatId,
+                messageId: recordingMessageId,
+                recordings,
+              });
+            }
+          })
+          .catch(() => {});
         stopAgentOrchestrator?.();
         unregisterLedgerPlanUiNotifier(req.chatId);
         clearActiveModelDisplayName();

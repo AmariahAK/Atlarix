@@ -35,6 +35,7 @@ import { registerHelpBotHandlers } from "./handlers/help_bot_handlers";
 import { registerMcpHandlers } from "./handlers/mcp_handlers";
 import { registerMcpOAuthHandlers } from "./handlers/mcp_oauth_handlers";
 import { registerBrowserHandlers } from "./handlers/browser_handlers";
+import { registerMediaHandlers } from "./handlers/media_handlers";
 import { registerSkillsHandlers } from "./handlers/skills_handlers";
 import { registerVisualEditingHandlers } from "../pro/main/ipc/handlers/visual_editing_handlers";
 import { registerFolderDialogHandler } from "./handlers/atlarix_handlers";
@@ -116,4 +117,5 @@ export function registerIpcHandlers() {
   registerCommandPermissionHandlers();
   registerFilePermissionHandlers();
   registerBrowserHandlers(); // v11 in-app browser (WebContentsView) + WebMCP
+  registerMediaHandlers(); // browser/preview session recordings (frame reels)
 }

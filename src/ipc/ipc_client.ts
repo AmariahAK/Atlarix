@@ -3158,6 +3158,82 @@ export class IpcClient {
     return typeof off === "function" ? off : () => {};
   }
 
+  // Preview surface (dev-server WebContentsView shown in the Preview pane).
+  public async previewLoad(
+    url: string,
+  ): Promise<{ ok: boolean; error?: string }> {
+    return this.ipcRenderer.invoke("preview:load", url);
+  }
+
+  public async previewSetBounds(rect: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  }): Promise<void> {
+    return this.ipcRenderer.invoke("preview:set-bounds", rect);
+  }
+
+  public async previewSetVisible(visible: boolean): Promise<void> {
+    return this.ipcRenderer.invoke("preview:set-visible", visible);
+  }
+
+  public async previewGetErrors(): Promise<
+    import("@/ipc/utils/browser_view_manager").PreviewErrorEntry[]
+  > {
+    return this.ipcRenderer.invoke("preview:get-errors");
+  }
+
+  public async previewClearErrors(): Promise<void> {
+    return this.ipcRenderer.invoke("preview:clear-errors");
+  }
+
+  public onPreviewError(
+    listener: (
+      error: import("@/ipc/utils/browser_view_manager").PreviewErrorEntry,
+    ) => void,
+  ): () => void {
+    const off = this.ipcRenderer.on("preview:error", (error) =>
+      listener(
+        error as import("@/ipc/utils/browser_view_manager").PreviewErrorEntry,
+      ),
+    );
+    return typeof off === "function" ? off : () => {};
+  }
+
+  // Browser/preview session recordings (frame reels).
+  public async mediaGetRecording(
+    chatId: number,
+    recordingId: string,
+  ): Promise<{
+    recordingId: string;
+    surface: "browser" | "preview";
+    width: number;
+    height: number;
+    frames: { caption: string; type: string; ts: number; dataUrl: string }[];
+  } | null> {
+    return this.ipcRenderer.invoke("media:get-recording", { chatId, recordingId });
+  }
+
+  public onBrowserRecording(
+    listener: (payload: {
+      chatId: number;
+      messageId: string;
+      recordings: import("@/ipc/utils/browser-reel").ReelRef[];
+    }) => void,
+  ): () => void {
+    const off = this.ipcRenderer.on("chat:stream:browser-recording", (payload) =>
+      listener(
+        payload as {
+          chatId: number;
+          messageId: string;
+          recordings: import("@/ipc/utils/browser-reel").ReelRef[];
+        },
+      ),
+    );
+    return typeof off === "function" ? off : () => {};
+  }
+
   // OpenRouter Favorites Management
   public async getFavoriteOpenRouterModels(): Promise<string[]> {
     return this.ipcRenderer.invoke("openrouter:get-favorites");

@@ -6,12 +6,13 @@
 
 ## Tool surface (v13 minimal)
 
-- **Files:** `read_file` (offset/limit pagination), `write_file`, `edit_file({operation: "replace" | "insert" | "delete" | "section"})`.
+- **Files:** `read_file` (offset/limit pagination), `edit_file({operation: "write" | "replace" | "insert" | "delete" | "section"})` — the single file-mutation tool (`operation:"write"` creates or fully overwrites a file; there is no separate `write_file`).
 - **Discovery:** `glob({pattern, path?})` finds files by NAME (mtime-sorted). `grep({pattern, include?, path?})` searches file CONTENTS (ripgrep regex). A directory listing is `glob` with pattern `*`.
 - **Shell:** `run_command` — also the route for git, tests, builds, scaffolding, rename/delete (`mv`, `rm` — these prompt for approval).
 - **Web:** `web_search` (set `deep: true` for multi-source synthesis); `read_url` for a specific URL.
+- **Browser & preview:** `browser_navigate` opens a URL; `browser_inspect({mode: "snapshot" | "text" | "screenshot" | "console"})` reads a page (snapshot lists interactive `ref`s cheaply); `browser_interact({action: "click" | "fill", ref})` acts on it. Add `target: "preview"` to any of these to drive the LIVE PREVIEW of the app you are building (the running dev server the user sees) — `target:"browser"` (default) drives the in-app browser. `mode:"console"` (preview) returns runtime errors.
 - **Sub-agents:** `task` spawns a scoped read-only scout. Issue MULTIPLE task calls in ONE response for independent scopes — they run concurrently (up to 5 per turn).
-- **Plan:** `plan({operation: "write" | "read" | "set_status" | "update_step"})` — the session plan artifact (card in chat).
+- **Plan:** `plan({operation: "write" | "read" | "set_status" | "update_step" | "append_step"})` — the session plan artifact (card in chat).
 - **MCP:** `list_available_mcps` + `mcp_call`.
 - **User:** `ask_user` (batch up to 5 questions in one call; your turn ends). `read_attachment` / `list_attachments` for attached files. `compress_context` when the thread runs long.
 
@@ -23,7 +24,7 @@
 
 ## Memory
 
-Durable project knowledge lives in `.atlarix/memory.md` (auto-injected when present) — update it via `write_file` when you learn durable facts (stack, architecture, conventions). Project rules live in `.atlarix/atlarix.md`; follow them when non-empty.
+Durable project knowledge lives in `.atlarix/memory.md` (auto-injected when present) — update it via `edit_file` (`operation:"write"`) when you learn durable facts (stack, architecture, conventions). Project rules live in `.atlarix/atlarix.md`; follow them when non-empty.
 
 ## Context layers
 

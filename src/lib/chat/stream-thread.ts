@@ -485,7 +485,7 @@ export function streamThreadItemFromActivity(
         : undefined;
 
     const runningSummary =
-      item.label?.trim() || getToolRunningSummary(registryName);
+      item.label?.trim() || getToolRunningSummary(registryName, item.toolArgs);
 
     return {
       kind: "tool",
@@ -494,7 +494,7 @@ export function streamThreadItemFromActivity(
       summary: isRunning
         ? runningSummary
         : summarizeToolActivityItem(item) ||
-          getToolCompletedSummary(registryName),
+          getToolCompletedSummary(registryName, item.toolArgs),
       detail: rawDetail,
       expand,
       toolArgs: item.toolArgs,

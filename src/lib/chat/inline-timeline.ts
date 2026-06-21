@@ -1,6 +1,6 @@
 import type { ActivityStreamItem } from "@/atoms/sourceAtoms";
 import type { CompletedTurnThinkingSnapshot } from "@/lib/thinking/extract-thinking-from-content";
-import { getToolActivityLabel } from "@/lib/tool-activity-labels";
+import { browserToolLabel, getToolActivityLabel } from "@/lib/tool-activity-labels";
 import { formatToolResultPreview } from "@/lib/chat/stream-tool-display";
 
 export type InlineTimelineToolStatus = "running" | "done" | "error";
@@ -20,6 +20,12 @@ export type InlineTimelineItem =
 
 export function summarizeToolActivityItem(item: ActivityStreamItem): string {
   const name = (item.toolName ?? item.label ?? "tool").trim();
+  // Browser/preview tools read best as a concrete past-tense action with the
+  // target ("Clicked 'Sign up' · preview", "Inspected preview") rather than the
+  // generic "<label>: <detail>" path below.
+  const tense = item.status === "running" ? "running" : "done";
+  const browser = browserToolLabel(name, item.toolArgs, tense);
+  if (browser) return browser;
   let detail = item.detail?.trim() ?? "";
   // v10.1: sub-agent tool activity carries the raw result envelope as detail —
   // summarize it through the result formatter instead of pasting JSON.

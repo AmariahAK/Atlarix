@@ -84,6 +84,15 @@ export function getUserDataPath(): string {
   return path.resolve("./userData");
 }
 
+/**
+ * Per-chat media directory for captured browser/preview session recordings
+ * (frame reels). `{userData}/media/{chatId}/`; reels live in `{…}/{recordingId}/`.
+ */
+export function getMediaPath(chatId: number | string, recordingId?: string): string {
+  const base = path.join(getUserDataPath(), "media", String(chatId));
+  return recordingId ? path.join(base, recordingId) : base;
+}
+
 /** True when the path is under legacy or default Atlarix clone roots (safe to offer disk delete). */
 export function isAtlarixManagedWorkspacePath(absolutePath: string): boolean {
   if (!path.isAbsolute(absolutePath)) return false;

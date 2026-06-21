@@ -91,7 +91,9 @@ export function InlineStreamStatus({
   const activeTurnScope = useAtomValue(activeTurnScopeAtom);
   const setPanelIntent = useSetAtom(aiPanelIntentAtom);
   const workMode = settings?.workModePreference;
-  const [outputExpanded, setOutputExpanded] = useState(false);
+  // Live terminal output auto-streams while a command runs (like the edit_file
+  // live preview); the user can still collapse it.
+  const [outputExpanded, setOutputExpanded] = useState(true);
 
   const isTargetStreaming =
     chatId != null && streamingById.get(chatId) === true;

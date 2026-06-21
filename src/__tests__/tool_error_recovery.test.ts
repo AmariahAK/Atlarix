@@ -11,12 +11,20 @@ import {
   resolveRecoverySuggestion,
 } from "@/lib/tools/tool-error-patterns";
 
+// Real core tools that must always carry a recovery hint.
 const TEST_TOOLS = [
-  "list_files",
-  "find_file",
-  "delegate_to_agent",
-  "write_implementation_plan",
+  "read_file",
+  "edit_file",
+  "glob",
+  "grep",
+  "run_command",
+  "plan",
+  "mcp_call",
 ] as const;
+
+// Throwaway tool name for exercising the execute() envelope without clobbering a
+// real registered tool; its hint is injected/removed per test (see beforeEach).
+const FAKE_TOOL = "__recovery_test_tool";
 
 const registered: string[] = [];
 
@@ -44,12 +52,14 @@ function registerStructuredFail(name: string, fail: Record<string, unknown>) {
 
 beforeEach(() => {
   registered.length = 0;
+  TOOL_RECOVERY_HINTS[FAKE_TOOL] = "Try a broader pattern to fix it.";
 });
 
 afterEach(() => {
   for (const name of registered) {
     (ToolRegistry as any).tools?.delete?.(name);
   }
+  delete TOOL_RECOVERY_HINTS[FAKE_TOOL];
 });
 
 describe("hasActionableGuidance", () => {
@@ -74,14 +84,14 @@ describe("resolveRecoverySuggestion", () => {
   });
   it("returns hint for bare messages", () => {
     expect(
-      resolveRecoverySuggestion({ toolName: "list_files", message: "boom" }),
-    ).toBe(TOOL_RECOVERY_HINTS.list_files);
+      resolveRecoverySuggestion({ toolName: FAKE_TOOL, message: "boom" }),
+    ).toBe(TOOL_RECOVERY_HINTS[FAKE_TOOL]);
   });
   it("skips hint when message already guides", () => {
     expect(
       resolveRecoverySuggestion({
-        toolName: "list_files",
-        message: "Use explore_folder instead.",
+        toolName: FAKE_TOOL,
+        message: "Use grep instead.",
       }),
     ).toBeUndefined();
   });
@@ -89,39 +99,38 @@ describe("resolveRecoverySuggestion", () => {
 
 describe("ToolRegistry.execute recovery envelope", () => {
   it("thrown bare errors gain the per-tool hint", async () => {
-    registerThrowing("list_files", "Failed to scan project: EACCES");
-    const res = await ToolRegistry.execute("list_files", {});
+    registerThrowing(FAKE_TOOL, "Failed to scan project: EACCES");
+    const res = await ToolRegistry.execute(FAKE_TOOL, {});
     expect(res.success).toBe(false);
-    expect(res.suggestion).toBe(TOOL_RECOVERY_HINTS.list_files);
+    expect(res.suggestion).toBe(TOOL_RECOVERY_HINTS[FAKE_TOOL]);
   });
 
   it("structured bare failures gain the per-tool hint", async () => {
-    registerStructuredFail("delegate_to_agent", {
+    registerStructuredFail(FAKE_TOOL, {
       success: false,
-      error: "Unknown agent: bogus",
+      error: "something went wrong",
     });
-    const res = await ToolRegistry.execute("delegate_to_agent", {});
+    const res = await ToolRegistry.execute(FAKE_TOOL, {});
     expect(res.success).toBe(false);
-    expect(res.suggestion).toBe(TOOL_RECOVERY_HINTS.delegate_to_agent);
-    expect(res.suggestion).toContain("research");
+    expect(res.suggestion).toBe(TOOL_RECOVERY_HINTS[FAKE_TOOL]);
   });
 
   it("structured failures with their own suggestion keep it", async () => {
-    registerStructuredFail("find_file", {
+    registerStructuredFail(FAKE_TOOL, {
       success: false,
       error: "nope",
       suggestion: "custom guidance",
     });
-    const res = await ToolRegistry.execute("find_file", {});
+    const res = await ToolRegistry.execute(FAKE_TOOL, {});
     expect(res.suggestion).toBe("custom guidance");
   });
 
   it("already-actionable messages do not get a redundant hint", async () => {
-    registerStructuredFail("write_implementation_plan", {
+    registerStructuredFail(FAKE_TOOL, {
       success: false,
-      message: "No plan yet. Use write_implementation_plan to create one.",
+      message: "No match. Use grep to find it by content.",
     });
-    const res = await ToolRegistry.execute("write_implementation_plan", {});
+    const res = await ToolRegistry.execute(FAKE_TOOL, {});
     expect(res.suggestion).toBeUndefined();
   });
 

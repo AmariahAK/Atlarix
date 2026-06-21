@@ -7,6 +7,7 @@ import {
   getCapabilityProfile,
   simplifyToolParametersForProfile,
   providerSupportsToolMedia,
+  detectVisionCapability,
 } from "@/lib/routing/model-capability-profile";
 
 describe("getCapabilityProfile", () => {
@@ -72,6 +73,30 @@ describe("getCapabilityProfile", () => {
     ).toBe(false);
     expect(providerSupportsToolMedia("google")).toBe(true);
     expect(providerSupportsToolMedia(undefined)).toBe(false);
+  });
+});
+
+describe("detectVisionCapability (de-hardcoded media gate)", () => {
+  it("native vision providers are always true (fast path)", () => {
+    expect(detectVisionCapability("anthropic")).toBe(true);
+    expect(detectVisionCapability("openai")).toBe(true);
+    expect(detectVisionCapability("google")).toBe(true);
+    // model id is irrelevant for native providers
+    expect(detectVisionCapability("anthropic", "claude-sonnet-4-5")).toBe(true);
+  });
+
+  it("non-native providers without a catalog modality stay false (no regression, text fallback)", () => {
+    expect(detectVisionCapability("ollama")).toBe(false);
+    expect(detectVisionCapability(undefined)).toBe(false);
+    // Even with an OpenRouter-shaped id, no cached catalog row → false.
+    expect(detectVisionCapability("openrouter", "some-vendor/uncached-model")).toBe(
+      false,
+    );
+  });
+
+  it("providerSupportsToolMedia delegates to detectVisionCapability", () => {
+    expect(providerSupportsToolMedia("anthropic", "claude-haiku-4-5")).toBe(true);
+    expect(providerSupportsToolMedia("ollama", "llava")).toBe(false);
   });
 });
 

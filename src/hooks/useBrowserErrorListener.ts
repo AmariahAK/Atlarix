@@ -12,6 +12,7 @@
 import { useEffect } from 'react';
 import { useSetAtom } from 'jotai';
 import { browserErrorsAtom, dismissedErrorSignaturesAtom, getErrorSignature, type BrowserError } from '@/atoms/sourceAtoms';
+import { IpcClient } from '@/ipc/ipc_client';
 
 export function useBrowserErrorListener() {
     const setErrors = useSetAtom(browserErrorsAtom);
@@ -422,12 +423,38 @@ export function useBrowserErrorListener() {
         window.addEventListener('message', handleMessage);
         window.addEventListener('error', handleError);
 
+        // Preview surface (workstream 1): the preview pane is now a native
+        // WebContentsView, so runtime errors arrive over the preview:error IPC
+        // instead of an iframe postMessage. Map and feed them through the same
+        // dedup/ignore pipeline as every other source.
+        const offPreviewError = IpcClient.getInstance().onPreviewError((entry) => {
+            const message = entry?.message || '';
+            if (!message || shouldIgnoreError(message, entry?.url || '')) return;
+            const error: BrowserError = {
+                id: `preview-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+                type: entry.type === 'load-failed' ? 'build' : 'runtime',
+                severity: 'error',
+                framework: 'browser',
+                actionable: true,
+                message,
+                file: entry.url,
+                timestamp: entry.timestamp || Date.now(),
+            };
+            setDismissedSignatures((prev) => {
+                const next = new Set(prev);
+                next.delete(getErrorSignature(error));
+                return next;
+            });
+            setErrors((prev) => (isDuplicateError(error, prev) ? prev : [...prev, error]));
+        });
+
         return () => {
             window.removeEventListener('message', handleMessage);
             window.removeEventListener('error', handleError);
             ipcRenderer?.removeListener?.('browser-console-error', handleCDPError);
             ipcRenderer?.removeListener?.('operation-status', handleOperationStatus);
             ipcRenderer?.removeListener?.('browser-console-cleared', handleBufferCleared);
+            offPreviewError();
         };
     }, [setErrors, setDismissedSignatures]);
 }

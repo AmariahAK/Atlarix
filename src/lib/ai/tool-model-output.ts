@@ -71,7 +71,7 @@ function screenshotCaption(media: ScreenshotMedia): string {
 export function buildToolModelOutput(
   toolName: string,
   output: unknown,
-  ctx: { builtinProviderId?: string },
+  ctx: { builtinProviderId?: string; modelApiId?: string },
 ): LanguageModelV2ToolResultOutput | undefined {
   // v13.8: screenshots arrive via browser_inspect(mode:"screenshot") and the
   // legacy browser_screenshot tool (old sessions). The shape check below is the
@@ -83,7 +83,7 @@ export function buildToolModelOutput(
   const media = extractScreenshotMedia(output);
   if (!media) return undefined; // failure results keep the normal path
 
-  if (providerSupportsToolMedia(ctx.builtinProviderId)) {
+  if (providerSupportsToolMedia(ctx.builtinProviderId, ctx.modelApiId)) {
     return {
       type: "content",
       value: [

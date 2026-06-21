@@ -66,9 +66,9 @@ const ASK_TOOLS = [
 ] as const;
 
 // Plan mode is filesystem-read-only: it authors its PLAN via the `plan` tool
-// (session artifact) but must NOT touch the workspace. write_file / edit_file /
-// destructive run_command stay excluded from the advertised list and the
-// execute-gate (incl. the text-tool fallback path).
+// (session artifact) but must NOT touch the workspace. edit_file (except the
+// .atlarix docs) / destructive run_command stay excluded from the advertised
+// list and the execute-gate (incl. the text-tool fallback path).
 const PLAN_TOOLS = [
   "browser_inspect",
   "browser_interact",

@@ -1,4 +1,8 @@
-import { getToolActivityLabel, getToolDoneLabel } from "@/lib/tool-activity-labels";
+import {
+  getToolActivityLabel,
+  getToolActivityLabelWithArgs,
+  getToolDoneLabel,
+} from "@/lib/tool-activity-labels";
 import type { StreamThreadToolStatus } from "@/lib/chat/stream-thread";
 import { computeDiffHunks } from "@/lib/diff/compose-hunks";
 
@@ -488,8 +492,13 @@ export function summarizeToolResultForActivityDetail(
   return capActivityDetail(preview);
 }
 
-export function getToolRunningSummary(registryName: string): string {
-  return getToolActivityLabel(registryName);
+export function getToolRunningSummary(
+  registryName: string,
+  args?: Record<string, unknown> | null,
+): string {
+  return args
+    ? getToolActivityLabelWithArgs(registryName, args)
+    : getToolActivityLabel(registryName);
 }
 
 /** Live sub-agent / stream line while a tool is running (includes path/query when known). */
@@ -525,8 +534,11 @@ export function formatToolStartPreview(
   return getToolActivityLabel(registryName);
 }
 
-export function getToolCompletedSummary(registryName: string): string {
-  return getToolDoneLabel(registryName);
+export function getToolCompletedSummary(
+  registryName: string,
+  args?: Record<string, unknown> | null,
+): string {
+  return getToolDoneLabel(registryName, args);
 }
 
 export function looksLikeToolArgsJson(detail: string | undefined): boolean {

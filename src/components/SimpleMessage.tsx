@@ -13,6 +13,7 @@ import {
 } from "./chat/AtlarixMarkdownParser";
 import { AssistantMessageBody } from "./chat/AssistantMessageBody";
 import { InlineStreamStatus } from "./chat/InlineStreamStatus";
+import { SessionRecordingCards } from "./chat/SessionRecordingCard";
 import { RevertTurnAction } from "./chat/RevertTurnAction";
 import { Copy, Check, Bot, Edit2, RotateCw, AlertTriangle } from "lucide-react";
 import { useState } from "react";
@@ -193,6 +194,11 @@ export function SimpleMessage({
                                     chatId={chatId ?? message.chatId}
                                     active={isStreaming}
                                 />
+                            )}
+
+                            {/* Browser/preview session recordings captured during this turn */}
+                            {isAssistant && (
+                                <SessionRecordingCards messageId={message.id} />
                             )}
                         </div>
                     )}

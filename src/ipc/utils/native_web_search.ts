@@ -76,3 +76,23 @@ export function getNativeWebSearchSupport(
   }
 }
 
+/**
+ * Provider-agnostic dedup: the client tool name(s) a native web search
+ * supersedes and that MUST be dropped from the dispatched tool set, so the
+ * model never receives two tools with the same name. Covers every provider
+ * uniformly — the OpenRouter `web` plugin injects a `web_search` server-side
+ * (outside our tool object), Anthropic exposes `web_search`, etc. Keyed off the
+ * active native support, never off a provider id.
+ */
+export function reservedNativeToolNames(
+  support: NativeWebSearchSupport | null,
+): string[] {
+  if (!support) return [];
+  // The client `web_search` is always superseded by any native web search.
+  const names = ["web_search"];
+  // A provider tool also occupies its own key (e.g. web_search_preview,
+  // google_search) — reserve it too so a same-named client tool can't collide.
+  if (support.kind === "tool") names.push(support.key);
+  return names;
+}
+

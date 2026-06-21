@@ -114,10 +114,6 @@ export function ChatErrorBox({
       <ChatErrorContainer onDismiss={onDismiss}>
         {error}
         <div className="mt-2 space-y-2 space-x-2">
-          <UpgradeButton>
-            Upgrade to Atlarix Pro
-          </UpgradeButton>
-
           <ExternalLink href="https://atlarix.dev/docs/help/ai-rate-limit">
             Troubleshooting guide
           </ExternalLink>

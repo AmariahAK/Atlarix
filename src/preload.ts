@@ -273,6 +273,14 @@ const validInvokeChannels = [
   "browser:reload",
   "browser:set-bounds",
   "browser:set-visible",
+  // Preview surface (dev-server WebContentsView, agent-drivable)
+  "preview:load",
+  "preview:set-bounds",
+  "preview:set-visible",
+  "preview:get-errors",
+  "preview:clear-errors",
+  // Browser/preview session recordings (frame reels)
+  "media:get-recording",
   // File operations (Live Code Editor)
   "file:read-content",
   "file:write-content",
@@ -394,6 +402,8 @@ const validReceiveChannels = [
   "plan:artifact-updated",
   "plan:file-updated",
   "browser:state-changed", // v11 in-app browser: main → renderer tab/nav state
+  "preview:error", // preview surface: main → renderer captured console/load error
+  "chat:stream:browser-recording", // main → renderer: session reel(s) ready for a turn
   "autonomous:session-complete",
   "chat:auto-self-correct", // main → renderer: synthetic fix prompt inserted; continue stream
   // PASS6: Blueprint AI-editing event channels — restored.

@@ -24,16 +24,20 @@ function argsPathHint(args: unknown): string | undefined {
 export function getPersistedToolSummary(
   part: Extract<AssistantMessagePart, { type: "tool" }>,
 ): string {
+  const toolArgs =
+    part.args && typeof part.args === "object"
+      ? (part.args as Record<string, unknown>)
+      : undefined;
   if (part.status === "running") {
-    return getToolRunningSummary(part.toolName);
+    return getToolRunningSummary(part.toolName, toolArgs);
   }
   if (part.status === "error") {
     const err = part.error?.trim();
-    const base = getToolCompletedSummary(part.toolName);
+    const base = getToolCompletedSummary(part.toolName, toolArgs);
     return err ? `${base}: ${err.slice(0, 80)}` : base;
   }
   const hint = argsPathHint(part.args);
-  const base = getToolCompletedSummary(part.toolName);
+  const base = getToolCompletedSummary(part.toolName, toolArgs);
   if (hint) {
     const short =
       hint.length > 56 ? `${hint.slice(0, 55)}…` : hint;

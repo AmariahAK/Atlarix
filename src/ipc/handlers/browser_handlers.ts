@@ -16,6 +16,11 @@ import {
   setVisible,
   getBrowserPanelState,
   normalizeBrowserInput,
+  loadPreview,
+  setPreviewBounds,
+  setPreviewVisible,
+  getPreviewErrors,
+  clearPreviewErrors,
 } from "../utils/browser_view_manager";
 
 const logger = log.scope("browser_ipc");
@@ -78,6 +83,44 @@ export function registerBrowserHandlers(): void {
   ipcMain.handle("browser:set-visible", (_e, visible: boolean) => {
     setVisible(Boolean(visible));
     return getBrowserPanelState();
+  });
+
+  // ── Preview surface (workstream 1) — the dev-server WebContentsView shown in
+  // the Preview pane and drivable by the agent via browser tools target:"preview".
+  ipcMain.handle("preview:load", (_e, rawUrl: string) => {
+    const url = String(rawUrl ?? "").trim();
+    return loadPreview(url)
+      ? { ok: true }
+      : { ok: false, error: "Only http(s) URLs can be loaded in the preview." };
+  });
+
+  ipcMain.handle(
+    "preview:set-bounds",
+    (_e, rect: { x: number; y: number; width: number; height: number }) => {
+      if (
+        rect &&
+        [rect.x, rect.y, rect.width, rect.height].every(
+          (n) => typeof n === "number" && Number.isFinite(n),
+        )
+      ) {
+        setPreviewBounds({
+          x: Math.round(rect.x),
+          y: Math.round(rect.y),
+          width: Math.round(rect.width),
+          height: Math.round(rect.height),
+        });
+      }
+    },
+  );
+
+  ipcMain.handle("preview:set-visible", (_e, visible: boolean) => {
+    setPreviewVisible(Boolean(visible));
+  });
+
+  ipcMain.handle("preview:get-errors", () => getPreviewErrors());
+
+  ipcMain.handle("preview:clear-errors", () => {
+    clearPreviewErrors();
   });
 
   logger.log("[browser] handlers registered");

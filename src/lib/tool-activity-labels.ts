@@ -31,6 +31,9 @@ const LABELS: Record<string, string> = {
   google_search: "Searching the web…",
   deep_research: "Deep research…",
   read_url: "Reading URL…",
+  browser_navigate: "Opening page…",
+  browser_inspect: "Inspecting page…",
+  browser_interact: "Acting on page…",
   diagnose_issue: "Diagnosing issue…",
   record_debug_hypothesis: "Recording debug hypothesis…",
   memory: "Recalling memory…",
@@ -105,6 +108,83 @@ function subjectFromArgs(toolName: string, args: Record<string, unknown>): strin
   return null;
 }
 
+const BROWSER_TOOLS = new Set([
+  "browser_navigate",
+  "browser_inspect",
+  "browser_interact",
+]);
+
+function shortText(s: string, max = 28): string {
+  const t = s.trim();
+  return t.length > max ? `${t.slice(0, max - 1)}…` : t;
+}
+
+function hostFromUrl(raw: string): string {
+  try {
+    const u = new URL(raw);
+    return u.host + (u.pathname && u.pathname !== "/" ? u.pathname : "");
+  } catch {
+    return raw;
+  }
+}
+
+/**
+ * Arg-aware label for the browser/preview tools, in either tense. Reads the
+ * tool-call args {action, value, ref, selector, target, mode, url} so cards say
+ * "Filling 'Your email' · preview" / "Clicked 'Sign up' · preview" /
+ * "Inspected preview" instead of the generic (and previously broken "Runned …").
+ */
+export function browserToolLabel(
+  toolName: string,
+  args: Record<string, unknown> | null | undefined,
+  tense: "running" | "done",
+): string | null {
+  if (!BROWSER_TOOLS.has(toolName)) return null;
+  const a = args ?? {};
+  const str = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : "");
+  const isPreview = a.target === "preview";
+  const suffix = isPreview ? " · preview" : "";
+  const noun = isPreview ? "preview" : "page";
+
+  if (toolName === "browser_navigate") {
+    const where = str(a.url)
+      ? ` ${shortText(hostFromUrl(str(a.url)))}`
+      : isPreview
+        ? " preview"
+        : "";
+    return tense === "running"
+      ? `Opening${where || " page"}…`
+      : `Opened${where || " page"}`;
+  }
+
+  if (toolName === "browser_inspect") {
+    const mode = str(a.mode) || "snapshot";
+    const map: Record<string, [string, string]> = {
+      snapshot: [`Inspecting ${noun}`, `Inspected ${noun}`],
+      text: [`Reading ${noun} text`, `Read ${noun} text`],
+      screenshot: [`Capturing ${noun} screenshot`, `Captured ${noun} screenshot`],
+      console: [`Reading ${noun} console`, `Read ${noun} console`],
+    };
+    const [run, done] = map[mode] ?? map.snapshot;
+    return tense === "running" ? `${run}…` : done;
+  }
+
+  if (toolName === "browser_interact") {
+    const action = str(a.action);
+    if (action === "fill") {
+      const what = str(a.value) ? ` "${shortText(str(a.value), 24)}"` : " field";
+      return (tense === "running" ? `Filling${what}` : `Filled${what}`) + suffix;
+    }
+    if (action === "click") {
+      const label = str(a.ref) || str(a.selector);
+      const what = label ? ` ${shortText(label, 24)}` : " element";
+      return (tense === "running" ? `Clicking${what}` : `Clicked${what}`) + suffix;
+    }
+    return (tense === "running" ? "Acting on page" : "Acted on page") + suffix;
+  }
+  return null;
+}
+
 /**
  * Like getToolActivityLabel but folds in the tool's arguments when they
  * identify a concrete subject — e.g. "Writing src/auth.ts…".
@@ -114,6 +194,8 @@ export function getToolActivityLabelWithArgs(
   args?: Record<string, unknown> | null,
 ): string {
   if (toolName && args) {
+    const browser = browserToolLabel(toolName, args, "running");
+    if (browser) return `${browser.replace(/…$/u, "")}…`;
     // v13.8: edit_file absorbed write_file — a whole-file write reads as
     // "Writing …", surgical ops as "Editing …".
     const isWholeFileWrite = toolName === "edit_file" && args.operation === "write";
@@ -159,6 +241,9 @@ const DONE_LABELS: Record<string, string> = {
   google_search: "Searched the web",
   deep_research: "Completed deep research",
   read_url: "Read URL",
+  browser_navigate: "Opened page",
+  browser_inspect: "Inspected page",
+  browser_interact: "Acted on page",
   diagnose_issue: "Diagnosed issue",
   record_debug_hypothesis: "Recorded hypothesis",
   memory: "Recalled memory",
@@ -182,9 +267,16 @@ const DONE_LABELS: Record<string, string> = {
   update_atlarixignore: "Updated ignore rules",
 };
 
-/** Past-tense label for completed tool cards. */
-export function getToolDoneLabel(toolName: string): string {
+/** Past-tense label for completed tool cards (arg-aware for browser tools). */
+export function getToolDoneLabel(
+  toolName: string,
+  args?: Record<string, unknown> | null,
+): string {
   if (!toolName) return "Done";
+  if (args) {
+    const browser = browserToolLabel(toolName, args, "done");
+    if (browser) return browser;
+  }
   if (toolName.includes("__")) {
     const [server, tool] = toolName.split("__").filter(Boolean);
     if (server && tool) {

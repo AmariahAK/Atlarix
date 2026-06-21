@@ -26,7 +26,8 @@ import {
     Shield,
     Sparkles,
     Lightbulb,
-    Check
+    Check,
+    Folder
 } from 'lucide-react';
 import { InlinePermissionsHint } from '@/components/chat/InlinePermissionsHint';
 import { FixAllErrorsDialog } from '../FixAllErrorsDialog';
@@ -154,123 +155,62 @@ function CodePreviewPanel({ data, activeTab, onClearErrors, onSolveWithAI, onSol
 }
 
 /**
- * Preview Tab - Live iframe with responsive controls
+ * Preview Tab — the dev server now renders in a native WebContentsView (managed
+ * by browser_view_manager) that the agent can drive via the browser tools
+ * (target:"preview"). This placeholder div reports its rect via preview:set-bounds;
+ * the native view paints OVER it. Runtime errors arrive over preview:error
+ * (handled in useBrowserErrorListener) rather than the old iframe postMessage hack.
  */
 function PreviewTab({ url }: { url?: string }) {
     const [viewport, setViewport] = useState<ViewportSize>('full');
-    const [key, setKey] = useState(0); // For refresh
-    const iframeRef = useRef<HTMLIFrameElement>(null);
+    const placeholderRef = useRef<HTMLDivElement>(null);
 
-    // Inject error capture script into iframe on load
+    const reportBounds = useCallback(() => {
+        const el = placeholderRef.current;
+        if (!el) return;
+        const rect = el.getBoundingClientRect();
+        if (rect.width < 10 || rect.height < 10) return;
+        void IpcClient.getInstance().previewSetBounds({
+            x: rect.x,
+            y: rect.y,
+            width: rect.width,
+            height: rect.height,
+        });
+    }, []);
+
+    // Load (or reload) the dev-server URL into the preview WebContentsView.
     useEffect(() => {
-        const iframe = iframeRef.current;
-        if (!iframe || !url) return;
+        if (!url) return;
+        void IpcClient.getInstance().previewLoad(url);
+    }, [url]);
 
-        const handleIframeLoad = () => {
-            try {
-                const iframeWin = iframe.contentWindow;
-                if (!iframeWin) {
-                    console.debug('[PreviewTab] No contentWindow access');
-                    return;
-                }
-
-                // For same-origin iframes (localhost dev server), we can inject directly
-                // For cross-origin, accessing document will throw an error
-                // eslint-disable-next-line @typescript-eslint/no-unused-vars
-                const _test = iframeWin.document; // This throws if cross-origin
-
-                // Check if already injected
-                if ((iframeWin as any).__atlarixErrorCapture) {
-                    console.debug('[PreviewTab] Error capture already injected');
-                    return;
-                }
-                (iframeWin as any).__atlarixErrorCapture = true;
-
-                console.log('[PreviewTab] Injecting error capture into iframe');
-
-                // Send error to parent via postMessage
-                const sendError = (type: string, message: string, source?: string, lineno?: number, stack?: string) => {
-                    window.postMessage({
-                        type: 'atlarix-error',
-                        payload: {
-                            type,
-                            message: String(message),
-                            source: source || url,
-                            lineno,
-                            stack,
-                            timestamp: Date.now(),
-                            url
-                        }
-                    }, '*');
-                };
-
-                // Override console.error in iframe (contentWindow may be typed without console in some envs)
-                const win = iframeWin as Window & { console: Console };
-                const originalError = win.console.error.bind(win.console);
-                win.console.error = function (...args: unknown[]) {
-                    const message = args.map(arg => {
-                        if (arg instanceof Error) {
-                            return arg.message + (arg.stack ? '\n' + arg.stack : '');
-                        }
-                        return typeof arg === 'object' ? JSON.stringify(arg) : String(arg);
-                    }).join(' ');
-
-                    sendError('console-error', message);
-                    return originalError(...args);
-                };
-
-                // Global error handler in iframe
-                win.onerror = function (message: string | Event, source?: string | null, lineno?: number, colno?: number, error?: Error | null) {
-                    sendError(
-                        'error',
-                        String(message),
-                        source ?? undefined,
-                        lineno,
-                        error?.stack
-                    );
-                    return false;
-                };
-
-                // Unhandled promise rejection handler in iframe
-                iframeWin.addEventListener('unhandledrejection', function (event: PromiseRejectionEvent) {
-                    const reason = event.reason;
-                    sendError(
-                        'unhandled-rejection',
-                        reason instanceof Error ? reason.message : String(reason),
-                        undefined,
-                        undefined,
-                        reason instanceof Error ? reason.stack : undefined
-                    );
-                });
-
-                // Also capture script errors
-                iframeWin.addEventListener('error', function (event: ErrorEvent) {
-                    if (event.error || event.message) {
-                        sendError(
-                            'error',
-                            event.message || event.error?.message || 'Unknown error',
-                            event.filename,
-                            event.lineno,
-                            event.error?.stack
-                        );
-                    }
-                }, true);
-
-                console.log('[PreviewTab] Error capture successfully injected');
-            } catch {
-                // Cross-origin iframe - can't inject directly
-                // Rely on proxy injection or postMessage from the page itself
-                console.debug('[PreviewTab] Cannot inject into cross-origin iframe, relying on postMessage');
-            }
+    // Show the native view while the Preview tab is mounted; hide on unmount /
+    // tab switch. Track the placeholder rect (panel resize, viewport changes).
+    useEffect(() => {
+        if (!url) return;
+        const ipc = IpcClient.getInstance();
+        void ipc.previewSetVisible(true).then(reportBounds);
+        const el = placeholderRef.current;
+        const observer = new ResizeObserver(() => reportBounds());
+        if (el) observer.observe(el);
+        window.addEventListener('resize', reportBounds);
+        const settle = setTimeout(reportBounds, 250);
+        return () => {
+            clearTimeout(settle);
+            observer.disconnect();
+            window.removeEventListener('resize', reportBounds);
+            void ipc.previewSetVisible(false);
         };
+    }, [url, reportBounds]);
 
-        iframe.addEventListener('load', handleIframeLoad);
-        return () => iframe.removeEventListener('load', handleIframeLoad);
-    }, [url, key]);
+    // Re-report after a viewport change (the box resizes synchronously here).
+    useEffect(() => {
+        reportBounds();
+    }, [viewport, reportBounds]);
 
     const handleRefresh = useCallback(() => {
-        setKey(prev => prev + 1);
-    }, []);
+        if (url) void IpcClient.getInstance().previewLoad(url);
+    }, [url]);
 
     const handleOpenExternal = useCallback(() => {
         if (url) {
@@ -370,24 +310,17 @@ function PreviewTab({ url }: { url?: string }) {
                 </div>
             </div>
 
-            {/* Iframe Container */}
-            <div className="flex-1 bg-muted/10 flex items-center justify-center p-4 overflow-auto">
+            {/* WebContentsView footprint — the native preview view renders over this rect. */}
+            <div className="flex-1 bg-muted/10 flex items-center justify-center p-4 overflow-hidden">
                 <div
+                    ref={placeholderRef}
                     className="bg-white rounded-lg shadow-lg overflow-hidden transition-all duration-200"
                     style={{
                         width: VIEWPORT_SIZES[viewport].width,
                         height: viewport === 'full' ? '100%' : 'calc(100% - 2rem)',
                         maxWidth: '100%'
                     }}
-                >
-                    <iframe
-                        key={key}
-                        ref={iframeRef}
-                        src={url}
-                        className="w-full h-full border-0"
-                        title="Live Preview"
-                    />
-                </div>
+                />
             </div>
 
             {/* Viewport Label */}
@@ -841,8 +774,9 @@ function ErrorsTab({
                                             onClick={() => toggleExpanded(error.id)}
                                         >
                                             {error.file && (
-                                                <p className="text-xs text-zinc-500 mt-1 truncate">
-                                                    📁 {error.file}{error.line ? `:${error.line}` : ''}
+                                                <p className="flex items-center gap-1.5 text-xs text-zinc-500 mt-1 truncate">
+                                                    <Folder className="w-3 h-3 shrink-0" />
+                                                    <span className="truncate">{error.file}{error.line ? `:${error.line}` : ''}</span>
                                                 </p>
                                             )}
                                             <div className="flex items-start gap-3">

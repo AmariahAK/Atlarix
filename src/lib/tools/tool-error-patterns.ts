@@ -8,56 +8,42 @@
  * merges into failures whose message lacks actionable guidance.
  */
 
-/** Default next-step hint per tool, used when a failure message is bare. */
+/**
+ * Default next-step hint per tool, used when a failure message is bare.
+ * Keyed by the REAL tool surface (v13.8: write_file→edit_file operation:"write",
+ * list_files/explore_folder/find_file/search→glob/grep, the plan_* tools→plan).
+ */
 export const TOOL_RECOVERY_HINTS: Record<string, string> = {
   read_file:
-    "Use list_files or explore_folder to locate the correct path, or search to find the file by content.",
-  write_file:
-    "Check the path is workspace-relative and the parent directory exists (create_directory). In Plan mode only .atlarix/atlarix.md and .atlarix/memory.md are writable.",
+    "Use glob to locate the correct path by name, or grep to find the file by its content (relevance-ranked, symbol-annotated hits).",
   edit_file:
-    "Re-read the file with read_file first — the target content may have changed. To create a file or fully rewrite it, use operation:\"write\" with the full content.",
-  list_files:
-    "Try explore_folder on a specific directory, or find_file with a narrower glob pattern.",
-  explore_folder:
-    "If the path is a file, use read_file. Verify the directory exists with list_files on its parent.",
-  find_file:
-    "No matches is often an extension or casing issue — try a broader pattern, or use search to find the file by its content.",
-  get_file_outline:
-    "Use read_file to inspect the file directly; outlines need a parseable source file.",
-  search:
-    "Try a simpler query, or browse with glob / read_file. For architecture and usage, grep returns relevance-ranked, symbol-annotated hits.",
+    "Re-read the file with read_file first — the target content may have changed. To create a file or fully rewrite it, use operation:\"write\" with the full content. In Plan mode only .atlarix/atlarix.md and .atlarix/memory.md are writable.",
+  glob:
+    "No matches is often an extension or casing issue — try a broader pattern, or use grep to find the file by its content.",
+  grep:
+    "Try a simpler query. To list files by name instead of content, use glob; read exact ranges with read_file.",
   run_command:
     "If it timed out, pass a larger timeout_ms or split the command. If it needs interaction, add non-interactive flags (e.g. --yes, CI=true).",
-  stream_terminal_output:
-    "Verify the command id is from a run_command started this turn.",
-  delegate_to_agent:
-    "Valid agents: research, explore, scout, architect, builder, reviewer, debugger. Pick one and retry.",
-  spawn_sub_agent:
-    "Check the sub-agent task description and retry; at most 5 sub-agents per turn.",
+  task:
+    "Check the sub-agent task description and retry; at most 5 task calls per turn. Sub-agents are read-only (glob/grep/read_file/web_search/read_url).",
+  plan:
+    "Use the planId from the active session plan in context, or plan({operation:\"read\"}) to find it. Valid operations: write, read, set_status, update_step, append_step.",
   mcp_call:
     "Call list_available_mcps first to see connected servers and exact tool names. If authentication failed, the user must Connect/Configure the server in Settings → Tools & MCP.",
   list_available_mcps:
     "MCP servers are configured per workspace in Settings → Tools & MCP.",
   web_search:
     "Retry with a shorter, keyword-style query. If search is unavailable, tell the user they can enable SearxNG (Settings → Search) or a search MCP.",
-  deep_research:
-    "Narrow the research question, or fall back to a single web_search for a quick fact.",
   read_url:
     "Check the URL is complete (https://…). For paywalled/JS-heavy pages, try web_search for the same content instead.",
   read_attachment:
     "Call list_attachments to see valid attachment ids for this chat.",
-  write_implementation_plan:
-    "Plans need an active workspace session — ensure a workspace is open. Re-check the plan markdown structure.",
-  read_implementation_plan:
-    "No plan exists yet in this session — create one with write_implementation_plan.",
-  update_plan_status:
-    "Use the planId from the active session plan in context (or read_implementation_plan).",
-  update_plan_step:
-    "Use the planId from the active session plan and a step index from its checklist (read_implementation_plan shows steps).",
-  get_project_history:
-    "Project history needs an open workspace with prior sessions; it may be empty for new projects.",
-  memory:
-    "Memory queries need an open workspace. For durable project facts, read .atlarix/memory.md with read_file.",
+  browser_navigate:
+    "Only http(s) URLs are allowed. To drive the app you are building, pass target:\"preview\" to load the running dev server.",
+  browser_inspect:
+    "Open a page first (browser_navigate), or pass target:\"preview\" to inspect the live app preview. mode:\"snapshot\" lists interactive refs; mode:\"console\" (preview only) shows runtime errors.",
+  browser_interact:
+    "Get a fresh ref from browser_inspect(mode:\"snapshot\") and act by ref. Use the same target (\"browser\" default, or \"preview\") you inspected.",
 };
 
 const ACTION_PATTERN =
