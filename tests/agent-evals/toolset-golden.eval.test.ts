@@ -44,8 +44,8 @@ function offeredToolNames(scenarioId: string): string[] {
 // browser_navigate); write_file merged into edit_file (operation:"write").
 const GOLDEN = {
   ask: [
-    "ask_user", "browser_inspect", "browser_interact", "browser_navigate",
-    "compress_context", "glob", "grep", "list_attachments",
+    "ask_user", "background_jobs", "browser_inspect", "browser_interact",
+    "browser_navigate", "compress_context", "glob", "grep", "list_attachments",
     "list_available_mcps", "mcp_call", "read_attachment", "read_file",
     "read_url", "run_command", "task", "web_search",
   ],
@@ -56,8 +56,8 @@ const GOLDEN = {
     "read_url", "task", "web_search",
   ],
   build: [
-    "ask_user", "browser_inspect", "browser_interact", "browser_navigate",
-    "compress_context", "edit_file",
+    "ask_user", "background_jobs", "browser_inspect", "browser_interact",
+    "browser_navigate", "compress_context", "edit_file",
     "glob", "grep", "list_attachments", "list_available_mcps",
     "mcp_call", "plan", "read_attachment", "read_file", "read_url",
     "run_command", "task", "task_complete", "web_search",

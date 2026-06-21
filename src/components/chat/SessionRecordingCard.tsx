@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { useAtomValue } from "jotai";
-import { Clapperboard, Play, Pause, ChevronRight, ChevronDown, Monitor, Globe } from "lucide-react";
+import { Play, Pause, Loader2, ChevronLeft, ChevronRight } from "lucide-react";
 import { IpcClient } from "@/ipc/ipc_client";
 import {
   sessionRecordingsByMessageIdAtom,
   type SessionReelRef,
 } from "@/atoms/sourceAtoms";
-import { cn } from "@/lib/utils";
+import { VisualArtifactCard } from "./VisualArtifactCard";
 
 interface ReelFrame {
   caption: string;
@@ -19,61 +19,96 @@ interface ReelFrame {
 const FRAME_MS = 650;
 
 function ReelPlayer({ reel }: { reel: SessionReelRef }) {
-  const [frames, setFrames] = useState<ReelFrame[] | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [frames, setFrames] = useState<ReelFrame[]>([]);
   const [index, setIndex] = useState(0);
   const [playing, setPlaying] = useState(false);
-  const timer = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Once the user scrubs or hits play, stop auto-following the recording tail so
+  // they can step through every frame at their own pace.
+  const pinnedRef = useRef(false);
 
-  // Lazy-load frames the first time the player mounts (card expanded).
+  // (Re)load frames whenever the reel grows or finalizes. The backend emits a
+  // throttled frameCount update (~1/s) while recording, so this gives a live
+  // refresh without a separate polling timer.
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
     void IpcClient.getInstance()
       .mediaGetRecording(reel.chatId, reel.recordingId)
       .then((rec) => {
-        if (cancelled) return;
-        setFrames(rec?.frames ?? []);
-        setPlaying((rec?.frames?.length ?? 0) > 1);
-      })
-      .finally(() => !cancelled && setLoading(false));
+        if (cancelled || !rec) return;
+        setFrames(rec.frames);
+        if (rec.frames.length === 0) return;
+        // Follow the tail ONLY while still recording and the user hasn't taken
+        // manual control; otherwise just clamp the index into range.
+        if (reel.live && !pinnedRef.current) {
+          setIndex(rec.frames.length - 1);
+        } else {
+          setIndex((i) => Math.min(i, rec.frames.length - 1));
+        }
+      });
     return () => {
       cancelled = true;
     };
-  }, [reel.chatId, reel.recordingId]);
+  }, [reel.chatId, reel.recordingId, reel.frameCount, reel.live]);
 
-  // Auto-advance while playing.
+  // Optional playback loop — only when the user pressed play. Never fights
+  // manual scrubbing or the live tail-follow.
   useEffect(() => {
-    if (!playing || !frames || frames.length <= 1) return;
-    timer.current = setInterval(() => {
+    if (!playing || frames.length <= 1) return;
+    const id = setInterval(() => {
       setIndex((i) => (i + 1) % frames.length);
     }, FRAME_MS);
-    return () => {
-      if (timer.current) clearInterval(timer.current);
-    };
-  }, [playing, frames]);
+    return () => clearInterval(id);
+  }, [playing, frames.length]);
 
-  if (loading) {
-    return <div className="px-2 py-6 text-center text-xs text-muted-foreground">Loading recording…</div>;
-  }
-  if (!frames || frames.length === 0) {
-    return <div className="px-2 py-6 text-center text-xs text-muted-foreground">Recording unavailable.</div>;
+  if (frames.length === 0) {
+    return (
+      <div className="flex h-full items-center justify-center gap-2 text-xs text-muted-foreground">
+        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+        {reel.live ? "Recording…" : "Loading recording…"}
+      </div>
+    );
   }
 
   const frame = frames[Math.min(index, frames.length - 1)]!;
+  const step = (delta: number) => {
+    pinnedRef.current = true;
+    setPlaying(false);
+    setIndex((i) => Math.max(0, Math.min(frames.length - 1, i + delta)));
+  };
   return (
-    <div className="space-y-2">
-      <div className="overflow-hidden rounded border border-border bg-black/40">
-        <img src={frame.dataUrl} alt={frame.caption} className="w-full" />
+    <div className="flex h-full flex-col gap-2 p-2">
+      <div className="flex min-h-0 flex-1 items-center justify-center overflow-hidden rounded border border-border bg-black/40">
+        <img src={frame.dataUrl} alt={frame.caption} className="max-h-full max-w-full object-contain" />
       </div>
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-1.5">
         <button
           type="button"
-          onClick={() => setPlaying((p) => !p)}
+          onClick={() => step(-1)}
+          disabled={index <= 0}
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted hover:bg-muted/70 disabled:opacity-30"
+          title="Previous frame"
+        >
+          <ChevronLeft className="h-3.5 w-3.5" />
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            pinnedRef.current = true;
+            setPlaying((p) => !p);
+          }}
           className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted hover:bg-muted/70"
           title={playing ? "Pause" : "Play"}
         >
           {playing ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
+        </button>
+        <button
+          type="button"
+          onClick={() => step(1)}
+          disabled={index >= frames.length - 1}
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted hover:bg-muted/70 disabled:opacity-30"
+          title="Next frame"
+        >
+          <ChevronRight className="h-3.5 w-3.5" />
         </button>
         <input
           type="range"
@@ -81,6 +116,7 @@ function ReelPlayer({ reel }: { reel: SessionReelRef }) {
           max={frames.length - 1}
           value={index}
           onChange={(e) => {
+            pinnedRef.current = true;
             setPlaying(false);
             setIndex(Number(e.target.value));
           }}
@@ -97,35 +133,10 @@ function ReelPlayer({ reel }: { reel: SessionReelRef }) {
   );
 }
 
-function ReelCard({ reel }: { reel: SessionReelRef }) {
-  const [open, setOpen] = useState(false);
-  const SurfaceIcon = reel.surface === "preview" ? Monitor : Globe;
-  return (
-    <div className="rounded-lg border border-border bg-muted/20">
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs"
-      >
-        {open ? (
-          <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-        ) : (
-          <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-        )}
-        <Clapperboard className="h-3.5 w-3.5 shrink-0 text-emerald-500" />
-        <span className="font-medium">Session recording</span>
-        <SurfaceIcon className="h-3 w-3 shrink-0 text-muted-foreground" />
-        <span className="text-muted-foreground">
-          {reel.surface} · {reel.frameCount} frame{reel.frameCount === 1 ? "" : "s"}
-        </span>
-      </button>
-      {open ? (
-        <div className="border-t border-border px-2.5 py-2">
-          <ReelPlayer reel={reel} />
-        </div>
-      ) : null}
-    </div>
-  );
+function reelTitle(reel: SessionReelRef): string {
+  const surface = reel.surface === "preview" ? "preview" : "browser";
+  const base = `Session recording · ${surface}`;
+  return reel.live ? `${base} · recording…` : `${base} · ${reel.frameCount} frames`;
 }
 
 /** All session recordings produced by a given assistant message's turn. */
@@ -134,10 +145,17 @@ export function SessionRecordingCards({ messageId }: { messageId: string | numbe
   const reels = messageId != null ? byMessage[String(messageId)] : undefined;
   if (!reels || reels.length === 0) return null;
   return (
-    <div className={cn("mt-2 space-y-1.5")}>
+    <>
       {reels.map((reel) => (
-        <ReelCard key={reel.recordingId} reel={reel} />
+        <VisualArtifactCard
+          key={reel.recordingId}
+          title={reelTitle(reel)}
+          layout="canvas"
+          defaultExpanded={false}
+        >
+          <ReelPlayer reel={reel} />
+        </VisualArtifactCard>
       ))}
-    </div>
+    </>
   );
 }

@@ -12,7 +12,7 @@ Use **native function calling** for all tools. Every allowlisted tool's schema i
 
 - **Files:** `read_file` (offset/limit), `edit_file({operation: "write" | "replace" | "insert" | "delete" | "section"})` — the one file-mutation tool (`operation:"write"` creates/overwrites; no separate `write_file`).
 - **Discovery:** `glob({pattern, path?})` = files by NAME (mtime-sorted); `grep({pattern, include?, path?})` = file CONTENTS (ripgrep regex).
-- **Shell:** `run_command` — git, tests, builds, scaffolding, rename/delete (`mv`, `rm`).
+- **Shell:** `run_command` — git, tests, builds, scaffolding, rename/delete (`mv`, `rm`). `background:true` runs detached: returns a `job_id`, AUTO-notifies on exit (don't poll); you may END YOUR TURN while it runs (woken on completion). Any command still running after ~15s auto-moves to the background. **`background_jobs`** ({operation:"list"|"output"|"cancel", job_id}) lists/reads/cancels. A backgrounded process that prints a localhost URL auto-loads the preview (drive via `target:"preview"`).
 - **Web:** `web_search` (`deep: true` for multi-source synthesis); `read_url` for a specific URL.
 - **Browser & preview:** `browser_navigate`, `browser_inspect({mode: "snapshot" | "text" | "screenshot" | "console"})`, `browser_interact({action: "click" | "fill", ref})`. Add `target:"preview"` to drive the live preview of the app you're building (vs `target:"browser"`, default); `mode:"console"` (preview) shows runtime errors.
 - **Sub-agents:** `task` — issue MULTIPLE calls in ONE response for independent scopes; they run concurrently (max 5/turn).

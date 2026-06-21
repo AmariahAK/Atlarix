@@ -53,6 +53,7 @@ function withEveryModeTools(list: readonly string[]): readonly string[] {
 }
 
 const ASK_TOOLS = [
+  "background_jobs",
   "browser_inspect",
   "browser_interact",
   "browser_navigate",
@@ -83,6 +84,7 @@ const PLAN_TOOLS = [
 ] as const;
 
 const REVIEW_TOOLS = [
+  "background_jobs",
   "browser_inspect",
   "browser_interact",
   "browser_navigate",

@@ -75,6 +75,8 @@ import {
   terminalOutputsAtom,
   activityStreamItemsAtom,
   sessionRecordingsByMessageIdAtom,
+  backgroundJobsByChatIdAtom,
+  devServerUrlAtom,
   type SourceItem,
   type FileProposal,
   type TerminalOutput,
@@ -407,8 +409,66 @@ export function useStreamChat({
   // Late-bound handle so the stream-end queue flush (registered above the
   // definition) can call streamMessage without a dependency cycle.
   const streamMessageRef = useRef<
-    ((args: { prompt: string; chatId: number }) => Promise<unknown>) | null
+    ((args: {
+      prompt: string;
+      chatId: number;
+      continueAfterQuestions?: boolean;
+    }) => Promise<unknown>) | null
   >(null);
+  /** Chats with an in-flight background-completion wake (avoid double-starting). */
+  const bgWakeInFlightRef = useRef<Set<number>>(new Set());
+
+  // v14 pt3: a backgrounded command printed a localhost URL → load it in the
+  // preview and surface the preview pane so the user sees the running app.
+  useEffect(() => {
+    const unsub = IpcClient.getInstance().onPreviewDevUrl(({ url }) => {
+      if (!url) return;
+      getDefaultStore().set(devServerUrlAtom, url);
+      maybeAutoOpenRightPanel();
+      setPreviewTab("preview");
+      getDefaultStore().set(aiPanelIntentAtom, {
+        intent: "show-preview",
+        timestamp: Date.now(),
+        source: "system",
+      });
+    });
+    return unsub;
+  }, []);
+
+  // v14: background jobs — keep the indicator atom fresh and AUTO-WAKE the agent
+  // when a job finishes while the chat is idle. Persistent (mount-level) so it
+  // fires even after the turn that started the job has ended.
+  useEffect(() => {
+    const ipc = IpcClient.getInstance();
+    const unsub = ipc.onBackgroundJobUpdate(({ chatId: evChatId, status }) => {
+      void ipc.backgroundJobsList(evChatId).then((jobs) => {
+        getDefaultStore().set(backgroundJobsByChatIdAtom, (prev) => ({
+          ...prev,
+          [evChatId]: jobs.map((j) => ({
+            operationId: j.operationId,
+            command: j.command,
+            startedAt: j.startedAt,
+            elapsedMs: j.elapsedMs,
+          })),
+        }));
+      });
+      // Auto-wake only on a finished (not cancelled) job, when the chat is idle
+      // and no wake is already in flight. A live turn already drains the result
+      // via prepareStep, so do nothing then.
+      if (status !== "finished") return;
+      const streaming = getDefaultStore().get(isStreamingByIdAtom).get(evChatId) === true;
+      if (streaming || bgWakeInFlightRef.current.has(evChatId)) return;
+      bgWakeInFlightRef.current.add(evChatId);
+      void Promise.resolve(
+        streamMessageRef.current?.({
+          prompt: "",
+          chatId: evChatId,
+          continueAfterQuestions: true,
+        }),
+      ).finally(() => bgWakeInFlightRef.current.delete(evChatId));
+    });
+    return unsub;
+  }, []);
 
   const streamMessage = useCallback(
     async ({
@@ -1040,12 +1100,16 @@ export function useStreamChat({
         // Browser/preview session recordings: attach the reel(s) to the turn's
         // assistant message so a playable card renders under it.
         const unsubscribeBrowserRecording = IpcClient.getInstance().onBrowserRecording(
-          ({ chatId: evChatId, messageId, recordings }) => {
-            if (evChatId !== chatId || !recordings?.length) return;
-            getDefaultStore().set(sessionRecordingsByMessageIdAtom, (prev) => ({
-              ...prev,
-              [messageId]: [...(prev[messageId] ?? []), ...recordings],
-            }));
+          ({ chatId: evChatId, messageId, recordingId, surface, frameCount, firstFrame, live }) => {
+            if (evChatId !== chatId) return;
+            getDefaultStore().set(sessionRecordingsByMessageIdAtom, (prev) => {
+              const list = prev[messageId] ?? [];
+              const next = { recordingId, chatId: evChatId, surface, frameCount, firstFrame, live };
+              const idx = list.findIndex((r) => r.recordingId === recordingId);
+              const updated =
+                idx >= 0 ? list.map((r, i) => (i === idx ? next : r)) : [...list, next];
+              return { ...prev, [messageId]: updated };
+            });
           },
         );
 

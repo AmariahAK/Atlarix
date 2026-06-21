@@ -20,6 +20,10 @@ Verify against the project's **own** tooling via `run_command`:
 
 Never claim a change is clean while a check still reports errors you could have seen.
 
+## Long-running commands
+
+For dev servers, watchers, or long builds/installs, start them with `run_command({background:true})` — it returns a `job_id` and runs detached so you keep working (or end the turn); you're auto-notified with the result when it exits, no polling. (Any command still running after ~15s auto-moves to the background anyway.) Use `background_jobs({operation:"list"|"output"|"cancel", job_id})` to check on or stop a job. When a backgrounded server prints a localhost URL, the preview loads it automatically — then drive it with `browser_* target:"preview"`.
+
 ## Tests
 
 When the task involves non-trivial logic, **write or extend test files that genuinely exercise it** and run them before declaring done — place them where the project keeps tests and use its test runner. Skip the ceremony for trivial edits (renames, copy tweaks, config bumps).

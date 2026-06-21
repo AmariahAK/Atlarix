@@ -105,6 +105,13 @@ function broadcastState(): void {
   safeSend(win.webContents, "browser:state-changed", getBrowserPanelState());
 }
 
+/** Send an event to the renderer (host window). Used by sibling main-process
+ *  modules (e.g. browser-reel, background jobs) that don't track the window. */
+export function broadcastToRenderer(channel: string, payload: unknown): void {
+  const win = hostWindow();
+  if (win) safeSend(win.webContents, channel, payload);
+}
+
 export function getBrowserPanelState(): BrowserPanelState {
   return {
     tabs: [...tabs.entries()].map(([id, view]) => ({
@@ -436,4 +443,44 @@ export function setPreviewVisible(nextVisible: boolean): void {
   if (!getPreviewView()) return;
   if (nextVisible) attachPreview();
   else detachPreview();
+}
+
+// ── Paintable capture (session reels) ────────────────────────────────────────
+// capturePage() returns an EMPTY image for a WebContentsView that isn't attached
+// to the window (no compositor surface). Session reels must record the
+// agent-driven preview/browser surface even when the user isn't looking at that
+// right-panel tab — so if the view isn't currently attached, temporarily attach
+// it OFF-SCREEN, let it paint, capture, then detach. Best-effort; never throws.
+const OFFSCREEN_RECT: Rect = { x: -20000, y: 0, width: 1024, height: 768 };
+
+export async function capturePaintable(
+  view: WebContentsView,
+): Promise<import("electron").NativeImage | null> {
+  const win = hostWindow();
+  if (!win || view.webContents.isDestroyed()) return null;
+  const alreadyAttached = win.contentView.children.includes(view);
+  if (alreadyAttached) {
+    try {
+      return await view.webContents.capturePage();
+    } catch {
+      return null;
+    }
+  }
+  try {
+    win.contentView.addChildView(view);
+    view.setBounds(OFFSCREEN_RECT);
+    // Give the compositor a beat to paint a frame before capturing.
+    await new Promise((r) => setTimeout(r, 60));
+    return await view.webContents.capturePage();
+  } catch {
+    return null;
+  } finally {
+    try {
+      win.contentView.removeChildView(view);
+      // Restore the preview view if it's meant to be visible to the user.
+      if (view === getPreviewView() && previewVisible) attachPreview();
+    } catch {
+      /* ignore */
+    }
+  }
 }

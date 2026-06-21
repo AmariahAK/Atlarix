@@ -30,19 +30,20 @@ export function getActiveModeHeaderBlock(mode: ModeRegistryKey): string {
   const blocks: Record<ModeRegistryKey, string> = {
     ask: `## Current mode: Explore
 
-You are in Explore mode. This is a read-only investigation mode for this chat turn.
+You are in Explore mode. This is a read-only investigation mode for this chat turn — read-only with respect to the SOURCE/repo, but you may run and observe the app.
 
 You CAN:
 - Read files and search the codebase with glob / grep (grep results are relevance-ranked)
-- Use **run_command** for read-only shell/git (git status, git log, git diff, ls, cat)
+- Run **non-mutating** commands with **run_command**: reads (ls, cat, git status/log/diff), tests, builds, **dependency installs** (npm/pip install), and curl/wget GET. These run automatically.
+- RUN AND PREVIEW THE APP: start a dev server with **run_command** (long-running commands auto-move to the background after ~15s, or pass \`background:true\`), then drive the live preview with browser_navigate / browser_inspect / browser_interact using target:"preview" (open routes, click, fill forms). When the server prints a localhost URL the preview loads it automatically.
 - Use web_search (one per topic per turn)
 - Answer questions and use attachments (read_attachment, list_attachments)
 
-You CANNOT:
+You CANNOT (these mutate the source/repo — switch to Build/Debug for code changes):
 - Write or edit files (edit_file) or create plans (the plan tool)
-- Run mutating commands via run_command (npm install, git commit, rm, etc.)
+- Run MUTATING/DESTRUCTIVE commands: git add/commit/push/reset/checkout, rm/mv/cp/chmod, publish, deploy, etc. (these are blocked here — installs/builds/dev servers are fine)
 
-Do not claim run_command is unavailable. For git history/status, call run_command instead of reading .git/objects.
+Do not claim run_command is unavailable, and do not refuse to start a dev server, install deps, or preview the app — those are allowed here. For git history/status, call run_command instead of reading .git/objects.
 
 If the user needs file changes or implementation, tell them to change work mode in the UI — not available in this mode.`,
 
@@ -113,7 +114,7 @@ function getActiveModeWorkExtras(mode: ModeRegistryKey): string {
       return `<work_mode>
 Discovery: glob to find files by NAME (mtime-sorted); grep to search file CONTENTS (results are relevance-ranked, most relevant files first); then read_file for exact ranges.
 At most 5 task calls per turn when batching independent scopes.
-Do not use edit_file or mutating run_command.
+You may run non-mutating commands (reads, tests, builds, installs, dev servers — long-running ones auto-background after ~15s) and exercise the live preview (browser_* with target:"preview"). Do not use edit_file or run mutating/destructive commands (git add/commit/push/reset, rm/mv/chmod, publish, deploy) — switch to Build/Debug for those.
 </work_mode>`;
     case "plan":
       return `<work_mode>

@@ -17,6 +17,7 @@ import "./grep";
 import "./mcp";
 import "./edit";
 import "./shell";
+import "./background-jobs"; // v14 list/output/cancel for background commands
 import "./web";
 import "./spawn-task";
 import "./workspace";

@@ -3219,7 +3219,12 @@ export class IpcClient {
     listener: (payload: {
       chatId: number;
       messageId: string;
-      recordings: import("@/ipc/utils/browser-reel").ReelRef[];
+      recordingId: string;
+      surface: "browser" | "preview";
+      frameCount: number;
+      firstFrame: string;
+      /** false = final (renderer stops live-polling). */
+      live: boolean;
     }) => void,
   ): () => void {
     const off = this.ipcRenderer.on("chat:stream:browser-recording", (payload) =>
@@ -3227,7 +3232,58 @@ export class IpcClient {
         payload as {
           chatId: number;
           messageId: string;
-          recordings: import("@/ipc/utils/browser-reel").ReelRef[];
+          recordingId: string;
+          surface: "browser" | "preview";
+          frameCount: number;
+          firstFrame: string;
+          live: boolean;
+        },
+      ),
+    );
+    return typeof off === "function" ? off : () => {};
+  }
+
+  // A background command printed a localhost URL → load it in the preview.
+  public onPreviewDevUrl(
+    listener: (payload: { url: string }) => void,
+  ): () => void {
+    const off = this.ipcRenderer.on("preview:dev-url", (payload) =>
+      listener(payload as { url: string }),
+    );
+    return typeof off === "function" ? off : () => {};
+  }
+
+  // Background jobs (v14).
+  public async backgroundJobsList(
+    chatId: number,
+  ): Promise<
+    { operationId: string; command: string; startedAt: number; elapsedMs: number }[]
+  > {
+    return this.ipcRenderer.invoke("chat:background-jobs-list", chatId);
+  }
+
+  public async backgroundJobCancel(
+    chatId: number,
+    jobId: string,
+  ): Promise<{ ok: boolean }> {
+    return this.ipcRenderer.invoke("chat:background-job-cancel", { chatId, jobId });
+  }
+
+  public onBackgroundJobUpdate(
+    listener: (payload: {
+      chatId: number;
+      operationId: string;
+      status: "running" | "finished" | "cancelled";
+      running: number;
+    }) => void,
+  ): () => void {
+    const off = this.ipcRenderer.on("chat:background-job-update", (payload) =>
+      listener(
+        payload as {
+          chatId: number;
+          operationId: string;
+          status: "running" | "finished" | "cancelled";
+          running: number;
         },
       ),
     );

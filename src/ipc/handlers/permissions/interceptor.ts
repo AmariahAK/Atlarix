@@ -24,7 +24,6 @@ import {
 } from "../../../lib/tools/permissions/schema";
 import {
     runShellCommandStreaming,
-    killShellProcess,
     CommandResult,
     type SandboxRunOptions,
 } from "../../utils/runShellCommand";
@@ -1204,44 +1203,30 @@ export class PermissionInterceptor extends EventEmitter {
         }
     }
 
+    /** Set once we've pointed the preview at a detected localhost URL this run. */
+    private previewUrlWired = false;
+
     /**
-     * Detect if a command is a dev server that runs indefinitely.
-     * These commands should be treated as "started successfully" after a short time.
+     * Generic preview wiring (no dev-server hardcoding): when a (background)
+     * command prints the first http://localhost:PORT / 127.0.0.1:PORT, point the
+     * preview at it so the preview WebContentsView loads the running app. Works
+     * for ANY server that prints a URL. Set-once per interceptor run.
      */
-    private isDevServerCommand(command: string): boolean {
-        // FIRST: Explicitly exclude install commands (common false positive)
-        const excludePatterns = [
-            /npm\s+install/i,
-            /npm\s+i\s/i,
-            /npm\s+ci/i,
-            /yarn\s+add/i,
-            /yarn\s+install/i,
-            /pnpm\s+add/i,
-            /pnpm\s+install/i,
-            /pnpm\s+i\s/i,
-        ];
-
-        if (excludePatterns.some(pattern => pattern.test(command))) {
-            return false;
+    private maybeWirePreviewUrl(output: string): void {
+        if (this.previewUrlWired) return;
+        // Strip ANSI so the URL regex matches colored dev-server banners.
+        const stripped = output.replace(/\[[0-9;]*m/g, "");
+        const m = stripped.match(
+            /https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?(?:\/[^\s'"]*)?/i,
+        );
+        if (!m) return;
+        this.previewUrlWired = true;
+        try {
+            const win = BrowserWindow.getAllWindows().find((w) => !w.isDestroyed());
+            win?.webContents.send("preview:dev-url", { url: m[0] });
+        } catch {
+            /* best-effort */
         }
-
-        // Dev server patterns - commands that run indefinitely
-        const devServerPatterns = [
-            /npm\s+run\s+dev/i,
-            /npm\s+run\s+start/i,
-            /npm\s+start$/i,  // Exact end to avoid matching "npm start ..."
-            /yarn\s+dev$/i,
-            /yarn\s+start$/i,
-            /pnpm\s+(run\s+)?dev$/i,
-            /pnpm\s+(run\s+)?start$/i,
-            /npx\s+vite(\s|$)/i,
-            /vite\s*(dev|serve)?$/i,
-            /next\s+dev/i,
-            /remix\s+dev/i,
-            /astro\s+dev/i,
-        ];
-
-        return devServerPatterns.some(pattern => pattern.test(command));
     }
 
     /**
@@ -1340,16 +1325,20 @@ export class PermissionInterceptor extends EventEmitter {
             throw new Error(msg);
         }
 
-        // Dev servers get 10 seconds to start; other commands use timeout_ms from preview (default 2 min).
-        const isDevServerCommand = this.isDevServerCommand(commandToRun);
-        const requestedTimeout = Math.min(
-            1_800_000,
-            Math.max(1000, Number((preview as { timeout_ms?: number }).timeout_ms) || 120_000),
-        );
-        const timeoutMs = isDevServerCommand ? 10 * 1000 : requestedTimeout;
+        // v14 pt3: NO kill-timeout. A command still running at PROMOTE_AFTER_MS is
+        // MOVED to the background (kept alive, tracked, cancellable) — not killed.
+        // `background:true` promotes immediately. Dev servers are no longer
+        // special-cased; the timer subsumes the old 10s/120s paths so any
+        // long-running command (server, watcher, big build) persists.
+        const PROMOTE_AFTER_MS = 15_000;
         const startTime = Date.now();
+        const explicitBackground =
+            (preview as { background?: boolean }).background === true;
 
-        logger.log(`[executeRunCommand] Running: ${commandToRun} in ${workingDir} (timeout: ${timeoutMs}ms${isDevServerCommand ? ', dev-server' : ''})`);
+        logger.log(
+            `[executeRunCommand] Running: ${commandToRun} in ${workingDir}` +
+            (explicitBackground ? " (background)" : ` (promote after ${PROMOTE_AFTER_MS}ms)`),
+        );
 
         const scopeKey = resolveScopeKey(this.activeChatId, this.workspaceId);
         openTerminalInstance(scopeKey, {
@@ -1367,160 +1356,87 @@ export class PermissionInterceptor extends EventEmitter {
         // Applies to agent run_command only — never the user's PTY tabs.
         const sandboxOpts = this.buildRunCommandSandbox();
 
-        // v13 7A: background commands return to the model IMMEDIATELY; the
-        // command keeps running here and its exit result is delivered back
-        // via background-commands (prepareStep injection / next-turn drain).
-        const isBackground =
-            (preview as { background?: boolean }).background === true &&
-            !isDevServerCommand;
-
-        // Emit that command is starting (use normalized command so UI shows what actually runs)
         this.emit('terminal-output', {
             operationId,
             command: commandToRun,
             output: '',
             status: 'running' as const,
-            background: isBackground,
+            background: explicitBackground,
         });
 
-        if (isBackground) {
-            const chatIdForResult = this.activeChatId;
-            const {
-                recordBackgroundCommandStart,
-                recordBackgroundCommandResult,
-            } = await import("@/lib/agent/background-commands");
-            if (chatIdForResult != null) {
-                recordBackgroundCommandStart(chatIdForResult, operationId);
+        const chatIdForBg = this.activeChatId;
+        const bg = await import("@/lib/agent/background-commands");
+
+        let proc: ChildProcess | null = null;
+        let accOutput = '';
+        let promoted = false;
+        let finished = false;
+        let thrownError: Error | null = null;
+        let resolveExec: () => void = () => {};
+        const execDone = new Promise<void>((res) => { resolveExec = res; });
+
+        // Move a still-running command to the background: keep the process alive,
+        // register it as a cancellable background job, and resolve the model's
+        // tool call now with the job id. Its eventual exit is delivered via the
+        // background-result path (prepareStep mid-turn / auto-wake when idle).
+        const promote = (reason: 'explicit' | 'timer') => {
+            if (promoted || finished) return;
+            promoted = true;
+            if (chatIdForBg != null) {
+                bg.recordBackgroundCommandStart(chatIdForBg, operationId, commandToRun, startTime);
+                if (proc) bg.registerBackgroundProc(chatIdForBg, operationId, proc);
+                bg.updateBackgroundOutput(chatIdForBg, operationId, accOutput);
             }
-            // Resolve the model's tool result NOW.
+            const head = reason === 'explicit'
+                ? `Background command started (job_id: ${operationId}): ${commandToRun}`
+                : `Still running after ${PROMOTE_AFTER_MS / 1000}s — moved to the background (job_id: ${operationId}): ${commandToRun}`;
             this.commandOutputs.set(operationId, {
-                stdout: `Background command started: ${commandToRun}\nYou will receive its result when it exits — continue other work; do not poll.`,
+                stdout: `${head}\nYou'll receive its result automatically when it exits — continue other work; do not poll. Check or stop it with background_jobs({operation:"output"|"cancel", job_id:"${operationId}"}).`,
                 stderr: '',
                 exitCode: 0,
                 success: true,
             });
+            this.emit('terminal-output', {
+                operationId,
+                command: commandToRun,
+                output: accOutput,
+                status: 'running' as const,
+                background: true,
+            });
+            resolveExec();
+        };
 
-            let bgProc: ChildProcess | null = null;
-            const bgTimeout = setTimeout(() => {
-                killShellProcess(bgProc);
-            }, timeoutMs);
-            void runShellCommandStreaming(commandToRun, workingDir, {
-                sandbox: sandboxOpts,
-                onSpawn: (proc) => {
-                    bgProc = proc;
-                },
-                onOutput: ({ stdout, stderr }) => {
-                    const output = stdout + (stderr ? `\n${stderr}` : '');
-                    this.emit('terminal-output', {
-                        operationId,
-                        command: commandToRun,
-                        output,
-                        status: 'running' as const,
-                        background: true,
-                    });
-                },
-            })
-                .then((result) => {
-                    clearTimeout(bgTimeout);
-                    const duration = Date.now() - startTime;
-                    this.emit('terminal-output', {
-                        operationId,
-                        command: commandToRun,
-                        output:
-                            result.stdout + (result.stderr ? `\n${result.stderr}` : ''),
-                        status: result.success ? ('completed' as const) : ('error' as const),
-                        exitCode: result.exitCode,
-                        duration,
-                        background: true,
-                    });
-                    if (chatIdForResult != null) {
-                        recordBackgroundCommandResult(chatIdForResult, operationId, {
-                            command: commandToRun,
-                            exitCode: result.exitCode,
-                            output:
-                                result.stdout + (result.stderr ? `\n${result.stderr}` : ''),
-                            durationMs: duration,
-                        });
-                    }
-                })
-                .catch((err) => {
-                    clearTimeout(bgTimeout);
-                    const duration = Date.now() - startTime;
-                    const msg = err instanceof Error ? err.message : String(err);
-                    this.emit('terminal-output', {
-                        operationId,
-                        command: commandToRun,
-                        output: msg,
-                        status: 'error' as const,
-                        exitCode: -1,
-                        duration,
-                        background: true,
-                    });
-                    if (chatIdForResult != null) {
-                        recordBackgroundCommandResult(chatIdForResult, operationId, {
-                            command: commandToRun,
-                            exitCode: -1,
-                            output: msg,
-                            durationMs: duration,
-                        });
-                    }
+        const promoteTimer = explicitBackground
+            ? null
+            : setTimeout(() => promote('timer'), PROMOTE_AFTER_MS);
+
+        runShellCommandStreaming(commandToRun, workingDir, {
+            sandbox: sandboxOpts,
+            onSpawn: (p) => {
+                proc = p;
+                if (promoted && chatIdForBg != null) {
+                    bg.registerBackgroundProc(chatIdForBg, operationId, p);
+                }
+            },
+            onOutput: ({ stdout, stderr }) => {
+                accOutput = stdout + (stderr ? `\n${stderr}` : '');
+                if (promoted && chatIdForBg != null) {
+                    bg.updateBackgroundOutput(chatIdForBg, operationId, accOutput);
+                }
+                this.emit('terminal-output', {
+                    operationId,
+                    command: commandToRun,
+                    output: accOutput,
+                    status: 'running' as const,
+                    background: promoted,
                 });
-            return;
-        }
-
-        let commandProc: ChildProcess | null = null;
-        let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
-
-        // Bare block: was `try`/`finally` around the legacy DB advisory hooks
-        // (retired in S16 — `.atlarix/hooks/` at the tool funnel is the
-        // replacement); kept as a block to avoid reindenting the body.
-        {
-            try {
-                // Stream stdout/stderr and emit on each chunk for live tool indicator
-                const result = await new Promise<CommandResult>((resolve, reject) => {
-                    timeoutHandle = setTimeout(() => {
-                        killShellProcess(commandProc);
-                        reject(
-                            new Error(
-                                `Command timed out after ${Math.round(timeoutMs / 1000)} seconds (timeout_ms=${timeoutMs}). For long-running commands pass a larger timeout_ms (max 1800000) or split the work; dev servers are detected automatically and left running.`,
-                            ),
-                        );
-                    }, timeoutMs);
-
-                    runShellCommandStreaming(commandToRun, workingDir, {
-                        sandbox: sandboxOpts,
-                        onSpawn: (proc) => {
-                            commandProc = proc;
-                        },
-                        onOutput: ({ stdout, stderr }) => {
-                            const output = stdout + (stderr ? `\n${stderr}` : '');
-                            this.emit('terminal-output', {
-                                operationId,
-                                command: commandToRun,
-                                output,
-                                status: 'running' as const,
-                            });
-                        },
-                    })
-                        .then((r) => {
-                            if (timeoutHandle) clearTimeout(timeoutHandle);
-                            resolve(r);
-                        })
-                        .catch((err) => {
-                            if (timeoutHandle) clearTimeout(timeoutHandle);
-                            reject(err);
-                        });
-                });
-
+                this.maybeWirePreviewUrl(accOutput);
+            },
+        })
+            .then((result) => {
+                finished = true;
+                if (promoteTimer) clearTimeout(promoteTimer);
                 const duration = Date.now() - startTime;
-
-                // Store output for UI display and AI feedback
-                this.commandOutputs.set(operationId, {
-                    ...result,
-                    // Add duration to result (extending CommandResult)
-                } as CommandResult);
-
-                // Emit final output
                 this.emit('terminal-output', {
                     operationId,
                     command: commandToRun,
@@ -1528,73 +1444,65 @@ export class PermissionInterceptor extends EventEmitter {
                     status: result.success ? 'completed' as const : 'error' as const,
                     exitCode: result.exitCode,
                     duration,
+                    background: promoted,
                 });
-
+                if (promoted) {
+                    if (chatIdForBg != null) {
+                        bg.recordBackgroundCommandResult(chatIdForBg, operationId, {
+                            command: commandToRun,
+                            exitCode: result.exitCode,
+                            output: result.stdout + (result.stderr ? `\n${result.stderr}` : ''),
+                            durationMs: duration,
+                        });
+                    }
+                    return;
+                }
+                this.commandOutputs.set(operationId, result as CommandResult);
                 if (result.success) {
                     logger.log(`[executeRunCommand] Success: ${commandToRun} (${(duration / 1000).toFixed(1)}s)`);
                 } else {
                     logger.error(`[executeRunCommand] Failed: ${commandToRun} (exit ${result.exitCode})`);
-                    if (result.stderr) {
-                        logger.error(`[executeRunCommand] stderr: ${result.stderr}`);
-                    }
-                    // Include stderr in thrown error so user and logs see the real reason
                     const errDetail = result.stderr
                         ? `\n\n${result.stderr.slice(0, 500)}`
                         : (result.stdout ? `\n\n${result.stdout.slice(0, 200)}` : "");
-                    throw new Error(`Command failed with exit code ${result.exitCode}${errDetail}`);
+                    thrownError = new Error(`Command failed with exit code ${result.exitCode}${errDetail}`);
                 }
-            } catch (error) {
+                resolveExec();
+            })
+            .catch((err) => {
+                finished = true;
+                if (promoteTimer) clearTimeout(promoteTimer);
                 const duration = Date.now() - startTime;
-                const errorMessage = error instanceof Error ? error.message : String(error);
-                const isTimeout = errorMessage.includes('timed out');
-
-                // Dev server timeout = success (server is still running after 10 seconds)
-                if (isDevServerCommand && isTimeout) {
-                    logger.log(`[executeRunCommand] Dev server started: ${commandToRun} (running in background)`);
-
-                    // Store success result for AI context
-                    this.commandOutputs.set(operationId, {
-                        stdout: `Dev server started successfully and is running in background`,
-                        stderr: '',
-                        exitCode: 0,
-                        success: true,
-                    });
-
-                    // Emit success for dev server
-                    this.emit('terminal-output', {
-                        operationId,
-                        command: commandToRun,
-                        output: 'Dev server started successfully (running in background)',
-                        status: 'completed' as const,
-                        exitCode: 0,
-                        duration,
-                    });
-
-                    return; // Don't throw - treat as success
-                }
-
-                // Regular timeout or error - store error result for AI context
-                this.commandOutputs.set(operationId, {
-                    stdout: '',
-                    stderr: errorMessage,
-                    exitCode: -1,
-                    success: false,
-                });
-
-                // Emit error output
+                const errMsg = err instanceof Error ? err.message : String(err);
                 this.emit('terminal-output', {
                     operationId,
                     command: commandToRun,
-                    output: errorMessage,
+                    output: errMsg,
                     status: 'error' as const,
                     exitCode: -1,
                     duration,
+                    background: promoted,
                 });
+                if (promoted) {
+                    if (chatIdForBg != null) {
+                        bg.recordBackgroundCommandResult(chatIdForBg, operationId, {
+                            command: commandToRun,
+                            exitCode: -1,
+                            output: errMsg,
+                            durationMs: duration,
+                        });
+                    }
+                    return;
+                }
+                this.commandOutputs.set(operationId, { stdout: '', stderr: errMsg, exitCode: -1, success: false });
+                thrownError = new Error(errMsg);
+                resolveExec();
+            });
 
-                logger.error(`[executeRunCommand] Error: ${commandToRun} - ${errorMessage}`);
-                throw error;
-            }
-        }
+        if (explicitBackground) promote('explicit');
+
+        await execDone;
+        if (thrownError) throw thrownError;
     }
 
     /**

@@ -1,7 +1,30 @@
 # Atlarix TODO
 
-**Current Version:** v13.9.0 (released)
-**Last Updated:** 2026-06-19
+**Current Version:** v14.0.0 (released)
+**Last Updated:** 2026-06-21
+
+---
+
+## v14.0.0 — SHIPPED (2026-06-21): live preview control, session recordings, true background jobs, mode-policy command safety
+
+> See `docs/CHANGELOG.md` [14.0.0]. tsc (main + app + tests) + oxlint clean; full vitest green (1326 tests) except the 2 pre-existing benchmark smoke tests (`headless-runner.test.ts`, `swebench-smoke.test.ts`) that fail only in the local sandbox on an incomplete `electron` mock.
+
+| Item | Status |
+|------|--------|
+| `target:"preview"` — agent drives the LIVE app (navigate/inspect/interact/console) via `WebContentsView` | ✅ |
+| Inline preview artifact in chat (markmap/echarts-style card) | ✅ |
+| Session recordings — scrubbable reel, off-screen `capturePaintable`, pin-on-interaction scrubber | ✅ |
+| `background_jobs` tool + 15s timer auto-background + true detached persistence | ✅ |
+| Auto-wake when a background job finishes (no polling); agent can background its own commands | ✅ |
+| Generic localhost-URL → preview (`preview:dev-url`, not dev-server-name matched) | ✅ |
+| Capability-based vision gate (`detectVisionCapability` replaces 3-provider allowlist) | ✅ |
+| Command safety: mode policy + compound-aware `isMutatingCommand` + dangerous gate + `.atlarix` rules (retired `terminal-command-class.ts`) | ✅ |
+| Provider-agnostic `web_search` dedup (`reservedNativeToolNames`) — fixes Grok/xAI duplicate-tool crash | ✅ |
+| `browser_interact` fill fix (self-correcting error + value-required schema) | ✅ |
+| Readable arg-aware tool cards (icons, not emojis) | ✅ |
+| Local-build auto-resign (`forge.config.ts` postPackage, macOS, skipped on CI) | ✅ |
+| AGENTS/mode prompts realigned to the real tool surface | ✅ |
+| Rate-limit error card drops upgrade button → troubleshooting link only | ✅ |
 
 ---
 

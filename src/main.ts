@@ -1315,6 +1315,16 @@ app.on("before-quit", (e) => {
     } catch (drainErr) {
       logger.warn("drainPendingWork on quit:", drainErr);
     }
+    // v14 pt3: kill detached background commands (dev servers, watchers) so they
+    // don't orphan after the app exits.
+    try {
+      const { killAllBackgroundJobs } = await import(
+        "./lib/agent/background-commands"
+      );
+      killAllBackgroundJobs();
+    } catch (bgErr) {
+      logger.warn("killAllBackgroundJobs on quit:", bgErr);
+    }
     try {
       const { shutdownAstGrepPool } = await import(
         "./lib/blueprint/rte/ast-grep/worker-pool"

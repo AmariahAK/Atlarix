@@ -79,7 +79,7 @@ function captureFrame(
   void recordReelFrame({
     chatId,
     surface: target as ReelSurface,
-    webContents: view.webContents,
+    view,
     caption,
     type,
   });
@@ -468,10 +468,19 @@ async function interactFill(
   if (!target) {
     return { success: false, error: "Provide a ref (from browser_inspect snapshot) or a CSS selector." };
   }
-  if (typeof args.value !== "string") {
-    return { success: false, error: "action:\"fill\" requires a string `value`." };
-  }
   const surface = args.target === "preview" ? "preview" : "browser";
+  if (typeof args.value !== "string") {
+    // Self-correcting error: echo the exact call to re-issue (the value param is
+    // easy to omit because it can't be marked required — click doesn't use it).
+    const ref = args.ref?.trim() || args.selector?.trim() || "e2";
+    return {
+      success: false,
+      error:
+        `action:"fill" needs a non-empty string "value" (the text to type) — you omitted it. ` +
+        `Re-issue exactly: browser_interact({ action: "fill", ref: "${ref}", value: "<text to type>"` +
+        `${surface === "preview" ? ', target: "preview"' : ""} }).`,
+    };
+  }
   const script = `(async () => {
       ${RESOLVE_ELEMENT_JS(args.ref, args.selector)}
       if (!el) return { ok: false, error: "no element matched (ref or selector)" };
@@ -534,7 +543,7 @@ ToolRegistry.register({
   allowInAskMode: true,
   description:
     "Act on the page open in Atlarix's built-in browser (or the app's live preview with target:\"preview\"). `action:\"click\"` clicks an element; " +
-    "`action:\"fill\"` types `value` into a form field (dispatches input/change so frameworks react). " +
+    "`action:\"fill\"` types `value` into a form field (dispatches input/change so frameworks react) — when action is \"fill\" you MUST include the `value` string in the SAME call. " +
     "PREFER `ref` (a stable id from browser_inspect's snapshot, e.g. \"e3\") over `selector` (CSS) — refs are robust. " +
     "Use target:\"preview\" to TEST the app you are building (fill forms, click buttons in the live preview). " +
     "Best-effort: verify afterwards with browser_inspect.",
@@ -556,7 +565,7 @@ ToolRegistry.register({
       },
       value: {
         type: "string",
-        description: "For action:\"fill\" only — the value to type into the field.",
+        description: "REQUIRED when action:\"fill\" — the text to type into the field (e.g. \"john@example.com\"). Always include it in the same fill call; omitting it fails.",
       },
       target: {
         type: "string",

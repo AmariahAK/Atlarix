@@ -17,8 +17,9 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import log from "electron-log";
-import type { NativeImage, WebContents } from "electron";
+import type { NativeImage, WebContentsView } from "electron";
 import { getMediaPath } from "@/paths/paths";
+import { capturePaintable, broadcastToRenderer } from "./browser_view_manager";
 
 const logger = log.scope("browser_reel");
 
@@ -62,35 +63,79 @@ const JPEG_QUALITY = 60;
 interface ActiveReel extends ReelManifest {
   dir: string;
   seq: number;
+  lastEmitAt: number;
 }
 
 const active = new Map<string, ActiveReel>();
+/** Assistant messageId per chat for the current turn (set at turn start) so the
+ *  renderer can attach the reel to the right message. */
+const turnMessageIdByChat = new Map<number, string>();
+/** Throttle interim "live" updates so we don't spam the renderer. */
+const LIVE_EMIT_THROTTLE_MS = 1000;
+/** main → renderer channel for reel start / live updates / finalization. */
+const RECORDING_CHANNEL = "chat:stream:browser-recording";
 
 function key(chatId: number, surface: ReelSurface): string {
   return `${chatId}:${surface}`;
 }
 
-/** Stable-ish id without Math.random — monotonic per (chat,surface) via ts+seq. */
+/** Stable-ish id without Math.random — monotonic per (chat,surface) via ts. */
 function newRecordingId(surface: ReelSurface): string {
   return `${surface}-${Date.now()}`;
+}
+
+/** Called at turn start so reels know which assistant message owns them. */
+export function setReelTurnContext(chatId: number, messageId: string): void {
+  turnMessageIdByChat.set(chatId, messageId);
+}
+
+function emitReel(reel: ActiveReel, live: boolean): void {
+  broadcastToRenderer(RECORDING_CHANNEL, {
+    chatId: reel.chatId,
+    messageId: turnMessageIdByChat.get(reel.chatId) ?? String(reel.chatId),
+    recordingId: reel.recordingId,
+    surface: reel.surface,
+    frameCount: reel.frames.length,
+    firstFrame: reel.frames[0]?.file ?? "",
+    live,
+  });
+}
+
+/** Write the manifest (incrementally) so the renderer can read frames mid-turn. */
+async function writeManifest(reel: ActiveReel): Promise<void> {
+  const manifest: ReelManifest = {
+    recordingId: reel.recordingId,
+    chatId: reel.chatId,
+    surface: reel.surface,
+    width: reel.width,
+    height: reel.height,
+    frames: reel.frames,
+  };
+  await fs.writeFile(
+    path.join(reel.dir, "manifest.json"),
+    JSON.stringify(manifest),
+  );
 }
 
 /**
  * Capture one frame for the (chatId, surface) reel. Best-effort and async —
  * errors are logged and swallowed so a capture hiccup never breaks the tool.
+ * Uses capturePaintable so a frame is produced even when the surface isn't the
+ * focused right-panel tab.
  */
 export async function recordReelFrame(args: {
   chatId: number | undefined;
   surface: ReelSurface;
-  webContents: WebContents | null | undefined;
+  view: WebContentsView | null | undefined;
   caption: string;
   type: string;
 }): Promise<void> {
-  const { chatId, surface, webContents, caption, type } = args;
-  if (chatId == null || !webContents || webContents.isDestroyed()) return;
+  const { chatId, surface, view, caption, type } = args;
+  if (chatId == null || !view || view.webContents.isDestroyed()) return;
   try {
     let reel = active.get(key(chatId, surface));
     if (reel && reel.frames.length >= MAX_FRAMES) return; // bounded
+    const firstFrame = !reel;
     if (!reel) {
       const recordingId = newRecordingId(surface);
       const dir = getMediaPath(chatId, recordingId);
@@ -104,11 +149,12 @@ export async function recordReelFrame(args: {
         frames: [],
         dir,
         seq: 0,
+        lastEmitAt: 0,
       };
       active.set(key(chatId, surface), reel);
     }
-    let image: NativeImage = await webContents.capturePage();
-    if (image.isEmpty()) return; // view hidden / zero-size — skip silently
+    let image: NativeImage | null = await capturePaintable(view);
+    if (!image || image.isEmpty()) return; // couldn't paint — skip silently
     const size = image.getSize();
     if (size.width > FRAME_WIDTH) image = image.resize({ width: FRAME_WIDTH });
     const finalSize = image.getSize();
@@ -117,6 +163,14 @@ export async function recordReelFrame(args: {
     const file = `frame-${reel.seq++}.jpg`;
     await fs.writeFile(path.join(reel.dir, file), image.toJPEG(JPEG_QUALITY));
     reel.frames.push({ file, ts: Date.now(), caption: caption.slice(0, 200), type });
+    await writeManifest(reel);
+    // Surface the reel to the renderer: immediately on the first frame so the
+    // inline artifact appears, then throttled as frames accumulate.
+    const now = Date.now();
+    if (firstFrame || now - reel.lastEmitAt >= LIVE_EMIT_THROTTLE_MS) {
+      reel.lastEmitAt = now;
+      emitReel(reel, true);
+    }
   } catch (err) {
     logger.warn(`[reel] frame capture failed (${surface}): ${String(err)}`);
   }
@@ -137,19 +191,9 @@ export async function finalizeReels(
     if (!reel) continue;
     active.delete(key(chatId, surface));
     if (reel.frames.length === 0) continue;
-    const manifest: ReelManifest = {
-      recordingId: reel.recordingId,
-      chatId: reel.chatId,
-      surface: reel.surface,
-      width: reel.width,
-      height: reel.height,
-      frames: reel.frames,
-    };
     try {
-      await fs.writeFile(
-        path.join(reel.dir, "manifest.json"),
-        JSON.stringify(manifest, null, 2),
-      );
+      await writeManifest(reel);
+      emitReel(reel, false); // final: renderer stops live-polling
       refs.push({
         recordingId: reel.recordingId,
         chatId: reel.chatId,
@@ -161,6 +205,7 @@ export async function finalizeReels(
       logger.warn(`[reel] finalize failed: ${String(err)}`);
     }
   }
+  turnMessageIdByChat.delete(chatId);
   if (refs.length > 0) await pruneChatReels(chatId);
   return refs;
 }

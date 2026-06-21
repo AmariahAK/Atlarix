@@ -751,6 +751,41 @@ const config: ForgeConfig = {
         process.exit(1);
       }
     },
+    // Local macOS builds: electron-packager ad-hoc signs the bundle, but our
+    // packageAfterPrune step strips files AFTER signing, invalidating the
+    // signature → macOS kills the app on launch ("Code Signature Invalid").
+    // Re-sign ad-hoc + clear quarantine so local builds run. Skipped in CI,
+    // where the maker pipeline signs/notarizes properly. Generic — operates on
+    // whatever .app is in the output dir.
+    postPackage: async (
+      _forgeConfig: unknown,
+      options: { platform: string; outputPaths?: string[] },
+    ) => {
+      if (options.platform !== "darwin" || process.env.CI) return;
+      const { execFileSync } = await import("node:child_process");
+      const fsp = await import("node:fs/promises");
+      for (const outDir of options.outputPaths ?? []) {
+        let appName: string | undefined;
+        try {
+          appName = (await fsp.readdir(outDir)).find((f) => f.endsWith(".app"));
+        } catch {
+          continue;
+        }
+        if (!appName) continue;
+        const appPath = path.join(outDir, appName);
+        try {
+          execFileSync("codesign", ["--force", "--deep", "--sign", "-", appPath], {
+            stdio: "inherit",
+          });
+          execFileSync("xattr", ["-cr", appPath]);
+          console.log(`[postPackage] ad-hoc re-signed local build: ${appPath}`);
+        } catch (err) {
+          console.warn(
+            `[postPackage] ad-hoc re-sign failed (non-fatal): ${String(err)}`,
+          );
+        }
+      }
+    },
   },
   plugins: [
     new AutoUnpackNativesPlugin({}),

@@ -352,6 +352,8 @@ export interface SessionReelRef {
   surface: "browser" | "preview";
   frameCount: number;
   firstFrame: string;
+  /** True while the turn is still capturing frames (poll for more); false when final. */
+  live?: boolean;
 }
 
 /**
@@ -362,6 +364,23 @@ export interface SessionReelRef {
 export const sessionRecordingsByMessageIdAtom = atom<
   Record<string, SessionReelRef[]>
 >({});
+
+/** A running background command (for the "jobs running" indicator + cancel). */
+export interface BackgroundJobView {
+  operationId: string;
+  command: string;
+  startedAt: number;
+  elapsedMs: number;
+}
+
+/**
+ * Running background jobs per chatId — fed by the chat:background-job-update
+ * event (renderer refreshes via background-jobs-list). Drives the indicator
+ * chip while you chat; emptied as jobs finish/cancel.
+ */
+export const backgroundJobsByChatIdAtom = atom<Record<number, BackgroundJobView[]>>(
+  {},
+);
 
 // ═══════════════════════════════════════════════════════════
 // BROWSER ERRORS (Live Preview Console Errors)

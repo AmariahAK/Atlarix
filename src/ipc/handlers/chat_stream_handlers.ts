@@ -57,7 +57,7 @@ import {
   getNativeWebSearchSupport,
   reservedNativeToolNames,
 } from "../utils/native_web_search";
-import { finalizeReels } from "../utils/browser-reel";
+import { finalizeReels, setReelTurnContext } from "../utils/browser-reel";
 import { perfReportOnce } from "@/lib/perf-marks";
 import { PreflightTimer } from "@/lib/agent/preflight-timing";
 import { buildAttachmentRecord } from "@/lib/attachment-upload";
@@ -273,7 +273,7 @@ import {
   resolveEffectiveWorkMode,
   settingsPatchForWorkMode,
 } from "../../lib/work-mode";
-import { classifyTerminalCommand } from "../../lib/terminal-command-class";
+import { isMutatingCommand } from "../../lib/command-mutation";
 import { runCommandGitInitGateResult } from "../../lib/git-init-command-guard";
 import { computeDiffHunks } from "@/lib/diff/compose-hunks";
 import { attachDelegationToolsToSet } from "../../lib/agents/register-delegation-tools";
@@ -293,11 +293,16 @@ function runCommandModeGateResult(
   command: string,
   workMode: WorkMode,
 ): string | null {
-  if (classifyTerminalCommand(command) !== "implementation") return null;
-  if (workMode === "build") return null;
+  // v14 pt3: read-only modes (Explore/Plan/Review) may run NON-mutating commands
+  // (reads, dev servers, builds, tests, installs, curl GET) — only clearly
+  // mutating/destructive commands are blocked. Build/Debug authorize mutation.
+  // Compound-aware (fixes the old `cd x && git push` bypass + `npm run dev`
+  // mis-block). The dangerous gate + .atlarix rules are enforced separately.
+  if (!isMutatingCommand(command)) return null;
+  if (workMode === "build" || workMode === "debug") return null;
   return JSON.stringify({
     success: false,
-    error: `This command (${command}) makes changes to the environment and is only available in Build mode. You are currently in ${labelForWorkMode(workMode)} mode. Ask the user to switch to Build mode in the UI, or use a read-only command.`,
+    error: `This command (${command}) modifies the workspace/repo and is only available in Build or Debug mode. You are currently in ${labelForWorkMode(workMode)} mode (read-only for the source). Ask the user to switch to Build/Debug, or run a non-mutating command (reads, dev servers, builds, tests, installs are fine here).`,
   });
 }
 
@@ -1921,6 +1926,9 @@ ${componentSnippet}
 
       let streamTurnIdForLedger = String(placeholderAssistantMessage.id);
       snapshotTurnIdForTerminal = streamTurnIdForLedger; // v12 2.3
+      // Tie any browser/preview session reels captured this turn to this
+      // assistant message so the renderer attaches the inline artifact to it.
+      setReelTurnContext(req.chatId, String(placeholderAssistantMessage.id));
       let streamStopWasTaskComplete = false;
       // v11.1: set when the model asked the user question(s) — the turn ends
       // gracefully (persist + response:end) WITHOUT task-complete side effects
@@ -6830,18 +6838,9 @@ ${stopNote}`;
       } finally {
         // Finalize any browser/preview session recordings captured this turn and
         // hand the renderer a reference to play them back (proof of work).
-        const recordingMessageId = snapshotTurnIdForTerminal;
-        void finalizeReels(req.chatId)
-          .then((recordings) => {
-            if (recordings.length > 0 && recordingMessageId) {
-              safeSend(event.sender, "chat:stream:browser-recording", {
-                chatId: req.chatId,
-                messageId: recordingMessageId,
-                recordings,
-              });
-            }
-          })
-          .catch(() => {});
+        // Finalize browser/preview session reels (emits the final, live:false
+        // event per reel itself — see browser-reel.finalizeReels).
+        void finalizeReels(req.chatId).catch(() => {});
         stopAgentOrchestrator?.();
         unregisterLedgerPlanUiNotifier(req.chatId);
         clearActiveModelDisplayName();

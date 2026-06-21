@@ -1,5 +1,37 @@
 # Atlarix Changelog
 
+## [14.0.0] (2026-06-21) — Live preview control, session recordings, true background jobs, and mode-policy command safety
+
+> The v14.0.0 release. A major pass on the agent's **execution surface**: the agent can now drive and verify the *running app* (not just the in-app browser), record what it did as a scrubbable reel, push long-running commands to the background and wake itself when they finish, and run everyday commands freely while code/history changes wait for the right work mode. Plus a provider-agnostic `web_search` fix, capability-based vision, readable tool cards, and a packaging auto-resign hook. tsc (main + app + tests) + oxlint clean; full vitest green (1326 unit/eval tests) except 2 pre-existing benchmark smoke tests (`headless-runner.test.ts`, `swebench-smoke.test.ts`) that fail only in the local sandbox on an incomplete `electron` mock — unaffected by this release.
+
+### Added
+
+- **`target:"preview"` — the agent drives the LIVE app.** `browser_navigate` / `browser_inspect` / `browser_interact` now accept `target:"preview"` to act on the running dev server the user sees (open routes, `mode:"snapshot"` to list refs, click/fill, `mode:"console"` to read runtime errors), in addition to the default `target:"browser"` (in-app browser). The preview is a real `WebContentsView` (not an iframe), so it captures navigation, console, and page errors natively. (`src/lib/tools/browser.ts` target routing, `src/ipc/utils/browser_view_manager.ts` preview surface + `capturePaintable` + `broadcastToRenderer`, `CodePreviewPanel`.)
+- **Inline preview artifact in chat.** When the agent exercises the preview, it surfaces as an inline chat artifact (alongside markmap/echarts cards) rather than living only in the right-panel preview tab. (`useStreamChat.ts` `preview:dev-url`, `VisualArtifactCard`.)
+- **Session recordings (scrubbable reels).** The agent's browser/preview activity is captured off-screen as an incremental frame manifest and rendered as a scrubbable player card with a pin-on-interaction scrubber (no longer stuck on the last frame). (`src/ipc/utils/browser-reel.ts` `capturePaintable` + live emit, `media_handlers.ts` `getMediaPath`, `src/components/chat/SessionRecordingCard.tsx`.)
+- **`background_jobs` tool + true background lifecycle.** `background_jobs({operation:"list"|"output"|"cancel", job_id})` lists, reads, and cancels detached commands; `run_command({background:true})` returns a `job_id` and runs detached. **Any command still running after ~15s auto-moves to the background** (a timer-based promotion — no hardcoded command names) and keeps serving; the turn can end while it runs. (`src/lib/agent/background-commands.ts` registry + `killAllBackgroundJobs`, `src/lib/tools/background-jobs.ts`, `src/ipc/handlers/background_handlers.ts`, `src/components/chat/BackgroundJobsIndicator.tsx`, `main.ts` quit cleanup.)
+- **Auto-wake when idle.** When a backgrounded job finishes, the agent is automatically re-engaged (no polling) via `continueAfterQuestions` + `prepareStep` injection. Atlarix can also background its *own* commands and check back on them periodically until told otherwise.
+- **Generic localhost-URL → preview.** Any backgrounded process that prints a `localhost` URL auto-loads the preview (`preview:dev-url`) — generic, not dev-server-name matched.
+- **Local-build auto-resign.** `forge.config.ts` gains a `postPackage` hook that ad-hoc re-signs + clears quarantine (`codesign --force --deep --sign -`, `xattr -cr`) on macOS local builds (skipped under CI), fixing the Gatekeeper "Code Signature Invalid" SIGKILL after `packageAfterPrune` strips files.
+- **Launchpad help pages.** `/docs/*` help routes (e.g. AI rate-limit troubleshooting) on atlarix.dev.
+
+### Changed
+
+- **Preview: iframe → `WebContentsView`.** Native navigation/console/error capture flows into the Errors tab and back to the agent (`browser_inspect target:"preview" mode:"console"`); empty/black frames when the preview tab isn't focused are fixed via off-screen `capturePaintable`.
+- **Terminal output streams inline** with a live activity pulse instead of false "Reconnecting…" — sequential foreground commands reuse one Agent tab; only background processes get their own tab.
+- **Capability-based vision gate.** `detectVisionCapability` replaces the hardcoded 3-provider allowlist — any BYOK model advertising vision can receive screenshots. (Provider-agnostic, per the no-hardcoding rule.)
+- **Command persistence + safety overhaul.** Removed the 10s/120s kill-timeouts and the fake "Dev server started successfully" (root cause of dev servers dying after 10s). Command safety is now layered: **work-mode policy** (Explore/Plan/Review refuse source-mutating commands in the prompt; Build/Debug allow them) + a compound-aware `isMutatingCommand` backstop (`src/lib/command-mutation.ts`, parses `&&`/`;`/`|` segments) + the dangerous-commands gate + `.atlarix/permissions.json` rules — researched against Cursor/Antigravity/Codex/Claude Code/opencode, no large hardcoded classifier. Retired `src/lib/terminal-command-class.ts`.
+- **Readable, arg-aware tool cards.** Tool activity labels render real arguments with icons (not emojis); `src/lib/tool-activity-labels.ts`.
+- **AGENTS / mode prompts realigned** to the real tool surface (background jobs, preview, command policy); error-recovery hints updated. (`AGENTS_MODE_BASE.md`, `AGENTS_COMPACT.md`, `src/skills/modes/*.md`, `mode-prompt-bundle.ts`.)
+- **Rate-limit error card drops the upgrade button** — links to troubleshooting (atlarix.dev/docs) only.
+
+### Fixed
+
+- **Provider-agnostic `web_search` dedup** — the xAI/Grok `Duplicate tool names: web_search` crash. Native provider tools are reconciled against Atlarix's own tools via `reservedNativeToolNames` across *all* providers, not an xAI/OpenRouter special case.
+- **`browser_interact` fill reliability** — a self-correcting error plus a schema that emphasizes `value` is required, fixing native-FC models (e.g. Grok via OpenRouter) that omitted the fill value.
+- **Empty preview frames** when the preview tab isn't focused (off-screen capture).
+- **Dev servers dying after ~10s / fake "running in background"** — removed in the persistence overhaul above.
+
 ## [13.9.0] (2026-06-19) — Reliability pass: terminal reuse, live plan preview, steadier long runs, robust sign-in, tidy file tree + accurate diffs, self-review, cross-platform updater
 
 > The v13.9.0 release. Bundles the 13.8.0/13.8.1 work below plus this reliability pass. (PostHog activation-funnel events — `app_opened`, `model_connected`, `first_task_started`, `first_task_completed`, `task_completed` — also shipped this cycle.)

@@ -20,6 +20,7 @@ import { IpcClient } from "@/ipc/ipc_client";
 import { SimpleMessage } from "./SimpleMessage";
 import { SimpleChatInput } from "./SimpleChatInput";
 import { InlineUserQuestions } from "@/components/chat/InlineUserQuestions";
+import { BackgroundJobsIndicator } from "@/components/chat/BackgroundJobsIndicator";
 import { Plus } from "lucide-react";
 import { sliceLastExchanges } from "../lib/chat/lastExchanges";
 import { useStreamChat } from "@/hooks/useStreamChat";
@@ -241,6 +242,9 @@ export function SimpleInlineChat({
 
                 {/* ask_user: inline question card under the response that asked (turn has ended). */}
                 <InlineUserQuestions chatId={chatId} />
+
+                {/* v14: background commands running in the background (cancellable). */}
+                <BackgroundJobsIndicator chatId={chatId} />
 
                 <div ref={messagesEndRef} />
             </div>

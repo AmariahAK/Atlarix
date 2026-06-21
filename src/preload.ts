@@ -281,6 +281,9 @@ const validInvokeChannels = [
   "preview:clear-errors",
   // Browser/preview session recordings (frame reels)
   "media:get-recording",
+  // Background jobs (v14)
+  "chat:background-jobs-list",
+  "chat:background-job-cancel",
   // File operations (Live Code Editor)
   "file:read-content",
   "file:write-content",
@@ -403,7 +406,9 @@ const validReceiveChannels = [
   "plan:file-updated",
   "browser:state-changed", // v11 in-app browser: main → renderer tab/nav state
   "preview:error", // preview surface: main → renderer captured console/load error
+  "preview:dev-url", // main → renderer: a background command printed a localhost URL → load preview
   "chat:stream:browser-recording", // main → renderer: session reel(s) ready for a turn
+  "chat:background-job-update", // main → renderer: background job started/finished/cancelled
   "autonomous:session-complete",
   "chat:auto-self-correct", // main → renderer: synthetic fix prompt inserted; continue stream
   // PASS6: Blueprint AI-editing event channels — restored.
