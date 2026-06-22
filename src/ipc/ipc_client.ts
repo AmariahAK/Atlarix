@@ -838,6 +838,36 @@ export class IpcClient {
     return this.ipcRenderer.invoke("snapshot:files", params);
   }
 
+  /**
+   * Edit-and-resend: revert the file changes of a RANGE of discarded turns
+   * (turnIds in chronological order; reverted newest→oldest by the handler).
+   * Files-only — never flags messages. Missing/expired snapshots are skipped.
+   */
+  public async revertSnapshotRange(
+    chatId: number,
+    turnIds: string[],
+  ): Promise<{
+    success: boolean;
+    restoredFiles?: number;
+    reverted?: string[];
+    skipped?: string[];
+    error?: string;
+  }> {
+    return this.ipcRenderer.invoke("revert:snapshot-range", { chatId, turnIds });
+  }
+
+  /** Union of files a RANGE of turn snapshots would restore/delete (for the edit-revert dialog). */
+  public async getSnapshotFilesRange(
+    chatId: number,
+    turnIds: string[],
+  ): Promise<{
+    filesChanged: string[];
+    createdFiles: string[];
+    turnsWithSnapshot: number;
+  } | null> {
+    return this.ipcRenderer.invoke("snapshot:files-range", { chatId, turnIds });
+  }
+
   /** Main → renderer: live task-ledger plan for PlanCard. */
   public onPlanUpdate(chatId: number, handler: (payload: PlanUpdatePayload) => void): () => void {
     let set = this.planUpdateHandlers.get(chatId);

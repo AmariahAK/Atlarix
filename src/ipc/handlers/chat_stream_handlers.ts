@@ -7232,6 +7232,101 @@ ${stopNote}`;
       return listSnapshotFiles(resolveAppPath(app.path), String(turnId));
     },
   );
+
+  // Edit-and-resend: revert the file changes of a RANGE of turns (the turns
+  // discarded by editing an earlier message). turnIds arrive in chronological
+  // order; we revert NEWEST→OLDEST because each turn's snapshot holds the
+  // workspace state BEFORE that turn — reverting forward would re-apply earlier
+  // turns' edits. Per-turn snapshots are per-touched-file, so reverting every
+  // discarded turn (not just the earliest) is required to remove files created
+  // by later turns. Files-only (never flags messages). A missing/expired
+  // snapshot is skipped, not fatal.
+  ipcMain.handle(
+    "revert:snapshot-range",
+    async (_event, payload: { chatId: number; turnIds: string[] }) => {
+      const { chatId, turnIds } = payload;
+      if (!Array.isArray(turnIds) || turnIds.length === 0) {
+        return { success: true, restoredFiles: 0, reverted: [], skipped: [] };
+      }
+      const workspaceId = getStreamTransportAppId(chatId);
+      if (workspaceId == null) {
+        return { success: false, error: "No workspace attached" };
+      }
+      const app = await db.query.apps.findFirst({ where: eq(apps.id, workspaceId) });
+      if (!app?.path) {
+        return { success: false, error: "No workspace attached" };
+      }
+      const workspacePath = resolveAppPath(app.path);
+      const ordered = [...turnIds].reverse(); // newest → oldest
+      let restoredFiles = 0;
+      const reverted: string[] = [];
+      const skipped: string[] = [];
+      let lastError: string | undefined;
+      for (const turnId of ordered) {
+        const assistantMessageId = Number(turnId);
+        if (!Number.isFinite(assistantMessageId)) {
+          skipped.push(turnId);
+          continue;
+        }
+        try {
+          const res = await performFullRevert({
+            chatId,
+            turnId: String(turnId),
+            assistantMessageId,
+            workspacePath,
+            workspaceId,
+            options: { skipMessageFlags: true },
+          });
+          if (res.success) {
+            reverted.push(turnId);
+            restoredFiles += res.restoredFiles ?? 0;
+          } else {
+            skipped.push(turnId);
+            lastError = res.error ?? lastError;
+          }
+        } catch (e) {
+          skipped.push(turnId);
+          lastError = e instanceof Error ? e.message : String(e);
+        }
+      }
+      // success = the operation ran (workspace resolved); per-turn skips (e.g.
+      // an expired snapshot) are reported, not treated as a hard failure.
+      return { success: true, restoredFiles, reverted, skipped, error: lastError };
+    },
+  );
+
+  // Union of files a RANGE of turn snapshots would restore/delete — powers the
+  // edit-and-resend confirmation dialog's "M file change(s)" summary.
+  ipcMain.handle(
+    "snapshot:files-range",
+    async (_event, payload: { chatId: number; turnIds: string[] }) => {
+      const { chatId, turnIds } = payload;
+      if (!Array.isArray(turnIds) || turnIds.length === 0) {
+        return { filesChanged: [], createdFiles: [], turnsWithSnapshot: 0 };
+      }
+      const workspaceId = getStreamTransportAppId(chatId);
+      if (workspaceId == null) return null;
+      const app = await db.query.apps.findFirst({ where: eq(apps.id, workspaceId) });
+      if (!app?.path) return null;
+      const { listSnapshotFiles } = await import("@/lib/snapshot/snapshot-manager");
+      const workspacePath = resolveAppPath(app.path);
+      const filesChanged = new Set<string>();
+      const createdFiles = new Set<string>();
+      let turnsWithSnapshot = 0;
+      for (const turnId of turnIds) {
+        const files = await listSnapshotFiles(workspacePath, String(turnId));
+        if (!files) continue;
+        turnsWithSnapshot++;
+        for (const f of files.filesChanged ?? []) filesChanged.add(f);
+        for (const f of files.createdFiles ?? []) createdFiles.add(f);
+      }
+      return {
+        filesChanged: [...filesChanged],
+        createdFiles: [...createdFiles],
+        turnsWithSnapshot,
+      };
+    },
+  );
 }
 
 export function formatMessagesForSummary(

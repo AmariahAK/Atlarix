@@ -82,6 +82,42 @@ describeWithGit("shadow-git snapshots", () => {
     expect(await read("src/b.ts")).toBe("original B");
   });
 
+  it("range revert (newest→oldest) rewinds multiple turns to pre-first-turn state", async () => {
+    // Models the edit-and-resend range revert: two discarded turns, each with a
+    // per-touched-file pre-write snapshot. Reverting newest→oldest must restore
+    // EVERY file to its state before the first discarded turn, and delete files
+    // created by ANY discarded turn (not just the earliest).
+    await write("a.ts", "original A");
+
+    // Turn t1: edits a.ts, creates c.ts.
+    await captureSnapshot({
+      workspacePath: workspace,
+      turnId: "t1",
+      relativePaths: ["a.ts", "c.ts"], // c.ts doesn't exist yet → created
+    });
+    await write("a.ts", "A after t1");
+    await write("c.ts", "C from t1");
+
+    // Turn t2: edits a.ts again, creates d.ts.
+    await captureSnapshot({
+      workspacePath: workspace,
+      turnId: "t2",
+      relativePaths: ["a.ts", "d.ts"], // captures a.ts="A after t1"; d.ts created
+    });
+    await write("a.ts", "A after t2");
+    await write("d.ts", "D from t2");
+
+    // Revert the range NEWEST→OLDEST (what revert:snapshot-range does).
+    for (const turnId of ["t2", "t1"]) {
+      const r = await revertSnapshot({ workspacePath: workspace, turnId });
+      expect(r.success).toBe(true);
+    }
+
+    expect(await read("a.ts")).toBe("original A"); // not "A after t1"
+    expect(await read("c.ts")).toBeNull(); // created by t1 → deleted
+    expect(await read("d.ts")).toBeNull(); // created by t2 → deleted (would survive if only t1 reverted)
+  });
+
   it("first capture per path wins (pre-write state is preserved across writes)", async () => {
     await write("x.txt", "v1");
     await captureSnapshot({

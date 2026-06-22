@@ -15,6 +15,7 @@ import {
     activeChatIdAtom,
     pendingUserQuestionByChatIdAtom,
     chatErrorByIdAtom,
+    turnSnapshotTurnIdByMessageIdAtom,
 } from "../atoms/chatAtoms";
 import { IpcClient } from "@/ipc/ipc_client";
 import { SimpleMessage } from "./SimpleMessage";
@@ -31,6 +32,18 @@ import { selectedAppIdAtom } from "@/atoms/appAtoms";
 import { LoadedSessionBanner } from "@/components/chat/LoadedSessionBanner";
 import { startNewWorkspaceConversation } from "@/lib/open-workspace-session";
 import { InlineStreamStatus } from "@/components/chat/InlineStreamStatus";
+import { discardedTurnSnapshotIds } from "@/lib/chat/discarded-turn-snapshots";
+import { showError } from "@/lib/toast";
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 interface SimpleInlineChatProps {
     chatId: number;
@@ -50,10 +63,22 @@ export function SimpleInlineChat({
     const setActiveChatId = useSetAtom(activeChatIdAtom);
     const selectedAppId = useAtomValue(selectedAppIdAtom);
     const setPendingUserQuestionByChatId = useSetAtom(pendingUserQuestionByChatIdAtom);
+    const snapshotByMessageId = useAtomValue(turnSnapshotTurnIdByMessageIdAtom);
+    const setSnapshotByMessageId = useSetAtom(turnSnapshotTurnIdByMessageIdAtom);
     const { streamMessage } = useStreamChat({ hasChatId: false });
     const [chatAppId, setChatAppId] = useState<number | null>(() =>
         selectedAppId != null ? selectedAppId : null,
     );
+    // Edit-and-resend: when editing discards turns that changed files, confirm
+    // whether to also revert those files before re-running.
+    const [pendingEdit, setPendingEdit] = useState<{
+        messageId: number;
+        newContent: string;
+        turnIds: string[];
+        changed: number;
+        created: number;
+    } | null>(null);
+    const [editReverting, setEditReverting] = useState(false);
 
     useEffect(() => {
         if (selectedAppId != null) {
@@ -147,8 +172,12 @@ export function SimpleInlineChat({
         setActiveChatId(null);
     }, [selectedAppId, chatAppId, setActiveChatId]);
 
-    const handleEditUserMessage = useCallback(
-        async (messageId: number, newContent: string) => {
+    const performEdit = useCallback(
+        async (
+            messageId: number,
+            newContent: string,
+            discardedTurnIds?: string[],
+        ) => {
             await IpcClient.getInstance().editMessage(chatId, messageId, newContent);
             const chat = await IpcClient.getInstance().getChat(chatId);
             setChatAppId(chat.appId ?? null);
@@ -161,6 +190,22 @@ export function SimpleInlineChat({
                 "@/lib/chat/apply-stream-display-hydration"
             );
             applyStreamDisplayHydration(chat.messages);
+            // Prune snapshot-map entries for the now-discarded turns so they
+            // can't be revived by a later edit.
+            if (discardedTurnIds && discardedTurnIds.length > 0) {
+                const discarded = new Set(discardedTurnIds);
+                setSnapshotByMessageId((prev) => {
+                    let mutated = false;
+                    const next = new Map(prev);
+                    for (const [mid, tid] of prev) {
+                        if (discarded.has(tid)) {
+                            next.delete(mid);
+                            mutated = true;
+                        }
+                    }
+                    return mutated ? next : prev;
+                });
+            }
             // Reproduce the edited message's own work mode on resend so the turn
             // is deterministic instead of drifting to whatever global settings
             // happen to be. Fall back to undefined (global) when unset.
@@ -173,7 +218,71 @@ export function SimpleInlineChat({
                 workModeOverride,
             });
         },
-        [chatId, setMessagesById, streamMessage],
+        [chatId, setMessagesById, setSnapshotByMessageId, streamMessage],
+    );
+
+    const handleEditUserMessage = useCallback(
+        async (messageId: number, newContent: string) => {
+            // Identify the turns this edit would discard that captured file
+            // snapshots — if any, confirm whether to also revert those files.
+            const msgs = messagesById.get(chatId) ?? [];
+            const turnIds = discardedTurnSnapshotIds(
+                msgs,
+                messageId,
+                snapshotByMessageId,
+            );
+            if (turnIds.length === 0) {
+                await performEdit(messageId, newContent);
+                return;
+            }
+            let changed = 0;
+            let created = 0;
+            try {
+                const files = await IpcClient.getInstance().getSnapshotFilesRange(
+                    chatId,
+                    turnIds,
+                );
+                changed = files?.filesChanged.length ?? 0;
+                created = files?.createdFiles.length ?? 0;
+            } catch {
+                // Show the dialog anyway (unknown counts) rather than silently
+                // discarding the file-revert choice.
+            }
+            if (changed === 0 && created === 0) {
+                // Snapshots existed but recorded no file changes — nothing to
+                // revert; just edit + resend.
+                await performEdit(messageId, newContent, turnIds);
+                return;
+            }
+            setPendingEdit({ messageId, newContent, turnIds, changed, created });
+        },
+        [chatId, messagesById, snapshotByMessageId, performEdit],
+    );
+
+    const resolveEditRevert = useCallback(
+        async (revertFiles: boolean) => {
+            const pe = pendingEdit;
+            if (!pe) return;
+            setEditReverting(true);
+            try {
+                if (revertFiles) {
+                    const res = await IpcClient.getInstance().revertSnapshotRange(
+                        chatId,
+                        pe.turnIds,
+                    );
+                    if (!res.success) {
+                        showError(res.error ?? "Reverting file changes failed");
+                    }
+                }
+                await performEdit(pe.messageId, pe.newContent, pe.turnIds);
+            } catch (e) {
+                showError(e);
+            } finally {
+                setEditReverting(false);
+                setPendingEdit(null);
+            }
+        },
+        [chatId, pendingEdit, performEdit],
     );
 
     const handleContinue = useCallback(
@@ -345,6 +454,62 @@ export function SimpleInlineChat({
                 }}
                 disabled={isStreaming}
             />
+
+            <AlertDialog
+                open={pendingEdit != null}
+                onOpenChange={(o) => {
+                    if (!o && !editReverting) setPendingEdit(null);
+                }}
+            >
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Re-run from this message?</AlertDialogTitle>
+                        <AlertDialogDescription asChild>
+                            <div className="space-y-2 text-xs">
+                                <p>
+                                    Editing re-runs from here and discards the{" "}
+                                    {pendingEdit?.turnIds.length ?? 0} later turn(s).
+                                    Those turns changed{" "}
+                                    {pendingEdit?.changed ?? 0} file(s)
+                                    {pendingEdit && pendingEdit.created > 0
+                                        ? ` and created ${pendingEdit.created}`
+                                        : ""}
+                                    . Revert those file changes too, or keep them on
+                                    disk?
+                                </p>
+                                <p className="text-muted-foreground">
+                                    Reverting restores the files to their state before
+                                    those turns (created files are deleted). Keeping
+                                    them re-runs on top of the current files.
+                                </p>
+                            </div>
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel disabled={editReverting}>
+                            Cancel
+                        </AlertDialogCancel>
+                        <AlertDialogAction
+                            onClick={(e) => {
+                                e.preventDefault();
+                                void resolveEditRevert(false);
+                            }}
+                            disabled={editReverting}
+                        >
+                            Keep files &amp; re-run
+                        </AlertDialogAction>
+                        <AlertDialogAction
+                            onClick={(e) => {
+                                e.preventDefault();
+                                void resolveEditRevert(true);
+                            }}
+                            disabled={editReverting}
+                        >
+                            Revert files &amp; re-run
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
         </div>
     );
 }

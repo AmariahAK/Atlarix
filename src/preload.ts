@@ -31,8 +31,10 @@ const validInvokeChannels = [
   "autonomous:revert-op",
   "autonomous:accept-all",
   "revert:snapshot",
+  "revert:snapshot-range",
   "snapshot:exists",
   "snapshot:files",
+  "snapshot:files-range",
   "stream:open",                  // v3.9: open terminal/pipeline stream
   "stream:close",                 // v3.9: close stream
   "stream:get-lines",             // v3.9: get collected lines
