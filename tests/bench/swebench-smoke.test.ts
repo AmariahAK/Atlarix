@@ -44,9 +44,10 @@ describe("swebench runner mechanics (no network)", () => {
   it("auto-approves the edit and captures a non-empty patch", async () => {
     ctx.server.register(
       scenario("swe-smoke")
-        .toolCall("write_file", {
+        .toolCall("edit_file", {
           path: "buggy.py",
           content: "def add(a, b):\n    return a + b\n",
+          operation: "write",
           description: "fix the add bug",
         })
         .text("Fixed the bug. <task_complete>")

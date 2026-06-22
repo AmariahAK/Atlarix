@@ -22,6 +22,7 @@ import { SimpleChatInput } from "./SimpleChatInput";
 import { InlineUserQuestions } from "@/components/chat/InlineUserQuestions";
 import { BackgroundJobsIndicator } from "@/components/chat/BackgroundJobsIndicator";
 import { Plus, ArrowDown } from "lucide-react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { useStreamChat } from "@/hooks/useStreamChat";
 import { useStickToBottom } from "@/hooks/useStickToBottom";
 import type { FileAttachment, Message } from "@/ipc/ipc_types";
@@ -123,6 +124,26 @@ export function SimpleInlineChat({
     const isStreaming = isStreamingById.get(chatId) ?? false;
     const error = errorById.get(chatId) ?? null;
 
+    // Virtualize the SETTLED messages (everything but the most recent) so long
+    // sessions stay smooth; the last row is the one that streams/grows, so it's
+    // rendered in normal DOM (outside the virtualizer) to avoid measure thrash,
+    // alongside the trailing live region (status / questions / bg jobs / anchor).
+    const settledMessages =
+        visibleMessages.length > 0 ? visibleMessages.slice(0, -1) : [];
+    const lastMessage =
+        visibleMessages.length > 0
+            ? visibleMessages[visibleMessages.length - 1]
+            : null;
+    const lastMessageIsLatestAssistant =
+        lastAssistantIndex === visibleMessages.length - 1;
+
+    const rowVirtualizer = useVirtualizer({
+        count: settledMessages.length,
+        getScrollElement: () => messagesContainerRef.current,
+        estimateSize: () => 220,
+        overscan: 6,
+    });
+
     // Follow streaming output (and any content growth) only when the user is
     // already pinned to the bottom; otherwise leave their scroll position alone.
     useEffect(() => {
@@ -219,7 +240,7 @@ export function SimpleInlineChat({
             <div className="relative flex-1 min-h-0 flex flex-col">
             <div
                 ref={messagesContainerRef}
-                className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 py-4 space-y-4 [overflow-anchor:auto]"
+                className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 py-4 [overflow-anchor:auto]"
             >
                 {visibleMessages.length === 0 && !isStreaming ? (
                     <div className="flex flex-col items-center justify-center min-h-[8rem] text-center text-muted-foreground text-sm px-4 gap-2">
@@ -229,23 +250,66 @@ export function SimpleInlineChat({
                         </span>
                     </div>
                 ) : (
-                    visibleMessages.map((message, index) => (
-                        <div key={message.id ?? `idx-${index}`} className="contents">
-                            <SimpleMessage
-                                message={message}
-                                chatId={chatId}
-                                workspaceAppId={chatAppId}
-                                isStreaming={isStreaming && index === visibleMessages.length - 1}
-                                isLatestAssistant={index === lastAssistantIndex}
-                                onEditUserMessage={handleEditUserMessage}
-                                onContinue={handleContinue}
-                            />
+                    <>
+                        {/* Virtualized settled history — only on-screen rows mount.
+                            Rows are absolutely positioned (so per-row pb-4 carries
+                            the inter-message gap, not the container's space-y). */}
+                        <div
+                            style={{
+                                height: rowVirtualizer.getTotalSize(),
+                                position: "relative",
+                                width: "100%",
+                            }}
+                        >
+                            {rowVirtualizer.getVirtualItems().map((vi) => {
+                                const message = settledMessages[vi.index];
+                                return (
+                                    <div
+                                        key={message.id ?? `idx-${vi.index}`}
+                                        data-index={vi.index}
+                                        ref={rowVirtualizer.measureElement}
+                                        className="pb-4"
+                                        style={{
+                                            position: "absolute",
+                                            top: 0,
+                                            left: 0,
+                                            width: "100%",
+                                            transform: `translateY(${vi.start}px)`,
+                                        }}
+                                    >
+                                        <SimpleMessage
+                                            message={message}
+                                            chatId={chatId}
+                                            workspaceAppId={chatAppId}
+                                            isStreaming={false}
+                                            isLatestAssistant={vi.index === lastAssistantIndex}
+                                            onEditUserMessage={handleEditUserMessage}
+                                            onContinue={handleContinue}
+                                        />
+                                    </div>
+                                );
+                            })}
                         </div>
-                    ))
+
+                        {/* The most-recent row streams/grows — keep it in normal
+                            DOM so the virtualizer never re-measures a moving target. */}
+                        {lastMessage && (
+                            <div className="pb-4">
+                                <SimpleMessage
+                                    message={lastMessage}
+                                    chatId={chatId}
+                                    workspaceAppId={chatAppId}
+                                    isStreaming={isStreaming}
+                                    isLatestAssistant={lastMessageIsLatestAssistant}
+                                    onEditUserMessage={handleEditUserMessage}
+                                    onContinue={handleContinue}
+                                />
+                            </div>
+                        )}
+                    </>
                 )}
 
-                {isStreaming && visibleMessages.length > 0 &&
-                    visibleMessages[visibleMessages.length - 1].role === "user" && (
+                {isStreaming && lastMessage?.role === "user" && (
                         <div className="flex justify-start">
                             <div className="bg-muted rounded-lg px-4 py-2">
                                 <InlineStreamStatus chatId={chatId} active />

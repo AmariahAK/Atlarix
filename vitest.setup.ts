@@ -25,6 +25,14 @@ vi.mock("electron", () => {
       decryptString: vi.fn(),
       encryptString: vi.fn(),
     },
+    // Mirrors src/headless/electron-stub.ts so the keep-awake power blocker
+    // (ActiveStreamRegistry.set → acquirePowerSaveBlocker) no-ops cleanly in
+    // tests instead of logging a "No powerSaveBlocker export" warning.
+    powerSaveBlocker: {
+      start: vi.fn(() => 0),
+      stop: vi.fn(),
+      isStarted: vi.fn(() => false),
+    },
   };
 });
 

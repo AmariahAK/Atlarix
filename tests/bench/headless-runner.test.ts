@@ -35,9 +35,10 @@ describe("headless runner (in-process, no network)", () => {
   it("runs the real loop, auto-approves a write, and completes", async () => {
     ctx.server.register(
       scenario("hl-smoke")
-        .toolCall("write_file", {
+        .toolCall("edit_file", {
           path: "out.txt",
           content: "hello from headless\n",
+          operation: "write",
           description: "create out.txt",
         })
         .text("Done. <task_complete>")

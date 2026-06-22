@@ -23,10 +23,18 @@ python patch-harbor.py
 
 ## Atlarix headless bundle (the tarball)
 
+Easiest — use the auto-published prebuilt bundle (rebuilt by the **Atlarix Headless**
+GitHub workflow on demand / on `headless-v*` tags):
+
 ```bash
-# Build a Linux Node-ABI bundle (in a Docker node container — NOT on macOS):
+export ATLARIX_HEADLESS_TARBALL_URL="https://github.com/AmariahAK/atlarix-releases/releases/download/headless-bench/atlarix-headless-linux-amd64.tar.gz"
+```
+
+Or build it yourself (Linux Node-ABI bundle, in a Docker node container — NOT on macOS):
+
+```bash
 ../../scripts/build-headless-tarball.sh
-# Host the tarball (e.g. attach to atlarix-releases) and:
+# then host the tarball and point ATLARIX_HEADLESS_TARBALL_URL at it:
 export ATLARIX_HEADLESS_TARBALL_URL="https://…/atlarix-headless-<ver>.tar.gz"
 ```
 

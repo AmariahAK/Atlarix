@@ -1,0 +1,80 @@
+# Build + publish ONLY the Electron-free headless CLI bundle to the
+# `headless-bench` PRERELEASE on atlarix-releases. Decoupled from the desktop
+# app release (release.yml, v* tags) so testers and the benchmark harness can
+# grab a working headless CLI without triggering a full mac/win/linux build.
+#
+# IMPORTANT: this release MUST stay a prerelease — a normal release becomes
+# /releases/latest and would hijack the desktop auto-updater feed the launchpad
+# reads. `prerelease: true` below enforces that on every update.
+
+name: Atlarix Headless
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "headless-v*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: atlarix-headless
+  cancel-in-progress: false
+
+env:
+  # Public npm only — lockfile must not contain CodeArtifact resolved URLs.
+  NPM_CONFIG_REGISTRY: https://registry.npmjs.org/
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest # amd64 runner → the script's docker --platform linux/amd64 is native (no qemu)
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      # Headless bundle is pure-JS esbuild; native deps are packed inside Docker
+      # by the tarball script — so postinstall (electron/ctags) is not needed.
+      - name: Install dependencies
+        run: node scripts/verify-npm-lock-registry.mjs && npm ci --ignore-scripts && npx patch-package
+
+      - name: Build headless tarball (Docker linux/amd64)
+        run: bash scripts/build-headless-tarball.sh
+
+      - name: Stage a stable-named copy
+        run: |
+          VER="$(node -p "require('./package.json').version")"
+          cp "dist-headless-tarball/atlarix-headless-${VER}.tar.gz" \
+             "dist-headless-tarball/atlarix-headless-linux-amd64.tar.gz"
+          ls -la dist-headless-tarball/
+
+      - name: Publish to headless-bench prerelease (atlarix-releases)
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: headless-bench
+          name: Atlarix Headless (bench)
+          body: |
+            Prebuilt **Electron-free** Atlarix headless CLI (linux/amd64) for
+            benchmarking and local testing. Rebuilt from the latest `main`.
+
+            - **Stable URL:** `atlarix-headless-linux-amd64.tar.gz` (always the newest)
+            - **Versioned:** `atlarix-headless-<version>.tar.gz`
+
+            Unpack to a dir and run:
+            ```bash
+            node dist-headless/atlarix-headless.mjs \
+              --workspace /path/to/repo --prompt-file task.md \
+              --provider-id openrouter --model deepseek/deepseek-v4-pro \
+              --api-key "$OPENROUTER_API_KEY"
+            ```
+          prerelease: true
+          draft: false
+          files: |
+            dist-headless-tarball/atlarix-headless-*.tar.gz
+          repository: AmariahAK/atlarix-releases
+          token: ${{ secrets.RELEASES_TOKEN }}

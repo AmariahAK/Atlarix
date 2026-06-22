@@ -110,7 +110,11 @@ See [`.github/workflows/release.yml`](.github/workflows/release.yml) and [docs/C
 
 ### Headless agent (benchmarking / CI)
 
-`npm run build:headless` bundles an **Electron-free CLI** (`src/headless/`) that drives the real agent loop in plain Node — used by the Terminal-Bench (Harbor) and SWE-bench adapters under [`benchmarks/`](benchmarks/). A prebuilt `linux/amd64` bundle is published as the [`headless-bench`](https://github.com/AmariahAK/atlarix-releases/releases/tag/headless-bench) release on atlarix-releases.
+`npm run build:headless` bundles an **Electron-free CLI** (`src/headless/`) that drives the real agent loop in plain Node — used by the Terminal-Bench (Harbor) and SWE-bench adapters under [`benchmarks/`](benchmarks/). A prebuilt `linux/amd64` bundle is published as the [`headless-bench`](https://github.com/AmariahAK/atlarix-releases/releases/tag/headless-bench) **prerelease** on atlarix-releases, rebuilt by the [Atlarix Headless workflow](.github/workflows/headless.yml) (run it from **Actions → Atlarix Headless**, or push a `headless-v*` tag). Stable download URL (always newest):
+
+```
+https://github.com/AmariahAK/atlarix-releases/releases/download/headless-bench/atlarix-headless-linux-amd64.tar.gz
+```
 
 ```bash
 node dist-headless/atlarix-headless.mjs \
