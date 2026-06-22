@@ -4315,6 +4315,25 @@ This conversation includes one or more image attachments. When the user uploads 
             );
             registerInterceptor(req.chatId, askPermissionInterceptor);
 
+            // Forward agent command output to the renderer (in-chat command card
+            // + Agent terminal tab) — parity with Build mode. Ask runs read-only
+            // run_command, but without this its output never reaches the UI tab.
+            askPermissionInterceptor.on('terminal-output', (payload: any) => {
+              feedTerminalOutput(req.chatId, payload.output ?? "");
+              handleStreamActivityPulse();
+              safeSend(event.sender, "terminal-output", {
+                chatId: req.chatId,
+                commandId: payload.operationId,
+                command: payload.command,
+                output: payload.output,
+                status: payload.status,
+                exitCode: payload.exitCode,
+                background: payload.background === true,
+                source: "agent",
+                isPermissionBased: true,
+              });
+            });
+
             // Repetition guard for Ask mode — parity with Build mode. Without
             // this, the model could hammer `read_file` / `explore_folder` /
             // `search` indefinitely (the round-cache layer serves them from

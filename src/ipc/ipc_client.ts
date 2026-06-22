@@ -248,7 +248,7 @@ export class IpcClient {
   >;
   private userQuestionHandlers: Map<number, (payload: any) => void>;
   private modeChangeHandler: ((payload: { chatId: number; requestedMode: string; reason: string }) => void) | null = null;
-  private terminalHandlers: Map<number, (payload: any) => void>;
+  private terminalHandlers: Map<number, Set<(payload: any) => void>>;
   private toolStartHandlers: Set<
     (payload: {
       chatId: number;
@@ -643,13 +643,21 @@ export class IpcClient {
       }
     });
 
-    // Terminal output from main (command execution)
+    // Terminal output from main (command execution). Fan out to ALL subscribers
+    // for this chat — both the in-chat command cards (useStreamChat) and the
+    // right-panel Agent terminal tab (TerminalPanel) listen, and must coexist.
     this.ipcRenderer.on("terminal-output", (payload: any) => {
       if (payload && typeof payload === "object" && "chatId" in payload) {
         const { chatId } = payload;
-        const handler = this.terminalHandlers.get(chatId);
-        if (handler) {
-          handler(payload);
+        const handlers = this.terminalHandlers.get(chatId);
+        if (handlers && handlers.size > 0) {
+          for (const handler of handlers) {
+            try {
+              handler(payload);
+            } catch (err) {
+              console.error("[IPC] terminal-output handler threw:", err);
+            }
+          }
         } else {
           console.log("[IPC] Terminal output received:", payload);
         }
@@ -2607,9 +2615,18 @@ export class IpcClient {
       source?: 'user' | 'agent'; // Who initiated the command (agent failures don't pop a toast)
     }) => void
   ): () => void {
-    this.terminalHandlers.set(chatId, handler);
+    let handlers = this.terminalHandlers.get(chatId);
+    if (!handlers) {
+      handlers = new Set();
+      this.terminalHandlers.set(chatId, handlers);
+    }
+    handlers.add(handler);
     return () => {
-      this.terminalHandlers.delete(chatId);
+      const set = this.terminalHandlers.get(chatId);
+      if (set) {
+        set.delete(handler);
+        if (set.size === 0) this.terminalHandlers.delete(chatId);
+      }
     };
   }
 

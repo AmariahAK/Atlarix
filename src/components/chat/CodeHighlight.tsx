@@ -179,7 +179,7 @@ export const CodeHighlight = memo(
             </button>
           )}
         </div>
-        {highlighter ? (
+        {highlighter && !isStreaming ? (
           <ShikiHighlighter
             highlighter={highlighter}
             language={language}
@@ -189,6 +189,10 @@ export const CodeHighlight = memo(
             {code}
           </ShikiHighlighter>
         ) : (
+          // While streaming, render plain (no Shiki): re-highlighting the growing
+          // block on every token is the dominant streaming-flicker cost. The
+          // message re-renders with isStreaming=false on completion and switches
+          // to full syntax highlighting then.
           <pre>
             <code>{code}</code>
           </pre>
@@ -201,6 +205,10 @@ export const CodeHighlight = memo(
     );
   },
   (prevProps, nextProps) => {
-    return prevProps.children === nextProps.children;
+    // Re-render when the code changes OR when streaming ends (plain → Shiki).
+    return (
+      prevProps.children === nextProps.children &&
+      prevProps.isStreaming === nextProps.isStreaming
+    );
   },
 );

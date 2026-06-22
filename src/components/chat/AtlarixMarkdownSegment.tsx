@@ -2,7 +2,7 @@
  * Renders a markdown segment that may contain atlarix-write / read / output tags
  * but not tool or thought tags (those are handled by AssistantMessageBody).
  */
-import React, { useMemo } from "react";
+import React, { memo, useMemo } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { stripPartialQuestionsBlockForDisplay } from "@/ipc/utils/cleanFullResponse";
@@ -19,7 +19,7 @@ import {
   renderTextWithPathMentions,
 } from "./AtlarixMarkdownParser";
 
-export function AtlarixMarkdownSegment({
+function AtlarixMarkdownSegmentImpl({
   content,
   isStreaming,
   citationSources = [],
@@ -77,3 +77,18 @@ export function AtlarixMarkdownSegment({
     </CitationSourcesContext.Provider>
   );
 }
+
+/**
+ * Memoized: during streaming the parent re-renders ~20×/sec, but a COMPLETED
+ * segment's `content` string is stable tick-to-tick (only the growing tail
+ * segment changes). Skipping unchanged segments avoids re-parsing ReactMarkdown
+ * and (with CodeHighlight's plain-while-streaming) keeps the view static. Deps
+ * mirror the component's own useMemo inputs.
+ */
+export const AtlarixMarkdownSegment = memo(
+  AtlarixMarkdownSegmentImpl,
+  (prev, next) =>
+    prev.content === next.content &&
+    prev.isStreaming === next.isStreaming &&
+    (prev.citationSources?.length ?? 0) === (next.citationSources?.length ?? 0),
+);
