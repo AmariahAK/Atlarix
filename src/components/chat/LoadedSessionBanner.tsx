@@ -1,6 +1,5 @@
 import { useAtom } from "jotai";
 import { loadedSessionTruncatedAtom } from "@/atoms/sessionAtoms";
-import { SESSION_LOAD_MESSAGE_LIMIT } from "@/constants/session_constants";
 import { X } from "lucide-react";
 
 /** Dismissible notice when an older session was loaded with a truncated message window. */
@@ -16,8 +15,8 @@ export function LoadedSessionBanner() {
   return (
     <div className="mx-4 mb-2 px-3 py-2 rounded-md border border-border/60 bg-muted/40 text-xs text-muted-foreground flex items-start gap-2">
       <p className="flex-1">
-        Showing the most recent {SESSION_LOAD_MESSAGE_LIMIT / 2} exchanges from
-        this session (older messages are stored but not loaded).
+        Showing the most recent messages from this session (older messages are
+        stored but not loaded).
       </p>
       <button
         type="button"

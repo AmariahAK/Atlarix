@@ -21,9 +21,9 @@ import { SimpleMessage } from "./SimpleMessage";
 import { SimpleChatInput } from "./SimpleChatInput";
 import { InlineUserQuestions } from "@/components/chat/InlineUserQuestions";
 import { BackgroundJobsIndicator } from "@/components/chat/BackgroundJobsIndicator";
-import { Plus } from "lucide-react";
-import { sliceLastExchanges } from "../lib/chat/lastExchanges";
+import { Plus, ArrowDown } from "lucide-react";
 import { useStreamChat } from "@/hooks/useStreamChat";
+import { useStickToBottom } from "@/hooks/useStickToBottom";
 import type { FileAttachment, Message } from "@/ipc/ipc_types";
 import { ChatErrorBox } from "@/components/chat/ChatErrorBox";
 import { Button } from "@/components/ui/button";
@@ -64,17 +64,18 @@ export function SimpleInlineChat({
     const messagesEndRef = useRef<HTMLDivElement | null>(null);
     const messagesContainerRef = useRef<HTMLDivElement | null>(null);
 
-    const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
-        messagesEndRef.current?.scrollIntoView({ behavior });
-    }, []);
+    const { isAtBottomRef, scrollToBottom, onContentChange, showJumpButton } =
+        useStickToBottom(messagesContainerRef, messagesEndRef);
 
     const streamCount = streamCountById.get(chatId) ?? 0;
 
+    // Switching chats: jump straight to the latest and re-pin to the bottom.
     useEffect(() => {
         if (chatId) {
+            isAtBottomRef.current = true;
             scrollToBottom("auto");
         }
-    }, [chatId, streamCount, scrollToBottom]);
+    }, [chatId, scrollToBottom, isAtBottomRef]);
 
     const fetchMessages = useCallback(async () => {
         const existing = getDefaultStore().get(chatMessagesByIdAtom).get(chatId);
@@ -107,7 +108,12 @@ export function SimpleInlineChat({
     }, [fetchMessages]);
 
     const messages = messagesById.get(chatId) ?? [];
-    const visibleMessages = sliceLastExchanges(messages, 7);
+    // Render the FULL conversation (parity with Claude Code / opencode) — no
+    // last-N-exchanges cutoff. System messages are excluded from the view; the
+    // memoized SimpleMessage rows keep this cheap even for long sessions.
+    const visibleMessages = messages.filter(
+        (m) => m && (m.role === "user" || m.role === "assistant"),
+    );
     // Anchor the settled "A" to the LAST assistant message, not the last array
     // element — a trailing synthetic/user message (compaction continuation,
     // self-correction) would otherwise flip it off and the indicator vanishes.
@@ -116,6 +122,12 @@ export function SimpleInlineChat({
         .lastIndexOf("assistant");
     const isStreaming = isStreamingById.get(chatId) ?? false;
     const error = errorById.get(chatId) ?? null;
+
+    // Follow streaming output (and any content growth) only when the user is
+    // already pinned to the bottom; otherwise leave their scroll position alone.
+    useEffect(() => {
+        onContentChange();
+    }, [messages, streamCount, onContentChange]);
     const handleNewChat = useCallback(async () => {
         const workspaceId = selectedAppId ?? chatAppId;
         if (workspaceId != null) {
@@ -204,9 +216,10 @@ export function SimpleInlineChat({
 
             <LoadedSessionBanner />
 
+            <div className="relative flex-1 min-h-0 flex flex-col">
             <div
                 ref={messagesContainerRef}
-                className="flex-1 min-h-0 overflow-y-auto px-4 py-4 space-y-4"
+                className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 py-4 space-y-4 [overflow-anchor:auto]"
             >
                 {visibleMessages.length === 0 && !isStreaming ? (
                     <div className="flex flex-col items-center justify-center min-h-[8rem] text-center text-muted-foreground text-sm px-4 gap-2">
@@ -217,7 +230,7 @@ export function SimpleInlineChat({
                     </div>
                 ) : (
                     visibleMessages.map((message, index) => (
-                        <div key={message.id || index} className="contents">
+                        <div key={message.id ?? `idx-${index}`} className="contents">
                             <SimpleMessage
                                 message={message}
                                 chatId={chatId}
@@ -246,7 +259,20 @@ export function SimpleInlineChat({
                 {/* v14: background commands running in the background (cancellable). */}
                 <BackgroundJobsIndicator chatId={chatId} />
 
-                <div ref={messagesEndRef} />
+                <div ref={messagesEndRef} className="[overflow-anchor:none]" />
+            </div>
+
+                {showJumpButton && (
+                    <button
+                        type="button"
+                        onClick={() => scrollToBottom("smooth")}
+                        aria-label="Jump to latest"
+                        className="absolute bottom-3 right-4 z-10 flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-foreground bg-background/95 backdrop-blur-sm border border-border/60 rounded-full shadow-md hover:bg-accent transition-colors"
+                    >
+                        <ArrowDown size={14} />
+                        <span>Jump to latest</span>
+                    </button>
+                )}
             </div>
 
             <div className="flex-shrink-0 px-4 pb-2 space-y-2">

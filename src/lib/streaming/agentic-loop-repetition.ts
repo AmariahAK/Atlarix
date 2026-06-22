@@ -124,10 +124,20 @@ export type AgenticRepetitionState = {
 };
 
 function correctionMessage(toolName: string, displayTarget: string): string {
+  const target = displayTarget ? ` \`${displayTarget.slice(0, 500)}\`` : "";
+  // Read-side loops are almost always "the model forgot it already has this":
+  // tell it the content is already in context and how to get MORE of it (page
+  // with offset) instead of re-reading from the top.
+  if (READ_TOOL_NAMES.has(toolName)) {
+    return [
+      `You already called ${toolName}${target} — its result is already in the conversation above.`,
+      "Don't repeat it; use what you already have. To see a different part of a large file, call read_file with offset/limit to page forward instead of re-reading from the start.",
+    ].join(" ");
+  }
   return [
     "You appear to be repeating the same action (" +
       toolName +
-      (displayTarget ? ` on \`${displayTarget.slice(0, 500)}\`` : "") +
+      (target ? ` on${target}` : "") +
       ") multiple times.",
     "Step back and reconsider your approach. What is the actual problem you are trying to solve?",
   ].join(" ");

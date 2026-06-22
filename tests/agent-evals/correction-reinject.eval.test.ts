@@ -19,7 +19,9 @@ import { expectStreamEnded } from "../infra/assert";
  * byte-stable (transient steering nudge, not history).
  */
 
-const CORRECTION_NEEDLE = "You appear to be repeating the same action";
+// This eval drives a read_file loop, which now gets the read-aware correction
+// ("you already have it — page with offset/limit") rather than the generic one.
+const CORRECTION_NEEDLE = "its result is already in the conversation above";
 
 let ctx: EvalContext;
 

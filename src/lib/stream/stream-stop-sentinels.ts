@@ -33,11 +33,20 @@ export const ASK_USER_STREAM_STOP = "ask_user_pending";
  */
 export const LOOP_REPETITION_STREAM_STOP = "loop_repetition";
 
+/**
+ * Abort reason when a NEW stream supersedes an in-flight one for the same chat
+ * (single-flight guard). The superseded leg unwinds cleanly — its late
+ * `chat:response:end` is dropped by the renderer's dispatch-id gate — so this
+ * must read as an intentional stop, not a user cancel or an error.
+ */
+export const SUPERSEDED_STREAM_STOP = "superseded_stream";
+
 const STREAM_STOP_SENTINELS: ReadonlySet<string> = new Set([
   TASK_COMPLETE_STREAM_STOP,
   ASK_USER_STREAM_STOP,
   LOOP_REPETITION_STREAM_STOP,
   COMPASS_LIMIT_STREAM_STOP,
+  SUPERSEDED_STREAM_STOP,
 ]);
 
 /**

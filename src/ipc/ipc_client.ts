@@ -2604,6 +2604,7 @@ export class IpcClient {
       exitCode?: number;
       background?: boolean; // A long-running/background process — gets its own tab
       isPermissionBased?: boolean; // True if this command came from permission system
+      source?: 'user' | 'agent'; // Who initiated the command (agent failures don't pop a toast)
     }) => void
   ): () => void {
     this.terminalHandlers.set(chatId, handler);
@@ -3267,6 +3268,14 @@ export class IpcClient {
     jobId: string,
   ): Promise<{ ok: boolean }> {
     return this.ipcRenderer.invoke("chat:background-job-cancel", { chatId, jobId });
+  }
+
+  /** Non-destructive: are there undrained finished background results for this chat? */
+  public async backgroundHasPendingResults(chatId: number): Promise<boolean> {
+    return this.ipcRenderer.invoke(
+      "chat:background-has-pending-results",
+      chatId,
+    );
   }
 
   public onBackgroundJobUpdate(

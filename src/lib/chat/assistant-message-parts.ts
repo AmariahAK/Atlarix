@@ -455,6 +455,37 @@ export function parseAssistantMessageParts(
   return dedupeConsecutiveTools(mergeAdjacentMarkdown(parts));
 }
 
+/**
+ * Split a message's content into the parts emitted BEFORE and AFTER a given
+ * character offset, parsing each side independently.
+ *
+ * Used for native function-calling sub-agent rounds: the `task` call is an IPC
+ * activity event with no marker in the assistant text, so the prose before and
+ * after the call is concatenated. Snapshotting `content.length` at the moment
+ * the round first appears yields the seam (= length of the pre-call prose);
+ * slicing there lets the UI render pre-call prose → sub-agent panel → the
+ * continuation, instead of dumping all prose before the panel.
+ */
+export function splitContentPartsAtOffset(
+  content: string,
+  offset: number | null | undefined,
+  isStreaming: boolean,
+): { before: AssistantMessagePart[]; after: AssistantMessagePart[] } {
+  if (offset == null || !Number.isFinite(offset)) {
+    return { before: parseAssistantMessageParts(content, isStreaming), after: [] };
+  }
+  if (offset <= 0) {
+    return { before: [], after: parseAssistantMessageParts(content, isStreaming) };
+  }
+  if (offset >= content.length) {
+    return { before: parseAssistantMessageParts(content, isStreaming), after: [] };
+  }
+  return {
+    before: parseAssistantMessageParts(content.slice(0, offset), isStreaming),
+    after: parseAssistantMessageParts(content.slice(offset), isStreaming),
+  };
+}
+
 function mergeAdjacentMarkdown(
   parts: AssistantMessagePart[],
 ): AssistantMessagePart[] {

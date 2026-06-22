@@ -16,7 +16,7 @@ import { InlineStreamStatus } from "./chat/InlineStreamStatus";
 import { SessionRecordingCards } from "./chat/SessionRecordingCard";
 import { RevertTurnAction } from "./chat/RevertTurnAction";
 import { Copy, Check, Bot, Edit2, RotateCw, AlertTriangle } from "lucide-react";
-import { useState } from "react";
+import { memo, useState } from "react";
 import { useCopyToClipboard } from "@/hooks/useCopyToClipboard";
 import { showSuccess } from "@/lib/toast";
 import { useAtomValue } from "jotai";
@@ -58,7 +58,7 @@ interface SimpleMessageProps {
     onContinue?: (message: Message) => void;
 }
 
-export function SimpleMessage({
+function SimpleMessageImpl({
     message,
     chatId: chatIdProp,
     workspaceAppId,
@@ -362,4 +362,38 @@ export function SimpleMessage({
         </div>
     );
 }
+
+/**
+ * Messages arrive over IPC (structured-clone) so every row gets a FRESH object
+ * reference on every streaming tick — a default `memo` would never skip. This
+ * content-aware comparator skips re-rendering completed rows (whose fields are
+ * unchanged tick-to-tick) while always re-rendering the one whose content grew.
+ * The actively-streaming row's body also subscribes to live atoms directly, so
+ * it keeps updating even when the parent cascade is skipped here.
+ */
+function messagePropsEqual(
+    prev: SimpleMessageProps,
+    next: SimpleMessageProps,
+): boolean {
+    const a = prev.message;
+    const b = next.message;
+    return (
+        prev.chatId === next.chatId &&
+        prev.workspaceAppId === next.workspaceAppId &&
+        prev.isStreaming === next.isStreaming &&
+        prev.isLatestAssistant === next.isLatestAssistant &&
+        prev.onEditUserMessage === next.onEditUserMessage &&
+        prev.onContinue === next.onContinue &&
+        a.id === b.id &&
+        a.role === b.role &&
+        a.content === b.content &&
+        a.sessionRowId === b.sessionRowId &&
+        a.interrupted === b.interrupted &&
+        a.workMode === b.workMode &&
+        a.displaySnapshot === b.displaySnapshot &&
+        (a.sources?.length ?? 0) === (b.sources?.length ?? 0)
+    );
+}
+
+export const SimpleMessage = memo(SimpleMessageImpl, messagePropsEqual);
 

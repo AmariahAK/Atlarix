@@ -89,6 +89,7 @@ import {
   ASK_USER_STREAM_STOP,
   LOOP_REPETITION_STREAM_STOP,
   TASK_COMPLETE_STREAM_STOP,
+  SUPERSEDED_STREAM_STOP,
   abortReasonSentinel,
   streamStopAbortReason,
 } from "../../lib/stream/stream-stop-sentinels";
@@ -894,6 +895,27 @@ class ActiveStreamRegistry extends Map<number, AbortController> {
 
 const activeStreams = new ActiveStreamRegistry();
 
+// ─── Bug A: single-flight stream guard ─────────────────────────────────────
+// Abort is COOPERATIVE — runAgentTurn only checks signal.aborted at loop tops,
+// so a superseding stream can overlap an in-flight one and two turns end up
+// writing the same workspace ("someone is changing the code"). We track the
+// live runStream() PROMISE per chat so a new dispatch can await the prior
+// leg's real termination (not just abort it) before starting, plus a monotonic
+// id stamped on terminal events so the renderer drops a stale leg's late end.
+const activeStreamRuns = new Map<number, Promise<unknown>>();
+const activeStreamId = new Map<number, number>();
+let __streamIdCounter = 0;
+const SUPERSEDE_AWAIT_TIMEOUT_MS = 8_000;
+
+/** Resolve when `p` settles OR `ms` elapses. The superseded leg rejects with the
+ * supersede abort reason, so its rejection is swallowed. */
+async function awaitWithTimeout(p: Promise<unknown>, ms: number): Promise<void> {
+  await Promise.race([
+    p.catch(() => undefined),
+    new Promise<void>((resolve) => setTimeout(resolve, ms)),
+  ]);
+}
+
 /** Clear skill file cache when switching workspace (see `loadSkill`). */
 let lastSkillCacheAppId: number | undefined;
 
@@ -923,6 +945,7 @@ export function clearChatStreamStateForChat(chatId: number): void {
     }
     activeStreams.delete(chatId);
   }
+  activeStreamId.delete(chatId);
   partialResponses.delete(chatId);
   lastStreamRequest.delete(chatId);
   pendingAskUserArtifactByChatId.delete(chatId);
@@ -1066,6 +1089,8 @@ export function abortAllStreams(): void {
   }
 
   activeStreams.clear();
+  activeStreamRuns.clear();
+  activeStreamId.clear();
   partialResponses.clear();
   logger.log(`[Cleanup] All AI streams aborted`);
 }
@@ -1297,6 +1322,26 @@ export function registerChatStreamHandlers() {
     event: Electron.IpcMainInvokeEvent,
     req: ChatStreamParams,
   ) => {
+    // Bug A (single-flight): supersede any in-flight leg for this chat and AWAIT
+    // its real termination before starting a new one. Aborting alone is not
+    // enough — it's cooperative, so the old leg can still be mid-tool when the
+    // new one begins and both write the same workspace. Awaiting the prior
+    // runStream() promise guarantees its tool loop + ensureTerminal finished.
+    const priorController = activeStreams.get(req.chatId);
+    const priorRun = activeStreamRuns.get(req.chatId);
+    if (priorController || priorRun) {
+      try {
+        priorController?.abort(streamStopAbortReason(SUPERSEDED_STREAM_STOP));
+      } catch {
+        /* noop */
+      }
+      if (priorRun) {
+        await awaitWithTimeout(priorRun, SUPERSEDE_AWAIT_TIMEOUT_MS);
+      }
+    }
+
+    const streamId = ++__streamIdCounter;
+    activeStreamId.set(req.chatId, streamId);
     const abortController = new AbortController();
     activeStreams.set(req.chatId, abortController);
     // v11.1: a new stream supersedes any pending ask_user state for this chat.
@@ -1322,18 +1367,24 @@ export function registerChatStreamHandlers() {
         if (error) {
           safeSend(event.sender, "chat:response:error", {
             chatId: req.chatId,
+            streamId,
             error: `${AI_STREAMING_ERROR_MESSAGE_PREFIX}${String((error as any)?.message ?? error)}`,
           });
         }
         safeSend(event.sender, "chat:response:end", {
           chatId: req.chatId,
+          streamId,
           updatedFiles: false,
           hadToolCallsOrPermissions: false,
           ...(snapshotTurnIdForTerminal
             ? { snapshotTurnId: snapshotTurnIdForTerminal }
             : {}),
         } satisfies ChatResponseEnd);
-        activeStreams.delete(req.chatId);
+        // Only relinquish the registry slot if WE still own it — a superseding
+        // stream may have already replaced the controller/id for this chat.
+        if (activeStreamId.get(req.chatId) === streamId) {
+          activeStreams.delete(req.chatId);
+        }
       };
 
       /** Stream stall watchdog — aborts hung provider streams after 45s silence. */
@@ -6848,7 +6899,16 @@ ${stopNote}`;
       }
     };
 
-    void runStream();
+    // Bug A: track the live run promise so the NEXT chat:stream for this chat
+    // can await its real termination before starting (see the supersede guard
+    // above). The identity check keeps a stale finally from evicting a newer run.
+    const runPromise = runStream();
+    activeStreamRuns.set(req.chatId, runPromise);
+    void runPromise.finally(() => {
+      if (activeStreamRuns.get(req.chatId) === runPromise) {
+        activeStreamRuns.delete(req.chatId);
+      }
+    });
     return undefined; // Reply immediately so renderer does not get "reply was never sent"
   };
 

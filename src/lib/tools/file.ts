@@ -43,7 +43,10 @@ import {
 
 const READ_FILE_DEFAULT_MAX_LINES = 2000;
 const READ_FILE_MAX_LINES_CAP = 10_000;
-const READ_FILE_DEFAULT_MAX_BYTES = 80_000;
+// 50KB default page (opencode parity). read_file is exempt from the registry
+// truncation envelope, so this cap directly bounds a single read; larger files
+// are paged via offset/limit on the same path.
+const READ_FILE_DEFAULT_MAX_BYTES = 50_000;
 const READ_FILE_MAX_BYTES_CAP = 200_000;
 
 // ═══════════════════════════════════════════════════════════
@@ -158,7 +161,7 @@ function smartSliceFile(lines: string[], maxLines: number, context: SliceContext
 ToolRegistry.register({
     name: "read_file",
     description:
-        "Read file contents. Default ~2000 lines / 80KB per call; for larger files page with offset (1-based start line) + limit, repeating until the footer no longer says more lines remain. Use context or start_line/end_line to focus.",
+        "Read file contents. Default ~2000 lines / 50KB per call; for larger files page with offset (1-based start line) + limit, repeating until the footer no longer says more lines remain. Use context or start_line/end_line to focus.",
     requiresWorkspace: true,
     isCore: true,
     isReadOnly: true,
@@ -273,7 +276,9 @@ ToolRegistry.register({
 
             try {
                 if (toolOutputSpill) {
-                    // Spill files from maybeTruncateToDisk — absolute tmp path is intentional.
+                    // Legacy tool-output spill files (absolute tmp path intentional).
+                    // v14 no longer creates spills, but reading a previously-spilled
+                    // path stays supported and is restricted to the tmp dir.
                 } else if (workspace) {
                     assertReadablePath(String(filePath), workspace);
                 } else if (isBlockedSecretBasename(path.basename(fullPath))) {

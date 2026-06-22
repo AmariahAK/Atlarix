@@ -67,7 +67,7 @@ export function CustomErrorToast({
               </div>
             </div>
             <div>
-              <p className="text-sm text-red-800 leading-relaxed whitespace-pre-wrap bg-red-100/50 backdrop-blur-sm p-3 rounded-lg border border-red-200/50">
+              <p className="text-sm text-red-800 leading-relaxed whitespace-pre-wrap bg-red-100/50 backdrop-blur-sm p-3 rounded-lg border border-red-200/50 max-h-[40vh] overflow-y-auto overscroll-contain">
                 {message}
               </p>
             </div>

@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { parseAssistantMessageParts } from "@/lib/chat/assistant-message-parts";
+import {
+  parseAssistantMessageParts,
+  splitContentPartsAtOffset,
+} from "@/lib/chat/assistant-message-parts";
 import { groupAssistantDisplayParts } from "@/lib/chat/display-parts-group";
 import { splitContentByPlanMarkers } from "@/lib/plan-cards/plan-card-renderer";
 import {
@@ -260,5 +263,48 @@ describe("parseAssistantMessageParts", () => {
     if (tool?.kind !== "tool") return;
     expect(tool.detail).toContain("detailed file body");
     expect(tool.expand?.kind).not.toBe("none");
+  });
+});
+
+describe("splitContentPartsAtOffset (native-FC sub-agent seam)", () => {
+  const PRE = "Let me check a few things first.";
+  const POST = "Now here is the continuation after the sub-agents.";
+
+  it("splits prose around the recorded seam offset", () => {
+    const content = `${PRE}${POST}`;
+    const { before, after } = splitContentPartsAtOffset(
+      content,
+      PRE.length,
+      true,
+    );
+    expect(before.map((p) => p.type)).toEqual(["markdown"]);
+    expect(after.map((p) => p.type)).toEqual(["markdown"]);
+    expect((before[0] as { content: string }).content).toContain("check a few");
+    expect((after[0] as { content: string }).content).toContain("continuation");
+  });
+
+  it("returns all content before when offset is null (no round seam)", () => {
+    const content = `${PRE}${POST}`;
+    const { before, after } = splitContentPartsAtOffset(content, null, true);
+    expect(after).toEqual([]);
+    expect(before.length).toBeGreaterThan(0);
+  });
+
+  it("returns all content before when offset is at/after the end", () => {
+    const content = `${PRE}`;
+    const { before, after } = splitContentPartsAtOffset(
+      content,
+      content.length,
+      true,
+    );
+    expect(after).toEqual([]);
+    expect(before.length).toBeGreaterThan(0);
+  });
+
+  it("returns everything after the panel when the seam is at the very start", () => {
+    const content = `${POST}`;
+    const { before, after } = splitContentPartsAtOffset(content, 0, true);
+    expect(before).toEqual([]);
+    expect(after.length).toBeGreaterThan(0);
   });
 });

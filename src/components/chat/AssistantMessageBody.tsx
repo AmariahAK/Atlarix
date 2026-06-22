@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useAtomValue } from "jotai";
 import {
   activeChatIdAtom,
@@ -26,9 +26,13 @@ import {
 } from "@/lib/chat/answer-display";
 import {
   parseAssistantMessageParts,
+  splitContentPartsAtOffset,
   type AssistantMessagePart,
 } from "@/lib/chat/assistant-message-parts";
-import { filterDelegateToolParts } from "@/lib/chat/delegate-handoff";
+import {
+  filterDelegateToolParts,
+  isDelegateToolName,
+} from "@/lib/chat/delegate-handoff";
 import type { PlanCardData } from "@/lib/plan-cards/plan-card-renderer";
 import { AtlarixMarkdownSegment } from "./AtlarixMarkdownSegment";
 import { InlineThoughtBlock } from "./InlineThoughtBlock";
@@ -206,10 +210,39 @@ export function AssistantMessageBody({
     ],
   );
 
-  const { before: partsBeforeDelegate, after: partsAfterDelegate } = useMemo(
-    () => splitInterleavedAroundDelegates(parts),
-    [parts],
+  // Bug B: native function-calling sub-agent rounds arrive as IPC activity with
+  // no marker in the assistant text, so the pre-call and post-call prose are
+  // concatenated. Snapshot the content length when the round first appears (=
+  // end of the pre-call prose) so the prose can be split around the panel.
+  // Recorded once per round id, during streaming only.
+  const [subagentSeamOffset, setSubagentSeamOffset] = useState<number | null>(
+    null,
   );
+  const seamRecordedForRoundRef = useRef<string | null>(null);
+  useEffect(() => {
+    const roundId = liveSubagentRound?.id ?? null;
+    if (!isStreaming || !roundId) return;
+    if (seamRecordedForRoundRef.current === roundId) return;
+    seamRecordedForRoundRef.current = roundId;
+    setSubagentSeamOffset(effectiveContent.length);
+  }, [liveSubagentRound, isStreaming, effectiveContent]);
+
+  const { before: partsBeforeDelegate, after: partsAfterDelegate } = useMemo(() => {
+    // Content-driven case: a delegate tool tag is present in the text — split there.
+    if (parts.some((p) => p.type === "tool" && isDelegateToolName(p.toolName))) {
+      return splitInterleavedAroundDelegates(parts);
+    }
+    // Native-FC case: no delegate tag in the text. Split the raw content at the
+    // recorded seam so the continuation renders AFTER the sub-agent panel.
+    if (liveSubagentRound && subagentSeamOffset != null) {
+      return splitContentPartsAtOffset(
+        effectiveContent,
+        subagentSeamOffset,
+        isStreaming,
+      );
+    }
+    return splitInterleavedAroundDelegates(parts);
+  }, [parts, liveSubagentRound, subagentSeamOffset, effectiveContent, isStreaming]);
 
   const interleavedBefore = useMemo(
     () => filterDelegateToolParts(partsBeforeDelegate, suppressDelegateTools),

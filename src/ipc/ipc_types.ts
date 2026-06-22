@@ -101,6 +101,10 @@ export interface PlanUpdatePayload {
 
 export interface ChatResponseEnd {
   chatId: number;
+  /** Bug A: monotonic id of the stream leg that produced this terminal event.
+   * The renderer drops a superseded leg's late end so it can't clobber the
+   * live turn's UI state. Optional — older/auxiliary terminal sends omit it. */
+  streamId?: number;
   updatedFiles: boolean;
   extraFiles?: string[];
   extraFilesError?: string;

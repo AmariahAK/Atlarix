@@ -188,3 +188,29 @@ describe("createAgenticRepetitionState — read-side threshold (6 of 10)", () =>
     expect(r.kind).toBe("loop_detected");
   });
 });
+
+describe("read-aware correction message", () => {
+  it("tells the model it already has the file content (not generic 'step back')", () => {
+    const s = createAgenticRepetitionState();
+    s.setEnabled(true);
+    for (let i = 0; i < 5; i++) s.record("read_file", { path: "a.ts" });
+    const r = s.record("read_file", { path: "a.ts" });
+    expect(r.kind).toBe("loop_detected");
+    const correction = s.takePendingCorrection() ?? "";
+    expect(correction).toContain("already");
+    expect(correction).toContain("read_file");
+    expect(correction).toContain("offset");
+    expect(correction).not.toContain("Step back and reconsider");
+  });
+
+  it("keeps the generic correction for write/run loops", () => {
+    const s = createAgenticRepetitionState();
+    s.setEnabled(true);
+    s.record("write_file", { path: "x.ts" });
+    s.record("write_file", { path: "x.ts" });
+    const r = s.record("write_file", { path: "x.ts" });
+    expect(r.kind).toBe("loop_detected");
+    const correction = s.takePendingCorrection() ?? "";
+    expect(correction).toContain("Step back and reconsider");
+  });
+});

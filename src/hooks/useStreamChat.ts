@@ -418,6 +418,13 @@ export function useStreamChat({
   /** Chats with an in-flight background-completion wake (avoid double-starting). */
   const bgWakeInFlightRef = useRef<Set<number>>(new Set());
 
+  // Bug A (renderer side): each streamMessage dispatch gets a unique id; only the
+  // LATEST dispatch per chat may act on terminal callbacks. A superseded leg's
+  // late onEnd/onError (it shares the chatId-keyed IPC callbacks) is dropped so
+  // it can't clear isStreaming or flush the queued message for the live turn.
+  const streamDispatchCounterRef = useRef(0);
+  const latestDispatchByChatRef = useRef<Map<number, number>>(new Map());
+
   // v14 pt3: a backgrounded command printed a localhost URL → load it in the
   // preview and surface the preview pane so the user sees the running app.
   useEffect(() => {
@@ -512,6 +519,11 @@ export function useStreamChat({
       if (!continueAfterQuestions && !prompt.trim() && !hasAttachments) {
         return;
       }
+
+      // Bug A: claim the latest-dispatch slot for this chat. A prior in-flight
+      // leg's terminal callbacks will see a newer id and no-op.
+      const dispatchId = ++streamDispatchCounterRef.current;
+      latestDispatchByChatRef.current.set(chatId, dispatchId);
 
       setRecentStreamChatIds((prev) => {
         const next = new Set(prev);
@@ -785,8 +797,12 @@ export function useStreamChat({
 
             // Clear completed/error commands from map after a delay
             if (payload.status === 'completed' || payload.status === 'error') {
-              // Show error toast to inform user when command fails
-              if (payload.status === 'error') {
+              // Show error toast to inform user when command fails — but ONLY for
+              // user-initiated commands. Agent/LLM-run command failures are normal
+              // agentic flow (the model reacts to them itself) and already surface
+              // as in-chat tool cards + the Errors tab, so a popup would just be
+              // noise. Legacy/undefined source still pops (treated as user-facing).
+              if (payload.status === 'error' && payload.source !== 'agent') {
                 const shortCmd = payload.command.length > 50
                   ? payload.command.substring(0, 50) + '...'
                   : payload.command;
@@ -1286,6 +1302,11 @@ export function useStreamChat({
             }
           },
           onEnd: (response: ChatResponseEnd) => {
+            // Bug A: drop a superseded leg's late end so it can't clear
+            // isStreaming or flush the queued message for the live turn.
+            if (latestDispatchByChatRef.current.get(chatId) !== dispatchId) {
+              return;
+            }
             const liveMap = getDefaultStore().get(livePlanUpdateByAssistantMessageIdAtom);
             for (const [messageId, live] of liveMap) {
               if (live.chatId === response.chatId && live.steps.length > 0) {
@@ -1386,6 +1407,7 @@ export function useStreamChat({
               n.delete(chatId);
               return n;
             });
+            let flushedQueuedMessage = false;
             {
               const queued = getDefaultStore()
                 .get(queuedMessageByChatIdAtom)
@@ -1396,10 +1418,43 @@ export function useStreamChat({
                   n.delete(chatId);
                   return n;
                 });
+                flushedQueuedMessage = true;
                 setTimeout(() => {
                   void streamMessageRef.current?.({ prompt: queued, chatId });
                 }, 50);
               }
+            }
+            // Bug F: close the background auto-wake race. If a job finished just
+            // as the turn ended (so no further prepareStep drained it) and the
+            // user has nothing queued, wake a fresh turn to deliver the result
+            // instead of letting it sit until the next user message.
+            if (!flushedQueuedMessage) {
+              void IpcClient.getInstance()
+                .backgroundHasPendingResults(response.chatId)
+                .then((pending) => {
+                  if (!pending) return;
+                  const stillStreaming =
+                    getDefaultStore()
+                      .get(isStreamingByIdAtom)
+                      .get(response.chatId) === true;
+                  if (
+                    stillStreaming ||
+                    bgWakeInFlightRef.current.has(response.chatId)
+                  ) {
+                    return;
+                  }
+                  bgWakeInFlightRef.current.add(response.chatId);
+                  void Promise.resolve(
+                    streamMessageRef.current?.({
+                      prompt: "",
+                      chatId: response.chatId,
+                      continueAfterQuestions: true,
+                    }),
+                  ).finally(() =>
+                    bgWakeInFlightRef.current.delete(response.chatId),
+                  );
+                })
+                .catch(() => {});
             }
             refreshChats();
             refreshApp();
@@ -1664,6 +1719,10 @@ export function useStreamChat({
             onSettled?.();
           },
           onError: (errorMessage: string) => {
+            // Bug A: ignore a superseded leg's late error.
+            if (latestDispatchByChatRef.current.get(chatId) !== dispatchId) {
+              return;
+            }
             const liveMapErr = getDefaultStore().get(livePlanUpdateByAssistantMessageIdAtom);
             for (const [messageId, liveErr] of liveMapErr) {
               if (liveErr.chatId === chatId && liveErr.steps.length > 0) {

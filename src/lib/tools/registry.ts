@@ -17,22 +17,22 @@ import { extractScreenshotMedia } from "@/lib/ai/tool-model-output";
 // since Electron's renderer exposes that too). Otherwise Vite's browser bundle blows
 // up with "Module 'node:crypto' has been externalized for browser compatibility".
 
-// v10.1 token budgets: outputs whose ESTIMATED tokens exceed the budget (or
-// whose raw size exceeds the byte ceiling) spill to disk; the model receives
-// a head+tail preview instead of head-only — tails carry exit codes, error
-// summaries, and final test results.
+// Token budgets: outputs whose ESTIMATED tokens exceed the budget (or whose raw
+// size exceeds the byte ceiling) are truncated IN-BAND to a head+tail preview —
+// tails carry exit codes, error summaries, and final test results. v14: no more
+// disk spill. Mirrors opencode/claude-code — over-budget output is truncated in
+// place with a STATELESS hint (re-read the original file via offset/limit, or
+// narrow the command), never a fragile temp-file path the model must re-fetch.
 const TOOL_OUTPUT_BYTE_CEILING = 50_000;
 /** Below this char count, never truncate (≈ well under the token budget) — skips tokenizing small outputs. */
 const TOOL_OUTPUT_CHAR_FLOOR = 16_000;
 const TOOL_OUTPUT_TOKEN_BUDGET = 6_000;
 const TOOL_OUTPUT_PREVIEW_HEAD_TOKENS = 1_500;
 const TOOL_OUTPUT_PREVIEW_TAIL_TOKENS = 500;
-// PASS8 B3: All tools go through the standard disk-truncation envelope.
-// Previously this exempted `read_file` and `get_active_skills`.
-// Each of those is now bounded (read_file by request range, get_active_skills by
-// its internal char cap), so the envelope is a safety net rather than a removed
-// feature. Single global policy mirrors opencode's max-bytes envelope — no
-// per-tool / per-tier carve-outs.
+// v14: read_file is exempt from the envelope again (see SELF_PAGINATED_TOOLS) —
+// it bounds its own output and paginates via offset/limit on the source path
+// (opencode parity), so the in-band head+tail envelope would only chop it
+// mid-file. The envelope still backstops unbounded outputs (commands, etc.).
 // v12 0.2: a screenshot's base64 PNG must reach toModelOutput intact (it
 // becomes a media content part, not text tokens) — head/tail truncation would
 // corrupt the image. v13.8: screenshots now arrive via browser_inspect
@@ -41,44 +41,31 @@ const TOOL_OUTPUT_PREVIEW_TAIL_TOKENS = 500;
 // browser_inspect's text/snapshot modes still truncate normally.
 const NEVER_TRUNCATE = new Set<string>(["browser_screenshot"]);
 
-let _toolOutputDirPath: string | null = null;
-let _toolOutputDirReady = false;
-
-async function ensureToolOutputDir(): Promise<string | null> {
-    if (!isMainProcessNode()) return null;
-    if (_toolOutputDirReady && _toolOutputDirPath) return _toolOutputDirPath;
-    try {
-        const [{ default: os }, { default: path }, fs] = await Promise.all([
-            import("node:os"),
-            import("node:path"),
-            import("node:fs/promises"),
-        ]);
-        const dir = path.join(os.tmpdir(), "atlarix-tool-outputs");
-        await fs.mkdir(dir, { recursive: true });
-        _toolOutputDirPath = dir;
-        _toolOutputDirReady = true;
-        return dir;
-    } catch {
-        // Best-effort; we'll re-try next call if it failed.
-        return null;
-    }
-}
+// read_file bounds its own output (line/byte caps) and paginates cleanly via
+// offset/limit on the source path, so it manages large files itself (opencode
+// parity). Running it through the head+tail envelope would chop mid-file for no
+// gain — exempt it; the envelope is for unbounded outputs (commands, etc.).
+const SELF_PAGINATED_TOOLS = new Set<string>(["read_file"]);
 
 /**
  * If `result` exceeds the token budget (or the byte ceiling) and the tool is
- * not in NEVER_TRUNCATE, write the full payload to a tmp file and return a
- * `{ preview, diskPath, totalChars }` envelope with a head+tail preview.
- * Otherwise return the original result unchanged.
+ * not exempt, return an IN-BAND head+tail preview plus a stateless hint on how
+ * to see the rest. No disk spill: the model re-reads the original file via
+ * offset/limit (read_file) or narrows the command — never a temp-file path.
  *
  * Renderer-safe: if Node modules are unavailable (browser bundle) the result is
  * returned untouched. The truncate/tokenizer helpers are imported lazily for
  * the same reason (they pull main-process settings into the module graph).
  */
-export async function maybeTruncateToDisk(
+export async function maybeTruncateToolOutput(
     toolName: string,
     result: unknown,
 ): Promise<{ value: unknown; truncated: boolean; totalChars: number }> {
-    if (NEVER_TRUNCATE.has(toolName) || extractScreenshotMedia(result)) {
+    if (
+        NEVER_TRUNCATE.has(toolName) ||
+        SELF_PAGINATED_TOOLS.has(toolName) ||
+        extractScreenshotMedia(result)
+    ) {
         return { value: result, truncated: false, totalChars: 0 };
     }
     const resultStr = typeof result === "string" ? result : JSON.stringify(result);
@@ -100,36 +87,23 @@ export async function maybeTruncateToDisk(
             }
         }
 
-        const dir = await ensureToolOutputDir();
-        if (!dir) {
-            return { value: result, truncated: false, totalChars: resultStr.length };
-        }
-        const [{ default: path }, fs, crypto] = await Promise.all([
-            import("node:path"),
-            import("node:fs/promises"),
-            import("node:crypto"),
-        ]);
-        const id = crypto.randomBytes(4).toString("hex");
-        const diskPath = path.join(dir, `${toolName}-${id}.txt`);
-        await fs.writeFile(diskPath, resultStr, "utf-8");
         const { text: preview, omittedChars } = truncateLib.headTailTruncateToTokens(
             resultStr,
             TOOL_OUTPUT_PREVIEW_HEAD_TOKENS,
             TOOL_OUTPUT_PREVIEW_TAIL_TOKENS,
         );
+        const notice =
+            `\n\n[output truncated: ${omittedChars.toLocaleString("en-US")} of ` +
+            `${resultStr.length.toLocaleString("en-US")} chars omitted. To see more: ` +
+            `for a file, call read_file again with offset/limit on the same path; ` +
+            `for a command, narrow it (pipe through head/grep or target a specific path).]`;
         return {
-            value: {
-                truncated: true,
-                totalChars: resultStr.length,
-                preview,
-                diskPath,
-                message: `Output exceeded the ${TOOL_OUTPUT_TOKEN_BUDGET}-token budget — showing head + tail (${omittedChars.toLocaleString("en-US")} chars omitted). Full output written to ${diskPath}. Use read_file with this exact absolute path (offset/limit supported) to read the spill file.`,
-            },
+            value: `${preview}${notice}`,
             truncated: true,
             totalChars: resultStr.length,
         };
     } catch {
-        // If we can't write the file, fall back to returning the original result.
+        // If truncation fails (e.g. tokenizer unavailable), return the original.
         return { value: result, truncated: false, totalChars: resultStr.length };
     }
 }
@@ -351,7 +325,7 @@ export class ToolRegistry {
                     };
                 }
 
-                const truncation = await maybeTruncateToDisk(name, raw);
+                const truncation = await maybeTruncateToolOutput(name, raw);
 
                 return {
                     success: true,

@@ -12,6 +12,7 @@ import {
   listBackgroundJobs,
   killBackgroundJob,
   setBackgroundJobNotifier,
+  hasPendingBackgroundCommandResults,
 } from "@/lib/agent/background-commands";
 import { broadcastToRenderer } from "../utils/browser_view_manager";
 
@@ -32,6 +33,10 @@ export function registerBackgroundHandlers(): void {
     (_e, arg: { chatId: number; jobId: string }) => ({
       ok: killBackgroundJob(Number(arg?.chatId), String(arg?.jobId ?? "")),
     }),
+  );
+
+  ipcMain.handle("chat:background-has-pending-results", (_e, chatId: number) =>
+    hasPendingBackgroundCommandResults(Number(chatId)),
   );
 
   logger.log("[background] handlers registered");

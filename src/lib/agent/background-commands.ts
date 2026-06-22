@@ -216,6 +216,16 @@ export function takePendingBackgroundCommandResults(
   return `[Background command results]\n\n${blocks.join("\n\n")}`;
 }
 
+/**
+ * Non-destructive check for undrained background results. Used by the renderer
+ * at turn-end to close the auto-wake race: if a job finished just as the turn
+ * was ending (so no further prepareStep drained it), wake a fresh turn to
+ * deliver it instead of letting it sit until the next user message.
+ */
+export function hasPendingBackgroundCommandResults(chatId: number): boolean {
+  return (resultsByChat.get(chatId)?.length ?? 0) > 0;
+}
+
 export function clearBackgroundCommandsForChat(chatId: number): void {
   resultsByChat.delete(chatId);
   runningJobsByChat.delete(chatId);
