@@ -1,7 +1,31 @@
 # Atlarix TODO
 
-**Current Version:** v14.0.0 (released)
-**Last Updated:** 2026-06-21
+**Current Version:** v14.5.0 (released)
+**Last Updated:** 2026-06-22
+
+---
+
+## v14.5.0 — SHIPPED (2026-06-22): streaming reliability, full history, honest "Reconnecting", model-facing context meter
+
+> See `docs/CHANGELOG.md` [14.5.0]. tsc (main + app + tests) + oxlint clean; full vitest green (1343 tests) — the 2 former benchmark smoke tests (`headless-runner.test.ts`, `swebench-smoke.test.ts`) are now FIXED (stale `write_file` → `edit_file` `operation:"write"`; `powerSaveBlocker` added to the electron test mock).
+
+| Item | Status |
+|------|--------|
+| Single-flight turn guard (supersede-await + renderer dispatch-id gate; no two concurrent turns/writes per chat) | ✅ |
+| Stall auto-retry on a per-round `AbortController` (transient mid-turn stalls retry, don't kill the turn) | ✅ |
+| "Reconnecting…" reserved for genuine reconnects only (provider-agnostic; driven by `reset-partial`, not silence) | ✅ |
+| First-byte (180s) vs idle (45s) watchdog — slow reasoning ≠ a drop | ✅ |
+| Smooth streaming render: memoized `AtlarixMarkdownSegment` + deferred Shiki + `React.memo` rows + overflow-anchor (virtualization reverted) | ✅ |
+| Full conversation history — removed 7-exchange cap, lifted `SESSION_LOAD_MESSAGE_LIMIT`, removed destructive 200-msg prune | ✅ |
+| Context meter shows real model-facing dispatched size (drops after summarize) | ✅ |
+| Sub-agent panel ordering fix on native function-calling | ✅ |
+| Agent-error popups gated to user-initiated only + scrollable toast | ✅ |
+| In-band file reads — dropped `maybeTruncateToDisk` spill; `read_file` self-paginates + read-aware repetition nudge | ✅ |
+| Edit-and-resend optional file revert (replays discarded turns' snapshots newest→oldest, behind confirm) | ✅ |
+| Review mode read-only — produces a change list, never mutates | ✅ |
+| Background-job auto-wake end-of-turn race fixed | ✅ |
+| Agent terminal-tab routing (multi-subscriber `onTerminalOutput` + ASK forwarder) | ✅ |
+| Headless CI (`.github/workflows/headless.yml`) builds + publishes the `headless-bench` prerelease tarball | ✅ |
 
 ---
 
