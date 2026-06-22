@@ -1387,22 +1387,17 @@ export function registerChatStreamHandlers() {
         }
       };
 
-      /** Stream stall watchdog — aborts hung provider streams after 45s silence. */
-      let streamStallNotified = false;
+      /**
+       * Stream stall watchdog. A stalled ROUND now auto-retries with backoff
+       * (runStreamRoundWithEmptyOutputRetry aborts only the per-round controller,
+       * not the turn). So a stall is transient: just keep the activity clock
+       * fresh so the UI shows "Reconnecting…" honestly during the retry, instead
+       * of a fatal error card. If every retry is exhausted, the recoverable
+       * NetworkStreamDisconnectedError path surfaces the [Reconnect] affordance.
+       */
       const handleStreamStall = () => {
-        if (streamStallNotified) return;
-        streamStallNotified = true;
-        logger.warn(`[stream] Stall detected for chat ${req.chatId}`);
-        safeSend(event.sender, "chat:activity", {
-          id: `stream-stall-${req.chatId}-${Date.now()}`,
-          type: "stream_stall_aborted",
-          label: "Stream stalled",
-          detail:
-            "The model stopped responding mid-stream. Retry the message or switch models.",
-          status: "error",
-          timestamp: Date.now(),
-          chatId: req.chatId,
-        });
+        logger.warn(`[stream] Stall detected for chat ${req.chatId} — retrying`);
+        handleStreamActivityPulse();
       };
 
       const streamDebugLogging = isStreamDebugLoggingEnabled();
@@ -3593,6 +3588,7 @@ This conversation includes one or more image attachments. When the user uploads 
             dyadDisableFiles = false,
             files,
             repetition,
+            abortSignalOverride,
           }: {
             chatMessages: ModelMessage[];
             modelClient: ModelClient;
@@ -3601,6 +3597,9 @@ This conversation includes one or more image attachments. When the user uploads 
             systemPromptOverride?: string;
             dynamicSystemTail?: string;
             dyadDisableFiles?: boolean;
+            /** Per-round abort signal — stall watchdog aborts this round only,
+             * leaving the shared turn controller usable for a retry. */
+            abortSignalOverride?: AbortSignal;
             // v12 0.1 close-out: mode's repetition guard — enables mid-round
             // correction reinject via prepareStep (see streamText below).
             repetition?: AgenticRepetitionState;
@@ -4084,7 +4083,7 @@ This conversation includes one or more image attachments. When the user uploads 
                 // Clean up the abort controller
                 activeStreams.delete(req.chatId);
               },
-              abortSignal: abortController.signal,
+              abortSignal: abortSignalOverride ?? abortController.signal,
             });
             // Best-effort: same-turn .catch on usage/finishReason/response. Node may still
             // print 1–2 "Unhandled rejection" lines around AI SDK flush ordering; main.ts
@@ -4105,7 +4104,9 @@ This conversation includes one or more image attachments. When the user uploads 
           type SimpleStreamTextBundle = Awaited<ReturnType<typeof simpleStreamText>>;
 
           async function runStreamRoundWithEmptyOutputRetry(params: {
-            runSimpleStream: () => Promise<SimpleStreamTextBundle>;
+            runSimpleStream: (opts?: {
+              abortSignal?: AbortSignal;
+            }) => Promise<SimpleStreamTextBundle>;
             fullResponse: string;
             abortController: AbortController;
             chatId: number;
@@ -4142,12 +4143,32 @@ This conversation includes one or more image attachments. When the user uploads 
             const TOTAL_ATTEMPT_CAP =
               MAX_STREAM_EMPTY_OUTPUT_ATTEMPTS + RECONNECT_DELAYS_MS.length + 1;
             for (let loop = 0; loop < TOTAL_ATTEMPT_CAP; loop++) {
+              // Per-round abort controller: the stall watchdog aborts THIS, not
+              // the shared turn controller — so a transient stall (common on
+              // OpenRouter between steps) doesn't look like a user cancel and the
+              // next attempt gets a fresh, un-aborted signal. A real user cancel
+              // (shared controller) is linked in, so the in-flight request still
+              // stops immediately.
+              const roundAbort = new AbortController();
+              const linkUserAbort = () =>
+                roundAbort.abort(params.abortController.signal.reason);
+              if (params.abortController.signal.aborted) {
+                roundAbort.abort(params.abortController.signal.reason);
+              } else {
+                params.abortController.signal.addEventListener(
+                  "abort",
+                  linkUserAbort,
+                  { once: true },
+                );
+              }
               try {
-                const bundle = await params.runSimpleStream();
+                const bundle = await params.runSimpleStream({
+                  abortSignal: roundAbort.signal,
+                });
                 const chunkResult = await processStreamChunks({
                   fullStream: bundle.fullStream,
                   fullResponse,
-                  abortController: params.abortController,
+                  abortController: roundAbort,
                   chatId: params.chatId,
                   processResponseChunkUpdate: params.processResponseChunkUpdate,
                   onFirstModelActivity: params.onFirstModelActivity,
@@ -4161,12 +4182,41 @@ This conversation includes one or more image attachments. When the user uploads 
                   onStreamActivityPulse: params.onStreamActivityPulse,
                 });
                 fullResponse = chunkResult.fullResponse;
-                const finishReason = await bundle.finishReason;
                 if (chunkResult.stalled) {
-                  throw new Error(
-                    "Stream stalled: no chunks from the model for 45 seconds",
-                  );
+                  // A stall (no chunks for the watchdog window) — NOT a user
+                  // cancel (that path returns stalled=false). Retry the round
+                  // with backoff (a fresh roundAbort next iteration); on
+                  // exhaustion surface a recoverable disconnect ([Reconnect])
+                  // instead of a fatal turn end.
+                  if (params.abortController.signal.aborted) {
+                    throw new Error("aborted");
+                  }
+                  if (networkAttempt < RECONNECT_DELAYS_MS.length) {
+                    const delay = RECONNECT_DELAYS_MS[networkAttempt];
+                    networkAttempt++;
+                    logger.warn(
+                      `[stream] Stalled (no chunks), retrying after ${delay}ms (attempt ${networkAttempt}/${RECONNECT_DELAYS_MS.length})`,
+                    );
+                    sentryAddBreadcrumbSafe({
+                      category: "stream_retry",
+                      message: `stall_retry attempt ${networkAttempt}/${RECONNECT_DELAYS_MS.length}`,
+                      level: "warning",
+                    });
+                    safeSend(event.sender, "chat:stream:reset-partial", {
+                      chatId: params.chatId,
+                    });
+                    fullResponse = initialFullResponse;
+                    partialResponses.delete(params.chatId);
+                    await new Promise((r) => setTimeout(r, delay));
+                    if (params.abortController.signal.aborted) {
+                      throw new Error("aborted");
+                    }
+                    continue;
+                  }
+                  throw new NetworkStreamDisconnectedError(fullResponse);
                 }
+                // Only await finishReason on a non-stalled (non-aborted) bundle.
+                const finishReason = await bundle.finishReason;
                 return { bundle, fullResponse, finishReason };
               } catch (err) {
                 // User abort always wins over any retry path.
@@ -4232,6 +4282,11 @@ This conversation includes one or more image attachments. When the user uploads 
                   throw new NetworkStreamDisconnectedError(fullResponse);
                 }
                 throw err;
+              } finally {
+                params.abortController.signal.removeEventListener(
+                  "abort",
+                  linkUserAbort,
+                );
               }
             }
             throw new Error("runStreamRoundWithEmptyOutputRetry: unreachable");
@@ -4998,6 +5053,7 @@ This conversation includes one or more image attachments. When the user uploads 
                       dynamicSystemTail: opts.dynamicSystemTail,
                       files: files,
                       repetition: askAgenticRepetition,
+                      abortSignalOverride: opts.abortSignal,
                     }),
                   runStreamRound: runStreamRoundWithEmptyOutputRetry,
                   processResponseChunkUpdate,
@@ -6273,6 +6329,7 @@ This conversation includes one or more image attachments. When the user uploads 
                         systemPromptOverride: opts.systemPromptOverride,
                         files: files,
                         repetition: agenticRepetition,
+                        abortSignalOverride: opts.abortSignal,
                       }),
                     runStreamRound: runStreamRoundWithEmptyOutputRetry,
                     processResponseChunkUpdate,

@@ -98,9 +98,11 @@ export interface TurnRuntime {
     systemPromptOverride: string;
     /** Ask: the per-round dynamic tail (separate system block). */
     dynamicSystemTail?: string;
+    /** Per-round abort signal (stall watchdog aborts THIS, not the turn). */
+    abortSignal?: AbortSignal;
   }): Promise<unknown>;
   runStreamRound(params: {
-    runSimpleStream: () => Promise<unknown>;
+    runSimpleStream: (opts?: { abortSignal?: AbortSignal }) => Promise<unknown>;
     fullResponse: string;
     abortController: AbortController;
     chatId: number;
@@ -281,12 +283,13 @@ export async function runAgentTurn(
         fullResponse: roundFull,
         finishReason: fr,
       } = await rt.runStreamRound({
-        runSimpleStream: async () =>
+        runSimpleStream: async (o) =>
           rt.simpleStreamText({
             chatMessages: buildIterMessages,
             tools: profile.tools,
             systemPromptOverride: roundPrompt.systemPromptOverride,
             dynamicSystemTail: roundPrompt.dynamicSystemTail,
+            abortSignal: o?.abortSignal,
           }),
         fullResponse,
         abortController: rt.abortController,
