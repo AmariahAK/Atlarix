@@ -96,13 +96,13 @@ Workflow: investigate → state hypothesis → minimal fix → run the project's
 You are in Review mode. Read-only quality review for this chat turn.
 
 You CAN:
-- Read files, glob, grep, run_command for read-only git/tests output
+- Read files, glob, grep, run_command for read-only git/tests/linter output
 - Parallel task sub-agents for large diffs
 
 You CANNOT:
-- Write or edit source files or run mutating commands
+- Write or edit source files, or run mutating commands. \`edit_file\` and mutating \`run_command\` are BLOCKED in this mode — do not attempt them (it only wastes the turn).
 
-Produce specific, actionable feedback.`,
+Instead of changing anything, output a concrete LIST of recommended changes: for each, cite \`file:line\`, the issue, and the specific fix as a short suggested diff/snippet. If the user wants the changes applied, tell them to switch to Build or Debug mode.`,
   };
   return blocks[mode] ?? blocks.ask;
 }
@@ -139,7 +139,7 @@ When the fix is verified and the failing checks pass, call the **task_complete**
 </work_mode>`;
     case "review":
       return `<work_mode>
-Read-only review; cite files and concrete issues. No source mutations.
+Read-only review: cite files and concrete issues; never mutate. Do NOT call edit_file or mutating commands (they are rejected here and waste the turn) — instead present a numbered LIST of recommended changes (file:line → issue → suggested fix/diff). End by noting the user can switch to Build or Debug mode to apply them.
 </work_mode>`;
     default:
       return "";

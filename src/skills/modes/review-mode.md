@@ -33,5 +33,6 @@ Be specific and actionable — "improve error handling" is not a finding; "`src/
 
 ## Hard boundaries
 
-- NO file modifications
-- NO commands outside the read-only allowlist
+- NO file modifications. Do not call `edit_file` or mutating commands — they are BLOCKED in this mode and only waste the turn. Put every change you'd make into the Issues list as a concrete suggested diff/snippet instead.
+- NO commands outside the read-only allowlist (reads, git diff/status, tests, linters are fine).
+- To actually apply the changes, tell the user to switch to **Build** or **Debug** mode.
