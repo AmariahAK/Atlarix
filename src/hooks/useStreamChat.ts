@@ -22,6 +22,7 @@ import {
   lastTurnCostUsdByChatIdAtom,
   toolIndicatorAtom,
   streamLastActivityAtByChatIdAtom,
+  reconnectingByChatIdAtom,
   liveToolInputByChatIdAtom,
   waitingOnCommandByChatIdAtom,
   queuedMessageByChatIdAtom,
@@ -304,6 +305,7 @@ export function useStreamChat({
   const setMessagesById = useSetAtom(chatMessagesByIdAtom);
   const setToolIndicator = useSetAtom(toolIndicatorAtom);
   const setStreamLastActivityAtByChatId = useSetAtom(streamLastActivityAtByChatIdAtom);
+  const setReconnectingByChatId = useSetAtom(reconnectingByChatIdAtom);
   const setLiveToolInputByChatId = useSetAtom(liveToolInputByChatIdAtom);
   const setResponseDoneAnimation = useSetAtom(responseDoneAnimationAtom);
   const isStreamingById = useAtomValue(isStreamingByIdAtom);
@@ -1077,6 +1079,13 @@ export function useStreamChat({
         // already emits `chat:stream:pulse` ~every 2s; without this subscriber
         // `streamLastActivityAtByChatIdAtom` would go stale and the UI would
         // falsely flip to "Reconnecting…" after 10s even though nothing dropped.
+        const clearReconnecting = (evChatId: number) =>
+          setReconnectingByChatId((prev) => {
+            if (!prev.get(evChatId)) return prev;
+            const n = new Map(prev);
+            n.set(evChatId, false);
+            return n;
+          });
         const unsubscribePulse = IpcClient.getInstance().onStreamPulse(
           ({ chatId: evChatId }) => {
             setStreamLastActivityAtByChatId((prev) => {
@@ -1084,8 +1093,21 @@ export function useStreamChat({
               n.set(evChatId, Date.now());
               return n;
             });
+            // A chunk/pulse arrived → the connection is alive again.
+            clearReconnecting(evChatId);
           },
         );
+        // Genuine reconnect: the backend emits reset-partial ONLY when it
+        // actually retries a dropped/stalled round. Surface "Reconnecting…" then
+        // (cleared by the next pulse above and on turn end).
+        const unsubscribeResetPartial =
+          IpcClient.getInstance().onStreamResetPartial(({ chatId: evChatId }) => {
+            setReconnectingByChatId((prev) => {
+              const n = new Map(prev);
+              n.set(evChatId, true);
+              return n;
+            });
+          });
 
         // Live partial tool-call args → streaming preview (e.g. an edit_file
         // write's content building up) before the approval card opens. Best-
@@ -1140,6 +1162,7 @@ export function useStreamChat({
           // Tear down the pulse subscriber first so a late pulse can't re-add a
           // chat entry that onEnd/onError is about to delete.
           unsubscribePulse?.();
+          unsubscribeResetPartial?.();
           unsubscribeToolInput?.();
           unsubscribeWritePreview?.();
           unsubscribeUserQuestion?.();
@@ -1398,6 +1421,12 @@ export function useStreamChat({
               const next = new Map(prev);
               next.set(chatId, false);
               return next;
+            });
+            setReconnectingByChatId((prev) => {
+              if (!prev.get(chatId)) return prev;
+              const n = new Map(prev);
+              n.set(chatId, false);
+              return n;
             });
             // v13 7B: clear the waiting chip and flush the one queued message
             // the user typed while the agent was blocked on a command.
@@ -1781,6 +1810,12 @@ export function useStreamChat({
               const next = new Map(prev);
               next.set(chatId, false);
               return next;
+            });
+            setReconnectingByChatId((prev) => {
+              if (!prev.get(chatId)) return prev;
+              const n = new Map(prev);
+              n.set(chatId, false);
+              return n;
             });
             const msgsErr =
               getDefaultStore().get(chatMessagesByIdAtom).get(chatId) ?? [];

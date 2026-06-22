@@ -279,6 +279,9 @@ export class IpcClient {
   private streamPulseHandlers: Set<
     (payload: { chatId: number; timestamp: number }) => void
   > = new Set();
+  private streamResetPartialHandlers: Set<
+    (payload: { chatId: number }) => void
+  > = new Set();
   private streamToolInputHandlers: Set<
     (payload: {
       chatId: number;
@@ -457,6 +460,15 @@ export class IpcClient {
       ) {
         const p = payload as { chatId: number; timestamp: number };
         this.streamPulseHandlers.forEach((h) => h(p));
+      }
+    });
+
+    // Emitted by the backend ONLY when it actually retries a dropped/stalled
+    // round (genuine reconnect). Drives the honest "Reconnecting…" indicator.
+    this.ipcRenderer.on("chat:stream:reset-partial", (_e, payload: unknown) => {
+      if (payload && typeof payload === "object" && "chatId" in payload) {
+        const p = payload as { chatId: number };
+        this.streamResetPartialHandlers.forEach((h) => h(p));
       }
     });
 
@@ -1063,6 +1075,16 @@ export class IpcClient {
     this.streamPulseHandlers.add(handler);
     return () => {
       this.streamPulseHandlers.delete(handler);
+    };
+  }
+
+  /** Fired only when the backend retries a dropped/stalled round (genuine reconnect). */
+  public onStreamResetPartial(
+    handler: (payload: { chatId: number }) => void,
+  ): () => void {
+    this.streamResetPartialHandlers.add(handler);
+    return () => {
+      this.streamResetPartialHandlers.delete(handler);
     };
   }
 

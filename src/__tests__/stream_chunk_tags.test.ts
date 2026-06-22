@@ -231,6 +231,50 @@ describe("processStreamChunks", () => {
     expect(abortController.signal.aborted).toBe(true);
   });
 
+  it("does NOT stall on a slow FIRST byte within the first-byte budget (reasoning/thinking)", async () => {
+    // Model is slow to its first token (longer than the idle budget) but well
+    // within the first-byte budget — must NOT be treated as a stall.
+    async function* fullStream() {
+      await new Promise((r) => setTimeout(r, 200));
+      yield { type: "text-delta" as const, text: "thought, then answered" };
+    }
+    const abortController = new AbortController();
+    const { stalled } = await processStreamChunks({
+      fullStream: fullStream() as unknown as Parameters<
+        typeof processStreamChunks
+      >[0]["fullStream"],
+      fullResponse: "",
+      abortController,
+      chatId: -1,
+      processResponseChunkUpdate: async ({ fullResponse }) => fullResponse,
+      stallTimeoutMs: 60, // idle budget — would fire if it applied pre-first-byte
+      firstByteTimeoutMs: 5_000, // generous first-byte grace
+    });
+    expect(stalled).toBe(false);
+    expect(abortController.signal.aborted).toBe(false);
+  });
+
+  it("stall-aborts when NO first byte arrives within the first-byte budget", async () => {
+    async function* fullStream() {
+      await new Promise((r) => setTimeout(r, 400));
+      yield { type: "text-delta" as const, text: "too late" };
+    }
+    const abortController = new AbortController();
+    const { stalled } = await processStreamChunks({
+      fullStream: fullStream() as unknown as Parameters<
+        typeof processStreamChunks
+      >[0]["fullStream"],
+      fullResponse: "",
+      abortController,
+      chatId: -1,
+      processResponseChunkUpdate: async ({ fullResponse }) => fullResponse,
+      stallTimeoutMs: 5_000, // idle large — not the trigger
+      firstByteTimeoutMs: 60, // tiny first-byte budget → fires
+    });
+    expect(stalled).toBe(true);
+    expect(abortController.signal.aborted).toBe(true);
+  });
+
   it("accumulates tool-input-delta args and stops emitting once the tool-call completes", async () => {
     // Space deltas past the ~120ms emit throttle so accumulation is observable
     // (rapid synchronous deltas coalesce, which is fine in production).

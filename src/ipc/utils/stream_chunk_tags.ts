@@ -11,8 +11,17 @@ import { isStreamDebugLoggingEnabled } from "@/lib/stream/stream-debug";
 
 const logger = log.scope("stream-chunk-tags");
 
-/** Abort stream when no chunk arrives for this long (ms). */
+/**
+ * Idle timeout: once the model HAS started streaming, abort if no chunk arrives
+ * for this long — a stream that was flowing and went silent is a genuine drop.
+ */
 export const STREAM_STALL_TIMEOUT_MS = 45_000;
+/**
+ * First-byte timeout: before the model emits ANYTHING (slow TTFB, or a reasoning
+ * model thinking silently — on ANY provider), allow much longer. A model that
+ * has produced nothing for this long is genuinely hung/dead, not just slow.
+ */
+export const STREAM_FIRST_BYTE_TIMEOUT_MS = 180_000;
 const HEARTBEAT_LOG_INTERVAL_MS = 15_000;
 const TOOL_INPUT_PROGRESS_INTERVAL_MS = 2_000;
 /** Faster cadence for the live partial-args preview (feels streaming, bounded IPC). */
@@ -69,7 +78,10 @@ export type ProcessStreamChunksParams = {
   }) => void;
   /** Lightweight pulse for UI scroll / slow-stream timers during silent phases. */
   onStreamActivityPulse?: () => void;
+  /** Idle timeout once chunks have started flowing. */
   stallTimeoutMs?: number;
+  /** Grace before the FIRST chunk (slow TTFB / silent reasoning) — any provider. */
+  firstByteTimeoutMs?: number;
 };
 
 function detectHallucinatedAtlarixToolTag(text: string): boolean {
@@ -96,6 +108,7 @@ export async function processStreamChunks({
   onToolInputDelta,
   onStreamActivityPulse,
   stallTimeoutMs = STREAM_STALL_TIMEOUT_MS,
+  firstByteTimeoutMs = STREAM_FIRST_BYTE_TIMEOUT_MS,
 }: ProcessStreamChunksParams): Promise<{
   fullResponse: string;
   incrementalResponse: string;
@@ -112,6 +125,8 @@ export async function processStreamChunks({
   let stalled = false;
   let finishReason: string | undefined;
   let lastChunkAt = Date.now();
+  /** Whether the model has emitted any part yet — gates first-byte vs idle budget. */
+  let hasReceivedChunk = false;
   /** Tools currently executing locally (tool-call seen, tool-result pending). */
   let toolExecutionInFlight = 0;
   let lastHeartbeatLogAt = Date.now();
@@ -179,10 +194,16 @@ export async function processStreamChunks({
     }
     const now = Date.now();
     const sinceChunk = now - lastChunkAt;
-    if (sinceChunk >= stallTimeoutMs) {
+    // Before the first chunk (slow TTFB / silent reasoning) allow a generous
+    // first-byte budget; once the model has started streaming, a shorter idle
+    // budget catches a genuinely dropped/dead connection. Provider-agnostic.
+    const budget = hasReceivedChunk ? stallTimeoutMs : firstByteTimeoutMs;
+    if (sinceChunk >= budget) {
       stalled = true;
       logger.warn(
-        `[stream] chat ${chatId} stalled — no chunk for ${sinceChunk}ms`,
+        `[stream] chat ${chatId} stalled — no chunk for ${sinceChunk}ms (${
+          hasReceivedChunk ? "idle" : "first-byte"
+        } budget ${budget}ms)`,
       );
       onStreamStall?.();
       abortController.abort();
@@ -197,9 +218,9 @@ export async function processStreamChunks({
         `[stream heartbeat] chat ${chatId} active — ${sinceChunk}ms since last chunk (parts: ${JSON.stringify(partCounts)})`,
       );
     }
-    // Tick at most every 15s, but never coarser than the stall timeout itself
-    // (tests inject small timeouts; production stays 45s checked every 15s).
-  }, Math.max(10, Math.min(stallTimeoutMs, HEARTBEAT_LOG_INTERVAL_MS)));
+    // Tick at most every 15s, but never coarser than the smallest active budget
+    // (tests inject small timeouts; production stays checked every 15s).
+  }, Math.max(10, Math.min(stallTimeoutMs, firstByteTimeoutMs, HEARTBEAT_LOG_INTERVAL_MS)));
 
   // v10.1: provider-executed search citations. Anthropic/Gemini native search
   // emit `source` parts; Gemini grounding also surfaces via finish-step
@@ -219,6 +240,7 @@ export async function processStreamChunks({
   try {
     for await (const part of fullStream) {
       lastChunkAt = Date.now();
+      hasReceivedChunk = true; // model has started responding → idle budget applies
       partCounts[part.type] = (partCounts[part.type] ?? 0) + 1;
 
       if (part.type === "source") {

@@ -162,8 +162,13 @@ export const sourcesByAssistantMessageIdAtom = atom<
   Record<number, SourceItem[]>
 >({});
 
-/** Last chunk time per chat — feeds the "Reconnecting…" status state. */
+/** Last chunk time per chat — feeds the "still working" elapsed note. */
 export const streamLastActivityAtByChatIdAtom = atom<Map<number, number>>(new Map());
+
+/** True only while the backend is actively retrying a dropped/stalled round
+ * (genuine reconnect) — drives the honest "Reconnecting…" indicator. Set on
+ * `chat:stream:reset-partial`, cleared on the next chunk/pulse and turn end. */
+export const reconnectingByChatIdAtom = atom<Map<number, boolean>>(new Map());
 
 /**
  * Live partial tool-call arguments per chat — the file path + content building up

@@ -3,7 +3,7 @@ import { useAtomValue, useSetAtom } from "jotai";
 import {
   activeTurnScopeAtom,
   isStreamingByIdAtom,
-  streamLastActivityAtByChatIdAtom,
+  reconnectingByChatIdAtom,
   liveToolInputByChatIdAtom,
   toolIndicatorAtom,
   waitingOnCommandByChatIdAtom,
@@ -25,13 +25,6 @@ export function formatWaitElapsed(ms: number): string {
   return `${mins}:${String(secs).padStart(2, "0")}`;
 }
 
-/**
- * No activity pulse for this long → "Reconnecting…" (clears on the next pulse).
- * The backend pulses on every chunk, on tool-call start, and every ~15s while a
- * tool runs, so 20s comfortably absorbs the in-flight cadence yet still surfaces
- * a genuine stall before the backend's 45s abort+retry.
- */
-const RECONNECTING_AFTER_MS = 20_000;
 /** Turn older than this shows the subtle elapsed note (replaces the old banner). */
 const STILL_WORKING_AFTER_MS = 60_000;
 
@@ -86,7 +79,7 @@ export function InlineStreamStatus({
   const streamingById = useAtomValue(isStreamingByIdAtom);
   const activityItems = useAtomValue(activityStreamItemsAtom);
   const waitingByChatId = useAtomValue(waitingOnCommandByChatIdAtom);
-  const lastActivityByChatId = useAtomValue(streamLastActivityAtByChatIdAtom);
+  const reconnectingByChatId = useAtomValue(reconnectingByChatIdAtom);
   const liveToolInputByChatId = useAtomValue(liveToolInputByChatIdAtom);
   const activeTurnScope = useAtomValue(activeTurnScopeAtom);
   const setPanelIntent = useSetAtom(aiPanelIntentAtom);
@@ -174,15 +167,12 @@ export function InlineStreamStatus({
 
   // v13 prioritized one-liner (replaces the SlowStreamWarningBar banner):
   // 1. waiting on a command (persistent chip, click opens the terminal tab)
-  // 2. "Reconnecting…" when the stream has gone quiet
+  // 2. "Reconnecting…" ONLY when the backend is genuinely retrying a dropped/
+  //    stalled round (not from passive silence — slow thinking isn't a drop)
   // 3. "Still working (Ns)" for long turns
   // 4. the live tool/phase label
-  const lastActivityAt =
-    chatId != null ? lastActivityByChatId.get(chatId) : undefined;
-  const stalled =
-    !waiting &&
-    lastActivityAt != null &&
-    now - lastActivityAt > RECONNECTING_AFTER_MS;
+  const reconnecting =
+    !waiting && chatId != null && reconnectingByChatId.get(chatId) === true;
   const turnAgeMs =
     activeTurnScope?.chatId === chatId && activeTurnScope?.startedAt
       ? now - activeTurnScope.startedAt
@@ -197,7 +187,7 @@ export function InlineStreamStatus({
       state.toolArgs,
     );
   }
-  if (stalled) {
+  if (reconnecting) {
     displayLine = "Reconnecting…";
   } else if (!waiting && turnAgeMs > STILL_WORKING_AFTER_MS) {
     displayLine = `${displayLine} · still working (${formatWaitElapsed(turnAgeMs)})`;
