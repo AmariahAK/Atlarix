@@ -146,6 +146,12 @@ export interface ChatContextReport {
   }>;
   /** Human-readable trim notes (what was pruned and why). */
   trimReport: string[];
+  /** Actual MODEL-FACING dispatched token total (post-compaction/slice) — the
+   * meter shows this so it reflects what the model sees and DROPS after a
+   * summarize, instead of the full untrimmed conversation size. */
+  dispatchedTokens?: number;
+  /** Resolved context window for this dispatch (denominator for the meter). */
+  contextWindow?: number;
 }
 
 /**

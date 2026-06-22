@@ -91,7 +91,7 @@ export function TokenBar({
   }
 
   const {
-    estimatedTotalTokens: totalTokens,
+    estimatedTotalTokens,
     messageHistoryTokens,
     codebaseTokens,
     mentionedAppsTokens,
@@ -102,7 +102,18 @@ export function TokenBar({
     budgetSource,
   } = result;
 
-  const budget = effectiveBudget ?? contextWindow;
+  // Headline = the MODEL-FACING context. After a dispatch the backend reports
+  // the actual dispatched size (post compaction/slice); show that + the current
+  // input preview so the meter reflects what the model holds and DROPS after a
+  // summarize, instead of the full untrimmed conversation estimate. Falls back
+  // to the estimate before the first dispatch.
+  const dispatchedTokens = contextReport?.dispatchedTokens;
+  const totalTokens =
+    dispatchedTokens != null
+      ? dispatchedTokens + inputTokens
+      : estimatedTotalTokens;
+
+  const budget = contextReport?.contextWindow ?? effectiveBudget ?? contextWindow;
   const percentUsed = Math.min((totalTokens / budget) * 100, 100);
   const usesCompass = selectionUsesCompass(settings?.selectedModel);
   const compassQuotaReady =

@@ -3443,6 +3443,18 @@ This conversation includes one or more image attachments. When the user uploads 
               proactiveContextReminderForStream =
                 "Context is at 55% capacity. Consider calling compress_context before your next heavy tool use.";
             }
+            // Context meter: report the ACTUAL model-facing dispatched size
+            // (post compaction/slice) + window so the UI shows what the model
+            // sees and DROPS after a summarize, instead of the full untrimmed
+            // conversation count. Sections/trims came from the earlier report;
+            // the renderer (useContextReport) merges these dispatched fields in.
+            safeSend(event.sender, "chat:context-report", {
+              chatId: req.chatId,
+              sections: [],
+              trimReport: [],
+              dispatchedTokens: dispatchEstimate,
+              contextWindow: contextWindowTokens,
+            } satisfies ChatContextReport);
           })();
 
           const ttftStartRef = { ms: null as number | null };
