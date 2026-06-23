@@ -38,6 +38,9 @@ async function main() {
     arg("openrouter-provider") ?? process.env.ATLARIX_OPENROUTER_PROVIDER_JSON;
   const mode = (arg("mode") ?? "build") as "build" | "ask";
   const timeoutMs = Number(arg("timeout") ?? process.env.ATLARIX_HEADLESS_TIMEOUT_MS ?? "600000");
+  // When set, the agent's final assistant message is written here (used by the
+  // GitHub PR-review bot to capture the review text; stderr stays diagnostics-only).
+  const outputFile = arg("output-file") ?? process.env.ATLARIX_HEADLESS_OUTPUT_FILE;
 
   const res = await runHeadlessAgent({
     workspaceDir: fs.realpathSync(workspace),
@@ -55,8 +58,13 @@ async function main() {
     timeoutMs,
   });
 
+  if (outputFile) {
+    fs.writeFileSync(outputFile, res.lastAssistant ?? "");
+  }
+
   console.error(
-    `[atlarix-headless] completed=${res.completed} workspace=${workspace}`,
+    `[atlarix-headless] completed=${res.completed} workspace=${workspace}` +
+      (outputFile ? ` output=${outputFile}` : ""),
   );
   process.exit(res.completed ? 0 : 1);
 }
