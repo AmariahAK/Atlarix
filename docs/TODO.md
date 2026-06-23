@@ -1485,6 +1485,7 @@ See [CHANGELOG.md](CHANGELOG.md) v6.0.0 for file-level detail.
 
 ## Next session (to be done)
 
+- **Unify workspace path resolvers (cleanup, non-urgent):** `read_file` resolves via `resolvePathUnderWorkspace()` (`src/ipc/utils/safeWorkspaceRelativePath.ts`) while `@`-mentions resolve via `safeJoin()` (`src/ipc/utils/path_utils.ts`). Both accept workspace-relative paths and enforce the same rules (reject `..`, absolute/system paths, drive letters, UNC, escapes via `path.relative()`), so behavior is equivalent today — but they're two separate helpers that could drift apart. Consolidate onto one canonical resolver. No functional gap; dragged/pasted attachments are unaffected (they carry inline base64, not paths).
 - **Diagram/Blueprint layout:** File-tree layout for the Blueprint container canvas shipped in **v6.1.16** (top→bottom). Remaining work is beacon-level file-tree layout and richer edge/tooltips if desired.
 
 ---
