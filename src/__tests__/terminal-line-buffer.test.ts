@@ -6,8 +6,21 @@ import {
   commandBlockRangeAt,
   lastCommandBlockRange,
   looksLikeTerminalTranscript,
+  parseTerminalPasteFromClipboard,
   TERMINAL_MAX_LINES,
+  writeTerminalToDataTransfer,
 } from "@/lib/chat/terminal-line-buffer";
+
+/** Read/write DataTransfer stub — mirrors a live copy event's clipboardData. */
+function rwClip(): DataTransfer {
+  const store: Record<string, string> = {};
+  return {
+    setData: (t: string, d: string) => {
+      store[t] = d;
+    },
+    getData: (t: string) => store[t] ?? "",
+  } as unknown as DataTransfer;
+}
 
 function line(
   i: number,
@@ -33,6 +46,28 @@ describe("terminal-line-buffer", () => {
     expect(capped[capped.length - 1]!.text).toBe(
       `line-${TERMINAL_MAX_LINES + 49}`,
     );
+  });
+
+  // The same regression as the code chip: the write side used the async
+  // Clipboard API, whose custom MIME never reached the paste-event getData.
+  // Assert the synchronous setData write round-trips back to a terminal chip.
+  it("round-trips via writeTerminalToDataTransfer -> parseTerminalPasteFromClipboard", () => {
+    const dt = rwClip();
+    writeTerminalToDataTransfer(dt, {
+      content: "$ npm test\nall passing",
+      instanceLabel: "Shell",
+      owner: "user",
+      lineStart: 1,
+      lineEnd: 2,
+    });
+    expect(dt.getData("text/plain")).toBe("$ npm test\nall passing");
+
+    const att = parseTerminalPasteFromClipboard(dt);
+    expect(att).not.toBeNull();
+    expect(att!.terminalPaste).toBeDefined();
+    expect(att!.terminalPaste!.instanceLabel).toBe("Shell");
+    expect(att!.terminalPaste!.lineStart).toBe(1);
+    expect(att!.terminalPaste!.lineEnd).toBe(2);
   });
 
   it("lastCommandBlockRange returns prompt through status before next prompt", () => {

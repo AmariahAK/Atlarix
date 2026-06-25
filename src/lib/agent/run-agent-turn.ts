@@ -488,7 +488,8 @@ export async function runAgentTurn(
       agenticMessages.push(...nativeIterMessages);
       const nativeContinueMsg = {
         role: "user" as const,
-        content: "Continue with the task. Emit <task_complete> when fully done.",
+        content:
+          "Continue with the task. When everything is done and verified, stop — give a brief final summary and make no further tool calls.",
       };
       agenticMessages.push(nativeContinueMsg);
       // B2: mirror into the turn envelope (exactly what the model saw).

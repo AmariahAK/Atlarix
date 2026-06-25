@@ -22,6 +22,7 @@ import {
 } from "@/atoms/sourceAtoms";
 import { IpcClient } from "@/ipc/ipc_client";
 import { Button } from "@/components/ui/button";
+import { writeTerminalToDataTransfer } from "@/lib/chat/terminal-line-buffer";
 
 /** localhost-ish URLs open in the Preview tab; everything else in the browser. */
 function isLocalDevUrl(uri: string): boolean {
@@ -172,16 +173,22 @@ export function XtermView({
   cwd,
   scopeKey,
   active,
+  instanceLabel,
 }: {
   instanceId: string;
   cwd: string;
   scopeKey: string;
   /** Only the visible tab fits + focuses. */
   active: boolean;
+  /** Shell label, used to tag a copied selection for the chat chip. */
+  instanceLabel: string;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [spawnError, setSpawnError] = useState<string | null>(null);
   const [exitedTick, setExitedTick] = useState(0);
+  // Keep the label fresh for the copy handler without re-running the mount effect.
+  const labelRef = useRef(instanceLabel);
+  labelRef.current = instanceLabel;
 
   // Mount/attach the cached terminal and ensure the PTY exists.
   useEffect(() => {
@@ -195,6 +202,29 @@ export function XtermView({
     } else {
       entry.term.open(container);
     }
+
+    // Copy a terminal selection into chat as a terminal chip: tag the clipboard
+    // with the custom MIME synchronously on the copy event (xterm renders its
+    // selection on canvas, so window.getSelection() is empty — read it via
+    // term.getSelection() instead). Capture phase + preventDefault so the MIME
+    // survives to the paste-side getData. text/plain is set too, so an ordinary
+    // copy out of the shell still yields the text.
+    const termEl = entry.term.element;
+    const onCopy = (ev: Event) => {
+      const e = ev as ClipboardEvent;
+      const text = entry.term.getSelection();
+      if (!text.trim() || !e.clipboardData) return;
+      e.preventDefault();
+      e.stopPropagation();
+      writeTerminalToDataTransfer(e.clipboardData, {
+        content: text,
+        instanceLabel: labelRef.current,
+        owner: "user",
+        lineStart: 1,
+        lineEnd: text.split("\n").length,
+      });
+    };
+    termEl?.addEventListener("copy", onCopy, true);
 
     let cancelled = false;
     const doSpawn = () => {
@@ -233,6 +263,7 @@ export function XtermView({
     return () => {
       cancelled = true;
       unsubExitLocal();
+      termEl?.removeEventListener("copy", onCopy, true);
       // Persist scrollback so it survives app restarts.
       saveScrollback(entry, instanceId);
       // Detach (keep buffer); the PTY + cached term survive for re-attach.

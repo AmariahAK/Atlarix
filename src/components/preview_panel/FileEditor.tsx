@@ -7,7 +7,7 @@ import { ChevronRight, Circle, MessageSquarePlus, Save } from "lucide-react";
 import "@/components/chat/monaco";
 import { useSetAtom } from "jotai";
 import { attachmentsAtom } from "@/atoms/chatAtoms";
-import { writeCodeClipboard } from "@/lib/chat/code-clipboard";
+import { writeCodeToDataTransfer } from "@/lib/chat/code-clipboard";
 import { IpcClient } from "@/ipc/ipc_client";
 import { showError, showSuccess, showWarning } from "@/lib/toast";
 import { Button } from "@/components/ui/button";
@@ -277,20 +277,28 @@ export const FileEditor = ({
 
     // P1: on copy, tag the clipboard with the file path + line range (custom
     // MIME, alongside text/plain) so pasting into chat yields a CODE chip rather
-    // than misclassifying as a terminal paste. Capture phase so we take over the
-    // default copy; the payload includes the same text, so normal paste is
-    // unchanged. (Per-file remount via the Editor `key` keeps `filePath` fresh.)
+    // than misclassifying as a terminal paste. Capture phase + preventDefault +
+    // stopPropagation so we actually take over the copy: this stops Monaco's own
+    // copy handler from overwriting the clipboard with text/plain only (which
+    // would strip our custom MIME). Writing synchronously onto the event's
+    // DataTransfer is what survives to the paste-side getData. The payload
+    // includes the same text, so a normal paste elsewhere is unchanged.
+    // (Per-file remount via the Editor `key` keeps `filePath` fresh.)
     const dom = editor.getDomNode();
     if (dom) {
       dom.addEventListener(
         "copy",
-        () => {
+        (e) => {
           const sel = editor.getSelection();
           const model = editor.getModel();
           if (!sel || !model || sel.isEmpty()) return;
           const content = model.getValueInRange(sel);
           if (!content.trim()) return;
-          writeCodeClipboard({
+          const clipboardData = (e as ClipboardEvent).clipboardData;
+          if (!clipboardData) return;
+          e.preventDefault();
+          e.stopPropagation();
+          writeCodeToDataTransfer(clipboardData, {
             relpath: filePath,
             lineStart: sel.startLineNumber,
             lineEnd: sel.endLineNumber,

@@ -4572,6 +4572,18 @@ This conversation includes one or more image attachments. When the user uploads 
                           chatId: req.chatId,
                           modelInitiated: true,
                         });
+                        // Context meter: push the new model-facing size so the UI
+                        // DROPS after compression, mirroring the summarize path
+                        // (useContextReport keeps the prior contextWindow). Without
+                        // this the meter stayed at the pre-compression count.
+                        if (outcome.success && outcome.tokensAfter > 0) {
+                          safeSend(event.sender, "chat:context-report", {
+                            chatId: req.chatId,
+                            sections: [],
+                            trimReport: [],
+                            dispatchedTokens: outcome.tokensAfter,
+                          } satisfies ChatContextReport);
+                        }
                         return JSON.stringify({
                           success: outcome.success,
                           reason: outcome.reason,
@@ -5269,6 +5281,19 @@ This conversation includes one or more image attachments. When the user uploads 
                           chatId: req.chatId,
                           modelInitiated: true,
                         });
+
+                        // Context meter: push the new model-facing size so the UI
+                        // DROPS after compression, mirroring the summarize path
+                        // (useContextReport keeps the prior contextWindow). Without
+                        // this the meter stayed at the pre-compression count.
+                        if (outcome.success && outcome.tokensAfter > 0) {
+                          safeSend(event.sender, "chat:context-report", {
+                            chatId: req.chatId,
+                            sections: [],
+                            trimReport: [],
+                            dispatchedTokens: outcome.tokensAfter,
+                          } satisfies ChatContextReport);
+                        }
 
                         return JSON.stringify({
                           success: outcome.success,

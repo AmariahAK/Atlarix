@@ -246,26 +246,22 @@ export function parseTerminalPasteFromClipboard(
   });
 }
 
-export function writeTerminalClipboard(
+/**
+ * Write a terminal selection synchronously onto a `copy` event's DataTransfer.
+ *
+ * The caller must `preventDefault()` the copy event. Same rationale as
+ * `writeCodeToDataTransfer`: a custom MIME placed via the async
+ * `navigator.clipboard.write([ClipboardItem])` does not survive to a
+ * paste-event `getData(mime)` here, but a synchronous `setData` on the live
+ * copy event does — so the terminal chip round-trips. `text/plain` keeps an
+ * ordinary paste elsewhere yielding the transcript text.
+ */
+export function writeTerminalToDataTransfer(
+  dataTransfer: DataTransfer,
   payload: AtlarixTerminalClipboardPayload,
 ): void {
-  const json = JSON.stringify(payload);
-  if (typeof ClipboardItem !== "undefined" && navigator.clipboard.write) {
-    void navigator.clipboard
-      .write([
-        new ClipboardItem({
-          "text/plain": new Blob([payload.content], { type: "text/plain" }),
-          [ATLARIX_TERMINAL_CLIPBOARD_MIME]: new Blob([json], {
-            type: ATLARIX_TERMINAL_CLIPBOARD_MIME,
-          }),
-        }),
-      ])
-      .catch(() => {
-        void navigator.clipboard.writeText(payload.content);
-      });
-    return;
-  }
-  void navigator.clipboard.writeText(payload.content);
+  dataTransfer.setData("text/plain", payload.content);
+  dataTransfer.setData(ATLARIX_TERMINAL_CLIPBOARD_MIME, JSON.stringify(payload));
 }
 
 export function attachmentTerminalKey(att: FileAttachment): string | null {

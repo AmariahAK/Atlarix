@@ -30,6 +30,7 @@ import { promises as fsPromises } from "node:fs";
 // Import our utility modules
 import { withLock } from "../utils/lock_utils";
 import { getProjectFiles } from "../utils/project-files";
+import { workspacePathExists } from "../utils/workspace_path_status_broadcast";
 import { bootstrapAtlarixWorkspaceFolder } from "@/lib/atlarix/workspace-bootstrap";
 import {
   runningApps,
@@ -737,9 +738,11 @@ export function registerAppHandlers() {
     const allApps = await db.query.apps.findMany({
       orderBy: [desc(apps.createdAt)],
     });
+    // Read existence through the shared session cache so the app list and the
+    // focus refresh don't each re-stat every workspace (which re-prompted for
+    // folder access on macOS). See workspace_path_status_broadcast.ts.
     const appsWithPathExists = allApps.map((a) => {
-      const isRemote = a.path?.startsWith("atlarix-remote://");
-      const pathExists = isRemote || fs.existsSync(getAtlarixAppPath(a.path));
+      const pathExists = workspacePathExists(a.id, a.path);
       return {
         ...a,
         pathExists,

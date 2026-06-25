@@ -17,25 +17,22 @@ export type AtlarixCodeClipboardPayload = {
   content: string;
 };
 
-/** Write a code selection to the clipboard with the custom MIME + plain text. */
-export function writeCodeClipboard(payload: AtlarixCodeClipboardPayload): void {
-  const json = JSON.stringify(payload);
-  if (typeof ClipboardItem !== "undefined" && navigator.clipboard?.write) {
-    void navigator.clipboard
-      .write([
-        new ClipboardItem({
-          "text/plain": new Blob([payload.content], { type: "text/plain" }),
-          [ATLARIX_CODE_CLIPBOARD_MIME]: new Blob([json], {
-            type: ATLARIX_CODE_CLIPBOARD_MIME,
-          }),
-        }),
-      ])
-      .catch(() => {
-        void navigator.clipboard.writeText(payload.content);
-      });
-    return;
-  }
-  void navigator.clipboard?.writeText(payload.content);
+/**
+ * Write a code selection synchronously onto a `copy` event's DataTransfer.
+ *
+ * The caller must `preventDefault()` the copy event. We write here (rather than
+ * the async `navigator.clipboard.write([ClipboardItem])`) because a custom MIME
+ * placed via the async Clipboard API does NOT survive to a paste-event
+ * `DataTransfer.getData(mime)` in this Electron build — the synchronous
+ * `setData` on the live copy event does, so the chip round-trips. The
+ * `text/plain` entry keeps an ordinary paste (anywhere else) yielding the code.
+ */
+export function writeCodeToDataTransfer(
+  dataTransfer: DataTransfer,
+  payload: AtlarixCodeClipboardPayload,
+): void {
+  dataTransfer.setData("text/plain", payload.content);
+  dataTransfer.setData(ATLARIX_CODE_CLIPBOARD_MIME, JSON.stringify(payload));
 }
 
 /**

@@ -36,7 +36,7 @@ import {
   commandBlockRangeAt,
   commandBlockRanges,
   upsertTerminalAttachment,
-  writeTerminalClipboard,
+  writeTerminalToDataTransfer,
 } from "@/lib/chat/terminal-line-buffer";
 import { toast } from "sonner";
 import { XtermView, disposeXtermInstance } from "./XtermView";
@@ -561,7 +561,6 @@ export function TerminalPanel() {
       if (!activeInstance) return;
       const selected = window.getSelection()?.toString();
       if (!selected?.trim()) return;
-      e.preventDefault();
       const att = buildTerminalPasteFromSelection({
         allLines: activeInstance.lines,
         selectedText: selected,
@@ -570,9 +569,10 @@ export function TerminalPanel() {
       });
       const { terminalPaste } = att;
       if (!terminalPaste) return;
+      e.preventDefault();
       const visible =
         terminalPaste.displayContent ?? terminalPaste.content;
-      writeTerminalClipboard({
+      writeTerminalToDataTransfer(e.clipboardData, {
         content: visible,
         instanceLabel: terminalPaste.instanceLabel,
         owner: terminalPaste.owner,
@@ -655,6 +655,7 @@ export function TerminalPanel() {
             cwd={workspacePath}
             scopeKey={scopeKey}
             active
+            instanceLabel={activeInstance.label}
           />
         </div>
       ) : (
