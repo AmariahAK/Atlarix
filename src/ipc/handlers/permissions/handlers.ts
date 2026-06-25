@@ -22,8 +22,30 @@ import {
     isProtectedRelativePath,
     normalizeRelativePath,
 } from "@/lib/file-permission-scope";
+import { resolvePendingApproval } from "@/lib/agent/pending-approvals";
 
 const logger = log.scope("permission-handlers");
+
+/**
+ * Item 5: model-facing result for a PARKED approval the user has now decided.
+ * Mirrors the inline tool-result shape so the resumed turn sees the same thing
+ * it would have inline. No-op for ops that never parked (resolvePendingApproval
+ * filters those out by operationId).
+ */
+function formatApprovalResultForResume(
+    interceptor: PermissionInterceptor,
+    operationId: string,
+): string {
+    const r = interceptor.getExecutionResult(operationId);
+    return JSON.stringify({
+        success: r.success,
+        ...(r.path ? { path: r.path } : {}),
+        ...(r.command ? { command: r.command } : {}),
+        ...(r.output ? { output: r.output } : {}),
+        ...(r.exitCode !== undefined ? { exitCode: r.exitCode } : {}),
+        ...(r.error ? { error: r.error } : {}),
+    });
+}
 
 // Track active permission interceptors by chat ID
 const activeInterceptors = new Map<number, PermissionInterceptor>();
@@ -247,7 +269,10 @@ ipcMain.handle(
         }
 
         if (approvalMode === "deny") {
-            return interceptor.rejectOperation(operationId);
+            const denied = interceptor.rejectOperation(operationId);
+            // Item 5: if the op had parked, tell the resumed turn it was rejected.
+            resolvePendingApproval(chatId, operationId, "rejected", "(rejected by user)");
+            return denied;
         }
 
         const pending = interceptor.getPendingOperations().find((p) => p.id === operationId);
@@ -289,10 +314,19 @@ ipcMain.handle(
             }
         }
 
-        return interceptor.executeOperation(operationId, {
+        const result = await interceptor.executeOperation(operationId, {
             dangerAcknowledged: dangerAcknowledged === true,
             overrideContent,
         });
+        // Item 5: if the op had parked (grace expired), deliver its executed
+        // result to the parked turn and auto-wake it. No-op when decided inline.
+        resolvePendingApproval(
+            chatId,
+            operationId,
+            result.approved ? "approved" : "rejected",
+            formatApprovalResultForResume(interceptor, operationId),
+        );
+        return result;
     },
 );
 
@@ -313,7 +347,10 @@ ipcMain.handle(
             };
         }
 
-        return interceptor.rejectOperation(operationId);
+        const rejected = interceptor.rejectOperation(operationId);
+        // Item 5: if the op had parked, tell the resumed turn it was rejected.
+        resolvePendingApproval(chatId, operationId, "rejected", "(rejected by user)");
+        return rejected;
     },
 );
 

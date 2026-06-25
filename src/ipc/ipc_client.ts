@@ -3370,6 +3370,14 @@ export class IpcClient {
     );
   }
 
+  /** Item 5: are there undrained resolved-approval results for this chat? */
+  public async approvalHasPendingResults(chatId: number): Promise<boolean> {
+    return this.ipcRenderer.invoke(
+      "chat:approval-has-pending-results",
+      chatId,
+    );
+  }
+
   /** C3: full current output (non-destructive) for a running background job. */
   public async backgroundJobOutput(
     chatId: number,

@@ -55,14 +55,24 @@ const logger = log.scope("permission-interceptor");
 // CONFIGURATION
 // ════════════════════════════════════════════════════════════════════════════
 
-const PERMISSION_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes default
+/**
+ * Item 5 — grace-then-park. The model's tool call waits this short window for a
+ * decision; if the user doesn't answer in time, `waitForApproval` resolves
+ * `"undecided"` (NOT rejected) and the caller PARKS the turn (the op stays
+ * pending, the approval card stays up, the turn auto-resumes when the user later
+ * decides). No more 5-minute inline block that conflated timeout with rejection.
+ */
+const GRACE_PERIOD_MS = 4000;
 
 // ════════════════════════════════════════════════════════════════════════════
 // TYPES
 // ════════════════════════════════════════════════════════════════════════════
 
+/** Three-state result of waiting on a decision (Item 5). */
+export type WaitOutcome = "approved" | "rejected" | "undecided";
+
 interface PendingApproval {
-    resolve: (approved: boolean) => void;
+    resolve: (outcome: WaitOutcome) => void;
     timeout: NodeJS.Timeout;
     createdAt: number;
 }
@@ -444,7 +454,7 @@ export class PermissionInterceptor extends EventEmitter {
         // Clear any waiting approvals
         for (const [, approval] of this.pendingApprovals) {
             clearTimeout(approval.timeout);
-            approval.resolve(false); // Auto-reject on clear
+            approval.resolve("rejected"); // Auto-reject on clear
         }
         this.pendingApprovals.clear();
         this.pendingOperations.clear();
@@ -456,27 +466,26 @@ export class PermissionInterceptor extends EventEmitter {
     // ════════════════════════════════════════════════════════════════════════════
 
     /**
-     * Wait for user approval of an operation.
-     * This BLOCKS the chat stream until user approves or rejects.
-     * 
+     * Wait a short GRACE window for the user to decide on an operation (Item 5).
+     * Unlike the old 5-minute inline block, a timeout here does NOT reject — it
+     * resolves `"undecided"` so the caller can PARK the turn (the op stays
+     * `pending`, its approval card stays up) and auto-resume when the user
+     * eventually decides. A decision inside the window resolves `"approved"` /
+     * `"rejected"` as before, so the common quick-approve path is unchanged.
+     *
      * @param operationId - The operation to wait for
-     * @param timeoutMs - Timeout in milliseconds (default: 5 minutes)
-     * @returns Promise that resolves to true if approved, false if rejected/timeout
+     * @param timeoutMs - Grace window in ms (default: GRACE_PERIOD_MS)
+     * @returns "approved" | "rejected" | "undecided" (grace expired)
      */
-    async waitForApproval(operationId: string, timeoutMs = PERMISSION_TIMEOUT_MS): Promise<boolean> {
+    async waitForApproval(operationId: string, timeoutMs = GRACE_PERIOD_MS): Promise<WaitOutcome> {
         return new Promise((resolve) => {
-            // Set up timeout for auto-rejection
+            // Grace expiry → undecided. Do NOT mark the op rejected: it stays
+            // pending so the card persists and the user can still decide; the
+            // caller parks the turn and the decision auto-resumes it.
             const timeout = setTimeout(() => {
-                logger.warn(`[Permission Timeout] Operation ${operationId} timed out after ${timeoutMs}ms`);
+                logger.log(`[waitForApproval] Operation ${operationId} undecided after ${timeoutMs}ms grace — parking`);
                 this.pendingApprovals.delete(operationId);
-
-                // Mark as rejected
-                const op = this.pendingOperations.get(operationId);
-                if (op) {
-                    op.status = 'rejected';
-                }
-
-                resolve(false);
+                resolve("undecided");
             }, timeoutMs);
 
             // Store the pending approval
@@ -486,18 +495,20 @@ export class PermissionInterceptor extends EventEmitter {
                 createdAt: Date.now(),
             });
 
-            logger.log(`[waitForApproval] Waiting for user response on ${operationId}`);
+            logger.log(`[waitForApproval] Waiting (grace) for user response on ${operationId}`);
         });
     }
 
     /**
-     * Resolve an approval (called when user clicks Approve/Reject)
+     * Resolve an approval (called when user clicks Approve/Reject). No-op if the
+     * grace window already expired (the op parked) — the decision is then handled
+     * by the IPC handler executing/rejecting the still-pending op directly.
      */
     private resolveApproval(operationId: string, approved: boolean): void {
         const pending = this.pendingApprovals.get(operationId);
         if (pending) {
             clearTimeout(pending.timeout);
-            pending.resolve(approved);
+            pending.resolve(approved ? "approved" : "rejected");
             this.pendingApprovals.delete(operationId);
             logger.log(`[resolveApproval] ${operationId} -> ${approved ? 'APPROVED' : 'REJECTED'}`);
         }

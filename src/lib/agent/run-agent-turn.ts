@@ -47,6 +47,10 @@ import {
   hasRunningBackgroundCommands,
   hasPendingBackgroundCommandResults,
 } from "@/lib/agent/background-commands";
+import {
+  hasPendingApprovals,
+  hasPendingApprovalResults,
+} from "@/lib/agent/pending-approvals";
 import type { AgentProfile } from "./agent-profile";
 
 const logger = log.scope("run-agent-turn");
@@ -187,7 +191,12 @@ export async function runAgentTurn(
     hasRunningSubagents(rt.chatId) ||
     hasPendingSubagentResults(rt.chatId) ||
     hasRunningBackgroundCommands(rt.chatId) ||
-    hasPendingBackgroundCommandResults(rt.chatId);
+    hasPendingBackgroundCommandResults(rt.chatId) ||
+    // Item 5: a tool whose approval grace expired (undecided) parks here; a
+    // resolved-but-undrained decision keeps it parked until prepareStep folds
+    // the result into the resumed turn.
+    hasPendingApprovals(rt.chatId) ||
+    hasPendingApprovalResults(rt.chatId);
 
   for (;;) {
     // Stream was aborted (compass token-pool stop, user stop, task-complete

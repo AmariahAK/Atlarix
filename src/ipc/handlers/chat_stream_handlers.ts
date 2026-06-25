@@ -157,6 +157,10 @@ import {
   runningSubagentCount,
 } from "@/lib/agents/subagent-results";
 import {
+  addPendingApproval,
+  takePendingApprovalResults,
+} from "@/lib/agent/pending-approvals";
+import {
   AI_STREAMING_ERROR_MESSAGE_PREFIX,
   AI_STREAM_EMPTY_RESPONSE_FALLBACK,
   SAFETY_FILTER_BLOCKED_MESSAGE,
@@ -3819,6 +3823,9 @@ This conversation includes one or more image attachments. When the user uploads 
                 // A4: stall advisories for still-running quiet jobs (decide:
                 // keep waiting / read / cancel) — same step-input-only seam.
                 const stalledAdvisories = takePendingStalledAdvisories(req.chatId);
+                // Item 5: a parked approval the user has now decided — fold its
+                // executed result (or rejection notice) into the resumed turn.
+                const approvalResults = takePendingApprovalResults(req.chatId);
                 const correction = repetition
                   ? repetition.takePendingCorrection()
                   : null;
@@ -3846,6 +3853,7 @@ This conversation includes one or more image attachments. When the user uploads 
                   bgResults,
                   subagentResults,
                   stalledAdvisories,
+                  approvalResults,
                   correction,
                 ]
                   .filter(Boolean)
@@ -4812,8 +4820,20 @@ This conversation includes one or more image attachments. When the user uploads 
                               });
                             }
                           } else {
-                            approved =
+                            // Item 5: grace window, then park if undecided.
+                            const outcome =
                               await askPermissionInterceptor.waitForApproval(operationId);
+                            if (outcome === "undecided") {
+                              addPendingApproval(req.chatId, operationId);
+                              logger.log(`[Ask Mode] Permission undecided — parking turn: ${operationId}`);
+                              return JSON.stringify({
+                                pending: true,
+                                message:
+                                  "Waiting for your approval — this is paused, not failed. I'll continue automatically once you approve or reject. Do not retry it.",
+                                operation: permRequest.operation,
+                              });
+                            }
+                            approved = outcome === "approved";
                           }
 
                           if (approved) {
@@ -5657,8 +5677,20 @@ This conversation includes one or more image attachments. When the user uploads 
                             chatId: req.chatId,
                           });
                         }
-                        // BLOCKING: Wait for user to approve or reject
-                        const approved = await permissionInterceptor.waitForApproval(operationId);
+                        // Item 5: wait a short grace window, then PARK if undecided.
+                        const outcome = await permissionInterceptor.waitForApproval(operationId);
+                        if (outcome === "undecided") {
+                          addPendingApproval(req.chatId, operationId);
+                          logger.log(`[Build Mode] Permission undecided — parking turn: ${operationId}`);
+                          return JSON.stringify({
+                            pending: true,
+                            message:
+                              "Waiting for your approval — this is paused, not failed. I'll continue automatically once you approve or reject. Do not retry or call other tools to work around it.",
+                            operation: permRequest.operation,
+                            path: (permRequest.preview as any).path || (permRequest.preview as any).command,
+                          });
+                        }
+                        const approved = outcome === "approved";
                         if (streamDebugLogging) {
                           logger.log(`[Build Tool] waitForApproval end`, {
                             operationId,
@@ -6204,8 +6236,20 @@ This conversation includes one or more image attachments. When the user uploads 
                           logger.log(`[Agentic Loop] Permission request buffered: ${operationId}`);
                           hasPermissionRequest = true;
                           try {
-                            const approved = await permissionInterceptor.waitForApproval(operationId);
-                            if (approved) {
+                            // Item 5: grace window, then park if undecided.
+                            const outcome = await permissionInterceptor.waitForApproval(operationId);
+                            if (outcome === "undecided") {
+                              addPendingApproval(req.chatId, operationId);
+                              logger.log(`[Agentic Loop] Permission undecided — parking turn: ${operationId}`);
+                              iterationResults.push({
+                                tool: toolCall.toolName,
+                                result: JSON.stringify({
+                                  pending: true,
+                                  message:
+                                    "Waiting for your approval — paused, not failed. I'll continue automatically once you approve or reject. Do not retry it.",
+                                }),
+                              });
+                            } else if (outcome === "approved") {
                               const execResult = permissionInterceptor.getExecutionResult(operationId);
                               pushAgenticWrittenPaths();
                               const okPermResult2 = JSON.stringify({

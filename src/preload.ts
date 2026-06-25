@@ -289,6 +289,7 @@ const validInvokeChannels = [
   "chat:background-job-output",
   "chat:background-has-pending-results",
   "chat:subagent-has-pending-results",
+  "chat:approval-has-pending-results",
   // File operations (Live Code Editor)
   "file:read-content",
   "file:write-content",
