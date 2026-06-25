@@ -19,10 +19,6 @@ import {
   setSubagentNotifier,
   hasPendingSubagentResults,
 } from "@/lib/agents/subagent-results";
-import {
-  setApprovalNotifier,
-  hasPendingApprovalResults,
-} from "@/lib/agent/pending-approvals";
 import { broadcastToRenderer } from "../utils/browser_view_manager";
 
 const logger = log.scope("background_ipc");
@@ -46,17 +42,6 @@ export function registerBackgroundHandlers(): void {
       ...ev,
     });
   });
-  // Item 5: a resolved (approved/rejected) parked approval drives the SAME
-  // auto-wake path — `status: "finished"` so the renderer wakes the parked
-  // chat to fold the decision's result in via prepareStep.
-  setApprovalNotifier((chatId) => {
-    broadcastToRenderer("chat:background-job-update", {
-      chatId,
-      source: "approval",
-      status: "finished",
-    });
-  });
-
   ipcMain.handle("chat:background-jobs-list", (_e, chatId: number) =>
     listBackgroundJobs(Number(chatId)),
   );
@@ -74,10 +59,6 @@ export function registerBackgroundHandlers(): void {
 
   ipcMain.handle("chat:subagent-has-pending-results", (_e, chatId: number) =>
     hasPendingSubagentResults(Number(chatId)),
-  );
-
-  ipcMain.handle("chat:approval-has-pending-results", (_e, chatId: number) =>
-    hasPendingApprovalResults(Number(chatId)),
   );
 
   ipcMain.handle(

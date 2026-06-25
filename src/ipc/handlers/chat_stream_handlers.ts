@@ -157,9 +157,6 @@ import {
   runningSubagentCount,
 } from "@/lib/agents/subagent-results";
 import {
-  takePendingApprovalResults,
-} from "@/lib/agent/pending-approvals";
-import {
   AI_STREAMING_ERROR_MESSAGE_PREFIX,
   AI_STREAM_EMPTY_RESPONSE_FALLBACK,
   SAFETY_FILTER_BLOCKED_MESSAGE,
@@ -3899,9 +3896,6 @@ This conversation includes one or more image attachments. When the user uploads 
                 // A4: stall advisories for still-running quiet jobs (decide:
                 // keep waiting / read / cancel) — same step-input-only seam.
                 const stalledAdvisories = takePendingStalledAdvisories(req.chatId);
-                // Item 5: a parked approval the user has now decided — fold its
-                // executed result (or rejection notice) into the resumed turn.
-                const approvalResults = takePendingApprovalResults(req.chatId);
                 const correction = repetition
                   ? repetition.takePendingCorrection()
                   : null;
@@ -3929,7 +3923,6 @@ This conversation includes one or more image attachments. When the user uploads 
                   bgResults,
                   subagentResults,
                   stalledAdvisories,
-                  approvalResults,
                   correction,
                 ]
                   .filter(Boolean)

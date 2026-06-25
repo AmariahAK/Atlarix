@@ -47,10 +47,6 @@ import {
   hasRunningBackgroundCommands,
   hasPendingBackgroundCommandResults,
 } from "@/lib/agent/background-commands";
-import {
-  hasPendingApprovals,
-  hasPendingApprovalResults,
-} from "@/lib/agent/pending-approvals";
 import type { AgentProfile } from "./agent-profile";
 
 const logger = log.scope("run-agent-turn");
@@ -188,15 +184,12 @@ export async function runAgentTurn(
   // task/run_command tool result) that results arrive automatically — no poll.
   let parked = false;
   const pendingWorkBlocksEnd = (): boolean =>
+    // v14.7: approvals no longer park (they block mid-loop), so only DETACHED
+    // work (sub-agents, background commands) keeps the turn parked-for-auto-wake.
     hasRunningSubagents(rt.chatId) ||
     hasPendingSubagentResults(rt.chatId) ||
     hasRunningBackgroundCommands(rt.chatId) ||
-    hasPendingBackgroundCommandResults(rt.chatId) ||
-    // Item 5: a tool whose approval grace expired (undecided) parks here; a
-    // resolved-but-undrained decision keeps it parked until prepareStep folds
-    // the result into the resumed turn.
-    hasPendingApprovals(rt.chatId) ||
-    hasPendingApprovalResults(rt.chatId);
+    hasPendingBackgroundCommandResults(rt.chatId);
 
   for (;;) {
     // Stream was aborted (compass token-pool stop, user stop, task-complete

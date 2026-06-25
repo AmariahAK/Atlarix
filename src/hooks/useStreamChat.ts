@@ -452,8 +452,8 @@ export function useStreamChat({
     const ipc = IpcClient.getInstance();
     const unsub = ipc.onBackgroundJobUpdate(({ chatId: evChatId, status, source }) => {
       // Indicator refresh is source-specific: the background-jobs list is for
-      // COMMANDS only. Sub-agent + approval events skip it (no bg-job list).
-      if (source !== "subagent" && source !== "approval") {
+      // COMMANDS only. Sub-agent events skip it (no bg-job list).
+      if (source !== "subagent") {
         void ipc.backgroundJobsList(evChatId).then((jobs) => {
           getDefaultStore().set(backgroundJobsByChatIdAtom, (prev) => ({
             ...prev,
@@ -1495,11 +1495,9 @@ export function useStreamChat({
               void Promise.all([
                 ipc.backgroundHasPendingResults(response.chatId),
                 ipc.subagentHasPendingResults(response.chatId),
-                // Item 5: a parked approval resolved as the turn ended.
-                ipc.approvalHasPendingResults(response.chatId),
               ])
-                .then(([cmdPending, subPending, approvalPending]) => {
-                  if (!cmdPending && !subPending && !approvalPending) return;
+                .then(([cmdPending, subPending]) => {
+                  if (!cmdPending && !subPending) return;
                   const stillStreaming =
                     getDefaultStore()
                       .get(isStreamingByIdAtom)

@@ -231,9 +231,7 @@ export interface UpdateStatusPayload {
  */
 export interface BackgroundJobUpdatePayload {
   chatId: number;
-  // "approval" = a parked-approval wake (Item 5 grace-then-park); it shares this
-  // channel but carries no background-job list (see background_handlers.ts).
-  source: "command" | "subagent" | "approval";
+  source: "command" | "subagent";
   operationId?: string;
   taskId?: string;
   status: "running" | "finished" | "cancelled" | "stalled";
@@ -3379,14 +3377,6 @@ export class IpcClient {
   public async subagentHasPendingResults(chatId: number): Promise<boolean> {
     return this.ipcRenderer.invoke(
       "chat:subagent-has-pending-results",
-      chatId,
-    );
-  }
-
-  /** Item 5: are there undrained resolved-approval results for this chat? */
-  public async approvalHasPendingResults(chatId: number): Promise<boolean> {
-    return this.ipcRenderer.invoke(
-      "chat:approval-has-pending-results",
       chatId,
     );
   }
