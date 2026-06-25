@@ -49,6 +49,31 @@
 > Committing this batch for reference (bugs 1–5 + the bug-6 attempt + v14.7 plan); v14.7
 > wait-state work continues from here.
 
+### v14.7 — Wait-state unification (IMPLEMENTED on `fix/v14.6-regressions`, pending packaged verification)
+
+> Reworked how the agent WAITS to match Claude Code (harness-owned, model-agnostic).
+> Commits: `15d053e` (#3), `bb580b7` (#1), `4d5d501` (#5+#6), `23d8c6c` (#7). tsc(main+app+
+> tests)+oxlint clean; 1311 node + 55 renderer tests green. All diagnostics gated by
+> `ATLARIX_DIAG_146`.
+
+- **#1 Approvals block mid-loop** — `waitForApproval` blocks indefinitely until you decide
+  (no grace/park), cancellable via Stop. Turn stays one live `streamText` round → Stop button
+  shows, no premature "done", approve→runs / deny→continues / Stop→clean cancel. (Step 0
+  proved via AI-SDK source that no upstream connection is held during the wait.)
+- **#3 Durable `waiting` status** (TS-only, no migration) — parked/question turns persist as
+  `waiting`, never `interrupted`; `await clearInterruptedDraft` (bug 7 race fix).
+- **#4 composer / #5 concurrency** — emergent: `isStreaming` stays true during the block →
+  Stop shows; Enter queues a follow-up; Stop interrupts → Send (Claude Code's queue+interrupt).
+- **#6** — deleted the approval grace-then-park machinery (`pending-approvals.ts` + test +
+  auto-wake/notifier/IPC); KEPT background/sub-agent park + `ask_user` resume.
+- **#7/#8/#9 diagnostics** (instrument-then-fix; fixes await packaged DIAG readings): bug 8
+  slow edit (new `perm-edit` timing), bug 6 revert (`snapshot-turn-ids withSnapshot=N`), 1+2
+  next-exchange flash (per-dispatch/compress feed values).
+
+> **Next:** packaged verification of #1 behavior (approvals block, Stop works, no premature
+> "done"; reopen mid-approval shows `waiting`, not error) + read the #7/#8/#9 DIAG to land
+> those fixes. Then merge `fix/v14.6-regressions` → `main` and cut releases.
+
 <details><summary>Original diagnostic notes for the four held regressions (historical)</summary>
 
 ## 🔴 Open regressions — BLOCK the v14.6.0 release (next session)
