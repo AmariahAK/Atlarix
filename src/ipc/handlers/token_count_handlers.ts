@@ -31,7 +31,7 @@ type TokenCountMessageRow = {
 // ═══════════════════════════════════════════════════════════════════
 // The system prompt only varies meaningfully per dispatch by chatMode +
 // contextSize + turboEditsV2 + a date stamp + app version. The base
-// (AGENTS_COMPACT + tool_contract + mode block + runtime identity) is
+// (AGENTS.md + tool_contract + mode block + runtime identity) is
 // stable for the whole session. Recomputing the full estimate on every
 // keystroke-driven count-tokens IPC call was responsible for ~5-15ms of
 // repeated work per call.  Cache it.

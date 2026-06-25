@@ -88,7 +88,6 @@ import {
 import {
   ASK_USER_STREAM_STOP,
   LOOP_REPETITION_STREAM_STOP,
-  TASK_COMPLETE_STREAM_STOP,
   SUPERSEDED_STREAM_STOP,
   abortReasonSentinel,
   streamStopAbortReason,
@@ -140,7 +139,6 @@ import { isStreamDebugLoggingEnabled } from "@/lib/stream/stream-debug";
 import { stripQuestionsBlockFromResponse } from "../utils/cleanFullResponse";
 import {
   removeThinkingTags,
-  stripTaskCompleteTags,
   stripThinkBlocks,
 } from "../utils/thinking_tags";
 import { FileUploadsState } from "../utils/file_uploads_state";
@@ -222,9 +220,6 @@ import {
   unregisterLedgerPlanUiNotifier,
 } from "@/lib/tasks/task-ledger";
 import { emitPlanUpdate } from "@/ipc/utils/emit_plan_update";
-import {
-  responseHasTaskCompleteTag as isTaskComplete,
-} from "@/lib/tasks/completion-detector";
 import { runCommandFailureGuidance } from "@/lib/tools/run-command-guidance";
 import {
   recordMutationOutcome,
@@ -948,7 +943,7 @@ async function flushInterruptedDraft(
   content: string,
   opts?: { force?: boolean },
 ): Promise<void> {
-  const text = stripThinkBlocks(stripTaskCompleteTags(content)).trim();
+  const text = stripThinkBlocks(content).trim();
   if (!text) return;
   const now = Date.now();
   const last = partialDraftLastFlushAtByChatId.get(chatId) ?? 0;
@@ -1964,7 +1959,6 @@ ${componentSnippet}
       // Tie any browser/preview session reels captured this turn to this
       // assistant message so the renderer attaches the inline artifact to it.
       setReelTurnContext(req.chatId, String(placeholderAssistantMessage.id));
-      let streamStopWasTaskComplete = false;
       // v11.1: set when the model asked the user question(s) — the turn ends
       // gracefully (persist + response:end) WITHOUT task-complete side effects
       // (no build verification, no self-review).
@@ -3391,11 +3385,12 @@ This conversation includes one or more image attachments. When the user uploads 
               }
             }
 
+            const CONTEXT_PROACTIVE_THRESHOLD = 0.55;
             const fillAfterProactive = dispatchEstimate / contextWindowTokens;
-            if (fillAfterProactive >= 0.55) {
+            if (fillAfterProactive >= CONTEXT_PROACTIVE_THRESHOLD) {
+              const livePct = Math.round(fillAfterProactive * 100);
               logCompactionLine(dispatchEstimate, "reminder", 55);
-              proactiveContextReminderForStream =
-                "Context is at 55% capacity. Consider calling compress_context before your next heavy tool use.";
+              proactiveContextReminderForStream = `Context is at ${livePct}% capacity. Consider calling compress_context before your next heavy tool use.`;
             }
             // Context meter: report the ACTUAL model-facing dispatched size
             // (post compaction/slice) + window so the UI shows what the model
@@ -4286,15 +4281,14 @@ This conversation includes one or more image attachments. When the user uploads 
               currentMessages.length > 0 &&
               currentMessages[currentMessages.length - 1].role === "assistant"
             ) {
-              const stripped = stripTaskCompleteTags(fullResponse);
-              currentMessages[currentMessages.length - 1].content = stripped;
+              currentMessages[currentMessages.length - 1].content = fullResponse;
               if (isEphemeralWorkspace) {
                 const lastIdx = updatedChat.messages.length - 1;
                 if (
                   lastIdx >= 0 &&
                   updatedChat.messages[lastIdx]?.role === "assistant"
                 ) {
-                  updatedChat.messages[lastIdx].content = stripped;
+                  updatedChat.messages[lastIdx].content = fullResponse;
                   const { getStreamTransport } = await import("@/lib/chat/stream-transport");
                   const ec = getStreamTransport(req.chatId);
                   if (ec) {
@@ -6344,20 +6338,13 @@ This conversation includes one or more image attachments. When the user uploads 
 
               fullResponse = stripToolCallXML(fullResponse);
 
-              if (isTaskComplete(fullResponse)) {
-                streamStopWasTaskComplete = true;
-              }
-              if (streamStopWasTaskComplete) {
-                captureStreamAbortLedgerCompleteIfNeeded();
-              }
-
               // Structured metrics logging
               logger.info(`[Agentic Loop] Completed:`, {
                 chatId: req.chatId,
                 iterations: agenticIteration,
                 toolsExecuted: totalToolExecutions,
                 durationMs: Date.now() - loopStartTime,
-                completedNaturally: isTaskComplete(fullResponse),
+                completedNaturally: !turnParked,
               });
               hadToolCallsOrPermissions =
                 totalToolExecutions > 0 || permissionInterceptor.getAllOperationsCount() > 0;
@@ -6368,9 +6355,7 @@ This conversation includes one or more image attachments. When the user uploads 
                 abortController.signal.reason,
               );
               const ledgerCompleteStop =
-                streamStopWasTaskComplete ||
                 askUserEndedTurn ||
-                stopSentinel === TASK_COMPLETE_STREAM_STOP ||
                 stopSentinel === ASK_USER_STREAM_STOP;
               if (abortController.signal.aborted && !ledgerCompleteStop) {
                 const chatId = req.chatId;
@@ -6431,14 +6416,13 @@ ${stopNote}`;
         // (ledger-complete and ask_user end-turn stops still save)
         if (
           !abortController.signal.aborted ||
-          streamStopWasTaskComplete ||
           askUserEndedTurn
         ) {
           if (!fullResponse.trim()) {
             fullResponse = AI_STREAM_EMPTY_RESPONSE_FALLBACK;
           }
           let responseToStore = stripQuestionsBlockFromResponse(fullResponse);
-          responseToStore = stripTaskCompleteTags(sanitizeAssistantOutput(responseToStore));
+          responseToStore = sanitizeAssistantOutput(responseToStore);
           const { ensurePlanMarkersInAssistantContent } = await import(
             "@/lib/plans/plan-artifacts"
           );
@@ -6515,7 +6499,6 @@ ${stopNote}`;
           const isBuildModeTurn = settings.selectedChatMode === "build";
           {
             const newReviewSystemActiveElse =
-              streamStopWasTaskComplete ||
               delegatedAgentsThisTurn.includes("reviewer");
 
             // v2.1: Self-review activity in non-status path (ask/simple)
@@ -6572,7 +6555,7 @@ ${stopNote}`;
               isBuildModeTurn &&
               req.workspaceSessionId &&
               filesWrittenInThisExchange.length > 0 &&
-              (!abortController.signal.aborted || streamStopWasTaskComplete)
+              !abortController.signal.aborted
             ) {
               try {
                 const {
@@ -6608,7 +6591,7 @@ ${stopNote}`;
             }
             if (
               isBuildModeTurn &&
-              (!abortController.signal.aborted || streamStopWasTaskComplete)
+              !abortController.signal.aborted
             ) {
               const tid = String(placeholderAssistantMessage.id);
               const ops = getAutonomousSessionLog(req.chatId, tid);
@@ -6736,7 +6719,7 @@ ${stopNote}`;
               filesWrittenInThisExchange,
               isBuildModeTurn,
               isEphemeralWorkspace,
-              aborted: abortController.signal.aborted && !streamStopWasTaskComplete,
+              aborted: abortController.signal.aborted,
             });
             activeStreams.delete(req.chatId);
             // Issue 4: turn completed cleanly — drop the interrupted draft so the

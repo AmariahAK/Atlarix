@@ -104,8 +104,6 @@ describe("ephemeral → session round-trip", () => {
     expect(rehydrated.map((m) => m.role)).toEqual(["user", "assistant"]);
     expect(rehydrated[0].content).toContain("Say something memorable.");
     expect(rehydrated[1].content).toContain("Ahadi ni deni");
-    // task_complete stripped before persistence — never re-enters context.
-    expect(rehydrated[1].content).not.toContain("<task_complete>");
 
     // And allocate-transport reuses or replaces the transport binding sanely.
     const allocated: any = await allocateTransport({} as any, sessionRow!.id);

@@ -16,8 +16,8 @@ import {
  *
  * Ask-tier facts these rely on (verified):
  * - singleRound profile: a completed round ends the turn — the AI-SDK inner
- *   loop handles tool multi-step within the round, so no <task_complete> is
- *   needed to end an ask turn;
+ *   loop handles tool multi-step within the round, and a prose-only round
+ *   ends an ask turn;
  * - toolset = ToolRegistry.getToolsForAskMode() (isReadOnly || allowInAskMode)
  *   → write tools are NOT offered; plan-write tools union in for workMode
  *   "plan" (0.1 close-out fix);

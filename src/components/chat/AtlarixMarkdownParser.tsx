@@ -30,7 +30,6 @@ import { stripQuestionsArtifactForDisplay } from "@/lib/chat/ask-user-artifacts"
 import {
   sanitizeMarkdownForDisplay,
 } from "@/lib/chat/answer-display";
-import { stripTaskCompleteTags } from "@/ipc/utils/thinking_tags";
 import type { PasteAttachmentMeta } from "@/ipc/ipc_types";
 import {
   lookupTerminalPasteContent,
@@ -711,9 +710,7 @@ const SEGMENT_EXCLUDED_TAGS = new Set([
 /** Parse markdown segments for AssistantMessageBody (no thought/tool tags). */
 export function parseMarkdownSegmentPieces(content: string): ContentPiece[] {
   const sanitized = sanitizeMarkdownForDisplay(
-    stripTaskCompleteTags(
-      stripQuestionsArtifactForDisplay(stripAssistantPlanForDisplay(content)),
-    ),
+    stripQuestionsArtifactForDisplay(stripAssistantPlanForDisplay(content)),
   );
   return parseCustomTags(sanitized).filter(
     (piece) =>

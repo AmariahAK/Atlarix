@@ -11,7 +11,7 @@ import {
  * Eval 1 (Tier 4): single-tool flow — Build mode (the primary loop).
  *
  * The model (scripted) calls read_file on a seeded workspace file, then
- * finishes with task_complete. Asserts the REAL stream loop end-to-end:
+ * finishes with a prose-only round. Asserts the REAL stream loop end-to-end:
  * native tool_call parsing → ToolRegistry execution with workspace injection →
  * tool result returned to the model → final text → stream end + ephemeral
  * history updated.
@@ -68,13 +68,12 @@ describe("single-tool flow (build mode)", () => {
     // Turn terminated cleanly
     expectStreamEnded(fakeIpc.sends, chatId);
 
-    // Final assistant message in ephemeral history (task_complete stripped)
+    // Final assistant message in ephemeral history.
     const { getStreamTransport } = await import("@/lib/chat/stream-transport");
     const chat = getStreamTransport(chatId);
     const lastAssistant = [...(chat?.messages ?? [])]
       .reverse()
       .find((m) => m.role === "assistant");
     expect(lastAssistant?.content).toContain("The greeting is salama.");
-    expect(lastAssistant?.content).not.toContain("<task_complete>");
   });
 });

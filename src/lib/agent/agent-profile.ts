@@ -88,8 +88,9 @@ export interface AgentProfile {
 
   /**
    * v12 2.2/7B: workspace `stop` hooks ("require tests before done") — runs
-   * when the model claims <task_complete>; a non-null feedback string
-   * suppresses the break (bounded) and is fed back as a user message.
+   * when a build/debug turn would end (the model yields a prose-only round); a
+   * non-null feedback string suppresses the break (bounded) and is fed back as
+   * a user message.
    * Attached only when `.atlarix/hooks/` declares stop hooks. (v13.1: the
    * post-write LSP verify that shared this counter was removed — verification
    * is the project's own checks + tests, run via run_command.)

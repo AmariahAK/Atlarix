@@ -1,13 +1,13 @@
 /**
- * D1 — the "Secret handling" guidance must be present in BOTH base prompt files
- * (AGENTS_COMPACT.md is loaded for compact contexts, AGENTS_MODE_BASE.md for the
- * mode-scoped path), so the behavior applies on every turn regardless of mode.
+ * D1 — the "Secret handling" guidance must be present in the single base prompt
+ * file (AGENTS.md, loaded on every dispatch for both live work modes and
+ * headless), so the behavior applies on every turn regardless of mode.
  */
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-const FILES = ["AGENTS_COMPACT.md", "AGENTS_MODE_BASE.md"];
+const FILES = ["AGENTS.md"];
 
 describe("Secret handling prompt section (D1)", () => {
   for (const file of FILES) {

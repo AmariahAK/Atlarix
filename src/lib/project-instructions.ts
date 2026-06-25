@@ -1,6 +1,6 @@
 /**
  * Project instruction files — aligned with `.atlarix/atlarix.md`
- * Precedence (lowest to highest): Bundle AGENTS_COMPACT.md < Global ~/.atlarix/ATLARIX.md < Workspace prompts (DB) < project atlarix.md
+ * Precedence (lowest to highest): Bundle AGENTS.md < Global ~/.atlarix/ATLARIX.md < Workspace prompts (DB) < project atlarix.md
  */
 
 import path from "node:path";
@@ -60,7 +60,7 @@ export async function loadInstructionLayers(params: {
   return [
     {
       key: "bundle",
-      label: "System (AGENTS_COMPACT.md)",
+      label: "System (AGENTS.md)",
       content: bundleAgentsContent,
       exists: !!bundleAgentsContent,
     },

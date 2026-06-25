@@ -4,8 +4,8 @@
  * Minimal system prompt built from the bundled AGENTS guidance.
  * v2.1: Supports project instruction precedence (ATLARIX.md, workspace, global, bundle).
  *
- * - AGENTS_COMPACT.md: Essential base guidance (every-dispatch layer)
- * - AGENTS_MODE_BASE.md: Mode-scoped base guidance for the active mode
+ * - AGENTS.md: the single base guidance bundle, used on every dispatch (live
+ *   work modes and headless); the active mode's rules come from the mode bundle.
  */
 
 import path from "node:path";
@@ -23,6 +23,7 @@ import type { LargeLanguageModel } from "../lib/schemas";
 import { loadVisualArtifactsGuide } from "../lib/skills/builtin-guides";
 import {
     MODE_SYSTEM_TOOL_LISTS,
+    EVERY_MODE_TOOLS,
     type ModeRegistryKey,
 } from "../lib/tools/mode-tool-registry";
 import {
@@ -46,7 +47,7 @@ const logger = log.scope("system_prompt");
 // AGENTS.MD LOADING
 // ═══════════════════════════════════════════════════════════
 
-let AGENTS_MD_COMPACT = "";
+let AGENTS_MD = "";
 
 const loadAgentsFile = (filename: string): string => {
     const paths: string[] = [
@@ -92,8 +93,7 @@ const loadAgentsFile = (filename: string): string => {
 };
 
 // Load at startup
-AGENTS_MD_COMPACT = loadAgentsFile("AGENTS_COMPACT.md");
-const AGENTS_MD_MODE_BASE = loadAgentsFile("AGENTS_MODE_BASE.md");
+AGENTS_MD = loadAgentsFile("AGENTS.md");
 
 // Fallback if the compact bundle is missing (e.g. unexpected packaged layout): a minimal
 // prompt so the app never runs with an empty system prompt.
@@ -102,17 +102,18 @@ You are Atlarix, an AI development assistant. Use tools for operations.
 Use run_command with cwd for working directory. For scaffolding run exactly one run_command.
 `;
 
-if (!AGENTS_MD_COMPACT) {
-    logger.error("AGENTS_COMPACT.md not found; using fallback minimal prompt");
-    AGENTS_MD_COMPACT = FALLBACK_AGENTS;
+if (!AGENTS_MD) {
+    logger.error("AGENTS.md not found; using fallback minimal prompt");
+    AGENTS_MD = FALLBACK_AGENTS;
 }
 
 /**
- * Base ("every dispatch") guidance. Always AGENTS_COMPACT.md — every token here costs a
- * token on every single dispatch, so the bundle is kept deliberately compact.
+ * Base agent guidance — the single AGENTS.md, used on every dispatch (live work
+ * modes and headless alike). Every token here costs a token on every single
+ * dispatch, so the bundle is kept deliberately compact.
  */
 export const getAgentsMdForContextSize = (_contextSize: number = 32000): string => {
-    return AGENTS_MD_COMPACT || "";
+    return AGENTS_MD || "";
 };
 
 // ═══════════════════════════════════════════════════════════
@@ -132,7 +133,7 @@ export type ModeSystemKey = ModeRegistryKey;
 
 /** Mode-scoped bundle — omits multi-mode summaries (active mode is in `<mode_system>` only). */
 export const getAgentsMdForWorkMode = (_mode: ModeSystemKey): string => {
-    return AGENTS_MD_MODE_BASE || AGENTS_MD_COMPACT || "";
+    return AGENTS_MD || "";
 };
 
 /**
@@ -175,7 +176,7 @@ export function renderModeSystemBlock(activeMode?: ModeSystemKey): string {
   }
   const lines: string[] = [];
   lines.push("<mode_system>");
-  lines.push("Tools registered in EVERY mode: read_attachment, list_attachments, compress_context, web_search, read_url, ask_user.");
+  lines.push(`Tools registered in EVERY mode: ${EVERY_MODE_TOOLS.join(", ")}.`);
   lines.push("");
   for (const mode of Object.keys(MODE_SYSTEM_TOOL_LISTS) as ModeSystemKey[]) {
     const tools = MODE_SYSTEM_TOOL_LISTS[mode];
@@ -268,7 +269,7 @@ export const constructSystemPromptParts = ({
     // Headless drops the every-mode tools not bound autonomously (resolve-toolset.ts).
     const everyModeTools = headless
         ? "compress_context"
-        : "read_attachment, list_attachments, compress_context, web_search, read_url, ask_user";
+        : EVERY_MODE_TOOLS.join(", ");
     const toolContract = `<tool_contract>
 Every-mode tools: ${everyModeTools}.
 Workspace tools (file read/write, glob, grep, run_command, etc.) require an open workspace folder.
@@ -382,7 +383,7 @@ Today is ${currentDate}. Use this date when answering questions about "today", "
 There is no user to ask. Never wait for clarification or approval. When scope, design, or a destructive step is ambiguous, make the most reasonable assumption, state it briefly, and proceed to finish the task end-to-end.`;
     } else {
         tail += `\n\n# User input
-When you need clarification or a decision from the user (architecture choices, destructive operations, ambiguous scope), call the **ask_user** tool — **your turn ENDS after asking**; their answers arrive as the next user message and you continue from there. Because the turn ends, gather ALL questions you need UP FRONT and batch them into ONE call via the \`questions\` array (max 5, each with up to 4 \`options\`) — never ask one at a time across multiple calls. Do not emit \`<questions>\` XML blocks or inline multiple-choice JSON in prose. When the answers arrive, proceed without re-asking the same decision.`;
+When you need clarification or a decision from the user (architecture choices, destructive operations, ambiguous scope), call the **ask_user** tool — **your turn ENDS after asking**; their answers arrive as the next user message and you continue from there. Because the turn ends, gather ALL questions you need UP FRONT and batch them into ONE call via the \`questions\` array (max 5, each with up to 4 \`options\`) — never ask one at a time across multiple calls. When the answers arrive, proceed without re-asking the same decision.`;
     }
 
     return { stableHeader, dynamicTail: tail };

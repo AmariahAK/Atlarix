@@ -3,8 +3,7 @@
  * the stop-hook gate. Records the outcome of the most recent *state-changing*
  * mutation in a turn (a `run_command` exit, or an `edit_file`/`write_file` that
  * verified or not). The agentic loop (run-agent-turn.ts) consults this before
- * honoring a completion request (the `task_complete` tool, the `<task_complete>`
- * tag, or the no-tool-call safety-net): if the model's most recent mutation
+ * honoring a turn-ending prose-only round: if the model's most recent mutation
  * failed or didn't verify, completion is suppressed and the model is nudged to
  * fix/verify first — bounded, like the stop-hook gate.
  *
@@ -21,7 +20,7 @@ const lastMutationByTurn = new Map<string, MutationOutcome>();
  * Per-turn set of files whose write did NOT verify on disk (the bytes we
  * intended didn't match what was read back — a truncated/failed write). This
  * accumulates the running true/false state across all edits in the turn so a
- * single consolidated "self review" can fire at the task_complete gate, instead
+ * single consolidated "self review" can fire at the completion gate, instead
  * of nagging after every edit. A later successful write of the same path clears
  * it ("most recent wins"). Spends ZERO model tokens on the happy path.
  */

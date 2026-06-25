@@ -92,6 +92,5 @@ describe("agent mode coerces to build", () => {
       .reverse()
       .find((m) => m.role === "assistant");
     expect(lastAssistant?.content).toContain("The legacy constant is zamani.");
-    expect(lastAssistant?.content).not.toContain("<task_complete>");
   });
 });
