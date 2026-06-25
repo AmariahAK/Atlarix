@@ -6871,8 +6871,11 @@ ${stopNote}`;
             });
             activeStreams.delete(req.chatId);
             // Issue 4: turn completed cleanly — drop the interrupted draft so the
-            // renderer's authoritative finished message is the only copy.
-            void clearInterruptedDraft(req.chatId);
+            // renderer's authoritative finished message is the only copy. v14.7 bug 7:
+            // AWAIT it so the draft is gone before the handler returns — otherwise a
+            // close-right-after (e.g. an ask_user-parked turn) can leave the stale
+            // "interrupted" row, which reopens as the error/Continue UI.
+            await clearInterruptedDraft(req.chatId);
             streamSessionByChatId.delete(req.chatId);
           }
         }

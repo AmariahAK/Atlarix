@@ -209,6 +209,17 @@ function SimpleMessageImpl({
                     <MessageSources sources={message.sources} />
                 )}
 
+                {/* v14.7: turn parked on a human wait (approval / ask_user) — NOT an error.
+                    A neutral "waiting" affordance (the question card renders separately from
+                    its artifact). Distinct from the amber "interrupted" block below. */}
+                {isAssistant && message.waiting && !message.interrupted && !isStreaming && (
+                    <div className="mt-2 flex flex-wrap items-center gap-2 rounded-md border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+                        <span className="flex-1 min-w-[8rem]">
+                            This turn is waiting for your input — send a message to continue.
+                        </span>
+                    </div>
+                )}
+
                 {/* Issue 4: interrupted turn — partial output preserved, offer Continue. */}
                 {isAssistant && message.interrupted && !isStreaming && (
                     <div className="mt-2 flex flex-wrap items-center gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">

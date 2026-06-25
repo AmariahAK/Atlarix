@@ -282,6 +282,12 @@ export interface Message {
    * a "Continue" affordance so the user can resume.
    */
   interrupted?: boolean | null;
+  /**
+   * v14.7: assistant turn PARKED on a wait (a pending approval or an `ask_user`
+   * question) — NOT an error. Persisted as `status:"waiting"` so reopen renders
+   * the wait/question affordance instead of the "interrupted/Continue" error.
+   */
+  waiting?: boolean | null;
 }
 
 export interface Chat {

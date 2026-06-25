@@ -132,8 +132,11 @@ export const sessionMessages = sqliteTable("session_messages", {
    * "interrupted" marks an assistant turn whose stream was cut off (compass
    * stop, app quit/suspend, crash) before completing. Such rows hold partial
    * content and render a "Continue" affordance. Normal turns are "complete".
+   * v14.7: "waiting" marks a turn PARKED on a human wait (pending approval or an
+   * `ask_user` question) — NOT an error; renders the wait/question affordance on
+   * reopen. Plain-TEXT column (SQLite doesn't enforce the enum) → no migration.
    */
-  status: text("status", { enum: ["complete", "interrupted"] })
+  status: text("status", { enum: ["complete", "interrupted", "waiting"] })
     .notNull()
     .default("complete"),
   planStatus: text("plan_status", { enum: ["plan", "building", "built"] }),

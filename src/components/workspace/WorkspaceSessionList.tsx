@@ -53,7 +53,7 @@ function sessionMessagesToUiMessages(
     id: string;
     role: string;
     content: string;
-    status?: "complete" | "interrupted";
+    status?: "complete" | "interrupted" | "waiting";
     createdAt: Date;
     displaySnapshot?: DisplaySnapshotV1 | null;
     modelContent?: string | null;
@@ -72,6 +72,7 @@ function sessionMessagesToUiMessages(
       chatId,
       createdAt: m.createdAt,
       ...(m.status === "interrupted" ? { interrupted: true } : {}),
+      ...(m.status === "waiting" ? { waiting: true } : {}),
       ...(m.modelContent ? { modelContent: m.modelContent } : {}),
       ...(m.pasteAttachments?.length
         ? { pasteAttachments: m.pasteAttachments }

@@ -51,8 +51,11 @@ export type SessionMessageRow = {
   role: "user" | "assistant" | "tool";
   content: string;
   kind: "message" | "plan";
-  /** "interrupted" when the assistant turn was cut off mid-stream (holds partial content). */
-  status: "complete" | "interrupted";
+  /**
+   * "interrupted" = cut off mid-stream (partial content, "Continue" affordance).
+   * "waiting" = v14.7 turn parked on a human wait (approval / `ask_user`) — not an error.
+   */
+  status: "complete" | "interrupted" | "waiting";
   createdAt: Date;
   displaySnapshot?: DisplaySnapshotV1 | null;
   modelContent?: string | null;
@@ -249,6 +252,18 @@ export async function markSessionMessageComplete(rowId: string): Promise<void> {
   await db
     .update(sessionMessages)
     .set({ status: "complete" })
+    .where(eq(sessionMessages.id, rowId));
+}
+
+/**
+ * v14.7: mark an assistant row as PARKED on a human wait (pending approval /
+ * `ask_user`) — distinct from "interrupted" so reopen renders the wait/question
+ * affordance, not the error/Continue UI.
+ */
+export async function markSessionMessageWaiting(rowId: string): Promise<void> {
+  await db
+    .update(sessionMessages)
+    .set({ status: "waiting" })
     .where(eq(sessionMessages.id, rowId));
 }
 
