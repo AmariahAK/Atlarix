@@ -636,6 +636,68 @@ function emitCompactionMirroredActivity(
   };
 }
 
+/**
+ * Emit the activity events for a MODEL-INITIATED `compress_context` completion.
+ * - `type: "compaction"` drives the raw-IPC banner (CompactionProgressStrip).
+ * - `type: "background"` (compress-labelled, status "done") is what
+ *   `useCompactionTokenVisuals` listens for to invalidate TOKEN_COUNT_QUERY_KEY,
+ *   so the footer/Feed-A meter refreshes mid-turn instead of staying stale until
+ *   stream end. (The model path previously emitted only "compaction", which
+ *   chat-activity-normalize.ts drops — so Feed A never refreshed.)
+ * - When the summarize succeeded but the durable marker did NOT persist, surface
+ *   a visible warning instead of failing silently (the reopen-stays-full bug).
+ */
+function emitModelCompactionActivity(
+  sender: IpcMainInvokeEvent["sender"],
+  chatId: number,
+  outcome: {
+    tokensBefore: number;
+    tokensAfter: number;
+    status: string;
+    success: boolean;
+    summaryPersisted: boolean;
+  },
+  reason: string,
+): void {
+  const base = `compress-context-${chatId}-${Date.now()}`;
+  safeSend(sender, "chat:activity", {
+    id: base,
+    type: "compaction",
+    label: "Context compressed",
+    status: "done",
+    timestamp: Date.now(),
+    detail: `${outcome.tokensBefore} → ${outcome.tokensAfter} est. (${outcome.status}). ${reason}`,
+    chatId,
+    modelInitiated: true,
+  });
+  if (outcome.success) {
+    safeSend(sender, "chat:activity", {
+      id: `${base}-bg`,
+      type: "background",
+      label: "Context compressed",
+      status: "done",
+      timestamp: Date.now(),
+      detail: `${outcome.tokensBefore} → ${outcome.tokensAfter} est. tokens`,
+      chatId,
+    });
+    if (!outcome.summaryPersisted) {
+      logger.warn(
+        `[compaction] chat ${chatId}: summary not persisted — reopened session may re-load full history`,
+      );
+      safeSend(sender, "chat:activity", {
+        id: `${base}-warn`,
+        type: "background",
+        label: "Compaction summary not saved",
+        status: "error",
+        timestamp: Date.now(),
+        detail:
+          "The conversation was compressed for this turn, but the durable summary could not be saved — reopening this chat may reload the full history.",
+        chatId,
+      });
+    }
+  }
+}
+
 // Per-turn tool-call caps and duplicate-call dedup were removed: they were
 // never intended for autonomous/headless operation, where the entire task is a
 // single `chat:stream` turn — capping run_command/etc. at 10 per task crippled
@@ -2169,6 +2231,11 @@ ${componentSnippet}
         const hasWorkspace = !!effectiveApp;
         let appPath = effectiveApp?.path ? resolveAppPath(effectiveApp.path) : "";
         const effectiveAppId = effectiveApp?.id;
+        if (process.env.ATLARIX_DIAG_146 === "1") {
+          logger.info(
+            `[DIAG_146] enforce-appId chat=${req.chatId} effectiveAppId=${effectiveAppId} path=${effectiveApp?.path ?? "<none>"}`,
+          );
+        }
         if (effectiveAppId !== lastSkillCacheAppId) {
           lastSkillCacheAppId = effectiveAppId;
           void import("@/lib/skills/skill-loader")
@@ -2305,6 +2372,11 @@ ${componentSnippet}
               "@/lib/context/compaction"
             );
             const sliced = sliceFromLastCompactionSummary(messageHistory);
+            if (process.env.ATLARIX_DIAG_146 === "1") {
+              logger.info(
+                `[DIAG_146] dispatch-slice chat=${req.chatId} markerFound=${sliced.length !== messageHistory.length} fullLen=${messageHistory.length} slicedLen=${sliced.length}`,
+              );
+            }
             if (sliced.length !== messageHistory.length) {
               logger.log(
                 `[stream:${req.chatId}] Compaction summary found — model history ${messageHistory.length} → ${sliced.length} messages`,
@@ -3415,6 +3487,11 @@ This conversation includes one or more image attachments. When the user uploads 
             // sees and DROPS after a summarize, instead of the full untrimmed
             // conversation count. Sections/trims came from the earlier report;
             // the renderer (useContextReport) merges these dispatched fields in.
+            if (process.env.ATLARIX_DIAG_146 === "1") {
+              logger.info(
+                `[DIAG_146] per-dispatch context-report chat=${req.chatId} dispatchedTokens=${dispatchEstimate} window=${contextWindowTokens}`,
+              );
+            }
             safeSend(event.sender, "chat:context-report", {
               chatId: req.chatId,
               sections: [],
@@ -4569,6 +4646,9 @@ This conversation includes one or more image attachments. When the user uploads 
                               ? null
                               : String(placeholderAssistantMessage?.id ?? ""),
                             ephemeral: isEphemeralWorkspace,
+                            // Known-good session id so the [COMPACTION MARKER] persists
+                            // even when chatId is the live (negative) transport id.
+                            workspaceSessionId: req.workspaceSessionId,
                             setMessages: isEphemeralWorkspace
                               ? (next) => {
                                   updatedChat.messages = next as typeof updatedChat.messages;
@@ -4578,21 +4658,17 @@ This conversation includes one or more image attachments. When the user uploads 
                               : undefined,
                           },
                         );
-                        safeSend(event.sender, "chat:activity", {
-                          id: `compress-context-${req.chatId}-${Date.now()}`,
-                          type: "compaction",
-                          label: "Context compressed",
-                          status: "done",
-                          timestamp: Date.now(),
-                          detail: `${outcome.tokensBefore} → ${outcome.tokensAfter} est. (${outcome.status}). ${reason}`,
-                          chatId: req.chatId,
-                          modelInitiated: true,
-                        });
+                        emitModelCompactionActivity(event.sender, req.chatId, outcome, reason);
                         // Context meter: push the new model-facing size so the UI
                         // DROPS after compression, mirroring the summarize path
                         // (useContextReport keeps the prior contextWindow). Without
                         // this the meter stayed at the pre-compression count.
                         if (outcome.success && outcome.tokensAfter > 0) {
+                          if (process.env.ATLARIX_DIAG_146 === "1") {
+                            logger.info(
+                              `[DIAG_146] compress(ask) chat=${req.chatId} ${outcome.tokensBefore}→${outcome.tokensAfter} persisted=${outcome.summaryPersisted} → emit context-report dispatchedTokens=${outcome.tokensAfter}`,
+                            );
+                          }
                           safeSend(event.sender, "chat:context-report", {
                             chatId: req.chatId,
                             sections: [],
@@ -4607,6 +4683,7 @@ This conversation includes one or more image attachments. When the user uploads 
                           tokensAfter: outcome.tokensAfter,
                           summary: outcome.summary,
                           status: outcome.status,
+                          summaryPersisted: outcome.summaryPersisted,
                         });
                       } catch (e) {
                         safeSend(event.sender, "chat:activity", {
@@ -5299,6 +5376,9 @@ This conversation includes one or more image attachments. When the user uploads 
                               ? null
                               : String(placeholderAssistantMessage?.id ?? ""),
                             ephemeral: isEphemeralWorkspace,
+                            // Known-good session id so the [COMPACTION MARKER] persists
+                            // even when chatId is the live (negative) transport id.
+                            workspaceSessionId: req.workspaceSessionId,
                             // C-1: parity with the Ask-mode site — without this the
                             // Build-mode compress never replaced the live transport
                             // messages, so the next dispatch still used full history.
@@ -5312,23 +5392,18 @@ This conversation includes one or more image attachments. When the user uploads 
                           },
                         );
 
-                        safeSend(event.sender, "chat:activity", {
-                          id: `compress-context-${req.chatId}-${Date.now()}`,
-                          type: "compaction",
-                          label: "Context compressed",
-                          status: "done",
-                          timestamp: Date.now(),
-                          // PASS8 F1: tokensBefore/After are estimates, not exact provider counts.
-                          detail: `${outcome.tokensBefore} → ${outcome.tokensAfter} est. tokens. ${outcome.status}. ${reason}`,
-                          chatId: req.chatId,
-                          modelInitiated: true,
-                        });
+                        emitModelCompactionActivity(event.sender, req.chatId, outcome, reason);
 
                         // Context meter: push the new model-facing size so the UI
                         // DROPS after compression, mirroring the summarize path
                         // (useContextReport keeps the prior contextWindow). Without
                         // this the meter stayed at the pre-compression count.
                         if (outcome.success && outcome.tokensAfter > 0) {
+                          if (process.env.ATLARIX_DIAG_146 === "1") {
+                            logger.info(
+                              `[DIAG_146] compress(build) chat=${req.chatId} ${outcome.tokensBefore}→${outcome.tokensAfter} persisted=${outcome.summaryPersisted} → emit context-report dispatchedTokens=${outcome.tokensAfter}`,
+                            );
+                          }
                           safeSend(event.sender, "chat:context-report", {
                             chatId: req.chatId,
                             sections: [],
@@ -5344,6 +5419,7 @@ This conversation includes one or more image attachments. When the user uploads 
                           tokensAfter: outcome.tokensAfter,
                           summary: outcome.summary,
                           status: outcome.status,
+                          summaryPersisted: outcome.summaryPersisted,
                         });
                       } catch (e) {
                         safeSend(event.sender, "chat:activity", {

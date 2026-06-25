@@ -5,6 +5,52 @@
 
 ---
 
+## ✅ v14.6.0 regressions — FIXED in working tree (pending packaged verification + tag)
+
+> The four held regressions are now fixed, plus a **fifth** bug found this session
+> (Settings permission rules never apply). Full suite green — **1368 tests** (1313
+> node + 55 renderer), tsc (main + app + tests) + oxlint clean across 1005 files. All
+> fixes carry temporary `ATLARIX_DIAG_146=1`-gated logging (no behavior change in
+> release) for the packaged verification round. **Next:** verify in a packaged `.app`
+> (set `ATLARIX_DIAG_146=1`), remove the diag guards, then cut v14.6.0 (bumps + tag +
+> launchpad). Implementation details in `~/.claude/plans/valiant-leaping-kernighan.md`.
+
+| # | Fix | Key files |
+|---|-----|-----------|
+| 1+2 | **Meter drop + reopen slice** — root cause: `runCompaction` (non-ephemeral / real-workspace path) was **in-memory only** — it never persisted the `[COMPACTION MARKER]`, so reopen reloaded full history (and the model could re-overflow). `executeCompressContext` now builds the marker, persists it via the stream's known-good `req.workspaceSessionId` (threaded in; no silent-fail; returns `summaryPersisted`), and surfaces a visible warning on persist failure. Footer reads Feed B (`useContextReport.dispatchedTokens`) like the pill, and the model-initiated compress also emits a `type:"background"` activity so `useCompactionTokenVisuals` invalidates Feed A mid-turn (the `"compaction"` type was dropped by `normalizeChatActivityPayload`). | `src/lib/tools/workspace.ts`, `chat_stream_handlers.ts` (`emitModelCompactionActivity`), `ChatInputControls.tsx` |
+| 3 | **Core auto-fallback + decrypt** — new `dev_core_env.ts` lets an **unpackaged/dev** build read `COMPASS_OPENROUTER_API_KEY`/`ATLARIX_CORE_MODEL_*` from the local shell (injected via `__setDevCoreKeyProvider`; no-op + byte-identical in a signed release). `hasUsableProviderKey` hardened to require a non-empty value. **Deviation:** planned `canDecryptSecret` on the settings branch DROPPED — `readSettings()` already decrypts-or-drops, so re-`decrypt`-ing the plaintext value would have broken working BYOK keys. | `dev_core_env.ts`, `compass_constants.ts`, `get_model_client.ts`, `main.ts` |
+| 4 | **Grace-then-park** — confirmed NO behavior change needed (un-rule'd edits already park; an explicit always-allow rule makes an edit instant by design). Shipped **discoverability**: a caption under the always-allow buttons + a launchpad `/docs/guides/approvals` article. | `InlinePermissionApprovals.tsx`, `atlarix-launchpad/.../helpDocs.ts` |
+| 5 | **NEW — Settings permission rules never apply.** Rules were written under `selectedAppIdAtom` but enforced under the chat's DB-linked app (`updatedChat.app`); duplicate `apps` rows for one folder (no unique constraint; path-representation differences) made these diverge. Fix = full root merge: idempotent startup routine merges duplicate `apps` rows into the oldest (re-points all 14 `apps.id` FKs before delete — all ON DELETE CASCADE — with collision handling for the unique/PK tables); import dedup matches on normalized path; permission **writes** route through `resolveCanonicalAppId`. **Deviation:** no SQL unique index — normalized-path uniqueness can't be a raw-`path` index; prevention is app-layer dedup. | `canonical-app-path.ts`, `canonical-app.ts`, `src/db/index.ts` (`mergeDuplicateAppsByPathIfNeeded`), `{file,command}-permissions-store.ts`, `import_workspace_core.ts` |
+| 6 | **NEW — revert "revert file changes?" popup missing after relaunch.** The revert affordance reads `turnSnapshotTurnIdByMessageIdAtom`, which was rehydrated only on manual session-list selection; relaunch restores via `SimpleInlineChat.fetchMessages`/`getChat` (transport carries `sessionRowId` but not `snapshotTurnId`) → atom empty → edit-and-resend silently skips the file-revert dialog. Fix = new read-only IPC `sessions:snapshot-turn-ids` (resolve session by `stream_chat_id`, return persisted assistant `snapshot_turn_id` rows) + rehydrate via `buildRevertSnapshotMap` in `fetchMessages` (every load path). Persistence (0063 column) + on-disk snapshots already existed; this just loads them on relaunch. Honors "keep silent when nothing to revert". | `workspace_session_handlers.ts`, `ipc_client.ts`, `SimpleInlineChat.tsx`, `RevertTurnAction.tsx` (stale comment) |
+
+> **Packaged-verification checklist (set `ATLARIX_DIAG_146=1`):** (1) long session → model
+> `compress_context` → pill AND footer drop immediately; reopen → stays compacted (DIAG
+> shows `markerFound=true`); (2) no provider key + dev `.env` Core key → "on Core" engages;
+> (3) un-rule'd edit parks; always-allow caption renders; (4) duplicate-`apps` workspace →
+> add a file/extension rule + remove a command rule in Settings → both take effect the same
+> session (DIAG shows enforce-appId == write appId). Then strip the `ATLARIX_DIAG_146` guards
+> and cut the release.
+
+### Packaged-verification outcome (2026-06-25)
+
+- **Bug 5** — ✅ **RESOLVED** (Settings rules apply via the apps-row merge + canonical write).
+- **Bug 1+2** — ✅ working: compaction engages and the meter drops. Residual: a minor
+  **next-exchange UI flash** (not the original failure) — folded into v14.7 polish.
+- **Bug 3** — ✅ **accepted**: never observed in prod; the local-packaged miss is the
+  unsigned/CI-embedded-key path (works in a signed release). Decrypt fix + dev-key path stand.
+- **Bug 4** — ↪ **folds into v14.7** (the "user said to emit task done" behavior is the
+  wait-state rework). Discoverability caption + launchpad doc shipped; not counted standalone.
+- **Bug 6** — ❌ **UNDONE**: the "Keep / Revert files" dialog still did not appear on
+  relaunch. Rehydration code is committed for reference, but the affordance is unverified —
+  **reopen and revisit with v14.7** (`waiting`/affordance work). Likely either the
+  reopen path still doesn't run the rehydrate, or `withSnapshot=0` (turns captured no
+  snapshot) — confirm with the `snapshot-turn-ids` DIAG.
+
+> Committing this batch for reference (bugs 1–5 + the bug-6 attempt + v14.7 plan); v14.7
+> wait-state work continues from here.
+
+<details><summary>Original diagnostic notes for the four held regressions (historical)</summary>
+
 ## 🔴 Open regressions — BLOCK the v14.6.0 release (next session)
 
 > A v14.6.0 release was prepared (grace-then-park, Core fallback, compaction-UX
@@ -110,6 +156,8 @@ unrule'd edits wait. Confirm against the always-allow ruleset so testing isn't c
 **Verification already in place:** `pending-approvals.ts` unit suite (6 tests) + the
 `edit-with-approval`/`permission-ruleset` evals are green — the park MACHINERY is correct;
 the gap is purely WHERE it is invoked (auto-approve bypasses it).
+
+</details>
 
 ---
 

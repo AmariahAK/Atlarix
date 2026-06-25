@@ -10,7 +10,13 @@ import {
   isCompassBuildConfigured,
   isCoreTierId,
   normalizeCoreTierId,
+  __setDevCoreKeyProvider,
 } from "@/ipc/shared/compass_constants";
+
+const NOOP_DEV_PROVIDER = {
+  apiKey: () => undefined,
+  modelId: () => undefined,
+};
 
 describe("compass_constants build env", () => {
   afterEach(() => {
@@ -74,5 +80,39 @@ describe("compass_constants build env", () => {
     expect(isCoreTierId("compass-balanced")).toBe(true);
     expect(isCoreTierId("core-2")).toBe(true);
     expect(isCoreTierId("gpt-4o")).toBe(false);
+  });
+});
+
+describe("compass_constants dev-key fallback (Bug 3)", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    __setDevCoreKeyProvider(NOOP_DEV_PROVIDER); // reset to release no-op
+  });
+
+  it("uses the injected dev key when no build-time key is embedded", () => {
+    vi.stubEnv("COMPASS_OPENROUTER_API_KEY", "");
+    __setDevCoreKeyProvider({
+      apiKey: () => "sk-dev",
+      modelId: (t) => (t === CORE_TIER_1 ? "deepseek/x" : undefined),
+    });
+    expect(getCompassMasterApiKey()).toBe("sk-dev");
+    expect(isCompassBuildConfigured()).toBe(true);
+    expect(getOpenRouterModelIdForCoreTier(CORE_TIER_1)).toBe("deepseek/x");
+  });
+
+  it("build-time embedded key wins over the dev provider", () => {
+    vi.stubEnv("COMPASS_OPENROUTER_API_KEY", "sk-ci");
+    __setDevCoreKeyProvider({
+      apiKey: () => "sk-dev",
+      modelId: () => "dev/model",
+    });
+    expect(getCompassMasterApiKey()).toBe("sk-ci");
+  });
+
+  it("default no-op provider keeps release behavior (no dev key)", () => {
+    vi.stubEnv("COMPASS_OPENROUTER_API_KEY", "");
+    __setDevCoreKeyProvider(NOOP_DEV_PROVIDER);
+    expect(getCompassMasterApiKey()).toBeUndefined();
+    expect(isCompassBuildConfigured()).toBe(false);
   });
 });

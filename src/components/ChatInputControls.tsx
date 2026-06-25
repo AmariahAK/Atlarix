@@ -5,6 +5,7 @@ import { ChatConfigDropdown } from "./ChatConfigDropdown";
 import { ChatIntentSelector } from "./ChatIntentSelector";
 import { useSettings } from "@/hooks/useSettings";
 import { useContextTokenCount } from "@/hooks/useCountTokens";
+import { useContextReport } from "@/hooks/useContextReport";
 import {
   Sheet,
   SheetContent,
@@ -59,6 +60,11 @@ export function ChatInputControls({
   const [modelSheetOpen, setModelSheetOpen] = useState(false);
   // PASS8 E3: Shared context-only token count (dedup'd via React Query key).
   const { result: tokenResult } = useContextTokenCount(chatId ?? null);
+  // v14.6 (Bug 1): prefer the model-facing dispatched size (Feed B) — the same
+  // source the floating pill uses — so the footer DROPS immediately after a
+  // compress_context instead of staying at the stale pre-compaction count until
+  // stream end (Feed A / count-tokens is only invalidated at stream end).
+  const contextReport = useContextReport(chatId ?? null);
   const { pulse, flashSuccess } = useCompactionTokenVisuals(chatId ?? null);
   const compassUsage = useCompassUsage();
 
@@ -98,8 +104,13 @@ export function ChatInputControls({
   }
 
   let tokenWarning: string | null = null;
-  const usedTokens = tokenResult?.estimatedTotalTokens ?? 0;
-  const budgetTokens = tokenResult?.effectiveBudget ?? tokenResult?.contextWindow ?? 0;
+  const usedTokens =
+    contextReport?.dispatchedTokens ?? tokenResult?.estimatedTotalTokens ?? 0;
+  const budgetTokens =
+    contextReport?.contextWindow ??
+    tokenResult?.effectiveBudget ??
+    tokenResult?.contextWindow ??
+    0;
   const contextPercent = budgetTokens > 0 ? Math.min(100, (usedTokens / budgetTokens) * 100) : 0;
   const delegationBudget =
     settings?.aiConfiguration?.delegation?.tokenBudgetPerTurn ??

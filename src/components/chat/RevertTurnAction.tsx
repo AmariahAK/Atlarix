@@ -2,8 +2,11 @@
  * v13.1: "Revert this turn's file changes" — a Cursor-style checkpoint on an
  * assistant message whose turn captured a shadow-git snapshot. Restores the
  * files this turn wrote to their pre-turn state (deleting files it created)
- * WITHOUT rewinding the conversation. Session-lifetime only (snapshotTurnId is
- * not persisted across reloads).
+ * WITHOUT rewinding the conversation. The snapshotTurnId is persisted
+ * (session_messages.snapshot_turn_id, migration 0063) and snapshots live on
+ * disk, so this survives an app restart — the map is rehydrated on session load
+ * (WorkspaceSessionList) and on any chat load (SimpleInlineChat fetchMessages →
+ * sessions:snapshot-turn-ids).
  */
 import { useState } from "react";
 import { useAtomValue } from "jotai";

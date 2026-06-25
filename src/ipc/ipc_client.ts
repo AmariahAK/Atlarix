@@ -231,7 +231,9 @@ export interface UpdateStatusPayload {
  */
 export interface BackgroundJobUpdatePayload {
   chatId: number;
-  source: "command" | "subagent";
+  // "approval" = a parked-approval wake (Item 5 grace-then-park); it shares this
+  // channel but carries no background-job list (see background_handlers.ts).
+  source: "command" | "subagent" | "approval";
   operationId?: string;
   taskId?: string;
   status: "running" | "finished" | "cancelled" | "stalled";
@@ -863,6 +865,17 @@ export class IpcClient {
     turnId: string;
   }): Promise<{ filesChanged: string[]; createdFiles: string[] } | null> {
     return this.ipcRenderer.invoke("snapshot:files", params);
+  }
+
+  /**
+   * Bug 6: persisted per-assistant `snapshot_turn_id` rows for a chat's bound
+   * session, so the revert-turn affordance can be rehydrated on ANY load path
+   * (relaunch / openWorkspaceFolder), not just manual session-list selection.
+   */
+  public async getSnapshotTurnIds(
+    chatId: number,
+  ): Promise<Array<{ rowId: string; snapshotTurnId: string }>> {
+    return this.ipcRenderer.invoke("sessions:snapshot-turn-ids", { chatId });
   }
 
   /**

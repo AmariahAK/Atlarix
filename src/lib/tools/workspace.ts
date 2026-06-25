@@ -34,6 +34,7 @@ import {
   runCompaction,
   type CompactionRunOutcome,
   getUsableBudget,
+  COMPACTION_SUMMARY_PREFIX,
 } from "../context/compaction";
 import { AttachmentStore, type AttachmentData } from "../attachment-store";
 import log from "electron-log";
@@ -114,28 +115,50 @@ export type ExecuteCompressContextContext = {
      */
     ephemeral?: boolean;
     setMessages?: (next: Array<{ id: number; role: string; content: string }>) => void;
+    /**
+     * The stream's already-resolved workspace session id (req.workspaceSessionId).
+     * Preferred over re-resolving from `chatId` (which can be negative/unbound for
+     * the live transport and would silently fail to persist the compaction marker).
+     */
+    workspaceSessionId?: string | null;
 };
 
-/** Best-effort durable copy of a compaction summary into the bound session. */
+/**
+ * Durable copy of a compaction summary into the bound session so a reload (and the
+ * dispatch funnel's `sliceFromLastCompactionSummary`) keeps the compact history.
+ * Returns true when the `[COMPACTION MARKER]` row was actually written. Prefers the
+ * caller-supplied `sessionId` (the stream's known-good `req.workspaceSessionId`)
+ * over re-resolving from `chatId`.
+ */
 async function persistCompactionSummaryToSession(
     chatId: number,
     afterList: Array<{ role: string; content?: string | null }>,
-): Promise<void> {
+    sessionId?: string | null,
+): Promise<boolean> {
     try {
         const { isCompactionSummaryMessage } = await import("../context/compaction");
         const summaryMsg = afterList.find(
             (m) => m.role === "user" && isCompactionSummaryMessage(m.content),
         );
-        if (!summaryMsg?.content) return;
+        if (!summaryMsg?.content) return false;
         const {
             resolveOrBindWorkspaceSessionForStream,
             persistWorkspaceSessionUserMessage,
         } = await import("@/ipc/handlers/workspace_session_handlers");
-        const sessionId = await resolveOrBindWorkspaceSessionForStream({ chatId });
-        await persistWorkspaceSessionUserMessage(sessionId, summaryMsg.content, {});
-        logger.info(`[compaction] Summary persisted to session ${sessionId}`);
+        const resolvedSessionId =
+            sessionId ?? (await resolveOrBindWorkspaceSessionForStream({ chatId }));
+        if (!resolvedSessionId) {
+            logger.warn(
+                `[compaction] No workspace session id to persist summary (chat ${chatId}); reopened session will not stay compacted.`,
+            );
+            return false;
+        }
+        await persistWorkspaceSessionUserMessage(resolvedSessionId, summaryMsg.content, {});
+        logger.info(`[compaction] Summary persisted to session ${resolvedSessionId}`);
+        return true;
     } catch (err) {
         logger.warn("[compaction] Could not persist summary to session:", err);
+        return false;
     }
 }
 
@@ -194,6 +217,8 @@ export async function executeCompressContext(
     tokensAfter: number;
     summary: string;
     status: CompactionRunOutcome["status"];
+    /** True when the durable `[COMPACTION MARKER]` row was written to the session. */
+    summaryPersisted: boolean;
 }> {
     const reason =
         typeof params.reason === "string" && params.reason.trim()
@@ -218,8 +243,13 @@ export async function executeCompressContext(
         // v11.1 durable compaction: persist the summary message to the bound
         // workspace session so reloads keep the compact model history (the
         // dispatch funnel slices from the last summary marker).
+        let summaryPersisted = false;
         if (stepped.strategy === "summarized") {
-            await persistCompactionSummaryToSession(ctx.chatId, afterList);
+            summaryPersisted = await persistCompactionSummaryToSession(
+                ctx.chatId,
+                afterList,
+                ctx.workspaceSessionId,
+            );
         }
         return {
             success: stepped.compactionApplied === true,
@@ -228,6 +258,7 @@ export async function executeCompressContext(
             tokensAfter,
             summary: stepped.summaryText ?? "Context compressed.",
             status: stepped.compactionApplied === true ? "completed" : "noop",
+            summaryPersisted,
         };
     }
 
@@ -240,7 +271,40 @@ export async function executeCompressContext(
         sessionStats: ctx.sessionStats,
         turnId: ctx.turnId ?? null,
     });
-    const afterList = compactionResult.status === "completed" ? compactionResult.messagesAfterSummary : msgList;
+
+    // runCompaction is in-memory only (it returns the summary + tail but persists
+    // NOTHING and does not touch the transport). For a real workspace chat that
+    // left the marker un-persisted (→ reopen re-loads the full history and the
+    // model re-overflows) and the live transport un-compacted (→ the model keeps
+    // seeing the full history this turn). Build the marker, update the transport,
+    // and persist it durably — mirroring the ephemeral branch above.
+    let afterList = msgList;
+    let summaryPersisted = false;
+    if (compactionResult.status === "completed") {
+        const markerMsg = {
+            id: -Date.now(),
+            role: "user",
+            content: `${COMPACTION_SUMMARY_PREFIX}\n${compactionResult.summaryText}\n[END COMPACTION]`,
+        };
+        afterList = [
+            markerMsg,
+            ...compactionResult.messagesAfterSummary.map((m) => ({
+                id: m.id,
+                role: m.role,
+                content: m.content || "",
+            })),
+        ];
+        if (ctx.setMessages) {
+            ctx.setMessages(
+                afterList.map((m) => ({ id: m.id, role: m.role, content: m.content || "" })),
+            );
+        }
+        summaryPersisted = await persistCompactionSummaryToSession(
+            ctx.chatId,
+            afterList,
+            ctx.workspaceSessionId,
+        );
+    }
     const tokensAfter = afterList.reduce((acc, m) => acc + estimateTokens(m.content || ""), 0);
 
     return {
@@ -253,6 +317,7 @@ export async function executeCompressContext(
                 ? compactionResult.summaryText
                 : `No compaction performed: ${compactionResult.reason}`,
         status: compactionResult.status,
+        summaryPersisted,
     };
 }
 

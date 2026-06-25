@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import log from "electron-log";
 import { db } from "../../db";
 import { chatSessions, sessionMessages } from "../../db/schema";
-import { eq, desc, asc, sql, inArray } from "drizzle-orm";
+import { eq, desc, asc, sql, inArray, and } from "drizzle-orm";
 import { createLoggedHandler } from "./safe_handle";
 import {
   SESSION_LOAD_MESSAGE_LIMIT,
@@ -485,6 +485,44 @@ export function registerWorkspaceSessionHandlers(): void {
         chatId: payload.chatId,
         workspaceAppId: payload.workspaceId,
       });
+    },
+  );
+
+  handle(
+    "sessions:snapshot-turn-ids",
+    async (_event, payload: { chatId: number }) => {
+      // Bug 6: rehydrate the revert-turn affordance on ANY load path (relaunch /
+      // openWorkspaceFolder), not just manual session-list selection. Resolve the
+      // chat's bound session READ-ONLY (no binding side effects), then return the
+      // persisted per-assistant snapshot_turn_id rows so the renderer can rebuild
+      // turnSnapshotTurnIdByMessageId via buildRevertSnapshotMap. Cheap targeted
+      // query — not a full session message load.
+      const session = await db.query.chatSessions.findFirst({
+        where: eq(chatSessions.streamChatId, payload.chatId),
+      });
+      if (!session) return [];
+      const rows = await db
+        .select({
+          id: sessionMessages.id,
+          snapshotTurnId: sessionMessages.snapshotTurnId,
+        })
+        .from(sessionMessages)
+        .where(
+          and(
+            eq(sessionMessages.sessionId, session.id),
+            eq(sessionMessages.role, "assistant"),
+          ),
+        )
+        .all();
+      const out = rows
+        .filter((r) => !!r.snapshotTurnId)
+        .map((r) => ({ rowId: r.id, snapshotTurnId: r.snapshotTurnId as string }));
+      if (process.env.ATLARIX_DIAG_146 === "1") {
+        logger.info(
+          `[DIAG_146] snapshot-turn-ids chat=${payload.chatId} session=${session.id} assistantRows=${rows.length} withSnapshot=${out.length}`,
+        );
+      }
+      return out;
     },
   );
 

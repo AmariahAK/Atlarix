@@ -7,6 +7,7 @@ import { db } from "@/db";
 import { workspaceCommandPermissions } from "@/db/schema";
 import type { CommandPermissionDecision } from "@/lib/terminal-command-category";
 import { getCommandCategory } from "@/lib/terminal-command-category";
+import { resolveCanonicalAppId } from "@/ipc/utils/canonical-app";
 
 export type WorkspaceCommandPermissionRow = {
   id: number;
@@ -53,10 +54,13 @@ export function getWorkspaceCommandPermission(
 }
 
 export function upsertWorkspaceCommandPermission(
-  appId: number,
+  rawAppId: number,
   category: string,
   decision: CommandPermissionDecision,
 ): void {
+  // Write under the canonical (oldest) row for this folder so the rule lands on
+  // the same app the chat enforces under (Bug 5).
+  const appId = resolveCanonicalAppId(rawAppId) ?? rawAppId;
   const normalized = getCommandCategory(category) || category.trim().toLowerCase();
   if (!normalized) return;
 
@@ -89,9 +93,10 @@ export function upsertWorkspaceCommandPermission(
 }
 
 export function revokeWorkspaceCommandPermission(
-  appId: number,
+  rawAppId: number,
   category: string,
 ): boolean {
+  const appId = resolveCanonicalAppId(rawAppId) ?? rawAppId;
   const normalized = category.trim().toLowerCase();
   if (!normalized) return false;
   const result = db

@@ -20,6 +20,7 @@ import {
   isPlaintextApiKeyInDb,
   serializeApiKeyForDb,
 } from "@/lib/security/db-secrets";
+import { groupDuplicateAppIds } from "@/lib/canonical-app-path";
 
 const logger = log.scope("db");
 
@@ -183,6 +184,9 @@ export function initializeDatabase(): BetterSQLite3Database<typeof schema> & {
       }
       try { ensureMessagesFileAttachmentsColumnIfNeeded(sqlite); } catch (error) {
         logger.error("Error ensuring messages.file_attachments column (non-fatal):", error);
+      }
+      try { mergeDuplicateAppsByPathIfNeeded(sqlite); } catch (error) {
+        logger.error("Error merging duplicate apps rows (non-fatal):", error);
       }
 
       if (!isCoreSchemaComplete(sqlite)) {
@@ -530,6 +534,85 @@ function migratePlaintextApiKeysIfNeeded(sqlite: Database.Database): void {
 
   if (migrated > 0) {
     logger.log(`[DB] Encrypted ${migrated} legacy plaintext API key(s)`);
+  }
+}
+
+/**
+ * Bug 5: merge duplicate `apps` rows that share a normalized path into the oldest
+ * (canonical) row. Two rows for one folder (path differing by trailing slash,
+ * separators, or case) caused permission rules written under the selected row to
+ * be enforced under the chat's bound row. Re-points EVERY apps.id FK to the
+ * canonical row before deleting the duplicate — required because all those FKs are
+ * ON DELETE CASCADE, so an un-re-pointed child would be silently cascade-deleted.
+ * Idempotent: a no-op once no path-duplicates remain.
+ */
+export function mergeDuplicateAppsByPathIfNeeded(sqlite: Database.Database): void {
+  if (!tableExists(sqlite, "apps")) return;
+  const rows = sqlite.prepare("SELECT id, path FROM apps").all() as Array<{
+    id: number;
+    path: string;
+  }>;
+  const dupGroups = groupDuplicateAppIds(rows);
+  if (dupGroups.length === 0) return;
+
+  // Plain re-points. Tables dropped in earlier migrations (pivot_*/blueprint_*)
+  // are skipped via tableExists.
+  const PLAIN_FKS: Array<[table: string, col: string]> = [
+    ["chat_sessions", "workspace_id"],
+    ["versions", "app_id"],
+    ["mcp_servers", "app_id"],
+    ["daily_logs", "workspace_id"],
+    ["workspace_snapshots", "app_id"],
+    ["pivot_nodes", "workspace_id"],
+    ["pivot_edges", "workspace_id"],
+    ["pivot_containers", "workspace_id"],
+    ["blueprint_snapshots", "workspace_id"],
+    ["project_snapshots", "workspace_id"],
+    ["review_patterns", "workspace_id"],
+  ];
+  // Collision re-points: a UNIQUE/PK on (fk, …keys) means re-pointing a duplicate
+  // could collide with a row the canonical app already has — drop the duplicate's
+  // colliding rows first (keep the canonical's), then re-point the remainder.
+  const COLLISION_FKS: Array<[table: string, col: string, keys: string[]]> = [
+    ["workspace_file_permissions", "app_id", ["scope_type", "scope_value"]],
+    ["workspace_command_permissions", "app_id", ["category"]],
+    ["project_memory", "workspace_id", ["key"]],
+  ];
+
+  let merged = 0;
+  const run = sqlite.transaction(() => {
+    for (const ids of dupGroups) {
+      const canonical = ids[0]!;
+      for (const dup of ids.slice(1)) {
+        for (const [table, col, keys] of COLLISION_FKS) {
+          if (!tableExists(sqlite, table)) continue;
+          const keyCols = keys.join(", ");
+          const lhs = keys.length === 1 ? keys[0] : `(${keyCols})`;
+          sqlite
+            .prepare(
+              `DELETE FROM ${table} WHERE ${col} = ? AND ${lhs} IN (SELECT ${keyCols} FROM ${table} WHERE ${col} = ?)`,
+            )
+            .run(dup, canonical);
+          sqlite
+            .prepare(`UPDATE ${table} SET ${col} = ? WHERE ${col} = ?`)
+            .run(canonical, dup);
+        }
+        for (const [table, col] of PLAIN_FKS) {
+          if (!tableExists(sqlite, table)) continue;
+          sqlite
+            .prepare(`UPDATE ${table} SET ${col} = ? WHERE ${col} = ?`)
+            .run(canonical, dup);
+        }
+        sqlite.prepare("DELETE FROM apps WHERE id = ?").run(dup);
+        merged += 1;
+      }
+    }
+  });
+  run();
+  if (merged > 0) {
+    logger.log(
+      `[DB] Bug 5: merged ${merged} duplicate apps row(s) into canonical (oldest) rows by normalized path.`,
+    );
   }
 }
 

@@ -77,9 +77,22 @@ export async function hasUsableProviderKey(
   settings: UserSettings,
   providerConfig: LanguageModelProvider,
 ): Promise<boolean> {
-  if (settings.providerSettings?.[provider]?.apiKey?.value) return true;
-  if (await getProviderApiKey(provider)) return true;
-  if (providerConfig.envVarName && getEnvVar(providerConfig.envVarName)) return true;
+  // `settings` comes from readSettings(), which DECRYPTS each provider apiKey and
+  // DROPS it entirely when decryption fails ("could not decrypt stored secrets",
+  // settings.ts). So a present value here is already-decrypted plaintext — never
+  // re-decrypt it (that would garbage-decode a plaintext string and break BYOK).
+  // We require a non-empty (trimmed) value so an undecryptable→dropped key, or an
+  // empty/whitespace value, correctly reads as "no key" and the Core fallback can
+  // engage.
+  const settingsKey = settings.providerSettings?.[provider]?.apiKey?.value;
+  if (typeof settingsKey === "string" && settingsKey.trim()) return true;
+  // DB path: deserializeApiKeyFromDb already returns undefined on decrypt failure.
+  const dbKey = await getProviderApiKey(provider);
+  if (typeof dbKey === "string" && dbKey.trim()) return true;
+  if (providerConfig.envVarName) {
+    const envKey = getEnvVar(providerConfig.envVarName);
+    if (typeof envKey === "string" && envKey.trim()) return true;
+  }
   return false;
 }
 
@@ -116,6 +129,13 @@ export async function getModelClient(
   // configured — so the app stays usable instead of erroring. Never overrides a
   // provider that DOES have a key, and never re-routes Core itself.
   let fellBackToCore = false;
+  if (process.env.ATLARIX_DIAG_146 === "1" && model.provider !== COMPASS_PROVIDER_ID) {
+    const coreConfigured = isCompassBuildConfigured();
+    const usable = await hasUsableProviderKey(model.provider, settings, providerConfig);
+    logger.info(
+      `[DIAG_146] core-fallback gate provider=${model.provider} coreConfigured=${coreConfigured} hasUsableKey=${usable} → ${coreConfigured && !usable ? "FALLBACK" : "no-fallback"}`,
+    );
+  }
   if (
     model.provider !== COMPASS_PROVIDER_ID &&
     isCompassBuildConfigured() &&

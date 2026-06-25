@@ -33,4 +33,31 @@ describe("buildRevertSnapshotMap", () => {
     );
     expect(map.size).toBe(0);
   });
+
+  // Bug 6: the `sessions:snapshot-turn-ids` IPC returns {rowId, snapshotTurnId};
+  // SimpleInlineChat maps it to the {id, role, snapshotTurnId} row shape this
+  // helper consumes. Lock that contract so the relaunch rehydrate keeps working.
+  it("rehydrates from the IPC {rowId, snapshotTurnId} shape", () => {
+    const ipcRows = [
+      { rowId: "row-a1", snapshotTurnId: "2001" },
+      { rowId: "row-a2", snapshotTurnId: "2002" },
+    ];
+    const uiMessages = [
+      { id: 10, sessionRowId: "row-a1" },
+      { id: 11, sessionRowId: "row-a2" },
+      { id: 12, sessionRowId: "row-unmatched" },
+    ];
+    const map = buildRevertSnapshotMap(
+      ipcRows.map((r) => ({
+        id: r.rowId,
+        role: "assistant",
+        snapshotTurnId: r.snapshotTurnId,
+      })),
+      uiMessages,
+    );
+    expect(map.get(10)).toBe("2001");
+    expect(map.get(11)).toBe("2002");
+    expect(map.has(12)).toBe(false);
+    expect(map.size).toBe(2);
+  });
 });

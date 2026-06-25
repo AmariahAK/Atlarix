@@ -9,6 +9,7 @@ import { eq } from "drizzle-orm";
 import { parseRemoteUri } from "@/lib/workspace-fs";
 import { PlanLimitError } from "@/lib/plan-limit-error";
 import { startWorkspaceSession } from "./workspace_session_handlers";
+import { normalizeAppPath } from "@/lib/canonical-app-path";
 
 export async function importWorkspaceFromPath({
   path: sourcePath,
@@ -35,9 +36,22 @@ export async function importWorkspaceFromPath({
     );
   }
 
-  const existingByPath = await db.query.apps.findFirst({
+  // Bug 5: dedupe by NORMALIZED path (not exact string) for local workspaces so
+  // reopening the same folder with a different representation (trailing slash,
+  // separators, case) reuses the existing row instead of creating a duplicate.
+  // Remote URIs keep exact matching (path.resolve would mangle them).
+  let existingByPath = await db.query.apps.findFirst({
     where: eq(apps.path, sourcePath),
   });
+  if (!existingByPath && !remote) {
+    const targetNorm = normalizeAppPath(sourcePath);
+    const all = await db.query.apps.findMany();
+    existingByPath =
+      all
+        .filter((a) => a.workspaceKind !== "remote-ssh")
+        .sort((a, b) => a.id - b.id)
+        .find((a) => normalizeAppPath(a.path) === targetNorm) ?? undefined;
+  }
   if (existingByPath) {
     await db
       .update(apps)

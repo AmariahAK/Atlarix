@@ -91,6 +91,25 @@ function trimEnv(value: string | undefined): string | undefined {
 }
 
 /**
+ * DEV-ONLY Core key provider, injected from the main process (see
+ * `dev_core_env.ts`, wired in `main.ts`). The default is a no-op so this module
+ * stays renderer-/headless-safe and a signed release is byte-identical (the dev
+ * provider is never injected in those contexts, and returns `undefined` in a
+ * packaged build anyway). Lets a local `npm run package` exercise Core.
+ */
+interface DevCoreKeyProvider {
+  apiKey(): string | undefined;
+  modelId(coreTierId: string): string | undefined;
+}
+let devCoreKeyProvider: DevCoreKeyProvider = {
+  apiKey: () => undefined,
+  modelId: () => undefined,
+};
+export function __setDevCoreKeyProvider(provider: DevCoreKeyProvider): void {
+  devCoreKeyProvider = provider;
+}
+
+/**
  * Read build-time Core env vars.
  * Must use static `process.env.*` property access so Vite `define` in
  * `vite.main.config.mts` can embed CI secrets into the packaged main bundle.
@@ -100,8 +119,12 @@ function coreEnvAvailable(): boolean {
 }
 
 export function getCompassMasterApiKey(): string | undefined {
-  if (!coreEnvAvailable()) return undefined;
-  return trimEnv(process.env.COMPASS_OPENROUTER_API_KEY);
+  // Build-time embedded key (CI secret via Vite define) wins; otherwise fall
+  // through to the dev-only local-shell key (no-op in renderer/release).
+  const embedded = coreEnvAvailable()
+    ? trimEnv(process.env.COMPASS_OPENROUTER_API_KEY)
+    : undefined;
+  return embedded ?? devCoreKeyProvider.apiKey();
 }
 
 export function getOpenRouterModelIdForCoreTier(
@@ -112,19 +135,25 @@ export function getOpenRouterModelIdForCoreTier(
   // Core models can change without repackaging. Null/absent → env fallback.
   const override = getCoreModelOverrideId(norm);
   if (override) return override;
-  if (!coreEnvAvailable()) return undefined;
-  switch (norm) {
-    case CORE_TIER_1:
-      return trimEnv(process.env.ATLARIX_CORE_MODEL_1);
-    case CORE_TIER_2:
-      return trimEnv(process.env.ATLARIX_CORE_MODEL_2);
-    case CORE_TIER_3:
-      return trimEnv(process.env.ATLARIX_CORE_MODEL_3);
-    case CORE_TIER_4:
-      return trimEnv(process.env.ATLARIX_CORE_MODEL_4);
-    default:
-      return undefined;
-  }
+  // Build-time embedded id wins; else fall through to the dev-only local id
+  // (no-op in renderer/release).
+  const embedded = coreEnvAvailable()
+    ? (() => {
+        switch (norm) {
+          case CORE_TIER_1:
+            return trimEnv(process.env.ATLARIX_CORE_MODEL_1);
+          case CORE_TIER_2:
+            return trimEnv(process.env.ATLARIX_CORE_MODEL_2);
+          case CORE_TIER_3:
+            return trimEnv(process.env.ATLARIX_CORE_MODEL_3);
+          case CORE_TIER_4:
+            return trimEnv(process.env.ATLARIX_CORE_MODEL_4);
+          default:
+            return undefined;
+        }
+      })()
+    : undefined;
+  return embedded ?? devCoreKeyProvider.modelId(norm);
 }
 
 /** True when the packaged app has Core credentials (counts as "configured" in Settings). */

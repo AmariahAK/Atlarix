@@ -59,6 +59,8 @@ import {
 import { registerWorkspaceWindowIpc } from "./main/workspace_window_ipc";
 import { registerIpcHandlers } from "./ipc/ipc_host";
 import { killAllPtys } from "./lib/pty/pty-session-manager";
+import { __setDevCoreKeyProvider } from "./ipc/shared/compass_constants";
+import { getDevCoreApiKey, getDevCoreModelId } from "./ipc/utils/dev_core_env";
 
 // Silence EPIPE: when stdout/stderr is closed (e.g. parent shell terminated),
 // `console.log` raises EPIPE asynchronously. electron-log's default catcher
@@ -168,6 +170,14 @@ process.stderr.on("error", (err: NodeJS.ErrnoException) => {
 // Register IPC handlers before app is ready
 registerIpcHandlers();
 registerWorkspaceWindowIpc();
+
+// DEV-ONLY: let an unpackaged/dev build read Atlarix Core creds from the local
+// shell env so the Core auto-fallback is exercisable without a CI-signed build.
+// No-op in a packaged release (app.isPackaged === true → providers return undefined).
+__setDevCoreKeyProvider({
+  apiKey: getDevCoreApiKey,
+  modelId: getDevCoreModelId,
+});
 
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
 if (started) {

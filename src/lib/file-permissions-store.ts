@@ -7,6 +7,7 @@ import { db } from "@/db";
 import { workspaceFilePermissions } from "@/db/schema";
 import type { FilePermissionDecision, FileScopeType } from "@/lib/file-permission-scope";
 import { normalizeScopeValue } from "@/lib/file-permission-scope";
+import { resolveCanonicalAppId } from "@/ipc/utils/canonical-app";
 
 export type WorkspaceFilePermissionRow = {
   id: number;
@@ -34,11 +35,14 @@ export function listWorkspaceFilePermissions(appId: number): WorkspaceFilePermis
 }
 
 export function upsertWorkspaceFilePermission(
-  appId: number,
+  rawAppId: number,
   scopeType: FileScopeType,
   scopeValue: string,
   decision: FilePermissionDecision,
 ): void {
+  // Write under the canonical (oldest) row for this folder so the rule lands on
+  // the same app the chat enforces under (Bug 5).
+  const appId = resolveCanonicalAppId(rawAppId) ?? rawAppId;
   const normalized = normalizeScopeValue(scopeType, scopeValue);
   if (!normalized) return;
 
@@ -73,10 +77,11 @@ export function upsertWorkspaceFilePermission(
 }
 
 export function revokeWorkspaceFilePermission(
-  appId: number,
+  rawAppId: number,
   scopeType: FileScopeType,
   scopeValue: string,
 ): boolean {
+  const appId = resolveCanonicalAppId(rawAppId) ?? rawAppId;
   const normalized = normalizeScopeValue(scopeType, scopeValue);
   if (!normalized) return false;
   const result = db

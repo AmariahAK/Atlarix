@@ -225,6 +225,12 @@ function FilePermissionCard({
           Deny
         </Button>
       </div>
+      {showScopedAlways ? (
+        <p className="px-3 pb-2 text-[10px] text-muted-foreground/80">
+          “Always allow” saves a workspace rule and skips the approval pause for
+          matching edits from then on.
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -319,6 +325,13 @@ function CommandPermissionCard({
           Deny
         </Button>
       </div>
+      {canAlwaysAllow ? (
+        <p className="mt-1.5 text-[10px] text-muted-foreground/80">
+          “Always allow” saves a workspace rule for the{" "}
+          <span className="font-mono">{category}</span> category and skips the
+          approval pause for it from then on.
+        </p>
+      ) : null}
     </div>
   );
 }

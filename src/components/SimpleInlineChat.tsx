@@ -18,6 +18,7 @@ import {
     turnSnapshotTurnIdByMessageIdAtom,
 } from "../atoms/chatAtoms";
 import { IpcClient } from "@/ipc/ipc_client";
+import { buildRevertSnapshotMap } from "@/lib/chat/revert-snapshot-rehydrate";
 import { SimpleMessage } from "./SimpleMessage";
 import { SimpleChatInput } from "./SimpleChatInput";
 import { InlineUserQuestions } from "@/components/chat/InlineUserQuestions";
@@ -103,12 +104,42 @@ export function SimpleInlineChat({
     }, [chatId, scrollToBottom, isAtBottomRef]);
 
     const fetchMessages = useCallback(async () => {
+        // Bug 6: rehydrate the revert-turn affordance on ANY load path (relaunch /
+        // openWorkspaceFolder), not just manual session-list selection. The
+        // persisted per-assistant snapshot_turn_id (migration 0063) is fetched and
+        // mapped into turnSnapshotTurnIdByMessageId so editing an earlier message
+        // offers the "revert file changes as well" dialog after a restart.
+        const rehydrateSnapshots = async (uiMsgs: Message[]) => {
+            try {
+                const ids = await IpcClient.getInstance().getSnapshotTurnIds(chatId);
+                if (ids.length === 0) return;
+                const restored = buildRevertSnapshotMap(
+                    ids.map((r) => ({
+                        id: r.rowId,
+                        role: "assistant",
+                        snapshotTurnId: r.snapshotTurnId,
+                    })),
+                    uiMsgs,
+                );
+                if (restored.size > 0) {
+                    setSnapshotByMessageId((prev) => {
+                        const next = new Map(prev);
+                        for (const [id, sid] of restored) next.set(id, sid);
+                        return next;
+                    });
+                }
+            } catch {
+                // Non-fatal — the revert affordance just stays hidden for this load.
+            }
+        };
+
         const existing = getDefaultStore().get(chatMessagesByIdAtom).get(chatId);
         if (existing && existing.length > 0) {
             const { replaceDisplayHydrationForChat } = await import(
                 "@/lib/chat/apply-stream-display-hydration"
             );
             replaceDisplayHydrationForChat(chatId, existing);
+            void rehydrateSnapshots(existing);
             return;
         }
         try {
@@ -123,10 +154,11 @@ export function SimpleInlineChat({
                 "@/lib/chat/apply-stream-display-hydration"
             );
             applyStreamDisplayHydration(chat.messages);
+            void rehydrateSnapshots(chat.messages);
         } catch (error) {
             console.error("Failed to fetch messages:", error);
         }
-    }, [chatId, setMessagesById]);
+    }, [chatId, setMessagesById, setSnapshotByMessageId]);
 
     useEffect(() => {
         fetchMessages();
