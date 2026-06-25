@@ -5502,6 +5502,9 @@ This conversation includes one or more image attachments. When the user uploads 
                         );
                         if (categoryBlock) return categoryBlock;
                       }
+                      // DIAG_146 (bug 8): time the main-side permission path
+                      // (preflight + buffer + UI enrich/diff) for slow edit cards.
+                      const __permEditT0 = Date.now();
                       const filePref = await applyFileScopePreflightInStream(
                         permRequest,
                         effectiveAppId,
@@ -5722,10 +5725,18 @@ This conversation includes one or more image attachments. When the user uploads 
                       }
 
                       // Send permission request to frontend for display
+                      const __enrichT0 = Date.now();
+                      const __enriched = enrichPermissionRequestForUi(permRequest, effectiveAppId);
+                      if (process.env.ATLARIX_DIAG_146 === "1") {
+                        const prev = permRequest.preview as { path?: string; command?: string };
+                        logger.info(
+                          `[DIAG_146] perm-edit op=${permRequest.operation} target=${prev.path ?? prev.command ?? ""} preflight+buffer=${__enrichT0 - __permEditT0}ms enrich/diff=${Date.now() - __enrichT0}ms (then awaits the user)`,
+                        );
+                      }
                       safeSend(event.sender, "permission-request", {
                         chatId: req.chatId,
                         operationId,
-                        request: enrichPermissionRequestForUi(permRequest, effectiveAppId),
+                        request: __enriched,
                       });
 
                       logger.log(`[Build Mode] Permission request buffered: ${operationId}`);
