@@ -1500,7 +1500,7 @@ export class IpcClient {
 
   public async getWorkspaceSession(
     sessionId: string,
-    opts?: { limit?: number; fromSummary?: boolean },
+    opts?: { limit?: number },
   ) {
     return this.ipcRenderer.invoke("sessions:get", sessionId, opts);
   }

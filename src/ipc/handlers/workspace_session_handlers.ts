@@ -2,8 +2,7 @@ import { randomUUID } from "node:crypto";
 import log from "electron-log";
 import { db } from "../../db";
 import { chatSessions, sessionMessages } from "../../db/schema";
-import { eq, desc, asc, sql, inArray, and, gte, like } from "drizzle-orm";
-import { COMPACTION_SUMMARY_PREFIX } from "@/lib/context/compaction";
+import { eq, desc, asc, sql, inArray } from "drizzle-orm";
 import { createLoggedHandler } from "./safe_handle";
 import {
   SESSION_LOAD_MESSAGE_LIMIT,
@@ -473,22 +472,7 @@ export function registerWorkspaceSessionHandlers(): void {
       .from(chatSessions)
       .where(eq(chatSessions.workspaceId, workspaceId))
       .orderBy(desc(chatSessions.updatedAt));
-    // Flag sessions that have a compaction summary marker so the sidebar can
-    // offer "resume from summary" vs "load full history" on reopen.
-    const ids = rows.map((r) => r.id);
-    const markerSessions = ids.length
-      ? await db
-          .selectDistinct({ sessionId: sessionMessages.sessionId })
-          .from(sessionMessages)
-          .where(
-            and(
-              inArray(sessionMessages.sessionId, ids),
-              like(sessionMessages.content, `${COMPACTION_SUMMARY_PREFIX}%`),
-            ),
-          )
-      : [];
-    const withSummary = new Set(markerSessions.map((m) => m.sessionId));
-    return rows.map((r) => ({ ...mapSession(r), hasSummary: withSummary.has(r.id) }));
+    return rows.map((r) => mapSession(r));
   });
 
   handle(
@@ -584,7 +568,7 @@ export function registerWorkspaceSessionHandlers(): void {
     async (
       _event,
       sessionId: string,
-      opts?: { limit?: number; fromSummary?: boolean },
+      opts?: { limit?: number },
     ) => {
       const session = await db.query.chatSessions.findFirst({
         where: eq(chatSessions.id, sessionId),
@@ -598,45 +582,13 @@ export function registerWorkspaceSessionHandlers(): void {
         .where(eq(sessionMessages.sessionId, sessionId));
       const totalCount = Number(countRow?.count ?? 0);
 
-      // Detect a persisted compaction summary marker so the renderer can offer
-      // "resume from summary" (cheaper) vs "load full history" on reopen. The
-      // model dispatch already slices from the last marker; this controls what
-      // gets loaded into the UI.
-      const [markerRow] = await db
-        .select({ createdAt: sessionMessages.createdAt })
+      const recent = await db
+        .select()
         .from(sessionMessages)
-        .where(
-          and(
-            eq(sessionMessages.sessionId, sessionId),
-            like(sessionMessages.content, `${COMPACTION_SUMMARY_PREFIX}%`),
-          ),
-        )
-        .orderBy(desc(sessionMessages.createdAt), desc(sessionMessages.id))
-        .limit(1);
-      const summaryAvailable = Boolean(markerRow);
-
-      let rows: (typeof sessionMessages.$inferSelect)[];
-      if (opts?.fromSummary && markerRow) {
-        // Summary + recent tail: everything from the last compaction marker on.
-        rows = await db
-          .select()
-          .from(sessionMessages)
-          .where(
-            and(
-              eq(sessionMessages.sessionId, sessionId),
-              gte(sessionMessages.createdAt, markerRow.createdAt),
-            ),
-          )
-          .orderBy(asc(sessionMessages.createdAt), asc(sessionMessages.id));
-      } else {
-        const recent = await db
-          .select()
-          .from(sessionMessages)
-          .where(eq(sessionMessages.sessionId, sessionId))
-          .orderBy(desc(sessionMessages.createdAt))
-          .limit(limit);
-        rows = [...recent].reverse();
-      }
+        .where(eq(sessionMessages.sessionId, sessionId))
+        .orderBy(desc(sessionMessages.createdAt))
+        .limit(limit);
+      const rows = [...recent].reverse();
 
       const messages = rows
         .map(mapMessage)
@@ -645,12 +597,8 @@ export function registerWorkspaceSessionHandlers(): void {
       return {
         session: mapSession(session),
         messages,
-        truncated: opts?.fromSummary
-          ? messages.length < totalCount
-          : totalCount > limit,
+        truncated: totalCount > limit,
         totalCount,
-        summaryAvailable,
-        loadedFromSummary: Boolean(opts?.fromSummary && markerRow),
       };
     },
   );

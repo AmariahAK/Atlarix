@@ -7,6 +7,11 @@ import { createAzure } from "@ai-sdk/azure";
 import { LanguageModelV2, LanguageModelV3 } from "@ai-sdk/provider";
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import { OPENROUTER_APP_HEADERS } from "../shared/openrouter_app_headers";
+import {
+  COMPASS_PROVIDER_ID,
+  CORE_TIER_1,
+  isCompassBuildConfigured,
+} from "../shared/compass_constants";
 import { OPENWEIGHT_PROVIDER_BASE_URLS } from "../shared/language_model_constants";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { createAmazonBedrock } from "@ai-sdk/amazon-bedrock";
@@ -65,6 +70,19 @@ export interface GetModelClientOptions {
 }
 
 const logger = log.scope("getModelClient");
+
+/** True if a provider has a usable API key (settings → DB → env). */
+export async function hasUsableProviderKey(
+  provider: string,
+  settings: UserSettings,
+  providerConfig: LanguageModelProvider,
+): Promise<boolean> {
+  if (settings.providerSettings?.[provider]?.apiKey?.value) return true;
+  if (await getProviderApiKey(provider)) return true;
+  if (providerConfig.envVarName && getEnvVar(providerConfig.envVarName)) return true;
+  return false;
+}
+
 export async function getModelClient(
   model: LargeLanguageModel,
   settings: UserSettings,
@@ -73,6 +91,8 @@ export async function getModelClient(
   modelClient: ModelClient;
   isEngineEnabled?: boolean;
   isSmartContextEnabled?: boolean;
+  /** True when the selected provider had no usable key and we fell back to Atlarix Core. */
+  fellBackToCore?: boolean;
 }> {
   const allProviders = await getLanguageModelProviders();
 
@@ -85,10 +105,29 @@ export async function getModelClient(
   }
 
   // --- Handle specific provider ---
-  const providerConfig = allProviders.find((p) => p.id === model.provider);
+  let providerConfig = allProviders.find((p) => p.id === model.provider);
 
   if (!providerConfig) {
     throw new Error(`Configuration not found for provider: ${model.provider}`);
+  }
+
+  // Resilience: if the selected model's provider has no usable API key, fall back
+  // to Atlarix Core (the managed `compass` provider) when this build has it
+  // configured — so the app stays usable instead of erroring. Never overrides a
+  // provider that DOES have a key, and never re-routes Core itself.
+  let fellBackToCore = false;
+  if (
+    model.provider !== COMPASS_PROVIDER_ID &&
+    isCompassBuildConfigured() &&
+    !(await hasUsableProviderKey(model.provider, settings, providerConfig))
+  ) {
+    logger.info(
+      `No usable API key for ${model.provider} — falling back to Atlarix Core (${CORE_TIER_1}).`,
+    );
+    model = { name: CORE_TIER_1, provider: COMPASS_PROVIDER_ID };
+    const coreConfig = allProviders.find((p) => p.id === COMPASS_PROVIDER_ID);
+    if (coreConfig) providerConfig = coreConfig;
+    fellBackToCore = true;
   }
 
   // Handle Atlarix Pro override (Compass uses its own managed key, never the engine proxy)
@@ -152,7 +191,10 @@ export async function getModelClient(
     }
   }
 
-  return await getRegularModelClient(model, settings, providerConfig);
+  return {
+    ...(await getRegularModelClient(model, settings, providerConfig)),
+    fellBackToCore,
+  };
 }
 
 async function getRegularModelClient(

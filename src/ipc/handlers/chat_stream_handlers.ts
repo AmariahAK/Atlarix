@@ -2035,6 +2035,20 @@ ${componentSnippet}
           () => getModelClient(effectiveModel, settings, mainOptions),
         );
         let modelClient = initialModelClientBundle.modelClient;
+        // Surface the no-key → Atlarix Core fallback so the user knows their
+        // selected model isn't what answered (and how to switch back).
+        if (initialModelClientBundle.fellBackToCore) {
+          safeSend(event.sender, "chat:activity", {
+            id: `core-fallback-${req.chatId}`,
+            type: "model_selection",
+            label: "Using Atlarix Core",
+            detail:
+              "Your selected model has no API key — add one in Settings to use it.",
+            status: "done",
+            timestamp: Date.now(),
+            chatId: req.chatId,
+          });
+        }
         // v12 S18: the Compass usage pre-flight is a Supabase round-trip that
         // only gates dispatch (per-step metering still enforces mid-turn) —
         // start it as soon as the provider is known and await at the original
@@ -5250,6 +5264,7 @@ This conversation includes one or more image attachments. When the user uploads 
                           getEffectiveModelForOptions(settings)?.provider ??
                           (settings.selectedModel?.provider ?? undefined);
                         const { executeCompressContext } = await import("@/lib/tools/workspace");
+                        const { getStreamTransport } = await import("@/lib/chat/stream-transport");
                         const msgList = updatedChat.messages as { id: number; role: string; content: string }[];
                         const outcome = await executeCompressContext(
                           { reason },
@@ -5260,7 +5275,20 @@ This conversation includes one or more image attachments. When the user uploads 
                             inputTokens: 0,
                             providerId,
                             sessionStats: { toolCallCount: 0, delegationCount: 0 },
-                            turnId: String(placeholderAssistantMessage?.id ?? ""),
+                            turnId: isEphemeralWorkspace
+                              ? null
+                              : String(placeholderAssistantMessage?.id ?? ""),
+                            ephemeral: isEphemeralWorkspace,
+                            // C-1: parity with the Ask-mode site — without this the
+                            // Build-mode compress never replaced the live transport
+                            // messages, so the next dispatch still used full history.
+                            setMessages: isEphemeralWorkspace
+                              ? (next) => {
+                                  updatedChat.messages = next as typeof updatedChat.messages;
+                                  const ec = getStreamTransport(req.chatId);
+                                  if (ec) ec.messages = next as typeof ec.messages;
+                                }
+                              : undefined,
                           },
                         );
 

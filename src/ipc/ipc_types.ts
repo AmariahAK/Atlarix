@@ -609,8 +609,6 @@ export interface WorkspaceChatSession {
   title: string;
   createdAt: Date;
   updatedAt: Date;
-  /** True when the session has a persisted compaction summary marker (offer "resume from summary" on reopen). */
-  hasSummary?: boolean;
 }
 
 // --- MCP Types ---

@@ -13,6 +13,7 @@ import { createLoggedHandler } from "./safe_handle";
 import { readSettings } from "@/main/settings";
 import { isTurboEditsV2Enabled } from "@/lib/schemas";
 import { getStreamTransport, isStreamTransportId } from "@/lib/chat/stream-transport";
+import { sliceFromLastCompactionSummary } from "@/lib/context/compaction";
 
 const logger = log.scope("token_count_handlers");
 
@@ -154,9 +155,20 @@ async function computeTokenCountResult(
     return ta - tb;
   });
 
-  const messageHistoryTokens = computeDeltaTailTokens(req.chatId, ordered);
+  // Mirror the live dispatch: when the history carries a persisted
+  // [COMPACTION MARKER], the model only receives [marker .. latest] (see
+  // sliceFromLastCompactionSummary at the chat_stream dispatch). Without this
+  // the meter overstates the model's real context after a reopen — it would
+  // count the full display history (~180K) instead of the sliced ~tail. The
+  // delta cache keys on message id, so for the compacted case sum the small
+  // slice directly rather than feeding it through the cache.
+  const modelFacing = sliceFromLastCompactionSummary(ordered);
+  const messageHistoryTokens =
+    modelFacing.length === ordered.length
+      ? computeDeltaTailTokens(req.chatId, ordered)
+      : modelFacing.reduce((acc, m) => acc + estimateTokens(m.content), 0);
   logger.log(
-    `[token_count] workspace stream: tokens=${messageHistoryTokens} (chatId=${req.chatId}, messages=${ordered.length})`,
+    `[token_count] workspace stream: tokens=${messageHistoryTokens} (chatId=${req.chatId}, messages=${ordered.length}, modelFacing=${modelFacing.length})`,
   );
 
   const inputTokens = estimateTokens(req.input);
