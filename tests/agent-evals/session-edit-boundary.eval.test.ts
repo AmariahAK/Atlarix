@@ -89,7 +89,7 @@ describe("session edit integrity (0.4-C2 / 3.3)", () => {
 
   it("C2 reload: hydrated messages keep their row id and edit directly", async () => {
     ctx.server.register(
-      scenario("edit-reload").text("Reply r. <task_complete>").build(),
+      scenario("edit-reload").text("Reply r.").build(),
     );
 
     const chatId = await ctx.newChat();

@@ -149,8 +149,15 @@ import { parseContextMentions } from "@/shared/parse_mention_apps";
 
 import { isTurboEditsV2Enabled, WorkModeSchema } from "@/lib/schemas";
 import { trackPendingWork } from "@/lib/pending-work";
-import { takePendingBackgroundCommandResults } from "@/lib/agent/background-commands";
-import { takePendingSubagentResults } from "@/lib/agents/subagent-results";
+import {
+  takePendingBackgroundCommandResults,
+  takePendingStalledAdvisories,
+  listBackgroundJobs,
+} from "@/lib/agent/background-commands";
+import {
+  takePendingSubagentResults,
+  runningSubagentCount,
+} from "@/lib/agents/subagent-results";
 import {
   AI_STREAMING_ERROR_MESSAGE_PREFIX,
   AI_STREAM_EMPTY_RESPONSE_FALLBACK,
@@ -199,11 +206,9 @@ import {
   type AgenticRepetitionState,
 } from "../../lib/streaming/agentic-loop-repetition";
 import {
-  cancelLedger,
   createLedger,
   formatLedgerForPrompt,
   getLedger,
-  getLedgerStateString,
   hasActivePlanLedger,
   hydrateLedgerFromDisk,
   markLedgerStreamComplete,
@@ -218,10 +223,7 @@ import {
 } from "@/lib/tasks/task-ledger";
 import { emitPlanUpdate } from "@/ipc/utils/emit_plan_update";
 import {
-  isTaskComplete as isLedgerTaskComplete,
   responseHasTaskCompleteTag as isTaskComplete,
-  markTaskCompleteToolCalled,
-  clearTaskCompleteToolCalled,
 } from "@/lib/tasks/completion-detector";
 import { runCommandFailureGuidance } from "@/lib/tools/run-command-guidance";
 import {
@@ -534,7 +536,7 @@ async function maybeAppendAutoMemoryAfterStream(params: {
   appPath: string | undefined;
   chatId: number;
   isEphemeralWorkspace: boolean;
-  streamTurnIdForLedger: string;
+  streamTurnId: string;
   isBuildModeTurn: boolean;
   sender: WebContents;
 }): Promise<void> {
@@ -543,7 +545,7 @@ async function maybeAppendAutoMemoryAfterStream(params: {
     appPath,
     chatId,
     isEphemeralWorkspace,
-    streamTurnIdForLedger,
+    streamTurnId,
     isBuildModeTurn,
     sender,
   } = params;
@@ -552,14 +554,14 @@ async function maybeAppendAutoMemoryAfterStream(params: {
     if (settings.autoMemory?.enabled === false) return;
     if (settings.autoMemory?.writeToFile === false) return;
     if (!isBuildModeTurn) return;
-    const ledger = getLedger(streamTurnIdForLedger);
+    const ledger = getLedger(streamTurnId);
     const files = [
       ...new Set(ledger?.steps.flatMap((s) => s.filesWritten ?? []) ?? []),
     ].filter(Boolean);
     if (files.length === 0) return;
     const minConf = settings.autoMemory?.minConfidence ?? 0.7;
     const confidence = 0.85;
-    const toolsUsed = getToolsUsedThisTurn(streamTurnIdForLedger);
+    const toolsUsed = getToolsUsedThisTurn(streamTurnId);
     const { appendAutoMemoryIfEligible } = await import("@/lib/memory/auto-memory");
     const summary = `Wrote ${files.length} file(s): ${files.slice(0, 5).join(", ")}${files.length > 5 ? "…" : ""}`;
     const ok = await appendAutoMemoryIfEligible({
@@ -569,7 +571,6 @@ async function maybeAppendAutoMemoryAfterStream(params: {
       summary,
       confidence,
       minConfidence: minConf,
-      // Earlier guard returns when `writeToFile === false`; here only enabled / default-on remains.
       writeToFile: settings.autoMemory?.writeToFile ?? true,
     });
     if (ok) {
@@ -586,7 +587,7 @@ async function maybeAppendAutoMemoryAfterStream(params: {
   } catch (e) {
     logger.warn("[auto-memory] skipped:", e);
   } finally {
-    clearToolsUsedForTurn(streamTurnIdForLedger);
+    clearToolsUsedForTurn(streamTurnId);
   }
 }
 
@@ -652,27 +653,8 @@ async function runToolExecute(
   streamOpts?: {
     turnId?: string;
     abortController?: AbortController;
-    onTaskLedgerComplete?: () => void;
-    /** When false, ledger "task complete" does not abort the chat stream (Ask tier). Default true. */
-    abortStreamOnLedgerComplete?: boolean;
   },
 ): Promise<unknown> {
-  const maybeStopStreamForCompleteLedger = () => {
-    if (!streamOpts?.turnId || !streamOpts.abortController) return;
-    const L = getLedger(streamOpts.turnId);
-    if (L && isLedgerTaskComplete(L)) {
-      streamOpts.onTaskLedgerComplete?.();
-      if (streamOpts.abortStreamOnLedgerComplete === false) return;
-      try {
-        streamOpts.abortController.abort(
-          streamStopAbortReason(TASK_COMPLETE_STREAM_STOP),
-        );
-      } catch {
-        /* noop */
-      }
-    }
-  };
-
   // No per-turn call cap or duplicate-call dedup: every tool call executes.
 
   // v12 2.2: unified permission ruleset + blocking pre_tool_use hooks at the
@@ -728,14 +710,6 @@ async function runToolExecute(
   if (gateWorkspace) {
     runPostToolUseHooks(gateWorkspace, toolName, executeArgs);
   }
-  // Explicit completion signal (native FC): record that the model called
-  // task_complete this turn. The agentic loop (run-agent-turn) reads this like
-  // the <task_complete> tag, runs the completion gates, then ends the turn.
-  if (toolName === "task_complete" && streamOpts?.turnId) {
-    const summary =
-      typeof executeArgs?.summary === "string" ? executeArgs.summary : null;
-    markTaskCompleteToolCalled(streamOpts.turnId, summary);
-  }
   // Mutation verification (run_command + edits): record the most recent
   // state-changing mutation's outcome so the completion gate can refuse to
   // finish on a failed/unverified one, and enrich a failed command with
@@ -764,7 +738,6 @@ async function runToolExecute(
   if (streamOpts?.turnId) {
     recordToolUseForTurn(streamOpts.turnId, toolName);
   }
-  maybeStopStreamForCompleteLedger();
   return result;
 }
 
@@ -1157,7 +1130,6 @@ async function performFullRevert(params: {
   if (!snap.success) {
     logger.warn("performFullRevert: snapshot restore failed:", snap.error);
   }
-  await cancelLedger(turnId);
 
   if (skipMessageFlags) {
     return {
@@ -1357,9 +1329,16 @@ export function registerChatStreamHandlers() {
       // eslint-disable-next-line no-unassigned-vars -- WIP: assigned by in-progress orchestrator wiring; invoked via optional-chain below
       let stopAgentOrchestrator: (() => void) | undefined;
       let streamTerminated = false;
+      // A2: set when runAgentTurn ends the turn with background work still
+      // outstanding (the turn is OVER, not held open). Surfaced on
+      // chat:response:end (rich build emit AND the ensureTerminal fallback) so
+      // the renderer shows the "waiting … will resume automatically" chip and
+      // auto-resumes when an item reports. Declared before ensureTerminal so the
+      // terminal closure can read it.
+      let turnParked = false;
       // v12 2.3: the snapshot/ledger turn id for THIS turn, captured for the
       // terminal payload so a detached background agent can revert. Set once
-      // streamTurnIdForLedger is established (below).
+      // streamTurnId is established (below).
       let snapshotTurnIdForTerminal: string | undefined;
       const ensureTerminal = (error?: unknown) => {
         if (streamTerminated) return;
@@ -1378,6 +1357,16 @@ export function registerChatStreamHandlers() {
           hadToolCallsOrPermissions: false,
           ...(snapshotTurnIdForTerminal
             ? { snapshotTurnId: snapshotTurnIdForTerminal }
+            : {}),
+          // A2: carry parked on the guaranteed terminal too, so the ask path
+          // (and the post-success ensureTerminal) keep the flag consistent and
+          // never clobber the chip with a parked-less end.
+          ...(turnParked
+            ? {
+                parked: true,
+                parkedCommands: listBackgroundJobs(req.chatId).length,
+                parkedSubagents: runningSubagentCount(req.chatId),
+              }
             : {}),
         } satisfies ChatResponseEnd);
         // Only relinquish the registry slot if WE still own it — a superseding
@@ -1970,8 +1959,8 @@ ${componentSnippet}
         ephemeralChat.messages = updatedChat.messages;
       }
 
-      let streamTurnIdForLedger = String(placeholderAssistantMessage.id);
-      snapshotTurnIdForTerminal = streamTurnIdForLedger; // v12 2.3
+      let streamTurnId = String(placeholderAssistantMessage.id);
+      snapshotTurnIdForTerminal = streamTurnId; // v12 2.3
       // Tie any browser/preview session reels captured this turn to this
       // assistant message so the renderer attaches the inline artifact to it.
       setReelTurnContext(req.chatId, String(placeholderAssistantMessage.id));
@@ -1984,11 +1973,8 @@ ${componentSnippet}
       let delegationsStartedThisTurn = 0;
       const inFlightDelegationKeys = new Set<string>();
       const buildToolStreamOpts = () => ({
-        turnId: streamTurnIdForLedger,
+        turnId: streamTurnId,
         abortController,
-        onTaskLedgerComplete: () => {
-          streamStopWasTaskComplete = true;
-        },
       });
 
       // Send the messages right away so that the loading state is shown for the message.
@@ -2574,37 +2560,6 @@ ${componentSnippet}
             }
           };
 
-          // PASS5: File system truth only useful in Build mode when files were
-          // actually modified; stale excerpts add noise in other modes.
-          // `streamTurnIdForLedger` is stable here — its only reassignments
-          // live under the disabled `shouldCreateTaskLedger` block below.
-          const loadFsTruthSection = async (): Promise<ContextSection | null> => {
-            const shouldInjectFileSystemTruth =
-              settings.selectedChatMode === "build";
-            if (
-              !shouldInjectFileSystemTruth ||
-              !hasWorkspace ||
-              !appPath ||
-              req.prompt.startsWith("Summarize from chat-id=")
-            ) {
-              return null;
-            }
-            try {
-              const { buildFileSystemTruthBlock } = await import("@/lib/tasks/filesystem-truth");
-              const fsTruth = await preflight.time("fs-truth", () =>
-                buildFileSystemTruthBlock({
-                  turnId: streamTurnIdForLedger,
-                  workspacePath: appPath,
-                }),
-              );
-              if (!fsTruth.trim()) return null;
-              return { name: "fileSystemTruth", priority: 0.5, content: fsTruth };
-            } catch (fsErr) {
-              logger.warn("Failed to build filesystem truth block:", fsErr);
-              return null;
-            }
-          };
-
           // Project instructions: .atlarix/atlarix.md (canonical, legacy
           // auto-migrated), falling back to a repo's AGENTS.md / CLAUDE.md
           // (v13.1 interop) so Atlarix is drop-in on repos configured for
@@ -2716,7 +2671,6 @@ ${componentSnippet}
             loadRepoSkillsSection(),
             loadWorkspaceCapsSection(),
             loadActivePlanSection(),
-            loadFsTruthSection(),
             loadAtlarixMdSection(),
             loadMemoryMdSection(),
             loadInstalledSkillsSection(),
@@ -2739,7 +2693,7 @@ ${componentSnippet}
               if (hasActivePlanLedger(wsId)) {
                 const planTid = planLedgerTurnId(wsId);
                 if (planTid != null) {
-                  streamTurnIdForLedger = planTid;
+                  streamTurnId = planTid;
                   const planLedger = getWorkspacePlanLedger(wsId)!;
                   planLedger.chatId = req.chatId;
                   planLedger.finishReason = "in_progress";
@@ -2775,7 +2729,7 @@ ${componentSnippet}
                     if (planTid != null) {
                       const hydrated = await hydrateLedgerFromDisk(planTid, appPath);
                       if (hydrated) {
-                        streamTurnIdForLedger = planTid;
+                        streamTurnId = planTid;
                         hydrated.chatId = req.chatId;
                         hydrated.finishReason = "in_progress";
                         const hip = hydrated.steps.some((s) => s.status === "in_progress");
@@ -2803,7 +2757,7 @@ ${componentSnippet}
                           workspacePath: appPath,
                           stepDescriptions: planResult.steps,
                         });
-                        streamTurnIdForLedger = planTid;
+                        streamTurnId = planTid;
                         usedWorkspacePlanLedger = true;
                         if (planResult.steps.length > 1) {
                           shouldEmitPlanCreated = true;
@@ -2823,7 +2777,7 @@ ${componentSnippet}
                 shouldEmitPlanCreated = true;
               }
               createLedger({
-                turnId: streamTurnIdForLedger,
+                turnId: streamTurnId,
                 chatId: req.chatId,
                 originalTask: (userPrompt || req.prompt).slice(0, 8000),
                 chatType: hasWorkspace && appPath ? "workspace" : "general",
@@ -2839,7 +2793,7 @@ ${componentSnippet}
                   if (planBody) {
                     const planSteps = parsePlanToSteps(planBody);
                     if (planSteps.length > 0) {
-                      await setLedgerSteps(streamTurnIdForLedger, planSteps);
+                      await setLedgerSteps(streamTurnId, planSteps);
                       if (planSteps.length > 1) {
                         shouldEmitPlanCreated = true;
                       }
@@ -2851,7 +2805,7 @@ ${componentSnippet}
               }
             }
 
-            const ledgerForUi = getLedger(streamTurnIdForLedger);
+            const ledgerForUi = getLedger(streamTurnId);
             if (ledgerForUi && ledgerForUi.steps.length > 0) {
               const planCardAssistantMessageId = placeholderAssistantMessage.id;
               registerLedgerPlanUiNotifier(req.chatId, (ledger) => {
@@ -2877,7 +2831,7 @@ ${componentSnippet}
             settings.selectedChatMode === "build" ||
             effectiveWorkMode === "build";
 
-          const ledgerRow = getLedger(streamTurnIdForLedger);
+          const ledgerRow = getLedger(streamTurnId);
           if (shouldInjectTaskProgress && ledgerRow) {
             contextSections.push({
               name: "taskProgress",
@@ -3586,9 +3540,6 @@ This conversation includes one or more image attachments. When the user uploads 
 
           const isEmptyOutputStreamError = isNoUsableModelOutputError;
 
-          const getLedgerStateForContinuation = (): string | undefined =>
-            getLedgerStateString(streamTurnIdForLedger);
-
           const simpleStreamText = async ({
             chatMessages,
             modelClient,
@@ -3856,6 +3807,9 @@ This conversation includes one or more image attachments. When the user uploads 
                 // Finished background sub-agent results fold in the same way —
                 // each one as it arrives, even one at a time.
                 const subagentResults = takePendingSubagentResults(req.chatId);
+                // A4: stall advisories for still-running quiet jobs (decide:
+                // keep waiting / read / cancel) — same step-input-only seam.
+                const stalledAdvisories = takePendingStalledAdvisories(req.chatId);
                 const correction = repetition
                   ? repetition.takePendingCorrection()
                   : null;
@@ -3878,7 +3832,13 @@ This conversation includes one or more image attachments. When the user uploads 
                     `[background-subagent] injecting finished result (chat ${req.chatId})`,
                   );
                 }
-                const injected = [reminder, bgResults, subagentResults, correction]
+                const injected = [
+                  reminder,
+                  bgResults,
+                  subagentResults,
+                  stalledAdvisories,
+                  correction,
+                ]
                   .filter(Boolean)
                   .join("\n\n");
                 const stepMessages = injected
@@ -4454,9 +4414,8 @@ This conversation includes one or more image attachments. When the user uploads 
             };
 
             const askToolStreamOpts = () => ({
-              turnId: streamTurnIdForLedger,
+              turnId: streamTurnId,
               abortController,
-              abortStreamOnLedgerComplete: false,
             });
 
             // v12 S19 (closes 3.10): the 4-stage resolution pipeline
@@ -4968,7 +4927,7 @@ This conversation includes one or more image attachments. When the user uploads 
                 effectiveWorkMode,
                 workspacePath: appPath,
                 workspaceId: effectiveAppId ?? undefined,
-                turnId: streamTurnIdForLedger,
+                turnId: streamTurnId,
                 safeSend,
                 recordToolUseForTurn,
                 onDelegated: (agentId) => delegatedAgentsThisTurn.push(agentId),
@@ -5008,7 +4967,6 @@ This conversation includes one or more image attachments. When the user uploads 
                   mode: "ask",
                   loopLogLabel: "[Ask tier]",
                   compactionLabel: "Ask tier",
-                  honorTaskCompleteBreak: false,
                   proseOnlyStreakMax: undefined,
                   singleRound: true,
                   escalationMode:
@@ -5042,7 +5000,7 @@ This conversation includes one or more image attachments. When the user uploads 
                   settings,
                   abortController,
                   continuationTurnId: String(placeholderAssistantMessage.id),
-                  streamTurnIdForLedger,
+                  streamTurnId,
                   tierLimit: modelContextResolved.tierLimit,
                   contextWindowTokens,
                   maxContinuationAttempts: STREAM_CONTINUATION_MAX,
@@ -5078,10 +5036,10 @@ This conversation includes one or more image attachments. When the user uploads 
                   // no hallucinated-XML stripping, unlike build).
                   sanitizeTextDelta: (t) => t,
                   applyTierEscalation,
-                  getLedgerStateForContinuation,
                 },
               );
               fullResponse = turnResult.fullResponse;
+              turnParked = turnResult.parked;
             }
             askAgenticRepetition.setEnabled(false);
           } else {
@@ -5129,7 +5087,7 @@ This conversation includes one or more image attachments. When the user uploads 
             const permissionInterceptor = new PermissionInterceptor(
               workspacePath,
               effectiveAppId ?? undefined,
-              streamTurnIdForLedger,
+              streamTurnId,
               req.chatId,
             );
 
@@ -5484,9 +5442,9 @@ This conversation includes one or more image attachments. When the user uploads 
                             permRequest.operation === "edit_file")
                         ) {
                           if (execResult.verified === false) {
-                            recordUnverifiedEdit(streamTurnIdForLedger, execResult.path);
+                            recordUnverifiedEdit(streamTurnId, execResult.path);
                           } else {
-                            clearUnverifiedEdit(streamTurnIdForLedger, execResult.path);
+                            clearUnverifiedEdit(streamTurnId, execResult.path);
                           }
                         }
                         if (
@@ -5832,7 +5790,7 @@ This conversation includes one or more image attachments. When the user uploads 
                     }
                   }
                 }
-                recordToolOnLedger(streamTurnIdForLedger, {
+                recordToolOnLedger(streamTurnId, {
                   toolName: name,
                   summary,
                   filesRead: fr.length ? fr : undefined,
@@ -6284,7 +6242,6 @@ This conversation includes one or more image attachments. When the user uploads 
                     mode: "build",
                     loopLogLabel: "[Agentic Loop]",
                     compactionLabel: "Agentic Loop",
-                    honorTaskCompleteBreak: true,
                     proseOnlyStreakMax: AGENTIC_PROSE_ONLY_MAX,
                     escalationMode:
                       effectiveWorkMode === "plan"
@@ -6319,7 +6276,7 @@ This conversation includes one or more image attachments. When the user uploads 
                     settings,
                     abortController,
                     continuationTurnId: String(placeholderAssistantMessage.id),
-                    streamTurnIdForLedger,
+                    streamTurnId,
                     tierLimit: modelContextResolved.tierLimit,
                     contextWindowTokens,
                     maxContinuationAttempts: STREAM_CONTINUATION_MAX,
@@ -6352,12 +6309,12 @@ This conversation includes one or more image attachments. When the user uploads 
                     onStreamActivityPulse: handleStreamActivityPulse,
                     sanitizeTextDelta: stripHallucinatedAtlarixToolTagsFromDelta,
                     applyTierEscalation,
-                    getLedgerStateForContinuation,
                   },
                 );
                 fullResponse = turnResult.fullResponse;
                 agenticIteration = turnResult.iterations;
                 totalToolExecutions = turnResult.totalToolExecutions;
+                turnParked = turnResult.parked;
               }
 
               fullResponse = stripToolCallXML(fullResponse);
@@ -6641,27 +6598,16 @@ ${stopNote}`;
                 });
               }
             }
-            markLedgerStreamComplete(streamTurnIdForLedger);
-            clearTaskCompleteToolCalled(streamTurnIdForLedger);
-            clearMutationOutcomes(streamTurnIdForLedger);
+            markLedgerStreamComplete(streamTurnId);
+            clearMutationOutcomes(streamTurnId);
             inFlightDelegationKeys.clear();
-            notifyPlanUiForTurnIfPresent(streamTurnIdForLedger);
-            {
-              const finalLedgerElse = getLedger(streamTurnIdForLedger);
-              if (
-                finalLedgerElse &&
-                isLedgerTaskComplete(finalLedgerElse) &&
-                !streamStopWasTaskComplete
-              ) {
-                streamStopWasTaskComplete = true;
-              }
-            }
+            notifyPlanUiForTurnIfPresent(streamTurnId);
             await maybeAppendAutoMemoryAfterStream({
               settings,
               appPath,
               chatId: req.chatId,
               isEphemeralWorkspace,
-              streamTurnIdForLedger,
+              streamTurnId,
               isBuildModeTurn,
               sender: event.sender,
             });
@@ -6747,7 +6693,15 @@ ${stopNote}`;
               // message (native-history envelope).
               ...(assistantModelContent ? { assistantModelContent } : {}),
               // v12 2.3: lets a background agent revert this turn's writes.
-              snapshotTurnId: streamTurnIdForLedger,
+              snapshotTurnId: streamTurnId,
+              // A2: turn parked on outstanding background work (auto-resumes).
+              ...(turnParked
+                ? {
+                    parked: true,
+                    parkedCommands: listBackgroundJobs(req.chatId).length,
+                    parkedSubagents: runningSubagentCount(req.chatId),
+                  }
+                : {}),
             } satisfies ChatResponseEnd);
             queuePostTurnSelfCorrection(event.sender, {
               chatId: req.chatId,

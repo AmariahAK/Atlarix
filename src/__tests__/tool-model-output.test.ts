@@ -119,4 +119,24 @@ describe("redactToolMediaForDisplay", () => {
     const other = { success: true, result: { content: "hello" } };
     expect(redactToolMediaForDisplay(other)).toBe(other);
   });
+
+  it("D1: masks secrets in the display copy (command output result)", () => {
+    const out: any = redactToolMediaForDisplay({
+      success: true,
+      result: "API_KEY=sk-abcdefghijklmnopqrstuvwx1234567890\ndeploy ok",
+    });
+    expect(out.result).toContain("[redacted secret]");
+    expect(out.result).toContain("deploy ok");
+    expect(out.result).not.toContain("sk-abcdefghijklmnopqrstuvwx");
+  });
+
+  it("D1: masks secrets in nested stdout, leaves clean output identical", () => {
+    const dirty: any = redactToolMediaForDisplay({
+      result: { stdout: "token=ghp_0123456789abcdef0123456789abcdef0123" },
+    });
+    expect(dirty.result.stdout).toBe("token=[redacted secret]");
+
+    const clean = { success: true, result: { stdout: "all tests passed" } };
+    expect(redactToolMediaForDisplay(clean)).toBe(clean);
+  });
 });

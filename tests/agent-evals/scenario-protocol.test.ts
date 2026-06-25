@@ -21,7 +21,7 @@ describe("AI SDK against scenario server", () => {
     server.register(
       scenario("diag-1")
         .toolCall("read_thing", { path: "a.txt" })
-        .text("Done reading. <task_complete>")
+        .text("Done reading.")
         .build(),
     );
 

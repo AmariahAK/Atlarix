@@ -124,7 +124,10 @@ Thumbs.db
 *.log
 # Repo-scoped Atlarix skills (loaded by Atlarix, hidden from file-tree noise)
 .atlarix/skills/
+# Generated caches (Atlarix writes these; never index/commit them)
 .atlarix/blueprint.json
+.atlarix/symbols.json
+.atlarix/.ctags-filelist
 `;
 
 /**

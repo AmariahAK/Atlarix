@@ -8,7 +8,6 @@ import * as fs from "fs/promises";
 import log from "electron-log";
 import type { RTEParseResult, SupportedLanguage } from "./types";
 import {
-  ensureDefaultAtlarixIgnore,
   composeIgnoreSource,
   createIgnorerFromSource,
   filterRteNodesByIgnore,
@@ -64,7 +63,6 @@ function dedupeEdges(edges: RTEParseResult["edges"]): RTEParseResult["edges"] {
  * Falls back to file-tree bridge when indexing fails.
  */
 export async function generateBlueprint(projectPath: string): Promise<RTEParseResult | null> {
-  await ensureDefaultAtlarixIgnore(projectPath);
   // Composed source = built-in baseline ∪ project .gitignore ∪ .atlarixignore.
   // Stored on the result as the cache key so a change to any layer re-indexes.
   const ignoreSourceForCache = await composeIgnoreSource(projectPath);

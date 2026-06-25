@@ -5,6 +5,7 @@ import {
   stripHallucinatedAtlarixToolTagsFromDelta,
   stripMultilineToolJsonEnvelopes,
   stripOrphanToolTagFragments,
+  stripTextEmittedToolCallBlocks,
 } from "@/lib/chat/answer-display";
 
 describe("stripHallucinatedAtlarixToolTagsFromDelta", () => {
@@ -52,6 +53,50 @@ describe("stripMultilineToolJsonEnvelopes", () => {
     const out = stripMultilineToolJsonEnvelopes(`${envelope}\n\nAnswer text.`);
     expect(out).not.toContain('"success"');
     expect(out).toContain("Answer text.");
+  });
+});
+
+describe("stripTextEmittedToolCallBlocks (B1: native-FC text-emitted tool leaks)", () => {
+  it("strips a JSON-bodied <ask_user> block (any tool, not just via the parser)", () => {
+    const raw =
+      'Let me ask.\n<ask_user>{"questions":[{"question":"Tabs or spaces?","options":["Tabs","Spaces"]}]}</ask_user>';
+    const out = stripTextEmittedToolCallBlocks(raw);
+    expect(out).toContain("Let me ask.");
+    expect(out).not.toContain("ask_user");
+    expect(out).not.toContain("questions");
+  });
+
+  it("strips other tools' leaked calls (read_file, run_command) incl. nested JSON", () => {
+    const raw =
+      'Reading.\n<read_file>{"path":"src/a.ts","range":{"start":1,"end":9}}</read_file>\nThen:\n<run_command>{"command":"ls"}</run_command>\nDone.';
+    const out = stripTextEmittedToolCallBlocks(raw);
+    expect(out).toContain("Reading.");
+    expect(out).toContain("Then:");
+    expect(out).toContain("Done.");
+    expect(out).not.toContain("read_file");
+    expect(out).not.toContain('"path"');
+    expect(out).not.toContain("run_command");
+  });
+
+  it("drops an unclosed JSON-bodied opener at the streaming tail", () => {
+    const raw = 'Working…\n<ask_user>{"questions":[{"question":"Which env';
+    expect(stripTextEmittedToolCallBlocks(raw).trim()).toBe("Working…");
+  });
+
+  it("PRESERVES prose/code that merely mentions a tool name (no JSON body)", () => {
+    const prose = "Use the `read_file` tool, e.g. <read_file> in docs.";
+    expect(stripTextEmittedToolCallBlocks(prose)).toBe(prose);
+    const code = "if (x) { doThing(); } // not a tool call";
+    expect(stripTextEmittedToolCallBlocks(code)).toBe(code);
+  });
+
+  it("is applied by sanitizeMarkdownForDisplay", () => {
+    const out = sanitizeMarkdownForDisplay(
+      'Hi\n<web_search>{"query":"x"}</web_search>\nBye',
+    );
+    expect(out).toContain("Hi");
+    expect(out).toContain("Bye");
+    expect(out).not.toContain("web_search");
   });
 });
 

@@ -49,7 +49,7 @@ afterAll(async () => {
 describe("preflight timing (S17)", () => {
   it("a build turn emits the preflight-breakdown waterfall at first dispatch", async () => {
     ctx.server.register(
-      scenario("perf-waterfall").text("All good. <task_complete>").build(),
+      scenario("perf-waterfall").text("All good.").build(),
     );
 
     const chatId = await ctx.newChat();

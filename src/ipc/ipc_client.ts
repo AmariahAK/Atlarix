@@ -223,6 +223,21 @@ export interface UpdateStatusPayload {
   availableVersion?: string;
 }
 
+/**
+ * Broadcast on `chat:background-job-update` for BOTH background commands and
+ * background sub-agent tasks (discriminated by `source`). Commands carry
+ * `operationId`; sub-agents carry `taskId`. `"stalled"` is the output-idle
+ * advisory (commands only). One channel → one renderer wake closure.
+ */
+export interface BackgroundJobUpdatePayload {
+  chatId: number;
+  source: "command" | "subagent";
+  operationId?: string;
+  taskId?: string;
+  status: "running" | "finished" | "cancelled" | "stalled";
+  running: number;
+}
+
 export class IpcClient {
   private static instance: IpcClient;
   private ipcRenderer: PreloadIpcRenderer;
@@ -3347,23 +3362,30 @@ export class IpcClient {
     );
   }
 
+  /** Non-destructive: are there undrained finished sub-agent results for this chat? */
+  public async subagentHasPendingResults(chatId: number): Promise<boolean> {
+    return this.ipcRenderer.invoke(
+      "chat:subagent-has-pending-results",
+      chatId,
+    );
+  }
+
+  /** C3: full current output (non-destructive) for a running background job. */
+  public async backgroundJobOutput(
+    chatId: number,
+    jobId: string,
+  ): Promise<{ command: string; output: string; elapsedMs: number } | null> {
+    return this.ipcRenderer.invoke("chat:background-job-output", {
+      chatId,
+      jobId,
+    });
+  }
+
   public onBackgroundJobUpdate(
-    listener: (payload: {
-      chatId: number;
-      operationId: string;
-      status: "running" | "finished" | "cancelled";
-      running: number;
-    }) => void,
+    listener: (payload: BackgroundJobUpdatePayload) => void,
   ): () => void {
     const off = this.ipcRenderer.on("chat:background-job-update", (payload) =>
-      listener(
-        payload as {
-          chatId: number;
-          operationId: string;
-          status: "running" | "finished" | "cancelled";
-          running: number;
-        },
-      ),
+      listener(payload as BackgroundJobUpdatePayload),
     );
     return typeof off === "function" ? off : () => {};
   }

@@ -43,7 +43,8 @@ describe("edit with approval (build mode)", () => {
           content: "export const answer = 42;\n",
           description: "Answer module",
         })
-        .text("Created src/answer.ts. <task_complete>")
+        .text("Created src/answer.ts.")
+        .repeatLast()
         .build(),
     );
 
@@ -100,7 +101,8 @@ describe("edit with approval (build mode)", () => {
           content: "export const nope = true;\n",
           description: "Module the user will reject",
         })
-        .text("Understood, not writing the file. <task_complete>")
+        .text("Understood, not writing the file.")
+        .repeatLast()
         .build(),
     );
 

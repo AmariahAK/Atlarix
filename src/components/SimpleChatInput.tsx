@@ -35,6 +35,7 @@ import { SignInToChatNotice } from "@/components/chat/SignInToChatNotice";
 import { cn } from "@/lib/utils";
 import { useAttachments } from "@/hooks/useAttachments";
 import { AttachmentsList } from "@/components/chat/AttachmentsList";
+import { ParkedWaitingChip } from "@/components/chat/ParkedWaitingChip";
 import { DragDropOverlay } from "@/components/chat/DragDropOverlay";
 import { useComposerAutocomplete } from "@/components/chat/ComposerAutocomplete";
 
@@ -184,6 +185,10 @@ export function SimpleChatInput({ chatId, onSubmit, placeholder = "Continue the 
                     <SignInToChatNotice />
                 </div>
             ) : null}
+
+            {/* A3: calm "parked — will resume automatically" chip (turn ended,
+                background work outstanding). Self-hides when not parked. */}
+            <ParkedWaitingChip chatId={chatId} />
 
             <div
                 className={cn(

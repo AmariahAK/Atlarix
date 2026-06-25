@@ -10,6 +10,7 @@ import {
   parseTerminalPasteFromClipboard,
   upsertTerminalAttachment,
 } from "@/lib/chat/terminal-line-buffer";
+import { parseCodeFromClipboard } from "@/lib/chat/code-clipboard";
 
 function tryCaptureTerminalPaste(
   clipboardData: DataTransfer,
@@ -143,6 +144,17 @@ export function useAttachments() {
       return;
     }
 
+    // P1: code copied from the Code tab carries a custom MIME — recognize it
+    // FIRST (before the terminal heuristic) so it becomes a code chip, not a
+    // misclassified terminal paste.
+    const codeAtt = parseCodeFromClipboard(clipboardData);
+    if (codeAtt) {
+      e.preventDefault();
+      e.stopPropagation();
+      applyPasteAttachment(setAttachments, codeAtt);
+      return;
+    }
+
     const terminalAtt = tryCaptureTerminalPaste(clipboardData);
     if (terminalAtt) {
       e.preventDefault();
@@ -171,6 +183,17 @@ export function useAttachments() {
       item.type.startsWith("image/"),
     );
     if (hasImage) return;
+
+    // P1: code copied from the Code tab carries a custom MIME — recognize it
+    // FIRST (before the terminal heuristic) so it becomes a code chip, not a
+    // misclassified terminal paste.
+    const codeAtt = parseCodeFromClipboard(clipboardData);
+    if (codeAtt) {
+      e.preventDefault();
+      e.stopPropagation();
+      applyPasteAttachment(setAttachments, codeAtt);
+      return;
+    }
 
     const terminalAtt = tryCaptureTerminalPaste(clipboardData);
     if (terminalAtt) {

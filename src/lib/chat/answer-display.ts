@@ -198,6 +198,55 @@ export function isOnlyToolDebris(content: string): boolean {
   return false;
 }
 
+/**
+ * B1: agent tool names a model might MIS-EMIT as text (`<read_file>{…}</read_file>`)
+ * on native-FC providers instead of issuing a real tool call. Such leaks render
+ * as raw XML+JSON in the bubble. We strip them for ALL tools (not just ask_user)
+ * — but ONLY when the tag wraps a JSON object, so legit prose/code that happens
+ * to mention a tag name is never touched. Single common words (task/plan/grep/
+ * glob) are intentionally excluded as extra prose-safety; they're caught only by
+ * the JSON-body gate via the multi-word names anyway.
+ */
+const TEXT_EMITTED_TOOL_TAG_NAMES = [
+  "ask_user",
+  "read_file",
+  "edit_file",
+  "run_command",
+  "web_search",
+  "read_url",
+  "mcp_call",
+  "list_available_mcps",
+  "read_attachment",
+  "list_attachments",
+  "compress_context",
+  "background_jobs",
+  "browser_navigate",
+  "browser_inspect",
+  "browser_interact",
+] as const;
+
+/**
+ * Remove JSON-bodied tool-call blocks a model emitted as TEXT (the TODO:1488
+ * native-FC leak). Only strips `<name ...>{…}</name>` where the body is a JSON
+ * object — prose like "the <read_file> tool" (no JSON body) is preserved.
+ */
+export function stripTextEmittedToolCallBlocks(content: string): string {
+  if (!content) return "";
+  let out = content;
+  for (const name of TEXT_EMITTED_TOOL_TAG_NAMES) {
+    // <name ...> [whitespace] { ...balanced-ish... } [whitespace] </name>
+    const block = new RegExp(
+      `<${name}(?:\\s[^>]*)?>\\s*\\{[\\s\\S]*?\\}\\s*</${name}>`,
+      "gi",
+    );
+    out = out.replace(block, "");
+    // Streaming tail: an opener that begins a JSON body but isn't closed yet.
+    const openTail = new RegExp(`<${name}(?:\\s[^>]*)?>\\s*\\{[\\s\\S]*$`, "i");
+    out = out.replace(openTail, "");
+  }
+  return out;
+}
+
 const STRIP_TAG_NAMES = [
   "think",
   "thinking",
@@ -250,6 +299,7 @@ export function extractVisibleAnswerMarkdown(raw: string): string {
   for (const tag of STRIP_TAG_NAMES) {
     out = stripTagBlocks(out, tag, "drop-through-eof");
   }
+  out = stripTextEmittedToolCallBlocks(out);
   out = stripOrphanToolTagFragments(out);
   return out.replace(/\n{3,}/g, "\n\n").trim();
 }
@@ -258,6 +308,6 @@ export function extractVisibleAnswerMarkdown(raw: string): string {
 export function sanitizeMarkdownForDisplay(content: string): string {
   if (!content) return "";
   return stripMultilineToolJsonEnvelopes(
-    stripOrphanToolTagFragments(content),
+    stripOrphanToolTagFragments(stripTextEmittedToolCallBlocks(content)),
   ).trim();
 }

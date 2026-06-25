@@ -3,16 +3,28 @@ import type { FileAttachment } from "@/ipc/ipc_types";
 import { isTextPasteAttachment } from "@/lib/chat/text-paste-attachment";
 import { isTerminalPasteAttachment } from "@/lib/chat/terminal-paste-attachment";
 import { isMentionAttachment } from "@/lib/chat/mention-attachment";
+import {
+  isCodeSelectionAttachment,
+  codeSelectionDisplayName,
+} from "@/lib/chat/code-selection-attachment";
+import {
+  isBackgroundJobAttachment,
+  backgroundJobDisplayName,
+} from "@/lib/chat/background-job-attachment";
 import { PastedTextAttachmentChip } from "./PastedTextAttachmentChip";
 import { TerminalOutputAttachmentChip } from "./TerminalOutputAttachmentChip";
 import { MentionAttachmentChip } from "./MentionAttachmentChip";
+import { CodeSelectionAttachmentChip } from "./CodeSelectionAttachmentChip";
+import { BackgroundJobAttachmentChip } from "./BackgroundJobAttachmentChip";
 
 /** Attachments rendered as their own chip (not the generic file-attachment tile). */
 function isChipAttachment(attachment: FileAttachment): boolean {
   return (
     isTextPasteAttachment(attachment) ||
     isTerminalPasteAttachment(attachment) ||
-    isMentionAttachment(attachment)
+    isMentionAttachment(attachment) ||
+    isCodeSelectionAttachment(attachment) ||
+    isBackgroundJobAttachment(attachment)
   );
 }
 
@@ -59,6 +71,29 @@ export function AttachmentsList({
               content={attachment.terminalPaste.content}
               displayContent={attachment.terminalPaste.displayContent}
               displayName={attachment.terminalPaste.displayName}
+              onRemove={() => onRemove(index)}
+            />
+          );
+        }
+        if (isCodeSelectionAttachment(attachment)) {
+          const { relpath, lineStart, lineEnd, content } = attachment.codeSelection;
+          return (
+            <CodeSelectionAttachmentChip
+              key={`code-${index}`}
+              displayName={codeSelectionDisplayName(relpath, lineStart, lineEnd)}
+              content={content}
+              onRemove={() => onRemove(index)}
+            />
+          );
+        }
+        if (isBackgroundJobAttachment(attachment)) {
+          const { jobId, command, outputTail } = attachment.backgroundJob;
+          return (
+            <BackgroundJobAttachmentChip
+              key={`job-${index}`}
+              displayName={backgroundJobDisplayName(jobId)}
+              command={command}
+              outputTail={outputTail}
               onRemove={() => onRemove(index)}
             />
           );

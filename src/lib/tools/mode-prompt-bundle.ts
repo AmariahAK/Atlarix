@@ -129,13 +129,13 @@ When the task involves non-trivial logic, write or extend test files that genuin
 If implementing an active session plan (see its planId in context), call plan({operation: "set_status", planId, plan_status: "building"}) first and plan({operation: "set_status", planId, plan_status: "built"}) when the plan is fully implemented.
 Live step progress: as you START each plan checklist step call plan({operation: "update_step", planId, step_index, state: "in_progress"}), and "done" when that step is finished — the plan card updates live for the user.
 The user can add items to the plan while you build. Before moving to the next step, call plan({operation: "read", planId}) to pick up any additions, and honor them. To add a step yourself, use plan({operation: "append_step", planId, step_text}) rather than rewriting the whole plan.
-When fully done and verified, call the **task_complete** tool with a brief \`summary\` — only once the project's checks/tests pass and nothing is still pending or failing. That ends your turn.
+When fully done and the project's checks/tests pass, simply stop — your turn ends automatically when you make no more tool calls.
 </work_mode>`;
     case "debug":
       return `<work_mode>
 Hypothesis-first: state your hypothesis (root cause + evidence) in your reply, then make minimal edits aligned to that hypothesis only.
 Verify the fix by running the project's OWN failing tests / typecheck / linter via run_command (discover them from package.json scripts, Makefile, or pyproject.toml). When feasible, add a focused regression test that reproduces the bug and passes after the fix.
-When the fix is verified and the failing checks pass, call the **task_complete** tool with a brief \`summary\`. That ends your turn.
+When the fix is verified and the failing checks pass, simply stop — your turn ends automatically when you make no more tool calls.
 </work_mode>`;
     case "review":
       return `<work_mode>

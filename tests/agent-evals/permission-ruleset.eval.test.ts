@@ -12,8 +12,8 @@ import { expectNoStreamError, expectStreamEnded } from "../infra/assert";
  * v12 2.2 / 7B — the permission ruleset + blocking file hooks at the single
  * tool-execution funnel (runToolExecute). These cover ask+build, native AND
  * text-tool paths uniformly. A deny rule / a non-zero pre_tool_use hook
- * returns a structured tool error the model sees; a stop hook blocks
- * <task_complete>. No rules/hooks files ⇒ behavior identical to pre-2.2
+ * returns a structured tool error the model sees; a stop hook blocks a
+ * natural prose-only completion. No rules/hooks files ⇒ behavior identical to pre-2.2
  * (the existing edit-with-approval evals are that regression guard).
  */
 
@@ -41,7 +41,8 @@ describe("permission ruleset + file hooks (2.2/7B)", () => {
           command: "rm -rf build",
           description: "clean",
         })
-        .text("Understood, blocked. <task_complete>")
+        .text("Understood, blocked.")
+        .repeatLast()
         .build(),
     );
 
@@ -98,7 +99,8 @@ describe("permission ruleset + file hooks (2.2/7B)", () => {
             command: "curl https://example.com",
             description: "fetch",
           })
-          .text("Understood, blocked. <task_complete>")
+          .text("Understood, blocked.")
+          .repeatLast()
           .build(),
       );
 
@@ -139,7 +141,8 @@ describe("permission ruleset + file hooks (2.2/7B)", () => {
     ctx.server.register(
       scenario("hook-deny")
         .toolCall("run_command", { command: "ls", description: "list" })
-        .text("Blocked by hook. <task_complete>")
+        .text("Blocked by hook.")
+        .repeatLast()
         .build(),
     );
 
@@ -158,7 +161,7 @@ describe("permission ruleset + file hooks (2.2/7B)", () => {
     ctx.ws.write(".atlarix/hooks/hooks.json", JSON.stringify({ hooks: [] }));
   }, 30_000);
 
-  it("a stop hook blocks <task_complete> until it passes", async () => {
+  it("a stop hook blocks a natural completion until it passes", async () => {
     // The stop hook fails the first time (a sentinel file is absent) and
     // passes once it exists — the model "fixes" by creating it.
     ctx.ws.write(
@@ -175,7 +178,7 @@ describe("permission ruleset + file hooks (2.2/7B)", () => {
     ctx.server.register(
       scenario("hook-stop")
         // Round 1: claim done with no writes → stop hook is red → blocked.
-        .text("All done. <task_complete>")
+        .text("All done.")
         // Round 2 (exists only because the gate blocked): create the sentinel
         // via edit_file(operation:"write"), then claim done again.
         .toolCall("edit_file", {
@@ -184,7 +187,8 @@ describe("permission ruleset + file hooks (2.2/7B)", () => {
           content: "ok\n",
           description: "mark ready",
         })
-        .text("Now it is ready. <task_complete>")
+        .text("Now it is ready.")
+        .repeatLast()
         .build(),
     );
 

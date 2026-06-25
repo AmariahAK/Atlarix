@@ -37,7 +37,7 @@ describe("ephemeral → session round-trip", () => {
   it("persists the turn and survives a simulated reload", async () => {
     ctx.server.register(
       scenario("roundtrip")
-        .text("Ahadi ni deni — message persisted. <task_complete>")
+        .text("Ahadi ni deni — message persisted.")
         .build(),
     );
 

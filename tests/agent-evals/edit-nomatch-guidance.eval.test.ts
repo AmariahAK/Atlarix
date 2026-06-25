@@ -43,7 +43,8 @@ describe("edit_file no-match guidance", () => {
           new_content: "export const realAnswerValue = computeAnswer(2);",
           description: "Edit with stale content",
         })
-        .text("I see — re-reading. <task_complete>")
+        .text("I see — re-reading.")
+        .repeatLast()
         .build(),
     );
 

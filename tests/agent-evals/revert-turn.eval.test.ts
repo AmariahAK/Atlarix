@@ -36,7 +36,8 @@ describe("revert turn file changes (v13.1)", () => {
           content: "export const keep = 999;\n",
           description: "Bump keep",
         })
-        .text("Updated src/keep.ts. <task_complete>")
+        .text("Updated src/keep.ts.")
+        .repeatLast()
         .build(),
     );
 

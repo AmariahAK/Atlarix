@@ -10,7 +10,6 @@ export interface ContinuationContext {
   attemptCount: number;
   maxAttempts: number;
   lastContent: string;
-  ledgerState?: string;
 }
 
 export function shouldContinue(
@@ -23,11 +22,6 @@ export function shouldContinue(
   );
 }
 
-export function buildContinuationPrompt(ctx: ContinuationContext): string {
-  const base = "Continue exactly from where you left off.";
-  const ledger = ctx.ledgerState?.trim();
-  if (ledger) {
-    return `${base}\n\nCurrent task state:\n${ledger}`;
-  }
-  return base;
+export function buildContinuationPrompt(_ctx: ContinuationContext): string {
+  return "Continue exactly from where you left off.";
 }

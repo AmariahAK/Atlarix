@@ -63,9 +63,13 @@ describe("terminal-line-buffer", () => {
     expect(slice).toHaveLength(2);
   });
 
-  it("looksLikeTerminalTranscript detects Atlarix and shell patterns", () => {
+  it("looksLikeTerminalTranscript only matches Atlarix [You]/[Agent] prefixes (P1)", () => {
     expect(looksLikeTerminalTranscript("[You] $ ls\n[You] a")).toBe(true);
-    expect(looksLikeTerminalTranscript("$ npm test\nok")).toBe(true);
+    expect(looksLikeTerminalTranscript("[Agent] $ npm test\n[Agent] ok")).toBe(true);
+    // P1: a bare `$ ` line (no owner prefix) is NOT treated as a terminal
+    // transcript — it appears constantly in code/docs and was misclassifying
+    // pasted code. Real Atlarix terminal copies use the custom clipboard MIME.
+    expect(looksLikeTerminalTranscript("$ npm test\nok")).toBe(false);
     expect(looksLikeTerminalTranscript("hello")).toBe(false);
     expect(looksLikeTerminalTranscript("")).toBe(false);
   });

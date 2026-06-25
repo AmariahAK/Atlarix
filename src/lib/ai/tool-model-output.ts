@@ -14,6 +14,7 @@
 
 import type { LanguageModelV2ToolResultOutput } from "@ai-sdk/provider";
 import { providerSupportsToolMedia } from "@/lib/routing/model-capability-profile";
+import { redactSecretsInText } from "@/lib/security/redact-secrets";
 
 export { providerSupportsToolMedia };
 
@@ -99,21 +100,65 @@ export function buildToolModelOutput(
   };
 }
 
+/** Display-only string fields that may carry tool output (and thus secrets). */
+const SECRET_REDACTABLE_FIELDS = [
+  "result",
+  "value",
+  "output",
+  "stdout",
+  "stderr",
+  "content",
+  "text",
+] as const;
+
+/**
+ * D1: mask high-confidence secret shapes in the stringy fields of a tool result
+ * for the DISPLAY copy only (activity cards). The model still receives the real,
+ * unredacted output — this only keeps raw keys/tokens out of the rendered UI.
+ */
+function redactSecretsInDisplayShape(output: unknown): unknown {
+  if (typeof output === "string") return redactSecretsInText(output);
+  if (!output || typeof output !== "object") return output;
+  let changed = false;
+  const o = output as Record<string, unknown>;
+  const next: Record<string, unknown> = { ...o };
+  for (const field of SECRET_REDACTABLE_FIELDS) {
+    const v = o[field];
+    if (typeof v === "string") {
+      const red = redactSecretsInText(v);
+      if (red !== v) {
+        next[field] = red;
+        changed = true;
+      }
+    } else if (v && typeof v === "object") {
+      const red = redactSecretsInDisplayShape(v);
+      if (red !== v) {
+        next[field] = red;
+        changed = true;
+      }
+    }
+  }
+  return changed ? next : output;
+}
+
 /**
  * Display-safe copy of a tool result for activity cards / expand panels:
  * replaces inline base64 image data with a size placeholder so the renderer
- * never serializes megabytes of base64 into a card.
+ * never serializes megabytes of base64 into a card, AND masks high-confidence
+ * secret shapes (D1) so raw keys/tokens never render in the UI.
  */
 export function redactToolMediaForDisplay(output: unknown): unknown {
-  const media = extractScreenshotMedia(output);
-  if (!media) return output;
+  const secretSafe = redactSecretsInDisplayShape(output);
+
+  const media = extractScreenshotMedia(secretSafe);
+  if (!media) return secretSafe;
 
   const replaceData = (obj: Record<string, unknown>): Record<string, unknown> =>
     typeof obj.data === "string" && obj.data.length > 256
       ? { ...obj, data: `[image ${obj.mimeType ?? "binary"} — ${Math.round((obj.data as string).length * 0.75 / 1024)} KB redacted]` }
       : obj;
 
-  const o = output as Record<string, unknown>;
+  const o = secretSafe as Record<string, unknown>;
   if (o.result && typeof o.result === "object") {
     return { ...o, result: replaceData(o.result as Record<string, unknown>) };
   }

@@ -10,7 +10,6 @@ import * as fsSync from 'node:fs';
 import * as path from 'path';
 import log from 'electron-log';
 import {
-    ensureDefaultAtlarixIgnore,
     loadIgnorerForProject,
     normalizeRelPath,
     isRelPathIgnored,
@@ -114,8 +113,8 @@ export async function analyzeWorkspace(workspacePath: string): Promise<Workspace
     const { language, framework, packageManager } = await detectProjectType(workspacePath);
     logger.info(`Detected: ${language}${framework ? ` (${framework})` : ''}`);
 
-    // 2. Scan files (respect .atlarixignore)
-    await ensureDefaultAtlarixIgnore(workspacePath);
+    // 2. Scan files (respect .atlarixignore — composed even if the file is
+    // absent; it's created once by workspace bootstrap, not on every scan).
     const ig = await loadIgnorerForProject(workspacePath);
     const scanned = await scanFiles(workspacePath);
     const filePaths = scanned.filter((f) => {

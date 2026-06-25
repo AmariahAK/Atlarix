@@ -43,8 +43,6 @@ export interface AgentProfile {
   readonly loopLogLabel: string;
   /** runMidLoopCompaction loopLabel. */
   readonly compactionLabel: string;
-  /** Honor <task_complete> + completed-ledger breaks (build). Ask ignores them. */
-  readonly honorTaskCompleteBreak: boolean;
   /**
    * Prose-only round policy:
    * - number (build: 5): nudge the model and continue, break at the cap;

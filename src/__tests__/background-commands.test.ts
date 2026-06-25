@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   recordBackgroundCommandStart,
   recordBackgroundCommandResult,
@@ -9,6 +9,10 @@ import {
   killBackgroundJob,
   readBackgroundOutput,
   updateBackgroundOutput,
+  setBackgroundJobNotifier,
+  takePendingStalledAdvisories,
+  hasPendingStalledAdvisories,
+  killAllBackgroundJobs,
 } from "@/lib/agent/background-commands";
 
 describe("background-commands (v13 7A / v14 jobs)", () => {
@@ -71,6 +75,87 @@ describe("background-commands (v13 7A / v14 jobs)", () => {
     const block = takePendingBackgroundCommandResults(chatId)!;
     expect(block).toContain("failed (exit 2)");
     expect(block.length).toBeLessThan(10_000);
+    clearBackgroundCommandsForChat(chatId);
+  });
+});
+
+describe("background-commands output-idle watchdog (A4)", () => {
+  // Reset the module singletons (watchdog interval + stall state) so a real
+  // timer left by an earlier describe can't suppress the fake-timer watchdog.
+  beforeEach(() => {
+    killAllBackgroundJobs();
+  });
+  afterEach(() => {
+    killAllBackgroundJobs();
+    setBackgroundJobNotifier(() => {});
+    vi.useRealTimers();
+  });
+
+  it("flags a silent running job as stalled once, re-arms after output, never kills it", () => {
+    vi.useFakeTimers();
+    const chatId = 9100;
+    const statuses: string[] = [];
+    setBackgroundJobNotifier((cid, ev) => {
+      if (cid === chatId) statuses.push(ev.status);
+    });
+
+    recordBackgroundCommandStart(chatId, "op-idle", "ssh prod tail -f log", Date.now());
+    expect(statuses).toEqual(["running"]);
+
+    // 60s of silence — under the 120s threshold, no advisory yet.
+    vi.advanceTimersByTime(60_000);
+    expect(hasPendingStalledAdvisories(chatId)).toBe(false);
+
+    // Cross 120s of silence — exactly one "stalled" advisory.
+    vi.advanceTimersByTime(70_000);
+    expect(statuses.filter((s) => s === "stalled")).toHaveLength(1);
+    expect(hasPendingStalledAdvisories(chatId)).toBe(true);
+    // Advisory is NOT a kill: the job is still running and listed.
+    expect(hasRunningBackgroundCommands(chatId)).toBe(true);
+    expect(listBackgroundJobs(chatId)).toHaveLength(1);
+
+    // Advisory text names the job, says still running, and offers the choices.
+    const advisory = takePendingStalledAdvisories(chatId)!;
+    expect(advisory).toContain("[Background job advisory]");
+    expect(advisory).toContain("op-idle");
+    expect(advisory).toContain("STILL RUNNING");
+    expect(advisory).toContain("cancel");
+    // take-once
+    expect(takePendingStalledAdvisories(chatId)).toBeNull();
+
+    // It should NOT re-advise while still silent (one per quiet episode).
+    vi.advanceTimersByTime(120_000);
+    expect(statuses.filter((s) => s === "stalled")).toHaveLength(1);
+
+    // Output resumes → re-armed; a SECOND silent stretch re-advises. Advance
+    // past 120s of NEW silence AND across a 30s scan tick (the watchdog only
+    // checks on its interval, so we overshoot to land on a qualifying tick).
+    updateBackgroundOutput(chatId, "op-idle", "some progress\n");
+    vi.advanceTimersByTime(160_000);
+    expect(statuses.filter((s) => s === "stalled")).toHaveLength(2);
+
+    clearBackgroundCommandsForChat(chatId);
+  });
+
+  it("a finished job stops being watched (no stalled advisory after completion)", () => {
+    vi.useFakeTimers();
+    const chatId = 9101;
+    const statuses: string[] = [];
+    setBackgroundJobNotifier((cid, ev) => {
+      if (cid === chatId) statuses.push(ev.status);
+    });
+
+    recordBackgroundCommandStart(chatId, "op-fast", "echo hi", Date.now());
+    recordBackgroundCommandResult(chatId, "op-fast", {
+      command: "echo hi",
+      exitCode: 0,
+      output: "hi",
+      durationMs: 10,
+    });
+    // Long after it finished — no stalled advisory (it's gone from the registry).
+    vi.advanceTimersByTime(300_000);
+    expect(statuses.filter((s) => s === "stalled")).toHaveLength(0);
+    expect(hasPendingStalledAdvisories(chatId)).toBe(false);
     clearBackgroundCommandsForChat(chatId);
   });
 });

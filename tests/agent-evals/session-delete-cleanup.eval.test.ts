@@ -28,7 +28,7 @@ describe("session delete cleanup", () => {
   it("prunes the ephemeral chat and returns the transport id", async () => {
     ctx.server.register(
       scenario("delete-cleanup")
-        .text("Stored. <task_complete>")
+        .text("Stored.")
         .build(),
     );
 

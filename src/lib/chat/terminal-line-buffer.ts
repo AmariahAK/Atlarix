@@ -85,15 +85,17 @@ export function commandBlockRanges(lines: TerminalLine[]): {
 }
 
 const TERMINAL_PREFIX_RE = /^\[(?:You|Agent)\]\s/m;
-const SHELL_PROMPT_RE = /^(?:\$|❯|>|#)\s/m;
 
 export function looksLikeTerminalTranscript(text: string): boolean {
   const trimmed = text.trim();
   if (!trimmed) return false;
+  // Only the UNAMBIGUOUS Atlarix terminal markers count. A bare `$ ` or `>`
+  // line appears constantly in code/docs/markdown (shell examples, prompts,
+  // generics, redirects), so matching on those misclassified pasted code as a
+  // terminal transcript (P1). Real terminal copies carry the custom clipboard
+  // MIME and never rely on this heuristic; this fallback is only for transcripts
+  // pasted from OUTSIDE Atlarix, which carry the [You]/[Agent] owner prefixes.
   if (TERMINAL_PREFIX_RE.test(trimmed)) return true;
-  const lineCount = (trimmed.match(/\n/g) || []).length + 1;
-  if (lineCount >= 2 && SHELL_PROMPT_RE.test(trimmed)) return true;
-  if (lineCount >= 2 && /^\$\s+\S/m.test(trimmed)) return true;
   return false;
 }
 

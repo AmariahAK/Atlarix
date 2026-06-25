@@ -1,7 +1,37 @@
 # Atlarix TODO
 
 **Current Version:** v14.5.0 (released)
-**Last Updated:** 2026-06-22
+**Last Updated:** 2026-06-24
+
+---
+
+## Deferred follow-ups (next session)
+
+> From the 2026-06-24 cleanup round (code-paste chip, single-owner `.atlarixignore`,
+> dropped plans scaffold, ignored generated caches, **`task_complete` removed → AI
+> ends naturally**). Two items consciously deferred:
+
+- **Delete the dead task-ledger module.** `task_complete` removal already made the
+  engine's completion fully natural-termination; the ledger no longer affects turn
+  behavior. But the ledger *code* still physically exists as **inert dead code**
+  (`shouldCreateTaskLedger = false` in `chat_stream_handlers.ts` → it never runs).
+  A sub-agent fork attempted the deep ~10-file deletion, stalled mid-way, and caused
+  collateral damage; the build was recovered to fully green with the ledger left
+  inert. Remaining: delete `src/lib/tasks/task-ledger.ts` + the disabled
+  `shouldCreateTaskLedger` block + the ~8 no-op call sites (`recordToolOnLedger`,
+  `markLedgerStreamComplete`, ledger UI notifier, `getLedger` reads), rename
+  `streamTurnIdForLedger`→`streamTurnId`, and prune orphans via knip. **Mutation-verify
+  + snapshots key off the turn-id string, NOT the ledger — keep the id.** Do this as
+  its own careful pass with ts/oxlint/knip green after each step.
+- **Text-tool natural-termination cadence.** `tests/agent-evals/native-history.eval.test.ts`
+  → "negative control: text-tool fallback keeps the synthetic XML path" is `it.skip`
+  (TODO in-file). Under natural termination the *forced-text-tool* path (weak/local
+  model fallback) does extra reconciling prose rounds and doesn't settle cleanly in
+  the harness (exhausts the scenario). The synthetic XML tool-results message IS still
+  preserved; the open item is the text-tool turn-termination cadence. Needs a focused
+  fix + real weak-model verification, then un-skip.
+- (Standing) Native-FC `ask_user`→interactive-card routing (from the prior round) — the
+  safe strip is shipped; routing still deferred.
 
 ---
 

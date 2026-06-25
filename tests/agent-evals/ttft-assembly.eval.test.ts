@@ -48,7 +48,7 @@ function firstRequestSystemBlob(scenarioId: string): string {
 describe("context assembly under concurrent pre-flight (S18)", () => {
   it("a build turn carries the concurrently-loaded sections in priority order", async () => {
     ctx.server.register(
-      scenario("s18-assembly-1").text("ok <task_complete>").build(),
+      scenario("s18-assembly-1").text("ok").build(),
     );
     const chatId = await ctx.newChat();
     const { fakeIpc } = await runTurn(ctx, {
@@ -73,7 +73,7 @@ describe("context assembly under concurrent pre-flight (S18)", () => {
 
   it("section presence and order are identical on a second fresh chat (determinism)", async () => {
     ctx.server.register(
-      scenario("s18-assembly-2").text("ok <task_complete>").build(),
+      scenario("s18-assembly-2").text("ok").build(),
     );
     const chatId = await ctx.newChat();
     const { fakeIpc } = await runTurn(ctx, {
@@ -127,7 +127,7 @@ describe("project-instruction interop (v13.1) — AGENTS.md fallback", () => {
 
   it("injects AGENTS.md as project instructions when atlarix.md is absent", async () => {
     ctx.server.register(
-      scenario("agents-fallback").text("ok <task_complete>").build(),
+      scenario("agents-fallback").text("ok").build(),
     );
     const chatId = await ctx.newChat();
     const { fakeIpc } = await runTurn(ctx, {

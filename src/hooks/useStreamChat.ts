@@ -25,6 +25,7 @@ import {
   reconnectingByChatIdAtom,
   liveToolInputByChatIdAtom,
   waitingOnCommandByChatIdAtom,
+  parkedWaitingByChatIdAtom,
   queuedMessageByChatIdAtom,
   turnSnapshotTurnIdByMessageIdAtom,
   responseDoneAnimationAtom,
@@ -449,22 +450,28 @@ export function useStreamChat({
   // fires even after the turn that started the job has ended.
   useEffect(() => {
     const ipc = IpcClient.getInstance();
-    const unsub = ipc.onBackgroundJobUpdate(({ chatId: evChatId, status }) => {
-      void ipc.backgroundJobsList(evChatId).then((jobs) => {
-        getDefaultStore().set(backgroundJobsByChatIdAtom, (prev) => ({
-          ...prev,
-          [evChatId]: jobs.map((j) => ({
-            operationId: j.operationId,
-            command: j.command,
-            startedAt: j.startedAt,
-            elapsedMs: j.elapsedMs,
-          })),
-        }));
-      });
-      // Auto-wake only on a finished (not cancelled) job, when the chat is idle
-      // and no wake is already in flight. A live turn already drains the result
-      // via prepareStep, so do nothing then.
-      if (status !== "finished") return;
+    const unsub = ipc.onBackgroundJobUpdate(({ chatId: evChatId, status, source }) => {
+      // Indicator refresh is source-specific: the background-jobs list is for
+      // COMMANDS only. Sub-agent events skip it (their own indicator is C3).
+      if (source !== "subagent") {
+        void ipc.backgroundJobsList(evChatId).then((jobs) => {
+          getDefaultStore().set(backgroundJobsByChatIdAtom, (prev) => ({
+            ...prev,
+            [evChatId]: jobs.map((j) => ({
+              operationId: j.operationId,
+              command: j.command,
+              startedAt: j.startedAt,
+              elapsedMs: j.elapsedMs,
+            })),
+          }));
+        });
+      }
+      // Auto-wake on a finished (not cancelled) job/task — and on a "stalled"
+      // advisory (A4: a quiet still-running job) so a parked chat surfaces the
+      // "this looks stuck, decide" prompt. Only when idle and no wake is already
+      // in flight; a live turn already drains via prepareStep. The wake path is
+      // shared by both sources and guarded by the one bgWakeInFlightRef.
+      if (status !== "finished" && status !== "stalled") return;
       const streaming = getDefaultStore().get(isStreamingByIdAtom).get(evChatId) === true;
       if (streaming || bgWakeInFlightRef.current.has(evChatId)) return;
       bgWakeInFlightRef.current.add(evChatId);
@@ -542,6 +549,14 @@ export function useStreamChat({
         const next = new Map(prev);
         next.set(chatId, true);
         return next;
+      });
+      // A3: a new turn is starting (a user message OR the auto-resume) — clear
+      // the parked chip; the turn is live again.
+      getDefaultStore().set(parkedWaitingByChatIdAtom, (prev) => {
+        if (!prev.has(chatId)) return prev;
+        const n = new Map(prev);
+        n.delete(chatId);
+        return n;
       });
       getDefaultStore().set(activeTurnScopeAtom, {
         chatId,
@@ -1422,6 +1437,23 @@ export function useStreamChat({
               next.set(chatId, false);
               return next;
             });
+            // A3: a parked turn ended cleanly with background work outstanding —
+            // show the calm "waiting … will resume automatically" chip. Any
+            // non-parked end clears it (a normal completion or a turn that
+            // already resumed). The auto-wake below starts the resume turn.
+            getDefaultStore().set(parkedWaitingByChatIdAtom, (prev) => {
+              const n = new Map(prev);
+              if (response.parked) {
+                n.set(chatId, {
+                  commands: response.parkedCommands ?? 0,
+                  subagents: response.parkedSubagents ?? 0,
+                  parkedAt: Date.now(),
+                });
+              } else {
+                n.delete(chatId);
+              }
+              return n;
+            });
             setReconnectingByChatId((prev) => {
               if (!prev.get(chatId)) return prev;
               const n = new Map(prev);
@@ -1453,15 +1485,19 @@ export function useStreamChat({
                 }, 50);
               }
             }
-            // Bug F: close the background auto-wake race. If a job finished just
-            // as the turn ended (so no further prepareStep drained it) and the
-            // user has nothing queued, wake a fresh turn to deliver the result
-            // instead of letting it sit until the next user message.
+            // Bug F: close the auto-wake race. If a background command OR a
+            // sub-agent finished just as the turn ended (so no further
+            // prepareStep drained it) and the user has nothing queued, wake a
+            // fresh turn to deliver the result instead of letting it sit until
+            // the next user message. One combined check → one guarded wake.
             if (!flushedQueuedMessage) {
-              void IpcClient.getInstance()
-                .backgroundHasPendingResults(response.chatId)
-                .then((pending) => {
-                  if (!pending) return;
+              const ipc = IpcClient.getInstance();
+              void Promise.all([
+                ipc.backgroundHasPendingResults(response.chatId),
+                ipc.subagentHasPendingResults(response.chatId),
+              ])
+                .then(([cmdPending, subPending]) => {
+                  if (!cmdPending && !subPending) return;
                   const stillStreaming =
                     getDefaultStore()
                       .get(isStreamingByIdAtom)

@@ -13,15 +13,34 @@ import {
   killBackgroundJob,
   setBackgroundJobNotifier,
   hasPendingBackgroundCommandResults,
+  getBackgroundJobOutput,
 } from "@/lib/agent/background-commands";
+import {
+  setSubagentNotifier,
+  hasPendingSubagentResults,
+} from "@/lib/agents/subagent-results";
 import { broadcastToRenderer } from "../utils/browser_view_manager";
 
 const logger = log.scope("background_ipc");
 
 export function registerBackgroundHandlers(): void {
-  // Registry → renderer: indicator refresh + auto-wake signal.
+  // Registry → renderer: indicator refresh + auto-wake signal. Background
+  // COMMANDS and sub-agent TASKS share the one `chat:background-job-update`
+  // channel, discriminated by `source`, so the renderer's single wake closure
+  // (and its bgWakeInFlightRef guard) handles both without duplication.
   setBackgroundJobNotifier((chatId, ev) => {
-    broadcastToRenderer("chat:background-job-update", { chatId, ...ev });
+    broadcastToRenderer("chat:background-job-update", {
+      chatId,
+      source: "command",
+      ...ev,
+    });
+  });
+  setSubagentNotifier((chatId, ev) => {
+    broadcastToRenderer("chat:background-job-update", {
+      chatId,
+      source: "subagent",
+      ...ev,
+    });
   });
 
   ipcMain.handle("chat:background-jobs-list", (_e, chatId: number) =>
@@ -37,6 +56,16 @@ export function registerBackgroundHandlers(): void {
 
   ipcMain.handle("chat:background-has-pending-results", (_e, chatId: number) =>
     hasPendingBackgroundCommandResults(Number(chatId)),
+  );
+
+  ipcMain.handle("chat:subagent-has-pending-results", (_e, chatId: number) =>
+    hasPendingSubagentResults(Number(chatId)),
+  );
+
+  ipcMain.handle(
+    "chat:background-job-output",
+    (_e, arg: { chatId: number; jobId: string }) =>
+      getBackgroundJobOutput(Number(arg?.chatId), String(arg?.jobId ?? "")),
   );
 
   logger.log("[background] handlers registered");

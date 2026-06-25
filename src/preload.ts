@@ -286,6 +286,9 @@ const validInvokeChannels = [
   // Background jobs (v14)
   "chat:background-jobs-list",
   "chat:background-job-cancel",
+  "chat:background-job-output",
+  "chat:background-has-pending-results",
+  "chat:subagent-has-pending-results",
   // File operations (Live Code Editor)
   "file:read-content",
   "file:write-content",

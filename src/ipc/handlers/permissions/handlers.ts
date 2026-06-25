@@ -144,7 +144,26 @@ export function registerInterceptor(chatId: number, interceptor: PermissionInter
 
             // v13 7B: a FOREGROUND command still running after 10s flips the
             // chat into the visible waiting state; completion flips it back.
-            if (data.background) return;
+            if (data.background) {
+                // A5: a foreground command that AUTO-PROMOTED to the background
+                // (v14 15s detach) re-emits a running event with background:true
+                // under the SAME operationId. Clear its foreground wait tracker
+                // so the amber "waiting on command" chip flips off and the turn
+                // parks — its result now arrives via the background auto-wake.
+                const promoted = waitTrackersByChat.get(chatId)?.get(data.operationId);
+                if (promoted) {
+                    clearTimeout(promoted.timer);
+                    waitTrackersByChat.get(chatId)!.delete(data.operationId);
+                    if (promoted.announced) {
+                        broadcastStreamPhase({
+                            chatId,
+                            phase: "command_done",
+                            commandId: data.operationId,
+                        });
+                    }
+                }
+                return;
+            }
             let trackers = waitTrackersByChat.get(chatId);
             if (data.status === "running") {
                 if (!trackers) {

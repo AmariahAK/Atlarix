@@ -16,7 +16,12 @@
 
 import type { ChildProcess } from "node:child_process";
 
-export type BackgroundJobStatus = "running" | "finished" | "cancelled";
+export type BackgroundJobStatus =
+  | "running"
+  | "finished"
+  | "cancelled"
+  /** A4: still running but no output for OUTPUT_IDLE_THRESHOLD_MS — advisory. */
+  | "stalled";
 
 export type BackgroundCommandResult = {
   command: string;
@@ -39,6 +44,17 @@ interface RunningJob {
   output: string;
   /** Chars already returned by `output` reads (incremental cursor). */
   readCursor: number;
+  /** A4: last time output changed — drives the output-idle hang watchdog. */
+  lastOutputAt: number;
+}
+
+/** A4: an advisory that a still-running job has gone quiet (possibly hung). */
+export interface StalledAdvisory {
+  operationId: string;
+  command: string;
+  idleMs: number;
+  /** Tail of output captured so far (so the model can judge / decide). */
+  outputTail: string;
 }
 
 /** Public shape for the model's `background_jobs(list)` + the UI indicator. */
@@ -51,11 +67,27 @@ export interface BackgroundJobInfo {
 
 const OUTPUT_TAIL_CAP = 8_000;
 const MAX_QUEUED_PER_CHAT = 10;
+/**
+ * A4: a running job that emits NO output for this long is flagged as STALLED —
+ * an advisory wake so the model can decide (keep waiting / read / cancel). It is
+ * NEVER auto-killed. Global, single threshold (output-flow = liveness, mirroring
+ * the LLM stream's idle watchdog). Slow-but-progressing jobs reset the clock via
+ * updateBackgroundOutput, so a chatty slow job never trips it.
+ */
+const OUTPUT_IDLE_THRESHOLD_MS = 120_000;
+/** How often the watchdog scans running jobs. */
+const STALL_CHECK_INTERVAL_MS = 30_000;
 
 const resultsByChat = new Map<number, BackgroundCommandResult[]>();
 const runningJobsByChat = new Map<number, Map<string, RunningJob>>();
 /** Operations the agent/user asked to cancel — the natural exit records them as cancelled. */
 const cancelledOps = new Set<string>();
+/** A4: ops already advised this stall episode (re-armed when output resumes). */
+const stalledNotified = new Set<string>();
+/** A4: undrained stall advisories per chat (drained like results). */
+const advisoriesByChat = new Map<number, StalledAdvisory[]>();
+/** A4: the single global watchdog interval (lazy; cleared when no jobs remain). */
+let stallWatchdog: ReturnType<typeof setInterval> | null = null;
 
 /** main-process notifier (set by the IPC host) → renderer indicator + auto-wake. */
 let notifier:
@@ -86,6 +118,58 @@ function notify(
   notifier?.(chatId, { operationId, status, running: runningCount(chatId) });
 }
 
+/** A4: total running jobs across all chats — gates the watchdog lifecycle. */
+function totalRunningJobs(): number {
+  let n = 0;
+  for (const jobs of runningJobsByChat.values()) n += jobs.size;
+  return n;
+}
+
+/**
+ * A4: scan every running job; a job that has produced no output for
+ * OUTPUT_IDLE_THRESHOLD_MS is flagged STALLED exactly once per quiet episode
+ * (re-armed when output resumes — see updateBackgroundOutput). Advisory only:
+ * the process is NEVER killed. Queues an advisory + fires a "stalled" notify so
+ * an idle (parked) chat auto-wakes and the model can decide.
+ */
+function scanForStalledJobs(): void {
+  const now = Date.now();
+  for (const [chatId, jobs] of runningJobsByChat) {
+    for (const job of jobs.values()) {
+      const idleMs = now - job.lastOutputAt;
+      if (idleMs < OUTPUT_IDLE_THRESHOLD_MS) continue;
+      if (stalledNotified.has(job.operationId)) continue;
+      stalledNotified.add(job.operationId);
+      const list = advisoriesByChat.get(chatId) ?? [];
+      list.push({
+        operationId: job.operationId,
+        command: job.command,
+        idleMs,
+        outputTail:
+          job.output.length > OUTPUT_TAIL_CAP
+            ? `…${job.output.slice(-OUTPUT_TAIL_CAP)}`
+            : job.output,
+      });
+      advisoriesByChat.set(chatId, list.slice(-MAX_QUEUED_PER_CHAT));
+      notify(chatId, job.operationId, "stalled");
+    }
+  }
+}
+
+function ensureStallWatchdog(): void {
+  if (stallWatchdog != null) return;
+  stallWatchdog = setInterval(scanForStalledJobs, STALL_CHECK_INTERVAL_MS);
+  // Don't keep the process alive just for the watchdog (Node only).
+  (stallWatchdog as { unref?: () => void }).unref?.();
+}
+
+function stopStallWatchdogIfIdle(): void {
+  if (stallWatchdog != null && totalRunningJobs() === 0) {
+    clearInterval(stallWatchdog);
+    stallWatchdog = null;
+  }
+}
+
 export function recordBackgroundCommandStart(
   chatId: number,
   operationId: string,
@@ -100,8 +184,10 @@ export function recordBackgroundCommandStart(
     proc: null,
     output: "",
     readCursor: 0,
+    lastOutputAt: startedAt,
   });
   runningJobsByChat.set(chatId, jobs);
+  ensureStallWatchdog();
   notify(chatId, operationId, "running");
 }
 
@@ -122,7 +208,14 @@ export function updateBackgroundOutput(
   output: string,
 ): void {
   const job = runningJobsByChat.get(chatId)?.get(operationId);
-  if (job) job.output = output;
+  if (!job) return;
+  // A4: only a genuine output CHANGE counts as liveness — reset the idle clock
+  // and re-arm the stall advisory so a job that goes quiet AGAIN can re-advise.
+  if (output !== job.output) {
+    job.output = output;
+    job.lastOutputAt = Date.now();
+    stalledNotified.delete(operationId);
+  }
 }
 
 export function recordBackgroundCommandResult(
@@ -131,6 +224,8 @@ export function recordBackgroundCommandResult(
   result: Omit<BackgroundCommandResult, "finishedAt">,
 ): void {
   runningJobsByChat.get(chatId)?.delete(operationId);
+  stalledNotified.delete(operationId);
+  stopStallWatchdogIfIdle();
   const wasCancelled = cancelledOps.delete(operationId);
   const list = resultsByChat.get(chatId) ?? [];
   list.push({
@@ -160,6 +255,27 @@ export function listBackgroundJobs(chatId: number): BackgroundJobInfo[] {
     startedAt: j.startedAt,
     elapsedMs: now - j.startedAt,
   }));
+}
+
+/**
+ * C3: full current output for a running job (NON-destructive — does not advance
+ * the incremental cursor). Powers the UI detail view + the "send to chat" chip.
+ * Returns null if the job isn't running.
+ */
+export function getBackgroundJobOutput(
+  chatId: number,
+  operationId: string,
+): { command: string; output: string; elapsedMs: number } | null {
+  const job = runningJobsByChat.get(chatId)?.get(operationId);
+  if (!job) return null;
+  return {
+    command: job.command,
+    output:
+      job.output.length > OUTPUT_TAIL_CAP
+        ? `…${job.output.slice(-OUTPUT_TAIL_CAP)}`
+        : job.output,
+    elapsedMs: Date.now() - job.startedAt,
+  };
 }
 
 /** New output since the last read for a running job (incremental). */
@@ -226,9 +342,38 @@ export function hasPendingBackgroundCommandResults(chatId: number): boolean {
   return (resultsByChat.get(chatId)?.length ?? 0) > 0;
 }
 
+/**
+ * A4: take-once drain of stall advisories, formatted as a model-facing block.
+ * These are for STILL-RUNNING jobs (distinct from finished results) — the model
+ * is asked to decide, not handed a terminal result. Returns null when none.
+ */
+export function takePendingStalledAdvisories(chatId: number): string | null {
+  const list = advisoriesByChat.get(chatId);
+  if (!list?.length) return null;
+  advisoriesByChat.delete(chatId);
+  const blocks = list.map((a) =>
+    [
+      `Background job ${a.operationId} has produced no output for ${Math.round(a.idleMs / 1000)}s and is STILL RUNNING (it may be stuck):`,
+      `$ ${a.command}`,
+      a.outputTail ? "```\n" + a.outputTail + "\n```" : "(no output yet)",
+      `Decide: keep waiting, read more with background_jobs({operation:"output", job_id:"${a.operationId}"}), or stop it with background_jobs({operation:"cancel", job_id:"${a.operationId}"}).`,
+    ].join("\n"),
+  );
+  return `[Background job advisory]\n\n${blocks.join("\n\n")}`;
+}
+
+/** A4: non-destructive check for undrained stall advisories (turn-end wake). */
+export function hasPendingStalledAdvisories(chatId: number): boolean {
+  return (advisoriesByChat.get(chatId)?.length ?? 0) > 0;
+}
+
 export function clearBackgroundCommandsForChat(chatId: number): void {
   resultsByChat.delete(chatId);
+  advisoriesByChat.delete(chatId);
+  for (const opId of runningJobsByChat.get(chatId)?.keys() ?? [])
+    stalledNotified.delete(opId);
   runningJobsByChat.delete(chatId);
+  stopStallWatchdogIfIdle();
 }
 
 /** Kill every running background process — call on app quit to avoid orphans. */
@@ -243,4 +388,9 @@ export function killAllBackgroundJobs(): void {
     }
   }
   runningJobsByChat.clear();
+  stalledNotified.clear();
+  if (stallWatchdog != null) {
+    clearInterval(stallWatchdog);
+    stallWatchdog = null;
+  }
 }

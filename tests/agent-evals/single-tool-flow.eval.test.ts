@@ -41,7 +41,8 @@ describe("single-tool flow (build mode)", () => {
     ctx.server.register(
       scenario("single-read")
         .toolCall("read_file", { path: "src/greeting.ts" })
-        .text("The greeting is salama. <task_complete>")
+        .text("The greeting is salama.")
+        .repeatLast()
         .build(),
     );
 

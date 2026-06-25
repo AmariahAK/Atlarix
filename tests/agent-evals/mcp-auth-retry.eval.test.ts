@@ -88,7 +88,8 @@ describe("MCP auth-fail → retry (build mode)", () => {
           tool: "calculator_add",
           arguments: { a: 19, b: 23 },
         })
-        .text("The sum is 42. <task_complete>")
+        .text("The sum is 42.")
+        .repeatLast()
         .build(),
     );
 

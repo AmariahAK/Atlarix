@@ -3,8 +3,11 @@ import Editor, { OnMount } from "@monaco-editor/react";
 import type { editor } from "monaco-editor";
 import { useLoadAppFile } from "@/hooks/useLoadAppFile";
 import { useTheme } from "@/contexts/ThemeContext";
-import { ChevronRight, Circle, Save } from "lucide-react";
+import { ChevronRight, Circle, MessageSquarePlus, Save } from "lucide-react";
 import "@/components/chat/monaco";
+import { useSetAtom } from "jotai";
+import { attachmentsAtom } from "@/atoms/chatAtoms";
+import { writeCodeClipboard } from "@/lib/chat/code-clipboard";
 import { IpcClient } from "@/ipc/ipc_client";
 import { showError, showSuccess, showWarning } from "@/lib/toast";
 import { Button } from "@/components/ui/button";
@@ -38,6 +41,9 @@ interface BreadcrumbProps {
   hasUnsavedChanges: boolean;
   onSave: () => void;
   isSaving: boolean;
+  /** C2: send the current editor selection to chat as a code-selection chip. */
+  onSendSelection: () => void;
+  canSendSelection: boolean;
 }
 
 const Breadcrumb: React.FC<BreadcrumbProps> = ({
@@ -45,6 +51,8 @@ const Breadcrumb: React.FC<BreadcrumbProps> = ({
   hasUnsavedChanges,
   onSave,
   isSaving,
+  onSendSelection,
+  canSendSelection,
 }) => {
   const segments = path.split("/").filter(Boolean);
 
@@ -67,6 +75,25 @@ const Breadcrumb: React.FC<BreadcrumbProps> = ({
           ))}
         </div>
         <div className="flex items-center gap-2 flex-shrink-0 ml-2">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={onSendSelection}
+                disabled={!canSendSelection}
+                className="h-6 w-6 p-0"
+                data-testid="send-selection-to-chat-button"
+              >
+                <MessageSquarePlus size={12} />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              {canSendSelection
+                ? "Send selected code to chat"
+                : "Select code to send it to chat"}
+            </TooltipContent>
+          </Tooltip>
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
@@ -120,6 +147,33 @@ export const FileEditor = ({
   const needsSaveRef = useRef<boolean>(false);
   const currentValueRef = useRef<string | undefined>(undefined);
   const queryClient = useQueryClient();
+  // C2: code-selection → chat. `attachmentsAtom` is the shared composer atom, so
+  // appending here drops a chip into the chat input from the Code tab.
+  const setAttachments = useSetAtom(attachmentsAtom);
+  const [hasSelection, setHasSelection] = useState(false);
+
+  const sendSelectionToChat = useCallback(() => {
+    const ed = editorRef.current;
+    const sel = ed?.getSelection();
+    const model = ed?.getModel();
+    if (!ed || !sel || !model || sel.isEmpty()) return;
+    const content = model.getValueInRange(sel);
+    if (!content.trim()) return;
+    setAttachments((prev) => [
+      ...prev,
+      {
+        type: "chat-context",
+        id: `code-${filePath}-${sel.startLineNumber}-${sel.endLineNumber}-${Date.now()}`,
+        codeSelection: {
+          relpath: filePath,
+          lineStart: sel.startLineNumber,
+          lineEnd: sel.endLineNumber,
+          content,
+        },
+      },
+    ]);
+    showSuccess(`Added ${filePath.split("/").pop()}:${sel.startLineNumber}-${sel.endLineNumber} to chat`);
+  }, [filePath, setAttachments]);
 
   // Update state when content loads
   useEffect(() => {
@@ -215,6 +269,37 @@ export const FileEditor = ({
         saveFile();
       }
     });
+
+    // C2: track whether there's a non-empty selection (gates the send button).
+    editor.onDidChangeCursorSelection((e) => {
+      setHasSelection(!e.selection.isEmpty());
+    });
+
+    // P1: on copy, tag the clipboard with the file path + line range (custom
+    // MIME, alongside text/plain) so pasting into chat yields a CODE chip rather
+    // than misclassifying as a terminal paste. Capture phase so we take over the
+    // default copy; the payload includes the same text, so normal paste is
+    // unchanged. (Per-file remount via the Editor `key` keeps `filePath` fresh.)
+    const dom = editor.getDomNode();
+    if (dom) {
+      dom.addEventListener(
+        "copy",
+        () => {
+          const sel = editor.getSelection();
+          const model = editor.getModel();
+          if (!sel || !model || sel.isEmpty()) return;
+          const content = model.getValueInRange(sel);
+          if (!content.trim()) return;
+          writeCodeClipboard({
+            relpath: filePath,
+            lineStart: sel.startLineNumber,
+            lineEnd: sel.endLineNumber,
+            content,
+          });
+        },
+        true,
+      );
+    }
   };
 
   // Handle content change
@@ -285,6 +370,8 @@ export const FileEditor = ({
           hasUnsavedChanges={displayUnsavedChanges}
           onSave={saveFile}
           isSaving={isSaving}
+          onSendSelection={sendSelectionToChat}
+          canSendSelection={hasSelection}
         />
         <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
           Loading syntax highlighting…
@@ -300,6 +387,8 @@ export const FileEditor = ({
         hasUnsavedChanges={displayUnsavedChanges}
         onSave={saveFile}
         isSaving={isSaving}
+        onSendSelection={sendSelectionToChat}
+        canSendSelection={hasSelection}
       />
       <div className="flex-1 min-h-0 overflow-hidden">
         <Editor

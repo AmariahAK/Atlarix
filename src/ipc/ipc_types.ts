@@ -127,6 +127,17 @@ export interface ChatResponseEnd {
    * agent can revert this turn's writes via the shadow-git snapshot. */
   snapshotTurnId?: string;
   /**
+   * The turn ended cleanly with background work still outstanding (running/
+   * pending background commands or sub-agents). The renderer shows a calm
+   * "waiting … will resume automatically" chip; a fresh turn auto-resumes when
+   * an item reports. Distinct from a normal completed turn.
+   */
+  parked?: boolean;
+  /** When parked: count of running background commands (for the chip text). */
+  parkedCommands?: number;
+  /** When parked: count of running background sub-agents (for the chip text). */
+  parkedSubagents?: number;
+  /**
    * v12 0.2: native-history envelope for the assistant message (JSON of the
    * turn's native tool_use/tool_result ModelMessages). The renderer persists
    * it as the assistant session message's extras.modelContent so the next
@@ -548,6 +559,31 @@ export interface FileAttachment {
     /** Workspace-relative path (no leading `./`, no spaces). */
     relpath: string;
     displayName: string;
+  };
+  /**
+   * Code selected in the Code tab and sent to chat — UI chip only. The chip
+   * shows `basename:lineStart-lineEnd`; on send a `<atlarix-code-selection>`
+   * block carrying the workspace-relative path + line range + content is injected
+   * into the model prompt (so the model knows exactly which file/lines).
+   */
+  codeSelection?: {
+    /** Workspace-relative path. */
+    relpath: string;
+    lineStart: number;
+    lineEnd: number;
+    content: string;
+  };
+  /**
+   * A reference to a running background job sent to chat from the jobs UI — UI
+   * chip only (shows `id-<jobId>`). On send, a `<atlarix-background-job>` block
+   * with the job id, command, and current output tail is injected so the user
+   * can ask the model about it ("this looks stuck — what's wrong?").
+   */
+  backgroundJob?: {
+    jobId: string;
+    command: string;
+    /** Output tail captured at send time (may be empty). */
+    outputTail?: string;
   };
 }
 

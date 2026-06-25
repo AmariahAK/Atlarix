@@ -13,7 +13,6 @@ import type {
   BlueprintRoomFlowEdge,
 } from "@/shared/blueprint-types";
 import {
-  ensureDefaultAtlarixIgnore,
   isRelPathIgnored,
   loadIgnorerForProject,
   normalizeRelPath,
@@ -389,7 +388,6 @@ export async function buildBlueprintFromFileTree(projectPath: string): Promise<{
 }> {
   const normPath = path.normalize(projectPath);
   const allEntries: WalkEntry[] = [];
-  await ensureDefaultAtlarixIgnore(normPath);
   const ig = await loadIgnorerForProject(normPath);
   await walkDir(
     normPath,

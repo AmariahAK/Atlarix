@@ -57,6 +57,17 @@ describe("atlarix-ignore composed source", () => {
     }
   });
 
+  it("ignores generated .atlarix caches but keeps user-facing .atlarix docs (P4)", async () => {
+    const ig = await loadIgnorerForProject(dir);
+    // Generated caches Atlarix writes — never index/commit.
+    expect(isRelPathIgnored(ig, ".atlarix/symbols.json")).toBe(true);
+    expect(isRelPathIgnored(ig, ".atlarix/blueprint.json")).toBe(true);
+    expect(isRelPathIgnored(ig, ".atlarix/.ctags-filelist")).toBe(true);
+    // User-facing project docs stay tracked.
+    expect(isRelPathIgnored(ig, ".atlarix/memory.md")).toBe(false);
+    expect(isRelPathIgnored(ig, ".atlarix/atlarix.md")).toBe(false);
+  });
+
   it("hides IDE/VCS folders from a Code-tab style file list (built-in + .gitignore)", async () => {
     // Mirrors the loadAppFileIndex filter: a flat discovery list run through the
     // project ignorer drops .git/.vscode/.idea + .gitignored, keeps real source.
@@ -138,6 +149,24 @@ describe("atlarix-ignore composed source", () => {
       // Project-specific layer only — the baseline is in-memory, not dumped here.
       expect(written).not.toContain("node_modules/");
       expect(written).toContain("project-specific excludes");
+    } finally {
+      await fs.rm(fresh, { recursive: true, force: true }).catch(() => {});
+    }
+  });
+
+  it("ensureDefaultAtlarixIgnore is idempotent — second call is a no-op, no churn (P2)", async () => {
+    const fresh = await fs.mkdtemp(path.join(os.tmpdir(), "atlarix-idem-"));
+    try {
+      await ensureDefaultAtlarixIgnore(fresh);
+      const canonical = getAtlarixIgnorePath(fresh);
+      // Mark the file so we can prove the 2nd call doesn't overwrite/recreate it.
+      await fs.writeFile(canonical, "# user edited\n", "utf-8");
+      await ensureDefaultAtlarixIgnore(fresh);
+      expect(await fs.readFile(canonical, "utf-8")).toBe("# user edited\n");
+      // No `.old` archive is produced when the canonical file already exists.
+      await expect(
+        fs.access(path.join(fresh, ".atlarixignore.old")),
+      ).rejects.toBeTruthy();
     } finally {
       await fs.rm(fresh, { recursive: true, force: true }).catch(() => {});
     }

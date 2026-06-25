@@ -11,6 +11,16 @@ import {
   isMentionAttachment,
   mentionToken,
 } from "@/lib/chat/mention-attachment";
+import {
+  isCodeSelectionAttachment,
+  buildCodeSelectionModelBlock,
+  buildCodeSelectionDisplayBlock,
+} from "@/lib/chat/code-selection-attachment";
+import {
+  isBackgroundJobAttachment,
+  buildBackgroundJobModelBlock,
+  buildBackgroundJobDisplayBlock,
+} from "@/lib/chat/background-job-attachment";
 
 export function escapeXmlAttr(value: string): string {
   return value
@@ -56,6 +66,12 @@ export function buildPastePromptsFromAttachments(
       const name = att.textPaste.displayName;
       modelBlocks.push(buildTextPasteModelBlock(name, att.textPaste.content));
       displayBlocks.push(buildTextPasteDisplayBlock(name));
+    } else if (isCodeSelectionAttachment(att)) {
+      modelBlocks.push(buildCodeSelectionModelBlock(att));
+      displayBlocks.push(buildCodeSelectionDisplayBlock(att));
+    } else if (isBackgroundJobAttachment(att)) {
+      modelBlocks.push(buildBackgroundJobModelBlock(att));
+      displayBlocks.push(buildBackgroundJobDisplayBlock(att));
     } else if (isTerminalPasteAttachment(att)) {
       // Handled below
     } else if (att.file) {

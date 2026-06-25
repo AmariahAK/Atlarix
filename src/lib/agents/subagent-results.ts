@@ -30,10 +30,43 @@ const resultsByChat = new Map<number, SubagentResult[]>();
 /** Sub-agents still running per chat (for "is anything pending" checks). */
 const runningByChat = new Map<number, Set<string>>();
 
+/** Status a sub-agent can transition through (mirrors background-commands). */
+export type SubagentNotifyStatus = "running" | "finished";
+
+/**
+ * main-process notifier (set by the IPC host) → renderer indicator + auto-wake.
+ * Mirrors `setBackgroundJobNotifier` in background-commands.ts so a finished
+ * sub-agent drives the SAME auto-wake path as a finished background command.
+ */
+let notifier:
+  | ((
+      chatId: number,
+      ev: { taskId: string; status: SubagentNotifyStatus; running: number },
+    ) => void)
+  | null = null;
+
+export function setSubagentNotifier(
+  fn: (
+    chatId: number,
+    ev: { taskId: string; status: SubagentNotifyStatus; running: number },
+  ) => void,
+): void {
+  notifier = fn;
+}
+
+function notify(
+  chatId: number,
+  taskId: string,
+  status: SubagentNotifyStatus,
+): void {
+  notifier?.(chatId, { taskId, status, running: runningSubagentCount(chatId) });
+}
+
 export function recordSubagentStart(chatId: number, taskId: string): void {
   const set = runningByChat.get(chatId) ?? new Set<string>();
   set.add(taskId);
   runningByChat.set(chatId, set);
+  notify(chatId, taskId, "running");
 }
 
 export function recordSubagentResult(
@@ -53,6 +86,9 @@ export function recordSubagentResult(
     finishedAt: Date.now(),
   });
   resultsByChat.set(chatId, list.slice(-MAX_QUEUED_PER_CHAT));
+  // "finished" covers both completed AND error — either is a result to deliver,
+  // and either may auto-wake a parked turn (the error rides inside the body).
+  notify(chatId, taskId, "finished");
 }
 
 /** True when one or more background sub-agents are still running for this chat. */

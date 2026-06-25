@@ -60,7 +60,7 @@ const GOLDEN = {
     "browser_navigate", "compress_context", "edit_file",
     "glob", "grep", "list_attachments", "list_available_mcps",
     "mcp_call", "plan", "read_attachment", "read_file", "read_url",
-    "run_command", "task", "task_complete", "web_search",
+    "run_command", "task", "web_search",
   ],
 } as const;
 
@@ -78,7 +78,7 @@ describe("toolset golden — resolveToolsetForSession contract (S19)", () => {
   for (const c of CASES) {
     it(`${c.key} offers exactly the golden surface`, async () => {
       ctx.server.register(
-        scenario(`tg-${c.key}`).text("ok <task_complete>").build(),
+        scenario(`tg-${c.key}`).text("ok done.").build(),
       );
       const chatId = await ctx.newChat();
       await runTurn(ctx, {

@@ -22,7 +22,7 @@ import {
  *  - SINGLE dispatch (request count is exactly tool round + final round);
  *  - workspace injection works (tool result carries real file content);
  *  - build toolset surface (write tools offered);
- *  - build termination semantics (<task_complete> honored).
+ *  - build termination semantics (a prose-only round ends the turn).
  */
 
 let ctx: EvalContext;
@@ -49,7 +49,8 @@ describe("agent mode coerces to build", () => {
     ctx.server.register(
       scenario("agent-coerce")
         .toolCall("read_file", { path: "src/legacy.ts" })
-        .text("The legacy constant is zamani. <task_complete>")
+        .text("The legacy constant is zamani.")
+        .repeatLast()
         .build(),
     );
 
@@ -64,9 +65,11 @@ describe("agent mode coerces to build", () => {
     expectToolSequence(fakeIpc.sends, ["read_file"]);
 
     const requests = ctx.server.requestsFor("agent-coerce") as RecordedRequest[];
-    // SINGLE dispatch: tool round + final round, nothing more. The deleted
-    // path re-dispatched the whole turn into the build loop (>2 requests).
-    expect(requests.length).toBe(2);
+    // SINGLE dispatch: tool round + final prose round(s), nothing like a whole
+    // re-dispatch. Natural termination adds at most one reconciling prose round
+    // after the tool op, so ≤3; the deleted re-dispatch bug produced many more.
+    expect(requests.length).toBeGreaterThanOrEqual(2);
+    expect(requests.length).toBeLessThanOrEqual(3);
 
     // Workspace injection: the tool executed against the real workspace —
     // the follow-up request carries the seeded file content.
@@ -81,7 +84,7 @@ describe("agent mode coerces to build", () => {
     expect(tools).toContain("edit_file");
     expect(tools).not.toContain("write_file");
 
-    // Build termination semantics: <task_complete> ended the turn and is
+    // Build termination semantics: ended the turn and is
     // stripped from the persisted assistant content.
     expectStreamEnded(fakeIpc.sends, chatId);
     const { getStreamTransport } = await import("@/lib/chat/stream-transport");

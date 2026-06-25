@@ -40,7 +40,6 @@ import { countVisibleRooms } from "@/lib/blueprint/blueprint-slice";
 import { markBlueprintSliceDirty } from "@/lib/blueprint/blueprint-slice-cache";
 import { validateBlueprintFocusPath } from "@/lib/blueprint/section-path";
 import { getReferencePaths, setReferencePaths } from "@/lib/blueprint/reference-manager";
-import { ensurePlansDir } from "@/lib/plans/plan-manager";
 import * as fs from "node:fs/promises";
 import { getCachedAnalysis } from "@/lib/analysis/workspace-cache";
 import { analyzeWorkspace } from "@/lib/analysis/workspace-analyzer";
@@ -333,7 +332,6 @@ export async function getBlueprintForWorkspace(
   const [app] = await db.select().from(apps).where(eq(apps.id, workspaceId)).limit(1);
   if (app && fp === ".") {
     const workspacePath = getAtlarixAppPath(app.path);
-    void ensurePlansDir(workspacePath).catch(() => {});
 
     try {
       const snapshot = await loadBlueprintSnapshot(workspacePath);

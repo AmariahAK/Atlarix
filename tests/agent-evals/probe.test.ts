@@ -56,7 +56,7 @@ describe("agent-evals harness probe", () => {
     server.register(
       scenario("probe-roundtrip")
         .toolCall("read_file", { path: "src/hello.ts" })
-        .text("All done. <task_complete>")
+        .text("All done.")
         .build(),
     );
 

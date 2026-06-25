@@ -22,7 +22,6 @@ import "./web";
 import "./spawn-task";
 import "./workspace";
 import "./plan";
-import "./task-complete"; // explicit completion signal (native FC; replaces <task_complete> XML)
 import "./browser"; // v11 in-app browser agent tools
 
 // Re-export registry for convenience

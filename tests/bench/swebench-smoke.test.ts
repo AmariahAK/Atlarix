@@ -12,7 +12,7 @@ import { captureModelPatch } from "./swebench-runner";
  * CI-safe proof that the SWE-bench runner mechanics work end-to-end WITHOUT a
  * real model or network: existing-repo workspace + unattended auto-approve +
  * `git diff` patch capture. The model is the scripted fake-LLM emitting one
- * write_file + <task_complete>.
+ * write_file +.
  */
 let ctx: EvalContext;
 let repoDir: string;
@@ -50,7 +50,7 @@ describe("swebench runner mechanics (no network)", () => {
           operation: "write",
           description: "fix the add bug",
         })
-        .text("Fixed the bug. <task_complete>")
+        .text("Fixed the bug.")
         .build(),
     );
 

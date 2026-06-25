@@ -41,7 +41,7 @@ describe("headless runner (in-process, no network)", () => {
           operation: "write",
           description: "create out.txt",
         })
-        .text("Done. <task_complete>")
+        .text("Done.")
         .build(),
     );
 

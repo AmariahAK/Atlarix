@@ -201,6 +201,18 @@ export const waitingOnCommandByChatIdAtom = atom<
 export const queuedMessageByChatIdAtom = atom<Map<number, string>>(new Map());
 
 /**
+ * A2/A3: the turn ENDED cleanly (isStreaming=false, send button shown) with
+ * background work still outstanding — a fresh turn auto-resumes when an item
+ * reports. Distinct from `waitingOnCommandByChatIdAtom` (which means the turn is
+ * still LIVE/held open). Set by useStreamChat on a `parked` chat:response:end;
+ * cleared when a new turn dispatches or the user dismisses the chip. Drives the
+ * calm "waiting … will resume automatically" chip near the composer.
+ */
+export const parkedWaitingByChatIdAtom = atom<
+  Map<number, { commands: number; subagents: number; parkedAt: number }>
+>(new Map());
+
+/**
  * v13.1: assistant message id → the shadow-git snapshot turn id captured for
  * that turn (when its writes were snapshotted). Drives the "revert this turn's
  * file changes" affordance. Session-lifetime only — snapshotTurnId is not
