@@ -157,7 +157,6 @@ import {
   runningSubagentCount,
 } from "@/lib/agents/subagent-results";
 import {
-  addPendingApproval,
   takePendingApprovalResults,
 } from "@/lib/agent/pending-approvals";
 import {
@@ -4897,19 +4896,12 @@ This conversation includes one or more image attachments. When the user uploads 
                               });
                             }
                           } else {
-                            // Item 5: grace window, then park if undecided.
+                            // v14.7: BLOCK mid-loop until the user decides (no
+                            // park); Stop (abort) cancels and unwinds the round.
                             const outcome =
-                              await askPermissionInterceptor.waitForApproval(operationId);
-                            if (outcome === "undecided") {
-                              addPendingApproval(req.chatId, operationId);
-                              logger.log(`[Ask Mode] Permission undecided — parking turn: ${operationId}`);
-                              return JSON.stringify({
-                                pending: true,
-                                message:
-                                  "Waiting for your approval — this is paused, not failed. I'll continue automatically once you approve or reject. Do not retry it.",
-                                operation: permRequest.operation,
+                              await askPermissionInterceptor.waitForApproval(operationId, {
+                                abortSignal: abortController.signal,
                               });
-                            }
                             approved = outcome === "approved";
                           }
 
@@ -5753,19 +5745,13 @@ This conversation includes one or more image attachments. When the user uploads 
                             chatId: req.chatId,
                           });
                         }
-                        // Item 5: wait a short grace window, then PARK if undecided.
-                        const outcome = await permissionInterceptor.waitForApproval(operationId);
-                        if (outcome === "undecided") {
-                          addPendingApproval(req.chatId, operationId);
-                          logger.log(`[Build Mode] Permission undecided — parking turn: ${operationId}`);
-                          return JSON.stringify({
-                            pending: true,
-                            message:
-                              "Waiting for your approval — this is paused, not failed. I'll continue automatically once you approve or reject. Do not retry or call other tools to work around it.",
-                            operation: permRequest.operation,
-                            path: (permRequest.preview as any).path || (permRequest.preview as any).command,
-                          });
-                        }
+                        // v14.7: BLOCK mid-loop until the user decides — the turn
+                        // stays live (Stop button shows, no premature "done").
+                        // Stop (abort) cancels the wait and unwinds the round.
+                        const outcome = await permissionInterceptor.waitForApproval(
+                          operationId,
+                          { abortSignal: abortController.signal },
+                        );
                         const approved = outcome === "approved";
                         if (streamDebugLogging) {
                           logger.log(`[Build Tool] waitForApproval end`, {
@@ -5808,11 +5794,13 @@ This conversation includes one or more image attachments. When the user uploads 
                           }
                         }
                       } catch (error) {
+                        // Stop pressed during the wait → re-throw so streamText
+                        // unwinds the round (don't feed the model a tool result).
+                        if (abortController.signal.aborted) throw error;
                         logger.error(`[Build Mode] Permission error: ${operationId}`, error);
                         return JSON.stringify({
                           success: false,
                           error: `Permission request failed: ${error instanceof Error ? error.message : String(error)}`,
-                          timedOut: true,
                         });
                       }
                     }
@@ -6312,20 +6300,13 @@ This conversation includes one or more image attachments. When the user uploads 
                           logger.log(`[Agentic Loop] Permission request buffered: ${operationId}`);
                           hasPermissionRequest = true;
                           try {
-                            // Item 5: grace window, then park if undecided.
-                            const outcome = await permissionInterceptor.waitForApproval(operationId);
-                            if (outcome === "undecided") {
-                              addPendingApproval(req.chatId, operationId);
-                              logger.log(`[Agentic Loop] Permission undecided — parking turn: ${operationId}`);
-                              iterationResults.push({
-                                tool: toolCall.toolName,
-                                result: JSON.stringify({
-                                  pending: true,
-                                  message:
-                                    "Waiting for your approval — paused, not failed. I'll continue automatically once you approve or reject. Do not retry it.",
-                                }),
-                              });
-                            } else if (outcome === "approved") {
+                            // v14.7: BLOCK mid-loop until the user decides (no
+                            // park); Stop (abort) cancels and unwinds the round.
+                            const outcome = await permissionInterceptor.waitForApproval(
+                              operationId,
+                              { abortSignal: abortController.signal },
+                            );
+                            if (outcome === "approved") {
                               const execResult = permissionInterceptor.getExecutionResult(operationId);
                               pushAgenticWrittenPaths();
                               const okPermResult2 = JSON.stringify({
@@ -6368,11 +6349,12 @@ This conversation includes one or more image attachments. When the user uploads 
                               }
                             }
                           } catch (error) {
+                            if (abortController.signal.aborted) throw error;
                             iterationResults.push({
                               tool: toolCall.toolName,
                               result: JSON.stringify({
                                 success: false,
-                                error: `Permission timeout: ${error instanceof Error ? error.message : String(error)}`,
+                                error: `Permission error: ${error instanceof Error ? error.message : String(error)}`,
                               }),
                             });
                           }

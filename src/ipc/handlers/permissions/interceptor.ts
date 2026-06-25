@@ -55,14 +55,8 @@ const logger = log.scope("permission-interceptor");
 // CONFIGURATION
 // ════════════════════════════════════════════════════════════════════════════
 
-/**
- * Item 5 — grace-then-park. The model's tool call waits this short window for a
- * decision; if the user doesn't answer in time, `waitForApproval` resolves
- * `"undecided"` (NOT rejected) and the caller PARKS the turn (the op stays
- * pending, the approval card stays up, the turn auto-resumes when the user later
- * decides). No more 5-minute inline block that conflated timeout with rejection.
- */
-const GRACE_PERIOD_MS = 4000;
+// v14.7: the Item-5 grace-then-park window was removed — approvals now BLOCK the
+// turn mid-loop until the user decides (see waitForApproval below).
 
 // ════════════════════════════════════════════════════════════════════════════
 // TYPES
@@ -73,7 +67,8 @@ export type WaitOutcome = "approved" | "rejected" | "undecided";
 
 interface PendingApproval {
     resolve: (outcome: WaitOutcome) => void;
-    timeout: NodeJS.Timeout;
+    /** v14.7: undefined for the indefinite mid-loop block (no grace timeout). */
+    timeout?: NodeJS.Timeout;
     createdAt: number;
 }
 
@@ -466,36 +461,49 @@ export class PermissionInterceptor extends EventEmitter {
     // ════════════════════════════════════════════════════════════════════════════
 
     /**
-     * Wait a short GRACE window for the user to decide on an operation (Item 5).
-     * Unlike the old 5-minute inline block, a timeout here does NOT reject — it
-     * resolves `"undecided"` so the caller can PARK the turn (the op stays
-     * `pending`, its approval card stays up) and auto-resume when the user
-     * eventually decides. A decision inside the window resolves `"approved"` /
-     * `"rejected"` as before, so the common quick-approve path is unchanged.
+     * v14.7 — BLOCK the turn mid-loop until the user decides (Claude-Code model).
+     * The wait is **indefinite** (no grace/park): the tool's `execute` stays
+     * suspended, so the turn remains one live `streamText` round — the Stop button
+     * shows, the model can't emit a premature "done", and on decision the loop
+     * continues with the real result. Safe re: connections: the upstream model
+     * response already closed at `finish`, so nothing is held open during the wait
+     * (see plan Step 0). Resolved by `executeOperation`/`rejectOperation` →
+     * `resolveApproval`. Cancelled by the turn's abort signal (Stop), which
+     * rejects with the abort reason so `streamText` unwinds cleanly.
      *
-     * @param operationId - The operation to wait for
-     * @param timeoutMs - Grace window in ms (default: GRACE_PERIOD_MS)
-     * @returns "approved" | "rejected" | "undecided" (grace expired)
+     * NOTE: this is the HUMAN-approval gate only — machine waits (sub-agents,
+     * `run_command`) keep their own timeouts and are NOT made unbounded here.
      */
-    async waitForApproval(operationId: string, timeoutMs = GRACE_PERIOD_MS): Promise<WaitOutcome> {
-        return new Promise((resolve) => {
-            // Grace expiry → undecided. Do NOT mark the op rejected: it stays
-            // pending so the card persists and the user can still decide; the
-            // caller parks the turn and the decision auto-resumes it.
-            const timeout = setTimeout(() => {
-                logger.log(`[waitForApproval] Operation ${operationId} undecided after ${timeoutMs}ms grace — parking`);
+    async waitForApproval(
+        operationId: string,
+        opts?: { abortSignal?: AbortSignal },
+    ): Promise<WaitOutcome> {
+        return new Promise((resolve, reject) => {
+            const abortSignal = opts?.abortSignal;
+            const onAbort = () => {
                 this.pendingApprovals.delete(operationId);
-                resolve("undecided");
-            }, timeoutMs);
-
-            // Store the pending approval
+                reject(
+                    abortSignal?.reason instanceof Error
+                        ? abortSignal.reason
+                        : new DOMException("Approval wait aborted", "AbortError"),
+                );
+            };
+            if (abortSignal) {
+                if (abortSignal.aborted) {
+                    onAbort();
+                    return;
+                }
+                abortSignal.addEventListener("abort", onAbort, { once: true });
+            }
             this.pendingApprovals.set(operationId, {
-                resolve,
-                timeout,
+                resolve: (outcome) => {
+                    if (abortSignal) abortSignal.removeEventListener("abort", onAbort);
+                    resolve(outcome);
+                },
+                // No grace timeout — indefinite block.
                 createdAt: Date.now(),
             });
-
-            logger.log(`[waitForApproval] Waiting (grace) for user response on ${operationId}`);
+            logger.log(`[waitForApproval] Blocking (indefinite) for user response on ${operationId}`);
         });
     }
 
@@ -507,7 +515,7 @@ export class PermissionInterceptor extends EventEmitter {
     private resolveApproval(operationId: string, approved: boolean): void {
         const pending = this.pendingApprovals.get(operationId);
         if (pending) {
-            clearTimeout(pending.timeout);
+            if (pending.timeout) clearTimeout(pending.timeout);
             pending.resolve(approved ? "approved" : "rejected");
             this.pendingApprovals.delete(operationId);
             logger.log(`[resolveApproval] ${operationId} -> ${approved ? 'APPROVED' : 'REJECTED'}`);
