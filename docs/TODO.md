@@ -1,7 +1,115 @@
 # Atlarix TODO
 
 **Current Version:** v14.5.0 (released)
-**Last Updated:** 2026-06-24
+**Last Updated:** 2026-06-25
+
+---
+
+## 🔴 Open regressions — BLOCK the v14.6.0 release (next session)
+
+> A v14.6.0 release was prepared (grace-then-park, Core fallback, compaction-UX
+> simplification, honest meter, folded attachments, ponytail AGENTS, clipboard
+> chips) and the code is **already committed + pushed to `main`** (`2f30fee` revised
+> compaction/meter/Core, `f607ea1` grace-then-park). Manual packaged testing on
+> 2026-06-25 found **four features that do not actually work in the build**, so the
+> release (version bumps + tag + launchpad) was **HELD**. Fix these first, then cut
+> v14.6.0. Nothing here is reverted — the code stays on `main` for next session to fix
+> in place. All four were verified broken in a local `npm run package` build.
+
+### 1. Context meter does NOT drop after `compress_context` (Bug A regression)
+**Symptom (screenshot):** `compress_context` reported `174,402 → 11,236 tokens (94%
+reduction)`, the activity card said "session summary stored, earlier turns compacted",
+but BOTH meters (the floating pill `180,159 / 262K · 69%` and the composer footer
+`Build · PdfDing 180,159 / 262.1k`) stayed at the **pre-compress** value. `180,159 ≈
+174,402 history + ~6K system` — i.e. the meter is still counting the FULL history.
+
+**Architecture (two independent meter feeds — both failed):**
+- **Feed A — `chat:count-tokens`** (`src/ipc/handlers/token_count_handlers.ts`,
+  `useContextTokenCount`/`useCountTokens`). Reads `getStreamTransport(chatId).messages`,
+  applies `sliceFromLastCompactionSummary(ordered)` (the meter-on-reopen fix), sums the
+  slice if a `[COMPACTION MARKER]` is found else `computeDeltaTailTokens` (full).
+  Invalidated via React-Query **only after the stream ends** (`useStreamChat`), NOT
+  mid-turn — so a compress that runs while the model keeps "Thinking…" shows a STALE
+  full count until the turn ends.
+- **Feed B — `chat:context-report`** immediate push (`chat_stream_handlers.ts:5331-5337`,
+  `dispatchedTokens: outcome.tokensAfter`) consumed by `useContextReport`. Meant to drop
+  the pill instantly. The pill still showed 180K → **this push is not being applied** (or
+  `useContextReport` keeps the larger/last value, or the pill reads Feed A not B).
+
+**Leading hypotheses (rank order for next session):**
+1. **Feed B not consumed:** confirm which atom the floating pill + footer actually read
+   (Feed A `estimatedTotalTokens` vs Feed B `dispatchedTokens`). Likely both read Feed A,
+   so Feed B's immediate-drop never reaches the UI. → make the pill prefer the latest
+   `context-report.dispatchedTokens` when present, OR invalidate `count-tokens` right after
+   a model-initiated compress (not only at stream end).
+2. **Transport replaced but query not re-run:** `executeCompressContext`
+   (`src/lib/tools/workspace.ts:210-217`) DOES `ctx.setMessages(afterList)` →
+   `ec.messages = afterList` (compacted ~11K) for the live transport (`chatId < 0`). So a
+   FRESH `count-tokens` would compute ~11K (`computeDeltaTailTokens(afterList)`), but it's
+   never invalidated mid-turn. Add an explicit `invalidateTokenCount` on the compress
+   activity event.
+
+**Next-session checks:** add a temp log of `(modelFacing.length, ordered.length,
+messageHistoryTokens)` in `computeTokenCountResult`; watch whether `ec.messages` is the
+compacted list at the next count after compress; trace the pill component to its atom.
+
+### 2. Old/reopened sessions do NOT slice to ~16K (meter-on-reopen regression)
+**Symptom:** reopening a session that was compacted still shows the FULL (~180K) context,
+not the expected compacted ~16K. The dispatch funnel
+(`chat_stream_handlers.ts:2304-2310`, `sliceFromLastCompactionSummary(messageHistory)`)
+and the meter (`token_count_handlers.ts:165-169`) BOTH depend on the persisted
+`[COMPACTION MARKER]` message being present in the rehydrated session.
+
+**Leading hypotheses:**
+1. **Marker not persisted / not rehydrated:** `persistCompactionSummaryToSession`
+   (`workspace.ts:120-138` → `persistWorkspaceSessionUserMessage(sessionId, summaryMsg.content)`)
+   may not be firing (only on `strategy === "summarized"`), or the bound `sessionId` is null
+   for the live transport at compress time, or `sessions:get` (now ALWAYS full-load after the
+   resume-UI deletion) loads history that does NOT include the marker row. → verify a marker
+   user-message (`content.startsWith("[COMPACTION MARKER]")`) actually exists in the session
+   DB after a compress, and that full-load returns it.
+2. **Slice on full list returns everything:** if the marker IS the first message of the
+   rehydrated list, `modelFacing.length === ordered.length` → meter takes the full
+   `computeDeltaTailTokens` branch. (Correct only when the whole transport is already the
+   compacted afterList; wrong if the full DB history was reloaded with the marker mid-list —
+   re-derive the branch condition.)
+
+**Note:** issues 1 & 2 share the marker-presence root cause — fix together. The compaction
+genuinely persists for the MODEL at dispatch only if the marker is in the rehydrated history;
+if reopen shows full, the model is likely ALSO getting full history on reopen (re-overflow
+risk), not just a cosmetic meter bug. Verify the dispatch slice on reopen, not only the meter.
+
+### 3. Atlarix Core auto-fallback never engages
+**Symptom:** with no usable API key, the app does not fall back to Atlarix Core; the "on
+Core" indicator never shows.
+**Root cause (expected in a LOCAL build):** `getModelClient`
+(`src/ipc/utils/get_model_client.ts`) gates the fallback on `isCompassBuildConfigured()`,
+which requires the build-embedded `COMPASS_OPENROUTER_API_KEY`. A local `npm run package`
+build has **no embedded Core key**, so `isCompassBuildConfigured()` is `false` and the
+fallback CANNOT engage — by design. This path is only verifiable in a **signed release**
+build (CI injects the key). **Next session:** either (a) verify on a real signed release,
+or (b) add a dev-only Core key path for local testing, AND independently re-audit
+`hasUsableProviderKey(provider, settings, providerConfig)` (the triple-guard) for false
+positives (returning "has key" when the keychain `safeStorage` could not decrypt — the dev
+build's "Could not decrypt one or more stored secrets" case).
+
+### 4. Grace-then-park (Item 5) does not park for edits / behaves inconsistently
+**Symptom:** the edit-approval UI did not park-and-wait; removing/adding content didn't help.
+**Root cause:** **edits auto-approve and never reach `waitForApproval`.** Build-mode writes
+auto-approve via `file_permission_preflight.ts` auto_allow (`skipPermissionWait`), and the
+workspace had **always-allow rules** set (screenshot: command categories `python3`/`source`/
+`cd`; file extensions `.py`/`.html`) — so the matching ops skip the wait entirely and grace-
+then-park (which only triggers on ops that hit `waitForApproval`) is a no-op for them. The
+feature DOES work for ops that reach the wait (e.g. a command with no always-allow rule),
+which is why it looked inconsistent depending on the rule set.
+**This was the flagged auto-approve decision** (left unchanged in `f607ea1`). To make grace-
+then-park cover edits as the user expects, next session must decide+implement one of:
+(a) apply the grace/park gate **before** the auto-approve preflight, or (b) make auto-approved
+edits still surface a brief cancellable window, or (c) scope auto-approve so first-time/
+unrule'd edits wait. Confirm against the always-allow ruleset so testing isn't confounded.
+**Verification already in place:** `pending-approvals.ts` unit suite (6 tests) + the
+`edit-with-approval`/`permission-ruleset` evals are green — the park MACHINERY is correct;
+the gap is purely WHERE it is invoked (auto-approve bypasses it).
 
 ---
 
