@@ -81,19 +81,24 @@ export function BackgroundJobsIndicator({
             </span>
           </button>
         </PopoverTrigger>
-        <PopoverContent side="top" align="start" className="w-96 p-2">
+        <PopoverContent
+          side="top"
+          align="start"
+          className="w-[26rem] max-w-[calc(100vw-2rem)] p-2"
+        >
           <div className="mb-2 px-1 text-xs font-semibold text-muted-foreground">
             Background tasks ({jobs.length})
           </div>
           <ScrollArea className="max-h-72">
-            <div className="flex flex-col items-stretch gap-1 pr-2">
+            <div className="flex w-full flex-col items-stretch gap-1 pr-2">
               {jobs.map((j) => (
                 <div
                   key={j.operationId}
-                  className="flex items-center gap-1.5 rounded-md border border-border/60 bg-muted/30 px-2 py-1"
+                  className="flex w-full min-w-0 items-center gap-1 rounded-md border border-border/60 bg-muted/30 px-2 py-1.5"
                 >
+                  {/* min-w-0 is required for `truncate` to clip a flex child. */}
                   <code
-                    className="flex-1 truncate font-mono text-[11px] opacity-80"
+                    className="min-w-0 flex-1 truncate font-mono text-[11px] opacity-80"
                     title={j.command}
                   >
                     {j.command}
@@ -101,7 +106,7 @@ export function BackgroundJobsIndicator({
                   <button
                     type="button"
                     onClick={() => void sendJobToChat(j.operationId, j.command)}
-                    className="shrink-0 rounded-full p-0.5 hover:bg-muted hover:text-foreground"
+                    className="shrink-0 rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
                     title="Send this task (with its output) to chat"
                   >
                     <MessageSquarePlus className="h-3.5 w-3.5" />
@@ -109,7 +114,7 @@ export function BackgroundJobsIndicator({
                   <button
                     type="button"
                     onClick={() => cancelJob(j.operationId)}
-                    className="shrink-0 rounded-full p-0.5 hover:bg-muted hover:text-foreground"
+                    className="shrink-0 rounded p-1 text-muted-foreground hover:bg-destructive/15 hover:text-destructive"
                     title="Cancel this background task"
                   >
                     <X className="h-3.5 w-3.5" />
