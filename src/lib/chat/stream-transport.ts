@@ -36,6 +36,19 @@ export function nextEphemeralMessageId(): number {
 export function buildContinueAfterQuestionsPrompt(
   msgs: { role: string; content?: string | null }[],
 ): string {
+  // System auto-wake (a background task finished, or a scheduled check fired):
+  // the MOST RECENT message is the assistant's own last turn — there is no fresh
+  // user input. Re-feeding the user's previous message here makes the model
+  // RE-ANSWER an already-answered request on EVERY wake (the "kept repeating the
+  // same answer" bug). Instead, orient it to REACT to the new event and continue
+  // — exactly how Claude Code reacts to a finished background job rather than
+  // re-answering. A genuine question-answer resume (ask_user) inserts the user's
+  // answer first, so the last message IS a user message → fall through to the
+  // reconstruction below.
+  const last = msgs[msgs.length - 1];
+  if (last && last.role !== "user") {
+    return "(System continuation: a background task finished or a scheduled check fired — its result/advisory is shown above. React to it now: give a brief status update or take the next action, then keep waiting if work remains. Do NOT repeat or re-answer earlier requests — they are already handled.)";
+  }
   const userMsgs = msgs.filter((m) => m.role === "user");
   if (userMsgs.length === 0) return "";
   if (userMsgs.length === 1) return String(userMsgs[0].content ?? "").trim();

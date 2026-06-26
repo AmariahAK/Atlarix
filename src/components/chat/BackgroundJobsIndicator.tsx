@@ -1,14 +1,28 @@
+import { useState } from "react";
 import { useAtomValue, useSetAtom } from "jotai";
 import { Loader2, MessageSquarePlus, X } from "lucide-react";
 import { IpcClient } from "@/ipc/ipc_client";
 import { backgroundJobsByChatIdAtom } from "@/atoms/sourceAtoms";
 import { attachmentsAtom } from "@/atoms/chatAtoms";
 import { showSuccess } from "@/lib/toast";
+import { cn } from "@/lib/utils";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 /**
- * "N background jobs running" chip shown while the agent has detached
- * commands in flight — visible even when no turn is streaming, so you can keep
- * chatting and cancel a job. The agent is auto-woken when a job finishes.
+ * "N background tasks running" chip shown while the agent has detached commands
+ * in flight — visible even when no turn is streaming, so you can keep chatting
+ * and cancel a job. The agent is auto-woken when a job finishes.
+ *
+ * Mirrors the folded-attachments UX: instead of a flat row of per-job chips
+ * (which overflows once there are a few), the jobs fold into ONE summary card;
+ * clicking it opens a scrollable popover listing each task with its send-to-chat
+ * and cancel actions. (Sub-agents keep their own in-message cards — this is the
+ * background-task surface only, deliberately NOT a combined one.)
  */
 export function BackgroundJobsIndicator({
   chatId,
@@ -17,6 +31,7 @@ export function BackgroundJobsIndicator({
 }) {
   const byChat = useAtomValue(backgroundJobsByChatIdAtom);
   const setAttachments = useSetAtom(attachmentsAtom);
+  const [open, setOpen] = useState(false);
   const jobs = chatId != null ? byChat[chatId] : undefined;
   if (!jobs || jobs.length === 0) return null;
 
@@ -42,45 +57,69 @@ export function BackgroundJobsIndicator({
     showSuccess(`Added id-${operationId} to chat`);
   };
 
+  const cancelJob = (operationId: string) => {
+    if (chatId != null) {
+      void IpcClient.getInstance().backgroundJobCancel(chatId, operationId);
+    }
+  };
+
   return (
-    <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
-      <span className="flex items-center gap-1.5 rounded-full border border-border bg-muted/40 px-2.5 py-1">
-        <Loader2 className="h-3 w-3 animate-spin text-amber-600 dark:text-amber-500" />
-        <span className="font-medium">
-          {jobs.length} background job{jobs.length === 1 ? "" : "s"} running
-        </span>
-      </span>
-      {jobs.map((j) => (
-        <span
-          key={j.operationId}
-          className="flex items-center gap-1 rounded-full border border-border bg-muted/30 px-2 py-1"
-          title={j.command}
-        >
-          <code className="max-w-[200px] truncate font-mono text-[10px] opacity-80">
-            {j.command}
-          </code>
+    <div className="mt-1.5 flex items-center">
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
           <button
             type="button"
-            onClick={() => void sendJobToChat(j.operationId, j.command)}
-            className="rounded-full p-0.5 hover:bg-muted hover:text-foreground"
-            title="Send this job (with its output) to chat"
+            className={cn(
+              "flex items-center gap-1.5 rounded-full border border-border bg-muted/40 px-2.5 py-1",
+              "text-xs text-muted-foreground cursor-pointer hover:bg-muted/60 transition-colors",
+            )}
+            title={`${jobs.length} background task${jobs.length === 1 ? "" : "s"} running — click to view or cancel`}
           >
-            <MessageSquarePlus className="h-3 w-3" />
+            <Loader2 className="h-3 w-3 animate-spin text-amber-600 dark:text-amber-500" />
+            <span className="font-medium">
+              {jobs.length} background task{jobs.length === 1 ? "" : "s"} running
+            </span>
           </button>
-          <button
-            type="button"
-            onClick={() => {
-              if (chatId != null) {
-                void IpcClient.getInstance().backgroundJobCancel(chatId, j.operationId);
-              }
-            }}
-            className="rounded-full p-0.5 hover:bg-muted hover:text-foreground"
-            title="Cancel this background command"
-          >
-            <X className="h-3 w-3" />
-          </button>
-        </span>
-      ))}
+        </PopoverTrigger>
+        <PopoverContent side="top" align="start" className="w-96 p-2">
+          <div className="mb-2 px-1 text-xs font-semibold text-muted-foreground">
+            Background tasks ({jobs.length})
+          </div>
+          <ScrollArea className="max-h-72">
+            <div className="flex flex-col items-stretch gap-1 pr-2">
+              {jobs.map((j) => (
+                <div
+                  key={j.operationId}
+                  className="flex items-center gap-1.5 rounded-md border border-border/60 bg-muted/30 px-2 py-1"
+                >
+                  <code
+                    className="flex-1 truncate font-mono text-[11px] opacity-80"
+                    title={j.command}
+                  >
+                    {j.command}
+                  </code>
+                  <button
+                    type="button"
+                    onClick={() => void sendJobToChat(j.operationId, j.command)}
+                    className="shrink-0 rounded-full p-0.5 hover:bg-muted hover:text-foreground"
+                    title="Send this task (with its output) to chat"
+                  >
+                    <MessageSquarePlus className="h-3.5 w-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => cancelJob(j.operationId)}
+                    className="shrink-0 rounded-full p-0.5 hover:bg-muted hover:text-foreground"
+                    title="Cancel this background task"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </ScrollArea>
+        </PopoverContent>
+      </Popover>
     </div>
   );
 }
