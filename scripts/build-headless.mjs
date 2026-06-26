@@ -84,14 +84,24 @@ await build({
 // first). wasm is arch-independent, so the host copy is fine.
 const outDir = path.join(root, "dist-headless");
 const assets = [
-  { src: path.join(root, "AGENTS_COMPACT.md"), dest: "AGENTS_COMPACT.md" },
-  { src: path.join(root, "AGENTS_MODE_BASE.md"), dest: "AGENTS_MODE_BASE.md" },
+  // Single unified guidance bundle (a88cdeb consolidated AGENTS_COMPACT.md +
+  // AGENTS_MODE_BASE.md → AGENTS.md). system_prompt.ts loads AGENTS.md from
+  // __dirname; if it isn't shipped here the headless CLI silently falls back to
+  // the 6-line FALLBACK_AGENTS stub. Keep this filename in sync with that loader.
+  { src: path.join(root, "AGENTS.md"), dest: "AGENTS.md" },
   { src: path.join(root, "node_modules/tiktoken/lite/tiktoken_bg.wasm"), dest: "tiktoken_bg.wasm" },
 ];
+// AGENTS.md is load-bearing: without it headless runs on the FALLBACK_AGENTS
+// stub (silent capability cliff). Fail the build loudly rather than ship a
+// degraded tarball. The wasm is a soft degrade, so it stays a warning.
+const REQUIRED = new Set(["AGENTS.md"]);
 for (const { src, dest } of assets) {
   if (fs.existsSync(src)) {
     fs.copyFileSync(src, path.join(outDir, dest));
     console.log(`[build-headless] copied ${dest} next to bundle`);
+  } else if (REQUIRED.has(dest)) {
+    console.error(`[build-headless] FATAL: required asset ${src} not found — headless would fall back to the stub prompt`);
+    process.exit(1);
   } else {
     console.warn(`[build-headless] WARN: ${src} not found — headless may degrade`);
   }
