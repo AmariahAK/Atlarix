@@ -243,6 +243,9 @@ export async function runAgentTurn(
 
     let buildIterMessages: ModelMessage[] = agenticMessages;
     let streamRoundDone = false;
+    // Finish reason of the round that actually completed (last continuation),
+    // hoisted so the post-round termination check can read it.
+    let finalFinishReason: unknown;
     // The final round's native response messages — continuation rounds
     // already append theirs to buildIterMessages.
     let finalRoundRespMsgs: ModelMessage[] = [];
@@ -304,6 +307,7 @@ export async function runAgentTurn(
         sanitizeTextDelta: rt.sanitizeTextDelta,
       });
       fullResponse = roundFull;
+      finalFinishReason = fr;
       const resp = await bundle.response;
       const respMsgs = resp.messages as ModelMessage[];
       finalRoundRespMsgs = respMsgs;
@@ -401,17 +405,40 @@ export async function runAgentTurn(
     // + mutation-verify); a red gate nudges the model to fix it (bounded), so it
     // can't "go quiet" right after a broken edit/command. Ask mode ends on the
     // first prose-only round; background work parks instead of ending.
-    if (!hasTextToolCalls && !hadNativeToolExecution && !roundHadNativeToolMessages) {
-      // Background work still outstanding — PARK (end cleanly, auto-resume when
-      // an item reports). The model already knows results arrive automatically.
+    // Did the model YIELD (done) or does it want more tool work? finishReason is
+    // authoritative: with execute-based tools the SDK runs the whole multi-step
+    // inside ONE round and finishes "stop" when the model is done — even if that
+    // round used tools. The old structural proxy (`!roundHadNativeToolMessages`)
+    // mis-fired: a round that used a tool THEN gave closing prose still "had
+    // native messages", so the loop ran a needless extra round (the ~30s lag the
+    // user saw) — and a turn with only DETACHED background work looped for the
+    // whole job instead of parking. Text-tool models (MiniMax) finish "stop" with
+    // calls embedded in prose, so `hasTextToolCalls` gates them out. Unknown
+    // finishReason → fall back to the structural proxy so no provider regresses.
+    const modelYielded =
+      hasTextToolCalls
+        ? false
+        : finalFinishReason === "stop"
+          ? true
+          : finalFinishReason === "tool-calls"
+            ? false
+            : !hadNativeToolExecution && !roundHadNativeToolMessages;
+
+    if (modelYielded) {
+      // Persist this round's native tool messages (they ran inside the SDK loop)
+      // into the turn envelope before we end/park.
+      if (roundHadNativeToolMessages) {
+        rt.nativeTurnMessages.push(...nativeIterMessages);
+      }
+      // Background work still outstanding — PARK: end the turn cleanly now and
+      // auto-resume when an item reports. Matches Claude Code — detached work
+      // never holds the turn open; it ends, the composer returns to Send, and the
+      // background auto-wake (job / sub-agent / scheduled) resumes on completion.
       if (pendingWorkBlocksEnd()) {
         parked = true;
         logger.info(
-          `${L} Prose-only yield → PARKED — ${runningSubagentCount(rt.chatId)} sub-agent(s) / background work outstanding`,
+          `${L} Model yielded (fr=${String(finalFinishReason)}) → PARKED — ${runningSubagentCount(rt.chatId)} sub-agent(s) / background work outstanding`,
         );
-        if (roundHadNativeToolMessages) {
-          rt.nativeTurnMessages.push(...nativeIterMessages);
-        }
         break;
       }
       if (profile.proseOnlyStreakMax == null) {
@@ -442,10 +469,17 @@ export async function runAgentTurn(
         break;
       }
       agenticProseOnlyStreak++;
-      agenticMessages.push({
-        role: "assistant" as const,
-        content: stripAssistantDisplayContent(stripXML(fullResponse)),
-      });
+      // Fold this round's native tool messages for context on the gate-nudge
+      // continuation (a tool-using round can now reach this path); fall back to
+      // prose for a pure-prose round.
+      if (roundHadNativeToolMessages) {
+        agenticMessages.push(...nativeIterMessages);
+      } else {
+        agenticMessages.push({
+          role: "assistant" as const,
+          content: stripAssistantDisplayContent(stripXML(fullResponse)),
+        });
+      }
       agenticMessages.push({
         role: "user" as const,
         content: gateFeedback,

@@ -9,6 +9,10 @@ import {
   waitingOnCommandByChatIdAtom,
 } from "@/atoms/chatAtoms";
 import { activityStreamItemsAtom, aiPanelIntentAtom } from "@/atoms/sourceAtoms";
+import {
+  permissionQueueAtom,
+  getOperationsByStatus,
+} from "@/atoms/permissionQueueAtom";
 import type { ActivityStreamItem } from "@/atoms/sourceAtoms";
 import { IpcClient } from "@/ipc/ipc_client";
 import AtlarixAnimation from "@/components/atlarix/AtlarixAnimation";
@@ -81,6 +85,7 @@ export function InlineStreamStatus({
   const waitingByChatId = useAtomValue(waitingOnCommandByChatIdAtom);
   const reconnectingByChatId = useAtomValue(reconnectingByChatIdAtom);
   const liveToolInputByChatId = useAtomValue(liveToolInputByChatIdAtom);
+  const permissionQueue = useAtomValue(permissionQueueAtom);
   const activeTurnScope = useAtomValue(activeTurnScopeAtom);
   const setPanelIntent = useSetAtom(aiPanelIntentAtom);
   const workMode = settings?.workModePreference;
@@ -173,6 +178,10 @@ export function InlineStreamStatus({
   // 4. the live tool/phase label
   const reconnecting =
     !waiting && chatId != null && reconnectingByChatId.get(chatId) === true;
+  // A pending permission card means the turn is blocked ON THE USER (not the
+  // model computing) — say so plainly instead of "still working".
+  const hasPendingApproval =
+    getOperationsByStatus(permissionQueue, "pending").length > 0;
   const turnAgeMs =
     activeTurnScope?.chatId === chatId && activeTurnScope?.startedAt
       ? now - activeTurnScope.startedAt
@@ -189,6 +198,11 @@ export function InlineStreamStatus({
   }
   if (reconnecting) {
     displayLine = "Reconnecting…";
+  } else if (hasPendingApproval) {
+    displayLine =
+      turnAgeMs > STILL_WORKING_AFTER_MS
+        ? `Waiting for your approval (${formatWaitElapsed(turnAgeMs)})`
+        : "Waiting for your approval";
   } else if (!waiting && turnAgeMs > STILL_WORKING_AFTER_MS) {
     displayLine = `${displayLine} · still working (${formatWaitElapsed(turnAgeMs)})`;
   }

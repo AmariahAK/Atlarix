@@ -54,15 +54,17 @@ const assistantToolCallMessagesOf = (req: RecordedRequest) =>
   );
 
 describe("native tool-call history", () => {
-  it("B1: second outer iteration carries native tool parts, not prose", async () => {
+  it("B1: the post-tool step carries native tool parts, not prose", async () => {
     ctx.server.register(
       scenario("native-multi-round")
-        // Round 1 (one streamText call): native tool_call step, then a text
-        // step WITHOUT task_complete — forces the OUTER loop to iterate.
+        // ONE streamText call, multi-step INTERNALLY (execute-based tools): a
+        // native tool_call step, then the model's final text step. The step-2
+        // request (sent after read_file executed) is the one under test — it
+        // must carry the native tool exchange. The turn then ends on the
+        // model's finishReason:"stop" (no needless extra outer iteration — that
+        // was the old `roundHadNativeToolMessages` over-loop bug).
         .toolCall("read_file", { path: "src/data.ts" })
-        .text("I read the data file. Continuing the analysis before I finish.")
-        // Round 2 (new streamText call → its request is the one under test):
-        .text("Analysis complete. The value is 7.")
+        .text("Analysis complete. The data value is 7.")
         .build(),
     );
 
@@ -79,23 +81,23 @@ describe("native tool-call history", () => {
     const requests = ctx.server.requestsFor(
       "native-multi-round",
     ) as RecordedRequest[];
-    // req1 = round-1 tool_call step, req2 = round-1 text step (SDK-internal,
-    // already native), req3 = round-2 dispatch — the outer-loop reassembly.
-    expect(requests.length).toBeGreaterThanOrEqual(3);
-    const round2 = requests[requests.length - 1];
+    // req1 = tool_call step; req2 = the post-execute text step, which carries
+    // the assistant tool_calls + role:"tool" result natively.
+    expect(requests.length).toBeGreaterThanOrEqual(2);
+    const postTool = requests[requests.length - 1];
 
-    // Target: round 2's history carries the native tool exchange…
+    // Target: the post-tool step's history carries the native tool exchange…
     expect(
-      toolMessagesOf(round2).length,
-      "round-2 request must contain a native role:'tool' message from round 1",
+      toolMessagesOf(postTool).length,
+      "post-tool request must contain a native role:'tool' message",
     ).toBeGreaterThanOrEqual(1);
     expect(
-      assistantToolCallMessagesOf(round2).length,
-      "round-2 request must contain the assistant tool_calls message from round 1",
+      assistantToolCallMessagesOf(postTool).length,
+      "post-tool request must contain the assistant tool_calls message",
     ).toBeGreaterThanOrEqual(1);
 
     // …and NOT the synthetic flattening.
-    expect(JSON.stringify(round2)).not.toContain(
+    expect(JSON.stringify(postTool)).not.toContain(
       "Here are the results of the tools you called",
     );
   });
