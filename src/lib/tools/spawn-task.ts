@@ -32,8 +32,15 @@ import {
 /** Cap the proposed-diff size folded into the task result to protect context. */
 const MAX_DIFF_CHARS = 20_000;
 
-/** Wall-clock cap for a background sub-agent so a hung one can't stall the turn. */
-const DEFAULT_BACKGROUND_TIMEOUT_MS = 5 * 60_000;
+/**
+ * Wall-clock cap for a background sub-agent so a hung one can't stall the turn.
+ * 10 min: a read-only scout on a large repo (or a slower model / slow network)
+ * can legitimately run several minutes of grep/read/reason rounds. It's
+ * backgrounded (never blocks the main turn) and now cancellable via
+ * `task({ task_id, cancel: true })`, so a generous bound is cheap. Override with
+ * ATLARIX_SUBAGENT_TIMEOUT_MS.
+ */
+const DEFAULT_BACKGROUND_TIMEOUT_MS = 10 * 60_000;
 function backgroundTimeoutMs(): number {
   const fromEnv = Number(process.env.ATLARIX_SUBAGENT_TIMEOUT_MS);
   return Number.isFinite(fromEnv) && fromEnv > 0
@@ -50,9 +57,61 @@ type TaskRecord = {
   error?: string;
   startedAt: number;
   finishedAt?: number;
+  /** Chat that spawned this task — scopes list/cancel to the caller's session. */
+  chatId?: number;
+  /** Short label for the list view. */
+  description?: string;
+  /** Hard-cancel handle (background tasks only). */
+  abort?: AbortController;
+  /** Set when the main agent cancelled this task — suppresses the auto-wake. */
+  cancelled?: boolean;
 };
 
 const taskStore = new Map<string, TaskRecord>();
+
+/** Running background sub-agents for a chat (for `task({ list: true })`). */
+export function listRunningSubagentTasks(
+  chatId: number | undefined,
+): Array<{ taskId: string; description: string; elapsedMs: number }> {
+  const now = Date.now();
+  const out: Array<{ taskId: string; description: string; elapsedMs: number }> = [];
+  for (const rec of taskStore.values()) {
+    if (rec.state !== "running") continue;
+    if (chatId != null && rec.chatId !== chatId) continue;
+    out.push({
+      taskId: rec.id,
+      description: rec.description ?? rec.subagentType ?? "(task)",
+      elapsedMs: now - rec.startedAt,
+    });
+  }
+  return out;
+}
+
+/**
+ * Hard-cancel a running background sub-agent: abort its model stream (stops
+ * spending tokens), mark it cancelled, and suppress the auto-wake (the caller
+ * gets the cancel confirmation in-band). No-op (ok:false) if the task is
+ * unknown, already finished, or belongs to a different chat.
+ */
+export function cancelSubagentTask(
+  chatId: number | undefined,
+  taskId: string,
+): { ok: boolean; reason?: string } {
+  const rec = taskStore.get(taskId);
+  if (!rec) return { ok: false, reason: `Unknown task_id: ${taskId}` };
+  if (chatId != null && rec.chatId !== chatId) {
+    return { ok: false, reason: `Task ${taskId} belongs to another session` };
+  }
+  if (rec.state !== "running") {
+    return { ok: false, reason: `Task ${taskId} already ${rec.state}` };
+  }
+  rec.cancelled = true;
+  rec.state = "error";
+  rec.error = "Cancelled by the main agent.";
+  rec.finishedAt = Date.now();
+  rec.abort?.abort();
+  return { ok: true };
+}
 
 function taskEnvelope(
   taskId: string,
@@ -73,7 +132,8 @@ ToolRegistry.register({
     "For independent scopes, issue MULTIPLE task calls in ONE response — they run concurrently (up to 5 per turn). " +
     "By default a sub-agent is READ-ONLY. Set write=true to let it implement changes inside an ISOLATED git worktree; its proposed diff comes back for you to review and apply with your own write tools (the workspace is never touched directly). " +
     "Optional subagent_type names a user-defined .atlarix/agents/ agent. " +
-    "Set background=true to return immediately with a task id; pass task_id later to collect the result.",
+    "Set background=true to return immediately with a task id; pass task_id later to collect the result. " +
+    "Manage running background sub-agents like background jobs: list=true to see them, or task_id + cancel=true to hard-stop one that's stuck or no longer needed.",
   requiresWorkspace: false,
   isCore: false,
   isReadOnly: false,
@@ -93,8 +153,16 @@ ToolRegistry.register({
       write: booleanParam(
         "When true, the sub-agent may implement changes inside an isolated git worktree; its proposed diff is returned for you to review and apply (requires a git workspace).",
       ),
+      cancel: booleanParam(
+        "With task_id: hard-cancel that running background sub-agent (stops its token spend).",
+      ),
+      list: booleanParam(
+        "List your still-running background sub-agents (ids, labels, elapsed time).",
+      ),
     },
-    ["description", "prompt"],
+    // description/prompt are validated in-handler (a NEW task needs them; the
+    // task_id / cancel / list control modes do not), so nothing is required.
+    [],
   ),
   handler: async (args: {
     description: string;
@@ -103,6 +171,8 @@ ToolRegistry.register({
     task_id?: string;
     background?: boolean;
     write?: boolean;
+    cancel?: boolean;
+    list?: boolean;
     workspace?: string;
     workspaceId?: number;
     chatId?: number;
@@ -113,6 +183,28 @@ ToolRegistry.register({
     emitSubagentActivity?: (payload: SubagentActivityEmit) => void;
   }) => {
     const resumeId = args.task_id?.trim();
+
+    // View: list this chat's still-running background sub-agents.
+    if (args.list) {
+      const running = listRunningSubagentTasks(args.chatId);
+      if (!running.length) {
+        return "<tasks>No background sub-agents are running.</tasks>";
+      }
+      const rows = running.map(
+        (t) =>
+          `<task id="${t.taskId}" elapsed="${Math.round(t.elapsedMs / 1000)}s">${t.description}</task>`,
+      );
+      return `<tasks>\n${rows.join("\n")}\n</tasks>`;
+    }
+
+    // Cancel: hard-abort a running background sub-agent (stops its token spend).
+    if (resumeId && args.cancel) {
+      const res = cancelSubagentTask(args.chatId, resumeId);
+      return res.ok
+        ? `<task id="${resumeId}" state="cancelled"><task_result>Cancelled background sub-agent ${resumeId}; its work was stopped.</task_result></task>`
+        : taskEnvelope(resumeId, "error", `<task_error>${res.reason}</task_error>`);
+    }
+
     if (resumeId) {
       const existing = taskStore.get(resumeId);
       if (!existing) {
@@ -143,8 +235,20 @@ ToolRegistry.register({
       );
     }
 
+    // A new task needs both fields (enforced here, not in the schema, so the
+    // control modes — task_id / cancel / list — don't have to carry them).
+    if (!args.description?.trim() || !args.prompt?.trim()) {
+      return taskEnvelope(
+        "invalid",
+        "error",
+        `<task_error>A new task requires both "description" and "prompt". To act on an existing task, pass task_id (resume), task_id + cancel:true (stop it), or list:true (see running tasks).</task_error>`,
+      );
+    }
+
     const taskId = randomUUID();
     const subagentType = args.subagent_type?.trim() || "";
+    // Set for background tasks so the main agent can hard-cancel them mid-flight.
+    let taskAbort: AbortController | undefined;
 
     const run = async () => {
       // Writer mode: isolate the sub-agent's writes in a throwaway git worktree.
@@ -171,6 +275,7 @@ ToolRegistry.register({
           delegationChatMode: args.delegationChatMode,
           delegationId: args.parentDelegationId ?? taskId,
           emit: args.emitSubagentActivity,
+          abortSignal: taskAbort?.signal,
         });
 
         // Capture the proposed diff before teardown so the main agent can review
@@ -219,11 +324,19 @@ ToolRegistry.register({
       subagentType,
       prompt: args.prompt,
       startedAt: Date.now(),
+      chatId: args.chatId,
+      description: args.description,
     });
 
     if (args.background) {
       const chatId = args.chatId;
       if (chatId != null) recordSubagentStart(chatId, taskId);
+
+      // Hard-cancel handle: the main agent can abort this sub-agent's model
+      // stream via `task({ task_id, cancel: true })` (cancelSubagentTask).
+      taskAbort = new AbortController();
+      const rec0 = taskStore.get(taskId);
+      if (rec0) rec0.abort = taskAbort;
 
       // Record the result into the per-chat store exactly once (on completion,
       // failure, or timeout) so prepareStep can fold it into the turn as it
@@ -231,6 +344,12 @@ ToolRegistry.register({
       let settled = false;
       const finalize = (state: "completed" | "error", body: string) => {
         if (settled) return;
+        // The main agent cancelled this task — it already got the confirmation
+        // in-band; do NOT inject a duplicate result via the auto-wake path.
+        if (taskStore.get(taskId)?.cancelled) {
+          settled = true;
+          return;
+        }
         settled = true;
         if (chatId == null) return;
         const rec = taskStore.get(taskId);
@@ -261,6 +380,9 @@ ToolRegistry.register({
         .catch((err) => {
           const rec = taskStore.get(taskId);
           if (!rec) return;
+          // Keep the "Cancelled by the main agent." message (the abort surfaces
+          // here as an AbortError) — don't overwrite it with the raw error.
+          if (rec.cancelled) return;
           rec.state = "error";
           rec.error = err instanceof Error ? err.message : String(err);
           rec.finishedAt = Date.now();

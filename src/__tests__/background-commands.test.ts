@@ -105,12 +105,12 @@ describe("background-commands output-idle watchdog (A4)", () => {
     recordBackgroundCommandStart(chatId, "op-idle", "ssh prod tail -f log", Date.now());
     expect(statuses).toEqual(["running"]);
 
-    // 60s of silence — under the 120s threshold, no advisory yet.
-    vi.advanceTimersByTime(60_000);
+    // 120s of silence — under the 180s threshold, no advisory yet.
+    vi.advanceTimersByTime(120_000);
     expect(hasPendingStalledAdvisories(chatId)).toBe(false);
 
-    // Cross 120s of silence — exactly one "stalled" advisory.
-    vi.advanceTimersByTime(70_000);
+    // Cross 180s of silence (next 60s scan tick) — exactly one "stalled" advisory.
+    vi.advanceTimersByTime(60_000);
     expect(statuses.filter((s) => s === "stalled")).toHaveLength(1);
     expect(hasPendingStalledAdvisories(chatId)).toBe(true);
     // Advisory is NOT a kill: the job is still running and listed.
@@ -133,10 +133,10 @@ describe("background-commands output-idle watchdog (A4)", () => {
     expect(statuses.filter((s) => s === "stalled")).toHaveLength(1);
 
     // Output resumes → re-armed; a SECOND silent stretch re-advises. Advance
-    // past 120s of NEW silence AND across a 30s scan tick (the watchdog only
-    // checks on its interval, so we overshoot to land on a qualifying tick).
+    // past 180s of NEW silence AND across a 60s scan tick (the watchdog only
+    // checks on its interval, so we land on a qualifying tick).
     updateBackgroundOutput(chatId, "op-idle", "some progress\n");
-    vi.advanceTimersByTime(160_000);
+    vi.advanceTimersByTime(180_000);
     expect(statuses.filter((s) => s === "stalled")).toHaveLength(2);
 
     clearBackgroundCommandsForChat(chatId);

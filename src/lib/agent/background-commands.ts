@@ -74,9 +74,13 @@ const MAX_QUEUED_PER_CHAT = 10;
  * the LLM stream's idle watchdog). Slow-but-progressing jobs reset the clock via
  * updateBackgroundOutput, so a chatty slow job never trips it.
  */
-const OUTPUT_IDLE_THRESHOLD_MS = 120_000;
-/** How often the watchdog scans running jobs. */
-const STALL_CHECK_INTERVAL_MS = 30_000;
+// 3 min: advisory-only (never kills), so erring long is cheap. Installs, CI,
+// and slow downloads routinely go quiet for 2+ min on a slow network without
+// being stuck — 3 min suppresses the false "possibly stuck" noise while still
+// surfacing a genuine hang in reasonable time.
+const OUTPUT_IDLE_THRESHOLD_MS = 180_000;
+/** How often the watchdog scans running jobs (cadence, not the threshold). */
+const STALL_CHECK_INTERVAL_MS = 60_000;
 
 const resultsByChat = new Map<number, BackgroundCommandResult[]>();
 const runningJobsByChat = new Map<number, Map<string, RunningJob>>();

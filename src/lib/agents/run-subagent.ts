@@ -136,6 +136,12 @@ export type RunSubagentArgs = {
   /** Stable id correlating all UI events for this run. */
   delegationId?: string;
   emit?: (payload: SubagentActivityEmit) => void;
+  /**
+   * Abort the sub-agent's in-flight model stream. Used by the main agent to
+   * HARD-cancel a background sub-agent (`task({ task_id, cancel: true })`) — the
+   * stream throws, runSubagent returns a failure, and no more tokens are spent.
+   */
+  abortSignal?: AbortSignal;
 };
 
 export type RunSubagentResult = {
@@ -360,6 +366,7 @@ export async function runSubagent(
       const rolling = makeRollingEmitter(emit, delegationId, round);
       const stream = streamText({
         model: modelClient.model,
+        abortSignal: args.abortSignal,
         messages: buildStreamMessagesWithCacheBreakpoints({
           systemHeader: systemPrompt,
           history: msgs,
