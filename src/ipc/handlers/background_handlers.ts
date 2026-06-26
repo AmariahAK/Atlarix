@@ -19,6 +19,7 @@ import {
   setSubagentNotifier,
   hasPendingSubagentResults,
 } from "@/lib/agents/subagent-results";
+import { setScheduledWakeupNotifier } from "@/lib/agent/scheduled-wakeups";
 import { broadcastToRenderer } from "../utils/browser_view_manager";
 
 const logger = log.scope("background_ipc");
@@ -39,6 +40,14 @@ export function registerBackgroundHandlers(): void {
     broadcastToRenderer("chat:background-job-update", {
       chatId,
       source: "subagent",
+      ...ev,
+    });
+  });
+  // R1: a fired self-wake rides the SAME auto-wake channel (source:"scheduled").
+  setScheduledWakeupNotifier((chatId, ev) => {
+    broadcastToRenderer("chat:background-job-update", {
+      chatId,
+      source: "scheduled",
       ...ev,
     });
   });

@@ -18,6 +18,7 @@ import "./mcp";
 import "./edit";
 import "./shell";
 import "./background-jobs"; // v14 list/output/cancel for background commands
+import "./schedule-wakeup"; // R1 model-scheduled self-wake
 import "./web";
 import "./spawn-task";
 import "./workspace";

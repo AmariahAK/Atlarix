@@ -42,6 +42,8 @@ export const EVERY_MODE_TOOLS = [
   "read_attachment",
   "read_url",
   "web_search",
+  // R1: opt-in self-wake — available in every mode (build/debug get it via "*").
+  "schedule_wakeup",
 ] as const;
 
 function withEveryModeTools(list: readonly string[]): readonly string[] {

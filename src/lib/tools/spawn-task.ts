@@ -65,16 +65,47 @@ type TaskRecord = {
   abort?: AbortController;
   /** Set when the main agent cancelled this task — suppresses the auto-wake. */
   cancelled?: boolean;
+  /** R3: rolling live-output tail (progress narration + finished tool calls). */
+  output?: string;
+  /** R3: last time the buffer grew — liveness for the progress view. */
+  lastActivityAt?: number;
 };
 
 const taskStore = new Map<string, TaskRecord>();
 
+/** R3: cap on a sub-agent's buffered live-output tail (mirrors background commands). */
+const SUBAGENT_OUTPUT_TAIL_CAP = 8_000;
+
+/** R3: append a progress chunk to a running task's live-output buffer (tail-capped). */
+function appendSubagentOutput(taskId: string, chunk: string): void {
+  const rec = taskStore.get(taskId);
+  if (!rec || rec.state !== "running") return;
+  const next = (rec.output ?? "") + chunk;
+  rec.output =
+    next.length > SUBAGENT_OUTPUT_TAIL_CAP
+      ? "…" + next.slice(-SUBAGENT_OUTPUT_TAIL_CAP)
+      : next;
+  rec.lastActivityAt = Date.now();
+}
+
+/** R3: trimmed tail of a task's live output, for resume/list surfacing. */
+function subagentOutputTail(rec: TaskRecord, maxLen: number): string {
+  const out = (rec.output ?? "").trim();
+  if (!out) return "";
+  return out.length > maxLen ? "…" + out.slice(-maxLen) : out;
+}
+
 /** Running background sub-agents for a chat (for `task({ list: true })`). */
 export function listRunningSubagentTasks(
   chatId: number | undefined,
-): Array<{ taskId: string; description: string; elapsedMs: number }> {
+): Array<{ taskId: string; description: string; elapsedMs: number; lastOutput: string }> {
   const now = Date.now();
-  const out: Array<{ taskId: string; description: string; elapsedMs: number }> = [];
+  const out: Array<{
+    taskId: string;
+    description: string;
+    elapsedMs: number;
+    lastOutput: string;
+  }> = [];
   for (const rec of taskStore.values()) {
     if (rec.state !== "running") continue;
     if (chatId != null && rec.chatId !== chatId) continue;
@@ -82,6 +113,7 @@ export function listRunningSubagentTasks(
       taskId: rec.id,
       description: rec.description ?? rec.subagentType ?? "(task)",
       elapsedMs: now - rec.startedAt,
+      lastOutput: subagentOutputTail(rec, 160).replace(/\s+/g, " ").trim(),
     });
   }
   return out;
@@ -192,7 +224,7 @@ ToolRegistry.register({
       }
       const rows = running.map(
         (t) =>
-          `<task id="${t.taskId}" elapsed="${Math.round(t.elapsedMs / 1000)}s">${t.description}</task>`,
+          `<task id="${t.taskId}" elapsed="${Math.round(t.elapsedMs / 1000)}s">${t.description}${t.lastOutput ? ` — ${t.lastOutput}` : ""}</task>`,
       );
       return `<tasks>\n${rows.join("\n")}\n</tasks>`;
     }
@@ -215,14 +247,16 @@ ToolRegistry.register({
         );
       }
       if (existing.state === "running") {
+        const tail = subagentOutputTail(existing, 1_500);
         return taskEnvelope(
           resumeId,
           "running",
           [
             "<summary>Background task still running</summary>",
-            "<task_result>",
-            "Task is still in progress. Continue other work or retry with the same task_id later.",
-            "</task_result>",
+            "<task_progress>",
+            tail || "(no output captured yet)",
+            "</task_progress>",
+            "Still in progress. Continue other work or retry with the same task_id later.",
           ].join("\n"),
         );
       }
@@ -250,6 +284,24 @@ ToolRegistry.register({
     // Set for background tasks so the main agent can hard-cancel them mid-flight.
     let taskAbort: AbortController | undefined;
 
+    // R3: tee live activity into the task's progress buffer (so `task({task_id})`
+    // / `task({list})` can show a running sub-agent's progress) and forward to the
+    // UI emitter. Capture useful progress only — narration text + FINISHED tool
+    // calls; skip raw reasoning (high-volume) and running markers.
+    const bufferingEmit = (payload: SubagentActivityEmit) => {
+      if (
+        payload.type === "subagent_thought" &&
+        payload.channel === "text" &&
+        payload.content
+      ) {
+        appendSubagentOutput(taskId, payload.content);
+      } else if (payload.type === "tool_use" && payload.status === "done") {
+        const d = payload.detail ? `: ${payload.detail.slice(0, 200)}` : "";
+        appendSubagentOutput(taskId, `\n[done ${payload.toolName}${d}]\n`);
+      }
+      args.emitSubagentActivity?.(payload);
+    };
+
     const run = async () => {
       // Writer mode: isolate the sub-agent's writes in a throwaway git worktree.
       let worktree: SubagentWorktree | null = null;
@@ -274,7 +326,7 @@ ToolRegistry.register({
           turnId: args.turnId,
           delegationChatMode: args.delegationChatMode,
           delegationId: args.parentDelegationId ?? taskId,
-          emit: args.emitSubagentActivity,
+          emit: bufferingEmit,
           abortSignal: taskAbort?.signal,
         });
 

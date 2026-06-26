@@ -231,10 +231,10 @@ export interface UpdateStatusPayload {
  */
 export interface BackgroundJobUpdatePayload {
   chatId: number;
-  source: "command" | "subagent";
+  source: "command" | "subagent" | "scheduled";
   operationId?: string;
   taskId?: string;
-  status: "running" | "finished" | "cancelled" | "stalled";
+  status: "running" | "finished" | "cancelled" | "stalled" | "scheduled";
   running: number;
 }
 

@@ -125,6 +125,69 @@ describe("task tool", () => {
     store.clearSubagentsForChat(chatId);
   });
 
+  it("buffers a running sub-agent's live progress for task({task_id}) and task({list})", async () => {
+    await import("@/lib/tools/index");
+    const { ToolRegistry } = await import("@/lib/tools/registry");
+    const { runSubagent } = await import("@/lib/agents/run-subagent");
+    const chatId = 8889;
+
+    // Emit some progress, then stay running until aborted.
+    vi.mocked(runSubagent).mockImplementationOnce(
+      (a: Parameters<typeof runSubagent>[0]) =>
+        new Promise((_resolve, reject) => {
+          a.emit?.({
+            type: "subagent_thought",
+            id: "t1",
+            channel: "text",
+            content: "Scanning packages/api for the entrypoint",
+          });
+          a.emit?.({
+            type: "subagent_thought",
+            id: "t1",
+            channel: "reasoning",
+            content: "noisy private reasoning that must NOT be buffered",
+          });
+          a.emit?.({
+            type: "tool_use",
+            id: "u1",
+            toolName: "grep",
+            status: "done",
+            detail: "42 matches",
+          });
+          a.abortSignal?.addEventListener("abort", () => reject(new Error("aborted")));
+        }),
+    );
+
+    const tool = ToolRegistry.get("task");
+    const started = String(
+      await tool!.handler({
+        description: "scout api",
+        prompt: "Map packages/api",
+        background: true,
+        chatId,
+      }),
+    );
+    const taskId = started.match(/<task id="([^"]+)"/)?.[1];
+    expect(taskId).toBeTruthy();
+    await new Promise((r) => setTimeout(r, 10));
+
+    // Resume on a RUNNING task shows the progress tail (narration + done tool),
+    // but NOT the raw reasoning.
+    const peek = String(await tool!.handler({ task_id: taskId!, chatId }));
+    expect(peek).toContain("task_progress");
+    expect(peek).toContain("Scanning packages/api");
+    expect(peek).toContain("done grep");
+    expect(peek).not.toContain("noisy private reasoning");
+
+    // list surfaces the same tail inline.
+    const listed = String(await tool!.handler({ list: true, chatId }));
+    expect(listed).toContain("Scanning packages/api");
+
+    const { clearSubagentsForChat } = await import("@/lib/agents/subagent-results");
+    await tool!.handler({ task_id: taskId!, cancel: true, chatId });
+    clearSubagentsForChat(chatId);
+  });
+
   it("a new task with no description/prompt returns a guiding error", async () => {
     await import("@/lib/tools/index");
     const { ToolRegistry } = await import("@/lib/tools/registry");

@@ -466,12 +466,17 @@ export function useStreamChat({
           }));
         });
       }
-      // Auto-wake on a finished (not cancelled) job/task — and on a "stalled"
-      // advisory (A4: a quiet still-running job) so a parked chat surfaces the
-      // "this looks stuck, decide" prompt. Only when idle and no wake is already
+      // Auto-wake on a finished (not cancelled) job/task, a "stalled" advisory
+      // (A4: a quiet still-running job → "this looks stuck, decide"), or a
+      // "scheduled" self-wake firing (R1). Only when idle and no wake is already
       // in flight; a live turn already drains via prepareStep. The wake path is
-      // shared by both sources and guarded by the one bgWakeInFlightRef.
-      if (status !== "finished" && status !== "stalled") return;
+      // shared by all sources and guarded by the one bgWakeInFlightRef.
+      if (
+        status !== "finished" &&
+        status !== "stalled" &&
+        status !== "scheduled"
+      )
+        return;
       const streaming = getDefaultStore().get(isStreamingByIdAtom).get(evChatId) === true;
       if (streaming || bgWakeInFlightRef.current.has(evChatId)) return;
       bgWakeInFlightRef.current.add(evChatId);

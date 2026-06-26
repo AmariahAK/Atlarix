@@ -150,12 +150,19 @@ import { trackPendingWork } from "@/lib/pending-work";
 import {
   takePendingBackgroundCommandResults,
   takePendingStalledAdvisories,
+  hasPendingBackgroundCommandResults,
   listBackgroundJobs,
 } from "@/lib/agent/background-commands";
 import {
   takePendingSubagentResults,
+  hasPendingSubagentResults,
   runningSubagentCount,
 } from "@/lib/agents/subagent-results";
+import { collectPendingBackgroundResultsBody } from "@/lib/agent/collect-results";
+import {
+  takePendingScheduledWakeupNudges,
+  clearScheduledWakeupsForChat,
+} from "@/lib/agent/scheduled-wakeups";
 import {
   AI_STREAMING_ERROR_MESSAGE_PREFIX,
   AI_STREAM_EMPTY_RESPONSE_FALLBACK,
@@ -984,6 +991,8 @@ export function clearChatStreamStateForChat(chatId: number): void {
   streamSessionByChatId.delete(chatId);
   // v13 7B: clear any pending waiting-on-command timers + chips.
   clearWaitTrackersForChat(chatId);
+  // R1: cancel any outstanding self-wake timers for this chat.
+  clearScheduledWakeupsForChat(chatId);
 }
 
 // ─── Issue 4: crash-safe interrupted-turn recovery ─────────────────────────
@@ -3806,6 +3815,35 @@ This conversation includes one or more image attachments. When the user uploads 
               }
             }
 
+            // R2: on an auto-wake continuation turn that has finished background /
+            // sub-agent results waiting, deliver them as a REAL tool-result
+            // (persisted via native history) rather than a transient user
+            // injection — by adding an internal `collect_results` tool and
+            // FORCING the model's first step to call it (see prepareStep). A
+            // forced tool call is a harness guarantee a weak model can't skip,
+            // and the result rides the existing native-history channel.
+            // Computed per round: once the results are drained (round 1), this is
+            // false again, so it naturally scopes to the first round of the turn.
+            const wakeHasPendingResults =
+              req.continueAfterQuestions === true &&
+              (hasPendingBackgroundCommandResults(req.chatId) ||
+                hasPendingSubagentResults(req.chatId));
+            if (wakeHasPendingResults) {
+              effectiveTools = {
+                ...effectiveTools,
+                collect_results: {
+                  description:
+                    "Collect the results of background work that finished while you were away, then act on them.",
+                  inputSchema: normalizeToolInputSchemaForAiSdk({
+                    type: "object",
+                    properties: {},
+                  }) as never,
+                  execute: async () =>
+                    collectPendingBackgroundResultsBody(req.chatId),
+                },
+              };
+            }
+
             const maxOutputTokens = await preflight.time("max-tokens", () =>
               getMaxTokensWithFloor(optionsModel),
             );
@@ -3889,10 +3927,20 @@ This conversation includes one or more image attachments. When the user uploads 
               prepareStep: ({ messages, stepNumber }) => {
                 // v13 7A: finished background-command results land on the very
                 // next step (same step-input-only contract as corrections).
-                const bgResults = takePendingBackgroundCommandResults(req.chatId);
+                // R2: on a wake turn the finished bg/sub-agent results are
+                // delivered as a FORCED `collect_results` tool-call (a real,
+                // persisted tool-result) — so do NOT also drain them into a
+                // transient user-injection here (would double-consume / leave
+                // collect_results empty). The live mid-turn path (not a wake
+                // turn) still injects them here as before.
+                const bgResults = wakeHasPendingResults
+                  ? null
+                  : takePendingBackgroundCommandResults(req.chatId);
                 // Finished background sub-agent results fold in the same way —
                 // each one as it arrives, even one at a time.
-                const subagentResults = takePendingSubagentResults(req.chatId);
+                const subagentResults = wakeHasPendingResults
+                  ? null
+                  : takePendingSubagentResults(req.chatId);
                 // A4: stall advisories for still-running quiet jobs (decide:
                 // keep waiting / read / cancel) — same step-input-only seam.
                 const stalledAdvisories = takePendingStalledAdvisories(req.chatId);
@@ -3903,6 +3951,9 @@ This conversation includes one or more image attachments. When the user uploads 
                 // the system tail stays byte-stable for the prompt cache.
                 const reminder = pendingContextReminder;
                 pendingContextReminder = null;
+                // R1: a fired self-wake delivers a soft "re-check now" nudge here
+                // (guidance by nature — NOT a forced tool-result like R2's results).
+                const scheduledNudge = takePendingScheduledWakeupNudges(req.chatId);
                 if (correction) {
                   logger.log(
                     `[repetition] injecting mid-round correction (chat ${req.chatId})`,
@@ -3923,6 +3974,7 @@ This conversation includes one or more image attachments. When the user uploads 
                   bgResults,
                   subagentResults,
                   stalledAdvisories,
+                  scheduledNudge,
                   correction,
                 ]
                   .filter(Boolean)
@@ -3935,15 +3987,33 @@ This conversation includes one or more image attachments. When the user uploads 
                 // results (opencode gets this free by re-running its message
                 // transform per request). Step 0 is a no-op vs the initial
                 // layout, so skip the copy unless something changed.
-                if (cacheMarkerPlacement !== "none" && (stepNumber > 0 || injected)) {
+                // R2: force the model's FIRST step on a wake turn to call
+                // collect_results, so the pending results arrive as a real
+                // (persisted) tool-result. A forced toolChoice is a hard harness
+                // constraint — a weak model cannot skip it. Subsequent steps run
+                // free (the model then acts on the collected results).
+                const forceCollect = wakeHasPendingResults && stepNumber === 0;
+                const base =
+                  cacheMarkerPlacement !== "none" && (stepNumber > 0 || injected)
+                    ? {
+                        messages: advanceCacheBreakpointsForStep(
+                          stepMessages,
+                          cacheMarkerPlacement,
+                        ),
+                      }
+                    : injected
+                      ? { messages: stepMessages }
+                      : undefined;
+                if (forceCollect) {
                   return {
-                    messages: advanceCacheBreakpointsForStep(
-                      stepMessages,
-                      cacheMarkerPlacement,
-                    ),
+                    ...(base ?? { messages }),
+                    toolChoice: {
+                      type: "tool" as const,
+                      toolName: "collect_results",
+                    },
                   };
                 }
-                return injected ? { messages: stepMessages } : undefined;
+                return base;
               },
               providerOptions,
               tools: effectiveTools,
