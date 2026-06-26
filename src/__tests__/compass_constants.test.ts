@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   CORE_TIER_1,
   CORE_TIER_2,
@@ -84,13 +84,23 @@ describe("compass_constants build env", () => {
 });
 
 describe("compass_constants dev-key fallback (Bug 3)", () => {
+  // CI embeds COMPASS_OPENROUTER_API_KEY / ATLARIX_CORE_MODEL_* as real secrets,
+  // so without clearing them the dev-provider fallback never runs (the ambient
+  // build-time value wins) and a masked '***' secret leaks into an assertion.
+  // Clear all of them first; each test re-stubs what it needs.
+  beforeEach(() => {
+    vi.stubEnv("COMPASS_OPENROUTER_API_KEY", "");
+    vi.stubEnv("ATLARIX_CORE_MODEL_1", "");
+    vi.stubEnv("ATLARIX_CORE_MODEL_2", "");
+    vi.stubEnv("ATLARIX_CORE_MODEL_3", "");
+    vi.stubEnv("ATLARIX_CORE_MODEL_4", "");
+  });
   afterEach(() => {
     vi.unstubAllEnvs();
     __setDevCoreKeyProvider(NOOP_DEV_PROVIDER); // reset to release no-op
   });
 
   it("uses the injected dev key when no build-time key is embedded", () => {
-    vi.stubEnv("COMPASS_OPENROUTER_API_KEY", "");
     __setDevCoreKeyProvider({
       apiKey: () => "sk-dev",
       modelId: (t) => (t === CORE_TIER_1 ? "deepseek/x" : undefined),
