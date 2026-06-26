@@ -1,19 +1,19 @@
 # Atlarix TODO
 
-**Current Version:** v14.5.0 (released)
-**Last Updated:** 2026-06-25
+**Current Version:** v14.7.0 (released 2026-06-26)
+**Last Updated:** 2026-06-26
 
 ---
 
-## ✅ v14.6.0 regressions — FIXED in working tree (pending packaged verification + tag)
+## ✅ SHIPPED in v14.7.0 (2026-06-26) — combined 14.6 regressions + wait-state unification
 
-> The four held regressions are now fixed, plus a **fifth** bug found this session
-> (Settings permission rules never apply). Full suite green — **1368 tests** (1313
-> node + 55 renderer), tsc (main + app + tests) + oxlint clean across 1005 files. All
-> fixes carry temporary `ATLARIX_DIAG_146=1`-gated logging (no behavior change in
-> release) for the packaged verification round. **Next:** verify in a packaged `.app`
-> (set `ATLARIX_DIAG_146=1`), remove the diag guards, then cut v14.6.0 (bumps + tag +
-> launchpad). Implementation details in `~/.claude/plans/valiant-leaping-kernighan.md`.
+> Planned as 14.6.0; grew past a regression patch, so shipped as **14.7.0** (14.6 fixes
+> folded in). The four held regressions + two more are fixed, and the agent's WAIT
+> behavior is now a harness property (approvals block mid-loop, detached work parks +
+> auto-resumes, the model manages its own sub-agents, results arrive as persisted
+> tool-results, the loop terminates on `finishReason`). Full suite green — **1439 tests**,
+> tsc (main+app+tests) + oxlint clean; verified across packaged builds; merged to `main`,
+> tagged `v14.7.0`. The regression fixes are recorded below for reference.
 
 | # | Fix | Key files |
 |---|-----|-----------|
@@ -49,12 +49,11 @@
 > Committing this batch for reference (bugs 1–5 + the bug-6 attempt + v14.7 plan); v14.7
 > wait-state work continues from here.
 
-### v14.7 — Wait-state unification (IMPLEMENTED on `fix/v14.6-regressions`, pending packaged verification)
+### v14.7 — Wait-state unification (SHIPPED in v14.7.0)
 
 > Reworked how the agent WAITS to match Claude Code (harness-owned, model-agnostic).
-> Commits: `15d053e` (#3), `bb580b7` (#1), `4d5d501` (#5+#6), `23d8c6c` (#7). tsc(main+app+
-> tests)+oxlint clean; 1311 node + 55 renderer tests green. All diagnostics gated by
-> `ATLARIX_DIAG_146`.
+> Plus the R1–R3 parity refinements (sub-agent live progress, persisted woken results,
+> `schedule_wakeup`) and the loop-termination + no-re-answer fixes. See CHANGELOG 14.7.0.
 
 - **#1 Approvals block mid-loop** — `waitForApproval` blocks indefinitely until you decide
   (no grace/park), cancellable via Stop. Turn stays one live `streamText` round → Stop button
@@ -70,9 +69,9 @@
   slow edit (new `perm-edit` timing), bug 6 revert (`snapshot-turn-ids withSnapshot=N`), 1+2
   next-exchange flash (per-dispatch/compress feed values).
 
-> **Next:** packaged verification of #1 behavior (approvals block, Stop works, no premature
-> "done"; reopen mid-approval shows `waiting`, not error) + read the #7/#8/#9 DIAG to land
-> those fixes. Then merge `fix/v14.6-regressions` → `main` and cut releases.
+> **Done:** verified in packaged builds (approvals block + Stop, detached work parks +
+> auto-resumes, reopen shows `waiting`); diagnostics removed; merged to `main` and tagged
+> `v14.7.0`.
 
 <details><summary>Original diagnostic notes for the four held regressions (historical)</summary>
 
