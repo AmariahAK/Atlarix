@@ -329,7 +329,14 @@ export function takePendingBackgroundCommandResults(
       r.output ? "```\n" + r.output + "\n```" : "(no output)",
     ].join("\n");
   });
-  return `[Background command results]\n\n${blocks.join("\n\n")}`;
+  // Imperative framing: a finished background command is a real event to act
+  // on, not ambient info. The closing directive keeps weak/open-weight models
+  // from reading the block and ending the turn without handling the result.
+  return [
+    `[Background command results]`,
+    blocks.join("\n\n"),
+    `Act on these results now and continue the user's task. A background command finishing is a real event you must handle — do not end your turn just because you have no other pending work.`,
+  ].join("\n\n");
 }
 
 /**
@@ -359,7 +366,11 @@ export function takePendingStalledAdvisories(chatId: number): string | null {
       `Decide: keep waiting, read more with background_jobs({operation:"output", job_id:"${a.operationId}"}), or stop it with background_jobs({operation:"cancel", job_id:"${a.operationId}"}).`,
     ].join("\n"),
   );
-  return `[Background job advisory]\n\n${blocks.join("\n\n")}`;
+  return [
+    `[Background job advisory]`,
+    blocks.join("\n\n"),
+    `Choose one of the options above for each job before ending your turn — do not ignore a possibly-stuck job.`,
+  ].join("\n\n");
 }
 
 /** A4: non-destructive check for undrained stall advisories (turn-end wake). */

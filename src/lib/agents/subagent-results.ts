@@ -123,7 +123,15 @@ export function takePendingSubagentResults(chatId: number): string | null {
       `</${tag}>`,
     ].join("\n");
   });
-  return `[Background sub-agent results]\n\n${blocks.join("\n\n")}`;
+  // Imperative framing (not a descriptive header): a finished sub-agent is a
+  // real event the model MUST act on. Weak/open-weight models otherwise read a
+  // bare result block as ambient and close the turn — so spell out the required
+  // action rather than relying on the model to infer it.
+  return [
+    `[Background sub-agent results]`,
+    blocks.join("\n\n"),
+    `Incorporate these result(s) and continue the user's task now. If a sub-agent failed, decide how to recover — only end your turn once you have acted on every result above.`,
+  ].join("\n\n");
 }
 
 export function clearSubagentsForChat(chatId: number): void {

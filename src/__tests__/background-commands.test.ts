@@ -35,6 +35,9 @@ describe("background-commands (v13 7A / v14 jobs)", () => {
     expect(block).toContain("[Background command results]");
     expect(block).toContain("npm run build");
     expect(block).toContain("succeeded");
+    // imperative framing (open-weight robustness): a finished job must direct
+    // the model to act, not read as ambient info.
+    expect(block).toContain("must handle");
     // take-once
     expect(takePendingBackgroundCommandResults(chatId)).toBeNull();
   });
@@ -120,6 +123,8 @@ describe("background-commands output-idle watchdog (A4)", () => {
     expect(advisory).toContain("op-idle");
     expect(advisory).toContain("STILL RUNNING");
     expect(advisory).toContain("cancel");
+    // imperative framing: must force a decision before ending the turn.
+    expect(advisory).toContain("before ending your turn");
     // take-once
     expect(takePendingStalledAdvisories(chatId)).toBeNull();
 

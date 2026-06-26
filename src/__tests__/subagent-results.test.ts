@@ -38,6 +38,9 @@ describe("subagent-results (background sub-agent orchestration)", () => {
     expect(block).toContain("research auth");
     expect(block).toContain("auth uses Supabase JWT");
     expect(block).toContain('task_id="task-1"');
+    // imperative framing (open-weight robustness): the woken result must tell
+    // the model to act, not just describe the outcome.
+    expect(block).toContain("continue the user's task");
     // take-once
     expect(takePendingSubagentResults(chatId)).toBeNull();
     // second sub-agent still running keeps the turn alive
