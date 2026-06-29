@@ -1,0 +1,59 @@
+{
+    "task": {
+        "path": null,
+        "git_url": null,
+        "git_commit_id": null,
+        "name": "terminal-bench/dna-assembly",
+        "ref": "sha256:c197faf58db01c8cc55f372463c6d65e243b4bda563173d4b9ca7e4c3a5b4c48",
+        "overwrite": false,
+        "download_dir": null,
+        "source": "terminal-bench/terminal-bench-2"
+    },
+    "trial_name": "dna-assembly__36KyKRG",
+    "trials_dir": "Atlarix/benchmarks/results-full/atlarix/2026-06-29__15-29-18",
+    "timeout_multiplier": 1.0,
+    "agent_timeout_multiplier": null,
+    "verifier_timeout_multiplier": null,
+    "agent_setup_timeout_multiplier": null,
+    "environment_build_timeout_multiplier": null,
+    "agent": {
+        "name": null,
+        "import_path": "atlarix_tb:AtlarixAgent",
+        "model_name": "openai/minimax/minimax-m3",
+        "skills": [],
+        "override_timeout_sec": null,
+        "override_setup_timeout_sec": null,
+        "max_timeout_sec": null,
+        "extra_allowed_hosts": [],
+        "kwargs": {},
+        "env": {},
+        "mcp_servers": []
+    },
+    "environment": {
+        "type": "modal",
+        "import_path": null,
+        "force_build": false,
+        "delete": true,
+        "cpu_enforcement_policy": "auto",
+        "memory_enforcement_policy": "auto",
+        "override_cpus": null,
+        "override_memory_mb": null,
+        "override_storage_mb": null,
+        "override_gpus": null,
+        "override_tpu": null,
+        "mounts": null,
+        "extra_docker_compose": [],
+        "env": {},
+        "kwargs": {},
+        "extra_allowed_hosts": []
+    },
+    "verifier": {
+        "override_timeout_sec": null,
+        "max_timeout_sec": null,
+        "env": {},
+        "disable": false
+    },
+    "artifacts": [],
+    "extra_instruction_paths": [],
+    "job_id": "2e9e7af6-b438-43d5-a77b-97df3aa4cdbb"
+}

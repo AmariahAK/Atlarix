@@ -1,0 +1,113 @@
+{
+    "id": "590f8c69-f8e5-4906-91d3-ba633ade17d0",
+    "task_name": "terminal-bench/configure-git-webserver",
+    "trial_name": "configure-git-webserver__t68WoAF",
+    "trial_uri": "file:///Users/amariah/Documents/Github/AI/Atlarix/benchmarks/results-confirm/atlarix-warm/2026-06-29__14-53-15/configure-git-webserver__t68WoAF",
+    "task_id": {
+        "org": "terminal-bench",
+        "name": "configure-git-webserver",
+        "ref": "sha256:a73cf484283083f52b5d4c07c4a7027111fca3cfa3aaf108235d4aff57ef1d8d"
+    },
+    "source": "terminal-bench/terminal-bench-2",
+    "task_checksum": "cf2c66b79368e4f5be614393e3766c1256c718ceff86aba9517bf7a12751c014",
+    "config": {
+        "task": {
+            "path": null,
+            "git_url": null,
+            "git_commit_id": null,
+            "name": "terminal-bench/configure-git-webserver",
+            "ref": "sha256:a73cf484283083f52b5d4c07c4a7027111fca3cfa3aaf108235d4aff57ef1d8d",
+            "overwrite": false,
+            "download_dir": null,
+            "source": "terminal-bench/terminal-bench-2"
+        },
+        "trial_name": "configure-git-webserver__t68WoAF",
+        "trials_dir": "Atlarix/benchmarks/results-confirm/atlarix-warm/2026-06-29__14-53-15",
+        "timeout_multiplier": 1.0,
+        "agent_timeout_multiplier": null,
+        "verifier_timeout_multiplier": null,
+        "agent_setup_timeout_multiplier": null,
+        "environment_build_timeout_multiplier": null,
+        "agent": {
+            "name": null,
+            "import_path": "atlarix_tb:AtlarixAgent",
+            "model_name": "openai/deepseek/deepseek-v4-pro",
+            "skills": [],
+            "override_timeout_sec": null,
+            "override_setup_timeout_sec": null,
+            "max_timeout_sec": null,
+            "extra_allowed_hosts": [],
+            "kwargs": {},
+            "env": {},
+            "mcp_servers": []
+        },
+        "environment": {
+            "type": "daytona",
+            "import_path": null,
+            "force_build": false,
+            "delete": true,
+            "cpu_enforcement_policy": "auto",
+            "memory_enforcement_policy": "auto",
+            "override_cpus": null,
+            "override_memory_mb": null,
+            "override_storage_mb": null,
+            "override_gpus": null,
+            "override_tpu": null,
+            "mounts": null,
+            "extra_docker_compose": [],
+            "env": {},
+            "kwargs": {},
+            "extra_allowed_hosts": []
+        },
+        "verifier": {
+            "override_timeout_sec": null,
+            "max_timeout_sec": null,
+            "env": {},
+            "disable": false
+        },
+        "artifacts": [],
+        "extra_instruction_paths": [],
+        "job_id": "13fa7fd8-ee4d-4c44-ba27-9623a613c4aa"
+    },
+    "agent_info": {
+        "name": "atlarix",
+        "version": "v22.23.1",
+        "model_info": {
+            "name": "deepseek/deepseek-v4-pro",
+            "provider": "openai"
+        }
+    },
+    "agent_result": {
+        "n_input_tokens": null,
+        "n_cache_tokens": null,
+        "n_output_tokens": null,
+        "cost_usd": null,
+        "rollout_details": null,
+        "metadata": null
+    },
+    "verifier_result": {
+        "rewards": {
+            "reward": 1.0
+        }
+    },
+    "exception_info": null,
+    "started_at": "2026-06-29T11:53:23.747903Z",
+    "finished_at": "2026-06-29T11:55:44.137503Z",
+    "environment_setup": {
+        "started_at": "2026-06-29T11:53:23.799433Z",
+        "finished_at": "2026-06-29T11:53:26.437528Z"
+    },
+    "agent_setup": {
+        "started_at": "2026-06-29T11:53:26.437759Z",
+        "finished_at": "2026-06-29T11:53:37.004600Z"
+    },
+    "agent_execution": {
+        "started_at": "2026-06-29T11:53:37.005046Z",
+        "finished_at": "2026-06-29T11:55:28.373351Z"
+    },
+    "verifier": {
+        "started_at": "2026-06-29T11:55:32.704333Z",
+        "finished_at": "2026-06-29T11:55:43.668140Z"
+    },
+    "step_results": null
+}

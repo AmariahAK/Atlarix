@@ -1,0 +1,95 @@
+{
+    "results": {
+        "tool": {
+            "name": "pytest",
+            "version": "8.4.1"
+        },
+        "summary": {
+            "tests": 8,
+            "passed": 7,
+            "failed": 1,
+            "skipped": 0,
+            "pending": 0,
+            "other": 0,
+            "start": 1782734340.5448322,
+            "stop": 1782734343.1599195
+        },
+        "tests": [
+            {
+                "name": "test_outputs.py::test_nginx_installed",
+                "status": "passed",
+                "duration": 0.013630167999963305,
+                "start": 1782734340.974647,
+                "stop": 1782734340.9889426,
+                "retries": 0,
+                "file_path": "test_outputs.py"
+            },
+            {
+                "name": "test_outputs.py::test_nginx_running",
+                "status": "passed",
+                "duration": 0.02245202300002802,
+                "start": 1782734340.9900463,
+                "stop": 1782734341.0132372,
+                "retries": 0,
+                "file_path": "test_outputs.py"
+            },
+            {
+                "name": "test_outputs.py::test_index_page_content",
+                "status": "failed",
+                "raw_status": "call_failed",
+                "duration": 0.019619822999970893,
+                "start": 1782734341.013671,
+                "stop": 1782734341.0854049,
+                "retries": 0,
+                "file_path": "test_outputs.py",
+                "trace": "def test_index_page_content():\n        \"\"\"Test that the index page has the correct content.\"\"\"\n        response = requests.get(\"http://localhost:8080\")\n        assert response.status_code == 200, \"Could not access the index page\"\n    \n        content = response.text.strip()\n        expected_content = \"Welcome to the benchmark webserver\"\n>       assert content == expected_content, (\n            f\"Expected '{expected_content}', \\\n            but got '{content}'\"\n        )\nE       AssertionError: Expected 'Welcome to the benchmark webserver',         but got '<!DOCTYPE html>\nE         <html>\nE         <head><title>Benchmark Server</title></head>\nE         <body>Welcome to the benchmark webserver</body>\nE         </html>'\nE       assert '<!DOCTYPE ht...ody>\\n</html>' == 'Welcome to t...ark webserver'\nE         \nE         + <!DOCTYPE html>\nE         + <html>\nE         + <head><title>Benchmark Server</title></head>\nE         - Welcome to the benchmark webserver\nE         + <body>Welcome to the benchmark webserver</body>\nE         ? ++++++                                  ++++++++\nE         + </html>\n\n/tests/test_outputs.py:40: AssertionError",
+                "message": "The test failed in the call phase due to an assertion error"
+            },
+            {
+                "name": "test_outputs.py::test_custom_404_page",
+                "status": "passed",
+                "duration": 0.01334372999997413,
+                "start": 1782734341.0865493,
+                "stop": 1782734341.1003706,
+                "retries": 0,
+                "file_path": "test_outputs.py"
+            },
+            {
+                "name": "test_outputs.py::test_nginx_config_syntax",
+                "status": "passed",
+                "duration": 0.02662712200000783,
+                "start": 1782734341.102571,
+                "stop": 1782734341.1306503,
+                "retries": 0,
+                "file_path": "test_outputs.py"
+            },
+            {
+                "name": "test_outputs.py::test_nginx_config_settings",
+                "status": "passed",
+                "duration": 0.006127128999992237,
+                "start": 1782734341.131139,
+                "stop": 1782734341.137744,
+                "retries": 0,
+                "file_path": "test_outputs.py"
+            },
+            {
+                "name": "test_outputs.py::test_log_file_creation",
+                "status": "passed",
+                "duration": 1.0116869059999942,
+                "start": 1782734341.1381292,
+                "stop": 1782734342.1503592,
+                "retries": 0,
+                "file_path": "test_outputs.py"
+            },
+            {
+                "name": "test_outputs.py::test_log_file_format",
+                "status": "passed",
+                "duration": 1.0083748819999983,
+                "start": 1782734342.1508331,
+                "stop": 1782734343.1597283,
+                "retries": 0,
+                "file_path": "test_outputs.py"
+            }
+        ]
+    }
+}

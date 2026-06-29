@@ -1,0 +1,80 @@
+Hit:1 http://deb.debian.org/debian bookworm InRelease
+Hit:2 http://deb.debian.org/debian bookworm-updates InRelease
+Hit:3 http://deb.debian.org/debian-security bookworm-security InRelease
+Reading package lists...
+Reading package lists...
+Building dependency tree...
+Reading state information...
+curl is already the newest version (7.88.1-10+deb12u14).
+0 upgraded, 0 newly installed, 0 to remove and 34 not upgraded.
+downloading uv 0.9.5 x86_64-unknown-linux-gnu
+no checksums to verify
+installing to /root/.local/bin
+  uv
+  uvx
+everything's installed!
+
+To add $HOME/.local/bin to your PATH, either restart your shell or run:
+
+    source $HOME/.local/bin/env (sh, bash, zsh)
+    source $HOME/.local/bin/env.fish (fish)
+Downloading pygments (1.2MiB)
+ Downloading pygments
+Installed 11 packages in 222ms
+============================= test session starts ==============================
+platform linux -- Python 3.13.7, pytest-8.4.1, pluggy-1.6.0 -- /root/.cache/uv/archive-v0/vVuXRiZnMueJIE9Ft75Bo/bin/python
+cachedir: .pytest_cache
+rootdir: /tests
+plugins: json-ctrf-0.3.5
+collecting ... collected 8 items
+
+../tests/test_outputs.py::test_nginx_installed PASSED                    [ 12%]
+../tests/test_outputs.py::test_nginx_running PASSED                      [ 25%]
+../tests/test_outputs.py::test_index_page_content FAILED                 [ 37%]
+../tests/test_outputs.py::test_custom_404_page PASSED                    [ 50%]
+../tests/test_outputs.py::test_nginx_config_syntax PASSED                [ 62%]
+../tests/test_outputs.py::test_nginx_config_settings PASSED              [ 75%]
+../tests/test_outputs.py::test_log_file_creation PASSED                  [ 87%]
+../tests/test_outputs.py::test_log_file_format PASSED                    [100%]
+
+=================================== FAILURES ===================================
+___________________________ test_index_page_content ____________________________
+
+    def test_index_page_content():
+        """Test that the index page has the correct content."""
+        response = requests.get("http://localhost:8080")
+        assert response.status_code == 200, "Could not access the index page"
+    
+        content = response.text.strip()
+        expected_content = "Welcome to the benchmark webserver"
+>       assert content == expected_content, (
+            f"Expected '{expected_content}', \
+            but got '{content}'"
+        )
+E       AssertionError: Expected 'Welcome to the benchmark webserver',         but got '<!DOCTYPE html>
+E         <html>
+E         <head><title>Benchmark Server</title></head>
+E         <body>Welcome to the benchmark webserver</body>
+E         </html>'
+E       assert '<!DOCTYPE ht...ody>\n</html>' == 'Welcome to t...ark webserver'
+E         
+E         + <!DOCTYPE html>
+E         + <html>
+E         + <head><title>Benchmark Server</title></head>
+E         - Welcome to the benchmark webserver
+E         + <body>Welcome to the benchmark webserver</body>
+E         ? ++++++                                  ++++++++
+E         + </html>
+
+/tests/test_outputs.py:40: AssertionError
+==================================== PASSES ====================================
+=========================== short test summary info ============================
+PASSED ../tests/test_outputs.py::test_nginx_installed
+PASSED ../tests/test_outputs.py::test_nginx_running
+PASSED ../tests/test_outputs.py::test_custom_404_page
+PASSED ../tests/test_outputs.py::test_nginx_config_syntax
+PASSED ../tests/test_outputs.py::test_nginx_config_settings
+PASSED ../tests/test_outputs.py::test_log_file_creation
+PASSED ../tests/test_outputs.py::test_log_file_format
+FAILED ../tests/test_outputs.py::test_index_page_content - AssertionError: Ex...
+========================= 1 failed, 7 passed in 2.62s ==========================

@@ -1,0 +1,52 @@
+Traceback (most recent call last):
+  File "/Users/amariah/Documents/Github/AI/.bench-venv/lib/python3.14/site-packages/harbor/trial/trial.py", line 291, in run
+    await self._prepare()
+  File "/Users/amariah/Documents/Github/AI/.bench-venv/lib/python3.14/site-packages/harbor/trial/trial.py", line 318, in _prepare
+    await self._setup_agent_environment()
+  File "/Users/amariah/Documents/Github/AI/.bench-venv/lib/python3.14/site-packages/harbor/trial/trial.py", line 782, in _setup_agent_environment
+    await self._start_agent_environment()
+  File "/Users/amariah/Documents/Github/AI/.bench-venv/lib/python3.14/site-packages/harbor/trial/trial.py", line 788, in _start_agent_environment
+    await asyncio.wait_for(
+    ...<4 lines>...
+    )
+  File "/opt/homebrew/Cellar/python@3.14/3.14.6/Frameworks/Python.framework/Versions/3.14/lib/python3.14/asyncio/tasks.py", line 488, in wait_for
+    return await fut
+           ^^^^^^^^^
+  File "/Users/amariah/Documents/Github/AI/.bench-venv/lib/python3.14/site-packages/harbor/environments/daytona/environment.py", line 1516, in start
+    return await self._strategy.start(force_build)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/amariah/Documents/Github/AI/.bench-venv/lib/python3.14/site-packages/harbor/environments/daytona/environment.py", line 287, in start
+    await env._create_sandbox(params=params, daytona=daytona)
+  File "/Users/amariah/Documents/Github/AI/.bench-venv/lib/python3.14/site-packages/tenacity/asyncio/__init__.py", line 193, in async_wrapped
+    return await copy(fn, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/amariah/Documents/Github/AI/.bench-venv/lib/python3.14/site-packages/tenacity/asyncio/__init__.py", line 112, in __call__
+    do = await self.iter(retry_state=retry_state)
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/amariah/Documents/Github/AI/.bench-venv/lib/python3.14/site-packages/tenacity/asyncio/__init__.py", line 157, in iter
+    result = await action(retry_state)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/amariah/Documents/Github/AI/.bench-venv/lib/python3.14/site-packages/tenacity/_utils.py", line 111, in inner
+    return call(*args, **kwargs)
+  File "/Users/amariah/Documents/Github/AI/.bench-venv/lib/python3.14/site-packages/tenacity/__init__.py", line 393, in <lambda>
+    self._add_action_func(lambda rs: rs.outcome.result())
+                                     ~~~~~~~~~~~~~~~~~^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.6/Frameworks/Python.framework/Versions/3.14/lib/python3.14/concurrent/futures/_base.py", line 447, in result
+    return self.__get_result()
+           ~~~~~~~~~~~~~~~~~^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.6/Frameworks/Python.framework/Versions/3.14/lib/python3.14/concurrent/futures/_base.py", line 396, in __get_result
+    raise self._exception
+  File "/Users/amariah/Documents/Github/AI/.bench-venv/lib/python3.14/site-packages/tenacity/asyncio/__init__.py", line 116, in __call__
+    result = await fn(*args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/amariah/Documents/Github/AI/.bench-venv/lib/python3.14/site-packages/harbor/environments/daytona/environment.py", line 1274, in _create_sandbox
+    self._sandbox = await asyncio.shield(create_task)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/amariah/Documents/Github/AI/.bench-venv/lib/python3.14/site-packages/daytona/_utils/errors.py", line 195, in async_wrapper
+    process_n_raise_exception(e)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~^^^
+  File "/Users/amariah/Documents/Github/AI/.bench-venv/lib/python3.14/site-packages/daytona/_utils/errors.py", line 127, in process_n_raise_exception
+    raise e.__class__(
+    ...<4 lines>...
+    ) from None
+daytona.common.errors.DaytonaError: Failed to create sandbox: Failure during waiting for sandbox to start: Sandbox 48b07696-e049-4d90-bbb3-9885559f06ce failed to start with state: SandboxState.ERROR, error reason: Error response from daemon: pull access denied for daytona-4f7b7ca09c58609552e97e8f605aa9b4e00b76ea7d84c31c2e54e84487c91e31, repository does not exist or may require 'docker login': denied: requested access to the resource is denied

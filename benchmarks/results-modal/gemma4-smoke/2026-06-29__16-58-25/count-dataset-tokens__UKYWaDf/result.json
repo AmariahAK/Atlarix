@@ -1,0 +1,113 @@
+{
+    "id": "253772c0-88bf-4e37-9d3a-a2b5420543f8",
+    "task_name": "terminal-bench/count-dataset-tokens",
+    "trial_name": "count-dataset-tokens__UKYWaDf",
+    "trial_uri": "file:///Users/amariah/Documents/Github/AI/Atlarix/benchmarks/results-modal/gemma4-smoke/2026-06-29__16-58-25/count-dataset-tokens__UKYWaDf",
+    "task_id": {
+        "org": "terminal-bench",
+        "name": "count-dataset-tokens",
+        "ref": "sha256:c9b237360affc7d6aabb1b910f41b291e578d8952d325641cd53f73e3483c979"
+    },
+    "source": "terminal-bench/terminal-bench-2",
+    "task_checksum": "cef0c34132cc369230cb85ff91a48f234e01c7ce3c9834ae9379cb2a3e7beaa4",
+    "config": {
+        "task": {
+            "path": null,
+            "git_url": null,
+            "git_commit_id": null,
+            "name": "terminal-bench/count-dataset-tokens",
+            "ref": "sha256:c9b237360affc7d6aabb1b910f41b291e578d8952d325641cd53f73e3483c979",
+            "overwrite": false,
+            "download_dir": null,
+            "source": "terminal-bench/terminal-bench-2"
+        },
+        "trial_name": "count-dataset-tokens__UKYWaDf",
+        "trials_dir": "Atlarix/benchmarks/results-modal/gemma4-smoke/2026-06-29__16-58-25",
+        "timeout_multiplier": 1.0,
+        "agent_timeout_multiplier": null,
+        "verifier_timeout_multiplier": null,
+        "agent_setup_timeout_multiplier": null,
+        "environment_build_timeout_multiplier": null,
+        "agent": {
+            "name": null,
+            "import_path": "atlarix_tb:AtlarixAgent",
+            "model_name": "openai/google/gemma-4-31b-it",
+            "skills": [],
+            "override_timeout_sec": null,
+            "override_setup_timeout_sec": null,
+            "max_timeout_sec": null,
+            "extra_allowed_hosts": [],
+            "kwargs": {},
+            "env": {},
+            "mcp_servers": []
+        },
+        "environment": {
+            "type": "modal",
+            "import_path": null,
+            "force_build": false,
+            "delete": true,
+            "cpu_enforcement_policy": "auto",
+            "memory_enforcement_policy": "auto",
+            "override_cpus": null,
+            "override_memory_mb": null,
+            "override_storage_mb": null,
+            "override_gpus": null,
+            "override_tpu": null,
+            "mounts": null,
+            "extra_docker_compose": [],
+            "env": {},
+            "kwargs": {},
+            "extra_allowed_hosts": []
+        },
+        "verifier": {
+            "override_timeout_sec": null,
+            "max_timeout_sec": null,
+            "env": {},
+            "disable": false
+        },
+        "artifacts": [],
+        "extra_instruction_paths": [],
+        "job_id": "e148b8bc-1bd0-429a-b253-0870fa2da125"
+    },
+    "agent_info": {
+        "name": "atlarix",
+        "version": "v22.23.1",
+        "model_info": {
+            "name": "google/gemma-4-31b-it",
+            "provider": "openai"
+        }
+    },
+    "agent_result": {
+        "n_input_tokens": null,
+        "n_cache_tokens": null,
+        "n_output_tokens": null,
+        "cost_usd": null,
+        "rollout_details": null,
+        "metadata": null
+    },
+    "verifier_result": {
+        "rewards": {
+            "reward": 0.0
+        }
+    },
+    "exception_info": null,
+    "started_at": "2026-06-29T13:58:31.620517Z",
+    "finished_at": "2026-06-29T14:05:28.738703Z",
+    "environment_setup": {
+        "started_at": "2026-06-29T13:58:31.621580Z",
+        "finished_at": "2026-06-29T13:58:36.083637Z"
+    },
+    "agent_setup": {
+        "started_at": "2026-06-29T13:58:36.083680Z",
+        "finished_at": "2026-06-29T13:58:55.527296Z"
+    },
+    "agent_execution": {
+        "started_at": "2026-06-29T13:58:55.527452Z",
+        "finished_at": "2026-06-29T14:04:34.686218Z"
+    },
+    "verifier": {
+        "started_at": "2026-06-29T14:04:44.620532Z",
+        "finished_at": "2026-06-29T14:04:57.372999Z"
+    },
+    "step_results": null
+}

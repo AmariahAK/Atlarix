@@ -93,6 +93,11 @@ class AtlarixAgent(BaseInstalledAgent):
         env: dict[str, str] = {
             "ATLARIX_HEADLESS": "1",
             "ATLARIX_DISABLE_TEXT_TOOLS": "1",
+            # Operator consent for an unattended, disposable container: grant the
+            # danger-command acknowledgement once, up front (rm -rf, sudo, …),
+            # since there is no human to tick the per-command checkbox. Default in
+            # auto-approve.ts stays BLOCKED; only this explicit flag lifts it.
+            "ATLARIX_AUTONOMOUS_DANGER": "1",
         }
         for key in ["ATLARIX_HEADLESS_TIMEOUT_MS"]:
             val = os.environ.get(key)

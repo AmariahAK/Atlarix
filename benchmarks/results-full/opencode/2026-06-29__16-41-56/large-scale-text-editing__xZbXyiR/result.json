@@ -1,0 +1,113 @@
+{
+    "id": "b2df7285-30c3-443b-a78e-03fc4ee6ce64",
+    "task_name": "terminal-bench/large-scale-text-editing",
+    "trial_name": "large-scale-text-editing__xZbXyiR",
+    "trial_uri": "file:///Users/amariah/Documents/Github/AI/Atlarix/benchmarks/results-full/opencode/2026-06-29__16-41-56/large-scale-text-editing__xZbXyiR",
+    "task_id": {
+        "org": "terminal-bench",
+        "name": "large-scale-text-editing",
+        "ref": "sha256:f1196bcc75f57494f04617c635c7d23a8f231d25e68136dae02615eaa846ad90"
+    },
+    "source": "terminal-bench/terminal-bench-2",
+    "task_checksum": "d3949e3781f5deed1294e42ed07a9b72baecf404eeb696f9bcc1f0db8f5245f7",
+    "config": {
+        "task": {
+            "path": null,
+            "git_url": null,
+            "git_commit_id": null,
+            "name": "terminal-bench/large-scale-text-editing",
+            "ref": "sha256:f1196bcc75f57494f04617c635c7d23a8f231d25e68136dae02615eaa846ad90",
+            "overwrite": false,
+            "download_dir": null,
+            "source": "terminal-bench/terminal-bench-2"
+        },
+        "trial_name": "large-scale-text-editing__xZbXyiR",
+        "trials_dir": "Atlarix/benchmarks/results-full/opencode/2026-06-29__16-41-56",
+        "timeout_multiplier": 1.0,
+        "agent_timeout_multiplier": null,
+        "verifier_timeout_multiplier": null,
+        "agent_setup_timeout_multiplier": null,
+        "environment_build_timeout_multiplier": null,
+        "agent": {
+            "name": null,
+            "import_path": "atlarix_tb.opencode_proxy:BenchOpenCodeAgent",
+            "model_name": "bench/minimax/minimax-m3",
+            "skills": [],
+            "override_timeout_sec": null,
+            "override_setup_timeout_sec": null,
+            "max_timeout_sec": null,
+            "extra_allowed_hosts": [],
+            "kwargs": {},
+            "env": {},
+            "mcp_servers": []
+        },
+        "environment": {
+            "type": "modal",
+            "import_path": null,
+            "force_build": false,
+            "delete": true,
+            "cpu_enforcement_policy": "auto",
+            "memory_enforcement_policy": "auto",
+            "override_cpus": null,
+            "override_memory_mb": null,
+            "override_storage_mb": null,
+            "override_gpus": null,
+            "override_tpu": null,
+            "mounts": null,
+            "extra_docker_compose": [],
+            "env": {},
+            "kwargs": {},
+            "extra_allowed_hosts": []
+        },
+        "verifier": {
+            "override_timeout_sec": null,
+            "max_timeout_sec": null,
+            "env": {},
+            "disable": false
+        },
+        "artifacts": [],
+        "extra_instruction_paths": [],
+        "job_id": "f13988dd-81f6-4aa3-83e1-aa1e621d288e"
+    },
+    "agent_info": {
+        "name": "opencode",
+        "version": "1.17.11",
+        "model_info": {
+            "name": "minimax/minimax-m3",
+            "provider": "bench"
+        }
+    },
+    "agent_result": {
+        "n_input_tokens": 397253,
+        "n_cache_tokens": 372045,
+        "n_output_tokens": 4455,
+        "cost_usd": null,
+        "rollout_details": null,
+        "metadata": null
+    },
+    "verifier_result": {
+        "rewards": {
+            "reward": 1.0
+        }
+    },
+    "exception_info": null,
+    "started_at": "2026-06-29T14:12:12.151660Z",
+    "finished_at": "2026-06-29T14:20:47.824833Z",
+    "environment_setup": {
+        "started_at": "2026-06-29T14:12:12.156995Z",
+        "finished_at": "2026-06-29T14:12:14.986966Z"
+    },
+    "agent_setup": {
+        "started_at": "2026-06-29T14:12:14.988618Z",
+        "finished_at": "2026-06-29T14:12:59.334311Z"
+    },
+    "agent_execution": {
+        "started_at": "2026-06-29T14:12:59.334589Z",
+        "finished_at": "2026-06-29T14:18:59.814493Z"
+    },
+    "verifier": {
+        "started_at": "2026-06-29T14:19:07.424876Z",
+        "finished_at": "2026-06-29T14:20:16.620685Z"
+    },
+    "step_results": null
+}

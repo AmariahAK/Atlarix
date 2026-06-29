@@ -1,0 +1,113 @@
+{
+    "id": "ec0588e1-27a4-4f5d-a821-0b2f8c08b081",
+    "task_name": "terminal-bench/multi-source-data-merger",
+    "trial_name": "multi-source-data-merger__DSCxGqT",
+    "trial_uri": "file:///Users/amariah/Documents/Github/AI/Atlarix/benchmarks/results-full/opencode/2026-06-29__16-41-56/multi-source-data-merger__DSCxGqT",
+    "task_id": {
+        "org": "terminal-bench",
+        "name": "multi-source-data-merger",
+        "ref": "sha256:3f7ecbb6adc066596d40bb6b98e64e0e1f25eac542dcf5d47fa8bde65df92c5e"
+    },
+    "source": "terminal-bench/terminal-bench-2",
+    "task_checksum": "c366c2db9d9ee730326e6a8fe5a9fca86b69a7ca8112f0f8e85a799a5deb70f2",
+    "config": {
+        "task": {
+            "path": null,
+            "git_url": null,
+            "git_commit_id": null,
+            "name": "terminal-bench/multi-source-data-merger",
+            "ref": "sha256:3f7ecbb6adc066596d40bb6b98e64e0e1f25eac542dcf5d47fa8bde65df92c5e",
+            "overwrite": false,
+            "download_dir": null,
+            "source": "terminal-bench/terminal-bench-2"
+        },
+        "trial_name": "multi-source-data-merger__DSCxGqT",
+        "trials_dir": "Atlarix/benchmarks/results-full/opencode/2026-06-29__16-41-56",
+        "timeout_multiplier": 1.0,
+        "agent_timeout_multiplier": null,
+        "verifier_timeout_multiplier": null,
+        "agent_setup_timeout_multiplier": null,
+        "environment_build_timeout_multiplier": null,
+        "agent": {
+            "name": null,
+            "import_path": "atlarix_tb.opencode_proxy:BenchOpenCodeAgent",
+            "model_name": "bench/minimax/minimax-m3",
+            "skills": [],
+            "override_timeout_sec": null,
+            "override_setup_timeout_sec": null,
+            "max_timeout_sec": null,
+            "extra_allowed_hosts": [],
+            "kwargs": {},
+            "env": {},
+            "mcp_servers": []
+        },
+        "environment": {
+            "type": "modal",
+            "import_path": null,
+            "force_build": false,
+            "delete": true,
+            "cpu_enforcement_policy": "auto",
+            "memory_enforcement_policy": "auto",
+            "override_cpus": null,
+            "override_memory_mb": null,
+            "override_storage_mb": null,
+            "override_gpus": null,
+            "override_tpu": null,
+            "mounts": null,
+            "extra_docker_compose": [],
+            "env": {},
+            "kwargs": {},
+            "extra_allowed_hosts": []
+        },
+        "verifier": {
+            "override_timeout_sec": null,
+            "max_timeout_sec": null,
+            "env": {},
+            "disable": false
+        },
+        "artifacts": [],
+        "extra_instruction_paths": [],
+        "job_id": "f13988dd-81f6-4aa3-83e1-aa1e621d288e"
+    },
+    "agent_info": {
+        "name": "opencode",
+        "version": "1.17.11",
+        "model_info": {
+            "name": "minimax/minimax-m3",
+            "provider": "bench"
+        }
+    },
+    "agent_result": {
+        "n_input_tokens": 68877,
+        "n_cache_tokens": 58344,
+        "n_output_tokens": 2394,
+        "cost_usd": null,
+        "rollout_details": null,
+        "metadata": null
+    },
+    "verifier_result": {
+        "rewards": {
+            "reward": 1.0
+        }
+    },
+    "exception_info": null,
+    "started_at": "2026-06-29T13:51:03.705583Z",
+    "finished_at": "2026-06-29T13:54:10.759824Z",
+    "environment_setup": {
+        "started_at": "2026-06-29T13:51:03.709301Z",
+        "finished_at": "2026-06-29T13:51:06.837696Z"
+    },
+    "agent_setup": {
+        "started_at": "2026-06-29T13:51:06.837783Z",
+        "finished_at": "2026-06-29T13:51:56.667479Z"
+    },
+    "agent_execution": {
+        "started_at": "2026-06-29T13:51:56.668891Z",
+        "finished_at": "2026-06-29T13:53:12.139603Z"
+    },
+    "verifier": {
+        "started_at": "2026-06-29T13:53:20.713502Z",
+        "finished_at": "2026-06-29T13:53:39.880695Z"
+    },
+    "step_results": null
+}

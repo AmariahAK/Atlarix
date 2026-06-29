@@ -1,0 +1,51 @@
+{
+    "id": "993999ad-eb6d-4cc1-b48c-40cdcd297b6b",
+    "started_at": "2026-06-29T15:17:22.389410",
+    "updated_at": "2026-06-29T15:20:30.001584",
+    "finished_at": "2026-06-29T15:20:30.001584",
+    "n_total_trials": 5,
+    "stats": {
+        "n_completed_trials": 5,
+        "n_errored_trials": 5,
+        "n_running_trials": 0,
+        "n_pending_trials": 0,
+        "n_cancelled_trials": 0,
+        "n_retries": 5,
+        "evals": {
+            "atlarix__deepseek/deepseek-v4-pro__terminal-bench/terminal-bench-2": {
+                "n_trials": 5,
+                "n_errors": 5,
+                "metrics": [
+                    {
+                        "mean": 0.0
+                    }
+                ],
+                "pass_at_k": {},
+                "reward_stats": {
+                    "reward": {
+                        "0.0": [
+                            "log-summary-date-ranges__G5uADZr",
+                            "git-multibranch__fLaytH8",
+                            "nginx-request-logging__K92ri28",
+                            "count-dataset-tokens__6gQCq8h",
+                            "configure-git-webserver__8M3xJcx"
+                        ]
+                    }
+                },
+                "exception_stats": {
+                    "NonZeroAgentExitCodeError": [
+                        "log-summary-date-ranges__G5uADZr",
+                        "git-multibranch__fLaytH8",
+                        "nginx-request-logging__K92ri28",
+                        "count-dataset-tokens__6gQCq8h",
+                        "configure-git-webserver__8M3xJcx"
+                    ]
+                }
+            }
+        },
+        "n_input_tokens": null,
+        "n_cache_tokens": null,
+        "n_output_tokens": null,
+        "cost_usd": null
+    }
+}

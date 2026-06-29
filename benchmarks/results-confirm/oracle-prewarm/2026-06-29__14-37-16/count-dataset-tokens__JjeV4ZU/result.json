@@ -1,0 +1,115 @@
+{
+    "id": "8b6a4491-76f4-4fa5-8b08-5e2514b63e1f",
+    "task_name": "terminal-bench/count-dataset-tokens",
+    "trial_name": "count-dataset-tokens__JjeV4ZU",
+    "trial_uri": "file:///Users/amariah/Documents/Github/AI/Atlarix/benchmarks/results-confirm/oracle-prewarm/2026-06-29__14-37-16/count-dataset-tokens__JjeV4ZU",
+    "task_id": {
+        "org": "terminal-bench",
+        "name": "count-dataset-tokens",
+        "ref": "sha256:c9b237360affc7d6aabb1b910f41b291e578d8952d325641cd53f73e3483c979"
+    },
+    "source": "terminal-bench/terminal-bench-2",
+    "task_checksum": "cef0c34132cc369230cb85ff91a48f234e01c7ce3c9834ae9379cb2a3e7beaa4",
+    "config": {
+        "task": {
+            "path": null,
+            "git_url": null,
+            "git_commit_id": null,
+            "name": "terminal-bench/count-dataset-tokens",
+            "ref": "sha256:c9b237360affc7d6aabb1b910f41b291e578d8952d325641cd53f73e3483c979",
+            "overwrite": false,
+            "download_dir": null,
+            "source": "terminal-bench/terminal-bench-2"
+        },
+        "trial_name": "count-dataset-tokens__JjeV4ZU",
+        "trials_dir": "Atlarix/benchmarks/results-confirm/oracle-prewarm/2026-06-29__14-37-16",
+        "timeout_multiplier": 1.0,
+        "agent_timeout_multiplier": null,
+        "verifier_timeout_multiplier": null,
+        "agent_setup_timeout_multiplier": null,
+        "environment_build_timeout_multiplier": 3.0,
+        "agent": {
+            "name": "oracle",
+            "import_path": null,
+            "model_name": null,
+            "skills": [],
+            "override_timeout_sec": null,
+            "override_setup_timeout_sec": null,
+            "max_timeout_sec": null,
+            "extra_allowed_hosts": [],
+            "kwargs": {},
+            "env": {},
+            "mcp_servers": []
+        },
+        "environment": {
+            "type": "daytona",
+            "import_path": null,
+            "force_build": false,
+            "delete": true,
+            "cpu_enforcement_policy": "auto",
+            "memory_enforcement_policy": "auto",
+            "override_cpus": null,
+            "override_memory_mb": null,
+            "override_storage_mb": null,
+            "override_gpus": null,
+            "override_tpu": null,
+            "mounts": null,
+            "extra_docker_compose": [],
+            "env": {},
+            "kwargs": {},
+            "extra_allowed_hosts": []
+        },
+        "verifier": {
+            "override_timeout_sec": null,
+            "max_timeout_sec": null,
+            "env": {},
+            "disable": false
+        },
+        "artifacts": [],
+        "extra_instruction_paths": [],
+        "job_id": "a60b212b-1c63-4cb5-bbc5-de69db844d6d"
+    },
+    "agent_info": {
+        "name": "oracle",
+        "version": "1.0.0",
+        "model_info": null
+    },
+    "agent_result": {
+        "n_input_tokens": null,
+        "n_cache_tokens": null,
+        "n_output_tokens": null,
+        "cost_usd": null,
+        "rollout_details": null,
+        "metadata": null
+    },
+    "verifier_result": {
+        "rewards": {
+            "reward": 0.0
+        }
+    },
+    "exception_info": {
+        "exception_type": "AgentTimeoutError",
+        "exception_message": "Agent execution timed out after 900.0 seconds",
+        "exception_traceback": "Traceback (most recent call last):\n  File \"/opt/homebrew/Cellar/python@3.14/3.14.6/Frameworks/Python.framework/Versions/3.14/lib/python3.14/asyncio/tasks.py\", line 488, in wait_for\n    return await fut\n           ^^^^^^^^^\n  File \"/Users/amariah/Documents/Github/AI/.bench-venv/lib/python3.14/site-packages/harbor/agents/oracle.py\", line 117, in run\n    result = await environment.exec(\n             ^^^^^^^^^^^^^^^^^^^^^^^\n        command=command, env=env, timeout_sec=timeout_sec\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n    )\n    ^\n  File \"/Users/amariah/Documents/Github/AI/.bench-venv/lib/python3.14/site-packages/harbor/environments/daytona/environment.py\", line 1533, in exec\n    return await self._strategy.exec(\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^\n        command, cwd=effective_cwd, env=env, timeout_sec=timeout_sec, user=user\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n    )\n    ^\n  File \"/Users/amariah/Documents/Github/AI/.bench-venv/lib/python3.14/site-packages/harbor/environments/daytona/environment.py\", line 326, in exec\n    return await self._env._sandbox_exec(\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n        command, cwd=cwd, env=env, timeout_sec=timeout_sec, user=user\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n    )\n    ^\n  File \"/Users/amariah/Documents/Github/AI/.bench-venv/lib/python3.14/site-packages/harbor/environments/daytona/environment.py\", line 1403, in _sandbox_exec\n    result = await self._poll_response(session_id, response.cmd_id)\n             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/Users/amariah/Documents/Github/AI/.bench-venv/lib/python3.14/site-packages/harbor/environments/daytona/environment.py\", line 1331, in _poll_response\n    await asyncio.sleep(1)\n  File \"/opt/homebrew/Cellar/python@3.14/3.14.6/Frameworks/Python.framework/Versions/3.14/lib/python3.14/asyncio/tasks.py\", line 704, in sleep\n    return await future\n           ^^^^^^^^^^^^\nasyncio.exceptions.CancelledError\n\nThe above exception was the direct cause of the following exception:\n\nTraceback (most recent call last):\n  File \"/Users/amariah/Documents/Github/AI/.bench-venv/lib/python3.14/site-packages/harbor/trial/trial.py\", line 376, in _run_agent_phase\n    await asyncio.wait_for(\n    ...<6 lines>...\n    )\n  File \"/opt/homebrew/Cellar/python@3.14/3.14.6/Frameworks/Python.framework/Versions/3.14/lib/python3.14/asyncio/tasks.py\", line 487, in wait_for\n    async with timeouts.timeout(timeout):\n               ~~~~~~~~~~~~~~~~^^^^^^^^^\n  File \"/opt/homebrew/Cellar/python@3.14/3.14.6/Frameworks/Python.framework/Versions/3.14/lib/python3.14/asyncio/timeouts.py\", line 115, in __aexit__\n    raise TimeoutError from exc_val\nTimeoutError\n\nThe above exception was the direct cause of the following exception:\n\nTraceback (most recent call last):\n  File \"/Users/amariah/Documents/Github/AI/.bench-venv/lib/python3.14/site-packages/harbor/trial/single_step.py\", line 63, in _run_agent\n    await self._run_agent_phase(\n    ...<4 lines>...\n    )\n  File \"/Users/amariah/Documents/Github/AI/.bench-venv/lib/python3.14/site-packages/harbor/trial/trial.py\", line 385, in _run_agent_phase\n    raise AgentTimeoutError(\n        f\"Agent execution timed out after {timeout_sec} seconds\"\n    ) from exc\nharbor.trial.errors.AgentTimeoutError: Agent execution timed out after 900.0 seconds\n",
+        "occurred_at": "2026-06-29T14:52:24.645969"
+    },
+    "started_at": "2026-06-29T11:37:21.752967Z",
+    "finished_at": "2026-06-29T11:52:38.830053Z",
+    "environment_setup": {
+        "started_at": "2026-06-29T11:37:21.754816Z",
+        "finished_at": "2026-06-29T11:37:24.654138Z"
+    },
+    "agent_setup": {
+        "started_at": "2026-06-29T11:37:24.654184Z",
+        "finished_at": "2026-06-29T11:37:24.654223Z"
+    },
+    "agent_execution": {
+        "started_at": "2026-06-29T11:37:24.654288Z",
+        "finished_at": "2026-06-29T11:52:24.637357Z"
+    },
+    "verifier": {
+        "started_at": "2026-06-29T11:52:29.206425Z",
+        "finished_at": "2026-06-29T11:52:37.894527Z"
+    },
+    "step_results": null
+}

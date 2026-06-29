@@ -1,0 +1,119 @@
+{
+    "results": {
+        "tool": {
+            "name": "pytest",
+            "version": "8.4.1"
+        },
+        "summary": {
+            "tests": 11,
+            "passed": 11,
+            "failed": 0,
+            "skipped": 0,
+            "pending": 0,
+            "other": 0,
+            "start": 1782736756.1420662,
+            "stop": 1782736758.6944907
+        },
+        "tests": [
+            {
+                "name": "test_outputs.py::test_numpy_version",
+                "status": "passed",
+                "duration": 0.1039886009999691,
+                "start": 1782736756.168338,
+                "stop": 1782736756.2726429,
+                "retries": 0,
+                "file_path": "test_outputs.py"
+            },
+            {
+                "name": "test_outputs.py::test_repo_cloned",
+                "status": "passed",
+                "duration": 0.0004196490000367703,
+                "start": 1782736756.272869,
+                "stop": 1782736756.2734334,
+                "retries": 0,
+                "file_path": "test_outputs.py"
+            },
+            {
+                "name": "test_outputs.py::test_pyknotid_core_import",
+                "status": "passed",
+                "duration": 0.0005168590000153017,
+                "start": 1782736756.2735877,
+                "stop": 1782736756.2742562,
+                "retries": 0,
+                "file_path": "test_outputs.py"
+            },
+            {
+                "name": "test_outputs.py::test_chelpers_cython_extension",
+                "status": "passed",
+                "duration": 0.43944572600003085,
+                "start": 1782736756.2744007,
+                "stop": 1782736756.7140877,
+                "retries": 0,
+                "file_path": "test_outputs.py"
+            },
+            {
+                "name": "test_outputs.py::test_ccomplexity_cython_extension",
+                "status": "passed",
+                "duration": 0.00040917800004081073,
+                "start": 1782736756.7143183,
+                "stop": 1782736756.7148752,
+                "retries": 0,
+                "file_path": "test_outputs.py"
+            },
+            {
+                "name": "test_outputs.py::test_cinvariants_cython_extension",
+                "status": "passed",
+                "duration": 0.0003450890000067375,
+                "start": 1782736756.7150347,
+                "stop": 1782736756.7155082,
+                "retries": 0,
+                "file_path": "test_outputs.py"
+            },
+            {
+                "name": "test_outputs.py::test_chelpers",
+                "status": "passed",
+                "duration": 0.0002867289999244349,
+                "start": 1782736756.7156584,
+                "stop": 1782736756.7160747,
+                "retries": 0,
+                "file_path": "test_outputs.py"
+            },
+            {
+                "name": "test_outputs.py::test_ccomplexity",
+                "status": "passed",
+                "duration": 0.0010752569999681327,
+                "start": 1782736756.7162166,
+                "stop": 1782736756.717491,
+                "retries": 0,
+                "file_path": "test_outputs.py"
+            },
+            {
+                "name": "test_outputs.py::test_cinvariants_python_vs_cython",
+                "status": "passed",
+                "duration": 0.002370343999984925,
+                "start": 1782736756.7176476,
+                "stop": 1782736756.720169,
+                "retries": 0,
+                "file_path": "test_outputs.py"
+            },
+            {
+                "name": "test_outputs.py::test_example_usage",
+                "status": "passed",
+                "duration": 0.003752961000088817,
+                "start": 1782736756.7203445,
+                "stop": 1782736756.72425,
+                "retries": 0,
+                "file_path": "test_outputs.py"
+            },
+            {
+                "name": "test_outputs.py::test_pyknotid_repository_tests",
+                "status": "passed",
+                "duration": 1.968705175000025,
+                "start": 1782736756.7244103,
+                "stop": 1782736758.6934495,
+                "retries": 0,
+                "file_path": "test_outputs.py"
+            }
+        ]
+    }
+}

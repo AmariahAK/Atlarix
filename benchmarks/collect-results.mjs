@@ -63,7 +63,7 @@ const harnesses = [...new Set(data.map((r) => r.harness))].sort();
 const models = [...new Set(data.map((r) => r.model))].sort();
 const cell = (h, m) => data.find((r) => r.harness === h && r.model === m);
 
-let md = "# Terminal-Bench 2.1 — harness × model (% resolved)\n\n";
+let md = "# Terminal-Bench 2.0 — harness × model (% resolved)\n\n";
 md += `| Harness | ${models.join(" | ")} |\n|${"---|".repeat(models.length + 1)}\n`;
 for (const h of harnesses) {
   md += `| **${h}** | ${models

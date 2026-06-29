@@ -1,0 +1,61 @@
+Traceback (most recent call last):
+  File "/opt/homebrew/Cellar/python@3.14/3.14.6/Frameworks/Python.framework/Versions/3.14/lib/python3.14/asyncio/tasks.py", line 488, in wait_for
+    return await fut
+           ^^^^^^^^^
+  File "/Users/amariah/Documents/Github/AI/.bench-venv/lib/python3.14/site-packages/harbor/agents/oracle.py", line 117, in run
+    result = await environment.exec(
+             ^^^^^^^^^^^^^^^^^^^^^^^
+        command=command, env=env, timeout_sec=timeout_sec
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/Users/amariah/Documents/Github/AI/.bench-venv/lib/python3.14/site-packages/harbor/environments/daytona/environment.py", line 1533, in exec
+    return await self._strategy.exec(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+        command, cwd=effective_cwd, env=env, timeout_sec=timeout_sec, user=user
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/Users/amariah/Documents/Github/AI/.bench-venv/lib/python3.14/site-packages/harbor/environments/daytona/environment.py", line 326, in exec
+    return await self._env._sandbox_exec(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        command, cwd=cwd, env=env, timeout_sec=timeout_sec, user=user
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/Users/amariah/Documents/Github/AI/.bench-venv/lib/python3.14/site-packages/harbor/environments/daytona/environment.py", line 1403, in _sandbox_exec
+    result = await self._poll_response(session_id, response.cmd_id)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/amariah/Documents/Github/AI/.bench-venv/lib/python3.14/site-packages/harbor/environments/daytona/environment.py", line 1331, in _poll_response
+    await asyncio.sleep(1)
+  File "/opt/homebrew/Cellar/python@3.14/3.14.6/Frameworks/Python.framework/Versions/3.14/lib/python3.14/asyncio/tasks.py", line 704, in sleep
+    return await future
+           ^^^^^^^^^^^^
+asyncio.exceptions.CancelledError
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/Users/amariah/Documents/Github/AI/.bench-venv/lib/python3.14/site-packages/harbor/trial/trial.py", line 376, in _run_agent_phase
+    await asyncio.wait_for(
+    ...<6 lines>...
+    )
+  File "/opt/homebrew/Cellar/python@3.14/3.14.6/Frameworks/Python.framework/Versions/3.14/lib/python3.14/asyncio/tasks.py", line 487, in wait_for
+    async with timeouts.timeout(timeout):
+               ~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.6/Frameworks/Python.framework/Versions/3.14/lib/python3.14/asyncio/timeouts.py", line 115, in __aexit__
+    raise TimeoutError from exc_val
+TimeoutError
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/Users/amariah/Documents/Github/AI/.bench-venv/lib/python3.14/site-packages/harbor/trial/single_step.py", line 63, in _run_agent
+    await self._run_agent_phase(
+    ...<4 lines>...
+    )
+  File "/Users/amariah/Documents/Github/AI/.bench-venv/lib/python3.14/site-packages/harbor/trial/trial.py", line 385, in _run_agent_phase
+    raise AgentTimeoutError(
+        f"Agent execution timed out after {timeout_sec} seconds"
+    ) from exc
+harbor.trial.errors.AgentTimeoutError: Agent execution timed out after 900.0 seconds

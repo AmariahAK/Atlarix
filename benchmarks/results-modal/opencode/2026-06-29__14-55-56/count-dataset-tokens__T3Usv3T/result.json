@@ -1,0 +1,113 @@
+{
+    "id": "1d3651b8-5020-43a2-93d6-470721eb25e2",
+    "task_name": "terminal-bench/count-dataset-tokens",
+    "trial_name": "count-dataset-tokens__T3Usv3T",
+    "trial_uri": "file:///Users/amariah/Documents/Github/AI/Atlarix/benchmarks/results-modal/opencode/2026-06-29__14-55-56/count-dataset-tokens__T3Usv3T",
+    "task_id": {
+        "org": "terminal-bench",
+        "name": "count-dataset-tokens",
+        "ref": "sha256:c9b237360affc7d6aabb1b910f41b291e578d8952d325641cd53f73e3483c979"
+    },
+    "source": "terminal-bench/terminal-bench-2",
+    "task_checksum": "cef0c34132cc369230cb85ff91a48f234e01c7ce3c9834ae9379cb2a3e7beaa4",
+    "config": {
+        "task": {
+            "path": null,
+            "git_url": null,
+            "git_commit_id": null,
+            "name": "terminal-bench/count-dataset-tokens",
+            "ref": "sha256:c9b237360affc7d6aabb1b910f41b291e578d8952d325641cd53f73e3483c979",
+            "overwrite": false,
+            "download_dir": null,
+            "source": "terminal-bench/terminal-bench-2"
+        },
+        "trial_name": "count-dataset-tokens__T3Usv3T",
+        "trials_dir": "Atlarix/benchmarks/results-modal/opencode/2026-06-29__14-55-56",
+        "timeout_multiplier": 1.0,
+        "agent_timeout_multiplier": null,
+        "verifier_timeout_multiplier": null,
+        "agent_setup_timeout_multiplier": null,
+        "environment_build_timeout_multiplier": null,
+        "agent": {
+            "name": null,
+            "import_path": "atlarix_tb.opencode_proxy:BenchOpenCodeAgent",
+            "model_name": "bench/deepseek/deepseek-v4-pro",
+            "skills": [],
+            "override_timeout_sec": null,
+            "override_setup_timeout_sec": null,
+            "max_timeout_sec": null,
+            "extra_allowed_hosts": [],
+            "kwargs": {},
+            "env": {},
+            "mcp_servers": []
+        },
+        "environment": {
+            "type": "modal",
+            "import_path": null,
+            "force_build": false,
+            "delete": true,
+            "cpu_enforcement_policy": "auto",
+            "memory_enforcement_policy": "auto",
+            "override_cpus": null,
+            "override_memory_mb": null,
+            "override_storage_mb": null,
+            "override_gpus": null,
+            "override_tpu": null,
+            "mounts": null,
+            "extra_docker_compose": [],
+            "env": {},
+            "kwargs": {},
+            "extra_allowed_hosts": []
+        },
+        "verifier": {
+            "override_timeout_sec": null,
+            "max_timeout_sec": null,
+            "env": {},
+            "disable": false
+        },
+        "artifacts": [],
+        "extra_instruction_paths": [],
+        "job_id": "8bbe26d3-5f2b-4710-a797-6fc4e091bf00"
+    },
+    "agent_info": {
+        "name": "opencode",
+        "version": "1.17.11",
+        "model_info": {
+            "name": "deepseek/deepseek-v4-pro",
+            "provider": "bench"
+        }
+    },
+    "agent_result": {
+        "n_input_tokens": 89098,
+        "n_cache_tokens": 77440,
+        "n_output_tokens": 1302,
+        "cost_usd": null,
+        "rollout_details": null,
+        "metadata": null
+    },
+    "verifier_result": {
+        "rewards": {
+            "reward": 0.0
+        }
+    },
+    "exception_info": null,
+    "started_at": "2026-06-29T11:56:01.218788Z",
+    "finished_at": "2026-06-29T11:58:47.813888Z",
+    "environment_setup": {
+        "started_at": "2026-06-29T11:56:01.257688Z",
+        "finished_at": "2026-06-29T11:56:04.886687Z"
+    },
+    "agent_setup": {
+        "started_at": "2026-06-29T11:56:04.886732Z",
+        "finished_at": "2026-06-29T11:56:33.336422Z"
+    },
+    "agent_execution": {
+        "started_at": "2026-06-29T11:56:33.338044Z",
+        "finished_at": "2026-06-29T11:57:59.215549Z"
+    },
+    "verifier": {
+        "started_at": "2026-06-29T11:58:06.873939Z",
+        "finished_at": "2026-06-29T11:58:16.787825Z"
+    },
+    "step_results": null
+}

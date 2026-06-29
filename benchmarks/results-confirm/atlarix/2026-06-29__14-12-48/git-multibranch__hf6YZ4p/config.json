@@ -1,0 +1,59 @@
+{
+    "task": {
+        "path": null,
+        "git_url": null,
+        "git_commit_id": null,
+        "name": "terminal-bench/git-multibranch",
+        "ref": "sha256:03d8f235cc737efc32ed92a11685f93581fe6e1fd4ad14fffaa049d2b59e381a",
+        "overwrite": false,
+        "download_dir": null,
+        "source": "terminal-bench/terminal-bench-2"
+    },
+    "trial_name": "git-multibranch__hf6YZ4p",
+    "trials_dir": "Atlarix/benchmarks/results-confirm/atlarix/2026-06-29__14-12-48",
+    "timeout_multiplier": 1.0,
+    "agent_timeout_multiplier": null,
+    "verifier_timeout_multiplier": null,
+    "agent_setup_timeout_multiplier": null,
+    "environment_build_timeout_multiplier": null,
+    "agent": {
+        "name": null,
+        "import_path": "atlarix_tb:AtlarixAgent",
+        "model_name": "openai/deepseek/deepseek-v4-pro",
+        "skills": [],
+        "override_timeout_sec": null,
+        "override_setup_timeout_sec": null,
+        "max_timeout_sec": null,
+        "extra_allowed_hosts": [],
+        "kwargs": {},
+        "env": {},
+        "mcp_servers": []
+    },
+    "environment": {
+        "type": "daytona",
+        "import_path": null,
+        "force_build": false,
+        "delete": true,
+        "cpu_enforcement_policy": "auto",
+        "memory_enforcement_policy": "auto",
+        "override_cpus": null,
+        "override_memory_mb": null,
+        "override_storage_mb": null,
+        "override_gpus": null,
+        "override_tpu": null,
+        "mounts": null,
+        "extra_docker_compose": [],
+        "env": {},
+        "kwargs": {},
+        "extra_allowed_hosts": []
+    },
+    "verifier": {
+        "override_timeout_sec": null,
+        "max_timeout_sec": null,
+        "env": {},
+        "disable": false
+    },
+    "artifacts": [],
+    "extra_instruction_paths": [],
+    "job_id": "5a4e3095-3d5a-4d66-b111-7582f91489f1"
+}

@@ -1,0 +1,113 @@
+{
+    "id": "e221b190-59de-42f2-bc15-bdc7dbe6437d",
+    "task_name": "terminal-bench/configure-git-webserver",
+    "trial_name": "configure-git-webserver__DPwuvuc",
+    "trial_uri": "file:///Users/amariah/Documents/Github/AI/Atlarix/benchmarks/results-modal/gemma-deepinfra-probe/2026-06-29__19-04-33/configure-git-webserver__DPwuvuc",
+    "task_id": {
+        "org": "terminal-bench",
+        "name": "configure-git-webserver",
+        "ref": "sha256:a73cf484283083f52b5d4c07c4a7027111fca3cfa3aaf108235d4aff57ef1d8d"
+    },
+    "source": "terminal-bench/terminal-bench-2",
+    "task_checksum": "cf2c66b79368e4f5be614393e3766c1256c718ceff86aba9517bf7a12751c014",
+    "config": {
+        "task": {
+            "path": null,
+            "git_url": null,
+            "git_commit_id": null,
+            "name": "terminal-bench/configure-git-webserver",
+            "ref": "sha256:a73cf484283083f52b5d4c07c4a7027111fca3cfa3aaf108235d4aff57ef1d8d",
+            "overwrite": false,
+            "download_dir": null,
+            "source": "terminal-bench/terminal-bench-2"
+        },
+        "trial_name": "configure-git-webserver__DPwuvuc",
+        "trials_dir": "Atlarix/benchmarks/results-modal/gemma-deepinfra-probe/2026-06-29__19-04-33",
+        "timeout_multiplier": 1.0,
+        "agent_timeout_multiplier": null,
+        "verifier_timeout_multiplier": null,
+        "agent_setup_timeout_multiplier": null,
+        "environment_build_timeout_multiplier": null,
+        "agent": {
+            "name": null,
+            "import_path": "atlarix_tb:AtlarixAgent",
+            "model_name": "openai/google/gemma-4-31b-it",
+            "skills": [],
+            "override_timeout_sec": null,
+            "override_setup_timeout_sec": null,
+            "max_timeout_sec": null,
+            "extra_allowed_hosts": [],
+            "kwargs": {},
+            "env": {},
+            "mcp_servers": []
+        },
+        "environment": {
+            "type": "modal",
+            "import_path": null,
+            "force_build": false,
+            "delete": true,
+            "cpu_enforcement_policy": "auto",
+            "memory_enforcement_policy": "auto",
+            "override_cpus": null,
+            "override_memory_mb": null,
+            "override_storage_mb": null,
+            "override_gpus": null,
+            "override_tpu": null,
+            "mounts": null,
+            "extra_docker_compose": [],
+            "env": {},
+            "kwargs": {},
+            "extra_allowed_hosts": []
+        },
+        "verifier": {
+            "override_timeout_sec": null,
+            "max_timeout_sec": null,
+            "env": {},
+            "disable": false
+        },
+        "artifacts": [],
+        "extra_instruction_paths": [],
+        "job_id": "6a2ee2cf-9a4e-4d7d-87e3-785821b3eeee"
+    },
+    "agent_info": {
+        "name": "atlarix",
+        "version": "v22.23.1",
+        "model_info": {
+            "name": "google/gemma-4-31b-it",
+            "provider": "openai"
+        }
+    },
+    "agent_result": {
+        "n_input_tokens": null,
+        "n_cache_tokens": null,
+        "n_output_tokens": null,
+        "cost_usd": null,
+        "rollout_details": null,
+        "metadata": null
+    },
+    "verifier_result": {
+        "rewards": {
+            "reward": 0.0
+        }
+    },
+    "exception_info": null,
+    "started_at": "2026-06-29T16:04:39.693927Z",
+    "finished_at": "2026-06-29T16:07:54.477985Z",
+    "environment_setup": {
+        "started_at": "2026-06-29T16:04:39.696620Z",
+        "finished_at": "2026-06-29T16:04:43.357687Z"
+    },
+    "agent_setup": {
+        "started_at": "2026-06-29T16:04:43.357717Z",
+        "finished_at": "2026-06-29T16:04:58.872245Z"
+    },
+    "agent_execution": {
+        "started_at": "2026-06-29T16:04:58.873737Z",
+        "finished_at": "2026-06-29T16:07:30.173212Z"
+    },
+    "verifier": {
+        "started_at": "2026-06-29T16:07:37.535792Z",
+        "finished_at": "2026-06-29T16:07:53.508728Z"
+    },
+    "step_results": null
+}

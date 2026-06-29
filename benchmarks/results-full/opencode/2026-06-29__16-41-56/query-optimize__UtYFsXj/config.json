@@ -1,0 +1,59 @@
+{
+    "task": {
+        "path": null,
+        "git_url": null,
+        "git_commit_id": null,
+        "name": "terminal-bench/query-optimize",
+        "ref": "sha256:a4802d5a0182e4a648bdab02c37f611dd100aeae6772cffa05b5d9e7072250b3",
+        "overwrite": false,
+        "download_dir": null,
+        "source": "terminal-bench/terminal-bench-2"
+    },
+    "trial_name": "query-optimize__UtYFsXj",
+    "trials_dir": "Atlarix/benchmarks/results-full/opencode/2026-06-29__16-41-56",
+    "timeout_multiplier": 1.0,
+    "agent_timeout_multiplier": null,
+    "verifier_timeout_multiplier": null,
+    "agent_setup_timeout_multiplier": null,
+    "environment_build_timeout_multiplier": null,
+    "agent": {
+        "name": null,
+        "import_path": "atlarix_tb.opencode_proxy:BenchOpenCodeAgent",
+        "model_name": "bench/minimax/minimax-m3",
+        "skills": [],
+        "override_timeout_sec": null,
+        "override_setup_timeout_sec": null,
+        "max_timeout_sec": null,
+        "extra_allowed_hosts": [],
+        "kwargs": {},
+        "env": {},
+        "mcp_servers": []
+    },
+    "environment": {
+        "type": "modal",
+        "import_path": null,
+        "force_build": false,
+        "delete": true,
+        "cpu_enforcement_policy": "auto",
+        "memory_enforcement_policy": "auto",
+        "override_cpus": null,
+        "override_memory_mb": null,
+        "override_storage_mb": null,
+        "override_gpus": null,
+        "override_tpu": null,
+        "mounts": null,
+        "extra_docker_compose": [],
+        "env": {},
+        "kwargs": {},
+        "extra_allowed_hosts": []
+    },
+    "verifier": {
+        "override_timeout_sec": null,
+        "max_timeout_sec": null,
+        "env": {},
+        "disable": false
+    },
+    "artifacts": [],
+    "extra_instruction_paths": [],
+    "job_id": "f13988dd-81f6-4aa3-83e1-aa1e621d288e"
+}

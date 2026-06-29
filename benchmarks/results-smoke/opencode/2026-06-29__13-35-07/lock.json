@@ -1,0 +1,79 @@
+{
+    "schema_version": 1,
+    "created_at": "2026-06-29T10:35:11.131615Z",
+    "harbor": {
+        "version": "0.13.2",
+        "is_editable": false
+    },
+    "invocation": [
+        "/Users/amariah/Documents/Github/AI/.bench-venv/bin/harbor",
+        "run",
+        "-d",
+        "terminal-bench/terminal-bench-2",
+        "-m",
+        "bench/deepseek/deepseek-v4-pro",
+        "-i",
+        "terminal-bench/fix-git",
+        "-n",
+        "1",
+        "-k",
+        "1",
+        "-y",
+        "--timeout-multiplier",
+        "2",
+        "-o",
+        "Atlarix/benchmarks/results-smoke/opencode",
+        "--agent-import-path",
+        "atlarix_tb.opencode_proxy:BenchOpenCodeAgent"
+    ],
+    "n_concurrent_trials": 1,
+    "retry": {
+        "max_retries": 0,
+        "exclude_exceptions": [
+            "VerifierOutputParseError",
+            "AgentTimeoutError",
+            "VerifierTimeoutError",
+            "RewardFileNotFoundError",
+            "RewardFileEmptyError"
+        ],
+        "wait_multiplier": 1.0,
+        "min_wait_sec": 1.0,
+        "max_wait_sec": 60.0
+    },
+    "trials": [
+        {
+            "task": {
+                "name": "terminal-bench/fix-git",
+                "type": "package",
+                "digest": "sha256:66be7179f07f1aa8f0d60f88800a883a68c1ffb7a349aae76aa60fa679485473",
+                "source": "terminal-bench/terminal-bench-2"
+            },
+            "timeout_multiplier": 2.0,
+            "agent": {
+                "import_path": "atlarix_tb.opencode_proxy:BenchOpenCodeAgent",
+                "model_name": "bench/deepseek/deepseek-v4-pro",
+                "skills": [],
+                "extra_allowed_hosts": [],
+                "kwargs": {},
+                "env": {},
+                "mcp_servers": []
+            },
+            "skills": [],
+            "environment": {
+                "type": "docker",
+                "force_build": false,
+                "delete": true,
+                "cpu_enforcement_policy": "auto",
+                "memory_enforcement_policy": "auto",
+                "extra_docker_compose": [],
+                "env": {},
+                "kwargs": {},
+                "extra_allowed_hosts": []
+            },
+            "verifier": {
+                "env": {},
+                "disable": false
+            }
+        }
+    ]
+}

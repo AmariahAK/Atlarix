@@ -1,0 +1,113 @@
+{
+    "id": "6953dff5-5c02-45fa-a05f-c830535a6a84",
+    "task_name": "terminal-bench/nginx-request-logging",
+    "trial_name": "nginx-request-logging__rsWYN7P",
+    "trial_uri": "file:///Users/amariah/Documents/Github/AI/Atlarix/benchmarks/results-confirm/atlarix/2026-06-29__14-12-48/nginx-request-logging__rsWYN7P",
+    "task_id": {
+        "org": "terminal-bench",
+        "name": "nginx-request-logging",
+        "ref": "sha256:f5eaf57c493462fbeaa8a7b5c4155739ee4ce8e8fab037eae6512788885014f6"
+    },
+    "source": "terminal-bench/terminal-bench-2",
+    "task_checksum": "7ef275747d8a34e451f6486d1fa1e166ccf5f8c393ee9a6ee7658a4a020236cb",
+    "config": {
+        "task": {
+            "path": null,
+            "git_url": null,
+            "git_commit_id": null,
+            "name": "terminal-bench/nginx-request-logging",
+            "ref": "sha256:f5eaf57c493462fbeaa8a7b5c4155739ee4ce8e8fab037eae6512788885014f6",
+            "overwrite": false,
+            "download_dir": null,
+            "source": "terminal-bench/terminal-bench-2"
+        },
+        "trial_name": "nginx-request-logging__rsWYN7P",
+        "trials_dir": "Atlarix/benchmarks/results-confirm/atlarix/2026-06-29__14-12-48",
+        "timeout_multiplier": 1.0,
+        "agent_timeout_multiplier": null,
+        "verifier_timeout_multiplier": null,
+        "agent_setup_timeout_multiplier": null,
+        "environment_build_timeout_multiplier": null,
+        "agent": {
+            "name": null,
+            "import_path": "atlarix_tb:AtlarixAgent",
+            "model_name": "openai/deepseek/deepseek-v4-pro",
+            "skills": [],
+            "override_timeout_sec": null,
+            "override_setup_timeout_sec": null,
+            "max_timeout_sec": null,
+            "extra_allowed_hosts": [],
+            "kwargs": {},
+            "env": {},
+            "mcp_servers": []
+        },
+        "environment": {
+            "type": "daytona",
+            "import_path": null,
+            "force_build": false,
+            "delete": true,
+            "cpu_enforcement_policy": "auto",
+            "memory_enforcement_policy": "auto",
+            "override_cpus": null,
+            "override_memory_mb": null,
+            "override_storage_mb": null,
+            "override_gpus": null,
+            "override_tpu": null,
+            "mounts": null,
+            "extra_docker_compose": [],
+            "env": {},
+            "kwargs": {},
+            "extra_allowed_hosts": []
+        },
+        "verifier": {
+            "override_timeout_sec": null,
+            "max_timeout_sec": null,
+            "env": {},
+            "disable": false
+        },
+        "artifacts": [],
+        "extra_instruction_paths": [],
+        "job_id": "5a4e3095-3d5a-4d66-b111-7582f91489f1"
+    },
+    "agent_info": {
+        "name": "atlarix",
+        "version": "v22.23.1",
+        "model_info": {
+            "name": "deepseek/deepseek-v4-pro",
+            "provider": "openai"
+        }
+    },
+    "agent_result": {
+        "n_input_tokens": null,
+        "n_cache_tokens": null,
+        "n_output_tokens": null,
+        "cost_usd": null,
+        "rollout_details": null,
+        "metadata": null
+    },
+    "verifier_result": {
+        "rewards": {
+            "reward": 1.0
+        }
+    },
+    "exception_info": null,
+    "started_at": "2026-06-29T11:12:57.156717Z",
+    "finished_at": "2026-06-29T11:18:13.073975Z",
+    "environment_setup": {
+        "started_at": "2026-06-29T11:12:57.158928Z",
+        "finished_at": "2026-06-29T11:16:00.730982Z"
+    },
+    "agent_setup": {
+        "started_at": "2026-06-29T11:16:00.731312Z",
+        "finished_at": "2026-06-29T11:16:12.456557Z"
+    },
+    "agent_execution": {
+        "started_at": "2026-06-29T11:16:12.457313Z",
+        "finished_at": "2026-06-29T11:17:54.617653Z"
+    },
+    "verifier": {
+        "started_at": "2026-06-29T11:18:00.990232Z",
+        "finished_at": "2026-06-29T11:18:12.322560Z"
+    },
+    "step_results": null
+}

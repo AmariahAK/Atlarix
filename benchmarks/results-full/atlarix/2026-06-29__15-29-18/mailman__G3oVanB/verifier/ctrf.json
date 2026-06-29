@@ -1,0 +1,47 @@
+{
+    "results": {
+        "tool": {
+            "name": "pytest",
+            "version": "8.4.1"
+        },
+        "summary": {
+            "tests": 3,
+            "passed": 3,
+            "failed": 0,
+            "skipped": 0,
+            "pending": 0,
+            "other": 0,
+            "start": 1782737904.6729927,
+            "stop": 1782737930.919855
+        },
+        "tests": [
+            {
+                "name": "test_outputs.py::test_simple_local_delivery",
+                "status": "passed",
+                "duration": 2.2859902760001205,
+                "start": 1782737904.9425607,
+                "stop": 1782737907.2289283,
+                "retries": 0,
+                "file_path": "test_outputs.py"
+            },
+            {
+                "name": "test_outputs.py::test_mlist_exists",
+                "status": "passed",
+                "duration": 3.573110603000032,
+                "start": 1782737907.229245,
+                "stop": 1782737910.8026376,
+                "retries": 0,
+                "file_path": "test_outputs.py"
+            },
+            {
+                "name": "test_outputs.py::test_join_announce_leave_flow",
+                "status": "passed",
+                "duration": 20.11534103399981,
+                "start": 1782737910.803902,
+                "stop": 1782737930.919528,
+                "retries": 0,
+                "file_path": "test_outputs.py"
+            }
+        ]
+    }
+}

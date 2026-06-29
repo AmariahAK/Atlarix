@@ -1,0 +1,113 @@
+{
+    "id": "2a927623-40a6-44dc-b816-98dafeba7b75",
+    "task_name": "terminal-bench/cancel-async-tasks",
+    "trial_name": "cancel-async-tasks__vDZdkvv",
+    "trial_uri": "file:///Users/amariah/Documents/Github/AI/Atlarix/benchmarks/results-full/opencode/2026-06-29__16-41-56/cancel-async-tasks__vDZdkvv",
+    "task_id": {
+        "org": "terminal-bench",
+        "name": "cancel-async-tasks",
+        "ref": "sha256:7c230a29f27c49c2fff88f4721165f4241e456bd87a94cd525be05ae98c6cbbb"
+    },
+    "source": "terminal-bench/terminal-bench-2",
+    "task_checksum": "accc19bf83c18b56ef638f2fba155cfefc1219e72cd3a59ab326748ae5c5c547",
+    "config": {
+        "task": {
+            "path": null,
+            "git_url": null,
+            "git_commit_id": null,
+            "name": "terminal-bench/cancel-async-tasks",
+            "ref": "sha256:7c230a29f27c49c2fff88f4721165f4241e456bd87a94cd525be05ae98c6cbbb",
+            "overwrite": false,
+            "download_dir": null,
+            "source": "terminal-bench/terminal-bench-2"
+        },
+        "trial_name": "cancel-async-tasks__vDZdkvv",
+        "trials_dir": "Atlarix/benchmarks/results-full/opencode/2026-06-29__16-41-56",
+        "timeout_multiplier": 1.0,
+        "agent_timeout_multiplier": null,
+        "verifier_timeout_multiplier": null,
+        "agent_setup_timeout_multiplier": null,
+        "environment_build_timeout_multiplier": null,
+        "agent": {
+            "name": null,
+            "import_path": "atlarix_tb.opencode_proxy:BenchOpenCodeAgent",
+            "model_name": "bench/minimax/minimax-m3",
+            "skills": [],
+            "override_timeout_sec": null,
+            "override_setup_timeout_sec": null,
+            "max_timeout_sec": null,
+            "extra_allowed_hosts": [],
+            "kwargs": {},
+            "env": {},
+            "mcp_servers": []
+        },
+        "environment": {
+            "type": "modal",
+            "import_path": null,
+            "force_build": false,
+            "delete": true,
+            "cpu_enforcement_policy": "auto",
+            "memory_enforcement_policy": "auto",
+            "override_cpus": null,
+            "override_memory_mb": null,
+            "override_storage_mb": null,
+            "override_gpus": null,
+            "override_tpu": null,
+            "mounts": null,
+            "extra_docker_compose": [],
+            "env": {},
+            "kwargs": {},
+            "extra_allowed_hosts": []
+        },
+        "verifier": {
+            "override_timeout_sec": null,
+            "max_timeout_sec": null,
+            "env": {},
+            "disable": false
+        },
+        "artifacts": [],
+        "extra_instruction_paths": [],
+        "job_id": "f13988dd-81f6-4aa3-83e1-aa1e621d288e"
+    },
+    "agent_info": {
+        "name": "opencode",
+        "version": "1.17.11",
+        "model_info": {
+            "name": "minimax/minimax-m3",
+            "provider": "bench"
+        }
+    },
+    "agent_result": {
+        "n_input_tokens": 84911,
+        "n_cache_tokens": 75264,
+        "n_output_tokens": 1613,
+        "cost_usd": null,
+        "rollout_details": null,
+        "metadata": null
+    },
+    "verifier_result": {
+        "rewards": {
+            "reward": 0.0
+        }
+    },
+    "exception_info": null,
+    "started_at": "2026-06-29T13:42:02.556841Z",
+    "finished_at": "2026-06-29T13:45:34.742320Z",
+    "environment_setup": {
+        "started_at": "2026-06-29T13:42:02.572559Z",
+        "finished_at": "2026-06-29T13:42:06.339933Z"
+    },
+    "agent_setup": {
+        "started_at": "2026-06-29T13:42:06.339971Z",
+        "finished_at": "2026-06-29T13:42:35.048371Z"
+    },
+    "agent_execution": {
+        "started_at": "2026-06-29T13:42:35.048671Z",
+        "finished_at": "2026-06-29T13:44:33.887852Z"
+    },
+    "verifier": {
+        "started_at": "2026-06-29T13:44:41.030109Z",
+        "finished_at": "2026-06-29T13:45:03.436582Z"
+    },
+    "step_results": null
+}

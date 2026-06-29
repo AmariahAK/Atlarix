@@ -1,0 +1,113 @@
+{
+    "id": "03f6afe6-b04c-4152-a3f9-4dfd726858d2",
+    "task_name": "terminal-bench/train-fasttext",
+    "trial_name": "train-fasttext__Hq3YFXp",
+    "trial_uri": "file:///Users/amariah/Documents/Github/AI/Atlarix/benchmarks/results-full/atlarix/2026-06-29__15-29-18/train-fasttext__Hq3YFXp",
+    "task_id": {
+        "org": "terminal-bench",
+        "name": "train-fasttext",
+        "ref": "sha256:19f1d7f8d317edb518d376f8b99a804847a65c6bb07ba126a6a5d8f0c1063639"
+    },
+    "source": "terminal-bench/terminal-bench-2",
+    "task_checksum": "836a4e5e9cd610047fbe3b9ce360263d852156c99ef346388775560489b0fe5b",
+    "config": {
+        "task": {
+            "path": null,
+            "git_url": null,
+            "git_commit_id": null,
+            "name": "terminal-bench/train-fasttext",
+            "ref": "sha256:19f1d7f8d317edb518d376f8b99a804847a65c6bb07ba126a6a5d8f0c1063639",
+            "overwrite": false,
+            "download_dir": null,
+            "source": "terminal-bench/terminal-bench-2"
+        },
+        "trial_name": "train-fasttext__Hq3YFXp",
+        "trials_dir": "Atlarix/benchmarks/results-full/atlarix/2026-06-29__15-29-18",
+        "timeout_multiplier": 1.0,
+        "agent_timeout_multiplier": null,
+        "verifier_timeout_multiplier": null,
+        "agent_setup_timeout_multiplier": null,
+        "environment_build_timeout_multiplier": null,
+        "agent": {
+            "name": null,
+            "import_path": "atlarix_tb:AtlarixAgent",
+            "model_name": "openai/minimax/minimax-m3",
+            "skills": [],
+            "override_timeout_sec": null,
+            "override_setup_timeout_sec": null,
+            "max_timeout_sec": null,
+            "extra_allowed_hosts": [],
+            "kwargs": {},
+            "env": {},
+            "mcp_servers": []
+        },
+        "environment": {
+            "type": "modal",
+            "import_path": null,
+            "force_build": false,
+            "delete": true,
+            "cpu_enforcement_policy": "auto",
+            "memory_enforcement_policy": "auto",
+            "override_cpus": null,
+            "override_memory_mb": null,
+            "override_storage_mb": null,
+            "override_gpus": null,
+            "override_tpu": null,
+            "mounts": null,
+            "extra_docker_compose": [],
+            "env": {},
+            "kwargs": {},
+            "extra_allowed_hosts": []
+        },
+        "verifier": {
+            "override_timeout_sec": null,
+            "max_timeout_sec": null,
+            "env": {},
+            "disable": false
+        },
+        "artifacts": [],
+        "extra_instruction_paths": [],
+        "job_id": "2e9e7af6-b438-43d5-a77b-97df3aa4cdbb"
+    },
+    "agent_info": {
+        "name": "atlarix",
+        "version": "v22.23.1",
+        "model_info": {
+            "name": "minimax/minimax-m3",
+            "provider": "openai"
+        }
+    },
+    "agent_result": {
+        "n_input_tokens": null,
+        "n_cache_tokens": null,
+        "n_output_tokens": null,
+        "cost_usd": null,
+        "rollout_details": null,
+        "metadata": null
+    },
+    "verifier_result": {
+        "rewards": {
+            "reward": 0.0
+        }
+    },
+    "exception_info": null,
+    "started_at": "2026-06-29T12:45:24.598999Z",
+    "finished_at": "2026-06-29T12:49:53.390413Z",
+    "environment_setup": {
+        "started_at": "2026-06-29T12:45:24.621110Z",
+        "finished_at": "2026-06-29T12:45:41.056359Z"
+    },
+    "agent_setup": {
+        "started_at": "2026-06-29T12:45:41.056550Z",
+        "finished_at": "2026-06-29T12:46:07.971754Z"
+    },
+    "agent_execution": {
+        "started_at": "2026-06-29T12:46:07.973061Z",
+        "finished_at": "2026-06-29T12:48:38.462330Z"
+    },
+    "verifier": {
+        "started_at": "2026-06-29T12:48:46.337858Z",
+        "finished_at": "2026-06-29T12:49:22.192365Z"
+    },
+    "step_results": null
+}

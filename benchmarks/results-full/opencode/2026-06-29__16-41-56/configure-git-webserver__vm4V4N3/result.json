@@ -1,0 +1,113 @@
+{
+    "id": "52f65273-78b4-4cd2-9a46-df30ce83a247",
+    "task_name": "terminal-bench/configure-git-webserver",
+    "trial_name": "configure-git-webserver__vm4V4N3",
+    "trial_uri": "file:///Users/amariah/Documents/Github/AI/Atlarix/benchmarks/results-full/opencode/2026-06-29__16-41-56/configure-git-webserver__vm4V4N3",
+    "task_id": {
+        "org": "terminal-bench",
+        "name": "configure-git-webserver",
+        "ref": "sha256:a73cf484283083f52b5d4c07c4a7027111fca3cfa3aaf108235d4aff57ef1d8d"
+    },
+    "source": "terminal-bench/terminal-bench-2",
+    "task_checksum": "cf2c66b79368e4f5be614393e3766c1256c718ceff86aba9517bf7a12751c014",
+    "config": {
+        "task": {
+            "path": null,
+            "git_url": null,
+            "git_commit_id": null,
+            "name": "terminal-bench/configure-git-webserver",
+            "ref": "sha256:a73cf484283083f52b5d4c07c4a7027111fca3cfa3aaf108235d4aff57ef1d8d",
+            "overwrite": false,
+            "download_dir": null,
+            "source": "terminal-bench/terminal-bench-2"
+        },
+        "trial_name": "configure-git-webserver__vm4V4N3",
+        "trials_dir": "Atlarix/benchmarks/results-full/opencode/2026-06-29__16-41-56",
+        "timeout_multiplier": 1.0,
+        "agent_timeout_multiplier": null,
+        "verifier_timeout_multiplier": null,
+        "agent_setup_timeout_multiplier": null,
+        "environment_build_timeout_multiplier": null,
+        "agent": {
+            "name": null,
+            "import_path": "atlarix_tb.opencode_proxy:BenchOpenCodeAgent",
+            "model_name": "bench/minimax/minimax-m3",
+            "skills": [],
+            "override_timeout_sec": null,
+            "override_setup_timeout_sec": null,
+            "max_timeout_sec": null,
+            "extra_allowed_hosts": [],
+            "kwargs": {},
+            "env": {},
+            "mcp_servers": []
+        },
+        "environment": {
+            "type": "modal",
+            "import_path": null,
+            "force_build": false,
+            "delete": true,
+            "cpu_enforcement_policy": "auto",
+            "memory_enforcement_policy": "auto",
+            "override_cpus": null,
+            "override_memory_mb": null,
+            "override_storage_mb": null,
+            "override_gpus": null,
+            "override_tpu": null,
+            "mounts": null,
+            "extra_docker_compose": [],
+            "env": {},
+            "kwargs": {},
+            "extra_allowed_hosts": []
+        },
+        "verifier": {
+            "override_timeout_sec": null,
+            "max_timeout_sec": null,
+            "env": {},
+            "disable": false
+        },
+        "artifacts": [],
+        "extra_instruction_paths": [],
+        "job_id": "f13988dd-81f6-4aa3-83e1-aa1e621d288e"
+    },
+    "agent_info": {
+        "name": "opencode",
+        "version": "1.17.11",
+        "model_info": {
+            "name": "minimax/minimax-m3",
+            "provider": "bench"
+        }
+    },
+    "agent_result": {
+        "n_input_tokens": 979591,
+        "n_cache_tokens": 952835,
+        "n_output_tokens": 6645,
+        "cost_usd": null,
+        "rollout_details": null,
+        "metadata": null
+    },
+    "verifier_result": {
+        "rewards": {
+            "reward": 0.0
+        }
+    },
+    "exception_info": null,
+    "started_at": "2026-06-29T14:14:33.890979Z",
+    "finished_at": "2026-06-29T14:22:31.077034Z",
+    "environment_setup": {
+        "started_at": "2026-06-29T14:14:33.894406Z",
+        "finished_at": "2026-06-29T14:14:36.855708Z"
+    },
+    "agent_setup": {
+        "started_at": "2026-06-29T14:14:36.855810Z",
+        "finished_at": "2026-06-29T14:15:20.161512Z"
+    },
+    "agent_execution": {
+        "started_at": "2026-06-29T14:15:20.161698Z",
+        "finished_at": "2026-06-29T14:21:58.722524Z"
+    },
+    "verifier": {
+        "started_at": "2026-06-29T14:22:08.118225Z",
+        "finished_at": "2026-06-29T14:22:30.186848Z"
+    },
+    "step_results": null
+}

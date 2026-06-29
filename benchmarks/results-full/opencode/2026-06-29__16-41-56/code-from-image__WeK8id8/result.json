@@ -1,0 +1,113 @@
+{
+    "id": "3cad306e-b6c3-4249-b41b-3ff956abb7c6",
+    "task_name": "terminal-bench/code-from-image",
+    "trial_name": "code-from-image__WeK8id8",
+    "trial_uri": "file:///Users/amariah/Documents/Github/AI/Atlarix/benchmarks/results-full/opencode/2026-06-29__16-41-56/code-from-image__WeK8id8",
+    "task_id": {
+        "org": "terminal-bench",
+        "name": "code-from-image",
+        "ref": "sha256:6b96c7a7eefcf3e655db93ac5e5278c1d6f0b98c9bf47c2ba03c53e5f157f132"
+    },
+    "source": "terminal-bench/terminal-bench-2",
+    "task_checksum": "5d96da2d7bfc899e5998b0e4a4a5e096d71316f35b72c208a70c6aa14583774b",
+    "config": {
+        "task": {
+            "path": null,
+            "git_url": null,
+            "git_commit_id": null,
+            "name": "terminal-bench/code-from-image",
+            "ref": "sha256:6b96c7a7eefcf3e655db93ac5e5278c1d6f0b98c9bf47c2ba03c53e5f157f132",
+            "overwrite": false,
+            "download_dir": null,
+            "source": "terminal-bench/terminal-bench-2"
+        },
+        "trial_name": "code-from-image__WeK8id8",
+        "trials_dir": "Atlarix/benchmarks/results-full/opencode/2026-06-29__16-41-56",
+        "timeout_multiplier": 1.0,
+        "agent_timeout_multiplier": null,
+        "verifier_timeout_multiplier": null,
+        "agent_setup_timeout_multiplier": null,
+        "environment_build_timeout_multiplier": null,
+        "agent": {
+            "name": null,
+            "import_path": "atlarix_tb.opencode_proxy:BenchOpenCodeAgent",
+            "model_name": "bench/minimax/minimax-m3",
+            "skills": [],
+            "override_timeout_sec": null,
+            "override_setup_timeout_sec": null,
+            "max_timeout_sec": null,
+            "extra_allowed_hosts": [],
+            "kwargs": {},
+            "env": {},
+            "mcp_servers": []
+        },
+        "environment": {
+            "type": "modal",
+            "import_path": null,
+            "force_build": false,
+            "delete": true,
+            "cpu_enforcement_policy": "auto",
+            "memory_enforcement_policy": "auto",
+            "override_cpus": null,
+            "override_memory_mb": null,
+            "override_storage_mb": null,
+            "override_gpus": null,
+            "override_tpu": null,
+            "mounts": null,
+            "extra_docker_compose": [],
+            "env": {},
+            "kwargs": {},
+            "extra_allowed_hosts": []
+        },
+        "verifier": {
+            "override_timeout_sec": null,
+            "max_timeout_sec": null,
+            "env": {},
+            "disable": false
+        },
+        "artifacts": [],
+        "extra_instruction_paths": [],
+        "job_id": "f13988dd-81f6-4aa3-83e1-aa1e621d288e"
+    },
+    "agent_info": {
+        "name": "opencode",
+        "version": "1.17.11",
+        "model_info": {
+            "name": "minimax/minimax-m3",
+            "provider": "bench"
+        }
+    },
+    "agent_result": {
+        "n_input_tokens": 83906,
+        "n_cache_tokens": 74496,
+        "n_output_tokens": 833,
+        "cost_usd": null,
+        "rollout_details": null,
+        "metadata": null
+    },
+    "verifier_result": {
+        "rewards": {
+            "reward": 1.0
+        }
+    },
+    "exception_info": null,
+    "started_at": "2026-06-29T14:12:53.005336Z",
+    "finished_at": "2026-06-29T14:16:42.742643Z",
+    "environment_setup": {
+        "started_at": "2026-06-29T14:12:53.010232Z",
+        "finished_at": "2026-06-29T14:12:55.899226Z"
+    },
+    "agent_setup": {
+        "started_at": "2026-06-29T14:12:55.899335Z",
+        "finished_at": "2026-06-29T14:13:51.699634Z"
+    },
+    "agent_execution": {
+        "started_at": "2026-06-29T14:13:51.699920Z",
+        "finished_at": "2026-06-29T14:15:53.297770Z"
+    },
+    "verifier": {
+        "started_at": "2026-06-29T14:15:58.551717Z",
+        "finished_at": "2026-06-29T14:16:11.302037Z"
+    },
+    "step_results": null
+}

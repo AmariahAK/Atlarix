@@ -1,0 +1,113 @@
+{
+    "id": "d85c0b15-82e4-46fe-aab0-d7048fc8c659",
+    "task_name": "terminal-bench/install-windows-3-11",
+    "trial_name": "install-windows-3-11__wpuEZUR",
+    "trial_uri": "file:///Users/amariah/Documents/Github/AI/Atlarix/benchmarks/results-full/atlarix/2026-06-29__15-29-18/install-windows-3-11__wpuEZUR",
+    "task_id": {
+        "org": "terminal-bench",
+        "name": "install-windows-3-11",
+        "ref": "sha256:3fccdcf345cef4dd1a828ad3829024109b163b871b3f39db1af9308a77ee4ce7"
+    },
+    "source": "terminal-bench/terminal-bench-2",
+    "task_checksum": "c0f9008bdfc3e81c3067b36a5e5e09f0ac5868d25d7ac322e04e256c86a3fadb",
+    "config": {
+        "task": {
+            "path": null,
+            "git_url": null,
+            "git_commit_id": null,
+            "name": "terminal-bench/install-windows-3-11",
+            "ref": "sha256:3fccdcf345cef4dd1a828ad3829024109b163b871b3f39db1af9308a77ee4ce7",
+            "overwrite": false,
+            "download_dir": null,
+            "source": "terminal-bench/terminal-bench-2"
+        },
+        "trial_name": "install-windows-3-11__wpuEZUR",
+        "trials_dir": "Atlarix/benchmarks/results-full/atlarix/2026-06-29__15-29-18",
+        "timeout_multiplier": 1.0,
+        "agent_timeout_multiplier": null,
+        "verifier_timeout_multiplier": null,
+        "agent_setup_timeout_multiplier": null,
+        "environment_build_timeout_multiplier": null,
+        "agent": {
+            "name": null,
+            "import_path": "atlarix_tb:AtlarixAgent",
+            "model_name": "openai/minimax/minimax-m3",
+            "skills": [],
+            "override_timeout_sec": null,
+            "override_setup_timeout_sec": null,
+            "max_timeout_sec": null,
+            "extra_allowed_hosts": [],
+            "kwargs": {},
+            "env": {},
+            "mcp_servers": []
+        },
+        "environment": {
+            "type": "modal",
+            "import_path": null,
+            "force_build": false,
+            "delete": true,
+            "cpu_enforcement_policy": "auto",
+            "memory_enforcement_policy": "auto",
+            "override_cpus": null,
+            "override_memory_mb": null,
+            "override_storage_mb": null,
+            "override_gpus": null,
+            "override_tpu": null,
+            "mounts": null,
+            "extra_docker_compose": [],
+            "env": {},
+            "kwargs": {},
+            "extra_allowed_hosts": []
+        },
+        "verifier": {
+            "override_timeout_sec": null,
+            "max_timeout_sec": null,
+            "env": {},
+            "disable": false
+        },
+        "artifacts": [],
+        "extra_instruction_paths": [],
+        "job_id": "2e9e7af6-b438-43d5-a77b-97df3aa4cdbb"
+    },
+    "agent_info": {
+        "name": "atlarix",
+        "version": "v22.23.1",
+        "model_info": {
+            "name": "minimax/minimax-m3",
+            "provider": "openai"
+        }
+    },
+    "agent_result": {
+        "n_input_tokens": null,
+        "n_cache_tokens": null,
+        "n_output_tokens": null,
+        "cost_usd": null,
+        "rollout_details": null,
+        "metadata": null
+    },
+    "verifier_result": {
+        "rewards": {
+            "reward": 0.0
+        }
+    },
+    "exception_info": null,
+    "started_at": "2026-06-29T12:29:32.030584Z",
+    "finished_at": "2026-06-29T12:44:45.631006Z",
+    "environment_setup": {
+        "started_at": "2026-06-29T12:29:32.043579Z",
+        "finished_at": "2026-06-29T12:30:01.655847Z"
+    },
+    "agent_setup": {
+        "started_at": "2026-06-29T12:30:01.656054Z",
+        "finished_at": "2026-06-29T12:30:18.500785Z"
+    },
+    "agent_execution": {
+        "started_at": "2026-06-29T12:30:18.501033Z",
+        "finished_at": "2026-06-29T12:43:40.740856Z"
+    },
+    "verifier": {
+        "started_at": "2026-06-29T12:43:47.409779Z",
+        "finished_at": "2026-06-29T12:44:43.327193Z"
+    },
+    "step_results": null
+}

@@ -1,0 +1,113 @@
+{
+    "id": "337f96c7-1fcd-483e-91c6-935a10401293",
+    "task_name": "terminal-bench/custom-memory-heap-crash",
+    "trial_name": "custom-memory-heap-crash__HF88Rmo",
+    "trial_uri": "file:///Users/amariah/Documents/Github/AI/Atlarix/benchmarks/results-full/atlarix/2026-06-29__15-29-18/custom-memory-heap-crash__HF88Rmo",
+    "task_id": {
+        "org": "terminal-bench",
+        "name": "custom-memory-heap-crash",
+        "ref": "sha256:72cdc9cf98c822a1449935ca32efc6612fe3d14928c9465c11285e95dcdf60cb"
+    },
+    "source": "terminal-bench/terminal-bench-2",
+    "task_checksum": "58f0cd21417048275fa06f5e244042d1fe5a6ac422b99199f2d2d7ef3b3af68a",
+    "config": {
+        "task": {
+            "path": null,
+            "git_url": null,
+            "git_commit_id": null,
+            "name": "terminal-bench/custom-memory-heap-crash",
+            "ref": "sha256:72cdc9cf98c822a1449935ca32efc6612fe3d14928c9465c11285e95dcdf60cb",
+            "overwrite": false,
+            "download_dir": null,
+            "source": "terminal-bench/terminal-bench-2"
+        },
+        "trial_name": "custom-memory-heap-crash__HF88Rmo",
+        "trials_dir": "Atlarix/benchmarks/results-full/atlarix/2026-06-29__15-29-18",
+        "timeout_multiplier": 1.0,
+        "agent_timeout_multiplier": null,
+        "verifier_timeout_multiplier": null,
+        "agent_setup_timeout_multiplier": null,
+        "environment_build_timeout_multiplier": null,
+        "agent": {
+            "name": null,
+            "import_path": "atlarix_tb:AtlarixAgent",
+            "model_name": "openai/minimax/minimax-m3",
+            "skills": [],
+            "override_timeout_sec": null,
+            "override_setup_timeout_sec": null,
+            "max_timeout_sec": null,
+            "extra_allowed_hosts": [],
+            "kwargs": {},
+            "env": {},
+            "mcp_servers": []
+        },
+        "environment": {
+            "type": "modal",
+            "import_path": null,
+            "force_build": false,
+            "delete": true,
+            "cpu_enforcement_policy": "auto",
+            "memory_enforcement_policy": "auto",
+            "override_cpus": null,
+            "override_memory_mb": null,
+            "override_storage_mb": null,
+            "override_gpus": null,
+            "override_tpu": null,
+            "mounts": null,
+            "extra_docker_compose": [],
+            "env": {},
+            "kwargs": {},
+            "extra_allowed_hosts": []
+        },
+        "verifier": {
+            "override_timeout_sec": null,
+            "max_timeout_sec": null,
+            "env": {},
+            "disable": false
+        },
+        "artifacts": [],
+        "extra_instruction_paths": [],
+        "job_id": "2e9e7af6-b438-43d5-a77b-97df3aa4cdbb"
+    },
+    "agent_info": {
+        "name": "atlarix",
+        "version": "v22.23.1",
+        "model_info": {
+            "name": "minimax/minimax-m3",
+            "provider": "openai"
+        }
+    },
+    "agent_result": {
+        "n_input_tokens": null,
+        "n_cache_tokens": null,
+        "n_output_tokens": null,
+        "cost_usd": null,
+        "rollout_details": null,
+        "metadata": null
+    },
+    "verifier_result": {
+        "rewards": {
+            "reward": 1.0
+        }
+    },
+    "exception_info": null,
+    "started_at": "2026-06-29T12:32:55.783059Z",
+    "finished_at": "2026-06-29T12:43:36.088272Z",
+    "environment_setup": {
+        "started_at": "2026-06-29T12:32:55.787208Z",
+        "finished_at": "2026-06-29T12:34:53.336254Z"
+    },
+    "agent_setup": {
+        "started_at": "2026-06-29T12:34:53.336733Z",
+        "finished_at": "2026-06-29T12:35:34.360297Z"
+    },
+    "agent_execution": {
+        "started_at": "2026-06-29T12:35:34.360671Z",
+        "finished_at": "2026-06-29T12:42:52.973611Z"
+    },
+    "verifier": {
+        "started_at": "2026-06-29T12:43:00.514524Z",
+        "finished_at": "2026-06-29T12:43:35.103139Z"
+    },
+    "step_results": null
+}

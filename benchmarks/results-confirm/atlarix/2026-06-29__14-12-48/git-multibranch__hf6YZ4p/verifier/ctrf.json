@@ -1,0 +1,29 @@
+{
+    "results": {
+        "tool": {
+            "name": "pytest",
+            "version": "8.4.1"
+        },
+        "summary": {
+            "tests": 1,
+            "passed": 1,
+            "failed": 0,
+            "skipped": 0,
+            "pending": 0,
+            "other": 0,
+            "start": 1782731929.0626051,
+            "stop": 1782732016.0666938
+        },
+        "tests": [
+            {
+                "name": "test_outputs.py::test_multi_branch_https_deploy",
+                "status": "passed",
+                "duration": 86.96638354752213,
+                "start": 1782731929.0998404,
+                "stop": 1782732016.0664897,
+                "retries": 0,
+                "file_path": "test_outputs.py"
+            }
+        ]
+    }
+}

@@ -1,0 +1,110 @@
+{
+    "id": "be97af5e-ee1b-4304-97f5-6f7751b9d8d4",
+    "task_name": "terminal-bench/configure-git-webserver",
+    "trial_name": "configure-git-webserver__DH3MXHa",
+    "trial_uri": "file:///Users/amariah/Documents/Github/AI/Atlarix/benchmarks/results-confirm/oracle-prewarm/2026-06-29__14-30-25/configure-git-webserver__DH3MXHa",
+    "task_id": {
+        "org": "terminal-bench",
+        "name": "configure-git-webserver",
+        "ref": "sha256:a73cf484283083f52b5d4c07c4a7027111fca3cfa3aaf108235d4aff57ef1d8d"
+    },
+    "source": "terminal-bench/terminal-bench-2",
+    "task_checksum": "cf2c66b79368e4f5be614393e3766c1256c718ceff86aba9517bf7a12751c014",
+    "config": {
+        "task": {
+            "path": null,
+            "git_url": null,
+            "git_commit_id": null,
+            "name": "terminal-bench/configure-git-webserver",
+            "ref": "sha256:a73cf484283083f52b5d4c07c4a7027111fca3cfa3aaf108235d4aff57ef1d8d",
+            "overwrite": false,
+            "download_dir": null,
+            "source": "terminal-bench/terminal-bench-2"
+        },
+        "trial_name": "configure-git-webserver__DH3MXHa",
+        "trials_dir": "Atlarix/benchmarks/results-confirm/oracle-prewarm/2026-06-29__14-30-25",
+        "timeout_multiplier": 1.0,
+        "agent_timeout_multiplier": null,
+        "verifier_timeout_multiplier": null,
+        "agent_setup_timeout_multiplier": null,
+        "environment_build_timeout_multiplier": 3.0,
+        "agent": {
+            "name": "oracle",
+            "import_path": null,
+            "model_name": null,
+            "skills": [],
+            "override_timeout_sec": null,
+            "override_setup_timeout_sec": null,
+            "max_timeout_sec": null,
+            "extra_allowed_hosts": [],
+            "kwargs": {},
+            "env": {},
+            "mcp_servers": []
+        },
+        "environment": {
+            "type": "daytona",
+            "import_path": null,
+            "force_build": false,
+            "delete": true,
+            "cpu_enforcement_policy": "auto",
+            "memory_enforcement_policy": "auto",
+            "override_cpus": null,
+            "override_memory_mb": null,
+            "override_storage_mb": null,
+            "override_gpus": null,
+            "override_tpu": null,
+            "mounts": null,
+            "extra_docker_compose": [],
+            "env": {},
+            "kwargs": {},
+            "extra_allowed_hosts": []
+        },
+        "verifier": {
+            "override_timeout_sec": null,
+            "max_timeout_sec": null,
+            "env": {},
+            "disable": false
+        },
+        "artifacts": [],
+        "extra_instruction_paths": [],
+        "job_id": "6ebcaaf2-1f19-4acf-9b64-4e95a2e9af61"
+    },
+    "agent_info": {
+        "name": "oracle",
+        "version": "1.0.0",
+        "model_info": null
+    },
+    "agent_result": {
+        "n_input_tokens": null,
+        "n_cache_tokens": null,
+        "n_output_tokens": null,
+        "cost_usd": null,
+        "rollout_details": null,
+        "metadata": null
+    },
+    "verifier_result": {
+        "rewards": {
+            "reward": 1.0
+        }
+    },
+    "exception_info": null,
+    "started_at": "2026-06-29T11:31:25.491602Z",
+    "finished_at": "2026-06-29T11:32:08.383732Z",
+    "environment_setup": {
+        "started_at": "2026-06-29T11:31:25.495026Z",
+        "finished_at": "2026-06-29T11:31:28.141506Z"
+    },
+    "agent_setup": {
+        "started_at": "2026-06-29T11:31:28.141619Z",
+        "finished_at": "2026-06-29T11:31:28.141714Z"
+    },
+    "agent_execution": {
+        "started_at": "2026-06-29T11:31:28.141889Z",
+        "finished_at": "2026-06-29T11:31:49.707147Z"
+    },
+    "verifier": {
+        "started_at": "2026-06-29T11:31:54.128011Z",
+        "finished_at": "2026-06-29T11:32:07.471373Z"
+    },
+    "step_results": null
+}

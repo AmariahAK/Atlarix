@@ -1,0 +1,227 @@
+{
+    "schema_version": 1,
+    "created_at": "2026-06-29T11:55:59.496776Z",
+    "harbor": {
+        "version": "0.13.2",
+        "is_editable": false
+    },
+    "invocation": [
+        "/Users/amariah/Documents/Github/AI/.bench-venv/bin/harbor",
+        "run",
+        "-d",
+        "terminal-bench/terminal-bench-2",
+        "-m",
+        "bench/deepseek/deepseek-v4-pro",
+        "-i",
+        "terminal-bench/count-dataset-tokens",
+        "-i",
+        "terminal-bench/git-multibranch",
+        "-i",
+        "terminal-bench/configure-git-webserver",
+        "-i",
+        "terminal-bench/log-summary-date-ranges",
+        "-i",
+        "terminal-bench/nginx-request-logging",
+        "-n",
+        "5",
+        "-k",
+        "1",
+        "-y",
+        "--timeout-multiplier",
+        "1",
+        "--max-retries",
+        "2",
+        "-e",
+        "modal",
+        "-o",
+        "Atlarix/benchmarks/results-modal/opencode",
+        "--agent-import-path",
+        "atlarix_tb.opencode_proxy:BenchOpenCodeAgent"
+    ],
+    "n_concurrent_trials": 5,
+    "retry": {
+        "max_retries": 2,
+        "exclude_exceptions": [
+            "AgentTimeoutError",
+            "VerifierOutputParseError",
+            "RewardFileNotFoundError",
+            "VerifierTimeoutError",
+            "RewardFileEmptyError"
+        ],
+        "wait_multiplier": 1.0,
+        "min_wait_sec": 1.0,
+        "max_wait_sec": 60.0
+    },
+    "trials": [
+        {
+            "task": {
+                "name": "terminal-bench/log-summary-date-ranges",
+                "type": "package",
+                "digest": "sha256:bd0eb5e8434840a46c623c8d29c71b4a6d0fc5c7bcbf637b6d1aef36b98f5cc5",
+                "source": "terminal-bench/terminal-bench-2"
+            },
+            "timeout_multiplier": 1.0,
+            "agent": {
+                "import_path": "atlarix_tb.opencode_proxy:BenchOpenCodeAgent",
+                "model_name": "bench/deepseek/deepseek-v4-pro",
+                "skills": [],
+                "extra_allowed_hosts": [],
+                "kwargs": {},
+                "env": {},
+                "mcp_servers": []
+            },
+            "skills": [],
+            "environment": {
+                "type": "modal",
+                "force_build": false,
+                "delete": true,
+                "cpu_enforcement_policy": "auto",
+                "memory_enforcement_policy": "auto",
+                "extra_docker_compose": [],
+                "env": {},
+                "kwargs": {},
+                "extra_allowed_hosts": []
+            },
+            "verifier": {
+                "env": {},
+                "disable": false
+            }
+        },
+        {
+            "task": {
+                "name": "terminal-bench/git-multibranch",
+                "type": "package",
+                "digest": "sha256:03d8f235cc737efc32ed92a11685f93581fe6e1fd4ad14fffaa049d2b59e381a",
+                "source": "terminal-bench/terminal-bench-2"
+            },
+            "timeout_multiplier": 1.0,
+            "agent": {
+                "import_path": "atlarix_tb.opencode_proxy:BenchOpenCodeAgent",
+                "model_name": "bench/deepseek/deepseek-v4-pro",
+                "skills": [],
+                "extra_allowed_hosts": [],
+                "kwargs": {},
+                "env": {},
+                "mcp_servers": []
+            },
+            "skills": [],
+            "environment": {
+                "type": "modal",
+                "force_build": false,
+                "delete": true,
+                "cpu_enforcement_policy": "auto",
+                "memory_enforcement_policy": "auto",
+                "extra_docker_compose": [],
+                "env": {},
+                "kwargs": {},
+                "extra_allowed_hosts": []
+            },
+            "verifier": {
+                "env": {},
+                "disable": false
+            }
+        },
+        {
+            "task": {
+                "name": "terminal-bench/nginx-request-logging",
+                "type": "package",
+                "digest": "sha256:f5eaf57c493462fbeaa8a7b5c4155739ee4ce8e8fab037eae6512788885014f6",
+                "source": "terminal-bench/terminal-bench-2"
+            },
+            "timeout_multiplier": 1.0,
+            "agent": {
+                "import_path": "atlarix_tb.opencode_proxy:BenchOpenCodeAgent",
+                "model_name": "bench/deepseek/deepseek-v4-pro",
+                "skills": [],
+                "extra_allowed_hosts": [],
+                "kwargs": {},
+                "env": {},
+                "mcp_servers": []
+            },
+            "skills": [],
+            "environment": {
+                "type": "modal",
+                "force_build": false,
+                "delete": true,
+                "cpu_enforcement_policy": "auto",
+                "memory_enforcement_policy": "auto",
+                "extra_docker_compose": [],
+                "env": {},
+                "kwargs": {},
+                "extra_allowed_hosts": []
+            },
+            "verifier": {
+                "env": {},
+                "disable": false
+            }
+        },
+        {
+            "task": {
+                "name": "terminal-bench/count-dataset-tokens",
+                "type": "package",
+                "digest": "sha256:c9b237360affc7d6aabb1b910f41b291e578d8952d325641cd53f73e3483c979",
+                "source": "terminal-bench/terminal-bench-2"
+            },
+            "timeout_multiplier": 1.0,
+            "agent": {
+                "import_path": "atlarix_tb.opencode_proxy:BenchOpenCodeAgent",
+                "model_name": "bench/deepseek/deepseek-v4-pro",
+                "skills": [],
+                "extra_allowed_hosts": [],
+                "kwargs": {},
+                "env": {},
+                "mcp_servers": []
+            },
+            "skills": [],
+            "environment": {
+                "type": "modal",
+                "force_build": false,
+                "delete": true,
+                "cpu_enforcement_policy": "auto",
+                "memory_enforcement_policy": "auto",
+                "extra_docker_compose": [],
+                "env": {},
+                "kwargs": {},
+                "extra_allowed_hosts": []
+            },
+            "verifier": {
+                "env": {},
+                "disable": false
+            }
+        },
+        {
+            "task": {
+                "name": "terminal-bench/configure-git-webserver",
+                "type": "package",
+                "digest": "sha256:a73cf484283083f52b5d4c07c4a7027111fca3cfa3aaf108235d4aff57ef1d8d",
+                "source": "terminal-bench/terminal-bench-2"
+            },
+            "timeout_multiplier": 1.0,
+            "agent": {
+                "import_path": "atlarix_tb.opencode_proxy:BenchOpenCodeAgent",
+                "model_name": "bench/deepseek/deepseek-v4-pro",
+                "skills": [],
+                "extra_allowed_hosts": [],
+                "kwargs": {},
+                "env": {},
+                "mcp_servers": []
+            },
+            "skills": [],
+            "environment": {
+                "type": "modal",
+                "force_build": false,
+                "delete": true,
+                "cpu_enforcement_policy": "auto",
+                "memory_enforcement_policy": "auto",
+                "extra_docker_compose": [],
+                "env": {},
+                "kwargs": {},
+                "extra_allowed_hosts": []
+            },
+            "verifier": {
+                "env": {},
+                "disable": false
+            }
+        }
+    ]
+}

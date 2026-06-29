@@ -1,0 +1,3 @@
+harness,model,passed,total,accuracy_pct,errors
+2026-06-29__15-29-18,atlarix,42,88,47.73,22
+2026-06-29__16-41-56,opencode,39,88,44.32,21

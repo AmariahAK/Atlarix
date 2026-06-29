@@ -1,0 +1,46 @@
+{
+    "id": "5a4e3095-3d5a-4d66-b111-7582f91489f1",
+    "started_at": "2026-06-29T14:12:55.176959",
+    "updated_at": "2026-06-29T14:20:19.646349",
+    "finished_at": "2026-06-29T14:20:19.646349",
+    "n_total_trials": 5,
+    "stats": {
+        "n_completed_trials": 5,
+        "n_errored_trials": 1,
+        "n_running_trials": 0,
+        "n_pending_trials": 0,
+        "n_cancelled_trials": 0,
+        "n_retries": 0,
+        "evals": {
+            "atlarix__deepseek/deepseek-v4-pro__terminal-bench/terminal-bench-2": {
+                "n_trials": 4,
+                "n_errors": 1,
+                "metrics": [
+                    {
+                        "mean": 0.8
+                    }
+                ],
+                "pass_at_k": {},
+                "reward_stats": {
+                    "reward": {
+                        "1.0": [
+                            "log-summary-date-ranges__6fZcYXM",
+                            "git-multibranch__hf6YZ4p",
+                            "nginx-request-logging__rsWYN7P",
+                            "configure-git-webserver__CP56Wsm"
+                        ]
+                    }
+                },
+                "exception_stats": {
+                    "DaytonaError": [
+                        "count-dataset-tokens__jhwDjCf"
+                    ]
+                }
+            }
+        },
+        "n_input_tokens": null,
+        "n_cache_tokens": null,
+        "n_output_tokens": null,
+        "cost_usd": null
+    }
+}

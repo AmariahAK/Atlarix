@@ -1,0 +1,48 @@
+{
+    "id": "7bd8b4c3-ad71-4015-8af6-744a522e5d09",
+    "started_at": "2026-06-29T14:13:03.189881",
+    "updated_at": "2026-06-29T14:23:52.936021",
+    "finished_at": "2026-06-29T14:23:52.936021",
+    "n_total_trials": 5,
+    "stats": {
+        "n_completed_trials": 5,
+        "n_errored_trials": 4,
+        "n_running_trials": 0,
+        "n_pending_trials": 0,
+        "n_cancelled_trials": 0,
+        "n_retries": 0,
+        "evals": {
+            "opencode__deepseek/deepseek-v4-pro__terminal-bench/terminal-bench-2": {
+                "n_trials": 1,
+                "n_errors": 4,
+                "metrics": [
+                    {
+                        "mean": 0.2
+                    }
+                ],
+                "pass_at_k": {},
+                "reward_stats": {
+                    "reward": {
+                        "1.0": [
+                            "configure-git-webserver__aZh2drp"
+                        ]
+                    }
+                },
+                "exception_stats": {
+                    "EnvironmentStartTimeoutError": [
+                        "log-summary-date-ranges__jyoHfat",
+                        "git-multibranch__FwXYFRc",
+                        "nginx-request-logging__D5oeqzG"
+                    ],
+                    "DaytonaError": [
+                        "count-dataset-tokens__9HtKSgZ"
+                    ]
+                }
+            }
+        },
+        "n_input_tokens": 203775,
+        "n_cache_tokens": 149760,
+        "n_output_tokens": 2258,
+        "cost_usd": null
+    }
+}

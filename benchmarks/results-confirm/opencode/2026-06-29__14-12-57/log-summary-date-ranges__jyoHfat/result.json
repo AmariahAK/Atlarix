@@ -1,0 +1,98 @@
+{
+    "id": "e11b865b-a537-4aef-a763-1e7cd9b3bc93",
+    "task_name": "terminal-bench/log-summary-date-ranges",
+    "trial_name": "log-summary-date-ranges__jyoHfat",
+    "trial_uri": "file:///Users/amariah/Documents/Github/AI/Atlarix/benchmarks/results-confirm/opencode/2026-06-29__14-12-57/log-summary-date-ranges__jyoHfat",
+    "task_id": {
+        "org": "terminal-bench",
+        "name": "log-summary-date-ranges",
+        "ref": "sha256:bd0eb5e8434840a46c623c8d29c71b4a6d0fc5c7bcbf637b6d1aef36b98f5cc5"
+    },
+    "source": "terminal-bench/terminal-bench-2",
+    "task_checksum": "e265c2c1a3bbe8ab6a128e1046675ee3e5f980509e1b43cb37e0a94206b9edea",
+    "config": {
+        "task": {
+            "path": null,
+            "git_url": null,
+            "git_commit_id": null,
+            "name": "terminal-bench/log-summary-date-ranges",
+            "ref": "sha256:bd0eb5e8434840a46c623c8d29c71b4a6d0fc5c7bcbf637b6d1aef36b98f5cc5",
+            "overwrite": false,
+            "download_dir": null,
+            "source": "terminal-bench/terminal-bench-2"
+        },
+        "trial_name": "log-summary-date-ranges__jyoHfat",
+        "trials_dir": "Atlarix/benchmarks/results-confirm/opencode/2026-06-29__14-12-57",
+        "timeout_multiplier": 1.0,
+        "agent_timeout_multiplier": null,
+        "verifier_timeout_multiplier": null,
+        "agent_setup_timeout_multiplier": null,
+        "environment_build_timeout_multiplier": null,
+        "agent": {
+            "name": null,
+            "import_path": "atlarix_tb.opencode_proxy:BenchOpenCodeAgent",
+            "model_name": "bench/deepseek/deepseek-v4-pro",
+            "skills": [],
+            "override_timeout_sec": null,
+            "override_setup_timeout_sec": null,
+            "max_timeout_sec": null,
+            "extra_allowed_hosts": [],
+            "kwargs": {},
+            "env": {},
+            "mcp_servers": []
+        },
+        "environment": {
+            "type": "daytona",
+            "import_path": null,
+            "force_build": false,
+            "delete": true,
+            "cpu_enforcement_policy": "auto",
+            "memory_enforcement_policy": "auto",
+            "override_cpus": null,
+            "override_memory_mb": null,
+            "override_storage_mb": null,
+            "override_gpus": null,
+            "override_tpu": null,
+            "mounts": null,
+            "extra_docker_compose": [],
+            "env": {},
+            "kwargs": {},
+            "extra_allowed_hosts": []
+        },
+        "verifier": {
+            "override_timeout_sec": null,
+            "max_timeout_sec": null,
+            "env": {},
+            "disable": false
+        },
+        "artifacts": [],
+        "extra_instruction_paths": [],
+        "job_id": "7bd8b4c3-ad71-4015-8af6-744a522e5d09"
+    },
+    "agent_info": {
+        "name": "opencode",
+        "version": "unknown",
+        "model_info": {
+            "name": "deepseek/deepseek-v4-pro",
+            "provider": "bench"
+        }
+    },
+    "agent_result": null,
+    "verifier_result": null,
+    "exception_info": {
+        "exception_type": "EnvironmentStartTimeoutError",
+        "exception_message": "Environment start timed out after 600.0 seconds",
+        "exception_traceback": "Traceback (most recent call last):\n  File \"/opt/homebrew/Cellar/python@3.14/3.14.6/Frameworks/Python.framework/Versions/3.14/lib/python3.14/asyncio/tasks.py\", line 488, in wait_for\n    return await fut\n           ^^^^^^^^^\n  File \"/Users/amariah/Documents/Github/AI/.bench-venv/lib/python3.14/site-packages/harbor/environments/daytona/environment.py\", line 1516, in start\n    return await self._strategy.start(force_build)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/Users/amariah/Documents/Github/AI/.bench-venv/lib/python3.14/site-packages/harbor/environments/daytona/environment.py\", line 287, in start\n    await env._create_sandbox(params=params, daytona=daytona)\n  File \"/Users/amariah/Documents/Github/AI/.bench-venv/lib/python3.14/site-packages/tenacity/asyncio/__init__.py\", line 193, in async_wrapped\n    return await copy(fn, *args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/Users/amariah/Documents/Github/AI/.bench-venv/lib/python3.14/site-packages/tenacity/asyncio/__init__.py\", line 125, in __call__\n    await self.sleep(do)  # type: ignore[misc]\n    ^^^^^^^^^^^^^^^^^^^^\n  File \"/opt/homebrew/Cellar/python@3.14/3.14.6/Frameworks/Python.framework/Versions/3.14/lib/python3.14/asyncio/tasks.py\", line 704, in sleep\n    return await future\n           ^^^^^^^^^^^^\nasyncio.exceptions.CancelledError\n\nThe above exception was the direct cause of the following exception:\n\nTraceback (most recent call last):\n  File \"/Users/amariah/Documents/Github/AI/.bench-venv/lib/python3.14/site-packages/harbor/trial/trial.py\", line 788, in _start_agent_environment\n    await asyncio.wait_for(\n    ...<4 lines>...\n    )\n  File \"/opt/homebrew/Cellar/python@3.14/3.14.6/Frameworks/Python.framework/Versions/3.14/lib/python3.14/asyncio/tasks.py\", line 487, in wait_for\n    async with timeouts.timeout(timeout):\n               ~~~~~~~~~~~~~~~~^^^^^^^^^\n  File \"/opt/homebrew/Cellar/python@3.14/3.14.6/Frameworks/Python.framework/Versions/3.14/lib/python3.14/asyncio/timeouts.py\", line 115, in __aexit__\n    raise TimeoutError from exc_val\nTimeoutError\n\nThe above exception was the direct cause of the following exception:\n\nTraceback (most recent call last):\n  File \"/Users/amariah/Documents/Github/AI/.bench-venv/lib/python3.14/site-packages/harbor/trial/trial.py\", line 291, in run\n    await self._prepare()\n  File \"/Users/amariah/Documents/Github/AI/.bench-venv/lib/python3.14/site-packages/harbor/trial/trial.py\", line 318, in _prepare\n    await self._setup_agent_environment()\n  File \"/Users/amariah/Documents/Github/AI/.bench-venv/lib/python3.14/site-packages/harbor/trial/trial.py\", line 782, in _setup_agent_environment\n    await self._start_agent_environment()\n  File \"/Users/amariah/Documents/Github/AI/.bench-venv/lib/python3.14/site-packages/harbor/trial/trial.py\", line 795, in _start_agent_environment\n    raise EnvironmentStartTimeoutError(\n        f\"Environment start timed out after {self._environment_build_timeout_sec} seconds\"\n    ) from exc\nharbor.trial.errors.EnvironmentStartTimeoutError: Environment start timed out after 600.0 seconds\n",
+        "occurred_at": "2026-06-29T14:23:04.978331"
+    },
+    "started_at": "2026-06-29T11:13:05.027504Z",
+    "finished_at": "2026-06-29T11:23:04.989860Z",
+    "environment_setup": {
+        "started_at": "2026-06-29T11:13:05.028856Z",
+        "finished_at": "2026-06-29T11:23:04.976634Z"
+    },
+    "agent_setup": null,
+    "agent_execution": null,
+    "verifier": null,
+    "step_results": null
+}

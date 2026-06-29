@@ -1,0 +1,47 @@
+{
+    "id": "6ebcaaf2-1f19-4acf-9b64-4e95a2e9af61",
+    "started_at": "2026-06-29T14:30:30.538558",
+    "updated_at": "2026-06-29T11:37:04.961501Z",
+    "finished_at": null,
+    "n_total_trials": 5,
+    "stats": {
+        "n_completed_trials": 5,
+        "n_errored_trials": 1,
+        "n_running_trials": 0,
+        "n_pending_trials": 0,
+        "n_cancelled_trials": 1,
+        "n_retries": 2,
+        "evals": {
+            "oracle__terminal-bench/terminal-bench-2": {
+                "n_trials": 4,
+                "n_errors": 1,
+                "metrics": [
+                    {
+                        "mean": 0.8
+                    }
+                ],
+                "pass_at_k": {},
+                "reward_stats": {
+                    "reward": {
+                        "1.0": [
+                            "git-multibranch__mBRJQZP",
+                            "log-summary-date-ranges__j4kZop9",
+                            "nginx-request-logging__ckvBQGQ",
+                            "configure-git-webserver__DH3MXHa"
+                        ]
+                    }
+                },
+                "exception_stats": {
+                    "DaytonaError": [],
+                    "CancelledError": [
+                        "count-dataset-tokens__P5Vg5JX"
+                    ]
+                }
+            }
+        },
+        "n_input_tokens": null,
+        "n_cache_tokens": null,
+        "n_output_tokens": null,
+        "cost_usd": null
+    }
+}

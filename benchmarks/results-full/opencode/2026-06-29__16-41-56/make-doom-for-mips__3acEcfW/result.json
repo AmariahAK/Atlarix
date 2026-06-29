@@ -1,0 +1,118 @@
+{
+    "id": "4ffd40ae-6780-4756-b306-3253959cf89d",
+    "task_name": "terminal-bench/make-doom-for-mips",
+    "trial_name": "make-doom-for-mips__3acEcfW",
+    "trial_uri": "file:///Users/amariah/Documents/Github/AI/Atlarix/benchmarks/results-full/opencode/2026-06-29__16-41-56/make-doom-for-mips__3acEcfW",
+    "task_id": {
+        "org": "terminal-bench",
+        "name": "make-doom-for-mips",
+        "ref": "sha256:fb053a364213e3f952e6f906f4360e59f2a90b0083455e97e42892607dc70cc9"
+    },
+    "source": "terminal-bench/terminal-bench-2",
+    "task_checksum": "352f13048fdb5ac48d06a94bcdc663e19e2a41bcaa344ebd89cd29cd159ca5ff",
+    "config": {
+        "task": {
+            "path": null,
+            "git_url": null,
+            "git_commit_id": null,
+            "name": "terminal-bench/make-doom-for-mips",
+            "ref": "sha256:fb053a364213e3f952e6f906f4360e59f2a90b0083455e97e42892607dc70cc9",
+            "overwrite": false,
+            "download_dir": null,
+            "source": "terminal-bench/terminal-bench-2"
+        },
+        "trial_name": "make-doom-for-mips__3acEcfW",
+        "trials_dir": "Atlarix/benchmarks/results-full/opencode/2026-06-29__16-41-56",
+        "timeout_multiplier": 1.0,
+        "agent_timeout_multiplier": null,
+        "verifier_timeout_multiplier": null,
+        "agent_setup_timeout_multiplier": null,
+        "environment_build_timeout_multiplier": null,
+        "agent": {
+            "name": null,
+            "import_path": "atlarix_tb.opencode_proxy:BenchOpenCodeAgent",
+            "model_name": "bench/minimax/minimax-m3",
+            "skills": [],
+            "override_timeout_sec": null,
+            "override_setup_timeout_sec": null,
+            "max_timeout_sec": null,
+            "extra_allowed_hosts": [],
+            "kwargs": {},
+            "env": {},
+            "mcp_servers": []
+        },
+        "environment": {
+            "type": "modal",
+            "import_path": null,
+            "force_build": false,
+            "delete": true,
+            "cpu_enforcement_policy": "auto",
+            "memory_enforcement_policy": "auto",
+            "override_cpus": null,
+            "override_memory_mb": null,
+            "override_storage_mb": null,
+            "override_gpus": null,
+            "override_tpu": null,
+            "mounts": null,
+            "extra_docker_compose": [],
+            "env": {},
+            "kwargs": {},
+            "extra_allowed_hosts": []
+        },
+        "verifier": {
+            "override_timeout_sec": null,
+            "max_timeout_sec": null,
+            "env": {},
+            "disable": false
+        },
+        "artifacts": [],
+        "extra_instruction_paths": [],
+        "job_id": "f13988dd-81f6-4aa3-83e1-aa1e621d288e"
+    },
+    "agent_info": {
+        "name": "opencode",
+        "version": "1.17.11",
+        "model_info": {
+            "name": "minimax/minimax-m3",
+            "provider": "bench"
+        }
+    },
+    "agent_result": {
+        "n_input_tokens": 8688207,
+        "n_cache_tokens": 8244416,
+        "n_output_tokens": 71761,
+        "cost_usd": null,
+        "rollout_details": null,
+        "metadata": null
+    },
+    "verifier_result": {
+        "rewards": {
+            "reward": 0.0
+        }
+    },
+    "exception_info": {
+        "exception_type": "AgentTimeoutError",
+        "exception_message": "Agent execution timed out after 900.0 seconds",
+        "exception_traceback": "Traceback (most recent call last):\n  File \"/Users/amariah/Documents/Github/AI/.bench-venv/lib/python3.14/site-packages/synchronicity/synchronizer.py\", line 545, in _run_function_async\n    value = await asyncio.shield(a_fut)\n            ^^^^^^^^^^^^^^^^^^^^^^^^^^^\nasyncio.exceptions.CancelledError\n\nDuring handling of the above exception, another exception occurred:\n\nTraceback (most recent call last):\n  File \"/opt/homebrew/Cellar/python@3.14/3.14.6/Frameworks/Python.framework/Versions/3.14/lib/python3.14/asyncio/tasks.py\", line 488, in wait_for\n    return await fut\n           ^^^^^^^^^\n  File \"/Users/amariah/Documents/Github/AI/Atlarix/benchmarks/terminal-bench/atlarix_tb/opencode_proxy.py\", line 67, in run\n    await super().run(instruction, environment, context)\n  File \"/Users/amariah/Documents/Github/AI/.bench-venv/lib/python3.14/site-packages/harbor/agents/installed/base.py\", line 39, in wrapper\n    return await fn(self, instruction, *args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/Users/amariah/Documents/Github/AI/.bench-venv/lib/python3.14/site-packages/harbor/agents/installed/opencode.py\", line 543, in run\n    await self.exec_as_agent(\n    ...<8 lines>...\n    )\n  File \"/Users/amariah/Documents/Github/AI/.bench-venv/lib/python3.14/site-packages/harbor/agents/installed/base.py\", line 354, in exec_as_agent\n    return await self._exec(\n           ^^^^^^^^^^^^^^^^^\n        environment, command, env=env, cwd=cwd, timeout_sec=timeout_sec\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n    )\n    ^\n  File \"/Users/amariah/Documents/Github/AI/.bench-venv/lib/python3.14/site-packages/harbor/agents/installed/base.py\", line 301, in _exec\n    result = await environment.exec(\n             ^^^^^^^^^^^^^^^^^^^^^^^\n    ...<5 lines>...\n    )\n    ^\n  File \"/Users/amariah/Documents/Github/AI/.bench-venv/lib/python3.14/site-packages/harbor/environments/modal.py\", line 1275, in exec\n    return await self._strategy.exec(\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^\n        command, cwd=effective_cwd, env=env, timeout_sec=timeout_sec\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n    )\n    ^\n  File \"/Users/amariah/Documents/Github/AI/.bench-venv/lib/python3.14/site-packages/harbor/environments/modal.py\", line 221, in exec\n    return await self._env._sdk_exec(\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^\n        command, cwd=cwd, env=env, timeout_sec=timeout_sec, login=False\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n    )\n    ^\n  File \"/Users/amariah/Documents/Github/AI/.bench-venv/lib/python3.14/site-packages/harbor/environments/modal.py\", line 1107, in _sdk_exec\n    stdout = await process.stdout.read.aio()\n             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/Users/amariah/Documents/Github/AI/.bench-venv/lib/python3.14/site-packages/synchronicity/async_wrap.py\", line 30, in wrapper\n    return await user_wrapper(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/Users/amariah/Documents/Github/AI/.bench-venv/lib/python3.14/site-packages/synchronicity/async_wrap.py\", line 30, in wrapper\n    return await user_wrapper(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/Users/amariah/Documents/Github/AI/.bench-venv/lib/python3.14/site-packages/synchronicity/async_wrap.py\", line 30, in wrapper\n    return await user_wrapper(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/Users/amariah/Documents/Github/AI/.bench-venv/lib/python3.14/site-packages/synchronicity/synchronizer.py\", line 560, in _run_function_async\n    await a_fut  # wait for cancellation logic to complete - this *normally* raises CancelledError\n    ^^^^^^^^^^^\nasyncio.exceptions.CancelledError\n\nThe above exception was the direct cause of the following exception:\n\nTraceback (most recent call last):\n  File \"/Users/amariah/Documents/Github/AI/.bench-venv/lib/python3.14/site-packages/harbor/trial/trial.py\", line 376, in _run_agent_phase\n    await asyncio.wait_for(\n    ...<6 lines>...\n    )\n  File \"/opt/homebrew/Cellar/python@3.14/3.14.6/Frameworks/Python.framework/Versions/3.14/lib/python3.14/asyncio/tasks.py\", line 487, in wait_for\n    async with timeouts.timeout(timeout):\n               ~~~~~~~~~~~~~~~~^^^^^^^^^\n  File \"/opt/homebrew/Cellar/python@3.14/3.14.6/Frameworks/Python.framework/Versions/3.14/lib/python3.14/asyncio/timeouts.py\", line 115, in __aexit__\n    raise TimeoutError from exc_val\nTimeoutError\n\nThe above exception was the direct cause of the following exception:\n\nTraceback (most recent call last):\n  File \"/Users/amariah/Documents/Github/AI/.bench-venv/lib/python3.14/site-packages/harbor/trial/single_step.py\", line 63, in _run_agent\n    await self._run_agent_phase(\n    ...<4 lines>...\n    )\n  File \"/Users/amariah/Documents/Github/AI/.bench-venv/lib/python3.14/site-packages/harbor/trial/trial.py\", line 385, in _run_agent_phase\n    raise AgentTimeoutError(\n        f\"Agent execution timed out after {timeout_sec} seconds\"\n    ) from exc\nharbor.trial.errors.AgentTimeoutError: Agent execution timed out after 900.0 seconds\n",
+        "occurred_at": "2026-06-29T17:47:57.852252"
+    },
+    "started_at": "2026-06-29T14:09:09.295966Z",
+    "finished_at": "2026-06-29T14:51:45.183704Z",
+    "environment_setup": {
+        "started_at": "2026-06-29T14:09:09.303008Z",
+        "finished_at": "2026-06-29T14:09:12.169644Z"
+    },
+    "agent_setup": {
+        "started_at": "2026-06-29T14:09:12.169686Z",
+        "finished_at": "2026-06-29T14:09:40.562076Z"
+    },
+    "agent_execution": {
+        "started_at": "2026-06-29T14:09:40.563130Z",
+        "finished_at": "2026-06-29T14:47:57.847465Z"
+    },
+    "verifier": {
+        "started_at": "2026-06-29T14:50:21.940634Z",
+        "finished_at": "2026-06-29T14:51:13.993821Z"
+    },
+    "step_results": null
+}

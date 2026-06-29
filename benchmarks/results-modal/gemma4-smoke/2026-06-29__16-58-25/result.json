@@ -1,0 +1,45 @@
+{
+    "id": "e148b8bc-1bd0-429a-b253-0870fa2da125",
+    "started_at": "2026-06-29T16:58:29.538151",
+    "updated_at": "2026-06-29T17:05:28.751492",
+    "finished_at": "2026-06-29T17:05:28.751492",
+    "n_total_trials": 5,
+    "stats": {
+        "n_completed_trials": 5,
+        "n_errored_trials": 0,
+        "n_running_trials": 0,
+        "n_pending_trials": 0,
+        "n_cancelled_trials": 0,
+        "n_retries": 0,
+        "evals": {
+            "atlarix__google/gemma-4-31b-it__terminal-bench/terminal-bench-2": {
+                "n_trials": 5,
+                "n_errors": 0,
+                "metrics": [
+                    {
+                        "mean": 0.4
+                    }
+                ],
+                "pass_at_k": {},
+                "reward_stats": {
+                    "reward": {
+                        "0.0": [
+                            "log-summary-date-ranges__dmRFCJg",
+                            "count-dataset-tokens__UKYWaDf",
+                            "configure-git-webserver__7UKFkwQ"
+                        ],
+                        "1.0": [
+                            "git-multibranch__LLXj4Wb",
+                            "nginx-request-logging__4ze4ckH"
+                        ]
+                    }
+                },
+                "exception_stats": {}
+            }
+        },
+        "n_input_tokens": null,
+        "n_cache_tokens": null,
+        "n_output_tokens": null,
+        "cost_usd": null
+    }
+}

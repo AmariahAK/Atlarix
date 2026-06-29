@@ -1,0 +1,83 @@
+{
+    "results": {
+        "tool": {
+            "name": "pytest",
+            "version": "8.4.1"
+        },
+        "summary": {
+            "tests": 7,
+            "passed": 7,
+            "failed": 0,
+            "skipped": 0,
+            "pending": 0,
+            "other": 0,
+            "start": 1782741013.859142,
+            "stop": 1782741028.8275478
+        },
+        "tests": [
+            {
+                "name": "test_outputs.py::test_import",
+                "status": "passed",
+                "duration": 0.0051663479999888295,
+                "start": 1782741014.0330405,
+                "stop": 1782741014.0384576,
+                "retries": 0,
+                "file_path": "test_outputs.py"
+            },
+            {
+                "name": "test_outputs.py::test_send_non_interactive_command",
+                "status": "passed",
+                "duration": 1.2200908219999747,
+                "start": 1782741014.0386462,
+                "stop": 1782741015.259407,
+                "retries": 0,
+                "file_path": "test_outputs.py"
+            },
+            {
+                "name": "test_outputs.py::test_send_interactive_command",
+                "status": "passed",
+                "duration": 5.020802665999952,
+                "start": 1782741015.2597978,
+                "stop": 1782741020.2810986,
+                "retries": 0,
+                "file_path": "test_outputs.py"
+            },
+            {
+                "name": "test_outputs.py::test_cancel_command",
+                "status": "passed",
+                "duration": 1.2745625269999437,
+                "start": 1782741020.281425,
+                "stop": 1782741021.5564332,
+                "retries": 0,
+                "file_path": "test_outputs.py"
+            },
+            {
+                "name": "test_outputs.py::test_startup_files",
+                "status": "passed",
+                "duration": 0.719348914999955,
+                "start": 1782741021.556763,
+                "stop": 1782741022.276594,
+                "retries": 0,
+                "file_path": "test_outputs.py"
+            },
+            {
+                "name": "test_outputs.py::test_shell_state_persists_between_commands",
+                "status": "passed",
+                "duration": 1.3238975960000516,
+                "start": 1782741022.2769167,
+                "stop": 1782741023.6012805,
+                "retries": 0,
+                "file_path": "test_outputs.py"
+            },
+            {
+                "name": "test_outputs.py::test_background_commands",
+                "status": "passed",
+                "duration": 5.225234699000055,
+                "start": 1782741023.6015985,
+                "stop": 1782741028.827226,
+                "retries": 0,
+                "file_path": "test_outputs.py"
+            }
+        ]
+    }
+}

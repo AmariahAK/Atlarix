@@ -1,0 +1,92 @@
+Traceback (most recent call last):
+  File "/opt/homebrew/Cellar/python@3.14/3.14.6/Frameworks/Python.framework/Versions/3.14/lib/python3.14/asyncio/runners.py", line 205, in run
+    return runner.run(main)
+           ~~~~~~~~~~^^^^^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.6/Frameworks/Python.framework/Versions/3.14/lib/python3.14/asyncio/runners.py", line 128, in run
+    return self._loop.run_until_complete(task)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.6/Frameworks/Python.framework/Versions/3.14/lib/python3.14/asyncio/base_events.py", line 706, in run_until_complete
+    self.run_forever()
+    ~~~~~~~~~~~~~~~~^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.6/Frameworks/Python.framework/Versions/3.14/lib/python3.14/asyncio/base_events.py", line 677, in run_forever
+    self._run_once()
+    ~~~~~~~~~~~~~~^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.6/Frameworks/Python.framework/Versions/3.14/lib/python3.14/asyncio/base_events.py", line 2018, in _run_once
+    event_list = self._selector.select(timeout)
+  File "/opt/homebrew/Cellar/python@3.14/3.14.6/Frameworks/Python.framework/Versions/3.14/lib/python3.14/selectors.py", line 548, in select
+    kev_list = self._selector.control(None, max_ev, timeout)
+  File "/Users/amariah/Documents/Github/AI/.bench-venv/lib/python3.14/site-packages/harbor/cli/jobs.py", line 295, in _handle_sigterm
+    raise KeyboardInterrupt
+KeyboardInterrupt
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/Users/amariah/Documents/Github/AI/.bench-venv/lib/python3.14/site-packages/harbor/trial/trial.py", line 292, in run
+    await self._run()
+  File "/Users/amariah/Documents/Github/AI/.bench-venv/lib/python3.14/site-packages/harbor/trial/single_step.py", line 33, in _run
+    await self._run_agent()
+  File "/Users/amariah/Documents/Github/AI/.bench-venv/lib/python3.14/site-packages/harbor/trial/single_step.py", line 72, in _run_agent
+    await self._sync_agent_output(self.result)
+  File "/Users/amariah/Documents/Github/AI/.bench-venv/lib/python3.14/site-packages/harbor/trial/trial.py", line 600, in _sync_agent_output
+    await self._download_agent_logs()
+  File "/Users/amariah/Documents/Github/AI/.bench-venv/lib/python3.14/site-packages/harbor/trial/trial.py", line 401, in _download_agent_logs
+    await self.agent_environment.download_dir(
+    ...<2 lines>...
+    )
+  File "/Users/amariah/Documents/Github/AI/.bench-venv/lib/python3.14/site-packages/harbor/environments/daytona/environment.py", line 1547, in download_dir
+    return await self._strategy.download_dir(source_dir, target_dir)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/amariah/Documents/Github/AI/.bench-venv/lib/python3.14/site-packages/harbor/environments/daytona/environment.py", line 340, in download_dir
+    await self._env._sdk_download_dir(source_dir, target_dir)
+  File "/Users/amariah/Documents/Github/AI/.bench-venv/lib/python3.14/site-packages/harbor/environments/daytona/environment.py", line 1493, in _sdk_download_dir
+    result = await self._sandbox_exec(
+             ^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<3 lines>...
+    )
+    ^
+  File "/Users/amariah/Documents/Github/AI/.bench-venv/lib/python3.14/site-packages/harbor/environments/daytona/environment.py", line 1367, in _sandbox_exec
+    await self._sandbox.process.create_session(session_id)
+  File "/Users/amariah/Documents/Github/AI/.bench-venv/lib/python3.14/site-packages/daytona/_utils/errors.py", line 193, in async_wrapper
+    return await async_func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/amariah/Documents/Github/AI/.bench-venv/lib/python3.14/site-packages/daytona/_utils/otel_decorator.py", line 130, in async_wrapper
+    result = await func(*args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/amariah/Documents/Github/AI/.bench-venv/lib/python3.14/site-packages/daytona/_utils/otel_decorator.py", line 258, in async_wrapper
+    result = await func(*args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/amariah/Documents/Github/AI/.bench-venv/lib/python3.14/site-packages/daytona/_async/process.py", line 264, in create_session
+    await self._api_client.create_session(request=request)
+  File "/Users/amariah/Documents/Github/AI/.bench-venv/lib/python3.14/site-packages/pydantic/_internal/_validate_call.py", line 35, in wrapper_function
+    return await wrapper(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/amariah/Documents/Github/AI/.bench-venv/lib/python3.14/site-packages/daytona_toolbox_api_client_async/api/process_api.py", line 911, in create_session
+    response_data = await self.api_client.call_api(
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<2 lines>...
+    )
+    ^
+  File "/Users/amariah/Documents/Github/AI/.bench-venv/lib/python3.14/site-packages/daytona/internal/toolbox_api_client_proxy.py", line 110, in tracked_call_api
+    return await original_call_api(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/amariah/Documents/Github/AI/.bench-venv/lib/python3.14/site-packages/daytona_toolbox_api_client_async/api_client.py", line 278, in call_api
+    response_data = await self.rest_client.request(
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<4 lines>...
+    )
+    ^
+  File "/Users/amariah/Documents/Github/AI/.bench-venv/lib/python3.14/site-packages/daytona/internal/shared_session.py", line 47, in request_wrapper
+    result = await original_request(*args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/amariah/Documents/Github/AI/.bench-venv/lib/python3.14/site-packages/daytona_toolbox_api_client_async/rest.py", line 224, in request
+    r = await pool_manager.request(**args)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/amariah/Documents/Github/AI/.bench-venv/lib/python3.14/site-packages/aiohttp/client.py", line 740, in _request
+    auth = await self._loop.run_in_executor(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        None, self._get_netrc_auth, url.host
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+asyncio.exceptions.CancelledError
