@@ -18,6 +18,8 @@ import {
   chatInputValueAtom,
   lastAuxTokensByChatIdAtom,
   lastTurnCostUsdByChatIdAtom,
+  sessionCostUsdByChatIdAtom,
+  sessionTokensByChatIdAtom,
 } from "@/atoms/chatAtoms";
 import { useAtom, useAtomValue } from "jotai";
 import { useContextReport } from "@/hooks/useContextReport";
@@ -54,6 +56,11 @@ export function TokenBar({
   const lastAuxTokens = chatId != null ? auxTokensByChat[chatId] : undefined;
   const turnCostByChat = useAtomValue(lastTurnCostUsdByChatIdAtom);
   const lastTurnCostUsd = chatId != null ? turnCostByChat[chatId] : undefined;
+  // Fix 6: cumulative session spend/tokens (running total across all turns).
+  const sessionCostByChat = useAtomValue(sessionCostUsdByChatIdAtom);
+  const sessionCostUsd = chatId != null ? sessionCostByChat[chatId] : undefined;
+  const sessionTokensByChat = useAtomValue(sessionTokensByChatIdAtom);
+  const sessionTokens = chatId != null ? sessionTokensByChat[chatId] : undefined;
 
   // #3: notify when switching to a model whose context window is smaller than
   // the current usage. The dispatch already auto-compacts to fit; this is a
@@ -182,6 +189,20 @@ export function TokenBar({
                   </span>
                   <span className="text-[10px] text-muted-foreground/80">
                     {Math.round(percentUsed)}% context
+                    {/* Fix 6: running session spend — actual provider burn,
+                        which the occupancy meter above does NOT reflect. */}
+                    {typeof sessionCostUsd === "number" && sessionCostUsd > 0 ? (
+                      <span className="ml-1.5 text-emerald-500 tabular-nums">
+                        · ${sessionCostUsd < 0.01
+                          ? sessionCostUsd.toFixed(4)
+                          : sessionCostUsd.toFixed(2)}{" "}
+                        session
+                      </span>
+                    ) : typeof sessionTokens === "number" && sessionTokens > 0 ? (
+                      <span className="ml-1.5 text-muted-foreground/70 tabular-nums">
+                        · {sessionTokens.toLocaleString()} tok session
+                      </span>
+                    ) : null}
                   </span>
                 </div>
               </div>

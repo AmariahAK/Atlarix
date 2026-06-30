@@ -3,6 +3,7 @@ import { ipcMain, IpcMainInvokeEvent, type WebContents } from "electron";
 import {
   ModelMessage,
   streamText,
+  stepCountIs,
   ToolSet,
   jsonSchema as aiJsonSchema,
 } from "ai";
@@ -88,6 +89,7 @@ import {
 import {
   ASK_USER_STREAM_STOP,
   LOOP_REPETITION_STREAM_STOP,
+  FORCE_TEXT_FINISH_STREAM_STOP,
   SUPERSEDED_STREAM_STOP,
   abortReasonSentinel,
   streamStopAbortReason,
@@ -152,7 +154,9 @@ import {
   takePendingStalledAdvisories,
   hasPendingBackgroundCommandResults,
   listBackgroundJobs,
+  killForegroundCommandsForChat,
 } from "@/lib/agent/background-commands";
+import { cancelAllSubagentTasksForChat } from "@/lib/tools/spawn-task";
 import {
   takePendingSubagentResults,
   hasPendingSubagentResults,
@@ -1402,6 +1406,11 @@ export function registerChatStreamHandlers() {
       // auto-resumes when an item reports. Declared before ensureTerminal so the
       // terminal closure can read it.
       let turnParked = false;
+      // Set when runAgentTurn ended via the forced tools-off finish round. The
+      // turn controller is left ABORTED in that case, so the post-turn save gate
+      // must treat it as a clean completion (persist the summary) rather than a
+      // user cancel.
+      let turnForcedTextFinish = false;
       // v12 2.3: the snapshot/ledger turn id for THIS turn, captured for the
       // terminal payload so a detached background agent can revert. Set once
       // streamTurnId is established (below).
@@ -3647,6 +3656,7 @@ This conversation includes one or more image attachments. When the user uploads 
             files,
             repetition,
             abortSignalOverride,
+            maxStepsPerRound,
           }: {
             chatMessages: ModelMessage[];
             modelClient: ModelClient;
@@ -3661,6 +3671,11 @@ This conversation includes one or more image attachments. When the user uploads 
             // v12 0.1 close-out: mode's repetition guard — enables mid-round
             // correction reinject via prepareStep (see streamText below).
             repetition?: AgenticRepetitionState;
+            /** Backstop in-round step cap (opencode `agent.steps`). When set,
+             * the AI-SDK multi-step loop yields back to the round boundary after
+             * this many steps so a runaway round can't spin unbounded. Undefined
+             * = unbounded (headless/ask). */
+            maxStepsPerRound?: number;
           }) => {
             if (isEngineEnabled) {
               logger.log(
@@ -3910,8 +3925,14 @@ This conversation includes one or more image attachments. When the user uploads 
               model: modelClient.model,
               // Backstop for the abort() in stopStreamForCompassLimit: even if
               // the abort races a step boundary, the multi-step loop must not
-              // start another step once the token pool is exhausted.
-              stopWhen: [() => compassLimitHit],
+              // start another step once the token pool is exhausted. The
+              // optional step cap (interactive build only) bounds an in-round
+              // runaway so it returns to the round boundary instead of spinning
+              // unbounded — undefined leaves headless/ask uncapped.
+              stopWhen:
+                typeof maxStepsPerRound === "number" && maxStepsPerRound > 0
+                  ? [() => compassLimitHit, stepCountIs(maxStepsPerRound)]
+                  : [() => compassLimitHit],
               // v12 0.1 close-out: mid-round correction reinject. Repetition
               // corrections are queued inside the SDK's multi-step inner loop
               // (the tool wrappers call record() during execute), where the
@@ -4546,22 +4567,24 @@ This conversation includes one or more image attachments. When the user uploads 
               safeSend(event.sender, "chat:activity", {
                 id: `loop-abort-${Date.now()}`,
                 type: "loop_repetition_aborted",
-                label: "Task stopped — repeated action",
+                label: "Wrapping up — repeated action",
                 detail:
-                  "The model kept repeating the same read or search after guidance. Review the activity log and send a message to continue.",
-                status: "done",
+                  "Repeated the same read or search after guidance — finishing with a summary of what was done.",
+                status: "running",
                 timestamp: Date.now(),
                 chatId: req.chatId,
                 toolName: o.toolName,
                 loopTarget: o.target,
                 loopCount: o.count,
               });
-              // Stop the in-flight stream — the SDK's multi-step loop never
+              // Interrupt the in-flight stream — the SDK's multi-step loop never
               // returns to the round boundary while the model keeps calling
-              // tools, so consumeLoopBreak() alone cannot end the turn.
+              // tools. FORCE_TEXT_FINISH (vs a hard stop) lets the engine run one
+              // final tools-off round so the model summarizes instead of the turn
+              // dying with a stub.
               try {
                 abortController.abort(
-                  streamStopAbortReason(LOOP_REPETITION_STREAM_STOP),
+                  streamStopAbortReason(FORCE_TEXT_FINISH_STREAM_STOP),
                 );
               } catch {
                 /* noop */
@@ -4619,14 +4642,18 @@ This conversation includes one or more image attachments. When the user uploads 
                     value:
                       typeof output === "string" ? output : JSON.stringify(output),
                   },
-                execute: async (args: any) => {
+                execute: async (
+                  args: any,
+                  { toolCallId }: { toolCallId: string },
+                ) => {
                   if (askAgenticRepetition.isEnabled()) {
                     handleAskAgenticRepetitionOutcome(
                       askAgenticRepetition.record(tool.name, args),
                     );
                   }
                   const askIsStream = tool.name === "stream_terminal_output";
-                  const toolActivityId = `tool-${tool.name}-${Date.now()}`;
+                  // Per-invocation id (Fix 2) — see the build wrapper.
+                  const toolActivityId = toolCallId;
                   let askActivityStatus: "done" | "error" = "done";
                   let toolResultForActivity: unknown;
                   // Fix: Finding 4
@@ -4634,6 +4661,7 @@ This conversation includes one or more image attachments. When the user uploads 
                     safeSend(event.sender, "chat:tool:start", {
                       chatId: req.chatId,
                       toolId: tool.name,
+                      toolCallId,
                       toolName: getToolActivityLabel(tool.name),
                       toolArgs: args,
                     });
@@ -4645,6 +4673,7 @@ This conversation includes one or more image attachments. When the user uploads 
                       timestamp: Date.now(),
                       chatId: req.chatId,
                       toolName: tool.name,
+                      toolCallId,
                       toolArgs: args,
                     });
                   }
@@ -4777,11 +4806,15 @@ This conversation includes one or more image attachments. When the user uploads 
                         safeSend(event.sender, "chat:tool:start", {
                           chatId: req.chatId,
                           toolId: tool.name,
+                          toolCallId,
                           toolName: label,
                           toolArgs: execArgs,
                         });
                         return () => {
-                          safeSend(event.sender, "chat:tool:end", { chatId: req.chatId });
+                          safeSend(event.sender, "chat:tool:end", {
+                            chatId: req.chatId,
+                            toolCallId,
+                          });
                         };
                       };
                     }
@@ -5071,7 +5104,10 @@ This conversation includes one or more image attachments. When the user uploads 
                         askActivityStatus === "error" ? "error" : "done",
                       );
                       const resultText = toolResultTextForExpand(toolResultForActivity);
-                      safeSend(event.sender, "chat:tool:end", { chatId: req.chatId });
+                      safeSend(event.sender, "chat:tool:end", {
+                        chatId: req.chatId,
+                        toolCallId,
+                      });
                       safeSend(event.sender, "chat:activity", {
                         id: toolActivityId,
                         type: "tool_use",
@@ -5080,6 +5116,7 @@ This conversation includes one or more image attachments. When the user uploads 
                         timestamp: Date.now(),
                         chatId: req.chatId,
                         toolName: tool.name,
+                        toolCallId,
                         toolArgs: args,
                         ...(activityDetail ? { detail: activityDetail } : {}),
                         ...(resultText ? { resultText } : {}),
@@ -5212,6 +5249,7 @@ This conversation includes one or more image attachments. When the user uploads 
               );
               fullResponse = turnResult.fullResponse;
               turnParked = turnResult.parked;
+              turnForcedTextFinish = turnResult.forcedTextFinish;
             }
             askAgenticRepetition.setEnabled(false);
           } else {
@@ -5311,22 +5349,24 @@ This conversation includes one or more image attachments. When the user uploads 
               safeSend(event.sender, "chat:activity", {
                 id: `loop-abort-${Date.now()}`,
                 type: "loop_repetition_aborted",
-                label: "Task stopped — repeated action",
+                label: "Wrapping up — repeated action",
                 detail:
-                  "The model kept repeating the same write or command after guidance. Review the activity log and send a message to continue.",
-                status: "done",
+                  "Repeated the same write or command after guidance — finishing with a summary of what was done and what remains.",
+                status: "running",
                 timestamp: Date.now(),
                 chatId: req.chatId,
                 toolName: o.toolName,
                 loopTarget: o.target,
                 loopCount: o.count,
               });
-              // Stop the in-flight stream — the SDK's multi-step loop never
+              // Interrupt the in-flight stream — the SDK's multi-step loop never
               // returns to the round boundary while the model keeps calling
-              // tools, so consumeLoopBreak() alone cannot end the turn.
+              // tools. FORCE_TEXT_FINISH (vs a hard stop) lets the engine run one
+              // final tools-off round so the model summarizes instead of the turn
+              // dying with a stub.
               try {
                 abortController.abort(
-                  streamStopAbortReason(LOOP_REPETITION_STREAM_STOP),
+                  streamStopAbortReason(FORCE_TEXT_FINISH_STREAM_STOP),
                 );
               } catch {
                 /* noop */
@@ -5358,7 +5398,10 @@ This conversation includes one or more image attachments. When the user uploads 
                     value:
                       typeof output === "string" ? output : JSON.stringify(output),
                   },
-                execute: async (args: any) => {
+                execute: async (
+                  args: any,
+                  { toolCallId }: { toolCallId: string },
+                ) => {
                   const buildToolStartMs = Date.now();
                   if (streamDebugLogging) {
                     logger.log(`[Build Tool] start`, {
@@ -5370,7 +5413,11 @@ This conversation includes one or more image attachments. When the user uploads 
                           : [],
                     });
                   }
-                  const toolActivityId = `tool-${toolName}-${Date.now()}`;
+                  // Per-invocation id (Fix 2): key the UI thread item by the AI
+                  // SDK's toolCallId, NOT the tool name — so two calls of the
+                  // same tool render as two cards (no merge/reorder/rejump). The
+                  // matching chat:tool:end + activity-done legs echo the same id.
+                  const toolActivityId = toolCallId;
                   let activityStatus: "done" | "error" = "done";
                   let toolResultForActivity: unknown;
                   const isStreamTool = toolName === "stream_terminal_output";
@@ -5380,6 +5427,7 @@ This conversation includes one or more image attachments. When the user uploads 
                     safeSend(event.sender, "chat:tool:start", {
                       chatId: req.chatId,
                       toolId: toolName,
+                      toolCallId,
                       toolName: uiToolLabel,
                       toolArgs: args,
                     });
@@ -5392,6 +5440,7 @@ This conversation includes one or more image attachments. When the user uploads 
                     timestamp: Date.now(),
                     chatId: req.chatId,
                     toolName,
+                    toolCallId,
                     toolArgs: args,
                   });
                   try {
@@ -5509,11 +5558,15 @@ This conversation includes one or more image attachments. When the user uploads 
                         safeSend(event.sender, "chat:tool:start", {
                           chatId: req.chatId,
                           toolId: toolName,
+                          toolCallId,
                           toolName: label,
                           toolArgs: executeArgs,
                         });
                         return () => {
-                          safeSend(event.sender, "chat:tool:end", { chatId: req.chatId });
+                          safeSend(event.sender, "chat:tool:end", {
+                            chatId: req.chatId,
+                            toolCallId,
+                          });
                         };
                       };
                     }
@@ -5925,7 +5978,10 @@ This conversation includes one or more image attachments. When the user uploads 
                           status: activityStatus,
                         });
                       }
-                      safeSend(event.sender, "chat:tool:end", { chatId: req.chatId });
+                      safeSend(event.sender, "chat:tool:end", {
+                        chatId: req.chatId,
+                        toolCallId,
+                      });
                       safeSend(event.sender, "chat:activity", {
                         id: toolActivityId,
                         type: "tool_use",
@@ -5934,6 +5990,7 @@ This conversation includes one or more image attachments. When the user uploads 
                         timestamp: Date.now(),
                         chatId: req.chatId,
                         toolName,
+                        toolCallId,
                         toolArgs: args,
                         ...(activityDetail ? { detail: activityDetail } : {}),
                         ...(resultText ? { resultText } : {}),
@@ -6519,9 +6576,11 @@ This conversation includes one or more image attachments. When the user uploads 
                         modelClient,
                         tools: opts.tools as ToolSet,
                         systemPromptOverride: opts.systemPromptOverride,
+                        dynamicSystemTail: opts.dynamicSystemTail,
                         files: files,
                         repetition: agenticRepetition,
                         abortSignalOverride: opts.abortSignal,
+                        maxStepsPerRound: opts.maxStepsPerRound,
                       }),
                     runStreamRound: runStreamRoundWithEmptyOutputRetry,
                     processResponseChunkUpdate,
@@ -6538,6 +6597,7 @@ This conversation includes one or more image attachments. When the user uploads 
                 agenticIteration = turnResult.iterations;
                 totalToolExecutions = turnResult.totalToolExecutions;
                 turnParked = turnResult.parked;
+                turnForcedTextFinish = turnResult.forcedTextFinish;
               }
 
               fullResponse = stripToolCallXML(fullResponse);
@@ -6617,10 +6677,12 @@ ${stopNote}`;
         }
 
         // Only save the response and process it if we weren't user-aborted
-        // (ledger-complete and ask_user end-turn stops still save)
+        // (ledger-complete, ask_user end-turn, and forced-text-finish stops
+        // still save — the latter two leave the controller aborted by design).
         if (
           !abortController.signal.aborted ||
-          askUserEndedTurn
+          askUserEndedTurn ||
+          turnForcedTextFinish
         ) {
           if (!fullResponse.trim()) {
             fullResponse = AI_STREAM_EMPTY_RESPONSE_FALLBACK;
@@ -6875,6 +6937,12 @@ ${stopNote}`;
               ...(auxUsage ? { auxTokens: auxUsage.totalTokens } : {}),
               ...(maxReasoningTokensUsed != null && maxReasoningTokensUsed > 0
                 ? { reasoningTokens: maxReasoningTokensUsed }
+                : {}),
+              // Fix 6: this turn's billed tokens (input+output) so the renderer
+              // can accumulate a cumulative session total — the context meter is
+              // occupancy, not spend, and undercounts a resend loop.
+              ...(turnInputTokens + turnOutputTokens > 0
+                ? { turnTokens: turnInputTokens + turnOutputTokens }
                 : {}),
               // v12 7D: BYOK per-turn USD estimate (omitted for Core/Compass
               // and for models with no known price — never a guessed number).
@@ -7184,6 +7252,17 @@ ${stopNote}`;
       logger.warn(`No active stream found for chat ${chatId}`);
     }
 
+    // Fix 4: aborting the model stream doesn't stop a blocking foreground
+    // run_command or running scout sub-agents — terminate them too so "stop"
+    // actually stops the work (and stops spending tokens).
+    const killed = killForegroundCommandsForChat(chatId);
+    const subagentsCancelled = cancelAllSubagentTasksForChat(chatId);
+    if (killed > 0 || subagentsCancelled > 0) {
+      logger.log(
+        `[chat:cancel] Stopped ${killed} command(s) + ${subagentsCancelled} sub-agent(s) for chat ${chatId}`,
+      );
+    }
+
     // Send the end event to the renderer
     safeSend(event.sender, "chat:response:end", {
       chatId,
@@ -7208,6 +7287,15 @@ ${stopNote}`;
       logger.log(`[chat:abort] User cancelled stream for chat ${chatId}`);
       controller.abort();
       activeStreams.delete(chatId);
+      // Fix 4: also terminate any blocking foreground run_command + running
+      // scout sub-agents so cancel stops in-flight work, not just the request.
+      const killed = killForegroundCommandsForChat(chatId);
+      const subagentsCancelled = cancelAllSubagentTasksForChat(chatId);
+      if (killed > 0 || subagentsCancelled > 0) {
+        logger.log(
+          `[chat:abort] Stopped ${killed} command(s) + ${subagentsCancelled} sub-agent(s) for chat ${chatId}`,
+        );
+      }
       // Do NOT delete partialResponses here — the stream's catch block will persist
       // the partial response to the DB and then clear it, so the user keeps the
       // cancelled response when they send a follow-up.

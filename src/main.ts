@@ -292,9 +292,18 @@ export async function onReady() {
   sendDbReadyToWindow();
 
   // Self-heal a previously-installed launcher that predates the TTY-detach fix.
-  void import("./ipc/handlers/cli_handlers").then((m) =>
-    m.refreshCliLauncherIfStale(),
-  );
+  // If it's stale but root-owned (unwritable), surface a one-click reinstall in
+  // the renderer instead of silently leaving the broken TTY launcher in place.
+  void import("./ipc/handlers/cli_handlers").then((m) => {
+    const { needsManualUpdate } = m.refreshCliLauncherIfStale();
+    if (
+      needsManualUpdate &&
+      mainWindow &&
+      !mainWindow.webContents.isDestroyed()
+    ) {
+      mainWindow.webContents.send("cli:launcher-stale", {});
+    }
+  });
 
   const cliDir = parseDirectoryArgFromArgv(process.argv, process.cwd());
   if (cliDir) {

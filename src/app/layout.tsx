@@ -400,6 +400,35 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     return () => unsub();
   }, []);
 
+  // Fix 7: the installed `atlarix` command is stale + root-owned, so the silent
+  // self-heal can't rewrite it (that's the `atlarix .` TTY-read crash). Offer a
+  // one-click elevated reinstall instead of leaving the broken launcher forever.
+  useEffect(() => {
+    const unsub = IpcClient.getInstance().onCliLauncherStale(() => {
+      toast.warning("Update the `atlarix` command", {
+        description:
+          "Your installed `atlarix` launcher is out of date and can crash the terminal. Reinstall it (needs admin once).",
+        duration: Infinity,
+        action: {
+          label: "Fix now",
+          onClick: () => {
+            void IpcClient.getInstance()
+              .installCli()
+              .then((res) => {
+                if (res?.success) {
+                  toast.success("`atlarix` command updated");
+                } else if (!res?.cancelled) {
+                  toast.error(res?.message ?? "Could not update the command");
+                }
+              })
+              .catch(() => toast.error("Could not update the command"));
+          },
+        },
+      });
+    });
+    return () => unsub();
+  }, []);
+
   // Atlarix Core ids changed at runtime (hosted core-models.json) — re-fetch
   // model lists so the picker/display update live, no app restart needed.
   useEffect(() => {

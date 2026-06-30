@@ -17,6 +17,7 @@ import {
   resolveLiveSubagentRound,
   splitInterleavedAroundDelegates,
   streamThreadItemFromActivity,
+  streamThreadItemFromToolStart,
   synthesizeSubagentRoundFromParts,
   upsertStreamThreadItem,
 } from "@/lib/chat/stream-thread";
@@ -45,6 +46,50 @@ describe("stream-thread", () => {
     );
     expect(items).toHaveLength(1);
     expect(items[0]?.kind === "tool" && items[0].status).toBe("done");
+  });
+
+  it("keeps two calls of the SAME tool as distinct cards when keyed by callId (Fix 2)", () => {
+    const a = streamThreadItemFromToolStart({
+      toolId: "edit_file",
+      toolCallId: "call_a",
+      toolArgs: { path: "a.ts" },
+    });
+    const b = streamThreadItemFromToolStart({
+      toolId: "edit_file",
+      toolCallId: "call_b",
+      toolArgs: { path: "b.ts" },
+    });
+    const items = upsertStreamThreadItem(upsertStreamThreadItem([], a), b);
+    // Two distinct per-call ids ⇒ two cards (no merge-collision/"1 line").
+    expect(items).toHaveLength(2);
+    expect(items[0]?.kind === "tool" && items[0].id).toBe("call_a");
+    expect(items[1]?.kind === "tool" && items[1].id).toBe("call_b");
+    // Ending call_a finalizes ONLY that card, by id.
+    const ended = handleStreamToolEnd(items, {
+      toolCallId: "call_a",
+      toolName: "edit_file",
+      status: "done",
+    });
+    expect(ended[0]?.kind === "tool" && ended[0].status).toBe("done");
+    expect(ended[1]?.kind === "tool" && ended[1].status).toBe("running");
+  });
+
+  it("pins ts on running→done merge so the card never reorders (Fix 2)", () => {
+    const running = streamThreadItemFromToolStart({
+      toolId: "read_file",
+      toolCallId: "call_x",
+      toolArgs: { path: "x.ts" },
+    });
+    const insertedTs = (running as { ts: number }).ts;
+    const done = {
+      ...(running as Record<string, unknown>),
+      status: "done" as const,
+      ts: insertedTs + 10_000, // completion time is later
+    } as typeof running;
+    const items = upsertStreamThreadItem([running], done);
+    expect(items).toHaveLength(1);
+    // ts must stay the ORIGINAL insertion time, not the completion time.
+    expect(items[0]?.kind === "tool" && items[0].ts).toBe(insertedTs);
   });
 
   it("does not downgrade done tool back to running on activity upsert", () => {

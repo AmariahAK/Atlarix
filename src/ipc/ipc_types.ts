@@ -123,6 +123,9 @@ export interface ChatResponseEnd {
   auxTokens?: number;
   /** v12 7D: estimated BYOK USD cost of this turn (omitted for Core/unknown-price). */
   turnCostUsd?: number;
+  /** Fix 6: this turn's billed tokens (input+output) — summed into the
+   * cumulative session-spend meter (the context meter is occupancy, not spend). */
+  turnTokens?: number;
   /** v12 2.3: the snapshot turn id (= ledger turn id) so a detached background
    * agent can revert this turn's writes via the shadow-git snapshot. */
   snapshotTurnId?: string;

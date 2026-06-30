@@ -409,3 +409,53 @@ export function killAllBackgroundJobs(): void {
     stallWatchdog = null;
   }
 }
+
+// ── Foreground (blocking) run_command processes ──────────────────────────────
+// A foreground command holds the turn open ("Waiting on command"). Until it is
+// promoted to the background it is NOT a background job, so a user cancel could
+// not reach it — the model stream aborted but the child kept running. We track
+// the live foreground child here so the cancel/abort handlers can terminate it.
+// Cross-platform: ChildProcess.kill("SIGTERM") maps to the OS-appropriate
+// terminate on macOS/Linux/Windows (Node handles the per-OS signal).
+const foregroundProcsByChat = new Map<number, Map<string, ChildProcess>>();
+
+export function registerForegroundProc(
+  chatId: number,
+  operationId: string,
+  proc: ChildProcess,
+): void {
+  let m = foregroundProcsByChat.get(chatId);
+  if (!m) {
+    m = new Map();
+    foregroundProcsByChat.set(chatId, m);
+  }
+  m.set(operationId, proc);
+}
+
+export function clearForegroundProc(chatId: number, operationId: string): void {
+  const m = foregroundProcsByChat.get(chatId);
+  if (!m) return;
+  m.delete(operationId);
+  if (m.size === 0) foregroundProcsByChat.delete(chatId);
+}
+
+/**
+ * Terminate every live foreground command for a chat — called when the user
+ * cancels/aborts the turn so a blocking `run_command` actually stops. Returns
+ * the number of processes signalled.
+ */
+export function killForegroundCommandsForChat(chatId: number): number {
+  const m = foregroundProcsByChat.get(chatId);
+  if (!m) return 0;
+  let killed = 0;
+  for (const proc of m.values()) {
+    try {
+      proc.kill("SIGTERM");
+      killed++;
+    } catch {
+      /* already gone */
+    }
+  }
+  foregroundProcsByChat.delete(chatId);
+  return killed;
+}

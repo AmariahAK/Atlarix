@@ -430,6 +430,7 @@ const validReceiveChannels = [
   "update:downloaded",    // update ready to install; payload: { version: string }
   "update:available",     // notify-only: newer release on GitHub; payload: { currentVersion, latestVersion, releaseUrl }
   "update:status",        // live update diagnostics for the Settings panel
+  "cli:launcher-stale",   // the installed `atlarix` launcher is stale + root-owned; offer a one-click reinstall
 ] as const;
 
 type ValidInvokeChannel = (typeof validInvokeChannels)[number];

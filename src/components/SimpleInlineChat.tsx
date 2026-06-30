@@ -16,6 +16,7 @@ import {
     pendingUserQuestionByChatIdAtom,
     chatErrorByIdAtom,
     turnSnapshotTurnIdByMessageIdAtom,
+    streamThreadByChatIdAtom,
 } from "../atoms/chatAtoms";
 import { IpcClient } from "@/ipc/ipc_client";
 import { buildRevertSnapshotMap } from "@/lib/chat/revert-snapshot-rehydrate";
@@ -94,6 +95,12 @@ export function SimpleInlineChat({
         useStickToBottom(messagesContainerRef, messagesEndRef);
 
     const streamCount = streamCountById.get(chatId) ?? 0;
+    // Live tool-card thread for this chat. Tool cards grow independently of
+    // `messages` (text deltas), so the scroll-follow effect must also react to
+    // them — otherwise a burst of tool cards mid-stream doesn't keep the
+    // viewport pinned (and follow felt inconsistent). (Fix 5.)
+    const liveThreadLen =
+        useAtomValue(streamThreadByChatIdAtom).get(chatId)?.length ?? 0;
 
     // Switching chats: jump straight to the latest and re-pin to the bottom.
     useEffect(() => {
@@ -194,7 +201,7 @@ export function SimpleInlineChat({
     // already pinned to the bottom; otherwise leave their scroll position alone.
     useEffect(() => {
         onContentChange();
-    }, [messages, streamCount, onContentChange]);
+    }, [messages, streamCount, liveThreadLen, onContentChange]);
     const handleNewChat = useCallback(async () => {
         const workspaceId = selectedAppId ?? chatAppId;
         if (workspaceId != null) {

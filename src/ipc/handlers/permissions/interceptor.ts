@@ -1404,6 +1404,8 @@ export class PermissionInterceptor extends EventEmitter {
             if (chatIdForBg != null) {
                 bg.recordBackgroundCommandStart(chatIdForBg, operationId, commandToRun, startTime);
                 if (proc) bg.registerBackgroundProc(chatIdForBg, operationId, proc);
+                // No longer a foreground (cancel-on-turn-stop) child.
+                bg.clearForegroundProc(chatIdForBg, operationId);
                 bg.updateBackgroundOutput(chatIdForBg, operationId, accOutput);
             }
             const head = reason === 'explicit'
@@ -1435,6 +1437,11 @@ export class PermissionInterceptor extends EventEmitter {
                 proc = p;
                 if (promoted && chatIdForBg != null) {
                     bg.registerBackgroundProc(chatIdForBg, operationId, p);
+                } else if (chatIdForBg != null) {
+                    // Foreground (blocking) child — track it so a user cancel can
+                    // actually terminate it (Fix 4). Promotion to background
+                    // migrates it to the background registry below.
+                    bg.registerForegroundProc(chatIdForBg, operationId, p);
                 }
             },
             onOutput: ({ stdout, stderr }) => {
@@ -1455,6 +1462,7 @@ export class PermissionInterceptor extends EventEmitter {
             .then((result) => {
                 finished = true;
                 if (promoteTimer) clearTimeout(promoteTimer);
+                if (chatIdForBg != null) bg.clearForegroundProc(chatIdForBg, operationId);
                 const duration = Date.now() - startTime;
                 this.emit('terminal-output', {
                     operationId,
@@ -1491,6 +1499,7 @@ export class PermissionInterceptor extends EventEmitter {
             .catch((err) => {
                 finished = true;
                 if (promoteTimer) clearTimeout(promoteTimer);
+                if (chatIdForBg != null) bg.clearForegroundProc(chatIdForBg, operationId);
                 const duration = Date.now() - startTime;
                 const errMsg = err instanceof Error ? err.message : String(err);
                 this.emit('terminal-output', {

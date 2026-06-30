@@ -20,7 +20,13 @@ const STUCK_THRESHOLD = 3;
  * calls are the same read target — at which point it is clearly stuck.
  */
 const READ_RECENT_WINDOW = 10;
-const READ_STUCK_THRESHOLD = 6;
+// Loosened 6→5: a model re-deriving the same understanding re-reads ONE file
+// while interleaving other reads/searches, so its key sat at ~5-of-10 and never
+// reached the old 6 threshold — it span for many minutes untripped. 5-of-10 of
+// the SAME read target is already wasteful (the result is in context), and the
+// only consequence of an early trip is a benign "you already have it" nudge
+// (force-finish needs sustained repetition past two nudges).
+const READ_STUCK_THRESHOLD = 5;
 
 const READ_TOOL_NAMES = new Set([
   "read_file",

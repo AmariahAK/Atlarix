@@ -68,6 +68,13 @@ export interface AgentProfile {
   readonly repetition: AgenticRepetitionState;
 
   /**
+   * Prompt injected for the forced tools-off finish round (repetition escalation
+   * or round-cap). Defaults to a shared summarize-and-stop instruction when a
+   * profile doesn't override it. Provider-agnostic plain text.
+   */
+  buildForceFinishPrompt?(): string;
+
+  /**
    * Per-iteration system prompt (progressive-reveal manifest refresh).
    * Build returns a plain string; ask returns a RoundSystemPrompt (async —
    * it re-resolves the context window per round) so the stable header and

@@ -20,6 +20,8 @@ import {
   lastReasoningTokensByChatIdAtom,
   lastAuxTokensByChatIdAtom,
   lastTurnCostUsdByChatIdAtom,
+  sessionCostUsdByChatIdAtom,
+  sessionTokensByChatIdAtom,
   toolIndicatorAtom,
   streamLastActivityAtByChatIdAtom,
   reconnectingByChatIdAtom,
@@ -368,7 +370,7 @@ export function useStreamChat({
 
   /** Pairs with IPC tool:start / tool:end (end often omits toolId). */
   const toolEndStackRef = useRef<
-    Map<number, { toolId: string; toolName: string }[]>
+    Map<number, { toolId: string; toolName: string; toolCallId?: string }[]>
   >(new Map());
 
   useEffect(() => {
@@ -949,7 +951,11 @@ export function useStreamChat({
                       threadItem.status !== "running"
                     ) {
                       next = handleStreamToolEnd(cur, {
+                        // Display name stays the tool name; matching prefers the
+                        // per-call id (Fix 2) so the right card of two same-named
+                        // calls is finalized, with name/last-running fallback.
                         toolId: item.toolName ?? threadItem.id,
+                        toolCallId: item.toolCallId ?? threadItem.id,
                         toolName: item.toolName,
                         status: threadItem.status,
                         detail: item.detail,
@@ -992,10 +998,17 @@ export function useStreamChat({
               return;
             }
             const stack = toolEndStackRef.current.get(chatId) ?? [];
-            stack.push({ toolId: registryName, toolName: registryName });
+            // Keep the per-call id on the LIFO entry so the end leg can match it
+            // precisely (the stack remains the fallback when no callId is sent).
+            stack.push({
+              toolId: registryName,
+              toolName: registryName,
+              toolCallId: start.toolCallId,
+            });
             toolEndStackRef.current.set(chatId, stack);
             const threadItem = streamThreadItemFromToolStart({
               toolId: registryName,
+              toolCallId: start.toolCallId,
               // Carry the tool-call args (incl. write content) onto the thread
               // item so the completed/persisted card renders its diff from the
               // model's OWN args — never re-sent to the model (display-only).
@@ -1040,7 +1053,19 @@ export function useStreamChat({
               return;
             }
             const stack = toolEndStackRef.current.get(chatId) ?? [];
-            const popped = stack.pop();
+            // Prefer the stack entry matching this call id (Fix 2 — handles
+            // tools that complete out of order); LIFO pop is the no-callId
+            // fallback for legacy/text-tool ends.
+            let popped: { toolId: string; toolName: string; toolCallId?: string } | undefined;
+            if (end.toolCallId) {
+              const matchIdx = stack.findIndex(
+                (e) => e.toolCallId === end.toolCallId,
+              );
+              popped =
+                matchIdx >= 0 ? stack.splice(matchIdx, 1)[0] : stack.pop();
+            } else {
+              popped = stack.pop();
+            }
             const toolName =
               popped?.toolName ?? end.toolName ?? end.toolId ?? "";
             if (
@@ -1072,6 +1097,7 @@ export function useStreamChat({
                 chatId,
                 handleStreamToolEnd(cur, {
                   toolId: end.toolId ?? popped?.toolId,
+                  toolCallId: end.toolCallId ?? popped?.toolCallId,
                   toolName: popped?.toolName,
                   status: end.status === "error" ? "error" : "done",
                   detail: activityResult.detail,
@@ -1434,6 +1460,25 @@ export function useStreamChat({
               getDefaultStore().set(lastTurnCostUsdByChatIdAtom, (prev) => ({
                 ...prev,
                 [response.chatId]: response.turnCostUsd!,
+              }));
+            }
+
+            // Fix 6: accumulate cumulative SESSION spend/tokens (running sum,
+            // not last-turn-only). A resend loop bills the provider per request,
+            // which only this total reflects. Provider-agnostic: cost adds when
+            // a price is known, tokens always accumulate.
+            if (typeof response.turnCostUsd === "number" && response.turnCostUsd > 0) {
+              getDefaultStore().set(sessionCostUsdByChatIdAtom, (prev) => ({
+                ...prev,
+                [response.chatId]:
+                  (prev[response.chatId] ?? 0) + response.turnCostUsd!,
+              }));
+            }
+            if (typeof response.turnTokens === "number" && response.turnTokens > 0) {
+              getDefaultStore().set(sessionTokensByChatIdAtom, (prev) => ({
+                ...prev,
+                [response.chatId]:
+                  (prev[response.chatId] ?? 0) + response.turnTokens!,
               }));
             }
 

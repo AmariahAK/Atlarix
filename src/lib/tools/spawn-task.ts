@@ -145,6 +145,28 @@ export function cancelSubagentTask(
   return { ok: true };
 }
 
+/**
+ * Cancel EVERY running sub-agent for a chat — called when the user stops the
+ * turn so scout tasks stop spending tokens (Fix 4). Returns the count cancelled.
+ */
+export function cancelAllSubagentTasksForChat(chatId: number): number {
+  let n = 0;
+  for (const rec of taskStore.values()) {
+    if (rec.chatId !== chatId || rec.state !== "running") continue;
+    rec.cancelled = true;
+    rec.state = "error";
+    rec.error = "Cancelled by the user (turn stopped).";
+    rec.finishedAt = Date.now();
+    try {
+      rec.abort?.abort();
+    } catch {
+      /* already gone */
+    }
+    n++;
+  }
+  return n;
+}
+
 function taskEnvelope(
   taskId: string,
   state: TaskRecord["state"],

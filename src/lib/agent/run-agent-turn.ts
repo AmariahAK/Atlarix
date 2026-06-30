@@ -38,6 +38,7 @@ import {
 import { estimateTokens } from "@/ipc/utils/token_utils";
 import { isStreamDebugLoggingEnabled } from "@/lib/stream/stream-debug";
 import { STREAM_TOOL_LOOP_DURATION_CAP_MS } from "@/constants/settings_constants";
+import { isForceTextFinishAbort } from "@/lib/stream/stream-stop-sentinels";
 import {
   hasRunningSubagents,
   hasPendingSubagentResults,
@@ -50,6 +51,16 @@ import {
 import type { AgentProfile } from "./agent-profile";
 
 const logger = log.scope("run-agent-turn");
+
+/**
+ * Default instruction for the forced tools-off finish round (repetition
+ * escalation or round-cap backstop). Provider-agnostic plain text; a profile
+ * may override via `buildForceFinishPrompt`. Mirrors opencode's MAX_STEPS_PROMPT.
+ */
+const DEFAULT_FORCE_FINISH_PROMPT =
+  "You have been repeating actions without converging, so tools are now disabled for this turn. " +
+  "Do NOT attempt any further tool calls. In plain prose, briefly summarize what you accomplished, " +
+  "what is still incomplete, and the concrete next step — then stop.";
 
 /**
  * The handler-scope closures + live state the engine drives. 0.1 extracts
@@ -95,6 +106,8 @@ export interface TurnRuntime {
     dynamicSystemTail?: string;
     /** Per-round abort signal (stall watchdog aborts THIS, not the turn). */
     abortSignal?: AbortSignal;
+    /** Backstop in-round step cap forwarded to streamText's stopWhen. */
+    maxStepsPerRound?: number;
   }): Promise<unknown>;
   runStreamRound(params: {
     runSimpleStream: (opts?: { abortSignal?: AbortSignal }) => Promise<unknown>;
@@ -143,6 +156,14 @@ export interface AgentTurnResult {
    * automatically" chip and a fresh turn auto-resumes when an item reports.
    */
   parked: boolean;
+  /**
+   * True when the turn ended via the forced tools-off finish round (repetition
+   * escalation or round-cap). The turn controller is left ABORTED in this case
+   * (that's how the in-flight stream was interrupted), so the caller must treat
+   * `aborted && forcedTextFinish` as a clean completion and persist the result —
+   * NOT as a user cancel.
+   */
+  forcedTextFinish: boolean;
 }
 
 /** Normalize an AbortController reason into an Error for throw/propagation. */
@@ -183,6 +204,13 @@ export async function runAgentTurn(
   // folds in via the prepareStep injection. The model was already told (by the
   // task/run_command tool result) that results arrive automatically — no poll.
   let parked = false;
+  // Set when the loop decides to WRAP UP with one tools-off finish round
+  // (repetition escalation aborted the in-flight stream, or the round cap fired).
+  // The finish round runs with an isolated controller so the (now-aborted) turn
+  // controller doesn't kill it.
+  let forceTextFinish = false;
+  const forceFinishPrompt =
+    profile.buildForceFinishPrompt?.() ?? DEFAULT_FORCE_FINISH_PROMPT;
   const pendingWorkBlocksEnd = (): boolean =>
     // v14.7: approvals no longer park (they block mid-loop), so only DETACHED
     // work (sub-agents, background commands) keeps the turn parked-for-auto-wake.
@@ -198,12 +226,22 @@ export async function runAgentTurn(
     // would escape as an unhandled rejection. Throw so the handler's catch
     // takes its existing abort path (persist partial / honor ledger-complete).
     if (rt.abortController.signal.aborted) {
-      logger.log(
-        `${L} Stream aborted (${String(rt.abortController.signal.reason ?? "unknown")}) — stopping turn loop`,
-      );
-      throw abortReasonError(rt.abortController.signal.reason);
+      // A FORCE_TEXT_FINISH abort means the repetition guard interrupted the
+      // stream to WRAP UP — don't throw; fall through and run one tools-off
+      // finish round (with an isolated controller) so the model summarizes.
+      if (isForceTextFinishAbort(rt.abortController.signal.reason)) {
+        forceTextFinish = true;
+      } else {
+        logger.log(
+          `${L} Stream aborted (${String(rt.abortController.signal.reason ?? "unknown")}) — stopping turn loop`,
+        );
+        throw abortReasonError(rt.abortController.signal.reason);
+      }
     }
-    if (Date.now() - loopStartTime > STREAM_TOOL_LOOP_DURATION_CAP_MS) {
+    if (
+      !forceTextFinish &&
+      Date.now() - loopStartTime > STREAM_TOOL_LOOP_DURATION_CAP_MS
+    ) {
       logger.warn(`${L} Hit duration limit (30 minutes) mode=${profile.mode}`);
       rt.safeSend("chat:activity", {
         id: `duration-limit-${Date.now()}`,
@@ -216,6 +254,12 @@ export async function runAgentTurn(
       });
       break;
     }
+    // NOTE: deliberately NO round-count or step-count length cap. opencode
+    // (`agent.steps` defaults to Infinity) and Claude Code run unbounded and
+    // terminate on STUCK-NESS, not duration — a legit long prod/CI task makes
+    // progress across many rounds and must not be guillotined. Runaways are
+    // caught by the repetition guard → graceful force-finish (which fires
+    // in-round via the stream abort), not by a length ceiling.
 
     if (!profile.singleRound) {
       // Emit progress to frontend (maxIterations 0 = unbounded in UI) —
@@ -241,7 +285,19 @@ export async function runAgentTurn(
         ? "\n\n" + roundPrompt.dynamicSystemTail
         : "");
 
-    let buildIterMessages: ModelMessage[] = agenticMessages;
+    // For the forced finish round, inject the summarize-and-stop instruction as
+    // a user turn and run with an ISOLATED controller (the turn controller is
+    // aborted when force-finish was triggered mid-round) + NO tools, so the
+    // model can only produce prose and finishes cleanly.
+    let buildIterMessages: ModelMessage[] = forceTextFinish
+      ? [
+          ...agenticMessages,
+          { role: "user" as const, content: forceFinishPrompt },
+        ]
+      : agenticMessages;
+    const roundAbortController = forceTextFinish
+      ? new AbortController()
+      : rt.abortController;
     let streamRoundDone = false;
     // Finish reason of the round that actually completed (last continuation),
     // hoisted so the post-round termination check can read it.
@@ -249,10 +305,13 @@ export async function runAgentTurn(
     // The final round's native response messages — continuation rounds
     // already append theirs to buildIterMessages.
     let finalRoundRespMsgs: ModelMessage[] = [];
+    try {
     while (!streamRoundDone) {
       // Same guard inside the continuation loop: a mid-round abort must not
       // trigger another runStreamRound via the continuation `continue` below.
-      if (rt.abortController.signal.aborted) {
+      // During the forced finish round the turn controller stays aborted, so
+      // skip the guard then (the finish round uses its own controller).
+      if (rt.abortController.signal.aborted && !forceTextFinish) {
         throw abortReasonError(rt.abortController.signal.reason);
       }
       const {
@@ -263,13 +322,20 @@ export async function runAgentTurn(
         runSimpleStream: async (o) =>
           rt.simpleStreamText({
             chatMessages: buildIterMessages,
-            tools: profile.tools,
+            // Tools OFF for the finish round so the model can't keep looping.
+            tools: forceTextFinish ? {} : profile.tools,
             systemPromptOverride: roundPrompt.systemPromptOverride,
             dynamicSystemTail: roundPrompt.dynamicSystemTail,
             abortSignal: o?.abortSignal,
+            // Normal rounds are UNBOUNDED (parity with opencode/Claude Code) —
+            // the repetition guard, not a step cap, ends a stuck round. The
+            // finish round is the lone exception: exactly ONE step (prose),
+            // bounding the degenerate case where a model still emits a tool call
+            // despite tools being off (text-tool models / scripted evals).
+            maxStepsPerRound: forceTextFinish ? 1 : undefined,
           }),
         fullResponse,
-        abortController: rt.abortController,
+        abortController: roundAbortController,
         chatId: rt.chatId,
         processResponseChunkUpdate: rt.processResponseChunkUpdate,
         onFirstModelActivity: () => {
@@ -337,6 +403,27 @@ export async function runAgentTurn(
       }
 
       streamRoundDone = true;
+    }
+    } catch (err) {
+      // A mid-round FORCE_TEXT_FINISH abort surfaces here (runStreamRound
+      // rejects with the abort reason). Don't propagate — flip into finish mode
+      // and loop back so the next pass runs the tools-off summarize round.
+      if (
+        !forceTextFinish &&
+        isForceTextFinishAbort(rt.abortController.signal.reason)
+      ) {
+        forceTextFinish = true;
+        continue;
+      }
+      throw err;
+    }
+
+    // The forced finish round just completed (prose-only). End the turn now,
+    // skipping the normal termination/continuation logic. The turn controller is
+    // left aborted; the caller treats `forcedTextFinish` as a clean completion.
+    if (forceTextFinish) {
+      logger.info(`${L} Force-finish round complete — ending turn`);
+      break;
     }
 
     // v12 0.2 (B1): this iteration's NATIVE delta = continuation appends
@@ -632,5 +719,6 @@ export async function runAgentTurn(
     iterations: agenticIteration,
     totalToolExecutions,
     parked,
+    forcedTextFinish: forceTextFinish,
   };
 }

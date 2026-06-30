@@ -120,6 +120,7 @@ export function normalizeChatActivityPayload(raw: unknown): ActivityStreamItem |
     agentMessageType:
       p.agentMessageType != null ? String(p.agentMessageType) : undefined,
     toolName: p.toolName != null ? String(p.toolName) : undefined,
+    toolCallId: p.toolCallId != null ? String(p.toolCallId) : undefined,
     loopTarget: p.loopTarget != null ? String(p.loopTarget) : undefined,
     loopCount: typeof p.loopCount === "number" ? p.loopCount : undefined,
     modelId: p.modelId != null ? String(p.modelId) : undefined,

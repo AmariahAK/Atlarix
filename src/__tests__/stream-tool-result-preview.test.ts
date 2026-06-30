@@ -65,6 +65,30 @@ describe("formatToolResultPreview", () => {
     expect(formatToolResultPreview("write_file", raw, "done")).toBe("File saved");
   });
 
+  it("formats edit_file replace with nested diff added/removed", () => {
+    const raw = JSON.stringify({
+      success: true,
+      result: { operation: "edit_file", diff: { added: 5, removed: 2 } },
+    });
+    expect(formatToolResultPreview("edit_file", raw, "done")).toBe("+5 -2");
+  });
+
+  it("formats edit_file insert with nested diff lines_added", () => {
+    const raw = JSON.stringify({
+      success: true,
+      result: { operation: "edit_file", diff: { lines_added: 4, inserted_at: 10 } },
+    });
+    expect(formatToolResultPreview("edit_file", raw, "done")).toBe("+4");
+  });
+
+  it("formats edit_file delete with nested diff lines_removed", () => {
+    const raw = JSON.stringify({
+      success: true,
+      result: { operation: "edit_file", diff: { lines_removed: 3, deleted_range: "2-4" } },
+    });
+    expect(formatToolResultPreview("edit_file", raw, "done")).toBe("-3");
+  });
+
   it("fallback uses message field not stringified JSON", () => {
     const raw = JSON.stringify({
       success: true,

@@ -38,11 +38,22 @@ export const LOOP_REPETITION_STREAM_STOP = "loop_repetition";
  */
 export const SUPERSEDED_STREAM_STOP = "superseded_stream";
 
+/**
+ * Abort reason when the repetition guard (or the round-count backstop) decides
+ * to WRAP UP instead of hard-stopping. Unlike LOOP_REPETITION_STREAM_STOP this
+ * does NOT end the turn: the engine (run-agent-turn) catches it and runs ONE
+ * final round with tools disabled + a summarize-and-stop prompt, so the model
+ * gets to explain what it did and what remains (mirrors opencode's MAX_STEPS
+ * force-finish). It is still an intentional stop for the process-level nets.
+ */
+export const FORCE_TEXT_FINISH_STREAM_STOP = "force_text_finish";
+
 const STREAM_STOP_SENTINELS: ReadonlySet<string> = new Set([
   ASK_USER_STREAM_STOP,
   LOOP_REPETITION_STREAM_STOP,
   COMPASS_LIMIT_STREAM_STOP,
   SUPERSEDED_STREAM_STOP,
+  FORCE_TEXT_FINISH_STREAM_STOP,
 ]);
 
 /**
@@ -72,4 +83,9 @@ export function abortReasonSentinel(reason: unknown): string | undefined {
 export function isStreamStopAbort(reason: unknown): boolean {
   const sentinel = abortReasonSentinel(reason);
   return sentinel != null && STREAM_STOP_SENTINELS.has(sentinel);
+}
+
+/** Is this abort the graceful "wrap up with a final tools-off round" signal? */
+export function isForceTextFinishAbort(reason: unknown): boolean {
+  return abortReasonSentinel(reason) === FORCE_TEXT_FINISH_STREAM_STOP;
 }

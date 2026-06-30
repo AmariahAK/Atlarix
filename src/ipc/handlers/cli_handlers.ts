@@ -92,23 +92,37 @@ const CLI_LAUNCHER_SIGNATURE = "Atlarix CLI launcher";
  * Silent + non-elevated — if the file isn't ours or isn't writable (e.g. it was
  * installed with sudo), we skip and leave re-install to Settings. Call at startup.
  */
-export function refreshCliLauncherIfStale(): void {
-  if (process.platform === "win32") return; // `start` already detaches on Windows
+export function refreshCliLauncherIfStale(): { needsManualUpdate: boolean } {
+  if (process.platform === "win32") return { needsManualUpdate: false }; // `start` already detaches on Windows
   try {
     const { file } = cliTargetPath();
-    if (!fs.existsSync(file)) return;
+    if (!fs.existsSync(file)) return { needsManualUpdate: false };
     const current = fs.readFileSync(file, "utf8");
-    if (current.includes(CLI_LAUNCHER_FIX_MARKER)) return; // already fixed
-    if (!current.includes(CLI_LAUNCHER_SIGNATURE)) return; // not our script — don't touch
+    if (current.includes(CLI_LAUNCHER_FIX_MARKER)) return { needsManualUpdate: false }; // already fixed
+    if (!current.includes(CLI_LAUNCHER_SIGNATURE)) return { needsManualUpdate: false }; // not our script — don't touch
     const content =
       process.platform === "darwin" ? macLauncherScript() : linuxLauncherScript();
     fs.writeFileSync(file, content, { mode: 0o755 });
     logger.info("Refreshed stale atlarix CLI launcher with the TTY-detach fix");
+    return { needsManualUpdate: false };
   } catch (err) {
+    // The common case: the launcher is OURS and STALE but root-owned (installed
+    // via sudo), so the unprivileged rewrite throws EACCES/EPERM. Instead of
+    // silently swallowing it (which left the broken TTY launcher in place
+    // forever), signal the caller so it can offer a one-click elevated reinstall.
+    const code = (err as NodeJS.ErrnoException)?.code;
+    const unwritable = code === "EACCES" || code === "EPERM";
+    if (unwritable) {
+      logger.warn(
+        "atlarix CLI launcher is stale and not writable (likely root-owned) — offering reinstall",
+      );
+      return { needsManualUpdate: true };
+    }
     logger.info(
       "CLI launcher self-heal skipped (re-install from Settings if needed):",
       err instanceof Error ? err.message : String(err),
     );
+    return { needsManualUpdate: false };
   }
 }
 

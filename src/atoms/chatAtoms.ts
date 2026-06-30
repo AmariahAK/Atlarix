@@ -56,6 +56,18 @@ export const lastAuxTokensByChatIdAtom = atom<Record<number, number>>({});
 /** v12 7D: per-chat estimated BYOK USD cost of the last completed turn. */
 export const lastTurnCostUsdByChatIdAtom = atom<Record<number, number>>({});
 
+/**
+ * Cumulative session spend per chat (Fix 6): the running SUM of every turn's
+ * cost / tokens, so the composer can show real burn — the per-turn figures
+ * above are last-turn-only and the context meter is occupancy, not spend. A
+ * loop that resends context many times bills the provider repeatedly; only this
+ * running total reflects that. Cost is provider-agnostic (uses whatever the
+ * per-turn pricing path resolved; stays at the running total when a provider
+ * exposes no cost, with tokens still accumulating).
+ */
+export const sessionCostUsdByChatIdAtom = atom<Record<number, number>>({});
+export const sessionTokensByChatIdAtom = atom<Record<number, number>>({});
+
 /** Autonomous mode: post-turn review payload from main (cleared on accept or dismiss). */
 export const autonomousSessionReviewAtom = atom<AutonomousSessionCompletePayload | null>(null);
 

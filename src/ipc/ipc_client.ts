@@ -269,6 +269,7 @@ export class IpcClient {
       chatId: number;
       toolName: string;
       toolId?: string;
+      toolCallId?: string;
       toolArgs?: Record<string, unknown>;
     }) => void
   > = new Set();
@@ -276,6 +277,7 @@ export class IpcClient {
     (payload: {
       chatId: number;
       toolId?: string;
+      toolCallId?: string;
       toolName?: string;
       status?: "success" | "error";
     }) => void
@@ -326,6 +328,7 @@ export class IpcClient {
   > = new Set();
   private updateDownloadedHandlers: Set<(payload: { version: string }) => void> = new Set();
   private updateStatusHandlers: Set<(payload: UpdateStatusPayload) => void> = new Set();
+  private cliLauncherStaleHandlers: Set<() => void> = new Set();
   private planUpdateHandlers = new Map<number, Set<(payload: PlanUpdatePayload) => void>>();
   private planArtifactHandlers = new Set<
     (payload: import("./utils/emit_plan_artifact").PlanArtifactPayload) => void
@@ -418,23 +421,27 @@ export class IpcClient {
 
     this.ipcRenderer.on("chat:tool:start", (payload: unknown) => {
       if (payload && typeof payload === "object" && "chatId" in payload && "toolName" in payload) {
-        const { chatId, toolName, toolId, toolArgs } = payload as {
+        const { chatId, toolName, toolId, toolCallId, toolArgs } = payload as {
           chatId: number;
           toolName: string;
           toolId?: string;
+          toolCallId?: string;
           toolArgs?: Record<string, unknown>;
         };
-        this.toolStartHandlers.forEach((h) => h({ chatId, toolName, toolId, toolArgs }));
+        this.toolStartHandlers.forEach((h) =>
+          h({ chatId, toolName, toolId, toolCallId, toolArgs }),
+        );
       }
     });
     this.ipcRenderer.on("chat:tool:end", (payload: unknown) => {
       if (payload && typeof payload === "object" && "chatId" in payload) {
-        const { chatId, toolId, status } = payload as {
+        const { chatId, toolId, toolCallId, status } = payload as {
           chatId: number;
           toolId?: string;
+          toolCallId?: string;
           status?: "success" | "error";
         };
-        this.toolEndHandlers.forEach((h) => h({ chatId, toolId, status }));
+        this.toolEndHandlers.forEach((h) => h({ chatId, toolId, toolCallId, status }));
       }
     });
 
@@ -772,6 +779,10 @@ export class IpcClient {
       }
     });
 
+    this.ipcRenderer.on("cli:launcher-stale", () => {
+      this.cliLauncherStaleHandlers.forEach((h) => h());
+    });
+
     this.ipcRenderer.on("update:status", (data) => {
       if (data && typeof data === "object" && "lastResult" in data) {
         this.updateStatusHandlers.forEach((h) => h(data as UpdateStatusPayload));
@@ -1060,11 +1071,14 @@ export class IpcClient {
       chatId: number;
       toolName: string;
       toolId?: string;
+      /** AI SDK per-invocation id (Fix 2) — stable thread-item key. */
+      toolCallId?: string;
       toolArgs?: Record<string, unknown>;
     }) => void,
     onEnd: (payload: {
       chatId: number;
       toolId?: string;
+      toolCallId?: string;
       toolName?: string;
       status?: "success" | "error";
     }) => void,
@@ -3716,6 +3730,13 @@ export class IpcClient {
   ): () => void {
     this.updateAvailableHandlers.add(handler);
     return () => this.updateAvailableHandlers.delete(handler);
+  }
+
+  /** Fix 7: the installed `atlarix` launcher is stale + root-owned. The renderer
+   * shows a one-click "update the command" affordance (reinstalls via sudo). */
+  public onCliLauncherStale(handler: () => void): () => void {
+    this.cliLauncherStaleHandlers.add(handler);
+    return () => this.cliLauncherStaleHandlers.delete(handler);
   }
 
   public async deferUpdate(): Promise<void> {

@@ -217,6 +217,8 @@ export interface ActivityStreamItem {
   agentMessageType?: string;
   /** loop_detected / loop_repetition_aborted: tool that repeated (write_file | run_command). */
   toolName?: string;
+  /** AI SDK per-invocation id (Fix 2) — stable thread-item key for tool_use rows. */
+  toolCallId?: string;
   /** Normalized path or command key for repetition detection. */
   loopTarget?: string;
   /** Occurrences in sliding window when stuck was detected. */

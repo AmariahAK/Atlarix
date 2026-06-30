@@ -115,20 +115,20 @@ describe("createAgenticRepetitionState — write/run threshold (3 of 5)", () => 
   });
 });
 
-describe("createAgenticRepetitionState — read-side threshold (6 of 10)", () => {
-  it("tolerates up to 5 identical read_file calls without firing", () => {
+describe("createAgenticRepetitionState — read-side threshold (5 of 10)", () => {
+  it("tolerates up to 4 identical read_file calls without firing", () => {
     const s = createAgenticRepetitionState();
     s.setEnabled(true);
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < 4; i++) {
       const r = s.record("read_file", { path: "src/foo.ts" });
       expect(r.kind).toBe("none");
     }
   });
 
-  it("flags loop_detected on the 6th identical read_file call", () => {
+  it("flags loop_detected on the 5th identical read_file call", () => {
     const s = createAgenticRepetitionState();
     s.setEnabled(true);
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < 4; i++) {
       expect(s.record("read_file", { path: "src/foo.ts" }).kind).toBe(
         "none",
       );
@@ -138,25 +138,25 @@ describe("createAgenticRepetitionState — read-side threshold (6 of 10)", () =>
     if (r.kind === "loop_detected") {
       expect(r.toolName).toBe("read_file");
       expect(r.target).toBe("src/foo.ts");
-      expect(r.count).toBe(6);
+      expect(r.count).toBe(5);
     }
   });
 
-  it("flags loop_detected on the 6th identical explore_folder call", () => {
+  it("flags loop_detected on the 5th identical explore_folder call", () => {
     const s = createAgenticRepetitionState();
     s.setEnabled(true);
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < 4; i++) {
       s.record("explore_folder", { path: "apps/web" });
     }
     const r = s.record("explore_folder", { path: "apps/web" });
     expect(r.kind).toBe("loop_detected");
   });
 
-  it("flags loop_detected on the 6th identical search call", () => {
+  it("flags loop_detected on the 5th identical search call", () => {
     const s = createAgenticRepetitionState();
     s.setEnabled(true);
     const args = { query: "toast notification", path: "apps/web" };
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < 4; i++) {
       s.record("search", args);
     }
     const r = s.record("search", args);
@@ -166,22 +166,22 @@ describe("createAgenticRepetitionState — read-side threshold (6 of 10)", () =>
   it("does NOT confuse two distinct read paths within the window", () => {
     const s = createAgenticRepetitionState();
     s.setEnabled(true);
-    // Interleave 5 reads of A and 5 reads of B — neither key reaches the 6
-    // threshold individually, so nothing should fire even after 10 records.
-    for (let i = 0; i < 5; i++) {
+    // Interleave 4 reads of A and 4 reads of B — neither key reaches the 5
+    // threshold individually, so nothing should fire even after 8 records.
+    for (let i = 0; i < 4; i++) {
       expect(s.record("read_file", { path: "a.ts" }).kind).toBe("none");
       expect(s.record("read_file", { path: "b.ts" }).kind).toBe("none");
     }
   });
 
-  it("only fires when a single key dominates the window (6 of 10)", () => {
+  it("only fires when a single key dominates the window (5 of 10)", () => {
     const s = createAgenticRepetitionState();
     s.setEnabled(true);
-    // Five unrelated `b.ts` reads first, then six `a.ts` reads. After the 6th
-    // `a.ts` the sliding window holds [b,b,b,b,a,a,a,a,a,a] (length 10),
-    // count of `a` = 6 ≥ threshold ⇒ loop_detected.
+    // Five unrelated `b.ts` reads first, then five `a.ts` reads. After the 5th
+    // `a.ts` the sliding window holds [b,b,b,b,b,a,a,a,a,a] (length 10),
+    // count of `a` = 5 ≥ threshold ⇒ loop_detected.
     for (let i = 0; i < 5; i++) s.record("read_file", { path: "b.ts" });
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < 4; i++) {
       expect(s.record("read_file", { path: "a.ts" }).kind).toBe("none");
     }
     const r = s.record("read_file", { path: "a.ts" });
@@ -193,7 +193,7 @@ describe("read-aware correction message", () => {
   it("tells the model it already has the file content (not generic 'step back')", () => {
     const s = createAgenticRepetitionState();
     s.setEnabled(true);
-    for (let i = 0; i < 5; i++) s.record("read_file", { path: "a.ts" });
+    for (let i = 0; i < 4; i++) s.record("read_file", { path: "a.ts" });
     const r = s.record("read_file", { path: "a.ts" });
     expect(r.kind).toBe("loop_detected");
     const correction = s.takePendingCorrection() ?? "";

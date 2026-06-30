@@ -163,8 +163,12 @@ function mergeToolItems(
     return {
       ...next,
       id: prev.id,
-      // Keep the original insertion slot when a tool goes running -> done.
+      // Keep the original insertion slot when a tool goes running -> done:
+      // pin BOTH seq AND ts to the original. The tail views sort by (ts, seq),
+      // so letting `next.ts` (completion time) win re-positions the card on
+      // every re-merge — that was the visible "rejump". (Fix 2.)
       seq: prev.seq ?? next.seq,
+      ts: prev.ts,
       toolName: prev.toolName || next.toolName,
       toolArgs: next.toolArgs ?? prev.toolArgs,
       resultText: next.resultText ?? prev.resultText,
@@ -181,6 +185,8 @@ function mergeToolItems(
     ...next,
     id: prev.id,
     seq: prev.seq ?? next.seq,
+    // Pin ts to the original insertion so a same-rank re-merge can't reorder.
+    ts: prev.ts,
     toolName: prev.toolName,
     toolArgs: next.toolArgs ?? prev.toolArgs,
     resultText: next.resultText ?? prev.resultText,
@@ -213,7 +219,14 @@ export function upsertStreamThreadItem(
   }
 
   if (item.kind === "tool") {
-    const altIdx = findRunningToolIndex(items, [item.toolName, item.id]);
+    // Running-slot fallback merges a start/result pair that didn't match by key.
+    // Match by the per-call id always; only fall back to the tool NAME when this
+    // item carries no distinct call id (id === toolName, i.e. legacy/text-tool).
+    // Otherwise two concurrent same-named native calls would collapse into one
+    // card (the original "merge-collision"). (Fix 2.)
+    const hasCallId = item.id !== item.toolName;
+    const altKeys = hasCallId ? [item.id] : [item.toolName, item.id];
+    const altIdx = findRunningToolIndex(items, altKeys);
     if (altIdx >= 0) {
       const prev = items[altIdx] as Extract<StreamThreadItem, { kind: "tool" }>;
       const next = [...items];
@@ -248,6 +261,8 @@ export function upsertNestedStreamThreadItem(
 
 export function streamThreadItemFromToolStart(payload: {
   toolId?: string;
+  /** AI SDK per-invocation id (Fix 2) — the stable thread-item key. */
+  toolCallId?: string;
   toolName?: string;
   chatId?: number;
   toolArgs?: Record<string, unknown>;
@@ -255,7 +270,11 @@ export function streamThreadItemFromToolStart(payload: {
   const registryName = resolveRegistryToolName(payload.toolId, payload.toolName);
   return {
     kind: "tool",
-    id: registryName,
+    // Key by the per-call id when present so two calls of the SAME tool render
+    // as two distinct cards (no merge → no "1 line"/rejump). Falls back to the
+    // tool name for legacy/text-tool starts with no callId. toolName stays the
+    // display name regardless.
+    id: payload.toolCallId?.trim() || registryName,
     toolName: registryName,
     summary: getToolRunningSummary(registryName),
     status: "running",
@@ -327,6 +346,8 @@ function findRunningToolIndex(
 
 export type StreamToolEndPayload = {
   toolId?: string;
+  /** AI SDK per-invocation id (Fix 2) — matches the card by id, not name. */
+  toolCallId?: string;
   toolName?: string;
   status?: StreamThreadToolStatus;
   /** Raw result or activity detail — formatted for expand preview. */
@@ -338,7 +359,9 @@ export type StreamToolEndPayload = {
 };
 
 /**
- * Apply tool:end (or activity done) to the live thread — match by registry tool id.
+ * Apply tool:end (or activity done) to the live thread. The DISPLAY name comes
+ * from toolName/toolId; the MATCH prefers the per-call id (Fix 2) so the right
+ * card of two same-named calls is finalized, falling back to name/last-running.
  */
 export function handleStreamToolEnd(
   items: StreamThreadItem[],
@@ -348,6 +371,7 @@ export function handleStreamToolEnd(
   const status = payload.status ?? "done";
 
   return completeStreamToolOnEnd(items, {
+    toolCallId: payload.toolCallId,
     toolId: registryName,
     toolName: registryName,
     status,
@@ -359,20 +383,30 @@ export function handleStreamToolEnd(
 }
 
 /**
- * Complete a running tool card — match by toolId first, then registry toolName, then last running.
+ * Complete a running tool card — match by per-call id first (Fix 2), then toolId,
+ * then registry toolName, then last running.
  */
 export function completeStreamToolOnEnd(
   items: StreamThreadItem[],
   opts?: StreamToolEndPayload & { summary?: string },
 ): StreamThreadItem[] {
   const status = opts?.status ?? "done";
-  const keys = [
-    opts?.toolId,
-    opts?.toolName,
-    resolveRegistryToolName(opts?.toolId, opts?.toolName),
-  ];
-
-  const idx = findRunningToolIndex(items, keys);
+  // Prefer an EXACT per-call-id match (Fix 2): findRunningToolIndex scans
+  // last→first and would otherwise finalize the most recent running card of the
+  // same NAME, cross-finalizing the wrong one of two concurrent same-named
+  // calls. Only when no call-id card matches do we fall back to name / last.
+  const callIdIdx =
+    opts?.toolCallId != null
+      ? findRunningToolIndex(items, [opts.toolCallId])
+      : -1;
+  const idx =
+    callIdIdx >= 0
+      ? callIdIdx
+      : findRunningToolIndex(items, [
+          opts?.toolId,
+          opts?.toolName,
+          resolveRegistryToolName(opts?.toolId, opts?.toolName),
+        ]);
   if (idx >= 0) {
     const next = [...items];
     next[idx] = finalizeToolItem(
@@ -459,8 +493,12 @@ export function streamThreadItemFromActivity(
   if (item.type === "tool_use") {
     const registryName = (item.toolName ?? "").trim() || "tool";
     const activityId = (item.id ?? "").trim();
+    // Key by the per-call id (Fix 2) for non-nested tools so two calls of the
+    // same tool stay distinct; nested sub-agent tools keep the activityId key,
+    // and legacy/text-tool rows with no callId fall back to the tool name.
     const stableId =
-      item.parentDelegationId && activityId ? activityId : registryName;
+      item.toolCallId?.trim() ||
+      (item.parentDelegationId && activityId ? activityId : registryName);
     const isRunning =
       item.status === "running" || item.status === "active";
     const status: StreamThreadToolStatus = isRunning

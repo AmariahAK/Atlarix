@@ -274,14 +274,48 @@ function formatReadFilePreview(content: string): string {
   return capPreview(firstLine ?? content.replace(/\s+/g, " ").trim(), READ_FILE_PREVIEW_MAX);
 }
 
+/**
+ * Pull added/removed line counts from a write/edit result envelope, tolerant of
+ * both the legacy top-level shape and the nested `diff` shape emitted by the
+ * edit_file operations (replace/insert/delete). Returns undefined for a count
+ * that isn't present so the caller can fall back. Tool/provider-agnostic — only
+ * reads numeric fields, never assumes a specific tool name or provider.
+ */
+function extractLineCounts(payload: Record<string, unknown>): {
+  added?: number;
+  removed?: number;
+} {
+  const num = (v: unknown): number | undefined =>
+    typeof v === "number" && Number.isFinite(v) ? v : undefined;
+  const diff =
+    payload.diff && typeof payload.diff === "object"
+      ? (payload.diff as Record<string, unknown>)
+      : undefined;
+  const added =
+    num(payload.added) ??
+    num(diff?.added) ??
+    num(payload.lines_added) ??
+    num(diff?.lines_added);
+  const removed =
+    num(payload.removed) ??
+    num(diff?.removed) ??
+    num(payload.lines_removed) ??
+    num(diff?.lines_removed);
+  return { added, removed };
+}
+
 function formatWritePreview(
   payload: Record<string, unknown>,
   plainText?: string,
 ): string {
-  // v13.8.1: the result carries tiny `added`/`removed` line counts (not content
-  // — that lives in the tool-call args). Use them directly for the +/- summary.
-  const added = typeof payload.added === "number" ? payload.added : undefined;
-  const removed = typeof payload.removed === "number" ? payload.removed : undefined;
+  // The result carries tiny `added`/`removed` line counts (not content — that
+  // lives in the tool-call args). They may be top-level (legacy write results)
+  // or nested under `diff` with operation-specific names: replace →
+  // {added,removed}, insert → {lines_added}, delete → {lines_removed}
+  // (src/lib/tools/edit.ts). Read whichever is present for the +/- summary;
+  // without this the card falls through to counting lines of the status string
+  // and always shows "1 line written".
+  const { added, removed } = extractLineCounts(payload);
   if (added != null || removed != null) {
     const a = added ?? 0;
     const r = removed ?? 0;
