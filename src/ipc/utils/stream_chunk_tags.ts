@@ -15,16 +15,21 @@ const logger = log.scope("stream-chunk-tags");
  * Idle timeout: once the model HAS started streaming, abort if no chunk arrives
  * for this long.
  *
- * Raised 45s → 120s: reasoning models (DeepSeek V4 Pro, etc.) pause SILENTLY
- * mid-stream while thinking between steps — observed ~50-58s gaps with no chunk
- * after a tool result, which is the model reasoning, NOT a dropped connection.
- * The old 45s budget false-fired on those pauses, killing a healthy stream and
- * triggering a retry that re-issued the round from the start (re-doing in-round
- * tool work — the "redoing the whole task" symptom). 120s clears the observed
- * pauses with headroom while still catching a genuinely dead stream; the
- * 180s first-byte budget covers the slower initial think.
+ * Raised 45s → 120s → 300s: open-weight reasoning models (DeepSeek V4 Pro,
+ * Qwen, Kimi, MiniMax — Atlarix's whole market) pause SILENTLY mid-stream while
+ * thinking between steps. Even with `reasoning=true`, OpenRouter/DeepSeek
+ * BUFFERS the reasoning server-side and emits NO chunks during the think — so
+ * to the watchdog it looks identical to a dead socket. Observed gaps grew from
+ * ~50-58s to 127-133s on harder steps (logged: "stalled — no chunk for
+ * 132889ms"), repeatedly false-firing even the 120s budget: each kill re-issued
+ * the round from the start and re-ran tools already run (the "redoing /
+ * duplicate commands" symptom). 300s gives heavy silent reasoning comfortable
+ * headroom while still eventually catching a genuinely dead stream; the 180s
+ * first-byte budget covers the initial think, and user-cancel stops instantly.
+ * The robust long-term fix (continue-from-partial instead of re-issue) is
+ * tracked in docs/TODO.md.
  */
-export const STREAM_STALL_TIMEOUT_MS = 120_000;
+export const STREAM_STALL_TIMEOUT_MS = 300_000;
 /**
  * First-byte timeout: before the model emits ANYTHING (slow TTFB, or a reasoning
  * model thinking silently — on ANY provider), allow much longer. A model that
