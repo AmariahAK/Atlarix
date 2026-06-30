@@ -129,6 +129,7 @@ When the task involves non-trivial logic, write or extend test files that genuin
 If implementing an active session plan (see its planId in context), call plan({operation: "set_status", planId, plan_status: "building"}) first and plan({operation: "set_status", planId, plan_status: "built"}) when the plan is fully implemented.
 Live step progress: as you START each plan checklist step call plan({operation: "update_step", planId, step_index, state: "in_progress"}), and "done" when that step is finished — the plan card updates live for the user.
 The user can add items to the plan while you build. Before moving to the next step, call plan({operation: "read", planId}) to pick up any additions, and honor them. To add a step yourself, use plan({operation: "append_step", planId, step_text}) rather than rewriting the whole plan.
+Complete the whole task in this turn — keep going until every part is actually implemented and verified. Do NOT stop after only planning, describing what remains, or reporting status: when you say you will do something next, do it in the same turn. Tool results you already have stay in context — build on them; don't re-read a file you've already read unless it changed (page with offset for more of a large file). Yield only when the task is fully implemented and its checks pass, or you are genuinely blocked — then ask ONE concrete question.
 When fully done and the project's checks/tests pass, simply stop — your turn ends automatically when you make no more tool calls.
 </work_mode>`;
     case "debug":
