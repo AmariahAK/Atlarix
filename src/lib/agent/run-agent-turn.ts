@@ -211,6 +211,22 @@ export async function runAgentTurn(
   let forceTextFinish = false;
   const forceFinishPrompt =
     profile.buildForceFinishPrompt?.() ?? DEFAULT_FORCE_FINISH_PROMPT;
+
+  // Stage 2 (opencode-alignment / single source of truth for NATIVE history):
+  // every CONTINUATION fold of a round's native messages must land in BOTH the
+  // live request (`agenticMessages`) and the persisted turn envelope
+  // (`rt.nativeTurnMessages`) — atomically — so the two can never carry
+  // different native content. (The gate-nudge path previously folded into the
+  // request only, silently dropping that round's tool results from the
+  // persisted history → the next turn re-derived them = re-read. End/park paths
+  // push the envelope only, by design, since no further round consumes them.)
+  // Captures `agenticMessages` by binding, so it always targets the current
+  // array even after a compaction reassigns it.
+  const foldNativeIntoTurn = (msgs: ModelMessage[]) => {
+    agenticMessages.push(...msgs);
+    rt.nativeTurnMessages.push(...msgs);
+  };
+
   const pendingWorkBlocksEnd = (): boolean =>
     // v14.7: approvals no longer park (they block mid-loop), so only DETACHED
     // work (sub-agents, background commands) keeps the turn parked-for-auto-wake.
@@ -558,15 +574,17 @@ export async function runAgentTurn(
       agenticProseOnlyStreak++;
       // Fold this round's native tool messages for context on the gate-nudge
       // continuation (a tool-using round can now reach this path); fall back to
-      // prose for a pure-prose round.
+      // prose for a pure-prose round. Stage 2: fold into BOTH request + envelope
+      // (was request-only — the cross-turn re-read bug).
       if (roundHadNativeToolMessages) {
-        agenticMessages.push(...nativeIterMessages);
+        foldNativeIntoTurn(nativeIterMessages);
       } else {
         agenticMessages.push({
           role: "assistant" as const,
           content: stripAssistantDisplayContent(stripXML(fullResponse)),
         });
       }
+      // The gate feedback is TRANSIENT steering — request only, never persisted.
       agenticMessages.push({
         role: "user" as const,
         content: gateFeedback,
@@ -615,9 +633,8 @@ export async function runAgentTurn(
       // model itself signaled it wants more tool work), so it continues from the
       // clean tool-result tail without prodding. The repeated "…and verified…"
       // nudge was re-eliciting read_file on open-weight models (re-read loop).
-      agenticMessages.push(...nativeIterMessages);
-      // B2: mirror into the turn envelope (exactly what the model saw).
-      rt.nativeTurnMessages.push(...nativeIterMessages);
+      // Stage 2: single atomic fold into BOTH request + persisted envelope.
+      foldNativeIntoTurn(nativeIterMessages);
       logger.log(
         `${L} Folded ${nativeIterMessages.length} native message(s) into history (no synthetic reflatten)`,
       );
