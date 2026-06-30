@@ -229,6 +229,26 @@ the gap is purely WHERE it is invoked (auto-approve bypasses it).
   most critical path, and it needs a fake-LLM stall+partial eval + a live DeepSeek A/B before
   shipping. (opencode sidesteps this entirely: per-step DB persistence + reload-from-DB means a
   reconnect resumes from the persisted steps — the single-source-of-truth direction.)
+- **Exchanges cut to a fixed number — investigate the context/history caps (2026-06-30).**
+  User reports the conversation with the AI getting "cut," leaving only a specific number of
+  exchanges. Logs (`~/Library/Logs/Atlarix/main.log`) confirm a hard rolling cap: repeated
+  `session-memory: Exchange added (7/7)` then `Exchange replaced (7/7)` — i.e. once 7 is hit,
+  the oldest exchange is dropped. THREE overlapping caps are in play; figure out which one the
+  user is actually hitting (model-context vs UI display) and whether the default is too low /
+  surprising:
+  1. **Session memory** — `src/lib/session-memory.ts` `maxExchanges ?? 7` (rolling 7-exchange
+     summary injected into context) AND it truncates each message (`maxUserChars ?? 800`,
+     `maxAssistantChars ?? 1500`). Strongest match for "leaving a specific number (7)."
+  2. **Chat turns in context** — `MAX_CHAT_TURNS_IN_CONTEXT = 10` (`settings_constants.ts`),
+     user-adjustable via `MaxChatTurnsSelector.tsx`; caps `limitedMessageHistory` sent to the
+     model (logs: `limitedMessageHistory len=6..11`). If the user set this low, the model
+     "forgets" older exchanges.
+  3. **Renderer display** — `MAX_RENDERER_MESSAGES = 100` (`useStreamChat.ts`); only trims the
+     VISIBLE list above 100, so unlikely the small-number cut — rule in/out.
+  Decide: is 7-exchange session memory too aggressive for long tasks? Should the UI keep ALL
+  exchanges visible even when model-context is capped (so the user doesn't perceive lost
+  history)? Is the per-message char truncation (800/1500) dropping needed detail? Likely fix is
+  raising/uncoupling these defaults and making the distinction (display vs context) clear.
 - (Standing) Native-FC `ask_user`→interactive-card routing (from the prior round) — the
   safe strip is shipped; routing still deferred.
 
