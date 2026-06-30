@@ -317,7 +317,10 @@ export function microcompactStaleToolOutputs(
     tokensDropped += t;
     out[i] = {
       ...m,
-      content: `[Earlier tool output dropped (~${t} tokens) — re-read the file or re-run the command if you still need it]`,
+      // Neutral marker — must NOT instruct a re-read (that text literally drove
+      // the re-read loop). Only genuinely-old outputs beyond the keep-window are
+      // ever omitted here; recent results stay native (Stage 3b).
+      content: `[Earlier tool output omitted to save space (~${t} tokens).]`,
     };
   }
 

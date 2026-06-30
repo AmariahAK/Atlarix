@@ -31,6 +31,9 @@ export interface MidLoopCompactionActivityPayload {
 
 export interface RunMidLoopCompactionParams {
   messages: ModelMessage[];
+  /** Stage 3b: original native messages (1:1 with `messages`) for native-tail
+   * reconstruction — recent tool results stay full-fidelity. */
+  nativeMessages?: ModelMessage[];
   systemPromptEstimate: number;
   tierLimit: number;
   /** When set, mid-loop compaction compares fill to this raw context size (tokens). */
@@ -64,6 +67,7 @@ export async function runMidLoopCompaction(
 ): Promise<RunMidLoopCompactionResult> {
   const {
     messages,
+    nativeMessages,
     systemPromptEstimate,
     tierLimit,
     contextWindowTokens,
@@ -73,7 +77,8 @@ export async function runMidLoopCompaction(
     emitActivity,
     onInfo,
     onWarn,
-    threshold = 0.75,
+    // Stage 3a: overflow-only (0.9) — keep in sync with compactAgenticMessagesIfNeeded.
+    threshold = 0.9,
   } = params;
 
   if (!enabled) {
@@ -121,6 +126,7 @@ export async function runMidLoopCompaction(
 
     const result = await compactAgenticMessagesIfNeeded({
       messages,
+      nativeMessages,
       systemPromptEstimate,
       tierLimit,
       contextWindowTokens,

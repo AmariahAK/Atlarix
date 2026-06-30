@@ -25,8 +25,13 @@ describe("microcompactStaleToolOutputs", () => {
 
     expect(tokensDropped).toBeGreaterThan(0);
 
-    const dropped = messages.filter((m) => m.content.includes("tool output dropped"));
+    const dropped = messages.filter((m) => m.content.includes("omitted to save space"));
     expect(dropped).toHaveLength(2);
+    // Stage 3c: the marker must NOT tell the model to re-read (that drove the loop).
+    for (const m of dropped) {
+      expect(m.content.toLowerCase()).not.toContain("re-read");
+      expect(m.content.toLowerCase()).not.toContain("re-run");
+    }
 
     // Recent turns keep their full tool output; old ones are gone.
     expect(messages.at(-1)!.content).toContain("turn-6");

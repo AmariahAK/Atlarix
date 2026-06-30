@@ -321,6 +321,14 @@ export interface MidLoopCompactionParams {
   threshold?: number;
   /** Last N protected user+assistant exchanges (default 3 — matches `enforceTierContextBudget`). */
   protectExchanges?: number;
+  /**
+   * Stage 3b (opencode-alignment): the ORIGINAL native messages (1:1 with
+   * `messages`, which is the flattened-for-summarization view). When provided,
+   * the protected tail is reconstructed from these NATIVE blocks instead of the
+   * flattened prose — so recent tool results stay full-fidelity `tool` parts and
+   * the model never loses them mid-turn (only the summarized head is lossy).
+   */
+  nativeMessages?: ModelMessage[];
   /** Optional session stats forwarded to the compaction model. */
   sessionStats?: { toolCallCount?: number; delegationCount?: number };
   /** v10: when set, summarization tokens count toward this chat's turn usage. */
@@ -358,7 +366,9 @@ export function midLoopCompactionWouldTrigger(params: {
   contextWindowTokens?: number;
   threshold?: number;
 }): { willTrigger: boolean; beforeTokens: number } {
-  const threshold = params.threshold ?? 0.75;
+  // Stage 3a: overflow-only default (0.9) — keep in sync with the wrapper and
+  // compactAgenticMessagesIfNeeded.
+  const threshold = params.threshold ?? 0.9;
   const limitDenom = params.contextWindowTokens ?? params.tierLimit;
   const beforeTokens =
     params.messages.reduce(
@@ -371,7 +381,10 @@ export function midLoopCompactionWouldTrigger(params: {
 export async function compactAgenticMessagesIfNeeded(
   params: MidLoopCompactionParams,
 ): Promise<MidLoopCompactionResult> {
-  const threshold = params.threshold ?? 0.75;
+  // Stage 3a: overflow-only (0.9, was 0.75) — mirrors opencode's "compact only
+  // near the usable limit". Fires far less often; combined with native-tail
+  // preservation below, mid-loop compaction is no longer a coherence hazard.
+  const threshold = params.threshold ?? 0.9;
   const protect = params.protectExchanges ?? 3;
   const limitDenom = params.contextWindowTokens ?? params.tierLimit;
 
@@ -437,8 +450,18 @@ export async function compactAgenticMessagesIfNeeded(
     role: "user",
     content: "[Earlier in-task conversation — compressed for context budget]\n" + summary,
   };
-  const headSystem = head.filter((m) => m.role === "system");
-  const newMessages = [...headSystem, summaryMsg, ...tail];
+  // Stage 3b: reconstruct the protected tail (and head system messages) from the
+  // ORIGINAL native messages when provided (1:1 index with the flattened input),
+  // so recent tool results keep their native `tool` blocks instead of becoming
+  // flattened/truncated prose. Falls back to the flattened tail otherwise.
+  const native = params.nativeMessages;
+  const headSystem = (native ?? params.messages)
+    .slice(0, firstProtectedOriginalIndex)
+    .filter((m) => m.role === "system");
+  const protectedTail = native
+    ? native.slice(firstProtectedOriginalIndex)
+    : tail;
+  const newMessages = [...headSystem, summaryMsg, ...protectedTail];
   const afterTokens = total(newMessages);
   return {
     messages: newMessages,

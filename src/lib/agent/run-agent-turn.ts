@@ -650,12 +650,15 @@ export async function runAgentTurn(
 
     // Mid-turn auto-compaction (tool results land in agenticMessages FIRST).
     {
-      // v12 0.2: the string-based compaction pipeline can't count or
-      // summarize native-part messages — degrade them to prose for ITS input
-      // only; when compaction fires, the compacted view wins (lossy by
-      // design). Revisit in 0.4.
+      // Stage 3 (opencode-alignment): the string-based summarizer still needs a
+      // FLATTENED view to count/summarize the head, but we also pass the NATIVE
+      // messages so the protected tail is rebuilt from real `tool` blocks — the
+      // result is non-destructive of recent tool results (only the older head is
+      // summarized). Compaction is also overflow-only now (0.9), so on a normal
+      // turn it never fires.
       const compaction = await runMidLoopCompaction({
         messages: flattenNativeForCompaction(agenticMessages),
+        nativeMessages: agenticMessages,
         systemPromptEstimate: estimateTokens(roundSystemPromptEstimateText),
         tierLimit: rt.tierLimit,
         contextWindowTokens: rt.contextWindowTokens,
