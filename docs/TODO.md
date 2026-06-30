@@ -249,6 +249,35 @@ the gap is purely WHERE it is invoked (auto-approve bypasses it).
   exchanges visible even when model-context is capped (so the user doesn't perceive lost
   history)? Is the per-message char truncation (800/1500) dropping needed detail? Likely fix is
   raising/uncoupling these defaults and making the distinction (display vs context) clear.
+
+  **Recommended fix — mirror opencode / Claude Code: limit by TOKEN BUDGET, not a fixed count.**
+  Neither reference caps to a fixed number of exchanges/turns. They keep the FULL conversation
+  and only intervene when it approaches the model's CONTEXT WINDOW: opencode summarizes the head
+  and keeps the last `tail_turns` (default 2) verbatim only when `tokens >= usable` (input limit
+  − a ~20k buffer; `prune` off by default); Claude Code keeps full history (scrollable) and
+  auto-compacts near the window. UI display is decoupled from context — you can always scroll
+  back to everything. Concretely for Atlarix:
+  - **Drop the fixed caps** as the primary mechanism: remove/greatly-raise `session-memory`
+    `maxExchanges` (7) and stop treating `MAX_CHAT_TURNS_IN_CONTEXT` (10) as a hard ceiling. Keep
+    `MaxChatTurnsSelector` only as an OPTIONAL user override (default = token-bound, not 10).
+  - **Let token budget govern**, reusing the machinery that already exists: `getUsableBudget`
+    (`compaction.ts:646`), `enforceContextBudget` / `compactAgenticMessagesIfNeeded`
+    (`tier_context_budget.ts`), and the Stage-3 non-destructive overflow-only compaction
+    (preserves recent native tool-results verbatim, `DEFAULT_TAIL_TURNS=2`). Send as much history
+    as fits; compact the OLDEST when nearing the window.
+  - **Suggested limits (with reasoning):** trigger compaction at **~85–90% of the model's context
+    window** (matches the Stage-3 `0.9` mid-loop threshold), reserve a **~20–30k-token buffer**
+    for the response (opencode uses 20k), and **preserve the last 3–4 turns verbatim** (slightly
+    more than opencode's 2, since open-weight models lean harder on recent concrete context).
+    Net effect: on the big-window open-weight models that are Atlarix's market (DeepSeek 1M, Qwen,
+    Kimi, MiniMax) the user effectively **never loses history** in normal use; only genuinely huge
+    sessions compact, and even then recent turns stay intact. Small-window models compact sooner
+    but still token-based, never a surprising "cut to 7".
+  - **Reconsider session-memory entirely:** with full token-bounded history + compaction, the
+    rolling 7-exchange + 800/1500-char summary is largely redundant — either delete it or
+    repurpose it as a tiny always-on recap with the char-truncation removed/raised.
+  - **UI:** keep the full conversation visible (raise/virtualize `MAX_RENDERER_MESSAGES`); display
+    must never be limited by the context cap.
 - (Standing) Native-FC `ask_user`→interactive-card routing (from the prior round) — the
   safe strip is shipped; routing still deferred.
 
