@@ -253,14 +253,12 @@ describe("native tool-call history", () => {
     expect(JSON.stringify(turn2Req)).not.toContain("atlarix-tool-result");
   });
 
-  // TODO(P5 follow-up): after removing task_complete, the forced-text-tool path
-  // (weak/local-model fallback) does extra reconciling prose rounds under
-  // natural termination and doesn't settle cleanly in this harness, exhausting
-  // the scenario. The synthetic XML tool-results message IS still preserved (the
-  // captured requests contain "Here are the results …" + "dataValue = 7"); the
-  // open item is the text-tool turn-termination cadence. Skipped pending a
-  // focused fix + real weak-model verification (native-FC path is covered above).
-  it.skip("negative control: text-tool fallback keeps the synthetic XML path", async () => {
+  // The forced-text-tool path (weak/local-model fallback) now settles cleanly
+  // under natural termination: text-tool detection runs on each iteration's
+  // DELTA, so a prior round's `<tool_call>` is not re-detected/re-executed every
+  // round (which previously looped until the scenario exhausted). The synthetic
+  // XML tool-results message is still preserved as the text-tool feedback channel.
+  it("negative control: text-tool fallback keeps the synthetic XML path", async () => {
     // The eval provider is custom (builtinProviderId undefined), which turns
     // the text-tool fallback OFF (shouldUseTextToolFallback). Force it on —
     // this control plays a weak/local model emitting XML tool calls.

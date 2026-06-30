@@ -24,6 +24,11 @@ import {
   getMutationFailureFeedback,
   getUnverifiedEditFeedback,
 } from "@/lib/agent/mutation-verify";
+import {
+  ensurePreviewBaseline,
+  clearPreviewBaseline,
+  getPreviewRuntimeFeedback,
+} from "@/lib/agent/preview-verify";
 import { trackTaskStarted, trackTaskCompleted } from "@/main/lib/analytics";
 import { runMidLoopCompaction } from "@/lib/context/mid_loop_compaction";
 import {
@@ -129,6 +134,10 @@ export interface TurnRuntime {
     bundle: { response: PromiseLike<{ messages: ModelMessage[] }> };
     fullResponse: string;
     finishReason: unknown;
+    /** Set when the round stalled after completing ≥1 step: resume from these
+     * captured completed-step messages instead of restarting (continue-from-
+     * partial). `bundle.response` is unreliable mid-abort, so use THESE. */
+    resumeFromStall?: ModelMessage[];
   }>;
   processResponseChunkUpdate(args: { fullResponse: string }): Promise<string>;
   onFirstTextDelta(): void;
@@ -183,6 +192,11 @@ export async function runAgentTurn(
   // Funnel: a real agent turn is starting (fires first_task_started once).
   trackTaskStarted({ mode: profile.mode });
 
+  // Preview gate baseline: only runtime errors observed from here on (this turn)
+  // can block completion — a preview left broken by a prior turn won't trap this
+  // one.
+  ensurePreviewBaseline(rt.streamTurnId, Date.now());
+
   const loopStartTime = Date.now();
   let agenticIteration = 0;
   let agenticProseOnlyStreak = 0;
@@ -191,6 +205,10 @@ export async function runAgentTurn(
   let totalToolExecutions = 0;
   let fullResponse = rt.initialFullResponse;
   let streamContinuationAttempts = 0;
+  // Stall-resume (continue-from-partial) attempts this turn, bounded so a model
+  // that stalls every round can't loop forever resuming itself.
+  let stallResumeAttempts = 0;
+  const MAX_STALL_RESUME_ATTEMPTS = 3;
   // Natural-termination safety-net: a build/debug turn ends when the model
   // yields a prose-only round (no tool calls). If a verification gate is red
   // (stop hook / failed command / unverified edit) we nudge it on at most this
@@ -236,6 +254,13 @@ export async function runAgentTurn(
     hasPendingBackgroundCommandResults(rt.chatId);
 
   for (;;) {
+    // `fullResponse` ACCUMULATES across agentic iterations (each round's
+    // processStreamChunks starts from it and appends), so text-tool detection
+    // below must look at only THIS iteration's NEW output — otherwise an
+    // already-executed `<tool_call>` from an earlier iteration is re-detected and
+    // re-executed every round (the weak/local-model fallback never settles and
+    // the turn loops until it exhausts). Captured at the top of each iteration.
+    const iterationStartFullResponse = fullResponse;
     // Stream was aborted (compass token-pool stop, user stop, task-complete
     // stop). Do NOT start another round — issuing a request on an aborted
     // controller yields empty output and an AI_NoOutputGeneratedError that
@@ -334,6 +359,7 @@ export async function runAgentTurn(
         bundle,
         fullResponse: roundFull,
         finishReason: fr,
+        resumeFromStall,
       } = await rt.runStreamRound({
         runSimpleStream: async (o) =>
           rt.simpleStreamText({
@@ -390,6 +416,48 @@ export async function runAgentTurn(
       });
       fullResponse = roundFull;
       finalFinishReason = fr;
+
+      // CONTINUE-FROM-PARTIAL (stall recovery): the round stalled after
+      // completing ≥1 step. Resume from the captured completed-step messages
+      // instead of restarting (which re-ran every tool call — the "redoing the
+      // whole task" bug). Unified with the truncation-continuation path below:
+      // append the completed work + a "continue" nudge and loop. Do NOT await
+      // `bundle.response` — it's unreliable on a mid-abort bundle.
+      if (resumeFromStall && resumeFromStall.length > 0) {
+        if (stallResumeAttempts >= MAX_STALL_RESUME_ATTEMPTS) {
+          // Repeated stalls even after resuming — surface a recoverable
+          // disconnect rather than spinning. (NetworkStreamDisconnectedError is
+          // thrown by the round wrapper on the no-progress path; here we stop
+          // resuming and let the round end so the [Reconnect] affordance shows.)
+          logger.warn(
+            `${L} Stall-resume cap (${MAX_STALL_RESUME_ATTEMPTS}) reached — ending round`,
+          );
+          finalRoundRespMsgs = resumeFromStall;
+          streamRoundDone = true;
+          break;
+        }
+        stallResumeAttempts++;
+        logger.info(
+          `${L} Stall-resume ${stallResumeAttempts}/${MAX_STALL_RESUME_ATTEMPTS}: continuing from ${resumeFromStall.length} completed step-message(s)`,
+        );
+        buildIterMessages = [
+          ...buildIterMessages,
+          ...resumeFromStall,
+          {
+            role: "user",
+            content: buildContinuationPrompt({
+              chatId: rt.chatId,
+              turnId: rt.continuationTurnId,
+              attemptCount: stallResumeAttempts,
+              maxAttempts: MAX_STALL_RESUME_ATTEMPTS,
+              lastContent: stripThinkBlocks(fullResponse),
+            }),
+          },
+        ];
+        finalRoundRespMsgs = resumeFromStall;
+        continue;
+      }
+
       const resp = await bundle.response;
       const respMsgs = resp.messages as ModelMessage[];
       finalRoundRespMsgs = respMsgs;
@@ -464,7 +532,15 @@ export async function runAgentTurn(
 
     // Text-based tool calls (MiniMax, Claude XML, etc.) — profile-gated.
     // null = none detected; [] = detected but unparseable (break below).
-    const textToolCalls = profile.detectTextToolCalls?.(fullResponse) ?? null;
+    // Detect on THIS iteration's delta only (see iterationStartFullResponse) so
+    // an already-executed call from an earlier iteration isn't re-run every round.
+    const iterationDeltaResponse = fullResponse.startsWith(
+      iterationStartFullResponse,
+    )
+      ? fullResponse.slice(iterationStartFullResponse.length)
+      : fullResponse;
+    const textToolCalls =
+      profile.detectTextToolCalls?.(iterationDeltaResponse) ?? null;
     const hasTextToolCalls = textToolCalls !== null;
 
     const currentOpCount = rt.permissionInterceptor.getAllOperationsCount();
@@ -556,6 +632,11 @@ export async function runAgentTurn(
       }
       if (gateFeedback == null) {
         gateFeedback = getUnverifiedEditFeedback(rt.streamTurnId);
+      }
+      // Preview runtime-error gate: don't let the turn end "done" while the live
+      // preview is white-screening / 500ing (errors observed during THIS turn).
+      if (gateFeedback == null) {
+        gateFeedback = getPreviewRuntimeFeedback(rt.streamTurnId);
       }
       if (gateFeedback == null || agenticProseOnlyStreak >= PROSE_YIELD_MAX_NUDGES) {
         logger.info(
@@ -705,6 +786,7 @@ export async function runAgentTurn(
     iterations: agenticIteration,
     toolExecutions: totalToolExecutions,
   });
+  clearPreviewBaseline(rt.streamTurnId);
 
   return {
     fullResponse,

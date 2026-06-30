@@ -68,6 +68,7 @@ export function AssistantMessageBody({
   isStreaming,
   assistantMessageId,
   chatId: chatIdProp,
+  isLatestAssistant = false,
   contentDrivenThread = false,
   onPlanSwitchToBuild: _onPlanSwitchToBuild,
   onPlanArtifactBuild,
@@ -77,6 +78,9 @@ export function AssistantMessageBody({
   isStreaming: boolean;
   assistantMessageId?: number;
   chatId?: number | null;
+  /** The last assistant message in the list — the one that was just streaming.
+   * Gates the end-of-stream live-thread fallback to ONLY this message. */
+  isLatestAssistant?: boolean;
   /** Ephemeral / floating chat: tools and thoughts come from atlarix tags in content. */
   contentDrivenThread?: boolean;
   onPlanSwitchToBuild?: (autoMessage: string, planData: PlanCardData) => void;
@@ -143,11 +147,26 @@ export function AssistantMessageBody({
 
   const completedThreadRaw = useMemo(() => {
     if (isStreaming || assistantMessageId == null) return [];
-    return completedStreamThreadByMessage[assistantMessageId] ?? [];
+    const completed = completedStreamThreadByMessage[assistantMessageId];
+    if (completed && completed.length) return completed;
+    // End-of-stream gap: `isStreaming` flips false a few statements before
+    // `persistAndClearLiveStreamThread` freezes the completed thread (same IPC
+    // callback in useStreamChat). In that one-frame window the just-finished
+    // message would otherwise render with its tool cards dropped — the "cut to a
+    // shorter state" flash. Fall back to the still-present live thread, scoped to
+    // the latest assistant only so an older tool-less message can't grab it.
+    if (isLatestAssistant && chatId != null) {
+      const live = streamThreadByChatId.get(chatId);
+      if (live && live.length) return live;
+    }
+    return completed ?? [];
   }, [
     isStreaming,
     assistantMessageId,
     completedStreamThreadByMessage,
+    isLatestAssistant,
+    chatId,
+    streamThreadByChatId,
   ]);
 
   const completedThread = useMemo(

@@ -1,5 +1,25 @@
 # Atlarix Changelog
 
+## [14.8.0] (2026-06-30) — Headless preview testing, rock-steady streaming, smarter stalls
+
+> A reliability + capability pass. Atlarix can now **verify the web app it builds with zero human clicking** — a new headless preview test drives the live app and a completion gate blocks "done" while the app throws runtime errors. On the reliability side: the chat **no longer jumps back** to an earlier spot mid/end-of-stream; reasoning-model **stalls now resume from where they left off** instead of restarting and redoing every tool call; weak/local text-tool models settle cleanly instead of re-running a prior tool call every round; and the redundant rolling session-memory summary is **gone** (model context defers entirely to the full conversation + token-overflow compaction, the way opencode/Claude Code do it). tsc (main + app + tests) + oxlint + knip clean; full vitest green (**1441 tests**); verified in a packaged build.
+
+### Added
+
+- **Headless `preview_test` tool.** One call runs a scripted, non-interactive navigate→click/fill→waitFor→assert sequence against the live preview and returns a single structured pass/fail. It reuses the offscreen preview `WebContentsView` (so it works in the packaged app, where Playwright is stripped) and is framework-agnostic — it drives the rendered DOM. Build/Debug only. (`src/lib/tools/browser.ts`.)
+- **Preview runtime-error completion gate.** A turn can no longer end "done" while the live preview is white-screening or 500ing — error-level console output, failed loads, a dead renderer, and 4xx/5xx network responses block completion. Dev-mode `console.warn`/hydration warnings are filtered out so the gate never traps on benign noise. (`src/lib/agent/preview-verify.ts`, `src/ipc/utils/browser_view_manager.ts`.)
+
+### Changed
+
+- **Idle-stall budget raised 300s → 600s** to give open-weight reasoning models (DeepSeek V4 Pro, Qwen, Kimi, MiniMax) ample headroom for silent mid-stream think-pauses. (`src/ipc/utils/stream_chunk_tags.ts`.)
+- **Stall recovery now continues from the partial round instead of restarting it.** Completed steps are captured via the AI SDK `onAbort` hook and replayed, so a genuine stall no longer re-runs every tool call already executed this turn (the old "redoing the whole task" symptom). Unified with the existing truncation-continuation path. (`src/ipc/handlers/chat_stream_handlers.ts`, `src/lib/agent/run-agent-turn.ts`.)
+- **Removed the redundant rolling 7-exchange session-memory summary.** It was a lossy, char-truncated second copy of the recent conversation that competed with the full native history and made the model behave as if only ~7 exchanges existed. Model context now defers entirely to the full history + token-overflow compaction. (`src/lib/session-memory.ts` deleted; `ContextAssembler.ts` plumbing cleaned.)
+
+### Fixed
+
+- **The streaming chat no longer jumps back** to an earlier section mid- or end-of-stream. Root cause was dueling scroll controllers (the browser's CSS scroll-anchoring fighting the manual stick-to-bottom); fixed with dynamic `overflow-anchor` (none while following, auto when reading history), a same-frame `ResizeObserver` re-pin, and a scoped end-of-stream fallback that closes the completion reflow-flash. (`src/hooks/useStickToBottom.ts`, `src/components/SimpleInlineChat.tsx`, `src/components/chat/AssistantMessageBody.tsx`.)
+- **Weak/local text-tool models settle cleanly under natural termination.** Text-tool detection now runs on each iteration's delta, so a prior round's `<tool_call>` isn't re-detected and re-executed every round (which previously looped until the turn exhausted). (`src/lib/agent/run-agent-turn.ts`.)
+
 ## [14.7.0] (2026-06-26) — Wait-state unification: the agent waits, stops, and resumes like a real coding agent
 
 > Planned as 14.6.0, this release grew well past a regression patch, so it ships as **14.7.0** (the 14.6 fixes are folded in here). Two themes. First, the **four held 14.6 regressions** (plus two more found while fixing them) are resolved — the context meter, Atlarix Core's local fallback, Settings permission rules, and the edit-and-resend revert dialog all now behave. Second, and the bulk of the work: how the agent **WAITS** is now a property of the harness, not the prompt — so approvals, background commands, sub-agents, and scheduled checks behave the same way a proper coding agent does, robustly, for **any** model (especially weaker open-weight ones that can't be trusted to "manage" a wait). An approval now blocks the turn mid-loop (the **Stop** button stays, no premature "all done"); detached work **ends the turn cleanly and auto-resumes** when it finishes; the agent can view, cancel, and watch the progress of its own background sub-agents; and finished background results arrive as a real, persisted tool-result. A loop-termination fix keyed on `finishReason` removes a wasted extra round on every tool-using turn (a token win for every model). tsc (main + app + tests) + oxlint clean; full vitest green (**1439 tests**); verified across packaged builds.

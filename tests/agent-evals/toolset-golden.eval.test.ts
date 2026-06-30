@@ -59,8 +59,8 @@ const GOLDEN = {
     "ask_user", "background_jobs", "browser_inspect", "browser_interact",
     "browser_navigate", "compress_context", "edit_file",
     "glob", "grep", "list_attachments", "list_available_mcps",
-    "mcp_call", "plan", "read_attachment", "read_file", "read_url",
-    "run_command", "schedule_wakeup", "task", "web_search",
+    "mcp_call", "plan", "preview_test", "read_attachment", "read_file",
+    "read_url", "run_command", "schedule_wakeup", "task", "web_search",
   ],
 } as const;
 

@@ -17,7 +17,6 @@
 import log from "electron-log";
 import type { Message } from "@/ipc/ipc_types";
 import type { DisplaySnapshotV1 } from "@/lib/chat/display-snapshot";
-import { rebuildSessionMemoryFromMessages } from "@/lib/session-memory";
 
 const logger = log.scope("stream-transport");
 
@@ -227,9 +226,6 @@ export function hydrateStreamTransport(
       ...(m.displaySnapshot ? { displaySnapshot: m.displaySnapshot } : {}),
     }));
   ephemeralChats.set(chatId, chat);
-  if (chat.appId != null) {
-    rebuildSessionMemoryFromMessages(chat.appId, messages);
-  }
 }
 
 export function appendTransportMessage(

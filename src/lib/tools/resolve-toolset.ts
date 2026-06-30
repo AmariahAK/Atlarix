@@ -146,6 +146,9 @@ export function resolveToolsetForSession(
     "read_url",
     "read_attachment",
     "list_attachments",
+    // preview_test drives the preview WebContentsView (like browser_*, but
+    // doesn't share the prefix) — no such view exists in the Electron-free CLI.
+    "preview_test",
   ]);
   const tools =
     process.env.ATLARIX_HEADLESS === "1"

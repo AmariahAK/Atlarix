@@ -17,10 +17,13 @@ import {
   getActiveTabView,
   getPreviewView,
   getPreviewErrors,
+  getPreviewNetworkFailures,
   loadPreview,
   isAllowedBrowserUrl,
   setVisible,
+  type PreviewErrorEntry,
 } from "@/ipc/utils/browser_view_manager";
+import { blockingPreviewErrors } from "@/lib/agent/preview-verify";
 import {
   recordBrowserAction,
   formatBrowserRecordingArtifact,
@@ -594,5 +597,351 @@ ToolRegistry.register({
           error: `Unknown action "${String(args.action)}". Use "click" or "fill".`,
         };
     }
+  },
+});
+
+// ── preview_test: headless, asserted, repeatable UI test of the live preview ──
+// Reuses the offscreen preview WebContentsView (Playwright is stripped from the
+// packaged app, and `executeJavaScript` drives the page without it being
+// visible). Runs a scripted navigate→interact→waitFor→assert sequence and
+// returns a STRUCTURED pass/fail plus any runtime console errors / failed
+// network requests — so the agent gets ONE verdict instead of N tool calls it
+// must interpret, and the completion gate (preview-verify) can block "done" on a
+// broken app. Language/framework agnostic: it drives the rendered DOM.
+
+type PreviewTestStep =
+  | { action: "navigate"; url?: string }
+  | { action: "click"; ref?: string; selector?: string }
+  | { action: "fill"; ref?: string; selector?: string; value?: string }
+  | { action: "waitFor"; selector?: string; text?: string; timeoutMs?: number }
+  | {
+      action: "assert";
+      kind?: string;
+      selector?: string;
+      expect?: unknown;
+    };
+
+const PREVIEW_WAIT_DEFAULT_MS = 8_000;
+const PREVIEW_WAIT_MAX_MS = 30_000;
+const PREVIEW_WAIT_POLL_MS = 100;
+
+function clampWaitMs(raw: unknown): number {
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0) return PREVIEW_WAIT_DEFAULT_MS;
+  return Math.min(n, PREVIEW_WAIT_MAX_MS);
+}
+
+/**
+ * Poll a boolean predicate in the page until true or timeout (Playwright-style
+ * auto-wait, generalizing waitForLoad). `predicateJs` is a STATIC expression;
+ * model values reach it only via JSON.stringify (trust boundary).
+ */
+async function waitForCondition(
+  wc: Electron.WebContents,
+  predicateJs: string,
+  timeoutMs: number,
+): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  const probe = `(() => { try { return !!(${predicateJs}); } catch (e) { return false; } })()`;
+  let ok = (await wc.executeJavaScript(probe, true)) as boolean;
+  while (!ok && Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, PREVIEW_WAIT_POLL_MS));
+    ok = (await wc.executeJavaScript(probe, true)) as boolean;
+  }
+  return ok;
+}
+
+async function runPreviewAssert(
+  wc: Electron.WebContents,
+  step: PreviewTestStep & { action: "assert" },
+): Promise<{ ok: boolean; detail: string }> {
+  const kind = String(step.kind ?? "");
+  const sel = step.selector ? JSON.stringify(String(step.selector)) : "null";
+  if (kind === "url") {
+    // Evaluated in the main process against the landed URL, not the page.
+    const want = String(step.expect ?? "");
+    const cur = wc.getURL();
+    const ok = cur.includes(want);
+    return {
+      ok,
+      detail: ok
+        ? `url contains "${want}"`
+        : `url "${cur}" does not contain "${want}"`,
+    };
+  }
+  let script: string;
+  switch (kind) {
+    case "visible":
+      script = `(() => { const el = ${sel} ? document.querySelector(${sel}) : null;
+        if (!el) return { ok: false, got: "not found" };
+        const r = el.getBoundingClientRect();
+        const vis = !!(el.offsetParent !== null || (r.width > 0 && r.height > 0));
+        return { ok: vis, got: vis ? "visible" : "hidden" }; })()`;
+      break;
+    case "text": {
+      const want = JSON.stringify(String(step.expect ?? ""));
+      script = `(() => { const root = ${sel} ? document.querySelector(${sel}) : document.body;
+        if (!root) return { ok: false, got: "root not found" };
+        const t = root.innerText || root.textContent || "";
+        return { ok: t.indexOf(${want}) !== -1, got: t.slice(0, 200) }; })()`;
+      break;
+    }
+    case "count": {
+      const want = Number(step.expect);
+      const safeWant = Number.isFinite(want) ? want : -1;
+      script = `(() => { const n = ${sel} ? document.querySelectorAll(${sel}).length : 0;
+        return { ok: n === ${safeWant}, got: n }; })()`;
+      break;
+    }
+    default:
+      return {
+        ok: false,
+        detail: `assert: unknown kind "${kind}" (use visible | text | url | count)`,
+      };
+  }
+  const res = (await wc.executeJavaScript(script, true)) as {
+    ok: boolean;
+    got: unknown;
+  };
+  return {
+    ok: !!res?.ok,
+    detail: `assert ${kind}: ${res?.ok ? "pass" : "fail"} (got ${JSON.stringify(res?.got)})`,
+  };
+}
+
+async function runPreviewStep(
+  view: ActiveTabView,
+  step: PreviewTestStep,
+  chatId: number | undefined,
+): Promise<{ ok: boolean; detail: string }> {
+  const wc = view.webContents;
+  switch (step.action) {
+    case "navigate": {
+      const url = String(step.url ?? "").trim();
+      if (!url || !isAllowedBrowserUrl(url)) {
+        return { ok: false, detail: `navigate: blocked or missing url "${url}"` };
+      }
+      if (!loadPreview(url)) {
+        return { ok: false, detail: `navigate: could not load "${url}"` };
+      }
+      await waitForLoad(wc);
+      return { ok: true, detail: `navigated to ${wc.getURL()}` };
+    }
+    case "click": {
+      const r = await interactClick(view, {
+        ref: step.ref,
+        selector: step.selector,
+        target: "preview",
+        _chatSessionId: chatId,
+      });
+      return {
+        ok: r.success === true,
+        detail:
+          r.success === true
+            ? `clicked ${step.ref ?? step.selector ?? ""}`
+            : String((r as { error?: string }).error ?? "click failed"),
+      };
+    }
+    case "fill": {
+      const r = await interactFill(view, {
+        ref: step.ref,
+        selector: step.selector,
+        value: step.value,
+        target: "preview",
+        _chatSessionId: chatId,
+      });
+      return {
+        ok: r.success === true,
+        detail:
+          r.success === true
+            ? `filled ${step.ref ?? step.selector ?? ""}`
+            : String((r as { error?: string }).error ?? "fill failed"),
+      };
+    }
+    case "waitFor": {
+      const timeout = clampWaitMs(step.timeoutMs);
+      if (step.selector) {
+        const ok = await waitForCondition(
+          wc,
+          `document.querySelector(${JSON.stringify(String(step.selector))})`,
+          timeout,
+        );
+        return {
+          ok,
+          detail: ok
+            ? `found selector ${step.selector}`
+            : `timed out (${timeout}ms) waiting for selector ${step.selector}`,
+        };
+      }
+      if (step.text) {
+        const ok = await waitForCondition(
+          wc,
+          `document.body && document.body.innerText && document.body.innerText.indexOf(${JSON.stringify(String(step.text))}) !== -1`,
+          timeout,
+        );
+        return {
+          ok,
+          detail: ok
+            ? `found text "${step.text}"`
+            : `timed out (${timeout}ms) waiting for text "${step.text}"`,
+        };
+      }
+      return { ok: false, detail: "waitFor: provide a selector or text" };
+    }
+    case "assert":
+      return runPreviewAssert(wc, step);
+    default:
+      return {
+        ok: false,
+        detail: `unknown step action "${String((step as { action?: string }).action)}"`,
+      };
+  }
+}
+
+function formatPreviewError(e: PreviewErrorEntry): string {
+  return `[${e.type}] ${e.message}`;
+}
+
+ToolRegistry.register({
+  name: "preview_test",
+  requiresWorkspace: false,
+  isCore: false,
+  // Drives + asserts the running app (not the workspace). Build/Debug only —
+  // it's a verification tool, not for read-only research modes.
+  isReadOnly: false,
+  allowInAskMode: false,
+  description:
+    "Run a NON-INTERACTIVE, asserted UI test against the app's LIVE PREVIEW (headless — no human clicking) and get a single structured pass/fail. " +
+    "Use this to VERIFY a web app you built/changed before finishing: it runs a sequence of steps and reports `passed` plus any runtime console errors and failed (4xx/5xx) network requests. " +
+    "Steps: {action:\"navigate\",url}, {action:\"click\",ref|selector}, {action:\"fill\",ref|selector,value}, {action:\"waitFor\",selector|text,timeoutMs}, {action:\"assert\",kind:\"visible\"|\"text\"|\"url\"|\"count\",selector,expect}. " +
+    "Prefer `ref` (from browser_inspect snapshot) over CSS `selector`. The dev server + preview must already be running (a run_command dev server auto-loads the preview). Language/framework agnostic — it drives the rendered DOM.",
+  parameters: {
+    type: "object",
+    properties: {
+      url: {
+        type: "string",
+        description:
+          "Optional http(s) URL/route to open in the preview first (e.g. http://localhost:3000/login).",
+      },
+      steps: {
+        type: "array",
+        description:
+          "Ordered steps to run. Execution stops at the first failing step (later steps depend on earlier state).",
+        items: {
+          type: "object",
+          properties: {
+            action: {
+              type: "string",
+              enum: ["navigate", "click", "fill", "waitFor", "assert"],
+            },
+            url: { type: "string" },
+            ref: { type: "string" },
+            selector: { type: "string" },
+            value: { type: "string" },
+            text: { type: "string" },
+            timeoutMs: { type: "number" },
+            kind: {
+              type: "string",
+              enum: ["visible", "text", "url", "count"],
+              description: "For action:\"assert\".",
+            },
+            expect: {
+              description:
+                "Expected value for assert: text/url = substring, count = number. (visible needs none.)",
+            },
+          },
+          required: ["action"],
+        },
+      },
+      failOnConsoleError: {
+        type: "boolean",
+        description:
+          "Default true. When true, the test FAILS if the preview logged error-level console output, a failed load/crash, or a 4xx/5xx request during the run (warnings are ignored).",
+      },
+    },
+    required: ["steps"],
+  },
+  handler: async (
+    args: WithChat<{
+      url?: string;
+      steps?: unknown;
+      failOnConsoleError?: boolean;
+    }>,
+  ) => {
+    let view = getPreviewView();
+    const initialUrl = typeof args.url === "string" ? args.url.trim() : "";
+    if (!view && initialUrl && isAllowedBrowserUrl(initialUrl)) {
+      if (loadPreview(initialUrl)) view = getPreviewView();
+    }
+    if (!view) {
+      return {
+        success: false,
+        error:
+          "No preview is running — start the app's dev server (run_command) so the preview loads, then call preview_test.",
+      };
+    }
+    const steps = Array.isArray(args.steps)
+      ? (args.steps as PreviewTestStep[])
+      : [];
+    const failOnConsoleError = args.failOnConsoleError !== false;
+    // Baseline: only count runtime errors emitted DURING this test run.
+    const baselineTs = Date.now();
+    const results: Array<{
+      step: number;
+      action: string;
+      ok: boolean;
+      detail: string;
+    }> = [];
+    let passed = true;
+
+    if (initialUrl) {
+      const r = await runPreviewStep(
+        view,
+        { action: "navigate", url: initialUrl },
+        args._chatSessionId,
+      );
+      results.push({ step: 0, action: "navigate", ok: r.ok, detail: r.detail });
+      if (!r.ok) passed = false;
+    }
+    if (passed) {
+      for (let i = 0; i < steps.length; i++) {
+        const step = steps[i];
+        const r = await runPreviewStep(view, step, args._chatSessionId);
+        results.push({
+          step: results.length,
+          action: String(step?.action ?? "unknown"),
+          ok: r.ok,
+          detail: r.detail,
+        });
+        if (!r.ok) {
+          passed = false;
+          break; // fail-fast: later steps depend on this one's state
+        }
+      }
+    }
+
+    const runtimeErrors = blockingPreviewErrors(getPreviewErrors(), baselineTs);
+    const consoleErrors = runtimeErrors
+      .filter((e) => e.type !== "network-failed")
+      .map(formatPreviewError);
+    const networkFailures = getPreviewNetworkFailures()
+      .filter((e) => e.timestamp >= baselineTs)
+      .map(formatPreviewError);
+    const hadRuntimeErrors = runtimeErrors.length > 0;
+    const success = passed && (!failOnConsoleError || !hadRuntimeErrors);
+
+    return {
+      success,
+      passed,
+      results,
+      consoleErrors,
+      networkFailures,
+      url: view.webContents.getURL(),
+      note: success
+        ? "Preview test passed — UI verified non-interactively."
+        : passed
+          ? "Steps passed but the preview emitted runtime errors — the app is broken at runtime. Fix them and re-run."
+          : `Preview test FAILED at step ${results.length - 1}: ${results[results.length - 1]?.detail ?? ""}. Fix it and re-run.`,
+    };
   },
 });

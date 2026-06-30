@@ -34,7 +34,6 @@ import {
 } from "./utils/performance_monitor";
 import { scheduleCleanupJobs } from "./db/cleanup_jobs";
 import { registerCleanupHandlers } from "./db/workspace_cleanup";
-import { clearAllSessionMemories } from "./lib/session-memory";
 import { startModelsDevRefresh } from "./lib/models_dev";
 import { capture as analyticsCapture, shutdown as analyticsShutdown } from "./main/lib/analytics";
 import { SENTRY_DSN } from "./main/sentry-config";
@@ -1399,9 +1398,6 @@ app.on("will-quit", () => {
 
   // Stop performance monitoring and capture final metrics
   stopPerformanceMonitoring();
-
-  // Clear all session memories
-  clearAllSessionMemories();
 
   writeSettings({ isRunning: false });
 });

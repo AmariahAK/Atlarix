@@ -268,7 +268,6 @@ import {
   getAutonomousSessionLog,
   getAgentActivityForTurn,
 } from "./autonomous-session-state";
-import { getSessionMemory } from "../../lib/session-memory";
 import { readProjectInstructions } from "../../lib/project-memory";
 import {
   estimateTokens,
@@ -2964,27 +2963,14 @@ ${componentSnippet}
             logger.info("Injected context summary from auto-compaction");
           }
 
-          // Inject session memory (last 5 exchanges for conversation continuity)
-          // NOTE: Use appId (workspace ID) as key so memory persists across mode switches (Ask → Build)
-          try {
-            const sessionMemory = getSessionMemory(chat.appId);
-            const sessionContext = sessionMemory.getContextForPrompt();
-            const SESSION_MEMORY_CHAR_CAP = 2000; // PASS5: keep session memory lightweight
-            const cappedSessionContext =
-              sessionContext && sessionContext.length > SESSION_MEMORY_CHAR_CAP
-                ? sessionContext.slice(-SESSION_MEMORY_CHAR_CAP)
-                : sessionContext;
-            if (cappedSessionContext) {
-              contextSections.push({
-                name: "sessionMemory",
-                priority: 6,
-                content: cappedSessionContext,
-              });
-              logger.info(`Injected session memory (${sessionMemory.getExchangeCount()} exchanges, ~${sessionMemory.estimateTokens()} tokens)`);
-            }
-          } catch (error) {
-            logger.warn("Failed to inject session memory:", error);
-          }
+          // v14.7: the redundant rolling 7-exchange "session memory" summary was
+          // REMOVED. It was a lossy, char-truncated second copy of the recent
+          // tail that competed with the full native conversation history and made
+          // the model behave as if only ~7 exchanges existed. Model context now
+          // defers entirely to the full history + token-overflow compaction
+          // (getUsableBudget / enforceContextBudget / compactAgenticMessagesIfNeeded),
+          // matching opencode / Claude Code (keep everything; compact only on real
+          // token overflow). The display has always shown the full conversation.
 
           const isSummarizeIntent = req.prompt.startsWith(
             "Summarize from chat-id=",
@@ -3904,6 +3890,19 @@ This conversation includes one or more image attachments. When the user uploads 
                 // v13.3: header prefix survives >5min between-turn gaps.
                 headerTtl1h: isAnthropic,
               });
+            // Continue-from-partial (stall recovery): accumulate each COMPLETED
+            // step's native messages (assistant tool-call + tool-result pairs) so
+            // a mid-stream stall can RESUME from the work already done instead of
+            // restarting the round and re-running every tool call (the old
+            // "redoing the whole task" symptom). Populated incrementally in
+            // onStepFinish and backstopped by onAbort (authoritative at abort).
+            // Passive on the happy path — only read on a genuine stall.
+            const completedStepMessages: ModelMessage[] = [];
+            const recordStepMessages = (
+              msgs: readonly ModelMessage[] | undefined,
+            ) => {
+              if (msgs && msgs.length) completedStepMessages.push(...msgs);
+            };
             const streamResult = streamText({
               headers: isAnthropic
                 ? {
@@ -4045,6 +4044,13 @@ This conversation includes one or more image attachments. When the user uploads 
               // This also fixes the old undercount where only the final step's
               // usage was recorded for multi-step turns.
               onStepFinish: async (step) => {
+                // Capture this step's native messages for stall-resume BEFORE any
+                // provider-specific early return below.
+                recordStepMessages(
+                  step.response?.messages as
+                    | readonly ModelMessage[]
+                    | undefined,
+                );
                 if (modelClient.builtinProviderId !== "compass") return;
                 const stepTokens = totalTokensFromAiUsage(step.usage) ?? 0;
                 let recordResult = null;
@@ -4076,6 +4082,18 @@ This conversation includes one or more image attachments. When the user uploads 
                       `remaining=${compassRemainingBudget ?? "unknown"}`,
                   );
                   stopStreamForCompassLimit("onStepFinish");
+                }
+              },
+              // Stall recovery: at abort time the SDK hands back every finished
+              // step. This is the authoritative completed-step set — prefer it
+              // over the incremental onStepFinish buffer if it carries more.
+              onAbort: ({ steps }) => {
+                const fromAbort = steps.flatMap(
+                  (s) => (s.response?.messages ?? []) as ModelMessage[],
+                );
+                if (fromAbort.length > completedStepMessages.length) {
+                  completedStepMessages.length = 0;
+                  completedStepMessages.push(...fromAbort);
                 }
               },
               onFinish: (response) => {
@@ -4247,6 +4265,9 @@ This conversation includes one or more image attachments. When the user uploads 
               usage: streamResult.usage,
               finishReason: streamResult.finishReason,
               response: streamResult.response,
+              /** Completed-step native messages captured for stall-resume.
+               * Snapshot (not live) so a later read can't see post-abort mutation. */
+              getResumeMessages: (): ModelMessage[] => completedStepMessages.slice(),
             };
           };
 
@@ -4282,6 +4303,11 @@ This conversation includes one or more image attachments. When the user uploads 
             bundle: SimpleStreamTextBundle;
             fullResponse: string;
             finishReason: Awaited<SimpleStreamTextBundle["finishReason"]>;
+            /** Set when the round stalled AFTER completing ≥1 step: the captured
+             * completed-step messages to RESUME from (continue-from-partial)
+             * instead of restarting the round. The caller (run-agent-turn) folds
+             * these into the next round's history + a continuation nudge. */
+            resumeFromStall?: ModelMessage[];
           }> {
             const initialFullResponse = params.fullResponse;
             let fullResponse = params.fullResponse;
@@ -4333,13 +4359,41 @@ This conversation includes one or more image attachments. When the user uploads 
                 fullResponse = chunkResult.fullResponse;
                 if (chunkResult.stalled) {
                   // A stall (no chunks for the watchdog window) — NOT a user
-                  // cancel (that path returns stalled=false). Retry the round
-                  // with backoff (a fresh roundAbort next iteration); on
-                  // exhaustion surface a recoverable disconnect ([Reconnect])
-                  // instead of a fatal turn end.
+                  // cancel (that path returns stalled=false).
                   if (params.abortController.signal.aborted) {
                     throw new Error("aborted");
                   }
+                  // CONTINUE-FROM-PARTIAL: if the round completed ≥1 step before
+                  // stalling, resume from that work instead of restarting the
+                  // round and re-running every tool call. Return the captured
+                  // completed-step messages; run-agent-turn folds them into the
+                  // next round's history + a "continue" nudge (same path as the
+                  // truncation continuation). Keep `fullResponse`/partials intact
+                  // (no reset) so the rendered turn isn't wiped.
+                  const resumeMessages = bundle.getResumeMessages?.() ?? [];
+                  if (resumeMessages.length > 0) {
+                    logger.warn(
+                      `[stream] Stalled after ${resumeMessages.length} completed step-message(s) — resuming from partial instead of restarting`,
+                    );
+                    sentryAddBreadcrumbSafe({
+                      category: "stream_retry",
+                      message: `stall_resume_from_partial steps=${resumeMessages.length}`,
+                      level: "warning",
+                    });
+                    return {
+                      bundle,
+                      fullResponse,
+                      finishReason:
+                        "unknown" as Awaited<
+                          SimpleStreamTextBundle["finishReason"]
+                        >,
+                      resumeFromStall: resumeMessages,
+                    };
+                  }
+                  // No progress captured (stalled before any step finished) —
+                  // fall back to the original reset + backoff retry; on
+                  // exhaustion surface a recoverable disconnect ([Reconnect])
+                  // instead of a fatal turn end.
                   if (networkAttempt < RECONNECT_DELAYS_MS.length) {
                     const delay = RECONNECT_DELAYS_MS[networkAttempt];
                     networkAttempt++;
@@ -6715,24 +6769,8 @@ ${stopNote}`;
             }
           }
 
-          // Record exchange in session memory for conversation continuity
-          // NOTE: Use appId (workspace ID) as key so memory persists across mode switches (Ask → Build)
-          try {
-            const sessionMemory = getSessionMemory(chat.appId);
-            // Strip XML tags and code blocks for the summary
-            const cleanResponse = responseToStore
-              .replace(/<[^>]*>/g, '')
-              .replace(/```[\s\S]*?```/g, '[code]')
-              .trim();
-            if (req.continueAfterQuestions) {
-              sessionMemory.replaceLastExchange(userPrompt, cleanResponse);
-            } else {
-              sessionMemory.addExchange(userPrompt, cleanResponse);
-            }
-            logger.log(`Recorded exchange in session memory (now ${sessionMemory.getExchangeCount()} exchanges)`);
-          } catch (error) {
-            logger.warn("Failed to record session memory exchange:", error);
-          }
+          // v14.7: rolling session-memory recording removed (see the injection
+          // site) — the full native history is the single source of truth.
           const settings = readSettings();
           const isBuildModeTurn = settings.selectedChatMode === "build";
           {

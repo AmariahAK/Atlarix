@@ -37,16 +37,32 @@ export type BrowserPanelState = {
 
 /** A captured preview-surface error (console.error / load failure / crash). */
 export type PreviewErrorEntry = {
-  type: "console-error" | "load-failed" | "render-gone";
+  type: "console-error" | "load-failed" | "render-gone" | "network-failed";
   message: string;
   url?: string;
   timestamp: number;
+  /** Console severity for `console-error` entries. The Errors tab shows both,
+   * but the agent's completion gate must filter to "error" — React/Next dev mode
+   * emits benign "warning" console output that must NOT block a turn. */
+  level?: "error" | "warning";
+  /** HTTP status for `network-failed` entries (>= 400). */
+  statusCode?: number;
 };
 
 type Rect = { x: number; y: number; width: number; height: number };
 
 const BROWSER_PARTITION = "persist:atlarix-browser";
 const ALLOWED_PROTOCOLS = new Set(["http:", "https:"]);
+/** Preview network-failure capture ignores these (static-asset 404 noise). */
+const NOISY_PREVIEW_RESOURCE_TYPES: ReadonlySet<string> = new Set([
+  "image",
+  "font",
+  "stylesheet",
+  "media",
+  "cspReport",
+  "ping",
+  "webSocket",
+]);
 
 let nextTabId = 1;
 const tabs = new Map<number, WebContentsView>();
@@ -87,6 +103,34 @@ function browserSession(): Session {
     ses.on("will-download", (event, item) => {
       logger.warn(`[browser] download blocked: ${item.getURL()}`);
       event.preventDefault();
+    });
+    // Capture failed (4xx/5xx) responses made by the PREVIEW surface so the
+    // agent's preview-test completion gate can treat them as verification
+    // failures (a page that renders but whose API calls 500 is still broken).
+    // Scoped to the preview webContents (the in-app browser panel is ignored)
+    // and to app-level resource types so favicon/image 404 noise can't trip the
+    // gate. webRequest is otherwise unused, so registering here clobbers nothing.
+    ses.webRequest.onCompleted((details) => {
+      try {
+        const status = details.statusCode ?? 0;
+        if (status < 400) return;
+        const pv = getPreviewView();
+        if (!pv || details.webContentsId !== pv.webContents.id) return;
+        // Keep document/script/data requests; drop static-asset noise so a
+        // missing favicon/image/font can't trip the gate. (Electron resourceType
+        // literals vary by version, so we EXCLUDE the noisy set rather than match
+        // an allowlist of names that may not exist.)
+        if (NOISY_PREVIEW_RESOURCE_TYPES.has(details.resourceType)) return;
+        pushPreviewError({
+          type: "network-failed",
+          message: `HTTP ${status} ${details.method ?? "GET"} ${details.url}`,
+          url: details.url,
+          statusCode: status,
+          timestamp: nowTs(),
+        });
+      } catch {
+        /* request logging must never throw */
+      }
     });
   }
   return ses;
@@ -308,6 +352,11 @@ export function getPreviewErrors(): PreviewErrorEntry[] {
   return [...previewErrors];
 }
 
+/** Just the captured failed (4xx/5xx) network responses for the preview. */
+export function getPreviewNetworkFailures(): PreviewErrorEntry[] {
+  return previewErrors.filter((e) => e.type === "network-failed");
+}
+
 export function clearPreviewErrors(): void {
   previewErrors = [];
 }
@@ -347,14 +396,15 @@ function wirePreviewEvents(wc: Electron.WebContents): void {
       message = String(ev.message ?? "");
       sourceUrl = ev.sourceId;
     }
-    const isErrorOrWarn =
-      level === "error" || level === "warning" || level === 2 || level === 3;
-    if (!isErrorOrWarn || !message) return;
+    const isError = level === "error" || level === 2;
+    const isWarn = level === "warning" || level === 3;
+    if ((!isError && !isWarn) || !message) return;
     pushPreviewError({
       type: "console-error",
       message: message.slice(0, 4000),
       url: sourceUrl,
       timestamp: nowTs(),
+      level: isError ? "error" : "warning",
     });
   });
   wc.on("did-fail-load", (_e, code, desc, url) => {

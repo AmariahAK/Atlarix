@@ -174,6 +174,7 @@ function SimpleMessageImpl({
                                     assistantMessageId={message.id}
                                     chatId={chatId ?? message.chatId}
                                     isStreaming={isStreaming}
+                                    isLatestAssistant={isLatestAssistant}
                                     contentDrivenThread={false}
                                 />
                             ) : (

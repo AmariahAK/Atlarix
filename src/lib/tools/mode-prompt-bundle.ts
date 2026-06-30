@@ -16,7 +16,8 @@ export const GIT_VIA_TERMINAL_NOTE =
 /** Steers the model to cheap a11y refs before costly screenshots when using the in-app browser. */
 export const BROWSER_NOTE =
   "Browser & preview: to read or interact with a page, call **browser_inspect** (mode:\"snapshot\" — a compact list of accessibility refs, cheap) before mode:\"screenshot\" (a costly image). Use the returned refs with **browser_interact** (action:\"click\"|\"fill\"). " +
-  "Add **target:\"preview\"** to any of these (and to **browser_navigate**) to drive the LIVE PREVIEW of the app you are building — open routes, fill forms, click buttons, and verify the running UI. Use **browser_inspect(target:\"preview\", mode:\"console\")** to read the preview's runtime errors. Without target, the tools act on the in-app browser (target:\"browser\").";
+  "Add **target:\"preview\"** to any of these (and to **browser_navigate**) to drive the LIVE PREVIEW of the app you are building — open routes, fill forms, click buttons, and verify the running UI. Use **browser_inspect(target:\"preview\", mode:\"console\")** to read the preview's runtime errors. Without target, the tools act on the in-app browser (target:\"browser\"). " +
+  "To VERIFY a web UI change before finishing, prefer **preview_test** — one call runs a scripted, headless navigate→click/fill→waitFor→assert sequence against the live preview and returns a single pass/fail plus any runtime console errors and failed (4xx/5xx) requests. The turn will not be allowed to finish while the preview is throwing runtime errors, so fix and re-run preview_test until it passes.";
 
 /** Git note plus per-stream commit-author guidance (commit-capable modes only). */
 export function getGitTerminalNote(gitAuthorName?: string): string {

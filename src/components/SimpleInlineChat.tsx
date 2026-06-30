@@ -90,9 +90,14 @@ export function SimpleInlineChat({
 
     const messagesEndRef = useRef<HTMLDivElement | null>(null);
     const messagesContainerRef = useRef<HTMLDivElement | null>(null);
+    const messagesContentRef = useRef<HTMLDivElement | null>(null);
 
     const { isAtBottomRef, scrollToBottom, onContentChange, showJumpButton } =
-        useStickToBottom(messagesContainerRef, messagesEndRef);
+        useStickToBottom(
+            messagesContainerRef,
+            messagesEndRef,
+            messagesContentRef,
+        );
 
     const streamCount = streamCountById.get(chatId) ?? 0;
     // Live tool-card thread for this chat. Tool cards grow independently of
@@ -377,8 +382,16 @@ export function SimpleInlineChat({
             <div className="relative flex-1 min-h-0 flex flex-col">
             <div
                 ref={messagesContainerRef}
-                className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 py-4 space-y-4 [overflow-anchor:auto]"
+                className="flex-1 min-h-0 overflow-y-auto overscroll-contain"
             >
+                {/* Inner content wrapper: observed by useStickToBottom's
+                    ResizeObserver so the bottom re-pins in the same frame when
+                    content grows. The container itself never changes height, so
+                    it can't be the resize target. */}
+                <div
+                    ref={messagesContentRef}
+                    className="px-4 py-4 space-y-4"
+                >
                 {visibleMessages.length === 0 && !isStreaming ? (
                     <div className="flex flex-col items-center justify-center min-h-[8rem] text-center text-muted-foreground text-sm px-4 gap-2">
                         <span>Starting chat…</span>
@@ -417,6 +430,7 @@ export function SimpleInlineChat({
                 <BackgroundJobsIndicator chatId={chatId} />
 
                 <div ref={messagesEndRef} className="[overflow-anchor:none]" />
+                </div>
             </div>
 
                 {showJumpButton && (

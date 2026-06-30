@@ -15,7 +15,6 @@ export type ContextSectionName =
   | "projectMemory"
   | "projectKnowledge"
   | "contextSummary"
-  | "sessionMemory"
   | "sessionLedger"
   | "parallelPrefetch"
   // (v13.1: "lspDiagnostics" removed with the LSP feature.)
@@ -38,7 +37,6 @@ export type ContextAssemblerInput = {
 
 export type ContextAssemblerOutput = {
   activeSkillAddition: string;
-  sessionMemoryAddition: string;
   finalSystemPromptAddition: string;
   assembledPromptSections: Array<ContextSection & { tokens: number; included: boolean; truncated: boolean }>;
   tokenUsageBySection: Record<string, number>;
@@ -54,17 +52,12 @@ export function assembleContextSections(input: ContextAssemblerInput): ContextAs
     .sort((a, b) => a.priority - b.priority);
 
   const activeSkillSections = normalizedSections.filter((s) => s.name === "activeSkill");
-  const sessionMemorySections = normalizedSections.filter((s) => s.name === "sessionMemory");
-  const otherSections = normalizedSections.filter(
-    (s) => s.name !== "activeSkill" && s.name !== "sessionMemory",
-  );
+  const otherSections = normalizedSections.filter((s) => s.name !== "activeSkill");
 
   let activeSkillAddition = activeSkillSections.map((s) => s.content.trim()).join("\n\n");
   if (activeSkillAddition && estimateTokens(activeSkillAddition) > ACTIVE_SKILL_TOKEN_CEILING) {
     activeSkillAddition = truncateToTokensShared(activeSkillAddition, ACTIVE_SKILL_TOKEN_CEILING, "\n\n...(trimmed to fit context cap)");
   }
-
-  let sessionMemoryAddition = sessionMemorySections.map((s) => s.content.trim()).join("\n\n");
 
   const cacheKey = createHash("sha256")
     .update(
@@ -83,7 +76,6 @@ export function assembleContextSections(input: ContextAssemblerInput): ContextAs
     return {
       ...cached,
       activeSkillAddition: cached.activeSkillAddition ?? "",
-      sessionMemoryAddition: cached.sessionMemoryAddition ?? "",
       cache: { key: cacheKey, hit: true },
     };
   }
@@ -102,17 +94,6 @@ export function assembleContextSections(input: ContextAssemblerInput): ContextAs
       tokens: sectionTokens,
       included: true,
       truncated: estimateTokens(activeSkillAddition) < sectionTokens,
-    });
-  }
-
-  for (const section of sessionMemorySections) {
-    const sectionTokens = estimateTokens(section.content);
-    tokenUsageBySection[section.name] = sectionTokens;
-    assembledPromptSections.push({
-      ...section,
-      tokens: sectionTokens,
-      included: true,
-      truncated: false,
     });
   }
 
@@ -168,7 +149,6 @@ export function assembleContextSections(input: ContextAssemblerInput): ContextAs
 
   const output: ContextAssemblerOutput = {
     activeSkillAddition,
-    sessionMemoryAddition,
     finalSystemPromptAddition: includedBlocks.join("\n\n"),
     assembledPromptSections,
     tokenUsageBySection,
