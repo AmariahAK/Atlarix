@@ -171,7 +171,7 @@ describe("ask parity baselines", () => {
     expect(lastAssistant?.content).toContain("atlarix-plan-artifact");
   });
 
-  it("repetition guard: repeated identical read aborts the stream (bounded)", async () => {
+  it("doom-loop: 3 identical reads fire the graceful force-finish (bounded)", async () => {
     ctx.server.register(
       scenario("ask-loop-read")
         .toolCall("read_file", { path: "src/info.ts" })
@@ -190,8 +190,9 @@ describe("ask parity baselines", () => {
     const activities = fakeIpc
       .sentOn("chat:activity")
       .map((s) => s.payload?.type);
-    expect(activities).toContain("loop_detected");
+    // Stage 5: doom-loop → graceful wrap-up, NOT the old sliding-window nudge.
     expect(activities).toContain("loop_repetition_aborted");
+    expect(activities).not.toContain("loop_detected");
 
     expect(ctx.server.requestsFor("ask-loop-read").length).toBeLessThan(30);
     expectStreamEnded(fakeIpc.sends, chatId);

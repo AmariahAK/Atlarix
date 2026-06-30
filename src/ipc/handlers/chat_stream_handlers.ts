@@ -4549,27 +4549,13 @@ This conversation includes one or more image attachments. When the user uploads 
               o: AgenticRepetitionOutcome,
             ) => {
               if (o.kind === "none") return;
-              if (o.kind === "loop_detected") {
-                safeSend(event.sender, "chat:activity", {
-                  id: `loop-detected-${Date.now()}`,
-                  type: "loop_detected",
-                  label: "Repeated action detected",
-                  detail: `${o.toolName} on the same target ${o.count}+ times in a short window — self-correcting`,
-                  status: "running",
-                  timestamp: Date.now(),
-                  chatId: req.chatId,
-                  toolName: o.toolName,
-                  loopTarget: o.target,
-                  loopCount: o.count,
-                });
-                return;
-              }
+              // Doom loop (3 consecutive byte-identical calls) — wrap up.
               safeSend(event.sender, "chat:activity", {
                 id: `loop-abort-${Date.now()}`,
                 type: "loop_repetition_aborted",
                 label: "Wrapping up — repeated action",
                 detail:
-                  "Repeated the same read or search after guidance — finishing with a summary of what was done.",
+                  "Repeated the same call identically — finishing with a summary of what was done.",
                 status: "running",
                 timestamp: Date.now(),
                 chatId: req.chatId,
@@ -5331,27 +5317,13 @@ This conversation includes one or more image attachments. When the user uploads 
             const agenticRepetition = createAgenticRepetitionState();
             const handleAgenticRepetitionOutcome = (o: AgenticRepetitionOutcome) => {
               if (o.kind === "none") return;
-              if (o.kind === "loop_detected") {
-                safeSend(event.sender, "chat:activity", {
-                  id: `loop-detected-${Date.now()}`,
-                  type: "loop_detected",
-                  label: "Repeated action detected",
-                  detail: `${o.toolName} on the same target ${o.count}+ times in a short window — self-correcting`,
-                  status: "running",
-                  timestamp: Date.now(),
-                  chatId: req.chatId,
-                  toolName: o.toolName,
-                  loopTarget: o.target,
-                  loopCount: o.count,
-                });
-                return;
-              }
+              // Doom loop (3 consecutive byte-identical calls) — wrap up.
               safeSend(event.sender, "chat:activity", {
                 id: `loop-abort-${Date.now()}`,
                 type: "loop_repetition_aborted",
                 label: "Wrapping up — repeated action",
                 detail:
-                  "Repeated the same write or command after guidance — finishing with a summary of what was done and what remains.",
+                  "Repeated the same call identically — finishing with a summary of what was done and what remains.",
                 status: "running",
                 timestamp: Date.now(),
                 chatId: req.chatId,

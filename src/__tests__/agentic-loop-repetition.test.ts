@@ -1,216 +1,93 @@
 /**
- * Verifies repetition detection for both the legacy write/run path and the
- * new read-side wiring (read_file / explore_folder / search). The latter is
- * what the Ask-mode branch now relies on to escape the stream-stall watchdog
- * — the model was looping on identical reads until the provider went silent
- * for 30s and the watchdog aborted.
+ * Doom-loop detector (Stage 5, opencode-alignment): the sliding-window
+ * repetition guard was replaced by opencode's exact doom-loop — three
+ * CONSECUTIVE byte-identical tool calls trip ONE graceful force-finish. No
+ * windows, no thresholds, no correction nudges.
  */
 
 import { describe, it, expect } from "vitest";
-import {
-  buildRepetitionKey,
-  createAgenticRepetitionState,
-} from "../lib/streaming/agentic-loop-repetition";
+import { createAgenticRepetitionState } from "../lib/streaming/agentic-loop-repetition";
 
-describe("buildRepetitionKey", () => {
-  it("returns null for tools outside the tracked set", () => {
-    expect(buildRepetitionKey("get_diagram", { foo: "bar" })).toBeNull();
-    expect(buildRepetitionKey("memory", { operation: "recall" })).toBeNull();
-  });
-
-  it("keys write_file by normalized path", () => {
-    expect(buildRepetitionKey("write_file", { path: "src/foo.ts" })).toBe(
-      "write_file:src/foo.ts",
-    );
-    // Backslashes / mixed separators normalize to forward slashes.
-    expect(
-      buildRepetitionKey("write_file", { path: "src\\\\foo\\\\bar.ts" }),
-    ).toBe("write_file:src/foo/bar.ts");
-  });
-
-  it("keys read_file by `path` or `file_path` alias", () => {
-    expect(buildRepetitionKey("read_file", { path: "src/foo.ts" })).toBe(
-      "read_file:src/foo.ts",
-    );
-    expect(
-      buildRepetitionKey("read_file", { file_path: "./src/foo.ts" }),
-    ).toBe("read_file:src/foo.ts");
-    expect(buildRepetitionKey("read_file", {})).toBeNull();
-  });
-
-  it("keys explore_folder by normalized path", () => {
-    expect(
-      buildRepetitionKey("explore_folder", { path: "./apps/web/" }),
-    ).toBe("explore_folder:apps/web/");
-    expect(buildRepetitionKey("explore_folder", {})).toBeNull();
-  });
-
-  it("keys search by trimmed query + optional path scope", () => {
-    expect(
-      buildRepetitionKey("search", { query: "toast notification" }),
-    ).toBe("search:toast notification|*");
-    expect(
-      buildRepetitionKey("search", {
-        query: "toast notification",
-        path: "apps/web",
-      }),
-    ).toBe("search:toast notification|apps/web");
-    expect(
-      buildRepetitionKey("search", {
-        query: "toast notification",
-        path: "apps/web",
-        // mode is intentionally NOT part of the key — model often retries the
-        // same query with different modes; we still want that flagged as a loop.
-        mode: "semantic",
-      }),
-    ).toBe("search:toast notification|apps/web");
-    expect(buildRepetitionKey("search", {})).toBeNull();
-  });
-});
-
-describe("createAgenticRepetitionState — write/run threshold (3 of 5)", () => {
+describe("doom-loop detector", () => {
   it("does nothing while disabled", () => {
     const s = createAgenticRepetitionState();
     for (let i = 0; i < 10; i++) {
-      expect(
-        s.record("write_file", { path: "x.ts" }).kind,
-      ).toBe("none");
+      expect(s.record("read_file", { path: "x.ts" }).kind).toBe("none");
     }
   });
 
-  it("flags loop_detected after 3 identical write_file calls", () => {
+  it("trips on the 3rd consecutive byte-identical call", () => {
     const s = createAgenticRepetitionState();
     s.setEnabled(true);
-    expect(s.record("write_file", { path: "x.ts" }).kind).toBe("none");
-    expect(s.record("write_file", { path: "x.ts" }).kind).toBe("none");
-    const r = s.record("write_file", { path: "x.ts" });
-    expect(r.kind).toBe("loop_detected");
-    if (r.kind === "loop_detected") {
-      expect(r.toolName).toBe("write_file");
-      expect(r.target).toBe("x.ts");
-    }
-    // The pending correction is consumed once and cleared.
-    expect(s.takePendingCorrection()).not.toBeNull();
-    expect(s.takePendingCorrection()).toBeNull();
-  });
-
-  it("classifies loop_abort after two ignored corrections, but the hard break is disabled", () => {
-    const s = createAgenticRepetitionState();
-    s.setEnabled(true);
-    // First trigger.
-    for (let i = 0; i < 3; i++) s.record("write_file", { path: "x.ts" });
-    s.takePendingCorrection();
-    // Second trigger.
-    for (let i = 0; i < 3; i++) s.record("write_file", { path: "x.ts" });
-    s.takePendingCorrection();
-    // Third trigger — abort.
-    for (let i = 0; i < 2; i++) s.record("write_file", { path: "x.ts" });
-    const r = s.record("write_file", { path: "x.ts" });
-    // The classification still escalates to loop_abort (advisory), but the hard
-    // loop-break was intentionally disabled — natural termination / task_complete
-    // now ends turns — so consumeLoopBreak always reports false.
+    expect(s.record("read_file", { path: "x.ts" }).kind).toBe("none");
+    expect(s.record("read_file", { path: "x.ts" }).kind).toBe("none");
+    const r = s.record("read_file", { path: "x.ts" });
     expect(r.kind).toBe("loop_abort");
-    expect(s.consumeLoopBreak()).toBe(false);
-    expect(s.consumeLoopBreak()).toBe(false);
-  });
-});
-
-describe("createAgenticRepetitionState — read-side threshold (5 of 10)", () => {
-  it("tolerates up to 4 identical read_file calls without firing", () => {
-    const s = createAgenticRepetitionState();
-    s.setEnabled(true);
-    for (let i = 0; i < 4; i++) {
-      const r = s.record("read_file", { path: "src/foo.ts" });
-      expect(r.kind).toBe("none");
-    }
-  });
-
-  it("flags loop_detected on the 5th identical read_file call", () => {
-    const s = createAgenticRepetitionState();
-    s.setEnabled(true);
-    for (let i = 0; i < 4; i++) {
-      expect(s.record("read_file", { path: "src/foo.ts" }).kind).toBe(
-        "none",
-      );
-    }
-    const r = s.record("read_file", { path: "src/foo.ts" });
-    expect(r.kind).toBe("loop_detected");
-    if (r.kind === "loop_detected") {
+    if (r.kind === "loop_abort") {
       expect(r.toolName).toBe("read_file");
-      expect(r.target).toBe("src/foo.ts");
-      expect(r.count).toBe(5);
+      expect(r.count).toBe(3);
     }
   });
 
-  it("flags loop_detected on the 5th identical explore_folder call", () => {
+  it("works for ANY tool (not just a tracked subset)", () => {
     const s = createAgenticRepetitionState();
     s.setEnabled(true);
-    for (let i = 0; i < 4; i++) {
-      s.record("explore_folder", { path: "apps/web" });
-    }
-    const r = s.record("explore_folder", { path: "apps/web" });
-    expect(r.kind).toBe("loop_detected");
+    s.record("some_random_tool", { a: 1 });
+    s.record("some_random_tool", { a: 1 });
+    expect(s.record("some_random_tool", { a: 1 }).kind).toBe("loop_abort");
   });
 
-  it("flags loop_detected on the 5th identical search call", () => {
+  it("does NOT trip when the input differs (legit progress)", () => {
     const s = createAgenticRepetitionState();
     s.setEnabled(true);
-    const args = { query: "toast notification", path: "apps/web" };
-    for (let i = 0; i < 4; i++) {
-      s.record("search", args);
-    }
-    const r = s.record("search", args);
-    expect(r.kind).toBe("loop_detected");
+    // Same tool, DIFFERENT args each time (e.g. paging) — never a doom loop.
+    expect(s.record("read_file", { path: "x.ts", offset: 1 }).kind).toBe("none");
+    expect(s.record("read_file", { path: "x.ts", offset: 100 }).kind).toBe("none");
+    expect(s.record("read_file", { path: "x.ts", offset: 200 }).kind).toBe("none");
+    expect(s.record("read_file", { path: "x.ts", offset: 300 }).kind).toBe("none");
   });
 
-  it("does NOT confuse two distinct read paths within the window", () => {
+  it("resets the run when a different call interrupts (consecutive only)", () => {
     const s = createAgenticRepetitionState();
     s.setEnabled(true);
-    // Interleave 4 reads of A and 4 reads of B — neither key reaches the 5
-    // threshold individually, so nothing should fire even after 8 records.
-    for (let i = 0; i < 4; i++) {
-      expect(s.record("read_file", { path: "a.ts" }).kind).toBe("none");
-      expect(s.record("read_file", { path: "b.ts" }).kind).toBe("none");
-    }
+    s.record("read_file", { path: "x.ts" });
+    s.record("read_file", { path: "x.ts" });
+    // A different call breaks the consecutive run.
+    expect(s.record("search", { query: "foo" }).kind).toBe("none");
+    // Back to x.ts — counter restarted, so 2 more are NOT enough yet.
+    expect(s.record("read_file", { path: "x.ts" }).kind).toBe("none");
+    expect(s.record("read_file", { path: "x.ts" }).kind).toBe("none");
+    expect(s.record("read_file", { path: "x.ts" }).kind).toBe("loop_abort");
   });
 
-  it("only fires when a single key dominates the window (5 of 10)", () => {
+  it("fires only ONCE per doom loop (resets after tripping)", () => {
     const s = createAgenticRepetitionState();
     s.setEnabled(true);
-    // Five unrelated `b.ts` reads first, then five `a.ts` reads. After the 5th
-    // `a.ts` the sliding window holds [b,b,b,b,b,a,a,a,a,a] (length 10),
-    // count of `a` = 5 ≥ threshold ⇒ loop_detected.
-    for (let i = 0; i < 5; i++) s.record("read_file", { path: "b.ts" });
-    for (let i = 0; i < 4; i++) {
-      expect(s.record("read_file", { path: "a.ts" }).kind).toBe("none");
-    }
-    const r = s.record("read_file", { path: "a.ts" });
-    expect(r.kind).toBe("loop_detected");
-  });
-});
-
-describe("read-aware correction message", () => {
-  it("tells the model it already has the file content (not generic 'step back')", () => {
-    const s = createAgenticRepetitionState();
-    s.setEnabled(true);
-    for (let i = 0; i < 4; i++) s.record("read_file", { path: "a.ts" });
-    const r = s.record("read_file", { path: "a.ts" });
-    expect(r.kind).toBe("loop_detected");
-    const correction = s.takePendingCorrection() ?? "";
-    expect(correction).toContain("already");
-    expect(correction).toContain("read_file");
-    expect(correction).toContain("offset");
-    expect(correction).not.toContain("Step back and reconsider");
+    s.record("write_file", { path: "y.ts", content: "a" });
+    s.record("write_file", { path: "y.ts", content: "a" });
+    expect(s.record("write_file", { path: "y.ts", content: "a" }).kind).toBe("loop_abort");
+    // Immediately after tripping, the next identical call starts a fresh run.
+    expect(s.record("write_file", { path: "y.ts", content: "a" }).kind).toBe("none");
+    expect(s.record("write_file", { path: "y.ts", content: "a" }).kind).toBe("none");
+    expect(s.record("write_file", { path: "y.ts", content: "a" }).kind).toBe("loop_abort");
   });
 
-  it("keeps the generic correction for write/run loops", () => {
+  it("setEnabled(true) clears any prior run", () => {
     const s = createAgenticRepetitionState();
     s.setEnabled(true);
-    s.record("write_file", { path: "x.ts" });
-    s.record("write_file", { path: "x.ts" });
-    const r = s.record("write_file", { path: "x.ts" });
-    expect(r.kind).toBe("loop_detected");
-    const correction = s.takePendingCorrection() ?? "";
-    expect(correction).toContain("Step back and reconsider");
+    s.record("read_file", { path: "x.ts" });
+    s.record("read_file", { path: "x.ts" });
+    s.setEnabled(true); // re-arm clears state
+    expect(s.record("read_file", { path: "x.ts" }).kind).toBe("none");
+  });
+
+  it("correction/loop-break stubs are inert", () => {
+    const s = createAgenticRepetitionState();
+    s.setEnabled(true);
+    s.record("read_file", { path: "x.ts" });
+    s.record("read_file", { path: "x.ts" });
+    s.record("read_file", { path: "x.ts" });
+    expect(s.takePendingCorrection()).toBeNull();
+    expect(s.consumeLoopBreak()).toBe(false);
   });
 });

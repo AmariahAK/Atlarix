@@ -41,11 +41,14 @@ describe("loop detection (build mode)", () => {
       timeoutMs: 20_000,
     });
 
-    // The guard surfaced the repetition to the user…
+    // Stage 5: the doom-loop (3 consecutive byte-identical calls) fires the
+    // graceful force-finish — surfaced as a "wrapping up" activity, NOT the old
+    // sliding-window `loop_detected` nudge.
     const activities = fakeIpc
       .sentOn("chat:activity")
       .map((s) => s.payload?.type);
-    expect(activities).toContain("loop_detected");
+    expect(activities).toContain("loop_repetition_aborted");
+    expect(activities).not.toContain("loop_detected");
 
     // …and the turn terminated in bounded requests (not the 30-min cap).
     const requestCount = ctx.server.requestsFor("loop-read").length;

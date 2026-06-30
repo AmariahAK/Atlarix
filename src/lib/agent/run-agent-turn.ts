@@ -459,14 +459,6 @@ export async function runAgentTurn(
         // shared post-stream tail persists it on the assistant message.
         rt.nativeTurnMessages.push(...nativeIterMessages);
       }
-      if (profile.repetition.consumeLoopBreak()) {
-        logger.warn(
-          `${L} Stopping after repeated read/search (repetition guard)`,
-        );
-        fullResponse =
-          fullResponse +
-          "\n\n[Repeated action — task stopped. Review the activity log and send a message to continue.]";
-      }
       break;
     }
 
@@ -657,14 +649,6 @@ export async function runAgentTurn(
       }
     }
 
-    const loopCorrection = profile.repetition.takePendingCorrection();
-    if (loopCorrection) {
-      agenticMessages.push({
-        role: "user" as const,
-        content: loopCorrection,
-      });
-    }
-
     // Mid-turn auto-compaction (tool results land in agenticMessages FIRST).
     {
       // Stage 3 (opencode-alignment): the string-based summarizer still needs a
@@ -711,19 +695,6 @@ export async function runAgentTurn(
     if (hasPermissionRequest) {
       logger.log(`${L} Had permission requests, continuing loop...`);
     }
-
-    if (loopCorrection) {
-      continue;
-    }
-
-    if (profile.repetition.consumeLoopBreak()) {
-      logger.warn(`${L} Stopping after repeated write/command (repetition guard)`);
-      fullResponse =
-        stripXML(fullResponse) +
-        "\n\n[Repeated action — task stopped. Review the activity log and send a message to continue.]";
-      break;
-    }
-
   }
 
   // Funnel: the turn ran to a natural end (fires first_task_completed once,
