@@ -608,15 +608,16 @@ export async function runAgentTurn(
       // NATIVE messages into the next iteration's history instead of
       // re-flattening to prose. History stays byte-stable (prompt cache
       // holds) and weak models see real tool blocks.
+      //
+      // Stage 1 (opencode-alignment): do NOT append a per-round "continue/verify"
+      // nudge. opencode re-sends clean native history and obeys the finish
+      // reason — this path is only reached on finish_reason:"tool-calls" (the
+      // model itself signaled it wants more tool work), so it continues from the
+      // clean tool-result tail without prodding. The repeated "…and verified…"
+      // nudge was re-eliciting read_file on open-weight models (re-read loop).
       agenticMessages.push(...nativeIterMessages);
-      const nativeContinueMsg = {
-        role: "user" as const,
-        content:
-          "Continue with the task. When everything is done and verified, stop — give a brief final summary and make no further tool calls.",
-      };
-      agenticMessages.push(nativeContinueMsg);
       // B2: mirror into the turn envelope (exactly what the model saw).
-      rt.nativeTurnMessages.push(...nativeIterMessages, nativeContinueMsg);
+      rt.nativeTurnMessages.push(...nativeIterMessages);
       logger.log(
         `${L} Folded ${nativeIterMessages.length} native message(s) into history (no synthetic reflatten)`,
       );
