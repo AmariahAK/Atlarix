@@ -250,7 +250,25 @@ the gap is purely WHERE it is invoked (auto-approve bypasses it).
   history)? Is the per-message char truncation (800/1500) dropping needed detail? Likely fix is
   raising/uncoupling these defaults and making the distinction (display vs context) clear.
 
-  **Recommended fix — mirror opencode / Claude Code: limit by TOKEN BUDGET, not a fixed count.**
+  **CORRECTION (2026-06-30, after re-checking chat -13 logs): this is NOT a token/overflow
+  problem — it's a fixed-count, UI/display cut.** Token usage was only 59K→108K on a 1M-window
+  model (~10%), `autoSummarize=false`/`hasSummary=false` the whole time — compaction NEVER fired.
+  The model's `modelFacing` message count grew normally (6→13), so the MODEL isn't losing
+  history either. The only thing stuck at a fixed number is `session memory (now 7 exchanges)`,
+  pinned at 7 regardless of tokens. So the user's "cut to a specific number" is **display-side /
+  the rolling session-memory count**, firing at trivial token counts — NOT summarization.
+  **→ Primary fix = the DISPLAY must show the full conversation, decoupled from any count cap.**
+  Investigate the render/load path (`SimpleInlineChat` `visibleMessages`, `fetchMessages`/`getChat`,
+  `apply-stream-display-hydration`, the freeze/persist logic, `MAX_RENDERER_MESSAGES`) for why
+  older exchanges disappear from the SCREEN even though the model still has them and tokens are
+  low. Reference reality (the user was unsure): **both opencode and Claude Code DO keep the full
+  conversation visible/scrollable** — they never cut to a fixed number; they only compact MODEL
+  CONTEXT on real token overflow. Mirror that: show everything; the `session-memory` rolling-7
+  is a context-summary feature and must not gate what's displayed (and is likely redundant —
+  see below). The token-budget section that follows is the right design for the SEPARATE,
+  not-yet-occurring context-overflow case — keep it, but it is NOT the cause of this bug.
+
+  **Token-budget approach (for the separate context-overflow case) — mirror opencode / Claude Code: limit by TOKEN BUDGET, not a fixed count.**
   Neither reference caps to a fixed number of exchanges/turns. They keep the FULL conversation
   and only intervene when it approaches the model's CONTEXT WINDOW: opencode summarizes the head
   and keeps the last `tail_turns` (default 2) verbatim only when `tokens >= usable` (input limit
