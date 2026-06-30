@@ -210,6 +210,25 @@ the gap is purely WHERE it is invoked (auto-approve bypasses it).
   the harness (exhausts the scenario). The synthetic XML tool-results message IS still
   preserved; the open item is the text-tool turn-termination cadence. Needs a focused
   fix + real weak-model verification, then un-skip.
+- **Stall recovery = continue, not restart (safety follow-up, 2026-06-30).** Reasoning
+  models (DeepSeek V4 Pro) pause SILENTLY mid-stream while thinking — observed ~50-58s gaps
+  with no chunk after a tool result — which tripped the old 45s idle stall watchdog. Because
+  native-FC turns run the WHOLE turn inside ONE SDK multi-step round, the stall-retry
+  (`runStreamRoundWithEmptyOutputRetry` in `chat_stream_handlers.ts`) re-issued the round
+  from its FIXED start messages (`fullResponse = initialFullResponse` + `partialResponses.delete`
+  + re-call the `runSimpleStream` closure) → **re-did every tool call so far** (catastrophic on a
+  20+ call turn; the user-reported "redoing the whole task"). **Shipped mitigation:** raised
+  `STREAM_STALL_TIMEOUT_MS` 45s→120s (`stream_chunk_tags.ts`) so reasoning pauses continue
+  naturally instead of being killed — should eliminate the common case. **Deferred deeper fix
+  (do only if genuine >120s stalls still cause redo):** on a real stall, CONTINUE from the
+  partial round instead of restarting it — capture the aborted round's completed tool-call/
+  result messages, append a "continue from here" prompt, and resume (unify with the existing
+  truncation-`shouldContinue` continuation path in `run-agent-turn.ts`) rather than re-issuing
+  the round. Caveats: the AI SDK's `response.messages` is unreliable mid-abort (the hard part —
+  may need to accumulate completed-step messages during `processStreamChunks`), this is the
+  most critical path, and it needs a fake-LLM stall+partial eval + a live DeepSeek A/B before
+  shipping. (opencode sidesteps this entirely: per-step DB persistence + reload-from-DB means a
+  reconnect resumes from the persisted steps — the single-source-of-truth direction.)
 - (Standing) Native-FC `ask_user`→interactive-card routing (from the prior round) — the
   safe strip is shipped; routing still deferred.
 
