@@ -335,14 +335,34 @@ ToolRegistry.register({
                 return truncateUtf8ByBytes(block, capBytes, { margin: 160, suffix: `\n\n… [truncated: exceeded max_bytes; page with offset/limit]` });
             }
 
-            if (lines.length <= capLines && context === "full") {
-                const numberedLines = lines
+            // Default read: LINEAR pagination, never middle-hiding (parity with
+            // opencode + Claude Code; the head60/tail40 smartSlice hid the exact
+            // range a model needed and drove re-read loops). The structural
+            // `context` modes below are Atlarix's opt-in edge for navigating huge
+            // files without dumping them.
+            if (context === "full") {
+                if (lines.length <= capLines) {
+                    const numberedLines = lines
+                        .map((line, idx) => `${idx + 1}: ${line}`)
+                        .join("\n");
+                    const block = `File: ${displayPath}\nLines: 1-${lines.length} (complete)\n\n${numberedLines}`;
+                    return truncateUtf8ByBytes(block, capBytes, { margin: 120, suffix: "\n\n… [truncated: exceeded max_bytes; lower max_lines/max_bytes or use start_line/end_line]" });
+                }
+                // Over-cap: return the first page linearly + an offset footer (same
+                // shape as the range path), so the model pages forward to the exact
+                // lines it wants instead of getting head+tail with the middle gone.
+                const pageLines = lines.slice(0, capLines);
+                const numberedLines = pageLines
                     .map((line, idx) => `${idx + 1}: ${line}`)
                     .join("\n");
-                const block = `File: ${displayPath}\nLines: 1-${lines.length} (complete)\n\n${numberedLines}`;
-                return truncateUtf8ByBytes(block, capBytes, { margin: 120, suffix: "\n\n… [truncated: exceeded max_bytes; lower max_lines/max_bytes or use start_line/end_line]" });
+                const remaining = lines.length - capLines;
+                const footer = `\n\n(truncated — ${remaining} more line(s); call again with offset=${capLines + 1}, or use get_file_outline / context to navigate)`;
+                const block = `File: ${displayPath}\nLines: 1-${capLines} of ${lines.length}\n\n${numberedLines}${footer}`;
+                return truncateUtf8ByBytes(block, capBytes, { margin: 160, suffix: "\n\n… [truncated: exceeded max_bytes; page with offset/limit]" });
             }
 
+            // Structural navigation modes (imports/exports/functions/classes/
+            // types/errors) — opt-in only; these intentionally summarize.
             const sliced = smartSliceFile(lines, capLines, context as SliceContext);
 
             let result = `File: ${displayPath}\n`;
