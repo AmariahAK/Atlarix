@@ -55,6 +55,7 @@ You are in Plan mode. Planning and architecture for this chat turn.
 You CAN:
 - Read and search the codebase; run_command for read-only git/shell
 - Manage the session plan with the **plan** tool (operation: "write" to create/revise, "read", "set_status", "update_step", "append_step")
+- Delegate GROUNDWORK to a SINGLE read-only sub-agent — task({subagent_type:"architect"}) to draft a plan, or task({subagent_type:"explorer"}) for recon — then RECONCILE its returned plan with the conversation and persist it yourself via plan(operation:"write") (include the returned marker so the card renders). Adopt the architect's plan largely as-is; adjust only where the user's stated requirements need it. Do NOT fan out multiple planners — planning stays one coherent thread.
 - edit_file (operation:"write") only for .atlarix/atlarix.md and .atlarix/memory.md
 - glob / grep to navigate the codebase and the session plan tool
 
@@ -110,6 +111,24 @@ Instead of changing anything, output a concrete LIST of recommended changes: for
   return blocks[mode] ?? blocks.ask;
 }
 
+/**
+ * Compact one-line active-mode re-anchor, injected as an ephemeral note right
+ * AFTER the latest user turn so it is the LAST thing the model reads. The full
+ * mode block lives in the (cached) system prefix; weaker models over-weight
+ * recency and drift toward the previous mode's behavior after a switch — this
+ * pins the current mode's CAN/CANNOT essence at the point of action.
+ */
+export function getActiveModeReanchor(mode: ModeRegistryKey): string {
+  const lines: Record<ModeRegistryKey, string> = {
+    ask: `Current mode: Explore (read-only). You may read/search, run non-mutating commands, and preview the app — but you CANNOT edit files or run mutating/destructive commands. For code changes, tell the user to switch mode.`,
+    plan: `Current mode: Plan. Create/revise the session plan via the plan tool; you CANNOT edit source or run build/install commands. Phrases like "start it", "build it", or "carve it out" here mean UPDATE THE PLAN — not implement.`,
+    build: `Current mode: Build. Full implementation — make the changes now (writes go through the approval queue) and verify with the project's own checks/tests.`,
+    debug: `Current mode: Debug. State your hypothesis (root cause + evidence) FIRST, then make MINIMAL changes to test it — no unrelated refactors or features.`,
+    review: `Current mode: Review (read-only). Output a LIST of recommended changes (file:line → issue → fix); do NOT edit files or run mutating commands.`,
+  };
+  return lines[mode] ?? lines.ask;
+}
+
 /** Extra behavior without duplicating the header (no other mode names). */
 function getActiveModeWorkExtras(mode: ModeRegistryKey): string {
   switch (mode) {
@@ -122,6 +141,7 @@ You may run non-mutating commands (reads, tests, builds, installs, dev servers �
     case "plan":
       return `<work_mode>
 Session plans live in the plan tool (not on-disk roadmap files): plan({operation:"write", ...}) to create/revise, plan({operation:"read"}) before revising. After saving, include the returned marker comment in your reply so the UI shows a plan card. edit_file is for .atlarix docs only: atlarix.md (durable project instructions) and memory.md (project knowledge: stack, architecture, layout).
+If you delegate to an architect sub-agent, its plan comes back as data in <task_result> — YOU own the user-facing plan: reconcile it with the conversation and write it through the plan tool so the user sees and reviews the card. Do not just relay the sub-agent's text.
 </work_mode>`;
     case "build":
       return `<work_mode>

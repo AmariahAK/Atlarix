@@ -35,11 +35,13 @@ import {
     isBlockedSecretBasename,
 } from "@/lib/security/env-secret-paths";
 import {
+    enrichReadFileStructuredError,
     logReadFileError,
     logReadFileUnexpected,
     readFileStructuredError,
     type ReadFileStructuredError,
 } from "./file-read-errors";
+import { suggestClosestPath } from "./workspace-file-hints";
 
 const READ_FILE_DEFAULT_MAX_LINES = 2000;
 const READ_FILE_MAX_LINES_CAP = 10_000;
@@ -373,8 +375,17 @@ ToolRegistry.register({
 
             return truncateUtf8ByBytes(result, capBytes, { margin: 120, suffix: "\n\n… [truncated: exceeded max_bytes; lower max_lines/max_bytes or use start_line/end_line]" });
         } catch (error) {
-            const structured = readFileStructuredError(error, displayPath);
+            let structured = readFileStructuredError(error, displayPath);
             if (structured) {
+                // On a missing path, offer the closest real file (rename/typo
+                // recovery) so the model retries with the right path, not a
+                // wasted probe. Backed by the cached workspace file list.
+                if (structured.error === "file_not_found" && workspace) {
+                    const suggestion = await suggestClosestPath(workspace, displayPath);
+                    if (suggestion) {
+                        structured = enrichReadFileStructuredError(structured, suggestion);
+                    }
+                }
                 logReadFileError(structured);
                 return structured;
             }

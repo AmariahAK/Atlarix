@@ -19,6 +19,7 @@ import {
   type ModeSystemKey,
 } from "../../prompts/system_prompt";
 import { mergeSystemPromptParts } from "@/lib/ai/merge-system-prompt";
+import { getActiveModeReanchor } from "@/lib/tools/mode-prompt-bundle";
 import {
   advanceCacheBreakpointsForStep,
   buildStreamMessagesWithCacheBreakpoints,
@@ -192,7 +193,6 @@ import {
 } from "@/lib/routing/reasoning-detector";
 import { enforceContextBudget } from "@/lib/routing/tier_context_budget";
 import { processStreamChunks } from "../utils/stream_chunk_tags";
-import { createSnapshot } from "../../lib/workspace-snapshots";
 import { revertSnapshot, revertSnapshotFiles, snapshotExists } from "../../lib/snapshot/snapshot-manager";
 import { feedTerminalOutput } from "../../lib/streams/StreamManager";
 import {
@@ -1009,6 +1009,10 @@ const partialDraftRowByChatId = new Map<number, string>();
 const partialDraftLastFlushAtByChatId = new Map<number, number>();
 /** chatId → workspace sessionId, so shutdown flush can resolve the session without a req. */
 const streamSessionByChatId = new Map<number, string>();
+/** #15: chatId → the work mode of that chat's PREVIOUS turn, to detect a switch
+ * and fire a "mode changed" re-anchor. In-memory per chat (a restart just skips
+ * the "changed" note on the first turn — the plain re-anchor still fires). */
+const lastTurnModeByChat = new Map<number, ModeSystemKey>();
 const PARTIAL_DRAFT_FLUSH_INTERVAL_MS = 1500;
 
 async function flushInterruptedDraft(
@@ -1666,8 +1670,6 @@ export function registerChatStreamHandlers() {
         streamSessionByChatId.set(req.chatId, req.workspaceSessionId);
       }
 
-      // v3.9: Set in Build block; used when updating assistant message after stream (must be in same scope as onFinish)
-      let preExchangeSnapshotId: number | null = null;
       // v12 0.2 (B2): the turn's NATIVE model messages (assistant tool_use +
       // tool results + continuations) accumulated by the build loop. Persisted
       // on the assistant message's modelContent as a native-history envelope
@@ -2478,6 +2480,18 @@ ${componentSnippet}
               ? (effectiveWorkMode as ModeSystemKey)
               : "ask";
 
+          // #15: compact active-mode re-anchor injected after the latest user
+          // turn (recency), with a "mode changed" prefix when the mode differs
+          // from this chat's previous turn — weaker models otherwise follow the
+          // PREVIOUS mode after a switch. Computed once per turn; injected at
+          // step 0 via the prepareStep seam below.
+          const prevTurnMode = lastTurnModeByChat.get(req.chatId);
+          lastTurnModeByChat.set(req.chatId, modeBlockKey);
+          const modeReanchorNote =
+            (prevTurnMode && prevTurnMode !== modeBlockKey
+              ? "Work mode changed since your last message — prior turns ran under a different mode; ignore their behavioral norms and follow the mode below. "
+              : "") + getActiveModeReanchor(modeBlockKey);
+
           const modelIdentity = resolveActiveModelIdentity(
             effectiveModel,
             settings,
@@ -3111,9 +3125,9 @@ This conversation includes one or more image attachments. When the user uploads 
             otherCodebasePrefix,
           } = promptBundle;
 
-          const modelContextResolved = await resolveModelContextLimit(
-            effectiveModel,
-            settings,
+          const modelContextResolved = await preflight.time(
+            "resolve-context-limit",
+            () => resolveModelContextLimit(effectiveModel, settings),
           );
           // FIX 2 (Compass): capture the underlying model's real context length
           // per chat. OpenRouter's registry returns the abstraction limit
@@ -3187,16 +3201,18 @@ This conversation includes one or more image attachments. When the user uploads 
             );
           }
 
-          const tierBudgeted = await enforceContextBudget({
-            settings,
-            effectiveModel,
-            userPrompt,
-            systemPrompt,
-            contextAssemblerBlob,
-            limitedMessageHistory,
-            codebasePrefixMessages: [...codebasePrefix],
-            otherCodebasePrefixMessages: [...otherCodebasePrefix],
-          });
+          const tierBudgeted = await preflight.time("context-budget", () =>
+            enforceContextBudget({
+              settings,
+              effectiveModel,
+              userPrompt,
+              systemPrompt,
+              contextAssemblerBlob,
+              limitedMessageHistory,
+              codebasePrefixMessages: [...codebasePrefix],
+              otherCodebasePrefixMessages: [...otherCodebasePrefix],
+            }),
+          );
           systemPrompt = tierBudgeted.systemPrompt;
           limitedMessageHistory = tierBudgeted.limitedMessageHistory;
           contextAssemblerBlob = tierBudgeted.contextAssemblerBlob;
@@ -3598,10 +3614,14 @@ This conversation includes one or more image attachments. When the user uploads 
             const lastUserMessage = chatMessages[lastUserIndex];
 
             if (lastUserMessage.role === "user") {
-              chatMessages[lastUserIndex] = await prepareMessageWithAttachments({
-                message: lastUserMessage,
-                attachmentInfoForModel,
-              });
+              chatMessages[lastUserIndex] = await preflight.time(
+                "prepare-attachments",
+                () =>
+                  prepareMessageWithAttachments({
+                    message: lastUserMessage,
+                    attachmentInfoForModel,
+                  }),
+              );
             }
           }
 
@@ -3673,11 +3693,13 @@ This conversation includes one or more image attachments. When the user uploads 
             }
             let versionedFiles: VersionedFiles | undefined;
             if (isDeepContextEnabled) {
-              versionedFiles = await getVersionedFiles({
-                files,
-                chatMessages,
-                appPath,
-              });
+              versionedFiles = await preflight.time("versioned-files", () =>
+                getVersionedFiles({
+                  files,
+                  chatMessages,
+                  appPath,
+                }),
+              );
             }
             const smartContextMode: SmartContextMode = isDeepContextEnabled
               ? "deep"
@@ -3974,6 +3996,10 @@ This conversation includes one or more image attachments. When the user uploads 
                 // R1: a fired self-wake delivers a soft "re-check now" nudge here
                 // (guidance by nature — NOT a forced tool-result like R2's results).
                 const scheduledNudge = takePendingScheduledWakeupNudges(req.chatId);
+                // #15: re-anchor the active mode at the START of the turn (step 0)
+                // so it's the last thing before the model acts. Ephemeral /
+                // step-input-only like the other nudges — never persisted.
+                const modeReanchor = stepNumber === 0 ? modeReanchorNote : null;
                 if (correction) {
                   logger.log(
                     `[repetition] injecting mid-round correction (chat ${req.chatId})`,
@@ -3996,6 +4022,8 @@ This conversation includes one or more image attachments. When the user uploads 
                   stalledAdvisories,
                   scheduledNudge,
                   correction,
+                  // Mode re-anchor LAST so it's the final thing the model reads.
+                  modeReanchor,
                 ]
                   .filter(Boolean)
                   .join("\n\n");
@@ -4554,8 +4582,6 @@ This conversation includes one or more image attachments. When the user uploads 
           // into the build branch, no workspace injection, and no permission/
           // repetition/delegation wiring.
 
-          // v3.9: Assign in Build block (declared above for use in post-stream update)
-          preExchangeSnapshotId = null;
           filesWrittenInThisExchange = [];
 
           // Ask mode with workspace: read-only tools + ATLARIX_PLAN writes (approval) + exploration
@@ -5298,21 +5324,12 @@ This conversation includes one or more image attachments. When the user uploads 
             // Permission interceptor buffers write operations for user approval
             logger.log("Build mode with native tool calling + permission system");
 
-            // v3.9: Snapshot synchronously at exchange start (before any tool runs) for conversation revert
-            if (effectiveAppId != null && appPath) {
-              try {
-                const snap = await createSnapshot(
-                  effectiveAppId,
-                  "pre-exchange",
-                  appPath,
-                  updatedChat.messages.map((m: any) => ({ role: m.role, content: m.content ?? "" }))
-                );
-                preExchangeSnapshotId = snap.id;
-                logger.log(`[Build Mode] Created pre-exchange snapshot: ${preExchangeSnapshotId}`);
-              } catch (snapErr) {
-                logger.warn("Failed to create pre-exchange snapshot:", snapErr);
-              }
-            }
+            // Per-turn revert is provided by the incremental shadow-git snapshot
+            // system (captureSnapshot via the PermissionInterceptor, staged per
+            // approved write). The former per-exchange full-copy createSnapshot
+            // (workspace-snapshots.ts) was removed from the hot path — it walked +
+            // read up to 500 files into a SQLite row every turn, dominated TTFT,
+            // and its result was never read (its list/restore IPC is unwired).
 
             const workspacePath = appPath;
             let workspaceOverride: { path: string; id: number } | null = null;
