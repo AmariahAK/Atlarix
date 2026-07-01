@@ -86,6 +86,30 @@ Ranked by severity.
    output limit; on OpenRouter reasoning models `max_tokens` can include reasoning tokens.
    Confirm the resolved value for `qwen3.7-plus` / `kimi-k2.6` and whether it truncates a
    single long reply mid-stream. Only remaining harness-side candidate for a *literal* cut.
+7. **Universal reasoning-budget + adaptive stall + cheap recovery (model-AGNOSTIC — NOT
+   per-provider).** DeepSeek stalls (long silent reasoning) and bleeds tokens; Kimi does the
+   same but weaker; Qwen barely. A DeepSeek-specific cap is the wrong shape (drifts,
+   mis-tunes the others). **Data:** the final run (qwen3.6/3.7-plus, 3.7-max, kimi) had
+   **zero stalls** and burned **~115k–176k tokens/turn regardless of model** — proving
+   per-turn cost is dominated by **re-sending the accumulating context**, not by reasoning.
+   So tune the mechanism, not the model. Four model-blind levers, each **triggered by
+   observed behavior/capability so the benefit auto-scales with how much a model actually
+   stalls**:
+   - **Cheap recovery (highest leverage):** never re-send/re-run on stall or supersede —
+     robust+validated continue-from-partial, resume-the-same-stream, and #4's
+     queue-instead-of-supersede. This is where the token bleed actually stops, for every
+     model (turn cost is context-re-send, confirmed).
+   - **Bounded reasoning via a single global effort policy → each provider's NATIVE param**
+     (OpenRouter unified `reasoning:{effort|max_tokens}`, Anthropic thinking budget, …).
+     Replaces today's `AGENTIC_PROSE_ONLY_MAX_REASONING = Infinity` (`chat_stream_handlers.ts`
+     ~6137). Express the budget as a *fraction of the output budget*, not a per-model number.
+   - **Adaptive stall threshold from observed cadence** — measure this session's p95
+     inter-chunk/pulse gap and set the threshold as a multiple of it, instead of the flat
+     600s (`stream_chunk_tags.ts`). Self-calibrating; snappy models get tight thresholds,
+     heavy reasoners loose — no model names.
+   - **Capability-derived, never identity-derived:** drive all of the above off the
+     models.dev catalog fields (reasoning-supported? output limit? context window?), never
+     `if (model === '…')`. (Aligns with the provider-agnostic principle.)
 
 **Ruled out this session (do NOT re-chase):** DeepSeek "refuses to stream" = manual resends
 starving a slow reasoning turn + single-flight working as designed (see #4), no provider
