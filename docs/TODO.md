@@ -265,29 +265,40 @@ MultiOn, the 2025 MCP wave) "sees" — via Chrome DevTools Protocol. **Atlarix a
 foundation:** `browser_inspect(mode:"snapshot")` (AXTree refs), `browser_interact` (ref-based,
 not pixel coords), `preview_test`, and the `preview-verify` done-gate.
 
-**The gap:** AXTree = *semantic* sight (what's there / how to interact). Missing = *visual-
-correctness* sight (broken / blank / overlap / off-screen / invisible text) — the exact case
-users reach for a screenshot. Most of that is detectable **programmatically, no vision**:
+**Core model — two buckets, one perceive-surface (decision 2026-07-01):** everything the agent
+might "see" is either **(A) a page Atlarix RENDERS itself** (the user's localhost preview, or a URL
+in the in-app browser — Chromium `WebContentsView`, so Atlarix owns the render tree) or **(B) flat
+pixels** (a user-attached screenshot/mockup, raster/canvas/WebGL content). Rule: **if we render it
+→ READ it (structured, cheap); if it's flat pixels → LOOK (vision, unavoidable).** For (A),
+reading the structure is not only ~10× cheaper than a screenshot but *more accurate* — it yields
+exact hex/position/font that vision can only guess. So vision stops being the default for live
+pages and becomes the exception (user-attached image, or the raster/aesthetic remainder).
 
-- **New `visual_audit` (target:"preview"|"browser")** — layered, cheap→expensive, returns a
-  TEXTUAL defect report:
-  1. **AXTree snapshot** (have it) — structure + interactables.
+**Do NOT add a new `visual_audit` tool — MERGE into the existing browser tools** (fits the
+simplify-the-surface principle; one "perceive + act" loop):
+- **`browser_inspect` (target:"preview"|"browser")** returns, cheap→rich:
+  1. **AXTree snapshot** (have it) — semantic structure + interactable refs.
   2. **Visual linter (new)** — DOM geometry + computed styles (injected JS
-     `getBoundingClientRect`/`getComputedStyle`, or CDP `DOMSnapshot.captureSnapshot` via
-     `webContents.debugger`) → rules: blank render, sibling overlap, off-screen/clipped,
-     invisible text (color≈bg contrast / opacity0 / display:none-where-content-expected),
-     collapsed zero-size layout, broken `<img>` (`naturalWidth===0`).
-  3. **Console/network errors** (have it) + **CLS** layout-shift metric (single number).
-  4. **Screenshot ONLY on escalation** — when the cheap layers are ambiguous OR a subjective
-     aesthetic judgment is wanted; downscaled / cropped to the changed region to slash tokens.
-- **Off-the-shelf deps to evaluate:** `axe-core` (inject → contrast/overlap/structure report),
-  `web-vitals` (CLS).
+     `getBoundingClientRect`/`getComputedStyle`, or CDP `DOMSnapshot.captureSnapshot` /
+     `Accessibility.getFullAXTree` via `webContents.debugger`) → rules → a TEXT defect report:
+     blank render, sibling overlap, off-screen/clipped, invisible text (color≈bg / opacity0 /
+     display:none-where-content-expected), collapsed zero-size layout, broken `<img>`
+     (`naturalWidth===0`); + console/network errors (have it) + **CLS** (single number).
+  3. **Design snapshot (for remakes)** — palette, type scale, spacing, layout hierarchy as TEXT
+     (from computed styles) so "look at this URL and remake it" reads the source of truth, not pixels.
+- **`browser_interact`** acts on refs and returns a **LIGHT DELTA** ("clicked #login → URL changed,
+  2 new fields"), NOT a full page re-dump — re-surface the rich view only on material change / on
+  request. (Full-dump-per-interaction is the ONLY real token-burn path — avoid it.)
+- **Screenshots = escalation-only + user-attached.** Agent-requested only for the irreducible
+  vision cases: raster imagery, canvas/WebGL/video (no DOM), or subjective "does it look polished".
+  Downscale / crop to the changed region. Never auto-screenshot a live page to "see" it.
+- **Off-the-shelf deps to evaluate:** `axe-core` (inject → contrast/overlap/structure), `web-vitals` (CLS).
 - **Self-correcting loop:** build → open the built route (route discovery from the diff) →
-  `visual_audit` (text) → if defects, feed report back → fix → re-audit. Extends `preview-verify`
-  from "runs without errors" to "renders correctly." Vision only as a bounded last resort.
-- **Interact:** stay ref-based (AXTree refs) — already robust; wire it into the loop.
-- **Caveat:** rules catch **broken** (structural/layout — ~90% of wasted build turns), not
-  **ugly** (subjective aesthetics) — vision stays the escalation for aesthetics only.
+  `browser_inspect` (text) → if defects, feed report back → fix → re-inspect. Extends
+  `preview-verify` from "runs without errors" to "renders correctly." Vision only as bounded last resort.
+- **Token discipline (the whole point):** return findings + summaries, never raw geometry for
+  every node; deltas on interact; images as the exception. Net effect vs today's screenshot-to-see
+  habit is LESS token burn, not more.
 
 _Refs: accessibility-tree token economics + browser-agent architectures (AXTree via CDP;
 Browser Use / MultiOn / MCP); DOM-downsampling (arXiv 2508.04412)._
