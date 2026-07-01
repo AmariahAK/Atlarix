@@ -321,22 +321,21 @@ Browser Use / MultiOn / MCP); DOM-downsampling (arXiv 2508.04412)._
   removed #9, done provider-agnostically — NOT OpenRouter-specific routing).
 
 ### v14.8.5 follow-up bugs (found in packaged smoke, 2026-07-01)
-- **CRITICAL — writer sub-agent `edit_file` writes to the REAL workspace, not its worktree.**
-  Log proof (packaged): worktree created at `…/subagent-worktrees/…/<taskId>` (seed OK), but the
-  edit went `(permission-interceptor) [Permission Request Buffered] operation: edit_file` →
-  `Wrote file: /Users/amariah/Documents/Github/wisdom-drop/README.md` (the real repo, chat -25).
-  So the sub-agent's write **bypassed the worktree, hit the MAIN approval gate**, and touched the
-  real file → (a) user was prompted (shouldn't be for an isolated writer), (b) `captureWorktreeDiff`
-  saw an empty worktree → "(made no file changes)" while the sub-agent's summary said it edited.
-  The Cluster 1 SEED fix is fine; this is a separate ROUTING bug — the sub-agent's `edit_file`
-  isn't executing against `execWorkspace` (worktree) and instead falls through to the Build-mode
-  permission interceptor against the real workspace. Fix: route writer sub-agent writes to the
-  worktree with NO main gate (the gate is only for the main agent applying the returned diff);
-  verify `resolvePathUnderWorkspace` uses `worktreePath`. This is the "writer isolation unvalidated
-  live" gap, now confirmed — the whole worktree feature is defeated until fixed.
-- **"(The writer sub-agent made no file changes.)" shows regardless** — symptom of the routing bug
-  (empty worktree) AND the message shouldn't be appended for read-only scouts. Gate it to actual
-  writers and reconcile with the sub-agent's own summary once routing is fixed.
+- **Worktree created but sub-agent didn't write to it → misleading "(made no file changes)".**
+  Log timeline (packaged, task `416ca112`): worktree created `21:27:38` → sub-agent run complete
+  `21:28:37` (`id=delegation-…-scout-…`, made NO worktree changes) → then the MAIN agent's
+  `edit_file` was buffered for approval `21:28:55` and wrote `…/wisdom-drop/README.md` `21:28:58`
+  → main turn completed `21:29:33`. **CORRECTION to an earlier wrong note:** the approval prompt +
+  real-repo write were the MAIN AGENT APPLYING THE CHANGE (the intended flow, 18s AFTER the
+  sub-agent finished) — NOT the sub-agent leaking to the real repo. Isolation is NOT "defeated".
+  The genuine anomaly: a worktree was created (a writer/`write:true` path) yet the sub-agent
+  behaved as a non-writer (`…scout…`, empty diff) → `captureWorktreeDiff` correctly reported
+  "no changes" while the sub-agent's own summary claimed it edited (likely model over-claiming).
+  Investigate: (a) the write-vs-scout decision for this spawn (why a worktree if it ran read-only),
+  (b) whether writer sub-agents actually produce a worktree diff end-to-end at all (still
+  effectively unvalidated live — this run didn't exercise it), (c) gate/reword the "(made no file
+  changes)" line so it doesn't show for non-writing / read-only sub-agents and doesn't contradict
+  the sub-agent's summary.
 - **Sub-agent inline UI still incomplete** — Cluster 1 fixed ORDERING (seq-stamp + `compareThreadItems`)
   but not RENDERING: the detail view still uses the bespoke `NestedThreadItems`, so edit cards show
   only "Editing file: N lines written" (no inline diff) and thoughts/tools don't interleave like the
