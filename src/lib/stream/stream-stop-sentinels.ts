@@ -89,3 +89,22 @@ export function isStreamStopAbort(reason: unknown): boolean {
 export function isForceTextFinishAbort(reason: unknown): boolean {
   return abortReasonSentinel(reason) === FORCE_TEXT_FINISH_STREAM_STOP;
 }
+
+/**
+ * Text fallback for the Sentry filter. Sentry's own `onunhandledrejection`
+ * integration captures these benign aborts INDEPENDENTLY of our
+ * `process.on("unhandledRejection")` net, and in that path the DOMException is
+ * not always attached as `hint.originalException` — so `isStreamStopAbort`
+ * can't recognize it and the event leaks past `beforeSend`. Matching the
+ * serialized message text (e.g. "AbortError: superseded_stream") against the
+ * same sentinel set closes that gap without depending on originalException.
+ */
+export function textHasStreamStopSentinel(
+  text: string | null | undefined,
+): boolean {
+  if (!text) return false;
+  for (const sentinel of STREAM_STOP_SENTINELS) {
+    if (text.includes(sentinel)) return true;
+  }
+  return false;
+}

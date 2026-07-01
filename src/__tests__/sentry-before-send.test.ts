@@ -53,6 +53,18 @@ describe("sentryBeforeSendDropExpected", () => {
     ).toBeNull();
   });
 
+  it("drops superseded_stream aborts even when originalException is not attached", () => {
+    // Real-world leak: Sentry's onunhandledrejection integration reported the
+    // benign single-flight abort WITHOUT the DOMException as originalException,
+    // so only the serialized "AbortError: superseded_stream" text survives.
+    const event = {
+      exception: { values: [{ type: "AbortError", value: "superseded_stream" }] },
+    };
+    expect(
+      sentryBeforeSendDropExpected(event as ErrorEvent, undefined),
+    ).toBeNull();
+  });
+
   it("passes through unexpected errors", () => {
     const event = {
       exception: { values: [{ type: "Error", value: "Database connection lost" }] },

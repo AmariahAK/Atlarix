@@ -3,7 +3,10 @@ import { isPlanLimitError } from "@/lib/plan-limit-error";
 import { sentryMessageMatchesIgnoredPattern } from "@/lib/sentry-ignore-patterns";
 import { normalizeSentryErrorText } from "@/lib/sentry-decode-message";
 import { isNoUsableModelOutputError } from "@/ipc/utils/no_usable_model_output";
-import { isStreamStopAbort } from "@/lib/stream/stream-stop-sentinels";
+import {
+  isStreamStopAbort,
+  textHasStreamStopSentinel,
+} from "@/lib/stream/stream-stop-sentinels";
 
 /**
  * Drop expected non-errors so Sentry alerts stay actionable.
@@ -39,6 +42,12 @@ export function sentryBeforeSendDropExpected(
     parts.push(original);
   }
   const combined = parts.join("\n");
+
+  // Text fallback for stream-stop aborts whose DOMException Sentry's
+  // onunhandledrejection integration didn't attach as originalException
+  // (isStreamStopAbort above only sees the structured original). The
+  // serialized "AbortError: <sentinel>" still carries the sentinel word.
+  if (textHasStreamStopSentinel(combined)) return null;
 
   if (sentryMessageMatchesIgnoredPattern(combined)) {
     return null;
