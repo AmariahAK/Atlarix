@@ -40,13 +40,35 @@ verified in a packaged build.
 
 ---
 
-## 🔧 v14.8.5 — Harness hardening (TBD)
+## ✅ v14.8.5 — Harness hardening (DONE — implemented on 3 cluster branches, unmerged, no tag)
 
 **Theme: v14.8.5 is NOT a feature release — it's harness hardening.** Fixing the classes
 of issue below (not adding surface) is what makes a world of difference to the LLM's real
 behavior: fewer wasted turns, fewer token bleeds, faster TTFT, more resilient runs. Every
 item is model-agnostic. Surfaced while diagnosing a live `qwen-code` build session
 (DeepSeek → Qwen → Kimi, Build mode, writer sub-agents) + a codebase/log sweep.
+
+**Implemented (2026-07-01)** — three sequential clusters, each `ts`/`oxlint`/`knip`/vitest
+green, pushed unmerged for review (no tag until all smoke-verified):
+- **Cluster 1 — writers/sub-agents** (`v14.8.5-cluster1-writers`): #1 worktree seed from live
+  working tree (incl. untracked); worktree teardown on cancel/timeout; writer prompt
+  (`subagent-writer.md`) + Build/Debug delegation guidance; built-in agents
+  explorer/architect/implementer (overlaid by workspace `.atlarix/agents/*.md`); write derived
+  from effective toolset; sub-agent detail renders inline.
+- **Cluster 2 — latency/grounding/mode** (`v14.8.5-cluster2-latency-grounding-mode`): #8 removed
+  the dead per-turn 500-file snapshot + instrumented preflight; #10 read_file "did you mean?"
+  path grounding; #15 mode-transition re-anchor; Plan-mode single-architect delegation (prompt).
+  #9 (OpenRouter fallback routing) REMOVED. **#10 B3 (run_command path enrichment) DEFERRED** —
+  its result path is the safety-sensitive command-execution interceptor.
+- **Cluster 3 — recovery/reasoning** (`v14.8.5-cluster3-recovery-reasoning`): reasoning is a flat
+  `medium` base + one binary **Deep thinking** toggle (capability-gated, in `ChatConfigDropdown`),
+  unified across all providers; #6 reasoning-aware maxOutputTokens floor; #7 adaptive stall
+  threshold (resume-backed, floor 180s / ceiling 600s); #12 empty-output targeted nudge; #3
+  summarize-nudge counter fix; #5 "still reasoning (Xs)". Already-satisfied: #7 cheap-recovery
+  (continue-from-partial, v14.8.0), #4 queue-instead-of-supersede (renderer), #11 proactive
+  compaction (0.75 gate); #11 downshift re-fit MOOT (no downshift mechanism).
+
+_Backlog detail (as diagnosed) retained below for reference._
 
 ### A. Bugs / correctness found this session (ranked by severity)
 

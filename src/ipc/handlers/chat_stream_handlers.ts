@@ -116,7 +116,7 @@ import {
   type RequireMcpAuthInfo,
 } from "../utils/mcp_auth_wait";
 
-import { getExtraProviderOptions } from "../utils/thinking_utils";
+import { getExtraProviderOptions, getReasoningEffort } from "../utils/thinking_utils";
 
 import { safeSend } from "../utils/safe_sender";
 import {
@@ -2492,6 +2492,11 @@ ${componentSnippet}
               ? "Work mode changed since your last message — prior turns ran under a different mode; ignore their behavioral norms and follow the mode below. "
               : "") + getActiveModeReanchor(modeBlockKey);
 
+          // #12: when a round yields ONLY reasoning (no text/tool), the empty-output
+          // retry sets this take-once nudge; the retry's prepareStep injects it so
+          // the model is told to act instead of silently re-running the same round.
+          let pendingEmptyOutputNudge: string | null = null;
+
           const modelIdentity = resolveActiveModelIdentity(
             effectiveModel,
             settings,
@@ -3759,7 +3764,11 @@ This conversation includes one or more image attachments. When the user uploads 
                 catalogModelId,
                 modelClient.builtinProviderId,
               );
-              const reasoningPatch = buildReasoningProviderOptions(cap, true);
+              const reasoningPatch = buildReasoningProviderOptions(
+                cap,
+                true,
+                getReasoningEffort(settings),
+              );
               if (reasoningPatch.openrouter) {
                 providerOptions.openrouter = {
                   ...providerOptions.openrouter,
@@ -3868,7 +3877,9 @@ This conversation includes one or more image attachments. When the user uploads 
             }
 
             const maxOutputTokens = await preflight.time("max-tokens", () =>
-              getMaxTokensWithFloor(optionsModel),
+              getMaxTokensWithFloor(optionsModel, {
+                reasoningCapable: enableNativeReasoning,
+              }),
             );
             const temperature = await preflight.time("temperature", () =>
               getTemperature(optionsModel),
@@ -4000,6 +4011,9 @@ This conversation includes one or more image attachments. When the user uploads 
                 // so it's the last thing before the model acts. Ephemeral /
                 // step-input-only like the other nudges — never persisted.
                 const modeReanchor = stepNumber === 0 ? modeReanchorNote : null;
+                // #12: targeted empty-output nudge (take-once), set by the retry.
+                const emptyOutputNudge = pendingEmptyOutputNudge;
+                pendingEmptyOutputNudge = null;
                 if (correction) {
                   logger.log(
                     `[repetition] injecting mid-round correction (chat ${req.chatId})`,
@@ -4022,6 +4036,7 @@ This conversation includes one or more image attachments. When the user uploads 
                   stalledAdvisories,
                   scheduledNudge,
                   correction,
+                  emptyOutputNudge,
                   // Mode re-anchor LAST so it's the final thing the model reads.
                   modeReanchor,
                 ]
@@ -4470,6 +4485,12 @@ This conversation includes one or more image attachments. When the user uploads 
                     level: "warning",
                   });
                   fullResponse = initialFullResponse;
+                  // #12: don't just re-run the identical round — tell the model to
+                  // ACT. Reasoning models sometimes emit only reasoning; a targeted
+                  // nudge (injected into the retry's step 0 via prepareStep) turns a
+                  // wasted re-run into a corrected one.
+                  pendingEmptyOutputNudge =
+                    "Your previous attempt produced only internal reasoning — no visible message and no tool call. Do not just think again: either call a tool to make progress, or write your final message to the user now.";
                   await new Promise((r) =>
                     setTimeout(r, STREAM_EMPTY_OUTPUT_RETRY_DELAY_MS),
                   );

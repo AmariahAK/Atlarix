@@ -182,12 +182,23 @@ export async function getMaxTokens(
 
 /** When catalog has no max output, avoid tiny provider defaults that truncate mid-reply. */
 const MAX_OUTPUT_TOKENS_FLOOR = 8192;
+/**
+ * Reasoning models share `max_tokens` between reasoning and visible output, so on
+ * a catalog miss (common for OpenRouter reasoning rows, which carry no output
+ * limit) the 8192 floor can be spent on thinking and truncate the reply. Give
+ * reasoning-capable models more headroom.
+ */
+const MAX_OUTPUT_TOKENS_FLOOR_REASONING = 32_000;
 
 export async function getMaxTokensWithFloor(
   model: LargeLanguageModel,
+  opts?: { reasoningCapable?: boolean },
 ): Promise<number> {
   const n = await getMaxTokens(model);
-  return n ?? MAX_OUTPUT_TOKENS_FLOOR;
+  if (n != null) return n;
+  return opts?.reasoningCapable
+    ? MAX_OUTPUT_TOKENS_FLOOR_REASONING
+    : MAX_OUTPUT_TOKENS_FLOOR;
 }
 
 export async function getTemperature(

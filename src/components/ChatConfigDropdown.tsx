@@ -13,12 +13,15 @@ import { useLocalLMSModels } from "@/hooks/useLMStudioModels";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { SlidersHorizontal, Cpu } from "lucide-react";
+import { SlidersHorizontal, Cpu, Brain } from "lucide-react";
+import { isReasoningCapableModel } from "@/lib/routing/reasoning-detector";
 import { useAtlarixCoreCatalog } from "@/hooks/useAtlarixCoreCatalog";
 import { resolveModelDisplayLabel } from "@/lib/resolve-model-display-label";
 import {
@@ -52,6 +55,11 @@ export function ChatConfigDropdown({
   onOpenModelPicker?: () => void;
 }) {
   const modelDisplayName = useModelDisplayName();
+  const { settings, updateSettings } = useSettings();
+  // Only offer "deep thinking" for models that can actually reason (opencode's
+  // capability gate) — otherwise the toggle would be a no-op.
+  const reasoningCapable = isReasoningCapableModel(settings?.selectedModel);
+  const deepThinking = !!settings?.deepThinking;
 
   return (
     <DropdownMenu>
@@ -97,6 +105,30 @@ export function ChatConfigDropdown({
           >
             Change model
           </DropdownMenuItem>
+          {reasoningCapable ? (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuLabel className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                <Brain className="h-3.5 w-3.5" />
+                Reasoning
+              </DropdownMenuLabel>
+              <DropdownMenuCheckboxItem
+                checked={deepThinking}
+                onCheckedChange={(v) => updateSettings({ deepThinking: !!v })}
+                onSelect={(e) => e.preventDefault()}
+                data-testid="deep-thinking-toggle"
+              >
+                Deep thinking
+                <span className="ml-auto text-[10px] text-muted-foreground">
+                  {deepThinking ? "on" : "off"}
+                </span>
+              </DropdownMenuCheckboxItem>
+              <p className="px-2 pb-1 pt-0.5 text-[10px] leading-snug text-muted-foreground">
+                Think harder on demand. Off = balanced (default); on = maximum
+                reasoning for this model.
+              </p>
+            </>
+          ) : null}
         </div>
       </DropdownMenuContent>
     </DropdownMenu>

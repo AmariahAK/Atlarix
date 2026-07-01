@@ -291,9 +291,13 @@ const getProposalHandler = async (
           }%)`,
         );
 
-        if (totalTokens > contextWindow * 0.8 || ephemeral.messages.length > 10) {
+        // #3: key the summarize nudge off ACTUAL context fill only. The old
+        // `|| messages.length > 10` clause fired on any longish chat regardless of
+        // real usage, over-suggesting summarize while the accurate model-facing
+        // meter often read ~half full.
+        if (totalTokens > contextWindow * 0.8) {
           logger.log(
-            `Token usage is high (${totalTokens}/${contextWindow}) OR long chat history (${ephemeral.messages.length} messages), suggesting summarize action`,
+            `Token usage is high (${totalTokens}/${contextWindow}), suggesting summarize action`,
           );
           actions.push({
             id: "summarize-in-new-chat",

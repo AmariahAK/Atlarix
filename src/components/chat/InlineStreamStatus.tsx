@@ -31,6 +31,9 @@ export function formatWaitElapsed(ms: number): string {
 
 /** Turn older than this shows the subtle elapsed note (replaces the old banner). */
 const STILL_WORKING_AFTER_MS = 60_000;
+/** Silent reasoning longer than this shows a "still reasoning (Xs)" affordance so
+ * a healthy-but-slow thinking phase doesn't look frozen (and users don't resend). */
+const REASONING_STILL_AFTER_MS = 4_000;
 
 /** Idle status text when no tool is active yet. */
 export function idleLabelForWorkMode(mode: WorkMode | undefined): string {
@@ -109,6 +112,19 @@ export function InlineStreamStatus({
     () => subagentsActiveForChat(activityItems, chatId ?? undefined),
     [activityItems, chatId],
   );
+
+  // #5: timestamp of the current silent-reasoning phase (a reasoning_started not
+  // yet followed by reasoning_complete), for the "still reasoning (Xs)" line.
+  const reasoningStartedAt = useMemo(() => {
+    if (chatId == null) return null;
+    let startTs: number | null = null;
+    for (const it of activityItems) {
+      if (it.chatId != null && it.chatId !== chatId) continue;
+      if (it.type === "reasoning_started") startTs = it.timestamp ?? startTs;
+      else if (it.type === "reasoning_complete") startTs = null;
+    }
+    return startTs;
+  }, [activityItems, chatId]);
 
   // Stream phase (thinking label / done) → shared indicator atom.
   // Tool start/end IPC is handled in useStreamChat only (avoids double count).
@@ -196,6 +212,11 @@ export function InlineStreamStatus({
       state.toolArgs,
     );
   }
+  const reasoningElapsedMs = reasoningStartedAt ? now - reasoningStartedAt : 0;
+  const inSilentReasoning =
+    reasoningStartedAt != null &&
+    state.count === 0 &&
+    reasoningElapsedMs > REASONING_STILL_AFTER_MS;
   if (reconnecting) {
     displayLine = "Reconnecting…";
   } else if (hasPendingApproval) {
@@ -203,6 +224,9 @@ export function InlineStreamStatus({
       turnAgeMs > STILL_WORKING_AFTER_MS
         ? `Waiting for your approval (${formatWaitElapsed(turnAgeMs)})`
         : "Waiting for your approval";
+  } else if (inSilentReasoning) {
+    // Long silent thinking phase — reassure it's progressing, not frozen.
+    displayLine = `Still reasoning (${formatWaitElapsed(reasoningElapsedMs)})`;
   } else if (!waiting && turnAgeMs > STILL_WORKING_AFTER_MS) {
     displayLine = `${displayLine} · still working (${formatWaitElapsed(turnAgeMs)})`;
   }

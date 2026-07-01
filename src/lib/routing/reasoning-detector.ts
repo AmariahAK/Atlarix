@@ -10,6 +10,7 @@ import {
   type OpenRouterModelRowExtended,
 } from "./tier-context-limits";
 import { getOpenRouterModelIdForCoreTier } from "@/ipc/shared/compass_constants";
+import { PROVIDERS_THAT_SUPPORT_THINKING } from "@/ipc/shared/language_model_constants";
 import type { LargeLanguageModel, UserSettings } from "@/lib/schemas";
 import { getExtraProviderOptions } from "@/ipc/utils/thinking_utils";
 
@@ -99,6 +100,29 @@ export function detectReasoningCapability(
 }
 
 /**
+ * Renderer-safe capability gate for the "Deep thinking" toggle: whether the given
+ * model can reason at all. Superset of the native-provider check plus the
+ * gateway-thinking providers (deepseek/qwen/minimax/google/vertex/auto). Does not
+ * need `builtinProviderId`, so the UI can call it from the model in settings.
+ */
+export function isReasoningCapableModel(
+  model: LargeLanguageModel | undefined | null,
+): boolean {
+  if (!model) return false;
+  const provider = model.provider ?? "";
+  if (PROVIDERS_THAT_SUPPORT_THINKING.includes(provider)) return true;
+  const cap = detectReasoningCapability(
+    resolveReasoningCatalogModelId(model),
+    provider,
+  );
+  return (
+    cap.useOpenRouterReasoning ||
+    cap.useGoogleThoughts ||
+    cap.useOpenAiReasoningSummary
+  );
+}
+
+/**
  * Whether the effective model + gateway can request native extended thinking/reasoning
  * (provider options + gateway thinking flags used on the thinking tier).
  */
@@ -124,6 +148,7 @@ export function hasNativeDeepThinkingSupport(
 export function buildReasoningProviderOptions(
   cap: ReturnType<typeof detectReasoningCapability>,
   thinkingTier: boolean,
+  effort: "medium" | "high" = "medium",
 ): ReasoningProviderPatch {
   if (!thinkingTier) {
     return {};
@@ -136,7 +161,7 @@ export function buildReasoningProviderOptions(
       include_reasoning: true,
       reasoning: {
         enabled: true,
-        effort: "medium",
+        effort,
       } satisfies OpenRouterReasoningOpts,
     };
   }

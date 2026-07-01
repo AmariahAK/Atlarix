@@ -317,7 +317,13 @@ export const UserSettingsSchema = z.object({
   maxChatTurnsInContext: z.number().optional(),
   /** Phase 6: When true, use context bar + auto-summarize instead of fixed turn truncation */
   enableContextAutoSummarize: z.boolean().optional(),
+  /** @deprecated superseded by the binary `deepThinking` toggle (v14.8.5). */
   thinkingBudget: z.enum(["low", "medium", "high"]).optional(),
+  /**
+   * Reasoning is a flat `medium` baseline for every model/provider/mode. This
+   * single toggle raises it to the model's max reasoning ("high") on demand.
+   */
+  deepThinking: z.boolean().optional(),
   enableProLazyEditsMode: z.boolean().optional(),
   proLazyEditsMode: z.enum(["off", "v1", "v2"]).optional(),
   enableProSmartFilesContextMode: z.boolean().optional(),

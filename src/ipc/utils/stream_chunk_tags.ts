@@ -39,6 +39,41 @@ export const STREAM_STALL_TIMEOUT_MS = 600_000;
 export const STREAM_FIRST_BYTE_TIMEOUT_MS = 180_000;
 const HEARTBEAT_LOG_INTERVAL_MS = 15_000;
 const TOOL_INPUT_PROGRESS_INTERVAL_MS = 2_000;
+
+/**
+ * Adaptive idle-stall budget. Neither opencode nor Claude Code use an adaptive
+ * threshold — both rely on generous FIXED idle windows (opencode ~30s chunk /
+ * 300s total; CC's 5-min watchdog) plus full-restart retry, and CC found even a
+ * fixed 5-min window false-aborts during silent reasoning. The thing that lets
+ * Atlarix tighten safely is continue-from-partial (a false abort RESUMES, it
+ * doesn't restart). So we only ever tighten toward a generous FLOOR (never below
+ * it) for models that have *demonstrated* fast, steady cadence, and keep the 600s
+ * ceiling for bursty / server-side-buffering reasoners.
+ */
+const ADAPTIVE_STALL_MIN_SAMPLES = 10;
+/** Never idle-abort a streamed model in under 3 min (= the first-byte budget). */
+export const ADAPTIVE_STALL_FLOOR_MS = 180_000;
+const ADAPTIVE_STALL_K = 8;
+const MAX_GAP_SAMPLES = 50;
+
+/**
+ * Idle-stall budget from observed inter-chunk cadence: `clamp(k × p95, floor,
+ * ceiling)`. Until enough samples exist, returns the ceiling (today's behavior).
+ * Pure + exported for unit testing.
+ */
+export function computeAdaptiveStallBudget(
+  gapsMs: number[],
+  opts: { floor: number; ceiling: number; k: number; minSamples?: number },
+): number {
+  const minSamples = opts.minSamples ?? ADAPTIVE_STALL_MIN_SAMPLES;
+  if (gapsMs.length < minSamples) return opts.ceiling;
+  const sorted = [...gapsMs].sort((a, b) => a - b);
+  const p95 = sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * 0.95))]!;
+  // Ceiling is the HARD outer bound (never exceed it — and if a caller passes a
+  // ceiling below the floor, e.g. a test injecting a tiny timeout, the ceiling
+  // still wins). Floor is the soft minimum for a normal (600s-ceiling) stream.
+  return Math.min(opts.ceiling, Math.max(opts.floor, opts.k * p95));
+}
 /** Faster cadence for the live partial-args preview (feels streaming, bounded IPC). */
 const TOOL_INPUT_DELTA_EMIT_MS = 120;
 
@@ -142,6 +177,8 @@ export async function processStreamChunks({
   let lastChunkAt = Date.now();
   /** Whether the model has emitted any part yet — gates first-byte vs idle budget. */
   let hasReceivedChunk = false;
+  /** Rolling inter-chunk gaps (ms) for the adaptive idle-stall budget. */
+  const chunkGaps: number[] = [];
   /** Tools currently executing locally (tool-call seen, tool-result pending). */
   let toolExecutionInFlight = 0;
   let lastHeartbeatLogAt = Date.now();
@@ -212,7 +249,13 @@ export async function processStreamChunks({
     // Before the first chunk (slow TTFB / silent reasoning) allow a generous
     // first-byte budget; once the model has started streaming, a shorter idle
     // budget catches a genuinely dropped/dead connection. Provider-agnostic.
-    const budget = hasReceivedChunk ? stallTimeoutMs : firstByteTimeoutMs;
+    const budget = hasReceivedChunk
+      ? computeAdaptiveStallBudget(chunkGaps, {
+          floor: ADAPTIVE_STALL_FLOOR_MS,
+          ceiling: stallTimeoutMs,
+          k: ADAPTIVE_STALL_K,
+        })
+      : firstByteTimeoutMs;
     if (sinceChunk >= budget) {
       stalled = true;
       logger.warn(
@@ -254,7 +297,14 @@ export async function processStreamChunks({
 
   try {
     for await (const part of fullStream) {
-      lastChunkAt = Date.now();
+      const partAt = Date.now();
+      // Sample the inter-chunk gap (skip the first-byte TTFB, which is not a
+      // cadence signal) to feed the adaptive idle-stall budget.
+      if (hasReceivedChunk) {
+        chunkGaps.push(partAt - lastChunkAt);
+        if (chunkGaps.length > MAX_GAP_SAMPLES) chunkGaps.shift();
+      }
+      lastChunkAt = partAt;
       hasReceivedChunk = true; // model has started responding → idle budget applies
       partCounts[part.type] = (partCounts[part.type] ?? 0) + 1;
 

@@ -1,19 +1,22 @@
 import { PROVIDERS_THAT_SUPPORT_THINKING } from "../shared/language_model_constants";
 import type { UserSettings } from "../../lib/schemas";
 
-function getThinkingBudgetTokens(
-  thinkingBudget?: "low" | "medium" | "high",
-): number {
-  switch (thinkingBudget) {
-    case "low":
-      return 1_000;
-    case "medium":
-      return 4_000;
-    case "high":
-      return -1;
-    default:
-      return 4_000; // Default to medium
-  }
+/**
+ * The reasoning effort applied to a request. Atlarix uses a flat `medium`
+ * baseline for every model/provider/mode; the single `deepThinking` toggle
+ * raises it to `high` (each provider's max reasoning) on demand. There is
+ * deliberately no `low` — the only user choice is the on/off toggle.
+ */
+export type ReasoningEffort = "medium" | "high";
+
+/** Resolve the effort for a request from the one binary toggle. */
+export function getReasoningEffort(settings?: UserSettings): ReasoningEffort {
+  return settings?.deepThinking ? "high" : "medium";
+}
+
+function getThinkingBudgetTokens(effort: ReasoningEffort): number {
+  // high → -1 (dynamic; the model self-regulates its thinking budget).
+  return effort === "high" ? -1 : 4_000;
 }
 
 export function getExtraProviderOptions(
@@ -28,13 +31,14 @@ export function getExtraProviderOptions(
   if (!includeExtendedThinking) {
     return {};
   }
+  const effort = getReasoningEffort(settings);
   if (providerId === "openai") {
     return {
-      reasoning_effort: "medium",
+      reasoning_effort: effort,
     };
   }
   if (PROVIDERS_THAT_SUPPORT_THINKING.includes(providerId)) {
-    const budgetTokens = getThinkingBudgetTokens(settings?.thinkingBudget);
+    const budgetTokens = getThinkingBudgetTokens(effort);
     return {
       thinking: {
         type: "enabled",
