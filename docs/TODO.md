@@ -251,6 +251,66 @@ window was fine).
 
 ---
 
+## 🔭 v14.8.6 — Token-efficient "sight" + self-correcting visual build loop (planned)
+
+**Theme:** give any model VISUAL sight of the running app **without burning tokens on
+screenshots**, and close the build→see→fix loop. This is Atlarix's structural edge — a native
+preview + browser tools the agent drives — that terminal agents (Claude Code / opencode)
+**fundamentally cannot match**. (Direction set 2026-07-01; glass-box "trust panel" idea ruled
+out — any LLM narrates naturally, low value.)
+
+**Why not screenshots:** an image chunks into ~5k–50k vision tokens; the **accessibility tree
+(AXTree)** is ~10× cheaper (~500 tokens) and is how every production browser agent (Browser Use,
+MultiOn, the 2025 MCP wave) "sees" — via Chrome DevTools Protocol. **Atlarix already has the
+foundation:** `browser_inspect(mode:"snapshot")` (AXTree refs), `browser_interact` (ref-based,
+not pixel coords), `preview_test`, and the `preview-verify` done-gate.
+
+**The gap:** AXTree = *semantic* sight (what's there / how to interact). Missing = *visual-
+correctness* sight (broken / blank / overlap / off-screen / invisible text) — the exact case
+users reach for a screenshot. Most of that is detectable **programmatically, no vision**:
+
+- **New `visual_audit` (target:"preview"|"browser")** — layered, cheap→expensive, returns a
+  TEXTUAL defect report:
+  1. **AXTree snapshot** (have it) — structure + interactables.
+  2. **Visual linter (new)** — DOM geometry + computed styles (injected JS
+     `getBoundingClientRect`/`getComputedStyle`, or CDP `DOMSnapshot.captureSnapshot` via
+     `webContents.debugger`) → rules: blank render, sibling overlap, off-screen/clipped,
+     invisible text (color≈bg contrast / opacity0 / display:none-where-content-expected),
+     collapsed zero-size layout, broken `<img>` (`naturalWidth===0`).
+  3. **Console/network errors** (have it) + **CLS** layout-shift metric (single number).
+  4. **Screenshot ONLY on escalation** — when the cheap layers are ambiguous OR a subjective
+     aesthetic judgment is wanted; downscaled / cropped to the changed region to slash tokens.
+- **Off-the-shelf deps to evaluate:** `axe-core` (inject → contrast/overlap/structure report),
+  `web-vitals` (CLS).
+- **Self-correcting loop:** build → open the built route (route discovery from the diff) →
+  `visual_audit` (text) → if defects, feed report back → fix → re-audit. Extends `preview-verify`
+  from "runs without errors" to "renders correctly." Vision only as a bounded last resort.
+- **Interact:** stay ref-based (AXTree refs) — already robust; wire it into the loop.
+- **Caveat:** rules catch **broken** (structural/layout — ~90% of wasted build turns), not
+  **ugly** (subjective aesthetics) — vision stays the escalation for aesthetics only.
+
+_Refs: accessibility-tree token economics + browser-agent architectures (AXTree via CDP;
+Browser Use / MultiOn / MCP); DOM-downsampling (arXiv 2508.04412)._
+
+### Queued polish fixes (green-lit 2026-07-01, not yet built)
+- **`symbols.json` → userData** (currently `<workspace>/.atlarix/symbols.json` — pollutes foreign
+  repos / git-LFS risk; the `.atlarix` gitignore only protects Atlarix's own repo). Relocate under
+  `userData/` like the FTS5 index (`ctags-index.ts` `symbolsCachePath`/`saveDiskCache`, also the
+  `.ctags-filelist`); drop pretty-print; best-effort clean up the old in-workspace file. Accuracy-preserving.
+- **Open-file button is dead** — `OpenFileButton` (`ToolCardActions.tsx`, on read_file + edit_file
+  cards) writes to unread atoms (`selectedFileAtom`/`isPreviewOpenAtom`). Wire it to the real
+  Code-tab open path (`selectedErrorForCodeAtom` + `previewTab="code"` + right-panel visible +
+  show-preview intent), mirroring `QuickFileOpen.openFile`; add optional line-jump for read_file.
+- **Compaction-marker persistence** — investigate whether `[COMPACTION MARKER]` reliably persists
+  (`workspace.ts:152/277`, handler 691/700). If it fails, an already-compacted session reloads
+  FULL history and re-summarizes on EVERY re-entry (compaction itself is correctly threshold-based
+  at ≥75% of the model's real window — not a re-entry trigger).
+- **Provider-agnostic transient retry** — gateway-neutral backoff-retry on transient 429/5xx
+  (honor `Retry-After`) so a turn doesn't hard-error on a rate limit (the reliability remnant of
+  removed #9, done provider-agnostically — NOT OpenRouter-specific routing).
+
+---
+
 ## 🔭 Open / deferred
 
 - **Delete the dead task-ledger module** (`src/lib/tasks/task-ledger.ts`). Inert for turn
