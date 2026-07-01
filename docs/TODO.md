@@ -40,11 +40,15 @@ verified in a packaged build.
 
 ---
 
-## 🐞 Bug backlog — TBD v14.8.5 (found 2026-07-01)
+## 🔧 v14.8.5 — Harness hardening (TBD)
 
-Surfaced while diagnosing a live `qwen-code` build session (DeepSeek → Qwen → Kimi,
-Build mode, writer sub-agents). Not fixed this session — cataloged for a future pass.
-Ranked by severity.
+**Theme: v14.8.5 is NOT a feature release — it's harness hardening.** Fixing the classes
+of issue below (not adding surface) is what makes a world of difference to the LLM's real
+behavior: fewer wasted turns, fewer token bleeds, faster TTFT, more resilient runs. Every
+item is model-agnostic. Surfaced while diagnosing a live `qwen-code` build session
+(DeepSeek → Qwen → Kimi, Build mode, writer sub-agents) + a codebase/log sweep.
+
+### A. Bugs / correctness found this session (ranked by severity)
 
 1. **Writer sub-agent worktree seeds from committed HEAD → blind to uncommitted work.**
    `subagent-worktree.ts` does `git worktree add --detach <path> HEAD`, so a writer never
@@ -110,6 +114,54 @@ Ranked by severity.
    - **Capability-derived, never identity-derived:** drive all of the above off the
      models.dev catalog fields (reasoning-supported? output limit? context window?), never
      `if (model === '…')`. (Aligns with the provider-agnostic principle.)
+
+### B. General harness improvements (grounded in this session's logs + codebase sweep)
+
+8. **Cut per-turn latency (every turn pays it).** Preflight totals **3.5–6.2s/turn** but the
+   *accounted* portion is tiny (system-prompt ~3–16ms cached, prompt-bundle ~200ms) → **~3–5s
+   of UNACCOUNTED TTFT overhead per turn**, plus a **full 500-file workspace snapshot created
+   every turn** (53 this session). Instrument + close the unaccounted preflight gap
+   (biggest recurring invisible cost); make snapshots **incremental** (changed-files vs a
+   base) if they're currently full copies. Faster TTFT is the most-felt quality signal in an
+   agentic harness and compounds over long multi-tool turns.
+9. **Model-fallback routing on rate-limit / upstream errors.** `[Alibaba] qwen/qwen3.7-max
+   temporarily rate-limited upstream` fired **3×** and the turn **errored** instead of
+   recovering. Use OpenRouter's native provider routing / a fallback model list → auto-failover
+   on 429/upstream instead of dying. Model-agnostic reliability win; matters most for the
+   pooled Atlarix Core keys.
+10. **Live file/symbol grounding to kill self-inflicted model errors.** The model ran
+    `vitest naturalLanguageCron.test.ts` **after it had just renamed** that file to
+    `natural-language-cron.test.ts` → test failed → wasted turn (plus several git
+    commit/push failures it had to recover from). Add a cheap **"path exists? did-you-mean-X?"
+    guard on tool inputs**, backed by the file index Atlarix already maintains (`@`-mentions /
+    Blueprint). Weaker open-weight models make exactly these mistakes → cutting them improves
+    bench economics directly.
+11. **One source of truth for context accounting + PROACTIVE compaction.** (Extends #3.)
+    Unify the summarize-nudge counter with the accurate model-facing meter, AND compact
+    **proactively at ~70–80% of the ACTIVE model's window** (not only reactively near
+    overflow) + **mandatorily re-fit on a downshift to a smaller-window model**. Keeps long
+    sessions coherent and prevents overflow-on-model-switch.
+12. **Smarter empty-output recovery.** `AI_NoOutputGeneratedError: No output generated`
+    appeared **4×** (swallowed as benign) — reasoning models sometimes emit *only* reasoning
+    and no text/tool. Replace the blind retry with a **targeted nudge** ("emit a tool call or
+    a final message") instead of re-running the whole round.
+13. **Sub-agent diff review, inline.** Surface each writer sub-agent's captured diff as a
+    **reviewable card** before the main agent lands it (pairs with #1's worktree seeding).
+    Makes the parallel-writer feature trustworthy + debuggable.
+14. **Eval coverage for the concurrency / recovery failure modes.** Add eval-harness
+    scenarios for the supersede cascade (#4), stall-resume (still "unvalidated live" — see
+    the v14.8.0 ⚠️), and compaction-on-model-switch (#11) — the modes that only surface under
+    real concurrency, so regressions get caught before shipping.
+
+### C. Minor cleanups spotted
+- **`inferBlueprint: scan root does not exist`** (2×) — guard the Blueprint scan-root edge.
+- **"atlarix CLI launcher is stale and not writable — offering reinstall"** (3×) — recurring
+  env nag; one-time fix.
+- **3× `git push --force-with-lease` auto-exec'd** in autonomous Build mode — add a
+  confirm / dry-run preview for destructive git ops even when autonomy is on.
+
+**Biggest-leverage three** (help every model on every turn, independent of the stall work):
+**#9 fallback routing**, **#8 per-turn latency**, **#10 path grounding**.
 
 **Ruled out this session (do NOT re-chase):** DeepSeek "refuses to stream" = manual resends
 starving a slow reasoning turn + single-flight working as designed (see #4), no provider
