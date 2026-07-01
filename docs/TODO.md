@@ -153,7 +153,45 @@ item is model-agnostic. Surfaced while diagnosing a live `qwen-code` build sessi
     the v14.8.0 ⚠️), and compaction-on-model-switch (#11) — the modes that only surface under
     real concurrency, so regressions get caught before shipping.
 
-### C. Minor cleanups spotted
+### C. Sub-agents — mature to Claude-Code-grade (writers, planning, UI)
+
+Direction confirmed against `atlarix-references/claude-code`: Claude Code **independently
+converged on the same core Atlarix already has** — worktree isolation for concurrent
+writers + markdown-defined, tool-scoped agents (`.atlarix/agents/<name>.md`, parsed by
+`user-agents.ts` with `name`/`description`/`tools?`/`model?` + body). So this is
+*maturation, not redesign*.
+
+**Writers** (borrow Claude Code's `EnterWorktree`/`ExitWorktree` + shared-checkout rule):
+- **Foreground/background split.** Main agent edits the shared checkout **directly**; only
+  **parallel/background** writers get a worktree. (Claude Code now *blocks* shared-checkout
+  edits for background agents → they must `EnterWorktree` first.) A single delegated writer
+  can work serialized in the shared tree; reserve worktrees for genuine **N>1 parallel**
+  writes. Today Atlarix gives *every* writer a worktree — over-isolated.
+- **Seed the worktree from CURRENT working-tree state** (= item #1) — CC's `EnterWorktree`
+  carries uncommitted work; Atlarix's bare-`HEAD` seed is the real correctness bug.
+- **Robust worktree lifecycle.** CC had to fix **leaked worktree registrations** from killed
+  agents — Atlarix will hit the identical bug at scale. Add orphan cleanup, clean merge-back,
+  and agent-visible "you are in worktree X" state.
+- **Declare write via the `tools:` allowlist, not a `write:true` flag.** An agent whose
+  frontmatter lists `edit_file` *is* a writer (matches CC's model; `user-agents.ts` already
+  parses `tools?`). Ship 2–3 built-ins (explorer=read-only, architect=planner,
+  implementer=writer) like CC's plugin agents.
+- **Reviewable diff on merge-back** (= #13) — surface the worktree diff as an approval card
+  (CC's `ExitWorktree` merges; keep Atlarix writes reviewable through the gate).
+
+**Planning sub-agents:** keep planning **single-threaded by default** — 1 planning agent (or
+Plan *mode*) is correct and matches Claude Code (its main loop plans in its own context;
+a single Plan/architect agent is delegated selectively; it does **not** fan out N planners
+for one task — planning needs one coherent thread). So the current "Plan mode = 1 sub-agent"
+is right. *Optional, advanced:* an opt-in **"design panel"** (N agents propose different
+approaches → judge → synthesize) for genuinely hard problems only — not the default.
+
+**UI (incomplete):** the sub-agent detail view **groups** thoughts & tool calls instead of
+rendering them **inline** like the main chat now does. Reuse the main-chat inline thread
+pipeline (`buildToolExpandView` / `StreamThreadItemView`) for the sub-agent view so a
+sub-agent reads like a mini main-chat. Currently inconsistent.
+
+### D. Minor cleanups spotted
 - **`inferBlueprint: scan root does not exist`** (2×) — guard the Blueprint scan-root edge.
 - **"atlarix CLI launcher is stale and not writable — offering reinstall"** (3×) — recurring
   env nag; one-time fix.
