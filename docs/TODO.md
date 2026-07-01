@@ -320,6 +320,30 @@ Browser Use / MultiOn / MCP); DOM-downsampling (arXiv 2508.04412)._
   (honor `Retry-After`) so a turn doesn't hard-error on a rate limit (the reliability remnant of
   removed #9, done provider-agnostically — NOT OpenRouter-specific routing).
 
+### v14.8.5 follow-up bugs (found in packaged smoke, 2026-07-01)
+- **CRITICAL — writer sub-agent `edit_file` writes to the REAL workspace, not its worktree.**
+  Log proof (packaged): worktree created at `…/subagent-worktrees/…/<taskId>` (seed OK), but the
+  edit went `(permission-interceptor) [Permission Request Buffered] operation: edit_file` →
+  `Wrote file: /Users/amariah/Documents/Github/wisdom-drop/README.md` (the real repo, chat -25).
+  So the sub-agent's write **bypassed the worktree, hit the MAIN approval gate**, and touched the
+  real file → (a) user was prompted (shouldn't be for an isolated writer), (b) `captureWorktreeDiff`
+  saw an empty worktree → "(made no file changes)" while the sub-agent's summary said it edited.
+  The Cluster 1 SEED fix is fine; this is a separate ROUTING bug — the sub-agent's `edit_file`
+  isn't executing against `execWorkspace` (worktree) and instead falls through to the Build-mode
+  permission interceptor against the real workspace. Fix: route writer sub-agent writes to the
+  worktree with NO main gate (the gate is only for the main agent applying the returned diff);
+  verify `resolvePathUnderWorkspace` uses `worktreePath`. This is the "writer isolation unvalidated
+  live" gap, now confirmed — the whole worktree feature is defeated until fixed.
+- **"(The writer sub-agent made no file changes.)" shows regardless** — symptom of the routing bug
+  (empty worktree) AND the message shouldn't be appended for read-only scouts. Gate it to actual
+  writers and reconcile with the sub-agent's own summary once routing is fixed.
+- **Sub-agent inline UI still incomplete** — Cluster 1 fixed ORDERING (seq-stamp + `compareThreadItems`)
+  but not RENDERING: the detail view still uses the bespoke `NestedThreadItems`, so edit cards show
+  only "Editing file: N lines written" (no inline diff) and thoughts/tools don't interleave like the
+  main chat (thought→tool→response→tool). Finish the swap to `StreamThreadItemView`/`buildToolExpandView`;
+  render edit diffs inline; de-noise the repeated "Editing file: …" cards.
+- **Open-file button dead** = the queued #20 above (confirmed live in packaged smoke).
+
 ---
 
 ## 🔭 Open / deferred
