@@ -14,24 +14,40 @@
  * and `isPathInActiveSubagentWorktree` is exported as a defense-in-depth check.
  *
  * Requires the workspace to be a git repo; otherwise writer mode is unavailable
- * and the caller falls back to a read-only scout. Worktrees start from HEAD, so
- * a writer does not see the user's *uncommitted* edits — a deliberate, simple
- * isolation boundary.
+ * and the caller falls back to a read-only scout. The worktree is seeded from a
+ * snapshot of the CURRENT WORKING TREE (tracked-modified + untracked-not-ignored,
+ * built through a throwaway index so the user's real index/working tree are never
+ * touched), so a writer DOES see the user's and the main agent's *uncommitted*
+ * edits. The captured diff is taken against that snapshot, so it contains only
+ * the sub-agent's own changes (the pre-existing uncommitted work already lives in
+ * the real workspace and must not be re-applied).
  */
 
 import path from "node:path";
-import { rm, readdir } from "node:fs/promises";
+import { rm, readdir, mkdir } from "node:fs/promises";
 import log from "electron-log";
 import { exec } from "@/ipc/utils/system_git_exec";
 import { getUserDataPath } from "@/paths/paths";
+import {
+  ATLARIX_GIT_AUTHOR_NAME,
+  ATLARIX_GIT_AUTHOR_EMAIL,
+} from "@/ipc/utils/git_author";
 
 const logger = log.scope("subagent-worktree");
 
 /** Absolute, normalized roots of worktrees currently in use. */
 const activeWorktreeRoots = new Set<string>();
 
+/** Monotonic counter for unique throwaway seed-index filenames. */
+let taskCounter = 0;
+
 export interface SubagentWorktree {
   worktreePath: string;
+  /**
+   * Commit the worktree was seeded from — a working-tree snapshot commit
+   * (or bare HEAD if the snapshot couldn't be built). `captureWorktreeDiff`
+   * diffs against this, so the diff is exactly the sub-agent's own changes.
+   */
   baseRef: string;
 }
 
@@ -97,6 +113,76 @@ export async function cleanupStaleSubagentWorktrees(
 }
 
 /**
+ * Build a commit object capturing the CURRENT WORKING TREE — tracked
+ * modifications, deletions, AND untracked-but-not-ignored files — without
+ * touching the user's real index or working tree. Uses a throwaway
+ * `GIT_INDEX_FILE` and git plumbing (read-tree → add -A → write-tree →
+ * commit-tree), the same pattern the snapshot manager uses. `git add -A`
+ * respects `.gitignore` (no `-f`), so ignored files stay out. Returns the
+ * seed commit SHA, or null on any failure (caller falls back to bare HEAD).
+ */
+async function buildWorkingTreeSeedCommit(
+  workspacePath: string,
+): Promise<string | null> {
+  const tmpIndex = path.join(
+    worktreeDirForWorkspace(workspacePath),
+    `.seed-index-${process.pid}-${taskCounter++}`,
+  );
+  await mkdir(path.dirname(tmpIndex), { recursive: true }).catch(() => {});
+  const env = { GIT_INDEX_FILE: tmpIndex };
+  try {
+    const head = await exec(
+      ["rev-parse", "--verify", "--quiet", "HEAD"],
+      workspacePath,
+    );
+    const headSha =
+      head.exitCode === 0 ? head.stdout.trim() : "";
+    const hasHead = headSha !== "";
+
+    const readTree = await exec(
+      hasHead ? ["read-tree", headSha] : ["read-tree", "--empty"],
+      workspacePath,
+      { env },
+    );
+    if (readTree.exitCode !== 0) return null;
+
+    // Stage the full working tree (modifications, additions, deletions) into the
+    // throwaway index; untracked-not-ignored included, ignored excluded.
+    const add = await exec(["add", "-A"], workspacePath, { env });
+    if (add.exitCode !== 0) return null;
+
+    const writeTree = await exec(["write-tree"], workspacePath, { env });
+    const tree = writeTree.stdout.trim();
+    if (writeTree.exitCode !== 0 || !tree) return null;
+
+    // commit-tree needs an identity; supply the agent's so we never touch or
+    // depend on the user's git config.
+    const commitEnv = {
+      ...env,
+      GIT_AUTHOR_NAME: ATLARIX_GIT_AUTHOR_NAME,
+      GIT_AUTHOR_EMAIL: ATLARIX_GIT_AUTHOR_EMAIL,
+      GIT_COMMITTER_NAME: ATLARIX_GIT_AUTHOR_NAME,
+      GIT_COMMITTER_EMAIL: ATLARIX_GIT_AUTHOR_EMAIL,
+    };
+    const commit = await exec(
+      hasHead
+        ? ["commit-tree", tree, "-p", headSha, "-m", "atlarix writer seed"]
+        : ["commit-tree", tree, "-m", "atlarix writer seed"],
+      workspacePath,
+      { env: commitEnv },
+    );
+    const seed = commit.stdout.trim();
+    if (commit.exitCode !== 0 || !seed) return null;
+    return seed;
+  } catch (e) {
+    logger.warn("working-tree seed commit failed — falling back to HEAD:", e);
+    return null;
+  } finally {
+    await rm(tmpIndex, { force: true }).catch(() => {});
+  }
+}
+
+/**
  * Create an isolated worktree for a writing sub-agent, or null when the
  * workspace is not a git repo (caller falls back to a read-only scout).
  */
@@ -112,12 +198,21 @@ export async function createSubagentWorktree(
   // Reap any worktrees a previously-crashed writer left behind before adding one.
   await cleanupStaleSubagentWorktrees(workspacePath);
 
-  const head = await exec(["rev-parse", "HEAD"], workspacePath);
-  if (head.exitCode !== 0) {
-    logger.warn("Could not resolve HEAD — writer sub-agent unavailable:", head.stderr.trim());
-    return null;
+  // Seed from the current working tree so the writer sees uncommitted work;
+  // degrade to bare HEAD if the snapshot can't be built.
+  let baseRef = await buildWorkingTreeSeedCommit(workspacePath);
+  if (!baseRef) {
+    const head = await exec(["rev-parse", "HEAD"], workspacePath);
+    if (head.exitCode !== 0) {
+      logger.warn(
+        "Could not resolve HEAD — writer sub-agent unavailable:",
+        head.stderr.trim(),
+      );
+      return null;
+    }
+    baseRef = head.stdout.trim();
+    logger.warn("Working-tree seed unavailable — worktree seeded from HEAD");
   }
-  const baseRef = head.stdout.trim();
 
   // Unique, sanitized worktree path under userData (never inside the workspace).
   const safeId = taskId.replace(/[^a-zA-Z0-9_-]/g, "");

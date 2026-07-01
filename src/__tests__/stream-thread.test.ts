@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  compareThreadItems,
   completeLastRunningStreamTool,
   completeStreamToolOnEnd,
   finalizeAllRunningStreamTools,
@@ -376,6 +377,60 @@ describe("stream-thread", () => {
       expect(round.agents[0]?.nestedItems).toHaveLength(1);
       expect(round.agents[0]?.nestedItems[0]?.kind).toBe("tool");
     }
+  });
+
+  it("interleaves nested thoughts and tools by insertion order (same-ms ties)", () => {
+    const base = {
+      agent: "explore",
+      agentType: "explore",
+      roundId: "turn-1",
+      chatId: 1,
+      status: "running" as const,
+    };
+    let items = mergeSubagentActivityIntoThread([], {
+      id: "d1",
+      type: "subagent_start",
+      label: "explore",
+      timestamp: 1,
+      ...base,
+    } as ActivityStreamItem);
+    // thought A, then a tool, then thought B — all in the SAME millisecond.
+    items = mergeSubagentActivityIntoThread(items, {
+      id: "d1",
+      type: "subagent_progress",
+      preview: "thought A",
+      timestamp: 5,
+      ...base,
+    } as ActivityStreamItem);
+    const tool = streamThreadItemFromActivity({
+      id: "sub-tool-d1-grep-1",
+      type: "tool_use",
+      toolName: "grep",
+      label: "grep",
+      status: "done",
+      parentDelegationId: "d1",
+      timestamp: 5,
+      chatId: 1,
+    })!;
+    items = mergeNestedActivityIntoSubagentRound(items, "d1", tool);
+    items = mergeSubagentActivityIntoThread(items, {
+      id: "d1",
+      type: "subagent_progress",
+      preview: "thought B",
+      timestamp: 5,
+      ...base,
+    } as ActivityStreamItem);
+
+    const round = items[0];
+    expect(round?.kind).toBe("subagent_round");
+    if (round?.kind !== "subagent_round") return;
+    const nested = [...round.agents[0]!.nestedItems].sort(compareThreadItems);
+    // Every nested item is seq-stamped, so same-ms ties are deterministic
+    // (not grouped): the tool stays BETWEEN the two thoughts.
+    expect(nested.every((i) => typeof i.seq === "number")).toBe(true);
+    expect(
+      nested.map((i) => (i.kind === "thought" ? i.content : i.kind)),
+    ).toEqual(["thought A", "tool", "thought B"]);
   });
 
   it("buildCompletedStreamThreadFromAssistantContent rebuilds tools and subagent round", async () => {

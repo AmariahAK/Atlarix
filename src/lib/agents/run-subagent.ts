@@ -234,8 +234,14 @@ export async function runSubagent(
       }
     }
     if (!systemPrompt.trim()) {
+      // Writer sub-agents get a prompt that tells them they CAN write, that they
+      // work on a throwaway worktree snapshot, and that their diff is reviewed by
+      // the main agent — the scout prompt (subagent.md) says "READ-ONLY".
+      const genericSkill = isImplement
+        ? "subagents/subagent-writer"
+        : "subagents/subagent";
       systemPrompt = (
-        await loadSkill("subagents/subagent", workspace || undefined)
+        await loadSkill(genericSkill, workspace || undefined)
       ).trim();
     }
     if (!systemPrompt.trim()) {

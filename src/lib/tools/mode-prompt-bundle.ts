@@ -72,6 +72,7 @@ You CAN:
 - run_command, all workspace tools via progressive reveal
 - Verify with the project's own checks/tests (run_command) and write tests for new logic
 - Spawn parallel read-only sub-agents with multiple task calls in one response for independent reconnaissance
+- Delegate an isolated implementation to a WRITER sub-agent — task({write:true, ...}) or task({subagent_type:"implementer", ...}); it works in a throwaway git worktree (seeded from your current working tree) and returns a reviewable diff you apply with your own write tools. Built-in agents: explorer (read-only recon), architect (planning), implementer (writer)
 
 Focus on correct, complete implementation. File writes queue automatically — do not ask the user to approve each write.
 
@@ -85,6 +86,7 @@ You CAN:
 - Investigate (read, glob, grep, run_command for repro/tests)
 - State your hypothesis IN YOUR REPLY (root cause + evidence + files) before any write/edit/delete/rename
 - Minimal file changes that test the stated hypothesis only
+- Delegate a scoped fix to a WRITER sub-agent once your hypothesis is stated — task({write:true, ...}) or task({subagent_type:"implementer", ...}) works in an isolated worktree and returns a reviewable diff; review it before landing. Read-only helpers: explorer (recon), architect (planning)
 
 You CANNOT:
 - Change files before stating a hypothesis

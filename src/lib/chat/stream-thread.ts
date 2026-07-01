@@ -599,25 +599,32 @@ function appendSubagentProgressThought(
     );
   if (lastProgress?.content === trimmed) return nested;
 
+  // Enforce the rolling cap by dropping the OLDEST progress lines IN PLACE, so
+  // every surviving item keeps its insertion position (interleaved with tools) —
+  // ordering is then by the (ts, seq) comparator, exactly like the main chat.
   const progressLines = nested.filter(
-    (i) =>
+    (i): i is Extract<StreamThreadItem, { kind: "thought" }> =>
       i.kind === "thought" && i.id.startsWith(SUBAGENT_PROGRESS_THOUGHT_PREFIX),
   );
-  const other = nested.filter(
-    (i) =>
-      !(i.kind === "thought" && i.id.startsWith(SUBAGENT_PROGRESS_THOUGHT_PREFIX)),
+  const dropCount = Math.max(
+    0,
+    progressLines.length - (MAX_SUBAGENT_PROGRESS_LINES - 1),
   );
-  const nextProgress = [
-    ...progressLines,
-    {
+  const dropIds = new Set(progressLines.slice(0, dropCount).map((i) => i.id));
+  const kept =
+    dropCount > 0
+      ? nested.filter((i) => !(i.kind === "thought" && dropIds.has(i.id)))
+      : nested;
+
+  return [
+    ...kept,
+    withThreadSeq({
       kind: "thought" as const,
       id: `${SUBAGENT_PROGRESS_THOUGHT_PREFIX}${ts}`,
       content: trimmed,
       ts,
-    },
-  ].slice(-MAX_SUBAGENT_PROGRESS_LINES);
-
-  return [...other, ...nextProgress];
+    }),
+  ];
 }
 
 function upsertSubagentRound(
@@ -710,12 +717,16 @@ export function mergeSubagentActivityIntoThread(
     const idx = baseNested.findIndex(
       (i) => i.kind === "thought" && i.id === item.id,
     );
-    const thoughtItem = {
+    const existingThought = idx >= 0 ? baseNested[idx]! : undefined;
+    // Seq-stamp so same-ms thought/tool events keep true insertion order under
+    // the (ts, seq) comparator; preserve the seq across in-place content updates.
+    const thoughtItem = withThreadSeq({
       kind: "thought" as const,
       id: item.id,
       content,
-      ts: idx >= 0 ? (baseNested[idx]!.ts ?? ts) : ts,
-    };
+      ts: existingThought ? (existingThought.ts ?? ts) : ts,
+      seq: existingThought?.seq,
+    });
     const nestedItems =
       idx >= 0
         ? baseNested.map((i, n) => (n === idx ? thoughtItem : i))

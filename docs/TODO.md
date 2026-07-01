@@ -124,11 +124,13 @@ item is model-agnostic. Surfaced while diagnosing a live `qwen-code` build sessi
    (biggest recurring invisible cost); make snapshots **incremental** (changed-files vs a
    base) if they're currently full copies. Faster TTFT is the most-felt quality signal in an
    agentic harness and compounds over long multi-tool turns.
-9. **Model-fallback routing on rate-limit / upstream errors.** `[Alibaba] qwen/qwen3.7-max
-   temporarily rate-limited upstream` fired **3×** and the turn **errored** instead of
-   recovering. Use OpenRouter's native provider routing / a fallback model list → auto-failover
-   on 429/upstream instead of dying. Model-agnostic reliability win; matters most for the
-   pooled Atlarix Core keys.
+9. **~~Model-fallback routing on rate-limit / upstream errors.~~ REMOVED (2026-07-01).**
+   Original: `[Alibaba] qwen/qwen3.7-max temporarily rate-limited upstream` fired 3× and the
+   turn errored instead of recovering. **Dropped:** the proposed fix leaned on OpenRouter's
+   native provider routing, and Atlarix should not bet reliability on a specific gateway
+   (future versions may not stay on OpenRouter). The only provider-agnostic remnant worth
+   keeping — a generic transient-429 backoff-retry so a turn doesn't hard-error — folds into
+   #7's "cheap recovery" lever, NOT its own item. Do not re-add gateway-specific routing.
 10. **Live file/symbol grounding to kill self-inflicted model errors.** The model ran
     `vitest naturalLanguageCron.test.ts` **after it had just renamed** that file to
     `natural-language-cron.test.ts` → test failed → wasted turn (plus several git
@@ -152,6 +154,23 @@ item is model-agnostic. Surfaced while diagnosing a live `qwen-code` build sessi
     scenarios for the supersede cascade (#4), stall-resume (still "unvalidated live" — see
     the v14.8.0 ⚠️), and compaction-on-model-switch (#11) — the modes that only surface under
     real concurrency, so regressions get caught before shipping.
+15. **Mode-transition adherence — weaker models follow the PREVIOUS mode after a switch.**
+    Observed (esp. on smaller/weaker models; qwen3.6/kimi2.6 mostly cope): after switching
+    modes, prior-mode history dominates. E.g. Plan mode after Build → "you can start carving
+    things out" is read as *implement*; Explore mode → model attempts a write and the gate
+    *refuses* it (a wasted turn, not a safety breach — the gate holds). **Root cause (grounded
+    in code):** the active-mode block (`renderModePromptBundle`, `system_prompt.ts:170,318`)
+    lives ONLY in the cached system prompt at the TOP of the message array; all prior-mode
+    turns sit between it and the latest user message, so (a) there is **no recency re-anchor**
+    of the current mode near the newest turn, and (b) there is **no mode-changed signal** to
+    the model — even though the app already records a `mode_change` activity event
+    (`chat-activity-normalize.ts:31`, `sourceAtoms.ts:161`). **Fix (model-agnostic prompt
+    plumbing, not a redesign):** (i) inject a short active-mode CAN/CANNOT re-anchor right
+    before the latest user turn so it is the LAST thing read; (ii) when current mode ≠ previous
+    turn's mode, prepend a one-line "work mode changed to X since the last message; ignore
+    prior-mode behavioral norms, follow Current mode: X." Auto-helps weakest models most (they
+    over-weight recency); no downside for strong models. Not a blocker — a wasted-turn/UX fix,
+    same family as the rest of v14.8.5.
 
 ### C. Sub-agents — mature to Claude-Code-grade (writers, planning, UI)
 
@@ -198,8 +217,8 @@ sub-agent reads like a mini main-chat. Currently inconsistent.
 - **3× `git push --force-with-lease` auto-exec'd** in autonomous Build mode — add a
   confirm / dry-run preview for destructive git ops even when autonomy is on.
 
-**Biggest-leverage three** (help every model on every turn, independent of the stall work):
-**#9 fallback routing**, **#8 per-turn latency**, **#10 path grounding**.
+**Biggest-leverage now** (help every model on every turn, independent of the stall work;
+#9 removed): **#8 per-turn latency**, **#10 path grounding**, **#15 mode-transition adherence**.
 
 **Ruled out this session (do NOT re-chase):** DeepSeek "refuses to stream" = manual resends
 starving a slow reasoning turn + single-flight working as designed (see #4), no provider

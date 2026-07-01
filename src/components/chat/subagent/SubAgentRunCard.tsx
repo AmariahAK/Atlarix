@@ -9,7 +9,10 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import type { SubAgentRunEntry, StreamThreadItem } from "@/lib/chat/stream-thread";
-import { resolveSubagentCardLabel } from "@/lib/chat/stream-thread";
+import {
+  resolveSubagentCardLabel,
+  compareThreadItems,
+} from "@/lib/chat/stream-thread";
 import { subagentPhaseLabel } from "@/lib/chat/subagent-phase-label";
 import { InlineThoughtBlock } from "../InlineThoughtBlock";
 import { StreamToolCallCard } from "../StreamToolCallCard";
@@ -31,8 +34,10 @@ function flattenNestedItems(items: StreamThreadItem[]): StreamThreadItem[] {
   return out;
 }
 
+// Order nested items exactly like the main chat: by (ts, seq), so thoughts and
+// tool calls interleave in true insertion order instead of being grouped.
 function sortNestedByTime(items: StreamThreadItem[]): StreamThreadItem[] {
-  return [...items].sort((a, b) => a.ts - b.ts);
+  return [...items].sort(compareThreadItems);
 }
 
 function latestNestedActivitySummary(

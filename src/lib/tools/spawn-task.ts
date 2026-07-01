@@ -1,10 +1,13 @@
 /**
  * `task` — the ONE sub-agent tool (v13).
  *
- * Spawns a scoped read-only sub-agent (runSubagent). Issue MULTIPLE task calls
- * in one response for independent scopes — they run concurrently (up to 5 per
- * turn). `background: true` returns immediately with a task id to resume via
- * `task_id`. `subagent_type` may name a user-defined `.atlarix/agents/` agent.
+ * Spawns a scoped sub-agent (runSubagent): read-only by default, or a WRITER
+ * (`write: true`, or a writer `subagent_type`) that implements inside a throwaway
+ * git worktree seeded from the current working tree and hands back a reviewable
+ * diff. Issue MULTIPLE task calls in one response for independent scopes — they
+ * run concurrently (up to 5 per turn). `background: true` returns immediately with
+ * a task id to resume via `task_id`. `subagent_type` may name a built-in
+ * (explorer / architect / implementer) or a user-defined `.atlarix/agents/` agent.
  */
 
 import { randomUUID } from "node:crypto";
@@ -28,6 +31,7 @@ import {
   removeSubagentWorktree,
   type SubagentWorktree,
 } from "../agents/subagent-worktree";
+import { subagentWillWrite } from "../agents/user-agents";
 
 /** Cap the proposed-diff size folded into the task result to protect context. */
 const MAX_DIFF_CHARS = 20_000;
@@ -184,8 +188,8 @@ ToolRegistry.register({
   description:
     "Spawn a scoped sub-agent for an independent piece of work (exploring a folder, researching a question, mapping a subsystem, or — with write=true — implementing a change). " +
     "For independent scopes, issue MULTIPLE task calls in ONE response — they run concurrently (up to 5 per turn). " +
-    "By default a sub-agent is READ-ONLY. Set write=true to let it implement changes inside an ISOLATED git worktree; its proposed diff comes back for you to review and apply with your own write tools (the workspace is never touched directly). " +
-    "Optional subagent_type names a user-defined .atlarix/agents/ agent. " +
+    "By default a sub-agent is READ-ONLY. Set write=true to let it implement changes inside an ISOLATED git worktree (seeded from your current working tree, so it sees uncommitted work); its proposed diff comes back for you to review and apply with your own write tools (the workspace is never touched directly). " +
+    "Optional subagent_type names a built-in agent (explorer = read-only recon, architect = planning, implementer = writer) or a user-defined .atlarix/agents/ agent; a writer agent implies write mode without write=true. " +
     "Set background=true to return immediately with a task id; pass task_id later to collect the result. " +
     "Manage running background sub-agents like background jobs: list=true to see them, or task_id + cancel=true to hard-stop one that's stuck or no longer needed.",
   requiresWorkspace: false,
@@ -324,12 +328,22 @@ ToolRegistry.register({
       args.emitSubagentActivity?.(payload);
     };
 
+    // A writer is either an explicit write=true or a named writer agent (its
+    // toolset includes edit_file) — single source of truth (subagentWillWrite).
+    const willWrite =
+      !!args.workspace?.trim() &&
+      subagentWillWrite({
+        write: args.write,
+        subagentType: subagentType || undefined,
+        workspacePath: args.workspace!.trim(),
+      });
+
     const run = async () => {
       // Writer mode: isolate the sub-agent's writes in a throwaway git worktree.
       let worktree: SubagentWorktree | null = null;
       let modeNote = "";
-      if (args.write && args.workspace?.trim()) {
-        worktree = await createSubagentWorktree(args.workspace, taskId);
+      if (willWrite) {
+        worktree = await createSubagentWorktree(args.workspace!, taskId);
         if (!worktree) {
           modeNote =
             "\n\n(Note: workspace is not a git repository — ran read-only; could not isolate writes.)";
@@ -444,6 +458,10 @@ ToolRegistry.register({
           rec.error = `Sub-agent timed out after ${Math.round(timeoutMs / 1000)}s`;
           rec.finishedAt = Date.now();
         }
+        // Abort the model stream so run()'s finally tears down the worktree
+        // promptly (and token spend stops) instead of lingering until the
+        // stream ends on its own.
+        taskAbort?.abort();
         finalize(
           "error",
           `Sub-agent timed out after ${Math.round(timeoutMs / 1000)}s and was abandoned. If still needed, spawn a narrower task.`,
@@ -454,9 +472,9 @@ ToolRegistry.register({
         .catch((err) => {
           const rec = taskStore.get(taskId);
           if (!rec) return;
-          // Keep the "Cancelled by the main agent." message (the abort surfaces
-          // here as an AbortError) — don't overwrite it with the raw error.
-          if (rec.cancelled) return;
+          // Keep an already-terminal message (main-agent cancel or timeout) — the
+          // abort surfaces here as an AbortError; don't clobber it with the raw error.
+          if (rec.cancelled || rec.finishedAt) return;
           rec.state = "error";
           rec.error = err instanceof Error ? err.message : String(err);
           rec.finishedAt = Date.now();

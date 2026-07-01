@@ -1,4 +1,9 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+
+// These are real-git-subprocess integration tests (init/worktree/read-tree/
+// commit-tree). Under full-suite parallel load they can exceed the 5s default,
+// so give the git-heavy cases a realistic budget.
+const GIT_IO_TIMEOUT_MS = 30_000;
 import { mkdtemp, writeFile, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -53,7 +58,7 @@ describe("subagent worktree isolation", () => {
     expect(await createSubagentWorktree(nonGit, "task-1")).toBeNull();
   });
 
-  it("creates an isolated worktree, captures its diff, and cleans up", async () => {
+  it("creates an isolated worktree, captures its diff, and cleans up", { timeout: GIT_IO_TIMEOUT_MS }, async () => {
     const wt = await createSubagentWorktree(workspace, "task-abc");
     expect(wt).not.toBeNull();
     if (!wt) return;
@@ -83,7 +88,7 @@ describe("subagent worktree isolation", () => {
     await expect(stat(wt.worktreePath)).rejects.toBeTruthy(); // gone
   });
 
-  it("isolates concurrent writers in separate worktrees", async () => {
+  it("isolates concurrent writers in separate worktrees", { timeout: GIT_IO_TIMEOUT_MS }, async () => {
     const [a, b] = await Promise.all([
       createSubagentWorktree(workspace, "task-x"),
       createSubagentWorktree(workspace, "task-y"),
@@ -101,5 +106,85 @@ describe("subagent worktree isolation", () => {
       removeSubagentWorktree(workspace, a),
       removeSubagentWorktree(workspace, b),
     ]);
+  });
+});
+
+describe("subagent worktree seeds from the live working tree", () => {
+  beforeAll(async () => {
+    userData = await mkdtemp(path.join(tmpdir(), "atlarix-ud2-"));
+  });
+  afterAll(async () => {
+    await rm(userData, { recursive: true, force: true }).catch(() => {});
+  });
+
+  it("sees uncommitted + untracked-not-ignored work, excludes ignored, and diffs only the sub-agent's changes", { timeout: GIT_IO_TIMEOUT_MS }, async () => {
+    const ws = await mkdtemp(path.join(tmpdir(), "atlarix-seed-"));
+    try {
+      await initRepo(ws); // commits app.ts = "export const a = 1;\n"
+
+      // Uncommitted state the writer MUST see (the bug: HEAD seed missed these).
+      await writeFile(path.join(ws, "app.ts"), "export const a = 2;\n"); // tracked-modified
+      await writeFile(path.join(ws, "untracked.ts"), "export const u = 1;\n"); // untracked-not-ignored
+      await writeFile(path.join(ws, ".gitignore"), "ignored.ts\n");
+      await writeFile(path.join(ws, "ignored.ts"), "secret\n"); // ignored → must NOT seed
+
+      const wt = await createSubagentWorktree(ws, "seed-task");
+      expect(wt).not.toBeNull();
+      if (!wt) return;
+
+      // Worktree reflects the working tree: modified + untracked present, ignored absent.
+      expect(await readFile(path.join(wt.worktreePath, "app.ts"), "utf8")).toBe(
+        "export const a = 2;\n",
+      );
+      expect(
+        await readFile(path.join(wt.worktreePath, "untracked.ts"), "utf8"),
+      ).toBe("export const u = 1;\n");
+      await expect(
+        stat(path.join(wt.worktreePath, "ignored.ts")),
+      ).rejects.toBeTruthy();
+
+      // The sub-agent makes its OWN change on top of the snapshot.
+      await writeFile(
+        path.join(wt.worktreePath, "agent-new.ts"),
+        "export const g = 1;\n",
+      );
+
+      // Captured diff = ONLY the sub-agent's change (not the pre-existing
+      // uncommitted work, which already lives in the real workspace).
+      const diff = await captureWorktreeDiff(wt);
+      expect(diff.changedFiles).toEqual(["agent-new.ts"]);
+      expect(diff.changedFiles).not.toContain("app.ts");
+      expect(diff.changedFiles).not.toContain("untracked.ts");
+
+      // Real workspace untouched by the sub-agent.
+      expect(await readFile(path.join(ws, "app.ts"), "utf8")).toBe(
+        "export const a = 2;\n",
+      );
+      await expect(stat(path.join(ws, "agent-new.ts"))).rejects.toBeTruthy();
+
+      await removeSubagentWorktree(ws, wt);
+    } finally {
+      await rm(ws, { recursive: true, force: true }).catch(() => {});
+    }
+  });
+
+  it("seeds a zero-commit repo from its working tree (root seed commit)", { timeout: GIT_IO_TIMEOUT_MS }, async () => {
+    const ws = await mkdtemp(path.join(tmpdir(), "atlarix-empty-"));
+    try {
+      await exec(["init"], ws);
+      await exec(["config", "user.email", "t@example.com"], ws);
+      await exec(["config", "user.name", "Test"], ws);
+      await writeFile(path.join(ws, "fresh.ts"), "export const f = 1;\n"); // untracked, no HEAD
+
+      const wt = await createSubagentWorktree(ws, "empty-task");
+      expect(wt).not.toBeNull();
+      if (!wt) return;
+      expect(await readFile(path.join(wt.worktreePath, "fresh.ts"), "utf8")).toBe(
+        "export const f = 1;\n",
+      );
+      await removeSubagentWorktree(ws, wt);
+    } finally {
+      await rm(ws, { recursive: true, force: true }).catch(() => {});
+    }
   });
 });

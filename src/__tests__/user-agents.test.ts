@@ -10,6 +10,8 @@ import {
   loadUserAgent,
   listUserAgents,
   renderUserAgentSystemBlock,
+  agentIsWriter,
+  subagentWillWrite,
 } from "@/lib/agents/user-agents";
 
 let dir: string;
@@ -81,16 +83,78 @@ You are a meticulous code reviewer. Find bugs, not style nits.`,
 });
 
 describe("listUserAgents", () => {
-  it("lists .md agents, excludes mode-skill overrides, sorted", () => {
+  it("lists .md agents alongside built-ins, excludes mode-skill overrides, sorted", () => {
     writeAgent("zeta", `---\n---\nbody`);
     writeAgent("alpha", `---\n---\nbody`);
     writeAgent("ask-mode", `---\n---\nbody`); // reserved → excluded
     fs.writeFileSync(path.join(agentsDir(), "notes.txt"), "ignored");
-    expect(listUserAgents(dir).map((a) => a.name)).toEqual(["alpha", "zeta"]);
+    expect(listUserAgents(dir).map((a) => a.name)).toEqual([
+      "alpha",
+      "architect",
+      "explorer",
+      "implementer",
+      "zeta",
+    ]);
   });
 
-  it("empty when the dir is absent", () => {
-    expect(listUserAgents(dir)).toEqual([]);
+  it("returns just the built-ins when the workspace dir is absent", () => {
+    expect(listUserAgents(dir).map((a) => a.name)).toEqual([
+      "architect",
+      "explorer",
+      "implementer",
+    ]);
+  });
+});
+
+describe("built-in agents + write derivation", () => {
+  it("resolves built-ins by name without any workspace file", () => {
+    const impl = loadUserAgent(dir, "implementer")!;
+    expect(impl.mode).toBe("build");
+    expect(impl.tools).toContain("edit_file");
+    expect(loadUserAgent(dir, "explorer")!.mode).toBe("ask");
+    expect(loadUserAgent(dir, "architect")!.mode).toBe("plan");
+  });
+
+  it("lets a workspace file OVERRIDE a built-in of the same name", () => {
+    writeAgent(
+      "implementer",
+      `---\ndescription: custom\nmode: debug\ntools: [read_file]\n---\nCustom implementer.`,
+    );
+    const a = loadUserAgent(dir, "implementer")!;
+    expect(a.description).toBe("custom");
+    expect(a.mode).toBe("debug");
+    expect(a.tools).toEqual(["read_file"]);
+    expect(a.systemPrompt).toContain("Custom implementer");
+  });
+
+  it("agentIsWriter: edit_file on a build/debug profile", () => {
+    expect(agentIsWriter(loadUserAgent(dir, "implementer")!)).toBe(true);
+    expect(agentIsWriter(loadUserAgent(dir, "explorer")!)).toBe(false);
+    expect(agentIsWriter(loadUserAgent(dir, "architect")!)).toBe(false);
+    // build profile, no tools list → inherits the full writer toolset
+    writeAgent("freeform", `---\nmode: build\n---\nbody`);
+    expect(agentIsWriter(loadUserAgent(dir, "freeform")!)).toBe(true);
+    // edit_file listed but on a read-only profile → not a writer
+    writeAgent("odd", `---\nmode: ask\ntools: [read_file, edit_file]\n---\nbody`);
+    expect(agentIsWriter(loadUserAgent(dir, "odd")!)).toBe(false);
+  });
+
+  it("subagentWillWrite: named writer implies write; flag governs the generic path", () => {
+    // Named writer agent → write without write:true.
+    expect(
+      subagentWillWrite({ subagentType: "implementer", workspacePath: dir }),
+    ).toBe(true);
+    // Named read-only agent stays read-only even if write:true is passed.
+    expect(
+      subagentWillWrite({
+        write: true,
+        subagentType: "explorer",
+        workspacePath: dir,
+      }),
+    ).toBe(false);
+    // Anonymous generic writer → governed by the explicit flag.
+    expect(subagentWillWrite({ write: true, workspacePath: dir })).toBe(true);
+    expect(subagentWillWrite({ workspacePath: dir })).toBe(false);
   });
 });
 

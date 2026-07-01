@@ -25,6 +25,7 @@ import fs from "node:fs";
 import path from "node:path";
 import log from "electron-log";
 import type { WorkMode } from "@/lib/schemas";
+import { BUILTIN_AGENTS, listBuiltinAgents } from "./builtin-agents";
 
 const logger = log.scope("user-agents");
 
@@ -147,16 +148,21 @@ function toUserAgent(name: string, raw: string): UserAgent | null {
   };
 }
 
-/** List the workspace's user-defined agents (excludes mode-skill overrides). */
+/**
+ * List available agents: built-ins overlaid by the workspace's `.atlarix/agents/`
+ * (a workspace file of the same name WINS, so users can retune a built-in).
+ */
 export function listUserAgents(workspacePath: string): UserAgent[] {
+  const byName = new Map<string, UserAgent>();
+  for (const b of listBuiltinAgents()) byName.set(b.name, b);
+
   const dir = userAgentsDir(workspacePath);
-  let entries: string[];
+  let entries: string[] = [];
   try {
     entries = fs.readdirSync(dir);
   } catch {
-    return [];
+    // no workspace agents dir — built-ins only
   }
-  const agents: UserAgent[] = [];
   for (const entry of entries) {
     if (!entry.endsWith(".md")) continue;
     const stem = entry.slice(0, -3);
@@ -166,15 +172,18 @@ export function listUserAgents(workspacePath: string): UserAgent[] {
         stem,
         fs.readFileSync(path.join(dir, entry), "utf8"),
       );
-      if (agent) agents.push(agent);
+      if (agent) byName.set(agent.name, agent); // workspace overrides built-in
     } catch (e) {
       logger.warn(`Failed to read user agent ${entry}: ${String(e)}`);
     }
   }
-  return agents.sort((a, b) => a.name.localeCompare(b.name));
+  return [...byName.values()].sort((a, b) => a.name.localeCompare(b.name));
 }
 
-/** Load one user agent by name, or null if absent/reserved/invalid. */
+/**
+ * Load one agent by name: a workspace `.atlarix/agents/<name>.md` if present,
+ * else the built-in of that name, else null.
+ */
 export function loadUserAgent(
   workspacePath: string,
   name: string,
@@ -186,10 +195,42 @@ export function loadUserAgent(
   }
   const file = path.join(userAgentsDir(workspacePath), `${name}.md`);
   try {
-    return toUserAgent(name, fs.readFileSync(file, "utf8"));
+    const fromWorkspace = toUserAgent(name, fs.readFileSync(file, "utf8"));
+    if (fromWorkspace) return fromWorkspace;
   } catch {
-    return null;
+    // no workspace file — fall through to built-ins
   }
+  return BUILTIN_AGENTS[name] ?? null;
+}
+
+/**
+ * A sub-agent is a WRITER iff its effective toolset includes `edit_file`: it must
+ * run on a write-capable profile (build/debug — the modes that offer `edit_file`)
+ * AND either declare `edit_file` in its `tools` allowlist or omit the allowlist
+ * (inheriting the full writer toolset). Mirrors the intersection run-subagent
+ * applies, so this is the single source of truth for the worktree decision.
+ */
+export function agentIsWriter(agent: UserAgent): boolean {
+  if (agent.mode !== "build" && agent.mode !== "debug") return false;
+  return !agent.tools || agent.tools.includes("edit_file");
+}
+
+/**
+ * Whether a `task({...})` spawn will run as a writer (→ isolated worktree). A
+ * named writer agent implies write without `write:true`; otherwise the explicit
+ * `write` flag decides.
+ */
+export function subagentWillWrite(opts: {
+  write?: boolean;
+  subagentType?: string;
+  workspacePath: string;
+}): boolean {
+  const named = opts.subagentType?.trim();
+  if (named) {
+    const agent = loadUserAgent(opts.workspacePath, named);
+    if (agent) return agentIsWriter(agent);
+  }
+  return opts.write === true;
 }
 
 /** The system block prepended into the turn's header when an agent is active. */
