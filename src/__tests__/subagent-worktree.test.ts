@@ -40,6 +40,9 @@ async function initRepo(dir: string) {
   await exec(["init"], dir);
   await exec(["config", "user.email", "t@example.com"], dir);
   await exec(["config", "user.name", "Test"], dir);
+  // Windows CI: the runner's global core.autocrlf converts worktree checkouts to
+  // CRLF, breaking exact-content assertions. Pin LF for these test repos.
+  await exec(["config", "core.autocrlf", "false"], dir);
   await writeFile(path.join(dir, "app.ts"), "export const a = 1;\n");
   await exec(["add", "-A"], dir);
   await exec(["commit", "-m", "init"], dir);
@@ -184,6 +187,7 @@ describe("subagent worktree seeds from the live working tree", () => {
       await exec(["init"], ws);
       await exec(["config", "user.email", "t@example.com"], ws);
       await exec(["config", "user.name", "Test"], ws);
+      await exec(["config", "core.autocrlf", "false"], ws); // Windows CI: pin LF
       await writeFile(path.join(ws, "fresh.ts"), "export const f = 1;\n"); // untracked, no HEAD
 
       const wt = await createSubagentWorktree(ws, "empty-task");
