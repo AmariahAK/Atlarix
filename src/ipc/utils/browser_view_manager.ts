@@ -17,6 +17,7 @@ import { WebContentsView, BrowserWindow, session, type Session } from "electron"
 
 import log from "electron-log";
 import { safeSend } from "./safe_sender";
+import { CLS_OBSERVER_SCRIPT } from "@/lib/browser/visual-lint";
 
 const logger = log.scope("browser_view");
 
@@ -422,6 +423,13 @@ function wirePreviewEvents(wc: Electron.WebContents): void {
       message: `Preview renderer gone: ${details?.reason ?? "unknown"}`,
       timestamp: nowTs(),
     });
+  });
+  // Install the CLS (layout-shift) observer as soon as the page loads — it must
+  // be present BEFORE shifts happen to measure them. Idempotent per page
+  // context; best-effort (never blocks or fails the load). `browser_inspect
+  // mode:"visual"` reads the accumulated value.
+  wc.on("did-finish-load", () => {
+    void wc.executeJavaScript(CLS_OBSERVER_SCRIPT, true).catch(() => {});
   });
   // Block protocol-downgrade/external schemes (same policy as browser tabs).
   wc.on("will-navigate", (event, url) => {

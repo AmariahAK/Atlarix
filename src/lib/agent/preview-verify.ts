@@ -14,8 +14,10 @@
  */
 import {
   getPreviewErrors,
+  getPreviewView,
   type PreviewErrorEntry,
 } from "@/ipc/utils/browser_view_manager";
+import { detectBlankRender } from "@/lib/browser/visual-lint";
 
 /**
  * Keep only preview entries that represent a genuine runtime failure. Drops
@@ -77,5 +79,28 @@ export function getPreviewRuntimeFeedback(turnId: string): string | null {
     more +
     `\nFix the cause and re-verify with preview_test (or browser_inspect ` +
     `mode:"console") before finishing.`
+  );
+}
+
+/**
+ * Visual "renders correctly" gate (v14.8.6) — extends the runtime-error gate
+ * from "runs without errors" to "actually renders". Deliberately CONSERVATIVE:
+ * blocks "done" ONLY on an unambiguous blank/white-screen (no text, no elements,
+ * no media), never on subjective layout/overlap heuristics (that's the agent's
+ * job via browser_inspect mode:"visual"). Returns null when there's no preview
+ * or it can't tell, so the gate never false-blocks a healthy turn.
+ */
+export async function getPreviewVisualFeedback(
+  _turnId: string,
+): Promise<string | null> {
+  const view = getPreviewView();
+  if (!view) return null;
+  const blank = await detectBlankRender(view.webContents);
+  if (!blank?.blank) return null;
+  return (
+    `The live preview is rendering BLANK (${blank.reason}) — the app compiles but ` +
+    `shows a white screen. Find why nothing rendered (a crashing root component, an ` +
+    `unmounted app, a routing miss) and fix it, then re-check with browser_inspect ` +
+    `mode:"visual" before finishing.`
   );
 }

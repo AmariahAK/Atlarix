@@ -28,6 +28,7 @@ import {
   ensurePreviewBaseline,
   clearPreviewBaseline,
   getPreviewRuntimeFeedback,
+  getPreviewVisualFeedback,
 } from "@/lib/agent/preview-verify";
 import { trackTaskStarted, trackTaskCompleted } from "@/main/lib/analytics";
 import { runMidLoopCompaction } from "@/lib/context/mid_loop_compaction";
@@ -637,6 +638,15 @@ export async function runAgentTurn(
       // preview is white-screening / 500ing (errors observed during THIS turn).
       if (gateFeedback == null) {
         gateFeedback = getPreviewRuntimeFeedback(rt.streamTurnId);
+      }
+      // Visual gate (v14.8.6): don't end "done" while the preview renders a blank
+      // white-screen (compiles but shows nothing). Conservative — blank-render only.
+      if (gateFeedback == null) {
+        try {
+          gateFeedback = await getPreviewVisualFeedback(rt.streamTurnId);
+        } catch (visErr) {
+          logger.warn(`${L} preview visual gate failed to run: ${String(visErr)}`);
+        }
       }
       if (gateFeedback == null || agenticProseOnlyStreak >= PROSE_YIELD_MAX_NUDGES) {
         logger.info(
