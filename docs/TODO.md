@@ -1,7 +1,7 @@
 # Atlarix TODO
 
 **Current Version:** v14.8.0 (released 2026-06-30)
-**Last Updated:** 2026-07-02
+**Last Updated:** 2026-07-02 (v14.8.7 planned added)
 
 > **v14.8.5 + v14.8.6 are landed on `main`, unreleased (no tag).** The three
 > v14.8.5 "cluster branches" turned out to be linear ancestors of `main` (already
@@ -299,6 +299,63 @@ Built on the already-landed v14.8.5 harness hardening. Full suite green (1485 pa
 
 _Deferred (unchanged): live re-validation of #6 (`maxOutputTokens` floor) and the >600s stall A/B;
 the broader concurrency eval harness (supersede cascade, stall-resume)._
+
+---
+
+## 🔭 v14.8.7 — Task-state tracking for open-weight models + edit fidelity + cancel responsiveness (planned)
+
+**Theme:** open-weight models lose the thread — after a resume/network event they re-anchor on the
+LAST user message as "the task," and they re-DERIVE done-vs-pending every turn (re-reading git,
+re-summarizing) instead of TRACKING it. Externalize task state (Claude-Code `TodoWrite` model) and
+make resume re-assert the task. Plus two harness-fidelity bugs surfaced in live runs (a live
+`qwen-code` build session, 2026-07-02): `edit_file` escape mangling and a cancel-time hang. All
+model-agnostic + capability-scaling (help weak models most, cost strong ones ~nothing).
+
+### A. Task-state tracking (the 5, do all — from the 2026-07-02 discussion)
+1. **Live model-maintained TODO ledger, re-surfaced at high salience** near the newest turn (the
+   biggest win). Substrate already exists — `plan` tool, `ATLARIX_PLAN.md`, `PlanCard`,
+   `task-ledger.ts` — but it's under-used as a LIVE progress tracker. Needs: (a) cheap per-item
+   status updates (one call marks done) so it's maintained mid-task; (b) re-inject as a compact
+   block right before the latest turn EVERY turn (same slot as the #15 mode re-anchor) so
+   "what's left" is the freshest, most-authoritative thing read; (c) prompt discipline: consult +
+   update the ledger before deciding the next action (replaces re-reading git/re-summarizing).
+2. **Resume/continuation re-asserts the TASK, not the last user turn** (`continuation-handler.ts`
+   `buildContinuationPrompt` + the network-retry re-entry): "continuing task X; done […]; remaining
+   […]; do NOT restart or treat the prior user message as a new request." Direct fix for "it takes
+   my last prompt as what it's doing" after network events. Pairs with #1 (the ledger IS the state
+   to re-assert).
+3. **Tag turns new-instruction vs system-continuation** so a recency-biased model doesn't read a
+   harness-injected resume as a fresh user request (a resume ≠ a new user turn).
+4. **Generalize the #15 recency re-anchor from mode → active GOAL** (same pre-latest-turn slot).
+5. **Semantic (not byte-identical) loop-guard on repeated status re-statements** — the qwen
+   transcript re-emitted the same "4 done, 1 remains" table repeatedly. Band-aid; #1 largely removes
+   the need. (Today's guard is the 3×-byte-identical doom-loop.)
+   _Note: reviving `task-ledger.ts` as the live ledger is its OWN careful pass — a prior sub-agent
+   fork caused collateral damage there, and `sanitizeLedgerDirSegment` is load-bearing for snapshots._
+
+### B. `edit_file` escape fidelity (open-weight correctness bug, live-observed)
+- **Symptom:** content written with literal backslash-n (`\n`) instead of real newlines in template
+  strings; `/ // ///` comment/slash sequences mangled. **3 different Qwens + DeepSeek could not
+  self-recover** (had to copy-paste or fall back to `sed`/python); the model itself blames
+  `edit_file` escaping. High-impact for the open-weight bench economics (weak models make exactly
+  these mistakes and can't dig out).
+- **Investigate, in order:** (a) native tool-call ARGUMENT decoding double-escapes / mis-unescapes
+  backslashes for certain OpenRouter/open-weight providers — a **model-agnostic infra layer, highest
+  value**; (b) `edit.ts` content transforms (fuzzy-match CRLF-normalize / `trimStart` paths)
+  corrupting escapes; (c) the model over-escaping in native FC and the tool writing verbatim.
+- **Directions:** a lenient tool-arg escape-repair at the decode layer; post-write anomaly detection
+  (literal `\n` where newlines expected) that **REPAIRS or hard-blocks**, not just nudges (nudging is
+  useless — the model can't fix it, as the transcript proves); consider preferring surgical/diff
+  edits to shrink blast radius. Reference Claude Code / opencode arg-parsing + `apply_patch` robustness.
+
+### C. Cancel / abort responsiveness (live-observed)
+- **Symptom:** mid-task, when the UI looks stuck and the user cancels, the app hangs briefly + spikes
+  CPU (laptop "loads a lot") before it closes. Possibly amplified by running Atlarix + another agent
+  on a spec-limited laptop (CPU contention), but the hang is real.
+- **Investigate:** abort teardown cost — is cancel synchronous/heavy on the main thread (worktree
+  removal, git ops, snapshot flush, sub-agent teardown, stream reset)? Cancel should be **immediate**
+  (stop the stream + free the UI now) with teardown moved async/best-effort. Confirm the abort
+  propagates promptly to the in-flight provider fetch AND any running sub-agents.
 
 ---
 
