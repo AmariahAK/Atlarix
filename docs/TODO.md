@@ -393,15 +393,3 @@ CC is disciplined: every tool failure returns a specific, actionable next step (
 (path "did-you-mean" grounding). Lowest-complexity item — pure quality, no new machinery.
 - **Make EVERY tool's failure message actionable + consistent** so a weak model always has a concrete
   next step and never dead-ends (kills self-inflicted wasted turns, e.g. the run-a-just-renamed-file case).
-
----
-
-## 🔭 Open / deferred
-
-> Triage queue — reviewed each release: promote into a version, delete if superseded, or keep with a
-> one-liner. (The "delete the dead task-ledger module" item was superseded by v14.8.7-A1, which
-> revives + repurposes it; its load-bearing gotchas were folded into A1.)
-
-- **Headless `ask_user` equivalent.** The Electron interactive-card routing is live; in
-  headless/autonomous runs `ask_user` is dropped (no responder), so an autonomous agent
-  can't ask a clarifying question. A headless answer channel is still deferred.
