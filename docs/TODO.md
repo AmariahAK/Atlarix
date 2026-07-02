@@ -1,12 +1,12 @@
 # Atlarix TODO
 
 **Current Version:** v14.8.0 (released 2026-06-30)
-**Last Updated:** 2026-07-02 (v14.8.8 landed on `main`)
+**Last Updated:** 2026-07-02 (v14.8.9 landed on `main`)
 
-> **v14.8.5 + v14.8.6 + v14.8.7 + v14.8.8 are landed on `main`, unreleased (no tag).** The
-> three v14.8.5 "cluster branches" turned out to be linear ancestors of `main` (already
-> committed, not unmerged); v14.8.6/v14.8.7/v14.8.8 were built directly on top. The next
-> release tag will carry all four. (v14.8.7 was committed as `e1c1b9e` as a fallback point.)
+> **v14.8.5 → v14.8.9 are landed on `main`, unreleased (no tag).** The three v14.8.5
+> "cluster branches" turned out to be linear ancestors of `main`; v14.8.6→v14.8.9 were built
+> directly on top. The next release tag will carry them all. (Fallback commits: v14.8.7 =
+> `e1c1b9e`, v14.8.8 = `99f65cc`.)
 
 > Open work + the current release only. **Full shipped-version history lives in
 > [`docs/CHANGELOG.md`](./CHANGELOG.md)** (and `docs/CHANGELOG_PREVIOUS.md`).
@@ -299,6 +299,41 @@ Built on the already-landed v14.8.5 harness hardening. Full suite green (1485 pa
 
 _Deferred (unchanged): live re-validation of #6 (`maxOutputTokens` floor) and the >600s stall A/B;
 the broader concurrency eval harness (supersede cascade, stall-resume)._
+
+---
+
+## ✅ v14.8.9 — Prompting refinement pass (DONE — landed on `main`, no tag)
+
+**Landed 2026-07-02.** A refine-*around*-the-base pass after a full read-only audit of the whole
+prompt surface (3 sweeps + the owner-observed screenshot exchange). The base is sound; the problem
+was **layering** — so this is overwhelmingly subtraction + relocation. Anchor failure: a model
+asked "what do you see" *correctly* used `browser_inspect visual`+`text`, then added a **redundant
+screenshot** — lured by every prompt-level browser steer omitting `visual` and by the "VISUAL
+confirmation" wording. Built on the v14.8.8 fallback (`99f65cc`). `ts`/`oxlint`/`knip` clean; full
+suite green.
+
+- **C1 — de-duplicate.** Mode guidance was triplicated (bundled mode `.md` prepended first + compact
+  bundle + AGENTS.md). Made the compact bundle authoritative; trimmed the bundled `build-mode.md`/
+  `ask-mode.md` (removed the verbatim verify/browser/long-running sections; **preserved the
+  workspace-override mechanism**). Verify recipe now 1 home (+ AGENTS.md pointer). Rewrote
+  `BROWSER_NOTE` to finally mention `visual`/`text` as the way to SEE a page (all mode-level browser
+  steers had omitted it — the root of the screenshot bug).
+- **C2 — decision-point steers.** `browser_inspect` reframed: `visual`(+`text`) IS the answer to
+  "what do you see" (don't add a screenshot); `screenshot` = LAST RESORT literal image; steer on the
+  `mode` enum. Dropped the "VISUAL confirmation" lure. Also `edit_file` operation enum (replace-first),
+  `web_search` (one `deep` switch), `task` subagent_type write-escalation, `read_url` reciprocal steer.
+- **C3 — contradictions/terminology/stale.** Scoped AGENTS.md memory-write to write-modes (was
+  contradicting the Explore/Review edit_file block); fixed the `<mode_system>` tag reference; unified
+  "ledger"→"session plan" + named the `plan` tool; deleted dead `stripHeadlessUnboundBullets`.
+- **C4 — density.** Build `<work_mode>` wall → 4 weighted bullets; `tool_contract` re-ordered
+  (native-FC/anti-XML rule leads); `BROWSER_NOTE` scoped out of Plan; trimmed the per-turn ledger tail.
+- **C5 — sub-agent fixes.** `implementer` now keeps `web_search`/`read_url` (parity with a generic
+  `write:true` writer); sub-agent prompts now document the `<system-reminder>` convention; `task`
+  gained a when-to-delegate cue. (The subagent-`.md`-vs-builtin-constant merge was descoped —
+  re-routing would lose the override surface; not worth the churn.)
+
+_Follow-up (unchanged from v14.8.8): validate the edit_file escape handling live; only reopen on an
+observed failure._
 
 ---
 

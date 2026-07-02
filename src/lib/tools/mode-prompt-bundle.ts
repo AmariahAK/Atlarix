@@ -13,11 +13,15 @@ import { ATLARIX_GIT_AUTHOR_EMAIL } from "@/ipc/utils/git_author";
 export const GIT_VIA_TERMINAL_NOTE =
   "Git operations should use the **run_command** tool with standard git CLI (git status, git log, git diff, git show). Do not parse .git/objects manually when run_command can answer.";
 
-/** Steers the model to cheap a11y refs before costly screenshots when using the in-app browser. */
-export const BROWSER_NOTE =
-  "Browser & preview: to read or interact with a page, call **browser_inspect** (mode:\"snapshot\" — a compact list of accessibility refs, cheap) before mode:\"screenshot\" (a costly image). Use the returned refs with **browser_interact** (action:\"click\"|\"fill\"). " +
-  "Add **target:\"preview\"** to any of these (and to **browser_navigate**) to drive the LIVE PREVIEW of the app you are building — open routes, fill forms, click buttons, and verify the running UI. Use **browser_inspect(target:\"preview\", mode:\"console\")** to read the preview's runtime errors. Without target, the tools act on the in-app browser (target:\"browser\"). " +
-  "To VERIFY a web UI change before finishing, prefer **preview_test** — one call runs a scripted, headless navigate→click/fill→waitFor→assert sequence against the live preview and returns a single pass/fail plus any runtime console errors and failed (4xx/5xx) requests. The turn will not be allowed to finish while the preview is throwing runtime errors, so fix and re-run preview_test until it passes.";
+/** Mode-level browser steer. Agrees with the browser_inspect tool description:
+ * a TEXT report is the way to "see" a page; a screenshot is the last resort. */
+export const BROWSER_NOTE = [
+  "Browser & preview — to look at a page (in-app browser, or the app's live preview with target:\"preview\"):",
+  "- SEE how it renders / \"what's on the page\": **browser_inspect** mode:\"visual\" (a ~500-token TEXT report of layout + defects) and/or mode:\"text\" (the page's text). These ARE the answer — do NOT add a screenshot on top.",
+  "- INTERACT: mode:\"snapshot\" for a cheap list of element refs, then **browser_interact** (action:\"click\"|\"fill\") by ref; re-snapshot after navigation.",
+  "- mode:\"screenshot\" is a LAST RESORT — a literal PNG (thousands of tokens), only when the user explicitly needs the actual image; never to read, find elements, or check layout (use visual).",
+  "- LIVE PREVIEW: add target:\"preview\" to drive the running dev server the user sees (open routes, fill forms, verify UI); mode:\"console\" reads its runtime errors. To verify a UI change before finishing, prefer **preview_test** (one scripted navigate→act→assert pass/fail) — the turn won't finish while the preview throws runtime errors.",
+].join("\n");
 
 /** Git note plus per-stream commit-author guidance (commit-capable modes only). */
 export function getGitTerminalNote(gitAuthorName?: string): string {
@@ -145,15 +149,11 @@ If you delegate to an architect sub-agent, its plan comes back as data in <task_
 </work_mode>`;
     case "build":
       return `<work_mode>
-Use native function tools for operations. Project files belong at workspace root, not under .atlarix/ unless asked.
-One run_command for scaffolding when creating projects. For whole-file writes keep each edit_file (operation:"write") focused (≲800 lines) so large writes aren't truncated against the output-token budget; split bigger files across calls.
-Verify your changes with the project's OWN tooling: after edits, discover and run the project's checks via run_command — prefer its package.json scripts (typecheck/lint/test/build), else the real tools directly (tsc --noEmit, eslint, ruff/mypy/pytest, cargo check, go build) — and fix from the output. Read package.json / Makefile / pyproject.toml to find the actual commands; do not invent script names. Use \`node --check\` / \`python3 -m py_compile\` as a syntax floor when no linter exists. Never claim a change is clean while a check still reports errors.
-When the task involves non-trivial logic, write or extend test files that genuinely exercise it and run them before completing (skip the ceremony for trivial edits like renames or copy tweaks).
-If implementing an active session plan (see its planId in context), call plan({operation: "set_status", planId, plan_status: "building"}) first and plan({operation: "set_status", planId, plan_status: "built"}) when the plan is fully implemented.
-Live step progress: as you START each plan checklist step call plan({operation: "update_step", planId, step_index, state: "in_progress"}), and "done" when that step is finished — the plan card updates live for the user.
-The user can add items to the plan while you build. Before moving to the next step, call plan({operation: "read", planId}) to pick up any additions, and honor them. To add a step yourself, use plan({operation: "append_step", planId, step_text}) rather than rewriting the whole plan.
-Work the task toward completion in this turn: when you say you will do something next, do it now — don't stop after only planning, describing what remains, or reporting status. Build on tool results you already have — don't re-read a file or re-run the same command just to view its output differently; run it once asking for enough output, then reason from that. BUT self-regulate, like a careful engineer: if a check/test keeps failing after ~3 focused fix attempts, STOP and report what you changed, the exact remaining failure, and your best next hypothesis — do NOT keep re-running the same check or grinding. Yield when the task is done and its checks pass, OR when you are genuinely stuck after real attempts — then give a brief summary and ask ONE concrete question.
-When fully done and the project's checks/tests pass, simply stop — your turn ends automatically when you make no more tool calls.
+- **Implement:** native function tools; project files at the workspace root (not under .atlarix/ unless asked). One run_command for scaffolding. Keep each whole-file edit_file(operation:"write") ≲800 lines (split larger files across calls) so writes aren't truncated.
+- **Verify with the project's OWN tooling** after edits: discover the real commands (package.json scripts, Makefile, pyproject.toml — don't invent names) and prefer its typecheck/lint/test/build, else run the tools directly (tsc --noEmit, eslint, ruff/mypy/pytest, cargo check, go build); fix from the output. Syntax floor when no linter exists: \`node --check\` / \`python3 -m py_compile\`. Never claim a change is clean while a check reports errors. Write/extend tests for non-trivial logic (skip trivial edits like renames).
+- **Session plan** (when one is active — its planId is in context): set_status "building" before implementing, "built" when done; mark each step update_step "in_progress"/"done" as you go; plan(read) before the next step to pick up user additions; append_step to add one.
+- **Persist to completion:** keep going until the task is fully resolved end-to-end (implement → verify) before yielding — don't stop after only planning or reporting status. If a session plan is active, DRIVE IT TO DONE: keep exactly ONE step in_progress, mark steps done as you finish them, and continue while any step remains.
+- **Verify each step before advancing:** after a meaningful change, run the relevant checks/tests, debug and fix any failures, THEN mark that step done and move to the next — don't advance on a red check or stack work on an unverified step (skip the ceremony for trivial edits like renames or copy tweaks). Build on tool results you already have (don't re-run to re-view). **Stop only when** the plan is fully built and its checks pass, OR you need the user (a decision, or a manual test you can't run yourself), OR you're genuinely blocked. If a check keeps failing after ~3 focused attempts, STOP and report what you changed, the exact failure, and your best next hypothesis — don't grind. The turn ends when you make no more tool calls.
 </work_mode>`;
     case "debug":
       return `<work_mode>
@@ -186,7 +186,8 @@ export function renderModePromptBundle(
     getActiveModeWorkExtras(mode),
     renderActiveModeToolsRegistry(mode, opts),
     // browser_* tools are dropped from the headless toolset — don't advertise them.
-    process.env.ATLARIX_HEADLESS === "1" ? "" : BROWSER_NOTE,
+    // Plan mode can't run the app, so the preview/browser workflow is noise there.
+    process.env.ATLARIX_HEADLESS === "1" || mode === "plan" ? "" : BROWSER_NOTE,
     canCommit ? getGitTerminalNote(opts?.gitAuthorName) : GIT_VIA_TERMINAL_NOTE,
   ]
     .filter((s) => s.length > 0)

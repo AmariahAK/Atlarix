@@ -187,6 +187,7 @@ ToolRegistry.register({
   name: "task",
   description:
     "Spawn a scoped sub-agent for an independent piece of work (exploring a folder, researching a question, mapping a subsystem, or — with write=true — implementing a change). " +
+    "WHEN to use it: delegate work that is INDEPENDENT of your current thread or that you'd otherwise run in PARALLEL (several unrelated questions, a broad codebase/web sweep). For a small or single-step scope, just do it inline — spawning a sub-agent adds latency and its own context. " +
     "For independent scopes, issue MULTIPLE task calls in ONE response — they run concurrently (up to 5 per turn). " +
     "By default a sub-agent is READ-ONLY. Set write=true to let it implement changes inside an ISOLATED git worktree (seeded from your current working tree, so it sees uncommitted work); its proposed diff comes back for you to review and apply with your own write tools (the workspace is never touched directly). " +
     "Optional subagent_type names a built-in agent (explorer = read-only recon, architect = planning, implementer = writer) or a user-defined .atlarix/agents/ agent; a writer agent implies write mode without write=true. " +
@@ -200,7 +201,7 @@ ToolRegistry.register({
       description: stringParam("Short (3-5 word) description of the task"),
       prompt: stringParam("Full task prompt for the sub-agent"),
       subagent_type: stringParam(
-        "Optional: a user-defined agent name from .atlarix/agents/ (omit for the generic scout)",
+        "Optional built-in (explorer=read-only recon, architect=planning, implementer=WRITER) or a .atlarix/agents/ name; omit for the generic read-only scout. Note: a writer type (e.g. implementer) turns on write mode by itself — no write=true needed.",
       ),
       task_id: stringParam(
         "Resume a prior background task (same sub-agent session)",

@@ -136,21 +136,6 @@ export const getAgentsMdForWorkMode = (_mode: ModeSystemKey): string => {
     return AGENTS_MD || "";
 };
 
-/**
- * Headless/autonomous: the offered toolset (resolve-toolset.ts HEADLESS_DROP)
- * removes ask_user, MCP, web_search/read_url, and attachment tools, and there is
- * no approval queue (writes auto-apply). Strip the matching AGENTS bullets so the
- * prompt never advertises a tool the model can't call (the dynamic tail already
- * swaps the ask_user guidance for autonomous guidance). Electron app path keeps
- * the full text. Label-anchored so it survives line edits.
- */
-const HEADLESS_STRIP_BULLET = /^\s*-\s+\*\*(Approvals|Web|MCP|User):\*\*/;
-const stripHeadlessUnboundBullets = (md: string): string =>
-    md
-        .split("\n")
-        .filter((line) => !HEADLESS_STRIP_BULLET.test(line))
-        .join("\n");
-
 const MODE_SYSTEM_DESCRIPTIONS: Record<ModeSystemKey, string> = {
   ask: "Explore (read-only). Answer questions, summarise code, and never mutate the workspace.",
   plan: "Author the session plan (plan tool) and .atlarix/atlarix.md before production code changes.",
@@ -263,7 +248,7 @@ export const constructSystemPromptParts = ({
         (effectiveWorkMode
             ? getAgentsMdForWorkMode(effectiveWorkMode)
             : getAgentsMdForContextSize(contextSize));
-    const base = headless ? stripHeadlessUnboundBullets(baseRaw) : baseRaw;
+    const base = baseRaw;
 
     // PASS8 A3: <tool_contract> slimmed to the contract itself; verbose prose dropped.
     // Headless drops the every-mode tools not bound autonomously (resolve-toolset.ts).
@@ -271,12 +256,10 @@ export const constructSystemPromptParts = ({
         ? "compress_context"
         : EVERY_MODE_TOOLS.join(", ");
     const toolContract = `<tool_contract>
-Every-mode tools: ${everyModeTools}.
-Workspace tools (file read/write, glob, grep, run_command, etc.) require an open workspace folder.
-If a tool is in your tool list, call it; do not claim it is missing.
-Use **native function calling only**. Never emit \`<atlarix-tool-call>\`, \`<atlarix-tool_calls>\`, or other XML tool syntax in visible text.
-Optional caps (max_bytes, max_lines, timeout_ms, max_output_bytes, etc.) are tuning knobs—use higher values only when the default would block legitimate work.
-\`<system-reminder>\` blocks are injected by the harness, not the user—treat them as out-of-band guidance/results. Only untagged user turns are genuine user input.
+Use **native function calling only** — never emit \`<atlarix-tool-call>\`, \`<atlarix-tool_calls>\`, or other XML tool syntax in visible text.
+\`<system-reminder>\` blocks are injected by the harness, not the user — out-of-band guidance/results; only untagged user turns are genuine user input.
+Every-mode tools: ${everyModeTools}. Workspace tools (file read/write, glob, grep, run_command, etc.) require an open workspace folder. If a tool is in your list, call it; don't claim it's missing.
+Optional caps (max_bytes, max_lines, timeout_ms, …) are tuning knobs — raise only when the default would block legitimate work.
 </tool_contract>`;
 
     const outputStyleRule = `<output_style>

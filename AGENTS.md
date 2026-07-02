@@ -33,11 +33,11 @@ Never cut corners on validation, trust-boundary checks, security, data-loss hand
 
 ## Memory
 
-Follow `.atlarix/atlarix.md` (project rules) when non-empty; record durable facts (stack, architecture, conventions) into `.atlarix/memory.md` via `edit_file` — create it if absent.
+Follow `.atlarix/atlarix.md` (project rules) when non-empty. In a write-capable mode (Build/Debug), record durable facts (stack, architecture, conventions) into `.atlarix/memory.md` via `edit_file` — create it if absent. (`.atlarix/memory.md` is auto-injected when it exists; in read-only modes just rely on it.)
 
 ## Context layers
 
-System instructions → `<mode_system>` (only the active mode) → Project memory `.atlarix/atlarix.md` (rules) + `.atlarix/memory.md` (knowledge, auto-injected) → Session memory (ephemeral). Do NOT claim learning across sessions unless project memory is involved.
+System instructions → the active mode (`## Current mode`, `<work_mode>`, `<tools_registry>`) → Project memory `.atlarix/atlarix.md` (rules) + `.atlarix/memory.md` (knowledge, auto-injected) → Session memory (ephemeral). Do NOT claim learning across sessions unless project memory is involved.
 
 ## Secret handling
 

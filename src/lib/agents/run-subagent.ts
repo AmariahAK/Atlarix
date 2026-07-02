@@ -254,6 +254,12 @@ export async function runSubagent(
       return { success: false, error: "Missing sub-agent system prompt" };
     }
 
+    // v14.8.9: a sub-agent can receive a <system-reminder>-wrapped continuation
+    // on a length/unknown finish; the convention is documented only in the MAIN
+    // system prompt (which sub-agents don't get), so state it here too.
+    systemPrompt +=
+      "\n\n`<system-reminder>` blocks are injected by the harness, not the user — out-of-band guidance, not a new request. Only untagged input is genuine.";
+
     // Small-repo inventory hint (cheap, prevents blind exploration).
     if (workspace.trim()) {
       try {

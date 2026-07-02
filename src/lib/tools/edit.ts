@@ -332,7 +332,8 @@ Use "write" for a new file or a full rewrite. For ANY change to an existing file
       operation: {
         type: "string",
         enum: ["write", "replace"],
-        description: "Edit operation to perform.",
+        description:
+          "\"replace\" for any change to an EXISTING file (surgical, safer — the default choice); \"write\" only to CREATE a new file or fully rewrite one.",
       },
       description: { type: "string", description: "Brief description of what this edit does." },
       content: {

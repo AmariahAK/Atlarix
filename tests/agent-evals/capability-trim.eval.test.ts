@@ -150,6 +150,12 @@ describe("v14.8.8 — per-tool guidance rides the capability-gated tool schema",
     expect(runCmd).toContain('target:"preview"');
     // Browser guidance is present because browser tools are in build mode.
     expect(descOf(req, "browser_navigate")).toBeTruthy();
+    // v14.8.9: browser_inspect steers "what do you see" → visual, screenshot is
+    // last resort, and the "VISUAL confirmation" lure is gone (the observed bug).
+    const inspect = descOf(req, "browser_inspect")!;
+    expect(inspect).toContain("what do you see");
+    expect(inspect).toContain("LAST RESORT");
+    expect(inspect).not.toContain("VISUAL confirmation");
   }, 30_000);
 
   it("ask mode: edit_file (and its mutation guidance) is absent — capability-gated for free", async () => {

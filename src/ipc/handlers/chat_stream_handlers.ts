@@ -234,6 +234,7 @@ import {
   formatPlanChecklistForPrompt,
   extractPlanChecklistTitle,
 } from "@/lib/tasks/plan-checklist";
+import { getPlanCompletionFeedback } from "@/lib/tasks/plan-completion-gate";
 import { emitPlanUpdate } from "@/ipc/utils/emit_plan_update";
 import { systemReminder } from "@/lib/streaming/system-reminder";
 import { runCommandFailureGuidance } from "@/lib/tools/run-command-guidance";
@@ -6689,6 +6690,10 @@ This conversation includes one or more image attachments. When the user uploads 
                     ...(appPath && hasStopHooks(appPath)
                       ? { taskCompleteGate: () => runStopHooks(appPath) }
                       : {}),
+                    // v14.8.9 continue-until-done: drive an active session plan to
+                    // completion (self-gates on plan existence + pending steps).
+                    planCompletionGate: () =>
+                      getPlanCompletionFeedback(req.workspaceSessionId),
                   },
                   {
                     chatId: req.chatId,

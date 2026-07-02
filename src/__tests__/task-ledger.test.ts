@@ -25,14 +25,14 @@ describe("A1 — formatPlanChecklistForPrompt", () => {
     const steps = parsePlanChecklist(PLAN);
     const block = formatPlanChecklistForPrompt(steps, extractPlanChecklistTitle(PLAN));
     expect(block).toBeTruthy();
-    expect(block).toContain("[Task ledger]");
+    expect(block).toContain("[Session plan]");
     expect(block).toContain("Build the auth flow");
     expect(block).toContain("1/4 steps done");
     expect(block).toContain("In progress: 2. Wire the login handler");
     expect(block).toContain("Add session cookies");
     expect(block).toContain("Write tests");
     // Discipline line so the model updates rather than re-derives.
-    expect(block!.toLowerCase()).toContain("do not re-derive");
+    expect(block!.toLowerCase()).toContain("re-derive");
   });
 
   it("returns null when there are no steps", () => {
@@ -64,10 +64,10 @@ describe("A2 — buildContinuationPrompt re-asserts the task", () => {
   });
 
   it("re-asserts the SAME task from the ledger when present, wrapped out-of-band", () => {
-    const out = buildContinuationPrompt({ ...ctx, taskLedger: "[Task ledger] 1/4 steps done." });
+    const out = buildContinuationPrompt({ ...ctx, taskLedger: "[Session plan] 1/4 steps done." });
     expect(out).toContain("<system-reminder>");
     expect(out).toContain("SAME task");
-    expect(out).toContain("[Task ledger] 1/4 steps done.");
+    expect(out).toContain("[Session plan] 1/4 steps done.");
     expect(out.toLowerCase()).toContain("do not restart");
   });
 });

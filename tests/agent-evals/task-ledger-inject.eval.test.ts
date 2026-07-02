@@ -40,7 +40,10 @@ describe("task ledger recency injection", () => {
         .repeatLast()
         .build(),
     );
-    ctx.server.register(scenario("ledger-next").text("Continuing.").build());
+    // repeatLast: turn 2 runs in Build with the plan still holding pending steps,
+    // so the v14.8.9 plan-completeness gate correctly nudges "continue" — absorb
+    // those bounded nudges (the assertion below is on the FIRST request).
+    ctx.server.register(scenario("ledger-next").text("Continuing.").repeatLast().build());
 
     const chatId = await ctx.newChat();
 
@@ -61,7 +64,7 @@ describe("task ledger recency injection", () => {
 
     const turn2Req = (ctx.server.requestsFor("ledger-next") as RecordedRequest[])[0];
     const blob = JSON.stringify(turn2Req);
-    expect(blob).toContain("[Task ledger]");
+    expect(blob).toContain("[Session plan]");
     // v14.8.8: the harness-injected block is framed out-of-band, not as a user turn.
     expect(blob).toContain("<system-reminder>");
     // step 1 marked done via the planId-less update_step (A1a)

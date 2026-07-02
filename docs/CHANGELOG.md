@@ -1,5 +1,46 @@
 # Atlarix Changelog
 
+## [14.8.9] (2026-07-02) — Open-weight harness hardening: task-state, edit fidelity, and a sharper agent
+
+> The first tagged release since 14.8.0 — it carries a run of harness work (14.8.5→14.8.9) focused on
+> making open-weight models (DeepSeek, Qwen, Kimi, MiniMax) behave like they know your codebase.
+> Headlines: the agent now **tracks its plan as a live ledger and drives it to completion** instead of
+> stalling mid-task; **`edit_file` is more robust** (write + self-healing replace, with over-escaped
+> content auto-repaired); **cancel is instant** (it kills the sub-agent git work that used to spike CPU);
+> harness nudges no longer masquerade as your messages; and the agent's built-in "sight" of a web page
+> is **cheaper and no longer cries wolf** about decorative-layer overlaps. tsc + oxlint + knip clean;
+> full vitest green (**1525 tests**); verified in a packaged build.
+
+### Added
+
+- **Live task ledger + continue-until-done.** The session plan is re-surfaced compactly every turn and
+  the agent keeps exactly one step in-progress, verifying each step before advancing — a Build turn now
+  drives the whole plan to completion (bounded), while still stopping for a decision, a manual test, or
+  background work. (`src/lib/tasks/plan-completion-gate.ts`, `plan-checklist.ts`, `run-agent-turn.ts`.)
+- **Out-of-band `<system-reminder>` framing.** Harness-injected nudges, resumes, and results are now
+  tagged as out-of-band so the model never mistakes a harness continuation for a fresh user request.
+  (`src/lib/streaming/system-reminder.ts`.)
+
+### Changed
+
+- **`edit_file` collapsed to `write` + `replace`** with an opencode-style self-healing match cascade;
+  over-escaped content (literal `\n`) is auto-repaired when unambiguous and hard-blocked otherwise.
+  (`src/lib/tools/edit.ts`, `edit-match.ts`, `edit-escape.ts`.)
+- **Prompt + tool-guidance refinement.** De-duplicated triplicated mode guidance, moved decisive
+  "when to use" steers onto the tool schemas (so `browser_inspect` no longer over-reaches for a
+  screenshot when a cheap text report answers "what's on the page"), and trimmed contradictions/stale
+  copy. The work-mode picker now shows only the five modes (sub-agents are `task` targets, not modes).
+- **Token-efficient visual "sight" is more accurate.** The layout-defect check now excludes decorative/
+  positioned layers, so live sites stop reporting false "layout bugs." (`src/lib/browser/visual-lint.ts`.)
+
+### Fixed
+
+- **Cancel is immediate.** Stopping a turn now kills the sub-agent git/worktree children that used to
+  keep running and spike CPU; teardown is off the hot path. (`src/lib/tools/spawn-task.ts`,
+  `src/lib/agents/subagent-worktree.ts`.)
+- **Actionable tool errors everywhere.** Every tool failure now returns a concrete next step; bare
+  `{error}` returns are normalized so a failure never masquerades as success. (`src/lib/tools/registry.ts`.)
+
 ## [14.8.0] (2026-06-30) — Headless preview testing, rock-steady streaming, smarter stalls
 
 > A reliability + capability pass. Atlarix can now **verify the web app it builds with zero human clicking** — a new headless preview test drives the live app and a completion gate blocks "done" while the app throws runtime errors. On the reliability side: the chat **no longer jumps back** to an earlier spot mid/end-of-stream; reasoning-model **stalls now resume from where they left off** instead of restarting and redoing every tool call; weak/local text-tool models settle cleanly instead of re-running a prior tool call every round; and the redundant rolling session-memory summary is **gone** (model context defers entirely to the full conversation + token-overflow compaction, the way opencode/Claude Code do it). tsc (main + app + tests) + oxlint + knip clean; full vitest green (**1441 tests**); verified in a packaged build.

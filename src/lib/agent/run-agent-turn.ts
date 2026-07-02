@@ -208,6 +208,11 @@ export async function runAgentTurn(
   const loopStartTime = Date.now();
   let agenticIteration = 0;
   let agenticProseOnlyStreak = 0;
+  // v14.8.9 continue-until-done: the plan-completeness gate has its OWN, higher
+  // consecutive cap than the red-verification gates — a legit multi-phase task
+  // that briefly yields at several phase boundaries shouldn't be cut at 3. Both
+  // reset on any productive round.
+  let planNudgeStreak = 0;
   let agenticMessages: ModelMessage[] = [...rt.seedMessages];
   const allToolResults: Array<{ tool: string; result: string }> = [];
   let totalToolExecutions = 0;
@@ -222,6 +227,8 @@ export async function runAgentTurn(
   // (stop hook / failed command / unverified edit) we nudge it on at most this
   // many times before ending anyway, so a persistent failure can never loop.
   const PROSE_YIELD_MAX_NUDGES = 3;
+  // Plan-completeness nudges get more headroom (see planNudgeStreak above).
+  const PLAN_YIELD_MAX_NUDGES = 6;
 
   // Park-on-wait: when the model would END the turn but background work is still
   // outstanding (running/pending background commands OR sub-agents), we DON'T
@@ -673,13 +680,28 @@ export async function runAgentTurn(
           logger.warn(`${L} preview visual gate failed to run: ${String(visErr)}`);
         }
       }
-      if (gateFeedback == null || agenticProseOnlyStreak >= PROSE_YIELD_MAX_NUDGES) {
+      // v14.8.9 continue-until-done: after the red-verification gates, the
+      // plan-completeness gate keeps the turn going while the session plan has
+      // steps left. It uses its OWN (higher) cap so it isn't the red gates' 3.
+      let usePlanGate = false;
+      if (gateFeedback == null && profile.planCompletionGate) {
+        try {
+          gateFeedback = await profile.planCompletionGate();
+          usePlanGate = gateFeedback != null;
+        } catch (planErr) {
+          logger.warn(`${L} plan-completion gate failed to run: ${String(planErr)}`);
+        }
+      }
+      const gateStreak = usePlanGate ? planNudgeStreak : agenticProseOnlyStreak;
+      const gateCap = usePlanGate ? PLAN_YIELD_MAX_NUDGES : PROSE_YIELD_MAX_NUDGES;
+      if (gateFeedback == null || gateStreak >= gateCap) {
         logger.info(
           `${L} Model yielded (no tool calls) — ending turn at iteration ${agenticIteration + 1}`,
         );
         break;
       }
-      agenticProseOnlyStreak++;
+      if (usePlanGate) planNudgeStreak++;
+      else agenticProseOnlyStreak++;
       // Fold this round's native tool messages for context on the gate-nudge
       // continuation (a tool-using round can now reach this path); fall back to
       // prose for a pure-prose round. Stage 2: fold into BOTH request + envelope
@@ -699,12 +721,14 @@ export async function runAgentTurn(
       });
       agenticIteration++;
       logger.log(
-        `${L} Completion gate not satisfied — nudge ${agenticProseOnlyStreak}/${PROSE_YIELD_MAX_NUDGES}; continuing`,
+        `${L} ${usePlanGate ? "Plan not complete" : "Completion gate not satisfied"} — nudge ${gateStreak + 1}/${gateCap}; continuing`,
       );
       continue;
     }
 
+    // Productive round — reset BOTH yield counters (§continue-until-done).
     agenticProseOnlyStreak = 0;
+    planNudgeStreak = 0;
 
     if (hasTextToolCalls && (textToolCalls?.length ?? 0) === 0) {
       logger.log(`${L} No parseable tool calls found, ending loop`);

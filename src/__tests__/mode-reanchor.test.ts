@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { getActiveModeReanchor } from "@/lib/tools/mode-prompt-bundle";
+import { getActiveModeReanchor, BROWSER_NOTE } from "@/lib/tools/mode-prompt-bundle";
 
 describe("getActiveModeReanchor (#15 mode-transition re-anchor)", () => {
   it("names the current mode for every mode", () => {
@@ -21,5 +21,17 @@ describe("getActiveModeReanchor (#15 mode-transition re-anchor)", () => {
     expect(getActiveModeReanchor("review")).toMatch(/read-only/i);
     expect(getActiveModeReanchor("build")).toMatch(/implementation/i);
     expect(getActiveModeReanchor("debug")).toMatch(/hypothesis/i);
+  });
+});
+
+describe("v14.8.9 BROWSER_NOTE — visual is the way to SEE; screenshot is last resort", () => {
+  it("steers 'see the page' to the visual/text text report, not a screenshot", () => {
+    expect(BROWSER_NOTE).toMatch(/mode:"visual"/);
+    expect(BROWSER_NOTE).toMatch(/do NOT add a screenshot/i);
+  });
+  it("frames screenshot as a last resort, never for reading/finding/layout", () => {
+    expect(BROWSER_NOTE).toMatch(/LAST RESORT/i);
+    // must NOT tell the model to screenshot in order to "see" the page (the bug)
+    expect(BROWSER_NOTE).not.toMatch(/screenshot[^.]*\bto SEE\b/i);
   });
 });

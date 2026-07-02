@@ -1,5 +1,9 @@
 /**
- * Work mode dropdown (Ask / Plan / Build / Debug / Review).
+ * Work mode dropdown (Explore / Plan / Build / Debug / Review).
+ *
+ * v14.8.9: sub-agents (architect/explorer/implementer + .atlarix/agents/*.md) are
+ * `task`-tool targets the main agent spawns — NOT user-selectable chat modes — so
+ * they are no longer shown here. The picker is the five work modes only.
  */
 
 import { useEffect, useState } from "react";
@@ -7,7 +11,6 @@ import { useSettings } from "@/hooks/useSettings";
 import { useAtomValue } from "jotai";
 import { selectedChatIdAtom } from "@/atoms/chatAtoms";
 import { resolveChatWorkspaceAppId } from "@/lib/chat-workspace-binding";
-import { IpcClient } from "@/ipc/ipc_client";
 import { cn } from "@/lib/utils";
 import {
   MessageCircle,
@@ -15,7 +18,6 @@ import {
   Hammer,
   Bug,
   ShieldCheck,
-  Bot,
 } from "lucide-react";
 import {
   Tooltip,
@@ -47,49 +49,31 @@ const WORK_MODES: { value: WorkMode; icon: typeof MessageCircle; desc: string }[
   {
     value: "ask",
     icon: MessageCircle,
-    desc: "Read-only exploration—no plan file writes. Use Plan for roadmaps, then Build to implement.",
+    desc: "Read-only: read, search, run non-mutating commands, and preview the app. No file edits — use Plan for roadmaps, Build to implement.",
   },
   {
     value: "plan",
     icon: ListTodo,
-    desc: "Plan file only (.atlarix/ATLARIX_PLAN.md + ATLARIX.md). Switch to Build after the plan is done.",
+    desc: "Plan the work with the plan tool (shown as a card). No source edits — switch to Build to implement.",
   },
   { value: "build", icon: Hammer, desc: "Full write/run tools for end-to-end implementation." },
-  { value: "debug", icon: Bug, desc: "Investigation focus; read tools + diagnose_issue + run_command." },
-  { value: "review", icon: ShieldCheck, desc: "Review and quality; Ask tools + review-style prompts." },
+  {
+    value: "debug",
+    icon: Bug,
+    desc: "Hypothesis-first fixing: read + run_command, minimal edits to test a stated hypothesis.",
+  },
+  {
+    value: "review",
+    icon: ShieldCheck,
+    desc: "Read-only quality + security review — findings and suggested fixes, no edits.",
+  },
 ];
-
-const AGENT_PREFIX = "agent:"; // SelectItem value namespace for user agents
 
 export function ChatIntentSelector() {
   const selectedChatId = useAtomValue(selectedChatIdAtom);
   const workspaceAppId = resolveChatWorkspaceAppId(selectedChatId);
   const { settings, updateSettings } = useSettings();
-  const [agents, setAgents] = useState<
-    Array<{ name: string; description: string; mode: string }>
-  >([]);
 
-  // v12 7A: load workspace user-agents (.atlarix/agents/*.md) for the picker.
-  useEffect(() => {
-    let cancelled = false;
-    if (workspaceAppId == null) {
-      setAgents([]);
-      return;
-    }
-    IpcClient.getInstance()
-      .listAgents(workspaceAppId)
-      .then((list) => {
-        if (!cancelled) setAgents(list);
-      })
-      .catch(() => {
-        if (!cancelled) setAgents([]);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [workspaceAppId]);
-
-  const selectedAgent = settings?.selectedAgent || "";
   const [showFirstTime, setShowFirstTime] = useState(() => {
     if (typeof window === "undefined") return false;
     return !window.localStorage.getItem(HAS_SEEN_INTENT_KEY);
@@ -135,28 +119,16 @@ export function ChatIntentSelector() {
     if (isReadOnlyChatChrome && mode !== "ask") {
       return;
     }
-    // Picking a built-in mode clears any active user agent.
+    // Picking a mode clears any stale selected sub-agent (agents are task-tool
+    // targets, not modes; the picker no longer sets one).
     updateSettings({
       ...settingsPatchForWorkMode(mode),
       selectedAgent: "",
     });
   };
 
-  // Picker value: a user agent (when active) takes the slot, else the mode.
-  const selectorValue = selectedAgent
-    ? `${AGENT_PREFIX}${selectedAgent}`
-    : workMode;
-  const onSelect = (v: string) => {
-    if (v.startsWith(AGENT_PREFIX)) {
-      updateSettings({ selectedAgent: v.slice(AGENT_PREFIX.length) });
-    } else {
-      setWorkMode(v as WorkMode);
-    }
-  };
-  const workIcon = selectedAgent
-    ? Bot
-    : WORK_MODES.find((w) => w.value === workMode)?.icon ?? MessageCircle;
-  const WorkIcon = workIcon;
+  const WorkIcon =
+    WORK_MODES.find((w) => w.value === workMode)?.icon ?? MessageCircle;
 
   const dismissFirstTime = () => {
     setShowFirstTime(false);
@@ -195,78 +167,52 @@ export function ChatIntentSelector() {
               </TooltipContent>
             </Tooltip>
           ) : (
-            <>
-              <Select value={selectorValue} onValueChange={onSelect}>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <MiniSelectTrigger
-                      data-testid="chat-work-mode-select"
-                      className={cn(
-                        "h-7 min-w-[5.5rem] px-2 py-0 text-xs font-medium shadow-none gap-1",
-                        "bg-background hover:bg-muted/50 focus:bg-muted/50",
-                      )}
-                      size="sm"
-                    >
-                      <WorkIcon className="h-3.5 w-3.5 shrink-0" />
-                      <SelectValue>
-                        {selectedAgent || labelForWorkMode(workMode)}
-                      </SelectValue>
-                    </MiniSelectTrigger>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    {"Work mode: tool surface per mode. Open for Ask, Plan, Build, Debug, Review."}
-                  </TooltipContent>
-                </Tooltip>
-                <SelectContent
-                  align="start"
-                  side="top"
-                  position="popper"
-                  avoidCollisions
-                  collisionPadding={12}
-                  onCloseAutoFocus={(e) => e.preventDefault()}
-                >
-                  {WORK_MODES.map(({ value, icon: Icon, desc }) => {
-                    const disabled = noWorkspace && value !== "ask";
-                    return (
-                      <SelectItem key={value} value={value} disabled={disabled}>
-                        <div className="flex flex-col items-start gap-0.5 py-0.5">
-                          <span className="flex items-center gap-1.5 font-medium">
-                            <Icon className="h-3.5 w-3.5" />
-                            {labelForWorkMode(value)}
-                          </span>
-                          <span className="text-xs text-muted-foreground font-normal">{desc}</span>
-                        </div>
-                      </SelectItem>
-                    );
-                  })}
-                  {/* v12 7A: workspace user-defined agents */}
-                  {agents.length > 0 && (
-                    <div className="px-2 pt-2 pb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                      Workspace agents
-                    </div>
-                  )}
-                  {agents.map((a) => (
-                    <SelectItem
-                      key={a.name}
-                      value={`${AGENT_PREFIX}${a.name}`}
-                      disabled={noWorkspace}
-                    >
+            <Select
+              value={workMode}
+              onValueChange={(v) => setWorkMode(v as WorkMode)}
+            >
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <MiniSelectTrigger
+                    data-testid="chat-work-mode-select"
+                    className={cn(
+                      "h-7 min-w-[5.5rem] px-2 py-0 text-xs font-medium shadow-none gap-1",
+                      "bg-background hover:bg-muted/50 focus:bg-muted/50",
+                    )}
+                    size="sm"
+                  >
+                    <WorkIcon className="h-3.5 w-3.5 shrink-0" />
+                    <SelectValue>{labelForWorkMode(workMode)}</SelectValue>
+                  </MiniSelectTrigger>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {"Work mode: tool surface per mode. Open for Ask, Plan, Build, Debug, Review."}
+                </TooltipContent>
+              </Tooltip>
+              <SelectContent
+                align="start"
+                side="top"
+                position="popper"
+                avoidCollisions
+                collisionPadding={12}
+                onCloseAutoFocus={(e) => e.preventDefault()}
+              >
+                {WORK_MODES.map(({ value, icon: Icon, desc }) => {
+                  const disabled = noWorkspace && value !== "ask";
+                  return (
+                    <SelectItem key={value} value={value} disabled={disabled}>
                       <div className="flex flex-col items-start gap-0.5 py-0.5">
                         <span className="flex items-center gap-1.5 font-medium">
-                          <Bot className="h-3.5 w-3.5" />
-                          {a.name}
+                          <Icon className="h-3.5 w-3.5" />
+                          {labelForWorkMode(value)}
                         </span>
-                        {a.description && (
-                          <span className="text-xs text-muted-foreground font-normal">
-                            {a.description}
-                          </span>
-                        )}
+                        <span className="text-xs text-muted-foreground font-normal">{desc}</span>
                       </div>
                     </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </>
+                  );
+                })}
+              </SelectContent>
+            </Select>
           )}
         </div>
       </PopoverAnchor>

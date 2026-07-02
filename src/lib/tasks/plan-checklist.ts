@@ -133,8 +133,8 @@ export function formatPlanChecklistForPrompt(
   const pending = steps.filter((s) => s.state === "todo");
 
   const lines: string[] = [];
-  const head = title?.trim() ? `Task: ${title.trim()} — ` : "";
-  lines.push(`[Task ledger] ${head}${done}/${steps.length} steps done.`);
+  const head = title?.trim() ? `${title.trim()} — ` : "";
+  lines.push(`[Session plan] ${head}${done}/${steps.length} steps done.`);
   if (inProgress) lines.push(`In progress: ${inProgress.index}. ${inProgress.text}`);
   if (pending.length) {
     lines.push(`Remaining: ${pending.map((s) => `${s.index}. ${s.text}`).join("; ")}`);
@@ -145,9 +145,8 @@ export function formatPlanChecklistForPrompt(
   if (done === steps.length) {
     lines.push("All steps are marked done — verify the work, then finish.");
   }
-  lines.push(
-    "Consult and update this ledger (plan update_step) before deciding your next action; do NOT re-derive progress from git or by re-reading everything.",
-  );
+  // C4: terse trailing steer (was a long sentence repeated every turn).
+  lines.push("Update it with plan(update_step) as you go; don't re-derive progress from git.");
   return lines.join("\n");
 }
 

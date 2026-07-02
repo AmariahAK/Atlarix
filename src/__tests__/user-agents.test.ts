@@ -115,6 +115,12 @@ describe("built-in agents + write derivation", () => {
     expect(loadUserAgent(dir, "architect")!.mode).toBe("plan");
   });
 
+  it("v14.8.9: implementer keeps web tools (parity with a generic write:true writer)", () => {
+    const impl = loadUserAgent(dir, "implementer")!;
+    expect(impl.tools).toContain("web_search");
+    expect(impl.tools).toContain("read_url");
+  });
+
   it("lets a workspace file OVERRIDE a built-in of the same name", () => {
     writeAgent(
       "implementer",

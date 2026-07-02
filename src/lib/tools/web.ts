@@ -313,11 +313,11 @@ ToolRegistry.register({
                 description: "When true, perform multi-source deep synthesis (formerly deep_search) — fetch full content from the top URLs and aggregate. Default: false (quick lookup).",
                 default: false,
             },
-            mode: stringParam("Search depth: 'quick' (default), 'deep', or 'comprehensive'. Equivalent to deep:true when set to 'deep' or 'comprehensive'."),
+            mode: stringParam("Legacy alias for `deep` — prefer the deep flag. ('deep'/'comprehensive' behave as deep:true.)"),
             sources: stringParam("Sources to search. For news/articles use 'general'. For code use 'stackoverflow,github,mdn'. Default: 'general'"),
             num_results: {
                 type: "number",
-                description: "Number of results per source (default: 3, max: 10 for comprehensive)",
+                description: "Results per source (default 3, max 10). Raise only when one page of hits is genuinely too few.",
             },
             max_sources: {
                 type: "number",
@@ -624,7 +624,7 @@ async function runDeepSearch(query: string, maxSources: number = 3) {
 ToolRegistry.register({
     name: "read_url",
     description:
-        "Fetch and read content from a URL. Extracts main content and provides a clean, readable summary.",
+        "Fetch and read content from a URL. Extracts main content and provides a clean, readable summary. Prefer this (and web_search) over opening browser_navigate for plain content/reading — reserve the browser for interactive pages.",
     requiresWorkspace: false,
     isCore: true,
     isReadOnly: true, // Safe for Ask mode - only reads URL content

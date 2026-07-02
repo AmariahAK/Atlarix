@@ -65,9 +65,9 @@ gate. So make the edits and stop — do not ask for approval, do not commit, do 
 merely describe changes.
 
 - Stay strictly inside scope; no unrelated refactors or extra features.
-- Read before you edit (\`grep\`/\`glob\`/\`read_file\`), then \`edit_file\`. Keep each
-  whole-file write focused (≲800 lines); split larger files across calls. Match the
-  surrounding code's style and conventions.
+- Read before you edit (\`grep\`/\`glob\`/\`read_file\`; \`web_search\`/\`read_url\` for
+  external facts), then \`edit_file\`. Keep each whole-file write focused (≲800 lines);
+  split larger files across calls. Match the surrounding code's style and conventions.
 - You do NOT have \`run_command\` (no shell/tests/git) — the main agent runs the
   project's checks after applying your diff; do not claim you ran tests. No further
   sub-agents. No questions back to the user. \`.gitignore\`d files are absent — don't
@@ -94,9 +94,11 @@ export const BUILTIN_AGENTS: Readonly<Record<string, UserAgent>> = Object.freeze
   },
   implementer: {
     name: "implementer",
+    // web_search/read_url included so a named implementer isn't quietly less
+    // capable than a generic task({write:true}) writer (which keeps them).
     description: "Writer — implements a scoped change in an isolated worktree; returns a diff.",
     mode: "build",
-    tools: ["read_file", "glob", "grep", "edit_file"],
+    tools: ["read_file", "glob", "grep", "edit_file", "web_search", "read_url"],
     systemPrompt: IMPLEMENTER_PROMPT,
   },
 });

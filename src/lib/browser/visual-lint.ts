@@ -165,14 +165,31 @@ const VISUAL_LINT_SCRIPT = `(async () => {
     } catch (e) { /* skip element */ }
   }
 
-  // 5) Gross sibling overlap — two block siblings whose boxes overlap > 60%.
+  // 5) Gross sibling overlap — two IN-FLOW, opaque, TEXT-BEARING block siblings
+  //    whose boxes overlap > 60%. Decorative layers (absolutely/fixed-positioned
+  //    backdrops, glows, near-transparent or pointer-events:none overlays, and
+  //    textless boxes) overlap content BY DESIGN, so skip them — otherwise every
+  //    modern site reports false "layout bugs" (a single decorative element flags
+  //    against everything below it).
   try {
     const blocks = Array.from(document.querySelectorAll('main *, body > *')).slice(0, 400);
+    const isDecorativeLayer = (el) => {
+      try {
+        const s = window.getComputedStyle(el);
+        if (s.position === 'absolute' || s.position === 'fixed') return true;
+        if (s.pointerEvents === 'none') return true;
+        if (parseFloat(s.opacity || '1') < 0.1) return true;
+        if (!((el.textContent || '').trim())) return true; // backdrop/glow, no text
+        return false;
+      } catch (e) { return true; }
+    };
     for (let i = 0; i < blocks.length && overlapped < 5; i++) {
       const a = blocks[i].getBoundingClientRect();
       if (a.width < 8 || a.height < 8) continue;
+      if (isDecorativeLayer(blocks[i])) continue;
       for (let j = i + 1; j < blocks.length; j++) {
         if (blocks[i].contains(blocks[j]) || blocks[j].contains(blocks[i])) continue;
+        if (isDecorativeLayer(blocks[j])) continue;
         const b = blocks[j].getBoundingClientRect();
         const ox = Math.max(0, Math.min(a.right, b.right) - Math.max(a.left, b.left));
         const oy = Math.max(0, Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top));
@@ -183,7 +200,7 @@ const VISUAL_LINT_SCRIPT = `(async () => {
           if (!seenOverlap.has(key)) {
             seenOverlap.add(key);
             overlapped++;
-            push('sibling-overlap', 'moderate', 'Two elements overlap by >60% (likely a layout bug).', locator(blocks[i]) + ' / ' + locator(blocks[j]));
+            push('sibling-overlap', 'moderate', 'Two content elements overlap by >60% (possible layout issue; decorative/positioned layers are excluded).', locator(blocks[i]) + ' / ' + locator(blocks[j]));
           }
           break;
         }
