@@ -1,7 +1,12 @@
 # Atlarix TODO
 
 **Current Version:** v14.8.0 (released 2026-06-30)
-**Last Updated:** 2026-07-01
+**Last Updated:** 2026-07-02
+
+> **v14.8.5 + v14.8.6 are landed on `main`, unreleased (no tag).** The three
+> v14.8.5 "cluster branches" turned out to be linear ancestors of `main` (already
+> committed, not unmerged); v14.8.6 was built directly on top. Next release tag will
+> carry both.
 
 > Open work + the current release only. **Full shipped-version history lives in
 > [`docs/CHANGELOG.md`](./CHANGELOG.md)** (and `docs/CHANGELOG_PREVIOUS.md`).
@@ -40,7 +45,7 @@ verified in a packaged build.
 
 ---
 
-## ✅ v14.8.5 — Harness hardening (DONE — implemented on 3 cluster branches, unmerged, no tag)
+## ✅ v14.8.5 — Harness hardening (DONE — landed on `main` as 3 sequential clusters, no tag)
 
 **Theme: v14.8.5 is NOT a feature release — it's harness hardening.** Fixing the classes
 of issue below (not adding surface) is what makes a world of difference to the LLM's real
@@ -251,97 +256,49 @@ window was fine).
 
 ---
 
-## 🔭 v14.8.6 — Token-efficient "sight" + self-correcting visual build loop (planned)
+## ✅ Shipped in v14.8.6 — sub-agent correctness, token-efficient "sight", polish (landed on `main`, no tag)
 
-**Theme:** give any model VISUAL sight of the running app **without burning tokens on
-screenshots**, and close the build→see→fix loop. This is Atlarix's structural edge — a native
-preview + browser tools the agent drives — that terminal agents (Claude Code / opencode)
-**fundamentally cannot match**. (Direction set 2026-07-01; glass-box "trust panel" idea ruled
-out — any LLM narrates naturally, low value.)
+Built on the already-landed v14.8.5 harness hardening. Full suite green (1485 passed,
+1 skipped); `ts` / `oxlint` clean; `knip` net-neutral. Verified via unit/regression tests
+(packaged smoke pending as usual).
 
-**Why not screenshots:** an image chunks into ~5k–50k vision tokens; the **accessibility tree
-(AXTree)** is ~10× cheaper (~500 tokens) and is how every production browser agent (Browser Use,
-MultiOn, the 2025 MCP wave) "sees" — via Chrome DevTools Protocol. **Atlarix already has the
-foundation:** `browser_inspect(mode:"snapshot")` (AXTree refs), `browser_interact` (ref-based,
-not pixel coords), `preview_test`, and the `preview-verify` done-gate.
+**Phase 1 — sub-agent correctness + UI (the "follow-ups", which were really a correctness bug):**
+- **Writer sub-agents now actually write.** Root cause: `edit_file` only returns a
+  `__permission_required` preview; the main-chat approval interceptor lands the write, but the
+  sub-agent path never did — so writers produced empty worktrees while claiming edits. Added
+  `applyEditProposalToWorktree` (applies the proposal into the isolated worktree, path-confined);
+  the captured diff is the review surface the main agent re-approves. End-to-end regression test.
+- **Sub-agent inline diffs:** emit `toolArgs` + `resultText` on nested `tool_use` events (+ forward
+  through IPC) so nested cards render the same inline diff as the main chat (`buildToolExpandView`).
+- **Open-file button** rewired to the real `sourceAtoms` Code-tab path (+ line-jump for read_file);
+  removed the dead `selectedFileAtom`.
 
-**Core model — two buckets, one perceive-surface (decision 2026-07-01):** everything the agent
-might "see" is either **(A) a page Atlarix RENDERS itself** (the user's localhost preview, or a URL
-in the in-app browser — Chromium `WebContentsView`, so Atlarix owns the render tree) or **(B) flat
-pixels** (a user-attached screenshot/mockup, raster/canvas/WebGL content). Rule: **if we render it
-→ READ it (structured, cheap); if it's flat pixels → LOOK (vision, unavoidable).** For (A),
-reading the structure is not only ~10× cheaper than a screenshot but *more accurate* — it yields
-exact hex/position/font that vision can only guess. So vision stops being the default for live
-pages and becomes the exception (user-attached image, or the raster/aesthetic remainder).
+**Phase 2 — token-efficient visual "sight" + self-correcting loop (the headline):**
+- Hybrid visual linter (`src/lib/browser/visual-lint.ts`): **axe-core** (contrast/structure, bundled
+  + inlined via Vite `?raw`) + hand-rolled DOM rules (blank render, broken `<img>`, invisible text,
+  collapsed/overlapping layout). Merged, ranked, capped, returned as TEXT (~500 tokens vs 5k–50k for
+  an image). Two new `browser_inspect` modes: **`visual`** (defect report + CLS) and **`design`**
+  (palette/type/spacing/layout for remakes).
+- **CLS** via `web-vitals` `onCLS` injected at preview `did-finish-load`.
+- `browser_interact` returns a **light delta** (url/element/content changed + CLS) — no full re-dump.
+- **Conservative done-gate** (`getPreviewVisualFeedback`) blocks "done" only on an unambiguous
+  blank/white-screen — never subjective layout — wired after the runtime-error gate.
+- Decisions: adopt axe-core + web-vitals (vs hand-roll); conservative tool-first gate. Injected-JS
+  over CDP for the linter (CDP stays for console/runtime capture).
 
-**Do NOT add a new `visual_audit` tool — MERGE into the existing browser tools** (fits the
-simplify-the-surface principle; one "perceive + act" loop):
-- **`browser_inspect` (target:"preview"|"browser")** returns, cheap→rich:
-  1. **AXTree snapshot** (have it) — semantic structure + interactable refs.
-  2. **Visual linter (new)** — DOM geometry + computed styles (injected JS
-     `getBoundingClientRect`/`getComputedStyle`, or CDP `DOMSnapshot.captureSnapshot` /
-     `Accessibility.getFullAXTree` via `webContents.debugger`) → rules → a TEXT defect report:
-     blank render, sibling overlap, off-screen/clipped, invisible text (color≈bg / opacity0 /
-     display:none-where-content-expected), collapsed zero-size layout, broken `<img>`
-     (`naturalWidth===0`); + console/network errors (have it) + **CLS** (single number).
-  3. **Design snapshot (for remakes)** — palette, type scale, spacing, layout hierarchy as TEXT
-     (from computed styles) so "look at this URL and remake it" reads the source of truth, not pixels.
-- **`browser_interact`** acts on refs and returns a **LIGHT DELTA** ("clicked #login → URL changed,
-  2 new fields"), NOT a full page re-dump — re-surface the rich view only on material change / on
-  request. (Full-dump-per-interaction is the ONLY real token-burn path — avoid it.)
-- **Screenshots = escalation-only + user-attached.** Agent-requested only for the irreducible
-  vision cases: raster imagery, canvas/WebGL/video (no DOM), or subjective "does it look polished".
-  Downscale / crop to the changed region. Never auto-screenshot a live page to "see" it.
-- **Off-the-shelf deps to evaluate:** `axe-core` (inject → contrast/overlap/structure), `web-vitals` (CLS).
-- **Self-correcting loop:** build → open the built route (route discovery from the diff) →
-  `browser_inspect` (text) → if defects, feed report back → fix → re-inspect. Extends
-  `preview-verify` from "runs without errors" to "renders correctly." Vision only as bounded last resort.
-- **Token discipline (the whole point):** return findings + summaries, never raw geometry for
-  every node; deltas on interact; images as the exception. Net effect vs today's screenshot-to-see
-  habit is LESS token burn, not more.
+**Phase 3 — polish + safety cleanups:**
+- `symbols.json` (+ `.ctags-filelist`) relocated to `userData/ctags-index/<key>/` (mirrors FTS5);
+  no pretty-print; legacy in-workspace file cleaned up.
+- Compaction-marker persistence: thread `req.workspaceSessionId` into the auto-compaction call (the
+  other two sites already did) so a reload keeps the compacted history; failure-mode test.
+- Provider-agnostic transient retry: honor `Retry-After` (capped 60s) over fixed backoff; narrow
+  `isNetworkStreamError` so a deterministic 4xx `APICallError` isn't blindly retried.
+- Force-push / `reset --hard` added to `DANGEROUS_PATTERNS` so autonomous Build must confirm them.
+- `inferBlueprint` scan-root existence guarded for the `fp === "."` path; stale CLI-launcher nag
+  throttled to once per unique stale launcher.
 
-_Refs: accessibility-tree token economics + browser-agent architectures (AXTree via CDP;
-Browser Use / MultiOn / MCP); DOM-downsampling (arXiv 2508.04412)._
-
-### Queued polish fixes (green-lit 2026-07-01, not yet built)
-- **`symbols.json` → userData** (currently `<workspace>/.atlarix/symbols.json` — pollutes foreign
-  repos / git-LFS risk; the `.atlarix` gitignore only protects Atlarix's own repo). Relocate under
-  `userData/` like the FTS5 index (`ctags-index.ts` `symbolsCachePath`/`saveDiskCache`, also the
-  `.ctags-filelist`); drop pretty-print; best-effort clean up the old in-workspace file. Accuracy-preserving.
-- **Open-file button is dead** — `OpenFileButton` (`ToolCardActions.tsx`, on read_file + edit_file
-  cards) writes to unread atoms (`selectedFileAtom`/`isPreviewOpenAtom`). Wire it to the real
-  Code-tab open path (`selectedErrorForCodeAtom` + `previewTab="code"` + right-panel visible +
-  show-preview intent), mirroring `QuickFileOpen.openFile`; add optional line-jump for read_file.
-- **Compaction-marker persistence** — investigate whether `[COMPACTION MARKER]` reliably persists
-  (`workspace.ts:152/277`, handler 691/700). If it fails, an already-compacted session reloads
-  FULL history and re-summarizes on EVERY re-entry (compaction itself is correctly threshold-based
-  at ≥75% of the model's real window — not a re-entry trigger).
-- **Provider-agnostic transient retry** — gateway-neutral backoff-retry on transient 429/5xx
-  (honor `Retry-After`) so a turn doesn't hard-error on a rate limit (the reliability remnant of
-  removed #9, done provider-agnostically — NOT OpenRouter-specific routing).
-
-### v14.8.5 follow-up bugs (found in packaged smoke, 2026-07-01)
-- **Worktree created but sub-agent didn't write to it → misleading "(made no file changes)".**
-  Log timeline (packaged, task `416ca112`): worktree created `21:27:38` → sub-agent run complete
-  `21:28:37` (`id=delegation-…-scout-…`, made NO worktree changes) → then the MAIN agent's
-  `edit_file` was buffered for approval `21:28:55` and wrote `…/wisdom-drop/README.md` `21:28:58`
-  → main turn completed `21:29:33`. **CORRECTION to an earlier wrong note:** the approval prompt +
-  real-repo write were the MAIN AGENT APPLYING THE CHANGE (the intended flow, 18s AFTER the
-  sub-agent finished) — NOT the sub-agent leaking to the real repo. Isolation is NOT "defeated".
-  The genuine anomaly: a worktree was created (a writer/`write:true` path) yet the sub-agent
-  behaved as a non-writer (`…scout…`, empty diff) → `captureWorktreeDiff` correctly reported
-  "no changes" while the sub-agent's own summary claimed it edited (likely model over-claiming).
-  Investigate: (a) the write-vs-scout decision for this spawn (why a worktree if it ran read-only),
-  (b) whether writer sub-agents actually produce a worktree diff end-to-end at all (still
-  effectively unvalidated live — this run didn't exercise it), (c) gate/reword the "(made no file
-  changes)" line so it doesn't show for non-writing / read-only sub-agents and doesn't contradict
-  the sub-agent's summary.
-- **Sub-agent inline UI still incomplete** — Cluster 1 fixed ORDERING (seq-stamp + `compareThreadItems`)
-  but not RENDERING: the detail view still uses the bespoke `NestedThreadItems`, so edit cards show
-  only "Editing file: N lines written" (no inline diff) and thoughts/tools don't interleave like the
-  main chat (thought→tool→response→tool). Finish the swap to `StreamThreadItemView`/`buildToolExpandView`;
-  render edit diffs inline; de-noise the repeated "Editing file: …" cards.
-- **Open-file button dead** = the queued #20 above (confirmed live in packaged smoke).
+_Deferred (unchanged): live re-validation of #6 (`maxOutputTokens` floor) and the >600s stall A/B;
+the broader concurrency eval harness (supersede cascade, stall-resume)._
 
 ---
 
