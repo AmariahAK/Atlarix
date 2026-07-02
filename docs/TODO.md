@@ -308,8 +308,13 @@ the broader concurrency eval harness (supersede cascade, stall-resume)._
 LAST user message as "the task," and they re-DERIVE done-vs-pending every turn (re-reading git,
 re-summarizing) instead of TRACKING it. Externalize task state (Claude-Code `TodoWrite` model) and
 make resume re-assert the task. Plus two harness-fidelity bugs surfaced in live runs (a live
-`qwen-code` build session, 2026-07-02): `edit_file` escape mangling and a cancel-time hang. All
-model-agnostic + capability-scaling (help weak models most, cost strong ones ~nothing).
+`qwen-code` build session, 2026-07-02): `edit_file` escape mangling and a cancel-time hang. Then a
+set of **surface simplifications aligned with how Claude Code / opencode actually work** (D–F) — net
+LESS surface, not more. All model-agnostic + capability-scaling (help weak models most, cost strong
+ones ~nothing). _Ruled OUT of this set (2026-07-02 discussion): bespoke tool-result eviction (CC/oc
+just cap single outputs + compact — Atlarix already does both); capability-derived scaffolding
+tuning (not a CC/oc pattern); and harness-owned compaction / deleting `compress_context` (the model
+chooses compaction well today — leave it to the model)._
 
 ### A. Task-state tracking (the 5, do all — from the 2026-07-02 discussion)
 1. **Live model-maintained TODO ledger, re-surfaced at high salience** near the newest turn (the
@@ -330,8 +335,12 @@ model-agnostic + capability-scaling (help weak models most, cost strong ones ~no
 5. **Semantic (not byte-identical) loop-guard on repeated status re-statements** — the qwen
    transcript re-emitted the same "4 done, 1 remains" table repeatedly. Band-aid; #1 largely removes
    the need. (Today's guard is the 3×-byte-identical doom-loop.)
-   _Note: reviving `task-ledger.ts` as the live ledger is its OWN careful pass — a prior sub-agent
-   fork caused collateral damage there, and `sanitizeLedgerDirSegment` is load-bearing for snapshots._
+   _Note: reviving `task-ledger.ts` as the live ledger is its OWN careful pass (this supersedes the
+   old "delete the dead task-ledger module" deferred item — we KEEP + repurpose, not delete). A prior
+   sub-agent fork caused collateral damage there; `sanitizeLedgerDirSegment` is load-bearing for
+   snapshots (move, don't delete); the live path `refreshPlanLedgerFromWrittenFile`
+   (`permissions/interceptor.ts`) already drives the PlanCard UI + `ATLARIX_PLAN.md` sync on plan-file
+   writes — build on that, don't break it. Keep ts/oxlint/knip green after each step._
 
 ### B. `edit_file` escape fidelity (open-weight correctness bug, live-observed)
 - **Symptom:** content written with literal backslash-n (`\n`) instead of real newlines in template
@@ -357,19 +366,42 @@ model-agnostic + capability-scaling (help weak models most, cost strong ones ~no
   (stop the stream + free the UI now) with teardown moved async/best-effort. Confirm the abort
   propagates promptly to the in-flight provider fetch AND any running sub-agents.
 
+### D. `edit_file` surface simplification — match Claude Code, borrow opencode's robustness
+Claude Code's edit surface is tiny — `str_replace` (old→new, unique match) + `write` (full file);
+**no line-number `insert`/`delete`, no `section`** (models can't count lines reliably, so line-number
+ops are the most error-prone thing you can hand them). opencode instead invested in making the
+replace ROBUST — a cascade of match strategies (exact → line-trimmed → block-anchor →
+whitespace-normalized → indentation-flexible). Atlarix's `fuzzyFindString` (3 strategies) is a lighter
+version of the same idea.
+- **Collapse `edit_file` to `write` + `replace`** (drop `insert`/`delete`/`section`) → fewer failure
+  modes for weak models, less prompt spent explaining ops. Pairs with **B** (smaller surface = smaller
+  escape-bug blast radius).
+- **Deepen `replace` matching toward opencode's cascade** so a near-miss self-heals instead of erroring.
+
+### E. System-prompt diet — guidance rides on tools, not the monolith
+CC/opencode keep the system prompt LEAN and push per-tool behavioral guidance into the **tool
+descriptions**. Since `mode-tool-registry` already resolves the toolset per mode, guidance attached to
+tools is **capability-gated for free** (a mode without browser tools never sees browser guidance — no
+conditional logic). Not new machinery — a move + a trim.
+- **Audit the system prompt; relocate per-tool/per-mode behavioral guidance onto the tools themselves;
+  delete anything the harness now enforces mechanically** (gates/permissions needn't also be prose).
+  A long prompt hurts weak models most (signal lost in noise).
+
+### F. Universal, consistent tool-error → recovery
+CC is disciplined: every tool failure returns a specific, actionable next step ("read the file first";
+"old_string not found — it may have changed, re-read and retry"). Atlarix has the best example already
+(path "did-you-mean" grounding). Lowest-complexity item — pure quality, no new machinery.
+- **Make EVERY tool's failure message actionable + consistent** so a weak model always has a concrete
+  next step and never dead-ends (kills self-inflicted wasted turns, e.g. the run-a-just-renamed-file case).
+
 ---
 
 ## 🔭 Open / deferred
 
-- **Delete the dead task-ledger module** (`src/lib/tasks/task-ledger.ts`). Inert for turn
-  completion (`shouldCreateTaskLedger = false`), but **NOT fully dead**: a live path in
-  `permissions/interceptor.ts` (`refreshPlanLedgerFromWrittenFile`) still drives the
-  **PlanCard UI + `ATLARIX_PLAN.md` sync** on plan-file writes. So deletion is really a
-  *decision* — remove only the truly-dead creation path (keep PlanCard), or remove the
-  PlanCard/plan-sync feature too. Gotchas: `sanitizeLedgerDirSegment` is load-bearing for
-  snapshots (move, don't delete); `streamTurnId` already named (no rename); no tests
-  reference the ledger. A prior sub-agent fork caused collateral damage here — do it as
-  its own careful pass with ts/oxlint/knip green after each step.
+> Triage queue — reviewed each release: promote into a version, delete if superseded, or keep with a
+> one-liner. (The "delete the dead task-ledger module" item was superseded by v14.8.7-A1, which
+> revives + repurposes it; its load-bearing gotchas were folded into A1.)
+
 - **Headless `ask_user` equivalent.** The Electron interactive-card routing is live; in
   headless/autonomous runs `ask_user` is dropped (no responder), so an autonomous agent
   can't ask a clarifying question. A headless answer channel is still deferred.
