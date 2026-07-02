@@ -56,16 +56,19 @@ describe("A2 — buildContinuationPrompt re-asserts the task", () => {
     lastContent: "partial",
   };
 
-  it("falls back to the plain prompt with no ledger", () => {
-    expect(buildContinuationPrompt(ctx)).toBe("Continue exactly from where you left off.");
+  it("falls back to the plain prompt with no ledger (wrapped out-of-band)", () => {
+    const out = buildContinuationPrompt(ctx);
+    // v14.8.8: wrapped as a system-reminder so it isn't read as a user turn.
+    expect(out).toContain("<system-reminder>");
+    expect(out).toContain("Continue exactly from where you left off.");
   });
 
-  it("re-asserts the SAME task and says not a new request when a ledger is present", () => {
+  it("re-asserts the SAME task from the ledger when present, wrapped out-of-band", () => {
     const out = buildContinuationPrompt({ ...ctx, taskLedger: "[Task ledger] 1/4 steps done." });
+    expect(out).toContain("<system-reminder>");
     expect(out).toContain("SAME task");
-    expect(out.toLowerCase()).toContain("not a new");
     expect(out).toContain("[Task ledger] 1/4 steps done.");
-    expect(out).toContain("do not treat the prior user message as a new instruction");
+    expect(out.toLowerCase()).toContain("do not restart");
   });
 });
 

@@ -1,12 +1,12 @@
 # Atlarix TODO
 
 **Current Version:** v14.8.0 (released 2026-06-30)
-**Last Updated:** 2026-07-02 (v14.8.7 landed on `main`)
+**Last Updated:** 2026-07-02 (v14.8.8 landed on `main`)
 
-> **v14.8.5 + v14.8.6 + v14.8.7 are landed on `main`, unreleased (no tag).** The three
-> v14.8.5 "cluster branches" turned out to be linear ancestors of `main` (already
-> committed, not unmerged); v14.8.6 and v14.8.7 were built directly on top. The next
-> release tag will carry all three.
+> **v14.8.5 + v14.8.6 + v14.8.7 + v14.8.8 are landed on `main`, unreleased (no tag).** The
+> three v14.8.5 "cluster branches" turned out to be linear ancestors of `main` (already
+> committed, not unmerged); v14.8.6/v14.8.7/v14.8.8 were built directly on top. The next
+> release tag will carry all four. (v14.8.7 was committed as `e1c1b9e` as a fallback point.)
 
 > Open work + the current release only. **Full shipped-version history lives in
 > [`docs/CHANGELOG.md`](./CHANGELOG.md)** (and `docs/CHANGELOG_PREVIOUS.md`).
@@ -299,6 +299,38 @@ Built on the already-landed v14.8.5 harness hardening. Full suite green (1485 pa
 
 _Deferred (unchanged): live re-validation of #6 (`maxOutputTokens` floor) and the >600s stall A/B;
 the broader concurrency eval harness (supersede cascade, stall-resume)._
+
+---
+
+## ✅ v14.8.8 — Out-of-band harness messages + per-tool guidance relocation (DONE — landed on `main`, no tag)
+
+**Landed 2026-07-02.** A two-cluster refinement pass after cross-checking three v14.8.7 follow-up
+concerns against how opencode, Claude Code, Codex, AND qwen-code (the harness where the escape bug
+was observed) *actually* work. Two survived; one was ruled out. `ts`/`oxlint`/`knip` clean; targeted
++ full suite green. Built on the v14.8.7 fallback commit `e1c1b9e`.
+
+- **Cluster 1 — out-of-band `<system-reminder>` framing.** Harness-injected messages (the
+  `prepareStep` block, stall/truncation/sub-agent continuations, force-finish, gate feedback,
+  text-tool results, `otherAppsCodebaseInfo`) previously rode as `role:"user"`, so recency-biased
+  open-weight models could read a harness nudge/resume as a fresh user request. New
+  `systemReminder()` helper (`src/lib/streaming/system-reminder.ts`) wraps all 8 sites in a visible
+  `<system-reminder>` tag (kept `role:"user"` — Anthropic rejects mid-conversation `role:"system"`);
+  convention documented once in the `<tool_contract>`. This is Claude Code's mechanism and
+  generalizes v14.8.7's A3. Genuine user turns stay untagged.
+- **Cluster 2 — per-tool guidance relocation.** The `AGENTS.md` "Tool surface" + "Code retrieval"
+  sections were fully redundant with the tool descriptions; deleted them (opencode ships no tool
+  enumeration in its system prompt — it self-describes per tool). Relocated the only unique bits
+  (run_command auto-background/end-turn/preview-auto-load) onto the `run_command` description. Result:
+  per-tool guidance is capability-gated for free (a mode without a tool never sees its guidance).
+  Kept cross-cutting workflow (Working principles, the glob→grep→read recipe, Secret handling,
+  Context layers, Memory, identity) in `AGENTS.md`.
+- **Ruled OUT — edit_file rewrite / apply_patch.** NO reference harness — including qwen-code (the
+  source of the bug) — auto-repairs over-escaped *write* content; all use tolerant matching + an
+  error nudge, which Atlarix already exceeds (v14.8.7). apply_patch is transport-not-format
+  (`patchText` is still a JSON string under native FC) and opencode gates it *away* from `oss`/
+  open-weight models. **Follow-up: validate v14.8.7's escape handling live** (drive a real Qwen
+  through an over-escaping edit); only reopen edit_file on an observed live failure. Optional future:
+  a `sed`-fallback parser (qwen-code parity); apply_patch as an opt-in tool for GPT-5/Codex BYOK.
 
 ---
 

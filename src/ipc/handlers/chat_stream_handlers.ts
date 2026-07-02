@@ -235,6 +235,7 @@ import {
   extractPlanChecklistTitle,
 } from "@/lib/tasks/plan-checklist";
 import { emitPlanUpdate } from "@/ipc/utils/emit_plan_update";
+import { systemReminder } from "@/lib/streaming/system-reminder";
 import { runCommandFailureGuidance } from "@/lib/tools/run-command-guidance";
 import {
   recordMutationOutcome,
@@ -3147,7 +3148,8 @@ This conversation includes one or more image attachments. When the user uploads 
               ? ([
                   {
                     role: "user",
-                    content: otherAppsCodebaseInfo,
+                    // v14.8.8: harness-supplied context, not a user turn.
+                    content: systemReminder(otherAppsCodebaseInfo),
                   },
                   {
                     role: "assistant",
@@ -4099,8 +4101,11 @@ This conversation includes one or more image attachments. When the user uploads 
                 ]
                   .filter(Boolean)
                   .join("\n\n");
+                // v14.8.8: frame the whole harness-injected block as out-of-band
+                // so a recency-biased model never reads these nudges as a fresh
+                // user request (only genuine user turns stay untagged).
                 const stepMessages = injected
-                  ? [...messages, { role: "user" as const, content: injected }]
+                  ? [...messages, { role: "user" as const, content: systemReminder(injected) }]
                   : messages;
                 // v13.3: per-step breakpoint advancement — without it, every
                 // step re-pays full price for the turn's accumulated tool

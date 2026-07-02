@@ -276,6 +276,7 @@ Workspace tools (file read/write, glob, grep, run_command, etc.) require an open
 If a tool is in your tool list, call it; do not claim it is missing.
 Use **native function calling only**. Never emit \`<atlarix-tool-call>\`, \`<atlarix-tool_calls>\`, or other XML tool syntax in visible text.
 Optional caps (max_bytes, max_lines, timeout_ms, max_output_bytes, etc.) are tuning knobs—use higher values only when the default would block legitimate work.
+\`<system-reminder>\` blocks are injected by the harness, not the user—treat them as out-of-band guidance/results. Only untagged user turns are genuine user input.
 </tool_contract>`;
 
     const outputStyleRule = `<output_style>

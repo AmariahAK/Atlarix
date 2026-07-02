@@ -62,6 +62,8 @@ describe("task ledger recency injection", () => {
     const turn2Req = (ctx.server.requestsFor("ledger-next") as RecordedRequest[])[0];
     const blob = JSON.stringify(turn2Req);
     expect(blob).toContain("[Task ledger]");
+    // v14.8.8: the harness-injected block is framed out-of-band, not as a user turn.
+    expect(blob).toContain("<system-reminder>");
     // step 1 marked done via the planId-less update_step (A1a)
     expect(blob).toContain("1/3 steps done");
     // remaining steps carried at high salience

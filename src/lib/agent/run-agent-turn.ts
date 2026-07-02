@@ -20,6 +20,7 @@ import {
   shouldContinue,
   buildContinuationPrompt,
 } from "@/lib/streaming/continuation-handler";
+import { systemReminder } from "@/lib/streaming/system-reminder";
 import {
   getMutationFailureFeedback,
   getUnverifiedEditFeedback,
@@ -340,7 +341,7 @@ export async function runAgentTurn(
     let buildIterMessages: ModelMessage[] = forceTextFinish
       ? [
           ...agenticMessages,
-          { role: "user" as const, content: forceFinishPrompt },
+          { role: "user" as const, content: systemReminder(forceFinishPrompt) },
         ]
       : agenticMessages;
     const roundAbortController = forceTextFinish
@@ -694,7 +695,7 @@ export async function runAgentTurn(
       // The gate feedback is TRANSIENT steering — request only, never persisted.
       agenticMessages.push({
         role: "user" as const,
-        content: gateFeedback,
+        content: systemReminder(gateFeedback),
       });
       agenticIteration++;
       logger.log(
@@ -755,7 +756,9 @@ export async function runAgentTurn(
       if (iterationResults.length > 0) {
         agenticMessages.push({
           role: "user" as const,
-          content: `Here are the results of the tools you called:\n\n${toolResultsMessage}\n\nPlease continue with your task based on these results.`,
+          content: systemReminder(
+            `Here are the results of the tools you called:\n\n${toolResultsMessage}\n\nPlease continue with your task based on these results.`,
+          ),
         });
       } else if (hadNativeToolExecution) {
         logger.log(

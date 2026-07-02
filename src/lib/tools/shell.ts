@@ -38,7 +38,8 @@ ToolRegistry.register({
         "Prefer one command per intent; for scaffolding, use one run_command that creates the project (do not emit multiple create/scaffold commands in the same turn). " +
         "For project scaffolding (e.g. npm create vite@latest <path>), pass all options so the command is non-interactive: use --template and, for create-vite, --no-interactive to avoid prompts. " +
         "Limits are optional knobs: pass smaller timeout_ms or max_output_bytes when you expect huge logs. " +
-        "Set background=true for long-running work you don't need to block on (long builds, installs, watch tasks): the call returns immediately and the result is delivered to you automatically when the command exits — continue other work, never poll.",
+        "Set background=true for long-running work you don't need to block on (long builds, installs, watch tasks): the call returns immediately with a job_id and the result is delivered to you automatically when the command exits — continue other work, never poll, and you may END YOUR TURN while it runs (you're woken on completion). Any foreground command still running after ~15s is auto-moved to the background the same way. Manage running jobs with background_jobs. " +
+        "When a backgrounded process prints a http://localhost:PORT URL, the preview loads it automatically — then drive it with browser_* target:\"preview\".",
     requiresWorkspace: true,
     isCore: true,
     isReadOnly: false,

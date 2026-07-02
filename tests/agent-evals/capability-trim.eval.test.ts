@@ -34,8 +34,11 @@ afterAll(async () => {
 });
 
 type RecordedRequest = {
-  tools?: Array<{ function?: { name?: string; parameters?: unknown } }>;
+  tools?: Array<{ function?: { name?: string; description?: string; parameters?: unknown } }>;
 };
+
+const descOf = (req: RecordedRequest, name: string): string | undefined =>
+  (req.tools ?? []).find((t) => t.function?.name === name)?.function?.description;
 
 const offeredToolNames = (req: RecordedRequest): string[] =>
   (req.tools ?? [])
@@ -125,5 +128,45 @@ describe("capability trim (2.1 / 1.6)", () => {
       (k) => !required.has(k),
     ).length;
     expect(optionalCount).toBeLessThanOrEqual(3);
+  }, 30_000);
+});
+
+describe("v14.8.8 — per-tool guidance rides the capability-gated tool schema", () => {
+  it("build mode: run_command's description carries the relocated background/preview guidance", async () => {
+    ctx.server.register(scenario("guidance-build").text("Done.").build());
+    const chatId = await ctx.newChat();
+    const { fakeIpc } = await runTurn(ctx, {
+      chatId,
+      prompt: "sc=guidance-build Build it.",
+      mode: "build",
+    });
+    expectNoStreamError(fakeIpc.sends, chatId);
+
+    const req = (ctx.server.requestsFor("guidance-build") as RecordedRequest[])[0];
+    const runCmd = descOf(req, "run_command");
+    expect(runCmd).toBeTruthy();
+    // The guidance relocated out of AGENTS.md now lives on the tool itself.
+    expect(runCmd).toContain("auto-moved to the background");
+    expect(runCmd).toContain('target:"preview"');
+    // Browser guidance is present because browser tools are in build mode.
+    expect(descOf(req, "browser_navigate")).toBeTruthy();
+  }, 30_000);
+
+  it("ask mode: edit_file (and its mutation guidance) is absent — capability-gated for free", async () => {
+    ctx.server.register(scenario("guidance-ask").text("Answer.").build());
+    const chatId = await ctx.newChat();
+    const { fakeIpc } = await runTurn(ctx, {
+      chatId,
+      prompt: "sc=guidance-ask What is here?",
+      mode: "ask",
+    });
+    expectNoStreamError(fakeIpc.sends, chatId);
+
+    const req = (ctx.server.requestsFor("guidance-ask") as RecordedRequest[])[0];
+    // edit_file isn't in read-only ask mode → the model never sees its write/
+    // replace guidance, with no conditional prose needed (it rides the gated
+    // schema). This is the mechanism the AGENTS.md relocation relies on.
+    expect(offeredToolNames(req)).not.toContain("edit_file");
+    expect(descOf(req, "edit_file")).toBeUndefined();
   }, 30_000);
 });

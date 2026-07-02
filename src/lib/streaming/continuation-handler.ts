@@ -4,6 +4,8 @@
  * after a successful tool call when the next assistant step still needs to run.
  */
 
+import { systemReminder } from "./system-reminder";
+
 export interface ContinuationContext {
   chatId: number;
   turnId: string;
@@ -30,13 +32,15 @@ export function shouldContinue(
 }
 
 export function buildContinuationPrompt(ctx: ContinuationContext): string {
+  // v14.8.8: the <system-reminder> wrapper (below) already tells the model this
+  // is out-of-band, not a user turn — so the body just needs the resume
+  // instruction + the task ledger to re-assert, without the verbose disclaimer.
   const base = "Continue exactly from where you left off.";
-  if (!ctx.taskLedger?.trim()) return base;
-  return (
-    "Continuing the SAME task (this is a system continuation, NOT a new user request). " +
-    "Do not restart and do not treat the prior user message as a new instruction — resume from the in-progress/remaining steps below.\n\n" +
-    ctx.taskLedger.trim() +
-    "\n\n" +
-    base
-  );
+  const body = ctx.taskLedger?.trim()
+    ? "Continuing the SAME task — resume from the in-progress/remaining steps below; do not restart.\n\n" +
+      ctx.taskLedger.trim() +
+      "\n\n" +
+      base
+    : base;
+  return systemReminder(body);
 }
