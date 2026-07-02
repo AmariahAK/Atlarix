@@ -24,7 +24,7 @@
  */
 
 import path from "node:path";
-import { rm, readdir, mkdir } from "node:fs/promises";
+import { rm, readdir, mkdir, writeFile } from "node:fs/promises";
 import log from "electron-log";
 import { exec } from "@/ipc/utils/system_git_exec";
 import { getUserDataPath } from "@/paths/paths";
@@ -233,6 +233,65 @@ export async function createSubagentWorktree(
   activeWorktreeRoots.add(norm(worktreePath));
   logger.info(`Created sub-agent worktree at ${worktreePath} (base ${baseRef.slice(0, 8)})`);
   return { worktreePath, baseRef };
+}
+
+/** Result of applying one `edit_file` proposal into a writer's worktree. */
+export interface AppliedEdit {
+  /** Workspace-relative path written. */
+  path: string;
+  /** Whether the file already existed (update) or was newly created. */
+  type: "create" | "update";
+  /** Line count of the written body. */
+  lines: number;
+}
+
+/**
+ * Apply an `edit_file` proposal into a writer sub-agent's isolated worktree.
+ *
+ * `edit_file` never writes files itself — it returns a `__permission_required`
+ * proposal whose `preview.content` is the full resolved file body (true for all
+ * five ops: write/replace/insert/delete/section). In the MAIN chat the approval
+ * interceptor performs the real `fs.writeFile`; a writer sub-agent has no such
+ * interceptor, so without this the worktree stays untouched, `captureWorktreeDiff`
+ * returns empty, and the model wrongly believes it edited. Here we apply the
+ * proposal straight into the throwaway worktree — which IS the review surface: the
+ * captured diff is handed back and re-approved through the main agent's gate.
+ *
+ * Returns a compact applied-summary, or null when `result` is not an apply-able
+ * edit proposal (caller passes the original result through unchanged). Throws if
+ * the resolved path escapes the worktree (defense-in-depth).
+ */
+export async function applyEditProposalToWorktree(
+  worktreePath: string,
+  result: unknown,
+): Promise<AppliedEdit | null> {
+  if (
+    !result ||
+    typeof result !== "object" ||
+    (result as { __permission_required?: boolean }).__permission_required !== true
+  ) {
+    return null;
+  }
+  const preview = (result as {
+    preview?: { path?: string; content?: string; type?: string };
+  }).preview;
+  const rel = preview?.path;
+  if (!rel || typeof preview?.content !== "string") return null;
+
+  // Confinement: reject anything that resolves outside the worktree.
+  const root = norm(worktreePath);
+  const fullPath = path.resolve(worktreePath, rel);
+  if (fullPath !== root && !fullPath.startsWith(root + path.sep)) {
+    throw new Error(`edit path escapes worktree: ${rel}`);
+  }
+
+  await mkdir(path.dirname(fullPath), { recursive: true });
+  await writeFile(fullPath, preview.content, "utf-8");
+  return {
+    path: rel,
+    type: preview.type === "update" ? "update" : "create",
+    lines: preview.content.split("\n").length,
+  };
 }
 
 /** Stage everything in the worktree and diff it against the base commit. */

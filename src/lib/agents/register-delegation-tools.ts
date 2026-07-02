@@ -196,6 +196,12 @@ export function attachDelegationToolsToSet(
             status: payload.status === "running" ? "running" : payload.status,
             timestamp: ts,
             detail: payload.detail,
+            // Forward args + result so the nested card renders an inline diff
+            // (normalizeChatActivityPayload → streamThreadItemFromActivity →
+            // buildToolExpandView). Without these the card falls back to a bare
+            // "Editing file: N lines" label with no diff.
+            toolArgs: payload.toolArgs,
+            resultText: payload.resultText,
             parentDelegationId: id,
             roundId: ctx.turnId,
           });

@@ -106,6 +106,8 @@ export type ToolExpandView =
       fileName: string;
       directory: string;
       lineRange?: string;
+      /** First line of the read range — used to jump-to-line on open. */
+      startLine?: number;
       snippet: string;
     }
   | {
@@ -417,6 +419,15 @@ function readLineRangeFromArgs(args: unknown): string | undefined {
   return undefined;
 }
 
+/** Numeric first line of a read_file range (for jump-to-line on open). */
+function readStartLineFromArgs(args: unknown): number | undefined {
+  if (!args || typeof args !== "object") return undefined;
+  const o = args as Record<string, unknown>;
+  if (typeof o.offset === "number") return o.offset;
+  if (typeof o.start_line === "number") return o.start_line;
+  return undefined;
+}
+
 function pathFromArgs(args: unknown): string | undefined {
   if (!args || typeof args !== "object") return undefined;
   const o = args as Record<string, unknown>;
@@ -632,6 +643,7 @@ function buildReadSnippetView(
     fileName,
     directory,
     lineRange: readLineRangeFromArgs(args),
+    startLine: readStartLineFromArgs(args),
     snippet: truncated ? `${snippet}\n…` : snippet,
   };
 }

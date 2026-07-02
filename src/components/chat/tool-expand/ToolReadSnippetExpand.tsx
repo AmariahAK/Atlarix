@@ -18,7 +18,7 @@ export function ToolReadSnippetExpand({
         />
         {view.path ? (
           <div className="shrink-0">
-            <OpenFileButton path={view.path} />
+            <OpenFileButton path={view.path} line={view.startLine} />
           </div>
         ) : null}
       </div>

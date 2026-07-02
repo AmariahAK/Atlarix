@@ -382,7 +382,12 @@ ToolRegistry.register({
                 `Changed files: ${diff.changedFiles.join(", ")}\n\n` +
                 "```diff\n" + body + "\n```";
             } else {
-              diffBlock = "\n\n(The writer sub-agent made no file changes.)";
+              // A writer that actually edited produces a diff here (edits land in
+              // the worktree). An empty diff is a factual signal to the main agent:
+              // no files were written — treat any "I edited X" narration as
+              // unconfirmed rather than applying phantom changes.
+              diffBlock =
+                "\n\n(The writer sub-agent completed without writing any files — no diff to apply. Disregard any claim of edits above.)";
             }
           } catch {
             diffBlock = "\n\n(Could not capture the worktree diff.)";

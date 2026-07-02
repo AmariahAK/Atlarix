@@ -21,7 +21,17 @@ import {
   removeSubagentWorktree,
   isPathInActiveSubagentWorktree,
   isGitRepo,
+  applyEditProposalToWorktree,
 } from "@/lib/agents/subagent-worktree";
+
+/** Mimics the `__permission_required` proposal edit_file returns (all ops). */
+function editProposal(relPath: string, content: string, type: "create" | "update") {
+  return {
+    __permission_required: true as const,
+    operation: "edit_file",
+    preview: { path: relPath, content, type, lines: content.split("\n").length },
+  };
+}
 
 let workspace: string;
 let nonGit: string;
@@ -186,5 +196,66 @@ describe("subagent worktree seeds from the live working tree", () => {
     } finally {
       await rm(ws, { recursive: true, force: true }).catch(() => {});
     }
+  });
+});
+
+describe("applyEditProposalToWorktree — writer edits actually land", () => {
+  beforeAll(async () => {
+    userData = await mkdtemp(path.join(tmpdir(), "atlarix-ud3-"));
+  });
+  afterAll(async () => {
+    await rm(userData, { recursive: true, force: true }).catch(() => {});
+  });
+
+  it("applies an edit_file proposal so captureWorktreeDiff is non-empty (end-to-end)", { timeout: GIT_IO_TIMEOUT_MS }, async () => {
+    const ws = await mkdtemp(path.join(tmpdir(), "atlarix-apply-"));
+    try {
+      await initRepo(ws); // app.ts = "export const a = 1;\n"
+      const wt = await createSubagentWorktree(ws, "apply-task");
+      expect(wt).not.toBeNull();
+      if (!wt) return;
+
+      // Regression: before the fix the sub-agent's edit_file only produced a
+      // preview and nothing wrote it → the worktree stayed empty → empty diff.
+      const applied = await applyEditProposalToWorktree(
+        wt.worktreePath,
+        editProposal("src/new.ts", "export const b = 2;\n", "create"),
+      );
+      expect(applied).toEqual({ path: "src/new.ts", type: "create", lines: 2 });
+
+      // File exists in the worktree (dirs auto-created).
+      expect(await readFile(path.join(wt.worktreePath, "src/new.ts"), "utf8")).toBe(
+        "export const b = 2;\n",
+      );
+
+      // The core assertion: the writer's edit now shows up in the captured diff.
+      const diff = await captureWorktreeDiff(wt);
+      expect(diff.changedFiles).toContain("src/new.ts");
+      expect(diff.unifiedDiff).toContain("export const b = 2;");
+
+      await removeSubagentWorktree(ws, wt);
+    } finally {
+      await rm(ws, { recursive: true, force: true }).catch(() => {});
+    }
+  });
+
+  it("returns null for a non-proposal result (caller passes it through)", async () => {
+    expect(await applyEditProposalToWorktree("/tmp/x", { success: true })).toBeNull();
+    expect(await applyEditProposalToWorktree("/tmp/x", "plain text")).toBeNull();
+    expect(
+      await applyEditProposalToWorktree("/tmp/x", {
+        __permission_required: true,
+        preview: { path: "a.ts" }, // no content → not applicable
+      }),
+    ).toBeNull();
+  });
+
+  it("rejects a path that escapes the worktree (defense-in-depth)", async () => {
+    await expect(
+      applyEditProposalToWorktree(
+        "/tmp/wt-root",
+        editProposal("../../etc/evil", "x", "create"),
+      ),
+    ).rejects.toThrow(/escapes worktree/);
   });
 });

@@ -43,6 +43,7 @@ import {
   SMALL_REPO_FILE_THRESHOLD,
 } from "@/lib/tools/workspace-file-hints";
 import { loadUserAgent, renderUserAgentSystemBlock } from "./user-agents";
+import { applyEditProposalToWorktree } from "./subagent-worktree";
 
 const logger = log.scope("run-subagent");
 
@@ -57,6 +58,11 @@ export type SubagentActivityEmit =
       status: "running" | "done" | "error";
       detail?: string;
       label?: string;
+      /** Raw model args — lets the nested card build a real inline diff/snippet
+       * view via `buildToolExpandView` (mirrors the main chat). */
+      toolArgs?: Record<string, unknown>;
+      /** Serialized tool result — the expand's `rawDetail` source. */
+      resultText?: string;
     }
   | { type: "subagent_progress"; preview: string }
   | {
@@ -290,6 +296,7 @@ export async function runSubagent(
             toolName: t.name,
             status: "running",
             label: startPreview,
+            toolArgs,
           });
 
           let result: unknown;
@@ -311,11 +318,43 @@ export async function runSubagent(
               status: "error",
               detail: errMsg,
               label: startPreview,
+              toolArgs,
             });
             throw err;
           }
 
           if (args.turnId) recordToolUseForTurn(args.turnId, t.name);
+
+          // Writer sub-agents: edit_file only produces a `__permission_required`
+          // preview — nothing writes it (the main-chat approval interceptor that
+          // normally lands writes isn't in this path). Apply it directly to the
+          // isolated worktree so the change actually exists; the captured diff is
+          // the review surface the main agent re-approves. Without this the
+          // worktree stays empty while the model believes it edited.
+          if (isImplement && t.name === "edit_file" && execWorkspace) {
+            try {
+              const applied = await applyEditProposalToWorktree(
+                execWorkspace,
+                result,
+              );
+              if (applied) {
+                result = {
+                  success: true,
+                  operation: "edit_file",
+                  path: applied.path,
+                  type: applied.type,
+                  lines: applied.lines,
+                  message: `${applied.type === "update" ? "Modified" : "Created"} ${applied.path} (${applied.lines} lines) in the worktree. The diff is reviewed and applied by the main agent.`,
+                };
+              }
+            } catch (applyErr) {
+              result = {
+                success: false,
+                operation: "edit_file",
+                error: `Failed to apply edit to worktree: ${String(applyErr).slice(0, 200)}`,
+              };
+            }
+          }
 
           const out =
             typeof result === "object" && result !== null
@@ -340,6 +379,10 @@ export async function runSubagent(
             detail: subagentNestedToolDetail(t.name, out),
             label:
               formatToolResultPreview(t.name, out, toolStatus) ?? startPreview,
+            // Carry args + full result so the nested card builds the same inline
+            // diff/snippet view the main chat renders (buildToolExpandView).
+            toolArgs,
+            resultText: out,
           });
 
           return out;

@@ -2,7 +2,13 @@ import { useState, useRef, useEffect } from "react";
 import { useSetAtom } from "jotai";
 import { Check, Copy, FileText } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { selectedFileAtom, isPreviewOpenAtom } from "@/atoms/viewAtoms";
+import {
+  aiPanelIntentAtom,
+  previewTabAtom,
+  rightPanelSuppressAutoOpenAtom,
+  rightPanelVisibleAtom,
+  selectedErrorForCodeAtom,
+} from "@/atoms/sourceAtoms";
 
 /** Small hover/focus copy button for tool result bodies. */
 export function CopyButton({
@@ -54,24 +60,41 @@ export function CopyButton({
   );
 }
 
-/** Opens a workspace file in the Code tab (same path resolution as the file tree). */
+/**
+ * Opens a workspace file in the Code tab — the SAME wiring QuickFileOpen /
+ * the file tree use (`sourceAtoms`). The previous `selectedFileAtom` /
+ * `isPreviewOpenAtom` writes were dead (no readers), so the button did nothing.
+ * Pass `line` (e.g. a read_file snippet's start line) to jump to it.
+ */
 export function OpenFileButton({
   path,
+  line,
   className,
 }: {
   path: string;
+  line?: number;
   className?: string;
 }) {
-  const setSelectedFile = useSetAtom(selectedFileAtom);
-  const setPreviewOpen = useSetAtom(isPreviewOpenAtom);
+  const setSelectedErrorForCode = useSetAtom(selectedErrorForCodeAtom);
+  const setSuppressRightAutoOpen = useSetAtom(rightPanelSuppressAutoOpenAtom);
+  const setRightPanelVisible = useSetAtom(rightPanelVisibleAtom);
+  const setPreviewTab = useSetAtom(previewTabAtom);
+  const setAIPanelIntent = useSetAtom(aiPanelIntentAtom);
 
   if (!path.trim()) return null;
 
   const onOpen = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    setSelectedFile({ path });
-    setPreviewOpen(true);
+    setSelectedErrorForCode(line != null ? { filePath: path, line } : { filePath: path });
+    setSuppressRightAutoOpen(false);
+    setRightPanelVisible(true);
+    setPreviewTab("code");
+    setAIPanelIntent({
+      intent: "show-preview",
+      timestamp: Date.now(),
+      source: "user",
+    });
   };
 
   return (
