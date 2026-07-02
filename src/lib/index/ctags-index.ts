@@ -5,12 +5,14 @@
 import * as fs from "fs/promises";
 import * as fsSync from "fs";
 import * as path from "path";
+import { createHash } from "crypto";
 import { execFile } from "child_process";
 import { promisify } from "util";
 import log from "electron-log";
 import { getProjectFiles } from "@/ipc/utils/project-files";
 import { getFilesRecursively } from "@/ipc/utils/file_utils";
 import { getCurrentCommitHash } from "@/ipc/utils/git_utils";
+import { getUserDataPath } from "@/paths/paths";
 import { resolveCtagsPath } from "@/lib/native/resolve-ctags-path";
 import { parseCtagsJsonOutput } from "./ctags-parse";
 import type { SymbolIndexCache, SymbolRecord } from "./symbol-types";
@@ -32,8 +34,25 @@ const inflightByPath = new Map<string, Promise<SymbolIndexCache>>();
 const memoryByPath = new Map<string, SymbolIndexCache>();
 const dirtyPaths = new Set<string>();
 
+/** Per-workspace userData dir for the ctags index (mirrors the FTS5 index). */
+function ctagsCacheDir(projectPath: string): string {
+  const key = createHash("sha256")
+    .update(path.resolve(projectPath))
+    .digest("hex")
+    .slice(0, 16);
+  return path.join(getUserDataPath(), "ctags-index", key);
+}
+
 function symbolsCachePath(projectPath: string): string {
-  return path.join(projectPath, ATLARIX_DIR, SYMBOLS_FILE);
+  // Relocated out of <workspace>/.atlarix (v14.8.6): the in-workspace file
+  // polluted foreign repos and risked git-LFS; the .atlarix gitignore only
+  // protects Atlarix's own repo. Now under userData like the FTS5 index.
+  return path.join(ctagsCacheDir(projectPath), SYMBOLS_FILE);
+}
+
+/** Best-effort one-time cleanup of the legacy in-workspace cache file. */
+function cleanupLegacySymbolsCache(projectPath: string): void {
+  fs.unlink(path.join(projectPath, ATLARIX_DIR, SYMBOLS_FILE)).catch(() => {});
 }
 
 export function invalidateSymbolIndex(projectPath: string): void {
@@ -58,9 +77,10 @@ async function loadDiskCache(projectPath: string): Promise<SymbolIndexCache | nu
 }
 
 async function saveDiskCache(projectPath: string, cache: SymbolIndexCache): Promise<void> {
-  const dir = path.join(projectPath, ATLARIX_DIR);
-  await fs.mkdir(dir, { recursive: true });
-  await fs.writeFile(symbolsCachePath(projectPath), JSON.stringify(cache, null, 2), "utf-8");
+  await fs.mkdir(ctagsCacheDir(projectPath), { recursive: true });
+  // No pretty-print — this is a machine cache, not a committed artifact.
+  await fs.writeFile(symbolsCachePath(projectPath), JSON.stringify(cache), "utf-8");
+  cleanupLegacySymbolsCache(projectPath);
 }
 
 async function isCacheStale(projectPath: string, cache: SymbolIndexCache): Promise<boolean> {
@@ -95,7 +115,7 @@ async function runCtags(
     return { symbols: [] };
   }
 
-  const listPath = path.join(projectPath, ATLARIX_DIR, ".ctags-filelist");
+  const listPath = path.join(ctagsCacheDir(projectPath), ".ctags-filelist");
   await fs.mkdir(path.dirname(listPath), { recursive: true });
   await fs.writeFile(
     listPath,

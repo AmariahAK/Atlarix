@@ -94,6 +94,28 @@ describe("executeCompressContext — durable marker persistence (Bug 1+2)", () =
       {},
     );
   });
+
+  it("reports summaryPersisted=false when no session can be resolved (the reload-re-summarize risk)", async () => {
+    sessionHandlers.resolveSpy.mockResolvedValueOnce(null as unknown as string);
+    const outcome = await executeCompressContext(
+      { reason: "test" },
+      {
+        chatId: -99, // no supplied id + unresolvable → marker cannot be written
+        messages: [
+          { id: 1, role: "user", content: "one" },
+          { id: 2, role: "assistant", content: "two" },
+          { id: 3, role: "user", content: "three" },
+          { id: 4, role: "assistant", content: "four" },
+        ],
+        systemPromptTokens: 100,
+        ephemeral: false,
+      },
+    );
+    // Compaction still "succeeds" for the turn, but the caller must know it
+    // won't survive reload (chat_stream_handlers surfaces this to the user).
+    expect(outcome.summaryPersisted).toBe(false);
+    expect(sessionHandlers.persistSpy).not.toHaveBeenCalled();
+  });
 });
 
 describe("model compaction activity → Feed A invalidation contract (Bug 1c)", () => {

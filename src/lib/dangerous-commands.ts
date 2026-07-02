@@ -47,6 +47,18 @@ export const DANGEROUS_PATTERNS: DangerMatch[] = [
     pattern: /\bformat\b.*\b(c:|d:)/i,
     explanation: "This may format a drive. All data on the drive will be permanently lost.",
   },
+  {
+    pattern: /git\s+push\b.*--force(?!-with-lease)\b/,
+    explanation: "This force-pushes and can OVERWRITE remote history for everyone — commits others rely on may be lost. Prefer --force-with-lease.",
+  },
+  {
+    pattern: /git\s+push\b.*--force-with-lease\b/,
+    explanation: "This force-pushes (with a safety lease). It rewrites remote history — confirm no one else has pushed since you last fetched.",
+  },
+  {
+    pattern: /git\s+reset\s+--hard\b/,
+    explanation: "This discards ALL uncommitted changes and moves the branch pointer — local work not committed will be permanently lost.",
+  },
 ];
 
 /**

@@ -1093,11 +1093,45 @@ const RECONNECT_DELAYS_MS = [2000, 5000, 10000];
 function isNetworkStreamError(err: unknown): boolean {
   if (!err) return false;
   if ((err as { name?: string })?.name === "AbortError") return false;
-  if ((err as { name?: string })?.name === "APICallError") return true;
+  if ((err as { name?: string })?.name === "APICallError") {
+    // Don't blindly retry EVERY APICallError — a deterministic 4xx (400 bad
+    // request, 401/403 auth, 404, 422) fails identically on retry and just
+    // wastes the backoff. Honor the SDK's own `isRetryable` verdict when present
+    // (it flags 408/409/429/5xx), else fall back to the status code: retry only
+    // 429 (rate limit) and 5xx (server/transient).
+    const retryable = (err as { isRetryable?: unknown }).isRetryable;
+    if (typeof retryable === "boolean") return retryable;
+    const code = errorStatusCode(err);
+    if (code == null) return true; // transport-level APICallError (no HTTP status)
+    return code === 429 || code >= 500;
+  }
   const msg = String((err as { message?: unknown })?.message ?? err);
   return /terminated|fetch failed|ECONNRESET|ETIMEDOUT|socket hang up|premature close|connection (?:reset|refused|closed)|network/i.test(
     msg,
   );
+}
+
+/** HTTP status code from an APICallError-shaped error, if present. */
+function errorStatusCode(err: unknown): number | undefined {
+  const s = (err as { statusCode?: unknown })?.statusCode;
+  return typeof s === "number" ? s : undefined;
+}
+
+/**
+ * Parse a `Retry-After` response header (delta-seconds or an HTTP-date) into a
+ * millisecond delay, or null when absent/unparseable. Provider-neutral — keys
+ * off the HTTP surface, not any specific gateway. Capped by the caller.
+ */
+function retryAfterMs(err: unknown): number | null {
+  const headers = (err as { responseHeaders?: Record<string, string> })
+    ?.responseHeaders;
+  if (!headers) return null;
+  const raw = headers["retry-after"] ?? headers["Retry-After"];
+  if (!raw) return null;
+  const secs = Number(raw);
+  if (Number.isFinite(secs)) return Math.max(0, secs * 1000);
+  const dateMs = Date.parse(raw);
+  return Number.isFinite(dateMs) ? Math.max(0, dateMs - Date.now()) : null;
 }
 
 /**
@@ -3285,6 +3319,11 @@ This conversation includes one or more image attachments. When the user uploads 
                   providerId,
                   sessionStats: { toolCallCount: 0, delegationCount: 0 },
                   turnId: null,
+                  // Thread the known-good session id (as the other two compress
+                  // call sites do) so a non-ephemeral workspace chat's compaction
+                  // marker persists — else a reload re-loads FULL history and
+                  // re-summarizes on the first post-reload turn.
+                  workspaceSessionId: req.workspaceSessionId ?? undefined,
                   ephemeral: canEphemeralR,
                   setMessages: canEphemeralR
                     ? (next) => {
@@ -4509,12 +4548,19 @@ This conversation includes one or more image attachments. When the user uploads 
                   isNetworkStreamError(err) &&
                   networkAttempt < RECONNECT_DELAYS_MS.length
                 ) {
-                  const delay = RECONNECT_DELAYS_MS[networkAttempt];
+                  // Honor a provider `Retry-After` (429/503) over the fixed
+                  // backoff — but cap it at 60s so a hostile/misconfigured header
+                  // can't hang the turn.
+                  const retryAfter = retryAfterMs(err);
+                  const delay =
+                    retryAfter != null
+                      ? Math.min(retryAfter, 60_000)
+                      : RECONNECT_DELAYS_MS[networkAttempt];
                   networkAttempt++;
                   logger.warn(
-                    `[stream] Network error on attempt ${networkAttempt}/${RECONNECT_DELAYS_MS.length}, retrying after ${delay}ms: ${
-                      err instanceof Error ? err.message : String(err)
-                    }`,
+                    `[stream] Network error on attempt ${networkAttempt}/${RECONNECT_DELAYS_MS.length}, retrying after ${delay}ms${
+                      retryAfter != null ? " (Retry-After)" : ""
+                    }: ${err instanceof Error ? err.message : String(err)}`,
                   );
                   sentryAddBreadcrumbSafe({
                     category: "stream_retry",

@@ -6,6 +6,7 @@ import { dialog } from "electron";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
+import { getUserDataPath } from "@/paths/paths";
 import { createLoggedHandler } from "./safe_handle";
 import log from "electron-log";
 import sudoPrompt from "@vscode/sudo-prompt";
@@ -92,6 +93,27 @@ const CLI_LAUNCHER_SIGNATURE = "Atlarix CLI launcher";
  * Silent + non-elevated — if the file isn't ours or isn't writable (e.g. it was
  * installed with sudo), we skip and leave re-install to Settings. Call at startup.
  */
+/**
+ * Records/checks whether we've already surfaced the stale-launcher reinstall
+ * nag for the CURRENT launcher (keyed by its mtime). Returns true when this
+ * exact stale state was already shown — so we nag once, not every launch, but
+ * still re-nag if the launcher file later changes. Best-effort (fs errors →
+ * treat as not-yet-shown so we don't silently drop a genuine nag).
+ */
+function cliNagAlreadyShown(): boolean {
+  try {
+    const { file } = cliTargetPath();
+    const key = String(fs.statSync(file).mtimeMs);
+    const marker = path.join(getUserDataPath(), "cli-launcher-nag.txt");
+    const prev = fs.existsSync(marker) ? fs.readFileSync(marker, "utf8").trim() : "";
+    if (prev === key) return true;
+    fs.writeFileSync(marker, key, "utf8");
+    return false;
+  } catch {
+    return false;
+  }
+}
+
 export function refreshCliLauncherIfStale(): { needsManualUpdate: boolean } {
   if (process.platform === "win32") return { needsManualUpdate: false }; // `start` already detaches on Windows
   try {
@@ -113,6 +135,14 @@ export function refreshCliLauncherIfStale(): { needsManualUpdate: boolean } {
     const code = (err as NodeJS.ErrnoException)?.code;
     const unwritable = code === "EACCES" || code === "EPERM";
     if (unwritable) {
+      // Throttle: only nag ONCE per unique stale launcher (keyed by its mtime).
+      // Previously this warned + re-prompted on EVERY launch, which read as a
+      // recurring env nag. If the launcher changes (user reinstalls), the key
+      // differs and we nag again; otherwise we stay quiet.
+      if (cliNagAlreadyShown()) {
+        logger.debug("atlarix CLI launcher still stale (nag already shown) — suppressing repeat");
+        return { needsManualUpdate: false };
+      }
       logger.warn(
         "atlarix CLI launcher is stale and not writable (likely root-owned) — offering reinstall",
       );

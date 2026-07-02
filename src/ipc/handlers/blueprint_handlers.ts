@@ -5,6 +5,7 @@
  * so AI tools and UI share current state; blueprint:updated notifies the renderer.
  */
 
+import { existsSync } from "node:fs";
 import { ipcMain, BrowserWindow } from "electron";
 import { db } from "@/db";
 import { apps } from "@/db/schema";
@@ -179,6 +180,19 @@ async function inferBlueprint(workspaceId: number, focusPath: string): Promise<B
   const workspacePath = getAtlarixAppPath(app.path);
   const fp = normalizeBlueprintFocusPath(focusPath) || ".";
   const scanRoot = resolveScanRoot(workspacePath, fp);
+
+  // Guard the scan-root existence for EVERY path, including fp === "." (a moved/
+  // deleted workspace) — the fp !== "." branch below only validates sub-paths, so
+  // without this a missing root reached the scan and logged "scan root does not
+  // exist" downstream. Return empty cleanly instead.
+  if (!existsSync(scanRoot)) {
+    logger.warn("inferBlueprint: scan root does not exist", {
+      workspaceId,
+      focusPath: fp,
+      scanRoot,
+    });
+    return createEmptyBlueprint();
+  }
 
   if (fp !== ".") {
     const pathCheck = await validateBlueprintFocusPath(workspacePath, fp);
