@@ -1,16 +1,19 @@
 /**
- * Atlarix unified edit_file tool (Pass 7 consolidation; v13.8 absorbed write_file).
+ * Atlarix unified edit_file tool (Pass 7 consolidation; v13.8 absorbed write_file;
+ * v14.8.7 collapsed to write + replace).
  *
- * The single file-mutation tool. Supports five operations under one schema:
+ * The single file-mutation tool. Two operations under one schema:
  *   - write:   create a new file or fully overwrite an existing one (`content`)
- *   - replace: find exact `old_content` and replace with `new_content`
- *   - insert:  insert `new_content` at `line` (1-indexed; 0 = beginning)
- *   - delete:  delete inclusive line range [start_line, end_line]
- *   - section: replace a function/class/variable section by name
+ *   - replace: find `old_content` (exact, or via the self-healing match cascade)
+ *              and replace with `new_content`
  *
- * Plan-mode and Ask-mode gating is preserved from the previous tools (write_file
- * + the four surgical ops): Ask denies all mutation; Plan allows only the
- * .atlarix/*.md docs.
+ * The line-number ops (insert/delete/section) were removed — weak models can't
+ * count lines reliably, so they were the most error-prone surface; write+replace
+ * cover every case. Matching is delegated to the robust cascade in edit-match.ts
+ * (ported from opencode), and over-escaped content is repaired via edit-escape.ts.
+ *
+ * Plan-mode and Ask-mode gating is preserved: Ask denies all mutation; Plan
+ * allows only the .atlarix/*.md docs.
  */
 
 import * as fs from "fs";
@@ -20,110 +23,18 @@ import { assertReadablePath } from "@/lib/security/env-secret-paths";
 import { ToolRegistry } from "./registry";
 import { enrichPermissionWithBlastRadius } from "./permissions/enrich-blast-radius";
 import { isAtlarixDocWritePath } from "../project-memory";
+import { findReplacement } from "./edit-match";
+import { suggestClosestPath } from "./workspace-file-hints";
+import {
+  analyzeEscaping,
+  repairOverEscaped,
+  OVER_ESCAPE_REPAIR_NOTICE,
+  OVER_ESCAPE_AMBIGUOUS_ERROR,
+} from "./edit-escape";
 
 const logger = log.scope("edit-tools");
 
-/**
- * Locate an `oldString` inside `content` with three escalating strategies:
- *   1. Exact `indexOf` (no transformation).
- *   2. CRLF→LF normalised retry — the match index is translated back to the
- *      original (CRLF-preserving) content.
- *   3. Per-line `trimStart()` retry — tolerates indentation drift.
- *
- * Returns the original-content index + matched length so the caller can
- * splice replacement text in directly. `fuzzy: true` means a non-exact match
- * was used (callers should warn for audit). Returns `null` if all three
- * strategies fail.
- */
-interface FuzzyMatch {
-  index: number;
-  matchLength: number;
-  fuzzy: boolean;
-  occurrences: number;
-}
-
-function fuzzyFindString(content: string, oldString: string): FuzzyMatch | null {
-  if (oldString.length === 0) return null;
-
-  if (content.includes(oldString)) {
-    return {
-      index: content.indexOf(oldString),
-      matchLength: oldString.length,
-      fuzzy: false,
-      occurrences: content.split(oldString).length - 1,
-    };
-  }
-
-  const normContent = content.replace(/\r\n/g, "\n");
-  const normOld = oldString.replace(/\r\n/g, "\n");
-  if (normOld !== oldString || normContent !== content) {
-    if (normContent.includes(normOld)) {
-      const normIdx = normContent.indexOf(normOld);
-      let origIdx = 0;
-      let normPos = 0;
-      while (normPos < normIdx && origIdx < content.length) {
-        if (content[origIdx] === "\r" && content[origIdx + 1] === "\n") {
-          origIdx += 2;
-        } else {
-          origIdx += 1;
-        }
-        normPos += 1;
-      }
-      let endIdx = origIdx;
-      let normLen = 0;
-      while (normLen < normOld.length && endIdx < content.length) {
-        if (content[endIdx] === "\r" && content[endIdx + 1] === "\n") {
-          endIdx += 2;
-        } else {
-          endIdx += 1;
-        }
-        normLen += 1;
-      }
-      return {
-        index: origIdx,
-        matchLength: endIdx - origIdx,
-        fuzzy: true,
-        occurrences: normContent.split(normOld).length - 1,
-      };
-    }
-  }
-
-  const contentLines = content.split("\n");
-  const oldLinesRaw = oldString.split("\n");
-  const oldLines = oldLinesRaw.map((l) => l.trimStart());
-  if (oldLines.length === 0) return null;
-
-  const matchLineAt = (start: number): boolean => {
-    if (start + oldLines.length > contentLines.length) return false;
-    for (let j = 0; j < oldLines.length; j++) {
-      if (contentLines[start + j].trimStart() !== oldLines[j]) return false;
-    }
-    return true;
-  };
-
-  let firstMatch = -1;
-  let occurrences = 0;
-  for (let k = 0; k <= contentLines.length - oldLines.length; k++) {
-    if (matchLineAt(k)) {
-      occurrences += 1;
-      if (firstMatch === -1) firstMatch = k;
-    }
-  }
-  if (firstMatch === -1) return null;
-
-  let charOffset = 0;
-  for (let k = 0; k < firstMatch; k++) charOffset += contentLines[k].length + 1;
-
-  let matchLength = 0;
-  for (let j = 0; j < oldLines.length; j++) {
-    matchLength += contentLines[firstMatch + j].length;
-    if (j < oldLines.length - 1) matchLength += 1;
-  }
-
-  return { index: charOffset, matchLength, fuzzy: true, occurrences };
-}
-
-type EditOperation = "write" | "replace" | "insert" | "delete" | "section";
+type EditOperation = "write" | "replace";
 
 interface EditFileArgs {
   path: string;
@@ -132,10 +43,6 @@ interface EditFileArgs {
   content?: string;
   old_content?: string;
   new_content?: string;
-  line?: number;
-  start_line?: number;
-  end_line?: number;
-  section_identifier?: string;
   workspace?: string;
   chatMode?: string;
   agentMode?: string;
@@ -164,7 +71,16 @@ async function readFileSafe(
     const content = await fs.promises.readFile(fullPath, "utf-8");
     return { ok: true as const, content };
   } catch {
-    return { ok: false as const, error: { error: `File not found: ${normalizedPath}`, operation } };
+    // v14.8.7 §F: mirror read_file's "did-you-mean" grounding so a mistyped or
+    // just-renamed path gives the model a concrete next step, not a dead end.
+    let msg = `File not found: ${normalizedPath}`;
+    if (workspaceRoot) {
+      const suggestion = await suggestClosestPath(workspaceRoot, normalizedPath).catch(() => null);
+      if (suggestion) {
+        msg += ` — did you mean "${suggestion}"? Re-read it with read_file to get the exact current content before editing.`;
+      }
+    }
+    return { ok: false as const, error: { error: msg, operation } };
   }
 }
 
@@ -225,6 +141,19 @@ async function runWrite(
     };
   }
 
+  // v14.8.7 §B: repair model-emitted over-escaping (literal \n where real line
+  // breaks were intended) before the body reaches disk; hard-block ambiguous
+  // cases so we never silently corrupt a file that legitimately contains a \n.
+  const escapeVerdict = analyzeEscaping(content);
+  if (escapeVerdict === "ambiguous") {
+    return { error: OVER_ESCAPE_AMBIGUOUS_ERROR, operation: "edit_file" };
+  }
+  const effectiveContent = escapeVerdict === "repair" ? repairOverEscaped(content) : content;
+  const escapeNotice = escapeVerdict === "repair" ? OVER_ESCAPE_REPAIR_NOTICE : undefined;
+  if (escapeNotice) {
+    logger.warn(`[edit_file] auto-corrected over-escaped content for write`);
+  }
+
   // Detect create vs overwrite so the approval card reads "Creating" / "Modifying"
   // and the diff shows the prior body (mirrors the old write_file behavior).
   let fileType: "create" | "update" = "create";
@@ -249,11 +178,14 @@ async function runWrite(
     operation: "edit_file",
     preview: {
       path: normalizedPath,
-      content,
+      content: effectiveContent,
       ...(oldContent !== undefined ? { oldContent } : {}),
-      description: description ?? (fileType === "update" ? "Overwrite file" : "Create file"),
+      description: escapeNotice
+        ? `${description ?? (fileType === "update" ? "Overwrite file" : "Create file")} (over-escaped content auto-corrected)`
+        : (description ?? (fileType === "update" ? "Overwrite file" : "Create file")),
       type: fileType,
-      lines: content.split("\n").length,
+      lines: effectiveContent.split("\n").length,
+      ...(escapeNotice ? { notice: escapeNotice } : {}),
     },
     reasoning: `${fileType === "update" ? "Modifying" : "Creating"} ${normalizedPath}: ${description ?? "(no description)"}`,
     ...(metadata ? { metadata } : {}),
@@ -274,8 +206,21 @@ async function runReplace(
   const r = await readFileSafe(fullPath, normalizedPath, "edit_file", workspace);
   if (!r.ok) return r.error;
 
-  const match = fuzzyFindString(r.content, old_content);
-  if (!match) {
+  // v14.8.7 §B: repair over-escaped new_content before it splices in; hard-block
+  // ambiguous partial over-escaping rather than corrupt the file.
+  const newEscapeVerdict = analyzeEscaping(new_content);
+  if (newEscapeVerdict === "ambiguous") {
+    return { error: OVER_ESCAPE_AMBIGUOUS_ERROR, operation: "edit_file" };
+  }
+  const effectiveNew = newEscapeVerdict === "repair" ? repairOverEscaped(new_content) : new_content;
+  const escapeNotice = newEscapeVerdict === "repair" ? OVER_ESCAPE_REPAIR_NOTICE : undefined;
+
+  // v14.8.7 §D: robust match cascade (edit-match.ts) — a near-miss self-heals
+  // instead of erroring, with uniqueness + disproportion rails so we never edit
+  // the wrong region.
+  const match = findReplacement(r.content, old_content);
+
+  if (match.kind === "none") {
     // v12 0.3: structured retry guidance (Claude Code-style) — show the
     // closest candidate region so the model can re-read and retry with exact
     // context instead of guessing.
@@ -309,10 +254,18 @@ async function runReplace(
     };
   }
 
-  if (match.occurrences > 1) {
+  if (match.kind === "multiple") {
     return {
       error: `Found ${match.occurrences} occurrences of old_content in ${normalizedPath}. Provide more surrounding context to make the match unique.`,
       operation: "edit_file",
+    };
+  }
+
+  if (match.kind === "disproportionate") {
+    return {
+      error: `Refusing this replace: the closest match in ${normalizedPath} spans far more than old_content, so applying it would likely clobber the wrong region. Re-read the target and pass the exact, complete old_content.`,
+      operation: "edit_file",
+      retry: { reason: "disproportionate_match", guidance: "re-read and pass exact old_content" },
     };
   }
 
@@ -328,12 +281,14 @@ async function runReplace(
     );
   }
 
+  const notice = [fuzzyNotice, escapeNotice].filter(Boolean).join(" ") || undefined;
+
   const newContent =
     r.content.slice(0, match.index) +
-    new_content +
+    effectiveNew +
     r.content.slice(match.index + match.matchLength);
   const oldLines = old_content.split("\n").length;
-  const newLines = new_content.split("\n").length;
+  const newLines = effectiveNew.split("\n").length;
   return permissionPayloadWithBlastRadius(
     workspace,
     {
@@ -343,13 +298,13 @@ async function runReplace(
       description: fuzzyNotice
         ? `${description ?? "Surgical replace"} (${fuzzyNotice})`
         : (description ?? "Surgical replace"),
-      ...(fuzzyNotice ? { notice: fuzzyNotice } : {}),
+      ...(notice ? { notice } : {}),
       operation: "edit_file",
       diff: {
         removed: oldLines,
         added: newLines,
         old_snippet: old_content.slice(0, 200) + (old_content.length > 200 ? "..." : ""),
-        new_snippet: new_content.slice(0, 200) + (new_content.length > 200 ? "..." : ""),
+        new_snippet: effectiveNew.slice(0, 200) + (effectiveNew.length > 200 ? "..." : ""),
       },
       reasoning: `Replace in ${normalizedPath}: ${description ?? "(no description)"} (${oldLines}→${newLines} lines)`,
     },
@@ -357,176 +312,13 @@ async function runReplace(
   );
 }
 
-async function runInsert(
-  args: EditFileArgs,
-  normalizedPath: string,
-  fullPath: string,
-  workspace?: string,
-  blastOpts?: { agentMode?: string; chatSessionId?: number; workspaceId?: number },
-) {
-  const { line, new_content, description } = args;
-  if (line === undefined || !new_content) {
-    return { error: "operation=insert requires line and new_content", operation: "edit_file" };
-  }
-  const r = await readFileSafe(fullPath, normalizedPath, "edit_file", workspace);
-  if (!r.ok) return r.error;
-
-  const lines = r.content.split("\n");
-  if (line < 0 || line > lines.length) {
-    return {
-      error: `Invalid line ${line}. File has ${lines.length} lines (use 0 for start, ${lines.length} for end).`,
-      operation: "edit_file",
-    };
-  }
-
-  const codeLines = new_content.split("\n");
-  const newLines = [...lines.slice(0, line), ...codeLines, ...lines.slice(line)];
-  const newContent = newLines.join("\n");
-  return permissionPayloadWithBlastRadius(
-    workspace,
-    {
-      normalizedPath,
-      newContent,
-      oldContent: r.content,
-      description: description ?? "Insert lines",
-      operation: "edit_file",
-      diff: {
-        inserted_at: line,
-        lines_added: codeLines.length,
-        snippet: new_content.slice(0, 200) + (new_content.length > 200 ? "..." : ""),
-      },
-      reasoning: `Insert ${codeLines.length} lines at ${line} in ${normalizedPath}: ${description ?? "(no description)"}`,
-    },
-    blastOpts,
-  );
-}
-
-async function runDelete(
-  args: EditFileArgs,
-  normalizedPath: string,
-  fullPath: string,
-  workspace?: string,
-  blastOpts?: { agentMode?: string; chatSessionId?: number; workspaceId?: number },
-) {
-  const { start_line, end_line, description } = args;
-  if (start_line === undefined || end_line === undefined) {
-    return { error: "operation=delete requires start_line and end_line", operation: "edit_file" };
-  }
-  const r = await readFileSafe(fullPath, normalizedPath, "edit_file", workspace);
-  if (!r.ok) return r.error;
-
-  const lines = r.content.split("\n");
-  if (start_line < 1 || end_line > lines.length || start_line > end_line) {
-    return {
-      error: `Invalid range ${start_line}-${end_line}. File has ${lines.length} lines.`,
-      operation: "edit_file",
-    };
-  }
-
-  const deletedLines = lines.slice(start_line - 1, end_line);
-  const deletedContent = deletedLines.join("\n");
-  const newLines = [...lines.slice(0, start_line - 1), ...lines.slice(end_line)];
-  const newContent = newLines.join("\n");
-  return permissionPayloadWithBlastRadius(
-    workspace,
-    {
-      normalizedPath,
-      newContent,
-      oldContent: r.content,
-      description: description ?? "Delete lines",
-      operation: "edit_file",
-      diff: {
-        deleted_range: `${start_line}-${end_line}`,
-        lines_removed: deletedLines.length,
-        deleted_snippet: deletedContent.slice(0, 200) + (deletedContent.length > 200 ? "..." : ""),
-      },
-      reasoning: `Delete ${start_line}-${end_line} from ${normalizedPath}: ${description ?? "(no description)"}`,
-    },
-    blastOpts,
-  );
-}
-
-async function runSection(
-  args: EditFileArgs,
-  normalizedPath: string,
-  fullPath: string,
-  workspace?: string,
-  blastOpts?: { agentMode?: string; chatSessionId?: number; workspaceId?: number },
-) {
-  const { section_identifier, new_content, description } = args;
-  if (!section_identifier || new_content === undefined) {
-    return { error: "operation=section requires section_identifier and new_content", operation: "edit_file" };
-  }
-  const r = await readFileSafe(fullPath, normalizedPath, "edit_file", workspace);
-  if (!r.ok) return r.error;
-
-  const lines = r.content.split("\n");
-  const escaped = section_identifier.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const patterns = [
-    new RegExp(`function\\s+${escaped}\\s*\\(`),
-    new RegExp(`const\\s+${escaped}\\s*=`),
-    new RegExp(`class\\s+${escaped}\\s*{`),
-    new RegExp(`export\\s+function\\s+${escaped}\\s*\\(`),
-  ];
-
-  let startLine = -1;
-  let endLine = -1;
-  for (let i = 0; i < lines.length; i++) {
-    if (patterns.some((p) => p.test(lines[i]))) {
-      startLine = i;
-      let braceCount = 0;
-      let inSection = false;
-      for (let j = i; j < lines.length; j++) {
-        const lineText = lines[j];
-        for (const ch of lineText) {
-          if (ch === "{") {
-            braceCount++;
-            inSection = true;
-          } else if (ch === "}") {
-            braceCount--;
-          }
-        }
-        if (inSection && braceCount === 0) {
-          endLine = j;
-          break;
-        }
-      }
-      break;
-    }
-  }
-
-  if (startLine === -1) {
-    return { error: `Section "${section_identifier}" not found in ${normalizedPath}`, operation: "edit_file" };
-  }
-
-  const before = lines.slice(0, startLine);
-  const after = lines.slice(endLine + 1);
-  const newLines = [...before, new_content, ...after];
-  const newContent = newLines.join("\n");
-  return permissionPayloadWithBlastRadius(
-    workspace,
-    {
-      normalizedPath,
-      newContent,
-      oldContent: r.content,
-      description: description ?? `Replace section ${section_identifier}`,
-      operation: "edit_file",
-      reasoning: `Section edit (${section_identifier}) in ${normalizedPath}: ${description ?? "(no description)"}`,
-    },
-    blastOpts,
-  );
-}
-
 ToolRegistry.register({
   name: "edit_file",
-  description: `Create, overwrite, or surgically edit a file — the single tool for all file changes. Supports five operations:
+  description: `Create, overwrite, or surgically edit a file — the single tool for all file changes. Two operations:
 - write: create a NEW file, or fully overwrite an existing one, with \`content\` (the complete file body)
-- replace: find exact text and replace with new text (safest; requires old_content to match exactly)
-- insert: insert new_content at a specific line (1-indexed; 0 = beginning of file)
-- delete: delete a range of lines [start_line..end_line] (1-indexed, inclusive)
-- section: replace a named function/class/variable section without computing line numbers
+- replace: find \`old_content\` in the file and swap it for \`new_content\`
 
-Use "write" for a new file or a full rewrite. For ANY change to an existing file prefer the surgical ops — "replace" (matches existing content exactly), "insert" for new blocks, "delete" for dead code, "section" when you know the symbol name but not the exact text. Surgical ops are faster and safer than rewriting a large file. Never describe an edit instead of making it.`,
+Use "write" for a new file or a full rewrite. For ANY change to an existing file prefer "replace": pass enough surrounding context in old_content to match ONE unique spot (minor whitespace/indentation drift is tolerated automatically; an ambiguous or missing match is reported so you can re-read and retry). "replace" is faster and safer than rewriting a large file. Put REAL newlines in content/new_content — never the two characters backslash-n. Never describe an edit instead of making it.`,
   requiresWorkspace: true,
   isCore: true,
   isReadOnly: false,
@@ -539,37 +331,21 @@ Use "write" for a new file or a full rewrite. For ANY change to an existing file
       },
       operation: {
         type: "string",
-        enum: ["write", "replace", "insert", "delete", "section"],
+        enum: ["write", "replace"],
         description: "Edit operation to perform.",
       },
       description: { type: "string", description: "Brief description of what this edit does." },
       content: {
         type: "string",
-        description: "(write) Full file body to create or overwrite. Required for operation=write.",
+        description: "(write) Full file body to create or overwrite. Required for operation=write. Use real newlines.",
       },
       old_content: {
         type: "string",
-        description: "(replace) Exact content to find and replace. Must match exactly, whitespace included.",
+        description: "(replace) Content to find and replace. Include enough surrounding context to match one unique spot; minor indentation/whitespace drift is tolerated.",
       },
       new_content: {
         type: "string",
-        description: "(replace/insert/section) New content to write.",
-      },
-      line: {
-        type: "number",
-        description: "(insert) Line number to insert AFTER (1-indexed). Use 0 to insert at the beginning.",
-      },
-      start_line: {
-        type: "number",
-        description: "(delete) First line to delete (1-indexed, inclusive).",
-      },
-      end_line: {
-        type: "number",
-        description: "(delete) Last line to delete (1-indexed, inclusive).",
-      },
-      section_identifier: {
-        type: "string",
-        description: "(section) Function/class/variable name to find and replace.",
+        description: "(replace) Replacement content. Required for operation=replace. Use real newlines.",
       },
     },
     required: ["path", "operation"],
@@ -605,14 +381,8 @@ Use "write" for a new file or a full rewrite. For ANY change to an existing file
         return runWrite(rawArgs, normalizedPath, fullPath, workspace, blastOpts);
       case "replace":
         return runReplace(rawArgs, normalizedPath, fullPath, workspace, blastOpts);
-      case "insert":
-        return runInsert(rawArgs, normalizedPath, fullPath, workspace, blastOpts);
-      case "delete":
-        return runDelete(rawArgs, normalizedPath, fullPath, workspace, blastOpts);
-      case "section":
-        return runSection(rawArgs, normalizedPath, fullPath, workspace, blastOpts);
       default:
-        return { error: `Unknown operation: ${operation}. Use write | replace | insert | delete | section.`, operation: "edit_file" };
+        return { error: `Unknown operation: ${operation}. Use write | replace.`, operation: "edit_file" };
     }
   },
 });

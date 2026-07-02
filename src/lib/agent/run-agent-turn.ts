@@ -82,6 +82,12 @@ export interface TurnRuntime {
   readonly tierLimit: number;
   readonly contextWindowTokens: number;
   readonly maxContinuationAttempts: number;
+  /**
+   * v14.8.7 §A2: compact task ledger for this session (or null). Threaded into
+   * the continuation prompt so a stall/truncation resume re-asserts the SAME
+   * task instead of re-reading the prior user message as a new request.
+   */
+  readonly taskLedger?: string | null;
   readonly permissionInterceptor: {
     getAllOperationsCount(): number;
     getExecutedOperationsCount(): number;
@@ -452,6 +458,7 @@ export async function runAgentTurn(
               attemptCount: stallResumeAttempts,
               maxAttempts: MAX_STALL_RESUME_ATTEMPTS,
               lastContent: stripThinkBlocks(fullResponse),
+              taskLedger: rt.taskLedger,
             }),
           },
         ];
@@ -481,6 +488,7 @@ export async function runAgentTurn(
               attemptCount: streamContinuationAttempts,
               maxAttempts: rt.maxContinuationAttempts,
               lastContent: stripThinkBlocks(fullResponse),
+              taskLedger: rt.taskLedger,
             }),
           },
         ];
@@ -540,6 +548,22 @@ export async function runAgentTurn(
     )
       ? fullResponse.slice(iterationStartFullResponse.length)
       : fullResponse;
+
+    // §A5: semantic loop-guard on repeated status re-statements. If the model
+    // keeps re-emitting the same status text round after round (tool args
+    // varying so the byte-identical tool guard misses it), wrap up gracefully
+    // via the same tools-off finish path a mid-round abort uses.
+    if (
+      !forceTextFinish &&
+      profile.repetition?.isEnabled() &&
+      profile.repetition.recordText(stripThinkBlocks(iterationDeltaResponse)).kind ===
+        "loop_abort"
+    ) {
+      logger.info(`${L} Repeated status restatement detected — forcing finish round`);
+      forceTextFinish = true;
+      continue;
+    }
+
     const textToolCalls =
       profile.detectTextToolCalls?.(iterationDeltaResponse) ?? null;
     const hasTextToolCalls = textToolCalls !== null;

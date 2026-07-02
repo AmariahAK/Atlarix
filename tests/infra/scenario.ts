@@ -37,6 +37,11 @@ export function scenario(id: string) {
       responses.push({ kind: "error", status, message });
       return builder;
     },
+    /** Emit one chunk then hang — drives the idle-stall watchdog (§A stall-resume). */
+    stall(preText?: string) {
+      responses.push({ kind: "stall", preText });
+      return builder;
+    },
     /** Keep serving the final response when the script runs out (loop evals). */
     repeatLast() {
       repeatLast = true;

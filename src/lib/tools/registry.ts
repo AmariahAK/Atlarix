@@ -294,11 +294,22 @@ export class ToolRegistry {
                     return raw;
                 }
 
+                // Treat as a failure when the tool says so explicitly
+                // (success:false) OR returns a bare { error: "<msg>" } without a
+                // success flag (the legacy edit_file/plan convention). v14.8.7 §F:
+                // the latter previously slipped through as success:true with the
+                // error nested in `result` — so the model saw a "successful" call
+                // that had actually failed, and never got the recovery hint.
+                const asRawObj = raw as { success?: boolean; error?: unknown };
+                const isBareError =
+                    asRawObj.success !== true &&
+                    typeof asRawObj.error === "string" &&
+                    asRawObj.error.trim().length > 0;
                 if (
                     raw &&
                     typeof raw === "object" &&
                     !Array.isArray(raw) &&
-                    (raw as { success?: boolean }).success === false
+                    (asRawObj.success === false || isBareError)
                 ) {
                     const fail = raw as {
                         error?: string;

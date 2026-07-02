@@ -115,6 +115,51 @@ export function setStepStateInPlanMarkdown(
   };
 }
 
+/**
+ * v14.8.7 §A1: a COMPACT, high-salience ledger block re-injected near the latest
+ * turn every turn (not the full plan body). Open-weight models lose the thread on
+ * resume/network events and re-derive done-vs-pending by re-reading git; keeping
+ * "what's left" as the freshest, most-authoritative thing they read fixes that.
+ * Returns null when there are no steps (nothing to anchor).
+ */
+export function formatPlanChecklistForPrompt(
+  steps: PlanChecklistStep[],
+  title?: string,
+): string | null {
+  if (steps.length === 0) return null;
+  const done = steps.filter((s) => s.state === "done").length;
+  const inProgress = steps.find((s) => s.state === "in_progress");
+  const blocked = steps.filter((s) => s.state === "blocked");
+  const pending = steps.filter((s) => s.state === "todo");
+
+  const lines: string[] = [];
+  const head = title?.trim() ? `Task: ${title.trim()} — ` : "";
+  lines.push(`[Task ledger] ${head}${done}/${steps.length} steps done.`);
+  if (inProgress) lines.push(`In progress: ${inProgress.index}. ${inProgress.text}`);
+  if (pending.length) {
+    lines.push(`Remaining: ${pending.map((s) => `${s.index}. ${s.text}`).join("; ")}`);
+  }
+  if (blocked.length) {
+    lines.push(`Blocked: ${blocked.map((s) => `${s.index}. ${s.text}`).join("; ")}`);
+  }
+  if (done === steps.length) {
+    lines.push("All steps are marked done — verify the work, then finish.");
+  }
+  lines.push(
+    "Consult and update this ledger (plan update_step) before deciding your next action; do NOT re-derive progress from git or by re-reading everything.",
+  );
+  return lines.join("\n");
+}
+
+/** Extract a plan title from the first markdown heading (for the ledger block). */
+export function extractPlanChecklistTitle(content: string): string | undefined {
+  for (const line of content.split(/\r?\n/)) {
+    const m = line.match(/^#{1,6}\s+(.+?)\s*$/);
+    if (m?.[1]) return m[1].replace(/[*_`]/g, "").trim();
+  }
+  return undefined;
+}
+
 /** Safety net: when a plan flips to built, close out any remaining open steps. */
 export function markAllChecklistStepsDone(content: string): {
   content: string;

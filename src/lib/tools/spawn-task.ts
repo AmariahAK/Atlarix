@@ -307,8 +307,11 @@ ToolRegistry.register({
 
     const taskId = randomUUID();
     const subagentType = args.subagent_type?.trim() || "";
-    // Set for background tasks so the main agent can hard-cancel them mid-flight.
-    let taskAbort: AbortController | undefined;
+    // v14.8.7 §C: every sub-agent (foreground scouts included, not just
+    // background) gets an abort controller so a user cancel can hard-stop its
+    // model stream AND its git worktree children — foreground scouts were
+    // previously uncancelable, so their git ops kept burning CPU after cancel.
+    const taskAbort = new AbortController();
 
     // R3: tee live activity into the task's progress buffer (so `task({task_id})`
     // / `task({list})` can show a running sub-agent's progress) and forward to the
@@ -343,7 +346,7 @@ ToolRegistry.register({
       let worktree: SubagentWorktree | null = null;
       let modeNote = "";
       if (willWrite) {
-        worktree = await createSubagentWorktree(args.workspace!, taskId);
+        worktree = await createSubagentWorktree(args.workspace!, taskId, taskAbort.signal);
         if (!worktree) {
           modeNote =
             "\n\n(Note: workspace is not a git repository — ran read-only; could not isolate writes.)";
@@ -363,7 +366,7 @@ ToolRegistry.register({
           delegationChatMode: args.delegationChatMode,
           delegationId: args.parentDelegationId ?? taskId,
           emit: bufferingEmit,
-          abortSignal: taskAbort?.signal,
+          abortSignal: taskAbort.signal,
         });
 
         // Capture the proposed diff before teardown so the main agent can review
@@ -371,7 +374,7 @@ ToolRegistry.register({
         let diffBlock = "";
         if (worktree) {
           try {
-            const diff = await captureWorktreeDiff(worktree);
+            const diff = await captureWorktreeDiff(worktree, taskAbort.signal);
             if (diff.changedFiles.length > 0) {
               const body =
                 diff.unifiedDiff.length > MAX_DIFF_CHARS
@@ -419,17 +422,12 @@ ToolRegistry.register({
       startedAt: Date.now(),
       chatId: args.chatId,
       description: args.description,
+      abort: taskAbort,
     });
 
     if (args.background) {
       const chatId = args.chatId;
       if (chatId != null) recordSubagentStart(chatId, taskId);
-
-      // Hard-cancel handle: the main agent can abort this sub-agent's model
-      // stream via `task({ task_id, cancel: true })` (cancelSubagentTask).
-      taskAbort = new AbortController();
-      const rec0 = taskStore.get(taskId);
-      if (rec0) rec0.abort = taskAbort;
 
       // Record the result into the per-chat store exactly once (on completion,
       // failure, or timeout) so prepareStep can fold it into the turn as it

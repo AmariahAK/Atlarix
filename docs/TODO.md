@@ -1,12 +1,12 @@
 # Atlarix TODO
 
 **Current Version:** v14.8.0 (released 2026-06-30)
-**Last Updated:** 2026-07-02 (v14.8.7 planned added)
+**Last Updated:** 2026-07-02 (v14.8.7 landed on `main`)
 
-> **v14.8.5 + v14.8.6 are landed on `main`, unreleased (no tag).** The three
+> **v14.8.5 + v14.8.6 + v14.8.7 are landed on `main`, unreleased (no tag).** The three
 > v14.8.5 "cluster branches" turned out to be linear ancestors of `main` (already
-> committed, not unmerged); v14.8.6 was built directly on top. Next release tag will
-> carry both.
+> committed, not unmerged); v14.8.6 and v14.8.7 were built directly on top. The next
+> release tag will carry all three.
 
 > Open work + the current release only. **Full shipped-version history lives in
 > [`docs/CHANGELOG.md`](./CHANGELOG.md)** (and `docs/CHANGELOG_PREVIOUS.md`).
@@ -302,7 +302,36 @@ the broader concurrency eval harness (supersede cascade, stall-resume)._
 
 ---
 
-## 🔭 v14.8.7 — Task-state tracking for open-weight models + edit fidelity + cancel responsiveness (planned)
+## ✅ v14.8.7 — Task-state tracking for open-weight models + edit fidelity + cancel responsiveness (DONE — landed on `main`, no tag)
+
+**Landed 2026-07-02.** All six workstreams (A–F) implemented as sequential clusters; full suite green
+(1514 passed, 1 skipped), `ts`/`oxlint`/`knip` clean. Packaged `.app` smoke pending as usual. Two
+front-loaded spikes resolved the ledger authority (plan-artifact is the live, UI-wired ledger — the
+dead `task-ledger` stays only for `sanitizeLedgerDirSegment`) and the escape-bug fix layer (write path
+applies zero transforms + faithful SDK JSON round-trip ⟹ model over-escape ⟹ fix in `edit.ts`).
+
+- **C1 — B+D (`edit_file`):** collapsed to `write`+`replace` (removed `insert`/`delete`/`section`);
+  over-escape repair with a safe 3-way policy (ok / auto-repair-if-confident / hard-block-ambiguous,
+  `edit-escape.ts`); self-healing match cascade ported from opencode (`edit-match.ts`, uniqueness +
+  disproportion rails). Docs swept (`AGENTS.md`, `README.md`).
+- **C2 — A (task-state, the 5):** compact live ledger block re-injected every turn from the plan
+  artifact (`formatPlanChecklistForPrompt`); `update_step`/`set_status`/`append_step` `planId` now
+  optional (A1a); `buildContinuationPrompt` re-asserts the task on resume (A2/A3); mode→goal
+  re-anchor (A4); minimal semantic text loop-guard (A5, `recordText`). Deferred concurrency evals
+  built: supersede-cascade + stall-resume (new `{kind:"stall"}` scenario primitive +
+  `ATLARIX_TEST_STALL_MS` override — the stall path was live-only since v14.8.0).
+- **C3 — cancel/abort:** every sub-agent (foreground scouts too) now gets an abort controller;
+  abort signal threaded into the heavy worktree git ops so cancel kills them (the CPU-spike source),
+  cleanup left unsignaled.
+- **C4 — F:** `ToolRegistry.execute` now normalizes bare `{error}` returns (edit_file/plan legacy
+  convention) to real failures with the recovery-suggestion overlay; read_file's "did-you-mean"
+  generalized to `edit_file` path-not-found.
+- **C5 — E (conservative diet):** deleted mechanically-enforced prose (`Approvals` line, "What Atlarix
+  CANNOT do") + deduped Memory section. Scoped down from wholesale relocation after discovering the
+  web/viz rules are already capability-gated and AGENTS.md injects wholesale — wholesale relocation
+  would trade surface-for-surface with weak-model regression risk (against the harness filter).
+
+_Backlog detail (as planned) retained below for reference._
 
 **Theme:** open-weight models lose the thread — after a resume/network event they re-anchor on the
 LAST user message as "the task," and they re-DERIVE done-vs-pending every turn (re-reading git,

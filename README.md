@@ -71,7 +71,7 @@ Retrieval is **structural + lexical, no embeddings, no map tool**. Blueprint (Un
 
 ### Workspace Tools & Extensions
 
-- **Core tools:** A deliberately minimal tool surface — `read_file`, a single `edit_file` (one tool for create/overwrite via `operation:"write"` plus surgical replace/insert/delete/section), **`glob`** + **`grep`** (Blueprint-reranked), `run_command` (incl. `git` CLI and background commands), web search/read, `task` sub-agents, `plan`, MCP, attachments, and three in-app browser tools (`browser_navigate`/`browser_inspect`/`browser_interact`). Explore/Plan/Review use read-only allowlists.
+- **Core tools:** A deliberately minimal tool surface — `read_file`, a single `edit_file` (one tool for create/overwrite via `operation:"write"` plus surgical `operation:"replace"` with self-healing match), **`glob`** + **`grep`** (Blueprint-reranked), `run_command` (incl. `git` CLI and background commands), web search/read, `task` sub-agents, `plan`, MCP, attachments, and three in-app browser tools (`browser_navigate`/`browser_inspect`/`browser_interact`). Explore/Plan/Review use read-only allowlists.
 - **MCP:** MCP servers are configured **per workspace** — Solo connects **1** (manual config); Studio / Team get the marketplace plus up to **10** per workspace (one-click OAuth connect from the marketplace). On-demand **`list_available_mcps`** / **`mcp_call`** in workspace chat.
 - **Agent Behaviors:** Install from [atlarix-skills](https://github.com/AmariahAK/atlarix-skills). Optional **`.atlarix/skills/`** in the repo.
 

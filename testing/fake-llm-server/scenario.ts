@@ -32,7 +32,13 @@ export type ScenarioResponse =
   | { kind: "tool_call"; calls: Array<{ name: string; args: unknown }> }
   /** Streams a fixture file from e2e-tests/fixtures/<name>.md (atlarix-* XML tags parsed app-side). */
   | { kind: "fixture"; name: string }
-  | { kind: "error"; status: number; message?: string };
+  | { kind: "error"; status: number; message?: string }
+  /**
+   * v14.8.7: emit one chunk (so the stream "started") then HANG — never ends.
+   * Drives the idle-stall watchdog (stream_chunk_tags) → continue-from-partial
+   * resume. Pair with a short ATLARIX_TEST_STALL_MS so the watchdog fires fast.
+   */
+  | { kind: "stall"; preText?: string };
 
 export interface Scenario {
   id: string;
@@ -261,6 +267,24 @@ export function handleScenarioChatCompletion(
         return;
       }
       streamText(res, fs.readFileSync(fixturePath, "utf-8"));
+      return;
+    }
+    case "stall": {
+      // Emit one delta (so hasReceivedChunk flips → the idle budget applies),
+      // then hang: never write another chunk and never end. The client's stall
+      // watchdog aborts the fetch; when it does, stop.
+      res.setHeader("Content-Type", "text/event-stream");
+      res.setHeader("Cache-Control", "no-cache");
+      res.setHeader("Connection", "keep-alive");
+      res.write(createStreamChunk("", "assistant"));
+      res.write(createStreamChunk(response.preText ?? "Working"));
+      req.on("close", () => {
+        try {
+          res.end();
+        } catch {
+          // already torn down
+        }
+      });
       return;
     }
     case "error":

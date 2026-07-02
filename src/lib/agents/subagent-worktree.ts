@@ -123,6 +123,7 @@ export async function cleanupStaleSubagentWorktrees(
  */
 async function buildWorkingTreeSeedCommit(
   workspacePath: string,
+  signal?: AbortSignal,
 ): Promise<string | null> {
   const tmpIndex = path.join(
     worktreeDirForWorkspace(workspacePath),
@@ -134,6 +135,7 @@ async function buildWorkingTreeSeedCommit(
     const head = await exec(
       ["rev-parse", "--verify", "--quiet", "HEAD"],
       workspacePath,
+      { signal },
     );
     const headSha =
       head.exitCode === 0 ? head.stdout.trim() : "";
@@ -142,16 +144,16 @@ async function buildWorkingTreeSeedCommit(
     const readTree = await exec(
       hasHead ? ["read-tree", headSha] : ["read-tree", "--empty"],
       workspacePath,
-      { env },
+      { env, signal },
     );
     if (readTree.exitCode !== 0) return null;
 
     // Stage the full working tree (modifications, additions, deletions) into the
     // throwaway index; untracked-not-ignored included, ignored excluded.
-    const add = await exec(["add", "-A"], workspacePath, { env });
+    const add = await exec(["add", "-A"], workspacePath, { env, signal });
     if (add.exitCode !== 0) return null;
 
-    const writeTree = await exec(["write-tree"], workspacePath, { env });
+    const writeTree = await exec(["write-tree"], workspacePath, { env, signal });
     const tree = writeTree.stdout.trim();
     if (writeTree.exitCode !== 0 || !tree) return null;
 
@@ -169,7 +171,7 @@ async function buildWorkingTreeSeedCommit(
         ? ["commit-tree", tree, "-p", headSha, "-m", "atlarix writer seed"]
         : ["commit-tree", tree, "-m", "atlarix writer seed"],
       workspacePath,
-      { env: commitEnv },
+      { env: commitEnv, signal },
     );
     const seed = commit.stdout.trim();
     if (commit.exitCode !== 0 || !seed) return null;
@@ -189,6 +191,7 @@ async function buildWorkingTreeSeedCommit(
 export async function createSubagentWorktree(
   workspacePath: string,
   taskId: string,
+  signal?: AbortSignal,
 ): Promise<SubagentWorktree | null> {
   if (!(await isGitRepo(workspacePath))) {
     logger.info("Workspace is not a git repo — writer sub-agent unavailable");
@@ -199,10 +202,11 @@ export async function createSubagentWorktree(
   await cleanupStaleSubagentWorktrees(workspacePath);
 
   // Seed from the current working tree so the writer sees uncommitted work;
-  // degrade to bare HEAD if the snapshot can't be built.
-  let baseRef = await buildWorkingTreeSeedCommit(workspacePath);
+  // degrade to bare HEAD if the snapshot can't be built. Signal-threaded so a
+  // user cancel kills the (potentially heavy) staging git children promptly.
+  let baseRef = await buildWorkingTreeSeedCommit(workspacePath, signal);
   if (!baseRef) {
-    const head = await exec(["rev-parse", "HEAD"], workspacePath);
+    const head = await exec(["rev-parse", "HEAD"], workspacePath, { signal });
     if (head.exitCode !== 0) {
       logger.warn(
         "Could not resolve HEAD — writer sub-agent unavailable:",
@@ -221,6 +225,7 @@ export async function createSubagentWorktree(
   const add = await exec(
     ["worktree", "add", "--detach", worktreePath, baseRef],
     workspacePath,
+    { signal },
   );
   if (add.exitCode !== 0) {
     logger.warn("git worktree add failed — writer sub-agent unavailable:", add.stderr.trim());
@@ -297,11 +302,12 @@ export async function applyEditProposalToWorktree(
 /** Stage everything in the worktree and diff it against the base commit. */
 export async function captureWorktreeDiff(
   wt: SubagentWorktree,
+  signal?: AbortSignal,
 ): Promise<WorktreeDiff> {
-  await exec(["add", "-A"], wt.worktreePath);
+  await exec(["add", "-A"], wt.worktreePath, { signal });
   const [names, diff] = await Promise.all([
-    exec(["diff", "--cached", "--name-only", wt.baseRef], wt.worktreePath),
-    exec(["diff", "--cached", wt.baseRef], wt.worktreePath),
+    exec(["diff", "--cached", "--name-only", wt.baseRef], wt.worktreePath, { signal }),
+    exec(["diff", "--cached", wt.baseRef], wt.worktreePath, { signal }),
   ]);
   const changedFiles = names.stdout
     .split("\n")

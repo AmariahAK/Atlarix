@@ -216,7 +216,6 @@ import {
 } from "../../lib/streaming/agentic-loop-repetition";
 import {
   createLedger,
-  formatLedgerForPrompt,
   getLedger,
   hasActivePlanLedger,
   hydrateLedgerFromDisk,
@@ -230,6 +229,11 @@ import {
   setLedgerSteps,
   unregisterLedgerPlanUiNotifier,
 } from "@/lib/tasks/task-ledger";
+import {
+  parsePlanChecklist,
+  formatPlanChecklistForPrompt,
+  extractPlanChecklistTitle,
+} from "@/lib/tasks/plan-checklist";
 import { emitPlanUpdate } from "@/ipc/utils/emit_plan_update";
 import { runCommandFailureGuidance } from "@/lib/tools/run-command-guidance";
 import {
@@ -2526,6 +2530,13 @@ ${componentSnippet}
               ? "Work mode changed since your last message — prior turns ran under a different mode; ignore their behavioral norms and follow the mode below. "
               : "") + getActiveModeReanchor(modeBlockKey);
 
+          // #A1: compact live task-ledger block, re-injected near the latest
+          // turn every turn so "what's left" is the freshest thing the model
+          // reads (open-weight models otherwise re-derive progress from git).
+          // Populated once per turn from the session's plan artifact by
+          // loadActivePlanSection below (single DB read, reused across steps).
+          let taskLedgerBlock: string | null = null;
+
           // #12: when a round yields ONLY reasoning (no text/tool), the empty-output
           // retry sets this take-once nudge; the retry's prepareStep injects it so
           // the model is told to act instead of silently re-running the same round.
@@ -2695,6 +2706,15 @@ ${componentSnippet}
                   )) ?? (await getLatestPlanArtifact(req.workspaceSessionId!)),
               );
               if (!activePlan?.content?.trim()) return null;
+              // #A1: build the compact recency ledger block from the same fetch.
+              try {
+                taskLedgerBlock = formatPlanChecklistForPrompt(
+                  parsePlanChecklist(activePlan.content),
+                  extractPlanChecklistTitle(activePlan.content),
+                );
+              } catch {
+                taskLedgerBlock = null;
+              }
               const snippet =
                 activePlan.content.length > 3000
                   ? `${activePlan.content.slice(0, 3000)}\n\n...(truncated)`
@@ -2977,18 +2997,10 @@ ${componentSnippet}
             }
           }
 
-          const shouldInjectTaskProgress =
-            settings.selectedChatMode === "build" ||
-            effectiveWorkMode === "build";
-
-          const ledgerRow = getLedger(streamTurnId);
-          if (shouldInjectTaskProgress && ledgerRow) {
-            contextSections.push({
-              name: "taskProgress",
-              priority: 0,
-              content: formatLedgerForPrompt(ledgerRow),
-            });
-          }
+          // v14.8.7 §A: the legacy taskProgress injection here keyed off the
+          // dead task-ledger (getLedger(streamTurnId) is always undefined with
+          // shouldCreateTaskLedger=false); the live compact ledger now rides the
+          // per-turn recency slot (taskLedgerBlock) from the plan artifact.
 
           // (fileSystemTruth is loaded concurrently above — S18.)
 
@@ -4049,7 +4061,11 @@ This conversation includes one or more image attachments. When the user uploads 
                 // #15: re-anchor the active mode at the START of the turn (step 0)
                 // so it's the last thing before the model acts. Ephemeral /
                 // step-input-only like the other nudges — never persisted.
+                // #A1/#A4: the compact task ledger rides the same step-0 recency
+                // slot (just before the mode re-anchor) — carries the active goal
+                // (in-progress step) so mode+goal are both freshly re-asserted.
                 const modeReanchor = stepNumber === 0 ? modeReanchorNote : null;
+                const taskLedger = stepNumber === 0 ? taskLedgerBlock : null;
                 // #12: targeted empty-output nudge (take-once), set by the retry.
                 const emptyOutputNudge = pendingEmptyOutputNudge;
                 pendingEmptyOutputNudge = null;
@@ -4076,7 +4092,9 @@ This conversation includes one or more image attachments. When the user uploads 
                   scheduledNudge,
                   correction,
                   emptyOutputNudge,
-                  // Mode re-anchor LAST so it's the final thing the model reads.
+                  // Task ledger + mode re-anchor LAST so they are the final
+                  // things the model reads before it acts.
+                  taskLedger,
                   modeReanchor,
                 ]
                   .filter(Boolean)
@@ -4427,6 +4445,11 @@ This conversation includes one or more image attachments. When the user uploads 
                   fullResponse,
                   abortController: roundAbort,
                   chatId: params.chatId,
+                  // Test-only: shrink the idle-stall watchdog so the stall-resume
+                  // path is exercisable in-harness (prod uses the default 600s).
+                  ...(process.env.ATLARIX_TEST_STALL_MS
+                    ? { stallTimeoutMs: Number(process.env.ATLARIX_TEST_STALL_MS) }
+                    : {}),
                   processResponseChunkUpdate: params.processResponseChunkUpdate,
                   onFirstModelActivity: params.onFirstModelActivity,
                   onFirstTextDelta: params.onFirstTextDelta,
@@ -5346,6 +5369,7 @@ This conversation includes one or more image attachments. When the user uploads 
                   tierLimit: modelContextResolved.tierLimit,
                   contextWindowTokens,
                   maxContinuationAttempts: STREAM_CONTINUATION_MAX,
+                  taskLedger: taskLedgerBlock,
                   permissionInterceptor: askPermissionInterceptor,
                   seedMessages: askStreamMessages,
                   nativeTurnMessages,
@@ -6670,6 +6694,7 @@ This conversation includes one or more image attachments. When the user uploads 
                     tierLimit: modelContextResolved.tierLimit,
                     contextWindowTokens,
                     maxContinuationAttempts: STREAM_CONTINUATION_MAX,
+                    taskLedger: taskLedgerBlock,
                     permissionInterceptor,
                     seedMessages: chatMessages,
                     nativeTurnMessages,

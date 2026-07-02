@@ -71,6 +71,20 @@ async function resolveSessionId(args: PlanToolArgs): Promise<string | null> {
 const NO_SESSION_ERROR =
   "No workspace session for this chat — start a new chat in this workspace and retry.";
 
+/**
+ * Resolve the plan artifact id to operate on. v14.8.7 §A1(a): planId is now
+ * OPTIONAL for the mutation ops — when omitted we target the session's latest
+ * plan. Threading the id was the top failure mode (weak models drop it), so one
+ * call can mark a step without first re-reading the plan to recover the id.
+ */
+async function resolvePlanId(args: PlanToolArgs): Promise<string | null> {
+  if (args.planId) return args.planId;
+  const sessionId = await resolveSessionId(args);
+  if (!sessionId) return null;
+  const row = await getLatestPlanArtifact(sessionId);
+  return row?.id ?? null;
+}
+
 async function readPlan(args: PlanToolArgs) {
   if (args.planId) {
     const row = await getPlanArtifact(args.planId);
@@ -131,13 +145,14 @@ async function writePlan(args: PlanToolArgs) {
 async function setStatus(args: PlanToolArgs) {
   const allowed: PlanArtifactStatus[] = ["plan", "building", "built"];
   const next = args.plan_status as PlanArtifactStatus;
-  if (!args.planId) {
-    return { success: false, error: "planId is required for operation 'set_status'." };
-  }
   if (!allowed.includes(next)) {
     return { success: false, error: "plan_status must be plan, building, or built." };
   }
-  const row = await setPlanArtifactStatus(args.planId, next);
+  const planId = await resolvePlanId(args);
+  if (!planId) {
+    return { success: false, error: "No plan to update — create one with plan({ operation: 'write' }) first." };
+  }
+  const row = await setPlanArtifactStatus(planId, next);
   if (!row) return { success: false, error: "Plan not found." };
   broadcastPlanArtifactUpdated({
     planId: row.id,
@@ -155,9 +170,6 @@ async function setStatus(args: PlanToolArgs) {
 
 async function updateStep(args: PlanToolArgs) {
   const allowed: PlanStepState[] = ["todo", "in_progress", "done", "blocked"];
-  if (!args.planId) {
-    return { success: false, error: "planId is required for operation 'update_step'." };
-  }
   if (!allowed.includes(args.state as PlanStepState)) {
     return {
       success: false,
@@ -170,7 +182,14 @@ async function updateStep(args: PlanToolArgs) {
       error: "Provide step_index (1-based) or step_text to identify the step.",
     };
   }
-  const row = await getPlanArtifact(args.planId);
+  const planId = await resolvePlanId(args);
+  if (!planId) {
+    return {
+      success: false,
+      error: "No plan to update — create one with plan({ operation: 'write' }) first.",
+    };
+  }
+  const row = await getPlanArtifact(planId);
   if (!row) {
     return {
       success: false,
@@ -198,7 +217,7 @@ async function updateStep(args: PlanToolArgs) {
       message: "Step already in that state.",
     };
   }
-  const updated = await updatePlanArtifactContent(args.planId, result.content);
+  const updated = await updatePlanArtifactContent(planId, result.content);
   if (!updated) return { success: false, error: "Plan not found." };
   broadcastPlanArtifactUpdated({
     planId: updated.id,
@@ -217,13 +236,14 @@ async function updateStep(args: PlanToolArgs) {
 }
 
 async function appendStep(args: PlanToolArgs) {
-  if (!args.planId) {
-    return { success: false, error: "planId is required for operation 'append_step'." };
-  }
   if (!args.step_text?.trim()) {
     return { success: false, error: "step_text is required for operation 'append_step'." };
   }
-  const row = await appendStepToPlanArtifact(args.planId, args.step_text);
+  const planId = await resolvePlanId(args);
+  if (!planId) {
+    return { success: false, error: "No plan to append to — create one with plan({ operation: 'write' }) first." };
+  }
+  const row = await appendStepToPlanArtifact(planId, args.step_text);
   if (!row) return { success: false, error: "Plan not found." };
   broadcastPlanArtifactUpdated({
     planId: row.id,
@@ -243,12 +263,12 @@ async function appendStep(args: PlanToolArgs) {
 ToolRegistry.register({
   name: "plan",
   description:
-    "Session implementation plan (stored in the database, shown as a card in chat). Operations: " +
-    "'write' (create/update the plan markdown — include the returned marker comment in your reply so the card renders; pass planId to update), " +
+    "Session implementation plan + LIVE progress ledger (stored in the database, shown as a card in chat). Keep it current: mark a step in_progress when you start it and done when you finish, and consult it before deciding your next action instead of re-deriving progress. For the mutation ops, planId is OPTIONAL — the session's latest plan is assumed. Operations: " +
+    "'write' (create/update the plan markdown — include the returned marker comment in your reply so the card renders; pass planId to update a specific plan), " +
     "'read' (latest plan, or by planId / status filter — re-read before continuing if the user may have edited the plan), " +
-    "'set_status' (planId + plan_status: plan → building → built), " +
-    "'update_step' (planId + state in_progress|done|todo|blocked + step_index or step_text — call as you start/finish each step so the card shows live progress), " +
-    "'append_step' (planId + step_text — add a new checklist item without rewriting the plan).",
+    "'set_status' (plan_status: plan → building → built), " +
+    "'update_step' (state in_progress|done|todo|blocked + step_index or step_text — one call marks a step so the card shows live progress), " +
+    "'append_step' (step_text — add a new checklist item without rewriting the plan).",
   requiresWorkspace: true,
   isCore: false,
   isReadOnly: false,
@@ -265,7 +285,7 @@ ToolRegistry.register({
       workspaceSessionId: stringParam("Workspace session id (auto-injected)"),
       planId: {
         type: "string",
-        description: "Plan artifact id (required for set_status/update_step; optional otherwise)",
+        description: "Plan artifact id — optional for all ops; when omitted the session's latest plan is used.",
         required: false,
       },
       content: {
