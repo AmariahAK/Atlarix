@@ -14,6 +14,7 @@ import { build } from "esbuild";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { createRequire } from "node:module";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -23,9 +24,17 @@ const rawLoaderPlugin = {
   setup(b) {
     b.onResolve({ filter: /\?raw$/ }, (args) => {
       const clean = args.path.replace(/\?raw$/, "");
-      const abs = path.isAbsolute(clean)
-        ? clean
-        : path.resolve(args.resolveDir, clean);
+      let abs;
+      if (path.isAbsolute(clean)) {
+        abs = clean;
+      } else if (clean.startsWith(".")) {
+        abs = path.resolve(args.resolveDir, clean);
+      } else {
+        // Bare specifier (e.g. "axe-core/axe.min.js") — resolve through
+        // node_modules like Vite does. Previously treated as importer-relative,
+        // which ENOENT'd the first bare ?raw import (v14.8.6 visual-lint axe).
+        abs = createRequire(path.join(args.resolveDir, "resolve-anchor.js")).resolve(clean);
+      }
       return { path: abs, namespace: "raw-file" };
     });
     b.onLoad({ filter: /.*/, namespace: "raw-file" }, (args) => ({
