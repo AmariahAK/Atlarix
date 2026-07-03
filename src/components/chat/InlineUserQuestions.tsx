@@ -9,8 +9,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAtom, useAtomValue } from "jotai";
 import {
-  chatMessagesByIdAtom,
-  isStreamingByIdAtom,
+  messagesForChatAtom,
+  isStreamingForChatAtom,
   pendingUserQuestionByChatIdAtom,
   type PendingUserQuestion,
 } from "@/atoms/chatAtoms";
@@ -51,8 +51,9 @@ function combineAnswers(items: QuestionItem[], answers: string[]): string {
 
 export function InlineUserQuestions({ chatId }: Props) {
   const [pendingByChat, setPendingByChat] = useAtom(pendingUserQuestionByChatIdAtom);
-  const messagesById = useAtomValue(chatMessagesByIdAtom);
-  const isStreamingById = useAtomValue(isStreamingByIdAtom);
+  // Scoped to this chat (perf): don't re-run on unrelated chats' stream flushes.
+  const messagesForChat = useAtomValue(messagesForChatAtom(chatId));
+  const isStreamingThisChat = useAtomValue(isStreamingForChatAtom(chatId));
   const { streamMessage } = useStreamChat({ hasChatId: false });
   const pending: PendingUserQuestion | undefined = pendingByChat[chatId];
 
@@ -62,8 +63,8 @@ export function InlineUserQuestions({ chatId }: Props) {
   useEffect(() => {
     if (pending) return;
     // A live stream supersedes any persisted question state.
-    if (isStreamingById.get(chatId)) return;
-    const messages = messagesById.get(chatId);
+    if (isStreamingThisChat) return;
+    const messages = messagesForChat;
     if (!messages || messages.length === 0) return;
     const last = messages[messages.length - 1];
     if (last.role !== "assistant") return;
@@ -81,7 +82,7 @@ export function InlineUserQuestions({ chatId }: Props) {
         },
       };
     });
-  }, [pending, messagesById, isStreamingById, chatId, setPendingByChat]);
+  }, [pending, messagesForChat, isStreamingThisChat, chatId, setPendingByChat]);
 
   const items = useMemo(
     () => (pending ? questionItems(pending) : []),

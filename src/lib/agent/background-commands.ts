@@ -21,9 +21,22 @@ export type BackgroundJobStatus =
   | "finished"
   | "cancelled"
   /** A4: still running but no output for OUTPUT_IDLE_THRESHOLD_MS — advisory. */
-  | "stalled";
+  | "stalled"
+  /** v14.8.10: a still-running job's output matched its `wake_on` condition. */
+  | "condition_met";
+
+/** v14.8.10: an opt-in wake condition tested against a running job's output. */
+export interface WakeCondition {
+  /** Substring (default) or regex source to look for in the job's output. */
+  pattern: string;
+  /** When true, `pattern` is treated as a regex (bounded, case-insensitive). */
+  regex?: boolean;
+}
 
 export type BackgroundCommandResult = {
+  /** The op this result belongs to — lets `background_jobs(output)` peek a
+   *  finished-but-undrained result instead of lying "delivered automatically". */
+  operationId: string;
   command: string;
   exitCode: number;
   /** Tail of combined stdout/stderr (capped). */
@@ -46,15 +59,25 @@ interface RunningJob {
   readCursor: number;
   /** A4: last time output changed — drives the output-idle hang watchdog. */
   lastOutputAt: number;
+  /** v14.8.10: opt-in wake condition; fires once when the output matches. */
+  wakeOn?: WakeCondition;
+  /** v14.8.10: set once the wake condition has fired (so it fires only once). */
+  wakeMatched?: boolean;
 }
 
-/** A4: an advisory that a still-running job has gone quiet (possibly hung). */
+/**
+ * A4: an advisory about a still-running job. `kind:"stall"` = gone quiet
+ * (possibly hung); `kind:"match"` = its `wake_on` condition matched (v14.8.10).
+ */
 export interface StalledAdvisory {
   operationId: string;
   command: string;
   idleMs: number;
   /** Tail of output captured so far (so the model can judge / decide). */
   outputTail: string;
+  kind?: "stall" | "match";
+  /** For `kind:"match"`: the pattern that matched. */
+  matchedPattern?: string;
 }
 
 /** Public shape for the model's `background_jobs(list)` + the UI indicator. */
@@ -63,6 +86,10 @@ export interface BackgroundJobInfo {
   command: string;
   startedAt: number;
   elapsedMs: number;
+  /** v14.8.10: the idle-stall watchdog flagged this job as gone quiet. */
+  stalled?: boolean;
+  /** v14.8.10: this job's `wake_on` condition has matched. */
+  wakeMatched?: boolean;
 }
 
 const OUTPUT_TAIL_CAP = 8_000;
@@ -140,6 +167,33 @@ function scanForStalledJobs(): void {
   const now = Date.now();
   for (const [chatId, jobs] of runningJobsByChat) {
     for (const job of jobs.values()) {
+      const tail =
+        job.output.length > OUTPUT_TAIL_CAP
+          ? `…${job.output.slice(-OUTPUT_TAIL_CAP)}`
+          : job.output;
+
+      // v14.8.10: wake_on condition — fire once when the output matches. This is
+      // ADDITIVE to the idle-stall backstop below (a job with a wake_on still
+      // gets the 3-min "gone quiet" ping if the condition never matches).
+      if (
+        job.wakeOn &&
+        !job.wakeMatched &&
+        wakeConditionMatches(job.wakeOn, job.output)
+      ) {
+        job.wakeMatched = true;
+        const list = advisoriesByChat.get(chatId) ?? [];
+        list.push({
+          operationId: job.operationId,
+          command: job.command,
+          idleMs: now - job.lastOutputAt,
+          outputTail: tail,
+          kind: "match",
+          matchedPattern: job.wakeOn.pattern,
+        });
+        advisoriesByChat.set(chatId, list.slice(-MAX_QUEUED_PER_CHAT));
+        notify(chatId, job.operationId, "condition_met");
+      }
+
       const idleMs = now - job.lastOutputAt;
       if (idleMs < OUTPUT_IDLE_THRESHOLD_MS) continue;
       if (stalledNotified.has(job.operationId)) continue;
@@ -149,10 +203,8 @@ function scanForStalledJobs(): void {
         operationId: job.operationId,
         command: job.command,
         idleMs,
-        outputTail:
-          job.output.length > OUTPUT_TAIL_CAP
-            ? `…${job.output.slice(-OUTPUT_TAIL_CAP)}`
-            : job.output,
+        outputTail: tail,
+        kind: "stall",
       });
       advisoriesByChat.set(chatId, list.slice(-MAX_QUEUED_PER_CHAT));
       notify(chatId, job.operationId, "stalled");
@@ -179,6 +231,7 @@ export function recordBackgroundCommandStart(
   operationId: string,
   command: string,
   startedAt: number,
+  wakeOn?: WakeCondition,
 ): void {
   const jobs = runningJobsByChat.get(chatId) ?? new Map<string, RunningJob>();
   jobs.set(operationId, {
@@ -189,10 +242,44 @@ export function recordBackgroundCommandStart(
     output: "",
     readCursor: 0,
     lastOutputAt: startedAt,
+    ...(wakeOn ? { wakeOn } : {}),
   });
   runningJobsByChat.set(chatId, jobs);
   ensureStallWatchdog();
   notify(chatId, operationId, "running");
+}
+
+/**
+ * v14.8.10: attach (or replace) a wake condition on an already-running job so the
+ * agent is woken when its output matches — without relaunching. Returns false if
+ * no such running job.
+ */
+export function setWakeCondition(
+  chatId: number,
+  operationId: string,
+  wakeOn: WakeCondition,
+): boolean {
+  const job = runningJobsByChat.get(chatId)?.get(operationId);
+  if (!job) return false;
+  job.wakeOn = wakeOn;
+  job.wakeMatched = false;
+  return true;
+}
+
+/** Test a wake condition against accumulated output (substring or bounded regex). */
+function wakeConditionMatches(cond: WakeCondition, output: string): boolean {
+  if (!cond.pattern) return false;
+  if (cond.regex) {
+    try {
+      // Case-insensitive; matched against the (capped) output tail, so no
+      // catastrophic-backtracking exposure on unbounded input.
+      return new RegExp(cond.pattern, "i").test(output);
+    } catch {
+      // Invalid regex → fall back to substring so a bad pattern never throws.
+      return output.includes(cond.pattern);
+    }
+  }
+  return output.toLowerCase().includes(cond.pattern.toLowerCase());
 }
 
 /** Attach the spawned process handle so the job can be cancelled. */
@@ -225,7 +312,7 @@ export function updateBackgroundOutput(
 export function recordBackgroundCommandResult(
   chatId: number,
   operationId: string,
-  result: Omit<BackgroundCommandResult, "finishedAt">,
+  result: Omit<BackgroundCommandResult, "finishedAt" | "operationId">,
 ): void {
   runningJobsByChat.get(chatId)?.delete(operationId);
   stalledNotified.delete(operationId);
@@ -234,6 +321,7 @@ export function recordBackgroundCommandResult(
   const list = resultsByChat.get(chatId) ?? [];
   list.push({
     ...result,
+    operationId,
     cancelled: wasCancelled,
     output:
       result.output.length > OUTPUT_TAIL_CAP
@@ -241,6 +329,11 @@ export function recordBackgroundCommandResult(
         : result.output,
     finishedAt: Date.now(),
   });
+  if (list.length > MAX_QUEUED_PER_CHAT) {
+    console.warn(
+      `[background-commands] chat ${chatId}: >${MAX_QUEUED_PER_CHAT} undrained results — dropping ${list.length - MAX_QUEUED_PER_CHAT} oldest (never delivered to the model)`,
+    );
+  }
   resultsByChat.set(chatId, list.slice(-MAX_QUEUED_PER_CHAT));
   // "cancelled" must NOT auto-wake the agent; "finished" (success or failure) may.
   notify(chatId, operationId, wasCancelled ? "cancelled" : "finished");
@@ -258,6 +351,9 @@ export function listBackgroundJobs(chatId: number): BackgroundJobInfo[] {
     command: j.command,
     startedAt: j.startedAt,
     elapsedMs: now - j.startedAt,
+    // Surface live status flags so the UI can badge without a separate pull.
+    stalled: stalledNotified.has(j.operationId),
+    wakeMatched: !!j.wakeMatched,
   }));
 }
 
@@ -335,11 +431,13 @@ export function takePendingBackgroundCommandResults(
   });
   // Imperative framing: a finished background command is a real event to act
   // on, not ambient info. The closing directive keeps weak/open-weight models
-  // from reading the block and ending the turn without handling the result.
+  // from reading the block and ending the turn without handling the result —
+  // but it must NOT read as "keep working" once the task is done (observed:
+  // a model re-ran already-finished background tasks on the completion wake).
   return [
     `[Background command results]`,
     blocks.join("\n\n"),
-    `Act on these results now and continue the user's task. A background command finishing is a real event you must handle — do not end your turn just because you have no other pending work.`,
+    `Act on these results now and continue the user's task. If these results COMPLETE the user's request, report the outcome and end your turn — never restart or re-run work that already finished.`,
   ].join("\n\n");
 }
 
@@ -354,6 +452,27 @@ export function hasPendingBackgroundCommandResults(chatId: number): boolean {
 }
 
 /**
+ * NON-destructive peek of a specific finished job's result. Powers the honest
+ * `background_jobs(output)` reply: once a job leaves the running registry its
+ * result sits (undrained) in `resultsByChat` until a consumer delivers it, so
+ * the tool can show the real output/status instead of claiming it was already
+ * "delivered automatically" (which it may not have been). Returns null if no
+ * finished result for that op is currently queued (already drained, or unknown).
+ */
+export function getFinishedBackgroundResult(
+  chatId: number,
+  operationId: string,
+): BackgroundCommandResult | null {
+  const list = resultsByChat.get(chatId);
+  if (!list?.length) return null;
+  // Last match wins (most recent) in the unlikely event of a reused op id.
+  for (let i = list.length - 1; i >= 0; i--) {
+    if (list[i]?.operationId === operationId) return list[i] ?? null;
+  }
+  return null;
+}
+
+/**
  * A4: take-once drain of stall advisories, formatted as a model-facing block.
  * These are for STILL-RUNNING jobs (distinct from finished results) — the model
  * is asked to decide, not handed a terminal result. Returns null when none.
@@ -363,17 +482,24 @@ export function takePendingStalledAdvisories(chatId: number): string | null {
   if (!list?.length) return null;
   advisoriesByChat.delete(chatId);
   const blocks = list.map((a) =>
-    [
-      `Background job ${a.operationId} has produced no output for ${Math.round(a.idleMs / 1000)}s and is STILL RUNNING (it may be stuck):`,
-      `$ ${a.command}`,
-      a.outputTail ? "```\n" + a.outputTail + "\n```" : "(no output yet)",
-      `Decide: keep waiting, read more with background_jobs({operation:"output", job_id:"${a.operationId}"}), or stop it with background_jobs({operation:"cancel", job_id:"${a.operationId}"}).`,
-    ].join("\n"),
+    a.kind === "match"
+      ? [
+          `Background job ${a.operationId} matched your wake condition ${JSON.stringify(a.matchedPattern)} and is STILL RUNNING:`,
+          `$ ${a.command}`,
+          a.outputTail ? "```\n" + a.outputTail + "\n```" : "(no output yet)",
+          `Act on it now: read more with background_jobs({operation:"output", job_id:"${a.operationId}"}), or stop it with background_jobs({operation:"cancel", job_id:"${a.operationId}"}).`,
+        ].join("\n")
+      : [
+          `Background job ${a.operationId} has produced no output for ${Math.round(a.idleMs / 1000)}s and is STILL RUNNING (it may be stuck):`,
+          `$ ${a.command}`,
+          a.outputTail ? "```\n" + a.outputTail + "\n```" : "(no output yet)",
+          `Decide: keep waiting, read more with background_jobs({operation:"output", job_id:"${a.operationId}"}), or stop it with background_jobs({operation:"cancel", job_id:"${a.operationId}"}).`,
+        ].join("\n"),
   );
   return [
     `[Background job advisory]`,
     blocks.join("\n\n"),
-    `Choose one of the options above for each job before ending your turn — do not ignore a possibly-stuck job.`,
+    `Handle each job above before ending your turn — do not ignore a matched condition or a possibly-stuck job.`,
   ].join("\n\n");
 }
 

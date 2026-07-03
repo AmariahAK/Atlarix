@@ -189,12 +189,14 @@ export function AppList({ show }: { show?: boolean }) {
     });
   };
 
+  // v14.8.10: a fresh window with NO workspace bound (lands on the chooser) —
+  // the old behavior (clone the CURRENT workspace into a new window) surprised
+  // users; that path still exists via workspace:open-in-new-window for CLI use.
   const handleOpenInNewWindow = async () => {
-    if (!activeWorkspacePath) return;
     try {
-      await IpcClient.getInstance().openWorkspaceInNewWindow(activeWorkspacePath);
+      await IpcClient.getInstance().openBlankWindow();
     } catch (error) {
-      console.error("Failed to open workspace in new window:", error);
+      console.error("Failed to open a new window:", error);
     }
   };
 
@@ -215,7 +217,7 @@ export function AppList({ show }: { show?: boolean }) {
                 variant="ghost"
                 size="sm"
                 className="h-6 w-6 p-0"
-                title="Open this workspace in a new window"
+                title="Open a new window"
                 onClick={() => void handleOpenInNewWindow()}
               >
                 <AppWindow className="h-4 w-4" />

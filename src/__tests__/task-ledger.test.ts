@@ -78,12 +78,15 @@ describe("A5 — recordText semantic loop-guard", () => {
   const statusB =
     "Progress update: 4 of 5 steps complete. The login handler is wired and I am now adding session cookies before writing tests.";
 
-  it("trips after 3 consecutive equivalent status restatements (numbers ignored)", () => {
+  it("corrects after 3 consecutive equivalent restatements, aborts after 6 (v14.8.10 staging)", () => {
     const s = createAgenticRepetitionState();
     s.setEnabled(true);
     expect(s.recordText(statusA).kind).toBe("none");
     expect(s.recordText(statusB).kind).toBe("none"); // only the count changed
-    expect(s.recordText(statusA).kind).toBe("loop_abort");
+    expect(s.recordText(statusA).kind).toBe("loop_correct");
+    expect(s.recordText(statusB).kind).toBe("none");
+    expect(s.recordText(statusA).kind).toBe("none");
+    expect(s.recordText(statusB).kind).toBe("loop_abort");
   });
 
   it("does not trip on short text or genuinely different rounds", () => {

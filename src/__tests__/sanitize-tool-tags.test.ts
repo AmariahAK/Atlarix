@@ -29,6 +29,26 @@ describe("stripOrphanToolTagFragments", () => {
     const raw = '<atlarix-tool-call tool="read_file" status="running">';
     expect(stripOrphanToolTagFragments(raw)).toBe("");
   });
+
+  it("removes orphan result TAILS with no leading brace (v14.8.10 Fix L — observed leak)", () => {
+    // The exact fragment a model echoed next to the plan card.
+    expect(stripOrphanToolTagFragments('","message":"Plan created."}')).toBe("");
+    expect(stripOrphanToolTagFragments('Here is the plan.\n","message":"Plan updated."}')).toBe(
+      "Here is the plan.",
+    );
+    // Other plan-result keys leak the same way.
+    expect(
+      stripOrphanToolTagFragments('","marker":"<!-- atlarix-plan-artifact:abc -->"}'),
+    ).not.toContain("marker");
+    expect(stripOrphanToolTagFragments('","planStatus":"draft"}')).toBe("");
+  });
+
+  it("PRESERVES real prose that mentions the word message", () => {
+    const prose = "The error message: \"Plan created.\" appears in the toast.";
+    expect(stripOrphanToolTagFragments(prose)).toBe(prose);
+    const prose2 = "Send a message to the user when done.";
+    expect(stripOrphanToolTagFragments(prose2)).toBe(prose2);
+  });
 });
 
 describe("sanitizeMarkdownForDisplay", () => {
@@ -117,5 +137,9 @@ describe("isOnlyToolDebris", () => {
 
   it("returns false for real prose", () => {
     expect(isOnlyToolDebris("Here is the answer.")).toBe(false);
+  });
+
+  it("returns true for a leading comma-prefixed message fragment (Fix L)", () => {
+    expect(isOnlyToolDebris('","message":"Plan created."}')).toBe(true);
   });
 });

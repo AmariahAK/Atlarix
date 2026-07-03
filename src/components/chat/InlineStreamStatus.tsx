@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useAtomValue, useSetAtom } from "jotai";
 import {
   activeTurnScopeAtom,
-  isStreamingByIdAtom,
+  isStreamingForChatAtom,
   reconnectingByChatIdAtom,
   liveToolInputByChatIdAtom,
   toolIndicatorAtom,
@@ -83,7 +83,8 @@ export function InlineStreamStatus({
   const state = useAtomValue(toolIndicatorAtom);
   const setState = useSetAtom(toolIndicatorAtom);
   const { settings } = useSettings();
-  const streamingById = useAtomValue(isStreamingByIdAtom);
+  // Scoped to this chat so another chat's stream flush doesn't re-render this.
+  const isStreamingThisChat = useAtomValue(isStreamingForChatAtom(chatId ?? -1));
   const activityItems = useAtomValue(activityStreamItemsAtom);
   const waitingByChatId = useAtomValue(waitingOnCommandByChatIdAtom);
   const reconnectingByChatId = useAtomValue(reconnectingByChatIdAtom);
@@ -97,7 +98,7 @@ export function InlineStreamStatus({
   const [outputExpanded, setOutputExpanded] = useState(true);
 
   const isTargetStreaming =
-    chatId != null && streamingById.get(chatId) === true;
+    chatId != null && isStreamingThisChat === true;
   const waiting = chatId != null ? waitingByChatId.get(chatId) : undefined;
 
   // 1s ticker for the elapsed displays (waiting chip / still-working note).

@@ -8,7 +8,7 @@ import {
   interleavedDisplayContentByMessageIdAtom,
   selectedChatIdAtom,
   sourcesByAssistantMessageIdAtom,
-  streamThreadByChatIdAtom,
+  streamThreadForChatAtom,
 } from "@/atoms/chatAtoms";
 import {
   extractInlineSourcesFromContent,
@@ -90,7 +90,9 @@ export function AssistantMessageBody({
   const selectedChatId = useAtomValue(selectedChatIdAtom);
   const activeChatId = useAtomValue(activeChatIdAtom);
   const chatId = chatIdProp ?? activeChatId ?? selectedChatId;
-  const streamThreadByChatId = useAtomValue(streamThreadByChatIdAtom);
+  // Scoped to THIS chat — a stream in another chat no longer re-renders this
+  // message body every ~50ms flush (perf: kills whole-map fanout).
+  const streamThreadForChat = useAtomValue(streamThreadForChatAtom(chatId ?? -1));
   const completedStreamThreadByMessage = useAtomValue(
     completedStreamThreadByAssistantMessageIdAtom,
   );
@@ -139,11 +141,9 @@ export function AssistantMessageBody({
   const liveThread = useMemo(() => {
     if (!isStreaming || chatId == null) return [];
     return flattenToolGroupsInThread(
-      consolidateSubagentRoundsInThread(
-        streamThreadByChatId.get(chatId) ?? [],
-      ),
+      consolidateSubagentRoundsInThread(streamThreadForChat),
     );
-  }, [isStreaming, chatId, streamThreadByChatId]);
+  }, [isStreaming, chatId, streamThreadForChat]);
 
   const completedThreadRaw = useMemo(() => {
     if (isStreaming || assistantMessageId == null) return [];
@@ -156,7 +156,7 @@ export function AssistantMessageBody({
     // shorter state" flash. Fall back to the still-present live thread, scoped to
     // the latest assistant only so an older tool-less message can't grab it.
     if (isLatestAssistant && chatId != null) {
-      const live = streamThreadByChatId.get(chatId);
+      const live = streamThreadForChat;
       if (live && live.length) return live;
     }
     return completed ?? [];
@@ -166,7 +166,7 @@ export function AssistantMessageBody({
     completedStreamThreadByMessage,
     isLatestAssistant,
     chatId,
-    streamThreadByChatId,
+    streamThreadForChat,
   ]);
 
   const completedThread = useMemo(

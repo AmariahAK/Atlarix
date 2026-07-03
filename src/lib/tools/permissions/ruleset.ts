@@ -23,8 +23,11 @@
  *   stores (WorkspaceTerminalPermissions / WorkspaceFilePermissions UI) —
  *   this file does not duplicate them. Forcing prompts on read-only tools
  *   is a documented follow-up.
- * - The dangerous-commands blocklist remains the hard floor BENEATH user
- *   rules — nothing here can allow what `isDangerousCommand` blocks.
+ * - Dangerous commands are NOT a hard floor anymore. They flow through the same
+ *   permission gate as everything else (see resolveRunCommandPermissionGate):
+ *   a dangerous command always prompts until the user sets an explicit
+ *   always-allow keyed by its `danger:<id>` pattern (revocable in Settings), and
+ *   is never silently auto-approved before then — even in autonomous mode.
  */
 
 import fs from "node:fs";

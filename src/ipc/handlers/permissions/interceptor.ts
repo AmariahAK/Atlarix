@@ -27,10 +27,6 @@ import {
     CommandResult,
     type SandboxRunOptions,
 } from "../../utils/runShellCommand";
-import {
-    isDangerousCommand,
-    getDangerExplanation,
-} from "@/lib/dangerous-commands";
 import type { ChildProcess } from "child_process";
 import { resolvePathUnderWorkspace } from "../../utils/safeWorkspaceRelativePath";
 import { captureSnapshot } from "../../../lib/snapshot/snapshot-manager";
@@ -77,8 +73,6 @@ interface BufferedOperation {
     request: PermissionRequest;
     status: 'pending' | 'approved' | 'rejected' | 'executed' | 'failed';
     createdAt: number;
-    /** User confirmed dangerous-command checkbox before approve. */
-    dangerAcknowledged?: boolean;
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -532,7 +526,7 @@ export class PermissionInterceptor extends EventEmitter {
      */
     async executeOperation(
         operationId: string,
-        options?: { dangerAcknowledged?: boolean; overrideContent?: string },
+        options?: { overrideContent?: string },
     ): Promise<PermissionResult> {
         const operation = this.pendingOperations.get(operationId);
         if (!operation) {
@@ -541,10 +535,6 @@ export class PermissionInterceptor extends EventEmitter {
                 approved: false,
                 error: `Operation ${operationId} not found`,
             };
-        }
-
-        if (options?.dangerAcknowledged) {
-            operation.dangerAcknowledged = true;
         }
 
         const request = operation.request;
@@ -1127,6 +1117,29 @@ export class PermissionInterceptor extends EventEmitter {
         if (isAtlarixPlanRelativePath(rel)) {
             await this.refreshPlanLedgerFromWrittenFile(fullPath, rel);
         }
+        this.refreshSearchIndexForWrittenFiles([rel]);
+    }
+
+    /**
+     * v14.8.10 Fix G: keep the FTS5/BM25 layer fresh for the turn's OWN writes.
+     * Nothing else updates it mid-session (the file-watcher is only registered
+     * when the Blueprint panel is opened; the index otherwise rebuilds only on
+     * a git-HEAD change), so a just-written file ranked WORST in grep's rerank
+     * and was missing from zero-hit suggestions — the model concluded "the grep
+     * index is stale" and retried into the repetition guard. Best-effort and
+     * fire-and-forget: a write must never wait on (or fail because of) indexing.
+     */
+    private refreshSearchIndexForWrittenFiles(relPaths: string[]): void {
+        if (this.workspaceId == null || relPaths.length === 0) return;
+        const workspaceId = this.workspaceId;
+        void (async () => {
+            const { updateBm25IndexForFile } = await import("@/lib/search/bm25_semantic_index");
+            for (const rel of relPaths) {
+                await updateBm25IndexForFile(workspaceId, this.workspacePath, rel);
+            }
+        })().catch((err) => {
+            logger.log(`[PermissionInterceptor] search-index refresh skipped: ${String(err)}`);
+        });
     }
 
     private async executeWriteMultipleFiles(request: PermissionRequest): Promise<void> {
@@ -1155,6 +1168,7 @@ export class PermissionInterceptor extends EventEmitter {
         if (this.snapshotTurnId && relPaths.length > 0) {
             appendLedgerFilesWritten(this.snapshotTurnId, relPaths);
         }
+        this.refreshSearchIndexForWrittenFiles(relPaths);
     }
 
     private async executeDeleteFile(request: PermissionRequest): Promise<void> {
@@ -1330,19 +1344,12 @@ export class PermissionInterceptor extends EventEmitter {
             commandToRun = withAgentIdentity;
         }
 
-        const operation = this.pendingOperations.get(operationId);
-        const isDangerous =
-            Boolean(preview.isDangerous) || isDangerousCommand(commandToRun);
-        if (isDangerous && !operation?.dangerAcknowledged) {
-            const explanation =
-                preview.dangerExplanation?.trim() ||
-                getDangerExplanation(commandToRun) ||
-                "This command may have unintended side effects.";
-            const msg =
-                `Dangerous command blocked: user must confirm risks before execution.\n\n${explanation}\n\nCommand: ${commandToRun}`;
-            logger.warn(`[executeRunCommand] ${msg}`);
-            throw new Error(msg);
-        }
+        // NOTE: there is no longer a "dangerous command" hard-floor throw here.
+        // Danger is handled entirely by the regular permission gate up front
+        // (resolveRunCommandPermissionGate): a dangerous command without an
+        // explicit always-allow returns `prompt`, so it can only reach this point
+        // via a user approval or a user-set always-allow (keyed by its danger
+        // pattern). Reaching execute means it was consented to.
 
         // v14 pt3: NO kill-timeout. A command still running at PROMOTE_AFTER_MS is
         // MOVED to the background (kept alive, tracked, cancellable) — not killed.
@@ -1353,6 +1360,10 @@ export class PermissionInterceptor extends EventEmitter {
         const startTime = Date.now();
         const explicitBackground =
             (preview as { background?: boolean }).background === true;
+        // v14.8.10: opt-in wake condition (wake when the job's output matches).
+        const wakeOn = (
+            preview as { wake_on?: { pattern: string; regex?: boolean } }
+        ).wake_on;
 
         logger.log(
             `[executeRunCommand] Running: ${commandToRun} in ${workingDir}` +
@@ -1402,7 +1413,7 @@ export class PermissionInterceptor extends EventEmitter {
             if (promoted || finished) return;
             promoted = true;
             if (chatIdForBg != null) {
-                bg.recordBackgroundCommandStart(chatIdForBg, operationId, commandToRun, startTime);
+                bg.recordBackgroundCommandStart(chatIdForBg, operationId, commandToRun, startTime, wakeOn);
                 if (proc) bg.registerBackgroundProc(chatIdForBg, operationId, proc);
                 // No longer a foreground (cancel-on-turn-stop) child.
                 bg.clearForegroundProc(chatIdForBg, operationId);

@@ -2,41 +2,84 @@ import { describe, it, expect } from "vitest";
 import {
   getReasoningEffort,
   getExtraProviderOptions,
+  reasoningBudgetTokens,
 } from "@/ipc/utils/thinking_utils";
-import { buildReasoningProviderOptions } from "@/lib/routing/reasoning-detector";
-import type { UserSettings } from "@/lib/schemas";
+import {
+  buildReasoningProviderOptions,
+  deriveReasoningCeiling,
+} from "@/lib/routing/reasoning-detector";
+import type { LargeLanguageModel, UserSettings } from "@/lib/schemas";
 
 const settings = (deepThinking?: boolean): UserSettings =>
   ({ deepThinking }) as unknown as UserSettings;
 
-describe("getReasoningEffort — flat medium base + one deep-think toggle", () => {
-  it("defaults to medium (toggle off / unset)", () => {
-    expect(getReasoningEffort(undefined)).toBe("medium");
-    expect(getReasoningEffort(settings(false))).toBe("medium");
+describe("getReasoningEffort — capability-derived base/deep pair", () => {
+  it("effort-ceiling models (e.g. OpenAI): base=medium, deep=high", () => {
+    expect(getReasoningEffort(undefined, "high")).toBe("medium");
+    expect(getReasoningEffort(settings(false), "high")).toBe("medium");
+    expect(getReasoningEffort(settings(true), "high")).toBe("high");
   });
-  it("rises to high when deepThinking is on", () => {
-    expect(getReasoningEffort(settings(true))).toBe("high");
-  });
-  it("has no low/mode/model branching — only the two states", () => {
-    // Same input, same output regardless of anything else.
-    expect(new Set(["medium", "high"])).toContain(getReasoningEffort(settings(true)));
-    expect(new Set(["medium", "high"])).toContain(getReasoningEffort(settings(false)));
+  it("budget-ceiling models (e.g. DeepSeek/Anthropic): base=high, deep=max", () => {
+    expect(getReasoningEffort(settings(false), "max")).toBe("high");
+    expect(getReasoningEffort(settings(true), "max")).toBe("max");
   });
 });
 
-describe("provider param wiring receives the resolved effort (not hardcoded medium)", () => {
-  const cap = {
+describe("deriveReasoningCeiling — catalog/channel-derived, not per-model hardcode", () => {
+  const model = (name: string, provider: string): LargeLanguageModel =>
+    ({ name, provider }) as unknown as LargeLanguageModel;
+
+  it("effort-only channel (OpenAI) → high", () => {
+    expect(deriveReasoningCeiling(model("gpt-5", "openai"), "openai")).toBe("high");
+  });
+  it("budget-token native providers (deepseek/qwen/minimax) → max", () => {
+    expect(deriveReasoningCeiling(model("deepseek-reasoner", "deepseek"), "deepseek")).toBe("max");
+    expect(deriveReasoningCeiling(model("qwen3", "qwen"), "qwen")).toBe("max");
+  });
+  it("OpenRouter reasoning models (budget channel) → max", () => {
+    expect(
+      deriveReasoningCeiling(model("deepseek/deepseek-r1", "openrouter"), "openrouter"),
+    ).toBe("max");
+  });
+});
+
+describe("reasoningBudgetTokens — scaled to the model's max, reserving output", () => {
+  it("scales high < max and both leave an output reserve", () => {
+    const max = 64_000;
+    const high = reasoningBudgetTokens("high", max);
+    const mx = reasoningBudgetTokens("max", max);
+    expect(high).toBeLessThan(mx);
+    // reserve = max(15% , 2048) → both must leave headroom under `max`.
+    expect(mx).toBeLessThanOrEqual(max - Math.round(max * 0.15));
+    expect(high).toBeGreaterThanOrEqual(1024);
+  });
+  it("never truncates on a tiny max (clamped, still leaves the reserve)", () => {
+    const max = 8_192;
+    const mx = reasoningBudgetTokens("max", max);
+    expect(mx).toBeGreaterThanOrEqual(1024);
+    expect(mx).toBeLessThan(max); // output room preserved
+  });
+});
+
+describe("provider param wiring receives the resolved effort + scaled budget", () => {
+  const orCap = {
     useOpenRouterReasoning: true,
     useGoogleThoughts: false,
     useOpenAiReasoningSummary: false,
   };
 
-  it("OpenRouter effort follows the toggle", () => {
-    expect((buildReasoningProviderOptions(cap, true, "medium").openrouter as any).reasoning.effort).toBe("medium");
-    expect((buildReasoningProviderOptions(cap, true, "high").openrouter as any).reasoning.effort).toBe("high");
+  it("OpenRouter emits a scaled reasoning.max_tokens (base < deep)", () => {
+    const base = (
+      buildReasoningProviderOptions(orCap, true, "high", 64_000).openrouter as any
+    ).reasoning.max_tokens;
+    const deep = (
+      buildReasoningProviderOptions(orCap, true, "max", 64_000).openrouter as any
+    ).reasoning.max_tokens;
+    expect(base).toBeLessThan(deep);
+    expect(deep).toBeLessThan(64_000); // output reserve preserved
   });
 
-  it("OpenAI reasoning_effort follows the toggle", () => {
+  it("OpenAI reasoning_effort follows the toggle and never exceeds 'high'", () => {
     expect(
       (getExtraProviderOptions("openai", settings(false), true) as any).reasoning_effort,
     ).toBe("medium");
@@ -45,11 +88,10 @@ describe("provider param wiring receives the resolved effort (not hardcoded medi
     ).toBe("high");
   });
 
-  it("gateway thinking budget: high → -1 dynamic, medium → 4000", () => {
-    // deepseek is in PROVIDERS_THAT_SUPPORT_THINKING
-    const off = getExtraProviderOptions("deepseek", settings(false), true) as any;
-    const on = getExtraProviderOptions("deepseek", settings(true), true) as any;
-    expect(off.thinking.budget_tokens).toBe(4_000);
-    expect(on.thinking.budget_tokens).toBe(-1);
+  it("budget provider (deepseek): scaled thinking budget, deep > base", () => {
+    const off = getExtraProviderOptions("deepseek", settings(false), true, 64_000) as any;
+    const on = getExtraProviderOptions("deepseek", settings(true), true, 64_000) as any;
+    expect(on.thinking.budget_tokens).toBeGreaterThan(off.thinking.budget_tokens);
+    expect(on.thinking.budget_tokens).toBeLessThan(64_000);
   });
 });

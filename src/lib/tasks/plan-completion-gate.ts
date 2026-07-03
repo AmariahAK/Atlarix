@@ -38,8 +38,10 @@ export async function getPlanCompletionFeedback(
       .join("; ");
     return (
       `The session plan is not finished — ${remaining.length} step(s) remain: ${list}. ` +
-      "Continue with the next step now — do NOT end the turn. Mark each step done via plan(update_step) as you finish it. " +
-      "Only stop if you need the user (a decision or a manual test you can't run) or are genuinely blocked."
+      "First: any listed step you have ALREADY completed, mark done via plan(update_step) now — NEVER redo or restart work that already succeeded. " +
+      "Then continue with the next genuinely unfinished step, marking each done as you finish. " +
+      "If every remaining step is actually done, mark them and end your turn with a summary. " +
+      "Only stop early if you need the user (a decision or a manual test you can't run) or are genuinely blocked."
     );
   } catch {
     return null;

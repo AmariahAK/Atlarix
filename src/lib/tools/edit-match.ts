@@ -210,6 +210,44 @@ export const EscapeNormalizedReplacer: Replacer = function* (content, find) {
   }
 };
 
+/**
+ * v14.8.10: models routinely emit ASCII punctuation for a file's typographic
+ * unicode (curly quotes, em/en-dashes, ellipsis, NBSP) — observed live as a
+ * repeated "Content to replace not found" loop on a curly-quoted markdown
+ * file. Normalize BOTH sides to ASCII for comparison; yield the ORIGINAL
+ * content block so the file's typography is preserved.
+ */
+export function normalizeUnicodePunctuation(text: string): string {
+  return text
+    .replace(/[“”«»„]/g, '"')
+    .replace(/[‘’‚‹›]/g, "'")
+    .replace(/[–—―]/g, "-")
+    .replace(/…/g, "...")
+    .replace(/ /g, " ");
+}
+
+export const UnicodePunctuationNormalizedReplacer: Replacer = function* (content, find) {
+  const normalizedFind = normalizeUnicodePunctuation(find);
+  // Only useful when normalization actually changes something on either side.
+  const lines = content.split("\n");
+  const findLines = find.split("\n");
+
+  if (findLines.length === 1) {
+    for (const line of lines) {
+      if (line === find) continue; // exact already handled earlier
+      if (normalizeUnicodePunctuation(line) === normalizedFind) {
+        yield line;
+      }
+    }
+    return;
+  }
+  for (let i = 0; i <= lines.length - findLines.length; i++) {
+    const block = lines.slice(i, i + findLines.length).join("\n");
+    if (block === find) continue;
+    if (normalizeUnicodePunctuation(block) === normalizedFind) yield block;
+  }
+};
+
 export const TrimmedBoundaryReplacer: Replacer = function* (content, find) {
   const trimmedFind = find.trim();
   if (trimmedFind === find) return;
@@ -313,6 +351,7 @@ const REPLACERS: Array<[name: string, replacer: Replacer]> = [
   ["whitespace", WhitespaceNormalizedReplacer],
   ["indentation", IndentationFlexibleReplacer],
   ["escape", EscapeNormalizedReplacer],
+  ["unicode-punctuation", UnicodePunctuationNormalizedReplacer],
   ["trimmed-boundary", TrimmedBoundaryReplacer],
   ["context-aware", ContextAwareReplacer],
 ];

@@ -54,9 +54,13 @@ export class PreflightTimer {
     this.reportedChatIds.add(chatId);
     const total = Date.now() - this.t0;
     const accounted = this.spans.reduce((sum, s) => sum + s.ms, 0);
+    // The unaccounted gap (TTFT overhead not covered by any wrapped step) is the
+    // target for the S18 parallelize/defer pass — surface it explicitly so it's
+    // greppable and trend-able before any reorder is attempted.
+    const unaccounted = Math.max(0, total - accounted);
     const parts = this.spans.map((s) => `${s.name}=${s.ms}ms`).join(" ");
     logger.info(
-      `[perf] preflight-breakdown chat=${chatId} total=${total}ms accounted=${accounted}ms ${parts}`,
+      `[perf] preflight-breakdown chat=${chatId} total=${total}ms accounted=${accounted}ms unaccounted=${unaccounted}ms ${parts}`,
     );
   }
 }

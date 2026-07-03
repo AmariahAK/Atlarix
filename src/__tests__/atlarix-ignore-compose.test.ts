@@ -9,7 +9,10 @@ import {
   ensureDefaultAtlarixIgnore,
   getAtlarixIgnorePath,
   scopeGitignoreToDir,
+  createIgnorerFromSource,
+  BUILTIN_IGNORE,
 } from "@/lib/atlarix/atlarix-ignore";
+import { shouldProcessWatcherPath } from "@/lib/blueprint/blueprint-file-watcher";
 
 /**
  * v13.8: the ignorer is composed from three layers —
@@ -170,5 +173,30 @@ describe("atlarix-ignore composed source", () => {
     } finally {
       await fs.rm(fresh, { recursive: true, force: true }).catch(() => {});
     }
+  });
+});
+
+describe("blueprint watcher ignore gate (Fix 3.1)", () => {
+  const ig = createIgnorerFromSource(
+    `${BUILTIN_IGNORE}\ndist/\n# project rule\ngenerated/\n`,
+  );
+
+  it("processes code files that are not ignored", () => {
+    expect(shouldProcessWatcherPath(ig, "src/index.ts")).toBe(true);
+    expect(shouldProcessWatcherPath(ig, "packages/app/main.tsx")).toBe(true);
+    expect(shouldProcessWatcherPath(ig, "lib/foo.py")).toBe(true);
+  });
+
+  it("skips dependency/build/vcs churn even for code files (the ROI fix)", () => {
+    expect(shouldProcessWatcherPath(ig, "node_modules/react/index.js")).toBe(false);
+    expect(shouldProcessWatcherPath(ig, "dist/bundle.js")).toBe(false);
+    expect(shouldProcessWatcherPath(ig, ".git/hooks/pre-commit.sample")).toBe(false);
+    expect(shouldProcessWatcherPath(ig, "generated/schema.ts")).toBe(false);
+  });
+
+  it("skips non-code files regardless of ignore status", () => {
+    expect(shouldProcessWatcherPath(ig, "README.md")).toBe(false);
+    expect(shouldProcessWatcherPath(ig, "src/styles.css")).toBe(false);
+    expect(shouldProcessWatcherPath(ig, ".gitignore")).toBe(false);
   });
 });

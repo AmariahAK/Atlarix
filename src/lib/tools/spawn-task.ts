@@ -192,6 +192,7 @@ ToolRegistry.register({
     "By default a sub-agent is READ-ONLY. Set write=true to let it implement changes inside an ISOLATED git worktree (seeded from your current working tree, so it sees uncommitted work); its proposed diff comes back for you to review and apply with your own write tools (the workspace is never touched directly). " +
     "Optional subagent_type names a built-in agent (explorer = read-only recon, architect = planning, implementer = writer) or a user-defined .atlarix/agents/ agent; a writer agent implies write mode without write=true. " +
     "Set background=true to return immediately with a task id; pass task_id later to collect the result. " +
+    "PREFER background=true for ANY long-running delegation — read-only recon/research sweeps AND writer/implementer tasks alike: you can continue other work or end your turn, and each result is delivered to you automatically the moment it finishes (you are auto-woken if your turn ended). Do not idle or poll while waiting. " +
     "Manage running background sub-agents like background jobs: list=true to see them, or task_id + cancel=true to hard-stop one that's stuck or no longer needed.",
   requiresWorkspace: false,
   isCore: false,

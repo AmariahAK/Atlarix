@@ -12,7 +12,11 @@ import {
 import { getOpenRouterModelIdForCoreTier } from "@/ipc/shared/compass_constants";
 import { PROVIDERS_THAT_SUPPORT_THINKING } from "@/ipc/shared/language_model_constants";
 import type { LargeLanguageModel, UserSettings } from "@/lib/schemas";
-import { getExtraProviderOptions } from "@/ipc/utils/thinking_utils";
+import {
+  getExtraProviderOptions,
+  reasoningBudgetTokens,
+  type ReasoningEffort,
+} from "@/ipc/utils/thinking_utils";
 
 /** OpenRouter / @openrouter/ai-sdk-provider reasoning block (effort OR max_tokens required). */
 export type OpenRouterReasoningOpts = {
@@ -123,6 +127,30 @@ export function isReasoningCapableModel(
 }
 
 /**
+ * A model's reasoning CEILING, derived from its catalog-declared channel (not a
+ * per-model hardcode): a channel that accepts a token BUDGET can exceed
+ * effort-"high" → "max"; a pure EFFORT channel (OpenAI reasoning_effort) tops out
+ * at "high". Used to pick the base/deep effort pair (getReasoningEffort).
+ */
+export function deriveReasoningCeiling(
+  effectiveModel: LargeLanguageModel,
+  builtinProviderId: string | undefined,
+): "high" | "max" {
+  // Native budget-token providers (deepseek/qwen/minimax/google/vertex/auto).
+  if (builtinProviderId && PROVIDERS_THAT_SUPPORT_THINKING.includes(builtinProviderId)) {
+    return "max";
+  }
+  const cap = detectReasoningCapability(
+    resolveReasoningCatalogModelId(effectiveModel),
+    builtinProviderId,
+  );
+  // Budget channels (OpenRouter reasoning.max_tokens, Google thinkingBudget).
+  if (cap.useOpenRouterReasoning || cap.useGoogleThoughts) return "max";
+  // Pure effort channel (OpenAI) or no special reasoning channel.
+  return "high";
+}
+
+/**
  * Whether the effective model + gateway can request native extended thinking/reasoning
  * (provider options + gateway thinking flags used on the thinking tier).
  */
@@ -148,7 +176,9 @@ export function hasNativeDeepThinkingSupport(
 export function buildReasoningProviderOptions(
   cap: ReturnType<typeof detectReasoningCapability>,
   thinkingTier: boolean,
-  effort: "medium" | "high" = "medium",
+  effort: ReasoningEffort = "medium",
+  /** Resolved max output tokens — scales the OpenRouter reasoning budget. */
+  maxOutputTokens?: number,
 ): ReasoningProviderPatch {
   if (!thinkingTier) {
     return {};
@@ -161,7 +191,11 @@ export function buildReasoningProviderOptions(
       include_reasoning: true,
       reasoning: {
         enabled: true,
-        effort,
+        // Budget encoding scaled to the model's own max output (reserves output
+        // headroom so reasoning can't truncate the answer). OpenRouter maps
+        // reasoning.max_tokens across its reasoning models; this makes base<deep
+        // real on the primary gateway rather than clamping to effort-"high".
+        max_tokens: reasoningBudgetTokens(effort, maxOutputTokens ?? 32_000),
       } satisfies OpenRouterReasoningOpts,
     };
   }

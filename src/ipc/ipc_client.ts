@@ -234,7 +234,13 @@ export interface BackgroundJobUpdatePayload {
   source: "command" | "subagent" | "scheduled";
   operationId?: string;
   taskId?: string;
-  status: "running" | "finished" | "cancelled" | "stalled" | "scheduled";
+  status:
+    | "running"
+    | "finished"
+    | "cancelled"
+    | "stalled"
+    | "scheduled"
+    | "condition_met";
   running: number;
 }
 
@@ -242,6 +248,13 @@ export class IpcClient {
   private static instance: IpcClient;
   private ipcRenderer: PreloadIpcRenderer;
   private chatStreams: Map<number, ChatStreamCallbacks>;
+  // v14.8.10 Fix S: stream-leg identity. The backend stamps every
+  // chat:response:* event with the leg's monotonic streamId and returns that id
+  // from the chat:stream invoke. A superseded (older) leg's late error/end must
+  // NOT wipe the live leg's state (observed: frozen inline chat after an
+  // error + model-switch continue crossed in flight).
+  private currentStreamIdByChat: Map<number, number> = new Map();
+  private pendingStreamDispatch: Map<number, number> = new Map();
   private appStreams: Map<number, AppStreamCallbacks>;
   private helpStreams: Map<
     string,
@@ -362,6 +375,11 @@ export class IpcClient {
       ) {
         const { chatId } = data as { chatId: number };
 
+        // Fix S: ignore updates from a superseded stream leg.
+        if (this.shouldDropStreamEvent(chatId, (data as { streamId?: unknown }).streamId)) {
+          return;
+        }
+
         // Handle permission-request type
         if ("type" in data && (data as any).type === "permission-request") {
           const handler = this.permissionHandlers.get(chatId);
@@ -408,7 +426,11 @@ export class IpcClient {
     });
 
     this.ipcRenderer.on("chat:response:end", (payload) => {
-      const { chatId } = payload as unknown as ChatResponseEnd;
+      const { chatId, streamId } = payload as unknown as ChatResponseEnd;
+      // Fix S: a superseded leg's late end must not tear down the live leg's
+      // callbacks/state (observed: frozen inline chat after an error +
+      // model-switch continue crossed in flight).
+      if (this.shouldDropStreamEvent(chatId, streamId)) return;
       this.streamPhaseHandlers.forEach((h) =>
         h({ chatId, phase: "done", label: "" }),
       );
@@ -554,7 +576,13 @@ export class IpcClient {
         "chatId" in payload &&
         "error" in payload
       ) {
-        const { chatId, error } = payload as { chatId: number; error: string };
+        const { chatId, error, streamId } = payload as {
+          chatId: number;
+          error: string;
+          streamId?: number;
+        };
+        // Fix S: ignore a superseded leg's late error (see chat:response:end).
+        if (this.shouldDropStreamEvent(chatId, streamId)) return;
         this.streamPhaseHandlers.forEach((h) =>
           h({ chatId, phase: "done", label: "" }),
         );
@@ -1333,6 +1361,46 @@ export class IpcClient {
   }
 
   // New method for streaming responses
+  /**
+   * v14.8.10 Fix S: mark a chat:stream dispatch in flight. While pending, EVERY
+   * chat:response:* event for the chat predates the new leg by construction
+   * (the backend assigns the new streamId and replies before the new leg emits
+   * anything, and IPC delivery is ordered) — so those events belong to the
+   * dying leg and are dropped.
+   */
+  private beginStreamDispatch(chatId: number): void {
+    this.pendingStreamDispatch.set(
+      chatId,
+      (this.pendingStreamDispatch.get(chatId) ?? 0) + 1,
+    );
+  }
+
+  /** Resolve a dispatch: record the new leg's streamId (from the invoke reply). */
+  private endStreamDispatch(chatId: number, result: unknown): void {
+    const n = (this.pendingStreamDispatch.get(chatId) ?? 1) - 1;
+    if (n <= 0) this.pendingStreamDispatch.delete(chatId);
+    else this.pendingStreamDispatch.set(chatId, n);
+    const sid = (result as { streamId?: number } | null | undefined)?.streamId;
+    if (typeof sid === "number") {
+      const cur = this.currentStreamIdByChat.get(chatId);
+      if (cur == null || sid > cur) this.currentStreamIdByChat.set(chatId, sid);
+    }
+  }
+
+  /** True when a chat:response:* event belongs to a superseded stream leg. */
+  private shouldDropStreamEvent(chatId: number, streamId: unknown): boolean {
+    if ((this.pendingStreamDispatch.get(chatId) ?? 0) > 0) return true;
+    if (typeof streamId !== "number") return false; // unstamped (legacy paths) → accept
+    const current = this.currentStreamIdByChat.get(chatId);
+    if (current == null) {
+      this.currentStreamIdByChat.set(chatId, streamId);
+      return false;
+    }
+    if (streamId < current) return true;
+    if (streamId > current) this.currentStreamIdByChat.set(chatId, streamId);
+    return false;
+  }
+
   public streamMessage(
     prompt: string,
     options: {
@@ -1378,6 +1446,7 @@ export class IpcClient {
       pasteAttachments,
     } = options;
     this.chatStreams.set(chatId, { onUpdate, onEnd, onError });
+    this.beginStreamDispatch(chatId);
 
     const fileAttachments = attachments?.filter((a) => a.file != null) ?? [];
 
@@ -1402,7 +1471,9 @@ export class IpcClient {
               prefillTaskLedger: prefillTaskLedger ?? undefined,
               workModeOverride: workModeOverride ?? undefined,
             })
+            .then((res) => this.endStreamDispatch(chatId, res))
             .catch((err) => {
+              this.endStreamDispatch(chatId, undefined);
               console.error("Error streaming message:", err);
               showError(err);
               onError(String(err));
@@ -1410,6 +1481,7 @@ export class IpcClient {
             });
         })
         .catch((err) => {
+          this.endStreamDispatch(chatId, undefined);
           console.error("Error streaming message:", err);
           showError(err);
           onError(String(err));
@@ -1432,7 +1504,9 @@ export class IpcClient {
           prefillTaskLedger: prefillTaskLedger ?? undefined,
           workModeOverride: workModeOverride ?? undefined,
         })
+        .then((res) => this.endStreamDispatch(chatId, res))
         .catch((err) => {
+          this.endStreamDispatch(chatId, undefined);
           console.error("Error streaming message:", err);
           showError(err);
           onError(String(err));
@@ -2453,7 +2527,6 @@ export class IpcClient {
     operationId,
     approvalMode = "once",
     appId,
-    dangerAcknowledged,
     overrideContent,
   }: {
     chatId: number;
@@ -2466,7 +2539,6 @@ export class IpcClient {
       | "always_allow_directory"
       | "always_allow_extension";
     appId?: number | null;
-    dangerAcknowledged?: boolean;
     /** v10 per-hunk approval: write this composed content instead of the full proposal. */
     overrideContent?: string;
   }): Promise<{ operationId: string; approved: boolean; executedAt?: number; error?: string }> {
@@ -2475,7 +2547,6 @@ export class IpcClient {
       operationId,
       approvalMode,
       appId,
-      dangerAcknowledged,
       overrideContent,
     });
   }
@@ -3043,6 +3114,11 @@ export class IpcClient {
     return this.ipcRenderer.invoke("workspace:open-in-new-window", folderPath);
   }
 
+  /** Fresh window with no workspace bound — lands on the workspace chooser. */
+  public async openBlankWindow(): Promise<{ ok: boolean }> {
+    return this.ipcRenderer.invoke("window:open-blank");
+  }
+
   async checkAppName(params: {
     appName: string;
   }): Promise<{ exists: boolean }> {
@@ -3367,7 +3443,14 @@ export class IpcClient {
   public async backgroundJobsList(
     chatId: number,
   ): Promise<
-    { operationId: string; command: string; startedAt: number; elapsedMs: number }[]
+    {
+      operationId: string;
+      command: string;
+      startedAt: number;
+      elapsedMs: number;
+      stalled?: boolean;
+      wakeMatched?: boolean;
+    }[]
   > {
     return this.ipcRenderer.invoke("chat:background-jobs-list", chatId);
   }
@@ -3467,129 +3550,6 @@ export class IpcClient {
   // Delete SearxNG config
   public async deleteSearxngConfig(): Promise<{ success: boolean }> {
     return this.ipcRenderer.invoke("searxng:delete-config");
-  }
-
-  // PASS6: Blueprint (Phase 7 Additive Blueprint) — client methods restored.
-  public async getBlueprint(params: { workspaceId: number }): Promise<{
-    success: boolean;
-    blueprint?: import("@/shared/blueprint-types").Blueprint;
-    error?: string;
-  }> {
-    return this.ipcRenderer.invoke("blueprint:get", params);
-  }
-
-  public async setBlueprint(params: {
-    workspaceId: number;
-    blueprint: import("@/shared/blueprint-types").Blueprint;
-  }): Promise<{ success: boolean; error?: string }> {
-    return this.ipcRenderer.invoke("blueprint:set", params);
-  }
-
-  /** v3.6: Get reference project paths for combined blueprint */
-  public async getReferencePaths(workspaceId: number): Promise<{ success: boolean; paths?: string[]; error?: string }> {
-    return this.ipcRenderer.invoke("blueprint:get-reference-paths", { workspaceId });
-  }
-
-  /** v3.6: Set reference project paths for combined blueprint */
-  public async setReferencePaths(workspaceId: number, paths: string[]): Promise<{ success: boolean; error?: string }> {
-    return this.ipcRenderer.invoke("blueprint:set-reference-paths", { workspaceId, paths });
-  }
-
-  /** Refresh blueprint from code (invalidate cache, re-infer from workspace) */
-  public async refreshBlueprintFromCode(params: { workspaceId: number }): Promise<{
-    success: boolean;
-    blueprint?: import("@/shared/blueprint-types").Blueprint;
-    error?: string;
-  }> {
-    return this.ipcRenderer.invoke("blueprint:refresh-from-code", params);
-  }
-
-  public async getAtlarixIgnore(workspaceId: number): Promise<{
-    success: boolean;
-    content?: string;
-    filename?: string;
-    error?: string;
-  }> {
-    return this.ipcRenderer.invoke("blueprint:get-atlarixignore", { workspaceId });
-  }
-
-  public async setAtlarixIgnore(
-    workspaceId: number,
-    content: string,
-  ): Promise<{ success: boolean; error?: string }> {
-    return this.ipcRenderer.invoke("blueprint:set-atlarixignore", { workspaceId, content });
-  }
-
-  /** Analyze workspace for blueprint: list projects with activity and recommendation */
-  public async analyzeWorkspaceForBlueprint(params: { workspaceId: number }): Promise<{
-    success: boolean;
-    projects?: import("@/lib/blueprint/project-selector").ProjectCandidate[];
-    error?: string;
-  }> {
-    return this.ipcRenderer.invoke("blueprint:analyze-workspace", params);
-  }
-
-  /** Simplify beacon description with AI (fast model); updates blueprint and emits blueprint:updated */
-  public async simplifyBlueprintDescription(params: {
-    workspaceId: number;
-    roomId: string;
-    functionId: string;
-  }): Promise<{ success: boolean; simpleDescription?: string; error?: string }> {
-    return this.ipcRenderer.invoke("blueprint:simplify-description", params);
-  }
-
-  public async simplifyBlueprintRoom(params: {
-    workspaceId: number;
-    roomId: string;
-  }): Promise<{ success: boolean; label?: string; intent?: string; error?: string }> {
-    return this.ipcRenderer.invoke("blueprint:simplify-room", params);
-  }
-
-  public async simplifyBlueprintArchitecture(params: {
-    workspaceId: number;
-  }): Promise<{ success: boolean; summary?: string; error?: string }> {
-    return this.ipcRenderer.invoke("blueprint:simplify-architecture", params);
-  }
-
-  /** Workforce Feature 2: commit Blueprint snapshot to `.atlarix/blueprint.json`. */
-  public async commitBlueprintSnapshot(workspaceId: number): Promise<{
-    success: boolean;
-    nodeCount?: number;
-    edgeCount?: number;
-    path?: string;
-    firstCommit?: boolean;
-    error?: string;
-  }> {
-    return this.ipcRenderer.invoke("blueprint:commit-snapshot", { workspaceId });
-  }
-
-  /** Workforce Feature 2: check whether a `.atlarix/blueprint.json` snapshot exists for a workspace. */
-  public async blueprintSnapshotExists(workspaceId: number): Promise<{
-    exists: boolean;
-    snapshot?: { nodeCount: number; edgeCount: number; generatedAt: string };
-    error?: string;
-  }> {
-    return this.ipcRenderer.invoke("blueprint:snapshot-exists", { workspaceId });
-  }
-
-  public onBlueprintAiEditing(listener: (payload: { workspaceId: number; action: string }) => void): () => void {
-    const handler = (_: unknown, payload: { workspaceId: number; action: string }) => listener(payload);
-    this.ipcRenderer.on("blueprint:ai-editing", handler);
-    return () => this.ipcRenderer.removeListener("blueprint:ai-editing", handler);
-  }
-
-  /** When AI or main process updates the blueprint, sync to UI */
-  public onBlueprintUpdated(listener: (payload: { workspaceId: number; blueprint: import("@/shared/blueprint-types").Blueprint }) => void): () => void {
-    const handler = (_: unknown, payload: { workspaceId: number; blueprint: import("@/shared/blueprint-types").Blueprint }) => listener(payload);
-    this.ipcRenderer.on("blueprint:updated", handler);
-    return () => this.ipcRenderer.removeListener("blueprint:updated", handler);
-  }
-
-  /** When RTE is running (e.g. refresh from code), for legend and edge pulse */
-  public onBlueprintRteRunning(listener: (payload: { workspaceId: number; running: boolean }) => void): () => void {
-    const handler = (_: unknown, payload: { workspaceId: number; running: boolean }) => listener(payload);
-    this.ipcRenderer.on("blueprint:rte-running", handler);
-    return () => this.ipcRenderer.removeListener("blueprint:rte-running", handler);
   }
 
   // --- Workspace Snapshots (Pro) ---

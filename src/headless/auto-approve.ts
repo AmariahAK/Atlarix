@@ -5,7 +5,11 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type ExecutePermission = (
   event: any,
-  args: { chatId: number; operationId: string; dangerAcknowledged?: boolean },
+  args: {
+    chatId: number;
+    operationId: string;
+    approvalMode?: "once" | "deny";
+  },
 ) => Promise<unknown>;
 
 /**
@@ -13,14 +17,16 @@ type ExecutePermission = (
  * `permission-request` (file writes + commands) via the real `execute-permission`
  * handler until the turn ends. The per-OS write sandbox still applies.
  *
- * Dangerous commands (rm -rf, sudo, …) stay blocked by DEFAULT — in the
- * interactive app a human ticks the danger checkbox, and headless has no human.
- * An operator running a disposable/unattended job can grant that consent ONCE,
- * up front, by setting ATLARIX_AUTONOMOUS_DANGER=1. That is the same consent
- * model relocated to launch time, not a headless-only bypass: the flag is read
- * explicitly (unset → blocks), so a headless run without it behaves exactly as
- * before. Benchmark CI / the PR-review bot set it; nothing auto-ons it under
- * ATLARIX_HEADLESS.
+ * Dangerous commands (rm -rf, sudo, git push --force, …) stay blocked by DEFAULT
+ * — in the interactive app a human approves them, and headless has no human. An
+ * operator running a disposable/unattended job can grant that consent ONCE, up
+ * front, by setting ATLARIX_AUTONOMOUS_DANGER=1. That is the same consent model
+ * relocated to launch time, not a headless-only bypass: the flag is read
+ * explicitly (unset → we DENY dangerous ops), so a headless run without it
+ * behaves exactly as before. Benchmark CI / the PR-review bot set it; nothing
+ * auto-ons it under ATLARIX_HEADLESS. (Since the interactive hard-floor throw was
+ * removed, this deny is what upholds the "no silent dangerous exec" invariant in
+ * headless mode.)
  */
 export async function autoApprove(opts: {
   sender: FakeSender;
@@ -29,7 +35,7 @@ export async function autoApprove(opts: {
   timeoutMs: number;
 }): Promise<void> {
   const { sender, executePermission, chatId, timeoutMs } = opts;
-  const dangerAcknowledged = process.env.ATLARIX_AUTONOMOUS_DANGER === "1";
+  const dangerAllowed = process.env.ATLARIX_AUTONOMOUS_DANGER === "1";
   const seen = new Set<string>();
   let ended = false;
   const deadline = Date.now() + timeoutMs;
@@ -41,8 +47,18 @@ export async function autoApprove(opts: {
       const operationId = s.payload?.operationId as string | undefined;
       if (!operationId || seen.has(operationId)) continue;
       seen.add(operationId);
+      const isDangerous = Boolean(
+        (
+          s.payload?.request as
+            | { preview?: { isDangerous?: boolean } }
+            | undefined
+        )?.preview?.isDangerous,
+      );
+      // No human to consent: deny dangerous ops unless the operator opted in.
+      const approvalMode: "once" | "deny" =
+        isDangerous && !dangerAllowed ? "deny" : "once";
       try {
-        await executePermission(sender.event, { chatId, operationId, dangerAcknowledged });
+        await executePermission(sender.event, { chatId, operationId, approvalMode });
       } catch {
         /* keep approving the rest */
       }

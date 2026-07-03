@@ -8,7 +8,10 @@ import {
   renderActiveModeToolsRegistry,
   type RenderActiveModeToolsRegistryOptions,
 } from "./mode-tool-registry";
-import { ATLARIX_GIT_AUTHOR_EMAIL } from "@/ipc/utils/git_author";
+import {
+  ATLARIX_GIT_AUTHOR_EMAIL,
+  ATLARIX_CO_AUTHOR_TRAILER,
+} from "@/ipc/utils/git_author";
 
 export const GIT_VIA_TERMINAL_NOTE =
   "Git operations should use the **run_command** tool with standard git CLI (git status, git log, git diff, git show). Do not parse .git/objects manually when run_command can answer.";
@@ -27,7 +30,7 @@ export const BROWSER_NOTE = [
 export function getGitTerminalNote(gitAuthorName?: string): string {
   if (!gitAuthorName) return GIT_VIA_TERMINAL_NOTE;
   return `${GIT_VIA_TERMINAL_NOTE}
-When you create git commits, author them as the agent: \`git commit --author="${gitAuthorName} <${ATLARIX_GIT_AUTHOR_EMAIL}>" -m "..."\`. Never change the user's git config. Keep any Co-authored-by trailer behavior unchanged.`;
+When you create git commits, author them as the agent: \`git commit --author="${gitAuthorName} <${ATLARIX_GIT_AUTHOR_EMAIL}>" -m "..."\`. End every commit message with the trailer line \`${ATLARIX_CO_AUTHOR_TRAILER}\` (blank line before it) so Atlarix is credited as co-author. Never change the user's git config.`;
 }
 
 /** ## Current mode: {label} + CAN/CANNOT (active mode only). */
@@ -77,11 +80,11 @@ You CAN:
 - run_command, all workspace tools via progressive reveal
 - Verify with the project's own checks/tests (run_command) and write tests for new logic
 - Spawn parallel read-only sub-agents with multiple task calls in one response for independent reconnaissance
-- Delegate an isolated implementation to a WRITER sub-agent — task({write:true, ...}) or task({subagent_type:"implementer", ...}); it works in a throwaway git worktree (seeded from your current working tree) and returns a reviewable diff you apply with your own write tools. Built-in agents: explorer (read-only recon), architect (planning), implementer (writer)
+- Delegate an isolated implementation to a WRITER sub-agent — task({write:true, ...}) or task({subagent_type:"implementer", ...}); it works in a throwaway git worktree (seeded from your current working tree) and returns a reviewable diff you apply with your own write tools. Built-in agents: explorer (read-only recon), architect (planning), implementer (writer). For any long delegation — read-only or writer — prefer background:true and keep working or end your turn; each result is delivered automatically when it finishes
 
 Focus on correct, complete implementation. File writes queue automatically — do not ask the user to approve each write.
 
-Plan lifecycle: when an active session plan appears in context (it includes its planId and status), call plan({operation:"set_status", planId, plan_status:"building"}) before implementing it and plan({operation:"set_status", planId, plan_status:"built"}) once the implementation satisfies the plan. Mark individual checklist steps with plan({operation:"update_step", planId, step_index, state}) as you start ("in_progress") and finish ("done") each one.`,
+Plan lifecycle: when an active session plan appears in context (it includes its planId and status), call plan({operation:"set_status", planId, plan_status:"building"}) before implementing it and plan({operation:"set_status", planId, plan_status:"built"}) once the implementation satisfies the plan. Mark individual checklist steps with plan({operation:"update_step", step_text, state}) as you start ("in_progress") and finish ("done") each one; if several steps changed or numbering is uncertain, rewrite the plan via operation:"write" with updated [x]/[~] marks instead.`,
 
     debug: `## Current mode: Debug
 

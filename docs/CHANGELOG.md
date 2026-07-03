@@ -1,5 +1,130 @@
 # Atlarix Changelog
 
+## [14.8.10] (2026-07-03) — Reliable background work, one permission gate, lighter UI, sharper reasoning
+
+> A harness-refinement release surfaced from a live installed-app session. The agent now **actually
+> receives background results** (and stops polling), force/dangerous commands flow through **one
+> allow/deny gate** instead of an unsatisfiable dead-end, the UI is **lighter under load**, reasoning
+> **scales to each model automatically**, and long-running jobs can be **watched** — by the model and
+> by you. tsc (main + app + tests) + oxlint + knip clean; full vitest green (**1576 tests**).
+
+### Fixed
+
+- **The repetition guard guides instead of killing the turn — and its false trigger is gone.**
+  Observed live: a turn was force-finished mid-task after 3 consecutive edits to the SAME file with
+  *different* content — the permission-path recorder keyed `edit_file` by `{path}` only, so
+  legitimate sequential work read as a byte-identical doom loop. Fixed (full-args keying, single
+  record site at the execute-wrapper top), and the guard is now STAGED: 3 identical calls → the
+  call is answered with a corrective tool result instead of executing ("re-read the file / change
+  approach"); 6 → stronger steer + an invitation to stop on the model's own terms; only the 9th
+  fires the tools-off force-finish backstop. Repeated status-text gets the same treatment (correct
+  first, abort on a second full run). (`src/lib/streaming/agentic-loop-repetition.ts`,
+  `src/ipc/handlers/chat_stream_handlers.ts`, `src/lib/agent/run-agent-turn.ts`.)
+- **grep no longer looks "stale" after the agent's own edits.** Matching was always live ripgrep,
+  but the FTS5/BM25 layer that reranks hits (and suggests symbols on zero hits) was never updated
+  mid-session — the watcher only registered when the Blueprint panel was opened, and the index only
+  rebuilt on a git-HEAD change — so a just-written file ranked WORST and could drop below the
+  result cap. Now: the write path upserts each written file into the index (fire-and-forget), the
+  reranker treats unindexed files neutrally (they keep their ripgrep rank), and the watcher
+  registers on workspace bind for every agent session. (`src/ipc/handlers/permissions/interceptor.ts`,
+  `src/lib/blueprint/{grep-blueprint-reranker,blueprint-file-watcher}.ts`.)
+- **Inline chat no longer freezes after an error + model-switch continue.** A dying stream's late
+  `chat:response:error`/`end` (e.g. after 429s) crossed a queued continue on the same chat and wiped
+  the live turn's streaming state — the UI froze while tools kept running in the terminal panel.
+  Every lifecycle event now carries the leg's `streamId`, the `chat:stream` invoke returns it, and
+  the renderer drops events from superseded legs (plus owner-checked registry cleanup main-side).
+  (`src/ipc/handlers/chat_stream_handlers.ts`, `src/ipc/ipc_client.ts`.)
+- **edit_file self-heals across typographic punctuation.** Observed live: a curly-quoted markdown
+  file + a model emitting straight-ASCII `old_content` looped on "Content to replace not found."
+  New `unicode-punctuation` layer in the replace cascade (curly quotes/guillemets → `"`,
+  em/en-dash → `-`, ellipsis → `...`, NBSP → space, both sides normalized, original typography
+  preserved in the file). (`src/lib/tools/edit-match.ts`.)
+- **The sidebar "new window" button opens a fresh window with the workspace chooser** instead of
+  cloning the current workspace into a new window (new `window:open-blank` IPC; the old
+  per-workspace path remains for CLI/second-instance use). (`src/main/workspace_window_ipc.ts`,
+  `src/components/AppList.tsx`.)
+- **Model-driven commits now carry the Atlarix co-author trailer.** The commit guidance instructs
+  every model to end commit messages with `Co-authored-by: atlarix-agent <agent@atlarix.dev>`
+  (harness-made commits already did). (`src/lib/tools/mode-prompt-bundle.ts`.)
+- **End-of-turn timeline no longer regroups old tool cards under the final message.** The inline
+  timeline rebuild is now a persistence fallback only — it never overwrites an already-attached
+  timeline and scopes activity to the current turn. Sub-agent guidance also now steers long
+  delegations of ANY kind (read-only or writer) to `background:true` + park/auto-wake instead of
+  holding the turn open. (`src/hooks/useStreamChat.ts`, `src/lib/tools/spawn-task.ts`.)
+- **Headless tarball rebuilds automatically on every `v*` release tag** — the headless-bench
+  prerelease can no longer silently go stale (was a manual runbook step).
+  (`.github/workflows/headless.yml`.)
+- **Plan progress updates are now weak-model-proof.** Observed live (DeepSeek): `update_step` by
+  numeric index hit "Step not found… retry with a valid step_index" twice — index bookkeeping
+  drifts, and the bare error demanded a `plan(read)` round-trip only strong models think to do;
+  a weaker model stops marking steps, which then feeds the continue-until-done gate. Aligned with
+  Claude Code TodoWrite / Codex update_plan: **full-plan rewrite (`operation:'write'` with updated
+  `[x]`/`[~]` marks) is now the canonical progress update** (no addressing → cannot miss);
+  `update_step` is a convenience that prefers `step_text`, its not-found error now carries the
+  current checklist inline plus both recovery routes (one-shot self-correction), and when index +
+  text disagree the text wins (a drifted index can no longer silently mark the WRONG step).
+  Guidance re-steered everywhere it mentioned `step_index`. (`src/lib/tools/plan.ts`,
+  `src/lib/tasks/plan-checklist.ts`, `src/lib/tools/mode-prompt-bundle.ts`.)
+- **Dead Blueprint UI surface removed.** The June get_blueprint removal left the renderer-facing
+  plumbing behind with zero callers: 13 `blueprint:*` invoke channels + 3 event subscriptions in
+  `ipc_client`, 17 preload allowlist entries, the entire `registerBlueprintHandlers` (430 lines,
+  incl. `setBlueprintForWorkspace`/`invalidateBlueprintCache`), and 3 UI-only libs
+  (aiSimplifier, project-selector, reference-manager). The substrate is untouched —
+  `getBlueprintForWorkspace` + FTS5/ctags/ast-grep still power grep rerank, zero-hit suggestions,
+  and blast-radius, and its freshness now comes from the write-path upsert + session-bind watcher
+  (see the grep-staleness fix). (`src/ipc/handlers/blueprint_handlers.ts` 931→406 lines,
+  `src/ipc/ipc_client.ts`, `src/preload.ts`, `src/ipc/ipc_host.ts`.)
+- **Tool-result JSON fragments no longer leak into chat text.** A model echoing part of a plan tool
+  result (`","message":"Plan created."}`) slipped past the display sanitizer, which required a
+  leading `{`. Orphan result *tails* keyed by known result fields are now stripped; real prose
+  mentioning "message" is untouched. (`src/lib/chat/answer-display.ts`.)
+- **The continue-until-done gate no longer restarts finished work or hijacks Plan mode.** Observed
+  live (Qwen): the v14.8.9 plan-completeness nudge fired on a *freshly presented plan* in Plan mode
+  (whose steps are pending by construction — the model read "continue, do NOT end the turn" as
+  "proceed without the user" and started implementing), and on completion-wakes it re-listed steps the
+  model never marked done, driving it to **re-run already-finished background tasks**. Fixes: the gate
+  no longer attaches in Plan mode (the plan IS the deliverable); the nudge now says *mark
+  already-completed steps done — never redo work that already succeeded*; and a hard per-turn total
+  (12) bounds nudges even when productive rounds keep resetting the consecutive 6-cap (observed: 3+
+  full cycles in one turn). Background/sub-agent result bodies got the same completion-aware framing
+  ("if this completes the request, report and end your turn — never re-run finished work").
+  (`src/lib/tasks/plan-completion-gate.ts`, `src/lib/agent/run-agent-turn.ts`,
+  `src/ipc/handlers/chat_stream_handlers.ts`, `src/lib/agent/background-commands.ts`,
+  `src/lib/agents/subagent-results.ts`.)
+- **Background/sub-agent results are delivered reliably — no more polling.** A take-once ordering bug
+  drained the pending-results buffer during context assembly before the wake-turn decided how to
+  deliver them, so the un-skippable `collect_results` path silently never fired and results rode a weak
+  channel weak models ignore. The wake decision is now computed up front (single-consumer invariant),
+  and `background_jobs` no longer claims "delivered automatically" when it wasn't — it shows the real
+  finished output. (`src/ipc/handlers/chat_stream_handlers.ts`, `src/lib/agent/{background-commands,collect-results}.ts`, `src/lib/tools/background-jobs.ts`.)
+
+### Changed
+
+- **One permission gate — the "dangerous command" hard floor is gone.** Force-push / `reset --hard`
+  / `rm -rf` no longer hit a throw that demanded a confirmation the autonomous UI never showed (an
+  unsatisfiable loop). Every command now flows through the existing ask / allow-once / **always-allow**
+  / deny gate; "dangerous" is an amber badge, keyed per danger pattern so an "allow git" can never
+  silently permit `git push --force`, and a dangerous command is never auto-run until you allow it once
+  (revocable in Settings). (`src/lib/dangerous-commands.ts`, `src/ipc/handlers/command_permission_handlers.ts`, `permissions/{interceptor,handlers}.ts`, `InlinePermissionApprovals.tsx`, `WorkspaceTerminalPermissions.tsx`.)
+- **Reasoning scales to each model automatically.** Effort is now capability-derived from the model's
+  catalog channel: budget-capable models run base **high** / Deep-thinking **max** (token budget scaled
+  to the model's own max, reserving output so it never truncates); effort-only models (OpenAI) run
+  **medium** / **high**. No per-model hardcoding. (`src/ipc/utils/thinking_utils.ts`, `src/lib/routing/reasoning-detector.ts`.)
+- **Lighter UI under load.** The blueprint file-watcher is now ignore-filtered (node_modules/build
+  churn no longer drives reindex), and per-chat jotai selectors stop every message/tab re-rendering on
+  each stream tick. (`src/lib/blueprint/blueprint-file-watcher.ts`, `src/atoms/chatAtoms.ts` + consumers.)
+
+### Added
+
+- **`wake_on` monitor for long-running jobs.** `run_command({ wake_on: "compiled successfully" })` (or
+  `background_jobs({operation:"watch"})`) wakes the agent the moment a still-running job's output
+  matches — the 3-min idle ping and completion-wake remain as backstops. Prompt guidance also steers
+  the model to background a blocking watcher (e.g. `gh run watch`) for external state instead of
+  polling. (`src/lib/agent/background-commands.ts`, `src/lib/tools/{shell,background-jobs,schedule-wakeup}.ts`.)
+- **Background-job live view.** The running-tasks popover now expands each job to show its live output
+  tail with a stalled/matched badge, alongside cancel and send-to-chat — so you can watch a background
+  command and then discuss it. (`src/components/chat/BackgroundJobsIndicator.tsx`.)
+
 ## [14.8.9] (2026-07-02) — Open-weight harness hardening: task-state, edit fidelity, and a sharper agent
 
 > The first tagged release since 14.8.0 — it carries a run of harness work (14.8.5→14.8.9) focused on

@@ -153,17 +153,18 @@ import { trackPendingWork } from "@/lib/pending-work";
 import {
   takePendingBackgroundCommandResults,
   takePendingStalledAdvisories,
-  hasPendingBackgroundCommandResults,
   listBackgroundJobs,
   killForegroundCommandsForChat,
 } from "@/lib/agent/background-commands";
 import { cancelAllSubagentTasksForChat } from "@/lib/tools/spawn-task";
 import {
   takePendingSubagentResults,
-  hasPendingSubagentResults,
   runningSubagentCount,
 } from "@/lib/agents/subagent-results";
-import { collectPendingBackgroundResultsBody } from "@/lib/agent/collect-results";
+import {
+  collectPendingBackgroundResultsBody,
+  computeWakePendingResults,
+} from "@/lib/agent/collect-results";
 import {
   takePendingScheduledWakeupNudges,
   clearScheduledWakeupsForChat,
@@ -190,6 +191,7 @@ import {
   detectReasoningCapability,
   resolveReasoningCatalogModelId,
   hasNativeDeepThinkingSupport,
+  deriveReasoningCeiling,
 } from "@/lib/routing/reasoning-detector";
 import { enforceContextBudget } from "@/lib/routing/tier_context_budget";
 import { processStreamChunks } from "../utils/stream_chunk_tags";
@@ -211,6 +213,7 @@ import { getModeToolAllowSets } from "../../lib/tools/mode-tool-registry";
 import { toolExecutionChatMode } from "../../lib/work-mode";
 import {
   createAgenticRepetitionState,
+  buildLoopCorrectionMessage,
   type AgenticRepetitionOutcome,
   type AgenticRepetitionState,
 } from "../../lib/streaming/agentic-loop-repetition";
@@ -488,9 +491,14 @@ function enrichRunCommandPermissionRequest<T extends { operation: string; previe
     ...permRequest,
     preview: {
       ...preview,
+      // For a dangerous command this is the fine-grained `danger:<id>` key,
+      // which is both the always-allow persist key and the UI rule label.
       commandCategory: preflight.category,
       isDangerous: dangerous || preview.isDangerous,
-      canAlwaysAllow: preflight.type === "prompt" && !preflight.dangerous,
+      // Dangerous commands can now be always-allowed too (the badge is
+      // informational, not a blocker). Only a resolved auto_allow/deny (no
+      // longer "prompt") hides the button.
+      canAlwaysAllow: preflight.type === "prompt",
     },
   } as T;
 }
@@ -1561,14 +1569,16 @@ export function registerChatStreamHandlers() {
           if (e instanceof AuthRequiredError) {
             safeSend(event.sender, "chat:response:error", {
               chatId: req.chatId,
+              streamId,
               error: formatAuthRequiredIpcError(),
             });
             safeSend(event.sender, "chat:response:end", {
               chatId: req.chatId,
+              streamId,
               updatedFiles: false,
               hadToolCallsOrPermissions: false,
             } satisfies ChatResponseEnd);
-            activeStreams.delete(req.chatId);
+            if (activeStreamId.get(req.chatId) === streamId) activeStreams.delete(req.chatId);
             return;
           }
           throw e;
@@ -1582,27 +1592,31 @@ export function registerChatStreamHandlers() {
           if (e instanceof ChatPromptSafetyError) {
             safeSend(event.sender, "chat:response:error", {
               chatId: req.chatId,
+              streamId,
               error: `${AI_STREAMING_ERROR_MESSAGE_PREFIX}${SAFETY_FILTER_BLOCKED_MESSAGE}`,
             });
             safeSend(event.sender, "chat:response:end", {
               chatId: req.chatId,
+              streamId,
               updatedFiles: false,
               hadToolCallsOrPermissions: false,
             } satisfies ChatResponseEnd);
-            activeStreams.delete(req.chatId);
+            if (activeStreamId.get(req.chatId) === streamId) activeStreams.delete(req.chatId);
             return;
           }
           if (e instanceof Error && /maximum length|Invalid prompt/i.test(e.message)) {
             safeSend(event.sender, "chat:response:error", {
               chatId: req.chatId,
+              streamId,
               error: `${AI_STREAMING_ERROR_MESSAGE_PREFIX}${e.message}`,
             });
             safeSend(event.sender, "chat:response:end", {
               chatId: req.chatId,
+              streamId,
               updatedFiles: false,
               hadToolCallsOrPermissions: false,
             } satisfies ChatResponseEnd);
-            activeStreams.delete(req.chatId);
+            if (activeStreamId.get(req.chatId) === streamId) activeStreams.delete(req.chatId);
             return;
           }
           throw e;
@@ -1626,10 +1640,12 @@ export function registerChatStreamHandlers() {
           logger.warn(`Chat ${req.chatId} rejected: legacy positive chat id`);
           safeSend(event.sender, "chat:response:error", {
             chatId: req.chatId,
+            streamId,
             error: `${AI_STREAMING_ERROR_MESSAGE_PREFIX}${legacyMsg}`,
           });
           safeSend(event.sender, "chat:response:end", {
             chatId: req.chatId,
+            streamId,
             updatedFiles: false,
             hadToolCallsOrPermissions: false,
           } satisfies ChatResponseEnd);
@@ -1649,10 +1665,12 @@ export function registerChatStreamHandlers() {
             logger.warn(`Chat ${req.chatId} rejected: ephemeral chat without workspace`);
             safeSend(event.sender, "chat:response:error", {
               chatId: req.chatId,
+              streamId,
               error: `${AI_STREAMING_ERROR_MESSAGE_PREFIX}${noWorkspaceMsg}`,
             });
             safeSend(event.sender, "chat:response:end", {
               chatId: req.chatId,
+              streamId,
               updatedFiles: false,
               hadToolCallsOrPermissions: false,
             } satisfies ChatResponseEnd);
@@ -2095,6 +2113,7 @@ ${componentSnippet}
       // Send the messages right away so that the loading state is shown for the message.
       safeSend(event.sender, "chat:response:chunk", {
         chatId: req.chatId,
+        streamId,
         messages: updatedChat.messages,
       });
 
@@ -2225,6 +2244,7 @@ ${componentSnippet}
           );
           safeSend(event.sender, "chat:response:error", {
             chatId: req.chatId,
+            streamId,
             error: `${AI_STREAMING_ERROR_MESSAGE_PREFIX}${compassExhaustedUserMessage(compassStreamTier ?? "free")}`,
           });
           abortController.abort(streamStopAbortReason(COMPASS_LIMIT_STREAM_STOP));
@@ -2265,9 +2285,10 @@ ${componentSnippet}
           ) {
             safeSend(event.sender, "chat:response:error", {
               chatId: req.chatId,
+              streamId,
               error: `${AI_STREAMING_ERROR_MESSAGE_PREFIX}${compassExhaustedUserMessage(usagePre.tier)}`,
             });
-            activeStreams.delete(req.chatId);
+            if (activeStreamId.get(req.chatId) === streamId) activeStreams.delete(req.chatId);
             return;
           }
         }
@@ -2300,6 +2321,14 @@ ${componentSnippet}
         logger.log(
           `Using workspace for chat ${req.chatId}: ${appPath || "(none)"} (appId: ${effectiveAppId ?? req.appId ?? "n/a"})`,
         );
+        // v14.8.10 Fix G: keep the incremental blueprint/FTS5 refresh alive for
+        // ordinary agent sessions (previously only registered when the
+        // Blueprint panel was opened). Idempotent; ignore-filtered; cheap.
+        if (hasWorkspace && appPath) {
+          void import("@/lib/blueprint/blueprint-file-watcher")
+            .then((m) => m.ensureBlueprintFileWatcher(appPath, effectiveAppId ?? null))
+            .catch(() => {});
+        }
         if (hasWorkspace && appPath && !fs.existsSync(appPath)) {
           logger.warn(`Workspace path does not exist on disk: ${appPath}`);
           safeSend(event.sender, "chat:activity", {
@@ -2814,9 +2843,30 @@ ${componentSnippet}
             }
           };
 
+          // R2 single-consumer invariant: decide the delivery channel ONCE, up
+          // front — BEFORE any take-once drain. On a wake turn (auto-resume with
+          // finished background/sub-agent work OR a stall advisory) the results
+          // are delivered by the FORCED `collect_results` tool (a channel a weak
+          // model cannot skip); so the context loaders and the prepareStep
+          // injection must NOT drain them (that would leave collect_results empty
+          // and route the result to the weak context section instead — the bug
+          // this fixes). `computeWakePendingResults` is strictly non-destructive.
+          const wakeHasPendingResults = computeWakePendingResults(
+            req.chatId,
+            req.continueAfterQuestions === true,
+          );
+          // BUT a forced/object tool_choice is INCOMPATIBLE with extended-thinking
+          // mode on several providers (Alibaba/Qwen 400 "tool_choice ... not
+          // supported ... in thinking mode"; Anthropic likewise only allows
+          // auto/none while thinking). So when reasoning is active we do NOT force
+          // the tool — we deliver the same results via the prepareStep injection
+          // (the mid-turn path). Thinking-capable models reliably consume that.
+          const forceCollectOnWake = wakeHasPendingResults && !enableNativeReasoning;
+
           // v13 7A: background command results that finished AFTER the
           // previous turn ended — drain them into this turn's context.
           const loadBackgroundResultsSection = (): ContextSection | null => {
+            if (wakeHasPendingResults) return null; // collect_results is the drain
             const pending = takePendingBackgroundCommandResults(req.chatId);
             if (!pending) return null;
             return {
@@ -2829,6 +2879,7 @@ ${componentSnippet}
           // Background sub-agent results that finished after the previous turn
           // ended — drain them into this turn's context the same way.
           const loadSubagentResultsSection = (): ContextSection | null => {
+            if (wakeHasPendingResults) return null; // collect_results is the drain
             const pending = takePendingSubagentResults(req.chatId);
             if (!pending) return null;
             return {
@@ -3765,6 +3816,14 @@ This conversation includes one or more image attachments. When the user uploads 
               : "balanced";
             const optionsModel = getEffectiveModelForOptions(settings);
             const thinkingTier = enableNativeReasoning;
+            // Resolve the max output tokens ONCE — reused to scale the reasoning
+            // budget (below) AND as streamText's maxOutputTokens (~line 3953),
+            // avoiding a duplicate catalog lookup.
+            const maxOutputTokens = await preflight.time("max-tokens", () =>
+              getMaxTokensWithFloor(optionsModel, {
+                reasoningCapable: enableNativeReasoning,
+              }),
+            );
             const providerOptions: Record<string, any> = {
               "dyad-engine": {
                 dyadAppId: effectiveAppId ?? updatedChat.app?.id,
@@ -3778,6 +3837,7 @@ This conversation includes one or more image attachments. When the user uploads 
                 modelClient.builtinProviderId,
                 settings,
                 thinkingTier,
+                maxOutputTokens,
               ),
             };
 
@@ -3821,7 +3881,14 @@ This conversation includes one or more image attachments. When the user uploads 
               const reasoningPatch = buildReasoningProviderOptions(
                 cap,
                 true,
-                getReasoningEffort(settings),
+                getReasoningEffort(
+                  settings,
+                  deriveReasoningCeiling(
+                    effectiveModel,
+                    modelClient.builtinProviderId,
+                  ),
+                ),
+                maxOutputTokens,
               );
               if (reasoningPatch.openrouter) {
                 providerOptions.openrouter = {
@@ -3902,19 +3969,14 @@ This conversation includes one or more image attachments. When the user uploads 
             }
 
             // R2: on an auto-wake continuation turn that has finished background /
-            // sub-agent results waiting, deliver them as a REAL tool-result
-            // (persisted via native history) rather than a transient user
-            // injection — by adding an internal `collect_results` tool and
-            // FORCING the model's first step to call it (see prepareStep). A
-            // forced tool call is a harness guarantee a weak model can't skip,
-            // and the result rides the existing native-history channel.
-            // Computed per round: once the results are drained (round 1), this is
-            // false again, so it naturally scopes to the first round of the turn.
-            const wakeHasPendingResults =
-              req.continueAfterQuestions === true &&
-              (hasPendingBackgroundCommandResults(req.chatId) ||
-                hasPendingSubagentResults(req.chatId));
-            if (wakeHasPendingResults) {
+            // sub-agent results (or a stall advisory) waiting, deliver them as a
+            // REAL tool-result (persisted via native history) by adding an
+            // internal `collect_results` tool and FORCING the first step to call
+            // it — a harness guarantee a weak model can't skip. Gated on
+            // `forceCollectOnWake` (NOT `wakeHasPendingResults`): in thinking mode
+            // a forced tool_choice is provider-rejected, so we skip the forced
+            // tool and let the prepareStep injection deliver instead.
+            if (forceCollectOnWake) {
               effectiveTools = {
                 ...effectiveTools,
                 collect_results: {
@@ -3930,11 +3992,8 @@ This conversation includes one or more image attachments. When the user uploads 
               };
             }
 
-            const maxOutputTokens = await preflight.time("max-tokens", () =>
-              getMaxTokensWithFloor(optionsModel, {
-                reasoningCapable: enableNativeReasoning,
-              }),
-            );
+            // maxOutputTokens is resolved earlier (hoisted for reasoning-budget
+            // scaling) — reused here.
             const temperature = await preflight.time("temperature", () =>
               getTemperature(optionsModel),
             );
@@ -4034,23 +4093,25 @@ This conversation includes one or more image attachments. When the user uploads 
               prepareStep: ({ messages, stepNumber }) => {
                 // v13 7A: finished background-command results land on the very
                 // next step (same step-input-only contract as corrections).
-                // R2: on a wake turn the finished bg/sub-agent results are
-                // delivered as a FORCED `collect_results` tool-call (a real,
-                // persisted tool-result) — so do NOT also drain them into a
-                // transient user-injection here (would double-consume / leave
-                // collect_results empty). The live mid-turn path (not a wake
-                // turn) still injects them here as before.
-                const bgResults = wakeHasPendingResults
+                // R2: when the wake turn uses the FORCED collect_results tool
+                // (forceCollectOnWake), do NOT also drain here (would
+                // double-consume / leave collect_results empty). Otherwise — the
+                // live mid-turn path AND thinking-mode wake turns (where the
+                // forced tool is provider-rejected) — the results are delivered
+                // HERE via injection.
+                const bgResults = forceCollectOnWake
                   ? null
                   : takePendingBackgroundCommandResults(req.chatId);
                 // Finished background sub-agent results fold in the same way —
                 // each one as it arrives, even one at a time.
-                const subagentResults = wakeHasPendingResults
+                const subagentResults = forceCollectOnWake
                   ? null
                   : takePendingSubagentResults(req.chatId);
                 // A4: stall advisories for still-running quiet jobs (decide:
                 // keep waiting / read / cancel) — same step-input-only seam.
-                const stalledAdvisories = takePendingStalledAdvisories(req.chatId);
+                const stalledAdvisories = forceCollectOnWake
+                  ? null
+                  : takePendingStalledAdvisories(req.chatId);
                 const correction = repetition
                   ? repetition.takePendingCorrection()
                   : null;
@@ -4118,7 +4179,7 @@ This conversation includes one or more image attachments. When the user uploads 
                 // (persisted) tool-result. A forced toolChoice is a hard harness
                 // constraint — a weak model cannot skip it. Subsequent steps run
                 // free (the model then acts on the collected results).
-                const forceCollect = wakeHasPendingResults && stepNumber === 0;
+                const forceCollect = forceCollectOnWake && stepNumber === 0;
                 const base =
                   cacheMarkerPlacement !== "none" && (stepNumber > 0 || injected)
                     ? {
@@ -4351,10 +4412,11 @@ This conversation includes one or more image attachments. When the user uploads 
                 // synthetic/destroyed sender (background agents). Wrapped.
                 safeSend(event.sender, "chat:response:error", {
                   chatId: req.chatId,
+                  streamId,
                   error: `${AI_STREAMING_ERROR_MESSAGE_PREFIX}${requestIdPrefix}${message}`,
                 });
                 // Clean up the abort controller
-                activeStreams.delete(req.chatId);
+                if (activeStreamId.get(req.chatId) === streamId) activeStreams.delete(req.chatId);
               },
               abortSignal: abortSignalOverride ?? abortController.signal,
             });
@@ -4661,6 +4723,7 @@ This conversation includes one or more image attachments. When the user uploads 
             // Update the assistant message in the database
             safeSend(event.sender, "chat:response:chunk", {
               chatId: req.chatId,
+              streamId,
               messages: currentMessages,
             });
             return fullResponse;
@@ -4724,8 +4787,10 @@ This conversation includes one or more image attachments. When the user uploads 
             const handleAskAgenticRepetitionOutcome = (
               o: AgenticRepetitionOutcome,
             ) => {
-              if (o.kind === "none") return;
-              // Doom loop (3 consecutive byte-identical calls) — wrap up.
+              // Fix R: corrections short-circuit in the execute wrapper; only
+              // the escalated backstop aborts here.
+              if (o.kind !== "loop_abort") return;
+              // Doom loop (9 consecutive byte-identical calls, corrections ignored) — wrap up.
               safeSend(event.sender, "chat:activity", {
                 id: `loop-abort-${Date.now()}`,
                 type: "loop_repetition_aborted",
@@ -4808,11 +4873,6 @@ This conversation includes one or more image attachments. When the user uploads 
                   args: any,
                   { toolCallId }: { toolCallId: string },
                 ) => {
-                  if (askAgenticRepetition.isEnabled()) {
-                    handleAskAgenticRepetitionOutcome(
-                      askAgenticRepetition.record(tool.name, args),
-                    );
-                  }
                   const askIsStream = tool.name === "stream_terminal_output";
                   // Per-invocation id (Fix 2) — see the build wrapper.
                   const toolActivityId = toolCallId;
@@ -4840,6 +4900,28 @@ This conversation includes one or more image attachments. When the user uploads 
                     });
                   }
                   try {
+                    // v14.8.10 Fix R: staged repetition guard (see build wrapper).
+                    if (askAgenticRepetition.isEnabled()) {
+                      const rep = askAgenticRepetition.record(tool.name, args);
+                      if (rep.kind === "loop_correct") {
+                        const guidance = JSON.stringify({
+                          success: false,
+                          loop_guidance: buildLoopCorrectionMessage(rep),
+                        });
+                        toolResultForActivity = guidance;
+                        return guidance;
+                      }
+                      if (rep.kind === "loop_abort") {
+                        handleAskAgenticRepetitionOutcome(rep);
+                        const stopMsg = JSON.stringify({
+                          success: false,
+                          error:
+                            "Repeated the same call identically despite corrections — wrapping up.",
+                        });
+                        toolResultForActivity = stopMsg;
+                        return stopMsg;
+                      }
+                    }
                     const meta = ToolRegistry.get(tool.name);
                     const liveWorkMode: WorkMode =
                       readSettings().workModePreference ?? effectiveWorkMode;
@@ -5484,8 +5566,10 @@ This conversation includes one or more image attachments. When the user uploads 
 
             const agenticRepetition = createAgenticRepetitionState();
             const handleAgenticRepetitionOutcome = (o: AgenticRepetitionOutcome) => {
-              if (o.kind === "none") return;
-              // Doom loop (3 consecutive byte-identical calls) — wrap up.
+              // Fix R: corrections are handled in the execute wrapper (synthetic
+              // tool result, no abort). Only the escalated backstop aborts here.
+              if (o.kind !== "loop_abort") return;
+              // Doom loop (9 consecutive byte-identical calls, corrections ignored) — wrap up.
               safeSend(event.sender, "chat:activity", {
                 id: `loop-abort-${Date.now()}`,
                 type: "loop_repetition_aborted",
@@ -5584,6 +5668,44 @@ This conversation includes one or more image attachments. When the user uploads 
                     toolArgs: args,
                   });
                   try {
+                    // v14.8.10 Fix R: staged repetition guard, checked BEFORE
+                    // execution with the FULL byte-identical args (the old
+                    // post-execution permission-path record keyed edit_file by
+                    // {path} only, so 3 consecutive different edits to one file
+                    // tripped the doom loop). A repeated call is answered with
+                    // corrective guidance INSTEAD of being executed; only the
+                    // 9th identical call fires the FORCE_TEXT_FINISH backstop.
+                    if (agenticRepetition.isEnabled()) {
+                      const rep = agenticRepetition.record(toolName, args);
+                      if (rep.kind === "loop_correct") {
+                        safeSend(event.sender, "chat:activity", {
+                          id: `loop-correct-${toolCallId}`,
+                          type: "loop_detected",
+                          label: "Nudged — repeated action",
+                          detail: `Same ${toolName} call repeated ${rep.count}× — steered instead of executed.`,
+                          status: "done",
+                          timestamp: Date.now(),
+                          chatId: req.chatId,
+                          toolName,
+                        });
+                        const guidance = JSON.stringify({
+                          success: false,
+                          loop_guidance: buildLoopCorrectionMessage(rep),
+                        });
+                        toolResultForActivity = guidance;
+                        return guidance;
+                      }
+                      if (rep.kind === "loop_abort") {
+                        handleAgenticRepetitionOutcome(rep);
+                        const stopMsg = JSON.stringify({
+                          success: false,
+                          error:
+                            "Repeated the same call identically despite corrections — wrapping up.",
+                        });
+                        toolResultForActivity = stopMsg;
+                        return stopMsg;
+                      }
+                    }
                     // A per-turn workModeOverride (resend/edit, background
                     // agents) wins over the live persisted preference; only
                     // fall back to the live re-read (mid-turn picker change)
@@ -5841,21 +5963,11 @@ This conversation includes one or more image attachments. When the user uploads 
                             clearUnverifiedEdit(streamTurnId, execResult.path);
                           }
                         }
-                        if (
-                          agenticRepetition.isEnabled() &&
-                          (permRequest.operation === "write_file" ||
-                            permRequest.operation === "edit_file" ||
-                            permRequest.operation === "run_command")
-                        ) {
-                          const pv = permRequest.preview as { path?: string; command?: string };
-                          const permArgs =
-                            permRequest.operation === "run_command"
-                              ? { command: pv.command ?? "" }
-                              : { path: pv.path ?? "" };
-                          handleAgenticRepetitionOutcome(
-                            agenticRepetition.record(permRequest.operation, permArgs),
-                          );
-                        }
+                        // v14.8.10 Fix R: the permission-path repetition record
+                        // moved to the execute-wrapper top (full byte-identical
+                        // args). The old record here keyed edit_file/write_file
+                        // by {path} ONLY — 3 consecutive DIFFERENT edits to one
+                        // file read as a doom loop (observed live force-finish).
                         recordBuildToolLedger(permRequest.operation, {
                           path: (permRequest.preview as { path?: string }).path,
                           success: true,
@@ -6073,12 +6185,8 @@ This conversation includes one or more image attachments. When the user uploads 
                     }
                   }
 
-                    // Not a permission request - return result directly
-                    if (!isStreamTool) {
-                    }
-                    if (agenticRepetition.isEnabled()) {
-                      handleAgenticRepetitionOutcome(agenticRepetition.record(toolName, args));
-                    }
+                    // Not a permission request - return result directly.
+                    // (Repetition is recorded once at the wrapper top — Fix R.)
                     recordBuildToolLedger(toolName, result);
                     // v12 0.2: display copy never carries base64 (cards show a
                     // size placeholder instead of megabytes of image data).
@@ -6337,25 +6445,40 @@ This conversation includes one or more image attachments. When the user uploads 
                   logger.log(`[Agentic Loop] Executed ${textToolCalls.length} read-only tools in parallel`);
                 }
 
-                const recordAgenticTextToolRepetitionIfTracked = (
-                  name: string,
-                  args: Record<string, unknown>,
-                  resultStr: string,
-                ) => {
-                  if (!agenticRepetition.isEnabled()) return;
-                  if (name !== "write_file" && name !== "edit_file" && name !== "run_command") return;
-                  if (resultStr.startsWith("Error:")) return;
-                  try {
-                    const j = JSON.parse(resultStr) as { success?: boolean };
-                    if (j.success === false) return;
-                  } catch {
-                    /* non-JSON: still allow repetition tracking */
-                  }
-                  handleAgenticRepetitionOutcome(agenticRepetition.record(name, args));
-                };
-
                 for (let i = 0; i < textToolCalls.length; i++) {
                   const toolCall = textToolCalls[i];
+                  // v14.8.10 Fix R: staged repetition guard, pre-execution (see
+                  // the native build wrapper). Replaces the old success-only
+                  // post-execution record — identical FAILING retries are the
+                  // loop we most need to steer.
+                  if (agenticRepetition.isEnabled()) {
+                    const rep = agenticRepetition.record(
+                      toolCall.toolName,
+                      toolCall.args,
+                    );
+                    if (rep.kind === "loop_correct") {
+                      iterationResults.push({
+                        tool: toolCall.toolName,
+                        result: JSON.stringify({
+                          success: false,
+                          loop_guidance: buildLoopCorrectionMessage(rep),
+                        }),
+                      });
+                      continue;
+                    }
+                    if (rep.kind === "loop_abort") {
+                      handleAgenticRepetitionOutcome(rep);
+                      iterationResults.push({
+                        tool: toolCall.toolName,
+                        result: JSON.stringify({
+                          success: false,
+                          error:
+                            "Repeated the same call identically despite corrections — wrapping up.",
+                        }),
+                      });
+                      continue;
+                    }
+                  }
                   if (!toolCallsToProcess) {
                     safeSend(event.sender, "chat:tool:start", {
                       chatId: req.chatId,
@@ -6524,11 +6647,6 @@ This conversation includes one or more image attachments. When the user uploads 
                                 tool: toolCall.toolName,
                                 result: okPermResult,
                               });
-                              recordAgenticTextToolRepetitionIfTracked(
-                                toolCall.toolName,
-                                toolCall.args as Record<string, unknown>,
-                                okPermResult,
-                              );
                             } else if (execResult.exitCode !== undefined) {
                               iterationResults.push({
                                 tool: toolCall.toolName,
@@ -6590,11 +6708,6 @@ This conversation includes one or more image attachments. When the user uploads 
                                 tool: toolCall.toolName,
                                 result: okPermResult2,
                               });
-                              recordAgenticTextToolRepetitionIfTracked(
-                                toolCall.toolName,
-                                toolCall.args as Record<string, unknown>,
-                                okPermResult2,
-                              );
                             } else {
                               const execResult = permissionInterceptor.getExecutionResult(operationId);
                               if (execResult.exitCode !== undefined) {
@@ -6634,11 +6747,6 @@ This conversation includes one or more image attachments. When the user uploads 
                     } else {
                       const resultStr = typeof toolResult === "string" ? toolResult : JSON.stringify(toolResult);
                       iterationResults.push({ tool: toolCall.toolName, result: resultStr });
-                      recordAgenticTextToolRepetitionIfTracked(
-                        toolCall.toolName,
-                        toolCall.args as Record<string, unknown>,
-                        resultStr,
-                      );
                       logger.log(`[Agentic Loop] Tool executed: ${toolCall.toolName} ✓`);
                     }
                   } catch (toolError) {
@@ -6692,8 +6800,17 @@ This conversation includes one or more image attachments. When the user uploads 
                       : {}),
                     // v14.8.9 continue-until-done: drive an active session plan to
                     // completion (self-gates on plan existence + pending steps).
-                    planCompletionGate: () =>
-                      getPlanCompletionFeedback(req.workspaceSessionId),
+                    // NOT in plan mode: there the plan itself is the deliverable —
+                    // a fresh plan's steps are pending by construction and the mode
+                    // has no build tools, so the nudge reads as "proceed without
+                    // the user" (observed: model started implementing right after
+                    // presenting the plan).
+                    ...(effectiveWorkMode !== "plan"
+                      ? {
+                          planCompletionGate: () =>
+                            getPlanCompletionFeedback(req.workspaceSessionId),
+                        }
+                      : {}),
                   },
                   {
                     chatId: req.chatId,
@@ -7058,6 +7175,7 @@ ${stopNote}`;
             }
             safeSend(event.sender, "chat:response:end", {
               chatId: req.chatId,
+              streamId,
               updatedFiles: false,
               hadToolCallsOrPermissions,
               usedCompass: usedCompassThisStream,
@@ -7122,7 +7240,7 @@ ${stopNote}`;
               isEphemeralWorkspace,
               aborted: abortController.signal.aborted,
             });
-            activeStreams.delete(req.chatId);
+            if (activeStreamId.get(req.chatId) === streamId) activeStreams.delete(req.chatId);
             // Issue 4: turn completed cleanly — drop the interrupted draft so the
             // renderer's authoritative finished message is the only copy. v14.7 bug 7:
             // AWAIT it so the draft is gone before the handler returns — otherwise a
@@ -7189,6 +7307,7 @@ ${stopNote}`;
               }
               safeSend(event.sender, "chat:response:chunk", {
                 chatId: req.chatId,
+                streamId,
                 messages: [...chat.messages],
               });
             }
@@ -7198,10 +7317,11 @@ ${stopNote}`;
           partialResponses.delete(req.chatId);
           safeSend(event.sender, "chat:response:end", {
             chatId: req.chatId,
+            streamId,
             updatedFiles: false,
             hadToolCallsOrPermissions: true,
           } satisfies ChatResponseEnd);
-          activeStreams.delete(req.chatId);
+          if (activeStreamId.get(req.chatId) === streamId) activeStreams.delete(req.chatId);
           streamTerminated = true;
           FileUploadsState.getInstance().clear(req.chatId);
           return;
@@ -7217,7 +7337,7 @@ ${stopNote}`;
             reason: "network",
             canResume: true,
           });
-          activeStreams.delete(req.chatId);
+          if (activeStreamId.get(req.chatId) === streamId) activeStreams.delete(req.chatId);
           streamTerminated = true;
           FileUploadsState.getInstance().clear(req.chatId);
           return;
@@ -7225,14 +7345,16 @@ ${stopNote}`;
         if (error instanceof EmptyModelOutputAfterRetryError) {
           safeSend(event.sender, "chat:response:error", {
             chatId: req.chatId,
+            streamId,
             error: MODEL_EMPTY_RESPONSE_USER_MESSAGE,
           });
           safeSend(event.sender, "chat:response:end", {
             chatId: req.chatId,
+            streamId,
             updatedFiles: false,
             hadToolCallsOrPermissions: false,
           } satisfies ChatResponseEnd);
-          activeStreams.delete(req.chatId);
+          if (activeStreamId.get(req.chatId) === streamId) activeStreams.delete(req.chatId);
           FileUploadsState.getInstance().clear(req.chatId);
           return;
         }
@@ -7242,14 +7364,16 @@ ${stopNote}`;
         ) {
           safeSend(event.sender, "chat:response:error", {
             chatId: req.chatId,
+            streamId,
             error: "Connection interrupted. Please try again.",
           });
           safeSend(event.sender, "chat:response:end", {
             chatId: req.chatId,
+            streamId,
             updatedFiles: false,
             hadToolCallsOrPermissions: false,
           } satisfies ChatResponseEnd);
-          activeStreams.delete(req.chatId);
+          if (activeStreamId.get(req.chatId) === streamId) activeStreams.delete(req.chatId);
           streamTerminated = true;
           FileUploadsState.getInstance().clear(req.chatId);
           return;
@@ -7257,14 +7381,16 @@ ${stopNote}`;
         if (error instanceof ChatPromptSafetyError) {
           safeSend(event.sender, "chat:response:error", {
             chatId: req.chatId,
+            streamId,
             error: `${AI_STREAMING_ERROR_MESSAGE_PREFIX}${SAFETY_FILTER_BLOCKED_MESSAGE}`,
           });
           safeSend(event.sender, "chat:response:end", {
             chatId: req.chatId,
+            streamId,
             updatedFiles: false,
             hadToolCallsOrPermissions: false,
           } satisfies ChatResponseEnd);
-          activeStreams.delete(req.chatId);
+          if (activeStreamId.get(req.chatId) === streamId) activeStreams.delete(req.chatId);
           streamTerminated = true;
           FileUploadsState.getInstance().clear(req.chatId);
           return;
@@ -7310,14 +7436,16 @@ ${stopNote}`;
             }
             safeSend(event.sender, "chat:response:error", {
               chatId: req.chatId,
+              streamId,
               error: `${AI_STREAMING_ERROR_MESSAGE_PREFIX}${error instanceof Error ? error.message : String(error)}`,
             });
             safeSend(event.sender, "chat:response:end", {
               chatId: req.chatId,
+              streamId,
               updatedFiles: false,
               hadToolCallsOrPermissions: false,
             } satisfies ChatResponseEnd);
-            activeStreams.delete(req.chatId);
+            if (activeStreamId.get(req.chatId) === streamId) activeStreams.delete(req.chatId);
             streamTerminated = true;
             FileUploadsState.getInstance().clear(req.chatId);
             return;
@@ -7330,14 +7458,16 @@ ${stopNote}`;
             );
         safeSend(event.sender, "chat:response:error", {
           chatId: req.chatId,
+          streamId,
           error: errMessage,
         });
         safeSend(event.sender, "chat:response:end", {
           chatId: req.chatId,
+          streamId,
           updatedFiles: false,
           hadToolCallsOrPermissions: false,
         } satisfies ChatResponseEnd);
-        activeStreams.delete(req.chatId);
+        if (activeStreamId.get(req.chatId) === streamId) activeStreams.delete(req.chatId);
         streamTerminated = true;
         FileUploadsState.getInstance().clear(req.chatId);
       } finally {
@@ -7363,7 +7493,10 @@ ${stopNote}`;
         activeStreamRuns.delete(req.chatId);
       }
     });
-    return undefined; // Reply immediately so renderer does not get "reply was never sent"
+    // Reply immediately so renderer does not get "reply was never sent".
+    // v14.8.10 Fix S: return this leg's streamId so the renderer can drop
+    // lifecycle events from a superseded (older) leg on the same chatId.
+    return { streamId };
   };
 
   ipcMain.handle("chat:stream", chatStreamHandler);

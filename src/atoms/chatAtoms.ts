@@ -5,6 +5,7 @@ import type {
   PlanUpdatePayload,
 } from "@/ipc/ipc_types";
 import { atom } from "jotai";
+import { atomFamily, selectAtom } from "jotai/utils";
 import type { CompletedTurnThinkingSnapshot } from "@/lib/thinking/extract-thinking-from-content";
 import type { InlineTimelineItem } from "@/lib/chat/inline-timeline";
 import type { SourceItem } from "@/atoms/sourceAtoms";
@@ -168,6 +169,30 @@ export const streamThreadByChatIdAtom = atom<Map<number, StreamThreadItem[]>>(
 export const completedStreamThreadByAssistantMessageIdAtom = atom<
   Record<number, StreamThreadItem[]>
 >({});
+
+// ── Per-chat SCOPED selectors (perf) ─────────────────────────────────────────
+// The maps above are replaced (immutably) on every ~50ms stream flush, so any
+// component reading a whole map re-renders on ANY chat's change. These
+// atomFamily + selectAtom views let a component subscribe to just ONE chat's
+// slice: selectAtom re-renders the consumer only when that slice's reference
+// changes (Object.is). Because the writers clone the Map but keep sibling array
+// references stable, a stream in chat A no longer re-renders chat B's consumers
+// (or completed message bodies that read a different slice). READ-ONLY views —
+// keep writing through the whole-map atoms.
+const EMPTY_MESSAGES: Message[] = [];
+const EMPTY_THREAD: StreamThreadItem[] = [];
+
+export const messagesForChatAtom = atomFamily((chatId: number) =>
+  selectAtom(chatMessagesByIdAtom, (m) => m.get(chatId) ?? EMPTY_MESSAGES),
+);
+
+export const isStreamingForChatAtom = atomFamily((chatId: number) =>
+  selectAtom(isStreamingByIdAtom, (m) => m.get(chatId) ?? false),
+);
+
+export const streamThreadForChatAtom = atomFamily((chatId: number) =>
+  selectAtom(streamThreadByChatIdAtom, (m) => m.get(chatId) ?? EMPTY_THREAD),
+);
 
 /** Web search sources scoped to an assistant message (inline citations + reload). */
 export const sourcesByAssistantMessageIdAtom = atom<

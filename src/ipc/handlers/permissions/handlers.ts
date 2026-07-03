@@ -13,7 +13,8 @@ import {
     type FileOperationPreview,
 } from "@/lib/tools/permissions/schema";
 import type { CommandPermissionDecision } from "@/lib/terminal-command-category";
-import { getCommandCategory, isDangerousCategory } from "@/lib/terminal-command-category";
+import { getCommandCategory } from "@/lib/terminal-command-category";
+import { isDangerousCommand, dangerLabelKey } from "@/lib/dangerous-commands";
 import { upsertWorkspaceCommandPermission } from "@/lib/command-permissions-store";
 import { upsertWorkspaceFilePermission } from "@/lib/file-permissions-store";
 import {
@@ -221,14 +222,12 @@ ipcMain.handle(
             operationId,
             approvalMode = "once",
             appId,
-            dangerAcknowledged,
             overrideContent,
         }: {
             chatId: number;
             operationId: string;
             approvalMode?: PermissionApprovalMode;
             appId?: number | null;
-            dangerAcknowledged?: boolean;
             /** v10 per-hunk approval: composed partial content to write instead of the full proposal. */
             overrideContent?: string;
         },
@@ -261,11 +260,20 @@ ipcMain.handle(
             request?.operation === "run_command"
         ) {
             const preview = request.preview as { command?: string };
-            const category = getCommandCategory(preview?.command ?? "");
-            if (category && !isDangerousCategory(category)) {
+            const command = preview?.command ?? "";
+            // Dangerous commands persist under their fine-grained `danger:<id>`
+            // key (so this allow can't be satisfied by a coarse first-token
+            // allow, and vice-versa); everything else persists by first-token
+            // category. Dangerous commands are now always-allowable — the safety
+            // guarantee lives in resolveRunCommandPermissionGate (never silently
+            // auto-approved until such a rule exists).
+            const key = isDangerousCommand(command)
+                ? dangerLabelKey(command)
+                : getCommandCategory(command);
+            if (key) {
                 upsertWorkspaceCommandPermission(
                     appId,
-                    category,
+                    key,
                     "always_allow" as CommandPermissionDecision,
                 );
             }
@@ -294,7 +302,6 @@ ipcMain.handle(
         // v14.7: executeOperation resolves the (now blocking) waitForApproval
         // directly — the turn continues in-loop with the result.
         return await interceptor.executeOperation(operationId, {
-            dangerAcknowledged: dangerAcknowledged === true,
             overrideContent,
         });
     },

@@ -12,8 +12,17 @@ import {
   setBackgroundJobNotifier,
   takePendingStalledAdvisories,
   hasPendingStalledAdvisories,
+  hasPendingBackgroundCommandResults,
+  getFinishedBackgroundResult,
+  setWakeCondition,
   killAllBackgroundJobs,
 } from "@/lib/agent/background-commands";
+import {
+  recordSubagentStart,
+  recordSubagentResult,
+  takePendingSubagentResults,
+} from "@/lib/agents/subagent-results";
+import { computeWakePendingResults } from "@/lib/agent/collect-results";
 
 describe("background-commands (v13 7A / v14 jobs)", () => {
   it("records, drains take-once, and tracks running state", () => {
@@ -37,7 +46,7 @@ describe("background-commands (v13 7A / v14 jobs)", () => {
     expect(block).toContain("succeeded");
     // imperative framing (open-weight robustness): a finished job must direct
     // the model to act, not read as ambient info.
-    expect(block).toContain("must handle");
+    expect(block).toContain("never restart or re-run work");
     // take-once
     expect(takePendingBackgroundCommandResults(chatId)).toBeNull();
   });
@@ -78,6 +87,67 @@ describe("background-commands (v13 7A / v14 jobs)", () => {
     const block = takePendingBackgroundCommandResults(chatId)!;
     expect(block).toContain("failed (exit 2)");
     expect(block.length).toBeLessThan(10_000);
+    clearBackgroundCommandsForChat(chatId);
+  });
+
+  it("getFinishedBackgroundResult peeks non-destructively, then null after drain", () => {
+    const chatId = 9004;
+    recordBackgroundCommandStart(chatId, "op-peek", "npm test", Date.now());
+    recordBackgroundCommandResult(chatId, "op-peek", {
+      command: "npm test",
+      exitCode: 1,
+      output: "2 failed",
+      durationMs: 3_000,
+    });
+    // Peek carries the op id + real status/output, and does NOT consume it.
+    const peek = getFinishedBackgroundResult(chatId, "op-peek");
+    expect(peek?.operationId).toBe("op-peek");
+    expect(peek?.exitCode).toBe(1);
+    expect(peek?.output).toBe("2 failed");
+    expect(hasPendingBackgroundCommandResults(chatId)).toBe(true);
+    // Unknown id → null; wrong chat → null.
+    expect(getFinishedBackgroundResult(chatId, "nope")).toBeNull();
+    expect(getFinishedBackgroundResult(9999, "op-peek")).toBeNull();
+    // After the real consumer drains, the peek returns null (nothing queued).
+    takePendingBackgroundCommandResults(chatId);
+    expect(getFinishedBackgroundResult(chatId, "op-peek")).toBeNull();
+    clearBackgroundCommandsForChat(chatId);
+  });
+});
+
+describe("computeWakePendingResults (single-consumer wake decision)", () => {
+  it("only true on a wake turn, reflects bg + sub-agent + advisory buffers, stays non-destructive", () => {
+    const chatId = 9200;
+    // Nothing pending → false regardless of wake flag.
+    expect(computeWakePendingResults(chatId, true)).toBe(false);
+
+    // A finished bg result: true only when isWake is true.
+    recordBackgroundCommandStart(chatId, "op-w", "build", Date.now());
+    recordBackgroundCommandResult(chatId, "op-w", {
+      command: "build",
+      exitCode: 0,
+      output: "ok",
+      durationMs: 1,
+    });
+    expect(computeWakePendingResults(chatId, false)).toBe(false); // non-wake turn
+    expect(computeWakePendingResults(chatId, true)).toBe(true);
+    // Strictly non-destructive: still pending after the check.
+    expect(hasPendingBackgroundCommandResults(chatId)).toBe(true);
+    takePendingBackgroundCommandResults(chatId);
+    expect(computeWakePendingResults(chatId, true)).toBe(false);
+
+    // A finished sub-agent result alone also flips it.
+    recordSubagentStart(chatId, "task-w");
+    recordSubagentResult(chatId, "task-w", {
+      description: "sweep",
+      state: "completed",
+      body: "done",
+      durationMs: 1,
+    });
+    expect(computeWakePendingResults(chatId, true)).toBe(true);
+    takePendingSubagentResults(chatId);
+    expect(computeWakePendingResults(chatId, true)).toBe(false);
+
     clearBackgroundCommandsForChat(chatId);
   });
 });
@@ -139,6 +209,58 @@ describe("background-commands output-idle watchdog (A4)", () => {
     vi.advanceTimersByTime(180_000);
     expect(statuses.filter((s) => s === "stalled")).toHaveLength(2);
 
+    clearBackgroundCommandsForChat(chatId);
+  });
+
+  it("wake_on: fires a condition_met advisory once when output matches (idle-stall still backstops)", () => {
+    vi.useFakeTimers();
+    const chatId = 9300;
+    const statuses: string[] = [];
+    setBackgroundJobNotifier((cid, ev) => {
+      if (cid === chatId) statuses.push(ev.status);
+    });
+
+    recordBackgroundCommandStart(chatId, "op-watch", "npm run dev", Date.now(), {
+      pattern: "compiled successfully",
+    });
+    // Output arrives WITHOUT the pattern → no match yet on the next scan.
+    updateBackgroundOutput(chatId, "op-watch", "starting dev server...\n");
+    vi.advanceTimersByTime(60_000);
+    expect(statuses.filter((s) => s === "condition_met")).toHaveLength(0);
+    expect(hasPendingStalledAdvisories(chatId)).toBe(false);
+
+    // Pattern appears → next scan fires exactly one condition_met.
+    updateBackgroundOutput(chatId, "op-watch", "starting dev server...\ncompiled successfully in 1.2s\n");
+    vi.advanceTimersByTime(60_000);
+    expect(statuses.filter((s) => s === "condition_met")).toHaveLength(1);
+    const advisory = takePendingStalledAdvisories(chatId)!;
+    expect(advisory).toContain("matched your wake condition");
+    expect(advisory).toContain("op-watch");
+
+    // Fires only once — more matching output doesn't re-advise.
+    updateBackgroundOutput(chatId, "op-watch", "compiled successfully again\n");
+    vi.advanceTimersByTime(60_000);
+    expect(statuses.filter((s) => s === "condition_met")).toHaveLength(1);
+
+    // The job is still running (advisory is not a kill).
+    expect(hasRunningBackgroundCommands(chatId)).toBe(true);
+    clearBackgroundCommandsForChat(chatId);
+  });
+
+  it("setWakeCondition attaches a regex condition to an already-running job", () => {
+    vi.useFakeTimers();
+    const chatId = 9301;
+    const statuses: string[] = [];
+    setBackgroundJobNotifier((cid, ev) => {
+      if (cid === chatId) statuses.push(ev.status);
+    });
+    recordBackgroundCommandStart(chatId, "op-late", "tail -f app.log", Date.now());
+    expect(setWakeCondition(chatId, "op-late", { pattern: "ERROR|FATAL", regex: true })).toBe(true);
+    expect(setWakeCondition(chatId, "nope", { pattern: "x" })).toBe(false);
+
+    updateBackgroundOutput(chatId, "op-late", "info: ok\nFATAL: boom\n");
+    vi.advanceTimersByTime(60_000);
+    expect(statuses.filter((s) => s === "condition_met")).toHaveLength(1);
     clearBackgroundCommandsForChat(chatId);
   });
 

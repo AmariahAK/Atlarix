@@ -5,10 +5,8 @@
 import { ipcMain, type IpcMainInvokeEvent } from "electron";
 import log from "electron-log";
 import type { CommandPermissionDecision } from "@/lib/terminal-command-category";
-import {
-  getCommandCategory,
-  isDangerousCategory,
-} from "@/lib/terminal-command-category";
+import { getCommandCategory } from "@/lib/terminal-command-category";
+import { isDangerousCommand, dangerLabelKey } from "@/lib/dangerous-commands";
 import {
   getWorkspaceCommandPermission,
   listWorkspaceCommandPermissions,
@@ -27,15 +25,22 @@ export function resolveRunCommandPermissionGate(
   command: string,
   appId: number | null | undefined,
 ): RunCommandPermissionGate {
-  const category = getCommandCategory(command);
-  const dangerous = isDangerousCategory(category);
+  const dangerous = isDangerousCommand(command);
+  // The permission-store key: the fine-grained `danger:<id>` key for dangerous
+  // commands (so a coarse first-token allow can't satisfy them), else the
+  // first-token category. This key is also what an always-allow persists under
+  // and what the UI shows as the rule label.
+  const category = dangerous
+    ? (dangerLabelKey(command) ?? getCommandCategory(command))
+    : getCommandCategory(command);
 
-  if (dangerous) {
-    return { action: "prompt", category, dangerous: true };
-  }
-
+  // A dangerous command with no workspace decision yet ALWAYS prompts — never
+  // auto-allowed, even in autonomous mode. Only an explicit always-allow (keyed
+  // by its danger key) lets it run without a prompt; the user can revoke it in
+  // Settings. This is the safety invariant that replaces the old hard-floor
+  // throw (which was an unsatisfiable dead-end in autonomous mode).
   if (appId == null) {
-    return { action: "prompt", category, dangerous: false };
+    return { action: "prompt", category, dangerous };
   }
 
   const decision = getWorkspaceCommandPermission(appId, category);
@@ -46,7 +51,7 @@ export function resolveRunCommandPermissionGate(
     return { action: "auto_deny", category };
   }
 
-  return { action: "prompt", category, dangerous: false };
+  return { action: "prompt", category, dangerous };
 }
 
 export type RunCommandCategoryPreflight =
@@ -98,13 +103,15 @@ export function registerCommandPermissionHandlers(): void {
       if (!appId || !category?.trim()) {
         return { success: false, error: "Invalid appId or category" };
       }
-      const cat = getCommandCategory(category) || category.trim().toLowerCase();
-      if (isDangerousCategory(cat)) {
-        return {
-          success: false,
-          error: "Dangerous command categories cannot be saved as always allow",
-        };
-      }
+      // A `danger:` key is already the canonical permission key — persist it as
+      // given. Everything else normalizes to its first-token category. Dangerous
+      // commands can now be always-allowed (revocable in Settings); the safety
+      // guarantee is that they can never be *silently* auto-approved until such a
+      // rule exists (see resolveRunCommandPermissionGate).
+      const raw = category.trim();
+      const cat = raw.startsWith("danger:")
+        ? raw
+        : getCommandCategory(raw) || raw.toLowerCase();
       upsertWorkspaceCommandPermission(appId, cat, decision);
       logger.log(`[command-permissions] upsert app=${appId} cat=${cat} decision=${decision}`);
       return { success: true };

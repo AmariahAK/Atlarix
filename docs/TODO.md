@@ -1,12 +1,24 @@
 # Atlarix TODO
 
-**Current Version:** v14.8.0 (released 2026-06-30)
-**Last Updated:** 2026-07-02 (v14.8.9 landed on `main`)
+**Current Version:** v14.8.10 (released 2026-07-03; carries v14.8.5→v14.8.9, previously unreleased on `main`)
+**Last Updated:** 2026-07-03
 
-> **v14.8.5 → v14.8.9 are landed on `main`, unreleased (no tag).** The three v14.8.5
-> "cluster branches" turned out to be linear ancestors of `main`; v14.8.6→v14.8.9 were built
-> directly on top. The next release tag will carry them all. (Fallback commits: v14.8.7 =
-> `e1c1b9e`, v14.8.8 = `99f65cc`.)
+## ✅ Shipped in v14.8.10 (2026-07-03) — harness refinement from live sessions
+
+Full detail in [`docs/CHANGELOG.md`](./CHANGELOG.md). Lean summary: reliable background/sub-agent
+result delivery; ONE command-permission gate (dangerous = badge, revocable always-allow);
+capability-derived reasoning (base high / deep max, budgets scaled per model); `wake_on` monitor +
+background-job live view; continue-until-done gate fixed (Plan-mode exempt, mark-don't-redo,
+hard nudge cap); repetition guard staged guide→guide→break + same-file-edits false-trigger fix;
+FTS5 freshness on agent writes ("grep index is stale"); stream-scoped lifecycle events (frozen-UI
+race); edit_file unicode-punctuation self-heal; plan tool weak-model-proofed (full-rewrite
+canonical, checklist-in-error); new-window button → workspace chooser; Atlarix co-author trailer
+on model commits; dead Blueprint UI surface deleted; headless tarball now auto-rebuilds on `v*`
+tags (manual runbook step retired). tsc/oxlint/knip clean; vitest 1576 green; packaged-app smoked.
+
+Follow-ups deferred: preflight reorder (measure-first), `.gitignore`-render profiler (3.4),
+Fix 1(b) durable native-history (moot — bg procs die on quit), Atlarix GitHub account for
+contributor credit (owner action — code side done).
 
 > Open work + the current release only. **Full shipped-version history lives in
 > [`docs/CHANGELOG.md`](./CHANGELOG.md)** (and `docs/CHANGELOG_PREVIOUS.md`).

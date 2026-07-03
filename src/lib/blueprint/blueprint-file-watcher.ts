@@ -6,6 +6,13 @@ import * as fs from "fs";
 import * as path from "path";
 import { updateBlueprintCacheForFiles } from "@/lib/blueprint/incremental-update";
 import { updateBm25IndexForFile } from "@/lib/search/bm25_semantic_index";
+import {
+  BUILTIN_IGNORE,
+  createIgnorerFromSource,
+  isRelPathIgnored,
+  loadIgnorerForProject,
+  type AtlarixIgnoreInstance,
+} from "@/lib/atlarix/atlarix-ignore";
 
 const CODE_EXT = new Set([
   ".ts",
@@ -32,6 +39,38 @@ let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 let lastProjectPath: string | null = null;
 let lastWorkspaceId: number | null = null;
 let refreshInFlight: Promise<boolean> | null = null;
+
+/**
+ * The active ignore filter applied at the watcher's event gate so churn in
+ * node_modules/.git/dist never drives per-file ctags+ast-grep+FTS5 work (and
+ * never escalates a cold cache to a full blueprint rebuild). Starts as the
+ * synchronous BUILTIN_IGNORE baseline and is upgraded to the project's full
+ * composed ignorer (baseline ∪ .gitignore ∪ .atlarixignore) once it loads.
+ */
+let activeIgnorer: AtlarixIgnoreInstance = createIgnorerFromSource(BUILTIN_IGNORE);
+
+/**
+ * A watcher event is worth indexing only if it's a code file that isn't ignored.
+ * Pure + exported for tests.
+ */
+export function shouldProcessWatcherPath(
+  ig: AtlarixIgnoreInstance,
+  relPath: string,
+): boolean {
+  if (!CODE_EXT.has(path.extname(relPath).toLowerCase())) return false;
+  return !isRelPathIgnored(ig, relPath);
+}
+
+/** Load the project's composed ignorer, keeping the baseline fallback on error. */
+async function refreshActiveIgnorer(projectPath: string): Promise<void> {
+  try {
+    const ig = await loadIgnorerForProject(projectPath);
+    // Only apply if this is still the watched project (guards workspace switches).
+    if (lastProjectPath === projectPath) activeIgnorer = ig;
+  } catch {
+    /* keep the BUILTIN_IGNORE baseline */
+  }
+}
 
 /**
  * Incrementally refresh RTE disk cache for changed files (ctags + ast-grep per file).
@@ -74,6 +113,25 @@ export async function refreshBlueprintCacheFromFileTree(
 }
 
 /**
+ * v14.8.10 Fix G: idempotent registration for the chat-stream preflight — keeps
+ * the incremental FTS5/blueprint refresh alive in ordinary agent sessions (the
+ * full `registerBlueprintFileWatcher` was only ever called when the Blueprint
+ * panel was opened, so working-tree edits never refreshed the index). No-ops if
+ * this project is already being watched, so it never downgrades a registration
+ * that carries the panel's onUpdated callback.
+ */
+export function ensureBlueprintFileWatcher(
+  projectPath: string | null,
+  workspaceId: number | null,
+): void {
+  if (!projectPath) return;
+  if (watcher && lastProjectPath === projectPath && lastWorkspaceId === workspaceId) {
+    return;
+  }
+  registerBlueprintFileWatcher(projectPath, workspaceId);
+}
+
+/**
  * Register a file watcher for projectPath. On change, refreshes blueprint cache and calls onUpdated.
  */
 export function registerBlueprintFileWatcher(
@@ -98,12 +156,27 @@ export function registerBlueprintFileWatcher(
 
   if (!projectPath) return;
 
+  // Reset to the sync baseline immediately (so node_modules/.git churn is
+  // filtered even during the async load window), then upgrade to the project's
+  // full composed ignorer.
+  activeIgnorer = createIgnorerFromSource(BUILTIN_IGNORE);
+  void refreshActiveIgnorer(projectPath);
+
   const pending = new Set<string>();
 
   watcher = fs.watch(projectPath, { recursive: true }, (_eventType, filename) => {
     if (!filename || typeof filename !== "string") return;
     const normalized = filename.replace(/\\/g, "/");
-    if (!CODE_EXT.has(path.extname(normalized).toLowerCase())) return;
+    // A change to ignore rules invalidates the cached ignorer (these files are
+    // not CODE_EXT, so handle them before the gate).
+    const base = normalized.split("/").pop() ?? "";
+    if (base === ".gitignore" || base === ".atlarixignore") {
+      void refreshActiveIgnorer(projectPath);
+      return;
+    }
+    // Skip non-code files AND anything ignored (deps/build/caches) — the big win:
+    // node_modules churn no longer drives ctags/ast-grep/FTS5 per file.
+    if (!shouldProcessWatcherPath(activeIgnorer, normalized)) return;
     pending.add(normalized);
     if (debounceTimer) clearTimeout(debounceTimer);
     debounceTimer = setTimeout(async () => {

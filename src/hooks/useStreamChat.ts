@@ -464,6 +464,8 @@ export function useStreamChat({
               command: j.command,
               startedAt: j.startedAt,
               elapsedMs: j.elapsedMs,
+              stalled: j.stalled,
+              wakeMatched: j.wakeMatched,
             })),
           }));
         });
@@ -476,7 +478,8 @@ export function useStreamChat({
       if (
         status !== "finished" &&
         status !== "stalled" &&
-        status !== "scheduled"
+        status !== "scheduled" &&
+        status !== "condition_met"
       )
         return;
       const streaming = getDefaultStore().get(isStreamingByIdAtom).get(evChatId) === true;
@@ -1617,11 +1620,24 @@ export function useStreamChat({
                   lastAssistant.id
                 ] ?? null;
               const activitySnap = getDefaultStore().get(activityStreamItemsAtom);
+              // v14.8.10 Fix S2: the rebuild is a PERSISTENCE fallback, not a
+              // regrouper — never overwrite an already-attached timeline, and
+              // scope the activity to THIS turn (items since dispatch) so an
+              // earlier turn's tool cards can't regroup under the final message
+              // (observed: old edit cards re-rendered below a later summary).
+              const turnStartedAt =
+                getDefaultStore().get(activeTurnScopeAtom)?.startedAt ?? 0;
+              const hasExistingTimeline =
+                (getDefaultStore().get(inlineTimelineByMessageIdAtom)[
+                  lastAssistant.id
+                ]?.length ?? 0) > 0;
               const timeline = buildInlineTimelineFromActivity(
-                filterActivityForChat(activitySnap, response.chatId),
+                filterActivityForChat(activitySnap, response.chatId).filter(
+                  (a) => a.timestamp >= turnStartedAt,
+                ),
                 thinkingSnap,
               );
-              if (timeline.length > 0) {
+              if (timeline.length > 0 && !hasExistingTimeline) {
                 getDefaultStore().set(inlineTimelineByMessageIdAtom, (prev) => ({
                   ...prev,
                   [lastAssistant.id]: timeline,
@@ -1931,11 +1947,21 @@ export function useStreamChat({
                   lastAssistantErr.id
                 ] ?? null;
               const activityErr = getDefaultStore().get(activityStreamItemsAtom);
+              // Fix S2: same scoping as the end path — persistence fallback
+              // only, this turn's activity only.
+              const turnStartedAtErr =
+                getDefaultStore().get(activeTurnScopeAtom)?.startedAt ?? 0;
+              const hasExistingTimelineErr =
+                (getDefaultStore().get(inlineTimelineByMessageIdAtom)[
+                  lastAssistantErr.id
+                ]?.length ?? 0) > 0;
               const timeline = buildInlineTimelineFromActivity(
-                filterActivityForChat(activityErr, chatId),
+                filterActivityForChat(activityErr, chatId).filter(
+                  (a) => a.timestamp >= turnStartedAtErr,
+                ),
                 thinkingSnap,
               );
-              if (timeline.length > 0) {
+              if (timeline.length > 0 && !hasExistingTimelineErr) {
                 getDefaultStore().set(inlineTimelineByMessageIdAtom, (prev) => ({
                   ...prev,
                   [lastAssistantErr.id]: timeline,

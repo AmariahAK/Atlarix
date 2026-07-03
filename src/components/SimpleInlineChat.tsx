@@ -10,13 +10,14 @@ import { useRef, useEffect, useCallback, useState } from "react";
 import { useAtomValue, useSetAtom, getDefaultStore } from "jotai";
 import {
     chatMessagesByIdAtom,
+    messagesForChatAtom,
     chatStreamCountByIdAtom,
-    isStreamingByIdAtom,
+    isStreamingForChatAtom,
     activeChatIdAtom,
     pendingUserQuestionByChatIdAtom,
     chatErrorByIdAtom,
     turnSnapshotTurnIdByMessageIdAtom,
-    streamThreadByChatIdAtom,
+    streamThreadForChatAtom,
 } from "../atoms/chatAtoms";
 import { IpcClient } from "@/ipc/ipc_client";
 import { buildRevertSnapshotMap } from "@/lib/chat/revert-snapshot-rehydrate";
@@ -56,9 +57,12 @@ export function SimpleInlineChat({
     chatId,
     onSendMessage,
 }: SimpleInlineChatProps) {
-    const messagesById = useAtomValue(chatMessagesByIdAtom);
+    // Scoped to THIS chat (perf: a stream in another chat no longer re-renders
+    // this whole chat view every ~50ms). Writes still go through the whole-map
+    // atom below.
+    const messagesForChat = useAtomValue(messagesForChatAtom(chatId));
     const setMessagesById = useSetAtom(chatMessagesByIdAtom);
-    const isStreamingById = useAtomValue(isStreamingByIdAtom);
+    const isStreamingThisChat = useAtomValue(isStreamingForChatAtom(chatId));
     const streamCountById = useAtomValue(chatStreamCountByIdAtom);
     const errorById = useAtomValue(chatErrorByIdAtom);
     const setErrorById = useSetAtom(chatErrorByIdAtom);
@@ -104,8 +108,7 @@ export function SimpleInlineChat({
     // `messages` (text deltas), so the scroll-follow effect must also react to
     // them — otherwise a burst of tool cards mid-stream doesn't keep the
     // viewport pinned (and follow felt inconsistent). (Fix 5.)
-    const liveThreadLen =
-        useAtomValue(streamThreadByChatIdAtom).get(chatId)?.length ?? 0;
+    const liveThreadLen = useAtomValue(streamThreadForChatAtom(chatId)).length;
 
     // Switching chats: jump straight to the latest and re-pin to the bottom.
     useEffect(() => {
@@ -176,7 +179,7 @@ export function SimpleInlineChat({
         fetchMessages();
     }, [fetchMessages]);
 
-    const messages = messagesById.get(chatId) ?? [];
+    const messages = messagesForChat;
     // Render the FULL conversation (parity with Claude Code / opencode) — no
     // last-N-exchanges cutoff. System messages are excluded from the view; the
     // memoized SimpleMessage rows keep this cheap even for long sessions.
@@ -189,7 +192,7 @@ export function SimpleInlineChat({
     const lastAssistantIndex = visibleMessages
         .map((m) => m.role)
         .lastIndexOf("assistant");
-    const isStreaming = isStreamingById.get(chatId) ?? false;
+    const isStreaming = isStreamingThisChat;
     const error = errorById.get(chatId) ?? null;
     const lastMessage =
         visibleMessages.length > 0
@@ -269,7 +272,7 @@ export function SimpleInlineChat({
         async (messageId: number, newContent: string) => {
             // Identify the turns this edit would discard that captured file
             // snapshots — if any, confirm whether to also revert those files.
-            const msgs = messagesById.get(chatId) ?? [];
+            const msgs = messagesForChat;
             const turnIds = discardedTurnSnapshotIds(
                 msgs,
                 messageId,
@@ -300,7 +303,7 @@ export function SimpleInlineChat({
             }
             setPendingEdit({ messageId, newContent, turnIds, changed, created });
         },
-        [chatId, messagesById, snapshotByMessageId, performEdit],
+        [chatId, messagesForChat, snapshotByMessageId, performEdit],
     );
 
     const resolveEditRevert = useCallback(

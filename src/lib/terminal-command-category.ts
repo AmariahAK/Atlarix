@@ -1,28 +1,11 @@
 /**
  * First-token command category for workspace-scoped terminal permissions.
+ *
+ * Danger classification is NOT here anymore — it moved to a single source of
+ * truth in `dangerous-commands.ts` (regex patterns + risky first-tokens, keyed
+ * by `dangerLabelKey`). This module now only computes the coarse first-token
+ * category used for non-dangerous command always-allow rules.
  */
-
-export const DANGEROUS_CATEGORIES = new Set([
-  "rm",
-  "sudo",
-  "kill",
-  "pkill",
-  "chmod",
-  "chown",
-  "curl",
-  "wget",
-  "bash",
-  "sh",
-  "zsh",
-  "eval",
-  "exec",
-  "dd",
-  "mkfs",
-  "fdisk",
-  "reboot",
-  "shutdown",
-  "poweroff",
-]);
 
 export type CommandPermissionDecision = "always_allow" | "always_deny";
 
@@ -31,8 +14,4 @@ export function getCommandCategory(command: string): string {
   if (!trimmed) return "";
   const first = trimmed.split(/\s+/)[0] ?? "";
   return first.toLowerCase();
-}
-
-export function isDangerousCategory(category: string): boolean {
-  return DANGEROUS_CATEGORIES.has(category.toLowerCase());
 }

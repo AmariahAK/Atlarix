@@ -244,15 +244,20 @@ function CommandPermissionCard({
 }: {
   operation: QueuedOperation;
   appId: number | null;
-  onOnce: (id: string, dangerAcknowledged?: boolean) => void;
-  onAlways: (id: string, dangerAcknowledged?: boolean) => void;
+  onOnce: (id: string) => void;
+  onAlways: (id: string) => void;
   onDeny: (id: string) => void;
 }) {
-  const [dangerAcknowledged, setDangerAcknowledged] = useState(false);
   const isDangerous = Boolean(operation.isDangerous);
-  const canAlwaysAllow = operation.canAlwaysAllow !== false && !isDangerous;
+  // Dangerous commands are now always-allowable too — the amber styling is an
+  // informational badge, not a blocking gate. Only a resolved rule (backend
+  // sets canAlwaysAllow=false) hides the button.
+  const canAlwaysAllow = operation.canAlwaysAllow !== false;
   const category = operation.commandCategory ?? "command";
-  const canApprove = !isDangerous || dangerAcknowledged;
+  // For a dangerous command the category is a `danger:<id>` key; show a friendly
+  // rule label instead of the raw key.
+  const isDangerKey = category.startsWith("danger:");
+  const alwaysAllowLabel = isDangerKey ? "this command" : category;
 
   return (
     <div
@@ -266,7 +271,14 @@ function CommandPermissionCard({
       <div className="flex items-start gap-2">
         <Terminal className="h-3.5 w-3.5 shrink-0 mt-0.5 text-muted-foreground" />
         <div className="flex-1 min-w-0">
-          <div className="font-medium text-foreground/90">Run command</div>
+          <div className="flex items-center gap-2 font-medium text-foreground/90">
+            Run command
+            {isDangerous ? (
+              <span className="rounded bg-amber-500/20 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-900 dark:text-amber-200">
+                Dangerous
+              </span>
+            ) : null}
+          </div>
           <div className="mt-1 font-mono text-[11px] text-muted-foreground break-all bg-background/60 rounded px-2 py-1.5">
             $ {operation.command}
           </div>
@@ -277,26 +289,12 @@ function CommandPermissionCard({
           ) : null}
         </div>
       </div>
-      {isDangerous ? (
-        <label className="mt-2 flex items-center gap-2 text-[11px] text-amber-900 dark:text-amber-200">
-          <input
-            type="checkbox"
-            checked={dangerAcknowledged}
-            onChange={(e) => setDangerAcknowledged(e.target.checked)}
-            className="rounded border-amber-500/50"
-          />
-          I understand the risks
-        </label>
-      ) : null}
       <div className="mt-2 flex flex-wrap gap-2">
         <Button
           type="button"
           size="sm"
           className="h-7 text-xs"
-          disabled={!canApprove}
-          onClick={() =>
-            onOnce(operation.id, isDangerous ? dangerAcknowledged : undefined)
-          }
+          onClick={() => onOnce(operation.id)}
         >
           Allow once
         </Button>
@@ -306,13 +304,11 @@ function CommandPermissionCard({
             size="sm"
             variant="secondary"
             className="h-7 text-xs"
-            disabled={!canApprove || appId == null}
+            disabled={appId == null}
             title={appId == null ? "Select a workspace to save rules" : undefined}
-            onClick={() =>
-              onAlways(operation.id, isDangerous ? dangerAcknowledged : undefined)
-            }
+            onClick={() => onAlways(operation.id)}
           >
-            Always allow {category}
+            Always allow {alwaysAllowLabel}
           </Button>
         ) : null}
         <Button
@@ -327,9 +323,19 @@ function CommandPermissionCard({
       </div>
       {canAlwaysAllow ? (
         <p className="mt-1.5 text-[10px] text-muted-foreground/80">
-          “Always allow” saves a workspace rule for the{" "}
-          <span className="font-mono">{category}</span> category and skips the
-          approval pause for it from then on.
+          {isDangerKey ? (
+            <>
+              “Always allow” saves a workspace rule for this specific command and
+              skips the approval pause for it from then on. You can revoke it in
+              Settings.
+            </>
+          ) : (
+            <>
+              “Always allow” saves a workspace rule for the{" "}
+              <span className="font-mono">{category}</span> category and skips the
+              approval pause for it from then on.
+            </>
+          )}
         </p>
       ) : null}
     </div>
@@ -492,27 +498,25 @@ export function InlinePermissionApprovals({ chatId }: { chatId: number }) {
   );
 
   const handleCommandOnce = useCallback(
-    async (id: string, dangerAcknowledged?: boolean) => {
+    async (id: string) => {
       setQueue((q) => updateOperationStatus(q, id, { status: "queued" }));
       await IpcClient.getInstance().executePermission({
         chatId,
         operationId: id,
         approvalMode: "once",
-        dangerAcknowledged,
       });
     },
     [chatId, setQueue],
   );
 
   const handleCommandAlways = useCallback(
-    async (id: string, dangerAcknowledged?: boolean) => {
+    async (id: string) => {
       setQueue((q) => updateOperationStatus(q, id, { status: "queued" }));
       await IpcClient.getInstance().executePermission({
         chatId,
         operationId: id,
         approvalMode: "always_allow",
         appId: appId ?? undefined,
-        dangerAcknowledged,
       });
     },
     [chatId, setQueue, appId],

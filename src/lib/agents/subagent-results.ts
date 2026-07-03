@@ -85,6 +85,11 @@ export function recordSubagentResult(
         : result.body,
     finishedAt: Date.now(),
   });
+  if (list.length > MAX_QUEUED_PER_CHAT) {
+    console.warn(
+      `[subagent-results] chat ${chatId}: >${MAX_QUEUED_PER_CHAT} undrained results — dropping ${list.length - MAX_QUEUED_PER_CHAT} oldest (never delivered to the model)`,
+    );
+  }
   resultsByChat.set(chatId, list.slice(-MAX_QUEUED_PER_CHAT));
   // "finished" covers both completed AND error — either is a result to deliver,
   // and either may auto-wake a parked turn (the error rides inside the body).
@@ -130,7 +135,7 @@ export function takePendingSubagentResults(chatId: number): string | null {
   return [
     `[Background sub-agent results]`,
     blocks.join("\n\n"),
-    `Incorporate these result(s) and continue the user's task now. If a sub-agent failed, decide how to recover — only end your turn once you have acted on every result above.`,
+    `Incorporate these result(s) and continue the user's task now. If a sub-agent failed, decide how to recover — only end your turn once you have acted on every result above. If they COMPLETE the user's request, report the outcome and end your turn — never re-run work that already finished.`,
   ].join("\n\n");
 }
 

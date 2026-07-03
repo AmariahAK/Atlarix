@@ -42,6 +42,47 @@ describe("analyzeEscaping", () => {
   });
 });
 
+describe("findReplacement — unicode punctuation layer (v14.8.10)", () => {
+  // A curly-quoted markdown file; the model emits straight-ASCII old_content
+  // (the observed "Content to replace not found" loop).
+  const md =
+    "# Quotes\n\n" +
+    "> “Be the change you wish to see.”\n" +
+    "> — Mahatma Gandhi\n\n" +
+    "> “Stay hungry…”\n" +
+    "> – Steve Jobs\n";
+
+  it("matches a curly-quoted line from a straight-quoted find (single line)", () => {
+    const r = findReplacement(md, '> "Be the change you wish to see."');
+    expect(r.kind).toBe("match");
+    if (r.kind === "match") {
+      expect(r.fuzzy).toBe(true);
+      // The matched span is the ORIGINAL content (typography preserved).
+      expect(md.slice(r.index, r.index + r.matchLength)).toContain("“");
+    }
+  });
+
+  it("matches a multi-line block across em-dash and ellipsis differences", () => {
+    const find = '> "Stay hungry..."\n> - Steve Jobs';
+    const r = findReplacement(md, find);
+    expect(r.kind).toBe("match");
+    if (r.kind === "match") {
+      expect(md.slice(r.index, r.index + r.matchLength)).toContain("…");
+    }
+  });
+
+  it("does NOT match when the text genuinely differs", () => {
+    const r = findReplacement(md, '> "Be the change you want to see."');
+    expect(r.kind).toBe("none");
+  });
+
+  it("exact content still wins non-fuzzy when typography matches", () => {
+    const r = findReplacement(md, "> — Mahatma Gandhi");
+    expect(r.kind).toBe("match");
+    if (r.kind === "match") expect(r.fuzzy).toBe(false);
+  });
+});
+
 describe("findReplacement", () => {
   const file = "import os\n\n\ndef load():\n    value = 1\n    return value\n";
 

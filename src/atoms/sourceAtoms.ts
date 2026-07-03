@@ -373,6 +373,10 @@ export interface BackgroundJobView {
   command: string;
   startedAt: number;
   elapsedMs: number;
+  /** v14.8.10: the idle-stall watchdog flagged this job as gone quiet. */
+  stalled?: boolean;
+  /** v14.8.10: this job's `wake_on` condition has matched. */
+  wakeMatched?: boolean;
 }
 
 /**

@@ -37,7 +37,7 @@ describe("collectPendingBackgroundResultsBody (R2)", () => {
     expect(body).toContain("build-ok-marker");
     expect(body).toContain("scout-done-marker");
     // ...with the imperative framing the model must act on.
-    expect(body).toContain("must handle");
+    expect(body).toContain("never restart or re-run work");
     expect(body).toContain("continue the user's task");
 
     // Take-once: a second collect finds nothing pending.

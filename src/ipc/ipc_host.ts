@@ -46,8 +46,6 @@ import { registerFileHandlers } from "./handlers/file_handlers";
 import { registerAuthHandlers } from "./handlers/auth_handlers";
 import { registerCodebaseSearchHandlers } from "./handlers/codebase_search_handlers";
 import { registerWorkspaceSnapshotHandlers } from "./handlers/workspace_snapshot_handlers";
-// PASS6: Blueprint subsystem restored.
-import { registerBlueprintHandlers } from "./handlers/blueprint_handlers";
 import { registerStreamHandlers } from "./handlers/stream_handlers";
 import { registerTeamHandlers } from "./handlers/team_handlers";
 import { registerTourHandlers } from "./handlers/tour_handlers";
@@ -108,8 +106,6 @@ export function registerIpcHandlers() {
   registerAuthHandlers(); // OAuth & user plan management
   registerCodebaseSearchHandlers(); // Codebase semantic search
   registerWorkspaceSnapshotHandlers(); // Workspace snapshots (Pro)
-  // PASS6: Blueprint subsystem restored.
-  registerBlueprintHandlers();
   registerStreamHandlers(); // v3.9 Stream tools (terminal/pipeline)
   registerTeamHandlers(); // v4.0 Teams (Workforce)
   registerTourHandlers(); // Shepherd tour state (electron-store–style local JSON)

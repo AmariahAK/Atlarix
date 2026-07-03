@@ -12,8 +12,13 @@
 import {
   takePendingBackgroundCommandResults,
   takePendingStalledAdvisories,
+  hasPendingBackgroundCommandResults,
+  hasPendingStalledAdvisories,
 } from "./background-commands";
-import { takePendingSubagentResults } from "../agents/subagent-results";
+import {
+  takePendingSubagentResults,
+  hasPendingSubagentResults,
+} from "../agents/subagent-results";
 
 export function collectPendingBackgroundResultsBody(chatId: number): string {
   const parts = [
@@ -22,4 +27,25 @@ export function collectPendingBackgroundResultsBody(chatId: number): string {
     takePendingStalledAdvisories(chatId),
   ].filter((p): p is string => !!p);
   return parts.length ? parts.join("\n\n") : "No pending background results.";
+}
+
+/**
+ * Whether a wake/continuation turn has finished background work (commands,
+ * sub-agents, OR stall advisories) to deliver via the forced `collect_results`
+ * tool. Strictly NON-destructive — this is the wake-turn *decision*, computed
+ * ONCE up front (before context assembly) so the take-once drains that follow
+ * have a single consumer: `collect_results` on a wake turn, or the context
+ * loaders / prepareStep injection on a non-wake turn. `isWake` is
+ * `req.continueAfterQuestions`.
+ */
+export function computeWakePendingResults(
+  chatId: number,
+  isWake: boolean,
+): boolean {
+  return (
+    isWake &&
+    (hasPendingBackgroundCommandResults(chatId) ||
+      hasPendingSubagentResults(chatId) ||
+      hasPendingStalledAdvisories(chatId))
+  );
 }

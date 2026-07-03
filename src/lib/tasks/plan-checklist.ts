@@ -92,11 +92,18 @@ export function setStepStateInPlanMarkdown(
 ): SetStepStateResult {
   const steps = parsePlanChecklist(content);
   let step: PlanChecklistStep | undefined;
+  const needle = target.stepText?.trim().toLowerCase() || undefined;
   if (target.stepIndex != null) {
     step = steps.find((s) => s.index === target.stepIndex);
+    // v14.8.10: when BOTH index and text are given and they disagree, the text
+    // is the model's intent — the index is its (drifting) bookkeeping. Trusting
+    // a mismatched index would silently mark the WRONG step (worse than
+    // not-found); fall through to the text match instead.
+    if (step && needle && !step.text.toLowerCase().includes(needle)) {
+      step = undefined;
+    }
   }
-  if (!step && target.stepText?.trim()) {
-    const needle = target.stepText.trim().toLowerCase();
+  if (!step && needle) {
     step =
       steps.find((s) => s.text.toLowerCase() === needle) ??
       steps.find((s) => s.text.toLowerCase().includes(needle));
@@ -146,7 +153,9 @@ export function formatPlanChecklistForPrompt(
     lines.push("All steps are marked done — verify the work, then finish.");
   }
   // C4: terse trailing steer (was a long sentence repeated every turn).
-  lines.push("Update it with plan(update_step) as you go; don't re-derive progress from git.");
+  lines.push(
+    "Update it with plan(update_step) (step_text preferred) as you go; don't re-derive progress from git.",
+  );
   return lines.join("\n");
 }
 

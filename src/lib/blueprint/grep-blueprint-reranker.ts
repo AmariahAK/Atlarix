@@ -90,12 +90,15 @@ export async function rankGrepHitsByBlueprint(
     const bm25Ranked = [...fileScore.entries()].sort((a, b) => b[1] - a[1]);
     const bm25Rank = new Map<string, number>();
     bm25Ranked.forEach(([file], idx) => bm25Rank.set(file, idx + 1));
-    const worstBm25Rank = bm25Ranked.length + 1;
 
     const decorated = groups.map((g, i) => {
       const key = norm(g.file);
       const rRipgrep = i + 1;
-      const rBm25 = bm25Rank.get(key) ?? worstBm25Rank;
+      // v14.8.10 Fix G: a file ABSENT from the index keeps its ripgrep rank in
+      // the BM25 channel (neutral) instead of the worst rank. A just-written
+      // file isn't indexed yet — penalizing it pushed live matches below the
+      // result cap (the observed "grep index is stale" failure).
+      const rBm25 = bm25Rank.get(key) ?? rRipgrep;
       const rrf = BM25_RRF_WEIGHT / (RRF_K + rBm25) + 1 / (RRF_K + rRipgrep);
       return { g, i, rrf };
     });

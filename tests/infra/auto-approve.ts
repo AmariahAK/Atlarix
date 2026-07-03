@@ -18,7 +18,7 @@ export function autoApproveDuring(
   opts?: { timeoutMs?: number },
 ): (ipc: FakeIpcEvent) => Promise<void> {
   const timeoutMs = opts?.timeoutMs ?? 600_000;
-  const dangerAcknowledged = process.env.ATLARIX_AUTONOMOUS_DANGER === "1";
+  const dangerAllowed = process.env.ATLARIX_AUTONOMOUS_DANGER === "1";
   return async (ipc: FakeIpcEvent) => {
     const executePermission = await getIpcHandler("execute-permission");
     const seen = new Set<string>();
@@ -32,8 +32,12 @@ export function autoApproveDuring(
         const operationId = s.payload?.operationId;
         if (!operationId || seen.has(operationId)) continue;
         seen.add(operationId);
+        // Since the interactive hard-floor throw was removed (Fix 2), the deny
+        // here is what upholds "no silent dangerous exec" without a human.
+        const isDangerous = Boolean(s.payload?.request?.preview?.isDangerous);
+        const approvalMode = isDangerous && !dangerAllowed ? "deny" : "once";
         try {
-          await executePermission({} as never, { chatId, operationId, dangerAcknowledged });
+          await executePermission({} as never, { chatId, operationId, approvalMode });
         } catch {
           /* keep approving the rest even if one fails */
         }

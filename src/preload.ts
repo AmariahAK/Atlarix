@@ -25,6 +25,7 @@ const validInvokeChannels = [
   "chat:submit-user-question-answer", // ask_user tool: submit answer from UI
   "workspace:prewarm-cache",
   "workspace:open-in-new-window",
+  "window:open-blank",
   "workspace:consume-pending-cli",
   "chat:edit-message",             // v3.9: edit user message and truncate after
   "chat:revert-to-message",        // v3.9: revert conversation to assistant message
@@ -250,20 +251,6 @@ const validInvokeChannels = [
   "dev-server:stop",
   "dev-server:status",
   "dev-server:list-running",
-  // PASS6: Blueprint (Phase 7 Additive Blueprint) — restored.
-  "blueprint:get",
-  "blueprint:set",
-  "blueprint:get-reference-paths",
-  "blueprint:set-reference-paths",
-  "blueprint:refresh-from-code",
-  "blueprint:get-atlarixignore",
-  "blueprint:set-atlarixignore",
-  "blueprint:analyze-workspace",
-  "blueprint:simplify-description",
-  "blueprint:simplify-room",
-  "blueprint:simplify-architecture",
-  "blueprint:commit-snapshot",
-  "blueprint:snapshot-exists",
   // v11 in-app browser (WebContentsView panel)
   "browser:get-state",
   "browser:create-tab",
@@ -417,11 +404,6 @@ const validReceiveChannels = [
   "chat:background-job-update", // main → renderer: background job started/finished/cancelled
   "autonomous:session-complete",
   "chat:auto-self-correct", // main → renderer: synthetic fix prompt inserted; continue stream
-  // PASS6: Blueprint AI-editing event channels — restored.
-  "blueprint:ai-editing",
-  "blueprint:updated",
-  "blueprint:rte-running",
-  "blueprint:edges-updated",
   // OAuth callback from main process
   "oauth-callback-success",
   "open-community-dialog",

@@ -11,8 +11,19 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { isDangerousCategory } from "@/lib/terminal-command-category";
 import { toast } from "sonner";
+
+/** Friendly label for a rule key — danger keys are `danger:<id>[+<id>]`. */
+function ruleLabel(category: string): { label: string; dangerous: boolean } {
+  if (category.startsWith("danger:")) {
+    const ids = category.slice("danger:".length).split("+");
+    return {
+      label: ids.map((id) => id.replace(/^cmd-/, "").replace(/-/g, " ")).join(" + "),
+      dangerous: true,
+    };
+  }
+  return { label: category, dangerous: false };
+}
 
 type PermissionRow = {
   id: number;
@@ -61,10 +72,6 @@ export function WorkspaceTerminalPermissions() {
       toast.error("Enter a command category (first token, e.g. git)");
       return;
     }
-    if (isDangerousCategory(cat)) {
-      toast.error("Dangerous categories cannot be saved as always allow or deny rules");
-      return;
-    }
     const result = await IpcClient.getInstance().upsertCommandPermission({
       appId,
       category: cat,
@@ -89,8 +96,9 @@ export function WorkspaceTerminalPermissions() {
       <p className="text-sm text-muted-foreground mb-4">
         Remember allow or deny decisions for command categories in this workspace (first token of
         the command, e.g. <code className="text-xs">git</code> for{" "}
-        <code className="text-xs">git status</code>). Dangerous commands always require inline
-        approval.
+        <code className="text-xs">git status</code>). Dangerous commands (e.g. force-push) are saved
+        as their own specific rule when you choose “Always allow” inline, and are never
+        auto-approved until you do — you can revoke any rule here.
       </p>
 
       <div className="flex flex-wrap gap-2 mb-4">
@@ -132,9 +140,20 @@ export function WorkspaceTerminalPermissions() {
               </tr>
             </thead>
             <tbody>
-              {rows.map((row) => (
+              {rows.map((row) => {
+                const { label, dangerous } = ruleLabel(row.category);
+                return (
                 <tr key={row.id} className="border-t border-border/60">
-                  <td className="px-3 py-2 font-mono">{row.category}</td>
+                  <td className="px-3 py-2 font-mono">
+                    <span className="inline-flex items-center gap-2">
+                      {label}
+                      {dangerous ? (
+                        <span className="rounded bg-amber-500/20 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-900 dark:text-amber-200">
+                          Dangerous
+                        </span>
+                      ) : null}
+                    </span>
+                  </td>
                   <td className="px-3 py-2">
                     {row.decision === "always_allow" ? "Always allow" : "Always deny"}
                   </td>
@@ -150,7 +169,8 @@ export function WorkspaceTerminalPermissions() {
                     </Button>
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>

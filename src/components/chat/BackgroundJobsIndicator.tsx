@@ -1,11 +1,21 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useAtomValue, useSetAtom } from "jotai";
-import { Loader2, MessageSquarePlus, X } from "lucide-react";
+import {
+  Loader2,
+  MessageSquarePlus,
+  X,
+  ChevronRight,
+  ChevronDown,
+} from "lucide-react";
 import { IpcClient } from "@/ipc/ipc_client";
-import { backgroundJobsByChatIdAtom } from "@/atoms/sourceAtoms";
+import {
+  backgroundJobsByChatIdAtom,
+  type BackgroundJobView,
+} from "@/atoms/sourceAtoms";
 import { attachmentsAtom } from "@/atoms/chatAtoms";
 import { showSuccess } from "@/lib/toast";
 import { cn } from "@/lib/utils";
+import { toolBodyText } from "./stream-item-styles";
 import {
   Popover,
   PopoverContent,
@@ -17,11 +27,10 @@ import {
  * in flight — visible even when no turn is streaming, so you can keep chatting
  * and cancel a job. The agent is auto-woken when a job finishes.
  *
- * Mirrors the folded-attachments UX: instead of a flat row of per-job chips
- * (which overflows once there are a few), the jobs fold into ONE summary card;
- * clicking it opens a scrollable popover listing each task with its send-to-chat
- * and cancel actions. (Sub-agents keep their own in-message cards — this is the
- * background-task surface only, deliberately NOT a combined one.)
+ * Each job folds into ONE summary card; the popover lists every task and lets you
+ * EXPAND a task to watch its live output tail (polled while open), see a
+ * stalled/matched badge, send it to chat to ask about it, or cancel it. (Sub-agents
+ * keep their own in-message cards — this is the background-command surface only.)
  */
 export function BackgroundJobsIndicator({
   chatId,
@@ -90,40 +99,135 @@ export function BackgroundJobsIndicator({
           </div>
           {/* Plain overflow div (NOT Radix ScrollArea — its table-layout
               viewport lets rows grow past the width, clipping the buttons). */}
-          <div className="flex max-h-72 w-full flex-col items-stretch gap-1 overflow-y-auto pr-1">
+          <div className="flex max-h-80 w-full flex-col items-stretch gap-1 overflow-y-auto pr-1">
             {jobs.map((j) => (
-              <div
+              <BackgroundJobRow
                 key={j.operationId}
-                className="flex w-full min-w-0 items-center gap-1 rounded-md border border-border/60 bg-muted/30 px-2 py-1.5"
-              >
-                {/* min-w-0 is required for `truncate` to clip a flex child. */}
-                <code
-                  className="min-w-0 flex-1 truncate font-mono text-[11px] opacity-80"
-                  title={j.command}
-                >
-                  {j.command}
-                </code>
-                <button
-                  type="button"
-                  onClick={() => void sendJobToChat(j.operationId, j.command)}
-                  className="shrink-0 rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
-                  title="Send this task (with its output) to chat"
-                >
-                  <MessageSquarePlus className="h-3.5 w-3.5" />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => cancelJob(j.operationId)}
-                  className="shrink-0 rounded p-1 text-muted-foreground hover:bg-destructive/15 hover:text-destructive"
-                  title="Cancel this background task"
-                >
-                  <X className="h-3.5 w-3.5" />
-                </button>
-              </div>
+                job={j}
+                chatId={chatId ?? null}
+                popoverOpen={open}
+                onSendToChat={sendJobToChat}
+                onCancel={cancelJob}
+              />
             ))}
           </div>
         </PopoverContent>
       </Popover>
+    </div>
+  );
+}
+
+/**
+ * One background-job row. Collapsed: command + status badge + actions. Expanded:
+ * polls the live output tail (only while the popover is open) and auto-scrolls,
+ * so you can watch progress and then discuss it.
+ */
+function BackgroundJobRow({
+  job,
+  chatId,
+  popoverOpen,
+  onSendToChat,
+  onCancel,
+}: {
+  job: BackgroundJobView;
+  chatId: number | null;
+  popoverOpen: boolean;
+  onSendToChat: (operationId: string, command: string) => void;
+  onCancel: (operationId: string) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const [output, setOutput] = useState<string>("");
+  const bodyRef = useRef<HTMLDivElement | null>(null);
+
+  // Pull the live output tail on expand + poll while open+expanded. Pull-based
+  // (no push channel for output) — scoped to the open, expanded row only.
+  useEffect(() => {
+    if (!expanded || !popoverOpen || chatId == null) return;
+    let cancelled = false;
+    const pull = () => {
+      void IpcClient.getInstance()
+        .backgroundJobOutput(chatId, job.operationId)
+        .then((d) => {
+          if (!cancelled && d) setOutput(d.output);
+        })
+        .catch(() => {});
+    };
+    pull();
+    const t = setInterval(pull, 1500);
+    return () => {
+      cancelled = true;
+      clearInterval(t);
+    };
+  }, [expanded, popoverOpen, chatId, job.operationId]);
+
+  // Auto-scroll the output to the bottom as it grows.
+  useEffect(() => {
+    const el = bodyRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [output, expanded]);
+
+  return (
+    <div className="w-full min-w-0 rounded-md border border-border/60 bg-muted/30">
+      <div className="flex w-full min-w-0 items-center gap-1 px-2 py-1.5">
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+          title={expanded ? "Hide output" : "Show live output"}
+          aria-label={expanded ? "Hide output" : "Show live output"}
+        >
+          {expanded ? (
+            <ChevronDown className="h-3.5 w-3.5" />
+          ) : (
+            <ChevronRight className="h-3.5 w-3.5" />
+          )}
+        </button>
+        {/* min-w-0 is required for `truncate` to clip a flex child. */}
+        <code
+          className="min-w-0 flex-1 truncate font-mono text-[11px] opacity-80"
+          title={job.command}
+        >
+          {job.command}
+        </code>
+        {job.wakeMatched ? (
+          <span className="shrink-0 rounded bg-emerald-500/20 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-800 dark:text-emerald-200">
+            matched
+          </span>
+        ) : job.stalled ? (
+          <span className="shrink-0 rounded bg-amber-500/20 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-900 dark:text-amber-200">
+            stalled
+          </span>
+        ) : null}
+        <button
+          type="button"
+          onClick={() => onSendToChat(job.operationId, job.command)}
+          className="shrink-0 rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+          title="Send this task (with its output) to chat"
+        >
+          <MessageSquarePlus className="h-3.5 w-3.5" />
+        </button>
+        <button
+          type="button"
+          onClick={() => onCancel(job.operationId)}
+          className="shrink-0 rounded p-1 text-muted-foreground hover:bg-destructive/15 hover:text-destructive"
+          title="Cancel this background task"
+        >
+          <X className="h-3.5 w-3.5" />
+        </button>
+      </div>
+      {expanded ? (
+        <div
+          ref={bodyRef}
+          className={cn(
+            toolBodyText,
+            // Bounded + scrollable per job so a chatty task can't overwhelm the
+            // popover — the whole list is also capped (max-h-80) above.
+            "max-h-40 overflow-y-auto overscroll-contain border-t border-border/60 px-2 py-1.5 font-mono whitespace-pre-wrap break-all",
+          )}
+        >
+          {output || "(no output yet)"}
+        </div>
+      ) : null}
     </div>
   );
 }

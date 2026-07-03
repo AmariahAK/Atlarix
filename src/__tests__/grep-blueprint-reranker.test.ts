@@ -72,6 +72,26 @@ describe("rankGrepHitsByBlueprint", () => {
     expect(out.map((x) => x.file)).toEqual(["/ws/a.ts", "/ws/b.ts"]);
   });
 
+  it("does NOT penalize a file absent from the index below its ripgrep rank (v14.8.10 Fix G — fresh files)", async () => {
+    // fresh.ts was just written this turn — the index doesn't know it yet. It
+    // is ripgrep's TOP file and must stay ahead of modest indexed scorers
+    // (the old worst-rank treatment pushed it below the cap).
+    searchMock.mockResolvedValue({
+      hits: [
+        { score: 5, file: "/ws/src/a.ts", line: 1, content: "", contextBefore: [], contextAfter: [] },
+        { score: 2, file: "/ws/src/b.ts", line: 1, content: "", contextBefore: [], contextAfter: [] },
+      ],
+      totalMatches: 2,
+      filesIndexed: 10,
+    });
+    const groups = [g("/ws/src/fresh.ts"), g("/ws/src/a.ts"), g("/ws/src/b.ts")];
+    const out = await rankGrepHitsByBlueprint(groups, {
+      workspaceId: 1,
+      workspaceRootAbs: "/ws",
+      query: "newSymbol",
+    });
+    expect(out[0].file).toBe("/ws/src/fresh.ts");
+  });
 });
 
 describe("suggestClosestIndexedSymbols (v13.2 zero-hit fallback)", () => {

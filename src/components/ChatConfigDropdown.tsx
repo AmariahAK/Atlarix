@@ -124,8 +124,8 @@ export function ChatConfigDropdown({
                 </span>
               </DropdownMenuCheckboxItem>
               <p className="px-2 pb-1 pt-0.5 text-[10px] leading-snug text-muted-foreground">
-                Think harder on demand. Off = balanced (default); on = maximum
-                reasoning for this model.
+                Off = high reasoning (default); on = the maximum this model
+                supports. Scales automatically to each model's capability.
               </p>
             </>
           ) : null}

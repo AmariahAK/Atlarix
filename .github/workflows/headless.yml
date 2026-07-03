@@ -14,6 +14,10 @@ on:
   push:
     tags:
       - "headless-v*"
+      # v14.8.10: also rebuild on every desktop release tag so the
+      # headless-bench tarball can never silently go stale (previously a
+      # manual runbook step via scripts/build-headless-tarball.sh).
+      - "v*"
 
 permissions:
   contents: read

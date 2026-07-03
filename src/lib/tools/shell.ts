@@ -39,6 +39,7 @@ ToolRegistry.register({
         "For project scaffolding (e.g. npm create vite@latest <path>), pass all options so the command is non-interactive: use --template and, for create-vite, --no-interactive to avoid prompts. " +
         "Limits are optional knobs: pass smaller timeout_ms or max_output_bytes when you expect huge logs. " +
         "Set background=true for long-running work you don't need to block on (long builds, installs, watch tasks): the call returns immediately with a job_id and the result is delivered to you automatically when the command exits — continue other work, never poll, and you may END YOUR TURN while it runs (you're woken on completion). Any foreground command still running after ~15s is auto-moved to the background the same way. Manage running jobs with background_jobs. " +
+        "For a long-running job whose interesting event is a LINE OF OUTPUT rather than exit (a dev server printing 'compiled successfully', a log tail hitting 'ERROR'), set wake_on to that text — you'll be woken the moment it appears (and still pinged if it goes silent / on exit). For EXTERNAL state (a deploy/CI result, remote logs), background a command that BLOCKS until that state (e.g. `gh run watch`) so its completion is the signal — never poll on a timer. " +
         "When a backgrounded process prints a http://localhost:PORT URL, the preview loads it automatically — then drive it with browser_* target:\"preview\".",
     requiresWorkspace: true,
     isCore: true,
@@ -64,6 +65,12 @@ ToolRegistry.register({
             background: booleanParam(
                 "Run detached: return immediately; you receive the exit result automatically when it finishes.",
             ),
+            wake_on: stringParam(
+                "Optional: for a long-running/background job, wake you as soon as its output contains this text (e.g. \"compiled successfully\", \"ERROR\"). You're still pinged if it goes silent and when it exits. Omit for one-shot commands — their result already arrives on exit.",
+            ),
+            wake_on_regex: booleanParam(
+                "Treat wake_on as a case-insensitive regex instead of a plain substring.",
+            ),
         },
         ["command", "description"]
     ),
@@ -74,6 +81,8 @@ ToolRegistry.register({
         timeout_ms = 120_000,
         max_output_bytes = 80_000,
         background = false,
+        wake_on,
+        wake_on_regex = false,
     }) => {
         const dangerous = isDangerousCommand(command);
         const dangerExplanation = dangerous ? getDangerExplanation(command) : undefined;
@@ -90,6 +99,10 @@ ToolRegistry.register({
                 timeout_ms: Math.min(1_800_000, Math.max(1000, Number(timeout_ms) || 120_000)),
                 max_output_bytes: Math.min(1_000_000, Math.max(1024, Number(max_output_bytes) || 80_000)),
                 background: background === true,
+                wake_on:
+                    wake_on && String(wake_on).trim()
+                        ? { pattern: String(wake_on), regex: wake_on_regex === true }
+                        : undefined,
             },
         };
     },

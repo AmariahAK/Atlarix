@@ -10,8 +10,9 @@ import { X } from "lucide-react";
 import {
   activeChatIdAtom,
   selectedChatIdAtom,
-  isStreamingByIdAtom,
+  isStreamingForChatAtom,
   openChatTabsAtom,
+  type OpenChatTab,
 } from "@/atoms/chatAtoms";
 import {
   selectedAppIdAtom,
@@ -29,7 +30,6 @@ export function ChatTabStrip() {
   const setSelectedAppId = useSetAtom(selectedAppIdAtom);
   const setSelectedWorkspaceInfo = useSetAtom(selectedWorkspaceInfoAtom);
   const setActiveSessionId = useSetAtom(activeWorkspaceSessionIdAtom);
-  const isStreamingById = useAtomValue(isStreamingByIdAtom);
   const chatIdToSessionId = useAtomValue(chatIdToSessionIdAtom);
   const appsList = useAtomValue(appsListAtom);
 
@@ -72,46 +72,69 @@ export function ChatTabStrip() {
 
   return (
     <div className="flex-shrink-0 flex items-stretch gap-1 overflow-x-auto border-b border-border/40 bg-background/95 px-2">
-      {tabs.map((tab) => {
-        const isActive = tab.chatId === activeChatId;
-        const isStreaming = isStreamingById.get(tab.chatId) ?? false;
-        return (
-          <button
-            key={tab.chatId}
-            type="button"
-            onClick={() => switchToTab(tab.chatId, tab.appId)}
-            className={cn(
-              "group flex items-center gap-1.5 px-3 py-1.5 text-xs whitespace-nowrap border-b-2 transition-colors max-w-[180px]",
-              isActive
-                ? "border-primary text-foreground"
-                : "border-transparent text-muted-foreground hover:text-foreground hover:bg-accent/40",
-            )}
-            title={tab.title}
-          >
-            <span
-              className={cn(
-                "h-1.5 w-1.5 rounded-full shrink-0",
-                isStreaming
-                  ? "bg-emerald-500 animate-pulse"
-                  : isActive
-                    ? "bg-primary/60"
-                    : "bg-transparent",
-              )}
-              aria-hidden
-            />
-            <span className="truncate">{tab.title}</span>
-            <span
-              role="button"
-              tabIndex={-1}
-              onClick={(e) => closeTab(e, tab.chatId)}
-              className="opacity-0 group-hover:opacity-100 hover:bg-muted rounded p-0.5 transition-opacity shrink-0"
-              aria-label="Close session tab"
-            >
-              <X className="h-3 w-3" />
-            </span>
-          </button>
-        );
-      })}
+      {tabs.map((tab) => (
+        <ChatTab
+          key={tab.chatId}
+          tab={tab}
+          isActive={tab.chatId === activeChatId}
+          onSwitch={switchToTab}
+          onClose={closeTab}
+        />
+      ))}
     </div>
+  );
+}
+
+/**
+ * One tab. Subscribes to ITS OWN chat's streaming state (isStreamingForChatAtom)
+ * so only the tab whose streaming flips re-renders — a stream in one session no
+ * longer re-renders the whole strip on every ~50ms flush.
+ */
+function ChatTab({
+  tab,
+  isActive,
+  onSwitch,
+  onClose,
+}: {
+  tab: OpenChatTab;
+  isActive: boolean;
+  onSwitch: (chatId: number, appId: number | null) => void;
+  onClose: (e: React.MouseEvent, chatId: number) => void;
+}) {
+  const isStreaming = useAtomValue(isStreamingForChatAtom(tab.chatId));
+  return (
+    <button
+      type="button"
+      onClick={() => onSwitch(tab.chatId, tab.appId)}
+      className={cn(
+        "group flex items-center gap-1.5 px-3 py-1.5 text-xs whitespace-nowrap border-b-2 transition-colors max-w-[180px]",
+        isActive
+          ? "border-primary text-foreground"
+          : "border-transparent text-muted-foreground hover:text-foreground hover:bg-accent/40",
+      )}
+      title={tab.title}
+    >
+      <span
+        className={cn(
+          "h-1.5 w-1.5 rounded-full shrink-0",
+          isStreaming
+            ? "bg-emerald-500 animate-pulse"
+            : isActive
+              ? "bg-primary/60"
+              : "bg-transparent",
+        )}
+        aria-hidden
+      />
+      <span className="truncate">{tab.title}</span>
+      <span
+        role="button"
+        tabIndex={-1}
+        onClick={(e) => onClose(e, tab.chatId)}
+        className="opacity-0 group-hover:opacity-100 hover:bg-muted rounded p-0.5 transition-opacity shrink-0"
+        aria-label="Close session tab"
+      >
+        <X className="h-3 w-3" />
+      </span>
+    </button>
   );
 }

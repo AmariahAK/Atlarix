@@ -21,6 +21,14 @@ export function stripOrphanToolTagFragments(content: string): string {
   out = out.replace(/[,\s]*"_truncatedOutput"\s*:\s*(?:true|false)\s*\}?/gi, "");
   out = out.replace(/\}\s*<\/atlarix-tool-result>\s*/gi, "");
   out = out.replace(/\{[^{}]*"message"\s*:\s*"[^"]*"[^{}]*\}/gi, "");
+  // v14.8.10 Fix L: orphan result TAILS without a leading `{` — a model echoing
+  // a fragment of a tool result (observed: `","message":"Plan created."}` next
+  // to the plan card). Anchored to known result keys + a closing `}` so real
+  // prose mentioning the word "message" is untouched.
+  out = out.replace(
+    /"?,?\s*"(?:message|planId|planStatus|marker|contentPreview)"\s*:\s*"[^"]*"[^{}\n]*\}/gi,
+    "",
+  );
   out = stripMultilineToolJsonEnvelopes(out);
   out = stripToolJsonLinesFromMarkdown(out);
   out = out.replace(/\n{2,}/g, "\n");
@@ -191,7 +199,7 @@ export function isOnlyToolDebris(content: string): boolean {
   ).trim();
   if (!stripped) return true;
   if (/^[\s\]},":\d._-]+$/.test(stripped)) return true;
-  if (/^"message"\s*:/.test(stripped)) return true;
+  if (/^"?,?\s*"message"\s*:/.test(stripped)) return true;
   if (/^\{\s*"success"\s*:/.test(stripped)) return true;
   const lines = stripped.split("\n").filter((l) => l.trim());
   if (lines.length > 0 && lines.every((l) => isToolJsonLine(l))) return true;

@@ -23,6 +23,7 @@ import {
 import {
   parsePlanChecklist,
   setStepStateInPlanMarkdown,
+  type PlanChecklistStep,
   type PlanStepState,
 } from "@/lib/tasks/plan-checklist";
 import { broadcastPlanArtifactUpdated } from "@/ipc/utils/emit_plan_artifact";
@@ -168,6 +169,25 @@ async function setStatus(args: PlanToolArgs) {
   };
 }
 
+/**
+ * Compact one-line checklist for the update_step not-found error — carries the
+ * state the model needs to self-correct in ONE follow-up call (no plan(read)
+ * round-trip, which only strong models think to do). Capped for token safety.
+ */
+function formatStepsForError(steps: PlanChecklistStep[]): string {
+  const MARK: Record<string, string> = {
+    todo: " ",
+    in_progress: "~",
+    done: "x",
+    blocked: "!",
+  };
+  const shown = steps
+    .slice(0, 20)
+    .map((s) => `${s.index}.[${MARK[s.state] ?? " "}] ${s.text.slice(0, 60)}`);
+  const more = steps.length > 20 ? ` …and ${steps.length - 20} more` : "";
+  return shown.join("; ") + more;
+}
+
 async function updateStep(args: PlanToolArgs) {
   const allowed: PlanStepState[] = ["todo", "in_progress", "done", "blocked"];
   if (!allowed.includes(args.state as PlanStepState)) {
@@ -206,7 +226,11 @@ async function updateStep(args: PlanToolArgs) {
     const steps = parsePlanChecklist(row.content);
     return {
       success: false,
-      error: `Step not found in plan checklist (${steps.length} steps). plan({ operation: 'read' }) shows the numbered steps; retry with a valid step_index.`,
+      error:
+        steps.length === 0
+          ? "The plan has no checklist steps yet — rewrite it with operation:'write' using numbered '1. [ ] …' items."
+          : `Step not found in plan checklist. Current steps: ${formatStepsForError(steps)}. ` +
+            "Retry with step_text (a unique substring of the step) — or rewrite the whole plan with operation:'write' and updated [x]/[~] marks (always safe).",
     };
   }
   if (!result.changed) {
@@ -264,11 +288,11 @@ ToolRegistry.register({
   name: "plan",
   description:
     "Session implementation plan + LIVE progress ledger (stored in the database, shown as a card in chat). Keep it current: mark a step in_progress when you start it and done when you finish, and consult it before deciding your next action instead of re-deriving progress. For the mutation ops, planId is OPTIONAL — the session's latest plan is assumed. Operations: " +
-    "'write' (create/update the plan markdown — include the returned marker comment in your reply so the card renders; pass planId to update a specific plan), " +
+    "'write' (create OR update the plan markdown — the CANONICAL way to update progress when several steps changed or you're unsure of numbering: re-emit the full plan with updated [x]/[~]/[!] marks, which is always safe and cannot miss. Include the returned marker comment in your reply so the card renders; pass planId to update a specific plan), " +
     "'read' (latest plan, or by planId / status filter — re-read before continuing if the user may have edited the plan), " +
     "'set_status' (plan_status: plan → building → built), " +
-    "'update_step' (state in_progress|done|todo|blocked + step_index or step_text — one call marks a step so the card shows live progress), " +
-    "'append_step' (step_text — add a new checklist item without rewriting the plan).",
+    "'update_step' (convenience for marking ONE step: state in_progress|done|todo|blocked + step_text (preferred — a unique substring of the step) or step_index), " +
+    "'append_step' (step_text — add a new checklist item).",
   requiresWorkspace: true,
   isCore: false,
   isReadOnly: false,
@@ -315,12 +339,14 @@ ToolRegistry.register({
       },
       step_index: {
         type: "number",
-        description: "update_step: 1-based checklist step number",
+        description:
+          "update_step fallback: 1-based checklist step number as shown by plan read — prefer step_text",
         required: false,
       },
       step_text: {
         type: "string",
-        description: "update_step: step text (or unique substring) when index is unknown",
+        description:
+          "update_step preferred: the step's text (or a unique substring of it)",
         required: false,
       },
     },

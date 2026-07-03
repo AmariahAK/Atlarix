@@ -213,6 +213,11 @@ export async function runAgentTurn(
   // that briefly yields at several phase boundaries shouldn't be cut at 3. Both
   // reset on any productive round.
   let planNudgeStreak = 0;
+  // v14.8.10: absolute per-turn total that NEVER resets — the consecutive streak
+  // resets on any productive round, so a model alternating one trivial tool call
+  // with a yield re-arms the 6-cap indefinitely (observed: 3+ full nudge cycles
+  // in a single turn). This bounds the whole turn, not just the streak.
+  let planNudgeTotal = 0;
   let agenticMessages: ModelMessage[] = [...rt.seedMessages];
   const allToolResults: Array<{ tool: string; result: string }> = [];
   let totalToolExecutions = 0;
@@ -229,6 +234,8 @@ export async function runAgentTurn(
   const PROSE_YIELD_MAX_NUDGES = 3;
   // Plan-completeness nudges get more headroom (see planNudgeStreak above).
   const PLAN_YIELD_MAX_NUDGES = 6;
+  // Hard per-turn ceiling on plan nudges regardless of streak resets.
+  const PLAN_YIELD_TOTAL_MAX = 12;
 
   // Park-on-wait: when the model would END the turn but background work is still
   // outstanding (running/pending background commands OR sub-agents), we DON'T
@@ -559,17 +566,39 @@ export async function runAgentTurn(
 
     // §A5: semantic loop-guard on repeated status re-statements. If the model
     // keeps re-emitting the same status text round after round (tool args
-    // varying so the byte-identical tool guard misses it), wrap up gracefully
-    // via the same tools-off finish path a mid-round abort uses.
-    if (
-      !forceTextFinish &&
-      profile.repetition?.isEnabled() &&
-      profile.repetition.recordText(stripThinkBlocks(iterationDeltaResponse)).kind ===
-        "loop_abort"
-    ) {
-      logger.info(`${L} Repeated status restatement detected — forcing finish round`);
-      forceTextFinish = true;
-      continue;
+    // varying so the byte-identical tool guard misses it), first CORRECT it
+    // (round-boundary feedback, same transient mechanism as gate nudges —
+    // v14.8.10 Fix R); only a second full run of repeats forces the finish.
+    if (!forceTextFinish && profile.repetition?.isEnabled()) {
+      const textRep = profile.repetition.recordText(
+        stripThinkBlocks(iterationDeltaResponse),
+      );
+      if (textRep.kind === "loop_correct") {
+        logger.info(
+          `${L} Repeated status restatement detected — injecting correction (attempt ${textRep.attempt})`,
+        );
+        // Fold the round's prose first (same shape as the gate-nudge path) so
+        // the correction lands on coherent alternating history.
+        agenticMessages.push({
+          role: "assistant" as const,
+          content: stripAssistantDisplayContent(stripXML(fullResponse)),
+        });
+        agenticMessages.push({
+          role: "user" as const,
+          content: systemReminder(
+            "You have repeated essentially the same status message for several rounds without new work. " +
+              "Do not restate progress again — take the next concrete action now, or if the task is complete " +
+              "(or you are blocked), end your turn with a final summary.",
+          ),
+        });
+        agenticIteration++;
+        continue;
+      }
+      if (textRep.kind === "loop_abort") {
+        logger.info(`${L} Repeated status restatement persisted — forcing finish round`);
+        forceTextFinish = true;
+        continue;
+      }
     }
 
     const textToolCalls =
@@ -694,14 +723,20 @@ export async function runAgentTurn(
       }
       const gateStreak = usePlanGate ? planNudgeStreak : agenticProseOnlyStreak;
       const gateCap = usePlanGate ? PLAN_YIELD_MAX_NUDGES : PROSE_YIELD_MAX_NUDGES;
-      if (gateFeedback == null || gateStreak >= gateCap) {
+      if (
+        gateFeedback == null ||
+        gateStreak >= gateCap ||
+        (usePlanGate && planNudgeTotal >= PLAN_YIELD_TOTAL_MAX)
+      ) {
         logger.info(
           `${L} Model yielded (no tool calls) — ending turn at iteration ${agenticIteration + 1}`,
         );
         break;
       }
-      if (usePlanGate) planNudgeStreak++;
-      else agenticProseOnlyStreak++;
+      if (usePlanGate) {
+        planNudgeStreak++;
+        planNudgeTotal++;
+      } else agenticProseOnlyStreak++;
       // Fold this round's native tool messages for context on the gate-nudge
       // continuation (a tool-using round can now reach this path); fall back to
       // prose for a pure-prose round. Stage 2: fold into BOTH request + envelope

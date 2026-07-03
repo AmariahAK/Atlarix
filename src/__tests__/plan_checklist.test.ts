@@ -80,6 +80,52 @@ describe("setStepStateInPlanMarkdown", () => {
     expect(res.content).toContain("1. [ ] Create login form");
     expect(res.content).toContain("4. [!] Configure OAuth redirect");
   });
+
+  // v14.8.10: when index and text are BOTH given, the text is the model's
+  // intent — a drifted index must never silently mark the wrong step.
+  it("index wins when index and text agree", () => {
+    const res = setStepStateInPlanMarkdown(
+      PLAN,
+      { stepIndex: 2, stepText: "supabase" },
+      "done",
+    );
+    expect(res.changed).toBe(true);
+    expect(res.step).toMatchObject({ index: 2, state: "done" });
+  });
+
+  it("text wins when index and text disagree (drifted index)", () => {
+    // Index 1 is "Create login form", but the model MEANS the Supabase step.
+    const res = setStepStateInPlanMarkdown(
+      PLAN,
+      { stepIndex: 1, stepText: "supabase client" },
+      "done",
+    );
+    expect(res.changed).toBe(true);
+    expect(res.step).toMatchObject({ index: 2, state: "done" });
+    expect(res.content).toContain("1. [ ] Create login form"); // untouched
+    expect(res.content).toContain("2. [x] Wire Supabase client");
+  });
+
+  it("not-found when both are given and the text matches nothing", () => {
+    const res = setStepStateInPlanMarkdown(
+      PLAN,
+      { stepIndex: 1, stepText: "no such step anywhere" },
+      "done",
+    );
+    expect(res.changed).toBe(false);
+    expect(res.step).toBeUndefined();
+    expect(res.content).toBe(PLAN);
+  });
+
+  it("whitespace-only step_text is treated as absent (index still works)", () => {
+    const res = setStepStateInPlanMarkdown(
+      PLAN,
+      { stepIndex: 1, stepText: "   " },
+      "in_progress",
+    );
+    expect(res.changed).toBe(true);
+    expect(res.step).toMatchObject({ index: 1 });
+  });
 });
 
 describe("markAllChecklistStepsDone", () => {
