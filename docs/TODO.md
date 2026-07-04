@@ -12,18 +12,18 @@ verbatim-splice gap — references, not goals); deterministic attachment ids + p
 edit-path modelContent regeneration (interrupted turns no longer replay empty stubs);
 read_attachment pages the FULL extraction (200K total caps gone, read_file-parity offset/limit,
 extract cache, shared preview whitelist, rawBase64 bloat dropped); attached images ride the
-screenshot media pipeline (shape-gated, vision-gated — visible to vision models at last);
+screenshot media pipeline (shape-gated, vision-gated) AND embed directly in the user message as
+native image parts on vision dispatches (no tool round-trip);
 compress_context truthful (forces past the 60% gate, meter-scope ratio, ONE exact counter,
 success-gated banner); context limits provider-uniform (per-model hardcode table DELETED —
 override → OpenRouter catalog → provider row → models.dev → logged fallback; native DeepSeek
 sees its real 1M); dead positive-id legacy branches removed (+ auto-memory & self-correction
 husks); sub-agent thought segments rotate at tool boundaries (cards interleave like the main
 chat); IPC-only compaction cards weave inline by timestamp; edit-box keeps attachment chips;
-preflight gap attribution (`gap-after-*`). tsc/oxlint/knip clean; vitest 1639 green.
+preflight gap attribution (`gap-after-*`). tsc/oxlint/knip clean; vitest 1643 green.
 
 Follow-ups deferred: W11 live escape-handling A/B (owner smoke, rides this build); preflight S18
-reorder (now measurable); user-message multimodal content parts (image attachments without a tool
-round-trip — the content:string contract refactor).
+reorder (one live session's `gap-after-*` data first — the instrumentation ships in this build).
 
 ---
 

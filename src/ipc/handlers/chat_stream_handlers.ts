@@ -29,6 +29,7 @@ import {
   buildToolModelOutput,
   redactToolMediaForDisplay,
   extractImageMedia,
+  providerSupportsToolMedia,
 } from "@/lib/ai/tool-model-output";
 import {
   hasNativeToolParts,
@@ -3616,12 +3617,21 @@ This conversation includes one or more image attachments. When the user uploads 
             const lastUserMessage = chatMessages[lastUserIndex];
 
             if (lastUserMessage.role === "user") {
+              // Follow-on to W4 (v14.8.11): on a vision-capable dispatch the
+              // current turn's image attachments ride the user message as
+              // NATIVE image parts — seen immediately, no tool round-trip.
+              // Non-vision models keep the read_attachment directive only.
+              const visionOk = providerSupportsToolMedia(
+                modelClient.builtinProviderId,
+                resolveReasoningCatalogModelId(effectiveModel),
+              );
               chatMessages[lastUserIndex] = await preflight.time(
                 "prepare-attachments",
                 () =>
                   prepareMessageWithAttachments({
                     message: lastUserMessage,
                     attachmentInfoForModel,
+                    imageAttachments: visionOk ? storedFileAttachments : [],
                   }),
               );
             }
@@ -7842,14 +7852,27 @@ export function formatMessagesForSummary(
 }
 
 
-// Helper function to convert traditional message with attachments
-// v8.0: Images and files are now accessed via read_attachment tool, not content blocks
-async function prepareMessageWithAttachments({
+/** Embedding guards: providers cap per-image payloads (~5MB) and there is no
+ * good reason to inline a screenshot-dump's worth of images into one turn. */
+const EMBED_IMAGE_MAX_COUNT = 8;
+const EMBED_IMAGE_MAX_BASE64_CHARS = 6_800_000; // ≈5MB decoded
+
+// Helper function to convert traditional message with attachments.
+// v8.0 removed content blocks in favor of read_attachment; v14.8.11
+// (follow-on to W4) restores IMAGE content parts for the CURRENT turn on
+// vision-capable dispatches — the model sees an attached image immediately,
+// no tool round-trip. Documents keep the read_attachment path (paged, W3);
+// historical turns re-read images via read_attachment (ids are stable, W2).
+export async function prepareMessageWithAttachments({
   message,
   attachmentInfoForModel,
+  imageAttachments = [],
 }: {
   message: ModelMessage;
   attachmentInfoForModel: string;
+  /** Current-turn image attachments to embed as native image parts. The
+   * CALLER gates on vision capability — pass [] for non-vision dispatches. */
+  imageAttachments?: Array<{ filename: string; mimeType: string; data: string }>;
 }): Promise<ModelMessage> {
   const textContent = message.content;
   if (typeof textContent !== "string") {
@@ -7866,9 +7889,37 @@ async function prepareMessageWithAttachments({
       ? `${textContent}${attachmentInfoForModel}`
       : textContent;
 
+  const embeddable = imageAttachments
+    .filter(
+      (a) =>
+        a.mimeType.startsWith("image/") &&
+        a.mimeType !== "image/svg+xml" &&
+        a.data.length > 0 &&
+        a.data.length <= EMBED_IMAGE_MAX_BASE64_CHARS,
+    )
+    .slice(0, EMBED_IMAGE_MAX_COUNT);
+  if (embeddable.length === 0) {
+    return {
+      role: "user",
+      content: injected,
+    };
+  }
+
   return {
     role: "user",
-    content: injected,
+    content: [
+      {
+        type: "text",
+        text: `${injected}\n\nThe attached image${embeddable.length > 1 ? "s are" : " is"} embedded below (${embeddable
+          .map((a) => a.filename)
+          .join(", ")}) — you can view ${embeddable.length > 1 ? "them" : "it"} directly; read_attachment is NOT needed for embedded images.`,
+      },
+      ...embeddable.map((a) => ({
+        type: "image" as const,
+        image: a.data,
+        mediaType: a.mimeType,
+      })),
+    ],
   };
 }
 

@@ -7,7 +7,7 @@
 > survive interruptions), a tolerant edit match can no longer corrupt a tab-indented file, the
 > compaction tool tells the truth, context windows come from real provider data instead of a
 > hardcoded table, and both the main and sub-agent streams render in true chronological order.
-> tsc (main + app + tests) + oxlint + knip clean; full vitest green (**1639 tests**).
+> tsc (main + app + tests) + oxlint + knip clean; full vitest green (**1643 tests**).
 
 ### Fixed
 
@@ -77,13 +77,16 @@
   inline send-time preview now uses the ONE shared extension list (a `.py`/`.go` upload finally
   gets a preview) with an honest "preview only" footer. `rawBase64` payload bloat (megabytes of
   base64 JSON-stringified at the model) is dropped from all results.
-- **Attached images are actually VISIBLE to vision models.** They previously reached the model as
-  JSON-stringified — and truncation-corrupted — base64 TEXT. The read_attachment image branch now
-  returns the screenshot shape, and the media adapter gates on RESULT SHAPE instead of a
-  browser-tool name allowlist (`extractScreenshotMedia` → `extractImageMedia`) — so attached
-  images ride the exact pipeline screenshots ride: native media part on vision models, honest
-  placeholder on non-vision models, truncation-exempt. SVG returns as XML text (providers reject
-  `image/svg+xml` as image input); batch reads point at a single-id call per image.
+- **Attached images are actually VISIBLE to vision models — embedded in the message itself.**
+  They previously reached the model as JSON-stringified — and truncation-corrupted — base64 TEXT.
+  Two layers: (1) on a vision-capable dispatch the current turn's image attachments ride the user
+  message as NATIVE image parts (seen immediately, no tool round-trip; ≤8 images, ≤5MB each,
+  dispatch-time only — nothing persisted); (2) `read_attachment` returns the screenshot shape and
+  the media adapter gates on RESULT SHAPE instead of a browser-tool name allowlist
+  (`extractScreenshotMedia` → `extractImageMedia`), so re-reads and historical turns get a native
+  media part too — vision-gated, truncation-exempt, honest placeholder on non-vision models. SVG
+  returns as XML text (providers reject `image/svg+xml` as image input); batch reads point at a
+  single-id call per image.
 - **Preflight TTFT gaps are attributable.** Spans record offsets and the `preflight-breakdown`
   line names every ≥50ms inter-span gap (`gap-after-<name>`/`pre-first-span`) — live sessions
   showed up to 60% of preflight time unaccounted; the S18 reorder pass now knows exactly where to
