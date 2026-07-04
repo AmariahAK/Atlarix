@@ -23,7 +23,7 @@ import { assertReadablePath } from "@/lib/security/env-secret-paths";
 import { ToolRegistry } from "./registry";
 import { enrichPermissionWithBlastRadius } from "./permissions/enrich-blast-radius";
 import { isAtlarixDocWritePath } from "../project-memory";
-import { findReplacement } from "./edit-match";
+import { findReplacement, reindentReplacement } from "./edit-match";
 import { suggestClosestPath } from "./workspace-file-hints";
 import {
   analyzeEscaping,
@@ -273,11 +273,21 @@ async function runReplace(
   // (tool result `output`) and the activity/approval card so indentation-
   // sensitive files (Python/YAML) get re-verified instead of corrupted.
   let fuzzyNotice: string | undefined;
+  let effectiveReplacement = effectiveNew;
   if (match.fuzzy) {
     const matchLine = r.content.slice(0, match.index).split("\n").length;
-    fuzzyNotice = `Applied with indent/EOL tolerance at line ${matchLine} — old_content did not match exactly. Re-read the edited range to verify indentation.`;
+    // Re-anchor new_content to the file's ACTUAL indentation (the matched
+    // region), so a tolerant match never writes the model's drifted whitespace
+    // into the file — the opencode port spliced verbatim and corrupted
+    // tab-indented files when the model supplied spaces.
+    const matchedText = r.content.slice(match.index, match.index + match.matchLength);
+    const reindented = reindentReplacement(matchedText, old_content, effectiveNew);
+    if (reindented.changed) effectiveReplacement = reindented.text;
+    fuzzyNotice = reindented.changed
+      ? `Applied with indent/EOL tolerance at line ${matchLine} — old_content did not match exactly; new_content was re-anchored to the file's actual indentation. Re-read the edited range to verify.`
+      : `Applied with indent/EOL tolerance at line ${matchLine} — old_content did not match exactly. Re-read the edited range to verify indentation.`;
     logger.warn(
-      `[edit_file] fuzzy match (indent/EOL tolerated) for ${normalizedPath} at line ${matchLine}`,
+      `[edit_file] fuzzy match (indent/EOL tolerated${reindented.changed ? ", new_content re-indented" : ""}) for ${normalizedPath} at line ${matchLine}`,
     );
   }
 
@@ -285,10 +295,10 @@ async function runReplace(
 
   const newContent =
     r.content.slice(0, match.index) +
-    effectiveNew +
+    effectiveReplacement +
     r.content.slice(match.index + match.matchLength);
   const oldLines = old_content.split("\n").length;
-  const newLines = effectiveNew.split("\n").length;
+  const newLines = effectiveReplacement.split("\n").length;
   return permissionPayloadWithBlastRadius(
     workspace,
     {
@@ -304,7 +314,8 @@ async function runReplace(
         removed: oldLines,
         added: newLines,
         old_snippet: old_content.slice(0, 200) + (old_content.length > 200 ? "..." : ""),
-        new_snippet: effectiveNew.slice(0, 200) + (effectiveNew.length > 200 ? "..." : ""),
+        new_snippet:
+          effectiveReplacement.slice(0, 200) + (effectiveReplacement.length > 200 ? "..." : ""),
       },
       reasoning: `Replace in ${normalizedPath}: ${description ?? "(no description)"} (${oldLines}→${newLines} lines)`,
     },

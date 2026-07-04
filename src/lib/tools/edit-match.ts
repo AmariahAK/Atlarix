@@ -15,7 +15,7 @@
 export type Replacer = (content: string, find: string) => Generator<string, void, unknown>;
 
 export type ReplacementResult =
-  | { kind: "match"; index: number; matchLength: number; fuzzy: boolean }
+  | { kind: "match"; index: number; matchLength: number; fuzzy: boolean; strategy: string }
   /** old_content matched N>1 places — caller asks for more surrounding context. */
   | { kind: "multiple"; occurrences: number }
   /** a fuzzy span ballooned far beyond old_content — refuse rather than corrupt. */
@@ -395,8 +395,200 @@ export function findReplacement(content: string, oldString: string): Replacement
       index: content.indexOf(search),
       matchLength: search.length,
       fuzzy: name !== "exact",
+      strategy: name,
     };
   }
   if (sawMultiple != null) return { kind: "multiple", occurrences: sawMultiple };
   return { kind: "none" };
+}
+
+/* ------------------------------------------------------------------------- *
+ * Fuzzy-match re-indentation (surpasses the opencode port, which splices
+ * new_content verbatim — writing a model's space indentation into a
+ * tab-indented file when the tolerant match succeeds; observed live corrupting
+ * a Go file). When a fuzzy strategy located the file's REAL region, re-anchor
+ * new_content to that region's actual indentation before splicing.
+ * ------------------------------------------------------------------------- */
+
+function leadingWhitespace(line: string): string {
+  return /^[ \t]*/.exec(line)?.[0] ?? "";
+}
+
+function gcd(a: number, b: number): number {
+  return b === 0 ? a : gcd(b, a % b);
+}
+
+type IndentUnit = { kind: "tab" } | { kind: "space"; width: number };
+
+/**
+ * Infer a block's indent unit from its leading runs: tabs, or the GCD of
+ * space-indent widths. "none" = no indented lines (flat block); "ambiguous" =
+ * mixed tabs+spaces or an unusable GCD — callers must fall back to verbatim.
+ */
+function inferIndentUnit(lines: string[]): IndentUnit | "none" | "ambiguous" {
+  let sawTab = false;
+  let spaceGcd = 0;
+  for (const line of lines) {
+    if (line.trim().length === 0) continue;
+    const ws = leadingWhitespace(line);
+    if (ws.length === 0) continue;
+    const hasTab = ws.includes("\t");
+    const hasSpace = ws.includes(" ");
+    if (hasTab && hasSpace) return "ambiguous";
+    if (hasTab) sawTab = true;
+    else spaceGcd = gcd(spaceGcd, ws.length);
+  }
+  if (sawTab && spaceGcd > 0) return "ambiguous";
+  if (sawTab) return { kind: "tab" };
+  if (spaceGcd === 0) return "none";
+  return spaceGcd >= 2 ? { kind: "space", width: spaceGcd } : "ambiguous";
+}
+
+/** Indent depth of a line in `unit` steps; null when not a clean multiple. */
+function indentDepth(line: string, unit: IndentUnit): number | null {
+  const ws = leadingWhitespace(line);
+  if (ws.length === 0) return 0;
+  if (unit.kind === "tab") return /^\t+$/.test(ws) ? ws.length : null;
+  if (!/^ +$/.test(ws)) return null;
+  return ws.length % unit.width === 0 ? ws.length / unit.width : null;
+}
+
+function withIndent(indent: string, line: string): string {
+  return indent + line.slice(leadingWhitespace(line).length);
+}
+
+/**
+ * Re-anchor `newContent` to the matched region's ACTUAL indentation.
+ *
+ * - Lines of new_content whose trimmed text equals a trimmed old_content line
+ *   adopt that line's real file indent (per-line delta re-anchoring, matched
+ *   monotonically so repeated closers like `}` map in order).
+ * - Novel lines extrapolate from the nearest mapped line: file indent ±
+ *   (depth delta in the model's unit) × the file's unit.
+ * - Safety valve: any ambiguity (mixed tabs+spaces in one run, line counts
+ *   that don't align, non-multiple indents, nothing mapped) returns the input
+ *   verbatim (`changed:false`) — never worse than the pre-fix behavior.
+ *
+ * Never touches non-leading whitespace.
+ */
+export function reindentReplacement(
+  matchedText: string,
+  oldContent: string,
+  newContent: string,
+): { text: string; changed: boolean } {
+  const verbatim = { text: newContent, changed: false };
+
+  const matchedLines = matchedText.split("\n");
+  const oldLines = oldContent.split("\n");
+  // Mirror the replacers' trailing-newline tolerance (LineTrimmedReplacer pops
+  // a trailing "" search line, so the matched span can be one line shorter).
+  if (oldLines.length === matchedLines.length + 1 && oldLines[oldLines.length - 1] === "") {
+    oldLines.pop();
+  }
+
+  const newLines = newContent.split("\n");
+
+  // Single-line matched span (incl. mid-line spans from the whitespace
+  // replacer): only re-anchor the first line's leading whitespace.
+  if (matchedLines.length === 1) {
+    if (oldLines.length !== 1) return verbatim;
+    const target = leadingWhitespace(matchedLines[0]!);
+    if (target === leadingWhitespace(oldLines[0]!)) return verbatim;
+    const out = [...newLines];
+    out[0] = withIndent(target, out[0]!);
+    const text = out.join("\n");
+    return { text, changed: text !== newContent };
+  }
+
+  if (matchedLines.length !== oldLines.length) return verbatim;
+
+  // Short-circuit: no indent drift between old_content and the matched region
+  // (escape/unicode-punctuation fuzz) — nothing to re-anchor.
+  let drift = false;
+  for (let i = 0; i < oldLines.length; i++) {
+    if (leadingWhitespace(matchedLines[i]!) !== leadingWhitespace(oldLines[i]!)) {
+      drift = true;
+      break;
+    }
+  }
+  if (!drift) return verbatim;
+
+  // Pass 1 — map new lines onto old lines by trimmed text (monotone forward
+  // scan) and adopt the matched region's real indent for each mapped line.
+  const out: Array<string | null> = Array.from({ length: newLines.length }, () => null);
+  const mappedRef: Array<number | null> = Array.from({ length: newLines.length }, () => null);
+  let cursor = 0;
+  for (let i = 0; i < newLines.length; i++) {
+    const trimmed = newLines[i]!.trim();
+    if (trimmed.length === 0) {
+      out[i] = newLines[i]!; // blank lines pass through (keeps a bare \r)
+      continue;
+    }
+    for (let j = cursor; j < oldLines.length; j++) {
+      // Trimmed text must match AND the model's own indent must agree between
+      // its old and new line — repeated closers (`}`) at different nesting
+      // levels would otherwise map greedily to the wrong old line.
+      if (
+        oldLines[j]!.trim() === trimmed &&
+        leadingWhitespace(oldLines[j]!) === leadingWhitespace(newLines[i]!)
+      ) {
+        out[i] = withIndent(leadingWhitespace(matchedLines[j]!), newLines[i]!);
+        mappedRef[i] = j;
+        cursor = j + 1;
+        break;
+      }
+    }
+  }
+
+  // Pass 2 — novel lines extrapolate from the nearest mapped line.
+  if (out.some((line) => line === null)) {
+    const fileUnit = inferIndentUnit(matchedLines);
+    const modelUnit = inferIndentUnit([...oldLines, ...newLines]);
+    if (fileUnit === "ambiguous" || modelUnit === "ambiguous") return verbatim;
+    const fileUnitStr =
+      fileUnit === "none" ? null : fileUnit.kind === "tab" ? "\t" : " ".repeat(fileUnit.width);
+    // Flat model block still needs SOME unit to express depth 0 comparisons.
+    const depthUnit: IndentUnit = modelUnit === "none" ? { kind: "space", width: 4 } : modelUnit;
+
+    for (let i = 0; i < newLines.length; i++) {
+      if (out[i] !== null) continue;
+      let ref = -1;
+      for (let k = i - 1; k >= 0; k--) {
+        if (mappedRef[k] !== null) {
+          ref = k;
+          break;
+        }
+      }
+      if (ref === -1) {
+        for (let k = i + 1; k < newLines.length; k++) {
+          if (mappedRef[k] !== null) {
+            ref = k;
+            break;
+          }
+        }
+      }
+      if (ref === -1) return verbatim; // nothing mapped at all — no anchor
+      const depthNew = indentDepth(newLines[i]!, depthUnit);
+      const depthRef = indentDepth(newLines[ref]!, depthUnit);
+      if (depthNew === null || depthRef === null) return verbatim;
+      const delta = depthNew - depthRef;
+      const refIndent = leadingWhitespace(out[ref]!);
+      let indent: string;
+      if (delta === 0) {
+        indent = refIndent;
+      } else if (delta > 0) {
+        if (!fileUnitStr) return verbatim;
+        indent = refIndent + fileUnitStr.repeat(delta);
+      } else {
+        if (!fileUnitStr) return verbatim;
+        const strip = fileUnitStr.repeat(-delta);
+        if (!refIndent.endsWith(strip)) return verbatim;
+        indent = refIndent.slice(0, refIndent.length - strip.length);
+      }
+      out[i] = withIndent(indent, newLines[i]!);
+    }
+  }
+
+  const text = out.map((line) => line!).join("\n");
+  return { text, changed: text !== newContent };
 }

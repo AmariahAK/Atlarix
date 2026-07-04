@@ -45,8 +45,63 @@ describe("edit_file fuzzy drift signal", () => {
     expect(result.__permission_required).toBe(true);
     expect(result.preview.notice).toContain("indent/EOL tolerance at line 5");
     expect(result.preview.description).toContain("indent/EOL tolerance");
-    // The replacement uses the caller's new_content verbatim.
+    // new_content already carries the file's real 4-space indent, so the
+    // re-anchor pass is a no-op and the replacement applies as provided.
     expect(result.preview.content).toContain("    value = 2");
+    expect(result.preview.content).not.toMatch(/\n {2}value = 2/);
+  });
+
+  it("re-anchors drifted new_content to the file's actual indentation", async () => {
+    // Model supplies BOTH old and new at 2 spaces; the file uses 4. The fuzzy
+    // match must not write the model's 2-space indent into the file.
+    const result: any = await ToolRegistry.execute("edit_file", {
+      path: "src/config.py",
+      operation: "replace",
+      old_content: "  value = 1\n  return value",
+      new_content: "  value = 2\n  return value",
+      description: "Bump value",
+      workspace: ws,
+      chatMode: "build",
+    });
+
+    expect(result.__permission_required).toBe(true);
+    expect(result.preview.notice).toContain("re-anchored to the file's actual indentation");
+    expect(result.preview.content).toContain("    value = 2\n    return value");
+    expect(result.preview.content).not.toContain("\n  value = 2");
+  });
+
+  it("re-anchors space-indented model input onto a tab-indented file (live Go corruption case)", async () => {
+    fs.writeFileSync(
+      path.join(ws, "src", "chat_tui.go"),
+      "func update() {\n" +
+        "\t\t\tif pending {\n" +
+        "\t\t\t\tunsend()\n" +
+        "\t\t\t} else if cancelRequested() {\n" +
+        "\t\t\t\tcancel()\n" +
+        "\t\t\t\treturn quit\n" +
+        "\t\t\t}\n" +
+        "}\n",
+    );
+    const result: any = await ToolRegistry.execute("edit_file", {
+      path: "src/chat_tui.go",
+      operation: "replace",
+      old_content:
+        "        } else if cancelRequested() {\n            cancel()\n            return quit",
+      new_content:
+        "        } else if cancelRequested() {\n            snapshot()\n            cancel()\n            return quit",
+      description: "Add snapshot on cancel",
+      workspace: ws,
+      chatMode: "build",
+    });
+
+    expect(result.__permission_required).toBe(true);
+    expect(result.preview.notice).toContain("re-anchored");
+    // Mapped lines keep their real tab depth; the novel line extrapolates to
+    // body depth (4 tabs). No space indentation may leak into the file.
+    expect(result.preview.content).toContain("\t\t\t} else if cancelRequested() {");
+    expect(result.preview.content).toContain("\t\t\t\tsnapshot()");
+    expect(result.preview.content).toContain("\t\t\t\tcancel()");
+    expect(result.preview.content).not.toMatch(/\n {2,}\S/);
   });
 
   it("exact matches carry no notice", async () => {
