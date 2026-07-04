@@ -7,7 +7,7 @@
 > survive interruptions), a tolerant edit match can no longer corrupt a tab-indented file, the
 > compaction tool tells the truth, context windows come from real provider data instead of a
 > hardcoded table, and both the main and sub-agent streams render in true chronological order.
-> tsc (main + app + tests) + oxlint + knip clean; full vitest green (**1652 tests**).
+> tsc (main + app + tests) + oxlint + knip clean; full vitest green (**1658 tests**).
 
 ### Fixed
 
@@ -69,6 +69,12 @@
 
 ### Fixed (post-smoke, same release)
 
+- **Attachments survive message edits and app relaunches — scoping is session-keyed.** An edited
+  first message listed ZERO attachments: edit-resends skip ingest (no directive, no fresh tags),
+  and hydration had tagged records with the persisted transport chat id, which is remade every
+  app relaunch. Records now carry the session UUID as the primary scope key (transport id
+  secondary), and edit-resends rebuild the model's attachment directive (ids inline) from the
+  resent message's persisted file/paste attachments.
 - **Attachments are scoped to their conversation.** The in-process attachment store is one global
   map, so `list_attachments`/`read_attachment` leaked every hydrated session's attachments into
   every chat (observed: a 2-attachment message listed 6 — four belonged to another session).
@@ -83,7 +89,10 @@
   model on a text-only-tool API gets an explicit "the image is embedded in the user message /
   ask the user to re-attach — do not guess" result. Edited/resent messages now re-embed their
   persisted images too (the edit path carries no fresh attachments, which is exactly the case the
-  smoke test hit).
+  smoke test hit). Catalog-confirmed honesty note: models.dev AND OpenRouter both list
+  `deepseek-v4-pro` as text→text — its "I can't view images, describe it to me" answer is the
+  CORRECT behavior (round 1 fabricated a confident description); vision lights up automatically
+  for any model a catalog marks image-capable.
 
 - **Native multimodal models actually receive images (vision detection via models.dev).** Smoke
   run: native DeepSeek v4 pro (multimodal on DeepSeek's own API) never got an attached image —
