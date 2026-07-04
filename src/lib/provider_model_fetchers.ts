@@ -685,7 +685,16 @@ export async function fetchModelsFromProvider(
   const key = providerId === "together" ? "togetherai" : providerId;
   const fetcher = FETCHERS[key];
   if (!fetcher) return [];
-  return fetcher(apiKey);
+  const models = await fetcher(apiKey);
+  // W12 (v14.8.11): one funnel, every provider — fill missing context/output
+  // limits from models.dev so downstream resolution never needs hardcoded
+  // guesses. Dynamic import keeps main-only deps out of renderer bundles.
+  try {
+    const { enrichModelsWithModelsDevLimits } = await import("./models_dev");
+    return await enrichModelsWithModelsDevLimits(key, models);
+  } catch {
+    return models;
+  }
 }
 
 export function invalidateProviderModelCache(providerId?: string) {

@@ -14,9 +14,7 @@ import {
   buildCompactionUserPromptPrefix,
 } from "../../prompts/context_compaction_prompt";
 import log from "electron-log";
-import { getCachedOpenRouterModelRow } from "../routing/tier-context-limits";
 import { exactTokenCount, exactTokenCountText } from "./token-counter";
-import { getLedger } from "../tasks/task-ledger";
 import { recordAuxUsage } from "../usage/turn-usage-aggregator";
 
 const logger = log.scope("compaction");
@@ -34,7 +32,6 @@ const TOOL_OUTPUT_MAX_CHARS = 2_000;
  * DROPPED entirely (no LLM call) — cheaper than truncation+summarization. */
 const MICROCOMPACT_KEEP_TURNS = 3;
 const PRUNE_PROTECTED_TOOLS = ["skill"];
-const MODEL_CONTEXT_SAFETY = 0.8;
 
 /**
  * v11.1 durable compaction: summary messages are recognizable by this prefix.
@@ -86,19 +83,6 @@ interface MessageForCompaction {
 // TIER CONTEXT LIMIT
 // ═══════════════════════════════════════════════════════════════
 
-const DEFAULT_MODEL_CONTEXT_FALLBACK = 128_000;
-
-export function getTierContextLimitSync(providerId?: string): number {
-  const pid = providerId ?? readSettings().selectedModel?.provider ?? "auto";
-  try {
-    const row = getCachedOpenRouterModelRow(pid);
-    const cl = row?.context_length ?? row?.top_provider?.context_length;
-    if (typeof cl === "number" && cl > 0) {
-      return Math.floor(cl * MODEL_CONTEXT_SAFETY);
-    }
-  } catch {}
-  return DEFAULT_MODEL_CONTEXT_FALLBACK;
-}
 
 // ═══════════════════════════════════════════════════════════════
 // TURN-BASED SELECTION (OpenCode pattern)
@@ -144,8 +128,8 @@ function splitTurn(
   return undefined;
 }
 
-function preserveRecentBudget(providerId?: string): number {
-  const budget = getTierContextLimitSync(providerId);
+function preserveRecentBudget(tierLimit: number): number {
+  const budget = tierLimit;
   const PRESERVE_RECENT_TOKENS = 2_000;
   const MAX_PRESERVE_RECENT_TOKENS = 8_000;
   return Math.min(
@@ -156,9 +140,9 @@ function preserveRecentBudget(providerId?: string): number {
 
 function selectMessagesForCompaction(
   msgs: MessageForCompaction[],
-  providerId?: string,
+  tierLimit: number,
 ): { head: MessageForCompaction[]; tail_start_id: number | undefined } {
-  const budget = preserveRecentBudget(providerId);
+  const budget = preserveRecentBudget(tierLimit);
   const all = turns(msgs);
 
   if (all.length === 0) return { head: msgs, tail_start_id: undefined };
@@ -422,6 +406,23 @@ export interface RunSteppedCompactionResult {
   compactionApplied: boolean;
 }
 
+/**
+ * ONE message-list counter (v14.8.11 W6): per-message exact token sum,
+ * matching the context meter's scope (`computeTokenCountResult` sums
+ * `estimateTokens(m.content)` per message). Every user/model-facing token
+ * number for a message list must derive from this so the compress tool, the
+ * auto path, and the meter agree to the token. (The old role-joined
+ * `exactTokenCount` inflated counts with `role:` prefixes.)
+ */
+export function countMessagesTokens(
+  messages: Array<{ content: string | null | undefined }>,
+): number {
+  return messages.reduce((acc, m) => acc + exactTokenCountText(m.content || ""), 0);
+}
+
+/** Below this many history tokens a forced compaction is an honest no-op. */
+const FORCE_COMPACT_MIN_HISTORY_TOKENS = 8_000;
+
 // ═══════════════════════════════════════════════════════════════
 // MAIN COMPACTION FUNCTION (Steps 1-5)
 // ═══════════════════════════════════════════════════════════════
@@ -430,6 +431,22 @@ export async function runSteppedCompaction(
   messages: MessageForCompaction[],
   tierLimit: number,
   providerId?: string,
+  opts?: {
+    /**
+     * Model-initiated calls: skip the 60% usage gate (the model asked for
+     * space NOW) and allow summarization below the 75% gate when the cheap
+     * steps freed little — bounded by FORCE_COMPACT_MIN_HISTORY_TOKENS so a
+     * tiny history returns an honest no-op instead of a degenerate summary.
+     */
+    force?: boolean;
+    /**
+     * Tokens already spent outside the message list (system prompt + current
+     * input). Added to the usage-ratio numerator so this gate sees the SAME
+     * scope as the context meter — the old messages-only ratio produced
+     * "meter says 70%, tool says nothing to do" disagreements.
+     */
+    alreadyUsedTokens?: number;
+  },
 ): Promise<RunSteppedCompactionResult> {
   if (messages.length === 0) {
     return {
@@ -441,10 +458,22 @@ export async function runSteppedCompaction(
     };
   }
 
-  const currentTokens = exactTokenCount(messages.map(m => ({ role: m.role, content: m.content })));
-  const usageRatio = tierLimit > 0 ? currentTokens / tierLimit : 0;
+  const force = opts?.force === true;
+  const currentTokens = countMessagesTokens(messages);
+  const usageRatio =
+    tierLimit > 0 ? (currentTokens + (opts?.alreadyUsedTokens ?? 0)) / tierLimit : 0;
 
-  if (usageRatio < PRUNE_THRESHOLD) {
+  if (force && currentTokens < FORCE_COMPACT_MIN_HISTORY_TOKENS) {
+    return {
+      modelContext: messages,
+      strategy: "none",
+      tokensFreed: 0,
+      usageRatio,
+      compactionApplied: false,
+    };
+  }
+
+  if (!force && usageRatio < PRUNE_THRESHOLD) {
     return {
       modelContext: messages,
       strategy: "none",
@@ -473,9 +502,9 @@ export async function runSteppedCompaction(
     }
   }
 
-  // Step 2: Prune tool outputs if over 60%
-  if (usageRatio > PRUNE_THRESHOLD) {
-    const protectBudget = preserveRecentBudget(providerId);
+  // Step 2: Prune tool outputs if over 60% (or on a forced call)
+  if (force || usageRatio > PRUNE_THRESHOLD) {
+    const protectBudget = preserveRecentBudget(tierLimit);
     const { messages: pruned, tokensPruned } = pruneToolOutputs(modelContext, protectBudget);
     if (tokensPruned > PRUNE_MINIMUM_TOKENS) {
       modelContext = pruned;
@@ -485,13 +514,13 @@ export async function runSteppedCompaction(
   }
 
   // Recalculate after pruning
-  const tokensAfterPrune = exactTokenCount(modelContext.map(m => ({ role: m.role, content: m.content })));
+  const tokensAfterPrune = countMessagesTokens(modelContext);
   const ratioAfterPrune = tierLimit > 0 ? tokensAfterPrune / tierLimit : 0;
 
   // Step 3: Strip media if still over 75%
   if (ratioAfterPrune > COMPACTION_THRESHOLD) {
     const stripped = stripMediaFromMessages(modelContext);
-    const strippedTokens = exactTokenCount(stripped.map(m => ({ role: m.role, content: m.content })));
+    const strippedTokens = countMessagesTokens(stripped);
     const freedByStrip = tokensAfterPrune - strippedTokens;
     if (freedByStrip > 0) {
       modelContext = stripped;
@@ -501,12 +530,16 @@ export async function runSteppedCompaction(
   }
 
   // Recalculate after media strip
-  const tokensAfterStrip = exactTokenCount(modelContext.map(m => ({ role: m.role, content: m.content })));
+  const tokensAfterStrip = countMessagesTokens(modelContext);
   const ratioAfterStrip = tierLimit > 0 ? tokensAfterStrip / tierLimit : 0;
 
-  // Step 4: LLM summarization if still over 75%
-  if (ratioAfterStrip > COMPACTION_THRESHOLD) {
-    const { head: headMessages, tail_start_id: tailStartId } = selectMessagesForCompaction(modelContext, providerId);
+  // Step 4: LLM summarization if still over 75% — or on a forced
+  // (model-initiated) call whose cheap steps freed little: the model asked
+  // for space, so give it real space instead of a token-identical no-op.
+  const forcedSummarize =
+    force && tokensFreed < Math.max(2_000, Math.floor(currentTokens * 0.1));
+  if (ratioAfterStrip > COMPACTION_THRESHOLD || forcedSummarize) {
+    const { head: headMessages, tail_start_id: tailStartId } = selectMessagesForCompaction(modelContext, tierLimit);
 
     // v11.1 guard: don't re-summarize a head that is just the previous
     // summary (nothing new to fold in) — avoids degenerate double passes.
@@ -551,7 +584,7 @@ export async function runSteppedCompaction(
           ? [...modelContext.slice(0, headMessages.length).filter(m => m.role === "system"), summaryMsg, ...tailMessages]
           : [summaryMsg, ...tailMessages];
 
-        const newTokens = exactTokenCount(modelContext.map(m => ({ role: m.role, content: m.content })));
+        const newTokens = countMessagesTokens(modelContext);
         tokensFreed = tokensAfterStrip - newTokens;
         strategy = "summarized";
         summaryText = summary;
@@ -639,12 +672,29 @@ export function isContextOverflowError(error: unknown): boolean {
 }
 
 /**
- * Usable budget for a provider — alias over getTierContextLimitSync (the two
- * implementations had converged on the same OpenRouter-row × 0.8 lookup with
- * a 128k fallback; this file's semantics win per the v12 dedupe).
+ * Usable budget for a provider. W12 (v14.8.11): resolves through
+ * `resolveModelContextLimit` (override → OpenRouter catalog → provider row →
+ * models.dev → logged fallback) using the ACTIVE selected model. The old
+ * `getTierContextLimitSync` alias passed a PROVIDER id where the catalog
+ * expects a MODEL id, so the row never matched and every provider got the
+ * hardcoded 128K fallback.
  */
-export function getUsableBudget(providerId?: string): number {
-  return getTierContextLimitSync(providerId);
+export async function getUsableBudget(providerId?: string): Promise<number> {
+  const settings = readSettings();
+  const selected = settings.selectedModel;
+  const pid = providerId ?? selected?.provider ?? "auto";
+  const model =
+    selected && (!providerId || selected.provider === providerId)
+      ? selected
+      : { provider: pid, name: selected?.name ?? "" };
+  const { resolveModelContextLimit } = await import(
+    "./resolve-model-context-limit"
+  );
+  const resolved = await resolveModelContextLimit(
+    model as Parameters<typeof resolveModelContextLimit>[0],
+    settings,
+  );
+  return resolved.tierLimit;
 }
 
 /**
@@ -656,7 +706,7 @@ const HEAD_TOOL_TOKENS = 40_000;
 /**
  * Same summarization path as runSteppedCompaction's step 4 (CONTEXT_COMPACTION_*
  * + summarization model), no DB writes. Used for pre-dispatch tier context
- * budgeting (tier_context_budget.ts) and runCompaction below.
+ * budgeting (tier_context_budget.ts).
  */
 export async function summarizeMessagesWithCompactionPrompt(params: {
   messages: { role: string; content: string }[];
@@ -709,109 +759,5 @@ export async function summarizeMessagesWithCompactionPrompt(params: {
   }
 }
 
-function mergeNestedSummary(
-  prevFull: string | null | undefined,
-  prevGen: number,
-  newSegment: string,
-): { text: string; generation: number } {
-  const body = newSegment.trim();
-  const hasPrior = !!prevFull?.trim();
-  const nextGen = hasPrior ? prevGen + 1 : 1;
-  if (!hasPrior) {
-    return { text: `<summary id="${nextGen}">\n${body}\n</summary>`, generation: nextGen };
-  }
-  return {
-    text: `<summary id="${nextGen}">\n${body}\n</summary>\n\n${prevFull!.trim()}`,
-    generation: nextGen,
-  };
-}
-
-export type CompactionRunOutcome =
-  | {
-      status: "completed";
-      summaryText: string;
-      lastMessageId: number;
-      messagesAfterSummary: MessageForCompaction[];
-    }
-  | { status: "deferred"; reason: "ledger_in_progress" }
-  | { status: "noop"; reason: string };
-
-/**
- * Run compaction (model-triggered `compress_context` path): summarize the
- * oldest span, return summary + remaining messages. Selection reuses this
- * file's exact-token turn-based selector.
- */
-export async function runCompaction(params: {
-  chatId: number;
-  chatMessages: MessageForCompaction[];
-  systemPromptTokens: number;
-  inputTokens?: number;
-  providerId?: string;
-  sessionStats?: { toolCallCount?: number; delegationCount?: number };
-  /** When set, defer compaction while the task ledger for this turn is still in progress. */
-  turnId?: string | null;
-  /** Post-turn path: insert a synthetic user continuation line after a successful compaction. */
-  insertSyntheticContinuation?: boolean;
-}): Promise<CompactionRunOutcome> {
-  const { chatId, chatMessages, providerId, sessionStats, turnId } = params;
-
-  if (chatId < 0 || chatMessages.length < 4) {
-    return { status: "noop", reason: "chat_too_small_or_ephemeral" };
-  }
-
-  if (turnId) {
-    const L = getLedger(turnId);
-    if (L?.finishReason === "in_progress") {
-      logger.info(
-        `[compaction] deferred for chat ${chatId}: ledger in_progress (turn ${turnId})`,
-      );
-      return { status: "deferred", reason: "ledger_in_progress" };
-    }
-  }
-
-  const settings = readSettings();
-  const pid = providerId ?? settings.selectedModel?.provider ?? "auto";
-
-  const { head: headMessages, tail_start_id: tailStartId } =
-    selectMessagesForCompaction(chatMessages, pid);
-
-  if (headMessages.length === 0 || headMessages.length >= chatMessages.length - 2) {
-    return { status: "noop", reason: "insufficient_span" };
-  }
-
-  const toSummarize = headMessages;
-  const messagesAfterSummary = tailStartId
-    ? chatMessages.filter((m) => m.id >= tailStartId)
-    : chatMessages.slice(headMessages.length);
-  const lastMessageId = toSummarize[toSummarize.length - 1]!.id;
-
-  // Legacy DB summary store was removed — there is never a prior summary.
-  const existing = await getContextSummaryForProvider(pid);
-  const summaryText = await summarizeMessagesWithCompactionPrompt({
-    messages: toSummarize.map((m) => ({ role: m.role, content: m.content || "" })),
-    sessionStats,
-    priorSummary: existing,
-    chatId,
-  });
-  if (!summaryText) {
-    return { status: "noop", reason: "summarize_failed" };
-  }
-
-  const merged = mergeNestedSummary(
-    existing?.summaryText ?? null,
-    existing?.compactionGeneration ?? 0,
-    summaryText,
-  );
-
-  logger.info(
-    `Compaction summarized ${toSummarize.length} messages for transport ${chatId} (in-memory only; legacy DB tables removed)`,
-  );
-  return {
-    status: "completed",
-    summaryText: merged.text,
-    lastMessageId,
-    messagesAfterSummary,
-  };
-}
 
 

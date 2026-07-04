@@ -22,7 +22,10 @@ import {
   shouldContinue,
 } from "../streaming/continuation-handler";
 import { runMidLoopCompaction } from "@/lib/context/mid_loop_compaction";
-import { resolveModelContextLimit } from "@/lib/context/resolve-model-context-limit";
+import {
+  resolveModelContextLimit,
+  GENERIC_CONTEXT_FALLBACK,
+} from "@/lib/context/resolve-model-context-limit";
 import { estimateTokens } from "@/ipc/utils/token_utils";
 import { recordAuxUsage } from "@/lib/usage/turn-usage-aggregator";
 import { ToolRegistry } from "@/lib/tools/registry";
@@ -32,7 +35,6 @@ import {
   getModelClient,
   getEffectiveModel,
 } from "../../ipc/utils/get_model_client";
-import { recordToolUseForTurn } from "../../ipc/handlers/turn-tool-tracking";
 import {
   formatToolResultPreview,
   formatToolStartPreview,
@@ -329,8 +331,6 @@ export async function runSubagent(
             throw err;
           }
 
-          if (args.turnId) recordToolUseForTurn(args.turnId, t.name);
-
           // Writer sub-agents: edit_file only produces a `__permission_required`
           // preview — nothing writes it (the main-chat approval interceptor that
           // normally lands writes isn't in this path). Apply it directly to the
@@ -401,12 +401,12 @@ export async function runSubagent(
     let totalSteps = 0;
     let round = 0;
 
-    let tierLimit = 128_000;
+    let tierLimit = GENERIC_CONTEXT_FALLBACK;
     try {
       tierLimit = (await resolveModelContextLimit(effectiveModel, settings))
         .tierLimit;
     } catch (e) {
-      logger.warn("[Subagent] tier-limit resolve failed; fallback 128K:", e);
+      logger.warn("[Subagent] tier-limit resolve failed; generic fallback:", e);
     }
     const systemEstimate = estimateTokens(systemPrompt);
     // v13.2: sub-agent rounds are multi-step scouts — cache markers matter

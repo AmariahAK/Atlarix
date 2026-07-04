@@ -593,20 +593,6 @@ export function AISettings() {
             }
           />
         </div>
-        <div className="flex items-center justify-between max-w-md gap-4">
-          <Label htmlFor="auto-memory-enabled" className="text-sm">
-            Auto memory (append to .atlarix/ATLARIX.md)
-          </Label>
-          <Switch
-            id="auto-memory-enabled"
-            checked={settings?.autoMemory?.enabled !== false}
-            onCheckedChange={(checked) =>
-              updateSettings({
-                autoMemory: { ...settings?.autoMemory, enabled: checked },
-              })
-            }
-          />
-        </div>
       </div>
 
       <HooksSettings />

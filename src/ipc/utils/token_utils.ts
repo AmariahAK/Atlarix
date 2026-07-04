@@ -3,7 +3,7 @@ import { readSettings } from "../../main/settings";
 import { Message } from "../ipc_types";
 
 import { findLanguageModel } from "./findLanguageModel";
-import { exactTokenCountText, exactTokenCount } from "@/lib/context/token-counter";
+import { exactTokenCountText } from "@/lib/context/token-counter";
 import {
   getOpenRouterModelIdForCoreTier,
   normalizeCoreTierId,
@@ -19,7 +19,10 @@ export const estimateTokens = (text: string): number => {
 };
 
 export const estimateMessagesTokens = (messages: Message[]): number => {
-  return exactTokenCount(messages.map(m => ({ role: m.role, content: m.content })));
+  // W6 (v14.8.11): per-message sum, matching the context meter's scope — the
+  // old role-joined exactTokenCount inflated counts with `role:` prefixes and
+  // made the summarize nudge disagree with the meter (v14.8.5 #3).
+  return messages.reduce((acc, m) => acc + exactTokenCountText(m.content || ""), 0);
 };
 
 // v10.1: dead cache-aware usage helpers removed (normalizeTokenUsage,

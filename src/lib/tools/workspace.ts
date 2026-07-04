@@ -31,10 +31,8 @@ import { extractTextFromRtfBuffer } from "@/lib/attachment-rtf-extract";
 import { estimateTokens } from "@/ipc/utils/token_utils";
 import {
   runSteppedCompaction,
-  runCompaction,
-  type CompactionRunOutcome,
   getUsableBudget,
-  COMPACTION_SUMMARY_PREFIX,
+  countMessagesTokens,
 } from "../context/compaction";
 import { AttachmentStore, type AttachmentData } from "../attachment-store";
 import log from "electron-log";
@@ -108,13 +106,8 @@ export type ExecuteCompressContextContext = {
     inputTokens?: number;
     providerId?: string;
     sessionStats?: { toolCallCount?: number; delegationCount?: number };
-    turnId?: string | null;
-    /**
-     * When true, use in-memory compaction (no DB writes) and optionally update the caller's
-     * transcript via setMessages.
-     */
-    ephemeral?: boolean;
-    setMessages?: (next: Array<{ id: number; role: string; content: string }>) => void;
+    /** Replaces the caller's live transcript (in-memory transport) after compaction. */
+    setMessages: (next: Array<{ id: number; role: string; content: string }>) => void;
     /**
      * The stream's already-resolved workspace session id (req.workspaceSessionId).
      * Preferred over re-resolving from `chatId` (which can be negative/unbound for
@@ -216,9 +209,12 @@ export async function executeCompressContext(
     tokensBefore: number;
     tokensAfter: number;
     summary: string;
-    status: CompactionRunOutcome["status"];
+    status: "completed" | "noop";
     /** True when the durable `[COMPACTION MARKER]` row was written to the session. */
     summaryPersisted: boolean;
+    /** Which compaction strategy ran (only "summarized" persists a marker). */
+    strategy: string;
+    tokensFreed: number;
 }> {
     const reason =
         typeof params.reason === "string" && params.reason.trim()
@@ -230,94 +226,48 @@ export async function executeCompressContext(
         role: m.role,
         content: m.content ?? "",
     }));
-    const tokensBefore = msgList.reduce((acc, m) => acc + estimateTokens(m.content || ""), 0);
+    const tokensBefore = countMessagesTokens(msgList);
 
-    if (ctx.ephemeral === true || ctx.chatId < 0) {
-        const tierLimit = getUsableBudget(ctx.providerId);
-        const stepped = await runSteppedCompaction(msgList, tierLimit, ctx.providerId);
-        const afterList = stepped.modelContext ?? msgList;
-        const tokensAfter = afterList.reduce((acc, m) => acc + estimateTokens(m.content || ""), 0);
-        if (ctx.setMessages) {
-            ctx.setMessages(afterList.map((m) => ({ id: m.id, role: m.role, content: m.content || "" })));
-        }
-        // v11.1 durable compaction: persist the summary message to the bound
-        // workspace session so reloads keep the compact model history (the
-        // dispatch funnel slices from the last summary marker).
-        let summaryPersisted = false;
-        if (stepped.strategy === "summarized") {
-            summaryPersisted = await persistCompactionSummaryToSession(
-                ctx.chatId,
-                afterList,
-                ctx.workspaceSessionId,
-            );
-        }
-        return {
-            success: stepped.compactionApplied === true,
-            reason,
-            tokensBefore,
-            tokensAfter,
-            summary: stepped.summaryText ?? "Context compressed.",
-            status: stepped.compactionApplied === true ? "completed" : "noop",
-            summaryPersisted,
-        };
-    }
-
-    const compactionResult = await runCompaction({
-        chatId: ctx.chatId,
-        chatMessages: msgList,
-        systemPromptTokens: ctx.systemPromptTokens,
-        inputTokens: ctx.inputTokens ?? 0,
-        providerId: ctx.providerId,
-        sessionStats: ctx.sessionStats,
-        turnId: ctx.turnId ?? null,
+    const tierLimit = await getUsableBudget(ctx.providerId);
+    // W6 (v14.8.11): the model asked for space — force past the 60% usage
+    // gate, and measure usage in the METER's scope (history + system prompt
+    // + input) so the tool never reports "nothing to do" while the meter
+    // shows a high fill. The old messages-only, gate-deferred call was a
+    // guaranteed mid-turn no-op that models read as "tokens did not reduce".
+    const stepped = await runSteppedCompaction(msgList, tierLimit, ctx.providerId, {
+        force: true,
+        alreadyUsedTokens: (ctx.systemPromptTokens ?? 0) + (ctx.inputTokens ?? 0),
     });
-
-    // runCompaction is in-memory only (it returns the summary + tail but persists
-    // NOTHING and does not touch the transport). For a real workspace chat that
-    // left the marker un-persisted (→ reopen re-loads the full history and the
-    // model re-overflows) and the live transport un-compacted (→ the model keeps
-    // seeing the full history this turn). Build the marker, update the transport,
-    // and persist it durably — mirroring the ephemeral branch above.
-    let afterList = msgList;
+    const afterList = stepped.modelContext ?? msgList;
+    const tokensAfter = countMessagesTokens(afterList);
+    ctx.setMessages(afterList.map((m) => ({ id: m.id, role: m.role, content: m.content || "" })));
+    // v11.1 durable compaction: persist the summary message to the bound
+    // workspace session so reloads keep the compact model history (the
+    // dispatch funnel slices from the last summary marker).
     let summaryPersisted = false;
-    if (compactionResult.status === "completed") {
-        const markerMsg = {
-            id: -Date.now(),
-            role: "user",
-            content: `${COMPACTION_SUMMARY_PREFIX}\n${compactionResult.summaryText}\n[END COMPACTION]`,
-        };
-        afterList = [
-            markerMsg,
-            ...compactionResult.messagesAfterSummary.map((m) => ({
-                id: m.id,
-                role: m.role,
-                content: m.content || "",
-            })),
-        ];
-        if (ctx.setMessages) {
-            ctx.setMessages(
-                afterList.map((m) => ({ id: m.id, role: m.role, content: m.content || "" })),
-            );
-        }
+    if (stepped.strategy === "summarized") {
         summaryPersisted = await persistCompactionSummaryToSession(
             ctx.chatId,
             afterList,
             ctx.workspaceSessionId,
         );
     }
-    const tokensAfter = afterList.reduce((acc, m) => acc + estimateTokens(m.content || ""), 0);
-
+    const applied = stepped.compactionApplied === true;
     return {
-        success: compactionResult.status === "completed",
+        success: applied,
         reason,
         tokensBefore,
         tokensAfter,
-        summary:
-            compactionResult.status === "completed"
-                ? compactionResult.summaryText
-                : `No compaction performed: ${compactionResult.reason}`,
-        status: compactionResult.status,
+        summary: applied
+            ? (stepped.summaryText ??
+              `Context compressed: history ${tokensBefore} → ${tokensAfter} tokens (${stepped.strategy}).`)
+            : `Already compact: history is ${tokensBefore} tokens (~${Math.round(
+                  (tokensBefore / Math.max(tierLimit, 1)) * 100,
+              )}% of the ${tierLimit}-token usable budget) — nothing worth compacting. No action needed.`,
+        status: applied ? "completed" : "noop",
         summaryPersisted,
+        strategy: stepped.strategy,
+        tokensFreed: stepped.tokensFreed,
     };
 }
 

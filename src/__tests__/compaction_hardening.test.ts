@@ -9,6 +9,8 @@ import {
   COMPACTION_SUMMARY_PREFIX,
   isCompactionSummaryMessage,
   sliceFromLastCompactionSummary,
+  runSteppedCompaction,
+  countMessagesTokens,
 } from "@/lib/context/compaction";
 
 describe("isContextOverflowError", () => {
@@ -134,5 +136,49 @@ describe("overflow feedback clamp", () => {
       Math.floor(before.tierLimit * 0.39),
     );
     vi.unstubAllGlobals();
+  });
+});
+
+describe("runSteppedCompaction gates (W6 v14.8.11)", () => {
+  const msg = (id: number, role: string, content: string) => ({ id, role, content });
+  const filler = (n: number) => "word ".repeat(n);
+
+  it("counts message lists per-message (meter scope), not role-joined", () => {
+    const tokens = countMessagesTokens([
+      { content: "hello world" },
+      { content: "" },
+      { content: null },
+    ]);
+    expect(tokens).toBeGreaterThan(0);
+    expect(tokens).toBe(countMessagesTokens([{ content: "hello world" }]));
+  });
+
+  it("alreadyUsedTokens raises the usage ratio (system prompt + input now count)", async () => {
+    const messages = [msg(1, "user", filler(2000)), msg(2, "assistant", filler(2000))];
+    const historyTokens = countMessagesTokens(messages);
+    const tierLimit = historyTokens * 2; // messages-only ratio = 0.5 (< 0.60 gate)
+    const withoutOverhead = await runSteppedCompaction(messages, tierLimit, "test-provider");
+    expect(withoutOverhead.usageRatio).toBeLessThan(0.6);
+    const withOverhead = await runSteppedCompaction(messages, tierLimit, "test-provider", {
+      alreadyUsedTokens: historyTokens, // + overhead → ratio 1.0
+    });
+    expect(withOverhead.usageRatio).toBeGreaterThanOrEqual(1);
+  });
+
+  it("force below the 8K-history floor returns an honest no-op", async () => {
+    const messages = [msg(1, "user", "short"), msg(2, "assistant", "reply")];
+    const out = await runSteppedCompaction(messages, 100_000, "test-provider", {
+      force: true,
+    });
+    expect(out.compactionApplied).toBe(false);
+    expect(out.strategy).toBe("none");
+    expect(out.modelContext).toEqual(messages);
+  });
+
+  it("non-forced call below the 60% gate stays a no-op (auto path unchanged)", async () => {
+    const messages = [msg(1, "user", filler(2000)), msg(2, "assistant", filler(2000))];
+    const tierLimit = countMessagesTokens(messages) * 10;
+    const out = await runSteppedCompaction(messages, tierLimit, "test-provider");
+    expect(out.compactionApplied).toBe(false);
   });
 });

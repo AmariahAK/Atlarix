@@ -53,11 +53,6 @@ describe("readSettings", () => {
       );
       expect(scrubSettings(result)).toMatchInlineSnapshot(`
         {
-          "autoMemory": {
-            "enabled": true,
-            "minConfidence": 0.7,
-            "writeToFile": true,
-          },
           "blueprintAlwaysShowBeacons": false,
           "blueprintInjectionModePreference": "auto",
           "buildVerification": {
@@ -278,11 +273,6 @@ describe("readSettings", () => {
 
       expect(scrubSettings(result)).toMatchInlineSnapshot(`
         {
-          "autoMemory": {
-            "enabled": true,
-            "minConfidence": 0.7,
-            "writeToFile": true,
-          },
           "blueprintAlwaysShowBeacons": false,
           "blueprintInjectionModePreference": "auto",
           "buildVerification": {

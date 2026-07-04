@@ -357,16 +357,6 @@ export const UserSettingsSchema = z.object({
     })
     .optional(),
 
-  /** Append high-signal turn notes to workspace `.atlarix/ATLARIX.md` when files were written. */
-  autoMemory: z
-    .object({
-      enabled: z.boolean().optional(),
-      minConfidence: z.number().min(0).max(1).optional(),
-      /** When false, skip writing ATLARIX.md (in-memory / UI-only use). Default true. */
-      writeToFile: z.boolean().optional(),
-    })
-    .optional(),
-
   // PASS6: Blueprint injection-mode + debug fields — restored as settings only
   // (the streamMessage prompt-injection plumbing stays tool-driven this pass).
   blueprintInjectionModePreference:

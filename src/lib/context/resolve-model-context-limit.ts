@@ -7,6 +7,9 @@ import type { LargeLanguageModel, UserSettings } from "@/lib/schemas";
 import { warmOpenRouterModelCache, getCachedOpenRouterModelRow } from "@/lib/routing/tier-context-limits";
 import { getOpenRouterModelIdForCoreTier } from "@/ipc/shared/compass_constants";
 import { findLanguageModel } from "@/ipc/utils/findLanguageModel";
+import log from "electron-log";
+
+const logger = log.scope("context-limit");
 
 const SAFETY_FACTOR = 0.8;
 
@@ -141,41 +144,28 @@ function openRouterCatalogId(model: LargeLanguageModel): string | null {
   return null;
 }
 
+/**
+ * W12 (v14.8.11): the per-model-name hint table (gpt-4/claude/deepseek/…)
+ * was DELETED — identity-derived hardcoding rots (it served 128K for a 1M
+ * DeepSeek v4 pro, compacting sessions ~8× early). Real limits now flow from
+ * the provider APIs / OpenRouter catalog / models.dev at every resolution
+ * step; what remains here is one generic last-resort constant plus
+ * provider-RUNTIME placeholders for local servers whose real window is
+ * fetched asynchronously (`getLocalModelContextLength`).
+ */
+export const GENERIC_CONTEXT_FALLBACK = 128_000;
+
 export function heuristicRawContextLength(model: LargeLanguageModel): number {
   const pid = (model.provider ?? "").toLowerCase();
-  const mid = (model.name ?? "").toLowerCase();
+  // Conservative placeholders for local runtimes until their real-window
+  // fetch resolves (seconds) — capability-derived (the runtime), not
+  // model-identity-derived.
   if (pid.includes("ollama")) return 8192;
   if (pid.includes("lmstudio") || pid.includes("lm_studio")) return 16384;
-  if (pid.includes("groq")) return 131072;
-  // Bias these slightly HIGH for unknown/catalog-miss cases: the provider
-  // overflow feedback loop (reportContextOverflowForModel) self-corrects an
-  // over-estimate by clamping 15% on a real "context exceeded" rejection,
-  // whereas an UNDER-estimate causes permanent premature compaction with no
-  // recovery signal. Values reflect modern (2024+) model windows.
-  const hints: [string, number][] = [
-    ["gpt-4o", 128000],
-    ["gpt-4-turbo", 128000],
-    ["gpt-4", 128000],
-    ["gpt-3.5", 16384],
-    ["claude-3", 200000],
-    ["claude-sonnet", 200000],
-    ["claude-opus", 200000],
-    ["gemini-1.5", 1000000],
-    ["gemini-pro", 32768],
-    ["deepseek", 128000], // V3/R1 are 128K+
-    ["minimax", 1000000], // MiniMax-Text-01 ≈ 1M
-    ["llama", 131072], // Llama 3.1 = 128K
-    ["mistral", 131072], // Mistral Large = 128K
-    ["codellama", 16384],
-    ["qwen", 131072], // modern Qwen 128K+ (many up to 1M)
-  ];
-  for (const [k, v] of hints) {
-    if (mid.includes(k)) return v;
-  }
-  // Modern floor for any unlisted frontier API model (covers new OpenRouter
-  // additions); local providers are handled by the explicit ollama/lmstudio
-  // branches above and their real-fetch path.
-  return 128000;
+  logger.warn(
+    `[context-limit] generic fallback (${GENERIC_CONTEXT_FALLBACK}) for ${model.provider}/${model.name} — no provider/catalog/models.dev limit found; catalog may be stale`,
+  );
+  return GENERIC_CONTEXT_FALLBACK;
 }
 
 export type ResolvedModelContextLimit = {
@@ -191,8 +181,16 @@ export type ResolvedModelContextLimit = {
  */
 export async function resolveModelContextLimit(
   model: LargeLanguageModel,
-  _settings: UserSettings,
+  settings: UserSettings,
 ): Promise<ResolvedModelContextLimit> {
+  // W12: a user override is authoritative EVERYWHERE — it used to affect only
+  // the TokenBar (getEffectiveBudget) while the compaction denominator kept
+  // resolving independently.
+  const override = settings.tokenBudgetOverrides?.[model.provider ?? ""];
+  if (typeof override === "number" && override > 0) {
+    return { tierLimit: override, rawContextLength: override };
+  }
+
   await warmOpenRouterModelCache();
 
   const clamp = overflowClampFor(model);
@@ -232,7 +230,24 @@ export async function resolveModelContextLimit(
       };
     }
   } catch {
-    // fall through to heuristic
+    // fall through to models.dev
+  }
+
+  // W12: models.dev direct lookup — covers native providers whose /models
+  // endpoint reports no context length (e.g. DeepSeek), for which
+  // findLanguageModel used to return a windowless row and this function fell
+  // straight to a hardcoded guess.
+  try {
+    const { getModelsDevLimits } = await import("@/lib/models_dev");
+    const limits = await getModelsDevLimits(model.provider ?? "", model.name ?? "");
+    if (limits?.context && limits.context > 0) {
+      return {
+        tierLimit: floorSafe(limits.context * clamp),
+        rawContextLength: limits.context,
+      };
+    }
+  } catch {
+    // fall through to the generic fallback
   }
 
   const rawHeuristic = heuristicRawContextLength(model);

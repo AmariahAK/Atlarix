@@ -14,11 +14,9 @@ import {
   isWorkspaceMemoryMdPath,
   isWorkspaceAtlarixMdPath,
   isAtlarixDocWritePath,
-  getMemoryMdPath,
   getAtlarixMdPath,
   readProjectInstructions,
 } from "@/lib/project-memory";
-import { appendAutoMemoryIfEligible } from "@/lib/memory/auto-memory";
 
 let workspace: string;
 
@@ -196,52 +194,3 @@ describe("readProjectInstructions (v13.1 AGENTS.md/CLAUDE.md interop)", () => {
   });
 });
 
-describe("auto-memory", () => {
-  it("appends bullets to .atlarix/memory.md under an Auto Memory section", async () => {
-    const ok = await appendAutoMemoryIfEligible({
-      workspacePath: workspace,
-      chatId: 42,
-      toolsUsed: ["write_file"],
-      summary: "Migrated auth from email/password to OAuth",
-      confidence: 0.9,
-      minConfidence: 0.5,
-    });
-    expect(ok).toBe(true);
-    const body = await fs.readFile(getMemoryMdPath(workspace), "utf8");
-    expect(body).toContain("## Auto Memory");
-    expect(body).toContain("[chat 42] Migrated auth from email/password to OAuth");
-  });
-
-  it("preserves agent-authored knowledge above the section", async () => {
-    await writeMemoryFile("# Project memory\n\nStack: Vue 3 + Vite\n");
-    await appendAutoMemoryIfEligible({
-      workspacePath: workspace,
-      chatId: 7,
-      toolsUsed: [],
-      summary: "Swapped payments PayPal to Stripe",
-      confidence: 1,
-      minConfidence: 0.5,
-    });
-    const body = await fs.readFile(getMemoryMdPath(workspace), "utf8");
-    expect(body).toContain("Stack: Vue 3 + Vite");
-    expect(body.indexOf("Stack: Vue 3 + Vite")).toBeLessThan(
-      body.indexOf("## Auto Memory"),
-    );
-  });
-
-  it("survives a subsequent legacy migration intact", async () => {
-    await appendAutoMemoryIfEligible({
-      workspacePath: workspace,
-      chatId: 1,
-      toolsUsed: [],
-      summary: "note",
-      confidence: 1,
-      minConfidence: 0,
-    });
-    await migrateLegacyAtlarixFiles(workspace);
-    const body = await fs
-      .readFile(getMemoryMdPath(workspace), "utf8")
-      .catch(() => null);
-    expect(body).toContain("[chat 1] note");
-  });
-});

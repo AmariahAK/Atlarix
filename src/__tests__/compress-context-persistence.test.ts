@@ -1,10 +1,13 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { normalizeChatActivityPayload } from "@/lib/chat-activity-normalize";
 
-// ── Bug 1+2: model-initiated compress_context must (a) persist a durable
-// [COMPACTION MARKER] for a non-ephemeral workspace chat (so reopen stays
-// compacted and the model doesn't re-overflow) and (b) emit a background
-// activity that triggers Feed A token-meter invalidation. ──
+// ── Model-initiated compress_context must (a) persist a durable
+// [COMPACTION MARKER] to the bound workspace session (so reopen stays
+// compacted and the model doesn't re-overflow), (b) replace the live
+// transport via setMessages, and (c) emit a background activity that
+// triggers Feed A token-meter invalidation. Since W9 (v14.8.11) every chat
+// is an ephemeral (negative-id) stream-transport chat — the stepped
+// compaction path is the ONLY path. ──
 
 const sessionHandlers = vi.hoisted(() => ({
   persistSpy: vi.fn(
@@ -18,17 +21,24 @@ vi.mock("@/ipc/handlers/workspace_session_handlers", () => ({
   persistWorkspaceSessionUserMessage: sessionHandlers.persistSpy,
 }));
 
+const SUMMARY_MARKER_CONTENT =
+  "[COMPACTION MARKER]\nA concise running summary of the earlier turns.\n[END COMPACTION]";
+
 vi.mock("@/lib/context/compaction", async (importOriginal) => {
   const actual =
     await importOriginal<typeof import("@/lib/context/compaction")>();
   return {
     ...actual,
-    // Non-ephemeral path: pretend the LLM summarize succeeded.
-    runCompaction: vi.fn(async () => ({
-      status: "completed" as const,
+    // Pretend the stepped path's LLM summarize succeeded.
+    runSteppedCompaction: vi.fn(async () => ({
+      compactionApplied: true,
+      strategy: "summarized" as const,
+      tokensFreed: 500,
       summaryText: "A concise running summary of the earlier turns.",
-      lastMessageId: 3,
-      messagesAfterSummary: [{ id: 4, role: "user", content: "latest message" }],
+      modelContext: [
+        { id: -1, role: "user", content: SUMMARY_MARKER_CONTENT },
+        { id: 4, role: "user", content: "latest message" },
+      ],
     })),
   };
 });
@@ -37,31 +47,38 @@ import { executeCompressContext } from "@/lib/tools/workspace";
 
 const COMPACTION_LABEL_FILTER = /summariz|compress|compact/i;
 
-describe("executeCompressContext — durable marker persistence (Bug 1+2)", () => {
+const FOUR_MESSAGES = [
+  { id: 1, role: "user", content: "one" },
+  { id: 2, role: "assistant", content: "two" },
+  { id: 3, role: "user", content: "three" },
+  { id: 4, role: "assistant", content: "four" },
+];
+
+describe("executeCompressContext — durable marker persistence", () => {
   beforeEach(() => {
     sessionHandlers.persistSpy.mockClear();
     sessionHandlers.resolveSpy.mockClear();
   });
 
-  it("persists a [COMPACTION MARKER] for a non-ephemeral chat using the supplied session id", async () => {
+  it("persists a [COMPACTION MARKER] using the supplied session id and updates the live transport", async () => {
+    const setMessages = vi.fn();
     const outcome = await executeCompressContext(
       { reason: "test" },
       {
-        chatId: 42, // positive id → non-ephemeral (runCompaction) branch
-        messages: [
-          { id: 1, role: "user", content: "one" },
-          { id: 2, role: "assistant", content: "two" },
-          { id: 3, role: "user", content: "three" },
-          { id: 4, role: "assistant", content: "four" },
-        ],
+        chatId: -42,
+        messages: FOUR_MESSAGES,
         systemPromptTokens: 100,
-        ephemeral: false,
         workspaceSessionId: "stream-session-1",
+        setMessages,
       },
     );
 
     expect(outcome.success).toBe(true);
     expect(outcome.summaryPersisted).toBe(true);
+    // The live transport is replaced with the compacted list.
+    expect(setMessages).toHaveBeenCalledTimes(1);
+    const nextList = setMessages.mock.calls[0]![0] as Array<{ content: string }>;
+    expect(nextList[0]!.content).toContain("[COMPACTION MARKER]");
     // Prefer the supplied (known-good) session id; do NOT re-resolve from chatId.
     expect(sessionHandlers.resolveSpy).not.toHaveBeenCalled();
     expect(sessionHandlers.persistSpy).toHaveBeenCalledTimes(1);
@@ -75,15 +92,10 @@ describe("executeCompressContext — durable marker persistence (Bug 1+2)", () =
     const outcome = await executeCompressContext(
       { reason: "test" },
       {
-        chatId: 7,
-        messages: [
-          { id: 1, role: "user", content: "one" },
-          { id: 2, role: "assistant", content: "two" },
-          { id: 3, role: "user", content: "three" },
-          { id: 4, role: "assistant", content: "four" },
-        ],
+        chatId: -7,
+        messages: FOUR_MESSAGES,
         systemPromptTokens: 100,
-        ephemeral: false,
+        setMessages: vi.fn(),
       },
     );
     expect(outcome.summaryPersisted).toBe(true);
@@ -101,14 +113,9 @@ describe("executeCompressContext — durable marker persistence (Bug 1+2)", () =
       { reason: "test" },
       {
         chatId: -99, // no supplied id + unresolvable → marker cannot be written
-        messages: [
-          { id: 1, role: "user", content: "one" },
-          { id: 2, role: "assistant", content: "two" },
-          { id: 3, role: "user", content: "three" },
-          { id: 4, role: "assistant", content: "four" },
-        ],
+        messages: FOUR_MESSAGES,
         systemPromptTokens: 100,
-        ephemeral: false,
+        setMessages: vi.fn(),
       },
     );
     // Compaction still "succeeds" for the turn, but the caller must know it

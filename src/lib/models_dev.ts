@@ -202,6 +202,71 @@ function toLanguageModel(
 }
 
 /**
+ * W12 (v14.8.11): real context/output limits for one model, straight from the
+ * models.dev catalog (hourly-refreshed, disk-cached). Used by
+ * `resolveModelContextLimit` as the step before the generic fallback, so
+ * NO per-model limit is ever hardcoded. Returns null when the catalog has no
+ * row for this provider/model.
+ */
+export async function getModelsDevLimits(
+  atlarixProviderId: string,
+  modelId: string,
+): Promise<{ context?: number; output?: number } | null> {
+  if (!atlarixProviderId || !modelId) return null;
+  const data = await getModelsDevData();
+  const provider = data[resolveModelsDevProviderId(atlarixProviderId)];
+  if (!provider?.models) return null;
+  const m =
+    provider.models[modelId] ??
+    // OpenRouter-style ids ("vendor/model") vs bare catalog ids.
+    provider.models[modelId.includes("/") ? modelId.split("/").pop()! : modelId];
+  return m?.limit ?? null;
+}
+
+/**
+ * W12: fill missing contextWindow/maxOutputTokens on provider-fetched models
+ * from models.dev. Many native `/models` endpoints (DeepSeek, generic
+ * OpenAI-compatible) report no limits at all — without this, downstream
+ * resolution used to fall back to hardcoded guesses. Values already present
+ * (e.g. OpenRouter's live context_length) are never overwritten.
+ */
+export async function enrichModelsWithModelsDevLimits(
+  atlarixProviderId: string,
+  models: LanguageModel[],
+): Promise<LanguageModel[]> {
+  if (models.length === 0) return models;
+  try {
+    const data = await getModelsDevData();
+    const provider = data[resolveModelsDevProviderId(atlarixProviderId)];
+    if (!provider?.models) return models;
+    return models.map((m) => {
+      if (m.contextWindow && m.contextWindow > 0 && m.maxOutputTokens) return m;
+      const row =
+        provider.models[m.apiName] ??
+        provider.models[
+          m.apiName.includes("/") ? m.apiName.split("/").pop()! : m.apiName
+        ];
+      if (!row?.limit) return m;
+      return {
+        ...m,
+        ...(m.contextWindow && m.contextWindow > 0
+          ? {}
+          : row.limit.context
+            ? { contextWindow: row.limit.context }
+            : {}),
+        ...(m.maxOutputTokens
+          ? {}
+          : row.limit.output
+            ? { maxOutputTokens: row.limit.output }
+            : {}),
+      };
+    });
+  } catch {
+    return models;
+  }
+}
+
+/**
  * Get models for a cloud provider from models.dev
  */
 export async function getModelsFromModelsDev(

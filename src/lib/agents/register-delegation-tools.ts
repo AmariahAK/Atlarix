@@ -33,7 +33,6 @@ export type DelegationStreamContext = {
   workspaceId?: number;
   turnId: string;
   safeSend: (sender: WebContents, channel: string, payload: unknown) => void;
-  recordToolUseForTurn: (turnId: string, toolName: string) => void;
   onDelegated?: (agentId: string) => void;
   /** Count of sub-agents started this turn (in-flight + completed). */
   getDelegationCount?: () => number;
@@ -217,7 +216,6 @@ export function attachDelegationToolsToSet(
           parentDelegationId: id,
           emitSubagentActivity,
         });
-        ctx.recordToolUseForTurn(ctx.turnId, "task");
         ctx.onDelegated?.(agentId);
 
         const duration = Date.now() - startTime;

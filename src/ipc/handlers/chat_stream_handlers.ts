@@ -1,5 +1,5 @@
 import { v4 as uuidv4 } from "uuid";
-import { ipcMain, IpcMainInvokeEvent, type WebContents } from "electron";
+import { ipcMain, IpcMainInvokeEvent } from "electron";
 import {
   ModelMessage,
   streamText,
@@ -11,7 +11,7 @@ import {
 import { db } from "../../db";
 import { apps } from "../../db/schema";
 import { eq } from "drizzle-orm";
-import type { SmartContextMode, UserSettings, WorkMode } from "../../lib/schemas";
+import type { SmartContextMode, WorkMode } from "../../lib/schemas";
 import {
   constructSystemPrompt,
   constructSystemPromptParts,
@@ -125,11 +125,6 @@ import {
   resetPowerSaveBlocker,
 } from "../utils/power-blocker";
 import { normalizeToolInputSchemaForAiSdk, sanitizeJsonSchemaForProvider } from "@/lib/ai/normalize-tool-schema";
-import {
-  clearToolsUsedForTurn,
-  getToolsUsedThisTurn,
-  recordToolUseForTurn,
-} from "./turn-tool-tracking";
 import { stripHallucinatedAtlarixToolTagsFromDelta } from "@/lib/chat/answer-display";
 import {
   getStreamTransportAppId,
@@ -550,67 +545,6 @@ const pendingAskUserArtifactByChatId = new Map<
   import("@/lib/chat/ask-user-artifacts").AskUserArtifact
 >();
 
-async function maybeAppendAutoMemoryAfterStream(params: {
-  settings: UserSettings;
-  appPath: string | undefined;
-  chatId: number;
-  isEphemeralWorkspace: boolean;
-  streamTurnId: string;
-  isBuildModeTurn: boolean;
-  sender: WebContents;
-}): Promise<void> {
-  const {
-    settings,
-    appPath,
-    chatId,
-    isEphemeralWorkspace,
-    streamTurnId,
-    isBuildModeTurn,
-    sender,
-  } = params;
-  try {
-    if (isEphemeralWorkspace || chatId < 0 || !appPath) return;
-    if (settings.autoMemory?.enabled === false) return;
-    if (settings.autoMemory?.writeToFile === false) return;
-    if (!isBuildModeTurn) return;
-    const ledger = getLedger(streamTurnId);
-    const files = [
-      ...new Set(ledger?.steps.flatMap((s) => s.filesWritten ?? []) ?? []),
-    ].filter(Boolean);
-    if (files.length === 0) return;
-    const minConf = settings.autoMemory?.minConfidence ?? 0.7;
-    const confidence = 0.85;
-    const toolsUsed = getToolsUsedThisTurn(streamTurnId);
-    const { appendAutoMemoryIfEligible } = await import("@/lib/memory/auto-memory");
-    const summary = `Wrote ${files.length} file(s): ${files.slice(0, 5).join(", ")}${files.length > 5 ? "…" : ""}`;
-    const ok = await appendAutoMemoryIfEligible({
-      workspacePath: appPath,
-      chatId,
-      toolsUsed,
-      summary,
-      confidence,
-      minConfidence: minConf,
-      writeToFile: settings.autoMemory?.writeToFile ?? true,
-    });
-    if (ok) {
-      safeSend(sender, "chat:activity", {
-        id: `memory-saved-${Date.now()}`,
-        type: "memory_saved",
-        label: "Auto memory",
-        status: "done",
-        timestamp: Date.now(),
-        chatId,
-        detail: "Appended to .atlarix/ATLARIX.md",
-      });
-    }
-  } catch (e) {
-    logger.warn("[auto-memory] skipped:", e);
-  } finally {
-    clearToolsUsedForTurn(streamTurnId);
-  }
-}
-
-
 /**
  * FIX 6: Build an `emitActivity` callback for `runMidLoopCompaction` that
  * (a) forwards the original `type: "background"` payload (keeps the existing
@@ -676,17 +610,24 @@ function emitModelCompactionActivity(
     status: string;
     success: boolean;
     summaryPersisted: boolean;
+    /** Compaction strategy that ran ("summarized" | "pruned" | ... | undefined). */
+    strategy?: string;
   },
   reason: string,
 ): void {
   const base = `compress-context-${chatId}-${Date.now()}`;
+  // W6 (v14.8.11): the banner must tell the truth — it used to claim
+  // "Context compressed" unconditionally, so a no-op tool call showed a
+  // success card while the tool result said nothing happened.
   safeSend(sender, "chat:activity", {
     id: base,
     type: "compaction",
-    label: "Context compressed",
+    label: outcome.success ? "Context compressed" : "Context already compact",
     status: "done",
     timestamp: Date.now(),
-    detail: `${outcome.tokensBefore} → ${outcome.tokensAfter} est. (${outcome.status}). ${reason}`,
+    detail: outcome.success
+      ? `${outcome.tokensBefore} → ${outcome.tokensAfter} tokens (${outcome.status}). ${reason}`
+      : `${outcome.tokensBefore} tokens — nothing worth compacting. ${reason}`,
     chatId,
     modelInitiated: true,
   });
@@ -697,10 +638,12 @@ function emitModelCompactionActivity(
       label: "Context compressed",
       status: "done",
       timestamp: Date.now(),
-      detail: `${outcome.tokensBefore} → ${outcome.tokensAfter} est. tokens`,
+      detail: `${outcome.tokensBefore} → ${outcome.tokensAfter} tokens`,
       chatId,
     });
-    if (!outcome.summaryPersisted) {
+    // Only the summarize strategy produces a durable marker; prune/microcompact
+    // legitimately persist nothing — warning on those was a false alarm.
+    if (outcome.strategy === "summarized" && !outcome.summaryPersisted) {
       logger.warn(
         `[compaction] chat ${chatId}: summary not persisted — reopened session may re-load full history`,
       );
@@ -754,7 +697,6 @@ async function runToolExecute(
       logger.warn(
         `[ruleset] ${toolName} blocked by permission rule: ${decision.rule}`,
       );
-      if (streamOpts?.turnId) recordToolUseForTurn(streamOpts.turnId, toolName);
       return JSON.stringify({
         success: false,
         error: `Blocked by permission rule \`${decision.rule}\` (.atlarix/permissions.json — workspace or global ~/.atlarix). Do not retry this exact call; choose a different approach or ask the user to adjust the rule.`,
@@ -772,7 +714,6 @@ async function runToolExecute(
       executeArgs,
     );
     if (hookDenial) {
-      if (streamOpts?.turnId) recordToolUseForTurn(streamOpts.turnId, toolName);
       return JSON.stringify({
         success: false,
         error: `Blocked by a workspace pre_tool_use hook (\`${hookDenial.deniedBy}\`):\n${hookDenial.outputTail || "(no output)"}`,
@@ -815,9 +756,6 @@ async function runToolExecute(
     } else {
       recordMutationOutcome(streamOpts.turnId, true);
     }
-  }
-  if (streamOpts?.turnId) {
-    recordToolUseForTurn(streamOpts.turnId, toolName);
   }
   return result;
 }
@@ -1281,43 +1219,6 @@ async function performFullRevert(params: {
     error: snap.error,
     restoredFiles: snap.restoredFiles,
   };
-}
-
-function queuePostTurnSelfCorrection(
-  sender: WebContents,
-  args: {
-    chatId: number;
-    rootAssistantMessageId: number;
-    appId: number | undefined;
-    appPath: string;
-    filesWrittenInThisExchange: string[];
-    isBuildModeTurn: boolean;
-    isEphemeralWorkspace: boolean;
-    aborted: boolean;
-  },
-): void {
-  setImmediate(() => {
-    // v12 3.7: tracked so shutdown drains it instead of dropping a dispatch
-    // mid-flight.
-    trackPendingWork(
-      import("./self_correction_followup").then(
-        ({ schedulePostTurnSelfCorrection }) =>
-          schedulePostTurnSelfCorrection({
-            webContents: sender,
-            chatId: args.chatId,
-            rootAssistantMessageId: args.rootAssistantMessageId,
-            appId: args.appId,
-            appPathResolved: args.appPath,
-            filesWrittenInThisExchange: args.filesWrittenInThisExchange,
-            isBuildModeTurn: args.isBuildModeTurn,
-            isEphemeralWorkspace: args.isEphemeralWorkspace,
-            aborted: args.aborted,
-            isStreamActive: () => activeStreams.has(args.chatId),
-          }),
-      ),
-      "self-correction",
-    );
-  });
 }
 
 /**
@@ -1802,7 +1703,10 @@ export function registerChatStreamHandlers() {
         attachmentInfoForModel =
           "\n\nFILES ATTACHED (already uploaded; do NOT ask the user to attach again):\n";
 
-        for (const [index, attachment] of req.attachments.entries()) {
+        // W10: temp-file writes + AttachmentStore/PDF pre-extract are real
+        // I/O that previously fell into the "unaccounted" preflight gap.
+        await preflight.time("ingest-attachments", async () => {
+        for (const [index, attachment] of req.attachments!.entries()) {
           // Generate a unique filename
           const hash =
             attachment.id ||
@@ -1880,6 +1784,7 @@ export function registerChatStreamHandlers() {
             }
           }
         }
+        });
         attachmentInfoForModel +=
           '\nMANDATORY TOOL USE:\n- If the user asks to read/summarize any attached file, you MUST call the tool `read_attachment` with the exact `attachmentId` shown above.\n- Example: read_attachment({ "attachmentId": "<id>" })\n';
       }
@@ -1949,17 +1854,20 @@ ${componentSnippet}
         }
       }
 
-      // Check if this is an ephemeral workspace chat (skip legacy chats/messages DB writes)
-      const isEphemeralWorkspace = isStreamTransportId(req.chatId);
+      // v14.8.11 (W9): every live chat is a negative-id stream-transport chat —
+      // renderer, headless CLI, and evals all mint them. The legacy positive-id
+      // DB-chat branches were deleted; this invariant fails loudly if one ever
+      // reappears instead of silently resurrecting half a branch.
+      if (!isStreamTransportId(req.chatId)) {
+        throw new Error(
+          "LEGACY_CHAT_REMOVED: chat:stream requires a stream-transport (negative) chatId — legacy database chats were removed.",
+        );
+      }
 
       // v12 0.4-C2: capture the persisted row's UUID so the ephemeral message
       // carries it (edits target the DB row directly — no ordinal mapping).
       let persistedUserRowId: string | undefined;
-      if (
-        req.workspaceSessionId &&
-        !req.continueAfterQuestions &&
-        isEphemeralWorkspace
-      ) {
+      if (req.workspaceSessionId && !req.continueAfterQuestions) {
         try {
           const { persistWorkspaceSessionUserMessage } = await import(
             "./workspace_session_handlers"
@@ -2212,7 +2120,7 @@ ${componentSnippet}
         );
         logger.log(
           `[stream:${req.chatId}] model=${effectiveModel.provider}/${effectiveModel.name} ` +
-          `reasoning=${enableNativeReasoning} ephemeral=${isEphemeralWorkspace}`,
+          `reasoning=${enableNativeReasoning}`,
         );
 
         // FIX 5: log the true context window for this dispatch. The first
@@ -2470,36 +2378,21 @@ ${componentSnippet}
           }
 
           logger.log(
-            `[stream:${req.chatId}] Prepared message history (len=${messageHistory.length}, ephemeral=${isEphemeralWorkspace})`,
+            `[stream:${req.chatId}] Prepared message history (len=${messageHistory.length})`,
           );
 
-          // Phase 6: Context bar + auto-summarize OR fallback to turn truncation
-          const useAutoSummarize =
-            settings.enableContextAutoSummarize !== false &&
-            req.chatId > 0 &&
-            !isEphemeralWorkspace;
-
+          // Turn-based history cap. The legacy positive-id "auto-summarize"
+          // gate was constant-false (W9) and is gone: mid-turn pressure is
+          // handled by `compactAgenticMessagesIfNeeded` inside the SMART
+          // AGENTIC TOOL LOOP; `compress_context` remains the model-triggered
+          // escape hatch; durable summaries flow through [COMPACTION MARKER]
+          // message slices; token-percent compaction (55% / 75% / 90%) runs
+          // later against `resolveModelContextLimit` + the full dispatch
+          // estimate.
           let limitedMessageHistory = messageHistory;
-          let contextSummaryForSystem: string | null = null;
+          const contextSummaryForSystem: string | null = null;
 
-          // Next-message auto-summarize.
-          // - Mid-turn pressure is handled by `compactAgenticMessagesIfNeeded` inside
-          //   the SMART AGENTIC TOOL LOOP (see below), so this path only fires when
-          //   the user's *new* turn would otherwise blow the per-tier budget.
-          // - The `compress_context` tool remains as the model-triggered escape hatch.
-          // - v12 dedupe: the legacy getContextSummary() pre-load that lived here
-          //   was deleted — it ALWAYS returned null (legacy summary tables removed),
-          //   so the "existing summary" branch was dead. Durable summaries flow
-          //   through [COMPACTION MARKER] message slices instead; token-percent
-          //   compaction (55% / 75% / 90%) runs later against
-          //   `resolveModelContextLimit` + the full dispatch estimate.
-
-          logger.log(
-            `[stream:${req.chatId}] limitedMessageHistory len=${limitedMessageHistory.length} autoSummarize=${useAutoSummarize} hasSummary=${Boolean(contextSummaryForSystem)}`,
-          );
-
-          // Fallback: turn-based truncation (when auto-summarize off or for ephemeral)
-          if (!useAutoSummarize) {
+          {
             const maxChatTurns = isDeepContextEnabled
               ? 201
               : (settings.maxChatTurnsInContext || MAX_CHAT_TURNS_IN_CONTEXT) + 1;
@@ -3358,8 +3251,6 @@ This conversation includes one or more image attachments. When the user uploads 
 
             const runCompressAndRebuild = async (
               compressReason: string,
-              canDbR: boolean,
-              canEphemeralR: boolean,
             ): Promise<{ ok: boolean; tokensBefore?: number; tokensAfter?: number; status?: string }> => {
               const providerId =
                 getEffectiveModelForOptions(settings)?.provider ??
@@ -3380,24 +3271,22 @@ This conversation includes one or more image attachments. When the user uploads 
                     role: m.role,
                     content: m.content || "",
                   })),
-                  systemPromptTokens: 6000,
+                  // W6: the stream's REAL system prompt is in scope — no more
+                  // hardcoded 6000 (the ratio gate now sees the meter's scope).
+                  systemPromptTokens: estimateTokens(systemPrompt),
                   inputTokens: estimateTokens(userPrompt),
                   providerId,
                   sessionStats: { toolCallCount: 0, delegationCount: 0 },
-                  turnId: null,
                   // Thread the known-good session id (as the other two compress
-                  // call sites do) so a non-ephemeral workspace chat's compaction
-                  // marker persists — else a reload re-loads FULL history and
-                  // re-summarizes on the first post-reload turn.
+                  // call sites do) so the compaction marker persists — else a
+                  // reload re-loads FULL history and re-summarizes on the first
+                  // post-reload turn.
                   workspaceSessionId: req.workspaceSessionId ?? undefined,
-                  ephemeral: canEphemeralR,
-                  setMessages: canEphemeralR
-                    ? (next) => {
-                        updatedChat.messages = next as typeof updatedChat.messages;
-                        const ec = getStreamTransport(req.chatId);
-                        if (ec) ec.messages = next as typeof ec.messages;
-                      }
-                    : undefined,
+                  setMessages: (next) => {
+                    updatedChat.messages = next as typeof updatedChat.messages;
+                    const ec = getStreamTransport(req.chatId);
+                    if (ec) ec.messages = next as typeof ec.messages;
+                  },
                 },
               );
               if (!(outcomeR.success && outcomeR.status === "completed")) {
@@ -3408,7 +3297,7 @@ This conversation includes one or more image attachments. When the user uploads 
                   status: outcomeR.status,
                 };
               }
-              if (canEphemeralR) {
+              {
                 type EphemeralMsgR = {
                   role: string;
                   content?: string;
@@ -3505,9 +3394,7 @@ This conversation includes one or more image attachments. When the user uploads 
               fillRatioBefore >= 0.75 &&
               settings.enableContextAutoSummarize !== false
             ) {
-              const canEphemeral = isEphemeralWorkspace && req.chatId < 0;
-              const canDb = req.chatId > 0 && !isEphemeralWorkspace;
-              if (canEphemeral || canDb) {
+              {
                 const reason = "proactive-fill-75%";
                 logCompactionLine(dispatchEstimate, "auto", 75);
                 logger.log(
@@ -3525,7 +3412,7 @@ This conversation includes one or more image attachments. When the user uploads 
                   modelInitiated: false,
                 });
                 try {
-                  const cr = await runCompressAndRebuild(reason, canDb, canEphemeral);
+                  const cr = await runCompressAndRebuild(reason);
                   safeSend(event.sender, "chat:activity", {
                     id: `${activityBase}-done`,
                     type: "compaction",
@@ -3559,9 +3446,7 @@ This conversation includes one or more image attachments. When the user uploads 
               fillAfter75 >= 0.9 &&
               settings.enableContextAutoSummarize !== false
             ) {
-              const canEphemeral90 = isEphemeralWorkspace && req.chatId < 0;
-              const canDb90 = req.chatId > 0 && !isEphemeralWorkspace;
-              if (canEphemeral90 || canDb90) {
+              {
                 logCompactionLine(dispatchEstimate, "forced", 90);
                 const forcedBase = `forced-compact-${req.chatId}-${Date.now()}`;
                 safeSend(event.sender, "chat:activity", {
@@ -3578,11 +3463,7 @@ This conversation includes one or more image attachments. When the user uploads 
                 try {
                   for (let fi = 0; fi < 3; fi++) {
                     if (dispatchEstimate / contextWindowTokens < 0.9) break;
-                    const crF = await runCompressAndRebuild(
-                      "forced-fill-90%",
-                      canDb90,
-                      canEphemeral90,
-                    );
+                    const crF = await runCompressAndRebuild("forced-fill-90%");
                     if (!crF.ok) break;
                     forcedAny = true;
                   }
@@ -4704,7 +4585,7 @@ This conversation includes one or more image attachments. When the user uploads 
               currentMessages[currentMessages.length - 1].role === "assistant"
             ) {
               currentMessages[currentMessages.length - 1].content = fullResponse;
-              if (isEphemeralWorkspace) {
+              {
                 const lastIdx = updatedChat.messages.length - 1;
                 if (
                   lastIdx >= 0 &&
@@ -4752,7 +4633,9 @@ This conversation includes one or more image attachments. When the user uploads 
             const askPermissionInterceptor = new PermissionInterceptor(
               appPath,
               effectiveAppId ?? undefined,
-              !isEphemeralWorkspace ? placeholderAssistantMessage.id : undefined,
+              // Ask chats never write workspace snapshots (no snapshotTurnId);
+              // Build passes its stable stream turn id instead.
+              undefined,
               req.chatId,
             );
             registerInterceptor(req.chatId, askPermissionInterceptor);
@@ -4973,24 +4856,18 @@ This conversation includes one or more image attachments. When the user uploads 
                               role: m.role,
                               content: m.content || "",
                             })),
-                            systemPromptTokens: 6000,
+                            systemPromptTokens: estimateTokens(systemPrompt),
                             inputTokens: 0,
                             providerId,
                             sessionStats: { toolCallCount: 0, delegationCount: 0 },
-                            turnId: isEphemeralWorkspace
-                              ? null
-                              : String(placeholderAssistantMessage?.id ?? ""),
-                            ephemeral: isEphemeralWorkspace,
                             // Known-good session id so the [COMPACTION MARKER] persists
                             // even when chatId is the live (negative) transport id.
                             workspaceSessionId: req.workspaceSessionId,
-                            setMessages: isEphemeralWorkspace
-                              ? (next) => {
-                                  updatedChat.messages = next as typeof updatedChat.messages;
-                                  const ec = getStreamTransport(req.chatId);
-                                  if (ec) ec.messages = next as typeof ec.messages;
-                                }
-                              : undefined,
+                            setMessages: (next) => {
+                              updatedChat.messages = next as typeof updatedChat.messages;
+                              const ec = getStreamTransport(req.chatId);
+                              if (ec) ec.messages = next as typeof ec.messages;
+                            },
                           },
                         );
                         emitModelCompactionActivity(event.sender, req.chatId, outcome, reason);
@@ -5016,6 +4893,8 @@ This conversation includes one or more image attachments. When the user uploads 
                           reason: outcome.reason,
                           tokensBefore: outcome.tokensBefore,
                           tokensAfter: outcome.tokensAfter,
+                          tokensFreed: outcome.tokensFreed,
+                          strategy: outcome.strategy,
                           summary: outcome.summary,
                           status: outcome.status,
                           summaryPersisted: outcome.summaryPersisted,
@@ -5382,7 +5261,6 @@ This conversation includes one or more image attachments. When the user uploads 
                 workspaceId: effectiveAppId ?? undefined,
                 turnId: streamTurnId,
                 safeSend,
-                recordToolUseForTurn,
                 onDelegated: (agentId) => delegatedAgentsThisTurn.push(agentId),
                 getDelegationCount: () => delegationsStartedThisTurn,
                 onDelegationStart: () => {
@@ -5734,27 +5612,21 @@ This conversation includes one or more image attachments. When the user uploads 
                           {
                             chatId: req.chatId,
                             messages: msgList.map((m) => ({ id: m.id, role: m.role, content: m.content || "" })),
-                            systemPromptTokens: 6000,
+                            systemPromptTokens: estimateTokens(systemPrompt),
                             inputTokens: 0,
                             providerId,
                             sessionStats: { toolCallCount: 0, delegationCount: 0 },
-                            turnId: isEphemeralWorkspace
-                              ? null
-                              : String(placeholderAssistantMessage?.id ?? ""),
-                            ephemeral: isEphemeralWorkspace,
                             // Known-good session id so the [COMPACTION MARKER] persists
                             // even when chatId is the live (negative) transport id.
                             workspaceSessionId: req.workspaceSessionId,
                             // C-1: parity with the Ask-mode site — without this the
                             // Build-mode compress never replaced the live transport
                             // messages, so the next dispatch still used full history.
-                            setMessages: isEphemeralWorkspace
-                              ? (next) => {
-                                  updatedChat.messages = next as typeof updatedChat.messages;
-                                  const ec = getStreamTransport(req.chatId);
-                                  if (ec) ec.messages = next as typeof ec.messages;
-                                }
-                              : undefined,
+                            setMessages: (next) => {
+                              updatedChat.messages = next as typeof updatedChat.messages;
+                              const ec = getStreamTransport(req.chatId);
+                              if (ec) ec.messages = next as typeof ec.messages;
+                            },
                           },
                         );
 
@@ -5783,6 +5655,8 @@ This conversation includes one or more image attachments. When the user uploads 
                           reason: outcome.reason,
                           tokensBefore: outcome.tokensBefore,
                           tokensAfter: outcome.tokensAfter,
+                          tokensFreed: outcome.tokensFreed,
+                          strategy: outcome.strategy,
                           summary: outcome.summary,
                           status: outcome.status,
                           summaryPersisted: outcome.summaryPersisted,
@@ -6263,7 +6137,6 @@ This conversation includes one or more image attachments. When the user uploads 
                 workspaceId: effectiveAppId ?? undefined,
                 turnId: autonomousTurnId,
                 safeSend,
-                recordToolUseForTurn,
                 onDelegated: (agentId) => delegatedAgentsThisTurn.push(agentId),
                 getDelegationCount: () => delegationsStartedThisTurn,
                 onDelegationStart: () => {
@@ -7122,15 +6995,6 @@ ${stopNote}`;
             clearMutationOutcomes(streamTurnId);
             inFlightDelegationKeys.clear();
             notifyPlanUiForTurnIfPresent(streamTurnId);
-            await maybeAppendAutoMemoryAfterStream({
-              settings,
-              appPath,
-              chatId: req.chatId,
-              isEphemeralWorkspace,
-              streamTurnId,
-              isBuildModeTurn,
-              sender: event.sender,
-            });
             // v10 token accuracy: fold sub-agent + compaction usage into this
             // turn's totals so Compass metering and the meter are exact.
             const auxUsage = takeAuxUsage(req.chatId);
@@ -7230,16 +7094,6 @@ ${stopNote}`;
                   }
                 : {}),
             } satisfies ChatResponseEnd);
-            queuePostTurnSelfCorrection(event.sender, {
-              chatId: req.chatId,
-              rootAssistantMessageId: placeholderAssistantMessage.id,
-              appId: effectiveAppId,
-              appPath,
-              filesWrittenInThisExchange,
-              isBuildModeTurn,
-              isEphemeralWorkspace,
-              aborted: abortController.signal.aborted,
-            });
             if (activeStreamId.get(req.chatId) === streamId) activeStreams.delete(req.chatId);
             // Issue 4: turn completed cleanly — drop the interrupted draft so the
             // renderer's authoritative finished message is the only copy. v14.7 bug 7:

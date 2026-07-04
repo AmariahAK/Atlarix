@@ -166,7 +166,6 @@ export interface ActivityStreamItem {
     | 'parallel_prefetch_start'
     | 'parallel_prefetch_complete'
     | 'build_verification_complete'
-    | 'memory_saved'
     | 'plan_created'
     | 'duration_limit_reached'
     | 'loop_detected'
