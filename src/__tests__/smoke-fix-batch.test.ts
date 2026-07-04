@@ -109,3 +109,104 @@ describe("tokenizer memo", () => {
     expect(a).not.toBe(b);
   });
 });
+
+describe("tool-result media vs user-message embed split (round 2)", () => {
+  it("vision-capable OpenAI-compat provider (native DeepSeek): tool result steers to the embed, never claims delivery", () => {
+    registerModelsDevVision([
+      { providerId: "deepseek", modelId: "deepseek-v4-pro-split", acceptsImages: true },
+    ]);
+    const out = buildToolModelOutput(
+      "read_attachment",
+      {
+        success: true,
+        filename: "panel.png",
+        mimeType: "image/png",
+        data: "iVBORw0KGgoAAAANSUhEUg".repeat(20),
+      },
+      { builtinProviderId: "deepseek", modelApiId: "deepseek-v4-pro-split" },
+    );
+    expect(out?.type).toBe("text");
+    const text = (out as { value: string }).value;
+    expect(text).toContain("cannot deliver images through tool results");
+    expect(text).toContain("embedded");
+    expect(text).toContain("Do not guess");
+  });
+
+  it("anthropic keeps real media parts in tool results", () => {
+    const out = buildToolModelOutput(
+      "read_attachment",
+      {
+        success: true,
+        filename: "panel.png",
+        mimeType: "image/png",
+        data: "iVBORw0KGgoAAAANSUhEUg".repeat(20),
+      },
+      { builtinProviderId: "anthropic" },
+    );
+    expect(out?.type).toBe("content");
+  });
+});
+
+describe("attachment chat scoping (round 2)", () => {
+  it("list/read visibility is scoped to the tagged chat; untagged stays global", async () => {
+    const { AttachmentStore } = await import("@/lib/attachment-store");
+    const { ToolRegistry } = await import("@/lib/tools");
+    AttachmentStore.clear();
+    const rec = (id: string) => ({
+      id,
+      filename: `${id}.txt`,
+      mimeType: "text/plain",
+      data: Buffer.from(`content of ${id}`).toString("base64"),
+      size: 10,
+      addedAt: 1,
+    });
+    AttachmentStore.add(rec("scoped-a"), -101); // this chat
+    AttachmentStore.add(rec("scoped-b"), -202); // other session
+    AttachmentStore.add(rec("untagged")); // legacy/global
+
+    const listed: any = (
+      (await ToolRegistry.execute("list_attachments", {
+        _scopeChatId: -101,
+      })) as any
+    ).result;
+    const ids = listed.attachments.map((a: { id: string }) => a.id).sort();
+    expect(ids).toEqual(["scoped-a", "untagged"]);
+    expect(listed.count).toBe(2);
+
+    // Cross-chat read is refused (failures surface at the envelope level);
+    // same-chat read works.
+    const cross: any = await ToolRegistry.execute("read_attachment", {
+      attachmentId: "scoped-b",
+      _scopeChatId: -101,
+    });
+    expect(cross.success).toBe(false);
+    expect(String(cross.error)).toContain("different session");
+
+    const own: any = (
+      (await ToolRegistry.execute("read_attachment", {
+        attachmentId: "scoped-a",
+        _scopeChatId: -101,
+      })) as any
+    ).result;
+    expect(own.success).toBe(true);
+    expect(own.content).toContain("content of scoped-a");
+  });
+
+  it("re-adding the same id from another chat merges scopes (shared deterministic paste ids)", async () => {
+    const { AttachmentStore } = await import("@/lib/attachment-store");
+    AttachmentStore.clear();
+    const rec = {
+      id: "shared-paste",
+      filename: "shared.txt",
+      mimeType: "text/plain",
+      data: Buffer.from("x").toString("base64"),
+      size: 1,
+      addedAt: 1,
+    };
+    AttachmentStore.add({ ...rec }, -1);
+    AttachmentStore.add({ ...rec }, -2);
+    expect(
+      AttachmentStore.get("shared-paste")?.chatIds?.sort((a, b) => a - b),
+    ).toEqual([-2, -1]);
+  });
+});

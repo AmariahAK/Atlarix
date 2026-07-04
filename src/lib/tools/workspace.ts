@@ -716,6 +716,20 @@ function extractStructuredData(attachment: AttachmentData): any {
     };
 }
 
+/**
+ * v14.8.11 scoping: does this record belong to the calling chat? Untagged
+ * records (legacy adds, sub-agent context) stay globally visible; when no
+ * scope was injected (direct registry calls), everything is visible.
+ */
+function attachmentInScope(
+    record: { chatIds?: number[] },
+    scopeChatId: unknown,
+): boolean {
+    if (typeof scopeChatId !== "number") return true;
+    if (!record.chatIds || record.chatIds.length === 0) return true;
+    return record.chatIds.includes(scopeChatId);
+}
+
 // ── W3 (v14.8.11): read_attachment paging (read_file parity) ──────────────
 // Extractors return FULL text; this pager bounds what reaches the model per
 // call and the result always states how to fetch the rest — full content is
@@ -802,11 +816,14 @@ ToolRegistry.register({
         attachmentIds,
         offset,
         limit,
+        _scopeChatId,
     }: {
         attachmentId?: string;
         attachmentIds?: string[];
         offset?: number;
         limit?: number;
+        /** Injected by the stream tool wrapper — never model-supplied. */
+        _scopeChatId?: number;
     }) => {
         const ids = [
             ...(Array.isArray(attachmentIds) ? attachmentIds.filter((id) => typeof id === "string") : []),
@@ -825,11 +842,11 @@ ToolRegistry.register({
 
         const readOne = async (id: string, inBatch = false) => {
             const attachment = AttachmentStore.get(id);
-            if (!attachment) {
+            if (!attachment || !attachmentInScope(attachment, _scopeChatId)) {
                 return {
                     name: id,
                     success: false as const,
-                    error: `Attachment not found: ${id}. It may have expired.`,
+                    error: `Attachment not found in this conversation: ${id}. It may have expired or belong to a different session.`,
                     suggestion: "Use list_attachments to see current IDs.",
                 };
             }
@@ -943,11 +960,13 @@ ToolRegistry.register({
                     filename: one.name,
                     availableAttachments:
                         "error" in one && one.error?.includes("not found")
-                            ? AttachmentStore.getAll().map((a) => ({
-                                  id: a.id,
-                                  filename: a.filename,
-                                  size: a.size,
-                              }))
+                            ? AttachmentStore.getAll()
+                                  .filter((a) => attachmentInScope(a, _scopeChatId))
+                                  .map((a) => ({
+                                      id: a.id,
+                                      filename: a.filename,
+                                      size: a.size,
+                                  }))
                             : undefined,
                     ...(one as Record<string, unknown>),
                 };
@@ -980,8 +999,13 @@ ToolRegistry.register({
     isReadOnly: true,
     allowInAskMode: true,
     parameters: createParameters({}, []),
-    handler: async () => {
-        const attachments = AttachmentStore.getAll();
+    handler: async ({ _scopeChatId }: { _scopeChatId?: number } = {}) => {
+        // v14.8.11: scoped to the calling chat — the store is process-global,
+        // so unscoped listing leaked other sessions' attachments into every
+        // conversation.
+        const attachments = AttachmentStore.getAll().filter((a) =>
+            attachmentInScope(a, _scopeChatId),
+        );
 
         return {
             success: true,

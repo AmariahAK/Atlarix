@@ -85,16 +85,18 @@ export function storedFileToAttachmentData(
   };
 }
 
-/** Upsert file + paste attachments into the in-process AttachmentStore. */
+/** Upsert file + paste attachments into the in-process AttachmentStore,
+ * tagged with the owning chat so other chats don't see them (v14.8.11). */
 export function hydrateAttachmentStoreFromMessages(
   messages: MessageAttachmentRecord[],
+  chatId?: number,
 ): void {
   for (const message of messages) {
     for (const file of message.fileAttachments ?? []) {
-      AttachmentStore.add(storedFileToAttachmentData(file));
+      AttachmentStore.add(storedFileToAttachmentData(file), chatId);
     }
     for (const paste of message.pasteAttachments ?? []) {
-      AttachmentStore.add(pasteToAttachmentData(paste));
+      AttachmentStore.add(pasteToAttachmentData(paste), chatId);
     }
   }
 }

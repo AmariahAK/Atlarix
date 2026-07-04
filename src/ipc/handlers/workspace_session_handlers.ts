@@ -655,7 +655,10 @@ export function registerWorkspaceSessionHandlers(): void {
       const messages = rows
         .map(mapMessage)
         .filter((m) => m.kind !== "plan");
-      hydrateAttachmentStoreFromMessages(messages);
+      hydrateAttachmentStoreFromMessages(
+        messages,
+        typeof session.streamChatId === "number" ? session.streamChatId : undefined,
+      );
       return {
         session: mapSession(session),
         messages,

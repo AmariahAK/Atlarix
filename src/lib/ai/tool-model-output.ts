@@ -19,7 +19,10 @@
  */
 
 import type { LanguageModelV2ToolResultOutput } from "@ai-sdk/provider";
-import { providerSupportsToolMedia } from "@/lib/routing/model-capability-profile";
+import {
+  providerSupportsToolMedia,
+  detectVisionCapability,
+} from "@/lib/routing/model-capability-profile";
 import { redactSecretsInText } from "@/lib/security/redact-secrets";
 
 export { providerSupportsToolMedia };
@@ -105,6 +108,21 @@ export function buildToolModelOutput(
   const subject = media.filename
     ? `attached image ${media.filename}`
     : `screenshot of ${media.url ?? "current page"}${media.title ? ` (${media.title})` : ""}`;
+
+  // Vision-capable model on an API whose TOOL messages are text-only
+  // (OpenAI-compatible): the image can't ride this tool result, but it CAN
+  // ride a user message — steer the model to the embed path instead of
+  // letting it believe it saw something.
+  if (
+    media.filename &&
+    detectVisionCapability(ctx.builtinProviderId, ctx.modelApiId)
+  ) {
+    return {
+      type: "text",
+      value: `[attached image ${media.filename} — this provider cannot deliver images through tool results, so you have NOT seen it via this call. If the user attached it in their LATEST message, the image is already embedded there — look at that message directly. Otherwise, ask the user to re-attach the image (a fresh attachment is embedded where you can see it). Do not guess its contents.]`,
+    };
+  }
+
   // The wording must FORBID guessing: an earlier "work from its filename/
   // context" phrasing was read by a non-vision dispatch as licence to
   // fabricate a confident description of an image it never saw.

@@ -26,17 +26,39 @@ export interface AttachmentData {
      * document. Holds the resolved extractStructuredData result.
      */
     extractCache?: Record<string, unknown>;
+    /**
+     * v14.8.11 scoping: chats this attachment belongs to. The store is one
+     * process-global map, so without this, list/read_attachment leaked every
+     * hydrated session's attachments into every chat (observed live: a
+     * 2-attachment message listed 6, four of them another session's pastes).
+     * Untagged records (legacy/sub-agent adds) stay globally visible.
+     */
+    chatIds?: number[];
 }
 
 class AttachmentStoreImpl {
     private attachments: Map<string, AttachmentData> = new Map();
 
-    add(attachment: AttachmentData): string {
-        this.attachments.set(attachment.id, attachment);
+    add(attachment: AttachmentData, chatId?: number): string {
+        const existing = this.attachments.get(attachment.id);
+        const chatIds = new Set<number>([
+            ...(existing?.chatIds ?? []),
+            ...(attachment.chatIds ?? []),
+            ...(chatId != null ? [chatId] : []),
+        ]);
+        const record: AttachmentData = {
+            ...existing,
+            ...attachment,
+            // Never lose an existing extraction/pre-extract on a re-add.
+            extractCache: attachment.extractCache ?? existing?.extractCache,
+            pdfExtract: attachment.pdfExtract ?? existing?.pdfExtract,
+            ...(chatIds.size > 0 ? { chatIds: [...chatIds] } : {}),
+        };
+        this.attachments.set(record.id, record);
         logger?.log(
-            `Stored attachment: ${attachment.id} (${attachment.filename}, ${attachment.size} bytes)`,
+            `Stored attachment: ${record.id} (${record.filename}, ${record.size} bytes${chatIds.size ? `, chats: ${[...chatIds].join(",")}` : ""})`,
         );
-        return attachment.id;
+        return record.id;
     }
 
     get(id: string): AttachmentData | undefined {

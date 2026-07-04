@@ -131,15 +131,29 @@ export function detectVisionCapability(
 }
 
 /**
- * v12 2.1 absorbed the 0.2 media gate — the single source of truth for
- * whether tool results may carry image parts (browser screenshots). Now
- * capability-based: pass the model id so non-native vision models are detected.
+ * v12 2.1 absorbed the 0.2 media gate — whether TOOL RESULTS may carry image
+ * parts. v14.8.11: split from detectVisionCapability — this is API-FORMAT
+ * capability, not model capability: OpenAI-compatible chat APIs (native
+ * DeepSeek/Qwen/…) accept images in USER messages but their tool messages are
+ * text-only, so a media part in a tool result gets silently dropped (observed
+ * live: a vision-capable DeepSeek "described" an image it never received).
+ * Native anthropic/google/openai + OpenRouter-cataloged vision models keep
+ * tool-result media; everyone else delivers images via the user-message embed
+ * path (detectVisionCapability).
  */
 export function providerSupportsToolMedia(
   builtinProviderId: string | undefined,
   modelApiId?: string,
 ): boolean {
-  return detectVisionCapability(builtinProviderId, modelApiId);
+  if (builtinProviderId && NATIVE_VISION_PROVIDERS.has(builtinProviderId)) {
+    return true;
+  }
+  const id = (modelApiId ?? "").trim();
+  if (id.includes("/")) {
+    const row = getCachedOpenRouterModelRow(id);
+    if (modalityAcceptsImages(row?.architecture?.modality)) return true;
+  }
+  return false;
 }
 
 /**
@@ -169,7 +183,8 @@ export function getCapabilityProfile(model: {
   builtinProviderId?: string;
 }): ModelCapabilityProfile {
   const name = model.name ?? "";
-  const supportsToolMedia = detectVisionCapability(
+  // Profile field means TOOL-RESULT media specifically (API-format gate).
+  const supportsToolMedia = providerSupportsToolMedia(
     model.builtinProviderId,
     name,
   );

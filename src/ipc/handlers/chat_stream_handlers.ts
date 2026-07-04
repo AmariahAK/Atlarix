@@ -31,6 +31,7 @@ import {
   extractImageMedia,
   providerSupportsToolMedia,
 } from "@/lib/ai/tool-model-output";
+import { detectVisionCapability } from "@/lib/routing/model-capability-profile";
 import {
   hasNativeToolParts,
   serializeNativeHistory,
@@ -720,6 +721,12 @@ async function runToolExecute(
         error: `Blocked by a workspace pre_tool_use hook (\`${hookDenial.deniedBy}\`):\n${hookDenial.outputTail || "(no output)"}`,
       });
     }
+  }
+
+  // v14.8.11: attachment tools are scoped to the calling chat (the store is
+  // process-global; unscoped calls leaked other sessions' attachments).
+  if (toolName === "read_attachment" || toolName === "list_attachments") {
+    executeArgs._scopeChatId = chatId;
   }
 
   // MCP auth-and-retry: let mcp_call pause for the user to authenticate, then retry.
@@ -1728,6 +1735,7 @@ export function registerChatStreamHandlers() {
               base64Data,
               size: resolvedSize,
             }),
+            req.chatId,
           );
 
           // Session-only: used by renderer to show chips/previews under the user message.
@@ -1785,7 +1793,7 @@ export function registerChatStreamHandlers() {
 
       if (pasteAttachmentsForMessage?.length) {
         for (const paste of pasteAttachmentsForMessage) {
-          AttachmentStore.add(pasteToAttachmentData(paste));
+          AttachmentStore.add(pasteToAttachmentData(paste), req.chatId);
         }
         attachmentInfoForModel += buildPasteAttachmentDirective(pasteAttachmentsForMessage);
         if (!attachmentInfoForModel.includes("MANDATORY TOOL USE")) {
@@ -3609,29 +3617,52 @@ This conversation includes one or more image attachments. When the user uploads 
           ];
 
           // Check if the last message should include attachments (model-only injection)
+          // Follow-on to W4 (v14.8.11): on a vision-capable dispatch the
+          // current turn's image attachments ride the user message as NATIVE
+          // image parts — seen immediately, no tool round-trip. Uses
+          // detectVisionCapability (user-message image INPUT — models.dev
+          // aware), NOT the tool-result media gate: OpenAI-compatible APIs
+          // accept images in user messages but not in tool results.
+          const visionOk = detectVisionCapability(
+            modelClient.builtinProviderId,
+            resolveReasoningCatalogModelId(effectiveModel),
+          );
+          // Edited/resent turns carry no fresh req.attachments — recover the
+          // last user message's persisted images from the transport so an
+          // edit doesn't silently drop the pictures the model could see.
+          const lastUserTransportImages = (() => {
+            if (!visionOk) return [] as Array<{ filename: string; mimeType: string; data: string }>;
+            if (storedFileAttachments.length > 0) return storedFileAttachments;
+            for (let i = updatedChat.messages.length - 1; i >= 0; i--) {
+              const m = updatedChat.messages[i];
+              if (m?.role !== "user") continue;
+              return (m.fileAttachments ?? [])
+                .filter((f: { mimeType?: string }) => f.mimeType?.startsWith("image/"))
+                .map((f: { filename: string; mimeType: string; data: string }) => ({
+                  filename: f.filename,
+                  mimeType: f.mimeType,
+                  data: f.data,
+                }));
+            }
+            return [];
+          })();
           if (
             chatMessages.length >= 2 &&
-            (attachmentPaths.length > 0 || attachmentInfoForModel.trim().length > 0)
+            (attachmentPaths.length > 0 ||
+              attachmentInfoForModel.trim().length > 0 ||
+              lastUserTransportImages.length > 0)
           ) {
             const lastUserIndex = chatMessages.length - 2;
             const lastUserMessage = chatMessages[lastUserIndex];
 
             if (lastUserMessage.role === "user") {
-              // Follow-on to W4 (v14.8.11): on a vision-capable dispatch the
-              // current turn's image attachments ride the user message as
-              // NATIVE image parts — seen immediately, no tool round-trip.
-              // Non-vision models keep the read_attachment directive only.
-              const visionOk = providerSupportsToolMedia(
-                modelClient.builtinProviderId,
-                resolveReasoningCatalogModelId(effectiveModel),
-              );
               chatMessages[lastUserIndex] = await preflight.time(
                 "prepare-attachments",
                 () =>
                   prepareMessageWithAttachments({
                     message: lastUserMessage,
                     attachmentInfoForModel,
-                    imageAttachments: visionOk ? storedFileAttachments : [],
+                    imageAttachments: visionOk ? lastUserTransportImages : [],
                   }),
               );
             }

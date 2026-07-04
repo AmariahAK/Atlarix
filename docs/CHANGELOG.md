@@ -69,6 +69,22 @@
 
 ### Fixed (post-smoke, same release)
 
+- **Attachments are scoped to their conversation.** The in-process attachment store is one global
+  map, so `list_attachments`/`read_attachment` leaked every hydrated session's attachments into
+  every chat (observed: a 2-attachment message listed 6 — four belonged to another session).
+  Records are now tagged with their owning chat at ingest/hydration; the tools receive an
+  injected scope and filter to it (untagged/legacy records stay visible; cross-chat reads are
+  refused with an honest message).
+- **Images on OpenAI-compatible vision providers: tool results steer to the embed, never lie.**
+  OpenAI-compatible tool messages are text-only, so a media part in a `read_attachment` result was
+  silently dropped — a vision-capable native DeepSeek still "described" an image it never
+  received. The tool-media gate is now API-format-driven (anthropic/google/openai + OpenRouter
+  rows), while image INPUT capability (models.dev) drives the user-message embed; a vision-capable
+  model on a text-only-tool API gets an explicit "the image is embedded in the user message /
+  ask the user to re-attach — do not guess" result. Edited/resent messages now re-embed their
+  persisted images too (the edit path carries no fresh attachments, which is exactly the case the
+  smoke test hit).
+
 - **Native multimodal models actually receive images (vision detection via models.dev).** Smoke
   run: native DeepSeek v4 pro (multimodal on DeepSeek's own API) never got an attached image —
   the vision gate recognized only anthropic/openai/google + OpenRouter catalog rows — and then
