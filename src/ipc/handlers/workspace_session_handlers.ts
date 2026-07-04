@@ -658,6 +658,7 @@ export function registerWorkspaceSessionHandlers(): void {
       hydrateAttachmentStoreFromMessages(
         messages,
         typeof session.streamChatId === "number" ? session.streamChatId : undefined,
+        session.id,
       );
       return {
         session: mapSession(session),

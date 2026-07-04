@@ -722,12 +722,21 @@ function extractStructuredData(attachment: AttachmentData): any {
  * scope was injected (direct registry calls), everything is visible.
  */
 function attachmentInScope(
-    record: { chatIds?: number[] },
+    record: { chatIds?: number[]; sessionIds?: string[] },
     scopeChatId: unknown,
+    scopeSessionId?: unknown,
 ): boolean {
-    if (typeof scopeChatId !== "number") return true;
-    if (!record.chatIds || record.chatIds.length === 0) return true;
-    return record.chatIds.includes(scopeChatId);
+    const hasChatScope = typeof scopeChatId === "number";
+    const hasSessionScope = typeof scopeSessionId === "string" && scopeSessionId.length > 0;
+    if (!hasChatScope && !hasSessionScope) return true;
+    const tagged =
+        (record.chatIds?.length ?? 0) > 0 || (record.sessionIds?.length ?? 0) > 0;
+    if (!tagged) return true; // legacy/sub-agent adds stay globally visible
+    // Session UUID is the primary key (stable across relaunches); the
+    // transport chat id is a secondary match for records tagged pre-session.
+    if (hasSessionScope && record.sessionIds?.includes(scopeSessionId as string)) return true;
+    if (hasChatScope && record.chatIds?.includes(scopeChatId as number)) return true;
+    return false;
 }
 
 // ── W3 (v14.8.11): read_attachment paging (read_file parity) ──────────────
@@ -817,6 +826,7 @@ ToolRegistry.register({
         offset,
         limit,
         _scopeChatId,
+        _scopeSessionId,
     }: {
         attachmentId?: string;
         attachmentIds?: string[];
@@ -824,6 +834,7 @@ ToolRegistry.register({
         limit?: number;
         /** Injected by the stream tool wrapper — never model-supplied. */
         _scopeChatId?: number;
+        _scopeSessionId?: string;
     }) => {
         const ids = [
             ...(Array.isArray(attachmentIds) ? attachmentIds.filter((id) => typeof id === "string") : []),
@@ -842,7 +853,7 @@ ToolRegistry.register({
 
         const readOne = async (id: string, inBatch = false) => {
             const attachment = AttachmentStore.get(id);
-            if (!attachment || !attachmentInScope(attachment, _scopeChatId)) {
+            if (!attachment || !attachmentInScope(attachment, _scopeChatId, _scopeSessionId)) {
                 return {
                     name: id,
                     success: false as const,
@@ -961,7 +972,7 @@ ToolRegistry.register({
                     availableAttachments:
                         "error" in one && one.error?.includes("not found")
                             ? AttachmentStore.getAll()
-                                  .filter((a) => attachmentInScope(a, _scopeChatId))
+                                  .filter((a) => attachmentInScope(a, _scopeChatId, _scopeSessionId))
                                   .map((a) => ({
                                       id: a.id,
                                       filename: a.filename,
@@ -999,12 +1010,15 @@ ToolRegistry.register({
     isReadOnly: true,
     allowInAskMode: true,
     parameters: createParameters({}, []),
-    handler: async ({ _scopeChatId }: { _scopeChatId?: number } = {}) => {
-        // v14.8.11: scoped to the calling chat — the store is process-global,
-        // so unscoped listing leaked other sessions' attachments into every
-        // conversation.
+    handler: async ({
+        _scopeChatId,
+        _scopeSessionId,
+    }: { _scopeChatId?: number; _scopeSessionId?: string } = {}) => {
+        // v14.8.11: scoped to the calling chat/session — the store is
+        // process-global, so unscoped listing leaked other sessions'
+        // attachments into every conversation.
         const attachments = AttachmentStore.getAll().filter((a) =>
-            attachmentInScope(a, _scopeChatId),
+            attachmentInScope(a, _scopeChatId, _scopeSessionId),
         );
 
         return {

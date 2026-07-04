@@ -90,13 +90,14 @@ export function storedFileToAttachmentData(
 export function hydrateAttachmentStoreFromMessages(
   messages: MessageAttachmentRecord[],
   chatId?: number,
+  sessionId?: string,
 ): void {
   for (const message of messages) {
     for (const file of message.fileAttachments ?? []) {
-      AttachmentStore.add(storedFileToAttachmentData(file), chatId);
+      AttachmentStore.add(storedFileToAttachmentData(file), chatId, sessionId);
     }
     for (const paste of message.pasteAttachments ?? []) {
-      AttachmentStore.add(pasteToAttachmentData(paste), chatId);
+      AttachmentStore.add(pasteToAttachmentData(paste), chatId, sessionId);
     }
   }
 }

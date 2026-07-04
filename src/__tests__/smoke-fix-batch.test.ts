@@ -210,3 +210,67 @@ describe("attachment chat scoping (round 2)", () => {
     ).toEqual([-2, -1]);
   });
 });
+
+describe("session-keyed attachment scoping (round 3 — edited first message)", () => {
+  it("records hydrated under a STALE transport id stay visible via the session UUID", async () => {
+    const { AttachmentStore } = await import("@/lib/attachment-store");
+    const { ToolRegistry } = await import("@/lib/tools");
+    AttachmentStore.clear();
+    // Hydrated in a previous app run: stale chat -900, stable session UUID.
+    AttachmentStore.add(
+      {
+        id: "hydrated-img",
+        filename: "shot.png",
+        mimeType: "image/png",
+        data: Buffer.from("png").toString("base64"),
+        size: 3,
+        addedAt: 1,
+      },
+      -900,
+      "session-uuid-1",
+    );
+    // Live chat is a NEW transport id (-42) but the same session.
+    const listed: any = (
+      (await ToolRegistry.execute("list_attachments", {
+        _scopeChatId: -42,
+        _scopeSessionId: "session-uuid-1",
+      })) as any
+    ).result;
+    expect(listed.attachments.map((a: { id: string }) => a.id)).toEqual([
+      "hydrated-img",
+    ]);
+
+    // A different session sees nothing.
+    const other: any = (
+      (await ToolRegistry.execute("list_attachments", {
+        _scopeChatId: -43,
+        _scopeSessionId: "session-uuid-OTHER",
+      })) as any
+    ).result;
+    expect(other.count).toBe(0);
+  });
+
+  it("chat-id tagging alone still matches (pre-session records)", async () => {
+    const { AttachmentStore } = await import("@/lib/attachment-store");
+    const { ToolRegistry } = await import("@/lib/tools");
+    AttachmentStore.clear();
+    AttachmentStore.add(
+      {
+        id: "chat-tagged",
+        filename: "a.txt",
+        mimeType: "text/plain",
+        data: Buffer.from("x").toString("base64"),
+        size: 1,
+        addedAt: 1,
+      },
+      -77,
+    );
+    const listed: any = (
+      (await ToolRegistry.execute("list_attachments", {
+        _scopeChatId: -77,
+        _scopeSessionId: "some-session",
+      })) as any
+    ).result;
+    expect(listed.count).toBe(1);
+  });
+});

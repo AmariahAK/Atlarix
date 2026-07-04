@@ -34,17 +34,30 @@ export interface AttachmentData {
      * Untagged records (legacy/sub-agent adds) stay globally visible.
      */
     chatIds?: number[];
+    /**
+     * Session UUIDs this attachment belongs to — the PRIMARY scope key.
+     * Transport chat ids are remade on every app relaunch, so a record
+     * hydrated under an old transport id became invisible to the live chat
+     * (observed: an edited first message listed ZERO attachments). Session
+     * ids are stable forever.
+     */
+    sessionIds?: string[];
 }
 
 class AttachmentStoreImpl {
     private attachments: Map<string, AttachmentData> = new Map();
 
-    add(attachment: AttachmentData, chatId?: number): string {
+    add(attachment: AttachmentData, chatId?: number, sessionId?: string): string {
         const existing = this.attachments.get(attachment.id);
         const chatIds = new Set<number>([
             ...(existing?.chatIds ?? []),
             ...(attachment.chatIds ?? []),
             ...(chatId != null ? [chatId] : []),
+        ]);
+        const sessionIds = new Set<string>([
+            ...(existing?.sessionIds ?? []),
+            ...(attachment.sessionIds ?? []),
+            ...(sessionId ? [sessionId] : []),
         ]);
         const record: AttachmentData = {
             ...existing,
@@ -53,6 +66,7 @@ class AttachmentStoreImpl {
             extractCache: attachment.extractCache ?? existing?.extractCache,
             pdfExtract: attachment.pdfExtract ?? existing?.pdfExtract,
             ...(chatIds.size > 0 ? { chatIds: [...chatIds] } : {}),
+            ...(sessionIds.size > 0 ? { sessionIds: [...sessionIds] } : {}),
         };
         this.attachments.set(record.id, record);
         logger?.log(

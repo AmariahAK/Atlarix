@@ -679,6 +679,8 @@ async function runToolExecute(
   streamOpts?: {
     turnId?: string;
     abortController?: AbortController;
+    /** Session UUID for attachment scoping (stable across relaunches). */
+    workspaceSessionId?: string;
   },
 ): Promise<unknown> {
   // No per-turn call cap or duplicate-call dedup: every tool call executes.
@@ -723,10 +725,15 @@ async function runToolExecute(
     }
   }
 
-  // v14.8.11: attachment tools are scoped to the calling chat (the store is
-  // process-global; unscoped calls leaked other sessions' attachments).
+  // v14.8.11: attachment tools are scoped to the calling chat/session (the
+  // store is process-global; unscoped calls leaked other sessions'
+  // attachments). Session UUID is the primary key — transport chat ids are
+  // remade every app relaunch.
   if (toolName === "read_attachment" || toolName === "list_attachments") {
     executeArgs._scopeChatId = chatId;
+    if (streamOpts?.workspaceSessionId) {
+      executeArgs._scopeSessionId = streamOpts.workspaceSessionId;
+    }
   }
 
   // MCP auth-and-retry: let mcp_call pause for the user to authenticate, then retry.
@@ -1736,6 +1743,7 @@ export function registerChatStreamHandlers() {
               size: resolvedSize,
             }),
             req.chatId,
+            req.workspaceSessionId ?? undefined,
           );
 
           // Session-only: used by renderer to show chips/previews under the user message.
@@ -1793,7 +1801,11 @@ export function registerChatStreamHandlers() {
 
       if (pasteAttachmentsForMessage?.length) {
         for (const paste of pasteAttachmentsForMessage) {
-          AttachmentStore.add(pasteToAttachmentData(paste), req.chatId);
+          AttachmentStore.add(
+            pasteToAttachmentData(paste),
+            req.chatId,
+            req.workspaceSessionId ?? undefined,
+          );
         }
         attachmentInfoForModel += buildPasteAttachmentDirective(pasteAttachmentsForMessage);
         if (!attachmentInfoForModel.includes("MANDATORY TOOL USE")) {
@@ -2036,6 +2048,7 @@ ${componentSnippet}
       const buildToolStreamOpts = () => ({
         turnId: streamTurnId,
         abortController,
+        workspaceSessionId: req.workspaceSessionId ?? undefined,
       });
 
       // Send the messages right away so that the loading state is shown for the message.
@@ -3628,24 +3641,62 @@ This conversation includes one or more image attachments. When the user uploads 
             resolveReasoningCatalogModelId(effectiveModel),
           );
           // Edited/resent turns carry no fresh req.attachments — recover the
-          // last user message's persisted images from the transport so an
-          // edit doesn't silently drop the pictures the model could see.
+          // last user message's persisted attachments from the transport so an
+          // edit doesn't silently drop what the model could see/read.
+          const lastUserTransportMessage = (() => {
+            for (let i = updatedChat.messages.length - 1; i >= 0; i--) {
+              const m = updatedChat.messages[i];
+              if (m?.role === "user") return m;
+            }
+            return undefined;
+          })();
           const lastUserTransportImages = (() => {
             if (!visionOk) return [] as Array<{ filename: string; mimeType: string; data: string }>;
             if (storedFileAttachments.length > 0) return storedFileAttachments;
-            for (let i = updatedChat.messages.length - 1; i >= 0; i--) {
-              const m = updatedChat.messages[i];
-              if (m?.role !== "user") continue;
-              return (m.fileAttachments ?? [])
-                .filter((f: { mimeType?: string }) => f.mimeType?.startsWith("image/"))
-                .map((f: { filename: string; mimeType: string; data: string }) => ({
-                  filename: f.filename,
-                  mimeType: f.mimeType,
-                  data: f.data,
-                }));
-            }
-            return [];
+            return (lastUserTransportMessage?.fileAttachments ?? [])
+              .filter((f: { mimeType?: string }) => f.mimeType?.startsWith("image/"))
+              .map((f: { filename: string; mimeType: string; data: string }) => ({
+                filename: f.filename,
+                mimeType: f.mimeType,
+                data: f.data,
+              }));
           })();
+          // Edit-resend: ingest was skipped, so the model got NO attachment
+          // directive (it had to guess or list). Rebuild the id lines from the
+          // persisted attachments of the message being resent.
+          if (
+            !attachmentInfoForModel.trim() &&
+            lastUserTransportMessage &&
+            ((lastUserTransportMessage.fileAttachments?.length ?? 0) > 0 ||
+              (lastUserTransportMessage.pasteAttachments?.length ?? 0) > 0)
+          ) {
+            const lines: string[] = [];
+            for (const f of lastUserTransportMessage.fileAttachments ?? []) {
+              lines.push(
+                `- name: "${f.filename}" | attachmentId: ${f.id} | mime: ${f.mimeType} | size: ${f.size}`,
+              );
+            }
+            try {
+              const { resolvePasteAttachmentsForMessage } = await import(
+                "@/lib/chat/paste-attachment-meta"
+              );
+              for (const paste of resolvePasteAttachmentsForMessage(
+                lastUserTransportMessage,
+              )) {
+                lines.push(
+                  `- name: "${paste.displayName}" | attachmentId: ${paste.id} | kind: ${paste.kind} | source: user-paste`,
+                );
+              }
+            } catch {
+              // paste recovery is best-effort
+            }
+            if (lines.length > 0) {
+              attachmentInfoForModel =
+                "\n\nFILES ATTACHED to this (edited) message — already uploaded, do NOT ask the user to re-attach:\n" +
+                lines.join("\n") +
+                '\n\nUse read_attachment({ "attachmentId": "<id>" }) to read any of them.\n';
+            }
+          }
           if (
             chatMessages.length >= 2 &&
             (attachmentPaths.length > 0 ||
@@ -4756,6 +4807,7 @@ This conversation includes one or more image attachments. When the user uploads 
             const askToolStreamOpts = () => ({
               turnId: streamTurnId,
               abortController,
+              workspaceSessionId: req.workspaceSessionId ?? undefined,
             });
 
             // v12 S19 (closes 3.10): the 4-stage resolution pipeline
