@@ -6,7 +6,18 @@
  */
 
 import type { Message } from "@/ipc/ipc_types";
-import { resolvePasteAttachmentsForMessage } from "@/lib/chat/paste-attachment-meta";
+import {
+    resolvePasteAttachmentsForMessage,
+    lookupTextPasteContent,
+    lookupTerminalPasteContent,
+} from "@/lib/chat/paste-attachment-meta";
+import {
+    splitAttachmentTagsForEdit,
+    rejoinAttachmentTags,
+} from "@/lib/chat/edit-attachment-tags";
+import type { ParsedAttachmentTag } from "@/lib/chat/attachment-tag-parse";
+import { PastedTextAttachmentChip } from "@/components/chat/PastedTextAttachmentChip";
+import { TerminalOutputAttachmentChip } from "@/components/chat/TerminalOutputAttachmentChip";
 import {
     CHAT_MESSAGE_MARKDOWN_PROSE,
     UserMessageMarkdownParser,
@@ -79,6 +90,9 @@ function SimpleMessageImpl({
     const chatId = chatIdProp ?? activeChatId;
     const [isEditing, setIsEditing] = useState(false);
     const [editContent, setEditContent] = useState(message.content);
+    // W5 (v14.8.11): attachment stub tags stripped from the editable text —
+    // rendered as read-only chips above the textarea, re-spliced on save.
+    const [editTags, setEditTags] = useState<ParsedAttachmentTag[]>([]);
     const [editMode, setEditMode] = useState<WorkMode>(
         () =>
             (message.workMode as WorkMode | null | undefined) ??
@@ -162,12 +176,54 @@ function SimpleMessageImpl({
                                 )}
 
                             {isUser && isEditing ? (
-                                <textarea
-                                    value={editContent}
-                                    onChange={(e) => setEditContent(e.target.value)}
-                                    className="w-full min-h-[120px] rounded-md border border-border/50 bg-background/70 p-2 text-sm text-foreground"
-                                    autoFocus
-                                />
+                                <>
+                                    {editTags.length > 0 && (
+                                        <div className="flex flex-wrap gap-1 mb-2">
+                                            {editTags.map((tag, ti) => {
+                                                const pastes =
+                                                    resolvePasteAttachmentsForMessage(message);
+                                                if (tag.tag === "atlarix-text-attachment") {
+                                                    const filename =
+                                                        tag.attributes.filename || "attachment";
+                                                    return (
+                                                        <PastedTextAttachmentChip
+                                                            key={`edit-tag-${ti}`}
+                                                            content={
+                                                                lookupTextPasteContent(
+                                                                    filename,
+                                                                    pastes,
+                                                                ) || tag.content.trim()
+                                                            }
+                                                            displayName={filename}
+                                                            readOnly
+                                                        />
+                                                    );
+                                                }
+                                                const label =
+                                                    tag.attributes.label || "Terminal output";
+                                                const body = lookupTerminalPasteContent(
+                                                    label,
+                                                    pastes,
+                                                );
+                                                return (
+                                                    <TerminalOutputAttachmentChip
+                                                        key={`edit-tag-${ti}`}
+                                                        content={body.content || tag.content.trim()}
+                                                        displayContent={body.displayContent}
+                                                        displayName={label}
+                                                        readOnly
+                                                    />
+                                                );
+                                            })}
+                                        </div>
+                                    )}
+                                    <textarea
+                                        value={editContent}
+                                        onChange={(e) => setEditContent(e.target.value)}
+                                        className="w-full min-h-[120px] rounded-md border border-border/50 bg-background/70 p-2 text-sm text-foreground"
+                                        autoFocus
+                                    />
+                                </>
                             ) : isAssistant ? (
                                 <AssistantMessageBody
                                     content={message.content ?? ""}
@@ -290,7 +346,9 @@ function SimpleMessageImpl({
                                 <button
                                     type="button"
                                     onClick={() => {
-                                        setEditContent(message.content);
+                                        const split = splitAttachmentTagsForEdit(message.content);
+                                        setEditContent(split.text);
+                                        setEditTags(split.tags);
                                         setEditMode(
                                             (message.workMode as WorkMode | null | undefined) ??
                                                 settings?.workModePreference ??
@@ -340,7 +398,10 @@ function SimpleMessageImpl({
                                                         settingsPatchForWorkMode(editMode),
                                                     );
                                                 }
-                                                await onEditUserMessage?.(message.id, editContent);
+                                                await onEditUserMessage?.(
+                                                    message.id,
+                                                    rejoinAttachmentTags(editContent, editTags),
+                                                );
                                                 setIsEditing(false);
                                             } catch (err) {
                                                 showError(err);
@@ -354,6 +415,7 @@ function SimpleMessageImpl({
                                         type="button"
                                         onClick={() => {
                                             setEditContent(message.content);
+                                            setEditTags([]);
                                             setEditMode(
                                                 (message.workMode as WorkMode | null | undefined) ??
                                                     settings?.workModePreference ??

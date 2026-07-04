@@ -159,8 +159,19 @@ export type RunSubagentResult = {
   error?: string;
 };
 
-/** Rolling thought/text emitter — one growing block per stream segment. */
-function makeRollingEmitter(
+/**
+ * Rolling thought/text emitter — one growing block per SEGMENT.
+ *
+ * W8 (v14.8.11): segments rotate at every tool-execution boundary. The old
+ * per-round stable id (`sub-thought-…-r${round}`) coalesced the entire
+ * multi-step round's reasoning into ONE item whose timestamp was pinned to
+ * its first emit — so the renderer's correct (ts, seq) sort necessarily
+ * showed "all thoughts on top, tools below". Each reasoning span between
+ * tools is now its own item with its own first-emit ts, and the existing
+ * sort interleaves thought → tool → thought chronologically with zero
+ * renderer changes.
+ */
+export function makeRollingEmitter(
   emit: ((payload: SubagentActivityEmit) => void) | undefined,
   delegationId: string,
   round: number,
@@ -168,6 +179,7 @@ function makeRollingEmitter(
   let reasoningBuf = "";
   let textBuf = "";
   let lastEmit = 0;
+  let segment = 0;
 
   const flush = (channel: "reasoning" | "text", force: boolean) => {
     if (!emit) return;
@@ -181,8 +193,8 @@ function makeRollingEmitter(
       type: "subagent_thought",
       id:
         channel === "reasoning"
-          ? `sub-thought-${delegationId}-r${round}`
-          : `sub-text-${delegationId}-r${round}`,
+          ? `sub-thought-${delegationId}-r${round}-s${segment}`
+          : `sub-text-${delegationId}-r${round}-s${segment}`,
       channel,
       content:
         content.length > THOUGHT_SEGMENT_CHAR_CAP
@@ -203,6 +215,18 @@ function makeRollingEmitter(
     finish() {
       flush("reasoning", true);
       flush("text", true);
+    },
+    /**
+     * Close the current segment (force-flush BEFORE clearing — the throttle
+     * would otherwise drop a short pre-tool reasoning span) and start a new
+     * one. Called at each tool-execution boundary.
+     */
+    rotate() {
+      flush("reasoning", true);
+      flush("text", true);
+      reasoningBuf = "";
+      textBuf = "";
+      segment += 1;
     },
   };
 }
@@ -288,6 +312,11 @@ export async function runSubagent(
       );
     }
 
+    // W8: the live rolling emitter for the CURRENT round — the tool wrapper
+    // rotates its segment so reasoning before/after a tool call renders as
+    // separate, correctly-ordered items.
+    let currentRolling: ReturnType<typeof makeRollingEmitter> | null = null;
+
     const toolSet: ToolSet = {};
     for (const t of toolsForAgent) {
       toolSet[t.name] = {
@@ -296,6 +325,7 @@ export async function runSubagent(
         // crashes on it without the shared normalizer.
         inputSchema: normalizeToolInputSchemaForAiSdk(t.parameters) as never,
         execute: async (toolArgs: Record<string, unknown>) => {
+          currentRolling?.rotate();
           const toolActivityId = `sub-tool-${delegationId}-${t.name}-${Date.now()}`;
           const startPreview = formatToolStartPreview(t.name, toolArgs);
           emit?.({
@@ -419,6 +449,7 @@ export async function runSubagent(
     /** One streamed round; returns the SDK result pieces we need. */
     const runRound = async () => {
       const rolling = makeRollingEmitter(emit, delegationId, round);
+      currentRolling = rolling;
       const stream = streamText({
         model: modelClient.model,
         abortSignal: args.abortSignal,
@@ -454,6 +485,7 @@ export async function runSubagent(
         }
       }
       rolling.finish();
+      currentRolling = null;
 
       const [text, finishReason, usage, response, steps] = await Promise.all([
         stream.text,

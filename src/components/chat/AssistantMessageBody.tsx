@@ -41,6 +41,7 @@ import { InlineToolPartCard } from "./InlineToolPartCard";
 import { InlinePermissionApprovals } from "./InlinePermissionApprovals";
 import { StreamToolCallCard } from "./StreamToolCallCard";
 import { flattenToolGroupsInThread } from "@/lib/chat/group-stream-tools";
+import { weaveIpcItemsIntoParts, type WovenEntry } from "@/lib/chat/timeline-weave";
 import {
   compareThreadItems,
   consolidateSubagentRoundsInThread,
@@ -378,6 +379,27 @@ export function AssistantMessageBody({
     inlineSubagentRound,
   ]);
 
+  // W7 (v14.8.11): weave IPC-only items (compaction/background/plan cards)
+  // into the content timeline at their timestamps instead of pinning them to
+  // the bottom. One helper for the streaming AND completed paths so they
+  // can't diverge; unanchorable items keep today's tail placement.
+  const woven = useMemo(() => {
+    return weaveIpcItemsIntoParts({
+      before: interleavedBefore,
+      after: interleavedAfter,
+      items: isStreaming ? ipcTailWhileStreaming : postStreamThreadTail,
+      anchorsFrom: isStreaming ? liveThread : displayCompletedThread,
+    });
+  }, [
+    interleavedBefore,
+    interleavedAfter,
+    isStreaming,
+    ipcTailWhileStreaming,
+    postStreamThreadTail,
+    liveThread,
+    displayCompletedThread,
+  ]);
+
   const postStreamSubagentItems = useMemo(() => {
     if (isStreaming || inlineSubagentRound) return [];
     const fromThread = displayCompletedThread.filter(
@@ -421,8 +443,8 @@ export function AssistantMessageBody({
             isStreaming={false}
           />
         ) : null}
-        <PaginatedPartList
-          parts={interleavedBefore}
+        <WovenEntryList
+          entries={woven.before}
           isStreaming={isStreaming}
           chatId={chatId}
           citationSources={citationSources}
@@ -437,8 +459,8 @@ export function AssistantMessageBody({
             isStreaming={isStreaming}
           />
         ) : null}
-        <PaginatedPartList
-          parts={interleavedAfter}
+        <WovenEntryList
+          entries={woven.after}
           isStreaming={isStreaming}
           chatId={chatId}
           citationSources={citationSources}
@@ -446,20 +468,10 @@ export function AssistantMessageBody({
           onPlanArtifactBuild={onPlanArtifactBuild}
           planArtifactBuildDisabled={planArtifactBuildDisabled}
         />
-        {ipcTailWhileStreaming.map((item) => (
-          <StreamThreadItemView
-            key={`tail-${threadItemKey(item)}`}
-            item={item}
-            isStreaming={isStreaming}
-            chatId={chatId}
-            onPlanArtifactBuild={onPlanArtifactBuild}
-            planArtifactBuildDisabled={planArtifactBuildDisabled}
-          />
-        ))}
         <PaginatedThreadList
-          items={postStreamThreadTail}
-          keyPrefix="completed-tail"
-          isStreaming={false}
+          items={woven.tail}
+          keyPrefix={isStreaming ? "tail" : "completed-tail"}
+          isStreaming={isStreaming}
           chatId={chatId}
           onPlanArtifactBuild={onPlanArtifactBuild}
           planArtifactBuildDisabled={planArtifactBuildDisabled}
@@ -739,6 +751,49 @@ type PartRenderProps = {
 };
 
 /** Render a parts list, paginating long runs of consecutive command/file cards. */
+/**
+ * W7 (v14.8.11): render a woven timeline — runs of content parts keep the
+ * existing PaginatedPartList behavior; IPC-only thread items (compaction /
+ * background / interceptor tool cards) render inline at their woven position
+ * instead of being pinned to the message tail.
+ */
+function WovenEntryList({
+  entries,
+  ...props
+}: { entries: WovenEntry[] } & PartRenderProps) {
+  const runs: Array<
+    | { type: "parts"; parts: AssistantMessagePart[] }
+    | { type: "thread"; item: StreamThreadItem }
+  > = [];
+  for (const entry of entries) {
+    if (entry.type === "thread") {
+      runs.push({ type: "thread", item: entry.item });
+      continue;
+    }
+    const last = runs[runs.length - 1];
+    if (last && last.type === "parts") last.parts.push(entry.part);
+    else runs.push({ type: "parts", parts: [entry.part] });
+  }
+  return (
+    <>
+      {runs.map((run, ri) =>
+        run.type === "parts" ? (
+          <PaginatedPartList key={`woven-run-${ri}`} parts={run.parts} {...props} />
+        ) : (
+          <StreamThreadItemView
+            key={`woven-${threadItemKey(run.item)}`}
+            item={run.item}
+            isStreaming={props.isStreaming}
+            chatId={props.chatId}
+            onPlanArtifactBuild={props.onPlanArtifactBuild}
+            planArtifactBuildDisabled={props.planArtifactBuildDisabled}
+          />
+        ),
+      )}
+    </>
+  );
+}
+
 function PaginatedPartList({
   parts,
   ...props
