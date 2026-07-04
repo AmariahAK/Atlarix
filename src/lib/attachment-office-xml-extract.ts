@@ -7,7 +7,6 @@
 
 import { unzipSync, strFromU8 } from "fflate";
 
-const MAX_TEXT_CHARS = 200_000;
 
 export type OfficeXmlExtractResult = {
   text: string;
@@ -35,8 +34,9 @@ function xmlToText(xml: string): string {
     .trim();
 }
 
+// W3 (v14.8.11): no total cap — read_attachment pages the full text per call.
 function clip(text: string): string {
-  return text.length > MAX_TEXT_CHARS ? text.slice(0, MAX_TEXT_CHARS) : text;
+  return text;
 }
 
 export function extractTextFromPptxBuffer(buffer: Buffer): OfficeXmlExtractResult {

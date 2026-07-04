@@ -4,7 +4,6 @@
  * delimiter sniffing, quoting, and BOM handling stay consistent — no extra dep.
  */
 
-const MAX_TEXT_CHARS = 200_000;
 /** Rows kept in the structured `table` for the tool card; full text still capped separately. */
 const MAX_TABLE_ROWS = 200;
 const MAX_TABLE_COLUMNS = 50;
@@ -54,10 +53,9 @@ export async function extractCsvFromBuffer(buffer: Buffer): Promise<CsvExtractRe
     const truncated =
       totalRows - 1 > MAX_TABLE_ROWS || totalColumns > MAX_TABLE_COLUMNS;
 
-    let text = XLSX.utils.sheet_to_csv(sheet);
-    if (text.length > MAX_TEXT_CHARS) {
-      text = text.slice(0, MAX_TEXT_CHARS);
-    }
+    // W3 (v14.8.11): full CSV text — read_attachment pages it; the renderer
+    // table keeps its own row/column caps.
+    const text = XLSX.utils.sheet_to_csv(sheet);
     if (!text.trim()) {
       // Whitespace-only input parses to a phantom empty row — treat as failure.
       return { text: "", table: null, rowCount: 0, columnCount: 0, success: false };

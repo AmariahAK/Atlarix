@@ -8,7 +8,7 @@ import type { Tool } from "../providers/base-provider";
 import { isMainProcessNode } from "../runtime/is-main-node";
 import { guardToolCall } from "./guard";
 import { resolveRecoverySuggestion } from "./tool-error-patterns";
-import { extractScreenshotMedia } from "@/lib/ai/tool-model-output";
+import { extractImageMedia } from "@/lib/ai/tool-model-output";
 
 // NOTE: this module is imported by both the Electron main process AND the renderer
 // (e.g. `ToolIndicator.tsx` reads `ToolRegistry` for UI metadata). Anything that
@@ -37,7 +37,7 @@ const TOOL_OUTPUT_PREVIEW_TAIL_TOKENS = 500;
 // becomes a media content part, not text tokens) — head/tail truncation would
 // corrupt the image. v13.8: screenshots now arrive via browser_inspect
 // (mode:"screenshot") as well as the legacy browser_screenshot tool, so we
-// detect them by RESULT SHAPE (extractScreenshotMedia) rather than tool name;
+// detect them by RESULT SHAPE (extractImageMedia) rather than tool name;
 // browser_inspect's text/snapshot modes still truncate normally.
 const NEVER_TRUNCATE = new Set<string>(["browser_screenshot"]);
 
@@ -45,7 +45,9 @@ const NEVER_TRUNCATE = new Set<string>(["browser_screenshot"]);
 // offset/limit on the source path, so it manages large files itself (opencode
 // parity). Running it through the head+tail envelope would chop mid-file for no
 // gain — exempt it; the envelope is for unbounded outputs (commands, etc.).
-const SELF_PAGINATED_TOOLS = new Set<string>(["read_file"]);
+// read_attachment self-pages the same way since W3 (v14.8.11) — offset/limit
+// over the cached full extraction, page size bounded in the tool itself.
+const SELF_PAGINATED_TOOLS = new Set<string>(["read_file", "read_attachment"]);
 
 /**
  * If `result` exceeds the token budget (or the byte ceiling) and the tool is
@@ -64,7 +66,7 @@ export async function maybeTruncateToolOutput(
     if (
         NEVER_TRUNCATE.has(toolName) ||
         SELF_PAGINATED_TOOLS.has(toolName) ||
-        extractScreenshotMedia(result)
+        extractImageMedia(result)
     ) {
         return { value: result, truncated: false, totalChars: 0 };
     }

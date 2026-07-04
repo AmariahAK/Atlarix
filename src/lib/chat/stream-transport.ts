@@ -82,6 +82,10 @@ export function editTransportUserMessage(
   chatId: number,
   userMessageId: number,
   newContent: string,
+  /** W2 (v14.8.11): regenerated model-facing content — the edited prose with
+   * attachment stubs re-expanded to full bodies. Omitted/null = no model
+   * variant (plain message). */
+  newModelContent?: string | null,
 ): boolean {
   const chat = ephemeralChats.get(chatId);
   if (!chat) return false;
@@ -99,7 +103,11 @@ export function editTransportUserMessage(
     modelContent: _staleModelContent,
     ...rest
   } = prev as Message & { modelContent?: string };
-  chat.messages[idx] = { ...rest, content: newContent } as Message;
+  chat.messages[idx] = {
+    ...rest,
+    content: newContent,
+    ...(newModelContent ? { modelContent: newModelContent } : {}),
+  } as Message;
   // Mirror only: the in-memory truncation keeps the live chat:response:chunk
   // snapshot consistent; the AUTHORITATIVE truncation is the DB tail delete
   // in persistEditedSessionMessageById.

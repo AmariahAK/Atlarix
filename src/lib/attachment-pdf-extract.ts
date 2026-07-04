@@ -7,7 +7,6 @@ import log from "electron-log";
 const logger = log.scope("attachment-pdf");
 
 const PDF_EXTRACT_TIMEOUT_MS = 30_000;
-const PDF_MAX_CHARS = 200_000;
 
 export type PdfExtractResult = {
   text: string;
@@ -72,16 +71,13 @@ export async function extractTextFromPdfBuffer(
   });
 
   const result = await Promise.race([
-    readPdfFile(buffer).then((r) => {
-      const clipped = r.text.length > PDF_MAX_CHARS;
-      const text = clipped ? r.text.slice(0, PDF_MAX_CHARS) : r.text;
-      return {
-        text,
-        pages: r.pages,
-        success: r.success,
-        extractedAt: Date.now(),
-      };
-    }),
+    readPdfFile(buffer).then((r) => ({
+      // W3 (v14.8.11): FULL text — read_attachment pages it per call.
+      text: r.text,
+      pages: r.pages,
+      success: r.success,
+      extractedAt: Date.now(),
+    })),
     timeout,
   ]).catch((err) => ({
     text: `[PDF extraction failed: ${err instanceof Error ? err.message : String(err)}]`,

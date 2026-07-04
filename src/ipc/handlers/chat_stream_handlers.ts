@@ -28,7 +28,7 @@ import {
 import {
   buildToolModelOutput,
   redactToolMediaForDisplay,
-  extractScreenshotMedia,
+  extractImageMedia,
 } from "@/lib/ai/tool-model-output";
 import {
   hasNativeToolParts,
@@ -1131,20 +1131,12 @@ export function abortAllStreams(): void {
 const TEMP_DIR = path.join(os.tmpdir(), "atlarix-attachments");
 
 // Common helper functions
-const TEXT_FILE_EXTENSIONS = [
-  ".md",
-  ".txt",
-  ".json",
-  ".csv",
-  ".js",
-  ".ts",
-  ".html",
-  ".css",
-];
 
 async function isTextFile(filePath: string): Promise<boolean> {
-  const ext = path.extname(filePath).toLowerCase();
-  return TEXT_FILE_EXTENSIONS.includes(ext);
+  // W3 (v14.8.11): one shared list with read_attachment — the old 8-entry
+  // local whitelist meant a .py/.go upload got NO inline preview at all.
+  const { isSupportedTextExtension } = await import("@/lib/attachment-extensions");
+  return isSupportedTextExtension(path.extname(filePath).toLowerCase());
 }
 
 // Ensure the temp directory exists
@@ -1775,7 +1767,8 @@ export function registerChatStreamHandlers() {
             if (isText) {
               try {
                 const content = await readFile(filePath, "utf-8");
-                attachmentInfoForModel += `  preview:\n  ---\n  ${content
+                const previewClipped = content.length > 1500;
+                attachmentInfoForModel += `  preview${previewClipped ? " (first 1500 chars — read_attachment pages the FULL content)" : ""}:\n  ---\n  ${content
                   .slice(0, 1500)
                   .replace(/\n/g, "\n  ")}\n  ---\n`;
               } catch (err) {
@@ -1866,28 +1859,46 @@ ${componentSnippet}
 
       // v12 0.4-C2: capture the persisted row's UUID so the ephemeral message
       // carries it (edits target the DB row directly — no ordinal mapping).
+      // W2 (v14.8.11): retry once on failure — a swallowed persist here leaves
+      // the row holding only the display STUB (no modelContent/attachments),
+      // so a later resume replays an EMPTY <atlarix-*-attachment/> to the
+      // model ("attachment is truncated"). One retry covers transient sqlite
+      // contention; a double failure is loudly logged.
       let persistedUserRowId: string | undefined;
       if (req.workspaceSessionId && !req.continueAfterQuestions) {
+        const { persistWorkspaceSessionUserMessage } = await import(
+          "./workspace_session_handlers"
+        );
+        const persistOnce = () =>
+          persistWorkspaceSessionUserMessage(
+            req.workspaceSessionId!,
+            userDisplayContent,
+            {
+              modelContent:
+                userPrompt !== userDisplayContent ? userPrompt : null,
+              pasteAttachments: pasteAttachmentsForMessage,
+              fileAttachments:
+                storedFileAttachments.length > 0 ? storedFileAttachments : null,
+            },
+          );
         try {
-          const { persistWorkspaceSessionUserMessage } = await import(
-            "./workspace_session_handlers"
-          );
-          const row = await preflight.time("persist-user-msg", () =>
-            persistWorkspaceSessionUserMessage(
-              req.workspaceSessionId!,
-              userDisplayContent,
-              {
-                modelContent:
-                  userPrompt !== userDisplayContent ? userPrompt : null,
-                pasteAttachments: pasteAttachmentsForMessage,
-                fileAttachments:
-                  storedFileAttachments.length > 0 ? storedFileAttachments : null,
-              },
-            ),
-          );
+          const row = await preflight.time("persist-user-msg", async () => {
+            try {
+              return await persistOnce();
+            } catch (firstErr) {
+              logger.warn(
+                "Persist of workspace session user message failed — retrying once:",
+                firstErr,
+              );
+              return await persistOnce();
+            }
+          });
           persistedUserRowId = row?.id;
         } catch (err) {
-          logger.error("Failed to persist workspace session user message:", err);
+          logger.error(
+            "Failed to persist workspace session user message (after retry) — a resume of this turn will see attachment stubs without bodies:",
+            err,
+          );
         }
       }
 
@@ -5211,7 +5222,7 @@ This conversation includes one or more image attachments. When the user uploads 
                     // or legacy browser_screenshot) returns the STRUCTURED object so
                     // toModelOutput can emit a native media part; detect by shape so
                     // browser_inspect's text/snapshot results keep the string contract.
-                    if (extractScreenshotMedia(result)) {
+                    if (extractImageMedia(result)) {
                       return result;
                     }
                     return typeof result === "string" ? result : JSON.stringify(result);
@@ -6070,7 +6081,7 @@ This conversation includes one or more image attachments. When the user uploads 
                     // the string contract. v13.8: detect by shape so screenshots
                     // from browser_inspect(mode:"screenshot") are covered while its
                     // text/snapshot results stay stringified.
-                    if (extractScreenshotMedia(result)) {
+                    if (extractImageMedia(result)) {
                       return result;
                     }
                     return typeof result === "string" ? result : JSON.stringify(result);
@@ -7476,7 +7487,34 @@ ${stopNote}`;
       );
       const sessionRowId = targetMsg?.sessionRowId;
 
-      const ok = editTransportUserMessage(chatId, userMessageId, newContent);
+      // W2 (v14.8.11): regenerate the MODEL-facing content for the edited
+      // message — expand its attachment stubs back to full bodies using the
+      // message's stored paste metas. Without this the transport dropped the
+      // bodies (model lost inline attachment content on resend) and the DB
+      // kept the STALE pre-edit modelContent (dispatch prefers it → the edit
+      // was silently undone for the model after a reload).
+      let newModelContent: string | null = null;
+      try {
+        const {
+          resolvePasteAttachmentsForMessage,
+          expandAttachmentStubsToModelContent,
+        } = await import("@/lib/chat/paste-attachment-meta");
+        const pastes = resolvePasteAttachmentsForMessage({
+          pasteAttachments: targetMsg?.pasteAttachments ?? null,
+          modelContent: targetMsg?.modelContent ?? null,
+        });
+        const expanded = expandAttachmentStubsToModelContent(newContent, pastes);
+        newModelContent = expanded !== newContent ? expanded : null;
+      } catch (e) {
+        logger.warn("Failed to regenerate model content for edited message:", e);
+      }
+
+      const ok = editTransportUserMessage(
+        chatId,
+        userMessageId,
+        newContent,
+        newModelContent,
+      );
       if (!ok) {
         throw new Error("Ephemeral user message not found");
       }
@@ -7488,8 +7526,11 @@ ${stopNote}`;
             "./workspace_session_handlers"
           );
           persistedToSession =
-            (await persistEditedSessionMessageById(sessionRowId, newContent)) ===
-            "updated";
+            (await persistEditedSessionMessageById(
+              sessionRowId,
+              newContent,
+              newModelContent,
+            )) === "updated";
         }
       } catch (e) {
         logger.warn("Failed to persist edited session message:", e);

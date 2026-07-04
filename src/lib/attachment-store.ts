@@ -20,6 +20,12 @@ export interface AttachmentData {
     addedAt: number;
     /** Set when PDF text is pre-extracted on upload. */
     pdfExtract?: PdfExtractResult;
+    /**
+     * W3 (v14.8.11): full structured extraction, cached after the first
+     * read_attachment call so paging (offset/limit) never re-parses the
+     * document. Holds the resolved extractStructuredData result.
+     */
+    extractCache?: Record<string, unknown>;
 }
 
 class AttachmentStoreImpl {

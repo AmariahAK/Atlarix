@@ -44,13 +44,13 @@ export function resolvePasteAttachmentId(paste: PasteAttachmentMeta): string {
 export function ensurePasteAttachmentIds(
   pastes: PasteAttachmentMeta[],
 ): PasteAttachmentMeta[] {
-  return pastes.map((paste) => {
-    if (paste.id) return paste;
-    if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
-      return { ...paste, id: crypto.randomUUID() };
-    }
-    return { ...paste, id: resolvePasteAttachmentId(paste) };
-  });
+  // W2 (v14.8.11): ALWAYS the deterministic content-hash id — a randomUUID
+  // branch here used to mint a fresh id on every rehydration, so after an
+  // interrupted turn the model's previously announced attachmentId returned
+  // "Attachment not found" on re-read. Same content ⟹ same id, forever.
+  return pastes.map((paste) =>
+    paste.id ? paste : { ...paste, id: resolvePasteAttachmentId(paste) },
+  );
 }
 
 export function pasteToAttachmentData(paste: PasteAttachmentMeta): AttachmentData {

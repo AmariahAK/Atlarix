@@ -132,3 +132,101 @@ describe("attachment readers (v11)", () => {
     }
   });
 });
+
+// ── W3 (v14.8.11): read_attachment paging over the full extraction ──
+import { ToolRegistry } from "@/lib/tools";
+import { AttachmentStore } from "@/lib/attachment-store";
+
+describe("read_attachment paging (W3)", () => {
+  const bigText = Array.from({ length: 5000 }, (_, i) => `line ${i + 1}`).join("\n");
+
+  const addTextAttachment = (id: string, text: string) => {
+    AttachmentStore.add({
+      id,
+      filename: `${id}.txt`,
+      mimeType: "text/plain",
+      data: Buffer.from(text, "utf-8").toString("base64"),
+      size: text.length,
+      addedAt: 1,
+    });
+  };
+
+  it("first page defaults to 2000 lines with an exact next-call pointer", async () => {
+    addTextAttachment("page-a", bigText);
+    const env: any = await ToolRegistry.execute("read_attachment", {
+      attachmentId: "page-a",
+    });
+    expect(env.success).toBe(true);
+    const r = env.result;
+    expect(r.startLine).toBe(1);
+    expect(r.endLine).toBe(2000);
+    expect(r.totalLines).toBe(5000);
+    expect(r.hasMore).toBe(true);
+    expect(r.content).toContain("line 1\n");
+    expect(r.content).not.toContain("line 2001");
+    expect(r.note).toContain('"offset": 2001');
+  });
+
+  it("middle and last pages honor offset; past-end is a clean empty page", async () => {
+    addTextAttachment("page-b", bigText);
+    const mid: any = (
+      (await ToolRegistry.execute("read_attachment", {
+        attachmentId: "page-b",
+        offset: 2001,
+        limit: 1000,
+      })) as any
+    ).result;
+    expect(mid.startLine).toBe(2001);
+    expect(mid.endLine).toBe(3000);
+    expect(mid.content.startsWith("line 2001")).toBe(true);
+    expect(mid.hasMore).toBe(true);
+
+    const last: any = (
+      (await ToolRegistry.execute("read_attachment", {
+        attachmentId: "page-b",
+        offset: 4001,
+      })) as any
+    ).result;
+    expect(last.endLine).toBe(5000);
+    expect(last.hasMore).toBeFalsy();
+    expect(last.note).toContain("end of content");
+
+    const past: any = (
+      (await ToolRegistry.execute("read_attachment", {
+        attachmentId: "page-b",
+        offset: 99999,
+      })) as any
+    ).result;
+    expect(past.success).toBe(true);
+    expect(past.content).toBe("");
+    expect(past.note).toContain("end of content");
+  });
+
+  it("small files return whole content with no paging noise", async () => {
+    addTextAttachment("page-c", "just\ntwo lines");
+    const r: any = (
+      (await ToolRegistry.execute("read_attachment", {
+        attachmentId: "page-c",
+      })) as any
+    ).result;
+    expect(r.success).toBe(true);
+    expect(r.content).toBe("just\ntwo lines");
+    expect(r.hasMore).toBeFalsy();
+  });
+
+  it("extraction is cached — second page reuses extractCache", async () => {
+    addTextAttachment("page-d", bigText);
+    await ToolRegistry.execute("read_attachment", { attachmentId: "page-d" });
+    const rec = AttachmentStore.get("page-d");
+    expect(rec?.extractCache).toBeTruthy();
+    const cachedContent = (rec!.extractCache as { content: string }).content;
+    expect(cachedContent).toContain("line 5000"); // FULL text cached, not the page
+    const again: any = (
+      (await ToolRegistry.execute("read_attachment", {
+        attachmentId: "page-d",
+        offset: 4999,
+      })) as any
+    ).result;
+    expect(again.content).toContain("line 5000");
+  });
+});

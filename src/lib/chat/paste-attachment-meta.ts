@@ -68,6 +68,55 @@ export function resolvePasteAttachmentsForMessage(message: {
   return extractPasteAttachmentsFromModelContent(message.modelContent);
 }
 
+/**
+ * W2 (v14.8.11): rebuild MODEL-facing content from display content by
+ * expanding self-closing attachment stubs to their full-bodied blocks using
+ * the message's stored paste metas. Used when a user EDITS a sent message —
+ * the row's old modelContent is stale (pre-edit prose) and must be
+ * regenerated, not kept or dropped. Stubs with no matching paste, and
+ * already-full paired tags, pass through unchanged.
+ */
+export function expandAttachmentStubsToModelContent(
+  displayContent: string,
+  pasteAttachments: PasteAttachmentMeta[],
+): string {
+  if (!displayContent || pasteAttachments.length === 0) return displayContent;
+  const tags = findAttachmentTagsInContent(displayContent);
+  if (tags.length === 0) return displayContent;
+  let out = "";
+  let cursor = 0;
+  for (const tag of tags) {
+    out += displayContent.slice(cursor, tag.startIndex);
+    cursor = tag.startIndex + tag.fullMatch.length;
+    const isStub = tag.content.trim().length === 0;
+    if (!isStub) {
+      out += tag.fullMatch;
+      continue;
+    }
+    if (tag.tag === "atlarix-text-attachment") {
+      const body = lookupTextPasteContent(
+        tag.attributes.filename || "Pasted text",
+        pasteAttachments,
+      );
+      out += body
+        ? tag.fullMatch.replace(/\s*\/>\s*$/, ">") +
+          `\n${body}\n</atlarix-text-attachment>`
+        : tag.fullMatch;
+    } else {
+      const { content: body } = lookupTerminalPasteContent(
+        tag.attributes.label || "Terminal output",
+        pasteAttachments,
+      );
+      out += body
+        ? tag.fullMatch.replace(/\s*\/>\s*$/, ">") +
+          `\n${body}\n</atlarix-terminal-attachment>`
+        : tag.fullMatch;
+    }
+  }
+  out += displayContent.slice(cursor);
+  return out;
+}
+
 export function lookupTextPasteContent(
   displayName: string,
   pasteAttachments: PasteAttachmentMeta[],

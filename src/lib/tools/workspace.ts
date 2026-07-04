@@ -26,6 +26,7 @@ import {
     extractTextFromOdtBuffer,
 } from "@/lib/attachment-office-xml-extract";
 import { extractTextFromRtfBuffer } from "@/lib/attachment-rtf-extract";
+import { SUPPORTED_TEXT_EXTENSIONS } from "@/lib/attachment-extensions";
 
 
 import { estimateTokens } from "@/ipc/utils/token_utils";
@@ -303,13 +304,6 @@ ToolRegistry.register({
 // ATTACHMENTS (read_attachment, list_attachments)
 // ═══════════════════════════════════════════════════════════
 
-const SUPPORTED_TEXT_EXTENSIONS = [
-    ".md", ".txt", ".json", ".csv", ".js", ".ts", ".tsx", ".jsx",
-    ".html", ".css", ".py", ".yaml", ".yml", ".xml", ".sh", ".bash",
-    ".zsh", ".go", ".rs", ".java", ".c", ".cpp", ".h", ".hpp", ".cs",
-    ".rb", ".php", ".sql", ".graphql", ".env", ".gitignore", ".eslintrc",
-    ".prettierrc", ".mdx", ".rst", ".log", ".toml", ".ini", ".cfg",
-];
 
 const SUPPORTED_IMAGE_EXTENSIONS = [".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg", ".bmp", ".ico"];
 const SUPPORTED_DOCUMENT_EXTENSIONS = [".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".odt", ".rtf"];
@@ -434,7 +428,7 @@ function extractStructuredData(attachment: AttachmentData): any {
                 type: "text",
                 filename: attachment.filename,
                 size: attachment.size,
-                content: text.slice(0, 200_000),
+                content: text,
                 lineCount: text.split("\n").length,
                 charCount: text.length,
                 note: "CSV table parsing failed; raw text provided.",
@@ -462,29 +456,48 @@ function extractStructuredData(attachment: AttachmentData): any {
                 size: attachment.size,
                 content: null,
                 error: `Failed to decode text content: ${err}`,
-                rawBase64: attachment.data,
             };
         }
     }
 
     if (isImageFile(ext)) {
+        // SVG is XML — most providers reject image/svg+xml as image input, and
+        // the markup is far more useful to the model as text anyway.
+        if (ext === ".svg") {
+            const text = Buffer.from(attachment.data, "base64").toString("utf-8");
+            return {
+                type: "text",
+                filename: attachment.filename,
+                size: attachment.size,
+                content: text,
+                lineCount: text.split("\n").length,
+                charCount: text.length,
+                note: "SVG returned as XML markup (providers do not accept SVG as image input).",
+            };
+        }
         const mimeTypes: Record<string, string> = {
             ".jpg": "image/jpeg",
             ".jpeg": "image/jpeg",
             ".png": "image/png",
             ".gif": "image/gif",
             ".webp": "image/webp",
-            ".svg": "image/svg+xml",
             ".bmp": "image/bmp",
             ".ico": "image/x-icon",
         };
+        // W4 (v14.8.11): the SCREENSHOT shape — top-level success:true +
+        // image mimeType + data. buildToolModelOutput detects it and sends a
+        // real media part (with the vision gate + non-vision text fallback),
+        // and maybeTruncateToolOutput exempts it from truncation. Previously
+        // this returned a plain object that was JSON-stringified into
+        // (truncation-corrupted) base64 text the model could never view.
         return {
+            success: true,
             type: "image",
             filename: attachment.filename,
             size: attachment.size,
             mimeType: mimeTypes[ext] || "application/octet-stream",
             data: attachment.data,
-            dimensions: null,
+            note: `User-attached image ${attachment.filename}`,
         };
     }
 
@@ -503,8 +516,6 @@ function extractStructuredData(attachment: AttachmentData): any {
             if (attachment.pdfExtract) {
                 logger.info(`read_attachment PDF cache hit: ${attachment.filename}`);
                 const result = attachment.pdfExtract;
-                const clipped = result.text.length > 200_000;
-                const clippedText = clipped ? result.text.slice(0, 200_000) : result.text;
                 return {
                     type: "document",
                     filename: attachment.filename,
@@ -512,9 +523,8 @@ function extractStructuredData(attachment: AttachmentData): any {
                     mimeType: mimeTypes[ext] || "application/octet-stream",
                     format: "pdf",
                     pages: result.pages,
-                    content: clippedText,
-                    charCount: clippedText.length,
-                    clipped,
+                    content: result.text,
+                    charCount: result.text.length,
                     cached: true,
                     success: result.success,
                 };
@@ -522,21 +532,15 @@ function extractStructuredData(attachment: AttachmentData): any {
             const buffer = Buffer.from(attachment.data, "base64");
             return extractTextFromPdfBuffer(buffer).then((result) => {
                 if (result.success) {
-                    const MAX_CHARS = 200_000;
-                    const clipped = result.text.length > MAX_CHARS;
-                    const clippedText = clipped ? result.text.slice(0, MAX_CHARS) : result.text;
                     return {
                         type: "document",
                         filename: attachment.filename,
                         size: attachment.size,
                         mimeType: mimeTypes[ext] || "application/octet-stream",
-                        content: clippedText,
+                        content: result.text,
                         pages: result.pages,
                         charCount: result.text.length,
-                        rawBase64: attachment.data,
-                        note: clipped
-                            ? `PDF text extracted (truncated to first ${MAX_CHARS.toLocaleString()} chars). Raw base64 also available for OCR if needed.`
-                            : "Full PDF content extracted. Raw base64 also available for OCR if needed.",
+                        note: "PDF content extracted.",
                     };
                 } else {
                     const errMsg =
@@ -552,10 +556,7 @@ function extractStructuredData(attachment: AttachmentData): any {
                         content: null,
                         error: errMsg,
                         suggestion:
-                            "If the PDF is scanned, use OCR on rawBase64. If password-protected, re-attach an unencrypted copy. Otherwise use list_attachments and try another file.",
-                        rawBase64: attachment.data,
-                        note:
-                            "If this PDF is password-protected, export an unencrypted copy and re-attach. If it is scanned, base64 is provided for OCR.",
+                            "If the PDF is password-protected, ask the user to re-attach an unencrypted copy. If it is scanned/images-only, text extraction cannot recover it. Otherwise use list_attachments and try another file.",
                     };
                 }
             }) as any;
@@ -573,7 +574,6 @@ function extractStructuredData(attachment: AttachmentData): any {
                         content: result.text,
                         paragraphs: result.paragraphs,
                         charCount: result.text.length,
-                        rawBase64: attachment.data,
                         note: "Word document content extracted successfully.",
                     };
                 } else {
@@ -584,8 +584,7 @@ function extractStructuredData(attachment: AttachmentData): any {
                         mimeType: mimeTypes[ext] || "application/octet-stream",
                         content: null,
                         error: "Word document text extraction failed.",
-                        rawBase64: attachment.data,
-                        note: "Could not extract text from Word document. Base64 provided.",
+                        note: "Could not extract text from this Word document (corrupt or unsupported format?).",
                     };
                 }
             }) as any;
@@ -606,7 +605,6 @@ function extractStructuredData(attachment: AttachmentData): any {
                         table: result.table,
                         sheetName: result.sheetName,
                         charCount: result.text.length,
-                        rawBase64: attachment.data,
                         note: `Excel spreadsheet extracted: ${result.sheets} sheet(s), ${result.rows} row(s).`,
                     };
                 } else {
@@ -617,8 +615,7 @@ function extractStructuredData(attachment: AttachmentData): any {
                         mimeType: mimeTypes[ext] || "application/octet-stream",
                         content: null,
                         error: "Excel spreadsheet text extraction failed.",
-                        rawBase64: attachment.data,
-                        note: "Could not extract text from Excel file. Base64 provided.",
+                        note: "Could not extract text from this Excel file (corrupt or unsupported format?).",
                     };
                 }
             }) as any;
@@ -646,8 +643,7 @@ function extractStructuredData(attachment: AttachmentData): any {
                 mimeType: mimeTypes[ext] || "application/octet-stream",
                 content: null,
                 error: "PowerPoint text extraction failed (corrupt or password-protected deck?).",
-                rawBase64: attachment.data,
-                note: "Could not extract slide text. Base64 provided.",
+                note: "Could not extract slide text (corrupt or password-protected deck?).",
             };
         }
 
@@ -672,8 +668,7 @@ function extractStructuredData(attachment: AttachmentData): any {
                 mimeType: "application/vnd.oasis.opendocument.text",
                 content: null,
                 error: "OpenDocument text extraction failed.",
-                rawBase64: attachment.data,
-                note: "Could not extract text from .odt file. Base64 provided.",
+                note: "Could not extract text from this .odt file.",
             };
         }
 
@@ -698,8 +693,7 @@ function extractStructuredData(attachment: AttachmentData): any {
                 mimeType: "application/rtf",
                 content: null,
                 error: "RTF text extraction failed (not a valid RTF file?).",
-                rawBase64: attachment.data,
-                note: "Could not extract text from RTF file. Base64 provided.",
+                note: "Could not extract text from this RTF file.",
             };
         }
 
@@ -709,8 +703,7 @@ function extractStructuredData(attachment: AttachmentData): any {
             size: attachment.size,
             mimeType: mimeTypes[ext] || "application/octet-stream",
             content: null,
-            note: `${ext} content available as base64. Consider converting to .docx/.xlsx for better extraction.`,
-            rawBase64: attachment.data,
+            note: `Legacy ${ext} format is not text-extractable. Ask the user to re-save it as ${ext === ".doc" ? ".docx" : ext === ".xls" ? ".xlsx" : ".pptx"} and re-attach.`,
         };
     }
 
@@ -723,15 +716,60 @@ function extractStructuredData(attachment: AttachmentData): any {
     };
 }
 
+// ── W3 (v14.8.11): read_attachment paging (read_file parity) ──────────────
+// Extractors return FULL text; this pager bounds what reaches the model per
+// call and the result always states how to fetch the rest — full content is
+// reachable, never truncated ("guide via the result channel, never dead-end").
+const READ_ATTACHMENT_DEFAULT_LINES = 2_000;
+const READ_ATTACHMENT_MAX_LINES = 10_000;
+const READ_ATTACHMENT_MAX_BYTES = 200_000;
+
+function pageAttachmentText(
+    full: string,
+    offsetParam: unknown,
+    limitParam: unknown,
+): {
+    content: string;
+    startLine: number;
+    endLine: number;
+    totalLines: number;
+    totalChars: number;
+    hasMore: boolean;
+} {
+    const lines = full.split("\n");
+    const totalLines = lines.length;
+    const startLine = Math.max(1, Math.floor(Number(offsetParam) || 1));
+    const requested = Math.floor(Number(limitParam) || READ_ATTACHMENT_DEFAULT_LINES);
+    const maxLines = Math.min(Math.max(1, requested), READ_ATTACHMENT_MAX_LINES);
+
+    const pageLines: string[] = [];
+    let bytes = 0;
+    let end = startLine - 1; // exclusive index into `lines`
+    while (end < totalLines && pageLines.length < maxLines) {
+        const line = lines[end]!;
+        const lineBytes = Buffer.byteLength(line, "utf-8") + 1;
+        if (pageLines.length > 0 && bytes + lineBytes > READ_ATTACHMENT_MAX_BYTES) break;
+        pageLines.push(line);
+        bytes += lineBytes;
+        end++;
+    }
+    return {
+        content: pageLines.join("\n"),
+        startLine,
+        endLine: end,
+        totalLines,
+        totalChars: full.length,
+        hasMore: end < totalLines,
+    };
+}
+
 ToolRegistry.register({
     name: "read_attachment",
     description:
         "Read and extract structured content from a file attachment. " +
-        "Returns text content for documents, metadata for images, and structured data for PDFs, Word (.docx), Excel (.xlsx), CSV, PowerPoint (.pptx), OpenDocument (.odt), and RTF files. " +
-        "This tool is available in Ask, Plan, Build, Debug, and Review modes. " +
-        "Call it whenever the user references an uploaded file or attachment. " +
-        "Use this when you need to analyze or process files the user has attached to the conversation. " +
-        "If content extraction fails, check rawBase64 for the original file data.",
+        "Returns text content for documents and structured data for PDFs, Word (.docx), Excel (.xlsx), CSV, PowerPoint (.pptx), OpenDocument (.odt), and RTF files; image attachments are returned as a viewable image. " +
+        "Large content is PAGED: each call returns up to `limit` lines starting at 1-based line `offset` (defaults cover most files), and the result states the total size and the exact next call to continue — the FULL content is always reachable, never truncated. " +
+        "Call it whenever the user references an uploaded file or attachment.",
     requiresWorkspace: false,
     isCore: true,
     isReadOnly: true,
@@ -747,15 +785,28 @@ ToolRegistry.register({
                 description:
                     "Optional batch of attachment IDs. Returns per-file results; one failure does not abort the rest.",
             },
+            offset: {
+                type: "number",
+                description:
+                    "1-based line number to start reading extracted text from (default 1). Use the next-page offset stated in a prior result to continue.",
+            },
+            limit: {
+                type: "number",
+                description: "Maximum lines to return for this page (default 2000).",
+            },
         },
         []
     ),
     handler: async ({
         attachmentId,
         attachmentIds,
+        offset,
+        limit,
     }: {
         attachmentId?: string;
         attachmentIds?: string[];
+        offset?: number;
+        limit?: number;
     }) => {
         const ids = [
             ...(Array.isArray(attachmentIds) ? attachmentIds.filter((id) => typeof id === "string") : []),
@@ -772,7 +823,7 @@ ToolRegistry.register({
             };
         }
 
-        const readOne = async (id: string) => {
+        const readOne = async (id: string, inBatch = false) => {
             const attachment = AttachmentStore.get(id);
             if (!attachment) {
                 return {
@@ -791,18 +842,83 @@ ToolRegistry.register({
                 };
             }
             try {
-                let structuredData = extractStructuredData(attachment);
-                if (structuredData && typeof structuredData.then === "function") {
-                    structuredData = await structuredData;
+                // W3: cache the full extraction on the record so paging never
+                // re-parses (PDF/xlsx/docx parsing is the expensive part).
+                let structuredData: Record<string, unknown>;
+                if (attachment.extractCache) {
+                    structuredData = attachment.extractCache;
+                } else {
+                    let extracted = extractStructuredData(attachment);
+                    if (extracted && typeof extracted.then === "function") {
+                        extracted = await extracted;
+                    }
+                    structuredData = extracted as Record<string, unknown>;
+                    if (
+                        structuredData &&
+                        typeof structuredData === "object" &&
+                        structuredData.success !== false &&
+                        typeof structuredData.content === "string"
+                    ) {
+                        attachment.extractCache = structuredData;
+                    }
                 }
                 const ok =
                     structuredData &&
                     typeof structuredData === "object" &&
                     (structuredData as { success?: boolean }).success !== false;
+
+                // W4: image media is only detectable at the TOP level of the
+                // tool result — nested inside a batch's results[] it would be
+                // JSON-stringified (and its base64 truncation-corrupted).
+                // Point the model at a single-id call instead.
+                if (ok && inBatch && structuredData.type === "image" && structuredData.data) {
+                    return {
+                        name: attachment.filename,
+                        success: true,
+                        type: "image",
+                        filename: attachment.filename,
+                        size: attachment.size,
+                        note: `Image attachment — to view it, call read_attachment({ "attachmentId": "${id}" }) alone (images cannot be delivered inside a batch result).`,
+                    };
+                }
+
+                // W3: page string content (line-based, read_file parity). The
+                // result always states totals + the exact next call, so the
+                // full content is reachable — never a dead-end truncation.
+                if (ok && typeof structuredData.content === "string") {
+                    const page = pageAttachmentText(
+                        structuredData.content,
+                        offset,
+                        limit,
+                    );
+                    const pageNote = page.hasMore
+                        ? `Showing lines ${page.startLine}–${page.endLine} of ${page.totalLines} (${page.totalChars} chars total). For the next page call read_attachment({ "attachmentId": "${id}", "offset": ${page.endLine + 1} }).`
+                        : page.startLine > 1
+                          ? `Showing lines ${page.startLine}–${page.endLine} of ${page.totalLines} (end of content).`
+                          : undefined;
+                    structuredData = {
+                        ...structuredData,
+                        content: page.content,
+                        totalLines: page.totalLines,
+                        totalChars: page.totalChars,
+                        startLine: page.startLine,
+                        endLine: page.endLine,
+                        ...(page.hasMore ? { hasMore: true } : {}),
+                        // The renderer table card only makes sense on page 1.
+                        ...(page.startLine > 1 ? { table: undefined } : {}),
+                        ...(pageNote
+                            ? {
+                                  note: [structuredData.note, pageNote]
+                                      .filter(Boolean)
+                                      .join(" "),
+                              }
+                            : {}),
+                    };
+                }
                 return {
                     name: attachment.filename,
                     success: ok,
-                    ...(ok ? structuredData : structuredData),
+                    ...structuredData,
                 };
             } catch (err) {
                 const msg = err instanceof Error ? err.message : String(err);
@@ -811,7 +927,6 @@ ToolRegistry.register({
                     success: false as const,
                     error: `Failed to process attachment: ${msg}`,
                     suggestion: "Try list_attachments or re-upload the file.",
-                    rawBase64: attachment.data,
                 };
             }
         };
@@ -837,10 +952,10 @@ ToolRegistry.register({
                     ...(one as Record<string, unknown>),
                 };
             }
-            return { success: true, ...one };
+            return { ...one, success: true };
         }
 
-        const results = await Promise.all(uniqueIds.map((id) => readOne(id)));
+        const results = await Promise.all(uniqueIds.map((id) => readOne(id, true)));
         const allOk = results.every((r) => r.success);
         return {
             success: allOk,

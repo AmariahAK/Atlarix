@@ -1,14 +1,16 @@
 import { describe, expect, it } from "vitest";
 import {
   buildToolModelOutput,
-  extractScreenshotMedia,
+  extractImageMedia,
   providerSupportsToolMedia,
   redactToolMediaForDisplay,
 } from "@/lib/ai/tool-model-output";
 
 /**
- * v12 0.2 Phase A: typed tool outputs — browser_screenshot becomes a media
- * content part on vision providers, a text fallback elsewhere (TODO 1.3).
+ * v12 0.2 Phase A: typed tool outputs — browser screenshots become media
+ * content parts on vision providers, a text fallback elsewhere (TODO 1.3).
+ * W4 (v14.8.11): the gate is the RESULT SHAPE, not the tool name — attached
+ * images (read_attachment) ride the same pipeline.
  */
 
 const FAKE_PNG_B64 = "iVBORw0KGgoAAAANSUhEUg".repeat(40); // >256 chars
@@ -71,7 +73,7 @@ describe("buildToolModelOutput", () => {
     expect(value).not.toContain(FAKE_PNG_B64.slice(0, 32));
   });
 
-  it("failure results and other tools keep the normal path (undefined)", () => {
+  it("failure and non-image results keep the normal path (undefined)", () => {
     expect(
       buildToolModelOutput(
         "browser_screenshot",
@@ -80,27 +82,76 @@ describe("buildToolModelOutput", () => {
       ),
     ).toBeUndefined();
     expect(
-      buildToolModelOutput("read_file", envelopedScreenshot, {
-        builtinProviderId: "anthropic",
-      }),
-    ).toBeUndefined();
-    expect(
       buildToolModelOutput("browser_screenshot", "plain string result", {
         builtinProviderId: "anthropic",
       }),
     ).toBeUndefined();
+    expect(
+      buildToolModelOutput(
+        "read_file",
+        { success: true, result: { content: "text file body" } },
+        { builtinProviderId: "anthropic" },
+      ),
+    ).toBeUndefined();
+  });
+
+  it("W4: detection is name-agnostic — any tool returning the image shape gets media", () => {
+    const out = buildToolModelOutput("read_attachment", envelopedScreenshot, {
+      builtinProviderId: "anthropic",
+    });
+    expect(out?.type).toBe("content");
+  });
+
+  it("W4: attached image → media part on vision, filename caption", () => {
+    const attachmentImage = {
+      success: true,
+      type: "image",
+      filename: "diagram.png",
+      size: 1234,
+      mimeType: "image/png",
+      data: FAKE_PNG_B64,
+      note: "User-attached image diagram.png",
+    };
+    const out = buildToolModelOutput("read_attachment", attachmentImage, {
+      builtinProviderId: "anthropic",
+    });
+    expect(out?.type).toBe("content");
+    const value = (out as any).value;
+    expect(value[0].text).toContain("diagram.png");
+    expect(value[1]).toEqual({
+      type: "media",
+      data: FAKE_PNG_B64,
+      mediaType: "image/png",
+    });
+  });
+
+  it("W4: attached image on a non-vision provider → clean placeholder, no base64", () => {
+    const attachmentImage = {
+      success: true,
+      filename: "diagram.png",
+      mimeType: "image/png",
+      data: FAKE_PNG_B64,
+    };
+    const out = buildToolModelOutput("read_attachment", attachmentImage, {
+      builtinProviderId: undefined,
+    });
+    expect(out?.type).toBe("text");
+    const value = (out as any).value as string;
+    expect(value).toContain("diagram.png");
+    expect(value).toContain("cannot view images");
+    expect(value).not.toContain(FAKE_PNG_B64.slice(0, 32));
   });
 });
 
-describe("extractScreenshotMedia", () => {
+describe("extractImageMedia", () => {
   it("requires success + image mimeType + data", () => {
-    expect(extractScreenshotMedia(rawScreenshot)?.mediaType).toBe("image/png");
-    expect(extractScreenshotMedia(envelopedScreenshot)?.data).toBe(FAKE_PNG_B64);
-    expect(extractScreenshotMedia({ success: true, data: "x" })).toBeNull();
+    expect(extractImageMedia(rawScreenshot)?.mediaType).toBe("image/png");
+    expect(extractImageMedia(envelopedScreenshot)?.data).toBe(FAKE_PNG_B64);
+    expect(extractImageMedia({ success: true, data: "x" })).toBeNull();
     expect(
-      extractScreenshotMedia({ success: false, mimeType: "image/png", data: "x" }),
+      extractImageMedia({ success: false, mimeType: "image/png", data: "x" }),
     ).toBeNull();
-    expect(extractScreenshotMedia(null)).toBeNull();
+    expect(extractImageMedia(null)).toBeNull();
   });
 });
 

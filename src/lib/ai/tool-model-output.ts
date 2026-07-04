@@ -3,8 +3,14 @@
  *
  * Maps selected tool results to `LanguageModelV2ToolResultOutput` so providers
  * receive native multimodal tool results instead of JSON-stringified text.
- * First (and currently only) consumer: `browser_screenshot` — its base64 PNG
- * becomes a `media` content part the model can actually SEE (TODO 1.3).
+ * Consumers: browser screenshots (browser_inspect mode:"screenshot" /
+ * legacy browser_screenshot) and — since W4 (v14.8.11) — user-attached images
+ * via read_attachment, which previously reached the model as JSON-stringified
+ * (and truncation-corrupted) base64 TEXT it could never view.
+ *
+ * The gate is the RESULT SHAPE (`success:true` + top-level image mimeType +
+ * data), not a tool-name allowlist — any tool that returns that shape gets a
+ * real media part, the truncation exemption, and the vision-capability gate.
  *
  * Provider gating lives in the 2.1 capability-profile module (the single
  * source of truth since v12 session 9); re-exported here for existing
@@ -18,20 +24,22 @@ import { redactSecretsInText } from "@/lib/security/redact-secrets";
 
 export { providerSupportsToolMedia };
 
-interface ScreenshotMedia {
+interface ImageMedia {
   data: string;
   mediaType: string;
   url?: string;
   title?: string;
   note?: string;
+  filename?: string;
 }
 
 /**
- * Detect a screenshot payload in either shape:
- * - raw handler result: { success:true, mimeType:"image/png", data, url, title, note }
+ * Detect an image payload in either shape:
+ * - raw handler result: { success:true, mimeType:"image/png", data, ... }
+ *   (browser screenshots carry url/title; attachment images carry filename)
  * - ToolRegistry envelope: { success:true, result: <raw>, cost, ... }
  */
-export function extractScreenshotMedia(output: unknown): ScreenshotMedia | null {
+export function extractImageMedia(output: unknown): ImageMedia | null {
   if (!output || typeof output !== "object") return null;
   const o = output as Record<string, unknown>;
   const candidate =
@@ -53,50 +61,56 @@ export function extractScreenshotMedia(output: unknown): ScreenshotMedia | null 
     url: typeof candidate.url === "string" ? candidate.url : undefined,
     title: typeof candidate.title === "string" ? candidate.title : undefined,
     note: typeof candidate.note === "string" ? candidate.note : undefined,
+    filename:
+      typeof candidate.filename === "string" ? candidate.filename : undefined,
   };
 }
 
-function screenshotCaption(media: ScreenshotMedia): string {
-  const where = media.url
-    ? `${media.url}${media.title ? ` (${media.title})` : ""}`
-    : "the open browser page";
-  return `Screenshot of ${where}.${media.note ? ` ${media.note}` : ""}`;
+function imageCaption(media: ImageMedia): string {
+  const where = media.filename
+    ? `attached file ${media.filename}`
+    : media.url
+      ? `${media.url}${media.title ? ` (${media.title})` : ""}`
+      : "the open browser page";
+  return `Image of ${where}.${media.note ? ` ${media.note}` : ""}`;
 }
 
 /**
  * Per-tool adapter for AI SDK `toModelOutput`.
  *
- * Returns `undefined` when the tool has no typed mapping — the caller falls
- * back to today's behavior (text/stringified output).
+ * Returns `undefined` when the result carries no image media — the caller
+ * falls back to today's behavior (text/stringified output).
  */
 export function buildToolModelOutput(
-  toolName: string,
+  _toolName: string,
   output: unknown,
   ctx: { builtinProviderId?: string; modelApiId?: string },
 ): LanguageModelV2ToolResultOutput | undefined {
-  // v13.8: screenshots arrive via browser_inspect(mode:"screenshot") and the
-  // legacy browser_screenshot tool (old sessions). The shape check below is the
-  // real gate — extractScreenshotMedia returns null for text/snapshot results.
-  if (toolName !== "browser_inspect" && toolName !== "browser_screenshot") {
-    return undefined;
-  }
-
-  const media = extractScreenshotMedia(output);
-  if (!media) return undefined; // failure results keep the normal path
+  // W4: the shape check IS the gate (a v13.8 comment already called it "the
+  // real gate") — the old browser_inspect/browser_screenshot name allowlist
+  // kept read_attachment images out of the media path entirely.
+  const media = extractImageMedia(output);
+  if (!media) return undefined; // failure/text results keep the normal path
 
   if (providerSupportsToolMedia(ctx.builtinProviderId, ctx.modelApiId)) {
     return {
       type: "content",
       value: [
-        { type: "text", text: screenshotCaption(media) },
+        { type: "text", text: imageCaption(media) },
         { type: "media", data: media.data, mediaType: media.mediaType },
       ],
     };
   }
 
+  const subject = media.filename
+    ? `attached image ${media.filename}`
+    : `screenshot of ${media.url ?? "current page"}${media.title ? ` (${media.title})` : ""}`;
+  const recovery = media.filename
+    ? "Ask the user to describe the image, or work from its filename/context."
+    : 'Use browser_inspect(mode:"text") for textual page content.';
   return {
     type: "text",
-    value: `[screenshot captured: ${media.url ?? "current page"}${media.title ? ` (${media.title})` : ""} — this model/provider cannot view images, so the image was not sent. Use browser_inspect(mode:"text") for textual page content.]`,
+    value: `[${subject} — this model/provider cannot view images, so the image was not sent. ${recovery}]`,
   };
 }
 
@@ -150,7 +164,7 @@ function redactSecretsInDisplayShape(output: unknown): unknown {
 export function redactToolMediaForDisplay(output: unknown): unknown {
   const secretSafe = redactSecretsInDisplayShape(output);
 
-  const media = extractScreenshotMedia(secretSafe);
+  const media = extractImageMedia(secretSafe);
   if (!media) return secretSafe;
 
   const replaceData = (obj: Record<string, unknown>): Record<string, unknown> =>

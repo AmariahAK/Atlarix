@@ -3,7 +3,6 @@
  * Good enough for model-readable text from typical exports; not a renderer.
  */
 
-const MAX_TEXT_CHARS = 200_000;
 
 export type RtfExtractResult = {
   text: string;
@@ -43,7 +42,7 @@ export function extractTextFromRtfBuffer(buffer: Buffer): RtfExtractResult {
       .replace(/\n{3,}/g, "\n\n")
       .trim();
 
-    if (text.length > MAX_TEXT_CHARS) text = text.slice(0, MAX_TEXT_CHARS);
+    // W3 (v14.8.11): no total cap — read_attachment pages the full text per call.
     return { text, success: text.length > 0 };
   } catch {
     return { text: "", success: false };

@@ -110,6 +110,15 @@ function mapMessage(row: typeof sessionMessages.$inferSelect): SessionMessageRow
 export async function persistEditedSessionMessageById(
   sessionRowId: string,
   newContent: string,
+  /**
+   * W2 (v14.8.11): regenerated model-facing content for the edited row
+   * (edited prose with attachment stubs re-expanded). Always written —
+   * leaving the column untouched would keep the PRE-edit prose, which
+   * dispatch prefers over `content`, silently undoing the user's edit for
+   * the model after a reload. Null when the edited message has no model
+   * variant.
+   */
+  newModelContent?: string | null,
 ): Promise<"updated" | "not_found"> {
   const target = await db.query.sessionMessages.findFirst({
     where: eq(sessionMessages.id, sessionRowId),
@@ -126,7 +135,7 @@ export async function persistEditedSessionMessageById(
 
   await db
     .update(sessionMessages)
-    .set({ content: newContent })
+    .set({ content: newContent, modelContent: newModelContent ?? null })
     .where(eq(sessionMessages.id, sessionRowId));
   if (deleteIds.length > 0) {
     await db
