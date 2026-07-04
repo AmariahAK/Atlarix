@@ -5,6 +5,7 @@ import {
   workspaceSessionsRefreshAtom,
   workspaceSessionTitleGeneratingAtom,
 } from "@/atoms/sessionAtoms";
+import { updateOpenChatTabTitleForSession } from "@/lib/open-workspace-session";
 
 export const DEFAULT_SESSION_TITLE = "Untitled";
 
@@ -50,6 +51,9 @@ export async function applyAIWorkspaceSessionTitle(sessionId: string): Promise<v
       !isLowQualityGeneratedTitle(title)
     ) {
       getDefaultStore().set(workspaceSessionsRefreshAtom, (n) => n + 1);
+      // v14.8.11: the tab strip holds a title SNAPSHOT — push the new name
+      // into any open tab for this session or it stays "Untitled" forever.
+      updateOpenChatTabTitleForSession(sessionId, title);
     }
   } catch (e) {
     console.error("Failed to apply AI workspace session title:", e);

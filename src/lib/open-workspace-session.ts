@@ -60,6 +60,33 @@ export function removeOpenChatTab(chatId: number): void {
   store.set(openChatTabsAtom, (prev) => prev.filter((t) => t.chatId !== chatId));
 }
 
+/**
+ * v14.8.11: sync a session RENAME into the tab strip. Tab titles are
+ * snapshots taken at open time (registerOpenChatTab), so the auto-title and
+ * manual-rename paths — which only refresh the sidebar — left the tab frozen
+ * at "Untitled". Resolves the session's open chat(s) via chatIdToSessionIdAtom
+ * and OVERWRITES the stale title (unlike registerOpenChatTab's update branch,
+ * which deliberately keeps an existing title).
+ */
+export function updateOpenChatTabTitleForSession(
+  sessionId: string,
+  title: string,
+): void {
+  const trimmed = title.trim();
+  if (!trimmed) return;
+  const store = getDefaultStore();
+  const chatMap = store.get(chatIdToSessionIdAtom);
+  const chatIds = new Set(
+    [...chatMap.entries()]
+      .filter(([, sid]) => sid === sessionId)
+      .map(([chatId]) => chatId),
+  );
+  if (chatIds.size === 0) return;
+  store.set(openChatTabsAtom, (prev) =>
+    prev.map((t) => (chatIds.has(t.chatId) ? { ...t, title: trimmed } : t)),
+  );
+}
+
 export type OpenWorkspaceFolderResult = {
   appId: number;
   chatId: number;

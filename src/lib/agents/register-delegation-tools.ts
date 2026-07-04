@@ -58,6 +58,39 @@ function delegationChatModeFromWorkMode(
   return "ask";
 }
 
+/**
+ * v14.8.11: the sub-agent popup's bottom section renders this DISPLAY
+ * summary — it must be the sub-agent's final answer, not the stringified
+ * registry envelope ({"success":true,"result":"<task …"} used to render
+ * verbatim). Unwraps the envelope + <task>/<summary>/<task_result> markup;
+ * the model-facing result string is untouched by this. Also fixes the error
+ * detection: inside the stringified envelope the quotes were escaped
+ * (state=\"error\"), so the old regex never matched.
+ */
+export function extractDelegationDisplaySummary(
+  result: unknown,
+  resultStr: string,
+): { summary: string; isError: boolean } {
+  const unwrapped =
+    result &&
+    typeof result === "object" &&
+    typeof (result as { result?: unknown }).result === "string"
+      ? (result as { result: string }).result
+      : resultStr;
+  const isError = /state="error"/.test(unwrapped);
+  const taskResult = /<task_result>([\s\S]*?)<\/task_result>/.exec(unwrapped);
+  if (taskResult?.[1]?.trim()) {
+    return { summary: taskResult[1].trim(), isError };
+  }
+  return {
+    summary: unwrapped
+      .replace(/<\/?task[^>]*>/g, "")
+      .replace(/<\/?summary>/g, "")
+      .trim(),
+    isError,
+  };
+}
+
 export function attachDelegationToolsToSet(
   tools: ToolSet,
   ctx: DelegationStreamContext,
@@ -221,7 +254,16 @@ export function attachDelegationToolsToSet(
         const duration = Date.now() - startTime;
         const resultStr =
           typeof result === "string" ? result : JSON.stringify(result);
-        const isError = /state="error"/.test(resultStr);
+
+        // v14.8.11: the DISPLAY summary must be the sub-agent's final answer,
+        // not the stringified registry envelope — the popup used to render
+        // {"success":true,"result":"<task …"} verbatim at its bottom. Unwrap
+        // the envelope + <task>/<summary>/<task_result> markup; the model-
+        // facing return (resultStr, below) is untouched.
+        const { summary: innerResult, isError } = extractDelegationDisplaySummary(
+          result,
+          resultStr,
+        );
 
         ctx.safeSend(
           ctx.sender,
@@ -230,7 +272,7 @@ export function attachDelegationToolsToSet(
             id,
             chatId: ctx.chatId,
             agentId,
-            summary: resultStr.slice(0, 4_000),
+            summary: innerResult.slice(0, 4_000),
             duration,
             isError,
             scope: undefined,

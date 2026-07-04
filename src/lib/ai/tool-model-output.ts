@@ -105,8 +105,11 @@ export function buildToolModelOutput(
   const subject = media.filename
     ? `attached image ${media.filename}`
     : `screenshot of ${media.url ?? "current page"}${media.title ? ` (${media.title})` : ""}`;
+  // The wording must FORBID guessing: an earlier "work from its filename/
+  // context" phrasing was read by a non-vision dispatch as licence to
+  // fabricate a confident description of an image it never saw.
   const recovery = media.filename
-    ? "Ask the user to describe the image, or work from its filename/context."
+    ? "You have NOT seen this image and know nothing about its contents — do not guess or infer anything from its filename. Tell the user plainly that this model cannot view images and ask them to describe it (or switch to a vision-capable model)."
     : 'Use browser_inspect(mode:"text") for textual page content.';
   return {
     type: "text",

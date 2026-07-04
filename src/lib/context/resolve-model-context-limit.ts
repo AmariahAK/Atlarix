@@ -69,37 +69,38 @@ async function fetchLmStudioContextLength(name: string): Promise<number | null> 
 }
 
 /**
- * Cached real context window for local providers; returns null when unknown
- * (caller falls back to heuristics). Misses populate in the background so the
- * first turn never blocks on a dead local server.
+ * Cached real context window for local providers (Ollama `/api/show`,
+ * LM Studio `/api/v0/models`). v14.8.11: the first resolve now AWAITS the
+ * fetch (the fetchers carry a 3s AbortSignal timeout, and the server is
+ * localhost) instead of returning null and letting the first turn run on a
+ * placeholder — local models use their LIVE, accurate window from turn one.
+ * Results (including a dead-server null) are cached per provider:model, so
+ * the await happens at most once per model per session.
  */
-function getLocalModelContextLength(
+async function getLocalModelContextLength(
   provider: string,
   name: string,
-): number | null {
+): Promise<number | null> {
   const key = localCacheKey(provider, name);
   if (localContextCache.has(key)) return localContextCache.get(key) ?? null;
-  if (!localContextInFlight.has(key)) {
-    localContextInFlight.add(key);
+  if (localContextInFlight.has(key)) return null; // concurrent resolve — placeholder once
+  localContextInFlight.add(key);
+  try {
     const fetcher = provider.includes("ollama")
       ? fetchOllamaContextLength(name)
       : fetchLmStudioContextLength(name);
-    void fetcher
-      .then((len) => {
-        localContextCache.set(key, len);
-        if (len) {
-          // eslint-disable-next-line no-console
-          console.log(`[context] ${provider}/${name} real context_length=${len}`);
-        }
-      })
-      .catch(() => {
-        localContextCache.set(key, null);
-      })
-      .finally(() => {
-        localContextInFlight.delete(key);
-      });
+    const len = await fetcher;
+    localContextCache.set(key, len);
+    if (len) {
+      logger.info(`[context] ${provider}/${name} real context_length=${len}`);
+    }
+    return len;
+  } catch {
+    localContextCache.set(key, null);
+    return null;
+  } finally {
+    localContextInFlight.delete(key);
   }
-  return null;
 }
 
 // ── v11.1: provider-overflow feedback loop ──────────────────────────────────
@@ -211,7 +212,7 @@ export async function resolveModelContextLimit(
   // v11.1: local providers report their REAL window (cached async fetch).
   const pid = (model.provider ?? "").toLowerCase();
   if (pid.includes("ollama") || pid.includes("lmstudio") || pid.includes("lm_studio")) {
-    const real = getLocalModelContextLength(pid, model.name ?? "");
+    const real = await getLocalModelContextLength(pid, model.name ?? "");
     if (typeof real === "number" && real > 0) {
       return { tierLimit: floorSafe(real * clamp), rawContextLength: real };
     }

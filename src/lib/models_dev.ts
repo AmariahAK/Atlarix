@@ -12,6 +12,7 @@ import { BrowserWindow } from "electron";
 import * as Sentry from "@sentry/electron/main";
 import { getUserDataPath } from "@/paths/paths";
 import type { LanguageModel } from "@/ipc/ipc_types";
+import { registerModelsDevVision } from "@/lib/routing/model-capability-profile";
 
 const logger = log.scope("models_dev");
 
@@ -40,6 +41,7 @@ interface ModelsDevModel {
   tool_call?: boolean;
   cost?: { input: number; output: number };
   limit?: { context?: number; output?: number };
+  modalities?: { input?: string[]; output?: string[] };
   status?: string;
 }
 
@@ -66,6 +68,47 @@ const PROVIDER_ID_MAP: Record<string, string> = {
 
 let cachedData: ModelsDevData | null = null;
 let refreshTimer: ReturnType<typeof setInterval> | null = null;
+
+/** models.dev provider id → Atlarix provider id (reverse of PROVIDER_ID_MAP). */
+const REVERSE_PROVIDER_ID_MAP: Record<string, string> = {
+  togetherai: "together",
+  alibaba: "qwen",
+  moonshotai: "moonshot",
+};
+
+/**
+ * v14.8.11 (image-hallucination fix): push every model's IMAGE-input modality
+ * into the capability profile's sync registry so the vision gate covers
+ * native open-weight providers (DeepSeek v4 is multimodal on its own API but
+ * never matched the old OpenRouter-row-or-hardcoded-3 gate — the model was
+ * left image-blind and hallucinated attachment contents from filenames).
+ */
+function publishVisionModalities(data: ModelsDevData): void {
+  try {
+    const entries: Array<{ providerId: string; modelId: string; acceptsImages: boolean }> = [];
+    for (const [providerId, provider] of Object.entries(data)) {
+      if (!provider?.models) continue;
+      const atlarixId = REVERSE_PROVIDER_ID_MAP[providerId];
+      for (const [modelId, m] of Object.entries(provider.models)) {
+        const acceptsImages = Array.isArray(m.modalities?.input)
+          ? m.modalities.input.some((mod) => String(mod).toLowerCase() === "image")
+          : false;
+        entries.push({ providerId, modelId, acceptsImages });
+        if (atlarixId) entries.push({ providerId: atlarixId, modelId, acceptsImages });
+      }
+    }
+    registerModelsDevVision(entries);
+  } catch (e) {
+    logger.warn("[models.dev] vision-modality publish failed", e);
+  }
+}
+
+/** Single assignment point for the in-memory catalog — keeps the vision
+ * registry in lockstep with whatever data the process is actually using. */
+function setCachedData(data: ModelsDevData): void {
+  cachedData = data;
+  publishVisionModalities(data);
+}
 
 function getCachePath(): string {
   return path.join(getUserDataPath(), "cache", "models.json");
@@ -126,7 +169,7 @@ export async function refreshModelsDev(opts?: RefreshModelsDevOptions): Promise<
     const data = (await res.json()) as ModelsDevData;
     if (data && typeof data === "object") {
       await saveToCache(data);
-      cachedData = data;
+      setCachedData(data);
       logger.info(`[models.dev] Fetched ${Object.keys(data).length} providers`);
       if (notify) broadcastModelsDevStatus("");
       return data;
@@ -151,7 +194,7 @@ export async function refreshModelsDev(opts?: RefreshModelsDevOptions): Promise<
   // Fallback to cache
   const cached = await loadFromCache();
   if (cached) {
-    cachedData = cached;
+    setCachedData(cached);
     return cached;
   }
 
@@ -169,7 +212,7 @@ export async function getModelsDevData(): Promise<ModelsDevData> {
 
   const cached = await loadFromCache();
   if (cached) {
-    cachedData = cached;
+    setCachedData(cached);
     return cached;
   }
 

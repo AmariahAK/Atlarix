@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { formatDistanceToNow } from "date-fns";
 import { Loader2, MessageSquare, MoreHorizontal } from "lucide-react";
-import { useAtomValue, useSetAtom } from "jotai";
+import { getDefaultStore, useAtomValue, useSetAtom } from "jotai";
 import { useNavigate } from "@tanstack/react-router";
 import { IpcClient } from "@/ipc/ipc_client";
 import type { Message, WorkspaceChatSession } from "@/ipc/ipc_types";
@@ -37,7 +37,12 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { appsListAtom } from "@/atoms/appAtoms";
 import { attachWorkspaceToChat } from "@/lib/chat-workspace-binding";
-import { registerOpenChatTab, removeOpenChatTab, startNewWorkspaceConversation } from "@/lib/open-workspace-session";
+import {
+  registerOpenChatTab,
+  removeOpenChatTab,
+  startNewWorkspaceConversation,
+  updateOpenChatTabTitleForSession,
+} from "@/lib/open-workspace-session";
 import { showInfo } from "@/lib/toast";
 import type { DisplaySnapshotV1 } from "@/lib/chat/display-snapshot";
 import { shouldUseStreamingSessionFastPath } from "@/lib/chat/activity-stream";
@@ -295,6 +300,10 @@ export function WorkspaceSessionList({
     try {
       await IpcClient.getInstance().renameWorkspaceSession(sessionId, title);
       setRenamingId(null);
+      // v14.8.11: keep the tab strip + other sidebar instances in sync — the
+      // tab title is a snapshot and this path never bumped the refresh atom.
+      updateOpenChatTabTitleForSession(sessionId, title);
+      getDefaultStore().set(workspaceSessionsRefreshAtom, (n) => n + 1);
       await loadSessions();
       onSessionsChange?.();
     } catch (e) {

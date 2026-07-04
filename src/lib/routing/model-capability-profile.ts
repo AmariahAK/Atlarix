@@ -64,11 +64,55 @@ function modalityAcceptsImages(modality: string | undefined): boolean {
 }
 
 /**
+ * v14.8.11 (image-hallucination fix): models.dev input modalities, PUSHED in
+ * by models_dev.ts whenever its catalog loads/refreshes (main process). This
+ * module stays free of main-only imports (the renderer bundles it via the
+ * tool-display path), and the vision gate becomes provider-agnostic: native
+ * DeepSeek/Qwen/GLM/… vision models were previously image-blind here because
+ * only the 3 hardcoded providers + OpenRouter catalog rows ever matched —
+ * observed live as DeepSeek v4 pro (natively multimodal) never receiving an
+ * attached image and hallucinating its content from the filename.
+ * Keys: `${providerId}:${modelId}` and bare `${modelId}`.
+ */
+const modelsDevVisionById = new Map<string, boolean>();
+
+export function registerModelsDevVision(
+  entries: Array<{ providerId: string; modelId: string; acceptsImages: boolean }>,
+): void {
+  for (const e of entries) {
+    modelsDevVisionById.set(`${e.providerId}:${e.modelId}`.toLowerCase(), e.acceptsImages);
+    // Bare id too — callers pass catalog-style ids with or without a vendor
+    // prefix. Never let a false overwrite a true from another provider row.
+    const bare = e.modelId.toLowerCase();
+    if (e.acceptsImages || !modelsDevVisionById.has(bare)) {
+      modelsDevVisionById.set(bare, e.acceptsImages);
+    }
+  }
+}
+
+function modelsDevVisionFor(
+  builtinProviderId: string | undefined,
+  modelApiId: string,
+): boolean | undefined {
+  const id = modelApiId.toLowerCase();
+  const scoped = builtinProviderId
+    ? modelsDevVisionById.get(`${builtinProviderId.toLowerCase()}:${id}`)
+    : undefined;
+  if (scoped !== undefined) return scoped;
+  const bare = modelsDevVisionById.get(id);
+  if (bare !== undefined) return bare;
+  const tail = id.includes("/") ? id.split("/").pop()! : null;
+  return tail ? modelsDevVisionById.get(tail) : undefined;
+}
+
+/**
  * Capability-based vision gate (replaces the old hardcoded 3-provider allowlist
  * so user-supplied / open-weight vision models are no longer handicapped).
- * Known-native providers are always true; everything else is resolved from the
- * live OpenRouter catalog modality. Unknown models fall back to text (no
- * regression vs. before, and never sends raw base64 to a non-vision model).
+ * Known-native providers are always true; everything else resolves from the
+ * live OpenRouter catalog modality OR the models.dev modality registry (covers
+ * NATIVE open-weight providers, whose ids never match an OpenRouter row).
+ * Unknown models fall back to text — never sends raw base64 to a non-vision
+ * model.
  */
 export function detectVisionCapability(
   builtinProviderId: string | undefined,
@@ -78,11 +122,12 @@ export function detectVisionCapability(
     return true;
   }
   const id = (modelApiId ?? "").trim();
+  if (!id) return false;
   if (id.includes("/")) {
     const row = getCachedOpenRouterModelRow(id);
     if (modalityAcceptsImages(row?.architecture?.modality)) return true;
   }
-  return false;
+  return modelsDevVisionFor(builtinProviderId, id) === true;
 }
 
 /**
