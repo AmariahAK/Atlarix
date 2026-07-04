@@ -29,7 +29,6 @@ import {
   buildToolModelOutput,
   redactToolMediaForDisplay,
   extractImageMedia,
-  providerSupportsToolMedia,
 } from "@/lib/ai/tool-model-output";
 import { detectVisionCapability } from "@/lib/routing/model-capability-profile";
 import {
