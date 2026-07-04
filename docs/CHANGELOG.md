@@ -1,5 +1,104 @@
 # Atlarix Changelog
 
+## [14.8.11] (2026-07-04) — Attachment fidelity, edit re-indentation, honest compaction, real context windows, ordered stream UI
+
+> A harness-fidelity release: every issue was an OBSERVED live failure (DeepSeek v4 pro session
+> transcripts + a five-sweep code investigation). Attachments now reach the model whole (and
+> survive interruptions), a tolerant edit match can no longer corrupt a tab-indented file, the
+> compaction tool tells the truth, context windows come from real provider data instead of a
+> hardcoded table, and both the main and sub-agent streams render in true chronological order.
+> tsc (main + app + tests) + oxlint + knip clean; full vitest green (**1639 tests**).
+
+### Fixed
+
+- **`edit_file` fuzzy matches re-anchor `new_content` to the file's REAL indentation.** Observed
+  live: on a tab-indented Go file, a space-indented model input fuzzy-matched correctly but the
+  replacement was spliced VERBATIM — writing spaces into a tab file (mixed indentation, shifted
+  brace depth; the model had to fall back to `sed`). This gap was faithfully ported from opencode —
+  fixed beyond the reference: mapped lines adopt the matched region's actual indents (monotone
+  trimmed-text + model-indent agreement), novel lines extrapolate by indent-unit delta, and ANY
+  ambiguity falls back to verbatim — never worse than before. First direct unit suite for the
+  match cascade. (`src/lib/tools/edit-match.ts`, `edit.ts`.)
+- **Interrupted turns no longer erase attachment content for the model.** Paste-attachment ids are
+  ALWAYS the deterministic content-hash (a `randomUUID` branch minted fresh ids on every
+  rehydration → the model's announced id returned "Attachment not found" after a resume); the
+  send-time persist retries once instead of silently leaving a body-less stub row; and editing a
+  message now REGENERATES its model-facing content (stubs re-expanded from stored paste bodies)
+  for both the live transport and the DB row — previously the DB kept the STALE pre-edit prose,
+  which dispatch prefers, silently undoing the edit for the model after a reload.
+  (`src/lib/attachment-persistence.ts`, `chat_stream_handlers.ts`, `workspace_session_handlers.ts`.)
+- **`compress_context` tells the truth — and actually compacts when the model asks.** The
+  model-initiated call was a guaranteed mid-turn no-op ("tokens did not reduce") while the UI
+  banner claimed "Context compressed" unconditionally: the usage gate measured messages-only
+  tokens against a hardcoded `systemPromptTokens: 6000`, below the 60% threshold it did nothing,
+  and the "summary not saved" error fired for prune passes that legitimately persist nothing. Now
+  a model call forces past the gate (8K-history sanity floor), the ratio uses the METER's scope
+  (history + the stream's real system prompt + input), ONE per-message exact counter feeds every
+  user/model-facing number, the banner is success-gated ("Context already compact" on no-op), and
+  the not-saved warning fires only for the summarize strategy. (`src/lib/context/compaction.ts`,
+  `src/lib/tools/workspace.ts`, `chat_stream_handlers.ts`.)
+- **Context windows come from real provider data — the per-model hardcode table is DELETED.**
+  Observed: a native-DeepSeek session compacted against `128000` while DeepSeek v4 pro is 1M on
+  BOTH the first-party API and OpenRouter — the resolution chain never reached a real source for
+  native providers and fell into an identity-derived hint table (`deepseek→128000`,
+  `claude→200000`, …). Resolution is now provider-uniform: user override → live OpenRouter catalog
+  → provider row → models.dev (new per-model limits lookup + a one-funnel enrichment of EVERY
+  provider fetcher) → one logged generic fallback. `getUsableBudget` resolves through the same
+  chain (its old sync alias passed a PROVIDER id where a MODEL id was expected → everything got
+  128K), and the Settings token-budget override now wins EVERYWHERE, including the compaction
+  denominator. (`src/lib/context/resolve-model-context-limit.ts`, `models_dev.ts`,
+  `provider_model_fetchers.ts`, `compaction.ts`.)
+- **Sub-agent cards read like the main chat — thought → tool → thought, in order.** All of a
+  round's reasoning was coalesced into ONE rolling item whose timestamp was pinned to its first
+  emit, so the card's correct chronological sort necessarily showed "thoughts on top, tools in the
+  middle, edits at the bottom". Reasoning segments now ROTATE at every tool boundary (each span is
+  its own item with its own timestamp); the renderer needed zero changes.
+  (`src/lib/agents/run-subagent.ts`.)
+- **Compaction/background cards render inline at their real position, not pinned to the bottom.**
+  IPC-only cards had no representation in the assistant text and were appended as a trailing
+  block. A new pure timeline-weave anchors content tool parts to their thread twins by
+  (toolName, occurrence) and inserts each IPC card where its timestamp falls between two anchors;
+  anything unanchorable keeps the old tail placement, and the same weave drives the streaming AND
+  completed renders so they can't diverge. (`src/lib/chat/timeline-weave.ts`,
+  `src/components/chat/AssistantMessageBody.tsx`.)
+- **Editing a sent message keeps its attachment chips.** The edit box bound the RAW content, so
+  terminal/paste attachments appeared as literal `<atlarix-…>` XML wording. Stub tags are now
+  stripped from the editable prose, rendered as read-only preview chips above the textarea (all
+  attachment kinds), and re-spliced on save. (`src/lib/chat/edit-attachment-tags.ts`,
+  `src/components/SimpleMessage.tsx`.)
+
+### Improved
+
+- **`read_attachment` pages the FULL extraction — attachments are never truncated away.** The
+  per-extractor 200K-char total caps (PDF/CSV/xlsx/pptx/odt/rtf) are gone: extractors return full
+  text, the tool pages it read_file-style (1-based `offset`/`limit`, 2000-line/200KB pages), every
+  result states the totals and the EXACT next call, extraction is cached on the attachment record
+  so paging never re-parses, and the tool is exempt from the generic truncation envelope. The
+  inline send-time preview now uses the ONE shared extension list (a `.py`/`.go` upload finally
+  gets a preview) with an honest "preview only" footer. `rawBase64` payload bloat (megabytes of
+  base64 JSON-stringified at the model) is dropped from all results.
+- **Attached images are actually VISIBLE to vision models.** They previously reached the model as
+  JSON-stringified — and truncation-corrupted — base64 TEXT. The read_attachment image branch now
+  returns the screenshot shape, and the media adapter gates on RESULT SHAPE instead of a
+  browser-tool name allowlist (`extractScreenshotMedia` → `extractImageMedia`) — so attached
+  images ride the exact pipeline screenshots ride: native media part on vision models, honest
+  placeholder on non-vision models, truncation-exempt. SVG returns as XML text (providers reject
+  `image/svg+xml` as image input); batch reads point at a single-id call per image.
+- **Preflight TTFT gaps are attributable.** Spans record offsets and the `preflight-breakdown`
+  line names every ≥50ms inter-span gap (`gap-after-<name>`/`pre-first-span`) — live sessions
+  showed up to 60% of preflight time unaccounted; the S18 reorder pass now knows exactly where to
+  look. Attachment ingest I/O (temp-file writes + PDF pre-extract) is wrapped.
+
+### Removed
+
+- **Every dead legacy positive-id chat branch.** All live chats are negative-id stream-transport
+  chats (renderer, headless CLI, evals); `isEphemeralWorkspace` was a tautology. The flag is now a
+  loud invariant, and the unreachable half is gone: the legacy auto-summarize block, `canDb`
+  compaction guards, `runCompaction` + its ledger deferral, the compress-context DB branch, and
+  the `turnId`/`setMessages` ternaries. Two dead-by-flag features (never ran in production) were
+  deleted outright: auto-memory-after-stream (+ module, settings toggle, tool-use tracking) and
+  the post-turn self-correction husk.
+
 ## [14.8.10] (2026-07-03) — Reliable background work, one permission gate, lighter UI, sharper reasoning
 
 > A harness-refinement release surfaced from a live installed-app session. The agent now **actually

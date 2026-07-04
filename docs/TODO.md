@@ -1,7 +1,31 @@
 # Atlarix TODO
 
-**Current Version:** v14.8.10 (released 2026-07-03; carries v14.8.5→v14.8.9, previously unreleased on `main`)
-**Last Updated:** 2026-07-03
+**Current Version:** v14.8.11 (2026-07-04)
+**Last Updated:** 2026-07-04
+
+## ✅ Shipped in v14.8.11 (2026-07-04) — attachment fidelity, edit re-indentation, honest compaction, real context windows, ordered stream UI
+
+Full detail in [`docs/CHANGELOG.md`](./CHANGELOG.md). Lean summary — 12 workstreams in 4 clusters,
+all observed live failures (DeepSeek v4 pro session + five-sweep investigation): edit_file fuzzy
+matches re-anchor new_content to the file's REAL indentation (fixes opencode's own ported
+verbatim-splice gap — references, not goals); deterministic attachment ids + persist-retry +
+edit-path modelContent regeneration (interrupted turns no longer replay empty stubs);
+read_attachment pages the FULL extraction (200K total caps gone, read_file-parity offset/limit,
+extract cache, shared preview whitelist, rawBase64 bloat dropped); attached images ride the
+screenshot media pipeline (shape-gated, vision-gated — visible to vision models at last);
+compress_context truthful (forces past the 60% gate, meter-scope ratio, ONE exact counter,
+success-gated banner); context limits provider-uniform (per-model hardcode table DELETED —
+override → OpenRouter catalog → provider row → models.dev → logged fallback; native DeepSeek
+sees its real 1M); dead positive-id legacy branches removed (+ auto-memory & self-correction
+husks); sub-agent thought segments rotate at tool boundaries (cards interleave like the main
+chat); IPC-only compaction cards weave inline by timestamp; edit-box keeps attachment chips;
+preflight gap attribution (`gap-after-*`). tsc/oxlint/knip clean; vitest 1639 green.
+
+Follow-ups deferred: W11 live escape-handling A/B (owner smoke, rides this build); preflight S18
+reorder (now measurable); user-message multimodal content parts (image attachments without a tool
+round-trip — the content:string contract refactor).
+
+---
 
 ## ✅ Shipped in v14.8.10 (2026-07-03) — harness refinement from live sessions
 
