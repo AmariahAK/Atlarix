@@ -20,10 +20,14 @@ override → OpenRouter catalog → provider row → models.dev → logged fallb
 sees its real 1M); dead positive-id legacy branches removed (+ auto-memory & self-correction
 husks); sub-agent thought segments rotate at tool boundaries (cards interleave like the main
 chat); IPC-only compaction cards weave inline by timestamp; edit-box keeps attachment chips;
-preflight gap attribution (`gap-after-*`). tsc/oxlint/knip clean; vitest 1643 green.
+preflight gap attribution (`gap-after-*`). Post-smoke batch (same release): provider-agnostic
+vision detection via models.dev modalities (native DeepSeek v4 sees images; placeholder forbids
+filename-guessing), sub-agent popup summary unwrap, tab-title rename sync, lazy PDF pre-extract,
+S18 tokenizer LRU memo (data-backed by gap attribution), local providers await real windows.
+tsc/oxlint/knip clean; vitest 1652 green.
 
-Follow-ups deferred: W11 live escape-handling A/B (owner smoke, rides this build); preflight S18
-reorder (one live session's `gap-after-*` data first — the instrumentation ships in this build).
+Follow-ups deferred: none — W11 escape A/B PASSED in owner smoke (DeepSeek, clean tab-indented
+diff); S18 done via tokenizer memo (gap data from the smoke session).
 
 ---
 

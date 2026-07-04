@@ -7,7 +7,7 @@
 > survive interruptions), a tolerant edit match can no longer corrupt a tab-indented file, the
 > compaction tool tells the truth, context windows come from real provider data instead of a
 > hardcoded table, and both the main and sub-agent streams render in true chronological order.
-> tsc (main + app + tests) + oxlint + knip clean; full vitest green (**1643 tests**).
+> tsc (main + app + tests) + oxlint + knip clean; full vitest green (**1652 tests**).
 
 ### Fixed
 
@@ -66,6 +66,31 @@
   stripped from the editable prose, rendered as read-only preview chips above the textarea (all
   attachment kinds), and re-spliced on save. (`src/lib/chat/edit-attachment-tags.ts`,
   `src/components/SimpleMessage.tsx`.)
+
+### Fixed (post-smoke, same release)
+
+- **Native multimodal models actually receive images (vision detection via models.dev).** Smoke
+  run: native DeepSeek v4 pro (multimodal on DeepSeek's own API) never got an attached image —
+  the vision gate recognized only anthropic/openai/google + OpenRouter catalog rows — and then
+  HALLUCINATED the image's content from its filename. models.dev input modalities now feed a
+  sync registry consulted by `detectVisionCapability` (pushed on every catalog load; provider-
+  agnostic, renderer-safe), and the non-vision placeholder now FORBIDS guessing ("you have NOT
+  seen this image") instead of inviting it ("work from its filename/context").
+- **Sub-agent popup no longer renders the raw registry envelope JSON at its bottom** — the
+  display summary unwraps to the sub-agent's final `<task_result>` markdown
+  (`extractDelegationDisplaySummary`); also fixes the escaped-quote error-state regex that never
+  matched.
+- **Tab-strip titles follow session renames.** The tab title was a frozen open-time snapshot;
+  auto-title and manual rename now push the new name into the open tabs
+  (`updateOpenChatTabTitleForSession`), and manual rename bumps the sessions refresh atom.
+- **Drag-and-drop attachments no longer delay the turn start** — PDF pre-extraction moved off the
+  send path (background, fire-and-forget; `read_attachment` extracts on demand + caches).
+- **S18 (data-backed by the new gap attribution): full-history tokenization ran ~3× per turn**
+  (`gap-after-prompt-bundle` ≈ `gap-after-context-budget` ≈ the `context-budget` span, growing
+  91→244→467ms in one live session). `exactTokenCountText` gained an LRU memo — unchanged history
+  costs O(1) per turn, shrinking all three stretches at once.
+- **Local providers (Ollama/LM Studio) use their LIVE window from turn one** — the first resolve
+  awaits the localhost real-window fetch (3s-capped, cached) instead of a one-turn placeholder.
 
 ### Improved
 
