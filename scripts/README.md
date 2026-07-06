@@ -50,12 +50,16 @@ npm run fetch-ctags
 - **Linux / Windows:** pinned nightly / ctags-win32 release.
 - Also runs automatically on **`npm install`** (`postinstall`).
 
-## bench-blueprint-index.ts
+## run-packaged-self-test.mjs
 
-CI gate for the Blueprint index stack (ctags warm + ast-grep structural scan on a synthetic fixture):
+Launches the packaged binary with `--self-test` and propagates its exit code — a
+headless smoke that exercises the real ship paths (node-pty spawn, proxy-worker
+resolution from the asar, ripgrep, ctags) to catch packaged-only breakages the
+static `verify-ci-package-out.mjs` can't. Runs after each CI package job and
+locally:
 
 ```bash
-npx tsx scripts/bench-blueprint-index.ts
+npm run package && npm run self-test:packaged
 ```
 
 ## extract-codebase.ts

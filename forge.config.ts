@@ -450,16 +450,17 @@ const config: ForgeConfig = {
         await runNpmInstall(buildPath, commands);
       }
 
-      // Reconcile the slimmed tree WITHOUT --omit=optional: native platform
-      // bindings ship as optionalDependencies (@lydell/node-pty-<platform> —
-      // without this the packaged PTY dies with "posix_spawnp failed"/module
-      // not found). Historically the ast-grep install step did this
+      // Reconcile the slimmed tree WITHOUT --omit=optional AND WITHOUT
+      // --omit=peer: native platform bindings ship as optionalDependencies
+      // (@lydell/node-pty-<platform> — without this the packaged PTY dies with
+      // "posix_spawnp failed"), and shipped externals declare peers that they
+      // require() at runtime (e.g. @ai-sdk/* → zod → "Cannot find module
+      // 'zod/v4'"). Historically the ast-grep install step reconciled this
       // implicitly; that step is gone, so do it explicitly. The deny sweep
       // below runs AFTER this install, so banned transitives still never ship.
       await runNpmInstall(buildPath, [
         "install",
         "--omit=dev",
-        "--omit=peer",
         "--no-package-lock",
         "--no-save",
         "--no-audit",
@@ -474,6 +475,15 @@ const config: ForgeConfig = {
         } catch {
           throw new Error(
             `Missing ${ptyBinding} after optional-deps reconcile — the packaged terminal would be broken`,
+          );
+        }
+        // Shipped AI SDK externals require zod/v4 at runtime (peer dep) — a
+        // packaged-only "Cannot find module 'zod/v4'" if the reconcile dropped it.
+        try {
+          await fs.access(path.join(buildPath, "node_modules", "zod", "v4"));
+        } catch {
+          throw new Error(
+            "Missing zod/v4 after reconcile — @ai-sdk/* would fail with 'Cannot find module zod/v4'",
           );
         }
       }

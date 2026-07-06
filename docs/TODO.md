@@ -66,6 +66,13 @@ diff); S18 done via tokenizer memo (gap data from the smoke session).
 - Atlarix GitHub account for contributor credit — owner action; code side done (v14.8.10).
 - User-message multimodal content parts for HISTORICAL turns (current + edited turns embed
   since v14.8.11; history still round-trips via read_attachment on tool-media-capable APIs).
+- **Dependency deprecation triage (own its own session).** Scoped, NOT a blanket "zero
+  warnings" chase (dangerous here: @ai-sdk/anthropic MUST stay 2.x w/ ai@5 [[atlarix-ai-sdk-version-trap]];
+  zod mid-v4-migration; 3 deliberate patch-package patches; ABI-pinned better-sqlite3/node-pty/keytar).
+  Worklist = `npm outdated` (DIRECT deps only) + `npm audit` + own-code deprecated-API usage + CI
+  action deprecations (those hard-break on EOL date, unlike lib warnings) + genuinely-abandoned
+  deps. Fix (a) ours, (b) security, (c) EOL; consciously LEAVE pinned/transitive with a note.
+  Safety net = the packaged `--self-test` smoke (Phase 2 of the current release). Own branch.
 
 > Open work + the current release only. **Full shipped-version history lives in
 > [`docs/CHANGELOG.md`](./CHANGELOG.md)** (and `docs/CHANGELOG_PREVIOUS.md`).

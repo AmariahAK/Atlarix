@@ -186,6 +186,27 @@ if (started) {
   app.quit();
 }
 
+/**
+ * Packaged self-test (`--self-test`): exercise the real ship paths (node-pty
+ * spawn, proxy-worker resolution from the asar, ripgrep, ctags) and exit BEFORE
+ * any app lifecycle — no single-instance lock (which would collide with a
+ * running copy and hang), no window, no GPU/DB. The probes need none of it.
+ */
+const IS_SELF_TEST =
+  process.argv.includes("--self-test") || process.env.ATLARIX_SELF_TEST === "1";
+if (IS_SELF_TEST) {
+  void (async () => {
+    try {
+      const { runSelfTest } = await import("./main/self-test");
+      const { code } = await runSelfTest();
+      process.exit(code);
+    } catch (e) {
+      logger.error("self-test harness crashed:", e);
+      process.exit(1);
+    }
+  })();
+}
+
 /** v11: system git only (dugite removed). A bundled git in resources (E2E /
  * ATLARIX_BUNDLE_GIT=1 builds) is still honored via LOCAL_GIT_DIRECTORY. */
 function configureGitEnvironment(): void {
@@ -1015,10 +1036,16 @@ nativeTheme.on("updated", () => {
 
 // Packaged app: single instance only. In dev, skip the lock so a second `npm start`
 // or Forge helper process does not exit immediately without onReady (confusing "crash").
+// Under --self-test the probes run above and process.exit — never acquire the lock
+// (it would collide with a running copy) or boot the app.
 const singleInstanceData = { argv: process.argv, cwd: process.cwd() };
-const gotTheLock = app.isPackaged
-  ? app.requestSingleInstanceLock(singleInstanceData)
-  : true;
+const gotTheLock = IS_SELF_TEST
+  ? false
+  : app.isPackaged
+    ? app.requestSingleInstanceLock(singleInstanceData)
+    : true;
+
+if (!IS_SELF_TEST) {
 
 if (!gotTheLock) {
   logger.warn(
@@ -1059,6 +1086,7 @@ if (!gotTheLock) {
     });
   });
 }
+} // end if (!IS_SELF_TEST)
 
 // macOS: open folder via dock drop or `open -a Atlarix /path`
 app.on("open-file", (event, filePath) => {
