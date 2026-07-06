@@ -1,0 +1,113 @@
+{
+    "id": "6c76a5a2-5b8d-4560-bb78-ff8a6b21f4d3",
+    "task_name": "terminal-bench/break-filter-js-from-html",
+    "trial_name": "break-filter-js-from-html__g8YBcuB",
+    "trial_uri": "file:///Users/amariah/Documents/Github/AI/Atlarix/benchmarks/results-smoke-daytona/atlarix/2026-06-30__10-34-07/break-filter-js-from-html__g8YBcuB",
+    "task_id": {
+        "org": "terminal-bench",
+        "name": "break-filter-js-from-html",
+        "ref": "sha256:678008d1a4fd1e6e1b9b3cc9a327219fe4b410a31eafc52e9099bbf947eea600"
+    },
+    "source": "terminal-bench/terminal-bench-2-1",
+    "task_checksum": "3b08ac8e870b13a6161363e4152bceaa9c945eb7c3c35cc33c8c5bc19f2a1873",
+    "config": {
+        "task": {
+            "path": null,
+            "git_url": null,
+            "git_commit_id": null,
+            "name": "terminal-bench/break-filter-js-from-html",
+            "ref": "sha256:678008d1a4fd1e6e1b9b3cc9a327219fe4b410a31eafc52e9099bbf947eea600",
+            "overwrite": false,
+            "download_dir": null,
+            "source": "terminal-bench/terminal-bench-2-1"
+        },
+        "trial_name": "break-filter-js-from-html__g8YBcuB",
+        "trials_dir": "Atlarix/benchmarks/results-smoke-daytona/atlarix/2026-06-30__10-34-07",
+        "timeout_multiplier": 1.0,
+        "agent_timeout_multiplier": null,
+        "verifier_timeout_multiplier": null,
+        "agent_setup_timeout_multiplier": null,
+        "environment_build_timeout_multiplier": null,
+        "agent": {
+            "name": null,
+            "import_path": "atlarix_tb:AtlarixAgent",
+            "model_name": "openai/deepseek/deepseek-v4-pro",
+            "skills": [],
+            "override_timeout_sec": null,
+            "override_setup_timeout_sec": null,
+            "max_timeout_sec": null,
+            "extra_allowed_hosts": [],
+            "kwargs": {},
+            "env": {},
+            "mcp_servers": []
+        },
+        "environment": {
+            "type": "daytona",
+            "import_path": null,
+            "force_build": false,
+            "delete": true,
+            "cpu_enforcement_policy": "auto",
+            "memory_enforcement_policy": "auto",
+            "override_cpus": null,
+            "override_memory_mb": null,
+            "override_storage_mb": null,
+            "override_gpus": null,
+            "override_tpu": null,
+            "mounts": null,
+            "extra_docker_compose": [],
+            "env": {},
+            "kwargs": {},
+            "extra_allowed_hosts": []
+        },
+        "verifier": {
+            "override_timeout_sec": null,
+            "max_timeout_sec": null,
+            "env": {},
+            "disable": false
+        },
+        "artifacts": [],
+        "extra_instruction_paths": [],
+        "job_id": "2075e0bf-4dd0-41e5-88bd-407ce710f213"
+    },
+    "agent_info": {
+        "name": "atlarix",
+        "version": "v22.23.1",
+        "model_info": {
+            "name": "deepseek/deepseek-v4-pro",
+            "provider": "openai"
+        }
+    },
+    "agent_result": {
+        "n_input_tokens": null,
+        "n_cache_tokens": null,
+        "n_output_tokens": null,
+        "cost_usd": null,
+        "rollout_details": null,
+        "metadata": null
+    },
+    "verifier_result": {
+        "rewards": {
+            "reward": 1.0
+        }
+    },
+    "exception_info": null,
+    "started_at": "2026-06-30T07:34:13.649329Z",
+    "finished_at": "2026-06-30T07:41:16.623864Z",
+    "environment_setup": {
+        "started_at": "2026-06-30T07:34:13.705797Z",
+        "finished_at": "2026-06-30T07:34:17.219360Z"
+    },
+    "agent_setup": {
+        "started_at": "2026-06-30T07:34:17.219428Z",
+        "finished_at": "2026-06-30T07:34:28.853587Z"
+    },
+    "agent_execution": {
+        "started_at": "2026-06-30T07:34:28.853948Z",
+        "finished_at": "2026-06-30T07:41:00.086817Z"
+    },
+    "verifier": {
+        "started_at": "2026-06-30T07:41:05.745890Z",
+        "finished_at": "2026-06-30T07:41:15.756813Z"
+    },
+    "step_results": null
+}

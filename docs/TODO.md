@@ -1,7 +1,24 @@
 # Atlarix TODO
 
 **Current Version:** v14.8.11 (2026-07-04)
-**Last Updated:** 2026-07-04
+**Last Updated:** 2026-07-06
+
+## ✅ Implemented, pending owner smoke + release (2026-07-06) — native-git reads, Code tab removal, universal language support
+
+Full detail in [`docs/CHANGELOG.md`](./CHANGELOG.md) `[Unreleased]`. Lean summary — three
+workstreams: (1) production Sentry `null.slice` fix — local git ops are native-git-only
+(isomorphic-git = lazy no-binary fallback for clone/push/set-remote; `enableNativeGit` setting
+deleted; `list-versions` degrades to `[]` with one warning per workspace); (2) Code tab + Monaco +
+QuickFileOpen DELETED (single-consumer Monaco was the largest un-chunked renderer dependency;
+shiki chat highlighting, SmartDiffView diffs, Errors tab, approve flow all unchanged; @ mentions
+kept; copy-code-chip pipeline removed with its only producer); (3) universal language gates —
+ctags allowlist deleted (auto-detect + 2 MB size guard), `SymbolRecord.language`, ctags-only
+blueprint engine (no more null cliff), workspace-analyzer consolidated onto the ctags index with
+one universal import-pattern pass. tsc/oxlint clean; vitest 1656 green. NEXT after release:
+Automations tab (poll-based triggers over background-jobs + MCP, OS notifications, agent-action
+opt-in behind danger gate; persistent re-arm needed — scheduled wakeups are process-lifetime).
+
+---
 
 ## ✅ Shipped in v14.8.11 (2026-07-04) — attachment fidelity, edit re-indentation, honest compaction, real context windows, ordered stream UI
 

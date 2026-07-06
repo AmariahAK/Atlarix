@@ -59,7 +59,7 @@ type BlueprintCacheEntry = {
   workspaceId: number;
   focusPath: string;
   inferredEdgesMerged: boolean;
-  engine?: "ast-grep+ctags" | "file-tree" | "hybrid";
+  engine?: "ast-grep+ctags" | "ctags-only" | "file-tree" | "hybrid";
   /** v12 S20: unresolved (non-identifier-callee) call sites from the parse. */
   dynamicCallCount?: number;
 };
@@ -79,7 +79,7 @@ function setCachedBlueprint(
   b: Blueprint,
   options?: {
     inferredEdgesMerged?: boolean;
-    engine?: "ast-grep+ctags" | "file-tree" | "hybrid";
+    engine?: "ast-grep+ctags" | "ctags-only" | "file-tree" | "hybrid";
     dynamicCallCount?: number;
   },
 ): void {
@@ -135,7 +135,7 @@ function cacheBlueprintIfNonEmpty(
   blueprint: Blueprint,
   options?: {
     inferredEdgesMerged?: boolean;
-    engine?: "ast-grep+ctags" | "file-tree" | "hybrid";
+    engine?: "ast-grep+ctags" | "ctags-only" | "file-tree" | "hybrid";
     dynamicCallCount?: number;
   },
 ): void {

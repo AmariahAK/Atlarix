@@ -11,6 +11,7 @@ describe("ctags-parse", () => {
         line: 42,
         kind: "function",
         signature: "(email: string)",
+        language: "TypeScript",
       }),
       JSON.stringify({
         name: "AuthService",
@@ -26,6 +27,8 @@ describe("ctags-parse", () => {
     expect(symbols[0].path).toBe("src/auth.ts");
     expect(symbols[0].line).toBe(42);
     expect(symbols[0].signature).toBe("(email: string)");
+    expect(symbols[0].language).toBe("typescript"); // lowercased from ctags "TypeScript"
+    expect(symbols[1].language).toBeUndefined(); // absent field stays absent
   });
 
   it("dedupes identical symbols", () => {

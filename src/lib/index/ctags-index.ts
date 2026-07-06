@@ -23,12 +23,13 @@ const logger = log.scope("ctags-index");
 const SYMBOLS_FILE = "symbols.json";
 const ATLARIX_DIR = ".atlarix";
 
-const CTAGS_EXTENSIONS = new Set([
-  ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs",
-  ".py", ".go", ".rs", ".java", ".kt", ".kts",
-  ".cs", ".rb", ".php", ".swift", ".ex", ".exs",
-  ".vue", ".svelte",
-]);
+/**
+ * No language/extension allowlist: universal-ctags auto-detects ~150 languages
+ * and silently skips files it doesn't recognize. The only gate is size — the
+ * old extension allowlist doubled as an implicit huge-file guard, so keep that
+ * property explicitly (large blobs/assets would slow tagging for no symbols).
+ */
+const MAX_CTAGS_FILE_BYTES = 2 * 1024 * 1024;
 
 const inflightByPath = new Map<string, Promise<SymbolIndexCache>>();
 const memoryByPath = new Map<string, SymbolIndexCache>();
@@ -108,10 +109,7 @@ async function runCtags(
     );
   }
 
-  const filtered = relFiles.filter((f) =>
-    CTAGS_EXTENSIONS.has(path.extname(f).toLowerCase()),
-  );
-  if (filtered.length === 0) {
+  if (relFiles.length === 0) {
     return { symbols: [] };
   }
 
@@ -119,7 +117,7 @@ async function runCtags(
   await fs.mkdir(path.dirname(listPath), { recursive: true });
   await fs.writeFile(
     listPath,
-    filtered.map((f) => f.replace(/\\/g, "/")).join("\n"),
+    relFiles.map((f) => f.replace(/\\/g, "/")).join("\n"),
     "utf-8",
   );
 
@@ -161,23 +159,20 @@ async function runCtags(
   return { symbols, ctagsVersion };
 }
 
-/** Stat mtimeMs for every ctags-eligible file (bounded concurrency). */
-async function collectFileMtimes(
+/** Stat mtimeMs + size for every discovered file (bounded concurrency). */
+async function collectFileMeta(
   projectPath: string,
   relFiles: string[],
-): Promise<Record<string, number>> {
-  const eligible = relFiles.filter((f) =>
-    CTAGS_EXTENSIONS.has(path.extname(f).toLowerCase()),
-  );
-  const out: Record<string, number> = {};
+): Promise<Record<string, { mtimeMs: number; size: number }>> {
+  const out: Record<string, { mtimeMs: number; size: number }> = {};
   const CONCURRENCY = 64;
-  for (let i = 0; i < eligible.length; i += CONCURRENCY) {
-    const batch = eligible.slice(i, i + CONCURRENCY);
+  for (let i = 0; i < relFiles.length; i += CONCURRENCY) {
+    const batch = relFiles.slice(i, i + CONCURRENCY);
     await Promise.all(
       batch.map(async (f) => {
         try {
           const st = await fs.stat(path.join(projectPath, f));
-          out[normalizeRelPath(f)] = st.mtimeMs;
+          out[normalizeRelPath(f)] = { mtimeMs: st.mtimeMs, size: st.size };
         } catch {
           /* unreadable — treat as absent */
         }
@@ -229,7 +224,14 @@ export async function ensureSymbolIndex(projectPath: string): Promise<SymbolInde
     // v10.1: content-change diffing — when a prior cache carries per-file
     // mtimes, only re-tag changed/added files and drop deleted ones instead
     // of re-running ctags across the whole repo on every commit change.
-    const fileMtimes = await collectFileMtimes(normPath, files);
+    const meta = await collectFileMeta(normPath, files);
+    const eligible = Object.keys(meta).filter(
+      (f) => meta[f].size <= MAX_CTAGS_FILE_BYTES,
+    );
+    // The mtime ledger only tracks indexed (size-eligible) files so the
+    // incremental diff below stays consistent with what ctags actually saw.
+    const fileMtimes: Record<string, number> = {};
+    for (const f of eligible) fileMtimes[f] = meta[f].mtimeMs;
     const prior = staleDisk?.manifest.fileMtimes ? staleDisk : null;
     let symbols: SymbolRecord[];
     let ctagsVersion: string | undefined;
@@ -262,12 +264,12 @@ export async function ensureSymbolIndex(projectPath: string): Promise<SymbolInde
           removed: removed.size,
         });
       } else {
-        const result = await runCtags(normPath, files);
+        const result = await runCtags(normPath, eligible);
         symbols = result.symbols;
         ctagsVersion = result.ctagsVersion;
       }
     } else {
-      const result = await runCtags(normPath, files);
+      const result = await runCtags(normPath, eligible);
       symbols = result.symbols;
       ctagsVersion = result.ctagsVersion;
     }
@@ -398,17 +400,16 @@ export async function updateSymbolIndexForFile(
 
   let newFileSymbols: SymbolRecord[] = [];
   let touchedMtime: number | null = null;
-  const ext = path.extname(normRel).toLowerCase();
-  if (CTAGS_EXTENSIONS.has(ext)) {
-    try {
-      const st = await fs.stat(path.join(normPath, normRel));
+  try {
+    const st = await fs.stat(path.join(normPath, normRel));
+    if (st.size <= MAX_CTAGS_FILE_BYTES) {
       touchedMtime = st.mtimeMs;
       const { symbols, ctagsVersion } = await runCtags(normPath, [normRel]);
       newFileSymbols = symbols;
       if (ctagsVersion) cache.manifest.ctagsVersion = ctagsVersion;
-    } catch {
-      /* deleted or unreadable — drop symbols for this file */
     }
+  } catch {
+    /* deleted or unreadable — drop symbols for this file */
   }
 
   cache = {

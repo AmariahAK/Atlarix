@@ -58,9 +58,8 @@
     "pre:e2e": "cross-env E2E_TEST_BUILD=true npm run package",
     "e2e": "playwright test",
     "e2e:shard": "playwright test --shard",
-    "postinstall": "patch-package && node node_modules/electron/install.js && node scripts/fetch-ctags.mjs && node scripts/fetch-monaco-grammars.mjs || true && npm run build:astgrep-worker || true",
+    "postinstall": "patch-package && node node_modules/electron/install.js && node scripts/fetch-ctags.mjs && npm run build:astgrep-worker || true",
     "fetch-ctags": "node scripts/fetch-ctags.mjs",
-    "fetch-monaco-grammars": "node scripts/fetch-monaco-grammars.mjs",
     "build:astgrep-worker": "vite build --config vite.astgrep-worker.config.mts",
     "build:headless": "node scripts/build-headless.mjs",
     "build:win-sandbox": "cargo build --release --manifest-path native/atlarix-sandbox/Cargo.toml",
@@ -155,7 +154,6 @@
     "@lydell/node-pty": "^1.1.0",
     "@mixmark-io/domino": "^2.2.0",
     "@modelcontextprotocol/sdk": "^1.17.5",
-    "@monaco-editor/react": "^4.7.0-rc.0",
     "@openrouter/ai-sdk-provider": "^2.9.1",
     "@radix-ui/react-accordion": "^1.2.4",
     "@radix-ui/react-alert-dialog": "^1.1.13",
@@ -216,7 +214,6 @@
     "marked": "^17.0.1",
     "markmap-lib": "^0.18.12",
     "markmap-view": "^0.18.12",
-    "monaco-editor": "^0.52.2",
     "node-cron": "^4.2.1",
     "posthog-js": "^1.236.3",
     "posthog-node": "^4.18.0",
@@ -246,8 +243,6 @@
     "*.{js,css,md,ts,tsx,jsx,json}": "prettier --write"
   },
   "optionalDependencies": {
-    "monaco-editor-textmate": "^4.0.0",
-    "monaco-textmate": "^3.0.0",
     "onigasm": "^2.2.5"
   },
   "overrides": {

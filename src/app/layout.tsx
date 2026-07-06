@@ -49,7 +49,6 @@ import { IpcClient } from "@/ipc/ipc_client";
 import { subscribeAutoSelfCorrect } from "@/lib/renderer-ipc-bridge";
 import { preloadSounds } from "@/lib/sounds";
 import { FirstRunWizard } from "@/components/welcome/FirstRunWizard";
-import { QuickFileOpen } from "@/components/QuickFileOpen";
 import { TourManager } from "@/components/tour/TourManager";
 import { CommunityDialog } from "@/components/CommunityDialog";
 import { useRightPanelUserPreference } from "@/hooks/useRightPanelUserPreference";
@@ -272,7 +271,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     preloadSounds();
   }, []);
 
-  // Home = "/" or "/chat". Show right panel and Diagram|Preview|Code bar on home when workspace or chat is active.
+  // Home = "/" or "/chat". Show right panel on home when workspace or chat is active.
   const isOnChatPage = location.pathname === "/" || location.pathname.startsWith("/chat");
   const showWorkspaceChrome = selectedAppId != null;
 
@@ -466,8 +465,6 @@ export default function RootLayout({ children }: { children: ReactNode }) {
           <FirstRunWizard />
           <TourManager />
           <CommunityDialog />
-          {/* v10.1: Cmd/Ctrl+P fuzzy file opener (workspace Code tab). */}
-          <QuickFileOpen />
           <div>
           <SidebarProvider>
             <TitleBar />

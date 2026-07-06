@@ -14,6 +14,8 @@ export type SymbolRecord = {
   endLine?: number;
   scope?: string;
   signature?: string;
+  /** Language as reported by ctags (`--fields=+l`), lowercased (e.g. "typescript", "ruby"). */
+  language?: string;
 };
 
 export type SymbolIndexManifest = {

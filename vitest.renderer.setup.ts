@@ -12,15 +12,6 @@ afterEach(() => {
   cleanup();
 });
 
-// Monaco loads web workers via `?worker` imports that Vitest can't resolve;
-// the editor itself is irrelevant to component assertions.
-vi.mock("@/components/chat/monaco", () => ({
-  customLight: {},
-  customDark: {},
-}));
-vi.mock("@/components/preview_panel/FileEditor", () => ({
-  FileEditor: () => null,
-}));
 // xterm imports CSS + canvas APIs jsdom lacks; terminal views aren't under test.
 vi.mock("@/components/panels/XtermView", () => ({
   XtermView: () => null,

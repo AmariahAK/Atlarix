@@ -75,10 +75,10 @@ Retrieval is **structural + lexical, no embeddings, no map tool**. Blueprint (Un
 - **MCP:** MCP servers are configured **per workspace** — Solo connects **1** (manual config); Studio / Team get the marketplace plus up to **10** per workspace (one-click OAuth connect from the marketplace). On-demand **`list_available_mcps`** / **`mcp_call`** in workspace chat.
 - **Agent Behaviors:** Install from [atlarix-skills](https://github.com/AmariahAK/atlarix-skills). Optional **`.atlarix/skills/`** in the repo.
 
-### Editor & diagnostics
+### Diagnostics & panels
 
-- **Monaco** in the Code tab with syntax highlighting in packaged builds.
-- **Right panel:** Preview, Code, Browser, Terminal (interactive PTY), Plan (when a session plan is active), and Errors (dev-server/runtime). Diffs and approvals render inline in chat; **Cmd/Ctrl+P** fuzzy-opens any workspace file in the Code tab.
+- **Shiki-highlighted code in chat:** code blocks, write proposals, and diffs render with full syntax highlighting — Atlarix works beside your IDE rather than replacing it, so file editing stays in your editor of choice.
+- **Right panel:** Preview, Browser, Terminal (interactive PTY), Plan (when a session plan is active), and Errors (dev-server/runtime). Diffs and approvals render inline in chat.
 - **Streaming status:** A small inline compass under the **current** response shows a human-readable one-liner of what the agent is doing ("Writing src/auth.ts…"), settling into the Atlarix "A" when the turn completes.
 
 ### Context & Session Management

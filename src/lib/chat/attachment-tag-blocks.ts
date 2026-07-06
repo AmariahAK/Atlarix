@@ -12,11 +12,6 @@ import {
   mentionToken,
 } from "@/lib/chat/mention-attachment";
 import {
-  isCodeSelectionAttachment,
-  buildCodeSelectionModelBlock,
-  buildCodeSelectionDisplayBlock,
-} from "@/lib/chat/code-selection-attachment";
-import {
   isBackgroundJobAttachment,
   buildBackgroundJobModelBlock,
   buildBackgroundJobDisplayBlock,
@@ -66,9 +61,6 @@ export function buildPastePromptsFromAttachments(
       const name = att.textPaste.displayName;
       modelBlocks.push(buildTextPasteModelBlock(name, att.textPaste.content));
       displayBlocks.push(buildTextPasteDisplayBlock(name));
-    } else if (isCodeSelectionAttachment(att)) {
-      modelBlocks.push(buildCodeSelectionModelBlock(att));
-      displayBlocks.push(buildCodeSelectionDisplayBlock(att));
     } else if (isBackgroundJobAttachment(att)) {
       modelBlocks.push(buildBackgroundJobModelBlock(att));
       displayBlocks.push(buildBackgroundJobDisplayBlock(att));

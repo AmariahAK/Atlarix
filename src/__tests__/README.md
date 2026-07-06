@@ -40,13 +40,16 @@ vi.mock("node:fs", async () => {
 
 ### Mocking isomorphic-git
 
-When mocking isomorphic-git, provide a default export:
+isomorphic-git is only used as the lazily-imported no-git-binary fallback for
+`gitClone`/`gitPush`/`gitSetRemoteUrl` (all local git operations shell out via
+`system_git_exec`). When testing those fallback paths, mock `isGitAvailable`
+to resolve `false` and provide a default export:
 
 ```typescript
 vi.mock("isomorphic-git", () => ({
   default: {
-    add: vi.fn().mockResolvedValue(undefined),
-    commit: vi.fn().mockResolvedValue(undefined),
+    clone: vi.fn().mockResolvedValue(undefined),
+    push: vi.fn().mockResolvedValue(undefined),
     // Add other git methods as needed
   },
 }));

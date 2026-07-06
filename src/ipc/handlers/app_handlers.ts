@@ -13,7 +13,6 @@ import type {
   App,
   RenameBranchParams,
   CopyAppParams,
-  EditAppFileReturnType,
   RespondToAppInputParams,
 } from "../ipc_types";
 import fs from "node:fs";
@@ -29,7 +28,6 @@ import { promises as fsPromises } from "node:fs";
 
 // Import our utility modules
 import { withLock } from "../utils/lock_utils";
-import { getProjectFiles } from "../utils/project-files";
 import { workspacePathExists } from "../utils/workspace_path_status_broadcast";
 import { bootstrapAtlarixWorkspaceFolder } from "@/lib/atlarix/workspace-bootstrap";
 import {
@@ -51,12 +49,10 @@ import { startProxy } from "../utils/start_proxy_server";
 import { Worker } from "worker_threads";
 import {
   gitCommit,
-  gitAdd,
   gitListBranches,
   gitRenameBranch,
 } from "../utils/git_utils";
 import { safeSend } from "../utils/safe_sender";
-import { normalizePath } from "../../../shared/normalizePath";
 import { AppSearchResult } from "@/lib/schemas";
 import { onWorkspaceRemoved } from "../../db/workspace_cleanup";
 import { capture as analyticsCapture } from "../../main/lib/analytics";
@@ -620,92 +616,6 @@ export function registerAppHandlers() {
     },
   );
 
-  type AppFileIndexResult = {
-    files: string[];
-    fileDiscoveryWarnings?: string[];
-    strategy?: string;
-  };
-
-  const appFileIndexInflight = new Map<number, Promise<AppFileIndexResult>>();
-
-  async function loadAppFileIndex(appPath: string): Promise<AppFileIndexResult> {
-    try {
-      const result = await getProjectFiles(appPath);
-      const fileDiscoveryWarnings = result.accessWarnings?.length
-        ? [...new Set(result.accessWarnings as string[])]
-        : undefined;
-      // Hide IDE/VCS cruft (.git, .vscode, .idea…) and anything .gitignored from
-      // the Code tab's file tree, reusing the shared ignore composition (built-in
-      // baseline + project .gitignore + nested + .atlarixignore). This is
-      // display-only — the agent's retrieval/indexing path (getProjectFiles) is
-      // intentionally untouched. Best-effort: a failure leaves the list as-is.
-      let files = result.files;
-      try {
-        const { loadIgnorerForProject, isRelPathIgnored } = await import(
-          "@/lib/atlarix/atlarix-ignore"
-        );
-        const ignorer = await loadIgnorerForProject(appPath);
-        files = files.filter((f) => !isRelPathIgnored(ignorer, f));
-      } catch (filterErr) {
-        logger.warn(
-          `[workspace] code-tree ignore filter failed for ${appPath}:`,
-          filterErr,
-        );
-      }
-      return {
-        files,
-        fileDiscoveryWarnings,
-        strategy: result.strategy,
-      };
-    } catch (error) {
-      logger.error(`Error reading files for workspace ${appPath}:`, error);
-      return { files: [] };
-    }
-  }
-
-  async function loadAppFileIndexSingleflight(
-    appId: number,
-    appPath: string,
-  ): Promise<AppFileIndexResult> {
-    const inflight = appFileIndexInflight.get(appId);
-    if (inflight) return inflight;
-    const promise = loadAppFileIndex(appPath).finally(() => {
-      appFileIndexInflight.delete(appId);
-    });
-    appFileIndexInflight.set(appId, promise);
-    return promise;
-  }
-
-  handle(
-    "get-app-files",
-    async (
-      _,
-      appId: number,
-    ): Promise<{
-      files: string[];
-      fileDiscoveryWarnings?: string[];
-      pathExists: boolean;
-    }> => {
-      const app = await db.query.apps.findFirst({
-        where: eq(apps.id, appId),
-      });
-      if (!app) throw new Error("App not found");
-      const appPath = getAtlarixAppPath(app.path);
-      const pathExists = fs.existsSync(appPath);
-      if (!pathExists) {
-        return { files: [], pathExists: false };
-      }
-      const { files, fileDiscoveryWarnings, strategy } =
-        await loadAppFileIndexSingleflight(appId, appPath);
-      if (strategy) logger.info(`[workspace] file discovery via ${strategy}`);
-      return {
-        files,
-        fileDiscoveryWarnings,
-        pathExists: true,
-      };
-    },
-  );
-
   handle("get-app", async (_, appId: number): Promise<App> => {
     const app = await db.query.apps.findFirst({
       where: eq(apps.id, appId),
@@ -754,39 +664,6 @@ export function registerAppHandlers() {
       appBasePath: getAtlarixAppPath("$APP_BASE_PATH"),
     };
   });
-
-  ipcMain.handle(
-    "read-app-file",
-    async (_, { appId, filePath }: { appId: number; filePath: string }) => {
-      const app = await db.query.apps.findFirst({
-        where: eq(apps.id, appId),
-      });
-
-      if (!app) {
-        throw new Error("App not found");
-      }
-
-      const appPath = getAtlarixAppPath(app.path);
-      const fullPath = path.join(appPath, filePath);
-
-      // Check if the path is within the app directory (security check)
-      if (!fullPath.startsWith(appPath)) {
-        throw new Error("Invalid file path");
-      }
-
-      if (!fs.existsSync(fullPath)) {
-        throw new Error("File not found");
-      }
-
-      try {
-        const contents = fs.readFileSync(fullPath, "utf-8");
-        return contents;
-      } catch (error) {
-        logger.error(`Error reading file ${filePath} for app ${appId}:`, error);
-        throw new Error("Failed to read file");
-      }
-    },
-  );
 
   // Do NOT use handle for this, it contains sensitive information.
   ipcMain.handle("get-env-vars", async () => {
@@ -995,59 +872,6 @@ export function registerAppHandlers() {
           throw error;
         }
       });
-    },
-  );
-
-  ipcMain.handle(
-    "edit-app-file",
-    async (
-      _,
-      {
-        appId,
-        filePath,
-        content,
-      }: { appId: number; filePath: string; content: string },
-    ): Promise<EditAppFileReturnType> => {
-      // It should already be normalized, but just in case.
-      filePath = normalizePath(filePath);
-      const app = await db.query.apps.findFirst({
-        where: eq(apps.id, appId),
-      });
-
-      if (!app) {
-        throw new Error("App not found");
-      }
-
-      const appPath = getAtlarixAppPath(app.path);
-      const fullPath = path.join(appPath, filePath);
-
-      // Check if the path is within the app directory (security check)
-      if (!fullPath.startsWith(appPath)) {
-        throw new Error("Invalid file path");
-      }
-
-      // Ensure directory exists
-      const dirPath = path.dirname(fullPath);
-      await fsPromises.mkdir(dirPath, { recursive: true });
-
-      try {
-        await fsPromises.writeFile(fullPath, content, "utf-8");
-
-        // Check if git repository exists and commit the change
-        const { findGitRepositoryRoot } = await import("../utils/git_utils");
-        if (findGitRepositoryRoot(appPath)) {
-          await gitAdd({ path: appPath, filepath: filePath });
-          await gitCommit({
-            path: appPath,
-            message: `Updated ${filePath}`,
-          });
-        }
-      } catch (error: any) {
-        logger.error(`Error writing file ${filePath} for app ${appId}:`, error);
-        throw new Error(`Failed to write file: ${error.message}`);
-      }
-
-      return {};
     },
   );
 

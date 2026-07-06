@@ -22,12 +22,10 @@ type Handler<T> = (payload: T) => void;
 
 export interface FakeIpc {
   // ── invoke-style methods (vi.fn — override return values per test) ──
-  getAppFiles: ReturnType<typeof vi.fn>;
   getApp: ReturnType<typeof vi.fn>;
   getChat: ReturnType<typeof vi.fn>;
   getChatMessages: ReturnType<typeof vi.fn>;
   editMessage: ReturnType<typeof vi.fn>;
-  readAppFile: ReturnType<typeof vi.fn>;
   getUserSettings: ReturnType<typeof vi.fn>;
   setUserSettings: ReturnType<typeof vi.fn>;
   listWorkspaceSessions: ReturnType<typeof vi.fn>;
@@ -55,12 +53,10 @@ export function makeFakeIpc(): FakeIpc {
   const activityHandlers = new Set<Handler<Record<string, unknown>>>();
 
   const fake: FakeIpc = {
-    getAppFiles: vi.fn(async () => ({ files: [] as string[], pathExists: true })),
     getApp: vi.fn(async () => null),
     getChat: vi.fn(async () => ({ messages: [], appId: null })),
     getChatMessages: vi.fn(async () => []),
     editMessage: vi.fn(async () => undefined),
-    readAppFile: vi.fn(async () => ""),
     getUserSettings: vi.fn(async () => ({})),
     setUserSettings: vi.fn(async () => ({})),
     listWorkspaceSessions: vi.fn(async () => []),

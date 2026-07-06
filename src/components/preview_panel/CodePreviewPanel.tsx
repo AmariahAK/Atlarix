@@ -2,15 +2,13 @@
  * CodePreviewPanel
  * ================
  * Right panel for live preview with:
- * - Live iframe preview (Vite/Next dev server)
- * - Code view of current file
+ * - Live preview (Vite/Next dev server, native WebContentsView)
+ * - Errors list
  * - Terminal output
  */
 
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { useNavigate } from '@tanstack/react-router';
-import { useSetAtom, useAtomValue, useAtom } from 'jotai';
+import { useSetAtom, useAtomValue } from 'jotai';
 import { IpcClient } from '@/ipc/ipc_client';
 import { cn } from '@/lib/utils';
 import {
@@ -20,7 +18,6 @@ import {
     Tablet,
     Monitor,
     Maximize2,
-    Code2,
     AlertTriangle,
     Trash2,
     Shield,
@@ -37,31 +34,24 @@ import {
     dismissedErrorSignaturesAtom,
     visibleBrowserErrorsAtom,
     getErrorSignature,
-    selectedErrorForCodeAtom,
 } from '@/atoms/sourceAtoms';
-import { currentAppAtom } from '@/atoms/appAtoms';
-import { WorkspaceFileTree } from '@/components/workspace/WorkspaceFileTree';
-import { CodebaseSearchBox } from '@/components/CodebaseSearchBox';
 import { type ParsedError } from '@/lib/devServerErrorParser';
-import { FileEditor } from './FileEditor';
 import { TerminalPanel } from '@/components/panels/TerminalPanel';
 
 interface CodePreviewPanelProps {
     data: {
         url?: string;
-        file?: { path: string; content: string };
         terminal?: { output: string[]; running: boolean };
         terminalOutputs?: Map<string, TerminalOutput>;
         errors?: ParsedError[];
         chatId?: number;         // For permissions tab
-        workspacePath?: string;  // For live code editor
+        workspacePath?: string;
         appId?: number | null;
     } | null;
     activeTab: string;
     onClearErrors?: () => void;
     onSolveWithAI?: (error: { message: string; source?: string; stack?: string }) => void;
     onSolveAllWithAI?: (errors: ParsedError[], context: string) => void;
-    onSwitchToCode?: () => void; // Switch to Code tab for line highlighting
 }
 
 type ViewportSize = 'mobile' | 'tablet' | 'desktop' | 'full';
@@ -73,59 +63,17 @@ const VIEWPORT_SIZES: Record<ViewportSize, { width: string; label: string }> = {
     full: { width: '100%', label: 'Full' },
 };
 
-function CodePreviewPanel({ data, activeTab, onClearErrors, onSolveWithAI, onSolveAllWithAI, onSwitchToCode }: CodePreviewPanelProps) {
-    const navigate = useNavigate();
-    const currentApp = useAtomValue(currentAppAtom);
-    const [selectedErrorForCode, setSelectedErrorForCode] = useAtom(selectedErrorForCodeAtom);
+function CodePreviewPanel({ data, activeTab, onClearErrors, onSolveWithAI, onSolveAllWithAI }: CodePreviewPanelProps) {
     const setBrowserErrors = useSetAtom(browserErrorsAtom);
     const setDismissedSignatures = useSetAtom(dismissedErrorSignaturesAtom);
     const visibleErrors = useAtomValue(visibleBrowserErrorsAtom);
-    const currentAppId = data?.appId ?? currentApp?.id ?? null;
     const previewUrl = data?.url;
-    const currentFile = data?.file;
     const errorsData = data?.errors !== undefined ? visibleErrors : (data?.errors || []);
-    const workspacePath = data?.workspacePath || '';
 
     return (
         <div className="flex flex-col h-full">
             {activeTab === 'preview' && (
                 <PreviewTab url={previewUrl} />
-            )}
-            {activeTab === 'code' && (
-                <div className="flex flex-col h-full min-h-0">
-                    {currentAppId && (
-                        <div className="flex items-center justify-end px-2 py-1.5 border-b border-border/50 bg-muted/5 flex-shrink-0">
-                            <button
-                                type="button"
-                                onClick={() =>
-                                    navigate({
-                                        to: "/code",
-                                        search: {
-                                            appId: currentAppId!,
-                                            ...(currentFile?.path ? { file: currentFile.path } : {}),
-                                            tab: "errors",
-                                        },
-                                    })
-                                }
-                                className="flex items-center gap-1.5 px-2 py-1 text-xs font-medium text-muted-foreground hover:text-foreground rounded-md transition-colors"
-                            >
-                                <Maximize2 className="h-3.5 w-3.5" />
-                                Open in full screen
-                            </button>
-                        </div>
-                    )}
-                    <div className="flex-1 min-h-0 flex min-w-0">
-                        <CodeTab
-                            file={currentFile}
-                            errors={errorsData}
-                            workspacePath={workspacePath}
-                            appId={currentAppId}
-                            selectedErrorForCode={selectedErrorForCode}
-                            onSelectedErrorForCodeConsumed={() => setSelectedErrorForCode(null)}
-                            onSwitchToCode={onSwitchToCode}
-                        />
-                    </div>
-                </div>
             )}
             {activeTab === 'terminal' && (
                 <TerminalPanel />
@@ -136,11 +84,6 @@ function CodePreviewPanel({ data, activeTab, onClearErrors, onSolveWithAI, onSol
                     onClear={onClearErrors}
                     onSolveWithAI={onSolveWithAI}
                     onSolveAllWithAI={onSolveAllWithAI}
-                    onSwitchToCode={onSwitchToCode}
-                    onEditErrorFile={(filePath, line, column) => {
-                        setSelectedErrorForCode({ filePath, line, column });
-                        onSwitchToCode?.();
-                    }}
                     onMarkDone={(error) => {
                         setDismissedSignatures((prev) => new Set(prev).add(getErrorSignature(error)));
                         setBrowserErrors((prev) => prev.filter((e) => e.id !== error.id));
@@ -334,267 +277,6 @@ function PreviewTab({ url }: { url?: string }) {
 }
 
 /**
- * Code Tab - Current file view or Error File Editor
- * When files is provided, renders miniscreen: file tree sidebar + editor (same size as blueprint).
- * Otherwise shows single-file view or search/empty state.
- */
-function CodeTab({
-    file,
-    errors = [],
-    workspacePath = '',
-    appId = null,
-    selectedErrorForCode = null,
-    onSelectedErrorForCodeConsumed = () => {},
-    onSwitchToCode,
-}: {
-    file?: { path: string; content: string };
-    errors?: ParsedError[];
-    workspacePath?: string;
-    appId?: number | null;
-    selectedErrorForCode?: { filePath: string; line?: number; column?: number } | null;
-    onSelectedErrorForCodeConsumed?: () => void;
-    onSwitchToCode?: () => void;
-}) {
-    const { data: appFilesData, isLoading: appFilesLoading } = useQuery({
-        queryKey: ['app-files', appId],
-        queryFn: async () => {
-            if (appId == null) return null;
-            return IpcClient.getInstance().getAppFiles(appId);
-        },
-        enabled: appId != null,
-        staleTime: 5_000,
-        refetchOnWindowFocus: true,
-    });
-    const workspaceFiles = appFilesData?.files ?? [];
-    const [sidebarFile, setSidebarFile] = useState<{ path: string; content: string } | null>(null);
-    const [sidebarFileLoading, setSidebarFileLoading] = useState(false);
-    const [codeSearchResults, setCodeSearchResults] = useState<{ results: any[]; query: string } | null>(null);
-    const [selectedFilePathFromTree, setSelectedFilePathFromTree] = useState<string | null>(null);
-    const [treeFileContent, setTreeFileContent] = useState<{ path: string; content: string } | null>(null);
-    const [treeFileLoading, setTreeFileLoading] = useState(false);
-    /** After atom clears, still pass initialLine into FileEditor when opening from Errors / sidebar list. */
-    const treeOpenLineRef = useRef<{ path: string; line?: number } | null>(null);
-
-    // Clear sidebar file when workspace is deselected
-    useEffect(() => {
-        if (!workspacePath && !appId) setSidebarFile(null);
-    }, [workspacePath, appId]);
-
-    // Miniscreen: load file when user selects from tree
-    useEffect(() => {
-        if (!selectedFilePathFromTree || !appId) {
-            setTreeFileContent(null);
-            return;
-        }
-        setTreeFileLoading(true);
-        IpcClient.getInstance()
-            .readAppFile(appId, selectedFilePathFromTree)
-            .then((content) => setTreeFileContent({ path: selectedFilePathFromTree, content }))
-            .catch(() => setTreeFileContent(null))
-            .finally(() => setTreeFileLoading(false));
-    }, [selectedFilePathFromTree, appId]);
-
-    const selectedFilePath = selectedErrorForCode?.filePath ?? null;
-    // Load file when selectedErrorForCode is set (from Errors tab "View code")
-    useEffect(() => {
-        if (!selectedFilePath) return;
-        // Prefer readAppFile (handles path resolution) when we have appId
-        if (appId) {
-            // Miniscreen: editor is driven by tree selection + readAppFile in tree effect, not sidebarFile.
-            if (appId) {
-                treeOpenLineRef.current = {
-                    path: selectedFilePath,
-                    line: selectedErrorForCode?.line,
-                };
-                setSelectedFilePathFromTree(selectedFilePath);
-                onSelectedErrorForCodeConsumed();
-                return;
-            }
-            setSidebarFileLoading(true);
-            IpcClient.getInstance()
-                .readAppFile(appId, selectedFilePath)
-                .then((content) => {
-                    setSidebarFile({ path: selectedFilePath, content });
-                    onSelectedErrorForCodeConsumed();
-                })
-                .catch(() => setSidebarFile(null))
-                .finally(() => setSidebarFileLoading(false));
-            return;
-        }
-        // Fallback: use readFileContent with absolute path when we have workspacePath
-        if (!workspacePath) return;
-        const base = workspacePath.replace(/\\/g, '/').replace(/\/$/, '');
-        const rel = selectedFilePath.replace(/^[/\\]/, '').replace(/\\/g, '/');
-        const absolutePath = `${base}/${rel}`.replace(/\/+/g, '/');
-
-        setSidebarFileLoading(true);
-        IpcClient.getInstance()
-            .readFileContent(absolutePath)
-            .then((result) => {
-                if (result.success && result.content !== undefined) {
-                    setSidebarFile({ path: selectedFilePath, content: result.content });
-                    onSelectedErrorForCodeConsumed();
-                } else {
-                    setSidebarFile(null);
-                }
-            })
-            .catch(() => setSidebarFile(null))
-            .finally(() => setSidebarFileLoading(false));
-    }, [selectedFilePath, workspacePath, appId, selectedErrorForCode?.line, onSelectedErrorForCodeConsumed]);
-
-    // The Code tab ALWAYS shows the file tree + editor. Runtime/preview errors
-    // render as VS Code-style squiggles inside FileEditor (previewErrors →
-    // applyPreviewMarkersToModel) and as the list in the Errors tab — the
-    // legacy ErrorFileEditor takeover (which hijacked this tab whenever any
-    // error carried a file path, sometimes into an EMPTY "No files with
-    // errors" state after its own external-file filtering) is gone.
-
-    // Miniscreen mode: file tree sidebar + editor whenever a workspace is selected
-    if (appId) {
-        return (
-            <div className="flex flex-1 min-h-0 min-w-0">
-                <div className="w-[160px] flex-shrink-0 border-r border-border flex flex-col bg-muted/10 overflow-hidden">
-                    <div className="px-2 py-1.5 border-b border-border text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                        Files
-                    </div>
-                    <div className="flex-1 overflow-auto min-h-0">
-                        {appFilesLoading ? (
-                            <div className="flex items-center justify-center p-3 text-muted-foreground">
-                                <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-primary" />
-                            </div>
-                        ) : (
-                        <WorkspaceFileTree
-                            files={workspaceFiles}
-                            onFileClick={(path) => {
-                                setSelectedFilePathFromTree(path);
-                                onSwitchToCode?.();
-                                if (treeOpenLineRef.current && path !== treeOpenLineRef.current.path) {
-                                    treeOpenLineRef.current = null;
-                                }
-                            }}
-                            maxHeight="100%"
-                        />
-                        )}
-                    </div>
-                </div>
-                <div className="flex-1 min-w-0 flex flex-col min-h-0">
-                    {treeFileLoading ? (
-                        <div className="flex flex-col items-center justify-center flex-1 text-muted-foreground p-4">
-                            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mb-3" />
-                            <p className="text-sm">Loading file...</p>
-                        </div>
-                    ) : treeFileContent ? (
-                        <FileEditor
-                            appId={appId}
-                            filePath={treeFileContent.path}
-                            previewErrors={errors}
-                            initialLine={
-                                treeOpenLineRef.current?.path === treeFileContent.path
-                                    ? treeOpenLineRef.current.line
-                                    : selectedErrorForCode?.filePath === treeFileContent.path
-                                      ? selectedErrorForCode?.line
-                                      : undefined
-                            }
-                        />
-                    ) : (
-                        <div className="flex flex-col items-center justify-center flex-1 text-muted-foreground p-4">
-                            <Code2 className="w-12 h-12 mb-3 opacity-50" />
-                            <p className="text-sm">Select a file from the tree</p>
-                            <p className="text-xs">Add, edit, and save with Cmd/Ctrl+S</p>
-                        </div>
-                    )}
-                </div>
-            </div>
-        );
-    }
-
-    // File from sidebar click (or explicit file prop)
-    const displayFile = file || sidebarFile;
-    if (sidebarFileLoading) {
-        return (
-            <div className="flex flex-col items-center justify-center h-full text-muted-foreground p-4">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mb-3" />
-                <p className="text-sm">Loading file...</p>
-            </div>
-        );
-    }
-    if (!displayFile) {
-        return (
-            <div className="flex flex-col h-full min-h-0">
-                {/* Codebase search in Code tab (search your codebase here, not in Web tab) */}
-                {appId && (
-                    <div className="p-3 border-b border-border bg-muted/10 flex-shrink-0">
-                        <CodebaseSearchBox
-                            appId={appId}
-                            placeholder="Search codebase... e.g. 'authentication logic'"
-                            onResults={(results, query) => setCodeSearchResults({ results, query })}
-                        />
-                        {codeSearchResults && (
-                            <div className="mt-2 space-y-2 font-mono text-xs max-h-[200px] overflow-y-auto">
-                                {codeSearchResults.results.slice(0, 8).map((r: any, i: number) => (
-                                    <div key={i} className="rounded border border-border bg-card p-2">
-                                        <div className="text-primary mb-1">{r.file?.split(/[/\\]/).pop()}:{r.line}</div>
-                                        <pre className="whitespace-pre-wrap text-muted-foreground overflow-x-auto">
-                                            {[...(r.contextBefore || []), r.content, ...(r.contextAfter || [])].join('\n')}
-                                        </pre>
-                                    </div>
-                                ))}
-                            </div>
-                        )}
-                    </div>
-                )}
-                <div className="flex flex-col items-center justify-center flex-1 text-muted-foreground p-4">
-                    <Code2 className="w-12 h-12 mb-3 opacity-50" />
-                    <p className="text-sm">No file selected</p>
-                    <p className="text-xs">Click a file in the sidebar or select from errors</p>
-                </div>
-            </div>
-        );
-    }
-
-    // Use Monaco FileEditor so user can edit and save (Cmd/Ctrl+S)
-    if (appId) {
-        return (
-            <div className="flex flex-col h-full min-h-0">
-                <FileEditor
-                    appId={appId}
-                    filePath={displayFile.path}
-                    initialLine={selectedErrorForCode?.line}
-                />
-            </div>
-        );
-    }
-
-    // Fallback when no appId (e.g. non-workspace context): read-only view
-    const fileName = displayFile.path.split('/').pop();
-    const lineCount = displayFile.content.split('\n').length;
-    return (
-        <div className="flex flex-col h-full">
-            <div className="flex items-center justify-between px-3 py-2 border-b border-border bg-muted/20">
-                <div className="flex items-center gap-2">
-                    <Code2 className="w-4 h-4 text-muted-foreground" />
-                    <span className="text-sm font-medium">{fileName}</span>
-                </div>
-                <span className="text-xs text-muted-foreground">{lineCount} lines</span>
-            </div>
-            <div className="flex-1 overflow-auto">
-                <pre className="p-4 text-xs font-mono text-foreground leading-relaxed">
-                    {displayFile.content.split('\n').map((line, i) => (
-                        <div key={i} className="flex">
-                            <span className="w-8 text-right pr-4 text-muted-foreground select-none">
-                                {i + 1}
-                            </span>
-                            <code className="flex-1">{line || ' '}</code>
-                        </div>
-                    ))}
-                </pre>
-            </div>
-        </div>
-    );
-}
-
-
-/**
  * Errors Tab - Enhanced IDE-style error display
  */
 function ErrorsTab({
@@ -602,16 +284,12 @@ function ErrorsTab({
     onClear,
     onSolveWithAI,
     onSolveAllWithAI,
-    onSwitchToCode,
-    onEditErrorFile,
     onMarkDone,
 }: {
     errors: ParsedError[];
     onClear?: () => void;
     onSolveWithAI?: (error: ParsedError) => void;
     onSolveAllWithAI?: (errors: ParsedError[], context: string) => void;
-    onSwitchToCode?: () => void;
-    onEditErrorFile?: (filePath: string, line?: number, column?: number) => void;
     onMarkDone?: (error: ParsedError) => void;
 }) {
     const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
@@ -638,17 +316,8 @@ function ErrorsTab({
                 <Shield className="w-12 h-12 opacity-20 text-green-500" />
                 <p className="text-sm text-green-500/80">No errors detected</p>
                 <p className="text-xs text-zinc-500 text-center max-w-xs">
-                    Open and edit project files in the <strong className="text-zinc-400">Code</strong> tab.
+                    Runtime and build errors from the dev server will appear here.
                 </p>
-                {onSwitchToCode ? (
-                    <button
-                        type="button"
-                        onClick={onSwitchToCode}
-                        className="text-xs px-3 py-1.5 rounded-md border border-border/60 bg-muted/30 hover:bg-muted/50 transition-colors"
-                    >
-                        Go to Code tab
-                    </button>
-                ) : null}
             </div>
         );
     }
@@ -708,17 +377,6 @@ function ErrorsTab({
                     )}
                 </div>
                 <div className="flex items-center gap-2">
-                    {/* Edit Code Button - Switch to Code tab for line highlighting */}
-                    {onSwitchToCode && deduplicatedErrors.some(e => e.file) && (
-                        <button
-                            onClick={onSwitchToCode}
-                            className="flex items-center gap-1.5 px-2 py-1 text-xs font-medium rounded-md bg-zinc-700/50 text-zinc-300 hover:bg-zinc-700 border border-zinc-600/50 transition-colors"
-                            title="Edit code with line highlighting"
-                        >
-                            <Code2 className="w-3 h-3" />
-                            <span>Edit Code</span>
-                        </button>
-                    )}
                     {/* Fix All Button */}
                     {errors.length > 1 && onSolveAllWithAI && (
                         <button
@@ -837,24 +495,6 @@ function ErrorsTab({
                                                             <Sparkles className="w-3 h-3" />
                                                             <span>Fix with AI</span>
                                                         </button>
-                                                        {/* View code - opens exact file and line in Code tab */}
-                                                        {(onEditErrorFile || onSwitchToCode) && error.file && (
-                                                            <button
-                                                                onClick={(e) => {
-                                                                    e.stopPropagation();
-                                                                    if (onEditErrorFile) {
-                                                                        onEditErrorFile(error.file!, error.line, error.column);
-                                                                    } else {
-                                                                        onSwitchToCode?.();
-                                                                    }
-                                                                }}
-                                                                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-zinc-700/30 text-zinc-300 hover:bg-zinc-700/50 border border-zinc-700/50 transition-colors"
-                                                                title="Open this file at line in Code tab"
-                                                            >
-                                                                <Code2 className="w-3 h-3" />
-                                                                <span>View code</span>
-                                                            </button>
-                                                        )}
                                                         {/* Mark done - remove from list */}
                                                         {onMarkDone && (
                                                             <button

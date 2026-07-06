@@ -35,7 +35,6 @@ import type {
   App,
   ComponentSelection,
   AppUpgrade,
-  EditAppFileReturnType,
   GetAppEnvVarsParams,
   SetAppEnvVarsParams,
   UpdateChatParams,
@@ -1238,14 +1237,6 @@ export class IpcClient {
     return this.ipcRenderer.invoke("get-app", appId);
   }
 
-  public async getAppFiles(appId: number): Promise<{
-    files: string[];
-    fileDiscoveryWarnings?: string[];
-    pathExists: boolean;
-  }> {
-    return this.ipcRenderer.invoke("get-app-files", appId);
-  }
-
   public async addAppToFavorite(
     appId: number,
   ): Promise<{ isFavorite: boolean }> {
@@ -1338,26 +1329,6 @@ export class IpcClient {
       showError(error);
       throw error;
     }
-  }
-
-  public async readAppFile(appId: number, filePath: string): Promise<string> {
-    return this.ipcRenderer.invoke("read-app-file", {
-      appId,
-      filePath,
-    });
-  }
-
-  // Edit a file in an app directory
-  public async editAppFile(
-    appId: number,
-    filePath: string,
-    content: string,
-  ): Promise<EditAppFileReturnType> {
-    return this.ipcRenderer.invoke("edit-app-file", {
-      appId,
-      filePath,
-      content,
-    });
   }
 
   // New method for streaming responses

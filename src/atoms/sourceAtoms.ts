@@ -20,7 +20,7 @@ export type PanelType =
     | 'tools'           // Tool execution activity
     | 'empty';          // No content
 
-export type PanelTab = 'sources' | 'tools' | 'debug' | 'preview' | 'code' | 'terminal' | 'logs' | 'files' | 'approve' | 'permission' | 'errors' | 'permissions' | 'search' | 'chat' | 'plan' | 'browser';
+export type PanelTab = 'sources' | 'tools' | 'debug' | 'preview' | 'terminal' | 'logs' | 'files' | 'approve' | 'permission' | 'errors' | 'permissions' | 'search' | 'chat' | 'plan' | 'browser';
 
 export interface PanelContext {
     type: PanelType;
@@ -410,14 +410,6 @@ export const visibleBrowserErrorsAtom = atom((get) => {
   const dismissed = get(dismissedErrorSignaturesAtom);
   return errors.filter((e) => !dismissed.has(getErrorSignature(e)));
 });
-
-/** When user clicks "View code" on an error, open this file in Code tab and optionally scroll to line */
-export interface SelectedErrorForCode {
-  filePath: string;
-  line?: number;
-  column?: number;
-}
-export const selectedErrorForCodeAtom = atom<SelectedErrorForCode | null>(null);
 
 /** Recent codebase search queries (max 10, for "Recent Searches" dropdown) */
 export const recentCodeSearchesAtom = atom<string[]>([]);

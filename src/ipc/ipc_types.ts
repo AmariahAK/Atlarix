@@ -512,10 +512,6 @@ export interface AppUpgrade {
   isNeeded: boolean;
 }
 
-export interface EditAppFileReturnType {
-  warning?: string;
-}
-
 export interface EnvVar {
   key: string;
   value: string;
@@ -568,19 +564,6 @@ export interface FileAttachment {
     /** Workspace-relative path (no leading `./`, no spaces). */
     relpath: string;
     displayName: string;
-  };
-  /**
-   * Code selected in the Code tab and sent to chat — UI chip only. The chip
-   * shows `basename:lineStart-lineEnd`; on send a `<atlarix-code-selection>`
-   * block carrying the workspace-relative path + line range + content is injected
-   * into the model prompt (so the model knows exactly which file/lines).
-   */
-  codeSelection?: {
-    /** Workspace-relative path. */
-    relpath: string;
-    lineStart: number;
-    lineEnd: number;
-    content: string;
   };
   /**
    * A reference to a running background job sent to chat from the jobs UI — UI

@@ -15,6 +15,7 @@ export type RawCtagsJsonLine = {
   scope?: string;
   signature?: string;
   typeref?: string;
+  language?: string;
 };
 
 function stableSymbolId(relPath: string, name: string, line: number, kind: string): string {
@@ -97,6 +98,7 @@ export function parseCtagsJsonOutput(
       endLine: Number.isFinite(endLine) ? endLine : undefined,
       scope: row.scope?.trim() || undefined,
       signature: row.signature?.trim() || row.typeref?.trim() || undefined,
+      language: row.language?.trim().toLowerCase() || undefined,
     });
   }
 

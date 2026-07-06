@@ -92,19 +92,19 @@ const FEATURES: ToolFeature[] = [
     link: { label: "Workspace chat", to: "/" },
   },
   {
-    id: "code-tab",
-    title: "Code tab & file tree",
+    id: "code-in-chat",
+    title: "Code in chat",
     shortDescription:
-      "Monaco editor and file tree load on demand when you open the Code tab or expand a workspace in the sidebar—not a full-repo scan at startup.",
+      "Code blocks, write proposals, and diffs render with syntax highlighting inline in chat — file editing stays in your own IDE.",
     category: "code",
     steps: [
       "Open a workspace from the welcome screen",
-      "Open the Code tab or expand the workspace row for the tree",
-      "Use @ mentions once files are loaded, or ask the agent to list_files / search",
+      "Ask the agent to read, search, or change code",
+      "Review proposals and diffs inline; use @ mentions to reference files",
     ],
     howItWorks:
-      "Atlarix no longer runs git ls-files across the whole workspace on open. The agent still explores via Blueprint, search, and explicit file tools.",
-    link: { label: "Right panel → Code", to: "/" },
+      "Atlarix works beside your editor rather than replacing it. The agent explores via Blueprint, search, and explicit file tools — no full-repo scan at startup.",
+    link: { label: "Workspace chat", to: "/" },
   },
   {
     id: "workspace-open",

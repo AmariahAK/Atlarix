@@ -77,12 +77,6 @@ export default defineConfig({
         resolve: {
           alias: {
             "@": path.join(root, "src"),
-            // jsdom can't load this browser-native package; tests assert
-            // around it (the editor module is also vi.mocked in setup).
-            "monaco-editor": path.join(
-              root,
-              "src/__tests__/renderer/stubs/empty-module.ts",
-            ),
           },
         },
         test: {

@@ -1,50 +1,30 @@
 /**
  * Workspace Analyzer
  * ==================
- * Analyzes workspace structure, detects language/framework, extracts imports/exports
- * Uses structural heuristics for workspace analysis; file structure scans use ctags symbols when available
- * Inspired by StackSense's diagram_builder.py
+ * Analyzes workspace structure and detects language/framework for chat context,
+ * diagrams, and the file-tree blueprint fallback.
+ *
+ * Structure (files, functions, classes, per-file language) comes from the
+ * shared Universal Ctags symbol index (`ensureSymbolIndex`) — language-agnostic,
+ * cached, and usually already warm from the blueprint/search paths. The only
+ * content scanning left here is a universal import-pattern pass (for the
+ * dependency graph / hub files), which is syntax-shaped rather than
+ * language-gated. There is deliberately NO per-language extraction logic and
+ * NO extension allowlist in this module.
  */
 import * as fs from 'fs/promises';
-import * as fsSync from 'node:fs';
 import * as path from 'path';
 import log from 'electron-log';
 import {
     loadIgnorerForProject,
-    normalizeRelPath,
     isRelPathIgnored,
 } from '@/lib/atlarix/atlarix-ignore';
 import { isUnderMemoryPressure, WORKSPACE_LARGE_FILE_THRESHOLD } from '@/constants/settings_constants';
-import { isExcludedDir } from '@/ipc/utils/file_utils';
-import {
-    isFsAccessDenied,
-    warnFsPathSkipped,
-} from '@/ipc/utils/fs-access-errors';
+import { ensureSymbolIndex } from '@/lib/index/ctags-index';
+import type { SymbolRecord } from '@/lib/index/symbol-types';
 
 const logger = log.scope('workspace-analyzer');
 
-// Language extension mapping (from StackSense)
-const LANGUAGE_MAP: Record<string, string> = {
-    '.py': 'python',
-    '.js': 'javascript',
-    '.jsx': 'javascript',
-    '.ts': 'typescript',
-    '.tsx': 'typescript',
-    '.go': 'go',
-    '.rs': 'rust',
-    '.java': 'java',
-    '.kt': 'kotlin',
-    '.kts': 'kotlin',
-    '.cpp': 'cpp',
-    '.c': 'c',
-    '.cs': 'csharp',
-    '.rb': 'ruby',
-    '.php': 'php',
-    '.swift': 'swift',
-    '.dart': 'dart',
-};
-
-// Files/dirs to exclude from scanning (flat name match)
 export interface AnalyzedFile {
     path: string;
     relativePath: string;
@@ -72,7 +52,8 @@ export interface Cluster {
 
 export interface WorkspaceAnalysis {
     workspacePath: string;
-    language: 'typescript' | 'javascript' | 'python' | 'go' | 'rust' | 'java' | 'kotlin' | 'mixed';
+    /** Config-probe result, else dominant ctags language, else 'mixed'. Free-form (any ctags language). */
+    language: string;
     framework?: 'react' | 'next' | 'vue' | 'express' | 'fastapi' | 'django' | 'flask' | 'spring';
     packageManager?: 'npm' | 'yarn' | 'pnpm' | 'bun' | 'poetry' | 'pip' | 'cargo' | 'go' | 'maven' | 'gradle';
     files: AnalyzedFile[];
@@ -86,6 +67,46 @@ export interface WorkspaceAnalysis {
     };
 }
 
+function emptyAnalysis(workspacePath: string): WorkspaceAnalysis {
+    return {
+        workspacePath,
+        language: 'mixed',
+        files: [],
+        dependencies: [],
+        clusters: [],
+        entryPoints: [],
+        metadata: {
+            totalFiles: 0,
+            languages: [],
+            hubFiles: [],
+        },
+    };
+}
+
+const FUNCTION_KINDS = new Set(['f', 'function', 'method', 'm']);
+const CLASS_KINDS = new Set(['c', 'class', 'struct']);
+
+/** Only the head of each file is scanned for imports — enough for any sane import block. */
+const IMPORT_SCAN_BYTES = 64 * 1024;
+
+/** Most common ctags language across a symbol set, or null. */
+function dominantLanguage(symbols: SymbolRecord[]): string | null {
+    const counts = new Map<string, number>();
+    for (const s of symbols) {
+        if (!s.language) continue;
+        counts.set(s.language, (counts.get(s.language) ?? 0) + 1);
+    }
+    let best: string | null = null;
+    let bestCount = 0;
+    for (const [lang, count] of counts) {
+        if (count > bestCount) {
+            best = lang;
+            bestCount = count;
+        }
+    }
+    return best;
+}
+
 /**
  * Analyze a workspace directory
  */
@@ -94,66 +115,67 @@ export async function analyzeWorkspace(workspacePath: string): Promise<Workspace
 
     if (isUnderMemoryPressure()) {
         logger.warn(`Memory pressure detected — skipping full workspace analysis`);
-        return {
-            workspacePath,
-            language: 'mixed',
-            files: [],
-            dependencies: [],
-            clusters: [],
-            entryPoints: [],
-            metadata: {
-                totalFiles: 0,
-                languages: [],
-                hubFiles: [],
-            },
-        };
+        return emptyAnalysis(workspacePath);
     }
 
-    // 1. Detect project type
-    const { language, framework, packageManager } = await detectProjectType(workspacePath);
-    logger.info(`Detected: ${language}${framework ? ` (${framework})` : ''}`);
+    // 1. Symbol index (Universal Ctags — auto-detects every language it knows).
+    let symbols: SymbolRecord[];
+    try {
+        symbols = (await ensureSymbolIndex(workspacePath)).symbols;
+    } catch (err) {
+        logger.warn(`ctags symbol index unavailable — returning minimal analysis: ${String(err)}`);
+        return emptyAnalysis(workspacePath);
+    }
 
-    // 2. Scan files (respect .atlarixignore — composed even if the file is
-    // absent; it's created once by workspace bootstrap, not on every scan).
+    // 2. Detect project type from config files (framework/package-manager hints).
+    const probed = await detectProjectType(workspacePath);
+
+    // 3. Group symbols by file, apply .atlarixignore, cap for performance.
+    const byFile = new Map<string, SymbolRecord[]>();
+    for (const s of symbols) {
+        const rel = s.path.replace(/\\/g, '/');
+        if (!byFile.has(rel)) byFile.set(rel, []);
+        byFile.get(rel)!.push(s);
+    }
     const ig = await loadIgnorerForProject(workspacePath);
-    const scanned = await scanFiles(workspacePath);
-    const filePaths = scanned.filter((f) => {
-        const rel = normalizeRelPath(workspacePath, f);
-        return !isRelPathIgnored(ig, rel);
-    });
-    logger.info(`Found ${filePaths.length} source files (${scanned.length} before .atlarixignore)`);
+    const relPaths = [...byFile.keys()]
+        .filter((rel) => !isRelPathIgnored(ig, rel))
+        .sort();
+    logger.info(`Found ${relPaths.length} symbol-bearing files (${byFile.size} before .atlarixignore)`);
 
-    // v7.1.2: Large workspace detection - warn model to use on-demand search
-    if (filePaths.length > WORKSPACE_LARGE_FILE_THRESHOLD) {
-        logger.info(`Large workspace detected (${filePaths.length} files > ${WORKSPACE_LARGE_FILE_THRESHOLD} threshold) — limiting eager analysis`);
+    if (relPaths.length > WORKSPACE_LARGE_FILE_THRESHOLD) {
+        logger.info(`Large workspace detected (${relPaths.length} files > ${WORKSPACE_LARGE_FILE_THRESHOLD} threshold) — limiting eager analysis`);
     }
 
-    // 3. Analyze each file (limit to 200 for performance)
+    // 4. Per-file analysis (limit to 200 for performance)
     const analyzedFiles = await Promise.all(
-        filePaths.slice(0, 200).map(f => analyzeFile(f, workspacePath))
+        relPaths.slice(0, 200).map((rel) => analyzeFile(rel, byFile.get(rel)!, workspacePath)),
     );
     const validFiles = analyzedFiles.filter((f): f is AnalyzedFile => f !== null);
 
-    // 4. Build dependency graph
+    // 5. Build dependency graph
     const dependencies = buildDependencyGraph(validFiles, workspacePath);
 
-    // 5. Detect clusters
+    // 6. Detect clusters
     const clusters = detectClusters(validFiles);
 
-    // 6. Find entry points
-    const entryPoints = findEntryPoints(validFiles, language);
+    // 7. Find entry points
+    const entryPoints = findEntryPoints(validFiles);
 
-    // 7. Find hub files (most connected)
+    // 8. Find hub files (most connected)
     const hubFiles = findHubFiles(validFiles, dependencies);
 
-    // 8. Get all languages used
-    const languages = [...new Set(validFiles.map(f => f.language))];
+    const languages = [...new Set(validFiles.map((f) => f.language).filter((l) => l !== 'unknown'))];
+    const language =
+        (probed.language !== 'mixed' ? probed.language : null) ??
+        dominantLanguage(symbols) ??
+        'mixed';
 
     return {
         workspacePath,
-        language: language as WorkspaceAnalysis['language'],
-        framework: framework as WorkspaceAnalysis['framework'],
-        packageManager: packageManager as WorkspaceAnalysis['packageManager'],
+        language,
+        framework: probed.framework as WorkspaceAnalysis['framework'],
+        packageManager: probed.packageManager as WorkspaceAnalysis['packageManager'],
         files: validFiles,
         dependencies,
         clusters,
@@ -179,7 +201,8 @@ function logProbeFailure(probe: string, e: unknown): void {
 }
 
 /**
- * Detect project type from config files
+ * Detect project type from config files. Returns language 'mixed' when no
+ * probe matches — the caller falls back to the dominant ctags language.
  */
 async function detectProjectType(workspacePath: string): Promise<{
     language: string;
@@ -276,218 +299,82 @@ async function detectProjectType(workspacePath: string): Promise<{
         return { language: 'go', packageManager: 'go' };
     } catch (e) { logProbeFailure('go.mod', e); }
 
-    // Fallback: count file extensions
-    const files = await scanFiles(workspacePath);
-    const counts: Record<string, number> = {};
-
-    for (const file of files) {
-        const ext = path.extname(file);
-        const lang = LANGUAGE_MAP[ext];
-        if (lang) {
-            counts[lang] = (counts[lang] || 0) + 1;
-        }
-    }
-
-    const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]);
-    return { language: sorted[0]?.[0] || 'mixed' };
+    return { language: 'mixed' };
 }
 
 /**
- * Scan for source files recursively
- * @param dir Directory to scan
- * @param relativeTo Base directory for result paths
- * @param visited Set of already-visited inode keys (dev:ino) for cycle detection
+ * Per-file analysis: structure from the ctags symbols, imports from a
+ * universal pattern pass over the head of the file.
  */
-async function scanFiles(dir: string, relativeTo?: string, visited?: Set<string>): Promise<string[]> {
-    const files: string[] = [];
-    const base = relativeTo || dir;
+async function analyzeFile(
+    relativePath: string,
+    fileSymbols: SymbolRecord[],
+    workspacePath: string,
+): Promise<AnalyzedFile | null> {
+    const absolute = path.join(workspacePath, relativePath);
 
-    let stat: fsSync.Stats;
+    let head = '';
     try {
-        stat = await fs.lstat(dir);
-    } catch (err) {
-        if (isFsAccessDenied(err)) {
-            warnFsPathSkipped(dir, err);
+        const fh = await fs.open(absolute, 'r');
+        try {
+            const buf = Buffer.alloc(IMPORT_SCAN_BYTES);
+            const { bytesRead } = await fh.read(buf, 0, IMPORT_SCAN_BYTES, 0);
+            head = buf.subarray(0, bytesRead).toString('utf-8');
+        } finally {
+            await fh.close();
         }
-        return [];
+    } catch {
+        // Unreadable/deleted since indexing — structure from symbols still stands.
     }
 
-    if (stat.isSymbolicLink()) return [];
+    const functions = fileSymbols
+        .filter((s) => FUNCTION_KINDS.has(s.kind))
+        .map((s) => s.name)
+        .slice(0, 20);
+    const classes = fileSymbols
+        .filter((s) => CLASS_KINDS.has(s.kind))
+        .map((s) => s.name)
+        .slice(0, 20);
+    // Top-level (unscoped) symbols approximate a file's public surface.
+    const exports = fileSymbols
+        .filter((s) => !s.scope)
+        .map((s) => s.name)
+        .slice(0, 20);
 
-    const inodeKey = `${stat.dev}:${stat.ino}`;
-    if (visited?.has(inodeKey)) return [];
-    const visitedSet = visited ?? new Set<string>();
-    visitedSet.add(inodeKey);
-
-    try {
-        const entries = await fs.readdir(dir, { withFileTypes: true });
-
-        for (const entry of entries) {
-            if (entry.isDirectory()) {
-                if (isExcludedDir(entry.name)) continue;
-                const subFiles = await scanFiles(path.join(dir, entry.name), base, visitedSet);
-                files.push(...subFiles);
-            } else {
-                const ext = path.extname(entry.name);
-                if (ext && LANGUAGE_MAP[ext]) {
-                    files.push(path.join(dir, entry.name));
-                }
-            }
-        }
-    } catch (error) {
-        if (isFsAccessDenied(error)) {
-            warnFsPathSkipped(dir, error);
-        } else {
-            logger.warn(`Error scanning ${dir}:`, error);
-        }
-    }
-
-    return files;
+    return {
+        path: absolute,
+        relativePath,
+        language: dominantLanguage(fileSymbols) ?? 'unknown',
+        type: classifyFileType(relativePath, head),
+        imports: head ? extractImportsUniversal(head) : [],
+        exports,
+        functions,
+        classes,
+    };
 }
 
 /**
- * Analyze a single file using heuristics (regex / workspace rules)
+ * Universal import extraction — one pattern battery applied to every file
+ * regardless of language. Patterns are syntax-shaped (ES import/require,
+ * `import x.y`, `from x import`, `use x::y`), not language-gated, so any
+ * language whose imports look like one of these contributes to the
+ * dependency graph; others simply yield no edges.
  */
-async function analyzeFile(filePath: string, workspacePath: string): Promise<AnalyzedFile | null> {
-    try {
-        const content = await fs.readFile(filePath, 'utf-8');
-        const ext = path.extname(filePath);
-        const language = LANGUAGE_MAP[ext] || 'unknown';
-        const relativePath = path.relative(workspacePath, filePath);
-
-        // NOTE: TS/JS structure uses ctags + ast-grep in Blueprint RTE (on demand via get_blueprint).
-        // Workspace analyzer uses regex/heuristics only.
-        // This function uses regex-based extraction for workspace analysis.
-        const imports = extractImports(content, language);
-        const exports = extractExports(content, language);
-        const functions = extractFunctions(content, language);
-        const classes = extractClasses(content, language);
-
-        const type = classifyFileType(relativePath, content);
-
-        return {
-            path: filePath,
-            relativePath,
-            language,
-            type,
-            imports,
-            exports,
-            functions,
-            classes,
-        };
-    } catch (error) {
-        logger.warn(`Error analyzing ${filePath}:`, error);
-        return null;
-    }
-}
-
-/**
- * Extract imports from file content
- */
-function extractImports(content: string, language: string): string[] {
+export function extractImportsUniversal(content: string): string[] {
     const imports: string[] = [];
 
-    if (language === 'typescript' || language === 'javascript') {
-        // ES6 imports
-        const esMatches = content.matchAll(/import\s+.*?\s+from\s+['"](.+?)['"]/g);
-        imports.push(...Array.from(esMatches, m => m[1]));
-
-        // require()
-        const reqMatches = content.matchAll(/require\(['"](.+?)['"]\)/g);
-        imports.push(...Array.from(reqMatches, m => m[1]));
-    } else if (language === 'python') {
-        // import X
-        const importMatches = content.matchAll(/^import\s+([\w.]+)/gm);
-        imports.push(...Array.from(importMatches, m => m[1]));
-
-        // from X import Y
-        const fromMatches = content.matchAll(/^from\s+([\w.]+)\s+import/gm);
-        imports.push(...Array.from(fromMatches, m => m[1]));
-    } else if (language === 'go') {
-        const matches = content.matchAll(/"([^"]+)"/g);
-        imports.push(...Array.from(matches, m => m[1]));
-    } else if (language === 'rust') {
-        const matches = content.matchAll(/use\s+([\w:]+)/g);
-        imports.push(...Array.from(matches, m => m[1]));
-    }
+    // ES `import … from '…'`
+    for (const m of content.matchAll(/import\s+.*?\s+from\s+['"](.+?)['"]/g)) imports.push(m[1]);
+    // CommonJS `require('…')`
+    for (const m of content.matchAll(/require\(['"](.+?)['"]\)/g)) imports.push(m[1]);
+    // `import x.y.z` (Python, Java, Go grouped-import lines, …)
+    for (const m of content.matchAll(/^\s*import\s+([\w./]+)\s*$/gm)) imports.push(m[1]);
+    // `from x.y import z` (Python)
+    for (const m of content.matchAll(/^from\s+([\w.]+)\s+import/gm)) imports.push(m[1]);
+    // `use x::y;` / `use X\Y;` (Rust, PHP)
+    for (const m of content.matchAll(/^\s*use\s+([\w:\\]+)/gm)) imports.push(m[1]);
 
     return [...new Set(imports)];
-}
-
-/**
- * Extract exports from file content
- */
-function extractExports(content: string, language: string): string[] {
-    const exports: string[] = [];
-
-    if (language === 'typescript' || language === 'javascript') {
-        // export function/const/class
-        const matches = content.matchAll(/export\s+(?:default\s+)?(?:function|const|class|interface|type)\s+(\w+)/g);
-        exports.push(...Array.from(matches, m => m[1]));
-    } else if (language === 'python') {
-        // __all__ = [...]
-        const allMatch = content.match(/__all__\s*=\s*\[([\s\S]*?)\]/);
-        if (allMatch) {
-            const names = allMatch[1].matchAll(/['"](\w+)['"]/g);
-            exports.push(...Array.from(names, m => m[1]));
-        }
-    }
-
-    return exports;
-}
-
-/**
- * Extract function names
- */
-function extractFunctions(content: string, language: string): string[] {
-    const functions: string[] = [];
-
-    if (language === 'typescript' || language === 'javascript') {
-        // function name()
-        const funcMatches = content.matchAll(/function\s+(\w+)\s*\(/g);
-        functions.push(...Array.from(funcMatches, m => m[1]));
-
-        // const name = () =>
-        const arrowMatches = content.matchAll(/(?:const|let)\s+(\w+)\s*=\s*(?:async\s*)?\(/g);
-        functions.push(...Array.from(arrowMatches, m => m[1]));
-    } else if (language === 'python') {
-        const matches = content.matchAll(/^def\s+(\w+)\s*\(/gm);
-        functions.push(...Array.from(matches, m => m[1]));
-    } else if (language === 'go') {
-        const matches = content.matchAll(/func\s+(\w+)\s*\(/g);
-        functions.push(...Array.from(matches, m => m[1]));
-    } else if (language === 'rust') {
-        const matches = content.matchAll(/fn\s+(\w+)\s*[(<]/g);
-        functions.push(...Array.from(matches, m => m[1]));
-    }
-
-    return functions.slice(0, 20); // Limit
-}
-
-/**
- * Extract class names
- */
-function extractClasses(content: string, language: string): string[] {
-    const classes: string[] = [];
-
-    if (language === 'typescript' || language === 'javascript') {
-        const matches = content.matchAll(/class\s+(\w+)/g);
-        classes.push(...Array.from(matches, m => m[1]));
-    } else if (language === 'python') {
-        const matches = content.matchAll(/^class\s+(\w+)/gm);
-        classes.push(...Array.from(matches, m => m[1]));
-    } else if (language === 'go') {
-        const matches = content.matchAll(/type\s+(\w+)\s+struct/g);
-        classes.push(...Array.from(matches, m => m[1]));
-    } else if (language === 'rust') {
-        const matches = content.matchAll(/struct\s+(\w+)/g);
-        classes.push(...Array.from(matches, m => m[1]));
-    } else if (language === 'java') {
-        const matches = content.matchAll(/class\s+(\w+)/g);
-        classes.push(...Array.from(matches, m => m[1]));
-    }
-
-    return classes.slice(0, 20);
 }
 
 /**
@@ -600,7 +487,7 @@ function inferClusterPurpose(name: string, files: string[]): string {
 /**
  * Find likely entry points
  */
-function findEntryPoints(files: AnalyzedFile[], _language: string): string[] {
+function findEntryPoints(files: AnalyzedFile[]): string[] {
     const entryNames = new Set([
         'main', 'index', 'app', 'server', 'cli', '__main__', 'manage',
     ]);

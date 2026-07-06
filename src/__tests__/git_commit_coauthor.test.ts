@@ -7,6 +7,8 @@ vi.mock("@/main/settings", () => ({
 
 vi.mock("@/ipc/utils/system_git_exec", () => ({
   exec: vi.fn(),
+  isGitAvailable: vi.fn(async () => true),
+  isGitMissingResult: (r: { exitCode: number }) => r.exitCode === 127,
 }));
 
 vi.mock("node:fs", () => {
@@ -30,7 +32,6 @@ describe("gitCommit co-authored-by live settings", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockReadSettings.mockReturnValue({
-      enableNativeGit: true,
       includeAtlarixCoAuthor: true,
     } as ReturnType<typeof readSettings>);
     mockExec.mockImplementation(async (args: string[]) => {
@@ -43,7 +44,6 @@ describe("gitCommit co-authored-by live settings", () => {
 
   it("appends co-author trailer when includeAtlarixCoAuthor is true", async () => {
     mockReadSettings.mockReturnValue({
-      enableNativeGit: true,
       includeAtlarixCoAuthor: true,
     } as ReturnType<typeof readSettings>);
 
@@ -61,7 +61,6 @@ describe("gitCommit co-authored-by live settings", () => {
 
   it("omits co-author trailer when includeAtlarixCoAuthor is false (fresh read)", async () => {
     mockReadSettings.mockReturnValue({
-      enableNativeGit: true,
       includeAtlarixCoAuthor: false,
     } as ReturnType<typeof readSettings>);
 
@@ -76,13 +75,11 @@ describe("gitCommit co-authored-by live settings", () => {
 
   it("reads settings again on a second commit without module reload", async () => {
     mockReadSettings.mockReturnValue({
-      enableNativeGit: true,
       includeAtlarixCoAuthor: true,
     } as ReturnType<typeof readSettings>);
     await gitCommit({ path: "/tmp/repo", message: "first" });
 
     mockReadSettings.mockReturnValue({
-      enableNativeGit: true,
       includeAtlarixCoAuthor: false,
     } as ReturnType<typeof readSettings>);
     mockExec.mockClear();

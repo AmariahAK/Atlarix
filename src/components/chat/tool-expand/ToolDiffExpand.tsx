@@ -1,6 +1,6 @@
 import { SmartDiffView } from "@/components/SmartDiffView";
 import type { ToolExpandView } from "@/lib/chat/tool-expand-view";
-import { CopyButton, OpenFileButton } from "./ToolCardActions";
+import { CopyButton } from "./ToolCardActions";
 
 export function ToolDiffExpand({
   view,
@@ -30,7 +30,6 @@ export function ToolDiffExpand({
             ) : null}
           </div>
           <div className="flex items-center gap-0.5 shrink-0">
-            {view.path ? <OpenFileButton path={view.path} /> : null}
             <CopyButton text={view.snippetFallback} />
           </div>
         </div>
@@ -45,7 +44,6 @@ export function ToolDiffExpand({
     <div className="space-y-1">
       {view.path ? (
         <div className="flex items-center justify-end px-1">
-          <OpenFileButton path={view.path} />
           <CopyButton text={view.newContent} label="Copy new content" />
         </div>
       ) : null}

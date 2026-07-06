@@ -751,9 +751,7 @@ async function handleCloneRepoFromUrl(
       return { error: `Folder already exists: ${fullAppPath}` };
     }
 
-    if (!settings.enableNativeGit) {
-      fs.mkdirSync(path.dirname(fullAppPath), { recursive: true });
-    }
+    fs.mkdirSync(path.dirname(fullAppPath), { recursive: true });
 
     // Use authenticated URL if token exists, otherwise use public HTTPS URL
     const cloneUrl = accessToken

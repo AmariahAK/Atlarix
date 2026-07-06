@@ -21,7 +21,6 @@
     "e2e-tests/**",
     "**/*.d.ts",
     "src/**/*.test.{ts,tsx}",
-    "src/__tests__/renderer/stubs/**",
     "src/shims/**"
   ],
   "ignoreDependencies": [

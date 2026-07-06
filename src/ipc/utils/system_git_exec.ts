@@ -27,8 +27,29 @@ export interface IGitExecutionOptions {
   signal?: AbortSignal;
 }
 
-const GIT_NOT_INSTALLED_MESSAGE =
+export const GIT_NOT_INSTALLED_MESSAGE =
   "Git is not installed (or not on PATH). Install Git — on macOS run `xcode-select --install` — to enable version control features.";
+
+/** Exit 127 is exec()'s sentinel for "no usable git binary" (see above). */
+export function isGitMissingResult(result: IGitResult): boolean {
+  return result.exitCode === 127;
+}
+
+let gitAvailabilityProbe: Promise<boolean> | null = null;
+
+/** Cached probe: does a usable git binary exist (PATH or LOCAL_GIT_DIRECTORY)? */
+export function isGitAvailable(): Promise<boolean> {
+  if (!gitAvailabilityProbe) {
+    gitAvailabilityProbe = exec(["--version"], ".").then(
+      (result) => result.exitCode === 0,
+    );
+  }
+  return gitAvailabilityProbe;
+}
+
+export function resetGitAvailabilityCacheForTests(): void {
+  gitAvailabilityProbe = null;
+}
 
 function resolveGitBinary(): { gitPath: string; extraEnv: Record<string, string> } {
   const local = process.env.LOCAL_GIT_DIRECTORY?.trim();

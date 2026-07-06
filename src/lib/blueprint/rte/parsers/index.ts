@@ -17,6 +17,7 @@ import { generateBlueprintFromFileTree } from "@/lib/blueprint/rte/file-tree-bri
 import { supplementThinRteResult } from "@/lib/blueprint/rte-supplement";
 import { getProjectFiles } from "@/ipc/utils/project-files";
 import { ensureSymbolIndex } from "@/lib/index/ctags-index";
+import type { SymbolRecord } from "@/lib/index/symbol-types";
 import { runStructuralScan } from "@/lib/blueprint/rte/ast-grep/run-structural-scan";
 
 const logger = log.scope("rte:generateBlueprint");
@@ -46,6 +47,24 @@ async function detectLanguage(projectPath: string): Promise<SupportedLanguage | 
   return null;
 }
 
+/** Most common ctags-reported language across the symbol set (lowercased), or null. */
+function dominantLanguageFromSymbols(symbols: SymbolRecord[]): string | null {
+  const counts = new Map<string, number>();
+  for (const s of symbols) {
+    if (!s.language) continue;
+    counts.set(s.language, (counts.get(s.language) ?? 0) + 1);
+  }
+  let best: string | null = null;
+  let bestCount = 0;
+  for (const [lang, count] of counts) {
+    if (count > bestCount) {
+      best = lang;
+      bestCount = count;
+    }
+  }
+  return best;
+}
+
 function dedupeEdges(edges: RTEParseResult["edges"]): RTEParseResult["edges"] {
   const seen = new Set<string>();
   const out: RTEParseResult["edges"] = [];
@@ -61,6 +80,11 @@ function dedupeEdges(edges: RTEParseResult["edges"]): RTEParseResult["edges"] {
 /**
  * Generate Blueprint via ctags symbols + ast-grep structural edges.
  * Falls back to file-tree bridge when indexing fails.
+ *
+ * Language detection is a framework HINT, never a gate: an unrecognized
+ * project still gets a ctags-backed blueprint (ctags auto-detects languages),
+ * with the dominant symbol language as the label. The signature keeps
+ * `| null` for caller compatibility, but null is no longer returned.
  */
 export async function generateBlueprint(projectPath: string): Promise<RTEParseResult | null> {
   // Composed source = built-in baseline ∪ project .gitignore ∪ .atlarixignore.
@@ -68,13 +92,13 @@ export async function generateBlueprint(projectPath: string): Promise<RTEParseRe
   const ignoreSourceForCache = await composeIgnoreSource(projectPath);
   const ig = createIgnorerFromSource(ignoreSourceForCache);
 
-  const language = await detectLanguage(projectPath);
-  if (!language) return null;
-
-  const framework = { name: language, confidence: 0.85 };
+  const detected = await detectLanguage(projectPath);
 
   try {
     const symbolIndex = await ensureSymbolIndex(projectPath);
+    const frameworkName =
+      detected ?? dominantLanguageFromSymbols(symbolIndex.symbols) ?? "unknown";
+    const framework = { name: frameworkName, confidence: detected ? 0.85 : 0.5 };
     const { files } = await getProjectFiles(projectPath);
     const structural = await runStructuralScan(projectPath, files, symbolIndex.symbols);
 
@@ -120,7 +144,7 @@ export async function generateBlueprint(projectPath: string): Promise<RTEParseRe
     });
 
     const result = await generateBlueprintFromFileTree(projectPath, {
-      framework: { name: language, confidence: 0.5 },
+      framework: { name: detected ?? "unknown", confidence: 0.5 },
       atlarixIgnoreSource: ignoreSourceForCache,
     });
     result.nodes = filterRteNodesByIgnore(result.nodes, ig, projectPath);
@@ -132,8 +156,10 @@ export async function generateBlueprint(projectPath: string): Promise<RTEParseRe
 export function blueprintEngineLabel(
   result: RTEParseResult | null,
   options?: { supplemented?: boolean },
-): "ast-grep+ctags" | "file-tree" | "hybrid" {
+): "ast-grep+ctags" | "ctags-only" | "file-tree" | "hybrid" {
   if (!result?.nodes?.length) return "file-tree";
   if (options?.supplemented) return "hybrid";
-  return result.edges.length > 0 ? "ast-grep+ctags" : "file-tree";
+  // ctags-only: real parse-derived symbol nodes exist but the language has no
+  // ast-grep grammar (structural edges are progressive enhancement).
+  return result.edges.length > 0 ? "ast-grep+ctags" : "ctags-only";
 }

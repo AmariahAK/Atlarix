@@ -69,7 +69,6 @@ export function useBrowserErrorListener() {
         };
         /**
          * Filter out internal/library errors that aren't actionable
-         * - Monaco editor internal errors (inmemory://model)
          * - CDN library errors (jsdelivr, unpkg, etc.)
          * - Browser extension errors
          * - Atlarix's own renderer process errors (same port as Atlarix app)
@@ -79,12 +78,6 @@ export function useBrowserErrorListener() {
         const atlarixPort = window.location.port;
 
         const shouldIgnoreError = (message: string, source?: string): boolean => {
-            // Monaco TypeScript worker errors
-            if (message.includes('inmemory://model') ||
-                message.includes('Could not find source file:')) {
-                return true;
-            }
-
             // Ignore errors from Atlarix's own renderer process
             // Errors from Atlarix come from the same port as the app itself
             // User project errors come from a different port (their preview dev server)
@@ -107,7 +100,6 @@ export function useBrowserErrorListener() {
                 'unpkg.com',
                 'esm.sh',
                 'cdnjs.cloudflare.com',
-                'monaco-editor',
             ];
             if (source && cdnPatterns.some(pattern => source.includes(pattern))) {
                 return true;

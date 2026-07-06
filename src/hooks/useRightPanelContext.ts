@@ -40,10 +40,10 @@ import { currentAppAtom, selectedAppIdAtom, selectedWorkspaceInfoAtom } from '@/
 
 // Tab configurations for each panel type. v13.1: 'plan' is no longer its own
 // panel type — it's appended as a tab to 'code-preview' when a plan is active
-// (see the context memo below), so terminal/code/preview stay usable.
+// (see the context memo below), so terminal/preview stay usable.
 const PANEL_TABS: Record<PanelType, PanelTab[]> = {
     'web-search': [],
-    'code-preview': ['preview', 'code', 'browser', 'terminal', 'errors'],
+    'code-preview': ['preview', 'browser', 'terminal', 'errors'],
     'terminal': ['terminal'],
     'files': ['files'],
     'tools': [],  // Deprecated - ThinkingCard handles tools
@@ -131,7 +131,7 @@ export function useRightPanelContext(): RightPanelContextResult {
             return 'terminal';
         }
 
-        // Priority 4: Workspace chat – always full tabs (preview, code, terminal, errors, diagram, etc.)
+        // Priority 4: Workspace chat – always full tabs (preview, terminal, errors, etc.)
         if (currentApp ?? selectedAppId) {
             return 'code-preview';
         }
@@ -177,7 +177,7 @@ export function useRightPanelContext(): RightPanelContextResult {
     const context = useMemo((): PanelContext => {
         let tabs = PANEL_TABS[effectiveType] || [];
         // v13.1: surface the Plan tab alongside the workspace tabs when a plan
-        // is active, so the user can switch plan ↔ terminal/code while building.
+        // is active, so the user can switch plan ↔ terminal while building.
         if (effectiveType === 'code-preview' && planPanel.planId != null) {
             tabs = [...tabs, 'plan'];
         }

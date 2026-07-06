@@ -23,36 +23,16 @@ test("chat mode selector - ask mode", async ({ po }) => {
   await po.snapshotMessages({ replaceDumpPath: true });
 });
 
-test.skip("dyadwrite edit and save - basic flow", async ({ po }) => {
-  await po.setUp({ autoApprove: true });
-  await po.importApp("minimal");
-  await po.clickNewChat();
-
-  await po.sendPrompt(
-    "Create a simple React component in src/components/Hello.tsx",
-  );
-  await po.waitForChatCompletion();
-
-  await po.clickEditButton();
-  await po.editFileContent("// Test modification\n");
-
-  await po.saveFile();
-
-  await po.snapshotMessages({ replaceDumpPath: true });
-});
-
-test("dyadwrite edit and cancel", async ({ po }) => {
+// The inline chat editor was removed with the Code tab (writes are applied via
+// the Approve/Reject proposal flow, covered by approve.spec.ts) — this asserts
+// the write card renders read-only in chat.
+test("dyadwrite proposal renders in chat", async ({ po }) => {
   await po.setUp({ autoApprove: true });
   await po.importApp("minimal");
   await po.clickNewChat();
 
   await po.sendPrompt("Create a utility function in src/utils/helper.ts");
   await po.waitForChatCompletion();
-
-  await po.clickEditButton();
-
-  await po.editFileContent("// This should be discarded\n");
-  await po.cancelEdit();
 
   await po.snapshotMessages({ replaceDumpPath: true });
 });

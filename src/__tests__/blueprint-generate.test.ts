@@ -63,15 +63,32 @@ describe.skipIf(!hasCtags())("generateBlueprint", () => {
     const result = await generateBlueprint(root);
     expect(result).not.toBeNull();
     expect(result!.nodes.length).toBeGreaterThan(0);
-    expect(["ast-grep+ctags", "file-tree", "hybrid"]).toContain(blueprintEngineLabel(result));
+    expect(["ast-grep+ctags", "ctags-only", "file-tree", "hybrid"]).toContain(
+      blueprintEngineLabel(result),
+    );
   });
-});
 
-describe("generateBlueprint fallback", () => {
-  it("returns null when project language cannot be detected", async () => {
-    const root = await fs.mkdtemp(path.join(os.tmpdir(), "atlarix-empty-"));
+  it("builds a ctags-only blueprint for a project with no detectable language", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "atlarix-unknown-"));
     tmpDirs.push(root);
+    await fs.mkdir(path.join(root, "lib"), { recursive: true });
+    await fs.writeFile(
+      path.join(root, "lib", "tool.rb"),
+      "def greet(name)\n  name\nend\n",
+      "utf-8",
+    );
+    const { getProjectFiles } = await import("@/ipc/utils/project-files");
+    vi.mocked(getProjectFiles).mockResolvedValueOnce({
+      files: ["lib/tool.rb"],
+      strategy: "walk",
+      count: 1,
+    } as Awaited<ReturnType<typeof getProjectFiles>>);
+
     const result = await generateBlueprint(root);
-    expect(result).toBeNull();
+    expect(result).not.toBeNull();
+    expect(result!.nodes.length).toBeGreaterThan(0);
+    // No marker file → the label comes from the symbols, not a hardcoded list.
+    expect(result!.framework.name).toBe("ruby");
+    expect(blueprintEngineLabel(result)).toBe("ctags-only");
   });
 });

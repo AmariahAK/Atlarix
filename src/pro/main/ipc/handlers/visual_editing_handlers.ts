@@ -10,8 +10,7 @@ import {
   stylesToTailwind,
   extractClassPrefixes,
 } from "../../../../utils/style-utils";
-import git from "isomorphic-git";
-import { gitCommit } from "../../../../ipc/utils/git_utils";
+import { gitAdd, gitCommit } from "../../../../ipc/utils/git_utils";
 import { safeJoin } from "@/ipc/utils/path_utils";
 import {
   AnalyseComponentParams,
@@ -73,9 +72,8 @@ export function registerVisualEditingHandlers() {
           await fsPromises.writeFile(filePath, transformedContent, "utf-8");
           // Check if git repository exists and commit the change
           if (fs.existsSync(path.join(appPath, ".git"))) {
-            await git.add({
-              fs,
-              dir: appPath,
+            await gitAdd({
+              path: appPath,
               filepath: relativePath,
             });
 

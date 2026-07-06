@@ -63,4 +63,38 @@ describe.skipIf(!hasCtags())("ctags-index", () => {
     expect(symbols.some((s) => s.name === "helper")).toBe(true);
     expect(await isSymbolIndexWarm(root)).toBe(true);
   });
+
+  it("indexes any ctags-supported language (no extension allowlist)", async () => {
+    const root = await makeTsFixture();
+    await fs.writeFile(
+      path.join(root, "src", "tool.lua"),
+      "function greet(name)\n  return name\nend\n",
+      "utf-8",
+    );
+    await fs.writeFile(
+      path.join(root, "src", "deploy.sh"),
+      "#!/bin/sh\ndo_deploy() {\n  echo hi\n}\n",
+      "utf-8",
+    );
+
+    const cache = await ensureSymbolIndex(root);
+    const luaSymbols = getSymbolsForFile(cache, "src/tool.lua");
+    expect(luaSymbols.some((s) => s.name === "greet")).toBe(true);
+    expect(luaSymbols.some((s) => s.language === "lua")).toBe(true);
+    const shSymbols = getSymbolsForFile(cache, "src/deploy.sh");
+    expect(shSymbols.some((s) => s.name === "do_deploy")).toBe(true);
+  });
+
+  it("excludes files above the size guard", async () => {
+    const root = await makeTsFixture();
+    // >2MB of valid TS — the size guard, not parseability, must exclude it.
+    const big = "export function huge() {}\n" + "// filler\n".repeat(250_000);
+    await fs.writeFile(path.join(root, "src", "huge.ts"), big, "utf-8");
+
+    const cache = await ensureSymbolIndex(root);
+    expect(getSymbolsForFile(cache, "src/huge.ts")).toEqual([]);
+    expect(cache.manifest.fileMtimes?.["src/huge.ts"]).toBeUndefined();
+    // The small file is still indexed alongside it.
+    expect(getSymbolsForFile(cache, "src/app.ts").length).toBeGreaterThan(0);
+  });
 });

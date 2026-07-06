@@ -16,7 +16,7 @@ export interface BlueprintManifest {
   detailLevel?: "overview" | "full";
   timestamp: number;
   /** Index engine used when cache was written. */
-  engine?: "ast-grep+ctags" | "file-tree" | "hybrid";
+  engine?: "ast-grep+ctags" | "ctags-only" | "file-tree" | "hybrid";
   /** v12 S20: unresolved (non-identifier-callee) call sites from the scan. */
   dynamicCallCount?: number;
 }

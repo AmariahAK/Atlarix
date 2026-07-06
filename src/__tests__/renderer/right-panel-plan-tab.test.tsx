@@ -1,7 +1,7 @@
 /**
  * v13.1: the Plan panel is a coexisting TAB, not a takeover. When a plan is
  * active in a workspace (code-preview) context, `useRightPanelContext` must
- * surface a 'plan' tab alongside preview/code/terminal — so the user can switch
+ * surface a 'plan' tab alongside preview/terminal — so the user can switch
  * plan ↔ terminal while the agent builds — and drop it when the plan clears.
  */
 
@@ -62,7 +62,7 @@ describe("right panel — plan as a coexisting tab", () => {
     expect(captured?.tabs).toContain("plan");
     // The normal workspace tabs remain — no takeover.
     expect(captured?.tabs).toEqual(
-      expect.arrayContaining(["preview", "code", "terminal"]),
+      expect.arrayContaining(["preview", "terminal"]),
     );
   });
 

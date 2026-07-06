@@ -27,6 +27,9 @@ const logger = log.scope("version_handlers");
 
 const handle = createLoggedHandler(logger);
 
+/** Paths already warned about a failing `git log` — avoids re-logging (and re-Sentry-ing) on every poll. */
+const warnedListVersionsPaths = new Set<string>();
+
 export function registerVersionHandlers() {
   handle("list-versions", async (_, { appId }: { appId: number }) => {
     const app = await db.query.apps.findFirst({
@@ -51,20 +54,19 @@ export function registerVersionHandlers() {
         path: appPath,
         depth: 100_000, // KEEP UP TO DATE WITH ChatHeader.tsx
       });
+      warnedListVersionsPaths.delete(appPath);
     } catch (err: unknown) {
-      // Empty repo / no HEAD / not fully initialized — return [] so UI doesn't throw
-      const msg = err instanceof Error ? err.message : String(err);
-      const name = (err as { name?: string })?.name ?? "";
-      const isNoHead =
-        msg.includes("Could not find HEAD") ||
-        msg.includes("NotFoundError") ||
-        msg.includes("ref not found") ||
-        msg.includes("bad default revision") ||
-        name === "NotFoundError";
-      if (isNoHead) {
-        return [];
+      // Any git-log failure (empty repo, no HEAD, unreadable pack, …) degrades
+      // to an empty version list — this handler is polled, so throwing here
+      // fires the error pipeline on every poll.
+      if (!warnedListVersionsPaths.has(appPath)) {
+        warnedListVersionsPaths.add(appPath);
+        logger.warn(
+          `list-versions: git log failed for ${appPath}; returning empty list`,
+          err,
+        );
       }
-      throw err;
+      return [];
     }
 
     return commits.map((commit: GitCommit) => {

@@ -34,7 +34,7 @@ import {
     TooltipProvider,
     TooltipTrigger,
 } from '@/components/ui/tooltip';
-import { type PanelType, type PanelTab } from '@/atoms/sourceAtoms';
+import { type PanelTab } from '@/atoms/sourceAtoms';
 import { useWorkspacePlanPanel } from '@/hooks/useWorkspacePlanPanel';
 import { PlanExecutionPanel } from '@/components/preview_panel/PlanExecutionPanel';
 import { BrowserPanel } from '@/components/browser/BrowserPanel';
@@ -43,7 +43,6 @@ import { BrowserPanel } from '@/components/browser/BrowserPanel';
 // Icon configuration for secondary tabs
 const TAB_ICONS: Record<PanelTab, { icon: React.ElementType; label: string }> = {
     preview: { icon: Eye, label: 'Preview' },
-    code: { icon: Code2, label: 'Code' },
     terminal: { icon: Terminal, label: 'Terminal' },
     errors: { icon: AlertTriangle, label: 'Errors' },
     permissions: { icon: Shield, label: 'Permissions' },
@@ -58,19 +57,6 @@ const TAB_ICONS: Record<PanelTab, { icon: React.ElementType; label: string }> = 
     debug: { icon: Terminal, label: 'Debug' },
     chat: { icon: MessageSquare, label: 'Chat' },
     browser: { icon: Globe, label: 'Browser' },
-};
-
-// Primary mode categories for the toolbar
-type PrimaryMode = 'search' | 'code' | 'diagrams' | 'preview' | 'tools';
-
-// Map panel types to primary modes
-const PANEL_TYPE_TO_MODE: Record<PanelType, PrimaryMode> = {
-    'web-search': 'search',
-    'code-preview': 'preview',
-    'terminal': 'code',
-    'files': 'code',
-    'tools': 'tools',
-    'empty': 'search',
 };
 
 export function RightPanel() {
@@ -161,9 +147,6 @@ Please fix these errors in priority order (structural/build errors first, then r
 
         setChatInput(prompt.trim());
     }, [setChatInput]);
-
-    // Track which primary mode is selected (unused but kept for reference)
-    const _currentMode = PANEL_TYPE_TO_MODE[context.type] || 'search';
 
     // Drag resize state
     const [isDragging, setIsDragging] = useState(false);
@@ -315,7 +298,7 @@ Please fix these errors in priority order (structural/build errors first, then r
 
             {/* Panel Content - scrollable */}
             <div className="flex-1 overflow-auto min-h-0">
-                <PanelContent context={context} onSolveWithAI={handleSolveWithAI} onSolveAllWithAI={handleSolveAllWithAI} onSwitchToCode={() => setActiveTab('code')} setActiveTab={setActiveTab} fallbackChatId={routeChatId} />
+                <PanelContent context={context} onSolveWithAI={handleSolveWithAI} onSolveAllWithAI={handleSolveAllWithAI} setActiveTab={setActiveTab} fallbackChatId={routeChatId} />
             </div>
         </div>
     );
@@ -328,14 +311,12 @@ function PanelContent({
     context,
     onSolveWithAI,
     onSolveAllWithAI,
-    onSwitchToCode,
     setActiveTab: _setActiveTab,
     fallbackChatId: _fallbackChatId,
 }: {
     context: ReturnType<typeof useRightPanelContext>['context'];
     onSolveWithAI?: (error: { message: string; source?: string; stack?: string }) => void;
     onSolveAllWithAI?: (errors: ParsedError[], context: string) => void;
-    onSwitchToCode?: () => void;
     setActiveTab?: (tab: import('@/atoms/sourceAtoms').PanelTab) => void;
     fallbackChatId?: number;
 }) {
@@ -368,7 +349,6 @@ function PanelContent({
                     activeTab={context.activeTab}
                     onSolveWithAI={onSolveWithAI}
                     onSolveAllWithAI={onSolveAllWithAI}
-                    onSwitchToCode={onSwitchToCode}
                 />
             );
 
@@ -391,7 +371,6 @@ function PanelContent({
                     </p>
                     <ul className="text-xs mt-3 space-y-1 text-left">
                         <li><strong>Search</strong> - Web search results</li>
-                        <li><strong>Code</strong> - File changes & diffs</li>
                         <li><strong>Preview</strong> - Live preview</li>
                     </ul>
                     <p className="text-xs mt-4 opacity-60">

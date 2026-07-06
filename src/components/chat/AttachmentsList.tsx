@@ -5,17 +5,12 @@ import { isTextPasteAttachment } from "@/lib/chat/text-paste-attachment";
 import { isTerminalPasteAttachment } from "@/lib/chat/terminal-paste-attachment";
 import { isMentionAttachment } from "@/lib/chat/mention-attachment";
 import {
-  isCodeSelectionAttachment,
-  codeSelectionDisplayName,
-} from "@/lib/chat/code-selection-attachment";
-import {
   isBackgroundJobAttachment,
   backgroundJobDisplayName,
 } from "@/lib/chat/background-job-attachment";
 import { PastedTextAttachmentChip } from "./PastedTextAttachmentChip";
 import { TerminalOutputAttachmentChip } from "./TerminalOutputAttachmentChip";
 import { MentionAttachmentChip } from "./MentionAttachmentChip";
-import { CodeSelectionAttachmentChip } from "./CodeSelectionAttachmentChip";
 import { BackgroundJobAttachmentChip } from "./BackgroundJobAttachmentChip";
 import { FoldedAttachmentsChip } from "./FoldedAttachmentsChip";
 
@@ -56,16 +51,6 @@ function renderAttachmentNode(
         content={attachment.terminalPaste.content}
         displayContent={attachment.terminalPaste.displayContent}
         displayName={attachment.terminalPaste.displayName}
-        onRemove={remove}
-      />
-    );
-  }
-  if (isCodeSelectionAttachment(attachment)) {
-    const { relpath, lineStart, lineEnd, content } = attachment.codeSelection;
-    return (
-      <CodeSelectionAttachmentChip
-        displayName={codeSelectionDisplayName(relpath, lineStart, lineEnd)}
-        content={content}
         onRemove={remove}
       />
     );

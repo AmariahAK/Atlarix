@@ -4,11 +4,8 @@ import {
 } from "./git_author";
 
 export { ATLARIX_CO_AUTHOR_TRAILER } from "./git_author";
-import git from "isomorphic-git";
-import http from "isomorphic-git/http/node";
-import { exec } from "./system_git_exec";
+import { exec, isGitAvailable, isGitMissingResult } from "./system_git_exec";
 import fs from "node:fs";
-import { promises as fsPromises } from "node:fs";
 import pathModule from "node:path";
 import { readSettings } from "../../main/settings";
 import log from "electron-log";
@@ -29,6 +26,22 @@ import type {
 } from "../git_types";
 
 const logger = log.scope("git_utils");
+
+/**
+ * All local git operations shell out to the system (or bundled) git —
+ * isomorphic-git cannot read packfiles ≥2GiB (it buffers the whole pack) and
+ * is kept only as a lazily-imported fallback for the network flows
+ * (clone/push/set-remote) when no git binary exists at all.
+ */
+
+let warnedGitMissing = false;
+function warnGitMissingOnce(op: string): void {
+  if (warnedGitMissing) return;
+  warnedGitMissing = true;
+  logger.warn(
+    `No git binary available (first noticed during '${op}'); git-backed features are disabled until Git is installed.`,
+  );
+}
 
 /** Walk parents for a `.git` directory (workspace may be a subfolder of the repo). */
 export function findGitRepositoryRoot(workspacePath: string): string | null {
@@ -79,22 +92,17 @@ export async function getCurrentCommitHash({
 }: GitInitParams): Promise<string> {
   const gitDir = resolveGitDir(path);
   if (!gitDir) return "";
-  const settings = readSettings();
-  if (settings.enableNativeGit) {
-    const result = await exec(["rev-parse", ref], gitDir);
-    if (result.exitCode !== 0) {
-      throw new Error(
-        `Failed to resolve ref '${ref}': ${result.stderr.trim() || result.stdout.trim()}`,
-      );
-    }
-    return result.stdout.trim();
-  } else {
-    return await git.resolveRef({
-      fs,
-      dir: gitDir,
-      ref,
-    });
+  const result = await exec(["rev-parse", ref], gitDir);
+  if (isGitMissingResult(result)) {
+    warnGitMissingOnce("rev-parse");
+    return "";
   }
+  if (result.exitCode !== 0) {
+    throw new Error(
+      `Failed to resolve ref '${ref}': ${result.stderr.trim() || result.stdout.trim()}`,
+    );
+  }
+  return result.stdout.trim();
 }
 
 export async function isGitStatusClean({
@@ -104,23 +112,18 @@ export async function isGitStatusClean({
 }): Promise<boolean> {
   const gitDir = resolveGitDir(path);
   if (!gitDir) return true;
-  const settings = readSettings();
-  if (settings.enableNativeGit) {
-    const result = await exec(["status", "--porcelain"], gitDir);
-
-    if (result.exitCode !== 0) {
-      throw new Error(`Failed to get status: ${result.stderr}`);
-    }
-
-    // If output is empty, working directory is clean (no changes)
-    const isClean = result.stdout.trim().length === 0;
-    return isClean;
-  } else {
-    const statusMatrix = await git.statusMatrix({ fs, dir: gitDir });
-    return statusMatrix.every(
-      (row) => row[1] === 1 && row[2] === 1 && row[3] === 1,
-    );
+  const result = await exec(["status", "--porcelain"], gitDir);
+  if (isGitMissingResult(result)) {
+    warnGitMissingOnce("status");
+    return true;
   }
+  if (result.exitCode !== 0) {
+    throw new Error(`Failed to get status: ${result.stderr}`);
+  }
+
+  // If output is empty, working directory is clean (no changes)
+  const isClean = result.stdout.trim().length === 0;
+  return isClean;
 }
 
 /** Returns the co-author trailer when user has not disabled it in settings (fresh read every call). */
@@ -137,48 +140,36 @@ export async function gitCommit({
 }: GitCommitParams): Promise<string> {
   const gitDir = resolveGitDir(path);
   if (!gitDir) return "";
-  const settings = readSettings();
   const coAuthorTrailer = getCoAuthorTrailerForCommit();
   const finalMessage =
     coAuthorTrailer && !message.trimEnd().endsWith(coAuthorTrailer)
       ? `${message}\n\n${coAuthorTrailer}`
       : message;
 
-  if (settings.enableNativeGit) {
-    // Get author info to match isomorphic-git behavior
-    const author = await getGitAuthor();
-    // Prefer Git 2.32+ --trailer; fallback: append to message
-    const args = [
-      "commit",
-      "-m",
-      finalMessage,
-      "--author",
-      `${author.name} <${author.email}>`,
-    ];
-    if (amend) {
-      args.push("--amend");
-    }
-    if (allowEmpty) {
-      args.push("--allow-empty");
-    }
-    await execOrThrow(args, gitDir, "Failed to create commit");
-    // Get the new commit hash
-    const result = await exec(["rev-parse", "HEAD"], gitDir);
-    if (result.exitCode !== 0) {
-      throw new Error(
-        `Failed to get commit hash: ${result.stderr.trim() || result.stdout.trim()}`,
-      );
-    }
-    return result.stdout.trim();
-  } else {
-    return git.commit({
-      fs: fs,
-      dir: gitDir,
-      message: finalMessage,
-      author: await getGitAuthor(),
-      amend: amend,
-    });
+  // Get author info for a stable identity even without user git config
+  const author = await getGitAuthor();
+  const args = [
+    "commit",
+    "-m",
+    finalMessage,
+    "--author",
+    `${author.name} <${author.email}>`,
+  ];
+  if (amend) {
+    args.push("--amend");
   }
+  if (allowEmpty) {
+    args.push("--allow-empty");
+  }
+  await execOrThrow(args, gitDir, "Failed to create commit");
+  // Get the new commit hash
+  const result = await exec(["rev-parse", "HEAD"], gitDir);
+  if (result.exitCode !== 0) {
+    throw new Error(
+      `Failed to get commit hash: ${result.stderr.trim() || result.stdout.trim()}`,
+    );
+  }
+  return result.stdout.trim();
 }
 
 export async function gitCheckout({
@@ -187,17 +178,11 @@ export async function gitCheckout({
 }: GitCheckoutParams): Promise<void> {
   const gitDir = resolveGitDir(path);
   if (!gitDir) return;
-  const settings = readSettings();
-  if (settings.enableNativeGit) {
-    await execOrThrow(
-      ["checkout", ref],
-      gitDir,
-      `Failed to checkout ref '${ref}'`,
-    );
-    return;
-  } else {
-    return git.checkout({ fs, dir: gitDir, ref });
-  }
+  await execOrThrow(
+    ["checkout", ref],
+    gitDir,
+    `Failed to checkout ref '${ref}'`,
+  );
 }
 
 export async function gitStageToRevert({
@@ -206,128 +191,63 @@ export async function gitStageToRevert({
 }: GitStageToRevertParams): Promise<void> {
   const gitDir = resolveGitDir(path);
   if (!gitDir) return;
-  const settings = readSettings();
-  if (settings.enableNativeGit) {
-    // Get the current HEAD commit hash
-    const currentHeadResult = await exec(["rev-parse", "HEAD"], gitDir);
-    if (currentHeadResult.exitCode !== 0) {
-      throw new Error(
-        `Failed to get current commit: ${currentHeadResult.stderr.trim() || currentHeadResult.stdout.trim()}`,
-      );
-    }
-
-    const currentCommit = currentHeadResult.stdout.trim();
-
-    // If we're already at the target commit, nothing to do
-    if (currentCommit === targetOid) {
-      return;
-    }
-
-    // Safety: refuse to run if the work-tree isn't clean.
-    const statusResult = await exec(["status", "--porcelain"], gitDir);
-    if (statusResult.exitCode !== 0) {
-      throw new Error(
-        `Failed to get status: ${statusResult.stderr.trim() || statusResult.stdout.trim()}`,
-      );
-    }
-    if (statusResult.stdout.trim() !== "") {
-      throw new Error("Cannot revert: working tree has uncommitted changes.");
-    }
-
-    // Reset the working directory and index to match the target commit state
-    // This effectively undoes all changes since the target commit
-    await execOrThrow(
-      ["reset", "--hard", targetOid],
-      gitDir,
-      `Failed to reset to target commit '${targetOid}'`,
+  // Get the current HEAD commit hash
+  const currentHeadResult = await exec(["rev-parse", "HEAD"], gitDir);
+  if (currentHeadResult.exitCode !== 0) {
+    throw new Error(
+      `Failed to get current commit: ${currentHeadResult.stderr.trim() || currentHeadResult.stdout.trim()}`,
     );
-
-    // Reset back to the original HEAD but keep the working directory as it is
-    // This stages all the changes needed to revert to the target state
-    await execOrThrow(
-      ["reset", "--soft", currentCommit],
-      gitDir,
-      "Failed to reset back to original HEAD",
-    );
-  } else {
-    // Get status matrix comparing the target commit (previousVersionId as HEAD) with current working directory
-    const matrix = await git.statusMatrix({
-      fs,
-      dir: path,
-      ref: targetOid,
-    });
-
-    // Process each file to revert to the state in previousVersionId
-    for (const [filepath, headStatus, workdirStatus] of matrix) {
-      const fullPath = pathModule.join(path, filepath);
-
-      // If file exists in HEAD (previous version)
-      if (headStatus === 1) {
-        // If file doesn't exist or has changed in working directory, restore it from the target commit
-        if (workdirStatus !== 1) {
-          const { blob } = await git.readBlob({
-            fs,
-            dir: path,
-            oid: targetOid,
-            filepath,
-          });
-          await fsPromises.mkdir(pathModule.dirname(fullPath), {
-            recursive: true,
-          });
-          await fsPromises.writeFile(fullPath, Buffer.from(blob));
-        }
-      }
-      // If file doesn't exist in HEAD but exists in working directory, delete it
-      else if (headStatus === 0 && workdirStatus !== 0) {
-        if (fs.existsSync(fullPath)) {
-          await fsPromises.unlink(fullPath);
-          await git.remove({
-            fs,
-            dir: path,
-            filepath: filepath,
-          });
-        }
-      }
-    }
-
-    // Stage all changes
-    await git.add({
-      fs,
-      dir: path,
-      filepath: ".",
-    });
   }
+
+  const currentCommit = currentHeadResult.stdout.trim();
+
+  // If we're already at the target commit, nothing to do
+  if (currentCommit === targetOid) {
+    return;
+  }
+
+  // Safety: refuse to run if the work-tree isn't clean.
+  const statusResult = await exec(["status", "--porcelain"], gitDir);
+  if (statusResult.exitCode !== 0) {
+    throw new Error(
+      `Failed to get status: ${statusResult.stderr.trim() || statusResult.stdout.trim()}`,
+    );
+  }
+  if (statusResult.stdout.trim() !== "") {
+    throw new Error("Cannot revert: working tree has uncommitted changes.");
+  }
+
+  // Reset the working directory and index to match the target commit state
+  // This effectively undoes all changes since the target commit
+  await execOrThrow(
+    ["reset", "--hard", targetOid],
+    gitDir,
+    `Failed to reset to target commit '${targetOid}'`,
+  );
+
+  // Reset back to the original HEAD but keep the working directory as it is
+  // This stages all the changes needed to revert to the target state
+  await execOrThrow(
+    ["reset", "--soft", currentCommit],
+    gitDir,
+    "Failed to reset back to original HEAD",
+  );
 }
 
 export async function gitAddAll({ path }: GitBaseParams): Promise<void> {
   const gitDir = resolveGitDir(path);
   if (!gitDir) return;
-  const settings = readSettings();
-  if (settings.enableNativeGit) {
-    await execOrThrow(["add", "."], gitDir, "Failed to stage all files");
-    return;
-  } else {
-    return git.add({ fs, dir: gitDir, filepath: "." });
-  }
+  await execOrThrow(["add", "."], gitDir, "Failed to stage all files");
 }
 
 export async function gitAdd({ path, filepath }: GitFileParams): Promise<void> {
   const gitDir = resolveGitDir(path);
   if (!gitDir) return;
-  const settings = readSettings();
-  if (settings.enableNativeGit) {
-    await execOrThrow(
-      ["add", "--", filepath],
-      gitDir,
-      `Failed to stage file '${filepath}'`,
-    );
-  } else {
-    await git.add({
-      fs,
-      dir: gitDir,
-      filepath,
-    });
-  }
+  await execOrThrow(
+    ["add", "--", filepath],
+    gitDir,
+    `Failed to stage file '${filepath}'`,
+  );
 }
 
 export async function gitRemove({
@@ -336,20 +256,11 @@ export async function gitRemove({
 }: GitFileParams): Promise<void> {
   const gitDir = resolveGitDir(path);
   if (!gitDir) return;
-  const settings = readSettings();
-  if (settings.enableNativeGit) {
-    await execOrThrow(
-      ["rm", "-f", "--", filepath],
-      gitDir,
-      `Failed to remove file '${filepath}'`,
-    );
-  } else {
-    await git.remove({
-      fs,
-      dir: gitDir,
-      filepath,
-    });
-  }
+  await execOrThrow(
+    ["rm", "-f", "--", filepath],
+    gitDir,
+    `Failed to remove file '${filepath}'`,
+  );
 }
 
 export async function getGitUncommittedFiles({
@@ -357,25 +268,21 @@ export async function getGitUncommittedFiles({
 }: GitBaseParams): Promise<string[]> {
   const gitDir = resolveGitDir(path);
   if (!gitDir) return [];
-  const settings = readSettings();
-  if (settings.enableNativeGit) {
-    const result = await exec(["status", "--porcelain"], gitDir);
-    if (result.exitCode !== 0) {
-      throw new Error(
-        `Failed to get uncommitted files: ${result.stderr.trim() || result.stdout.trim()}`,
-      );
-    }
-    return result.stdout
-      .toString()
-      .split("\n")
-      .filter((line) => line.trim() !== "")
-      .map((line) => line.slice(3).trim());
-  } else {
-    const statusMatrix = await git.statusMatrix({ fs, dir: path });
-    return statusMatrix
-      .filter((row) => row[1] !== 1 || row[2] !== 1 || row[3] !== 1)
-      .map((row) => row[0]);
+  const result = await exec(["status", "--porcelain"], gitDir);
+  if (isGitMissingResult(result)) {
+    warnGitMissingOnce("status");
+    return [];
   }
+  if (result.exitCode !== 0) {
+    throw new Error(
+      `Failed to get uncommitted files: ${result.stderr.trim() || result.stdout.trim()}`,
+    );
+  }
+  return result.stdout
+    .toString()
+    .split("\n")
+    .filter((line) => line.trim() !== "")
+    .map((line) => line.slice(3).trim());
 }
 
 export async function getFileAtCommit({
@@ -383,65 +290,40 @@ export async function getFileAtCommit({
   filePath,
   commitHash,
 }: GitFileAtCommitParams): Promise<string | null> {
-  const settings = readSettings();
-  if (settings.enableNativeGit) {
-    try {
-      const result = await exec(["show", `${commitHash}:${filePath}`], path);
-      if (result.exitCode !== 0) {
-        // File doesn't exist at this commit or other error
-        return null;
-      }
-      return result.stdout;
-    } catch (error: any) {
-      logger.error(
-        `Error getting file at commit ${commitHash}: ${error.message}`,
-      );
-      // File doesn't exist at this commit
+  try {
+    const result = await exec(["show", `${commitHash}:${filePath}`], path);
+    if (result.exitCode !== 0) {
+      // File doesn't exist at this commit, git missing, or other error
       return null;
     }
-  } else {
-    try {
-      const { blob } = await git.readBlob({
-        fs,
-        dir: path,
-        oid: commitHash,
-        filepath: filePath,
-      });
-      return Buffer.from(blob).toString("utf-8");
-    } catch (error: any) {
-      logger.error(
-        `Error getting file at commit ${commitHash}: ${error.message}`,
-      );
-      // File doesn't exist at this commit
-      return null;
-    }
+    return result.stdout;
+  } catch (error: any) {
+    logger.error(
+      `Error getting file at commit ${commitHash}: ${error.message}`,
+    );
+    // File doesn't exist at this commit
+    return null;
   }
 }
 
 export async function gitListBranches({
   path,
 }: GitBaseParams): Promise<string[]> {
-  const settings = readSettings();
-
-  if (settings.enableNativeGit) {
-    const result = await exec(["branch", "--list"], path);
-
-    if (result.exitCode !== 0) {
-      throw new Error(result.stderr.toString());
-    }
-    // Parse output:
-    // e.g. "* main\n  feature/login"
-    return result.stdout
-      .toString()
-      .split("\n")
-      .map((line) => line.replace("*", "").trim())
-      .filter((line) => line.length > 0);
-  } else {
-    return await git.listBranches({
-      fs,
-      dir: path,
-    });
+  const result = await exec(["branch", "--list"], path);
+  if (isGitMissingResult(result)) {
+    warnGitMissingOnce("branch --list");
+    return [];
   }
+  if (result.exitCode !== 0) {
+    throw new Error(result.stderr.toString());
+  }
+  // Parse output:
+  // e.g. "* main\n  feature/login"
+  return result.stdout
+    .toString()
+    .split("\n")
+    .map((line) => line.replace("*", "").trim())
+    .filter((line) => line.length > 0);
 }
 
 export async function gitRenameBranch({
@@ -449,21 +331,10 @@ export async function gitRenameBranch({
   oldBranch,
   newBranch,
 }: GitBranchRenameParams): Promise<void> {
-  const settings = readSettings();
-
-  if (settings.enableNativeGit) {
-    // git branch -m oldBranch newBranch
-    const result = await exec(["branch", "-m", oldBranch, newBranch], path);
-    if (result.exitCode !== 0) {
-      throw new Error(result.stderr.toString());
-    }
-  } else {
-    await git.renameBranch({
-      fs,
-      dir: path,
-      oldref: oldBranch,
-      ref: newBranch,
-    });
+  // git branch -m oldBranch newBranch
+  const result = await exec(["branch", "-m", oldBranch, newBranch], path);
+  if (result.exitCode !== 0) {
+    throw new Error(result.stderr.toString());
   }
 }
 
@@ -480,9 +351,7 @@ export async function gitClone({
     err.name = "AbortError";
     throw err;
   }
-  const settings = readSettings();
-  if (settings.enableNativeGit) {
-    // Dugite version (real Git)
+  if (await isGitAvailable()) {
     // Build authenticated URL if accessToken is provided and URL doesn't already have auth
     const finalUrl =
       accessToken && !url.includes("@")
@@ -507,7 +376,9 @@ export async function gitClone({
       throw new Error(result.stderr.toString());
     }
   } else {
-    // isomorphic-git version
+    logger.warn("gitClone: no git binary — using isomorphic-git fallback");
+    const { default: git } = await import("isomorphic-git");
+    const { default: http } = await import("isomorphic-git/http/node");
     // Strip any embedded auth from URL since isomorphic-git uses onAuth
     const cleanUrl = url.replace(/https:\/\/[^@]+@/, "https://");
     await git.clone({
@@ -536,10 +407,7 @@ export async function gitSetRemoteUrl({
   path,
   remoteUrl,
 }: GitSetRemoteUrlParams): Promise<void> {
-  const settings = readSettings();
-
-  if (settings.enableNativeGit) {
-    // Dugite version
+  if (await isGitAvailable()) {
     try {
       // Try to add the remote
       const result = await exec(["remote", "add", "origin", remoteUrl], path);
@@ -563,7 +431,8 @@ export async function gitSetRemoteUrl({
       throw error; // or handle as needed
     }
   } else {
-    //isomorphic-git version
+    logger.warn("gitSetRemoteUrl: no git binary — using isomorphic-git fallback");
+    const { default: git } = await import("isomorphic-git");
     await git.setConfig({
       fs,
       dir: path,
@@ -579,10 +448,7 @@ export async function gitPush({
   accessToken,
   force,
 }: GitPushParams): Promise<void> {
-  const settings = readSettings();
-
-  if (settings.enableNativeGit) {
-    // Dugite version
+  if (await isGitAvailable()) {
     try {
       // Push using the configured origin remote (which already has auth in URL)
       const args = ["push", "origin", `main:${branch}`];
@@ -600,7 +466,9 @@ export async function gitPush({
       throw new Error(`Git push failed: ${error.message}`);
     }
   } else {
-    // isomorphic-git version
+    logger.warn("gitPush: no git binary — using isomorphic-git fallback");
+    const { default: git } = await import("isomorphic-git");
+    const { default: http } = await import("isomorphic-git/http/node");
     await git.push({
       fs,
       http,
@@ -622,25 +490,18 @@ export async function gitCurrentBranch({
 }: GitBaseParams): Promise<string | null> {
   const gitDir = resolveGitDir(path);
   if (!gitDir) return null;
-  const settings = readSettings();
-  if (settings.enableNativeGit) {
-    const result = await exec(["branch", "--show-current"], gitDir);
-    if (result.exitCode !== 0) {
-      throw new Error(
-        `Failed to get current branch: ${result.stderr.trim() || result.stdout.trim()}`,
-      );
-    }
-    const branch = result.stdout.trim() || null;
-    return branch;
-  } else {
-    // isomorphic-git version returns string | undefined
-    const branch = await git.currentBranch({
-      fs,
-      dir: gitDir,
-      fullname: false,
-    });
-    return branch ?? null;
+  const result = await exec(["branch", "--show-current"], gitDir);
+  if (isGitMissingResult(result)) {
+    warnGitMissingOnce("branch --show-current");
+    return null;
   }
+  if (result.exitCode !== 0) {
+    throw new Error(
+      `Failed to get current branch: ${result.stderr.trim() || result.stdout.trim()}`,
+    );
+  }
+  const branch = result.stdout.trim() || null;
+  return branch;
 }
 
 export async function gitLog({
@@ -649,46 +510,29 @@ export async function gitLog({
 }: GitLogParams): Promise<GitCommit[]> {
   const gitDir = resolveGitDir(path);
   if (!gitDir) return [];
-  const settings = readSettings();
-
-  if (settings.enableNativeGit) {
-    return await gitLogNative(gitDir, depth);
-  } else {
-    return await git.log({
-      fs,
-      dir: gitDir,
-      depth,
-    });
-  }
+  return await gitLogNative(gitDir, depth);
 }
 
 export async function gitIsIgnored({
   path,
   filepath,
 }: GitFileParams): Promise<boolean> {
-  const settings = readSettings();
+  // git check-ignore file
+  const result = await exec(["check-ignore", filepath], path);
 
-  if (settings.enableNativeGit) {
-    // Dugite version
-    // git check-ignore file
-    const result = await exec(["check-ignore", filepath], path);
+  // If exitCode == 0 → file is ignored
+  if (result.exitCode === 0) return true;
 
-    // If exitCode == 0 → file is ignored
-    if (result.exitCode === 0) return true;
+  // If exitCode == 1 → not ignored
+  if (result.exitCode === 1) return false;
 
-    // If exitCode == 1 → not ignored
-    if (result.exitCode === 1) return false;
-
-    // Other exit codes are actual errors
-    throw new Error(result.stderr.toString());
-  } else {
-    // isomorphic-git version
-    return await git.isIgnored({
-      fs,
-      dir: path,
-      filepath,
-    });
+  if (isGitMissingResult(result)) {
+    warnGitMissingOnce("check-ignore");
+    return false;
   }
+
+  // Other exit codes are actual errors
+  throw new Error(result.stderr.toString());
 }
 
 export async function gitLogNative(
@@ -708,6 +552,10 @@ export async function gitLogNative(
 
   const logResult = await exec(logArgs, path);
 
+  if (isGitMissingResult(logResult)) {
+    warnGitMissingOnce("log");
+    return [];
+  }
   if (logResult.exitCode !== 0) {
     throw new Error(logResult.stderr.toString());
   }

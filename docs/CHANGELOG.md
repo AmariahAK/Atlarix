@@ -1,5 +1,52 @@
 # Atlarix Changelog
 
+## [Unreleased] — Native-git reads, Code tab removal, universal language support
+
+> Three workstreams: a production Sentry fire (`TypeError: null.slice` on repos with ≥2 GiB
+> packfiles), deletion of the Code tab + Monaco (Atlarix works beside the IDE, not as one), and
+> the removal of hardcoded language gates so retrieval works for every language Universal Ctags
+> knows. tsc + oxlint clean; full vitest green (**1656 tests**).
+
+### Fixed
+
+- **Version history no longer crashes on large repos (production Sentry `null.slice`).** All local
+  git operations (log, status, branch, checkout, stage-to-revert, …) now shell out to system git —
+  isomorphic-git buffered entire packfiles into one Node Buffer, which hard-fails at 2 GiB, and its
+  FS wrapper swallowed the error into a `null` that crashed `GitPackIndex.readSlice` on every
+  version-list poll. The `enableNativeGit` setting is gone (it silently defaulted everyone to the
+  isomorphic path); isomorphic-git remains only as a lazily-imported fallback for clone/push/
+  set-remote when no git binary exists at all. With no git installed, read operations degrade to
+  neutral values with a single logged warning; writes keep failing with the actionable install
+  message. `list-versions` degrades to an empty list with ONE warning per workspace instead of
+  rethrowing into Sentry on every poll. (`git_utils.ts`, `system_git_exec.ts`, `version_handlers.ts`.)
+- **ast-grep no longer mis-parses unknown languages as TypeScript.** Files without a registered
+  grammar are skipped (no garbage edges) instead of being force-parsed with the TS grammar.
+  (`scan-file-edges.ts`.)
+
+### Removed
+
+- **The Code tab, Monaco, and Cmd/Ctrl+P (QuickFileOpen).** Atlarix positions itself beside your
+  IDE; the in-app editor was the one place it competed with it, and Monaco (+5 web workers) sat
+  un-chunked in the main renderer bundle with 4 dependencies, 812K of TextMate grammars, and a
+  postinstall download step — all to power a single component. Chat code blocks (shiki), agent
+  diffs (SmartDiffView), write proposals, the Errors tab, and the approve/reject flow are all
+  independent and unchanged. Write-proposal cards now render read-only with proper per-language
+  highlighting. Also removed: the Code-tab-only IPC surface (`read-app-file`, `edit-app-file`,
+  `get-app-files`) and the copy-code-to-chat chip pipeline (its only producer was the editor's
+  Cmd+C). `@file:`/`@dir:` mentions are untouched.
+
+### Changed
+
+- **Language support is universal by default.** The ctags extension allowlist (20 extensions) is
+  deleted — Universal Ctags auto-detects ~150 languages; the allowlist's implicit huge-file guard
+  became an explicit 2 MB size gate. Symbols now carry their ctags-reported `language`. A project
+  with no recognized marker file gets a real **ctags-only** blueprint (new engine label) instead of
+  no blueprint at all, labeled by its dominant symbol language. The workspace analyzer's own
+  extension map and per-language regex extractors are replaced by the shared ctags symbol index
+  plus one universal import-pattern pass — chat workspace context and diagrams now work for any
+  language. ast-grep's small grammar map stays as the single intentional curated list (structural
+  edges are progressive enhancement). (`ctags-index.ts`, `parsers/index.ts`, `workspace-analyzer.ts`.)
+
 ## [14.8.11] (2026-07-04) — Attachment fidelity, edit re-indentation, honest compaction, real context windows, ordered stream UI
 
 > A harness-fidelity release: every issue was an OBSERVED live failure (DeepSeek v4 pro session

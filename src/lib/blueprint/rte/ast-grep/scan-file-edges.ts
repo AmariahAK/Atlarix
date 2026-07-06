@@ -4,7 +4,7 @@
 
 import * as fs from "fs/promises";
 import * as path from "path";
-import { findInFiles, Lang, type NapiConfig } from "@ast-grep/napi";
+import { findInFiles, type NapiConfig } from "@ast-grep/napi";
 import type { SgNode } from "@ast-grep/napi/types/sgnode";
 import type { RTEBlueprintEdge } from "../parsers/types";
 import type { SymbolRecord } from "@/lib/index/symbol-types";
@@ -30,10 +30,14 @@ export function buildSymbolLookup(symbols: SymbolRecord[]): Map<string, SymbolRe
   return byFile;
 }
 
-function langForFile(relPath: string): NapiLang {
+/**
+ * null for unsupported extensions — callers skip the file. Falling back to
+ * TypeScript here mis-parsed unknown languages into garbage edges.
+ */
+function langForFile(relPath: string): NapiLang | null {
   ensureAstGrepDynamicLangs();
   const ext = path.extname(relPath).toLowerCase();
-  return langForExtension(ext) ?? Lang.TypeScript;
+  return langForExtension(ext);
 }
 
 function findSymbolIdForName(
@@ -83,6 +87,7 @@ export async function scanImportsForFile(
   void content;
 
   const lang = langForFile(relFile);
+  if (!lang) return edges;
   const fromId =
     findSymbolIdForName(byFile, relFile, path.basename(relFile, path.extname(relFile))) ??
     nodeIdForFileLine(relFile, 1, "module");
@@ -121,6 +126,7 @@ export async function scanCallsForFile(
 ): Promise<{ edges: RTEBlueprintEdge[]; dynamicCalls: number }> {
   const absPath = path.join(projectRoot, relFile);
   const lang = langForFile(relFile);
+  if (!lang) return { edges: [], dynamicCalls: 0 };
   const edges: RTEBlueprintEdge[] = [];
   const seen = new Set<string>();
   // v12 S20 (Tier 6): call sites whose callee is NOT a bare identifier —
@@ -173,6 +179,7 @@ export async function scanRoutesForFile(
 ): Promise<RTEBlueprintEdge[]> {
   const absPath = path.join(projectRoot, relFile);
   const lang = langForFile(relFile);
+  if (!lang) return [];
   const edges: RTEBlueprintEdge[] = [];
   const seen = new Set<string>();
 
