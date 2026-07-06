@@ -38,201 +38,6 @@ function npmTargetPlatformArgs(platform: string, arch: string): string[] {
   return [`--os=${platform}`, `--cpu=${arch}`];
 }
 
-/** @ast-grep/napi platform .node bindings are optionalDependencies — never install with --omit=optional. */
-const AST_GREP_RUNTIME_PACKAGES = [
-  "@ast-grep/napi",
-  "@ast-grep/lang-python",
-  "@ast-grep/lang-go",
-] as const;
-
-/** Copied to Resources/ast-grep-grammars via extraResource (real FS path for parser.so). */
-const AST_GREP_GRAMMARS_STAGING = path.join(__dirname, "ast-grep-grammars");
-if (!fs.existsSync(AST_GREP_GRAMMARS_STAGING)) {
-  fs.mkdirSync(AST_GREP_GRAMMARS_STAGING, { recursive: true });
-}
-
-function astGrepPrebuildDir(platform: string, arch: string): string {
-  const os =
-    platform === "darwin" ? "macOS" : platform === "win32" ? "Windows" : platform === "linux" ? "Linux" : null;
-  const a = arch === "x64" ? "X64" : arch === "arm64" ? "ARM64" : null;
-  if (!os || !a) return `prebuild-${platform}-${arch}`;
-  return `prebuild-${os}-${a}`;
-}
-
-/** @ast-grep/lang-* prebuilds use `parser.so` on every OS (see @ast-grep/setup-lang). */
-const AST_GREP_PARSER_FILE = "parser.so";
-
-async function resolveAstGrepParserSource(
-  buildPath: string,
-  pkg: string,
-  platform: string,
-  arch: string,
-): Promise<string> {
-  const fs = await import("node:fs/promises");
-  const prebuild = astGrepPrebuildDir(platform, arch);
-  const pkgRoot = path.join(buildPath, "node_modules", pkg);
-  const primary = path.join(pkgRoot, "prebuilds", prebuild, AST_GREP_PARSER_FILE);
-  try {
-    await fs.access(primary);
-    return primary;
-  } catch {
-    const prebuildsDir = path.join(pkgRoot, "prebuilds");
-    let listing = "";
-    try {
-      listing = (await fs.readdir(prebuildsDir)).join(", ");
-    } catch {
-      listing = "(prebuilds missing)";
-    }
-    throw new Error(
-      `Missing ${AST_GREP_PARSER_FILE} for ${pkg} at ${primary}. prebuilds: ${listing}`,
-    );
-  }
-}
-
-/** Windows file locking can make fs.rm throw EBUSY/EPERM — retry with backoff. */
-async function resetStagingDir(dirPath: string): Promise<void> {
-  const fsp = await import("node:fs/promises");
-  for (let attempt = 0; attempt < 5; attempt++) {
-    try {
-      await fsp.rm(dirPath, { recursive: true, force: true });
-      break;
-    } catch (err: unknown) {
-      const code =
-        err && typeof err === "object" && "code" in err
-          ? String((err as NodeJS.ErrnoException).code)
-          : "";
-      if (attempt === 4) throw err;
-      if (code !== "EBUSY" && code !== "EPERM" && code !== "ENOTEMPTY") throw err;
-      console.log(
-        `[packageAfterPrune] rm ${code} on ${dirPath}, retry ${attempt + 1}/4…`,
-      );
-      await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
-    }
-  }
-  await fsp.mkdir(dirPath, { recursive: true });
-}
-
-async function stageAstGrepGrammarsForExtraResource(
-  buildPath: string,
-  platform: string,
-  arch: string,
-): Promise<void> {
-  const fs = await import("node:fs/promises");
-  await resetStagingDir(AST_GREP_GRAMMARS_STAGING);
-
-  const langs: Array<{ key: string; pkg: string }> = [
-    { key: "python", pkg: "@ast-grep/lang-python" },
-    { key: "go", pkg: "@ast-grep/lang-go" },
-  ];
-
-  for (const { key, pkg } of langs) {
-    const src = await resolveAstGrepParserSource(buildPath, pkg, platform, arch);
-    const dest = path.join(AST_GREP_GRAMMARS_STAGING, key, AST_GREP_PARSER_FILE);
-    await fs.mkdir(path.dirname(dest), { recursive: true });
-    await fs.copyFile(src, dest);
-  }
-  console.log(`[packageAfterPrune] staged ast-grep grammars at ${AST_GREP_GRAMMARS_STAGING}`);
-}
-
-/**
- * Remove every `@ast-grep/lang-*` prebuild EXCEPT the target's `prebuild-<OS>-<ARCH>`.
- * Shipping other arches' `parser.so` bloats the package and — critically — breaks
- * the Linux rpm maker: rpmbuild's `%install` runs brp-strip over every ELF and
- * aborts ("Unable to recognise the format of the input file") on a foreign-arch
- * .so (e.g. a `prebuild-Linux-ARM64/parser.so` inside the x86_64 rpm). The target
- * grammar is already copied out to the extraResource staging dir, so the in-package
- * prebuilds are only needed for the running architecture.
- */
-async function pruneForeignAstGrepPrebuilds(
-  buildPath: string,
-  platform: string,
-  arch: string,
-): Promise<void> {
-  const fs = await import("node:fs/promises");
-  const keep = astGrepPrebuildDir(platform, arch);
-  for (const pkg of AST_GREP_RUNTIME_PACKAGES) {
-    if (pkg === "@ast-grep/napi") continue; // napi ships .node bindings, no prebuilds/ tree
-    const prebuildsDir = path.join(buildPath, "node_modules", pkg, "prebuilds");
-    let entries: string[];
-    try {
-      entries = await fs.readdir(prebuildsDir);
-    } catch {
-      continue; // no prebuilds dir for this package — nothing to prune
-    }
-    for (const entry of entries) {
-      if (entry === keep || !entry.startsWith("prebuild-")) continue;
-      await fs.rm(path.join(prebuildsDir, entry), { recursive: true, force: true });
-      console.log(`[packageAfterPrune] pruned foreign ast-grep prebuild ${pkg}/${entry}`);
-    }
-  }
-}
-
-function astGrepNativeBindingPackage(platform: string, arch: string): string | null {
-  if (platform === "darwin") {
-    if (arch === "arm64") return "@ast-grep/napi-darwin-arm64";
-    if (arch === "x64") return "@ast-grep/napi-darwin-x64";
-    return null;
-  }
-  if (platform === "win32") {
-    if (arch === "x64") return "@ast-grep/napi-win32-x64-msvc";
-    if (arch === "arm64") return "@ast-grep/napi-win32-arm64-msvc";
-    return null;
-  }
-  if (platform === "linux") {
-    // GitHub ubuntu-latest and typical Linux desktop targets use glibc (gnu).
-    if (arch === "x64") return "@ast-grep/napi-linux-x64-gnu";
-    if (arch === "arm64") return "@ast-grep/napi-linux-arm64-gnu";
-    return null;
-  }
-  return null;
-}
-
-async function readPinnedDependencyVersions(
-  buildPath: string,
-  packageNames: readonly string[],
-): Promise<string[]> {
-  const fs = await import("node:fs/promises");
-  const pkg = JSON.parse(
-    await fs.readFile(path.join(buildPath, "package.json"), "utf8"),
-  ) as { dependencies?: Record<string, string> };
-  const deps = pkg.dependencies ?? {};
-  return packageNames
-    .filter((name) => deps[name])
-    .map((name) => `${name}@${String(deps[name]).trim()}`);
-}
-
-async function installAstGrepRuntimePackages(
-  buildPath: string,
-  platform: string,
-  arch: string,
-): Promise<void> {
-  const pinned = await readPinnedDependencyVersions(buildPath, AST_GREP_RUNTIME_PACKAGES);
-  if (pinned.length === 0) return;
-
-  await runNpmInstall(buildPath, [
-    "install",
-    "--omit=dev",
-    "--no-package-lock",
-    "--no-save",
-    "--no-audit",
-    "--no-fund",
-    ...npmTargetPlatformArgs(platform, arch),
-    ...pinned,
-  ]);
-
-  const bindingPkg = astGrepNativeBindingPackage(platform, arch);
-  if (!bindingPkg) return;
-  const fs = await import("node:fs/promises");
-  const bindingDir = path.join(buildPath, "node_modules", bindingPkg);
-  try {
-    await fs.access(bindingDir);
-  } catch {
-    throw new Error(
-      `Missing ${bindingPkg} after ast-grep install (optional native binding for ${platform}/${arch})`,
-    );
-  }
-}
-
 /** Rollup `external` may use subpaths (`tiktoken/lite`, `pdfjs-dist/build/foo`); `npm install` needs the package root. */
 function rollupExternalIdToNpmPackageRoot(id: string): string {
   if (!id || id.startsWith("node:")) return id;
@@ -315,9 +120,6 @@ const ignore = (file: string) => {
     return false;
   }
   if (file.startsWith("/node_modules/better-sqlite3")) {
-    return false;
-  }
-  if (file.startsWith("/node_modules/@ast-grep")) {
     return false;
   }
   if (file.startsWith("/node_modules/web-tree-sitter")) {
@@ -445,21 +247,11 @@ const config: ForgeConfig = {
     // node-pty resolves the helper to app.asar.unpacked/.../spawn-helper (absent)
     // and the shell dies with "posix_spawnp failed" (can't exec inside an asar).
     asar: {
-      // node-pty platform binaries + the ast-grep dynamic language packages
-      // (@ast-grep/lang-{python,go}) and the ast-grep worker — the latter are
-      // loaded from disk at runtime by ensureAstGrepDynamicLangs (Python/Go edge
-      // registration), so they must live outside the asar.
-      // @ast-grep/napi (the JS package) must ALSO be unpacked: the worker runs
-      // from app.asar.unpacked/.vite/build/, and Node module resolution walking
-      // up from a REAL directory cannot reach node_modules inside the asar —
-      // without this the worker dies with "Cannot find module '@ast-grep/napi'"
-      // and every structural-edge batch silently resolves to [].
       unpack:
-        "{**/@lydell/node-pty-darwin-*/**,**/@lydell/node-pty-linux-*/**,**/@lydell/node-pty-win32-*/**,**/@ast-grep/napi/**,**/@ast-grep/lang-python/**,**/@ast-grep/lang-go/**,**/.vite/build/astgrep_worker.js}",
+        "{**/@lydell/node-pty-darwin-*/**,**/@lydell/node-pty-linux-*/**,**/@lydell/node-pty-win32-*/**}",
     },
     ignore,
     extraResource: [
-      AST_GREP_GRAMMARS_STAGING,
       // System-prompt guidance read at runtime by src/prompts/system_prompt.ts via
       // process.resourcesPath. Without this the packaged app falls back to a minimal
       // prompt (root-level files are otherwise excluded by the `ignore` allowlist).
@@ -488,7 +280,6 @@ const config: ForgeConfig = {
     extraModules: [
       "better-sqlite3",
       "@lydell/node-pty",
-      "@ast-grep/napi",
     ],
     force: true,
   },
@@ -586,13 +377,11 @@ const config: ForgeConfig = {
         if (!id || id.startsWith("node:") || builtins.has(id)) continue;
         npmRoots.add(rollupExternalIdToNpmPackageRoot(id));
       }
-      const astGrepRoots = new Set<string>(AST_GREP_RUNTIME_PACKAGES);
       const toInstall = [...npmRoots].filter((pkg) => {
         const root = pkg.startsWith("@")
           ? pkg.split("/").slice(0, 2).join("/")
           : pkg.split("/")[0];
         if (RENDERER_ONLY_PACKAGES.has(root)) return false;
-        if (astGrepRoots.has(root)) return false;
         // Set entries are short names; externals often list @tanstack/* and @shikijs/*.
         if (pkg.startsWith("@tanstack/") || pkg.startsWith("@shikijs/"))
           return false;
@@ -610,21 +399,16 @@ const config: ForgeConfig = {
 
       // ── v11 SIZE FIX ────────────────────────────────────────────────────
       // `npm install <pkgs>` reconciles the FULL tree from package.json, not
-      // just the named packages. The ast-grep install below (which runs after
-      // the package-removal loops) was therefore silently reinstalling every
-      // prod dependency — dugite, next, echarts, lucide-react, … ~700MB —
-      // straight into the asar. Rewrite the staged package.json to ONLY the
-      // runtime externals so no npm invocation here can ever resolve the
-      // app's full dependency tree again.
+      // just the named packages — a later install here was silently
+      // reinstalling every prod dependency (~700MB) straight into the asar.
+      // Rewrite the staged package.json to ONLY the runtime externals so no
+      // npm invocation here can ever resolve the app's full dependency tree.
       const stagedPkgJsonPath = path.join(buildPath, "package.json");
       const stagedPkg = JSON.parse(
         await fs.readFile(stagedPkgJsonPath, "utf8"),
       ) as Record<string, unknown> & { dependencies?: Record<string, string> };
       const fullDeps: Record<string, string> = stagedPkg.dependencies ?? {};
-      const keepRoots = new Set<string>([
-        ...toInstall,
-        ...AST_GREP_RUNTIME_PACKAGES,
-      ]);
+      const keepRoots = new Set<string>(toInstall);
       for (const name of toInstall) {
         if (!fullDeps[name]) {
           console.warn(
@@ -710,8 +494,7 @@ const config: ForgeConfig = {
         force: true,
       });
 
-      await installAstGrepRuntimePackages(buildPath, platform, arch);
-      // The ast-grep install reconciles the (slimmed) package.json, which can
+      // npm installs above reconcile the (slimmed) package.json, which can
       // resurrect deny-listed transitives — e.g. typescript (23MB). Re-run the
       // deny sweep AFTER the last install so nothing banned ships.
       for (const pkg of RELEASE_DENY_PACKAGES) {
@@ -720,10 +503,7 @@ const config: ForgeConfig = {
           force: true,
         });
       }
-      await stageAstGrepGrammarsForExtraResource(buildPath, platform, arch);
-      await pruneForeignAstGrepPrebuilds(buildPath, platform, arch);
 
-      const bindingPkg = astGrepNativeBindingPackage(platform, arch);
       // On Windows CI, force rebuild after npm install — ABI skip checks can throw when
       // forge's rebuildConfig ran before hook-installed modules landed.
       const rebuildForce =
@@ -731,9 +511,7 @@ const config: ForgeConfig = {
       const rebuildModules = [
         "better-sqlite3",
         "@lydell/node-pty",
-        "@ast-grep/napi",
       ];
-      if (bindingPkg) rebuildModules.push(bindingPkg);
 
       await rebuild({
         buildPath,
@@ -804,11 +582,6 @@ const config: ForgeConfig = {
           entry: "src/preload.ts",
           config: "vite.preload.config.mts",
           target: "preload",
-        },
-        {
-          entry: "workers/blueprint/astgrep_worker.ts",
-          config: "vite.astgrep-worker.config.mts",
-          target: "main",
         },
       ],
       renderer: [

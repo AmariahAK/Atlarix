@@ -53,8 +53,6 @@ describe("readSettings", () => {
       );
       expect(scrubSettings(result)).toMatchInlineSnapshot(`
         {
-          "blueprintAlwaysShowBeacons": false,
-          "blueprintInjectionModePreference": "auto",
           "buildVerification": {
             "enabled": true,
           },
@@ -273,8 +271,6 @@ describe("readSettings", () => {
 
       expect(scrubSettings(result)).toMatchInlineSnapshot(`
         {
-          "blueprintAlwaysShowBeacons": false,
-          "blueprintInjectionModePreference": "auto",
           "buildVerification": {
             "enabled": true,
           },

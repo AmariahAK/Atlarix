@@ -48,7 +48,6 @@ export const mainRollupExternals: readonly string[] = [
   "mysql2",
   "pg",
   "@lydell/node-pty",
-  "@ast-grep/napi",
   "ai",
   "@ai-sdk/provider",
   "@ai-sdk/openai",

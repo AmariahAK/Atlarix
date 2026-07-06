@@ -21,7 +21,6 @@ import * as path from "path";
 import log from "electron-log";
 import { assertReadablePath } from "@/lib/security/env-secret-paths";
 import { ToolRegistry } from "./registry";
-import { enrichPermissionWithBlastRadius } from "./permissions/enrich-blast-radius";
 import { isAtlarixDocWritePath } from "../project-memory";
 import { findReplacement, reindentReplacement } from "./edit-match";
 import { suggestClosestPath } from "./workspace-file-hints";
@@ -94,9 +93,8 @@ function permissionPayload(args: {
   operation: string;
   /** Audit note (fuzzy-match drift) surfaced to the model + activity card. */
   notice?: string;
-  metadata?: Awaited<ReturnType<typeof enrichPermissionWithBlastRadius>>;
 }) {
-  const { normalizedPath, newContent, oldContent, description, reasoning, diff, operation, notice, metadata } = args;
+  const { normalizedPath, newContent, oldContent, description, reasoning, diff, operation, notice } = args;
   return {
     __permission_required: true,
     operation,
@@ -111,19 +109,7 @@ function permissionPayload(args: {
       ...(notice ? { notice } : {}),
     },
     reasoning,
-    ...(metadata ? { metadata } : {}),
   };
-}
-
-async function permissionPayloadWithBlastRadius(
-  workspace: string | undefined,
-  args: Omit<Parameters<typeof permissionPayload>[0], "metadata">,
-  blastOpts?: { agentMode?: string; chatSessionId?: number; workspaceId?: number },
-) {
-  const metadata = workspace
-    ? await enrichPermissionWithBlastRadius(workspace, args.normalizedPath, blastOpts)
-    : undefined;
-  return permissionPayload({ ...args, metadata });
 }
 
 async function runWrite(
@@ -131,7 +117,6 @@ async function runWrite(
   normalizedPath: string,
   fullPath: string,
   workspace?: string,
-  blastOpts?: { agentMode?: string; chatSessionId?: number; workspaceId?: number },
 ) {
   const { content, description } = args;
   if (content === undefined) {
@@ -169,10 +154,6 @@ async function runWrite(
     }
   }
 
-  const metadata = workspace
-    ? await enrichPermissionWithBlastRadius(workspace, normalizedPath, blastOpts)
-    : undefined;
-
   return {
     __permission_required: true,
     operation: "edit_file",
@@ -188,7 +169,6 @@ async function runWrite(
       ...(escapeNotice ? { notice: escapeNotice } : {}),
     },
     reasoning: `${fileType === "update" ? "Modifying" : "Creating"} ${normalizedPath}: ${description ?? "(no description)"}`,
-    ...(metadata ? { metadata } : {}),
   };
 }
 
@@ -197,7 +177,6 @@ async function runReplace(
   normalizedPath: string,
   fullPath: string,
   workspace?: string,
-  blastOpts?: { agentMode?: string; chatSessionId?: number; workspaceId?: number },
 ) {
   const { old_content, new_content, description } = args;
   if (!old_content || new_content === undefined) {
@@ -299,28 +278,24 @@ async function runReplace(
     r.content.slice(match.index + match.matchLength);
   const oldLines = old_content.split("\n").length;
   const newLines = effectiveReplacement.split("\n").length;
-  return permissionPayloadWithBlastRadius(
-    workspace,
-    {
-      normalizedPath,
-      newContent,
-      oldContent: r.content,
-      description: fuzzyNotice
-        ? `${description ?? "Surgical replace"} (${fuzzyNotice})`
-        : (description ?? "Surgical replace"),
-      ...(notice ? { notice } : {}),
-      operation: "edit_file",
-      diff: {
-        removed: oldLines,
-        added: newLines,
-        old_snippet: old_content.slice(0, 200) + (old_content.length > 200 ? "..." : ""),
-        new_snippet:
-          effectiveReplacement.slice(0, 200) + (effectiveReplacement.length > 200 ? "..." : ""),
-      },
-      reasoning: `Replace in ${normalizedPath}: ${description ?? "(no description)"} (${oldLines}→${newLines} lines)`,
+  return permissionPayload({
+    normalizedPath,
+    newContent,
+    oldContent: r.content,
+    description: fuzzyNotice
+      ? `${description ?? "Surgical replace"} (${fuzzyNotice})`
+      : (description ?? "Surgical replace"),
+    ...(notice ? { notice } : {}),
+    operation: "edit_file",
+    diff: {
+      removed: oldLines,
+      added: newLines,
+      old_snippet: old_content.slice(0, 200) + (old_content.length > 200 ? "..." : ""),
+      new_snippet:
+        effectiveReplacement.slice(0, 200) + (effectiveReplacement.length > 200 ? "..." : ""),
     },
-    blastOpts,
-  );
+    reasoning: `Replace in ${normalizedPath}: ${description ?? "(no description)"} (${oldLines}→${newLines} lines)`,
+  });
 }
 
 ToolRegistry.register({
@@ -363,8 +338,7 @@ Use "write" for a new file or a full rewrite. For ANY change to an existing file
     required: ["path", "operation"],
   },
   handler: async (rawArgs: EditFileArgs) => {
-    const { path: filePath, operation, workspace, chatMode, agentMode, _chatSessionId, workspaceId } = rawArgs;
-    const blastOpts = { agentMode, chatSessionId: _chatSessionId, workspaceId };
+    const { path: filePath, operation, workspace, chatMode } = rawArgs;
 
     if (chatMode === "ask") {
       return { error: "Edit operations not allowed in Ask mode. Switch to Build mode.", operation: "edit_file", denied: true };
@@ -390,9 +364,9 @@ Use "write" for a new file or a full rewrite. For ANY change to an existing file
 
     switch (operation) {
       case "write":
-        return runWrite(rawArgs, normalizedPath, fullPath, workspace, blastOpts);
+        return runWrite(rawArgs, normalizedPath, fullPath, workspace);
       case "replace":
-        return runReplace(rawArgs, normalizedPath, fullPath, workspace, blastOpts);
+        return runReplace(rawArgs, normalizedPath, fullPath, workspace);
       default:
         return { error: `Unknown operation: ${operation}. Use write | replace.`, operation: "edit_file" };
     }

@@ -1,10 +1,10 @@
 /**
- * File watcher: debounced incremental ctags + ast-grep blueprint cache refresh on code changes.
+ * File watcher: debounced incremental ctags/FTS5 search-index refresh on code
+ * changes — keeps grep's Blueprint reranking fresh as the working tree evolves.
  */
 
 import * as fs from "fs";
 import * as path from "path";
-import { updateBlueprintCacheForFiles } from "@/lib/blueprint/incremental-update";
 import { updateBm25IndexForFile } from "@/lib/search/bm25_semantic_index";
 import {
   BUILTIN_IGNORE,
@@ -14,6 +14,11 @@ import {
   type AtlarixIgnoreInstance,
 } from "@/lib/atlarix/atlarix-ignore";
 
+/**
+ * Churn gate, not a support gate: files outside this set are still indexed by
+ * full rebuilds (ctags auto-detects every language it knows) — this only bounds
+ * which watcher EVENTS trigger per-file re-index work.
+ */
 const CODE_EXT = new Set([
   ".ts",
   ".tsx",
@@ -38,12 +43,10 @@ let watcher: fs.FSWatcher | null = null;
 let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 let lastProjectPath: string | null = null;
 let lastWorkspaceId: number | null = null;
-let refreshInFlight: Promise<boolean> | null = null;
 
 /**
  * The active ignore filter applied at the watcher's event gate so churn in
- * node_modules/.git/dist never drives per-file ctags+ast-grep+FTS5 work (and
- * never escalates a cold cache to a full blueprint rebuild). Starts as the
+ * node_modules/.git/dist never drives per-file ctags+FTS5 work. Starts as the
  * synchronous BUILTIN_IGNORE baseline and is upgraded to the project's full
  * composed ignorer (baseline ∪ .gitignore ∪ .atlarixignore) once it loads.
  */
@@ -73,54 +76,11 @@ async function refreshActiveIgnorer(projectPath: string): Promise<void> {
 }
 
 /**
- * Incrementally refresh RTE disk cache for changed files (ctags + ast-grep per file).
+ * Idempotent registration for the chat-stream preflight — keeps the incremental
+ * FTS5 refresh alive in ordinary agent sessions. No-ops if this project is
+ * already being watched.
  */
-export async function refreshBlueprintCacheFromFileTree(
-  projectPath: string,
-  changedFiles?: string[],
-): Promise<boolean> {
-  if (refreshInFlight) return refreshInFlight;
-
-  refreshInFlight = (async () => {
-    try {
-      if (changedFiles?.length) {
-        return updateBlueprintCacheForFiles(projectPath, changedFiles);
-      }
-      const { generateBlueprint, blueprintEngineLabel } = await import("@/lib/blueprint/rte/parsers");
-      const { saveBlueprintCache } = await import("@/lib/cache/blueprint-cache");
-      const result = await generateBlueprint(projectPath);
-      if (!result) return false;
-      await saveBlueprintCache(projectPath, {
-        manifest: {
-          projectPath,
-          framework: result.framework.name,
-          language: result.framework.name,
-          engine: blueprintEngineLabel(result),
-        },
-        nodes: result.nodes,
-        edges: result.edges,
-        ...(result.atlarixIgnoreSource ? { atlarixIgnoreSource: result.atlarixIgnoreSource } : {}),
-      });
-      return true;
-    } catch {
-      return false;
-    } finally {
-      refreshInFlight = null;
-    }
-  })();
-
-  return refreshInFlight;
-}
-
-/**
- * v14.8.10 Fix G: idempotent registration for the chat-stream preflight — keeps
- * the incremental FTS5/blueprint refresh alive in ordinary agent sessions (the
- * full `registerBlueprintFileWatcher` was only ever called when the Blueprint
- * panel was opened, so working-tree edits never refreshed the index). No-ops if
- * this project is already being watched, so it never downgrades a registration
- * that carries the panel's onUpdated callback.
- */
-export function ensureBlueprintFileWatcher(
+export function ensureSearchIndexWatcher(
   projectPath: string | null,
   workspaceId: number | null,
 ): void {
@@ -128,20 +88,16 @@ export function ensureBlueprintFileWatcher(
   if (watcher && lastProjectPath === projectPath && lastWorkspaceId === workspaceId) {
     return;
   }
-  registerBlueprintFileWatcher(projectPath, workspaceId);
+  registerSearchIndexWatcher(projectPath, workspaceId);
 }
 
 /**
- * Register a file watcher for projectPath. On change, refreshes blueprint cache and calls onUpdated.
+ * Register a file watcher for projectPath. On change, incrementally refreshes
+ * the per-file ctags symbols + FTS5 rows (no full rebuild — scales to big repos).
  */
-export function registerBlueprintFileWatcher(
+function registerSearchIndexWatcher(
   projectPath: string | null,
   workspaceId: number | null,
-  onUpdated?: (
-    projectPath: string,
-    relativePath: string,
-    workspaceId: number,
-  ) => void | Promise<void>,
 ): void {
   if (watcher) {
     watcher.close();
@@ -175,7 +131,7 @@ export function registerBlueprintFileWatcher(
       return;
     }
     // Skip non-code files AND anything ignored (deps/build/caches) — the big win:
-    // node_modules churn no longer drives ctags/ast-grep/FTS5 per file.
+    // node_modules churn no longer drives ctags/FTS5 work per file.
     if (!shouldProcessWatcherPath(activeIgnorer, normalized)) return;
     pending.add(normalized);
     if (debounceTimer) clearTimeout(debounceTimer);
@@ -184,18 +140,13 @@ export function registerBlueprintFileWatcher(
       const batch = [...pending];
       pending.clear();
       if (lastProjectPath !== projectPath) return;
+      if (lastWorkspaceId == null) return;
       try {
-        const ok = await refreshBlueprintCacheFromFileTree(projectPath, batch);
-        if (ok && lastWorkspaceId != null) {
-          // Incremental per-file FTS5 update — no full rebuild (scales to big repos).
-          await Promise.all(
-            batch.map((rel) =>
-              updateBm25IndexForFile(lastWorkspaceId!, projectPath, rel),
-            ),
-          );
-          const last = batch[batch.length - 1];
-          if (last) await onUpdated?.(projectPath, last, lastWorkspaceId);
-        }
+        await Promise.all(
+          batch.map((rel) =>
+            updateBm25IndexForFile(lastWorkspaceId!, projectPath, rel),
+          ),
+        );
       } catch {
         // ignore
       }

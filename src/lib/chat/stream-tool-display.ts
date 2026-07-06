@@ -22,7 +22,6 @@ const SEARCH_MATCH_TOOLS = new Set([
   "grep",
   "grep_search",
   "semantic_search",
-  "structural_search",
   "find_file",
 ]);
 

@@ -114,7 +114,6 @@ src/generated/
 
 # Electron-Forge
 out/
-ast-grep-grammars/
 
 sqlite.db
 userData/

@@ -4,7 +4,7 @@ import { isContextToolName } from "@/lib/chat/context-tools";
 export type StreamToolItem = Extract<StreamThreadItem, { kind: "tool" }>;
 
 const TERMINAL = new Set(["run_command", "stream_terminal_output"]);
-const SEARCH = new Set(["search", "grep", "structural_search", "search_code"]);
+const SEARCH = new Set(["search", "grep", "search_code"]);
 const WEB = new Set(["web_search", "read_url"]);
 
 const NON_GROUPABLE = new Set([

@@ -14,9 +14,14 @@ shiki chat highlighting, SmartDiffView diffs, Errors tab, approve flow all uncha
 kept; copy-code-chip pipeline removed with its only producer); (3) universal language gates —
 ctags allowlist deleted (auto-detect + 2 MB size guard), `SymbolRecord.language`, ctags-only
 blueprint engine (no more null cliff), workspace-analyzer consolidated onto the ctags index with
-one universal import-pattern pass. tsc/oxlint clean; vitest 1656 green. NEXT after release:
-Automations tab (poll-based triggers over background-jobs + MCP, OS notifications, agent-action
-opt-in behind danger gate; persistent re-arm needed — scheduled wakeups are process-lifetime).
+one universal import-pattern pass. Then (4) ast-grep/blast-radius/dead-blueprint-chain MAXIMAL
+prune — consumer trace proved grep reranking is ctags+FTS5 only and edges fed ONLY the (silently
+broken in packaged builds) blast-radius line; watcher slimmed to `search-index-watcher.ts` with
+the FTS5 refresh decoupled from the dead cache refresh; 3 native deps + worker + forge grammar
+machinery gone; run_command now steers find/grep → glob/grep tools. tsc/oxlint clean; vitest
+1578 green. IN PROGRESS: Automations tab (Codex-app-shaped: persisted schedule/GitHub/MCP
+triggers, unattended read-only runs + opt-in worktree proposals, triage feed in right panel,
+OS notifications).
 
 ---
 

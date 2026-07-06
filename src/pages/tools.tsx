@@ -207,7 +207,7 @@ const FEATURES: ToolFeature[] = [
       "Each hit is annotated with its enclosing function/class so the agent jumps straight to the symbol",
     ],
     howItWorks:
-      "A disk-backed SQLite FTS5 index (Ctags symbols + ast-grep edges) reranks ripgrep's hits by structural relevance and also drives edit-time blast-radius — no embeddings, no whole-repo dumps, constant low memory at any repo size. The agent reasons over the ranked results rather than calling a separate map tool (the same approach as Claude Code / opencode).",
+      "A disk-backed SQLite FTS5 index (Ctags symbols) reranks ripgrep's hits by relevance — no embeddings, no whole-repo dumps, constant low memory at any repo size. The agent reasons over the ranked results rather than calling a separate map tool (the same approach as Claude Code / opencode).",
     link: { label: "Home → Chat", to: "/" },
   },
   {

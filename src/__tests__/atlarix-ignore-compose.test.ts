@@ -12,7 +12,7 @@ import {
   createIgnorerFromSource,
   BUILTIN_IGNORE,
 } from "@/lib/atlarix/atlarix-ignore";
-import { shouldProcessWatcherPath } from "@/lib/blueprint/blueprint-file-watcher";
+import { shouldProcessWatcherPath } from "@/lib/search/search-index-watcher";
 
 /**
  * v13.8: the ignorer is composed from three layers —

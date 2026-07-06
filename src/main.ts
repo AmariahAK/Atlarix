@@ -1343,14 +1343,6 @@ app.on("before-quit", (e) => {
     } catch (bgErr) {
       logger.warn("killAllBackgroundJobs on quit:", bgErr);
     }
-    try {
-      const { shutdownAstGrepPool } = await import(
-        "./lib/blueprint/rte/ast-grep/worker-pool"
-      );
-      await shutdownAstGrepPool();
-    } catch (poolErr) {
-      logger.warn("shutdownAstGrepPool on quit:", poolErr);
-    }
     } catch (shutdownErr) {
       // Belt-and-suspenders: each step is individually guarded above, but if the
       // chain itself throws (e.g. a dynamic import fails), report it instead of

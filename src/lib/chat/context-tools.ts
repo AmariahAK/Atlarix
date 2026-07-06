@@ -7,8 +7,6 @@ export const CONTEXT_TOOL_NAMES = new Set([
   "search_code",
   "search",
   "grep",
-  "structural_search",
-  "get_blueprint",
   "web_search",
 ]);
 

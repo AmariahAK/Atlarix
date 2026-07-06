@@ -52,7 +52,6 @@ const toolIcons: Record<string, React.FC<{ size?: number; className?: string }>>
     find_file: Search,
     search_code: Search,
     search: Search,
-    get_blueprint: BarChart3,
     visualize_graph: BarChart3,
     web_search: Globe,
     deep_search: Globe,

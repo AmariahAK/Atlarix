@@ -5,8 +5,8 @@
  * EVERY symbol on each search — the source of OOM on giant repos) to a
  * disk-backed SQLite FTS5 index (`fts5-index.ts`): ~constant low memory at any
  * size, incremental updates, scales to monorepos / multi-repo. This module keeps
- * the SAME public API so the grep reranker, get_blueprint room scoring, and the
- * Tier-1 RRF/proximity logic are unchanged.
+ * the SAME public API so the grep reranker and the Tier-1 RRF/proximity logic
+ * are unchanged.
  */
 
 import {

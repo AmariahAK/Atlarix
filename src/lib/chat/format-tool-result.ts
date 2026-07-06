@@ -20,12 +20,11 @@ const REPO_TOOLS = new Set([
   "explore_folder",
   "list_files",
 ]);
-const REPO_OVERVIEW_TOOLS = new Set(["get_repo_overview", "get_blueprint"]);
+const REPO_OVERVIEW_TOOLS = new Set(["get_repo_overview"]);
 const SEARCH_TOOLS = new Set([
   "search_code",
   "search",
   "grep",
-  "structural_search",
   "web_search",
 ]);
 const READ_TOOLS = new Set(["read_file", "read_url"]);

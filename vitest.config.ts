@@ -64,13 +64,6 @@ export default defineConfig({
           setupFiles: ["./vitest.setup.ts"],
           // tests/** belongs to the agent-evals project (real DB + fake LLM).
           exclude: [...sharedExclude, "src/__tests__/renderer/**", "tests/**"],
-          // The Blueprint ast-grep tests call `@ast-grep/napi` findInFiles
-          // directly; concurrent native callbacks across parallel files can
-          // drop a match and yield empty edges (a test-harness concurrency
-          // artifact — production scans go through the serialized worker pool).
-          // Bounded retry keeps CI deterministic without masking real failures
-          // (a genuinely broken test still fails all attempts).
-          retry: 2,
         },
       },
       {

@@ -47,7 +47,6 @@ const rawLoaderPlugin = {
 // Native / binary / electron-only packages that must not be bundled.
 const external = [
   "better-sqlite3",
-  "@ast-grep/napi",
   "fsevents",
   "@vscode/sudo-prompt",
   "node-pty",
@@ -72,7 +71,7 @@ await build({
   },
   // ESM bundle needs require()/__dirname/__filename shimmed: deps and our own
   // code use CJS interop and `__dirname`-relative asset lookups (system prompt,
-  // skills, tiktoken, ast-grep). In ESM these are undefined → ReferenceError at
+  // skills, tiktoken). In ESM these are undefined → ReferenceError at
   // module-init unless we define them. __dirname resolves to the bundle's own
   // dir (dist-headless), which is where we also ship the AGENTS*.md files.
   banner: {

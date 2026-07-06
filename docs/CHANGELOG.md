@@ -25,6 +25,20 @@
 
 ### Removed
 
+- **ast-grep, blast-radius, and the dead blueprint-parse chain.** A full consumer trace proved
+  the agent's working "Blueprint" is ctags symbols + FTS5/BM25 only (grep reranking) — ast-grep
+  structural edges fed exactly one live feature, the blast-radius impact line in edit-approval
+  dialogs, which had been silently broken in every packaged build (the unpacked worker could not
+  resolve `@ast-grep/napi`) with no one noticing. Deleted: the ast-grep engine, worker pool and
+  grammars (3 native deps, the postinstall worker build, all forge grammar staging/unpack
+  machinery), blast-radius and the unused permission `metadata` field, the orphaned structural
+  search, and the entire dead parse chain (generateBlueprint, lazy-parse, blueprint handlers/
+  caches/merge/supplement/file-tree bridge) plus four inert blueprint settings. The file watcher
+  was slimmed to its live job — incremental ctags/FTS5 refresh (`search-index-watcher.ts`),
+  previously gated on the dead blueprint-cache refresh. Grep reranking, enclosing-symbol
+  annotation, and workspace context are unchanged; "Blueprint" survives purely as the ranking
+  substrate.
+
 - **The Code tab, Monaco, and Cmd/Ctrl+P (QuickFileOpen).** Atlarix positions itself beside your
   IDE; the in-app editor was the one place it competed with it, and Monaco (+5 web workers) sat
   un-chunked in the main renderer bundle with 4 dependencies, 812K of TextMate grammars, and a
@@ -37,6 +51,9 @@
 
 ### Changed
 
+- **`run_command` now steers file-finding/content-search to `glob`/`grep`** (indexed,
+  relevance-ranked, permission-free) instead of shell `find`/`grep`; `ls` stays fine for
+  directory listings.
 - **Language support is universal by default.** The ctags extension allowlist (20 extensions) is
   deleted — Universal Ctags auto-detects ~150 languages; the allowlist's implicit huge-file guard
   became an explicit 2 MB size gate. Symbols now carry their ctags-reported `language`. A project

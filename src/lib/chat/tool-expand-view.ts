@@ -28,7 +28,6 @@ const SEARCH_MATCH_TOOLS = new Set([
   "search_code",
   "grep_search",
   "semantic_search",
-  "structural_search",
   "find_file",
 ]);
 

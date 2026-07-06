@@ -7,7 +7,6 @@ import fs from "node:fs/promises";
 import path from "node:path";
 
 const FORBIDDEN_IN_RENDERER = [
-  "@ast-grep/napi",
   "runStructuralScan",
   "better-sqlite3",
   "LOCAL_GIT_DIRECTORY",

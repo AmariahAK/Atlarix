@@ -41,8 +41,8 @@ function formatBytes(n) {
 
 /**
  * Coarse floor to catch a grossly broken/empty package (e.g. packageAfterPrune
- * skipped). The resource check (app.asar + ast-grep-grammars/parser.so) is the
- * real "prune ran" assertion; this is only a backstop.
+ * skipped). The resource check (app.asar + ctags extraResource) is the real
+ * "packaging stages ran" assertion; this is only a backstop.
  *
  * History: v9.0.0 Setup.exe ~360 MiB. The v11 packaging fix (the asar was
  * silently bloated to 848 MiB by a packageAfterPrune `npm install` reconciling
@@ -68,17 +68,13 @@ function verifyWindowsPackagedResources(packageDir) {
   if (!fs.existsSync(appAsar)) {
     return `missing ${path.relative(process.cwd(), appAsar)}`;
   }
-  const grammarsDir = path.join(resourcesDir, "ast-grep-grammars");
-  if (!fs.existsSync(grammarsDir)) {
-    return `missing ${path.relative(process.cwd(), grammarsDir)} (packageAfterPrune may not have run)`;
+  // The ctags extraResource dir proves the resource-staging stage ran.
+  const ctagsDir = path.join(resourcesDir, "win32-x64");
+  const ctagsFiles = findFilesNamed(ctagsDir, "ctags.exe");
+  if (ctagsFiles.length === 0) {
+    return `missing ctags under ${path.relative(process.cwd(), ctagsDir)} (extraResource staging may not have run)`;
   }
-  const parserFiles = findFilesNamed(grammarsDir, "parser.so");
-  if (parserFiles.length === 0) {
-    return `no parser.so under ${path.relative(process.cwd(), grammarsDir)}`;
-  }
-  console.log(
-    `OK: win32 resources app.asar + ast-grep-grammars (${parserFiles.length} parser.so)`,
-  );
+  console.log(`OK: win32 resources app.asar + ctags extraResource`);
   return null;
 }
 

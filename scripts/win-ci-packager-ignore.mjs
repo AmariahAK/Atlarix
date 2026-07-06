@@ -9,7 +9,6 @@ const ALLOWED_NODE_MODULE_PREFIXES = [
   "/node_modules/html-to-image",
   "/node_modules/better-sqlite3",
   "/node_modules/keytar",
-  "/node_modules/@ast-grep",
   "/node_modules/web-tree-sitter",
   "/node_modules/tree-sitter-wasms",
   "/node_modules/tiktoken",

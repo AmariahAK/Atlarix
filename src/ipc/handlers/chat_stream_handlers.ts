@@ -2261,12 +2261,11 @@ ${componentSnippet}
         logger.log(
           `Using workspace for chat ${req.chatId}: ${appPath || "(none)"} (appId: ${effectiveAppId ?? req.appId ?? "n/a"})`,
         );
-        // v14.8.10 Fix G: keep the incremental blueprint/FTS5 refresh alive for
-        // ordinary agent sessions (previously only registered when the
-        // Blueprint panel was opened). Idempotent; ignore-filtered; cheap.
+        // v14.8.10 Fix G: keep the incremental ctags/FTS5 search-index refresh
+        // alive for ordinary agent sessions. Idempotent; ignore-filtered; cheap.
         if (hasWorkspace && appPath) {
-          void import("@/lib/blueprint/blueprint-file-watcher")
-            .then((m) => m.ensureBlueprintFileWatcher(appPath, effectiveAppId ?? null))
+          void import("@/lib/search/search-index-watcher")
+            .then((m) => m.ensureSearchIndexWatcher(appPath, effectiveAppId ?? null))
             .catch(() => {});
         }
         if (hasWorkspace && appPath && !fs.existsSync(appPath)) {
@@ -2286,8 +2285,8 @@ ${componentSnippet}
         let files: any[] = [];
 
         if (hasWorkspace) {
-          // PASS1: Blueprint/Diagram context is now tool-driven only.
-          // The model calls get_blueprint / query_blueprint (and other tools) to fetch this on demand.
+          // PASS1: no proactive codebase-context injection — the model explores
+          // via grep (Blueprint-reranked), glob, and read_file on demand.
           // Do not re-enable proactive injection.
 
           // Note: files array kept for backward compatibility with selected components
@@ -2986,9 +2985,8 @@ ${componentSnippet}
           // Legacy hosted credential store removed; per-extension state lives in MCP server
           // env vars.
 
-          // PASS8: Blueprint is a lazy read-only graph built on demand when get_blueprint
-          // is called (NOT deleted — that note from Pass 7 is wrong and superseded by Pass 6).
-          // Architecture exploration is tool-driven via get_blueprint + search + read_file.
+          // Blueprint is the silent grep-ranking substrate (ctags + FTS5) — no
+          // map tool. Architecture exploration is tool-driven via grep + read_file.
 
           // PASS5: SQLite project memory is tool-driven — the model calls
           // get_project_memory when it needs project context. (v11.1: the

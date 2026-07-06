@@ -68,9 +68,6 @@ const DEFAULT_SETTINGS: UserSettings = {
   },
   /** When true, after a build-mode turn completes, may auto-queue up to 2 synthetic fix turns (TS / dev output / tests). Ask-only chats are unaffected. */
   enableContextAutoSummarize: true, // Phase 6: context bar + auto-summarize
-  // PASS6: Blueprint UI preferences — restored.
-  blueprintAlwaysShowBeacons: false,
-  blueprintInjectionModePreference: "auto",
   includeAtlarixCoAuthor: true,
   enableAutoUpdate: true,
   releaseChannel: "stable",

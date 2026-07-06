@@ -33,13 +33,6 @@ export function inferToolNameFromEnvelopeRaw(raw: string): string {
     return "get_repo_overview";
   }
   if (
-    /^#\s*Workspace/i.test(inner) ||
-    /symbol\(s\)/i.test(inner) ||
-    /cross-room edge/i.test(inner)
-  ) {
-    return "get_blueprint";
-  }
-  if (
     /Found \d+ match/i.test(inner) ||
     /requested_mode/i.test(inner) ||
     /engine":"ripgrep"/i.test(inner) ||

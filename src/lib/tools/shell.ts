@@ -40,7 +40,8 @@ ToolRegistry.register({
         "Limits are optional knobs: pass smaller timeout_ms or max_output_bytes when you expect huge logs. " +
         "Set background=true for long-running work you don't need to block on (long builds, installs, watch tasks): the call returns immediately with a job_id and the result is delivered to you automatically when the command exits — continue other work, never poll, and you may END YOUR TURN while it runs (you're woken on completion). Any foreground command still running after ~15s is auto-moved to the background the same way. Manage running jobs with background_jobs. " +
         "For a long-running job whose interesting event is a LINE OF OUTPUT rather than exit (a dev server printing 'compiled successfully', a log tail hitting 'ERROR'), set wake_on to that text — you'll be woken the moment it appears (and still pinged if it goes silent / on exit). For EXTERNAL state (a deploy/CI result, remote logs), background a command that BLOCKS until that state (e.g. `gh run watch`) so its completion is the signal — never poll on a timer. " +
-        "When a backgrounded process prints a http://localhost:PORT URL, the preview loads it automatically — then drive it with browser_* target:\"preview\".",
+        "When a backgrounded process prints a http://localhost:PORT URL, the preview loads it automatically — then drive it with browser_* target:\"preview\". " +
+        "Never use run_command to find files or search code: use the glob tool to find files by name/path and the grep tool to search contents — both are indexed, relevance-ranked, and permission-free (`ls` for a quick directory listing is fine).",
     requiresWorkspace: true,
     isCore: true,
     isReadOnly: false,

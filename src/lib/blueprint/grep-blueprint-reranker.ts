@@ -5,9 +5,9 @@
  * answer to a vector index (no embeddings, by design). This makes Blueprint back
  * grep: raw ripgrep returns matches in file order; here we reorder those file
  * groups by Blueprint's own BM25 relevance for the query, so the most relevant
- * files surface first (and survive the result cap). The BM25 index is the same
- * one `get_blueprint` uses — warm, persistent, and incrementally refreshed by the
- * blueprint file watcher — so this is cheap on the hot path.
+ * files surface first (and survive the result cap). The BM25 index is warm,
+ * persistent, and incrementally refreshed by the search-index file watcher —
+ * so this is cheap on the hot path.
  *
  * Stable interface: a future improved Blueprint (better ranking, call-graph
  * weighting, structural signals) upgrades grep, sub-agents, and ambient context

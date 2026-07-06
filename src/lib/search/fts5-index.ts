@@ -95,7 +95,7 @@ function openDb(root: string): Database.Database | null {
     }
     return db;
   } catch (e) {
-    logger.warn("FTS5 unavailable — grep/get_blueprint fall back to ripgrep order:", e);
+    logger.warn("FTS5 unavailable — grep falls back to ripgrep order:", e);
     return null;
   }
 }

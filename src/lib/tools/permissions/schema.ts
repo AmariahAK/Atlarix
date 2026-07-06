@@ -79,18 +79,6 @@ export const ProjectRevertPreviewSchema = z.object({
 });
 
 // ════════════════════════════════════════════════════════════════════════════
-// PERMISSION METADATA
-// ════════════════════════════════════════════════════════════════════════════
-
-export const PermissionMetadataSchema = z.object({
-    reasoning: z.string().optional().describe("Why this change is needed"),
-    estimatedImpact: z.string().optional().describe("Impact summary"),
-    affectedFiles: z.array(z.string()).optional().describe("Related files"),
-});
-
-export type PermissionMetadata = z.infer<typeof PermissionMetadataSchema>;
-
-// ════════════════════════════════════════════════════════════════════════════
 // PERMISSION REQUEST (Main Schema)
 // ════════════════════════════════════════════════════════════════════════════
 
@@ -139,7 +127,6 @@ export const PermissionRequestSchema = z.object({
         BatchPlanPreviewSchema,
         ProjectRevertPreviewSchema,
     ]),
-    metadata: PermissionMetadataSchema.optional(),
 });
 
 export type PermissionRequest = z.infer<typeof PermissionRequestSchema>;

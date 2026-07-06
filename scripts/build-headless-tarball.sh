@@ -12,11 +12,11 @@ PLATFORM="${TARBALL_PLATFORM:-linux/amd64}"
 # Output: dist-headless-tarball/atlarix-headless-<ver>.tar.gz
 #   layout when unpacked to /opt/atlarix:
 #     dist-headless/atlarix-headless.mjs
-#     node_modules/{better-sqlite3,@ast-grep/*}/...  (Node-ABI; resolved by node_modules walk)
+#     node_modules/better-sqlite3/...  (Node-ABI; resolved by node_modules walk)
 #
 # The headless bundle externalizes its NATIVE deps (they can't be bundled), so
 # every one the runtime import graph touches must be shipped here at its repo
-# version: better-sqlite3 (db) + @ast-grep/napi & the lang grammars (blueprint).
+# version: better-sqlite3 (db).
 #
 # Usage: scripts/build-headless-tarball.sh   (requires Docker)
 set -euo pipefail
@@ -45,7 +45,7 @@ docker run --rm --platform "$PLATFORM" -v "$ROOT:/src" -w /tmp/pack node:22-book
   # Native externals the headless bundle imports at runtime, pinned to repo versions.
   SPECS=$(node -e '"'"'
     const d = require("/src/package.json").dependencies || {};
-    const names = ["better-sqlite3","@ast-grep/napi","@ast-grep/lang-python","@ast-grep/lang-go"];
+    const names = ["better-sqlite3"];
     process.stdout.write(names.map(n => d[n] ? `${n}@${d[n]}` : n).join(" "));
   '"'"')
   echo "[pack] installing native deps: $SPECS"
@@ -53,14 +53,11 @@ docker run --rm --platform "$PLATFORM" -v "$ROOT:/src" -w /tmp/pack node:22-book
   # Fail loudly if any required native module is missing from the packed tree.
   node -e '"'"'
     const r = require("module").createRequire("/tmp/pack/x.js");
-    for (const n of ["better-sqlite3","@ast-grep/napi","@ast-grep/lang-python","@ast-grep/lang-go"]) {
+    for (const n of ["better-sqlite3"]) {
       r.resolve(n); // throws if not installed
     }
     console.log("[pack] all native deps resolve OK");
   '"'"'
-  # Strip foreign-arch ast-grep grammar prebuilds (keep only Linux-X64, the TB
-  # runtime) — shrinks the tarball so it fetches reliably over CDN/tunnel.
-  find node_modules/@ast-grep -type d -name "prebuild-*" ! -name "prebuild-Linux-X64" -exec rm -rf {} + 2>/dev/null || true
   tar -czf /src/dist-headless-tarball/atlarix-headless-'"$VER"'.tar.gz dist-headless node_modules
 '
 

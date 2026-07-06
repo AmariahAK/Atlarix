@@ -288,15 +288,6 @@ export const SmartContextModeSchema = z.enum([
 ]);
 export type SmartContextMode = z.infer<typeof SmartContextModeSchema>;
 
-// PASS6: Blueprint injection-mode preference — restored.
-export const BlueprintInjectionModePreferenceSchema = z.enum([
-  "auto",
-  "ask",
-  "plan",
-  "build",
-  "debug",
-]);
-
 /**
  * Zod schema for user settings
  */
@@ -347,22 +338,12 @@ export const UserSettingsSchema = z.object({
   /** Optional per-provider token budget cap (e.g. { openai: 32000 }) to control costs */
   tokenBudgetOverrides: z.record(z.string(), z.number()).optional(),
 
-  // PASS6: Blueprint UI preference — restored.
-  blueprintAlwaysShowBeacons: z.boolean().optional(),
-
   /** After autonomous task_complete: parallel reviewer + debugger on files written. */
   buildVerification: z
     .object({
       enabled: z.boolean().optional(),
     })
     .optional(),
-
-  // PASS6: Blueprint injection-mode + debug fields — restored as settings only
-  // (the streamMessage prompt-injection plumbing stays tool-driven this pass).
-  blueprintInjectionModePreference:
-    BlueprintInjectionModePreferenceSchema.optional(),
-  blueprintDebugTrace: z.string().optional(),
-  blueprintDebugFile: z.string().optional(),
 
   /** When true (default), commits made via Atlarix include Co-authored-by: atlarix-agent <agent@atlarix.dev> */
   includeAtlarixCoAuthor: z.boolean().optional(),

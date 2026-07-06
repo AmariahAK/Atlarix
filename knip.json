@@ -24,8 +24,6 @@
     "src/shims/**"
   ],
   "ignoreDependencies": [
-    "@ast-grep/lang-go",
-    "@ast-grep/lang-python",
     "shiki",
     "tw-animate-css",
     "@electron-forge/publisher-github",

@@ -2,14 +2,14 @@ import { describe, expect, it, beforeAll, afterAll } from "vitest";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { setupEvalContext, type EvalContext } from "../infra/turn";
-import { hasCtags, hasAstGrep } from "../../src/__tests__/helpers/native-tools";
+import { hasCtags } from "../../src/__tests__/helpers/native-tools";
 
 /**
  * v12 S21 — the retrieval eval (Tier 6 "measure it"; the second-paper data).
  *
- * Drives the REAL retriever — ctags symbol index + ast-grep structural scan +
- * BM25-fused ranking — over a fixture repo with a known call graph
- * (tests/fixtures/blueprint-eval-repo) and a task → target-file ground truth.
+ * Drives the REAL retriever — ctags symbol index + BM25-fused ranking — over a
+ * fixture repo with a known call graph (tests/fixtures/blueprint-eval-repo)
+ * and a task → target-file ground truth.
  *
  * v13.7: the get_blueprint tool was removed; Blueprint is now the silent
  * substrate that reranks `grep`. So surface 1 is the grep TOOL end-to-end
@@ -90,7 +90,7 @@ interface TaskResult {
   bm25Top3: boolean;
 }
 
-describe.skipIf(!hasCtags() || !hasAstGrep())("retrieval eval (S21)", () => {
+describe.skipIf(!hasCtags())("retrieval eval (S21)", () => {
   beforeAll(async () => {
     // In-process structural scan — the bundled worker script is unreliable
     // under vitest worker_threads, and determinism beats parallelism here.
