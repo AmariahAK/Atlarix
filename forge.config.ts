@@ -450,6 +450,34 @@ const config: ForgeConfig = {
         await runNpmInstall(buildPath, commands);
       }
 
+      // Reconcile the slimmed tree WITHOUT --omit=optional: native platform
+      // bindings ship as optionalDependencies (@lydell/node-pty-<platform> —
+      // without this the packaged PTY dies with "posix_spawnp failed"/module
+      // not found). Historically the ast-grep install step did this
+      // implicitly; that step is gone, so do it explicitly. The deny sweep
+      // below runs AFTER this install, so banned transitives still never ship.
+      await runNpmInstall(buildPath, [
+        "install",
+        "--omit=dev",
+        "--omit=peer",
+        "--no-package-lock",
+        "--no-save",
+        "--no-audit",
+        "--no-fund",
+        ...npmTargetPlatformArgs(platform, arch),
+      ]);
+      {
+        const ptyBinding = `@lydell/node-pty-${platform}-${arch}`;
+        try {
+          await fs.access(path.join(buildPath, "node_modules", ptyBinding));
+          console.log(`[packageAfterPrune] optional-deps reconcile OK (${ptyBinding} present)`);
+        } catch {
+          throw new Error(
+            `Missing ${ptyBinding} after optional-deps reconcile — the packaged terminal would be broken`,
+          );
+        }
+      }
+
       const RENDERER_ONLY_DIRS = [
         "lucide-react",
         "date-fns",
