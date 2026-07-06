@@ -138,3 +138,6 @@ dist-headless-tarball/
 # Python bytecode (benchmark harness tooling)
 __pycache__/
 *.pyc
+
+# Local benchmark run artifacts (Harbor/SWE-bench smoke results)
+benchmarks/results-smoke-daytona/

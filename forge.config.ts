@@ -449,8 +449,13 @@ const config: ForgeConfig = {
       // (@ast-grep/lang-{python,go}) and the ast-grep worker — the latter are
       // loaded from disk at runtime by ensureAstGrepDynamicLangs (Python/Go edge
       // registration), so they must live outside the asar.
+      // @ast-grep/napi (the JS package) must ALSO be unpacked: the worker runs
+      // from app.asar.unpacked/.vite/build/, and Node module resolution walking
+      // up from a REAL directory cannot reach node_modules inside the asar —
+      // without this the worker dies with "Cannot find module '@ast-grep/napi'"
+      // and every structural-edge batch silently resolves to [].
       unpack:
-        "{**/@lydell/node-pty-darwin-*/**,**/@lydell/node-pty-linux-*/**,**/@lydell/node-pty-win32-*/**,**/@ast-grep/lang-python/**,**/@ast-grep/lang-go/**,**/.vite/build/astgrep_worker.js}",
+        "{**/@lydell/node-pty-darwin-*/**,**/@lydell/node-pty-linux-*/**,**/@lydell/node-pty-win32-*/**,**/@ast-grep/napi/**,**/@ast-grep/lang-python/**,**/@ast-grep/lang-go/**,**/.vite/build/astgrep_worker.js}",
     },
     ignore,
     extraResource: [

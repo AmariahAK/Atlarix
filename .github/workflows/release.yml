@@ -67,7 +67,7 @@ jobs:
           node-version: 20
           cache: npm
 
-      # postinstall builds electron + fetches ctags/monaco; not needed for type/lint/tests
+      # postinstall builds electron + fetches ctags; not needed for type/lint/tests
       - name: Install dependencies
         run: node scripts/verify-npm-lock-registry.mjs && npm ci --ignore-scripts && npx patch-package
 

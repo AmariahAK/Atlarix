@@ -5,6 +5,7 @@
 import { execSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import { createRequire } from "node:module";
 
 const outRoot = path.resolve(process.argv[2] ?? path.join(process.cwd(), "out"));
 
@@ -100,6 +101,22 @@ for (const lang of ["python", "go"]) {
 const workerUnpacked = path.join(resources, "app.asar.unpacked", ".vite", "build", "astgrep_worker.js");
 if (fs.existsSync(workerUnpacked)) {
   console.log("OK: astgrep_worker.js unpacked");
+
+  // Replicate the worker's module resolution: it runs from a REAL directory
+  // (app.asar.unpacked/.vite/build), so Node's walk-up can only see unpacked
+  // node_modules — it cannot reach packages inside the asar. This is the exact
+  // failure mode of "Cannot find module '@ast-grep/napi'" (worker crashes,
+  // every structural-edge batch silently resolves to []).
+  try {
+    const workerRequire = createRequire(workerUnpacked);
+    const resolved = workerRequire.resolve("@ast-grep/napi");
+    console.log(`OK: @ast-grep/napi resolvable from the worker → ${resolved}`);
+  } catch {
+    console.error(
+      "@ast-grep/napi NOT resolvable from the unpacked worker — add **/@ast-grep/napi/** to forge asar.unpack",
+    );
+    failed = true;
+  }
 } else {
   console.warn("WARN: astgrep_worker.js not in app.asar.unpacked (may still be in asar)");
 }
