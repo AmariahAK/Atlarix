@@ -141,6 +141,41 @@ export async function executeAutomationRun(
   }
   const workspacePath = resolveAppPath(app.path);
 
+  // notify-only (the default): the fired trigger IS the payload — write the
+  // feed row + notification with ZERO model involvement. The user presents it
+  // to the model on demand via the feed's "Send to chat".
+  if (automation.runMode === "notify-only") {
+    const runId = randomUUID();
+    const now = new Date();
+    const headline =
+      triggerContext?.split("\n").find((l) => l.trim()) ??
+      `"${automation.name}" fired on schedule`;
+    await db.insert(automationRuns).values({
+      id: runId,
+      automationId,
+      sessionId: null,
+      status: "ok",
+      summary: headline.slice(0, SUMMARY_MAX),
+      triggerContext,
+      unread: true,
+      startedAt: now,
+      finishedAt: now,
+    });
+    await db
+      .update(automations)
+      .set({ lastRunAt: now, updatedAt: now })
+      .where(eq(automations.id, automationId));
+    await broadcastRunUpdate(runId);
+    try {
+      const { notifyRunFinished } = await import("./notify");
+      await notifyRunFinished(runId);
+    } catch (e) {
+      logger.warn("automation notification failed:", e);
+    }
+    logger.info(`automation "${automation.name}" fired (notify-only)`);
+    return { runId };
+  }
+
   const resolvedDeps = deps ?? (await resolveProdDeps());
   const timeoutMs = resolvedDeps.timeoutMs ?? RUN_TIMEOUT_MS;
   const runId = randomUUID();
@@ -162,6 +197,7 @@ export async function executeAutomationRun(
     automationId,
     sessionId,
     status: "running",
+    triggerContext,
     startedAt: now,
   });
   await db

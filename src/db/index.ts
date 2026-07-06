@@ -464,6 +464,14 @@ function ensureAutomationTablesIfNeeded(sqlite: Database.Database): void {
       "CREATE INDEX IF NOT EXISTS automation_runs_automation_id_idx ON automation_runs (automation_id)",
     );
   }
+  // 0067: trigger_context on runs (self-heal for DBs whose ledger predates it).
+  if (
+    tableExists(sqlite, "automation_runs") &&
+    !columnExists(sqlite, "automation_runs", "trigger_context")
+  ) {
+    logger.log("[Schema Fix] Adding automation_runs.trigger_context (0067)");
+    sqlite.exec("ALTER TABLE automation_runs ADD COLUMN trigger_context text");
+  }
 }
 
 function ensureMessagesModelContentColumnIfNeeded(sqlite: Database.Database): void {

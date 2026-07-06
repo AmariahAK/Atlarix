@@ -15,6 +15,7 @@ import {
   ChevronRight,
   CircleAlert,
   FileDiff,
+  MessageSquarePlus,
   Pencil,
   Play,
   Plus,
@@ -22,6 +23,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
+import { attachmentsAtom } from "@/atoms/chatAtoms";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -112,6 +114,32 @@ export function AutomationsTab({ appId }: { appId: number | null }) {
     messages: Array<{ role: string; content: string }>;
   } | null>(null);
   const [proposalView, setProposalView] = useState<AutomationRunView | null>(null);
+  const setComposerAttachments = useSetAtom(attachmentsAtom);
+
+  // Present a fired event to the model on the user's terms: attach its context
+  // to the composer as a standard text chip — the model only reads it when the
+  // user sends, and acts under the current session's normal permission flow.
+  const sendEventToChat = (run: AutomationRunView) => {
+    if (!run.triggerContext) return;
+    setComposerAttachments((prev) => [
+      ...prev,
+      {
+        type: "chat-context",
+        id: `automation-${run.id}`,
+        textPaste: {
+          content: `Automation "${run.automationName}" fired:\n${run.triggerContext}`,
+          displayName: `automation: ${run.automationName}`,
+        },
+      },
+    ]);
+    toast.success(`Added "${run.automationName}" event to chat`);
+    if (run.unread) {
+      void IpcClient.getInstance().markAutomationRunsRead([run.id]);
+      setRunsAtom((prev) =>
+        prev.map((r) => (r.id === run.id ? { ...r, unread: false } : r)),
+      );
+    }
+  };
 
   const refresh = useCallback(async () => {
     if (appId == null) return;
@@ -388,7 +416,22 @@ export function AutomationsTab({ appId }: { appId: number | null }) {
                           {run.error ? `Error: ${run.error}` : run.summary}
                         </p>
                       )}
+                      {run.triggerContext && (
+                        <pre className="max-h-32 overflow-auto whitespace-pre-wrap break-words rounded-md bg-muted/40 p-2 font-mono text-[11px] text-muted-foreground">
+                          {run.triggerContext}
+                        </pre>
+                      )}
                       <div className="flex flex-wrap items-center gap-1.5">
+                        {run.triggerContext && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-6 px-2 text-[11px]"
+                            onClick={() => sendEventToChat(run)}
+                          >
+                            <MessageSquarePlus className="mr-1 h-3 w-3" /> Send to chat
+                          </Button>
+                        )}
                         {run.sessionId && (
                           <Button
                             size="sm"

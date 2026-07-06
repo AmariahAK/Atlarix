@@ -49,19 +49,35 @@ export type GithubTrigger = z.infer<typeof GithubTriggerSchema>;
 export type McpTrigger = z.infer<typeof McpTriggerSchema>;
 export type AutomationTrigger = z.infer<typeof AutomationTriggerSchema>;
 
-export const AutomationRunModeSchema = z.enum(["read-only", "worktree-write"]);
+/**
+ * notify-only (the DEFAULT): a fired trigger posts its context to the feed +
+ * notification with ZERO model involvement — the user decides per event
+ * whether to present it to the model ("Send to chat"). The agent-run modes
+ * are explicit per-automation opt-ins; nothing spends tokens unless chosen.
+ */
+export const AutomationRunModeSchema = z.enum([
+  "notify-only",
+  "read-only",
+  "worktree-write",
+]);
 export type AutomationRunMode = z.infer<typeof AutomationRunModeSchema>;
 
 /** IPC create/update payload (id/workspaceId handled by the handler). */
-export const AutomationInputSchema = z.object({
-  name: z.string().min(1).max(120),
-  enabled: z.boolean().default(true),
-  trigger: AutomationTriggerSchema,
-  prompt: z.string().min(1),
-  runMode: AutomationRunModeSchema.default("read-only"),
-  /** {provider,name} override; null → settings.selectedModel at run time. */
-  model: z.object({ provider: z.string(), name: z.string() }).nullable().default(null),
-});
+export const AutomationInputSchema = z
+  .object({
+    name: z.string().min(1).max(120),
+    enabled: z.boolean().default(true),
+    trigger: AutomationTriggerSchema,
+    /** Required for agent-run modes; notify-only automations don't need one. */
+    prompt: z.string().default(""),
+    runMode: AutomationRunModeSchema.default("notify-only"),
+    /** {provider,name} override; null → settings.selectedModel at run time. */
+    model: z.object({ provider: z.string(), name: z.string() }).nullable().default(null),
+  })
+  .refine((v) => v.runMode === "notify-only" || v.prompt.trim().length > 0, {
+    message: "Agent-run automations need a prompt",
+    path: ["prompt"],
+  });
 export type AutomationInput = z.infer<typeof AutomationInputSchema>;
 
 export type GithubCursor = {
@@ -85,6 +101,8 @@ export interface AutomationRunView {
   error: string | null;
   unread: boolean;
   archived: boolean;
+  /** Fired-trigger context (notify-only runs) — fuels the "Send to chat" chip. */
+  triggerContext: string | null;
   hasProposal: boolean;
   proposalFiles: string[];
   proposalApplied: boolean;

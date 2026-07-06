@@ -10,16 +10,21 @@
 
 ### Added
 
-- **Automations** — Codex-app-style local recurring agent runs, in the right-panel slot freed by
-  the Code tab. Define an automation (name + trigger + prompt) and Atlarix runs it unattended
-  while the app is open: **schedule** triggers (presets or cron via node-cron), **GitHub polls**
+- **Automations** — Codex-app-style local recurring triggers with a triage feed, in the
+  right-panel slot freed by the Code tab. **Notify-only by default**: a fired trigger posts its
+  context to the feed and pings you with ZERO model involvement — the event itself is the
+  payload, and you decide per event whether to present it to the model via the feed's **"Send to
+  chat"** (attaches the event as a standard chip; the model reads it in your active session and
+  acts under that session's normal permission flow). Built for open-weight-model economics: no
+  tokens are spent unless you choose. Agent runs remain explicit per-automation opt-ins.
+  Triggers run while the app is open: **schedule** (presets or cron via node-cron), **GitHub polls**
   (new PR / review requested / CI failed — deterministic REST polling with the user's stored
   token, cursor-seeded so backlogs never fire, zero LLM cost in the poll loop), and **MCP polls**
   (call any connected MCP tool with fixed args on an interval, fire on result-hash change;
-  creating one grants explicit standing consent for that server+tool). Runs execute as real
-  agent turns through the same `chat:stream` engine (the headless runner's fake-sender +
-  auto-approve spine, hosted in-process): **read-only by default** (ask-tier tools, `ask_user`/
-  `browser_*` dropped for unattended runs), with per-automation opt-in **worktree-write** — the
+  creating one grants explicit standing consent for that server+tool). Opt-in agent runs execute
+  as real agent turns through the same `chat:stream` engine (the headless runner's fake-sender +
+  auto-approve spine, hosted in-process): **read-only** (ask-tier tools, `ask_user`/
+  `browser_*` dropped for unattended runs), or **worktree-write** — the
   turn runs in an isolated git worktree and its diff surfaces as a reviewable proposal you apply
   from the feed (`git apply --3way`). Dangerous operations are ALWAYS denied unattended (no env
   escape hatch), runs have a 10-minute budget, one runs at a time. Results land in a **triage

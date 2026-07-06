@@ -782,8 +782,13 @@ export const automations = sqliteTable("automations", {
   /** JSON AutomationTrigger (zod-validated at the IPC boundary). */
   trigger: text("trigger").notNull(),
   prompt: text("prompt").notNull(),
-  /** worktree-write runs execute in an isolated git worktree and surface a proposal diff. */
-  runMode: text("run_mode", { enum: ["read-only", "worktree-write"] })
+  /**
+   * notify-only (default at the zod layer): fired triggers post to the feed
+   * with no model turn; agent-run modes are explicit opt-ins. worktree-write
+   * runs execute in an isolated git worktree and surface a proposal diff.
+   * (Enum is drizzle-type-level only — the 0066 column has no CHECK.)
+   */
+  runMode: text("run_mode", { enum: ["notify-only", "read-only", "worktree-write"] })
     .notNull()
     .default("read-only"),
   /** JSON {provider,name} model override; null → settings.selectedModel. */
@@ -815,6 +820,8 @@ export const automationRuns = sqliteTable("automation_runs", {
   error: text("error"),
   unread: integer("unread", { mode: "boolean" }).notNull().default(true),
   archived: integer("archived", { mode: "boolean" }).notNull().default(false),
+  /** The fired trigger's context (notify-only runs) — fuels "Send to chat". */
+  triggerContext: text("trigger_context"),
   /** Unified diff captured from a worktree-write run (user applies from the feed). */
   proposalDiff: text("proposal_diff"),
   /** JSON string[] of files touched by the proposal. */

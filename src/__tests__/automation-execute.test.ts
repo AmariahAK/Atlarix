@@ -3,6 +3,7 @@ import {
   automationPromptSuffix,
   parseAutomationOutcome,
 } from "@/lib/automations/execute-run";
+import { AutomationInputSchema } from "@/lib/automations/types";
 import { automationAutoApprove } from "@/lib/automations/auto-approve";
 import { makeFakeSender } from "@/headless/fake-sender";
 
@@ -40,6 +41,28 @@ describe("automationPromptSuffix", () => {
     expect(s).toContain("Nightly audit");
     expect(s).toContain("AUTOMATION_RESULT:");
     expect(s).toContain("NOTHING_TO_REPORT");
+  });
+});
+
+describe("AutomationInputSchema run modes", () => {
+  const base = {
+    name: "x",
+    trigger: { kind: "schedule", cron: "0 9 * * *" },
+  };
+
+  it("defaults to notify-only with no prompt required", () => {
+    const parsed = AutomationInputSchema.parse(base);
+    expect(parsed.runMode).toBe("notify-only");
+    expect(parsed.prompt).toBe("");
+  });
+
+  it("requires a prompt for agent-run modes", () => {
+    expect(() =>
+      AutomationInputSchema.parse({ ...base, runMode: "read-only" }),
+    ).toThrow(/need a prompt/);
+    expect(
+      AutomationInputSchema.parse({ ...base, runMode: "read-only", prompt: "audit" }).prompt,
+    ).toBe("audit");
   });
 });
 

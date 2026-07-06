@@ -15,7 +15,6 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { IpcClient } from "@/ipc/ipc_client";
@@ -34,6 +33,14 @@ const GITHUB_EVENTS: Array<{ key: "new-pr" | "review-requested" | "ci-failed"; l
   { key: "review-requested", label: "Review requested from me" },
   { key: "ci-failed", label: "CI run failed" },
 ];
+
+function cnRunMode(disabled: boolean, selected: boolean): string {
+  return [
+    "flex items-start gap-2 rounded-md border p-2.5 cursor-pointer",
+    selected ? "border-primary/60 bg-primary/5" : "border-border",
+    disabled ? "opacity-50 cursor-not-allowed" : "",
+  ].join(" ");
+}
 
 interface McpServerOption {
   id: number;
@@ -86,7 +93,9 @@ export function AutomationForm({
       : "{}",
   );
   const [prompt, setPrompt] = useState(existing?.prompt ?? "");
-  const [worktreeWrite, setWorktreeWrite] = useState(existing?.runMode === "worktree-write");
+  const [runMode, setRunMode] = useState<"notify-only" | "read-only" | "worktree-write">(
+    (existing?.runMode as "notify-only" | "read-only" | "worktree-write") ?? "notify-only",
+  );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -123,7 +132,11 @@ export function AutomationForm({
     };
   }, [kind, cron, repo, events, interval, mcpServerId, mcpTool, mcpArgs]);
 
-  const valid = Boolean(name.trim() && prompt.trim() && trigger);
+  const effectiveRunMode =
+    runMode === "worktree-write" && !isGitRepo ? "read-only" : runMode;
+  const valid = Boolean(
+    name.trim() && trigger && (effectiveRunMode === "notify-only" || prompt.trim()),
+  );
 
   const save = async () => {
     if (!valid || !trigger) return;
@@ -134,7 +147,7 @@ export function AutomationForm({
       enabled: existing?.enabled ?? true,
       trigger,
       prompt: prompt.trim(),
-      runMode: worktreeWrite && isGitRepo ? "worktree-write" : "read-only",
+      runMode: effectiveRunMode,
       model: existing?.model ?? null,
     };
     try {
@@ -304,31 +317,67 @@ export function AutomationForm({
           )}
 
           <div className="space-y-1.5">
-            <Label htmlFor="automation-prompt">Prompt</Label>
-            <Textarea
-              id="automation-prompt"
-              value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
-              rows={4}
-              placeholder="What should the agent do each time this fires?"
-            />
+            <Label>When it fires</Label>
+            <div className="space-y-1.5">
+              {(
+                [
+                  {
+                    key: "notify-only" as const,
+                    title: "Notify only (default)",
+                    detail:
+                      "Post the event to the feed + ping you — no model involved. Present it to the AI yourself with \"Send to chat\".",
+                    disabled: false,
+                  },
+                  {
+                    key: "read-only" as const,
+                    title: "Run agent (read-only)",
+                    detail:
+                      "Runs an unattended agent turn with read-only tools and reports a summary. Costs one model turn per fire.",
+                    disabled: false,
+                  },
+                  {
+                    key: "worktree-write" as const,
+                    title: "Run agent (worktree writes)",
+                    detail: isGitRepo
+                      ? "Agent runs in an isolated git worktree; changes surface as a reviewable proposal."
+                      : "Requires a git workspace — this workspace is not a git repository.",
+                    disabled: !isGitRepo,
+                  },
+                ]
+              ).map((opt) => (
+                <label
+                  key={opt.key}
+                  className={cnRunMode(opt.disabled, runMode === opt.key)}
+                >
+                  <input
+                    type="radio"
+                    name="automation-run-mode"
+                    className="mt-0.5"
+                    checked={runMode === opt.key}
+                    disabled={opt.disabled}
+                    onChange={() => setRunMode(opt.key)}
+                  />
+                  <span>
+                    <span className="block text-sm font-medium">{opt.title}</span>
+                    <span className="block text-xs text-muted-foreground">{opt.detail}</span>
+                  </span>
+                </label>
+              ))}
+            </div>
           </div>
 
-          <div className="flex items-center justify-between rounded-md border border-border p-3">
-            <div>
-              <p className="text-sm font-medium">Allow writes (worktree proposals)</p>
-              <p className="text-xs text-muted-foreground">
-                {isGitRepo
-                  ? "Runs in an isolated git worktree; changes surface as a reviewable proposal."
-                  : "Requires a git workspace — this workspace is not a git repository."}
-              </p>
+          {runMode !== "notify-only" && (
+            <div className="space-y-1.5">
+              <Label htmlFor="automation-prompt">Prompt</Label>
+              <Textarea
+                id="automation-prompt"
+                value={prompt}
+                onChange={(e) => setPrompt(e.target.value)}
+                rows={4}
+                placeholder="What should the agent do each time this fires?"
+              />
             </div>
-            <Switch
-              checked={worktreeWrite && isGitRepo}
-              disabled={!isGitRepo}
-              onCheckedChange={setWorktreeWrite}
-            />
-          </div>
+          )}
 
           {error && <p className="text-sm text-red-500">{error}</p>}
         </div>

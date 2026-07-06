@@ -33,6 +33,7 @@ export async function getAutomationRunView(
     error: run.error,
     unread: run.unread,
     archived: run.archived,
+    triggerContext: run.triggerContext,
     hasProposal: Boolean(run.proposalDiff),
     proposalFiles: run.proposalFiles ? (JSON.parse(run.proposalFiles) as string[]) : [],
     proposalApplied: run.proposalAppliedAt != null,

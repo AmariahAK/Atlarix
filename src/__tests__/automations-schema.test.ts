@@ -33,8 +33,8 @@ describe("0066_automations migration", () => {
     expect([...runs.keys()]).toEqual(
       expect.arrayContaining([
         "id", "automation_id", "session_id", "status", "summary", "error",
-        "unread", "archived", "proposal_diff", "proposal_files",
-        "proposal_applied_at", "started_at", "finished_at",
+        "unread", "archived", "trigger_context", "proposal_diff",
+        "proposal_files", "proposal_applied_at", "started_at", "finished_at",
       ]),
     );
 
