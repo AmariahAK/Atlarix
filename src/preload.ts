@@ -43,6 +43,17 @@ const validInvokeChannels = [
   "chat:count-tokens",
   "chat:hydrate-ephemeral-messages",
   "sessions:list",
+  "automations:list",
+  "automations:create",
+  "automations:update",
+  "automations:delete",
+  "automations:toggle",
+  "automations:run-now",
+  "automations:runs",
+  "automations:mark-read",
+  "automations:archive",
+  "automations:proposal-diff",
+  "automations:apply-proposal",
   "sessions:start",
   "sessions:allocate-transport",
   "sessions:resolve-for-transport",
@@ -399,6 +410,8 @@ const validReceiveChannels = [
   "preview:dev-url", // main → renderer: a background command printed a localhost URL → load preview
   "chat:stream:browser-recording", // main → renderer: session reel(s) ready for a turn
   "chat:background-job-update", // main → renderer: background job started/finished/cancelled
+  "automation:run-update", // main → renderer: automation run started/finished (triage feed refresh)
+  "automations:focus-feed", // main → renderer: OS-notification click → open the automations tab
   "autonomous:session-complete",
   "chat:auto-self-correct", // main → renderer: synthetic fix prompt inserted; continue stream
   // OAuth callback from main process

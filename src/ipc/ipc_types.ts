@@ -57,6 +57,16 @@ export interface ChatStreamParams {
   workModeOverride?: WorkMode;
   /** v12 7A: run this turn as a user-defined agent (.atlarix/agents/<name>.md). */
   agentOverride?: string;
+  /**
+   * Set when this turn IS an automation run (unattended, no human responder).
+   * unattended drops human-handoff tools; workspacePathOverride points the turn
+   * at the run's isolated worktree for worktree-write automations.
+   */
+  automation?: {
+    runId: string;
+    unattended: true;
+    workspacePathOverride?: string;
+  };
 }
 
 /** Autonomous session review: one executed permission op logged in main. */

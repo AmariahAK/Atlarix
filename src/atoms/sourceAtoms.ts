@@ -20,7 +20,7 @@ export type PanelType =
     | 'tools'           // Tool execution activity
     | 'empty';          // No content
 
-export type PanelTab = 'sources' | 'tools' | 'debug' | 'preview' | 'terminal' | 'logs' | 'files' | 'approve' | 'permission' | 'errors' | 'permissions' | 'search' | 'chat' | 'plan' | 'browser';
+export type PanelTab = 'sources' | 'tools' | 'debug' | 'preview' | 'terminal' | 'logs' | 'files' | 'approve' | 'permission' | 'errors' | 'permissions' | 'search' | 'chat' | 'plan' | 'browser' | 'automations';
 
 export interface PanelContext {
     type: PanelType;

@@ -49,6 +49,11 @@ export interface ResolveToolsetInput {
   };
   /** v12 7A: the active user agent's `tools:` allowlist (null/undefined = all). */
   userAgentTools?: readonly string[] | null;
+  /**
+   * Automation runs: no human responder and no visible UI, but the full app
+   * infra (MCP servers, web search) exists — a lighter drop-set than headless.
+   */
+  unattended?: boolean;
 }
 
 export interface ResolvedToolset {
@@ -150,12 +155,22 @@ export function resolveToolsetForSession(
     // doesn't share the prefix) — no such view exists in the Electron-free CLI.
     "preview_test",
   ]);
-  const tools =
+  // Unattended (automation) runs happen inside the real app — MCP servers,
+  // web search, attachments all exist — so only human-handoff and UI-view
+  // tools are dropped: ask_user would park the turn forever (no responder),
+  // and browser_*/preview_test drive views nobody is watching.
+  const UNATTENDED_DROP = new Set(["ask_user", "preview_test"]);
+  const afterHeadless =
     process.env.ATLARIX_HEADLESS === "1"
       ? preTrim.filter(
           (t) => !t.name.startsWith("browser_") && !HEADLESS_DROP.has(t.name),
         )
       : preTrim;
+  const tools = input.unattended
+    ? afterHeadless.filter(
+        (t) => !t.name.startsWith("browser_") && !UNATTENDED_DROP.has(t.name),
+      )
+    : afterHeadless;
 
   // Sub-agent (`task`) surface: available in EVERY mode (v13 — parallel
   // read-only scouts help build/debug too, matching Claude Code's Task tool).

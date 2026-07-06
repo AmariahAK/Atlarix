@@ -372,6 +372,13 @@ export async function onReady() {
   scheduleCleanupJobs();
   logger.info("Cleanup jobs scheduled");
 
+  // Recover interrupted automation runs, then arm every enabled automation
+  // (cron schedules + deterministic pollers). Lazy import: keeps the runner
+  // out of the boot-critical path.
+  void import("./lib/automations/runner")
+    .then((m) => m.startAutomationRunner())
+    .catch((e) => logger.warn("Automation runner failed to start:", e));
+
   // Register workspace cleanup handlers
   registerCleanupHandlers();
   logger.info("Workspace cleanup handlers registered");

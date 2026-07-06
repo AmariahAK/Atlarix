@@ -1558,6 +1558,91 @@ export class IpcClient {
     return this.ipcRenderer.invoke("sessions:create", workspaceId);
   }
 
+  // ── Automations ────────────────────────────────────────────────────────────
+
+  public async listAutomations(workspaceId: number): Promise<{
+    automations: Array<{
+      id: string;
+      workspaceId: number | null;
+      name: string;
+      enabled: boolean;
+      trigger: unknown;
+      prompt: string;
+      runMode: "read-only" | "worktree-write";
+      model: { provider: string; name: string } | null;
+      lastRunAt: number | null;
+      createdAt: number;
+    }>;
+    unreadCount: number;
+  }> {
+    return this.ipcRenderer.invoke("automations:list", workspaceId);
+  }
+
+  public async createAutomation(workspaceId: number, input: unknown): Promise<{ id: string }> {
+    return this.ipcRenderer.invoke("automations:create", { workspaceId, input });
+  }
+
+  public async updateAutomation(id: string, input: unknown): Promise<{ ok: boolean }> {
+    return this.ipcRenderer.invoke("automations:update", { id, input });
+  }
+
+  public async deleteAutomation(id: string): Promise<{ ok: boolean }> {
+    return this.ipcRenderer.invoke("automations:delete", id);
+  }
+
+  public async toggleAutomation(id: string, enabled: boolean): Promise<{ ok: boolean }> {
+    return this.ipcRenderer.invoke("automations:toggle", { id, enabled });
+  }
+
+  public async runAutomationNow(id: string): Promise<{ ok: boolean }> {
+    return this.ipcRenderer.invoke("automations:run-now", id);
+  }
+
+  public async listAutomationRuns(
+    workspaceId: number,
+    includeArchived = false,
+  ): Promise<import("@/lib/automations/types").AutomationRunView[]> {
+    return this.ipcRenderer.invoke("automations:runs", { workspaceId, includeArchived });
+  }
+
+  public async markAutomationRunsRead(runIds: string[]): Promise<{ ok: boolean }> {
+    return this.ipcRenderer.invoke("automations:mark-read", runIds);
+  }
+
+  public async archiveAutomationRun(runId: string): Promise<{ ok: boolean }> {
+    return this.ipcRenderer.invoke("automations:archive", runId);
+  }
+
+  public async getAutomationProposalDiff(runId: string): Promise<string | null> {
+    return this.ipcRenderer.invoke("automations:proposal-diff", runId);
+  }
+
+  public async applyAutomationProposal(
+    runId: string,
+  ): Promise<{ applied: boolean; alreadyApplied?: boolean; conflict?: boolean; message?: string }> {
+    return this.ipcRenderer.invoke("automations:apply-proposal", runId);
+  }
+
+  /** Subscribe to live automation run updates (triage feed). Returns unsubscribe. */
+  public onAutomationRunUpdate(
+    handler: (view: import("@/lib/automations/types").AutomationRunView) => void,
+  ): () => void {
+    const unsubscribe = this.ipcRenderer.on("automation:run-update", (payload: unknown) =>
+      handler(payload as import("@/lib/automations/types").AutomationRunView),
+    );
+    return typeof unsubscribe === "function" ? unsubscribe : () => {};
+  }
+
+  /** OS-notification click: focus the automations feed (optionally at a run). */
+  public onAutomationsFocusFeed(
+    handler: (payload: { runId?: string }) => void,
+  ): () => void {
+    const unsubscribe = this.ipcRenderer.on("automations:focus-feed", (payload: unknown) =>
+      handler(payload as { runId?: string }),
+    );
+    return typeof unsubscribe === "function" ? unsubscribe : () => {};
+  }
+
   public async renameWorkspaceSession(sessionId: string, title: string) {
     return this.ipcRenderer.invoke("sessions:rename", sessionId, title);
   }

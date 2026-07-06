@@ -494,7 +494,14 @@ export function registerWorkspaceSessionHandlers(): void {
     const rows = await db
       .select()
       .from(chatSessions)
-      .where(eq(chatSessions.workspaceId, workspaceId))
+      .where(
+        and(
+          eq(chatSessions.workspaceId, workspaceId),
+          // Automation-run transcripts (kind="background") live in the
+          // automations feed, not the workspace session list.
+          eq(chatSessions.kind, "normal"),
+        ),
+      )
       .orderBy(desc(chatSessions.updatedAt));
     return rows.map((r) => mapSession(r));
   });

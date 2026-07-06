@@ -170,6 +170,9 @@ export function initializeDatabase(): BetterSQLite3Database<typeof schema> & {
       try { ensureReviewPatternsTableIfNeeded(sqlite); } catch (error) {
         logger.error("Error ensuring review_patterns table (non-fatal):", error);
       }
+      try { ensureAutomationTablesIfNeeded(sqlite); } catch (error) {
+        logger.error("Error ensuring automations tables (non-fatal):", error);
+      }
       try { ensureSessionMessagePlanColumnsIfNeeded(sqlite); } catch (error) {
         logger.error("Error ensuring session_messages plan columns (non-fatal):", error);
       }
@@ -416,6 +419,53 @@ function ensureReviewPatternsTableIfNeeded(sqlite: Database.Database): void {
   `);
   sqlite.exec("CREATE INDEX IF NOT EXISTS review_patterns_workspace_idx ON review_patterns (workspace_id)");
 }
+
+/** Self-heal for 0066_automations on DBs whose migration ledger predates it. */
+function ensureAutomationTablesIfNeeded(sqlite: Database.Database): void {
+  if (!tableExists(sqlite, "automations")) {
+    logger.log("[Schema Fix] Creating automations table (0066_automations)");
+    sqlite.exec(`
+      CREATE TABLE IF NOT EXISTS automations (
+        id TEXT PRIMARY KEY NOT NULL,
+        workspace_id INTEGER REFERENCES apps(id) ON DELETE CASCADE,
+        name TEXT NOT NULL,
+        enabled INTEGER NOT NULL DEFAULT true,
+        trigger TEXT NOT NULL,
+        prompt TEXT NOT NULL,
+        run_mode TEXT NOT NULL DEFAULT 'read-only',
+        model TEXT,
+        cursor TEXT,
+        last_run_at INTEGER,
+        created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+        updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+      )
+    `);
+  }
+  if (!tableExists(sqlite, "automation_runs")) {
+    logger.log("[Schema Fix] Creating automation_runs table (0066_automations)");
+    sqlite.exec(`
+      CREATE TABLE IF NOT EXISTS automation_runs (
+        id TEXT PRIMARY KEY NOT NULL,
+        automation_id TEXT NOT NULL REFERENCES automations(id) ON DELETE CASCADE,
+        session_id TEXT REFERENCES chat_sessions(id) ON DELETE SET NULL,
+        status TEXT NOT NULL,
+        summary TEXT,
+        error TEXT,
+        unread INTEGER NOT NULL DEFAULT true,
+        archived INTEGER NOT NULL DEFAULT false,
+        proposal_diff TEXT,
+        proposal_files TEXT,
+        proposal_applied_at INTEGER,
+        started_at INTEGER NOT NULL DEFAULT (unixepoch()),
+        finished_at INTEGER
+      )
+    `);
+    sqlite.exec(
+      "CREATE INDEX IF NOT EXISTS automation_runs_automation_id_idx ON automation_runs (automation_id)",
+    );
+  }
+}
+
 function ensureMessagesModelContentColumnIfNeeded(sqlite: Database.Database): void {
   if (!tableExists(sqlite, "messages")) return;
   if (!columnExists(sqlite, "messages", "model_content")) {

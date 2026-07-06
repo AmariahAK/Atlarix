@@ -12,7 +12,10 @@
 
 import React from 'react';
 import { useRightPanelContext } from '@/hooks/useRightPanelContext';
-import { useAtom, useSetAtom } from 'jotai';
+import { useAtom, useAtomValue, useSetAtom } from 'jotai';
+import { automationsFocusRunIdAtom, automationsUnreadCountAtom } from '@/atoms/automationAtoms';
+import { AutomationsTab } from './automations/AutomationsTab';
+import { IpcClient } from '@/ipc/ipc_client';
 import { useSearch } from '@tanstack/react-router';
 import { rightPanelVisibleAtom, rightPanelWidthAtom, pinnedPanelAtom, rightPanelSuppressAutoOpenAtom } from '@/atoms/sourceAtoms';
 import { chatInputValueAtom } from '@/atoms/chatAtoms';
@@ -23,7 +26,7 @@ import { cn } from '@/lib/utils';
 import {
     X, Terminal, Wrench,
     Search, Eye,
-    AlertTriangle, Shield, Globe, Code2, FileText, MessageSquare, ListTree, } from 'lucide-react';
+    AlertTriangle, Shield, Globe, Code2, FileText, MessageSquare, ListTree, AlarmClock, } from 'lucide-react';
 import { TerminalPanel } from './panels/TerminalPanel';
 import { type ParsedError } from '@/lib/devServerErrorParser';
 import { ToolCallCard, ToolStatus } from './ToolCallCard';
@@ -44,6 +47,7 @@ import { BrowserPanel } from '@/components/browser/BrowserPanel';
 const TAB_ICONS: Record<PanelTab, { icon: React.ElementType; label: string }> = {
     preview: { icon: Eye, label: 'Preview' },
     terminal: { icon: Terminal, label: 'Terminal' },
+    automations: { icon: AlarmClock, label: 'Automations' },
     errors: { icon: AlertTriangle, label: 'Errors' },
     permissions: { icon: Shield, label: 'Permissions' },
     search: { icon: Globe, label: 'Search' },
@@ -64,6 +68,17 @@ export function RightPanel() {
     // tab inside PanelContent rather than taking over the whole panel.
     useWorkspacePlanPanel();
     const { context, setActiveTab } = useRightPanelContext();
+    const automationsUnread = useAtomValue(automationsUnreadCountAtom);
+    const setAutomationsFocusRunId = useSetAtom(automationsFocusRunIdAtom);
+    // OS-notification click → open the automations feed at the run.
+    useEffect(() => {
+        return IpcClient.getInstance().onAutomationsFocusFeed(({ runId }) => {
+            setActiveTab('automations');
+            if (runId) setAutomationsFocusRunId(runId);
+        });
+        // setActiveTab identity is stable enough for this subscription's lifetime.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
     const [isVisible, setIsVisible] = useAtom(rightPanelVisibleAtom);
     const setSuppressRightAutoOpen = useSetAtom(rightPanelSuppressAutoOpenAtom);
     const [width, setWidth] = useAtom(rightPanelWidthAtom);
@@ -270,6 +285,9 @@ Please fix these errors in priority order (structural/build errors first, then r
                             const tabConfig = TAB_ICONS[tab];
                             const Icon = tabConfig?.icon || Code2;
                             const label = tabConfig?.label || tab;
+                            const badge = tab === 'automations' && automationsUnread > 0
+                                ? (automationsUnread > 9 ? '9+' : String(automationsUnread))
+                                : null;
                             return (
                                 <Tooltip key={tab}>
                                     <TooltipTrigger asChild>
@@ -277,13 +295,18 @@ Please fix these errors in priority order (structural/build errors first, then r
                                             onClick={() => setActiveTab(tab)}
                                             aria-label={label}
                                             className={cn(
-                                                "p-2 rounded-md transition-colors",
+                                                "relative p-2 rounded-md transition-colors",
                                                 context.activeTab === tab
                                                     ? "bg-primary/15 text-primary"
                                                     : "text-muted-foreground hover:text-foreground hover:bg-muted"
                                             )}
                                         >
                                             <Icon size={16} />
+                                            {badge && (
+                                                <span className="absolute -top-0.5 -right-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-primary px-0.5 text-[9px] font-semibold leading-none text-primary-foreground">
+                                                    {badge}
+                                                </span>
+                                            )}
                                             <span className="sr-only">{label}</span>
                                         </button>
                                     </TooltipTrigger>
@@ -342,6 +365,13 @@ function PanelContent({
         case 'code-preview':
             if (context.activeTab === 'terminal') {
                 return <TerminalPanel />;
+            }
+            if (context.activeTab === 'automations') {
+                return (
+                    <AutomationsTab
+                        appId={(context.data as { appId?: number | null } | null)?.appId ?? null}
+                    />
+                );
             }
             return (
                 <CodePreviewPanel

@@ -1232,6 +1232,32 @@ async function performFullRevert(params: {
  * background agents can invoke the SAME turn engine in-process with a
  * synthetic recording sender (no foreground renderer). Null until registered.
  */
+type ChatStreamHandlerFn = (
+  event: Electron.IpcMainInvokeEvent,
+  req: ChatStreamParams,
+) => Promise<{ streamId: number } | { error: string } | void>;
+let chatStreamHandlerRef: ChatStreamHandlerFn | null = null;
+
+/** The live `chat:stream` handler for in-process automation runs (null before registration). */
+export function getChatStreamHandler(): ChatStreamHandlerFn | null {
+  return chatStreamHandlerRef;
+}
+
+/**
+ * Abort a stream without an IPC event (automation timeout path). Also stops
+ * blocking foreground commands + scout sub-agents, mirroring chat:cancel.
+ */
+export function cancelStreamForAutomation(chatId: number): void {
+  const abortController = activeStreams.get(chatId);
+  if (abortController) {
+    abortController.abort();
+    activeStreams.delete(chatId);
+    logger.log(`[automation] Aborted stream for chat ${chatId}`);
+  }
+  killForegroundCommandsForChat(chatId);
+  cancelAllSubagentTasksForChat(chatId);
+}
+
 export function registerChatStreamHandlers() {
   ipcMain.handle(
     "respond-mode-change",
@@ -2245,7 +2271,11 @@ ${componentSnippet}
           if (boundApp) effectiveApp = boundApp;
         }
         const hasWorkspace = !!effectiveApp;
-        let appPath = effectiveApp?.path ? resolveAppPath(effectiveApp.path) : "";
+        // Worktree-write automation runs execute in an isolated worktree, not
+        // the live workspace checkout.
+        let appPath =
+          req.automation?.workspacePathOverride ??
+          (effectiveApp?.path ? resolveAppPath(effectiveApp.path) : "");
         const effectiveAppId = effectiveApp?.id;
         if (process.env.ATLARIX_DIAG_146 === "1") {
           logger.info(
@@ -2263,7 +2293,9 @@ ${componentSnippet}
         );
         // v14.8.10 Fix G: keep the incremental ctags/FTS5 search-index refresh
         // alive for ordinary agent sessions. Idempotent; ignore-filtered; cheap.
-        if (hasWorkspace && appPath) {
+        // Automation runs skip this — never re-point the singleton watcher at a
+        // throwaway worktree.
+        if (hasWorkspace && appPath && !req.automation) {
           void import("@/lib/search/search-index-watcher")
             .then((m) => m.ensureSearchIndexWatcher(appPath, effectiveAppId ?? null))
             .catch(() => {});
@@ -4824,6 +4856,7 @@ This conversation includes one or more image attachments. When the user uploads 
                 builtinProviderId: modelClient.builtinProviderId,
               },
               userAgentTools: activeUserAgent?.tools ?? null,
+              unattended: Boolean(req.automation),
             });
             const askToolsToInclude = askResolved.tools;
             const askCapabilityProfile = askResolved.capabilityProfile;
@@ -5505,6 +5538,7 @@ This conversation includes one or more image attachments. When the user uploads 
                 builtinProviderId: modelClient.builtinProviderId,
               },
               userAgentTools: activeUserAgent?.tools ?? null,
+              unattended: Boolean(req.automation),
             });
             const buildToolsToInclude = buildResolved.tools;
             const buildCapabilityProfile = buildResolved.capabilityProfile;
@@ -7455,6 +7489,10 @@ ${stopNote}`;
   };
 
   ipcMain.handle("chat:stream", chatStreamHandler);
+  // Automations execute unattended turns by invoking this exact handler with a
+  // recording sender (see src/lib/automations/execute-run.ts) — the handler was
+  // structured for in-process programmatic reuse from the start.
+  chatStreamHandlerRef = chatStreamHandler;
 
   // Handler to cancel an ongoing stream
   ipcMain.handle("chat:cancel", async (event, chatId: number) => {

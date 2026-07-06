@@ -213,9 +213,7 @@ export function registerInterceptor(chatId: number, interceptor: PermissionInter
 // IPC HANDLERS
 // ════════════════════════════════════════════════════════════════════════════
 
-ipcMain.handle(
-    "execute-permission",
-    async (
+const executePermissionHandler = async (
         _event: IpcMainInvokeEvent,
         {
             chatId,
@@ -304,8 +302,14 @@ ipcMain.handle(
         return await interceptor.executeOperation(operationId, {
             overrideContent,
         });
-    },
-);
+    };
+
+ipcMain.handle("execute-permission", executePermissionHandler);
+
+/** The live execute-permission handler for in-process automation auto-approval. */
+export function getExecutePermissionHandler(): typeof executePermissionHandler {
+    return executePermissionHandler;
+}
 
 ipcMain.handle(
     "reject-permission",

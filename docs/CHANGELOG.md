@@ -2,10 +2,33 @@
 
 ## [Unreleased] — Native-git reads, Code tab removal, universal language support
 
-> Three workstreams: a production Sentry fire (`TypeError: null.slice` on repos with ≥2 GiB
-> packfiles), deletion of the Code tab + Monaco (Atlarix works beside the IDE, not as one), and
+> Four workstreams: a production Sentry fire (`TypeError: null.slice` on repos with ≥2 GiB
+> packfiles), deletion of the Code tab + Monaco (Atlarix works beside the IDE, not as one),
 > the removal of hardcoded language gates so retrieval works for every language Universal Ctags
-> knows. tsc + oxlint clean; full vitest green (**1656 tests**).
+> knows, then the ast-grep/dead-blueprint-chain prune — and a new **Automations** feature in the
+> freed tab slot. tsc + oxlint clean; full vitest green (**1600 tests**).
+
+### Added
+
+- **Automations** — Codex-app-style local recurring agent runs, in the right-panel slot freed by
+  the Code tab. Define an automation (name + trigger + prompt) and Atlarix runs it unattended
+  while the app is open: **schedule** triggers (presets or cron via node-cron), **GitHub polls**
+  (new PR / review requested / CI failed — deterministic REST polling with the user's stored
+  token, cursor-seeded so backlogs never fire, zero LLM cost in the poll loop), and **MCP polls**
+  (call any connected MCP tool with fixed args on an interval, fire on result-hash change;
+  creating one grants explicit standing consent for that server+tool). Runs execute as real
+  agent turns through the same `chat:stream` engine (the headless runner's fake-sender +
+  auto-approve spine, hosted in-process): **read-only by default** (ask-tier tools, `ask_user`/
+  `browser_*` dropped for unattended runs), with per-automation opt-in **worktree-write** — the
+  turn runs in an isolated git worktree and its diff surfaces as a reviewable proposal you apply
+  from the feed (`git apply --3way`). Dangerous operations are ALWAYS denied unattended (no env
+  escape hatch), runs have a 10-minute budget, one runs at a time. Results land in a **triage
+  feed** with unread badges; nothing-to-report runs auto-archive silently; findings ping you via
+  a sonner toast (focused) or an OS notification (unfocused, click opens the feed). Transcripts
+  persist as background chat sessions (the dormant v12 `chat_sessions.kind="background"` scaffold
+  finally has its writer) and are peekable from the feed; interrupted runs are recovered as
+  errors on next boot. (Migration `0066_automations`; `src/lib/automations/`;
+  `automation_handlers.ts`; `AutomationsTab.tsx`.)
 
 ### Fixed
 

@@ -765,3 +765,82 @@ export const reviewPatternsRelations = relations(reviewPatterns, ({ one }) => ({
     references: [apps.id],
   }),
 }));
+
+/**
+ * Automations — persisted, locally-executed recurring agent runs (Codex-app
+ * model): a schedule or deterministic poller (GitHub / MCP) fires, the runner
+ * executes an unattended agent turn, and the result lands in the triage feed.
+ */
+export const automations = sqliteTable("automations", {
+  id: text("id").primaryKey(),
+  /** Nullable for future global automations; v1 requires a workspace. */
+  workspaceId: integer("workspace_id").references(() => apps.id, {
+    onDelete: "cascade",
+  }),
+  name: text("name").notNull(),
+  enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+  /** JSON AutomationTrigger (zod-validated at the IPC boundary). */
+  trigger: text("trigger").notNull(),
+  prompt: text("prompt").notNull(),
+  /** worktree-write runs execute in an isolated git worktree and surface a proposal diff. */
+  runMode: text("run_mode", { enum: ["read-only", "worktree-write"] })
+    .notNull()
+    .default("read-only"),
+  /** JSON {provider,name} model override; null → settings.selectedModel. */
+  model: text("model"),
+  /** JSON poller state (github cursors / mcp result hash); null until first poll. */
+  cursor: text("cursor"),
+  lastRunAt: integer("last_run_at", { mode: "timestamp" }),
+  createdAt: integer("created_at", { mode: "timestamp" })
+    .notNull()
+    .default(sql`(unixepoch())`),
+  updatedAt: integer("updated_at", { mode: "timestamp" })
+    .notNull()
+    .default(sql`(unixepoch())`),
+});
+
+export const automationRuns = sqliteTable("automation_runs", {
+  id: text("id").primaryKey(),
+  automationId: text("automation_id")
+    .notNull()
+    .references(() => automations.id, { onDelete: "cascade" }),
+  /** Transcript lives in a chat_sessions row with kind="background". */
+  sessionId: text("session_id").references(() => chatSessions.id, {
+    onDelete: "set null",
+  }),
+  status: text("status", {
+    enum: ["running", "ok", "nothing-to-report", "error"],
+  }).notNull(),
+  summary: text("summary"),
+  error: text("error"),
+  unread: integer("unread", { mode: "boolean" }).notNull().default(true),
+  archived: integer("archived", { mode: "boolean" }).notNull().default(false),
+  /** Unified diff captured from a worktree-write run (user applies from the feed). */
+  proposalDiff: text("proposal_diff"),
+  /** JSON string[] of files touched by the proposal. */
+  proposalFiles: text("proposal_files"),
+  proposalAppliedAt: integer("proposal_applied_at", { mode: "timestamp" }),
+  startedAt: integer("started_at", { mode: "timestamp" })
+    .notNull()
+    .default(sql`(unixepoch())`),
+  finishedAt: integer("finished_at", { mode: "timestamp" }),
+});
+
+export const automationsRelations = relations(automations, ({ one, many }) => ({
+  workspace: one(apps, {
+    fields: [automations.workspaceId],
+    references: [apps.id],
+  }),
+  runs: many(automationRuns),
+}));
+
+export const automationRunsRelations = relations(automationRuns, ({ one }) => ({
+  automation: one(automations, {
+    fields: [automationRuns.automationId],
+    references: [automations.id],
+  }),
+  session: one(chatSessions, {
+    fields: [automationRuns.sessionId],
+    references: [chatSessions.id],
+  }),
+}));

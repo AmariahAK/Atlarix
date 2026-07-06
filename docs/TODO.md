@@ -19,9 +19,14 @@ prune — consumer trace proved grep reranking is ctags+FTS5 only and edges fed 
 broken in packaged builds) blast-radius line; watcher slimmed to `search-index-watcher.ts` with
 the FTS5 refresh decoupled from the dead cache refresh; 3 native deps + worker + forge grammar
 machinery gone; run_command now steers find/grep → glob/grep tools. tsc/oxlint clean; vitest
-1578 green. IN PROGRESS: Automations tab (Codex-app-shaped: persisted schedule/GitHub/MCP
-triggers, unattended read-only runs + opt-in worktree proposals, triage feed in right panel,
-OS notifications).
+1578 green. Then (5) **Automations SHIPPED** (Codex-app-shaped): migration 0066, schedule
+(node-cron) + GitHub-poll + MCP-poll triggers (deterministic, cursor-seeded, no LLM in loops),
+unattended agent runs via the headless fake-sender/auto-approve spine in-process (dangerous
+ALWAYS denied, 10-min budget, concurrency 1), read-only default + opt-in worktree-write
+proposals (git apply --3way from the feed), triage feed tab with unread badge +
+nothing-to-report auto-archive, sonner/OS notifications, background chat_sessions transcripts
+(v12 kind="background" scaffold finally written), boot recovery of interrupted runs. vitest
+1600 green.
 
 ---
 
