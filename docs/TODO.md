@@ -62,6 +62,16 @@ diff); S18 done via tokenizer memo (gap data from the smoke session).
 
 ## Open follow-ups
 
+- **chat_stream_handlers.ts deep decomposition — IN PROGRESS (2026-07-06).** 8k-line god-file.
+  STAGE 0 STARTED (commit aac0f7a): `chat_stream/message-postprocess.ts` extracted (pure tail),
+  full suite + 73 agent-evals green. REMAINING: rest of STAGE 0 (permission-ui @~325-501,
+  network-retry @~1081-1145, stream-utils), STAGE 1 (shared-state satellites: stream-registry,
+  pending-ui-state, interrupted-draft, revert, activity-emitters, tool-execute), STAGE 2 (deep:
+  `StreamTurnContext` + runner/ask-branch/build-branch — the plan's highest-risk item, do with
+  fresh focus). Pattern: extract to `chat_stream/<topic>.ts`, parent imports-for-internal +
+  re-exports public API; gate each stage on check + vitest + `--project agent-evals`. Plan +
+  StreamTurnContext field list in the design pass; compiler-driven same-file extraction to make
+  the context contract a tsc checklist.
 - `.gitignore`-render profiler (carried from v14.8.10 §3.4).
 - Atlarix GitHub account for contributor credit — owner action; code side done (v14.8.10).
 - User-message multimodal content parts for HISTORICAL turns (current + edited turns embed
