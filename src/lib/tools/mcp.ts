@@ -14,6 +14,7 @@
  */
 
 import { ToolRegistry } from "./registry";
+import { wrapUntrustedData } from "../streaming/untrusted-data";
 import { db } from "../../db";
 import { mcpServers } from "../../db/schema";
 import { and, eq, or } from "drizzle-orm";
@@ -230,10 +231,12 @@ ToolRegistry.register({
       }
 
       const result = await tool.execute(args.arguments ?? {}, undefined);
+      const resultStr = typeof result === "string" ? result : JSON.stringify(result);
       return {
         server: server.name,
         tool: args.tool,
-        result: typeof result === "string" ? result : JSON.stringify(result),
+        // External server output is untrusted — frame it as data, not instructions.
+        result: wrapUntrustedData(`mcp:${server.name}`, resultStr),
       };
     };
 

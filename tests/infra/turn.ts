@@ -130,6 +130,8 @@ export async function runTurn(
     /** Drive interactive flows (approvals…) while the stream runs. */
     during?: (fakeIpc: FakeIpcEvent) => Promise<void>;
     timeoutMs?: number;
+    /** Simulate an unattended automation run (drops human-handoff tools, gates MCP consent). */
+    automation?: { runId: string; unattended: true; workspacePathOverride?: string };
   },
 ): Promise<TurnResult> {
   writeTestSettings({
@@ -153,6 +155,7 @@ export async function runTurn(
   await handler(fakeIpc.event, {
     chatId: opts.chatId,
     prompt: opts.prompt,
+    ...(opts.automation ? { automation: opts.automation } : {}),
   });
 
   const endPromise = fakeIpc.waitFor(

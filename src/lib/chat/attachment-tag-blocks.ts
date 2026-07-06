@@ -16,6 +16,7 @@ import {
   buildBackgroundJobModelBlock,
   buildBackgroundJobDisplayBlock,
 } from "@/lib/chat/background-job-attachment";
+import { escapeAttachmentTagBody } from "@/lib/chat/attachment-tag-escape";
 
 export function escapeXmlAttr(value: string): string {
   return value
@@ -25,7 +26,8 @@ export function escapeXmlAttr(value: string): string {
 }
 
 function buildTextPasteModelBlock(name: string, body: string): string {
-  return `<atlarix-text-attachment filename="${escapeXmlAttr(name)}">\n${body}\n</atlarix-text-attachment>`;
+  // Body is untrusted (pasted text / automation event) — neutralize tag-breakout.
+  return `<atlarix-text-attachment filename="${escapeXmlAttr(name)}">\n${escapeAttachmentTagBody(body)}\n</atlarix-text-attachment>`;
 }
 
 function buildTextPasteDisplayBlock(name: string): string {

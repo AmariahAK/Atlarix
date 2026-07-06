@@ -116,6 +116,7 @@ import {
   requireMcpAuth,
   type RequireMcpAuthInfo,
 } from "../utils/mcp_auth_wait";
+import { getStoredConsent } from "../utils/mcp_consent";
 
 import { getExtraProviderOptions, getReasoningEffort } from "../utils/thinking_utils";
 
@@ -680,6 +681,8 @@ async function runToolExecute(
     abortController?: AbortController;
     /** Session UUID for attachment scoping (stable across relaunches). */
     workspaceSessionId?: string;
+    /** This turn is an unattended automation run (no human to consent). */
+    unattended?: boolean;
   },
 ): Promise<unknown> {
   // No per-turn call cap or duplicate-call dedup: every tool call executes.
@@ -735,11 +738,21 @@ async function runToolExecute(
     }
   }
 
-  // MCP auth-and-retry: let mcp_call pause for the user to authenticate, then retry.
+  // MCP consent/auth. mcp_call produces no permission payload, so this context
+  // IS the gate. Attended: auth-and-retry (user present to authenticate).
+  // Unattended (automation): no human — a prompt-injected run must not drive
+  // mcp_call to servers the user didn't pre-approve, so require a standing
+  // "always" consent and never trigger OAuth (mirrors the MCP poller policy).
   if (toolName === "mcp_call") {
-    executeArgs._mcpInvocationContext = {
-      requireAuth: (info: RequireMcpAuthInfo) => requireMcpAuth(sender, info),
-    };
+    executeArgs._mcpInvocationContext = streamOpts?.unattended
+      ? {
+          requireConsent: async (info: { serverId: number; toolName: string }) =>
+            (await getStoredConsent(info.serverId, info.toolName)) === "always",
+          requireAuth: async () => false,
+        }
+      : {
+          requireAuth: (info: RequireMcpAuthInfo) => requireMcpAuth(sender, info),
+        };
   }
 
   const result: unknown = await ToolRegistry.execute(toolName, executeArgs);
@@ -2074,6 +2087,7 @@ ${componentSnippet}
         turnId: streamTurnId,
         abortController,
         workspaceSessionId: req.workspaceSessionId ?? undefined,
+        unattended: Boolean(req.automation),
       });
 
       // Send the messages right away so that the loading state is shown for the message.
@@ -4837,6 +4851,7 @@ This conversation includes one or more image attachments. When the user uploads 
               turnId: streamTurnId,
               abortController,
               workspaceSessionId: req.workspaceSessionId ?? undefined,
+              unattended: Boolean(req.automation),
             });
 
             // v12 S19 (closes 3.10): the 4-stage resolution pipeline

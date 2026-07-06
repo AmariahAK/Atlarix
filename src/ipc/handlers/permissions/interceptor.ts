@@ -11,6 +11,7 @@ import * as fs from "fs/promises";
 import * as path from "path";
 import { createHash } from "crypto";
 import { recordMutationOutcome } from "@/lib/agent/mutation-verify";
+import { wrapUntrustedData } from "@/lib/streaming/untrusted-data";
 import log from "electron-log";
 import { EventEmitter } from "events";
 import { BrowserWindow } from "electron";
@@ -732,10 +733,11 @@ export class PermissionInterceptor extends EventEmitter {
                 // Command was executed - return result with exitCode
                 const base = {
                     success: cmdResult.success,
-                    output: this.formatCommandOutput(
-                        cmdResult.stdout,
-                        cmdResult.stderr,
-                        maxB,
+                    // Model-facing only (no UI consumer of getExecutionResult):
+                    // command output is untrusted — frame it as data.
+                    output: wrapUntrustedData(
+                        "command-output",
+                        this.formatCommandOutput(cmdResult.stdout, cmdResult.stderr, maxB),
                     ),
                     exitCode: cmdResult.exitCode,
                     error: cmdResult.success ? undefined : cmdResult.stderr.slice(0, 500) || 'Command failed',
@@ -762,10 +764,10 @@ export class PermissionInterceptor extends EventEmitter {
                     const base = {
                         success: cmdResult.success,
                         command: typeof cmdPreview?.command === "string" ? cmdPreview.command : undefined,
-                        output: this.formatCommandOutput(
-                            cmdResult.stdout,
-                            cmdResult.stderr,
-                            maxOutBytes,
+                        // Model-facing only — untrusted command output framed as data.
+                        output: wrapUntrustedData(
+                            "command-output",
+                            this.formatCommandOutput(cmdResult.stdout, cmdResult.stderr, maxOutBytes),
                         ),
                         exitCode: cmdResult.exitCode,
                         error: cmdResult.success ? undefined : cmdResult.stderr.slice(0, 500),

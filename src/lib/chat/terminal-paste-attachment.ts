@@ -4,6 +4,7 @@ import {
   linesToVisibleText,
   type FormattableLine,
 } from "@/lib/chat/terminal-line-format";
+import { escapeAttachmentTagBody } from "@/lib/chat/attachment-tag-escape";
 
 function escapeXmlAttr(value: string): string {
   return value
@@ -90,7 +91,7 @@ export function buildTerminalPasteBlocks(
     const { displayName, content, lineStart, lineEnd, owner } =
       att.terminalPaste;
     blocks.push(
-      `<atlarix-terminal-attachment label="${escapeXmlAttr(displayName)}" owner="${escapeXmlAttr(owner)}" lines="${lineStart}-${lineEnd}">\n${content}\n</atlarix-terminal-attachment>`,
+      `<atlarix-terminal-attachment label="${escapeXmlAttr(displayName)}" owner="${escapeXmlAttr(owner)}" lines="${lineStart}-${lineEnd}">\n${escapeAttachmentTagBody(content)}\n</atlarix-terminal-attachment>`,
     );
   }
   return blocks;

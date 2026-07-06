@@ -3,6 +3,8 @@
  * Avoids regex catastrophic backtracking on multi-hundred-line bodies.
  */
 
+import { unescapeAttachmentTagBody } from "@/lib/chat/attachment-tag-escape";
+
 export type ParsedAttachmentTag = {
   tag: "atlarix-text-attachment" | "atlarix-terminal-attachment";
   attributes: Record<string, string>;
@@ -100,7 +102,9 @@ export function findAttachmentTagsInContent(content: string): ParsedAttachmentTa
     results.push({
       tag: open.tag,
       attributes: parseAttributes(open.attrs),
-      content: body,
+      // Reverse the builder's tag-breakout neutralization so display/popover
+      // text matches what the user pasted. fullMatch stays raw (re-splice safe).
+      content: unescapeAttachmentTagBody(body),
       fullMatch,
       startIndex: openStart,
     });

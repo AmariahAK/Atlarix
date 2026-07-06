@@ -17,6 +17,7 @@ import {
   getStreamTransport,
 } from "@/lib/chat/stream-transport";
 import { makeFakeSender } from "@/headless/fake-sender";
+import { wrapUntrustedData } from "@/lib/streaming/untrusted-data";
 import { automationAutoApprove } from "./auto-approve";
 import type { AutomationRunStatus } from "./types";
 import type { ChatStreamParams } from "@/ipc/ipc_types";
@@ -237,7 +238,11 @@ export async function executeAutomationRun(
     : null;
   const prompt =
     automation.prompt +
-    (triggerContext ? `\n\n## Trigger context\n${triggerContext}` : "") +
+    // Trigger context (PR titles, MCP payloads) is attacker-influenceable — an
+    // unattended agent must treat it as data, never as instructions.
+    (triggerContext
+      ? `\n\n## Trigger context\n${wrapUntrustedData("automation-trigger", triggerContext)}`
+      : "") +
     automationPromptSuffix(automation.name);
 
   let status: AutomationRunStatus = "error";

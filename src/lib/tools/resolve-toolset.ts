@@ -158,8 +158,11 @@ export function resolveToolsetForSession(
   // Unattended (automation) runs happen inside the real app — MCP servers,
   // web search, attachments all exist — so only human-handoff and UI-view
   // tools are dropped: ask_user would park the turn forever (no responder),
-  // and browser_*/preview_test drive views nobody is watching.
-  const UNATTENDED_DROP = new Set(["ask_user", "preview_test"]);
+  // and browser_*/preview_test drive views nobody is watching. read_url is
+  // also dropped — an arbitrary-host fetch is a data-exfil channel for
+  // prompt-injected unattended runs, with little unattended value (web_search
+  // routes through the configured aggregator and keeps triage utility).
+  const UNATTENDED_DROP = new Set(["ask_user", "preview_test", "read_url"]);
   const afterHeadless =
     process.env.ATLARIX_HEADLESS === "1"
       ? preTrim.filter(

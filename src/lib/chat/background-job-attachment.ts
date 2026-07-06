@@ -1,5 +1,6 @@
 import type { FileAttachment } from "@/ipc/ipc_types";
 import { escapeXmlAttr } from "@/lib/chat/attachment-tag-blocks";
+import { escapeAttachmentTagBody } from "@/lib/chat/attachment-tag-escape";
 
 /**
  * C3 — background-job reference chips. From the background-jobs UI a user can
@@ -27,7 +28,7 @@ export function buildBackgroundJobModelBlock(att: BackgroundJobAttachment): stri
   const { jobId, command, outputTail } = att.backgroundJob;
   return [
     `<atlarix-background-job job_id="${escapeXmlAttr(jobId)}" command="${escapeXmlAttr(command)}">`,
-    outputTail?.trim() ? outputTail : "(no output captured yet)",
+    outputTail?.trim() ? escapeAttachmentTagBody(outputTail) : "(no output captured yet)",
     "</atlarix-background-job>",
   ].join("\n");
 }

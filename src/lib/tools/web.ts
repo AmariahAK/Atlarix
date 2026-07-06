@@ -16,6 +16,7 @@ import {
     stringParam,
 } from "./registry";
 import { smartSearch } from "../search";
+import { wrapUntrustedData } from "../streaming/untrusted-data";
 import { extractDomain } from "@/lib/format-url";
 import { safeFetch } from "../security/url-policy";
 
@@ -501,7 +502,8 @@ ToolRegistry.register({
             }
 
             return {
-                text: response,
+                // Remote search/page content is untrusted — data, not instructions.
+                text: wrapUntrustedData("web_search", response),
                 sources: searchResults.sources.map(result => ({
                     title: result.title,
                     url: result.url,
@@ -605,7 +607,8 @@ async function runDeepSearch(query: string, maxSources: number = 3) {
     }
 
     return {
-        text: response,
+        // Remote deep-search content is untrusted — data, not instructions.
+        text: wrapUntrustedData("web_search", response),
         sources: searchResults.sources.map((result) => ({
             title: result.title,
             url: result.url,
@@ -652,7 +655,11 @@ ToolRegistry.register({
         if (!fetched.ok) {
             return fetched.error;
         }
-        return `📄 **${fetched.title}**\n📍 ${url}\n\n---\n\n${fetched.content}`;
+        // Remote page content is untrusted — frame it as data, not instructions.
+        return wrapUntrustedData(
+            `read_url:${url}`,
+            `📄 **${fetched.title}**\n📍 ${url}\n\n---\n\n${fetched.content}`,
+        );
     },
 });
 
