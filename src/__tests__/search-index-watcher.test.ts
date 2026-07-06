@@ -9,7 +9,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
  * updateBm25IndexForFile directly, and ignored/non-code churn never does.
  */
 
-const { updateSpy } = vi.hoisted(() => ({ updateSpy: vi.fn(async () => {}) }));
+const { updateSpy } = vi.hoisted(() => ({
+  updateSpy: vi.fn(
+    async (_workspaceId: number, _projectPath: string, _relPath: string) => {},
+  ),
+}));
 vi.mock("@/lib/search/bm25_semantic_index", () => ({
   updateBm25IndexForFile: updateSpy,
 }));
