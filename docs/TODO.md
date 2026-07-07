@@ -86,44 +86,32 @@ diff); S18 done via tokenizer memo (gap data from the smoke session).
   behavior (weak at honoring async tool state). Investigate via a live DeepSeek run + the stream
   debug logs; determine which layer, then fix at that layer. NOT this session (decomposition first).
 
-- **chat_stream_handlers.ts deep decomposition — STAGE 2c IN PROGRESS (branch `decompose-chat-stream`,
-  2026-07-07).** God-file 7984 → 6231 lines; 14 cohesive `chat_stream/*.ts` modules, all gated on
-  check + ts:main/ts:tests + node/renderer + `--project agent-evals` (73 pass).
-  - DONE: STAGE 0 (message-postprocess, permission-ui, sentry-safe, compaction-activity, tool-execute,
-    network-retry, stream-misc); STAGE 1 (stream-state, stream-lifecycle); STAGE 2a
-    (lifecycle-handlers, revert-handlers); STAGE 2b (context-sections). **STAGE 2c so far:**
-    session-handlers (the 3 early IPC handlers); **turn-context.ts — the StreamTurnContext object is
-    FORMALIZED and the ~26 Group-A accumulators/flags migrated from bare locals to `ctx.*`
-    (byte-stable)**; turn-runner/prompt-bundle (buildPromptBundle, pure, via PromptBundleDeps).
-  - **STAGE 2c payoff extractions — 2026-07-07 session (on `main`, one gated commit each).** God-file
-    6231 → 5031 lines (−1200). Each `fn(ctx, deps)` in `chat_stream/turn-runner/*.ts`, body verbatim,
-    gated (ts:main/ts:tests/check:ts/oxlint + per-project agent-evals 73 / node 1484 / renderer 58):
-    - **prep A** (cf1f8fe): `pendingEmptyOutputNudge` promoted onto `ctx` (cross-closure mutable).
-    - **(1) simpleStreamText** (cbef57f) → `turn-runner/simple-stream-text.ts`; ~23-field deps bundle
-      built after the assembly call; both call sites pass `(ctx, deps, args)`.
-    - **(2) runStreamRoundWithEmptyOutputRetry** (ca7e5a3) → `turn-runner/round-retry.ts`; per-round
-      abort re-link verbatim; 3 loop consts + `isEmptyOutputStreamError` alias moved into the module;
-      call sites wrap it typing `params` as the fn's own param type (method-slot bivariance).
-    - **(3) processResponseChunkUpdate** (48bb4cd) → `turn-runner/response-chunk-update.ts`; keeps its
-      OWN `fullResponse` param; thin bound local keeps the callback slots unchanged.
-    - **(4) context-assembly IIFE + runCompressAndRebuild** (b9a3fcd) → `turn-runner/context-assembly.ts`.
-      **Used return-style threading, NOT the planned `ctx.assembly` shared-mutable** — the caller passes
-      the working set as `state`, the fn mutates its own locals (runCompressAndRebuild nested inside) and
-      returns the final set + `proactiveContextReminderForStream` for write-back. This avoided a
-      119-occurrence `ctx.assembly.*` rename across destructures/shorthands (lower risk, same behavior).
-      `limitedMessageHistory` typed `any[]` (mirrors runStream: updatedChat is `any`).
-  - **REMAINING — the HIGH-risk branch arms + finalization (NOT yet done).** `runAskBranch` (~757 lines,
-    2274-3030), `runBuildBranch` (~1439 lines, 3031-4469), and inline `finalizeTurn` (save-gated block) +
-    `handleTurnError` (main catch, needs a `() => runStream()` re-invoke thunk for the overflow arm).
-    **Concrete scope measured 2026-07-07:** the ask arm alone captures ~35 module-import sources + ~40
-    runStream-local free vars (many function-typed closures: `buildRoundSystemPrompt`, the `handle*`
-    callbacks, `applyTierEscalation`, `logTtftOnce`, permission/tool wiring…); build arm ~2×. Each
-    extraction yields a 40+-field `Deps` interface of mostly function types — line-count-only benefit,
-    disproportionate regression risk vs. the tangled pieces already extracted. Invariants to hold
-    verbatim: single per-turn `AbortController` + every `signal.aborted` check; save gate
-    `!signal.aborted || ctx.askUserEndedTurn || ctx.turnForcedTextFinish`; `retriedAfterOverflowCompaction`
-    in the OUTER shell; `ensureTerminal` idempotency latch. If revisited, consider extracting the SHARED
-    sub-helpers (permission-interceptor setup, runAgentTurn-config assembly) rather than the whole arms.
+- **✅ chat_stream_handlers.ts deep decomposition — COMPLETE (on `main`, 2026-07-07).** God-file
+  **7984 → 2364 lines** (−70% overall; −3867 this session). `runStream` is now a thin orchestrator:
+  preflight/ingest → `runContextAssembly` → `if (ask) runAskBranch else runBuildBranch` → save-gated
+  `finalizeTurn` / `handleTurnError` → `finally` (`ensureTerminal`). 21 cohesive modules under
+  `chat_stream/` (incl. 8 `turn-runner/*.ts`). Every extraction body-verbatim + separately gated
+  (ts:main/ts:tests/check:ts/oxlint + per-project agent-evals 73 / node 1484 / renderer 58).
+  - **Prior stages (7984 → 6231):** 14 `chat_stream/*.ts` modules (message-postprocess, permission-ui,
+    sentry-safe, compaction-activity, tool-execute, network-retry, stream-misc, stream-state,
+    stream-lifecycle, lifecycle-handlers, revert-handlers, context-sections, session-handlers) +
+    turn-context.ts (StreamTurnContext, ~26 Group-A accumulators on `ctx.*`) + turn-runner/prompt-bundle.
+  - **This session (6231 → 2364), one gated commit each:** prep A `pendingEmptyOutputNudge`→ctx
+    (cf1f8fe); (1) `simpleStreamText`→simple-stream-text.ts (cbef57f); (2)
+    `runStreamRoundWithEmptyOutputRetry`→round-retry.ts, per-round abort re-link verbatim (ca7e5a3);
+    (3) `processResponseChunkUpdate`→response-chunk-update.ts, keeps own `fullResponse` param (48bb4cd);
+    (4) context-assembly IIFE + `runCompressAndRebuild`→context-assembly.ts, **return-style threading
+    not the planned `ctx.assembly`** (avoided a 119-occurrence rename) (b9a3fcd); (5) `runAskBranch`
+    →ask-branch.ts, ~31 deps (c1676d3); (6) `runBuildBranch`→build-branch.ts, ~32 deps, user-abort
+    early-return preserved via a `BuildBranchResult` sentinel the caller re-returns (aa65dbd); (7)
+    `finalizeTurn` + `handleTurnError`→finalize.ts, overflow-retry `return runStream()` preserved via a
+    `{ rerun }` signal + `overflowRetried` ref (outer shell) (002a9ba).
+  - **Invariants held verbatim:** single per-turn `AbortController` + every `signal.aborted` check; save
+    gate `!aborted || ctx.askUserEndedTurn || ctx.turnForcedTextFinish`; temp-file cleanup stays a
+    sibling OUTSIDE the save gate; `ensureTerminal` idempotency latch + the try/catch/finally shell.
+  - **Residual verification for owner smoke:** agent-evals covers ask/build/abort/ask_user; the
+    **context-overflow → `handleTurnError` rerun** recursion path is NOT eval-covered — exercise a very
+    long chat that forces a mid-turn overflow-compaction retry during the packaged smoke.
   - Note: gate on PER-PROJECT vitest runs — the combined `npm test` shows load-sensitive flakes on
     git-worktree/timing tests (e.g. subagent-cancel); they pass per-project in isolation.
 - **BUG (needs triage): Shift+Tab mode switch doesn't fire while the app is busy.**
