@@ -74,6 +74,27 @@ export function getSupabaseClient(): SupabaseClient {
 // show a fallback dialog so the user can copy the OAuth URL or register the handler.
 let _oauthTimeoutHandle: ReturnType<typeof setTimeout> | null = null;
 
+// ── C4 (security review): auth-callback CSRF gate ──
+// An `atlarix://auth/callback#access_token=…` deep link, if honored blindly,
+// silently logs the desktop app into whatever account the tokens belong to
+// (mailed-link login-CSRF → account takeover). We bind callback acceptance to a
+// sign-in flow THIS app actually started, within a bounded window. A callback
+// that arrives with no local flow pending is rejected. (A fully round-tripped
+// state nonce is stronger but would need a query param on redirectTo, which must
+// be confirmed against the Supabase redirect-URL allowlist first — tracked.)
+let _authFlowStartedAt: number | null = null;
+const AUTH_FLOW_MAX_AGE_MS = 10 * 60_000;
+
+function markAuthFlowStarted(): void {
+    _authFlowStartedAt = Date.now();
+}
+function consumeActiveAuthFlow(): boolean {
+    const startedAt = _authFlowStartedAt;
+    _authFlowStartedAt = null; // single-use: consume on any callback attempt
+    if (startedAt == null) return false;
+    return Date.now() - startedAt <= AUTH_FLOW_MAX_AGE_MS;
+}
+
 /**
  * Cancel the pending OAuth inbound timeout (called from main.ts when the
  * atlarix://auth/callback deep link is successfully received).
@@ -117,6 +138,9 @@ export async function signInWithOAuth(provider: OAuthProvider): Promise<{ error:
         }
 
         if (data?.url) {
+            // C4: record that THIS app started a sign-in flow, so an unsolicited
+            // auth callback (no flow pending) is rejected in handleAuthCallback.
+            markAuthFlowStarted();
             // Open the OAuth URL in the user's default browser
             logger.log(`[Supabase] Opening OAuth URL in browser`);
             let browserOpened = false;
@@ -194,6 +218,19 @@ export async function handleAuthCallback(url: string): Promise<{
         const supabase = getSupabaseClient();
 
         logger.log(`[Supabase] Handling auth callback`);
+
+        // C4: reject callbacks that don't correspond to a sign-in this app just
+        // started — defeats the mailed-link login-CSRF (account takeover).
+        if (!consumeActiveAuthFlow()) {
+            logger.warn('[Supabase] Rejected auth callback — no sign-in flow was in progress (possible CSRF).');
+            return {
+                session: null,
+                user: null,
+                error: new Error(
+                    'Unexpected sign-in link. No sign-in was in progress on this device — if you did not just start signing in, you can ignore this.',
+                ),
+            };
+        }
 
         // Parse the URL to extract tokens
         const urlObj = new URL(url);

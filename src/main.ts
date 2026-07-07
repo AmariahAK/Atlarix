@@ -1248,13 +1248,44 @@ function handleDeepLinkReturn(url: string) {
       dialog.showErrorBox("Invalid URL", "Expected key");
       return;
     }
-    handleAtlarixProReturn({
-      apiKey,
-    });
-    // Send message to renderer to trigger re-render
-    mainWindow?.webContents.send("deep-link-received", {
-      type: parsed.hostname,
-    });
+    // C5 (security review): a crafted `atlarix://pro-return?key=<attacker>` link
+    // must NOT silently write an API key + enable Pro (that would reroute all the
+    // user's AI calls through the attacker's gateway). Require an explicit native
+    // confirmation before applying anything. Surface the window so it's seen.
+    if (mainWindow) {
+      mainWindow.show();
+      mainWindow.focus();
+    }
+    const confirm = mainWindow
+      ? dialog.showMessageBox(mainWindow, {
+          type: "warning",
+          buttons: ["Connect Atlarix Pro", "Cancel"],
+          defaultId: 1,
+          cancelId: 1,
+          title: "Connect Atlarix Pro?",
+          message: "Connect Atlarix Pro with a new API key from this link?",
+          detail:
+            "This routes your AI requests through the Atlarix Pro gateway using a key delivered by the link you just opened. Only continue if you just completed an Atlarix Pro checkout. If you didn't expect this, click Cancel.",
+        })
+      : dialog.showMessageBox({
+          type: "warning",
+          buttons: ["Connect Atlarix Pro", "Cancel"],
+          defaultId: 1,
+          cancelId: 1,
+          title: "Connect Atlarix Pro?",
+          message: "Connect Atlarix Pro with a new API key from this link?",
+          detail:
+            "This routes your AI requests through the Atlarix Pro gateway using a key delivered by the link you just opened. Only continue if you just completed an Atlarix Pro checkout. If you didn't expect this, click Cancel.",
+        });
+    confirm
+      .then(({ response }) => {
+        if (response !== 0) return; // Cancel / dismissed
+        handleAtlarixProReturn({ apiKey });
+        mainWindow?.webContents.send("deep-link-received", {
+          type: parsed.hostname,
+        });
+      })
+      .catch((err) => log.error("pro-return confirmation failed:", err));
     return;
   }
   // atlarix://add-mcp-server?name=Chrome%20DevTools&config=eyJjb21tYW5kIjpudWxsLCJ0eXBlIjoic3RkaW8ifQ%3D%3D
