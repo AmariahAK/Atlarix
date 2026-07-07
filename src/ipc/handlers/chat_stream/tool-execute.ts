@@ -12,7 +12,7 @@ import {
   loadEffectiveRuleset,
 } from "@/lib/tools/permissions/ruleset";
 import { runPreToolUseHooks, runPostToolUseHooks } from "@/lib/hooks/file-hooks";
-import { getStoredConsent } from "@/ipc/utils/mcp_consent";
+import { getStoredConsent, requestMcpToolConsent } from "@/ipc/utils/mcp_consent";
 import { requireMcpAuth, type RequireMcpAuthInfo } from "@/ipc/utils/mcp_auth_wait";
 import { ToolRegistry } from "@/lib/tools";
 import { runCommandFailureGuidance } from "@/lib/tools/run-command-guidance";
@@ -101,6 +101,20 @@ export async function runToolExecute(
           requireAuth: async () => false,
         }
       : {
+          // C7: attended runs gate every MCP tool call on stored/interactive
+          // consent (was previously unwired — tools ran with no confirmation).
+          requireConsent: (info: {
+            serverId: number;
+            serverName: string;
+            toolName: string;
+            toolDescription?: string;
+            inputPreview?: string;
+          }) =>
+            requestMcpToolConsent(
+              sender,
+              info,
+              streamOpts?.abortController?.signal,
+            ),
           requireAuth: (info: RequireMcpAuthInfo) =>
             requireMcpAuth(sender, info, streamOpts?.abortController?.signal),
         };
