@@ -1,11 +1,37 @@
 # Atlarix TODO
 
-**Current Version:** v14.8.11 (2026-07-04)
+**Current Version:** v14.8.12 (staged, pending owner smoke + tag) — bumped from v14.8.11
 **Last Updated:** 2026-07-07
+
+## 🔐 Security follow-ups (from `docs/SECURITY_REVIEW_v14.8.12.md`, owner-triaged)
+
+Fixed in v14.8.12: compound-command danger gate, exfil taxonomy, deep-link auth-CSRF +
+pro-return confirmation, MCP consent gate, `.atlarix` authority-file approval, MCP
+description wrapping + OAuth-URL validation. **Deferred (tracked):**
+
+- **C6 — auto-update signature verification (Windows/Linux).** Highest blast radius, but
+  release-infra (code-signing certs + `app-update.yml` for NsisUpdater; out-of-band
+  signature for AppImage), not app code. Owner chose NOT to gate the public release on it.
+- **Unattended read-only allowlist-flip** (positive allowlist for Automation runs) — the
+  denylist taxonomy is done; the flip needs per-automation design to not break legit builds/tests.
+- **Round-tripped auth `state` nonce** — needs confirming the Supabase redirect-URL
+  allowlist permits a query param (current gate = flow-must-be-in-progress).
+- **XSS-gated privileged IPC** (`terminal:run`, `mcp:create-server`, `execute-all-permissions`)
+  + preload arg-validation — safe today (markdown rendering is XSS-free); structural pass.
+- Sandbox **read**-confinement, model-context **secret redaction**, **egress** gating, and the
+  Medium items (cwd `allowedRoots` widening, env-var key inheritance, secret-basename list,
+  cross-workspace file scope, plaintext-keychain fallback).
 
 ## ✅ Implemented, pending owner smoke + release
 
-Full detail in [`docs/CHANGELOG.md`](./CHANGELOG.md) `[Unreleased]`.
+Full detail in [`docs/CHANGELOG.md`](./CHANGELOG.md) `[14.8.12]`.
+
+- **v14.8.12 harness + security + feature pass (2026-07-07).** Shift+Tab global, streaming
+  scroll-lock, attachment vision cold-cache, indefinite MCP auth waits, terminal mode-block
+  message; the security fixes above; notification sound (+ unfocused OS notification); prompt
+  refinement (harvest + Debug reasoning_extraction reframe + read-only branch-nav). B4
+  (bg-command "done" while running) confirmed a model-behavior quirk — harness re-injects the
+  exit result via auto-wake; mitigated by the prompt lines.
 
 - **Native-git reads + Code-tab removal + universal language (2026-07-06).** Local git ops are
   native-git-only (production Sentry `null.slice` fix; `enableNativeGit` deleted); Code tab + Monaco +
@@ -27,33 +53,13 @@ Full detail in [`docs/CHANGELOG.md`](./CHANGELOG.md) `[Unreleased]`.
 
 ## Open follow-ups
 
-- **BUG: not every approval wait is truly indefinite — some paths time out.** The contract: EVERY
-  human-in-the-loop wait (command / file-write approval, `ask_user`) blocks INDEFINITELY. Audit for a
-  hidden AI/tool-side timeout: `waitForApproval`, the run_command permission queue, `ask_user`, MCP
-  auth/consent, and any `AbortSignal.timeout`/`setTimeout` race. Fix = wait until the user (or Stop)
-  resolves. [[atlarix-command-safety-model]]
-- **BUG: model reports a background command "done" while it's still running.** Observed on DeepSeek —
-  polls the job, narrates "waiting", then prematurely claims completion (once marked plan steps done)
-  before the background `run_command` exited. Determine the layer — (a) prompting, (b) harness
-  (wake-on-exit / is the exit result re-injected before the model concludes?), (c) DeepSeek — then fix there.
-- **BUG: Shift+Tab mode switch dropped while the app is busy.** The mode-cycle keybind (Build ↔ Explore
-  ↔ Plan ↔ Debug ↔ Review) is unreliable while typing in the composer or during an in-flight stream,
-  unlike Claude Code. Likely a focus/idle-gated binding. Fix = make it global + always-live.
-- **BUG: the stale "vision model" gate blocks attached images.** Modern non-vision-tagged models
-  (DeepSeek v4 pro / 3.2, Qwen 3.7 / 3.6 plus) read browser screenshots in-app AND images on the
-  vendors' own web UIs, but Atlarix's *attach* path fails for them — screenshots ride the tool-result
-  media path while attachments only embed "on vision dispatches" (gated on the models.dev vision tag).
-  Fix = deliver attachments the way the working screenshot path does, for every model that can actually
-  see, not just tagged ones. Verify by diffing both outbound requests on a live DeepSeek/Qwen run.
-  [[atlarix-v14-8-11-fidelity-release]]
-- **FEATURE: notification sound when Atlarix needs the user.** Audible (+ OS notification when
-  unfocused) whenever a turn enters a waiting-on-user state (approval / `ask_user`). A setting (on/off,
-  volume), respect OS DND, no double-fire with the Automations notifications. Open: owner supplies a
-  sound asset or Claude sources/generates one (owner fine with either).
-- **CONSIDER (evaluate, don't commit): `browser-use` repo/extension vs. our current browser tools.**
-  Compare element-targeting reliability, page representation (a11y tree/DOM vs. our snapshot-first
-  visual sight), token cost, whether it needs a separate Python runtime (bad fit for Electron), and
-  approval/sandbox integration. Migrate only if a clear win; else close the note. [[atlarix-preview-webcontentsview]]
+- **DONE in v14.8.12:** approval-wait audit (MCP auth waits now indefinite + Stop-cancellable),
+  Shift+Tab global, attachment vision cold-cache, notification sound. **B4 (bg-command "done" while
+  running)** resolved as model behavior — the harness DOES re-inject the exit result via auto-wake
+  (`recordBackgroundCommandResult`); mitigated by the new prompt lines (ground-claims / finish-the-turn).
+- **CONSIDER (evaluated → CLOSED): `browser-use`.** Not adopted — Python/Playwright (bad Electron fit),
+  it's its own agent loop, and its one good idea (stable element refs) Atlarix already has via
+  `browser_inspect` snapshot `ref`s. No capability gap. [[atlarix-preview-webcontentsview]]
 - Small / carried: `.gitignore`-render profiler (v14.8.10 §3.4); Atlarix GitHub account for contributor
   credit (owner action; code done); user-message multimodal parts for HISTORICAL turns (current/edited
   turns embed since v14.8.11; history round-trips via read_attachment).

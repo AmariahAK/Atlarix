@@ -3,7 +3,63 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
-## [Unreleased] — Native-git reads, Code tab removal, universal language support
+## [14.8.12] (2026-07-07) — Harness contract fixes, security hardening, notification sound
+
+tsc + oxlint clean; vitest **1627** (node 1496 / renderer 58 / agent-evals 73). This release
+also carries the previously-unreleased bundle below (native-git reads, Code-tab removal,
+universal language, Automations, the `chat_stream_handlers` 7984→2364 decomposition).
+
+### Fixed (harness contracts)
+
+- **Shift+Tab mode-cycle works while busy.** The binding was dropped whenever focus was
+  in the composer or a stream was in flight (it sat below the input-focus guard); it's
+  now global + always-live, like Cmd/Ctrl+B.
+- **Streaming scroll no longer fights you.** An intentional upward scroll (wheel / touch /
+  PageUp) now synchronously disengages auto-follow, so the ResizeObserver re-pin can't
+  yank you back to the bottom mid-stream.
+- **Attached images reach capable models.** The models.dev vision registry is warmed
+  before the attach gate, so a cold cache no longer silently drops a DeepSeek/Qwen
+  attachment (screenshots worked only because their gate ran later, warm).
+- **MCP auth waits are truly indefinite.** The 5-min agent wait and 60-s OAuth flow
+  timeout are removed — every human-in-the-loop MCP auth wait blocks until you resolve it
+  (or Stop), matching command/file approvals.
+- **Read-only mode blocks read clearly.** A mutating command blocked after a mid-session
+  mode switch now returns a terminal "this is a MODE restriction, not permissions — don't
+  retry" message instead of a soft failure the model looped on.
+
+### Security (audit-driven; full report in `docs/SECURITY_REVIEW_v14.8.12.md`)
+
+- **Compound-command danger gate.** `echo ok && rm -rf ~` (and `; | && ` chains, `$()`)
+  are evaluated per segment — a risky command can no longer hide behind a benign prefix.
+- **Exfiltration taxonomy.** Inline-eval interpreters (`node -e`, `python -c`), `gh` write
+  verbs, credential-file reads, and remote-shell/netcat tools (`ssh`/`scp`/`nc`) are now
+  dangerous — denied in unattended Automations, prompted interactively.
+- **Deep-link hardening.** `atlarix://auth/callback` is rejected unless a sign-in flow is
+  in progress (was one-click account-takeover); `atlarix://pro-return` requires an explicit
+  confirmation before writing an API key / enabling Pro.
+- **MCP consent + trust.** Attended MCP tool calls now prompt for per-tool consent (was
+  unwired); tool descriptions are framed as untrusted data; the server-supplied OAuth URL
+  is validated to http(s) before opening.
+- **`.atlarix` authority files.** Writes to `.atlarix/atlarix.md` and
+  `.atlarix/permissions.json` require normal approval (were blanket auto-approved).
+
+### Added
+
+- **Notification sound + OS notification when Atlarix needs you.** A chime (and an OS
+  notification when the window is unfocused, respecting Do-Not-Disturb) fires when a turn
+  waits on you for approval or a question. On/off + volume in Settings → General.
+
+### Changed
+
+- **Prompt refinement.** Distilled model-agnostic guidance into `AGENTS.md`
+  (ground-claims-in-tool-results, finish-the-turn, report-don't-act, lead-with-outcome);
+  reframed Debug's "state your hypothesis in your reply" to an action-first form (avoids a
+  `reasoning_extraction` refusal on Claude-5-family models); `git checkout`/`switch` branch
+  navigation is allowed in read-only modes (discard forms stay blocked).
+
+---
+
+## [Unreleased bundle rolled into 14.8.12] — Native-git reads, Code tab removal, universal language support
 
 tsc + oxlint clean; vitest **1600**.
 
