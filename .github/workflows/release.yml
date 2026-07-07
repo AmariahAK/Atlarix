@@ -71,6 +71,14 @@ jobs:
       - name: Install dependencies
         run: node scripts/verify-npm-lock-registry.mjs && npm ci --ignore-scripts && npx patch-package
 
+      # --ignore-scripts skips better-sqlite3's native build. The node vitest
+      # project's migration/schema tests (e.g. automations-schema.test.ts) need a
+      # real Node-ABI binding, so rebuild just that one prebuilt binary (fast,
+      # prebuild-install fetches a matching .node — no source compile). The
+      # agent-evals project stays a local gate and self-skips here regardless.
+      - name: Rebuild native better-sqlite3 (Node ABI)
+        run: npm rebuild better-sqlite3
+
       - name: Type check (tsc)
         run: npm run check:ts
 
