@@ -21,13 +21,19 @@ vi.mock("@/lib/search/bm25_semantic_index", () => ({
 import {
   ensureSearchIndexWatcher,
   shouldProcessWatcherPath,
+  stopSearchIndexWatcher,
 } from "@/lib/search/search-index-watcher";
 import { createIgnorerFromSource, BUILTIN_IGNORE } from "@/lib/atlarix/atlarix-ignore";
 
 const tmpDirs: string[] = [];
 
 afterEach(async () => {
-  // Point the module's singleton watcher away from the temp dirs before removal.
+  // Close the singleton watcher BEFORE removing the temp dirs — a live recursive
+  // fs.watch over a deleted directory aborts libuv on Windows (fs-event.c assertion,
+  // crashing the vitest worker → ERR_IPC_CHANNEL_CLOSED). Give libuv a tick to
+  // release the OS watch handle before the rm.
+  stopSearchIndexWatcher();
+  await new Promise((r) => setTimeout(r, 50));
   await Promise.all(tmpDirs.splice(0).map((d) => fs.rm(d, { recursive: true, force: true })));
   updateSpy.mockClear();
 });

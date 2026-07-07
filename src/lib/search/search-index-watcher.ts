@@ -92,6 +92,25 @@ export function ensureSearchIndexWatcher(
 }
 
 /**
+ * Stop the singleton watcher and clear its state. Call this before deleting a
+ * watched directory (e.g. test teardown, workspace close) — a live recursive
+ * `fs.watch` over a removed directory aborts libuv on Windows with an
+ * `fs-event.c` assertion (`!_wcsnicmp(filename, dir, dirlen)`).
+ */
+export function stopSearchIndexWatcher(): void {
+  if (watcher) {
+    watcher.close();
+    watcher = null;
+  }
+  if (debounceTimer) {
+    clearTimeout(debounceTimer);
+    debounceTimer = null;
+  }
+  lastProjectPath = null;
+  lastWorkspaceId = null;
+}
+
+/**
  * Register a file watcher for projectPath. On change, incrementally refreshes
  * the per-file ctags symbols + FTS5 rows (no full rebuild — scales to big repos).
  */
