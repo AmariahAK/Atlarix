@@ -200,7 +200,7 @@ import {
 } from "@/lib/routing/reasoning-detector";
 import { enforceContextBudget } from "@/lib/routing/tier_context_budget";
 import { processStreamChunks } from "../utils/stream_chunk_tags";
-import { revertSnapshot, revertSnapshotFiles, snapshotExists } from "../../lib/snapshot/snapshot-manager";
+import { snapshotExists } from "../../lib/snapshot/snapshot-manager";
 import { feedTerminalOutput } from "../../lib/streams/StreamManager";
 import {
   processChatMessagesWithVersionedFiles as getVersionedFiles,
@@ -326,6 +326,11 @@ import {
   retryAfterMs,
   NetworkStreamDisconnectedError,
 } from "./chat_stream/network-retry";
+import {
+  awaitWithTimeout,
+  isTextFile,
+  performFullRevert,
+} from "./chat_stream/stream-misc";
 
 const logger = log.scope("chat_stream_handlers");
 
@@ -492,12 +497,7 @@ const SUPERSEDE_AWAIT_TIMEOUT_MS = 8_000;
 
 /** Resolve when `p` settles OR `ms` elapses. The superseded leg rejects with the
  * supersede abort reason, so its rejection is swallowed. */
-async function awaitWithTimeout(p: Promise<unknown>, ms: number): Promise<void> {
-  await Promise.race([
-    p.catch(() => undefined),
-    new Promise<void>((resolve) => setTimeout(resolve, ms)),
-  ]);
-}
+// --- awaitWithTimeout moved to ./chat_stream/stream-misc ---
 
 /** Clear skill file cache when switching workspace (see `loadSkill`). */
 let lastSkillCacheAppId: number | undefined;
@@ -656,86 +656,14 @@ const TEMP_DIR = path.join(os.tmpdir(), "atlarix-attachments");
 
 // Common helper functions
 
-async function isTextFile(filePath: string): Promise<boolean> {
-  // W3 (v14.8.11): one shared list with read_attachment — the old 8-entry
-  // local whitelist meant a .py/.go upload got NO inline preview at all.
-  const { isSupportedTextExtension } = await import("@/lib/attachment-extensions");
-  return isSupportedTextExtension(path.extname(filePath).toLowerCase());
-}
+// --- isTextFile moved to ./chat_stream/stream-misc ---
 
 // Ensure the temp directory exists
 if (!fs.existsSync(TEMP_DIR)) {
   fs.mkdirSync(TEMP_DIR, { recursive: true });
 }
 
-/** Full snapshot revert + ledger cancel + message `isReverted` flags + blueprint (via `revertSnapshot` or partial files + sync). */
-async function performFullRevert(params: {
-  chatId: number;
-  turnId: string;
-  assistantMessageId: number;
-  workspacePath: string;
-  workspaceId: number;
-  options?: {
-    /** Only restore these workspace-relative paths from the turn snapshot (no full diagram rollback). */
-    filesFilter?: string[];
-    /** Skip isReverted / hasAnsweredQuestions updates (e.g. autonomous single-file revert). */
-    skipMessageFlags?: boolean;
-  };
-}): Promise<{
-  success: boolean;
-  error?: string;
-  restoredFiles?: number;
-}> {
-  const { chatId, turnId, assistantMessageId, workspacePath } =
-    params;
-  const skipMessageFlags = params.options?.skipMessageFlags ?? false;
-  const filesFilter = params.options?.filesFilter;
-
-  const snap =
-    filesFilter != null && filesFilter.length > 0
-      ? await revertSnapshotFiles({
-          workspacePath,
-          turnId,
-          relativePaths: filesFilter,
-        })
-      : await revertSnapshot({
-          workspacePath,
-          turnId,
-        });
-  if (!snap.success) {
-    logger.warn("performFullRevert: snapshot restore failed:", snap.error);
-  }
-
-  if (skipMessageFlags) {
-    return {
-      success: snap.success,
-      error: snap.error,
-      restoredFiles: snap.restoredFiles,
-    };
-  }
-
-  const ec = getStreamTransport(chatId);
-  if (ec) {
-    const idx = ec.messages.findIndex((m) => m.id === assistantMessageId);
-    if (idx < 0) {
-      return {
-        success: false,
-        error: "Message not in chat",
-        restoredFiles: snap.restoredFiles,
-      };
-    }
-    ec.messages = ec.messages.map((m, i) => ({
-      ...m,
-      isReverted: i >= idx ? true : false,
-    }));
-  }
-
-  return {
-    success: snap.success,
-    error: snap.error,
-    restoredFiles: snap.restoredFiles,
-  };
-}
+// --- performFullRevert moved to ./chat_stream/stream-misc ---
 
 /**
  * v12 2.3: the registered `chat:stream` handler, captured at registration so
