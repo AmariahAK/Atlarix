@@ -7,6 +7,7 @@ import log from "electron-log";
 import type { CommandPermissionDecision } from "@/lib/terminal-command-category";
 import { getCommandCategory } from "@/lib/terminal-command-category";
 import { isDangerousCommand, dangerLabelKey } from "@/lib/dangerous-commands";
+import { commandSegments } from "@/lib/command-mutation";
 import {
   getWorkspaceCommandPermission,
   listWorkspaceCommandPermissions,
@@ -44,7 +45,13 @@ export function resolveRunCommandPermissionGate(
   }
 
   const decision = getWorkspaceCommandPermission(appId, category);
-  if (decision === "always_allow") {
+  // A first-token always-allow must NOT blanket-approve a compound line — the
+  // category is only the first segment's token, so `echo && npm publish` would
+  // otherwise auto-run the whole chain under an "always allow echo" rule. For
+  // compound commands, downgrade auto_allow to a prompt (auto_deny still stands —
+  // denying is always safe).
+  const isCompound = commandSegments(command).length > 1;
+  if (decision === "always_allow" && !isCompound) {
     return { action: "auto_allow", category };
   }
   if (decision === "always_deny") {

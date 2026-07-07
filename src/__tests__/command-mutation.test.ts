@@ -28,6 +28,11 @@ describe("isMutatingCommand — allowed in read-only modes (not mutating)", () =
     "npx tsc --noEmit",
     "curl https://example.com",
     "node -e \"console.log(1)\"",
+    // Branch navigation is read-safe (allowed in read-only modes).
+    "git checkout main",
+    "git checkout feature/new-thing",
+    "git switch main",
+    "git switch -c feature/x",
   ])("not mutating: %s", (cmd) => {
     expect(isMutatingCommand(cmd)).toBe(false);
   });
@@ -40,6 +45,8 @@ describe("isMutatingCommand — blocked in read-only modes (mutating)", () => {
     "git push origin main",
     "git reset --hard",
     "git checkout -- .",
+    "git checkout .",
+    "git checkout -- src/file.ts",
     "git clean -fd",
     "git stash drop",
     "rm file.txt",

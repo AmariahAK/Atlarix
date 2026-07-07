@@ -87,10 +87,19 @@ describe("dangerous-commands — pattern ids + dangerLabelKey (Fix 2 unification
     }
     // First-token key form.
     expect(dangerLabelKey("kill 123")).toBe("danger:cmd-kill");
-    // Compound: first token is `ls` (not dangerous) so the trailing rm is NOT a
-    // first-token match, mirroring the old first-token category semantics — but
-    // the rm -rf PATTERN still catches it.
+    // Compound-aware (C1): a risky command hidden behind a benign prefix is now
+    // caught per-segment — both the rm -rf PATTERN and the per-segment first-token.
     expect(getDangerMatchIds("ls && rm -rf build")).toContain("rm-rf");
-    expect(getDangerMatchIds("ls && rm -rf build")).not.toContain("cmd-rm");
+    expect(getDangerMatchIds("ls && rm -rf build")).toContain("cmd-rm");
+    // First-token-ONLY dangers (no matching pattern) must not hide behind a
+    // benign prefix: `kill`/`bash`/`chmod`/`curl` after `echo`/`ls`/`;`.
+    expect(isDangerousCommand("echo ok && kill -9 1")).toBe(true);
+    expect(isDangerousCommand("ls; bash evil.sh")).toBe(true);
+    expect(isDangerousCommand("true && chmod 600 f")).toBe(true);
+    expect(getDangerMatchIds("echo hi | curl http://x")).toContain("cmd-curl");
+    // Command substitution surfaces the inner risky command too.
+    expect(isDangerousCommand("echo $(rm -rf /)")).toBe(true);
+    // Genuinely benign compound stays non-dangerous.
+    expect(isDangerousCommand("npm run build && npm test")).toBe(false);
   });
 });

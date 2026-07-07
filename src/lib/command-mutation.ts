@@ -18,7 +18,15 @@
 const MUTATING_PATTERNS: RegExp[] = [
   // git: history / staging / remote / working-tree mutations.
   // (read-only git — status, log, diff, show, branch -l, remote -v — is NOT here)
-  /^git\s+(add|commit|push|pull|fetch|merge|rebase|reset|revert|checkout|switch|restore|clean|rm|mv|cherry-pick|am|apply|stash\s+(drop|pop|clear)|branch\s+-[dD]|tag\s+-d|remote\s+(add|remove|rm|set-url))\b/,
+  // NOTE: `checkout`/`switch` are deliberately NOT in this generic list — branch
+  // navigation (`git checkout <branch>`, `git switch <branch>`) is read-safe and
+  // allowed in read-only modes. Only the DESTRUCTIVE checkout forms (discarding
+  // working-tree changes) are flagged, just below.
+  /^git\s+(add|commit|push|pull|fetch|merge|rebase|reset|revert|restore|clean|rm|mv|cherry-pick|am|apply|stash\s+(drop|pop|clear)|branch\s+-[dD]|tag\s+-d|remote\s+(add|remove|rm|set-url))\b/,
+  // git checkout used to DISCARD working-tree changes (pathspec form): `git
+  // checkout -- <file>`, `git checkout .`, `git checkout <ref> -- <file>`.
+  /^git\s+checkout\b.*\s--(\s|$)/,
+  /^git\s+checkout\s+\.(\s|$)/,
   // filesystem: destructive / write / permission changes.
   /^(rm|rmdir|unlink|mv|cp|chmod|chown|chgrp|ln|truncate|shred|dd|tee)\b/,
   // process / system.
@@ -36,8 +44,11 @@ const MUTATING_PATTERNS: RegExp[] = [
 /**
  * Split a shell line into the commands it actually runs (compound-aware), so a
  * mutating segment inside `cd x && git push` can't hide behind a benign prefix.
+ * Exported so the always-on danger gate (dangerous-commands.ts) reuses the exact
+ * same segmentation — a risky first token must not hide behind a benign prefix
+ * there either (e.g. `echo ok && kill -9 1`).
  */
-function commandSegments(command: string): string[] {
+export function commandSegments(command: string): string[] {
   return command
     // surface command substitutions so an inner mutating cmd is seen
     .replace(/\$\(([^)]*)\)/g, " ; $1 ; ")

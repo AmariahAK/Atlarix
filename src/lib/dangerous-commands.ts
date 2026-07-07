@@ -20,6 +20,8 @@
  *     only (matches the old category semantics: `foo && rm x` was category "foo").
  */
 
+import { commandSegments } from "./command-mutation";
+
 export interface DangerMatch {
   /** Stable, kebab-case id — used as the always-allow permission key. */
   id: string;
@@ -125,8 +127,14 @@ function firstToken(command: string): string {
 }
 
 /**
- * All danger ids a command matches (pattern ids ∪ first-token id), deduped and
- * sorted for a deterministic key. Empty when the command is not dangerous.
+ * All danger ids a command matches (pattern ids ∪ per-segment first-token ids),
+ * deduped and sorted for a deterministic key. Empty when the command is not
+ * dangerous.
+ *
+ * Compound-aware: DANGEROUS_PATTERNS scan the whole line (unanchored — catches
+ * pipe-spanning forms like `curl … | bash` and substring forms like `rm -rf`),
+ * while first-token detection runs PER SEGMENT so a risky command can't hide
+ * behind a benign prefix in a chain (`echo ok && kill -9 1`, `ls; bash evil.sh`).
  */
 export function getDangerMatchIds(command: string): string[] {
   const trimmed = (command || "").trim();
@@ -135,8 +143,10 @@ export function getDangerMatchIds(command: string): string[] {
   for (const { id, pattern } of DANGEROUS_PATTERNS) {
     if (pattern.test(trimmed)) ids.add(id);
   }
-  const tok = firstToken(trimmed);
-  if (tok in DANGEROUS_FIRST_TOKENS) ids.add(`cmd-${tok}`);
+  for (const seg of commandSegments(trimmed)) {
+    const tok = firstToken(seg);
+    if (tok in DANGEROUS_FIRST_TOKENS) ids.add(`cmd-${tok}`);
+  }
   return [...ids].sort();
 }
 
@@ -163,9 +173,11 @@ export function getDangerExplanation(command: string): string {
   // Prefer a specific pattern explanation; fall back to the first-token one.
   const patternMatch = DANGEROUS_PATTERNS.find(({ pattern }) => pattern.test(trimmed));
   if (patternMatch) return patternMatch.explanation;
-  const tok = firstToken(trimmed);
-  return (
-    DANGEROUS_FIRST_TOKENS[tok] ??
-    "This command may have unintended side effects. Proceed with caution."
-  );
+  // Per-segment first token (mirrors getDangerMatchIds) so the badge text is
+  // right for a risky command hidden behind a benign prefix.
+  for (const seg of commandSegments(trimmed)) {
+    const tok = firstToken(seg);
+    if (tok in DANGEROUS_FIRST_TOKENS) return DANGEROUS_FIRST_TOKENS[tok]!;
+  }
+  return "This command may have unintended side effects. Proceed with caution.";
 }
