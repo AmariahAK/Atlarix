@@ -95,7 +95,6 @@ import {
   compassExhaustedUserMessage,
 } from "../shared/compass_constants";
 import log from "electron-log";
-import { SUMMARIZE_CHAT_SYSTEM_PROMPT } from "../../prompts/summarize_chat_system_prompt";
 import fs from "node:fs";
 import * as path from "path";
 import * as os from "os";
@@ -235,7 +234,7 @@ import {
   recordUnverifiedEdit,
   clearUnverifiedEdit,
 } from "@/lib/agent/mutation-verify";
-import { assembleContextSections, type ContextSection } from "@/lib/context/ContextAssembler";
+import { type ContextSection } from "@/lib/context/ContextAssembler";
 import { ContextBudgetTracker } from "@/lib/context/context-budget-tracker";
 import { pruneContextSectionsForBudget } from "@/lib/context/context-budget-pruning";
 import { resolveModelContextLimit } from "@/lib/context/resolve-model-context-limit";
@@ -334,6 +333,7 @@ import { registerLifecycleHandlers } from "./chat_stream/lifecycle-handlers";
 import { registerRevertHandlers } from "./chat_stream/revert-handlers";
 import { registerSessionHandlers } from "./chat_stream/session-handlers";
 import { createStreamTurnContext } from "./chat_stream/turn-context";
+import { buildPromptBundle } from "./chat_stream/turn-runner/prompt-bundle";
 import {
   loadModeSkillSection,
   loadRepoSkillsSection,
@@ -1884,134 +1884,21 @@ ${componentSnippet}
             "Summarize from chat-id=",
           );
 
-          const buildPromptBundle = async (
-            sections: ContextSection[],
-          ): Promise<{
-            systemPrompt: string;
-            contextAssemblerBlob: string;
-            assembledContext: ReturnType<typeof assembleContextSections>;
-            hasInjectedArchitectureContext: boolean;
-            codebasePrefix: readonly ModelMessage[];
-            otherCodebasePrefix: readonly ModelMessage[];
-          }> => {
-            const assembledContext = assembleContextSections({
-              chatId: req.chatId,
-              appId: effectiveAppId ?? null,
-              workMode: effectiveWorkMode,
-              userPrompt: userPrompt || req.prompt,
-              sections,
-            });
-            let systemPrompt = baseSystemPrompt;
-            if (assembledContext.activeSkillAddition?.trim()) {
-              systemPrompt = `${assembledContext.activeSkillAddition.trim()}\n\n${systemPrompt}`;
-            }
-            let blob = "";
-            if (assembledContext.finalSystemPromptAddition.trim()) {
-              blob = assembledContext.finalSystemPromptAddition;
-              systemPrompt += `\n\n${blob}`;
-            }
-            logger.info(
-              `[ContextAssembler] mode=${effectiveWorkMode} cacheHit=${assembledContext.cache.hit} sections=${assembledContext.assembledPromptSections.filter((s) => s.included).length}/${assembledContext.assembledPromptSections.length}`,
-            );
-            if (assembledContext.trimReport.length > 0) {
-              logger.info(`[ContextAssembler] trims: ${assembledContext.trimReport.join(" | ")}`);
-            }
-            // v10 context meter: surface per-section sizes + trims to the renderer.
-            safeSend(event.sender, "chat:context-report", {
-              chatId: req.chatId,
-              sections: assembledContext.assembledPromptSections.map((s) => ({
-                name: s.name,
-                tokens: s.tokens,
-                included: s.included,
-                truncated: s.truncated,
-              })),
-              trimReport: assembledContext.trimReport,
-            } satisfies ChatContextReport);
-            const hasInjectedArchitectureContext =
-              assembledContext.assembledPromptSections.some(
-                (s) =>
-                  s.included &&
-                  (s.name === "workspaceAnalysis"),
-              );
-            // The @-mention context block (file contents / folder listings) is
-            // injected as a prefix message below, not into the cached system prompt.
-
-            // PASS5: Supabase context is injected by the Supabase tool handler
-            // when the model actually calls a Supabase tool (v11.1: dead
-            // per-turn pre-injection block deleted).
-            if (isSummarizeIntent) {
-              systemPrompt = SUMMARIZE_CHAT_SYSTEM_PROMPT;
-            }
-
-            const hasImageAttachments =
-              req.attachments &&
-              req.attachments.some((attachment) =>
-                attachment.type.startsWith("image/"),
-              );
-
-            const hasUploadedAttachments =
-              req.attachments &&
-              req.attachments.some(
-                (attachment) => attachment.attachmentType === "upload-to-codebase",
-              );
-            if (hasUploadedAttachments) {
-              systemPrompt += `
-  
-When files are attached to this conversation, upload them to the codebase using this exact format:
-
-<atlarix-write path="path/to/destination/filename.ext" description="Upload file to codebase">
-ATLARIX_ATTACHMENT_X
-</atlarix-write>
-
-Example for file with id of ATLARIX_ATTACHMENT_0:
-<atlarix-write path="src/components/Button.jsx" description="Upload file to codebase">
-ATLARIX_ATTACHMENT_0
-</atlarix-write>
-
-  `;
-            } else if (hasImageAttachments) {
-              systemPrompt += `
-
-# Image Analysis Instructions
-This conversation includes one or more image attachments. When the user uploads images:
-1. If the user explicitly asks for analysis, description, or information about the image, please analyze the image content.
-2. Describe what you see in the image if asked.
-3. You can use images as references when the user has coding or design-related questions.
-4. For diagrams or wireframes, try to understand the content and structure shown.
-5. For screenshots of code or errors, try to identify the issue or explain the code.
-`;
-            }
-
-            // PASS5: diagram-first prefix removed — the model calls diagram
-            // tools when needed (v11.1: dead synthetic-turn block deleted).
-            const codebasePrefix: readonly ModelMessage[] = []; // PASS5: always empty now
-
-            const otherCodebasePrefix = otherAppsCodebaseInfo
-              ? ([
-                  {
-                    role: "user",
-                    // v14.8.8: harness-supplied context, not a user turn.
-                    content: systemReminder(otherAppsCodebaseInfo),
-                  },
-                  {
-                    role: "assistant",
-                    content: "OK.",
-                  },
-                ] as const)
-              : [];
-
-            return {
-              systemPrompt,
-              contextAssemblerBlob: blob,
-              assembledContext,
-              hasInjectedArchitectureContext,
-              codebasePrefix,
-              otherCodebasePrefix,
-            };
+          // buildPromptBundle moved to ./chat_stream/turn-runner/prompt-bundle;
+          // the assembly config it reads is passed once via promptBundleDeps
+          // (all fields are finalized before the first call).
+          const promptBundleDeps = {
+            req,
+            event,
+            effectiveAppId,
+            effectiveWorkMode,
+            userPrompt,
+            baseSystemPrompt,
+            isSummarizeIntent,
+            otherAppsCodebaseInfo,
           };
-
           let promptBundle = await preflight.time("prompt-bundle", () =>
-            buildPromptBundle(contextSections),
+            buildPromptBundle(contextSections, promptBundleDeps),
           );
           let {
             systemPrompt,
@@ -2077,7 +1964,7 @@ This conversation includes one or more image attachments. When the user uploads 
               workingSections,
               budgetTracker.getBudgetTier(),
             );
-            promptBundle = await buildPromptBundle(workingSections);
+            promptBundle = await buildPromptBundle(workingSections, promptBundleDeps);
             ({
               systemPrompt,
               contextAssemblerBlob,
@@ -2248,7 +2135,7 @@ This conversation includes one or more image attachments. When the user uploads 
                 });
               }
               workingSections = [...contextSections];
-              promptBundle = await buildPromptBundle(workingSections);
+              promptBundle = await buildPromptBundle(workingSections, promptBundleDeps);
               ({
                 systemPrompt,
                 contextAssemblerBlob,
