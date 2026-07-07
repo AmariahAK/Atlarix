@@ -1579,8 +1579,20 @@ export function useStreamChat({
             refreshVersions();
             invalidateTokenCount();
 
-            // Play notification sound only when the turn had tool runs or a permission request
-            if (response.hadToolCallsOrPermissions) {
+            // Turn finished. When the app is UNFOCUSED, notify that Atlarix is
+            // done responding (or is waiting on an ask_user answer) — the same OS
+            // notification used for the waiting-on-user case — and play the sound
+            // even for a text-only Explore answer. When FOCUSED, keep the prior
+            // behavior (chime only on tool/permission turns; the user is watching,
+            // so no OS-notification spam).
+            const appUnfocused =
+              typeof document !== "undefined" && !document.hasFocus();
+            if (appUnfocused) {
+              playNotify();
+              IpcClient.getInstance().notifyTurnDone(
+                response.endedWaitingOnUser === true,
+              );
+            } else if (response.hadToolCallsOrPermissions) {
               playNotify();
             }
 

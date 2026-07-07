@@ -4,9 +4,9 @@
  * IPC handlers for executing/rejecting buffered permission requests.
  */
 
-import { ipcMain, IpcMainInvokeEvent, BrowserWindow, Notification } from "electron";
+import { ipcMain, IpcMainInvokeEvent, BrowserWindow } from "electron";
 import log from "electron-log";
-import { readSettings } from "@/main/settings";
+import { showAgentNotification } from "@/main/agent-notification";
 import { PermissionInterceptor } from "./interceptor";
 import {
     PermissionRequest,
@@ -116,36 +116,14 @@ export function registerInterceptor(chatId: number, interceptor: PermissionInter
                 });
             }
             // F1: when the app is UNFOCUSED and a turn is now waiting on the user,
-            // raise an OS notification (mirrors automations/notify.ts). The in-app
-            // chime/toast covers the focused case; this covers "the user isn't
-            // looking at the app". Different IPC channel from Automations
-            // (permission-request vs automation:run-update) → no double-fire.
-            try {
-                const focused = windows.some((w) => w.isFocused());
-                const soundOn = readSettings().notificationSound?.enabled !== false;
-                if (!focused && soundOn && Notification.isSupported()) {
-                    const preview =
-                        (data.request as { title?: string; command?: string })?.title ??
-                        (data.request as { command?: string })?.command ??
-                        "A step needs your approval to continue.";
-                    const n = new Notification({
-                        title: "Atlarix needs your approval",
-                        body: String(preview).slice(0, 140),
-                        silent: false,
-                    });
-                    n.on("click", () => {
-                        const win = BrowserWindow.getAllWindows()[0];
-                        if (win) {
-                            if (win.isMinimized()) win.restore();
-                            win.show();
-                            win.focus();
-                        }
-                    });
-                    n.show();
-                }
-            } catch (e) {
-                logger.warn("permission OS notification failed:", e);
-            }
+            // raise the same OS notification used for "finished responding". The
+            // in-app chime/toast covers the focused case. Different IPC channel from
+            // Automations (permission-request vs automation:run-update) → no double-fire.
+            const preview =
+                (data.request as { title?: string; command?: string })?.title ??
+                (data.request as { command?: string })?.command ??
+                "A step needs your approval to continue.";
+            void showAgentNotification("Atlarix needs your approval", preview);
         },
     );
 
@@ -337,6 +315,20 @@ const executePermissionHandler = async (
     };
 
 ipcMain.handle("execute-permission", executePermissionHandler);
+
+// "Done responding" desktop notification. The renderer fires this at turn-end
+// when the app is unfocused; main shows the SAME OS notification used for the
+// waiting-on-user case (setting-gated, DND-honored, click-to-focus).
+ipcMain.handle(
+    "notify:turn-done",
+    (_event: IpcMainInvokeEvent, data?: { waitingOnUser?: boolean }) => {
+        if (data?.waitingOnUser) {
+            void showAgentNotification("Atlarix needs your answer", "Your input is needed to continue.");
+        } else {
+            void showAgentNotification("Atlarix finished responding", "Your turn is ready to review.");
+        }
+    },
+);
 
 /** The live execute-permission handler for in-process automation auto-approval. */
 export function getExecutePermissionHandler(): typeof executePermissionHandler {

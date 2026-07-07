@@ -170,6 +170,8 @@ const validInvokeChannels = [
   "skills:list-repo-skills",
   // MCP consent response from renderer to main
   "mcp:tool-consent-response",
+  // "Done responding" desktop notification (renderer → main at turn-end)
+  "notify:turn-done",
   // Help
   "take-screenshot",
   // Help bot

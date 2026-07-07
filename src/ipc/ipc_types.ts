@@ -124,6 +124,8 @@ export interface ChatResponseEnd {
   reasoningTokens?: number;
   /** True when the turn had at least one tool execution or permission request; used to play completion sound only when relevant. */
   hadToolCallsOrPermissions?: boolean;
+  /** True when the turn ended by asking the user (ask_user) rather than finishing — drives the "needs your answer" vs "finished responding" notification. */
+  endedWaitingOnUser?: boolean;
   /** True when the completed turn used the managed Compass provider (for usage refresh). */
   usedCompass?: boolean;
   /** Populated when usedCompass — for analytics (PostHog). */

@@ -305,6 +305,9 @@ export async function finalizeTurn(
               streamId,
               updatedFiles: false,
               hadToolCallsOrPermissions: ctx.hadToolCallsOrPermissions,
+              // The turn ended by asking the user (ask_user) vs finishing normally —
+              // drives the "needs your answer" vs "finished responding" notification.
+              endedWaitingOnUser: ctx.askUserEndedTurn === true,
               usedCompass: usedCompassThisStream,
               compassTier: ctx.compassStreamTier,
               compassTokens: ctx.compassStreamTokens,

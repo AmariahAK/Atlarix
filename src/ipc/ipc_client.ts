@@ -2329,6 +2329,11 @@ export class IpcClient {
     });
   }
 
+  /** Fire the "done responding" desktop notification (main shows it only when unfocused). */
+  public notifyTurnDone(waitingOnUser: boolean) {
+    this.ipcRenderer.invoke("notify:turn-done", { waitingOnUser });
+  }
+
   // Get proposal details
   public async getProposal(chatId: number): Promise<ProposalResult | null> {
     try {
