@@ -86,35 +86,36 @@ diff); S18 done via tokenizer memo (gap data from the smoke session).
   behavior (weak at honoring async tool state). Investigate via a live DeepSeek run + the stream
   debug logs; determine which layer, then fix at that layer. NOT this session (decomposition first).
 
-- **chat_stream_handlers.ts deep decomposition — STAGE 2c REMAINING (branch `decompose-chat-stream`,
-  2026-07-07).** God-file 7984 → 6452 lines; 12 cohesive `chat_stream/*.ts` modules extracted, all
-  gated on check + ts:main/ts:tests + node/renderer + `--project agent-evals` (73 pass).
-  - DONE: STAGE 0 (6 pure-leaf modules: message-postprocess, permission-ui, sentry-safe,
-    compaction-activity, tool-execute, network-retry, stream-misc); STAGE 1 (stream-state = the
-    shared Maps + ActiveStreamRegistry + `let`-accessors; stream-lifecycle = resolveModeChange /
-    resolveAskUserToolResult / interrupted-draft trio / clearChatStreamStateForChat / abortAllStreams
-    / cancelStreamForAutomation); STAGE 2a (lifecycle-handlers = cancel/abort/reconnect/edit-message;
-    revert-handlers = the 8 snapshot/revert IPC handlers); STAGE 2b (context-sections = the 7
-    per-turn prompt-section loaders, taking an explicit ContextSectionParams).
-  - **REMAINING = STAGE 2c (highest risk, DEDICATED SESSION).** Everything left is inside
-    `chatStreamHandler` → nested `runStream` (~4500 lines). The blocker is a ~90-field IMPLICIT turn
-    context — bare `let` accumulators (`fullResponse`, `nativeTurnMessages`, `filesWrittenInThisExchange`,
-    `turnInput/Output/CachedInput/CacheCreation/ActualCost` tokens, `maxTokens/ReasoningUsed`), control
-    flags (`askUserEndedTurn`, `turnForcedTextFinish`, `turnParked`, `streamTerminated`,
-    `stopAgentOrchestrator`), and compaction-REASSIGNED assembly locals
-    (`systemPrompt`/`limitedMessageHistory`/`contextAssemblerBlob`/`dispatchEstimate`/`budgetTracker`).
-    Every meaningful closure (ask-branch, build-branch, `runStreamRoundWithEmptyOutputRetry` incl. the
-    per-round abort re-link listener-in-finally, `runCompressAndRebuild`, `simpleStreamText`,
-    `processResponseChunkUpdate`, finalization/persistence) mutates these — so extraction REQUIRES
-    formalizing them into a mutable `StreamTurnContext` object (fields, not value params) FIRST, then
-    rewiring runStream to `ctx.field`. Invariants to preserve verbatim: the single per-turn
-    `AbortController` + every cooperative `signal.aborted` check-point; `retriedAfterOverflowCompaction`
-    stays in the OUTER shell (overflow re-invokes runStream). Deferred here (not this session) because a
-    ~4500-line ctx rewire can't be completed with byte-stability safety in one pass — attempt it with
-    fresh focus, one closure at a time, agent-evals byte-stability gate between each.
-  - Note: full combined `npm test` (node+renderer+agent-evals together) shows load-sensitive flakes on
-    git-worktree/timing tests (e.g. subagent-cancel) — they pass per-project in isolation; gate on the
-    per-project runs, not the combined one.
+- **chat_stream_handlers.ts deep decomposition — STAGE 2c IN PROGRESS (branch `decompose-chat-stream`,
+  2026-07-07).** God-file 7984 → 6231 lines; 14 cohesive `chat_stream/*.ts` modules, all gated on
+  check + ts:main/ts:tests + node/renderer + `--project agent-evals` (73 pass).
+  - DONE: STAGE 0 (message-postprocess, permission-ui, sentry-safe, compaction-activity, tool-execute,
+    network-retry, stream-misc); STAGE 1 (stream-state, stream-lifecycle); STAGE 2a
+    (lifecycle-handlers, revert-handlers); STAGE 2b (context-sections). **STAGE 2c so far:**
+    session-handlers (the 3 early IPC handlers); **turn-context.ts — the StreamTurnContext object is
+    FORMALIZED and the ~26 Group-A accumulators/flags migrated from bare locals to `ctx.*`
+    (byte-stable)**; turn-runner/prompt-bundle (buildPromptBundle, pure, via PromptBundleDeps).
+  - **REMAINING (the ctx enabler is now DONE — these are the payoff extractions).** Still inside
+    `runStream`: extract into `chat_stream/turn-runner/*.ts`, each `fn(ctx, deps)`, gated per step:
+    (1) `simpleStreamText` (~677 lines, 6 nested callbacks — biggest single win; its ctx mutations
+    already go through `ctx.*`, so it needs only a config `deps` bundle + a top-of-fn `const {…} =
+    deps` rebind so the body stays verbatim); (2) `runCompressAndRebuild` + the assembly IIFE (needs
+    the Group-B assembly working set — `systemPrompt`/`limitedMessageHistory`/`contextAssemblerBlob`/
+    `dispatchEstimate`/`budgetTracker`/`codebasePrefix`/`otherCodebasePrefix`/`messageHistory`/
+    `promptBundle`/`workingSections`/`contextBudgetPruningApplied` — threaded as a mutable
+    `ctx.assembly` sub-object, since compaction REASSIGNS them); (3) `runStreamRoundWithEmptyOutputRetry`
+    (already param-threaded — port the per-round abort re-link add/removeEventListener-in-`finally`
+    VERBATIM); (4) `processResponseChunkUpdate` (small; note it has its OWN `fullResponse` PARAM shadow
+    — do NOT rewrite to ctx); (5) then the HIGH-risk branch bodies: `runAskBranch(ctx, deps)`,
+    `runBuildBranch(ctx, deps)`, `finalizeTurn(ctx)` + `handleTurnError(ctx)` (the overflow arm must
+    still `return runStream()` — pass a re-invoke thunk). Invariants (verbatim): the single per-turn
+    `AbortController` + every cooperative `signal.aborted` check; the save gate
+    `!signal.aborted || ctx.askUserEndedTurn || ctx.turnForcedTextFinish`;
+    `retriedAfterOverflowCompaction` stays in the OUTER shell. Pattern is proven (Phase 1 + buildPromptBundle);
+    each is mechanical + agent-evals-gated. Paused mid-Stage-2c only to keep quality high under budget —
+    resume one extraction at a time.
+  - Note: gate on PER-PROJECT vitest runs — the combined `npm test` shows load-sensitive flakes on
+    git-worktree/timing tests (e.g. subagent-cancel); they pass per-project in isolation.
 - `.gitignore`-render profiler (carried from v14.8.10 §3.4).
 - Atlarix GitHub account for contributor credit — owner action; code side done (v14.8.10).
 - User-message multimodal content parts for HISTORICAL turns (current + edited turns embed
