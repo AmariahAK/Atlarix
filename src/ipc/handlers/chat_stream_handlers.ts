@@ -1,5 +1,5 @@
 import { v4 as uuidv4 } from "uuid";
-import { ipcMain, IpcMainInvokeEvent } from "electron";
+import { ipcMain } from "electron";
 import {
   ModelMessage,
   streamText,
@@ -110,11 +110,6 @@ import { MAX_CHAT_TURNS_IN_CONTEXT } from "@/constants/settings_constants";
 import { getExtraProviderOptions, getReasoningEffort } from "../utils/thinking_utils";
 
 import { safeSend } from "../utils/safe_sender";
-import {
-  acquirePowerSaveBlocker,
-  releasePowerSaveBlocker,
-  resetPowerSaveBlocker,
-} from "../utils/power-blocker";
 import { normalizeToolInputSchemaForAiSdk, sanitizeJsonSchemaForProvider } from "@/lib/ai/normalize-tool-schema";
 import { stripHallucinatedAtlarixToolTagsFromDelta } from "@/lib/chat/answer-display";
 import {
@@ -172,7 +167,6 @@ import {
 } from "@/lib/agent/collect-results";
 import {
   takePendingScheduledWakeupNudges,
-  clearScheduledWakeupsForChat,
 } from "@/lib/agent/scheduled-wakeups";
 import {
   AI_STREAMING_ERROR_MESSAGE_PREFIX,
@@ -271,7 +265,6 @@ import {
 import { PermissionInterceptor } from "./permissions/interceptor";
 import {
   registerInterceptor,
-  clearWaitTrackersForChat,
 } from "./permissions/handlers";
 import {
   appendAutonomousOp,
@@ -331,6 +324,40 @@ import {
   isTextFile,
   performFullRevert,
 } from "./chat_stream/stream-misc";
+import {
+  activeStreams,
+  activeStreamRuns,
+  activeStreamId,
+  nextStreamId,
+  partialResponses,
+  lastStreamRequest,
+  streamSessionByChatId,
+  lastTurnModeByChat,
+  pendingAskUserArtifactByChatId,
+  getLastSkillCacheAppId,
+  setLastSkillCacheAppId,
+  getChatStreamHandler,
+  setChatStreamHandlerRef,
+  SUPERSEDE_AWAIT_TIMEOUT_MS,
+} from "./chat_stream/stream-state";
+import {
+  resolveModeChange,
+  resolveAskUserToolResult,
+  flushInterruptedDraft,
+  clearInterruptedDraft,
+  flushPartialStreamsForShutdown,
+  clearChatStreamStateForChat,
+  abortAllStreams,
+  cancelStreamForAutomation,
+} from "./chat_stream/stream-lifecycle";
+export {
+  resolveModeChange,
+  clearChatStreamStateForChat,
+  flushPartialStreamsForShutdown,
+  abortAllStreams,
+  getChatStreamHandler,
+  cancelStreamForAutomation,
+};
 
 const logger = log.scope("chat_stream_handlers");
 
@@ -339,317 +366,7 @@ const logger = log.scope("chat_stream_handlers");
 
 // v4.0 Progressive Tool Reveal: one loader per chat session
 
-// Legacy: Ask->Build approval wait (unused on request_mode_change tool path; respond-mode-change may still resolve)
-const pendingModeChangeResolvers = new Map<
-  number,
-  { finish: (approved: boolean) => void }
->();
-
-export function resolveModeChange(chatId: number, approve: boolean): void {
-  const r = pendingModeChangeResolvers.get(chatId);
-  if (r) {
-    r.finish(approve);
-  }
-}
-
-// v13.3 (ai@6): sentinels + abort-reason helpers live in the shared module so
-// the process-level safety nets (main.ts, tests/infra) recognize the same
-// intentional stream-stop aborts. See stream-stop-sentinels.ts for why bare
-// strings became wrapped AbortError DOMExceptions.
-
-/** Questions captured at end-turn time so the persist path can embed them. */
-const pendingAskUserArtifactByChatId = new Map<
-  number,
-  import("@/lib/chat/ask-user-artifacts").AskUserArtifact
->();
-
-// --- compaction activity emitters moved to ./chat_stream/compaction-activity ---
-
-// Per-turn tool-call caps and duplicate-call dedup were removed: they were
-// never intended for autonomous/headless operation, where the entire task is a
-// single `chat:stream` turn — capping run_command/etc. at 10 per task crippled
-// long tasks, and collapsing "duplicate" calls returned stale cached results
-// for stateful tools (e.g. run_command). Every tool call now executes every
-// time. (Output-size truncation in src/lib/tools still bounds individual results.)
-
-/** Execute a tool through ToolRegistry, recording ledger updates and honoring task-complete signals. */
-// --- runToolExecute + attachSearchRoutingActivity moved to ./chat_stream/tool-execute ---
-
-/**
- * v11.1 end-turn ask_user: detect the `__ask_user` marker, persist the
- * pending questions for the turn's content, notify the renderer, and END the
- * turn (graceful abort — same machinery as task-complete). No blocking wait,
- * no 30-minute timeout: the user's answers come back as the next user message
- * and a fresh stream continues.
- */
-async function resolveAskUserToolResult(
-  event: IpcMainInvokeEvent,
-  chatId: number,
-  toolName: string,
-  result: unknown,
-  hooks?: { onAskUserEndTurn?: () => void },
-): Promise<string | null> {
-  if (toolName !== "ask_user") return null;
-  // Accept the marker both raw and nested inside a registry success envelope
-  // (`{ success, result: { __ask_user } }`) — defensive against wrappers.
-  let marker = result;
-  if (
-    marker &&
-    typeof marker === "object" &&
-    (marker as { __ask_user?: boolean }).__ask_user !== true &&
-    (marker as { result?: unknown }).result &&
-    typeof (marker as { result?: unknown }).result === "object" &&
-    ((marker as { result: { __ask_user?: boolean } }).result.__ask_user === true)
-  ) {
-    marker = (marker as { result: unknown }).result;
-  }
-  if (!marker || typeof marker !== "object" || (marker as { __ask_user?: boolean }).__ask_user !== true) {
-    return null;
-  }
-  const q = marker as {
-    question: string;
-    options?: string[];
-    questions?: Array<{ question: string; options?: string[] }>;
-  };
-  const questions =
-    Array.isArray(q.questions) && q.questions.length > 0
-      ? q.questions
-      : [
-          {
-            question: q.question ?? "",
-            ...(Array.isArray(q.options) && q.options.length > 0
-              ? { options: q.options }
-              : {}),
-          },
-        ];
-  // v12 3.1: collision-free id (was Date.now()+Math.random — ms collisions).
-  const questionId = `uq_${crypto.randomUUID()}`;
-  pendingAskUserArtifactByChatId.set(chatId, { questionId, questions });
-  safeSend(event.sender, "user-question-request", {
-    chatId,
-    questionId,
-    question: questions[0].question,
-    options: questions[0].options,
-    questions,
-  });
-  logger.log(
-    `[ask_user] Questions presented (${questionId}, ${questions.length}) — ending turn; answers arrive as the next message`,
-  );
-  hooks?.onAskUserEndTurn?.();
-  activeStreams.get(chatId)?.abort(streamStopAbortReason(ASK_USER_STREAM_STOP));
-  // Returned as the tool result only if the abort races the SDK — it tells
-  // the model (and any transcript) what happened without inventing answers.
-  return JSON.stringify({
-    success: true,
-    questions: questions.map((it) => it.question),
-    status:
-      "Questions presented to the user. This turn ends here; the user's answers will arrive in the next message.",
-  });
-}
-
-// Track active streams for cancellation.
-//
-// Subclasses Map so every set/delete/clear drives the power-save blocker in one
-// place — no matter which of the ~14 delete sites fires. The blocker keeps the
-// CPU alive while a stream is in flight so tasks keep progressing when the
-// display sleeps (see power-blocker.ts).
-class ActiveStreamRegistry extends Map<number, AbortController> {
-  /** chatIds that actually took a blocker ref — so release can't drift if the
-   * keepAwakeDuringRuns setting is toggled mid-session. */
-  private acquired = new Set<number>();
-
-  override set(chatId: number, controller: AbortController): this {
-    const isNew = !this.has(chatId);
-    super.set(chatId, controller);
-    if (isNew && readSettings().keepAwakeDuringRuns !== false) {
-      this.acquired.add(chatId);
-      acquirePowerSaveBlocker();
-    }
-    return this;
-  }
-
-  override delete(chatId: number): boolean {
-    const existed = super.delete(chatId);
-    if (existed && this.acquired.delete(chatId)) releasePowerSaveBlocker();
-    return existed;
-  }
-
-  override clear(): void {
-    super.clear();
-    this.acquired.clear();
-    resetPowerSaveBlocker();
-  }
-}
-
-const activeStreams = new ActiveStreamRegistry();
-
-// ─── Bug A: single-flight stream guard ─────────────────────────────────────
-// Abort is COOPERATIVE — runAgentTurn only checks signal.aborted at loop tops,
-// so a superseding stream can overlap an in-flight one and two turns end up
-// writing the same workspace ("someone is changing the code"). We track the
-// live runStream() PROMISE per chat so a new dispatch can await the prior
-// leg's real termination (not just abort it) before starting, plus a monotonic
-// id stamped on terminal events so the renderer drops a stale leg's late end.
-const activeStreamRuns = new Map<number, Promise<unknown>>();
-const activeStreamId = new Map<number, number>();
-let __streamIdCounter = 0;
-const SUPERSEDE_AWAIT_TIMEOUT_MS = 8_000;
-
-/** Resolve when `p` settles OR `ms` elapses. The superseded leg rejects with the
- * supersede abort reason, so its rejection is swallowed. */
-// --- awaitWithTimeout moved to ./chat_stream/stream-misc ---
-
-/** Clear skill file cache when switching workspace (see `loadSkill`). */
-let lastSkillCacheAppId: number | undefined;
-
-// Track partial responses for cancelled streams
-const partialResponses = new Map<number, string>();
-
-// ─── FIX 4: stream reconnect plumbing ──────────────────────────────────────
-// Last successful `chat:stream` request per chat. Re-dispatched when the
-// renderer fires `chat:stream:reconnect` after the auto-retry sequence ran
-// out. Cleared on chat delete is unnecessary; entries are overwritten on the
-// next normal `chat:stream` invocation for the same chatId.
-const lastStreamRequest = new Map<number, ChatStreamParams>();
-
-/**
- * v12 (TODO 2.4): main-process memory-leak cleanup on session delete. These
- * per-chat maps were only ever overwritten, never pruned — each deleted chat
- * leaked its last request, partial response, loaders and ask_user state for
- * the lifetime of the process.
- */
-export function clearChatStreamStateForChat(chatId: number): void {
-  const active = activeStreams.get(chatId);
-  if (active) {
-    try {
-      active.abort();
-    } catch {
-      /* noop */
-    }
-    activeStreams.delete(chatId);
-  }
-  activeStreamId.delete(chatId);
-  partialResponses.delete(chatId);
-  lastStreamRequest.delete(chatId);
-  pendingAskUserArtifactByChatId.delete(chatId);
-  partialDraftRowByChatId.delete(chatId);
-  partialDraftLastFlushAtByChatId.delete(chatId);
-  streamSessionByChatId.delete(chatId);
-  // v13 7B: clear any pending waiting-on-command timers + chips.
-  clearWaitTrackersForChat(chatId);
-  // R1: cancel any outstanding self-wake timers for this chat.
-  clearScheduledWakeupsForChat(chatId);
-}
-
-// ─── Issue 4: crash-safe interrupted-turn recovery ─────────────────────────
-// While an assistant turn streams we throttle-write the accumulated text into a
-// single "interrupted" session_messages row per chat. If the app is killed,
-// suspended, or the stream is aborted before completing, that row survives so
-// the session can render the partial output with a "Continue" affordance. On
-// clean completion the draft is deleted — the renderer persists the finished
-// message instead.
-const partialDraftRowByChatId = new Map<number, string>();
-const partialDraftLastFlushAtByChatId = new Map<number, number>();
-/** chatId → workspace sessionId, so shutdown flush can resolve the session without a req. */
-const streamSessionByChatId = new Map<number, string>();
-/** #15: chatId → the work mode of that chat's PREVIOUS turn, to detect a switch
- * and fire a "mode changed" re-anchor. In-memory per chat (a restart just skips
- * the "changed" note on the first turn — the plain re-anchor still fires). */
-const lastTurnModeByChat = new Map<number, ModeSystemKey>();
-const PARTIAL_DRAFT_FLUSH_INTERVAL_MS = 1500;
-
-async function flushInterruptedDraft(
-  chatId: number,
-  sessionId: string,
-  content: string,
-  opts?: { force?: boolean },
-): Promise<void> {
-  const text = stripThinkBlocks(content).trim();
-  if (!text) return;
-  const now = Date.now();
-  const last = partialDraftLastFlushAtByChatId.get(chatId) ?? 0;
-  if (!opts?.force && now - last < PARTIAL_DRAFT_FLUSH_INTERVAL_MS) return;
-  partialDraftLastFlushAtByChatId.set(chatId, now);
-  try {
-    const { upsertInterruptedAssistantDraft } = await import(
-      "./workspace_session_handlers"
-    );
-    const rowId = await upsertInterruptedAssistantDraft(
-      partialDraftRowByChatId.get(chatId) ?? null,
-      sessionId,
-      text,
-    );
-    partialDraftRowByChatId.set(chatId, rowId);
-  } catch (e) {
-    logger.warn(`[partial-draft] upsert failed for chat ${chatId}:`, e);
-  }
-}
-
-/** Delete the interrupted draft for a chat (turn completed cleanly / superseded). */
-async function clearInterruptedDraft(chatId: number): Promise<void> {
-  const rowId = partialDraftRowByChatId.get(chatId);
-  partialDraftRowByChatId.delete(chatId);
-  partialDraftLastFlushAtByChatId.delete(chatId);
-  if (!rowId) return;
-  try {
-    const { deleteInterruptedAssistantDraft } = await import(
-      "./workspace_session_handlers"
-    );
-    await deleteInterruptedAssistantDraft(rowId);
-  } catch (e) {
-    logger.warn(`[partial-draft] delete failed for chat ${chatId}:`, e);
-  }
-}
-
-/**
- * Force-persist every in-flight stream's partial output as an interrupted row.
- * Called from main.ts on `before-quit` and powerMonitor `suspend` so a full
- * system suspend / app quit never loses work-in-progress.
- */
-export async function flushPartialStreamsForShutdown(): Promise<void> {
-  const entries = [...partialResponses.entries()];
-  if (entries.length === 0) return;
-  logger.info(
-    `[partial-draft] shutdown flush for ${entries.length} active stream(s)`,
-  );
-  for (const [chatId, content] of entries) {
-    const sessionId = streamSessionByChatId.get(chatId);
-    if (!sessionId) continue;
-    try {
-      await flushInterruptedDraft(chatId, sessionId, content, { force: true });
-    } catch (e) {
-      logger.warn(`[partial-draft] shutdown flush failed for chat ${chatId}:`, e);
-    }
-  }
-}
-
-// --- network-error classification + retry primitives moved to ./chat_stream/network-retry ---
-
-
-/**
- * Abort all active AI streams - call on app quit to save tokens
- */
-export function abortAllStreams(): void {
-  const count = activeStreams.size;
-  if (count === 0) return;
-
-  logger.log(`[Cleanup] Aborting ${count} active AI streams to save tokens...`);
-
-  for (const [chatId, controller] of activeStreams.entries()) {
-    try {
-      controller.abort();
-      logger.log(`[Cleanup] Aborted stream for chat ${chatId}`);
-    } catch (error) {
-      logger.warn(`[Cleanup] Error aborting stream ${chatId}:`, error);
-    }
-  }
-
-  activeStreams.clear();
-  activeStreamRuns.clear();
-  activeStreamId.clear();
-  partialResponses.clear();
-  logger.log(`[Cleanup] All AI streams aborted`);
-}
+// --- shared stream state moved to ./chat_stream/stream-state; lifecycle satellites to ./chat_stream/stream-lifecycle ---
 
 // Directory for storing temporary files
 const TEMP_DIR = path.join(os.tmpdir(), "atlarix-attachments");
@@ -665,36 +382,7 @@ if (!fs.existsSync(TEMP_DIR)) {
 
 // --- performFullRevert moved to ./chat_stream/stream-misc ---
 
-/**
- * v12 2.3: the registered `chat:stream` handler, captured at registration so
- * background agents can invoke the SAME turn engine in-process with a
- * synthetic recording sender (no foreground renderer). Null until registered.
- */
-type ChatStreamHandlerFn = (
-  event: Electron.IpcMainInvokeEvent,
-  req: ChatStreamParams,
-) => Promise<{ streamId: number } | { error: string } | void>;
-let chatStreamHandlerRef: ChatStreamHandlerFn | null = null;
-
-/** The live `chat:stream` handler for in-process automation runs (null before registration). */
-export function getChatStreamHandler(): ChatStreamHandlerFn | null {
-  return chatStreamHandlerRef;
-}
-
-/**
- * Abort a stream without an IPC event (automation timeout path). Also stops
- * blocking foreground commands + scout sub-agents, mirroring chat:cancel.
- */
-export function cancelStreamForAutomation(chatId: number): void {
-  const abortController = activeStreams.get(chatId);
-  if (abortController) {
-    abortController.abort();
-    activeStreams.delete(chatId);
-    logger.log(`[automation] Aborted stream for chat ${chatId}`);
-  }
-  killForegroundCommandsForChat(chatId);
-  cancelAllSubagentTasksForChat(chatId);
-}
+// --- ChatStreamHandlerFn/getChatStreamHandler/cancelStreamForAutomation moved to ./chat_stream/stream-{state,lifecycle} ---
 
 export function registerChatStreamHandlers() {
   ipcMain.handle(
@@ -804,7 +492,7 @@ export function registerChatStreamHandlers() {
       }
     }
 
-    const streamId = ++__streamIdCounter;
+    const streamId = nextStreamId();
     activeStreamId.set(req.chatId, streamId);
     const abortController = new AbortController();
     activeStreams.set(req.chatId, abortController);
@@ -1721,8 +1409,8 @@ ${componentSnippet}
             `[DIAG_146] enforce-appId chat=${req.chatId} effectiveAppId=${effectiveAppId} path=${effectiveApp?.path ?? "<none>"}`,
           );
         }
-        if (effectiveAppId !== lastSkillCacheAppId) {
-          lastSkillCacheAppId = effectiveAppId;
+        if (effectiveAppId !== getLastSkillCacheAppId()) {
+          setLastSkillCacheAppId(effectiveAppId);
           void import("@/lib/skills/skill-loader")
             .then((m) => m.clearSkillCache())
             .catch(() => {});
@@ -6932,7 +6620,7 @@ ${stopNote}`;
   // Automations execute unattended turns by invoking this exact handler with a
   // recording sender (see src/lib/automations/execute-run.ts) — the handler was
   // structured for in-process programmatic reuse from the start.
-  chatStreamHandlerRef = chatStreamHandler;
+  setChatStreamHandlerRef(chatStreamHandler);
 
   // Handler to cancel an ongoing stream
   ipcMain.handle("chat:cancel", async (event, chatId: number) => {
