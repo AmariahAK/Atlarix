@@ -62,6 +62,17 @@ diff); S18 done via tokenizer memo (gap data from the smoke session).
 
 ## Open follow-ups
 
+- **BUG (needs triage): model reports a background command "done" while it is still running.**
+  Observed live on DeepSeek — the model repeatedly polls the background job, narrates
+  "waiting"/"still running", then prematurely claims the task completed (and in one case declared
+  "zero regressions" / marked plan steps done) before the background `run_command` had actually
+  exited. Unknown root cause: (a) prompting (the background-command / `run_command background:true`
+  guidance may invite optimistic "done" narration), (b) harness (background-result delivery / the
+  wake-on-exit event — does the model get a clear, unambiguous "job still running" vs "job exited"
+  signal? is the exit result actually re-injected before the model concludes?), or (c) DeepSeek
+  behavior (weak at honoring async tool state). Investigate via a live DeepSeek run + the stream
+  debug logs; determine which layer, then fix at that layer. NOT this session (decomposition first).
+
 - **chat_stream_handlers.ts deep decomposition — IN PROGRESS (2026-07-06).** 8k-line god-file.
   STAGE 0 STARTED (commit aac0f7a): `chat_stream/message-postprocess.ts` extracted (pure tail),
   full suite + 73 agent-evals green. REMAINING: rest of STAGE 0 (permission-ui @~325-501,
