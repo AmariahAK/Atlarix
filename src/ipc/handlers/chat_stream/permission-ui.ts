@@ -31,7 +31,7 @@ export function runCommandModeGateResult(
   if (workMode === "build" || workMode === "debug") return null;
   return JSON.stringify({
     success: false,
-    error: `This command (${command}) modifies the workspace/repo and is only available in Build or Debug mode. You are currently in ${labelForWorkMode(workMode)} mode (read-only for the source). Ask the user to switch to Build/Debug, or run a non-mutating command (reads, dev servers, builds, tests, installs are fine here).`,
+    error: `Blocked by MODE, not by permissions: "${command}" changes the workspace/repo, and the current ${labelForWorkMode(workMode)} mode is read-only for the source. This is NOT an approval prompt — retrying this command or asking for approval will not help while the mode is unchanged (a previous mode may have allowed it; this one does not). Do exactly one of: run a non-mutating alternative (reads, dev servers, builds, tests, installs are fine here), or call ask_user to have the user switch to Build/Debug — then STOP retrying this command.`,
   });
 }
 
