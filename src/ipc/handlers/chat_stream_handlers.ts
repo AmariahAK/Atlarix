@@ -58,7 +58,7 @@ import { finalizeReels, setReelTurnContext } from "../utils/browser-reel";
 import { perfReportOnce } from "@/lib/perf-marks";
 import { PreflightTimer } from "@/lib/agent/preflight-timing";
 import { buildAttachmentRecord } from "@/lib/attachment-upload";
-import { getAtlarixAppPath, resolveAppPath } from "../../paths/paths";
+import { resolveAppPath } from "../../paths/paths";
 import { readSettings } from "../../main/settings";
 import type { ChatContextReport, ChatResponseEnd, ChatStreamParams } from "../ipc_types";
 import type { CodebaseFile } from "../../utils/codebase";
@@ -113,7 +113,6 @@ import { safeSend } from "../utils/safe_sender";
 import { normalizeToolInputSchemaForAiSdk, sanitizeJsonSchemaForProvider } from "@/lib/ai/normalize-tool-schema";
 import { stripHallucinatedAtlarixToolTagsFromDelta } from "@/lib/chat/answer-display";
 import {
-  getStreamTransportAppId,
   getStreamTransport,
   buildContinueAfterQuestionsPrompt,
   nextEphemeralMessageId,
@@ -154,9 +153,7 @@ import {
   takePendingBackgroundCommandResults,
   takePendingStalledAdvisories,
   listBackgroundJobs,
-  killForegroundCommandsForChat,
 } from "@/lib/agent/background-commands";
-import { cancelAllSubagentTasksForChat } from "@/lib/tools/spawn-task";
 import {
   takePendingSubagentResults,
   runningSubagentCount,
@@ -194,7 +191,6 @@ import {
 } from "@/lib/routing/reasoning-detector";
 import { enforceContextBudget } from "@/lib/routing/tier_context_budget";
 import { processStreamChunks } from "../utils/stream_chunk_tags";
-import { snapshotExists } from "../../lib/snapshot/snapshot-manager";
 import { feedTerminalOutput } from "../../lib/streams/StreamManager";
 import {
   processChatMessagesWithVersionedFiles as getVersionedFiles,
@@ -322,7 +318,6 @@ import {
 import {
   awaitWithTimeout,
   isTextFile,
-  performFullRevert,
 } from "./chat_stream/stream-misc";
 import {
   activeStreams,
@@ -350,6 +345,8 @@ import {
   abortAllStreams,
   cancelStreamForAutomation,
 } from "./chat_stream/stream-lifecycle";
+import { registerLifecycleHandlers } from "./chat_stream/lifecycle-handlers";
+import { registerRevertHandlers } from "./chat_stream/revert-handlers";
 export {
   resolveModeChange,
   clearChatStreamStateForChat,
@@ -6622,450 +6619,8 @@ ${stopNote}`;
   // structured for in-process programmatic reuse from the start.
   setChatStreamHandlerRef(chatStreamHandler);
 
-  // Handler to cancel an ongoing stream
-  ipcMain.handle("chat:cancel", async (event, chatId: number) => {
-    const abortController = activeStreams.get(chatId);
-
-    if (abortController) {
-      // Abort the stream
-      abortController.abort();
-      activeStreams.delete(chatId);
-      logger.log(`Aborted stream for chat ${chatId}`);
-    } else {
-      logger.warn(`No active stream found for chat ${chatId}`);
-    }
-
-    // Fix 4: aborting the model stream doesn't stop a blocking foreground
-    // run_command or running scout sub-agents — terminate them too so "stop"
-    // actually stops the work (and stops spending tokens).
-    const killed = killForegroundCommandsForChat(chatId);
-    const subagentsCancelled = cancelAllSubagentTasksForChat(chatId);
-    if (killed > 0 || subagentsCancelled > 0) {
-      logger.log(
-        `[chat:cancel] Stopped ${killed} command(s) + ${subagentsCancelled} sub-agent(s) for chat ${chatId}`,
-      );
-    }
-
-    // Send the end event to the renderer
-    safeSend(event.sender, "chat:response:end", {
-      chatId,
-      updatedFiles: false,
-      hadToolCallsOrPermissions: false,
-    } satisfies ChatResponseEnd);
-
-    // Clean up uploads state for this chat
-    try {
-      FileUploadsState.getInstance().clear(chatId);
-    } catch { }
-
-    return true;
-  });
-
-  // ═══════════════════════════════════════════════════════════
-  // ABORT STREAM - User can cancel AI stream to save tokens
-  // ═══════════════════════════════════════════════════════════
-  ipcMain.handle("chat:abort", async (_, chatId: number) => {
-    const controller = activeStreams.get(chatId);
-    if (controller) {
-      logger.log(`[chat:abort] User cancelled stream for chat ${chatId}`);
-      controller.abort();
-      activeStreams.delete(chatId);
-      // Fix 4: also terminate any blocking foreground run_command + running
-      // scout sub-agents so cancel stops in-flight work, not just the request.
-      const killed = killForegroundCommandsForChat(chatId);
-      const subagentsCancelled = cancelAllSubagentTasksForChat(chatId);
-      if (killed > 0 || subagentsCancelled > 0) {
-        logger.log(
-          `[chat:abort] Stopped ${killed} command(s) + ${subagentsCancelled} sub-agent(s) for chat ${chatId}`,
-        );
-      }
-      // Do NOT delete partialResponses here — the stream's catch block will persist
-      // the partial response to the DB and then clear it, so the user keeps the
-      // cancelled response when they send a follow-up.
-      return { success: true, message: 'AI response cancelled' };
-    }
-    return { success: false, message: 'No active stream for this chat' };
-  });
-
-  // FIX 4: explicit "reconnect" after the auto-retry sequence gave up. The
-  // renderer holds onto the partial; we just re-dispatch the same turn.
-  // Asks the renderer to clear its in-flight stream buffer first, then runs
-  // the chat-stream handler again with the cached request.
-  ipcMain.handle(
-    "chat:stream:reconnect",
-    async (event, params: { chatId: number }) => {
-      const chatId = params?.chatId;
-      if (typeof chatId !== "number") {
-        return { success: false, message: "Invalid chatId" };
-      }
-      const cached = lastStreamRequest.get(chatId);
-      if (!cached) {
-        return {
-          success: false,
-          message: "No prior stream request to reconnect",
-        };
-      }
-      safeSend(event.sender, "chat:stream:reset-partial", { chatId });
-      try {
-        await chatStreamHandler(event, cached);
-        return { success: true };
-      } catch (error) {
-        logger.error("[chat:stream:reconnect] re-dispatch failed:", error);
-        return {
-          success: false,
-          message: error instanceof Error ? error.message : String(error),
-        };
-      }
-    },
-  );
-
-  // v3.9: Edit user message — truncate messages after it, update content, clear has_answered_questions
-  ipcMain.handle(
-    "chat:edit-message",
-    async (
-      event,
-      payload: { chatId: number; userMessageId: number; newContent: string }
-    ) => {
-      const { chatId, userMessageId, newContent } = payload;
-      // Ephemeral chats (chatId < 0) live only in-memory (ephemeral-chat transport).
-      const { editTransportUserMessage, getStreamTransport } = await import(
-        "@/lib/chat/stream-transport"
-      );
-      // v12 0.4-C3: edits target the DB row DIRECTLY via the message's
-      // sessionRowId (every persisted message carries it — streamed user
-      // messages since C2, ask_user Q→A inserts since C3). The ordinal
-      // fallback is deleted. A message WITHOUT a row id was never persisted
-      // (best-effort persist failed) — surface that instead of silently
-      // diverging.
-      const chat = getStreamTransport(chatId);
-      const targetMsg = chat?.messages.find(
-        (m) => m.id === userMessageId && m.role === "user",
-      );
-      const sessionRowId = targetMsg?.sessionRowId;
-
-      // W2 (v14.8.11): regenerate the MODEL-facing content for the edited
-      // message — expand its attachment stubs back to full bodies using the
-      // message's stored paste metas. Without this the transport dropped the
-      // bodies (model lost inline attachment content on resend) and the DB
-      // kept the STALE pre-edit modelContent (dispatch prefers it → the edit
-      // was silently undone for the model after a reload).
-      let newModelContent: string | null = null;
-      try {
-        const {
-          resolvePasteAttachmentsForMessage,
-          expandAttachmentStubsToModelContent,
-        } = await import("@/lib/chat/paste-attachment-meta");
-        const pastes = resolvePasteAttachmentsForMessage({
-          pasteAttachments: targetMsg?.pasteAttachments ?? null,
-          modelContent: targetMsg?.modelContent ?? null,
-        });
-        const expanded = expandAttachmentStubsToModelContent(newContent, pastes);
-        newModelContent = expanded !== newContent ? expanded : null;
-      } catch (e) {
-        logger.warn("Failed to regenerate model content for edited message:", e);
-      }
-
-      const ok = editTransportUserMessage(
-        chatId,
-        userMessageId,
-        newContent,
-        newModelContent,
-      );
-      if (!ok) {
-        throw new Error("Ephemeral user message not found");
-      }
-
-      let persistedToSession = false;
-      try {
-        if (sessionRowId) {
-          const { persistEditedSessionMessageById } = await import(
-            "./workspace_session_handlers"
-          );
-          persistedToSession =
-            (await persistEditedSessionMessageById(
-              sessionRowId,
-              newContent,
-              newModelContent,
-            )) === "updated";
-        }
-      } catch (e) {
-        logger.warn("Failed to persist edited session message:", e);
-      }
-      if (!persistedToSession) {
-        logger.warn(
-          `[chat:edit-message] edit not persisted to session (chat ${chatId}, sessionRowId=${sessionRowId ?? "none"})`,
-        );
-        safeSend(event.sender, "chat:activity", {
-          id: `edit-not-persisted-${chatId}-${Date.now()}`,
-          type: "warning",
-          label: "Edit not saved to session history",
-          detail:
-            "The edit applies to this conversation, but the saved session could not be updated — after a reload the original message may reappear.",
-          status: "error",
-          timestamp: Date.now(),
-          chatId,
-        });
-      }
-      return { success: true, persistedToSession };
-    }
-  );
-
-  ipcMain.handle(
-    "snapshot:exists",
-    async (_event, payload: { appId: number; turnId: string }) => {
-      const { appId, turnId } = payload;
-      if (!turnId || appId == null || Number.isNaN(Number(appId))) {
-        return false;
-      }
-      const app = await db.query.apps.findFirst({
-        where: eq(apps.id, appId),
-      });
-      if (!app) return false;
-      const workspacePath = getAtlarixAppPath(app.path);
-      // v10: shadow-git store first, legacy .bak dirs second.
-      return snapshotExists(workspacePath, String(turnId));
-    },
-  );
-
-  // v3.9 / v4.0: Revert conversation to an assistant message — restore workspace snapshot (if any), truncate messages, clear has_answered_questions
-  ipcMain.handle(
-    "chat:revert-to-message",
-    async (
-      _event,
-      payload: { chatId: number; assistantMessageId: number }
-    ) => {
-      const { chatId, assistantMessageId } = payload;
-      const ec = getStreamTransport(chatId);
-      const msg = ec?.messages.find((m) => m.id === assistantMessageId);
-      if (!msg || msg.role !== "assistant") {
-        throw new Error("Assistant message not found");
-      }
-      const appId = getStreamTransportAppId(chatId) ?? null;
-      const turnId = String(assistantMessageId);
-      if (appId != null) {
-        const app = await db.query.apps.findFirst({ where: eq(apps.id, appId) });
-        if (app) {
-          const appPath = resolveAppPath(app.path);
-          const result = await performFullRevert({
-            chatId,
-            turnId,
-            assistantMessageId,
-            workspacePath: appPath,
-            workspaceId: appId,
-          });
-          if (!result.success && result.error) {
-            logger.warn("Revert: performFullRevert:", result.error);
-          }
-          return { success: true };
-        }
-      }
-      return { success: true };
-    }
-  );
-
-  ipcMain.handle(
-    "autonomous:revert-op",
-    async (
-      _event,
-      payload: { chatId: number; turnId: string; operationId: string },
-    ) => {
-      const { findAutonomousOp, markAutonomousOpReverted } = await import("./autonomous-session-state");
-      const op = findAutonomousOp(payload.chatId, payload.turnId, payload.operationId);
-      if (!op?.path) {
-        return { success: false, error: "No file path for this operation" };
-      }
-      const workspaceId = getStreamTransportAppId(payload.chatId);
-      if (workspaceId == null) {
-        return { success: false, error: "Chat has no workspace" };
-      }
-      const app = await db.query.apps.findFirst({ where: eq(apps.id, workspaceId) });
-      if (!app?.path) {
-        return { success: false, error: "Chat has no workspace" };
-      }
-      const workspacePath = resolveAppPath(app.path);
-      const rel = op.path.split(path.sep).join("/");
-      const assistantMessageId = Number(payload.turnId);
-      if (!Number.isFinite(assistantMessageId)) {
-        return { success: false, error: "Invalid turnId" };
-      }
-      const result = await performFullRevert({
-        chatId: payload.chatId,
-        turnId: payload.turnId,
-        assistantMessageId,
-        workspacePath,
-        workspaceId,
-        options: {
-          filesFilter: [rel],
-          skipMessageFlags: true,
-        },
-      });
-      if (result.success) {
-        markAutonomousOpReverted(payload.chatId, payload.turnId, payload.operationId);
-      }
-      return result;
-    },
-  );
-
-  ipcMain.handle(
-    "autonomous:accept-all",
-    async (_event, payload: { chatId: number; turnId: string }) => {
-      const { clearAutonomousSession } = await import("./autonomous-session-state");
-      clearAutonomousSession(payload.chatId, payload.turnId);
-      return { success: true };
-    },
-  );
-
-  ipcMain.handle(
-    "revert:snapshot",
-    async (
-      _event,
-      payload: { chatId: number; turnId: string; filesOnly?: boolean },
-    ) => {
-      const { chatId, turnId, filesOnly } = payload;
-      const assistantMessageId = Number(turnId);
-      if (!Number.isFinite(assistantMessageId)) {
-        return { success: false, error: "Invalid turnId" };
-      }
-      const ec = getStreamTransport(chatId);
-      const msg = ec?.messages.find((m) => m.id === assistantMessageId);
-      if (!msg || msg.role !== "assistant") {
-        return {
-          success: false,
-          error: "Assistant message not found for this chat and turnId",
-        };
-      }
-      const workspaceId = getStreamTransportAppId(chatId);
-      if (workspaceId == null) {
-        return { success: false, error: "No workspace attached" };
-      }
-      const app = await db.query.apps.findFirst({ where: eq(apps.id, workspaceId) });
-      if (!app?.path) {
-        return { success: false, error: "No workspace attached" };
-      }
-      const workspacePath = resolveAppPath(app.path);
-      return performFullRevert({
-        chatId,
-        turnId,
-        assistantMessageId,
-        workspacePath,
-        workspaceId,
-        // v13.1: a "revert this turn's files" restore only rolls back the files;
-        // it must NOT flag the conversation/messages as reverted.
-        ...(filesOnly ? { options: { skipMessageFlags: true } } : {}),
-      });
-    },
-  );
-
-  // v13.1: list the files a turn's snapshot would restore/delete (for the
-  // "revert this turn's file changes" confirmation dialog).
-  ipcMain.handle(
-    "snapshot:files",
-    async (_event, payload: { chatId: number; turnId: string }) => {
-      const { chatId, turnId } = payload;
-      if (!turnId) return null;
-      const workspaceId = getStreamTransportAppId(chatId);
-      if (workspaceId == null) return null;
-      const app = await db.query.apps.findFirst({ where: eq(apps.id, workspaceId) });
-      if (!app?.path) return null;
-      const { listSnapshotFiles } = await import("@/lib/snapshot/snapshot-manager");
-      return listSnapshotFiles(resolveAppPath(app.path), String(turnId));
-    },
-  );
-
-  // Edit-and-resend: revert the file changes of a RANGE of turns (the turns
-  // discarded by editing an earlier message). turnIds arrive in chronological
-  // order; we revert NEWEST→OLDEST because each turn's snapshot holds the
-  // workspace state BEFORE that turn — reverting forward would re-apply earlier
-  // turns' edits. Per-turn snapshots are per-touched-file, so reverting every
-  // discarded turn (not just the earliest) is required to remove files created
-  // by later turns. Files-only (never flags messages). A missing/expired
-  // snapshot is skipped, not fatal.
-  ipcMain.handle(
-    "revert:snapshot-range",
-    async (_event, payload: { chatId: number; turnIds: string[] }) => {
-      const { chatId, turnIds } = payload;
-      if (!Array.isArray(turnIds) || turnIds.length === 0) {
-        return { success: true, restoredFiles: 0, reverted: [], skipped: [] };
-      }
-      const workspaceId = getStreamTransportAppId(chatId);
-      if (workspaceId == null) {
-        return { success: false, error: "No workspace attached" };
-      }
-      const app = await db.query.apps.findFirst({ where: eq(apps.id, workspaceId) });
-      if (!app?.path) {
-        return { success: false, error: "No workspace attached" };
-      }
-      const workspacePath = resolveAppPath(app.path);
-      const ordered = [...turnIds].reverse(); // newest → oldest
-      let restoredFiles = 0;
-      const reverted: string[] = [];
-      const skipped: string[] = [];
-      let lastError: string | undefined;
-      for (const turnId of ordered) {
-        const assistantMessageId = Number(turnId);
-        if (!Number.isFinite(assistantMessageId)) {
-          skipped.push(turnId);
-          continue;
-        }
-        try {
-          const res = await performFullRevert({
-            chatId,
-            turnId: String(turnId),
-            assistantMessageId,
-            workspacePath,
-            workspaceId,
-            options: { skipMessageFlags: true },
-          });
-          if (res.success) {
-            reverted.push(turnId);
-            restoredFiles += res.restoredFiles ?? 0;
-          } else {
-            skipped.push(turnId);
-            lastError = res.error ?? lastError;
-          }
-        } catch (e) {
-          skipped.push(turnId);
-          lastError = e instanceof Error ? e.message : String(e);
-        }
-      }
-      // success = the operation ran (workspace resolved); per-turn skips (e.g.
-      // an expired snapshot) are reported, not treated as a hard failure.
-      return { success: true, restoredFiles, reverted, skipped, error: lastError };
-    },
-  );
-
-  // Union of files a RANGE of turn snapshots would restore/delete — powers the
-  // edit-and-resend confirmation dialog's "M file change(s)" summary.
-  ipcMain.handle(
-    "snapshot:files-range",
-    async (_event, payload: { chatId: number; turnIds: string[] }) => {
-      const { chatId, turnIds } = payload;
-      if (!Array.isArray(turnIds) || turnIds.length === 0) {
-        return { filesChanged: [], createdFiles: [], turnsWithSnapshot: 0 };
-      }
-      const workspaceId = getStreamTransportAppId(chatId);
-      if (workspaceId == null) return null;
-      const app = await db.query.apps.findFirst({ where: eq(apps.id, workspaceId) });
-      if (!app?.path) return null;
-      const { listSnapshotFiles } = await import("@/lib/snapshot/snapshot-manager");
-      const workspacePath = resolveAppPath(app.path);
-      const filesChanged = new Set<string>();
-      const createdFiles = new Set<string>();
-      let turnsWithSnapshot = 0;
-      for (const turnId of turnIds) {
-        const files = await listSnapshotFiles(workspacePath, String(turnId));
-        if (!files) continue;
-        turnsWithSnapshot++;
-        for (const f of files.filesChanged ?? []) filesChanged.add(f);
-        for (const f of files.createdFiles ?? []) createdFiles.add(f);
-      }
-      return {
-        filesChanged: [...filesChanged],
-        createdFiles: [...createdFiles],
-        turnsWithSnapshot,
-      };
-    },
-  );
+  registerLifecycleHandlers(chatStreamHandler);
+  registerRevertHandlers();
 }
 
 // --- pure post-processing helpers moved to ./chat_stream/message-postprocess (re-exported below) ---
