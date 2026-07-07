@@ -62,6 +62,7 @@
     "fetch-ctags": "node scripts/fetch-ctags.mjs",
     "build:headless": "node scripts/build-headless.mjs",
     "build:win-sandbox": "cargo build --release --manifest-path native/atlarix-sandbox/Cargo.toml",
+    "build:linux-sandbox": "cargo build --release --manifest-path native/atlarix-sandbox-linux/Cargo.toml",
     "check": "npm run check:ts && npm run check:lint",
     "check:ts": "node node_modules/typescript/lib/tsc.js -p tsconfig.app.json --noEmit",
     "check:lint": "oxlint src"

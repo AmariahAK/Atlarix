@@ -5,7 +5,8 @@
  * deny writes elsewhere; reads stay broad; NETWORK STAYS ON (so npm/pip/git work).
  *
  * - macOS:   `sandbox-exec` (Seatbelt) — built-in, free.
- * - Linux:   `bwrap` (bubblewrap) — free; falls back if not installed.
+ * - Linux:   bundled `atlarix-sandbox-linux` (Landlock) helper; falls back to an
+ *            OS-installed `bwrap` (bubblewrap), then unsandboxed.
  * - Windows: `atlarix-sandbox.exe` AppContainer helper — falls back if not bundled.
  *
  * Applies ONLY to agent `run_command`. The user's interactive PTY tabs are never
@@ -141,7 +142,38 @@ function findBwrap(): string | null {
   return null;
 }
 
+/**
+ * Resolve the bundled Landlock helper (`atlarix-sandbox-linux`, built from
+ * native/atlarix-sandbox-linux in the Linux CI job). Self-contained — no OS
+ * dependency, unlike bwrap. Falls back to bwrap when absent (e.g. a dev build
+ * without the compiled helper). Override with ATLARIX_SANDBOX_HELPER_LINUX.
+ */
+function findLinuxHelper(): string | null {
+  const fromEnv = process.env.ATLARIX_SANDBOX_HELPER_LINUX;
+  if (fromEnv && existsSync(fromEnv)) return fromEnv;
+  try {
+    const resourcesPath = (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath;
+    if (resourcesPath) {
+      const candidate = path.join(resourcesPath, "atlarix-sandbox-linux");
+      if (existsSync(candidate)) return candidate;
+    }
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
+
 function wrapLinux(req: SandboxRequest, writable: string[]): WrappedSpawn | null {
+  // Prefer the bundled Landlock helper (self-contained); same CLI contract as the
+  // Windows AppContainer helper: --workspace <dir> [--writable <dir>]... -- <cmd>.
+  const helper = findLinuxHelper();
+  if (helper) {
+    const args = ["--workspace", req.workspacePath];
+    for (const p of writable) args.push("--writable", p);
+    args.push("--", req.command);
+    return { file: helper, args, sandboxed: true, useShellOption: false };
+  }
+  // Fallback: OS-installed bubblewrap.
   const bwrap = findBwrap();
   if (!bwrap) return null;
 

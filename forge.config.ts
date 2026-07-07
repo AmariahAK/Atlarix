@@ -274,6 +274,16 @@ const config: ForgeConfig = {
       )
         ? [path.join(__dirname, "native/atlarix-sandbox/target/release/atlarix-sandbox.exe")]
         : []),
+      // Linux Landlock sandbox helper (cargo-built in CI; no code-signing needed).
+      // Resolves at runtime via process.resourcesPath/atlarix-sandbox-linux
+      // (see src/lib/sandbox/wrap-command.ts). Guarded so non-Linux / un-built
+      // packaging is unaffected; falls back to OS bwrap when absent.
+      ...(process.platform === "linux" &&
+      fs.existsSync(
+        path.join(__dirname, "native/atlarix-sandbox-linux/target/release/atlarix-sandbox-linux"),
+      )
+        ? [path.join(__dirname, "native/atlarix-sandbox-linux/target/release/atlarix-sandbox-linux")]
+        : []),
     ],
   },
   rebuildConfig: {

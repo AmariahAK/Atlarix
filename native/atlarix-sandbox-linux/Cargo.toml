@@ -1,0 +1,22 @@
+[package]
+name = "atlarix-sandbox-linux"
+version = "0.1.0"
+edition = "2021"
+description = "Linux Landlock write-confining sandbox helper for Atlarix run_command"
+
+[[bin]]
+name = "atlarix-sandbox-linux"
+path = "src/main.rs"
+
+# Tiny static-ish helper (mirrors native/atlarix-sandbox for Windows).
+[profile.release]
+opt-level = "z"
+lto = true
+strip = true
+panic = "abort"
+codegen-units = 1
+
+# Linux-only dependency. The crate body is `#![cfg(target_os = "linux")]`, so on
+# any other host it compiles to an empty binary and never pulls landlock.
+[target.'cfg(target_os = "linux")'.dependencies]
+landlock = "0.4"

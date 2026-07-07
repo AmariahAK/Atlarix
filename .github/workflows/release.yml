@@ -428,6 +428,17 @@ jobs:
       - name: Tests
         run: npm test
 
+      - name: Build Linux sandbox helper (Rust)
+        run: |
+          set -euo pipefail
+          cargo build --release --manifest-path native/atlarix-sandbox-linux/Cargo.toml
+          BIN="native/atlarix-sandbox-linux/target/release/atlarix-sandbox-linux"
+          if [ ! -f "$BIN" ]; then
+            echo "::error::atlarix-sandbox-linux was not built"
+            exit 1
+          fi
+          echo "Built $BIN (unsigned — Linux needs no code-signing)."
+
       - name: Build for Linux
         run: |
           set -euo pipefail
