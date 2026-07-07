@@ -2,8 +2,6 @@ import { v4 as uuidv4 } from "uuid";
 import { ipcMain } from "electron";
 import {
   ModelMessage,
-  ToolSet,
-  jsonSchema as aiJsonSchema,
 } from "ai";
 
 import { db } from "../../db";
@@ -16,11 +14,6 @@ import {
   type ModeSystemKey,
 } from "../../prompts/system_prompt";
 import { getActiveModeReanchor } from "@/lib/tools/mode-prompt-bundle";
-import {
-  buildToolModelOutput,
-  redactToolMediaForDisplay,
-  extractImageMedia,
-} from "@/lib/ai/tool-model-output";
 import { detectVisionCapability } from "@/lib/routing/model-capability-profile";
 import {
   hasNativeToolParts,
@@ -29,13 +22,6 @@ import {
   isNativeHistoryEnvelope,
   regateNativeMediaForProvider,
 } from "@/lib/ai/native-history";
-import { runAgentTurn } from "@/lib/agent/run-agent-turn";
-import { simplifyToolParametersForProfile } from "@/lib/routing/model-capability-profile";
-import { resolveToolsetForSession } from "@/lib/tools/resolve-toolset";
-import {
-  runStopHooks,
-  hasStopHooks,
-} from "@/lib/hooks/file-hooks";
 import {
   estimateTurnCostUsd,
 } from "@/lib/routing/byok-pricing";
@@ -44,10 +30,10 @@ import { PreflightTimer } from "@/lib/agent/preflight-timing";
 import { buildAttachmentRecord } from "@/lib/attachment-upload";
 import { resolveAppPath } from "../../paths/paths";
 import { readSettings } from "../../main/settings";
-import type { ChatContextReport, ChatResponseEnd, ChatStreamParams } from "../ipc_types";
+import type { ChatResponseEnd, ChatStreamParams } from "../ipc_types";
 import { streamTestResponse } from "./testing_chat_handlers";
 import { getTestResponse } from "./testing_chat_handlers";
-import { getModelClient, getEffectiveModel, getEffectiveModelForOptions, type GetModelClientOptions } from "../utils/get_model_client";
+import { getModelClient, getEffectiveModel, type GetModelClientOptions } from "../utils/get_model_client";
 import { buildAtlarixCoreTierCatalog } from "@/lib/atlarix-core-catalog";
 import { resolveActiveModelIdentity } from "@/lib/model-identity-prompt";
 import {
@@ -64,8 +50,6 @@ import {
 } from "../../lib/auth/compass_enforcement";
 import {
   ASK_USER_STREAM_STOP,
-  LOOP_REPETITION_STREAM_STOP,
-  FORCE_TEXT_FINISH_STREAM_STOP,
   SUPERSEDED_STREAM_STOP,
   abortReasonSentinel,
   streamStopAbortReason,
@@ -83,14 +67,11 @@ import { MAX_CHAT_TURNS_IN_CONTEXT } from "@/constants/settings_constants";
 
 
 import { safeSend } from "../utils/safe_sender";
-import { sanitizeJsonSchemaForProvider } from "@/lib/ai/normalize-tool-schema";
-import { stripHallucinatedAtlarixToolTagsFromDelta } from "@/lib/chat/answer-display";
 import {
   buildContinueAfterQuestionsPrompt,
   nextEphemeralMessageId,
   getStreamTransport,
 } from "@/lib/chat/stream-transport";
-import { shouldUseTextToolFallback } from "@/lib/stream/text-tool-fallback";
 import { isStreamDebugLoggingEnabled } from "@/lib/stream/stream-debug";
 import { stripQuestionsBlockFromResponse } from "../utils/cleanFullResponse";
 import {
@@ -150,13 +131,10 @@ import {
 } from "../../lib/security/chat-prompt-gate";
 import { sanitizeAssistantOutput } from "../../lib/security/profanity-filter";
 import {
-  detectReasoningCapability,
   resolveReasoningCatalogModelId,
   hasNativeDeepThinkingSupport,
 } from "@/lib/routing/reasoning-detector";
 import { enforceContextBudget } from "@/lib/routing/tier_context_budget";
-import { feedTerminalOutput } from "../../lib/streams/StreamManager";
-import { ToolRegistry } from "../../lib/tools";
 import { AttachmentStore } from "../../lib/attachment-store";
 import {
   buildPasteAttachmentDirective,
@@ -164,12 +142,6 @@ import {
   pasteToAttachmentData,
 } from "../../lib/attachment-persistence";
 import type { StoredFileAttachment } from "../ipc_types";
-import { toolExecutionChatMode } from "../../lib/work-mode";
-import {
-  createAgenticRepetitionState,
-  buildLoopCorrectionMessage,
-  type AgenticRepetitionOutcome,
-} from "../../lib/streaming/agentic-loop-repetition";
 import {
   createLedger,
   getLedger,
@@ -180,17 +152,13 @@ import {
   persistLedgerToDisk,
   planLedgerTurnId,
   getWorkspacePlanLedger,
-  recordToolOnLedger,
   registerLedgerPlanUiNotifier,
   setLedgerSteps,
   unregisterLedgerPlanUiNotifier,
 } from "@/lib/tasks/task-ledger";
-import { getPlanCompletionFeedback } from "@/lib/tasks/plan-completion-gate";
 import { emitPlanUpdate } from "@/ipc/utils/emit_plan_update";
 import {
   clearMutationOutcomes,
-  recordUnverifiedEdit,
-  clearUnverifiedEdit,
 } from "@/lib/agent/mutation-verify";
 import { type ContextSection } from "@/lib/context/ContextAssembler";
 import { ContextBudgetTracker } from "@/lib/context/context-budget-tracker";
@@ -203,18 +171,11 @@ import {
   formatAuthRequiredIpcError,
   AuthRequiredError,
 } from "../../lib/auth/require_auth_session";
-import { PermissionInterceptor } from "./permissions/interceptor";
 import {
-  registerInterceptor,
-} from "./permissions/handlers";
-import {
-  appendAutonomousOp,
-  autonomousOpFromPermissionExec,
   getAutonomousSessionLog,
   getAgentActivityForTurn,
 } from "./autonomous-session-state";
 import {
-  estimateTokens,
   getContextWindow,
   getContextWindowDetailed,
   setCompassContextWindow,
@@ -222,31 +183,7 @@ import {
 import {
   resolveEffectiveWorkMode,
 } from "../../lib/work-mode";
-import { computeDiffHunks } from "@/lib/diff/compose-hunks";
-import { attachDelegationToolsToSet } from "../../lib/agents/register-delegation-tools";
-import { shouldAutoApprovePermissions } from "../../lib/agents/agent-runtime";
 import { getToolActivityLabel } from "../../lib/tool-activity-labels";
-import { summarizeToolResultForActivityDetail, toolResultTextForExpand } from "@/lib/chat/stream-tool-display";
-import { captureSafe } from "../../main/lib/analytics";
-import {
-  applyFileScopePreflightInStream,
-} from "./file_permission_preflight";
-import {
-  runCommandGateResult,
-  emitFilePermissionActivity,
-  enrichPermissionRequestForUi,
-  emitAutoApprovedWritePreview,
-  runCommandCategoryGateToolResult,
-  shouldSkipPermissionWaitForRunCommand,
-} from "./chat_stream/permission-ui";
-import {
-  emitCompactionMirroredActivity,
-  emitModelCompactionActivity,
-} from "./chat_stream/compaction-activity";
-import {
-  runToolExecute,
-  attachSearchRoutingActivity,
-} from "./chat_stream/tool-execute";
 import {
   NetworkStreamDisconnectedError,
 } from "./chat_stream/network-retry";
@@ -272,8 +209,6 @@ import {
 } from "./chat_stream/stream-state";
 import {
   resolveModeChange,
-  resolveAskUserToolResult,
-  flushInterruptedDraft,
   clearInterruptedDraft,
   flushPartialStreamsForShutdown,
   clearChatStreamStateForChat,
@@ -286,16 +221,18 @@ import { registerSessionHandlers } from "./chat_stream/session-handlers";
 import { createStreamTurnContext } from "./chat_stream/turn-context";
 import { buildPromptBundle } from "./chat_stream/turn-runner/prompt-bundle";
 import {
-  simpleStreamText,
   type SimpleStreamTextDeps,
 } from "./chat_stream/turn-runner/simple-stream-text";
-import { runStreamRoundWithEmptyOutputRetry } from "./chat_stream/turn-runner/round-retry";
 import { processResponseChunkUpdate as runProcessResponseChunkUpdate } from "./chat_stream/turn-runner/response-chunk-update";
 import { runContextAssembly } from "./chat_stream/turn-runner/context-assembly";
 import {
   runAskBranch,
   type AskBranchDeps,
 } from "./chat_stream/turn-runner/ask-branch";
+import {
+  runBuildBranch,
+  type BuildBranchDeps,
+} from "./chat_stream/turn-runner/build-branch";
 import {
   loadModeSkillSection,
   loadRepoSkillsSection,
@@ -2309,1443 +2246,43 @@ ${componentSnippet}
             };
             await runAskBranch(ctx, askBranchDeps);
           } else {
-            // BUILD MODE - Native tool calling (like Agent mode)
-            // AI has access to all workspace tools via function calling
-            // Permission interceptor buffers write operations for user approval
-            logger.log("Build mode with native tool calling + permission system");
-
-            // Per-turn revert is provided by the incremental shadow-git snapshot
-            // system (captureSnapshot via the PermissionInterceptor, staged per
-            // approved write). The former per-exchange full-copy createSnapshot
-            // (workspace-snapshots.ts) was removed from the hot path — it walked +
-            // read up to 500 files into a SQLite row every turn, dominated TTFT,
-            // and its result was never read (its list/restore IPC is unwired).
-
-            const workspacePath = appPath;
-            let workspaceOverride: { path: string; id: number } | null = null;
-            // v12 S19 (closes 3.10): single resolution pipeline — see the
-            // ask-branch note and resolve-toolset.ts.
-            const buildResolved = resolveToolsetForSession({
-              branch: "build",
+            // Build/debug arm extracted to ./chat_stream/turn-runner/build-branch.
+            const buildBranchDeps: BuildBranchDeps = {
+              req,
+              event,
+              settings,
+              updatedChat,
+              appPath,
+              effectiveAppId,
+              effectiveModel,
               effectiveWorkMode,
-              hasWorkspace,
-              workspaceIntegrationEligible:
-                hasWorkspace && effectiveAppId != null,
-              model: {
-                name: effectiveModel?.name,
-                provider: effectiveModel?.provider,
-                builtinProviderId: modelClient.builtinProviderId,
-              },
-              userAgentTools: activeUserAgent?.tools ?? null,
-              unattended: Boolean(req.automation),
-            });
-            const buildToolsToInclude = buildResolved.tools;
-            const buildCapabilityProfile = buildResolved.capabilityProfile;
-            // Create permission interceptor for this session
-            const permissionInterceptor = new PermissionInterceptor(
-              workspacePath,
-              effectiveAppId ?? undefined,
+              modelClient,
+              modelContextResolved,
+              placeholderAssistantMessage,
+              systemPrompt,
+              taskLedgerBlock,
+              simpleStreamTextDeps,
               streamTurnId,
-              req.chatId,
-            );
-
-            // Register interceptor for IPC handlers (so UI can approve/reject)
-            registerInterceptor(req.chatId, permissionInterceptor);
-
-            const autonomousTurnId = String(placeholderAssistantMessage.id);
-
-            // Listen for terminal output events and forward to frontend; v3.9: also feed to StreamManager for stream_terminal_output
-            permissionInterceptor.on('terminal-output', (payload: any) => {
-              feedTerminalOutput(req.chatId, payload.output ?? "");
-              // Streaming output IS activity — pulse so the inline status doesn't
-              // falsely flip to "Reconnecting…" during a long/quiet command.
-              handleStreamActivityPulse();
-              safeSend(event.sender, "terminal-output", {
-                chatId: req.chatId,
-                commandId: payload.operationId,
-                command: payload.command,
-                output: payload.output,
-                status: payload.status,
-                exitCode: payload.exitCode,
-                background: payload.background === true,
-                source: "agent",
-                isPermissionBased: true, // Don't force-switch to terminal tab
-              });
-              logger.log(`[Build Mode] Terminal output sent: ${payload.command} (${payload.status})`);
-            });
-
-            const recentCompletedBuildToolNames: string[] = [];
-
-            const agenticRepetition = createAgenticRepetitionState();
-            const handleAgenticRepetitionOutcome = (o: AgenticRepetitionOutcome) => {
-              // Fix R: corrections are handled in the execute wrapper (synthetic
-              // tool result, no abort). Only the escalated backstop aborts here.
-              if (o.kind !== "loop_abort") return;
-              // Doom loop (9 consecutive byte-identical calls, corrections ignored) — wrap up.
-              safeSend(event.sender, "chat:activity", {
-                id: `loop-abort-${Date.now()}`,
-                type: "loop_repetition_aborted",
-                label: "Wrapping up — repeated action",
-                detail:
-                  "Repeated the same call identically — finishing with a summary of what was done and what remains.",
-                status: "running",
-                timestamp: Date.now(),
-                chatId: req.chatId,
-                toolName: o.toolName,
-                loopTarget: o.target,
-                loopCount: o.count,
-              });
-              // Interrupt the in-flight stream — the SDK's multi-step loop never
-              // returns to the round boundary while the model keeps calling
-              // tools. FORCE_TEXT_FINISH (vs a hard stop) lets the engine run one
-              // final tools-off round so the model summarizes instead of the turn
-              // dying with a stub.
-              try {
-                abortController.abort(
-                  streamStopAbortReason(FORCE_TEXT_FINISH_STREAM_STOP),
-                );
-              } catch {
-                /* noop */
-              }
+              STREAM_CONTINUATION_MAX,
+              chatMessages,
+              files,
+              activeUserAgent,
+              hasWorkspace,
+              logTtftOnce,
+              handleStreamStall,
+              handleStreamActivityPulse,
+              handleToolInputProgress,
+              handleToolInputDelta,
+              abortController,
+              contextWindowTokens,
+              processResponseChunkUpdate,
+              applyTierEscalation,
+              buildToolStreamOpts,
+              streamDebugLogging,
             };
-
-            const tools: ToolSet = {};
-            for (const toolMeta of buildToolsToInclude) {
-              const toolName = toolMeta.name;
-              tools[toolName] = {
-                description: toolMeta.description,
-                inputSchema: aiJsonSchema(
-                  sanitizeJsonSchemaForProvider(
-                    simplifyToolParametersForProfile(
-                      toolMeta.parameters ?? { type: "object", properties: {} },
-                      buildCapabilityProfile,
-                    ),
-                  ),
-                ),
-                // v12 0.2: typed tool outputs — screenshots become media
-                // content parts on vision providers; everything else keeps
-                // today's text behavior.
-                toModelOutput: (output: unknown) =>
-                  buildToolModelOutput(toolName, output, {
-                    builtinProviderId: modelClient.builtinProviderId,
-                    modelApiId: resolveReasoningCatalogModelId(effectiveModel),
-                  }) ?? {
-                    type: "text",
-                    value:
-                      typeof output === "string" ? output : JSON.stringify(output),
-                  },
-                execute: async (
-                  args: any,
-                  { toolCallId }: { toolCallId: string },
-                ) => {
-                  const buildToolStartMs = Date.now();
-                  if (streamDebugLogging) {
-                    logger.log(`[Build Tool] start`, {
-                      toolName,
-                      chatId: req.chatId,
-                      argsKeys:
-                        args && typeof args === "object"
-                          ? Object.keys(args as object)
-                          : [],
-                    });
-                  }
-                  // Per-invocation id (Fix 2): key the UI thread item by the AI
-                  // SDK's toolCallId, NOT the tool name — so two calls of the
-                  // same tool render as two cards (no merge/reorder/rejump). The
-                  // matching chat:tool:end + activity-done legs echo the same id.
-                  const toolActivityId = toolCallId;
-                  let activityStatus: "done" | "error" = "done";
-                  let toolResultForActivity: unknown;
-                  const isStreamTool = toolName === "stream_terminal_output";
-                  // Fix: Finding 4 — status line (stream tools use inner _sendToolActivity only)
-                  const uiToolLabel = getToolActivityLabel(toolName);
-                  if (!isStreamTool) {
-                    safeSend(event.sender, "chat:tool:start", {
-                      chatId: req.chatId,
-                      toolId: toolName,
-                      toolCallId,
-                      toolName: uiToolLabel,
-                      toolArgs: args,
-                    });
-                  }
-                  safeSend(event.sender, "chat:activity", {
-                    id: toolActivityId,
-                    type: "tool_use",
-                    label: getToolActivityLabel(toolName),
-                    status: "running",
-                    timestamp: Date.now(),
-                    chatId: req.chatId,
-                    toolName,
-                    toolCallId,
-                    toolArgs: args,
-                  });
-                  try {
-                    // v14.8.10 Fix R: staged repetition guard, checked BEFORE
-                    // execution with the FULL byte-identical args (the old
-                    // post-execution permission-path record keyed edit_file by
-                    // {path} only, so 3 consecutive different edits to one file
-                    // tripped the doom loop). A repeated call is answered with
-                    // corrective guidance INSTEAD of being executed; only the
-                    // 9th identical call fires the FORCE_TEXT_FINISH backstop.
-                    if (agenticRepetition.isEnabled()) {
-                      const rep = agenticRepetition.record(toolName, args);
-                      if (rep.kind === "loop_correct") {
-                        safeSend(event.sender, "chat:activity", {
-                          id: `loop-correct-${toolCallId}`,
-                          type: "loop_detected",
-                          label: "Nudged — repeated action",
-                          detail: `Same ${toolName} call repeated ${rep.count}× — steered instead of executed.`,
-                          status: "done",
-                          timestamp: Date.now(),
-                          chatId: req.chatId,
-                          toolName,
-                        });
-                        const guidance = JSON.stringify({
-                          success: false,
-                          loop_guidance: buildLoopCorrectionMessage(rep),
-                        });
-                        toolResultForActivity = guidance;
-                        return guidance;
-                      }
-                      if (rep.kind === "loop_abort") {
-                        handleAgenticRepetitionOutcome(rep);
-                        const stopMsg = JSON.stringify({
-                          success: false,
-                          error:
-                            "Repeated the same call identically despite corrections — wrapping up.",
-                        });
-                        toolResultForActivity = stopMsg;
-                        return stopMsg;
-                      }
-                    }
-                    // A per-turn workModeOverride (resend/edit, background
-                    // agents) wins over the live persisted preference; only
-                    // fall back to the live re-read (mid-turn picker change)
-                    // when there's no explicit override for this turn.
-                    const buildLiveWorkMode: WorkMode =
-                      req.workModeOverride ??
-                      readSettings().workModePreference ??
-                      effectiveWorkMode;
-                    if (toolName === "compress_context") {
-                      // PASS2: Compaction is model-triggered via compress_context.
-                      // Emit activity + run compaction here (tool handler has no stream scope).
-                      const reason =
-                        args && typeof args.reason === "string" && args.reason.trim()
-                          ? args.reason.trim()
-                          : "model-initiated";
-
-                      try {
-                        const providerId =
-                          getEffectiveModelForOptions(settings)?.provider ??
-                          (settings.selectedModel?.provider ?? undefined);
-                        const { executeCompressContext } = await import("@/lib/tools/workspace");
-                        const { getStreamTransport } = await import("@/lib/chat/stream-transport");
-                        const msgList = updatedChat.messages as { id: number; role: string; content: string }[];
-                        const outcome = await executeCompressContext(
-                          { reason },
-                          {
-                            chatId: req.chatId,
-                            messages: msgList.map((m) => ({ id: m.id, role: m.role, content: m.content || "" })),
-                            systemPromptTokens: estimateTokens(systemPrompt),
-                            inputTokens: 0,
-                            providerId,
-                            sessionStats: { toolCallCount: 0, delegationCount: 0 },
-                            // Known-good session id so the [COMPACTION MARKER] persists
-                            // even when chatId is the live (negative) transport id.
-                            workspaceSessionId: req.workspaceSessionId,
-                            // C-1: parity with the Ask-mode site — without this the
-                            // Build-mode compress never replaced the live transport
-                            // messages, so the next dispatch still used full history.
-                            setMessages: (next) => {
-                              updatedChat.messages = next as typeof updatedChat.messages;
-                              const ec = getStreamTransport(req.chatId);
-                              if (ec) ec.messages = next as typeof ec.messages;
-                            },
-                          },
-                        );
-
-                        emitModelCompactionActivity(event.sender, req.chatId, outcome, reason);
-
-                        // Context meter: push the new model-facing size so the UI
-                        // DROPS after compression, mirroring the summarize path
-                        // (useContextReport keeps the prior contextWindow). Without
-                        // this the meter stayed at the pre-compression count.
-                        if (outcome.success && outcome.tokensAfter > 0) {
-                          if (process.env.ATLARIX_DIAG_146 === "1") {
-                            logger.info(
-                              `[DIAG_146] compress(build) chat=${req.chatId} ${outcome.tokensBefore}→${outcome.tokensAfter} persisted=${outcome.summaryPersisted} → emit context-report dispatchedTokens=${outcome.tokensAfter}`,
-                            );
-                          }
-                          safeSend(event.sender, "chat:context-report", {
-                            chatId: req.chatId,
-                            sections: [],
-                            trimReport: [],
-                            dispatchedTokens: outcome.tokensAfter,
-                          } satisfies ChatContextReport);
-                        }
-
-                        return JSON.stringify({
-                          success: outcome.success,
-                          reason: outcome.reason,
-                          tokensBefore: outcome.tokensBefore,
-                          tokensAfter: outcome.tokensAfter,
-                          tokensFreed: outcome.tokensFreed,
-                          strategy: outcome.strategy,
-                          summary: outcome.summary,
-                          status: outcome.status,
-                          summaryPersisted: outcome.summaryPersisted,
-                        });
-                      } catch (e) {
-                        safeSend(event.sender, "chat:activity", {
-                          id: `compress-context-${req.chatId}-${Date.now()}`,
-                          type: "compaction",
-                          label: "Context compressed",
-                          status: "error",
-                          timestamp: Date.now(),
-                          detail: String(e),
-                          chatId: req.chatId,
-                          modelInitiated: true,
-                        });
-                        return JSON.stringify({ success: false, error: String(e), reason });
-                      }
-                    }
-
-                    const effectivePath = workspaceOverride?.path ?? workspacePath ?? "";
-                    const effectiveId = workspaceOverride?.id ?? effectiveAppId ?? undefined;
-                    const executeArgs: any = {
-                      ...args,
-                      workspace: effectivePath || undefined,
-                      workspaceId: effectiveId,
-                      agentMode: settings.agentMode ?? "direct",
-                      chatMode: toolExecutionChatMode(buildLiveWorkMode),
-                      _chatSessionId: req.chatId,
-                      workspaceSessionId: req.workspaceSessionId ?? undefined,
-                    };
-                    attachSearchRoutingActivity(executeArgs, event.sender, req.chatId);
-                    if (isStreamTool) {
-                      executeArgs.chatId = req.chatId;
-                      executeArgs._sendToolActivity = (label: string) => {
-                        safeSend(event.sender, "chat:tool:start", {
-                          chatId: req.chatId,
-                          toolId: toolName,
-                          toolCallId,
-                          toolName: label,
-                          toolArgs: executeArgs,
-                        });
-                        return () => {
-                          safeSend(event.sender, "chat:tool:end", {
-                            chatId: req.chatId,
-                            toolCallId,
-                          });
-                        };
-                      };
-                    }
-                    const result = await runToolExecute(
-                      toolName,
-                      executeArgs,
-                      event.sender,
-                      req.chatId,
-                      buildToolStreamOpts(),
-                    );
-
-                    const askUserResolvedBuild = await resolveAskUserToolResult(
-                      event,
-                      req.chatId,
-                      toolName,
-                      result,
-                      { onAskUserEndTurn: () => { ctx.askUserEndedTurn = true; } },
-                    );
-                    if (askUserResolvedBuild !== null) {
-                      return askUserResolvedBuild;
-                    }
-
-                    if (
-                      toolName === "create_workspace" &&
-                      result &&
-                      typeof result === "object" &&
-                      !permissionInterceptor.isPermissionRequest(result) &&
-                      (result as any).workspace_path != null &&
-                      (result as any).workspace_id != null
-                    ) {
-                      const r = result as { workspace_path: string; workspace_id: number };
-                      workspaceOverride = { path: r.workspace_path, id: r.workspace_id };
-                      permissionInterceptor.setWorkspace(r.workspace_path, r.workspace_id);
-                      logger.log(
-                        `[Build Mode] Switched to new workspace for this turn: ${r.workspace_path} (id: ${r.workspace_id})`,
-                      );
-                    }
-
-                    // Check if this is a permission request (object or string)
-                  if (permissionInterceptor.isPermissionRequest(result)) {
-                    let permRequest = permissionInterceptor.parsePermissionRequest(result);
-                    if (permRequest) {
-                      if (permRequest.operation === "run_command") {
-                        const cmdPreview = permRequest.preview as { command?: string };
-                        const cmd = cmdPreview.command ?? "";
-                        const gate = runCommandGateResult(
-                          cmd,
-                          readSettings().workModePreference ?? effectiveWorkMode,
-                        );
-                        if (gate) return gate;
-                        const categoryBlock = runCommandCategoryGateToolResult(
-                          cmd,
-                          effectiveAppId,
-                          req.chatId,
-                          event.sender,
-                        );
-                        if (categoryBlock) return categoryBlock;
-                      }
-                      // DIAG_146 (bug 8): time the main-side permission path
-                      // (preflight + buffer + UI enrich/diff) for slow edit cards.
-                      const __permEditT0 = Date.now();
-                      const filePref = await applyFileScopePreflightInStream(
-                        permRequest,
-                        effectiveAppId,
-                        req.chatId,
-                        event.sender,
-                        permissionInterceptor,
-                        (label, detail) =>
-                          emitFilePermissionActivity(event.sender, req.chatId, label, detail),
-                        (message) =>
-                          safeSend(event.sender, "file-permission-blocked", {
-                            chatId: req.chatId,
-                            message,
-                          }),
-                      );
-                      if (filePref.earlyReturn) return filePref.earlyReturn;
-                      permRequest = filePref.permRequest;
-                      const operationId = permissionInterceptor.generateOperationId();
-                      const buildRunCmd =
-                        permRequest.operation === "run_command"
-                          ? ((permRequest.preview as { command?: string }).command ?? "")
-                          : "";
-                      const skipPermissionWait =
-                        filePref.skipPermissionWait ||
-                        (permRequest.operation === "run_command" &&
-                          shouldSkipPermissionWaitForRunCommand(
-                            buildRunCmd,
-                            effectiveAppId,
-                            req.chatId,
-                            event.sender,
-                          )) ||
-                        shouldAutoApprovePermissions(settings.agentMode, req.chatId) ||
-                        permissionInterceptor.shouldAlwaysAutoApprove(permRequest);
-                      permissionInterceptor.bufferOperation(operationId, permRequest, skipPermissionWait);
-
-                      const pushWrittenPaths = () => {
-                        if (!permRequest) return;
-                        const preview = permRequest.preview as { path?: string; paths?: string[] };
-                        if (permRequest.operation === "write_multiple_files" && preview.paths?.length) {
-                          ctx.filesWrittenInThisExchange.push(...preview.paths);
-                        } else if (preview.path) {
-                          ctx.filesWrittenInThisExchange.push(preview.path);
-                        }
-                      };
-
-                      const jsonAfterSuccessfulExec = (execResult: {
-                        path?: string;
-                        output?: string;
-                        exitCode?: number;
-                        error?: string;
-                        operation?: string;
-                        oldContent?: string;
-                        newContent?: string;
-                        command?: string;
-                        verified?: boolean;
-                      }) => {
-                        if (!permRequest) return "";
-                        pushWrittenPaths();
-                        // Self-review state: accumulate the running true/false of
-                        // each write's disk re-check under the turn. A consolidated
-                        // nudge fires only at the task_complete gate (zero tokens on
-                        // the happy path); a later good write of the same path clears
-                        // its prior failure.
-                        if (
-                          execResult.path &&
-                          (permRequest.operation === "write_file" ||
-                            permRequest.operation === "edit_file")
-                        ) {
-                          if (execResult.verified === false) {
-                            recordUnverifiedEdit(streamTurnId, execResult.path);
-                          } else {
-                            clearUnverifiedEdit(streamTurnId, execResult.path);
-                          }
-                        }
-                        // v14.8.10 Fix R: the permission-path repetition record
-                        // moved to the execute-wrapper top (full byte-identical
-                        // args). The old record here keyed edit_file/write_file
-                        // by {path} ONLY — 3 consecutive DIFFERENT edits to one
-                        // file read as a doom loop (observed live force-finish).
-                        recordBuildToolLedger(permRequest.operation, {
-                          path: (permRequest.preview as { path?: string }).path,
-                          success: true,
-                          output: execResult.output?.slice(0, 200),
-                        });
-                        const output = execResult.output || "";
-                        // The chat-thread cards need: a write/edit → a diff; a
-                        // command → command + exit code. v13.8.1: the diff content
-                        // is NO LONGER echoed into the model result (the model's own
-                        // tool-call args already hold the content — echoing it is a
-                        // pure duplicate). The completed/persisted card renders the
-                        // diff from those args (see buildDiffView). We send only tiny
-                        // line COUNTS so the collapsed summary stays accurate without
-                        // costing transcript tokens.
-                        const isFileWrite =
-                          permRequest.operation === "write_file" ||
-                          permRequest.operation === "edit_file" ||
-                          permRequest.operation === "write_multiple_files";
-                        const displayFields: Record<string, unknown> = isFileWrite
-                          ? (() => {
-                              const oldC =
-                                typeof execResult.oldContent === "string" ? execResult.oldContent : "";
-                              const newC =
-                                typeof execResult.newContent === "string" ? execResult.newContent : "";
-                              let added = 0;
-                              let removed = 0;
-                              try {
-                                const hunks = computeDiffHunks(oldC, newC, 0);
-                                added = hunks.reduce((a, h) => a + h.addedCount, 0);
-                                removed = hunks.reduce((a, h) => a + h.removedCount, 0);
-                              } catch {
-                                /* counts best-effort */
-                              }
-                              return {
-                                ...(execResult.operation ? { operation: execResult.operation } : {}),
-                                added,
-                                removed,
-                              };
-                            })()
-                          : permRequest.operation === "run_command"
-                            ? {
-                                ...(execResult.command ? { command: execResult.command } : {}),
-                                ...(execResult.exitCode !== undefined ? { exitCode: execResult.exitCode } : {}),
-                              }
-                            : {};
-                        const hasCompilationErrors =
-                          /error:|Error:|ERROR:|failed to|Failed to|Cannot find|cannot find|is not defined|is not a function|SyntaxError|TypeError|ReferenceError/i.test(
-                            output,
-                          );
-                        if (hasCompilationErrors) {
-                          logger.log(`[Build Mode] Command output contains errors: ${operationId}`);
-                          return JSON.stringify({
-                            success: true,
-                            hasErrors: true,
-                            warning:
-                              "The command ran but the output shows errors. Please review the output and fix the underlying code issue before running the same command again.",
-                            message: `Command started but output shows errors`,
-                            path: execResult.path,
-                            output: output.slice(-2000),
-                            ...displayFields,
-                          });
-                        }
-                        return JSON.stringify({
-                          success: true,
-                          message: `Successfully ${(permRequest.operation === "write_file" || permRequest.operation === "edit_file") ? "wrote" : "executed"} ${(permRequest.preview as { path?: string }).path || "operation"}`,
-                          path: execResult.path,
-                          output: execResult.output,
-                          ...displayFields,
-                        });
-                      };
-
-                      if (skipPermissionWait) {
-                        try {
-                          logger.log(`[Build Mode] Autonomous auto-exec: ${operationId}`);
-                          const execMeta = await permissionInterceptor.executeOperation(operationId);
-                          const execResult = permissionInterceptor.getExecutionResult(operationId);
-                          appendAutonomousOp(
-                            req.chatId,
-                            autonomousTurnId,
-                            autonomousOpFromPermissionExec(
-                              operationId,
-                              permRequest.operation,
-                              permRequest.preview,
-                              execMeta.approved,
-                            ),
-                          );
-                          if (execMeta.approved) {
-                            logger.log(`[Build Mode] Autonomous permission executed: ${operationId}`);
-                            // Auto-approved write → no preview reached the renderer;
-                            // push the diff content display-only so the card is accurate.
-                            emitAutoApprovedWritePreview(
-                              event.sender,
-                              req.chatId,
-                              permRequest.operation,
-                              execResult,
-                            );
-                            return jsonAfterSuccessfulExec(execResult);
-                          }
-                          if (execResult.exitCode !== undefined) {
-                            logger.log(
-                              `[Build Mode] Autonomous exec command failed: ${operationId} (exit ${execResult.exitCode})`,
-                            );
-                            return JSON.stringify({
-                              success: false,
-                              error:
-                                execResult.error ||
-                                `Command failed with exit code ${execResult.exitCode}`,
-                              exitCode: execResult.exitCode,
-                              output: execResult.output,
-                              operation: permRequest.operation,
-                              path:
-                                (permRequest.preview as { path?: string; command?: string }).path ||
-                                (permRequest.preview as { command?: string }).command,
-                            });
-                          }
-                          return JSON.stringify({
-                            success: false,
-                            error: execMeta.error ?? execResult.error ?? "Execution failed",
-                            operation: permRequest.operation,
-                            path: (permRequest.preview as { path?: string }).path,
-                          });
-                        } catch (error) {
-                          logger.error(`[Build Mode] Autonomous permission error: ${operationId}`, error);
-                          return JSON.stringify({
-                            success: false,
-                            error: `Permission request failed: ${error instanceof Error ? error.message : String(error)}`,
-                            timedOut: true,
-                          });
-                        }
-                      }
-
-                      // Send permission request to frontend for display
-                      const __enrichT0 = Date.now();
-                      const __enriched = enrichPermissionRequestForUi(permRequest, effectiveAppId);
-                      if (process.env.ATLARIX_DIAG_146 === "1") {
-                        const prev = permRequest.preview as { path?: string; command?: string };
-                        logger.info(
-                          `[DIAG_146] perm-edit op=${permRequest.operation} target=${prev.path ?? prev.command ?? ""} preflight+buffer=${__enrichT0 - __permEditT0}ms enrich/diff=${Date.now() - __enrichT0}ms (then awaits the user)`,
-                        );
-                      }
-                      safeSend(event.sender, "permission-request", {
-                        chatId: req.chatId,
-                        operationId,
-                        request: __enriched,
-                      });
-
-                      logger.log(`[Build Mode] Permission request buffered: ${operationId}`);
-
-                      try {
-                        if (streamDebugLogging) {
-                          logger.log(`[Build Tool] waitForApproval start`, {
-                            operationId,
-                            operation: permRequest.operation,
-                            chatId: req.chatId,
-                          });
-                        }
-                        // v14.7: BLOCK mid-loop until the user decides — the turn
-                        // stays live (Stop button shows, no premature "done").
-                        // Stop (abort) cancels the wait and unwinds the round.
-                        const outcome = await permissionInterceptor.waitForApproval(
-                          operationId,
-                          { abortSignal: abortController.signal },
-                        );
-                        const approved = outcome === "approved";
-                        if (streamDebugLogging) {
-                          logger.log(`[Build Tool] waitForApproval end`, {
-                            operationId,
-                            approved,
-                            chatId: req.chatId,
-                          });
-                        }
-
-                        if (approved) {
-                          // User approved - return success to AI
-                          const execResult = permissionInterceptor.getExecutionResult(operationId);
-                          logger.log(`[Build Mode] Permission approved: ${operationId}`);
-
-                          return jsonAfterSuccessfulExec(execResult);
-                        } else {
-                          // Check if this was a command failure vs user rejection
-                          const execResult = permissionInterceptor.getExecutionResult(operationId);
-
-                          if (execResult.exitCode !== undefined) {
-                            // Command was executed but failed - include error details for AI
-                            logger.log(`[Build Mode] Command failed: ${operationId} (exit ${execResult.exitCode})`);
-                            return JSON.stringify({
-                              success: false,
-                              error: execResult.error || `Command failed with exit code ${execResult.exitCode}`,
-                              exitCode: execResult.exitCode,
-                              output: execResult.output,  // Include terminal output for AI context
-                              operation: permRequest.operation,
-                              path: (permRequest.preview as any).path || (permRequest.preview as any).command,
-                            });
-                          } else {
-                            // User actually rejected or timeout
-                            logger.log(`[Build Mode] Permission denied: ${operationId}`);
-                            return JSON.stringify({
-                              success: false,
-                              error: "Permission denied by user",
-                              operation: permRequest.operation,
-                              path: (permRequest.preview as any).path,
-                            });
-                          }
-                        }
-                      } catch (error) {
-                        // Stop pressed during the wait → re-throw so streamText
-                        // unwinds the round (don't feed the model a tool result).
-                        if (abortController.signal.aborted) throw error;
-                        logger.error(`[Build Mode] Permission error: ${operationId}`, error);
-                        return JSON.stringify({
-                          success: false,
-                          error: `Permission request failed: ${error instanceof Error ? error.message : String(error)}`,
-                        });
-                      }
-                    }
-                  }
-
-                    // Not a permission request - return result directly.
-                    // (Repetition is recorded once at the wrapper top — Fix R.)
-                    recordBuildToolLedger(toolName, result);
-                    // v12 0.2: display copy never carries base64 (cards show a
-                    // size placeholder instead of megabytes of image data).
-                    toolResultForActivity = redactToolMediaForDisplay(result);
-                    // Screenshot returns the STRUCTURED object so toModelOutput
-                    // can emit a native media content part; other tools keep
-                    // the string contract. v13.8: detect by shape so screenshots
-                    // from browser_inspect(mode:"screenshot") are covered while its
-                    // text/snapshot results stay stringified.
-                    if (extractImageMedia(result)) {
-                      return result;
-                    }
-                    return typeof result === "string" ? result : JSON.stringify(result);
-                  } catch (err) {
-                    activityStatus = "error";
-                    toolResultForActivity = err;
-                    throw err;
-                  } finally {
-                    if (!isStreamTool) {
-                      recentCompletedBuildToolNames.push(toolName);
-                      while (recentCompletedBuildToolNames.length > 3) {
-                        recentCompletedBuildToolNames.shift();
-                      }
-                    }
-                    if (!isStreamTool) {
-                      const activityDetail = summarizeToolResultForActivityDetail(
-                        toolName,
-                        toolResultForActivity,
-                        activityStatus === "error" ? "error" : "done",
-                      );
-                      const resultText = toolResultTextForExpand(toolResultForActivity);
-                      if (streamDebugLogging) {
-                        logger.log(`[Build Tool] end`, {
-                          toolName,
-                          chatId: req.chatId,
-                          ms: Date.now() - buildToolStartMs,
-                          status: activityStatus,
-                        });
-                      }
-                      safeSend(event.sender, "chat:tool:end", {
-                        chatId: req.chatId,
-                        toolCallId,
-                      });
-                      safeSend(event.sender, "chat:activity", {
-                        id: toolActivityId,
-                        type: "tool_use",
-                        label: getToolActivityLabel(toolName),
-                        status: activityStatus,
-                        timestamp: Date.now(),
-                        chatId: req.chatId,
-                        toolName,
-                        toolCallId,
-                        toolArgs: args,
-                        ...(activityDetail ? { detail: activityDetail } : {}),
-                        ...(resultText ? { resultText } : {}),
-                      });
-                    }
-                  }
-                },
-              };
-            }
-
-            // Pass 7: MCP tools are no longer pre-merged for workspace Build chats.
-            // The model calls list_available_mcps + mcp_call from the registry on demand.
-
-            // v12 2.1/7A: delegation-surface decision computed in
-            // resolveToolsetForSession (S19).
-            if (buildResolved.delegationAllowed) {
-              attachDelegationToolsToSet(tools, {
-                sender: event.sender,
-                chatId: req.chatId,
-                effectiveWorkMode,
-                workspacePath: workspacePath || undefined,
-                workspaceId: effectiveAppId ?? undefined,
-                turnId: autonomousTurnId,
-                safeSend,
-                onDelegated: (agentId) => ctx.delegatedAgentsThisTurn.push(agentId),
-                getDelegationCount: () => ctx.delegationsStartedThisTurn,
-                onDelegationStart: () => {
-                  ctx.delegationsStartedThisTurn += 1;
-                },
-                tryAcquireDedupeKey: (key) => {
-                  if (ctx.inFlightDelegationKeys.has(key)) return false;
-                  ctx.inFlightDelegationKeys.add(key);
-                  return true;
-                },
-                releaseDedupeKey: (key) => {
-                  ctx.inFlightDelegationKeys.delete(key);
-                },
-              });
-            }
-
-            logger.log(`Build mode: ${Object.keys(tools).length} tools available`);
-
-            const recordBuildToolLedger = (name: string, payload: unknown) => {
-              try {
-                if (
-                  payload &&
-                  typeof payload === "object" &&
-                  (payload as { __permission_required?: boolean }).__permission_required === true
-                ) {
-                  return;
-                }
-                const summary =
-                  typeof payload === "string"
-                    ? payload.slice(0, 400)
-                    : JSON.stringify(payload).slice(0, 400);
-                const fr: string[] = [];
-                const fw: string[] = [];
-                if (payload && typeof payload === "object") {
-                  const o = payload as Record<string, unknown>;
-                  if (typeof o.path === "string") {
-                    const p = o.path.split(/[/\\]/).join("/");
-                    if (
-                      /read_file|explore_folder|search|list_files|find_file|read_url|get_/.test(
-                        name,
-                      )
-                    ) {
-                      fr.push(p);
-                    } else {
-                      fw.push(p);
-                    }
-                  }
-                }
-                recordToolOnLedger(streamTurnId, {
-                  toolName: name,
-                  summary,
-                  filesRead: fr.length ? fr : undefined,
-                  filesWritten: fw.length ? fw : undefined,
-                });
-              } catch {
-                /* noop */
-              }
-            };
-
-            // ═══════════════════════════════════════════════════════════════
-            // SMART AGENTIC TOOL LOOP
-            // - No artificial iteration ceiling (runs until natural completion)
-            // - 30 min wall-clock cap (all work modes & agent modes; see STREAM_TOOL_LOOP_DURATION_CAP_MS)
-            // - Completion detection (AI signals when done)
-            // - Progress emission to frontend
-            // ═══════════════════════════════════════════════════════════════
-            const loopStartTime = Date.now();
-            let agenticIteration = 0;
-            // Prose-only-streak break DISABLED (Infinity): the loop no longer
-            // ends a turn just because the model replied without tools or
-            // <task_complete> for N rounds — that was an unintended limit that
-            // abandoned tasks mid-way. The "continue" nudge below still fires;
-            // the turn ends only on <task_complete>, abort, or the model
-            // genuinely yielding. (Ask tier's proseOnlyStreakMax == null branch
-            // is unaffected.)
-            const AGENTIC_PROSE_ONLY_MAX_DEFAULT = Number.POSITIVE_INFINITY;
-            const AGENTIC_PROSE_ONLY_MAX_REASONING = Number.POSITIVE_INFINITY;
-            const isReasoningModelForCap = (() => {
-              try {
-                const cap = detectReasoningCapability(
-                  resolveReasoningCatalogModelId(effectiveModel),
-                  modelClient.builtinProviderId,
-                );
-                return (
-                  cap.useOpenRouterReasoning ||
-                  cap.useGoogleThoughts ||
-                  cap.useOpenAiReasoningSummary
-                );
-              } catch {
-                return false;
-              }
-            })();
-            const AGENTIC_PROSE_ONLY_MAX = isReasoningModelForCap
-              ? AGENTIC_PROSE_ONLY_MAX_REASONING
-              : AGENTIC_PROSE_ONLY_MAX_DEFAULT;
-            let totalToolExecutions = 0; // Track total tools executed across all iterations
-
-            let streamAbortLedgerCompleteCaptured = false;
-            const captureStreamAbortLedgerCompleteIfNeeded = () => {
-              if (streamAbortLedgerCompleteCaptured) return;
-              streamAbortLedgerCompleteCaptured = true;
-              captureSafe("stream_abort_ledger_complete", {
-                chat_id: req.chatId,
-                iterations: agenticIteration,
-                tools_executed: totalToolExecutions,
-              });
-            };
-
-            const { containsTextToolCall, parseTextToolCalls, stripToolCallXML } = await import("../utils/text_tool_parser");
-            const useTextToolFallback = shouldUseTextToolFallback(
-              modelClient.builtinProviderId,
-            );
-
-            try {
-              agenticRepetition.setEnabled(true);
-            // v12 0.1: text-tool execution extracted to ONE implementation shared
-            // by the legacy loop and the unified engine (profile.executeTextToolCalls).
-            // Closure over the build-branch scope (tools / interceptor / gates /
-            // ctx.filesWrittenInThisExchange / ctx.askUserEndedTurn) is intentional.
-            const execBuildTextToolCalls = async (
-              textToolCalls: Array<{ toolName: string; args: Record<string, unknown> }>,
-            ): Promise<{
-              iterationResults: Array<{ tool: string; result: string }>;
-              hasPermissionRequest: boolean;
-            }> => {
-                // Execute text-based tools. When all are read-only, run in parallel (Phase 5).
-                const iterationResults: { tool: string; result: string }[] = [];
-                let hasPermissionRequest = false; // native carry-forward happens at the call site
-
-                const readOnlyNames = new Set(
-                  ToolRegistry.getAll().filter((t) => t.isReadOnly).map((t) => t.name)
-                );
-                const allReadOnly =
-                  textToolCalls.length > 1 &&
-                  textToolCalls.every((tc) => readOnlyNames.has(tc.toolName));
-
-                if (allReadOnly) {
-                  for (const tc of textToolCalls) {
-                    safeSend(event.sender, "chat:tool:start", {
-                      chatId: req.chatId,
-                      toolId: tc.toolName,
-                      toolName: getToolActivityLabel(tc.toolName),
-                      toolArgs: tc.args,
-                    });
-                  }
-                }
-                const toolCallsToProcess = allReadOnly
-                  ? await Promise.all(
-                      textToolCalls.map(async (tc) => {
-                        const argsWithWorkspace = {
-                          ...tc.args,
-                          workspace: workspacePath || undefined,
-                          workspaceId: effectiveAppId ?? undefined,
-                          chatMode: "build",
-                          _chatSessionId: req.chatId,
-                      workspaceSessionId: req.workspaceSessionId ?? undefined,
-                        };
-                        attachSearchRoutingActivity(argsWithWorkspace, event.sender, req.chatId);
-                        try {
-                          const r = await runToolExecute(
-                            tc.toolName,
-                            argsWithWorkspace,
-                            event.sender,
-                            req.chatId,
-                            buildToolStreamOpts(),
-                          );
-                          return { toolCall: tc, toolResult: r };
-                        } catch (e) {
-                          return {
-                            toolCall: tc,
-                            toolResult: `Error: ${e instanceof Error ? e.message : String(e)}`,
-                          };
-                        }
-                      })
-                    )
-                  : null;
-
-                if (allReadOnly) {
-                  logger.log(`[Agentic Loop] Executed ${textToolCalls.length} read-only tools in parallel`);
-                }
-
-                for (let i = 0; i < textToolCalls.length; i++) {
-                  const toolCall = textToolCalls[i];
-                  // v14.8.10 Fix R: staged repetition guard, pre-execution (see
-                  // the native build wrapper). Replaces the old success-only
-                  // post-execution record — identical FAILING retries are the
-                  // loop we most need to steer.
-                  if (agenticRepetition.isEnabled()) {
-                    const rep = agenticRepetition.record(
-                      toolCall.toolName,
-                      toolCall.args,
-                    );
-                    if (rep.kind === "loop_correct") {
-                      iterationResults.push({
-                        tool: toolCall.toolName,
-                        result: JSON.stringify({
-                          success: false,
-                          loop_guidance: buildLoopCorrectionMessage(rep),
-                        }),
-                      });
-                      continue;
-                    }
-                    if (rep.kind === "loop_abort") {
-                      handleAgenticRepetitionOutcome(rep);
-                      iterationResults.push({
-                        tool: toolCall.toolName,
-                        result: JSON.stringify({
-                          success: false,
-                          error:
-                            "Repeated the same call identically despite corrections — wrapping up.",
-                        }),
-                      });
-                      continue;
-                    }
-                  }
-                  if (!toolCallsToProcess) {
-                    safeSend(event.sender, "chat:tool:start", {
-                      chatId: req.chatId,
-                      toolId: toolCall.toolName,
-                      toolName: getToolActivityLabel(toolCall.toolName),
-                      toolArgs: toolCall.args,
-                    });
-                  }
-                  let toolResult: unknown;
-
-                  if (toolCallsToProcess) {
-                    toolResult = toolCallsToProcess[i].toolResult;
-                  } else {
-                    try {
-                      if (!tools[toolCall.toolName]) {
-                        toolResult = `Error: Unknown tool "${toolCall.toolName}"`;
-                      } else {
-                        const argsWithWorkspace = {
-                          ...toolCall.args,
-                          workspace: workspacePath || undefined,
-                          workspaceId: effectiveAppId ?? undefined,
-                          chatMode: "build",
-                          _chatSessionId: req.chatId,
-                      workspaceSessionId: req.workspaceSessionId ?? undefined,
-                        };
-                        attachSearchRoutingActivity(argsWithWorkspace, event.sender, req.chatId);
-                        toolResult = await runToolExecute(
-                          toolCall.toolName,
-                          argsWithWorkspace,
-                          event.sender,
-                          req.chatId,
-                          buildToolStreamOpts(),
-                        );
-                      }
-                    } catch (toolError) {
-                      toolResult = `Error: ${toolError instanceof Error ? toolError.message : String(toolError)}`;
-                    }
-                  }
-                  safeSend(event.sender, "chat:tool:end", { chatId: req.chatId });
-
-                  try {
-                    const askUserAgentic = await resolveAskUserToolResult(
-                      event,
-                      req.chatId,
-                      toolCall.toolName,
-                      toolResult,
-                      { onAskUserEndTurn: () => { ctx.askUserEndedTurn = true; } },
-                    );
-                    if (askUserAgentic !== null) {
-                      iterationResults.push({ tool: toolCall.toolName, result: askUserAgentic });
-                      continue;
-                    }
-
-                    if (typeof toolResult === "string" && toolResult.startsWith("Error:")) {
-                      iterationResults.push({ tool: toolCall.toolName, result: toolResult });
-                      continue;
-                    }
-
-                    // Check if this is a permission request
-                    if (permissionInterceptor.isPermissionRequest(toolResult)) {
-                      let permRequest = permissionInterceptor.parsePermissionRequest(toolResult);
-                      if (permRequest) {
-                        if (permRequest.operation === "run_command") {
-                          const cmdPreview = permRequest.preview as { command?: string };
-                          const cmd = cmdPreview.command ?? "";
-                          const gate = runCommandGateResult(
-                            cmd,
-                            readSettings().workModePreference ?? effectiveWorkMode,
-                          );
-                          if (gate) {
-                            iterationResults.push({ tool: toolCall.toolName, result: gate });
-                            continue;
-                          }
-                          const categoryBlock = runCommandCategoryGateToolResult(
-                            cmd,
-                            effectiveAppId,
-                            req.chatId,
-                            event.sender,
-                          );
-                          if (categoryBlock) {
-                            iterationResults.push({
-                              tool: toolCall.toolName,
-                              result: categoryBlock,
-                            });
-                            continue;
-                          }
-                        }
-                        const filePref = await applyFileScopePreflightInStream(
-                          permRequest,
-                          effectiveAppId,
-                          req.chatId,
-                          event.sender,
-                          permissionInterceptor,
-                          (label, detail) =>
-                            emitFilePermissionActivity(event.sender, req.chatId, label, detail),
-                          (message) =>
-                            safeSend(event.sender, "file-permission-blocked", {
-                              chatId: req.chatId,
-                              message,
-                            }),
-                        );
-                        if (filePref.earlyReturn) {
-                          iterationResults.push({
-                            tool: toolCall.toolName,
-                            result: filePref.earlyReturn,
-                          });
-                          continue;
-                        }
-                        permRequest = filePref.permRequest;
-                        const operationId = permissionInterceptor.generateOperationId();
-                        const agenticRunCmd =
-                          permRequest.operation === "run_command"
-                            ? ((permRequest.preview as { command?: string }).command ?? "")
-                            : "";
-                        const skipPermissionWait =
-                          filePref.skipPermissionWait ||
-                          (permRequest.operation === "run_command" &&
-                            shouldSkipPermissionWaitForRunCommand(
-                              agenticRunCmd,
-                              effectiveAppId,
-                              req.chatId,
-                              event.sender,
-                            )) ||
-                          shouldAutoApprovePermissions(settings.agentMode, req.chatId) ||
-                          permissionInterceptor.shouldAlwaysAutoApprove(permRequest);
-                        permissionInterceptor.bufferOperation(operationId, permRequest, skipPermissionWait);
-                        const pushAgenticWrittenPaths = () => {
-                          if (!permRequest) return;
-                          const preview = permRequest.preview as { path?: string; paths?: string[] };
-                          if (permRequest.operation === "write_multiple_files" && preview.paths?.length) {
-                            ctx.filesWrittenInThisExchange.push(...preview.paths);
-                          } else if (preview.path) {
-                            ctx.filesWrittenInThisExchange.push(preview.path);
-                          }
-                        };
-                        if (skipPermissionWait) {
-                          hasPermissionRequest = true;
-                          try {
-                            const execMeta = await permissionInterceptor.executeOperation(operationId);
-                            const execResult = permissionInterceptor.getExecutionResult(operationId);
-                            appendAutonomousOp(
-                              req.chatId,
-                              autonomousTurnId,
-                              autonomousOpFromPermissionExec(
-                                operationId,
-                                permRequest.operation,
-                                permRequest.preview,
-                                execMeta.approved,
-                              ),
-                            );
-                            if (execMeta.approved) {
-                              pushAgenticWrittenPaths();
-                              emitAutoApprovedWritePreview(
-                                event.sender,
-                                req.chatId,
-                                permRequest.operation,
-                                execResult,
-                              );
-                              const okPermResult = JSON.stringify({
-                                success: true,
-                                message: `Operation completed`,
-                                path: execResult.path,
-                                output: execResult.output,
-                              });
-                              iterationResults.push({
-                                tool: toolCall.toolName,
-                                result: okPermResult,
-                              });
-                            } else if (execResult.exitCode !== undefined) {
-                              iterationResults.push({
-                                tool: toolCall.toolName,
-                                result: JSON.stringify({
-                                  success: false,
-                                  error:
-                                    execResult.error ||
-                                    `Command failed with exit code ${execResult.exitCode}`,
-                                  exitCode: execResult.exitCode,
-                                  output: execResult.output,
-                                }),
-                              });
-                            } else {
-                              iterationResults.push({
-                                tool: toolCall.toolName,
-                                result: JSON.stringify({
-                                  success: false,
-                                  error:
-                                    execMeta.error ??
-                                    execResult.error ??
-                                    "Execution failed",
-                                }),
-                              });
-                            }
-                          } catch (error) {
-                            iterationResults.push({
-                              tool: toolCall.toolName,
-                              result: JSON.stringify({
-                                success: false,
-                                error: `Permission error: ${error instanceof Error ? error.message : String(error)}`,
-                              }),
-                            });
-                          }
-                        } else {
-                          safeSend(event.sender, "permission-request", {
-                            chatId: req.chatId,
-                            operationId,
-                            request: enrichPermissionRequestForUi(permRequest, effectiveAppId),
-                          });
-                          logger.log(`[Agentic Loop] Permission request buffered: ${operationId}`);
-                          hasPermissionRequest = true;
-                          try {
-                            // v14.7: BLOCK mid-loop until the user decides (no
-                            // park); Stop (abort) cancels and unwinds the round.
-                            const outcome = await permissionInterceptor.waitForApproval(
-                              operationId,
-                              { abortSignal: abortController.signal },
-                            );
-                            if (outcome === "approved") {
-                              const execResult = permissionInterceptor.getExecutionResult(operationId);
-                              pushAgenticWrittenPaths();
-                              const okPermResult2 = JSON.stringify({
-                                success: true,
-                                message: `Operation completed`,
-                                path: execResult.path,
-                                output: execResult.output,
-                              });
-                              iterationResults.push({
-                                tool: toolCall.toolName,
-                                result: okPermResult2,
-                              });
-                            } else {
-                              const execResult = permissionInterceptor.getExecutionResult(operationId);
-                              if (execResult.exitCode !== undefined) {
-                                iterationResults.push({
-                                  tool: toolCall.toolName,
-                                  result: JSON.stringify({
-                                    success: false,
-                                    error:
-                                      execResult.error ||
-                                      `Command failed with exit code ${execResult.exitCode}`,
-                                    exitCode: execResult.exitCode,
-                                    output: execResult.output,
-                                  }),
-                                });
-                              } else {
-                                iterationResults.push({
-                                  tool: toolCall.toolName,
-                                  result: JSON.stringify({
-                                    success: false,
-                                    error: "Permission denied by user",
-                                  }),
-                                });
-                              }
-                            }
-                          } catch (error) {
-                            if (abortController.signal.aborted) throw error;
-                            iterationResults.push({
-                              tool: toolCall.toolName,
-                              result: JSON.stringify({
-                                success: false,
-                                error: `Permission error: ${error instanceof Error ? error.message : String(error)}`,
-                              }),
-                            });
-                          }
-                        }
-                      }
-                    } else {
-                      const resultStr = typeof toolResult === "string" ? toolResult : JSON.stringify(toolResult);
-                      iterationResults.push({ tool: toolCall.toolName, result: resultStr });
-                      logger.log(`[Agentic Loop] Tool executed: ${toolCall.toolName} ✓`);
-                    }
-                  } catch (toolError) {
-                    logger.error(`[Agentic Loop] Tool error: ${toolCall.toolName}`, toolError);
-                    iterationResults.push({
-                      tool: toolCall.toolName,
-                      result: `Error: ${toolError instanceof Error ? toolError.message : String(toolError)}`,
-                    });
-                  }
-                }
-                return { iterationResults, hasPermissionRequest };
-            };
-
-              // v12 0.1: the extracted runAgentTurn engine — a faithful
-              // control-flow port of the legacy build for(;;) loop (deleted
-              // at the 0.1 close-out after the eval matrix proved parity in
-              // both flag states).
-              {
-                const turnResult = await runAgentTurn(
-                  {
-                    mode: "build",
-                    loopLogLabel: "[Agentic Loop]",
-                    compactionLabel: "Agentic Loop",
-                    proseOnlyStreakMax: AGENTIC_PROSE_ONLY_MAX,
-                    escalationMode:
-                      effectiveWorkMode === "plan"
-                        ? "plan"
-                        : effectiveWorkMode === "build"
-                          ? "build"
-                          : "agent",
-                    tools,
-                    repetition: agenticRepetition,
-                    buildRoundSystemPrompt: () => systemPrompt,
-                    detectTextToolCalls: (fr) =>
-                      useTextToolFallback && containsTextToolCall(fr)
-                        ? (parseTextToolCalls(fr) as Array<{
-                            toolName: string;
-                            args: Record<string, unknown>;
-                          }>)
-                        : null,
-                    executeTextToolCalls: (calls) =>
-                      execBuildTextToolCalls(
-                        calls as Array<{ toolName: string; args: Record<string, unknown> }>,
-                      ),
-                    stripTextToolXML: stripToolCallXML,
-                    // v12 2.2/7B: workspace `stop` hooks gate <task_complete>
-                    // ("require tests before done"). Attached only when the
-                    // workspace declares stop hooks (cheap pre-check).
-                    ...(appPath && hasStopHooks(appPath)
-                      ? { taskCompleteGate: () => runStopHooks(appPath) }
-                      : {}),
-                    // v14.8.9 continue-until-done: drive an active session plan to
-                    // completion (self-gates on plan existence + pending steps).
-                    // NOT in plan mode: there the plan itself is the deliverable —
-                    // a fresh plan's steps are pending by construction and the mode
-                    // has no build tools, so the nudge reads as "proceed without
-                    // the user" (observed: model started implementing right after
-                    // presenting the plan).
-                    ...(effectiveWorkMode !== "plan"
-                      ? {
-                          planCompletionGate: () =>
-                            getPlanCompletionFeedback(req.workspaceSessionId),
-                        }
-                      : {}),
-                  },
-                  {
-                    chatId: req.chatId,
-                    settings,
-                    abortController,
-                    continuationTurnId: String(placeholderAssistantMessage.id),
-                    streamTurnId,
-                    tierLimit: modelContextResolved.tierLimit,
-                    contextWindowTokens,
-                    maxContinuationAttempts: STREAM_CONTINUATION_MAX,
-                    taskLedger: taskLedgerBlock,
-                    permissionInterceptor,
-                    seedMessages: chatMessages,
-                    nativeTurnMessages: ctx.nativeTurnMessages,
-                    initialFullResponse: ctx.fullResponse,
-                    safeSend: (channel, payload) =>
-                      safeSend(event.sender, channel, payload),
-                    emitCompactionActivity: emitCompactionMirroredActivity(
-                      event.sender,
-                      req.chatId,
-                    ),
-                    simpleStreamText: (opts) =>
-                      simpleStreamText(ctx, simpleStreamTextDeps, {
-                        chatMessages: opts.chatMessages,
-                        modelClient,
-                        tools: opts.tools as ToolSet,
-                        systemPromptOverride: opts.systemPromptOverride,
-                        dynamicSystemTail: opts.dynamicSystemTail,
-                        files: files,
-                        repetition: agenticRepetition,
-                        abortSignalOverride: opts.abortSignal,
-                        maxStepsPerRound: opts.maxStepsPerRound,
-                      }),
-                    runStreamRound: (
-                    params: Parameters<
-                      typeof runStreamRoundWithEmptyOutputRetry
-                    >[2],
-                  ) => runStreamRoundWithEmptyOutputRetry(ctx, { event }, params),
-                    processResponseChunkUpdate,
-                    onFirstTextDelta: logTtftOnce,
-                    onStreamStall: handleStreamStall,
-                    onToolInputProgress: handleToolInputProgress,
-                    onToolInputDelta: handleToolInputDelta,
-                    onStreamActivityPulse: handleStreamActivityPulse,
-                    sanitizeTextDelta: stripHallucinatedAtlarixToolTagsFromDelta,
-                    applyTierEscalation,
-                  },
-                );
-                ctx.fullResponse = turnResult.fullResponse;
-                agenticIteration = turnResult.iterations;
-                totalToolExecutions = turnResult.totalToolExecutions;
-                ctx.turnParked = turnResult.parked;
-                ctx.turnForcedTextFinish = turnResult.forcedTextFinish;
-              }
-
-              ctx.fullResponse = stripToolCallXML(ctx.fullResponse);
-
-              // Structured metrics logging
-              logger.info(`[Agentic Loop] Completed:`, {
-                chatId: req.chatId,
-                iterations: agenticIteration,
-                toolsExecuted: totalToolExecutions,
-                durationMs: Date.now() - loopStartTime,
-                completedNaturally: !ctx.turnParked,
-              });
-              ctx.hadToolCallsOrPermissions =
-                totalToolExecutions > 0 || permissionInterceptor.getAllOperationsCount() > 0;
-              // ═══════════════════════════════════════════════════════════════
-
-            } catch (streamError) {
-              const stopSentinel = abortReasonSentinel(
-                abortController.signal.reason,
-              );
-              const ledgerCompleteStop =
-                ctx.askUserEndedTurn ||
-                stopSentinel === ASK_USER_STREAM_STOP;
-              if (abortController.signal.aborted && !ledgerCompleteStop) {
-                const chatId = req.chatId;
-                const partialResponse = partialResponses.get(req.chatId);
-                // If we have a partial response, save it to the database
-                if (partialResponse) {
-                  try {
-                    const stopNote =
-                      stopSentinel === COMPASS_LIMIT_STREAM_STOP
-                        ? "[Stopped — monthly Atlarix Core token limit reached]"
-                        : stopSentinel === LOOP_REPETITION_STREAM_STOP
-                          ? "[Repeated action — task stopped. Review the activity log and send a message to continue.]"
-                          : "[Response cancelled by user]";
-                    const cancelledContent = `${partialResponse}
-
-${stopNote}`;
-                    const { appendTransportMessage } = await import("@/lib/chat/stream-transport");
-                    appendTransportMessage(req.chatId, {
-                      role: "assistant",
-                      content: stripThinkBlocks(cancelledContent),
-                    });
-                    // Issue 4: persist the partial to the session DB as an
-                    // interrupted row so it survives reload and offers Continue.
-                    if (req.workspaceSessionId) {
-                      await flushInterruptedDraft(
-                        req.chatId,
-                        req.workspaceSessionId,
-                        partialResponse,
-                        { force: true },
-                      );
-                    }
-                    logger.log(`Persisted partial response to ephemeral chat ${chatId} after abort`);
-                    partialResponses.delete(req.chatId);
-                  } catch (error) {
-                    logger.error(
-                      `Error saving partial response for chat ${chatId}:`,
-                      error,
-                    );
-                  }
-                }
-                return req.chatId;
-              }
-              if (abortController.signal.aborted && ledgerCompleteStop) {
-                logger.log(
-                  `[Agentic Loop] Stream stopped after task ledger complete (chat ${req.chatId})`,
-                );
-                captureStreamAbortLedgerCompleteIfNeeded();
-              } else if (!abortController.signal.aborted) {
-                throw streamError;
-              }
-            } finally {
-              agenticRepetition.setEnabled(false);
-            }
+            const buildResult = await runBuildBranch(ctx, buildBranchDeps);
+            // Preserve the inline original's early return from runStream.
+            if (buildResult?.earlyReturn) return buildResult.value;
           } // End of Build mode block
         }
 
