@@ -55,6 +55,12 @@ export const CommandOperationPreviewSchema = z.object({
     dangerExplanation: z.string().optional().describe("Plain-English explanation of risks"),
     commandCategory: z.string().optional().describe("First token category for workspace terminal rules"),
     canAlwaysAllow: z.boolean().optional().describe("Whether Always allow category is offered"),
+    /** Changes something OUTSIDE the project (on-device install, sudo, outside-workspace write). */
+    systemScope: z.boolean().optional().describe("Whether command changes the system outside the project"),
+    systemScopeExplanation: z.string().optional().describe("Plain-English 'what it touches outside the project'"),
+    /** Set by the branch runner when a HUMAN interactively approved this system-scope command
+     *  (attended only) — lets the interceptor run it unsandboxed / widen writable roots. */
+    systemScopeInteractive: z.boolean().optional(),
     /** Max wall-clock for the shell run (ms). Clamped in the interceptor. */
     timeout_ms: z.number().optional(),
     /** Max UTF-8 bytes for formatted output returned to the model. */

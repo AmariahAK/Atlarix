@@ -70,6 +70,8 @@ function queueEntryFromPermission(
     status: "pending",
     isDangerous: preview.isDangerous as boolean | undefined,
     dangerExplanation: preview.dangerExplanation as string | undefined,
+    systemScope: preview.systemScope as boolean | undefined,
+    systemScopeExplanation: preview.systemScopeExplanation as string | undefined,
     commandCategory: preview.commandCategory as string | undefined,
     canAlwaysAllow: preview.canAlwaysAllow as boolean | undefined,
     isProtectedFile: preview.isProtectedFile as boolean | undefined,
@@ -249,6 +251,7 @@ function CommandPermissionCard({
   onDeny: (id: string) => void;
 }) {
   const isDangerous = Boolean(operation.isDangerous);
+  const systemScope = Boolean(operation.systemScope);
   // Dangerous commands are now always-allowable too — the amber styling is an
   // informational badge, not a blocking gate. Only a resolved rule (backend
   // sets canAlwaysAllow=false) hides the button.
@@ -265,7 +268,9 @@ function CommandPermissionCard({
         "my-2 rounded-lg border px-3 py-2 text-xs",
         isDangerous
           ? "border-amber-500/40 bg-amber-500/10"
-          : "border-border/60 bg-muted/20",
+          : systemScope
+            ? "border-sky-500/40 bg-sky-500/10"
+            : "border-border/60 bg-muted/20",
       )}
     >
       <div className="flex items-start gap-2">
@@ -278,6 +283,11 @@ function CommandPermissionCard({
                 Dangerous
               </span>
             ) : null}
+            {systemScope ? (
+              <span className="rounded bg-sky-500/20 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-sky-900 dark:text-sky-200">
+                System change
+              </span>
+            ) : null}
           </div>
           <div className="mt-1 font-mono text-[11px] text-muted-foreground break-all bg-background/60 rounded px-2 py-1.5">
             $ {operation.command}
@@ -285,6 +295,13 @@ function CommandPermissionCard({
           {isDangerous && operation.dangerExplanation ? (
             <p className="mt-1.5 text-amber-900 dark:text-amber-100/90">
               {operation.dangerExplanation}
+            </p>
+          ) : null}
+          {!isDangerous && systemScope ? (
+            <p className="mt-1.5 text-sky-900 dark:text-sky-100/90">
+              {operation.systemScopeExplanation ??
+                "This changes something outside the current project."}{" "}
+              It runs outside the project sandbox — only allow if you expect it.
             </p>
           ) : null}
         </div>

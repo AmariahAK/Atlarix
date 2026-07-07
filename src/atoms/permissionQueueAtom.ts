@@ -29,6 +29,8 @@ export interface QueuedOperation {
     isRecovering?: boolean; // AI is analyzing this failure
     isDangerous?: boolean;  // Command is risky (rm -rf, sudo, etc.)
     dangerExplanation?: string;  // Plain-English risk explanation
+    systemScope?: boolean;  // Changes something OUTSIDE the project (install, sudo, outside-workspace write)
+    systemScopeExplanation?: string;  // Plain-English "what it touches outside the project"
     commandCategory?: string;
     canAlwaysAllow?: boolean;
     isProtectedFile?: boolean;

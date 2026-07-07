@@ -15,6 +15,10 @@ import { readSettings } from "@/main/settings";
 import { safeSend } from "@/ipc/utils/safe_sender";
 import { enrichFilePermissionRequest } from "../file_permission_preflight";
 import { runCommandCategoryPreflight } from "../command_permission_handlers";
+import {
+  isSystemScopeCommand,
+  getSystemScopeExplanation,
+} from "@/lib/system-scope-commands";
 
 const logger = log.scope("chat_stream_handlers");
 
@@ -199,6 +203,11 @@ export function enrichRunCommandPermissionRequest<T extends { operation: string;
   const preflight = runCommandCategoryPreflight(preview.command ?? "", appId);
   const dangerous =
     preflight.type === "prompt" ? preflight.dangerous : false;
+  // System-scope = changes something OUTSIDE the project (on-device install, sudo,
+  // outside-workspace write). Workspace root isn't available at this UI layer —
+  // the installer/sudo signals don't need it; the interceptor does the full check.
+  const command = preview.command ?? "";
+  const systemScope = isSystemScopeCommand(command, "");
   return {
     ...permRequest,
     preview: {
@@ -207,6 +216,10 @@ export function enrichRunCommandPermissionRequest<T extends { operation: string;
       // which is both the always-allow persist key and the UI rule label.
       commandCategory: preflight.category,
       isDangerous: dangerous || preview.isDangerous,
+      systemScope,
+      systemScopeExplanation: systemScope
+        ? getSystemScopeExplanation(command, "")
+        : undefined,
       // Dangerous commands can now be always-allowed too (the badge is
       // informational, not a blocker). Only a resolved auto_allow/deny (no
       // longer "prompt") hides the button.

@@ -20,6 +20,7 @@ import type { ModelClient } from "@/ipc/utils/get_model_client";
 import type { SimpleStreamTextDeps } from "@/ipc/handlers/chat_stream/turn-runner/simple-stream-text";
 import type { UserAgent } from "@/lib/agents/user-agents";
 import { shouldAutoApprovePermissions } from "@/lib/agents/agent-runtime";
+import { isSystemScopeCommand } from "@/lib/system-scope-commands";
 import { attachDelegationToolsToSet } from "@/lib/agents/register-delegation-tools";
 import {
   FORCE_TEXT_FINISH_STREAM_STOP,
@@ -596,6 +597,11 @@ export async function runAskBranch(
                             )) ||
                           shouldAutoApprovePermissions(settings.agentMode, req.chatId) ||
                           askPermissionInterceptor.shouldAlwaysAutoApprove(permRequest);
+                        // System-scope marker — attended-only (mirror build-branch).
+                        if (permRequest.operation === "run_command") {
+                          (permRequest.preview as { systemScopeInteractive?: boolean }).systemScopeInteractive =
+                            !req.automation && isSystemScopeCommand(runCmd, appPath);
+                        }
                         askPermissionInterceptor.bufferOperation(
                           operationId,
                           permRequest,

@@ -1271,8 +1271,14 @@ export class PermissionInterceptor extends EventEmitter {
      * workspace + caches; the wrapper itself falls back gracefully if the OS tool
      * is missing (unless `enforce`).
      */
-    private buildRunCommandSandbox(): SandboxRunOptions | undefined {
+    private buildRunCommandSandbox(preview?: CommandOperationPreview): SandboxRunOptions | undefined {
         if (process.env.ATLARIX_DISABLE_SANDBOX === "1") return undefined;
+        // A system-scope command that a HUMAN interactively approved (on-device
+        // install, outside-workspace write) runs UNSANDBOXED for this one call —
+        // the user consented to changing their system, and we can't enumerate what
+        // e.g. `brew install` writes. Unattended runs never set this flag, so they
+        // stay sandboxed (a system install can't happen silently).
+        if (preview?.systemScopeInteractive === true) return undefined;
         const settings = readSettings();
         if (settings.sandboxRunCommand === false) return undefined;
         if (!this.workspacePath) return undefined;
@@ -1302,20 +1308,26 @@ export class PermissionInterceptor extends EventEmitter {
                 : path.join(this.workspacePath, preview.workingDirectory)
             : this.workspacePath;
 
+        // Widen writable scope to an outside-workspace cwd/`cd` ONLY when a human
+        // interactively approved this as a system-scope command (M1 fix — this used
+        // to widen silently for any absolute cwd). Unattended / non-system-scope
+        // runs never widen, so the sandbox boundary holds.
         const normalizedWorkspace = path.resolve(this.workspacePath);
         const normalizedWorking = path.resolve(workingDir);
-        if (path.isAbsolute(preview.workingDirectory || "") && normalizedWorking !== normalizedWorkspace) {
-            const rel = path.relative(normalizedWorkspace, normalizedWorking);
-            if (rel.startsWith("..") || path.isAbsolute(rel)) {
-                this.allowedRoots.add(normalizedWorking);
+        if (preview.systemScopeInteractive === true) {
+            if (path.isAbsolute(preview.workingDirectory || "") && normalizedWorking !== normalizedWorkspace) {
+                const rel = path.relative(normalizedWorkspace, normalizedWorking);
+                if (rel.startsWith("..") || path.isAbsolute(rel)) {
+                    this.allowedRoots.add(normalizedWorking);
+                }
             }
-        }
-        const cdMatch = preview.command.match(/^cd\s+([^\s;&|]+)/);
-        if (cdMatch && path.isAbsolute(cdMatch[1])) {
-            const cdRoot = path.resolve(workingDir, cdMatch[1]);
-            const relCd = path.relative(normalizedWorkspace, cdRoot);
-            if (relCd.startsWith("..") || path.isAbsolute(relCd)) {
-                this.allowedRoots.add(cdRoot);
+            const cdMatch = preview.command.match(/^cd\s+([^\s;&|]+)/);
+            if (cdMatch && path.isAbsolute(cdMatch[1])) {
+                const cdRoot = path.resolve(workingDir, cdMatch[1]);
+                const relCd = path.relative(normalizedWorkspace, cdRoot);
+                if (relCd.startsWith("..") || path.isAbsolute(relCd)) {
+                    this.allowedRoots.add(cdRoot);
+                }
             }
         }
 
@@ -1383,10 +1395,14 @@ export class PermissionInterceptor extends EventEmitter {
         if (preview.isDangerous) {
             logger.warn(`[DANGEROUS-COMMAND-AUDIT] User approved dangerous command | command="${commandToRun}" | cwd="${workingDir}" | explanation="${preview.dangerExplanation ?? 'N/A'}" | timestamp=${new Date().toISOString()}`);
         }
+        if (preview.systemScopeInteractive === true) {
+            logger.warn(`[SYSTEM-SCOPE-AUDIT] User approved a system-scope command (runs unsandboxed) | command="${commandToRun}" | cwd="${workingDir}" | explanation="${preview.systemScopeExplanation ?? 'N/A'}" | timestamp=${new Date().toISOString()}`);
+        }
 
         // Per-OS write-confining sandbox (workspace + caches writable, network on).
         // Applies to agent run_command only — never the user's PTY tabs.
-        const sandboxOpts = this.buildRunCommandSandbox();
+        // An interactively-approved system-scope command runs unsandboxed (see builder).
+        const sandboxOpts = this.buildRunCommandSandbox(preview);
 
         this.emit('terminal-output', {
             operationId,

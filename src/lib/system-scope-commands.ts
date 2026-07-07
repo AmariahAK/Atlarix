@@ -149,6 +149,10 @@ function isOutsideWorkspace(target: string, workspaceRoot: string): boolean {
  * about CHANGING things outside the project).
  */
 function targetsOutsideWorkspace(command: string, workspaceRoot: string): boolean {
+  // Without a workspace root we can't judge "outside" — fall back to installer/
+  // sudo detection only (callers that lack the root, e.g. the always-allow gate,
+  // pass ""). Callers with the root (interceptor, UI enrich) get the full check.
+  if (!workspaceRoot) return false;
   // `cd <abs-or-~>` that escapes the workspace (mirrors interceptor.ts widening).
   const cd = command.match(/(?:^|[\s;&|])cd\s+(~?\/[^\s;&|]+|~)(?:\s|$|[;&|])/);
   if (cd?.[1] && isOutsideWorkspace(expandHome(cd[1]), workspaceRoot)) return true;

@@ -35,6 +35,7 @@ import { estimateTokens } from "@/ipc/utils/token_utils";
 import { appendAutonomousOp, autonomousOpFromPermissionExec } from "@/ipc/handlers/autonomous-session-state";
 import { emitCompactionMirroredActivity, emitModelCompactionActivity } from "@/ipc/handlers/chat_stream/compaction-activity";
 import { runCommandGateResult, emitFilePermissionActivity, enrichPermissionRequestForUi, emitAutoApprovedWritePreview, runCommandCategoryGateToolResult, shouldSkipPermissionWaitForRunCommand } from "@/ipc/handlers/chat_stream/permission-ui";
+import { isSystemScopeCommand } from "@/lib/system-scope-commands";
 import { resolveAskUserToolResult, flushInterruptedDraft } from "@/ipc/handlers/chat_stream/stream-lifecycle";
 import { partialResponses } from "@/ipc/handlers/chat_stream/stream-state";
 import { runToolExecute, attachSearchRoutingActivity } from "@/ipc/handlers/chat_stream/tool-execute";
@@ -572,6 +573,14 @@ export async function runBuildBranch(
                           )) ||
                         shouldAutoApprovePermissions(settings.agentMode, req.chatId) ||
                         permissionInterceptor.shouldAlwaysAutoApprove(permRequest);
+                      // System-scope marker — set true ONLY when a human will approve
+                      // (attended). Lets the interceptor run an approved on-device
+                      // install / outside-workspace write unsandboxed; unattended runs
+                      // never get it (stay sandboxed, handled by the headless approver).
+                      if (permRequest.operation === "run_command") {
+                        (permRequest.preview as { systemScopeInteractive?: boolean }).systemScopeInteractive =
+                          !req.automation && isSystemScopeCommand(buildRunCmd, workspacePath);
+                      }
                       permissionInterceptor.bufferOperation(operationId, permRequest, skipPermissionWait);
 
                       const pushWrittenPaths = () => {
@@ -1253,6 +1262,11 @@ export async function runBuildBranch(
                             )) ||
                           shouldAutoApprovePermissions(settings.agentMode, req.chatId) ||
                           permissionInterceptor.shouldAlwaysAutoApprove(permRequest);
+                        // System-scope marker (see the native-FC site above) — attended-only.
+                        if (permRequest.operation === "run_command") {
+                          (permRequest.preview as { systemScopeInteractive?: boolean }).systemScopeInteractive =
+                            !req.automation && isSystemScopeCommand(agenticRunCmd, workspacePath);
+                        }
                         permissionInterceptor.bufferOperation(operationId, permRequest, skipPermissionWait);
                         const pushAgenticWrittenPaths = () => {
                           if (!permRequest) return;

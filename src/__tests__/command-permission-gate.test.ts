@@ -71,4 +71,17 @@ describe("resolveRunCommandPermissionGate (Fix 2 unified gate)", () => {
     expect(pf.type).toBe("prompt");
     expect(pf).toMatchObject({ dangerous: true });
   });
+
+  it("system-scope: NOT silently auto-allowed even under a matching category rule", () => {
+    // User always-allowed the "brew" category…
+    decisions.set(`${APP}:brew`, "always_allow");
+    // …but an on-device install still prompts (system-scope gate).
+    expect(resolveRunCommandPermissionGate("brew install jq", APP).action).toBe("prompt");
+    // sudo likewise (also dangerous, but system-scope forces prompt regardless).
+    decisions.set(`${APP}:sudo`, "always_allow");
+    expect(resolveRunCommandPermissionGate("sudo apt-get install nginx", APP).action).toBe("prompt");
+    // A normal command with a category allow still auto-allows.
+    decisions.set(`${APP}:git`, "always_allow");
+    expect(resolveRunCommandPermissionGate("git status", APP).action).toBe("auto_allow");
+  });
 });

@@ -8,6 +8,7 @@ import type { CommandPermissionDecision } from "@/lib/terminal-command-category"
 import { getCommandCategory } from "@/lib/terminal-command-category";
 import { isDangerousCommand, dangerLabelKey } from "@/lib/dangerous-commands";
 import { commandSegments } from "@/lib/command-mutation";
+import { isSystemScopeCommand } from "@/lib/system-scope-commands";
 import {
   getWorkspaceCommandPermission,
   listWorkspaceCommandPermissions,
@@ -51,7 +52,12 @@ export function resolveRunCommandPermissionGate(
   // compound commands, downgrade auto_allow to a prompt (auto_deny still stands —
   // denying is always safe).
   const isCompound = commandSegments(command).length > 1;
-  if (decision === "always_allow" && !isCompound) {
+  // A system-scope command (on-device install, sudo, outside-workspace write) is
+  // NEVER silently auto-allowed — it always surfaces the distinct "changes your
+  // system outside this project" prompt. (workspace root unavailable here — the
+  // installer/sudo signals don't need it; the interceptor does the full check.)
+  const systemScope = isSystemScopeCommand(command, "");
+  if (decision === "always_allow" && !isCompound && !systemScope) {
     return { action: "auto_allow", category };
   }
   if (decision === "always_deny") {
