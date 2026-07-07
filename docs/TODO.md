@@ -62,6 +62,19 @@ diff); S18 done via tokenizer memo (gap data from the smoke session).
 
 ## Open follow-ups
 
+- **BUG (needs triage): not every approval wait is truly indefinite — some paths time out.**
+  The agreed contract is that EVERY human-in-the-loop wait (command approval, file-write/permission
+  approval, `ask_user`) blocks INDEFINITELY — the user may not answer for hours, and the turn must
+  sit and wait, not proceed or abort on a timeout. Observed: some waits still have an AI/tool-side
+  timeout and give up (or auto-resolve) instead of waiting. Audit every wait path for a hidden
+  timeout: `waitForApproval` (permission interceptor — v14.7 was made indefinite mid-loop, verify no
+  regression), the run_command permission queue, `ask_user` (should end the turn and resume on the
+  next message — confirm it never times out mid-wait), MCP auth/consent waits, and any
+  `AbortSignal.timeout`/`setTimeout`-backed race around these. Reproduce via a live run + the stream
+  debug logs (leave a prompt pending for a long interval and watch for a timeout firing). Fix = make
+  all of them wait until the user (or an explicit Stop) resolves them. NOT this session (decomposition
+  first). [[atlarix-command-safety-model]]
+
 - **BUG (needs triage): model reports a background command "done" while it is still running.**
   Observed live on DeepSeek — the model repeatedly polls the background job, narrates
   "waiting"/"still running", then prematurely claims the task completed (and in one case declared
