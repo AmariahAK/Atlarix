@@ -293,6 +293,7 @@ import {
   type SimpleStreamTextDeps,
 } from "./chat_stream/turn-runner/simple-stream-text";
 import { runStreamRoundWithEmptyOutputRetry } from "./chat_stream/turn-runner/round-retry";
+import { processResponseChunkUpdate as runProcessResponseChunkUpdate } from "./chat_stream/turn-runner/response-chunk-update";
 import {
   loadModeSkillSection,
   loadRepoSkillsSection,
@@ -2480,52 +2481,15 @@ ${componentSnippet}
 
 
 
-          const processResponseChunkUpdate = async ({
-            fullResponse,
-          }: {
-            fullResponse: string;
-          }) => {
-            // Store the current partial response
-            partialResponses.set(req.chatId, fullResponse);
-            // Issue 4: throttled crash-safe persistence of the partial turn.
-            if (req.workspaceSessionId) {
-              void flushInterruptedDraft(
-                req.chatId,
-                req.workspaceSessionId,
-                fullResponse,
-              );
-            }
-            // Update the placeholder assistant message content in the messages array
-            const currentMessages = [...updatedChat.messages];
-            if (
-              currentMessages.length > 0 &&
-              currentMessages[currentMessages.length - 1].role === "assistant"
-            ) {
-              currentMessages[currentMessages.length - 1].content = fullResponse;
-              {
-                const lastIdx = updatedChat.messages.length - 1;
-                if (
-                  lastIdx >= 0 &&
-                  updatedChat.messages[lastIdx]?.role === "assistant"
-                ) {
-                  updatedChat.messages[lastIdx].content = fullResponse;
-                  const { getStreamTransport } = await import("@/lib/chat/stream-transport");
-                  const ec = getStreamTransport(req.chatId);
-                  if (ec) {
-                    ec.messages = updatedChat.messages;
-                  }
-                }
-              }
-            }
-
-            // Update the assistant message in the database
-            safeSend(event.sender, "chat:response:chunk", {
-              chatId: req.chatId,
-              streamId,
-              messages: currentMessages,
-            });
-            return fullResponse;
-          };
+          // processResponseChunkUpdate extracted to
+          // ./chat_stream/turn-runner/response-chunk-update; bound to the turn
+          // config here so the two callback slots keep their (args) => Promise
+          // shape. Its own `fullResponse` param is the live text, not ctx.fullResponse.
+          const processResponseChunkUpdate = (args: { fullResponse: string }) =>
+            runProcessResponseChunkUpdate(
+              { req, updatedChat, event, streamId },
+              args,
+            );
 
           // v11.1: the ask_user "breakpoint" split (segment A + fresh
           // placeholder for in-turn continuation) is gone — the turn ENDS at
