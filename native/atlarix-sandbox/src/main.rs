@@ -27,7 +27,7 @@ use std::process::exit;
 
 use windows::core::{PCWSTR, PWSTR};
 use windows::Win32::Foundation::{
-    CloseHandle, GetLastError, LocalFree, ERROR_ALREADY_EXISTS, HANDLE, HLOCAL,
+    CloseHandle, LocalFree, ERROR_ALREADY_EXISTS, HANDLE, HLOCAL,
     INVALID_HANDLE_VALUE, WAIT_OBJECT_0,
 };
 use windows::Win32::Security::Authorization::{
@@ -111,17 +111,17 @@ unsafe fn app_container_sid() -> PSID {
         None,
     ) {
         Ok(sid) => sid,
-        Err(_) => {
-            // Already exists (common) — derive the SID for the existing profile.
-            if GetLastError() == ERROR_ALREADY_EXISTS || true {
-                match DeriveAppContainerSidFromAppContainerName(PCWSTR(name.as_ptr())) {
-                    Ok(sid) => sid,
-                    Err(e) => die(&format!("DeriveAppContainerSid failed: {e:?}")),
-                }
-            } else {
-                die("CreateAppContainerProfile failed");
+        // The profile already existing is the normal case — derive its SID. Any
+        // OTHER creation failure is a real setup error; do NOT silently proceed
+        // (DeriveAppContainerSid would still return a SID for a profile that was
+        // never created, yielding a non-functional container).
+        Err(e) if e.code() == ERROR_ALREADY_EXISTS.to_hresult() => {
+            match DeriveAppContainerSidFromAppContainerName(PCWSTR(name.as_ptr())) {
+                Ok(sid) => sid,
+                Err(e) => die(&format!("DeriveAppContainerSid failed: {e:?}")),
             }
         }
+        Err(e) => die(&format!("CreateAppContainerProfile failed: {e:?}")),
     }
 }
 
@@ -162,7 +162,7 @@ unsafe fn grant_write(path: &str, container_sid: PSID) {
     };
 
     let mut new_dacl: *mut ACL = std::ptr::null_mut();
-    let merge = SetEntriesInAclW(Some(&mut [ea]), Some(old_dacl as *const ACL), &mut new_dacl);
+    let merge = SetEntriesInAclW(Some(&[ea]), Some(old_dacl as *const ACL), &mut new_dacl);
     let _ = &mut ea;
     if merge.is_err() {
         die(&format!("SetEntriesInAcl failed for {path}: {merge:?}"));
