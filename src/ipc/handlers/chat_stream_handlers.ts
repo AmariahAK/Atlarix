@@ -333,6 +333,7 @@ import {
 import { registerLifecycleHandlers } from "./chat_stream/lifecycle-handlers";
 import { registerRevertHandlers } from "./chat_stream/revert-handlers";
 import { registerSessionHandlers } from "./chat_stream/session-handlers";
+import { createStreamTurnContext } from "./chat_stream/turn-context";
 import {
   loadModeSkillSection,
   loadRepoSkillsSection,
@@ -415,28 +416,24 @@ export function registerChatStreamHandlers() {
     let retriedAfterOverflowCompaction = false;
 
     const runStream = async () => {
-      // eslint-disable-next-line no-unassigned-vars -- WIP: assigned by in-progress orchestrator wiring; invoked via optional-chain below
-      let stopAgentOrchestrator: (() => void) | undefined;
-      let streamTerminated = false;
+      const ctx = createStreamTurnContext();
       // A2: set when runAgentTurn ends the turn with background work still
       // outstanding (the turn is OVER, not held open). Surfaced on
       // chat:response:end (rich build emit AND the ensureTerminal fallback) so
       // the renderer shows the "waiting … will resume automatically" chip and
       // auto-resumes when an item reports. Declared before ensureTerminal so the
       // terminal closure can read it.
-      let turnParked = false;
       // Set when runAgentTurn ended via the forced tools-off finish round. The
       // turn controller is left ABORTED in that case, so the post-turn save gate
       // must treat it as a clean completion (persist the summary) rather than a
       // user cancel.
-      let turnForcedTextFinish = false;
       // v12 2.3: the snapshot/ledger turn id for THIS turn, captured for the
       // terminal payload so a detached background agent can revert. Set once
       // streamTurnId is established (below).
       let snapshotTurnIdForTerminal: string | undefined;
       const ensureTerminal = (error?: unknown) => {
-        if (streamTerminated) return;
-        streamTerminated = true;
+        if (ctx.streamTerminated) return;
+        ctx.streamTerminated = true;
         if (error) {
           safeSend(event.sender, "chat:response:error", {
             chatId: req.chatId,
@@ -455,7 +452,7 @@ export function registerChatStreamHandlers() {
           // A2: carry parked on the guaranteed terminal too, so the ask path
           // (and the post-success ensureTerminal) keep the flag consistent and
           // never clobber the chip with a parked-less end.
-          ...(turnParked
+          ...(ctx.turnParked
             ? {
                 parked: true,
                 parkedCommands: listBackgroundJobs(req.chatId).length,
@@ -484,7 +481,6 @@ export function registerChatStreamHandlers() {
       };
 
       const streamDebugLogging = isStreamDebugLoggingEnabled();
-      let lastToolInputPhaseLabel = "";
       const handleToolInputProgress = ({
         toolName,
         deltaCount,
@@ -493,8 +489,8 @@ export function registerChatStreamHandlers() {
         deltaCount: number;
       }) => {
         const label = `${getToolActivityLabel(toolName).replace(/…$/u, "")} (${deltaCount} chunks)…`;
-        if (label === lastToolInputPhaseLabel) return;
-        lastToolInputPhaseLabel = label;
+        if (label === ctx.lastToolInputPhaseLabel) return;
+        ctx.lastToolInputPhaseLabel = label;
         safeSend(event.sender, "chat:stream:phase", {
           chatId: req.chatId,
           phase: "thinking",
@@ -599,7 +595,6 @@ export function registerChatStreamHandlers() {
 
         const fileUploadsState = FileUploadsState.getInstance();
         let engineRequestId: string | undefined;
-        let hadToolCallsOrPermissions = false;
         const { isStreamTransportId, getStreamTransportAppId } = await import("@/lib/chat/stream-transport");
 
         if (!isStreamTransportId(req.chatId)) {
@@ -617,7 +612,7 @@ export function registerChatStreamHandlers() {
             updatedFiles: false,
             hadToolCallsOrPermissions: false,
           } satisfies ChatResponseEnd);
-          streamTerminated = true;
+          ctx.streamTerminated = true;
           return;
         }
 
@@ -642,7 +637,7 @@ export function registerChatStreamHandlers() {
               updatedFiles: false,
               hadToolCallsOrPermissions: false,
             } satisfies ChatResponseEnd);
-            streamTerminated = true;
+            ctx.streamTerminated = true;
             return;
           }
         }
@@ -700,8 +695,6 @@ export function registerChatStreamHandlers() {
       // tool results + continuations) accumulated by the build loop. Persisted
       // on the assistant message's modelContent as a native-history envelope
       // so the NEXT turn replays native parts instead of flattened prose.
-      const nativeTurnMessages: ModelMessage[] = [];
-      let filesWrittenInThisExchange: string[] = [];
 
       if (req.redo) {
         const chatMessages = [...chat.messages];
@@ -1101,10 +1094,6 @@ ${componentSnippet}
       // v11.1: set when the model asked the user question(s) — the turn ends
       // gracefully (persist + response:end) WITHOUT task-complete side effects
       // (no build verification, no self-review).
-      let askUserEndedTurn = false;
-      const delegatedAgentsThisTurn: string[] = [];
-      let delegationsStartedThisTurn = 0;
-      const inFlightDelegationKeys = new Set<string>();
       const buildToolStreamOpts = () => ({
         turnId: streamTurnId,
         abortController,
@@ -1119,25 +1108,17 @@ ${componentSnippet}
         messages: updatedChat.messages,
       });
 
-      let fullResponse = "";
-      let maxTokensUsed: number | undefined;
-      let maxReasoningTokensUsed: number | undefined;
       // v12 7D: accumulate BYOK token usage across the turn's rounds for the
       // per-turn cost estimate emitted on chat:response:end.
-      let turnInputTokens = 0;
-      let turnOutputTokens = 0;
       // v13.2 cache-aware cost: cache reads/writes priced at provider cache
       // rates; OpenRouter's per-request usage.cost (already discounted) wins.
-      let turnCachedInputTokens = 0;
-      let turnCacheCreationTokens = 0;
-      let turnActualCostUsd = 0;
 
       // Check if this is a test prompt
       const testResponse = getTestResponse(req.prompt);
 
       if (testResponse) {
         // For test prompts, use the dedicated function
-        fullResponse = await streamTestResponse(
+        ctx.fullResponse = await streamTestResponse(
           event,
           req.chatId,
           testResponse,
@@ -1229,25 +1210,20 @@ ${componentSnippet}
         );
 
         const usedCompassThisStream = modelClient.builtinProviderId === "compass";
-        let compassStreamTier: string | undefined;
-        let compassStreamTokens: number | undefined;
         // v11 strict enforcement: tokens remaining at stream start (server
         // authoritative; null when pre-flight could not verify) + local tally
         // so the turn hard-stops on the step that exhausts the pool.
-        let compassRemainingBudget: number | null = null;
-        let compassUsedThisTurn = 0;
-        let compassLimitHit = false;
 
         const stopStreamForCompassLimit = (origin: string) => {
-          if (compassLimitHit) return;
-          compassLimitHit = true;
+          if (ctx.compassLimitHit) return;
+          ctx.compassLimitHit = true;
           logger.warn(
             `[compass] Token pool exhausted mid-task (${origin}) — stopping stream for chat ${req.chatId}`,
           );
           safeSend(event.sender, "chat:response:error", {
             chatId: req.chatId,
             streamId,
-            error: `${AI_STREAMING_ERROR_MESSAGE_PREFIX}${compassExhaustedUserMessage(compassStreamTier ?? "free")}`,
+            error: `${AI_STREAMING_ERROR_MESSAGE_PREFIX}${compassExhaustedUserMessage(ctx.compassStreamTier ?? "free")}`,
           });
           abortController.abort(streamStopAbortReason(COMPASS_LIMIT_STREAM_STOP));
         };
@@ -1256,10 +1232,10 @@ ${componentSnippet}
           const usagePre = await compassUsagePromise;
           if (usagePre.ok) {
             if (usagePre.tier) {
-              compassStreamTier = usagePre.tier;
+              ctx.compassStreamTier = usagePre.tier;
             }
             if (usagePre.monthlyLimit > 0) {
-              compassRemainingBudget = Math.max(
+              ctx.compassRemainingBudget = Math.max(
                 0,
                 usagePre.monthlyLimit - usagePre.tokensUsedThisMonth,
               );
@@ -1272,7 +1248,7 @@ ${componentSnippet}
             logger.log(
               `[compass] preflight budget chat ${req.chatId}: tier=${usagePre.tier} ` +
                 `monthlyLimit=${usagePre.monthlyLimit} usedThisMonth=${usagePre.tokensUsedThisMonth} ` +
-                `remaining=${compassRemainingBudget ?? "unknown"}`,
+                `remaining=${ctx.compassRemainingBudget ?? "unknown"}`,
             );
           } else {
             logger.warn(
@@ -2948,8 +2924,8 @@ This conversation includes one or more image attachments. When the user uploads 
               // unbounded — undefined leaves headless/ask uncapped.
               stopWhen:
                 typeof maxStepsPerRound === "number" && maxStepsPerRound > 0
-                  ? [() => compassLimitHit, stepCountIs(maxStepsPerRound)]
-                  : [() => compassLimitHit],
+                  ? [() => ctx.compassLimitHit, stepCountIs(maxStepsPerRound)]
+                  : [() => ctx.compassLimitHit],
               // v12 0.1 close-out: mid-round correction reinject. Repetition
               // corrections are queued inside the SDK's multi-step inner loop
               // (the tool wrappers call record() during execute), where the
@@ -3094,15 +3070,15 @@ This conversation includes one or more image attachments. When the user uploads 
                 const stepTokens = totalTokensFromAiUsage(step.usage) ?? 0;
                 let recordResult = null;
                 if (stepTokens > 0) {
-                  compassUsedThisTurn += stepTokens;
-                  compassStreamTokens = (compassStreamTokens ?? 0) + stepTokens;
+                  ctx.compassUsedThisTurn += stepTokens;
+                  ctx.compassStreamTokens = (ctx.compassStreamTokens ?? 0) + stepTokens;
                   recordResult = await recordCompassUsageTokens(stepTokens);
                 }
                 if (
                   shouldStopForCompassLimit(
                     {
-                      remainingBudget: compassRemainingBudget,
-                      usedThisTurn: compassUsedThisTurn,
+                      remainingBudget: ctx.compassRemainingBudget,
+                      usedThisTurn: ctx.compassUsedThisTurn,
                     },
                     recordResult,
                   )
@@ -3117,8 +3093,8 @@ This conversation includes one or more image attachments. When the user uploads 
                       ? "rpc-limit_exceeded"
                       : "local-tally";
                   logger.warn(
-                    `[compass] stop cause=${cause} chat ${req.chatId}: usedThisTurn=${compassUsedThisTurn} ` +
-                      `remaining=${compassRemainingBudget ?? "unknown"}`,
+                    `[compass] stop cause=${cause} chat ${req.chatId}: usedThisTurn=${ctx.compassUsedThisTurn} ` +
+                      `remaining=${ctx.compassRemainingBudget ?? "unknown"}`,
                   );
                   stopStreamForCompassLimit("onStepFinish");
                 }
@@ -3138,13 +3114,13 @@ This conversation includes one or more image attachments. When the user uploads 
               onFinish: (response) => {
                 const rt = reasoningTokensFromAiUsage(response.usage);
                 if (typeof rt === "number") {
-                  maxReasoningTokensUsed = Math.max(maxReasoningTokensUsed ?? 0, rt);
+                  ctx.maxReasoningTokensUsed = Math.max(ctx.maxReasoningTokensUsed ?? 0, rt);
                 }
                 // v12 7D: accumulate input/output tokens for the BYOK cost line.
                 const split = inputOutputTokensFromUsage(response.usage);
                 if (split) {
-                  turnInputTokens += split.inputTokens;
-                  turnOutputTokens += split.outputTokens;
+                  ctx.turnInputTokens += split.inputTokens;
+                  ctx.turnOutputTokens += split.outputTokens;
                 }
                 // v10.1 prompt caching: surface cache reads/writes per round.
                 // v13.2: also accumulated for the cache-aware cost estimate.
@@ -3169,10 +3145,10 @@ This conversation includes one or more image attachments. When the user uploads 
                     u?.inputTokenDetails?.cacheWriteTokens ??
                     anthroMeta?.cacheCreationInputTokens;
                   if (typeof cacheRead === "number" && cacheRead > 0) {
-                    turnCachedInputTokens += cacheRead;
+                    ctx.turnCachedInputTokens += cacheRead;
                   }
                   if (typeof cacheWrite === "number" && cacheWrite > 0) {
-                    turnCacheCreationTokens += cacheWrite;
+                    ctx.turnCacheCreationTokens += cacheWrite;
                   }
                   // OpenRouter reports the request's actual (cache-discounted)
                   // cost in credits ≈ USD.
@@ -3182,7 +3158,7 @@ This conversation includes one or more image attachments. When the user uploads 
                       | undefined
                   )?.usage;
                   if (typeof orUsage?.cost === "number" && orUsage.cost > 0) {
-                    turnActualCostUsd += orUsage.cost;
+                    ctx.turnActualCostUsd += orUsage.cost;
                   }
                   if (
                     (typeof cacheRead === "number" && cacheRead > 0) ||
@@ -3216,13 +3192,13 @@ This conversation includes one or more image attachments. When the user uploads 
                 if (typeof totalTokens === "number" && totalTokens > 0) {
                   // We use the highest total tokens used (we are *not* accumulating)
                   // since we're trying to figure it out if we're near the context limit.
-                  maxTokensUsed = Math.max(maxTokensUsed ?? 0, totalTokens);
+                  ctx.maxTokensUsed = Math.max(ctx.maxTokensUsed ?? 0, totalTokens);
 
                   // Core usage is recorded per step in onStepFinish (strict
                   // mid-task enforcement) — no aggregate record here.
 
                   logger.log(
-                    `Total tokens used (aggregated for message ${placeholderAssistantMessage.id}): ${maxTokensUsed}`,
+                    `Total tokens used (aggregated for message ${placeholderAssistantMessage.id}): ${ctx.maxTokensUsed}`,
                   );
 
                   // v11.1: dead post-turn compaction scheduling deleted —
@@ -3613,7 +3589,7 @@ This conversation includes one or more image attachments. When the user uploads 
           // into the build branch, no workspace injection, and no permission/
           // repetition/delegation wiring.
 
-          filesWrittenInThisExchange = [];
+          ctx.filesWrittenInThisExchange = [];
 
           // Ask mode with workspace: read-only tools + ATLARIX_PLAN writes (approval) + exploration
           if (settings.selectedChatMode === "ask" && effectiveApp) {
@@ -3948,7 +3924,7 @@ This conversation includes one or more image attachments. When the user uploads 
                       req.chatId,
                       tool.name,
                       result,
-                      { onAskUserEndTurn: () => { askUserEndedTurn = true; } },
+                      { onAskUserEndTurn: () => { ctx.askUserEndedTurn = true; } },
                     );
                     if (askUserResolvedEarly !== null) {
                       return askUserResolvedEarly;
@@ -3974,8 +3950,8 @@ This conversation includes one or more image attachments. When the user uploads 
                             planArtifactMarker,
                           } = await import("@/lib/plans/plan-artifacts");
                           const marker = planArtifactMarker(parsed.planId);
-                          if (!fullResponse.includes(marker)) {
-                            fullResponse = `${fullResponse.trimEnd()}\n\n${marker}\n`;
+                          if (!ctx.fullResponse.includes(marker)) {
+                            ctx.fullResponse = `${ctx.fullResponse.trimEnd()}\n\n${marker}\n`;
                           }
                           const row = await getPlanArtifact(parsed.planId);
                           if (row) {
@@ -4124,9 +4100,9 @@ This conversation includes one or more image attachments. When the user uploads 
 
                             const preview = permRequest.preview as { path?: string; paths?: string[] };
                             if (permRequest.operation === "write_multiple_files" && preview.paths?.length) {
-                              filesWrittenInThisExchange.push(...preview.paths);
+                              ctx.filesWrittenInThisExchange.push(...preview.paths);
                             } else if (preview.path) {
-                              filesWrittenInThisExchange.push(preview.path);
+                              ctx.filesWrittenInThisExchange.push(preview.path);
                             }
 
                             const output = execResult.output || "";
@@ -4255,18 +4231,18 @@ This conversation includes one or more image attachments. When the user uploads 
                 workspaceId: effectiveAppId ?? undefined,
                 turnId: streamTurnId,
                 safeSend,
-                onDelegated: (agentId) => delegatedAgentsThisTurn.push(agentId),
-                getDelegationCount: () => delegationsStartedThisTurn,
+                onDelegated: (agentId) => ctx.delegatedAgentsThisTurn.push(agentId),
+                getDelegationCount: () => ctx.delegationsStartedThisTurn,
                 onDelegationStart: () => {
-                  delegationsStartedThisTurn += 1;
+                  ctx.delegationsStartedThisTurn += 1;
                 },
                 tryAcquireDedupeKey: (key) => {
-                  if (inFlightDelegationKeys.has(key)) return false;
-                  inFlightDelegationKeys.add(key);
+                  if (ctx.inFlightDelegationKeys.has(key)) return false;
+                  ctx.inFlightDelegationKeys.add(key);
                   return true;
                 },
                 releaseDedupeKey: (key) => {
-                  inFlightDelegationKeys.delete(key);
+                  ctx.inFlightDelegationKeys.delete(key);
                 },
               });
             }
@@ -4332,8 +4308,8 @@ This conversation includes one or more image attachments. When the user uploads 
                   taskLedger: taskLedgerBlock,
                   permissionInterceptor: askPermissionInterceptor,
                   seedMessages: askStreamMessages,
-                  nativeTurnMessages,
-                  initialFullResponse: fullResponse,
+                  nativeTurnMessages: ctx.nativeTurnMessages,
+                  initialFullResponse: ctx.fullResponse,
                   safeSend: (channel, payload) =>
                     safeSend(event.sender, channel, payload),
                   emitCompactionActivity: emitCompactionMirroredActivity(
@@ -4364,9 +4340,9 @@ This conversation includes one or more image attachments. When the user uploads 
                   applyTierEscalation,
                 },
               );
-              fullResponse = turnResult.fullResponse;
-              turnParked = turnResult.parked;
-              turnForcedTextFinish = turnResult.forcedTextFinish;
+              ctx.fullResponse = turnResult.fullResponse;
+              ctx.turnParked = turnResult.parked;
+              ctx.turnForcedTextFinish = turnResult.forcedTextFinish;
             }
             askAgenticRepetition.setEnabled(false);
           } else {
@@ -4714,7 +4690,7 @@ This conversation includes one or more image attachments. When the user uploads 
                       req.chatId,
                       toolName,
                       result,
-                      { onAskUserEndTurn: () => { askUserEndedTurn = true; } },
+                      { onAskUserEndTurn: () => { ctx.askUserEndedTurn = true; } },
                     );
                     if (askUserResolvedBuild !== null) {
                       return askUserResolvedBuild;
@@ -4797,9 +4773,9 @@ This conversation includes one or more image attachments. When the user uploads 
                         if (!permRequest) return;
                         const preview = permRequest.preview as { path?: string; paths?: string[] };
                         if (permRequest.operation === "write_multiple_files" && preview.paths?.length) {
-                          filesWrittenInThisExchange.push(...preview.paths);
+                          ctx.filesWrittenInThisExchange.push(...preview.paths);
                         } else if (preview.path) {
-                          filesWrittenInThisExchange.push(preview.path);
+                          ctx.filesWrittenInThisExchange.push(preview.path);
                         }
                       };
 
@@ -5132,18 +5108,18 @@ This conversation includes one or more image attachments. When the user uploads 
                 workspaceId: effectiveAppId ?? undefined,
                 turnId: autonomousTurnId,
                 safeSend,
-                onDelegated: (agentId) => delegatedAgentsThisTurn.push(agentId),
-                getDelegationCount: () => delegationsStartedThisTurn,
+                onDelegated: (agentId) => ctx.delegatedAgentsThisTurn.push(agentId),
+                getDelegationCount: () => ctx.delegationsStartedThisTurn,
                 onDelegationStart: () => {
-                  delegationsStartedThisTurn += 1;
+                  ctx.delegationsStartedThisTurn += 1;
                 },
                 tryAcquireDedupeKey: (key) => {
-                  if (inFlightDelegationKeys.has(key)) return false;
-                  inFlightDelegationKeys.add(key);
+                  if (ctx.inFlightDelegationKeys.has(key)) return false;
+                  ctx.inFlightDelegationKeys.add(key);
                   return true;
                 },
                 releaseDedupeKey: (key) => {
-                  inFlightDelegationKeys.delete(key);
+                  ctx.inFlightDelegationKeys.delete(key);
                 },
               });
             }
@@ -5250,7 +5226,7 @@ This conversation includes one or more image attachments. When the user uploads 
             // v12 0.1: text-tool execution extracted to ONE implementation shared
             // by the legacy loop and the unified engine (profile.executeTextToolCalls).
             // Closure over the build-branch scope (tools / interceptor / gates /
-            // filesWrittenInThisExchange / askUserEndedTurn) is intentional.
+            // ctx.filesWrittenInThisExchange / ctx.askUserEndedTurn) is intentional.
             const execBuildTextToolCalls = async (
               textToolCalls: Array<{ toolName: string; args: Record<string, unknown> }>,
             ): Promise<{
@@ -5393,7 +5369,7 @@ This conversation includes one or more image attachments. When the user uploads 
                       req.chatId,
                       toolCall.toolName,
                       toolResult,
-                      { onAskUserEndTurn: () => { askUserEndedTurn = true; } },
+                      { onAskUserEndTurn: () => { ctx.askUserEndedTurn = true; } },
                     );
                     if (askUserAgentic !== null) {
                       iterationResults.push({ tool: toolCall.toolName, result: askUserAgentic });
@@ -5477,9 +5453,9 @@ This conversation includes one or more image attachments. When the user uploads 
                           if (!permRequest) return;
                           const preview = permRequest.preview as { path?: string; paths?: string[] };
                           if (permRequest.operation === "write_multiple_files" && preview.paths?.length) {
-                            filesWrittenInThisExchange.push(...preview.paths);
+                            ctx.filesWrittenInThisExchange.push(...preview.paths);
                           } else if (preview.path) {
-                            filesWrittenInThisExchange.push(preview.path);
+                            ctx.filesWrittenInThisExchange.push(preview.path);
                           }
                         };
                         if (skipPermissionWait) {
@@ -5692,8 +5668,8 @@ This conversation includes one or more image attachments. When the user uploads 
                     taskLedger: taskLedgerBlock,
                     permissionInterceptor,
                     seedMessages: chatMessages,
-                    nativeTurnMessages,
-                    initialFullResponse: fullResponse,
+                    nativeTurnMessages: ctx.nativeTurnMessages,
+                    initialFullResponse: ctx.fullResponse,
                     safeSend: (channel, payload) =>
                       safeSend(event.sender, channel, payload),
                     emitCompactionActivity: emitCompactionMirroredActivity(
@@ -5723,14 +5699,14 @@ This conversation includes one or more image attachments. When the user uploads 
                     applyTierEscalation,
                   },
                 );
-                fullResponse = turnResult.fullResponse;
+                ctx.fullResponse = turnResult.fullResponse;
                 agenticIteration = turnResult.iterations;
                 totalToolExecutions = turnResult.totalToolExecutions;
-                turnParked = turnResult.parked;
-                turnForcedTextFinish = turnResult.forcedTextFinish;
+                ctx.turnParked = turnResult.parked;
+                ctx.turnForcedTextFinish = turnResult.forcedTextFinish;
               }
 
-              fullResponse = stripToolCallXML(fullResponse);
+              ctx.fullResponse = stripToolCallXML(ctx.fullResponse);
 
               // Structured metrics logging
               logger.info(`[Agentic Loop] Completed:`, {
@@ -5738,9 +5714,9 @@ This conversation includes one or more image attachments. When the user uploads 
                 iterations: agenticIteration,
                 toolsExecuted: totalToolExecutions,
                 durationMs: Date.now() - loopStartTime,
-                completedNaturally: !turnParked,
+                completedNaturally: !ctx.turnParked,
               });
-              hadToolCallsOrPermissions =
+              ctx.hadToolCallsOrPermissions =
                 totalToolExecutions > 0 || permissionInterceptor.getAllOperationsCount() > 0;
               // ═══════════════════════════════════════════════════════════════
 
@@ -5749,7 +5725,7 @@ This conversation includes one or more image attachments. When the user uploads 
                 abortController.signal.reason,
               );
               const ledgerCompleteStop =
-                askUserEndedTurn ||
+                ctx.askUserEndedTurn ||
                 stopSentinel === ASK_USER_STREAM_STOP;
               if (abortController.signal.aborted && !ledgerCompleteStop) {
                 const chatId = req.chatId;
@@ -5811,13 +5787,13 @@ ${stopNote}`;
         // still save — the latter two leave the controller aborted by design).
         if (
           !abortController.signal.aborted ||
-          askUserEndedTurn ||
-          turnForcedTextFinish
+          ctx.askUserEndedTurn ||
+          ctx.turnForcedTextFinish
         ) {
-          if (!fullResponse.trim()) {
-            fullResponse = AI_STREAM_EMPTY_RESPONSE_FALLBACK;
+          if (!ctx.fullResponse.trim()) {
+            ctx.fullResponse = AI_STREAM_EMPTY_RESPONSE_FALLBACK;
           }
-          let responseToStore = stripQuestionsBlockFromResponse(fullResponse);
+          let responseToStore = stripQuestionsBlockFromResponse(ctx.fullResponse);
           responseToStore = sanitizeAssistantOutput(responseToStore);
           const { ensurePlanMarkersInAssistantContent } = await import(
             "@/lib/plans/plan-artifacts"
@@ -5826,7 +5802,7 @@ ${stopNote}`;
           // v11.1: the turn ended at an ask_user call — embed the pending
           // questions in the persisted content so the inline card survives
           // reloads (answers arrive as the next user message).
-          if (askUserEndedTurn) {
+          if (ctx.askUserEndedTurn) {
             const pendingArtifact = pendingAskUserArtifactByChatId.get(req.chatId);
             if (pendingArtifact) {
               const { appendQuestionsArtifact } = await import(
@@ -5842,8 +5818,8 @@ ${stopNote}`;
           // versioned envelope on the assistant message's modelContent — the
           // next turn's assembly splices them back natively instead of
           // re-ingesting flattened prose. Empty when no native tools ran.
-          const assistantModelContent = hasNativeToolParts(nativeTurnMessages)
-            ? serializeNativeHistory(nativeTurnMessages, {
+          const assistantModelContent = hasNativeToolParts(ctx.nativeTurnMessages)
+            ? serializeNativeHistory(ctx.nativeTurnMessages, {
                 builtinProviderId: modelClient.builtinProviderId,
               })
             : "";
@@ -5879,7 +5855,7 @@ ${stopNote}`;
           const isBuildModeTurn = settings.selectedChatMode === "build";
           {
             const newReviewSystemActiveElse =
-              delegatedAgentsThisTurn.includes("reviewer");
+              ctx.delegatedAgentsThisTurn.includes("reviewer");
 
             // v2.1: Self-review activity in non-status path (ask/simple)
             const selfReviewElse = settings.aiConfiguration?.selfReview;
@@ -5915,7 +5891,7 @@ ${stopNote}`;
               isBuildModeTurn &&
               effectiveAppId != null &&
               appPath &&
-              filesWrittenInThisExchange.length > 0
+              ctx.filesWrittenInThisExchange.length > 0
             ) {
               const { recordBuildCompleteSnapshot } = await import("@/lib/project-memory/service");
               // v12 3.7: tracked — snapshot write must survive a quick quit.
@@ -5934,7 +5910,7 @@ ${stopNote}`;
             if (
               isBuildModeTurn &&
               req.workspaceSessionId &&
-              filesWrittenInThisExchange.length > 0 &&
+              ctx.filesWrittenInThisExchange.length > 0 &&
               !abortController.signal.aborted
             ) {
               try {
@@ -5988,7 +5964,7 @@ ${stopNote}`;
             }
             markLedgerStreamComplete(streamTurnId);
             clearMutationOutcomes(streamTurnId);
-            inFlightDelegationKeys.clear();
+            ctx.inFlightDelegationKeys.clear();
             notifyPlanUiForTurnIfPresent(streamTurnId);
             // v10 token accuracy: fold sub-agent + compaction usage into this
             // turn's totals so Compass metering and the meter are exact.
@@ -6002,8 +5978,8 @@ ${stopNote}`;
                   .join(", ")}`,
               );
               if (usedCompassThisStream) {
-                compassStreamTokens = (compassStreamTokens ?? 0) + auxUsage.totalTokens;
-                compassUsedThisTurn += auxUsage.totalTokens;
+                ctx.compassStreamTokens = (ctx.compassStreamTokens ?? 0) + auxUsage.totalTokens;
+                ctx.compassUsedThisTurn += auxUsage.totalTokens;
                 // Turn is over at this point — record for the pool, no abort
                 // needed. v12 1.5: AWAIT the record (it used to be
                 // fire-and-forget) and surface a visible notice when the pool
@@ -6018,7 +5994,7 @@ ${stopNote}`;
                       id: `compass-limit-aux-${req.chatId}-${Date.now()}`,
                       type: "compass_limit",
                       label: "Monthly Atlarix Core token limit reached",
-                      detail: compassExhaustedUserMessage(compassStreamTier ?? "free"),
+                      detail: compassExhaustedUserMessage(ctx.compassStreamTier ?? "free"),
                       status: "error",
                       timestamp: Date.now(),
                       chatId: req.chatId,
@@ -6036,19 +6012,19 @@ ${stopNote}`;
               chatId: req.chatId,
               streamId,
               updatedFiles: false,
-              hadToolCallsOrPermissions,
+              hadToolCallsOrPermissions: ctx.hadToolCallsOrPermissions,
               usedCompass: usedCompassThisStream,
-              compassTier: compassStreamTier,
-              compassTokens: compassStreamTokens,
+              compassTier: ctx.compassStreamTier,
+              compassTokens: ctx.compassStreamTokens,
               ...(auxUsage ? { auxTokens: auxUsage.totalTokens } : {}),
-              ...(maxReasoningTokensUsed != null && maxReasoningTokensUsed > 0
-                ? { reasoningTokens: maxReasoningTokensUsed }
+              ...(ctx.maxReasoningTokensUsed != null && ctx.maxReasoningTokensUsed > 0
+                ? { reasoningTokens: ctx.maxReasoningTokensUsed }
                 : {}),
               // Fix 6: this turn's billed tokens (input+output) so the renderer
               // can accumulate a cumulative session total — the context meter is
               // occupancy, not spend, and undercounts a resend loop.
-              ...(turnInputTokens + turnOutputTokens > 0
-                ? { turnTokens: turnInputTokens + turnOutputTokens }
+              ...(ctx.turnInputTokens + ctx.turnOutputTokens > 0
+                ? { turnTokens: ctx.turnInputTokens + ctx.turnOutputTokens }
                 : {}),
               // v12 7D: BYOK per-turn USD estimate (omitted for Core/Compass
               // and for models with no known price — never a guessed number).
@@ -6058,19 +6034,19 @@ ${stopNote}`;
                     name: effectiveModel?.name ?? "",
                     builtinProviderId: modelClient.builtinProviderId,
                   },
-                  turnInputTokens + turnOutputTokens > 0
+                  ctx.turnInputTokens + ctx.turnOutputTokens > 0
                     ? {
-                        inputTokens: turnInputTokens,
-                        outputTokens: turnOutputTokens,
-                        ...(turnCachedInputTokens > 0
-                          ? { cachedInputTokens: turnCachedInputTokens }
+                        inputTokens: ctx.turnInputTokens,
+                        outputTokens: ctx.turnOutputTokens,
+                        ...(ctx.turnCachedInputTokens > 0
+                          ? { cachedInputTokens: ctx.turnCachedInputTokens }
                           : {}),
-                        ...(turnCacheCreationTokens > 0
-                          ? { cacheCreationInputTokens: turnCacheCreationTokens }
+                        ...(ctx.turnCacheCreationTokens > 0
+                          ? { cacheCreationInputTokens: ctx.turnCacheCreationTokens }
                           : {}),
                       }
                     : null,
-                  turnActualCostUsd > 0 ? turnActualCostUsd : null,
+                  ctx.turnActualCostUsd > 0 ? ctx.turnActualCostUsd : null,
                 );
                 return cost != null ? { turnCostUsd: cost } : {};
               })(),
@@ -6081,7 +6057,7 @@ ${stopNote}`;
               // v12 2.3: lets a background agent revert this turn's writes.
               snapshotTurnId: streamTurnId,
               // A2: turn parked on outstanding background work (auto-resumes).
-              ...(turnParked
+              ...(ctx.turnParked
                 ? {
                     parked: true,
                     parkedCommands: listBackgroundJobs(req.chatId).length,
@@ -6171,7 +6147,7 @@ ${stopNote}`;
             hadToolCallsOrPermissions: true,
           } satisfies ChatResponseEnd);
           if (activeStreamId.get(req.chatId) === streamId) activeStreams.delete(req.chatId);
-          streamTerminated = true;
+          ctx.streamTerminated = true;
           FileUploadsState.getInstance().clear(req.chatId);
           return;
         }
@@ -6187,7 +6163,7 @@ ${stopNote}`;
             canResume: true,
           });
           if (activeStreamId.get(req.chatId) === streamId) activeStreams.delete(req.chatId);
-          streamTerminated = true;
+          ctx.streamTerminated = true;
           FileUploadsState.getInstance().clear(req.chatId);
           return;
         }
@@ -6223,7 +6199,7 @@ ${stopNote}`;
             hadToolCallsOrPermissions: false,
           } satisfies ChatResponseEnd);
           if (activeStreamId.get(req.chatId) === streamId) activeStreams.delete(req.chatId);
-          streamTerminated = true;
+          ctx.streamTerminated = true;
           FileUploadsState.getInstance().clear(req.chatId);
           return;
         }
@@ -6240,7 +6216,7 @@ ${stopNote}`;
             hadToolCallsOrPermissions: false,
           } satisfies ChatResponseEnd);
           if (activeStreamId.get(req.chatId) === streamId) activeStreams.delete(req.chatId);
-          streamTerminated = true;
+          ctx.streamTerminated = true;
           FileUploadsState.getInstance().clear(req.chatId);
           return;
         }
@@ -6295,7 +6271,7 @@ ${stopNote}`;
               hadToolCallsOrPermissions: false,
             } satisfies ChatResponseEnd);
             if (activeStreamId.get(req.chatId) === streamId) activeStreams.delete(req.chatId);
-            streamTerminated = true;
+            ctx.streamTerminated = true;
             FileUploadsState.getInstance().clear(req.chatId);
             return;
           }
@@ -6317,7 +6293,7 @@ ${stopNote}`;
           hadToolCallsOrPermissions: false,
         } satisfies ChatResponseEnd);
         if (activeStreamId.get(req.chatId) === streamId) activeStreams.delete(req.chatId);
-        streamTerminated = true;
+        ctx.streamTerminated = true;
         FileUploadsState.getInstance().clear(req.chatId);
       } finally {
         // Finalize any browser/preview session recordings captured this turn and
@@ -6325,7 +6301,7 @@ ${stopNote}`;
         // Finalize browser/preview session reels (emits the final, live:false
         // event per reel itself — see browser-reel.finalizeReels).
         void finalizeReels(req.chatId).catch(() => {});
-        stopAgentOrchestrator?.();
+        ctx.stopAgentOrchestrator?.();
         unregisterLedgerPlanUiNotifier(req.chatId);
         clearActiveModelDisplayName();
         ensureTerminal();
