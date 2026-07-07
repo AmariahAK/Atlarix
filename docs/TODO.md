@@ -116,6 +116,58 @@ diff); S18 done via tokenizer memo (gap data from the smoke session).
     resume one extraction at a time.
   - Note: gate on PER-PROJECT vitest runs — the combined `npm test` shows load-sensitive flakes on
     git-worktree/timing tests (e.g. subagent-cancel); they pass per-project in isolation.
+- **BUG (needs triage): Shift+Tab mode switch doesn't fire while the app is busy.**
+  Shift+Tab cycles the work mode (Build ↔ Explore ↔ Plan ↔ Debug ↔ Review), but it is
+  unreliable when something is in progress — e.g. while typing in the composer, or while a
+  turn/stream is running the keybind is dropped, so the user can't flip modes mid-flight the
+  way Claude Code lets you. Suspected cause: the shortcut is bound in a context/scope that
+  loses focus or is disabled during active work (composer capturing the key, a global-shortcut
+  registration gated on idle state, or an input-focus guard). Fix = make the mode-cycle
+  keybind global and always-live (fire regardless of composer focus or in-flight stream),
+  matching Claude Code's behavior. NOT this session (decomposition first).
+
+- **BUG (needs triage): the "vision model" gate on the attach path is stale — modern non-vision-tagged
+  models still see images everywhere EXCEPT our attachments.** The current attachment system was built
+  on the outdated assumption that only models tagged as vision-capable can see images. By today's
+  standards most models can — and the owner confirms it concretely: **DeepSeek v4 pro, DeepSeek 3.2,
+  Qwen 3.7, Qwen 3.6 (both "plus")** are NOT tagged as vision models, yet (a) they read website
+  **browser screenshots** fine in Atlarix, and (b) they read uploaded images fine on the models' own
+  official web UIs. Only Atlarix's **attached-image** path fails for them. So the failure is our
+  vision-tag gate, not a model limitation. Two same-model comparisons pin it:
+  - **Browser screenshot vs. attachment (same model, same app):** screenshots ride the tool-result
+    media path and reach the model; attachments (v14.8.11) only EMBED as native image parts "on vision
+    dispatches" — i.e. gated on the models.dev vision/modality tag — so for these untagged models the
+    embed is skipped and the image never goes out. Find why the screenshot path reaches them but the
+    attach path is gated off, and deliver attachments the same way regardless of the vision tag.
+  - **Their official web UI vs. us:** the vendors accept images for these same untagged models, so the
+    tag-based "is this a vision model" check is the wrong gate — replace it with something that matches
+    real capability (or drop the gate and let the provider reject if it truly can't).
+  Verify live: attach an image + ask "what do you see?" on DeepSeek v4 pro / Qwen plus, then screenshot
+  the same image via browser tools; capture both outbound requests from the stream/network debug logs
+  and diff where the attach path drops the image. Fix = attach path delivers the image the way the
+  working screenshot path does, for every model that can actually see — not just tagged ones. NOT this
+  session (decomposition first). [[atlarix-v14-8-11-fidelity-release]]
+
+- **FEATURE: notification sound when Atlarix needs the user (permission / action / question).**
+  When the user is looking away from the app, they have no way to know Atlarix is blocked waiting
+  on them — a command/file-write approval, an `ask_user` question, or any human-in-the-loop gate.
+  Add an audible notification (plus, ideally, an OS notification if the window is unfocused) that
+  fires whenever a turn enters a waiting-on-user state. Should be a setting (on/off, maybe volume),
+  respect OS "do not disturb", and not double-fire with the existing sonner/OS notifications from
+  Automations. OPEN QUESTION for owner: provide a sound asset or have Claude generate/source one —
+  owner is fine with either. NOT this session (decomposition first).
+
+- **CONSIDER (evaluate, don't commit): `browser-use` repo/extension vs. our current browser tools.**
+  Evaluate whether the open-source `browser-use` project (LLM-driven browser automation) would be a
+  better foundation than Atlarix's current in-app browser interactions
+  (`browser_navigate`/`browser_inspect`/`browser_interact` over the native WebContentsView +
+  `browser_*` tools). Compare: reliability of element targeting, how the page is represented to the
+  model (accessibility tree / DOM snapshot vs. our snapshot-first visual sight), token cost, whether
+  it needs a separate runtime/process (Python) that doesn't fit an Electron desktop app, and
+  approval/sandboxing integration. If it's a clear win, scope a migration; if not, leave our current
+  approach as-is and close this note. Just parking the consideration for now.
+  [[atlarix-preview-webcontentsview]]
+
 - `.gitignore`-render profiler (carried from v14.8.10 §3.4).
 - Atlarix GitHub account for contributor credit — owner action; code side done (v14.8.10).
 - User-message multimodal content parts for HISTORICAL turns (current + edited turns embed

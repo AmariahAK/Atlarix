@@ -50,6 +50,9 @@ export interface StreamTurnContext {
   stopAgentOrchestrator: (() => void) | undefined;
   /** Dedup memo for tool-input progress activity. */
   lastToolInputPhaseLabel: string;
+  /** Take-once empty-output nudge: the retry wrapper sets it, simpleStreamText's
+   * prepareStep reads-and-clears it (shared across those two extracted fns). */
+  pendingEmptyOutputNudge: string | null;
 
   // ── Compass (managed-model) usage state ──────────────────────────────────
   compassStreamTier: string | undefined;
@@ -84,6 +87,7 @@ export function createStreamTurnContext(): StreamTurnContext {
     hadToolCallsOrPermissions: false,
     stopAgentOrchestrator: undefined,
     lastToolInputPhaseLabel: "",
+    pendingEmptyOutputNudge: null,
     compassStreamTier: undefined,
     compassStreamTokens: undefined,
     compassRemainingBudget: null,
