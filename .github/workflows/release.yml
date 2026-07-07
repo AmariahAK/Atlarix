@@ -211,6 +211,12 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      # The packaged --self-test probes ripgrep (`rg`); the macos-latest (arm64)
+      # runner doesn't ship it, so the arm64 self-test failed with `spawn rg ENOENT`.
+      # Install it here, mirroring the Windows job's `choco install ripgrep`.
+      - name: Install ripgrep
+        run: brew install ripgrep
+
       - name: Tests
         run: npm test
 
@@ -603,7 +609,17 @@ jobs:
 
       - name: Test and blueprint index benchmarks
         shell: pwsh
-        run: npm test; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        run: |
+          # The combined `npm test` has known Windows-only worker/libuv flakes
+          # (e.g. a libuv fs-event assertion crashing a tinypool worker →
+          # ERR_IPC_CHANNEL_CLOSED). Per-project runs are green; retry the combined
+          # run once so a transient worker crash doesn't fail the release build.
+          npm test
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "::warning::npm test failed (attempt 1) — retrying once (known Windows worker/libuv flake)."
+            npm test
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
 
       - name: Prepare packager temp (Windows)
         shell: pwsh
