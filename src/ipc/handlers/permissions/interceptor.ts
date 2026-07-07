@@ -734,11 +734,14 @@ export class PermissionInterceptor extends EventEmitter {
                 const base = {
                     success: cmdResult.success,
                     // Model-facing only (no UI consumer of getExecutionResult):
-                    // command output is untrusted — frame it as data.
-                    output: wrapUntrustedData(
-                        "command-output",
-                        this.formatCommandOutput(cmdResult.stdout, cmdResult.stderr, maxB),
-                    ),
+                    // command output is untrusted — frame it as data. Harness control
+                    // messages (e.g. a background-job start notice) are trusted → not wrapped.
+                    output: cmdResult.harnessMessage
+                        ? this.formatCommandOutput(cmdResult.stdout, cmdResult.stderr, maxB)
+                        : wrapUntrustedData(
+                              "command-output",
+                              this.formatCommandOutput(cmdResult.stdout, cmdResult.stderr, maxB),
+                          ),
                     exitCode: cmdResult.exitCode,
                     error: cmdResult.success ? undefined : cmdResult.stderr.slice(0, 500) || 'Command failed',
                 };
@@ -765,10 +768,13 @@ export class PermissionInterceptor extends EventEmitter {
                         success: cmdResult.success,
                         command: typeof cmdPreview?.command === "string" ? cmdPreview.command : undefined,
                         // Model-facing only — untrusted command output framed as data.
-                        output: wrapUntrustedData(
-                            "command-output",
-                            this.formatCommandOutput(cmdResult.stdout, cmdResult.stderr, maxOutBytes),
-                        ),
+                        // A harness control message (bg-job start notice) is trusted → not wrapped.
+                        output: cmdResult.harnessMessage
+                            ? this.formatCommandOutput(cmdResult.stdout, cmdResult.stderr, maxOutBytes)
+                            : wrapUntrustedData(
+                                  "command-output",
+                                  this.formatCommandOutput(cmdResult.stdout, cmdResult.stderr, maxOutBytes),
+                              ),
                         exitCode: cmdResult.exitCode,
                         error: cmdResult.success ? undefined : cmdResult.stderr.slice(0, 500),
                     };
@@ -1445,6 +1451,8 @@ export class PermissionInterceptor extends EventEmitter {
                 stderr: '',
                 exitCode: 0,
                 success: true,
+                // Harness control text (not captured output) — don't frame as untrusted.
+                harnessMessage: true,
             });
             this.emit('terminal-output', {
                 operationId,

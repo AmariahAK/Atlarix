@@ -29,6 +29,12 @@ export interface CommandResult {
   stderr: string;
   exitCode: number;
   success: boolean;
+  /**
+   * True when `stdout` is a HARNESS-authored control message (e.g. a background
+   * command's start/promote notice), not captured command output. Such text is
+   * trusted and must NOT be wrapped in the untrusted-data envelope.
+   */
+  harnessMessage?: boolean;
 }
 
 function resolveWorkingDirectory(cwd?: string): { cwd?: string; error?: CommandResult } {
