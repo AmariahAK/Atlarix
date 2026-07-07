@@ -345,6 +345,15 @@ export const UserSettingsSchema = z.object({
     })
     .optional(),
 
+  /** F1: play a sound (+ OS notification when unfocused) when a turn waits on the user (approval / ask_user). */
+  notificationSound: z
+    .object({
+      enabled: z.boolean().optional(),
+      /** 0..1 playback volume. */
+      volume: z.number().min(0).max(1).optional(),
+    })
+    .optional(),
+
   /** When true (default), commits made via Atlarix include Co-authored-by: atlarix-agent <agent@atlarix.dev> */
   includeAtlarixCoAuthor: z.boolean().optional(),
 

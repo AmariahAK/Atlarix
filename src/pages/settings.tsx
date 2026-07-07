@@ -595,6 +595,55 @@ export function AISettings() {
         </div>
       </div>
 
+      <div className="mt-6 space-y-4 border-t border-border pt-6">
+        <h3 className="text-sm font-medium text-foreground">Notifications</h3>
+        <div className="flex items-center justify-between max-w-md gap-4">
+          <Label htmlFor="notif-sound-enabled" className="text-sm">
+            Play a sound when Atlarix needs you (approval / questions)
+          </Label>
+          <Switch
+            id="notif-sound-enabled"
+            checked={settings?.notificationSound?.enabled !== false}
+            onCheckedChange={(checked) =>
+              updateSettings({
+                notificationSound: {
+                  ...settings?.notificationSound,
+                  enabled: checked,
+                },
+              })
+            }
+          />
+        </div>
+        {settings?.notificationSound?.enabled !== false && (
+          <div className="flex items-center justify-between max-w-md gap-4">
+            <Label htmlFor="notif-sound-volume" className="text-sm">
+              Volume
+            </Label>
+            <input
+              id="notif-sound-volume"
+              type="range"
+              min={0}
+              max={1}
+              step={0.05}
+              value={settings?.notificationSound?.volume ?? 0.7}
+              onChange={(e) =>
+                updateSettings({
+                  notificationSound: {
+                    ...settings?.notificationSound,
+                    volume: Number(e.target.value),
+                  },
+                })
+              }
+              className="w-40 accent-primary"
+            />
+          </div>
+        )}
+        <p className="text-xs text-muted-foreground max-w-md">
+          When the app is in the background, an OS notification is shown too
+          (respects your system Do Not Disturb).
+        </p>
+      </div>
+
       <HooksSettings />
 
       <p className="text-xs text-muted-foreground mt-2">

@@ -36,6 +36,22 @@ type SoundType = keyof typeof SOUNDS;
 const audioCache = new Map<SoundType, HTMLAudioElement>();
 let autoplayUnlocked = false;
 
+// F1: user-controlled notification-sound preferences (fed from settings by the
+// renderer, see setSoundPreferences). Default on at full volume so behavior is
+// unchanged until the user opts out / adjusts.
+let soundEnabled = true;
+let soundVolume = 1;
+
+export function setSoundPreferences(prefs: {
+  enabled?: boolean;
+  volume?: number;
+}): void {
+  if (typeof prefs.enabled === "boolean") soundEnabled = prefs.enabled;
+  if (typeof prefs.volume === "number" && Number.isFinite(prefs.volume)) {
+    soundVolume = Math.max(0, Math.min(1, prefs.volume));
+  }
+}
+
 function unlockAutoplayOnce(): void {
   if (autoplayUnlocked || typeof document === "undefined") return;
   autoplayUnlocked = true;
@@ -70,8 +86,10 @@ function getAudio(type: SoundType): HTMLAudioElement {
 }
 
 export async function playSound(type: SoundType): Promise<void> {
+  if (!soundEnabled) return;
   try {
     const audio = getAudio(type);
+    audio.volume = soundVolume;
     audio.currentTime = 0;
     await audio.play();
   } catch (error: unknown) {

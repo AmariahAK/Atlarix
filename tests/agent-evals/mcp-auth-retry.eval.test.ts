@@ -113,6 +113,15 @@ describe("MCP auth-fail → retry (build mode)", () => {
           "@/lib/mcp/mcp-oauth-service"
         );
         notifyMcpAuthUpdated(authEvent.payload.serverId);
+
+        // After auth, the retry hits the per-tool consent gate (C7 — first use of
+        // each MCP tool prompts). Approve it so the call proceeds.
+        const consentReq = await ipc.waitFor(
+          "mcp:tool-consent-request",
+          (p) => p?.toolName === "calculator_add",
+        );
+        const { resolveConsent } = await import("@/ipc/utils/mcp_consent");
+        resolveConsent(consentReq.payload.requestId, "accept-once");
       },
     });
 

@@ -47,7 +47,7 @@ import { ChevronRight, ChevronLeft } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { IpcClient } from "@/ipc/ipc_client";
 import { subscribeAutoSelfCorrect } from "@/lib/renderer-ipc-bridge";
-import { preloadSounds } from "@/lib/sounds";
+import { preloadSounds, setSoundPreferences } from "@/lib/sounds";
 import { FirstRunWizard } from "@/components/welcome/FirstRunWizard";
 import { TourManager } from "@/components/tour/TourManager";
 import { CommunityDialog } from "@/components/CommunityDialog";
@@ -270,6 +270,15 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   useEffect(() => {
     preloadSounds();
   }, []);
+
+  // F1: keep the sound module's enabled/volume in sync with the user setting
+  // (default on at 0.7 when unset, matching DEFAULT_SETTINGS).
+  useEffect(() => {
+    setSoundPreferences({
+      enabled: settings?.notificationSound?.enabled ?? true,
+      volume: settings?.notificationSound?.volume ?? 0.7,
+    });
+  }, [settings?.notificationSound?.enabled, settings?.notificationSound?.volume]);
 
   // Home = "/" or "/chat". Show right panel on home when workspace or chat is active.
   const isOnChatPage = location.pathname === "/" || location.pathname.startsWith("/chat");
