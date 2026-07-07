@@ -95,25 +95,35 @@ diff); S18 done via tokenizer memo (gap data from the smoke session).
     session-handlers (the 3 early IPC handlers); **turn-context.ts — the StreamTurnContext object is
     FORMALIZED and the ~26 Group-A accumulators/flags migrated from bare locals to `ctx.*`
     (byte-stable)**; turn-runner/prompt-bundle (buildPromptBundle, pure, via PromptBundleDeps).
-  - **REMAINING (the ctx enabler is now DONE — these are the payoff extractions).** Still inside
-    `runStream`: extract into `chat_stream/turn-runner/*.ts`, each `fn(ctx, deps)`, gated per step:
-    (1) `simpleStreamText` (~677 lines, 6 nested callbacks — biggest single win; its ctx mutations
-    already go through `ctx.*`, so it needs only a config `deps` bundle + a top-of-fn `const {…} =
-    deps` rebind so the body stays verbatim); (2) `runCompressAndRebuild` + the assembly IIFE (needs
-    the Group-B assembly working set — `systemPrompt`/`limitedMessageHistory`/`contextAssemblerBlob`/
-    `dispatchEstimate`/`budgetTracker`/`codebasePrefix`/`otherCodebasePrefix`/`messageHistory`/
-    `promptBundle`/`workingSections`/`contextBudgetPruningApplied` — threaded as a mutable
-    `ctx.assembly` sub-object, since compaction REASSIGNS them); (3) `runStreamRoundWithEmptyOutputRetry`
-    (already param-threaded — port the per-round abort re-link add/removeEventListener-in-`finally`
-    VERBATIM); (4) `processResponseChunkUpdate` (small; note it has its OWN `fullResponse` PARAM shadow
-    — do NOT rewrite to ctx); (5) then the HIGH-risk branch bodies: `runAskBranch(ctx, deps)`,
-    `runBuildBranch(ctx, deps)`, `finalizeTurn(ctx)` + `handleTurnError(ctx)` (the overflow arm must
-    still `return runStream()` — pass a re-invoke thunk). Invariants (verbatim): the single per-turn
-    `AbortController` + every cooperative `signal.aborted` check; the save gate
-    `!signal.aborted || ctx.askUserEndedTurn || ctx.turnForcedTextFinish`;
-    `retriedAfterOverflowCompaction` stays in the OUTER shell. Pattern is proven (Phase 1 + buildPromptBundle);
-    each is mechanical + agent-evals-gated. Paused mid-Stage-2c only to keep quality high under budget —
-    resume one extraction at a time.
+  - **STAGE 2c payoff extractions — 2026-07-07 session (on `main`, one gated commit each).** God-file
+    6231 → 5031 lines (−1200). Each `fn(ctx, deps)` in `chat_stream/turn-runner/*.ts`, body verbatim,
+    gated (ts:main/ts:tests/check:ts/oxlint + per-project agent-evals 73 / node 1484 / renderer 58):
+    - **prep A** (cf1f8fe): `pendingEmptyOutputNudge` promoted onto `ctx` (cross-closure mutable).
+    - **(1) simpleStreamText** (cbef57f) → `turn-runner/simple-stream-text.ts`; ~23-field deps bundle
+      built after the assembly call; both call sites pass `(ctx, deps, args)`.
+    - **(2) runStreamRoundWithEmptyOutputRetry** (ca7e5a3) → `turn-runner/round-retry.ts`; per-round
+      abort re-link verbatim; 3 loop consts + `isEmptyOutputStreamError` alias moved into the module;
+      call sites wrap it typing `params` as the fn's own param type (method-slot bivariance).
+    - **(3) processResponseChunkUpdate** (48bb4cd) → `turn-runner/response-chunk-update.ts`; keeps its
+      OWN `fullResponse` param; thin bound local keeps the callback slots unchanged.
+    - **(4) context-assembly IIFE + runCompressAndRebuild** (b9a3fcd) → `turn-runner/context-assembly.ts`.
+      **Used return-style threading, NOT the planned `ctx.assembly` shared-mutable** — the caller passes
+      the working set as `state`, the fn mutates its own locals (runCompressAndRebuild nested inside) and
+      returns the final set + `proactiveContextReminderForStream` for write-back. This avoided a
+      119-occurrence `ctx.assembly.*` rename across destructures/shorthands (lower risk, same behavior).
+      `limitedMessageHistory` typed `any[]` (mirrors runStream: updatedChat is `any`).
+  - **REMAINING — the HIGH-risk branch arms + finalization (NOT yet done).** `runAskBranch` (~757 lines,
+    2274-3030), `runBuildBranch` (~1439 lines, 3031-4469), and inline `finalizeTurn` (save-gated block) +
+    `handleTurnError` (main catch, needs a `() => runStream()` re-invoke thunk for the overflow arm).
+    **Concrete scope measured 2026-07-07:** the ask arm alone captures ~35 module-import sources + ~40
+    runStream-local free vars (many function-typed closures: `buildRoundSystemPrompt`, the `handle*`
+    callbacks, `applyTierEscalation`, `logTtftOnce`, permission/tool wiring…); build arm ~2×. Each
+    extraction yields a 40+-field `Deps` interface of mostly function types — line-count-only benefit,
+    disproportionate regression risk vs. the tangled pieces already extracted. Invariants to hold
+    verbatim: single per-turn `AbortController` + every `signal.aborted` check; save gate
+    `!signal.aborted || ctx.askUserEndedTurn || ctx.turnForcedTextFinish`; `retriedAfterOverflowCompaction`
+    in the OUTER shell; `ensureTerminal` idempotency latch. If revisited, consider extracting the SHARED
+    sub-helpers (permission-interceptor setup, runAgentTurn-config assembly) rather than the whole arms.
   - Note: gate on PER-PROJECT vitest runs — the combined `npm test` shows load-sensitive flakes on
     git-worktree/timing tests (e.g. subagent-cancel); they pass per-project in isolation.
 - **BUG (needs triage): Shift+Tab mode switch doesn't fire while the app is busy.**
