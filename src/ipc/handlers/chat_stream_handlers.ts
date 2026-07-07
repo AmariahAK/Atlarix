@@ -281,7 +281,6 @@ import {
   formatAuthRequiredIpcError,
   AuthRequiredError,
 } from "../../lib/auth/require_auth_session";
-import * as Sentry from "@sentry/electron/main";
 import { PermissionInterceptor } from "./permissions/interceptor";
 import {
   registerInterceptor,
@@ -322,30 +321,15 @@ import {
   runCommandCategoryGateToolResult,
   shouldSkipPermissionWaitForRunCommand,
 } from "./chat_stream/permission-ui";
+import {
+  sentryAddBreadcrumbSafe,
+  sentryCaptureExceptionSafe,
+} from "./chat_stream/sentry-safe";
 
 const logger = log.scope("chat_stream_handlers");
 
 // --- run_command/file permission gating + UI enrichment moved to ./chat_stream/permission-ui ---
-function sentryAddBreadcrumbSafe(
-  breadcrumb: Parameters<typeof Sentry.addBreadcrumb>[0],
-): void {
-  try {
-    Sentry.addBreadcrumb(breadcrumb);
-  } catch {
-    /* noop */
-  }
-}
-
-function sentryCaptureExceptionSafe(
-  error: unknown,
-  captureContext?: Parameters<typeof Sentry.captureException>[1],
-): void {
-  try {
-    Sentry.captureException(error, captureContext);
-  } catch {
-    /* noop */
-  }
-}
+// --- Sentry safe wrappers moved to ./chat_stream/sentry-safe ---
 
 // v4.0 Progressive Tool Reveal: one loader per chat session
 
