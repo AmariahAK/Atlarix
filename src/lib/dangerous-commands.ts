@@ -90,6 +90,36 @@ export const DANGEROUS_PATTERNS: DangerMatch[] = [
     pattern: /git\s+reset\s+--hard\b/,
     explanation: "This discards ALL uncommitted changes and moves the branch pointer — local work not committed will be permanently lost.",
   },
+  // ── Exfiltration / arbitrary-execution primitives (v14.8.12 security review) ──
+  // Flagged "dangerous" so they DENY in unattended automation runs and PROMPT
+  // interactively — the taxonomy previously only covered local FS/git mutation,
+  // letting a prompt-injected run exfiltrate via the network channel unattended.
+  {
+    id: "interpreter-eval",
+    pattern:
+      /\b(node|deno|bun)\s+(-e|--eval|-p|--print)\b|\bpython3?\s+-c\b|\b(perl|ruby)\s+-e\b/,
+    explanation:
+      "This runs an inline script through a language interpreter — it can read any file or open any network connection. Review the code before allowing.",
+  },
+  {
+    id: "gh-api-write",
+    pattern: /\bgh\s+api\b[^\n]*(-X|--method)\s*["']?(POST|PUT|PATCH|DELETE)\b/i,
+    explanation:
+      "This calls a GitHub API write endpoint under your token — it can modify or exfiltrate data on any repo the token can reach.",
+  },
+  {
+    id: "gh-comment",
+    pattern: /\bgh\s+(pr|issue)\s+comment\b/i,
+    explanation:
+      "This posts a comment to GitHub under your account — a channel that can leak data off the machine.",
+  },
+  {
+    id: "read-credential-file",
+    pattern:
+      /\b(cat|less|more|head|tail|strings|xxd|od|base64|nl)\s+[^|;&]*(\.ssh\/id_|id_rsa|id_ed25519|id_ecdsa|id_dsa|\.aws\/credentials|\.netrc|\.git-credentials|\.npmrc|\.kube\/config|\.docker\/config\.json)/,
+    explanation:
+      "This reads a well-known credential/secret file. Only allow if you intend to expose its contents to the model.",
+  },
 ];
 
 /**
@@ -118,6 +148,15 @@ const DANGEROUS_FIRST_TOKENS: Record<string, string> = {
   reboot: "This restarts the machine.",
   shutdown: "This shuts the machine down.",
   poweroff: "This powers the machine off.",
+  // Exfiltration / remote-execution primitives (v14.8.12 security review).
+  osascript: "This runs AppleScript/JXA — it can automate the OS, read Keychain, and control other apps.",
+  ssh: "This opens a remote shell — it can run arbitrary commands on another machine.",
+  scp: "This copies files to/from a remote machine over the network.",
+  telnet: "This opens a raw network connection to another host.",
+  nc: "This opens a raw network connection (netcat) — a common data-exfiltration channel.",
+  ncat: "This opens a raw network connection (ncat) — a common data-exfiltration channel.",
+  socat: "This relays data between sockets/files — a flexible network channel.",
+  printenv: "This prints environment variables, which may include secrets.",
 };
 
 function firstToken(command: string): string {
