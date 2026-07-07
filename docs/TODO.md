@@ -73,16 +73,35 @@ diff); S18 done via tokenizer memo (gap data from the smoke session).
   behavior (weak at honoring async tool state). Investigate via a live DeepSeek run + the stream
   debug logs; determine which layer, then fix at that layer. NOT this session (decomposition first).
 
-- **chat_stream_handlers.ts deep decomposition — IN PROGRESS (2026-07-06).** 8k-line god-file.
-  STAGE 0 STARTED (commit aac0f7a): `chat_stream/message-postprocess.ts` extracted (pure tail),
-  full suite + 73 agent-evals green. REMAINING: rest of STAGE 0 (permission-ui @~325-501,
-  network-retry @~1081-1145, stream-utils), STAGE 1 (shared-state satellites: stream-registry,
-  pending-ui-state, interrupted-draft, revert, activity-emitters, tool-execute), STAGE 2 (deep:
-  `StreamTurnContext` + runner/ask-branch/build-branch — the plan's highest-risk item, do with
-  fresh focus). Pattern: extract to `chat_stream/<topic>.ts`, parent imports-for-internal +
-  re-exports public API; gate each stage on check + vitest + `--project agent-evals`. Plan +
-  StreamTurnContext field list in the design pass; compiler-driven same-file extraction to make
-  the context contract a tsc checklist.
+- **chat_stream_handlers.ts deep decomposition — STAGE 2c REMAINING (branch `decompose-chat-stream`,
+  2026-07-07).** God-file 7984 → 6452 lines; 12 cohesive `chat_stream/*.ts` modules extracted, all
+  gated on check + ts:main/ts:tests + node/renderer + `--project agent-evals` (73 pass).
+  - DONE: STAGE 0 (6 pure-leaf modules: message-postprocess, permission-ui, sentry-safe,
+    compaction-activity, tool-execute, network-retry, stream-misc); STAGE 1 (stream-state = the
+    shared Maps + ActiveStreamRegistry + `let`-accessors; stream-lifecycle = resolveModeChange /
+    resolveAskUserToolResult / interrupted-draft trio / clearChatStreamStateForChat / abortAllStreams
+    / cancelStreamForAutomation); STAGE 2a (lifecycle-handlers = cancel/abort/reconnect/edit-message;
+    revert-handlers = the 8 snapshot/revert IPC handlers); STAGE 2b (context-sections = the 7
+    per-turn prompt-section loaders, taking an explicit ContextSectionParams).
+  - **REMAINING = STAGE 2c (highest risk, DEDICATED SESSION).** Everything left is inside
+    `chatStreamHandler` → nested `runStream` (~4500 lines). The blocker is a ~90-field IMPLICIT turn
+    context — bare `let` accumulators (`fullResponse`, `nativeTurnMessages`, `filesWrittenInThisExchange`,
+    `turnInput/Output/CachedInput/CacheCreation/ActualCost` tokens, `maxTokens/ReasoningUsed`), control
+    flags (`askUserEndedTurn`, `turnForcedTextFinish`, `turnParked`, `streamTerminated`,
+    `stopAgentOrchestrator`), and compaction-REASSIGNED assembly locals
+    (`systemPrompt`/`limitedMessageHistory`/`contextAssemblerBlob`/`dispatchEstimate`/`budgetTracker`).
+    Every meaningful closure (ask-branch, build-branch, `runStreamRoundWithEmptyOutputRetry` incl. the
+    per-round abort re-link listener-in-finally, `runCompressAndRebuild`, `simpleStreamText`,
+    `processResponseChunkUpdate`, finalization/persistence) mutates these — so extraction REQUIRES
+    formalizing them into a mutable `StreamTurnContext` object (fields, not value params) FIRST, then
+    rewiring runStream to `ctx.field`. Invariants to preserve verbatim: the single per-turn
+    `AbortController` + every cooperative `signal.aborted` check-point; `retriedAfterOverflowCompaction`
+    stays in the OUTER shell (overflow re-invokes runStream). Deferred here (not this session) because a
+    ~4500-line ctx rewire can't be completed with byte-stability safety in one pass — attempt it with
+    fresh focus, one closure at a time, agent-evals byte-stability gate between each.
+  - Note: full combined `npm test` (node+renderer+agent-evals together) shows load-sensitive flakes on
+    git-worktree/timing tests (e.g. subagent-cancel) — they pass per-project in isolation; gate on the
+    per-project runs, not the combined one.
 - `.gitignore`-render profiler (carried from v14.8.10 §3.4).
 - Atlarix GitHub account for contributor credit — owner action; code side done (v14.8.10).
 - User-message multimodal content parts for HISTORICAL turns (current + edited turns embed
