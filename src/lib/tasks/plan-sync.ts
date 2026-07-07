@@ -135,6 +135,17 @@ export function isAtlarixPlanRelativePath(relPosix: string): boolean {
 /** Workspace-relative POSIX paths that never require user approval (internal Atlarix metadata). */
 export function isAlwaysAutoApproveAtlarixRelativePath(relPosix: string): boolean {
   const norm = relPosix.replace(/\\/g, "/").replace(/^\/+/, "");
+  // H1 (security review): `.atlarix/atlarix.md` (the highest-precedence
+  // instruction layer, re-injected as system-prompt authority on EVERY future
+  // turn) and `.atlarix/permissions.json` (the deny/ask ruleset itself) carry
+  // standing authority over future turns and tool gating. A silent write to
+  // either is a durable prompt-injection escalation — so they ALWAYS require
+  // normal human approval (never blanket auto-approved as ".atlarix/*").
+  const base = norm.split("/").pop() ?? "";
+  const underAtlarix = norm.startsWith(".atlarix/") || norm.includes("/.atlarix/");
+  if (underAtlarix && (base === "atlarix.md" || base === "permissions.json")) {
+    return false;
+  }
   if (norm === ".atlarix/.atlarixignore" || norm.endsWith("/.atlarix/.atlarixignore")) return true;
   if (norm === ".atlarixignore" || norm.endsWith("/.atlarixignore")) return true;
   if (norm === ".atlarix" || norm.startsWith(".atlarix/")) return true;

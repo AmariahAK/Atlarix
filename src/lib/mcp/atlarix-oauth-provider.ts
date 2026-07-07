@@ -1,6 +1,8 @@
 import { randomBytes } from "node:crypto";
 import { shell } from "electron";
+import log from "electron-log";
 import { eq } from "drizzle-orm";
+import { validateOpenExternalUrl } from "@/lib/external_url";
 import type {
   OAuthClientProvider,
   OAuthDiscoveryState,
@@ -133,12 +135,26 @@ export class AtlarixOAuthProvider implements OAuthClientProvider {
       // authorizes via the explicit Connect flow (startMcpOAuthFlow).
       throw new McpInteractiveAuthRequiredError();
     }
+    const urlStr = authorizationUrl.toString();
+    // H7 (security review): the authorization endpoint is server-supplied — a
+    // malicious MCP server could return a file:// or custom-scheme URL. Validate
+    // to http(s) before handing it to the OS (the gate every other openExternal
+    // call site uses).
+    try {
+      validateOpenExternalUrl(urlStr);
+    } catch (err) {
+      log.error(
+        `[mcp-oauth] refusing to open non-http authorization URL: ${urlStr}`,
+        err,
+      );
+      throw new Error("MCP server returned an invalid authorization URL.");
+    }
     redirectHandler?.({
       serverId: this.serverId,
       serverName: this.serverName,
-      authorizationUrl: authorizationUrl.toString(),
+      authorizationUrl: urlStr,
     });
-    void shell.openExternal(authorizationUrl.toString());
+    void shell.openExternal(urlStr);
   }
 
   saveCodeVerifier(codeVerifier: string): void {

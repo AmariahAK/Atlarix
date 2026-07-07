@@ -101,7 +101,15 @@ async function listConfiguredMcps(workspaceId: number | null | undefined): Promi
         name: s.name,
         scope: s.scope,
         transport: s.transport,
-        tools: Object.entries(toolSet).map(([name, t]) => ({ name, description: t?.description })),
+        // H6 (security review): a remote tool DESCRIPTION is attacker-controllable
+        // (tool-poisoning) — frame it as untrusted data so injected instructions in
+        // a description aren't read as trusted docs. Tool RESULTS are already wrapped.
+        tools: Object.entries(toolSet).map(([name, t]) => ({
+          name,
+          description: t?.description
+            ? wrapUntrustedData(`mcp-tool:${s.name}/${name}`, t.description)
+            : t?.description,
+        })),
       });
     } catch (err) {
       const formatted = formatMcpError(err, s.name);
