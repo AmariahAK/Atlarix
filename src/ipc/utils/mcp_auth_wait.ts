@@ -1,9 +1,6 @@
 import type { WebContents } from "electron";
 import { waitForMcpAuth } from "@/lib/mcp/mcp-oauth-service";
-import {
-  MCP_AUTH_WAIT_TIMEOUT_MS,
-  type McpAuthType,
-} from "@/lib/mcp/oauth-constants";
+import { type McpAuthType } from "@/lib/mcp/oauth-constants";
 
 export type RequireMcpAuthInfo = {
   serverId: number;
@@ -21,11 +18,14 @@ export type RequireMcpAuthInfo = {
  *   "Configure <server>" prompt that opens Settings → MCP.
  *
  * Resolves `true` once the server is authenticated (OAuth success or a saved
- * key/env via `notifyMcpAuthUpdated`), `false` on cancel / error / timeout.
+ * key/env via `notifyMcpAuthUpdated`), `false` on cancel / error. The wait is
+ * INDEFINITE (a human may take hours to authenticate) and is cancelled only by
+ * the turn's `abortSignal` (Stop) — mirrors the permission approval gate.
  */
 export function requireMcpAuth(
   sender: WebContents,
   info: RequireMcpAuthInfo,
+  abortSignal?: AbortSignal,
 ): Promise<boolean> {
   const { serverId, serverName, authType, reason } = info;
   if (!sender.isDestroyed()) {
@@ -40,5 +40,5 @@ export function requireMcpAuth(
       });
     }
   }
-  return waitForMcpAuth(serverId, MCP_AUTH_WAIT_TIMEOUT_MS);
+  return waitForMcpAuth(serverId, { abortSignal });
 }

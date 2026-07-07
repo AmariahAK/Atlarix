@@ -85,6 +85,19 @@ export function useStickToBottom(
     el.scrollTop = el.scrollHeight;
   }, [containerRef, markAuto]);
 
+  // SYNCHRONOUS unfollow the instant the user expresses intent to scroll UP.
+  // The `scroll` handler below is rAF-coalesced (a frame late); during rapid
+  // streaming the ResizeObserver re-pins every height growth off a still-stale
+  // `isAtBottomRef`, yanking the user back down until a growth lull — the "fight
+  // the scroller" bug. Flipping the flag here, before the next pin reads it,
+  // suppresses that pin so an upward scroll takes effect immediately.
+  const disengageFollow = useCallback(() => {
+    if (!isAtBottomRef.current) return; // already unfollowed
+    isAtBottomRef.current = false;
+    setShowJumpButton(true);
+    applyOverflowAnchor(false);
+  }, [applyOverflowAnchor]);
+
   // Track the user's position; coalesce scroll events through rAF so a fast
   // scroll doesn't fire the handler dozens of times per frame.
   useEffect(() => {
@@ -109,6 +122,42 @@ export function useStickToBottom(
     el.addEventListener("scroll", onScroll, { passive: true });
     return () => el.removeEventListener("scroll", onScroll);
   }, [containerRef, computeAtBottom, isAuto, applyOverflowAnchor]);
+
+  // User-intent-to-scroll-up listeners → disengage follow SYNCHRONOUSLY (before
+  // the next ResizeObserver pin reads `isAtBottomRef`). Wheel is the desktop
+  // path; touch drag-down and PageUp/Home/ArrowUp cover the rest. Passive — we
+  // never preventDefault, only read direction.
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      if (e.deltaY < 0) disengageFollow();
+    };
+    const lastTouch = { y: 0 };
+    const onTouchStart = (e: TouchEvent) => {
+      lastTouch.y = e.touches[0]?.clientY ?? 0;
+    };
+    const onTouchMove = (e: TouchEvent) => {
+      const y = e.touches[0]?.clientY ?? 0;
+      if (y > lastTouch.y) disengageFollow(); // finger down → content scrolls up
+      lastTouch.y = y;
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "PageUp" || e.key === "Home" || e.key === "ArrowUp") {
+        disengageFollow();
+      }
+    };
+    el.addEventListener("wheel", onWheel, { passive: true });
+    el.addEventListener("touchstart", onTouchStart, { passive: true });
+    el.addEventListener("touchmove", onTouchMove, { passive: true });
+    el.addEventListener("keydown", onKeyDown);
+    return () => {
+      el.removeEventListener("wheel", onWheel);
+      el.removeEventListener("touchstart", onTouchStart);
+      el.removeEventListener("touchmove", onTouchMove);
+      el.removeEventListener("keydown", onKeyDown);
+    };
+  }, [containerRef, disengageFollow]);
 
   // Re-pin in the same frame whenever the content wrapper resizes (token growth,
   // tool-card height changes, image loads) — the anti-flicker core.

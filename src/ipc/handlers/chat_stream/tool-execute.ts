@@ -101,7 +101,8 @@ export async function runToolExecute(
           requireAuth: async () => false,
         }
       : {
-          requireAuth: (info: RequireMcpAuthInfo) => requireMcpAuth(sender, info),
+          requireAuth: (info: RequireMcpAuthInfo) =>
+            requireMcpAuth(sender, info, streamOpts?.abortController?.signal),
         };
   }
 

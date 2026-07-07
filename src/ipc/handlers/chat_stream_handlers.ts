@@ -15,6 +15,7 @@ import {
 } from "../../prompts/system_prompt";
 import { getActiveModeReanchor } from "@/lib/tools/mode-prompt-bundle";
 import { detectVisionCapability } from "@/lib/routing/model-capability-profile";
+import { getModelsDevData } from "@/lib/models_dev";
 import {
   parseNativeHistory,
   isNativeHistoryEnvelope,
@@ -2019,10 +2020,7 @@ ${componentSnippet}
           // detectVisionCapability (user-message image INPUT — models.dev
           // aware), NOT the tool-result media gate: OpenAI-compatible APIs
           // accept images in user messages but not in tool results.
-          const visionOk = detectVisionCapability(
-            modelClient.builtinProviderId,
-            resolveReasoningCatalogModelId(effectiveModel),
-          );
+
           // Edited/resent turns carry no fresh req.attachments — recover the
           // last user message's persisted attachments from the transport so an
           // edit doesn't silently drop what the model could see/read.
@@ -2033,6 +2031,31 @@ ${componentSnippet}
             }
             return undefined;
           })();
+          // B2: for native OpenAI-compatible providers (DeepSeek/Qwen/…), the
+          // vision gate resolves from the models.dev registry, which is
+          // populated ASYNC. If it's cold when we evaluate the gate here, a
+          // capable model's attachment is silently dropped — the exact reason
+          // screenshots (gate evaluated later, warm) were seen but attachments
+          // (gate evaluated here, cold) were not. Warm the registry BEFORE the
+          // gate when images are actually pending; getModelsDevData() is cached
+          // after first load, so this costs nothing on the steady-state path and
+          // preserves the "never send base64 to a non-vision model" guarantee.
+          const hasPendingImages =
+            storedFileAttachments.length > 0 ||
+            (lastUserTransportMessage?.fileAttachments ?? []).some(
+              (f: { mimeType?: string }) => f.mimeType?.startsWith("image/"),
+            );
+          if (hasPendingImages) {
+            try {
+              await getModelsDevData();
+            } catch {
+              // best-effort warm-up; fall through to whatever the gate resolves
+            }
+          }
+          const visionOk = detectVisionCapability(
+            modelClient.builtinProviderId,
+            resolveReasoningCatalogModelId(effectiveModel),
+          );
           const lastUserTransportImages = (() => {
             if (!visionOk) return [] as Array<{ filename: string; mimeType: string; data: string }>;
             if (storedFileAttachments.length > 0) return storedFileAttachments;

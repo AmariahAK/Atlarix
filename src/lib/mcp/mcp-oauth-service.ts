@@ -12,7 +12,6 @@ import {
   AtlarixOAuthProvider,
   setMcpOAuthRedirectHandler,
 } from "./atlarix-oauth-provider";
-import { MCP_OAUTH_FLOW_TIMEOUT_MS } from "./oauth-constants";
 import { createMcpOAuthLoopbackServer } from "./oauth-loopback-server";
 import {
   clearPendingMcpOAuthSession,
@@ -61,7 +60,11 @@ function broadcastMcpOAuthEvent(
 
 // ── Agent auth-and-retry: block a tool call until the user authenticates ──
 // Mirrors the pending-map pattern in mcp_consent.ts.
-type McpAuthWaiter = { resolve: (ok: boolean) => void; timer: NodeJS.Timeout };
+// The wait is INDEFINITE (no grace/timeout) — a human-in-the-loop auth may take
+// hours; the contract is that every such wait blocks until the user resolves it
+// (auth success/error) or the turn is aborted (Stop). Mirrors the permission
+// interceptor's `waitForApproval`. `cleanup` removes the abort listener.
+type McpAuthWaiter = { resolve: (ok: boolean) => void; cleanup?: () => void };
 const pendingMcpAuthWaiters = new Map<number, McpAuthWaiter[]>();
 
 function settleMcpAuthWaiters(serverId: number, ok: boolean): void {
@@ -69,31 +72,51 @@ function settleMcpAuthWaiters(serverId: number, ok: boolean): void {
   if (!waiters?.length) return;
   pendingMcpAuthWaiters.delete(serverId);
   for (const w of waiters) {
-    clearTimeout(w.timer);
+    w.cleanup?.();
     w.resolve(ok);
   }
 }
 
 /**
  * Resolves `true` when the given MCP server becomes authenticated (OAuth success
- * or a saved key/env), `false` on auth error, cancel, or timeout. Used by the
- * agent's `mcp_call` to pause and retry after the user authenticates.
+ * or a saved key/env), `false` on auth error or when the turn is aborted (Stop).
+ * Used by the agent's `mcp_call` to pause and retry after the user authenticates.
+ *
+ * INDEFINITE: there is no timeout — the tool's execute stays suspended so the
+ * turn remains one live streamText round (Stop button shows; the model can't
+ * emit a premature "done"). Cancelled only by the turn's `abortSignal`.
  */
 export function waitForMcpAuth(
   serverId: number,
-  timeoutMs: number,
+  opts?: { abortSignal?: AbortSignal },
 ): Promise<boolean> {
   return new Promise<boolean>((resolve) => {
-    const timer = setTimeout(() => {
+    const abortSignal = opts?.abortSignal;
+    let entry: McpAuthWaiter;
+    const removeFromMap = () => {
       const waiters = pendingMcpAuthWaiters.get(serverId);
-      if (waiters) {
-        const remaining = waiters.filter((w) => w.timer !== timer);
-        if (remaining.length) pendingMcpAuthWaiters.set(serverId, remaining);
-        else pendingMcpAuthWaiters.delete(serverId);
-      }
+      if (!waiters) return;
+      const remaining = waiters.filter((w) => w !== entry);
+      if (remaining.length) pendingMcpAuthWaiters.set(serverId, remaining);
+      else pendingMcpAuthWaiters.delete(serverId);
+    };
+    const onAbort = () => {
+      removeFromMap();
       resolve(false);
-    }, timeoutMs);
-    const entry: McpAuthWaiter = { resolve, timer };
+    };
+    entry = {
+      resolve,
+      cleanup: abortSignal
+        ? () => abortSignal.removeEventListener("abort", onAbort)
+        : undefined,
+    };
+    if (abortSignal) {
+      if (abortSignal.aborted) {
+        resolve(false);
+        return;
+      }
+      abortSignal.addEventListener("abort", onAbort, { once: true });
+    }
     const list = pendingMcpAuthWaiters.get(serverId);
     if (list) list.push(entry);
     else pendingMcpAuthWaiters.set(serverId, [entry]);
@@ -227,15 +250,12 @@ export async function startMcpOAuthFlow(
     authProvider: provider,
   });
 
-  const timeoutId = setTimeout(() => {
-    clearPendingMcpOAuthSession(serverId);
-    broadcastMcpOAuthEvent("mcp:oauth-error", {
-      serverId,
-      serverName: row.name,
-      error: "OAuth sign-in timed out. Try again.",
-    });
-  }, MCP_OAUTH_FLOW_TIMEOUT_MS);
-
+  // No flow timeout: the OAuth handshake lives until the user completes it
+  // (success/error), cancels, or starts a fresh flow (which reclaims the stale
+  // loopback via invalidateStaleOAuthClient above). A finite flow timeout here
+  // would strand the now-indefinite agent wait (waitForMcpAuth) — a slow user's
+  // callback would land on a torn-down loopback and auth could never complete.
+  // The loopback validates `state` (CSRF), so an idle handshake is low-risk.
   setPendingMcpOAuthSession({
     serverId,
     serverName: row.name,
@@ -245,7 +265,6 @@ export async function startMcpOAuthFlow(
     transport,
     scope,
     startedAt: Date.now(),
-    timeoutId,
   });
 
   await transport.start();

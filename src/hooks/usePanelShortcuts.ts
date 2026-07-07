@@ -67,9 +67,12 @@ export function usePanelShortcuts() {
         return;
       }
 
-      if (isInputLike(e.target)) return;
-
       // Shift+Tab: cycle work mode (Explore → Plan → Build → Debug → Review).
+      // Kept ABOVE the isInputLike guard (like Cmd/Ctrl+B) so it stays global +
+      // always-live — the composer keeps focus while typing and during an
+      // in-flight stream, and the old placement below the guard silently dropped
+      // the chord in exactly those "busy" moments. We only intercept shiftKey+Tab,
+      // so plain Tab (indent) in the composer is untouched.
       if (e.shiftKey && !mod && !e.altKey && e.key === "Tab") {
         e.preventDefault();
         if (selectedAppId == null) {
@@ -85,6 +88,8 @@ export function usePanelShortcuts() {
         showInfo(`Mode: ${labelForWorkMode(next)}`);
         return;
       }
+
+      if (isInputLike(e.target)) return;
 
       if (mod && e.key === "o") {
         e.preventDefault();
