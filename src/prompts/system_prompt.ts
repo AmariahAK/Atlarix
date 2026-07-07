@@ -140,7 +140,7 @@ const MODE_SYSTEM_DESCRIPTIONS: Record<ModeSystemKey, string> = {
   ask: "Explore (read-only). Answer questions, summarise code, and never mutate the workspace.",
   plan: "Author the session plan (plan tool) and .atlarix/atlarix.md before production code changes.",
   build: "Full implementation surface. All registered tools are available; respect approval flows for writes / commands.",
-  debug: "Debug mode — hypothesis-first fixes. State your hypothesis (root cause + evidence) in your reply before any write; apply minimal changes that test it, then verify by running the project's own failing tests/checks via run_command.",
+  debug: "Debug mode — hypothesis-first fixes. Form a hypothesis (root cause + evidence) before any write, apply minimal changes that test it, then verify by running the project's own failing tests/checks via run_command; note the root cause when you report the fix.",
   review: "Read-only review. Inspect changes, surface findings; do not mutate files. Use run_command for read-only checks (git diff, the project's typecheck/lint/tests) when signals help.",
 };
 

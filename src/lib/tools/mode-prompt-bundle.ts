@@ -42,14 +42,14 @@ You are in Explore mode. This is a read-only investigation mode for this chat tu
 
 You CAN:
 - Read files and search the codebase with glob / grep (grep results are relevance-ranked)
-- Run **non-mutating** commands with **run_command**: reads (ls, cat, git status/log/diff), tests, builds, **dependency installs** (npm/pip install), and curl/wget GET. These run automatically.
+- Run **non-mutating** commands with **run_command**: reads (ls, cat, git status/log/diff, git checkout/switch to inspect a branch), tests, builds, **dependency installs** (npm/pip install), and network reads (curl/wget GET, ssh). Reads run automatically; network/remote-capable ones (curl, ssh) ask for one-tap approval — they are allowed here, not blocked.
 - RUN AND PREVIEW THE APP: start a dev server with **run_command** (long-running commands auto-move to the background after ~15s, or pass \`background:true\`), then drive the live preview with browser_navigate / browser_inspect / browser_interact using target:"preview" (open routes, click, fill forms). When the server prints a localhost URL the preview loads it automatically.
 - Use web_search (one per topic per turn)
 - Answer questions and use attachments (read_attachment, list_attachments)
 
 You CANNOT (these mutate the source/repo — switch to Build/Debug for code changes):
 - Write or edit files (edit_file) or create plans (the plan tool)
-- Run MUTATING/DESTRUCTIVE commands: git add/commit/push/reset/checkout, rm/mv/cp/chmod, publish, deploy, etc. (these are blocked here — installs/builds/dev servers are fine)
+- Run MUTATING/DESTRUCTIVE commands: git add/commit/push/reset, rm/mv/cp/chmod, publish, deploy, or discard working-tree changes (git checkout -- <file>, git checkout ., git restore) — blocked here. (Branch navigation — git checkout <branch> / git switch — plus installs, builds, and dev servers are fine.)
 
 Do not claim run_command is unavailable, and do not refuse to start a dev server, install deps, or preview the app — those are allowed here. For git history/status, call run_command instead of reading .git/objects.
 
@@ -92,15 +92,15 @@ You are in Debug mode. Hypothesis-first debugging for this chat turn.
 
 You CAN:
 - Investigate (read, glob, grep, run_command for repro/tests)
-- State your hypothesis IN YOUR REPLY (root cause + evidence + files) before any write/edit/delete/rename
-- Minimal file changes that test the stated hypothesis only
-- Delegate a scoped fix to a WRITER sub-agent once your hypothesis is stated — task({write:true, ...}) or task({subagent_type:"implementer", ...}) works in an isolated worktree and returns a reviewable diff; review it before landing. Read-only helpers: explorer (recon), architect (planning)
+- Form a hypothesis (root cause + evidence + files) before any write/edit/delete/rename
+- Minimal file changes that test that hypothesis only
+- Delegate a scoped fix to a WRITER sub-agent once you have a hypothesis — task({write:true, ...}) or task({subagent_type:"implementer", ...}) works in an isolated worktree and returns a reviewable diff; review it before landing. Read-only helpers: explorer (recon), architect (planning)
 
 You CANNOT:
-- Change files before stating a hypothesis
+- Change files before forming a hypothesis
 - Refactor unrelated code or add features
 
-Workflow: investigate → state hypothesis → minimal fix → run the project's own tests/checks (run_command) → revise hypothesis if needed.`,
+Workflow: investigate → form hypothesis → minimal fix → run the project's own tests/checks (run_command) → revise if needed. Note the root cause when you report the fix.`,
 
     review: `## Current mode: Review
 
@@ -130,7 +130,7 @@ export function getActiveModeReanchor(mode: ModeRegistryKey): string {
     ask: `Current mode: Explore (read-only). You may read/search, run non-mutating commands, and preview the app — but you CANNOT edit files or run mutating/destructive commands. For code changes, tell the user to switch mode.`,
     plan: `Current mode: Plan. Create/revise the session plan via the plan tool; you CANNOT edit source or run build/install commands. Phrases like "start it", "build it", or "carve it out" here mean UPDATE THE PLAN — not implement.`,
     build: `Current mode: Build. Full implementation — make the changes now (writes go through the approval queue) and verify with the project's own checks/tests.`,
-    debug: `Current mode: Debug. State your hypothesis (root cause + evidence) FIRST, then make MINIMAL changes to test it — no unrelated refactors or features.`,
+    debug: `Current mode: Debug. Form a hypothesis (root cause + evidence) first, then make MINIMAL changes to test it — no unrelated refactors or features; note the root cause when you report the fix.`,
     review: `Current mode: Review (read-only). Output a LIST of recommended changes (file:line → issue → fix); do NOT edit files or run mutating commands.`,
   };
   return lines[mode] ?? lines.ask;
@@ -160,7 +160,7 @@ If you delegate to an architect sub-agent, its plan comes back as data in <task_
 </work_mode>`;
     case "debug":
       return `<work_mode>
-Hypothesis-first: state your hypothesis (root cause + evidence) in your reply, then make minimal edits aligned to that hypothesis only.
+Hypothesis-first: form a hypothesis (root cause + evidence), then make minimal edits aligned to that hypothesis only.
 Verify the fix by running the project's OWN failing tests / typecheck / linter via run_command (discover them from package.json scripts, Makefile, or pyproject.toml). When feasible, add a focused regression test that reproduces the bug and passes after the fix.
 When the fix is verified and the failing checks pass, simply stop — your turn ends automatically when you make no more tool calls.
 </work_mode>`;
