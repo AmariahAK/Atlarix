@@ -227,11 +227,6 @@ import {
   setLedgerSteps,
   unregisterLedgerPlanUiNotifier,
 } from "@/lib/tasks/task-ledger";
-import {
-  parsePlanChecklist,
-  formatPlanChecklistForPrompt,
-  extractPlanChecklistTitle,
-} from "@/lib/tasks/plan-checklist";
 import { getPlanCompletionFeedback } from "@/lib/tasks/plan-completion-gate";
 import { emitPlanUpdate } from "@/ipc/utils/emit_plan_update";
 import { systemReminder } from "@/lib/streaming/system-reminder";
@@ -245,13 +240,6 @@ import { ContextBudgetTracker } from "@/lib/context/context-budget-tracker";
 import { pruneContextSectionsForBudget } from "@/lib/context/context-budget-pruning";
 import { resolveModelContextLimit } from "@/lib/context/resolve-model-context-limit";
 import { estimateDispatchTokens } from "@/lib/routing/tier_context_budget";
-import { loadSkill } from "@/lib/skills/skill-loader";
-import { getSkillNameForMode } from "@/lib/skills/skill-registry";
-import {
-  loadPrioritySkillsForWorkspace,
-  formatPrioritySkillsForPrompt,
-} from "@/lib/skills/priority-skill-loader";
-import { SubscriptionManager } from "@/lib/SubscriptionManager";
 // Pass 7: loadInstalledSkillsForSession is now reached through the get_active_skills tool.
 import {
   requireAuthSession,
@@ -268,7 +256,6 @@ import {
   getAutonomousSessionLog,
   getAgentActivityForTurn,
 } from "./autonomous-session-state";
-import { readProjectInstructions } from "../../lib/project-memory";
 import {
   estimateTokens,
   getContextWindow,
@@ -347,6 +334,15 @@ import {
 } from "./chat_stream/stream-lifecycle";
 import { registerLifecycleHandlers } from "./chat_stream/lifecycle-handlers";
 import { registerRevertHandlers } from "./chat_stream/revert-handlers";
+import {
+  loadModeSkillSection,
+  loadRepoSkillsSection,
+  loadWorkspaceCapsSection,
+  loadActivePlanSection,
+  loadAtlarixMdSection,
+  loadMemoryMdSection,
+  loadInstalledSkillsSection,
+} from "./chat_stream/context-sections";
 export {
   resolveModeChange,
   clearChatStreamStateForChat,
@@ -1717,211 +1713,7 @@ ${componentSnippet}
           // unaffected: assembleContextSections sorts by `priority`, and all
           // priorities here are distinct. Wall-clock drops from sum(loads)
           // to max(loads). The [perf] spans now measure concurrent wall time.
-          const loadModeSkillSection = async (): Promise<ContextSection | null> => {
-            try {
-              const modeSkillName = getSkillNameForMode(effectiveWorkMode);
-              const modeSkillBody = await preflight.time("mode-skill", () =>
-                loadSkill(
-                  modeSkillName,
-                  hasWorkspace && appPath ? appPath : undefined,
-                ),
-              );
-              if (!modeSkillBody.trim()) return null;
-              return {
-                name: "activeSkill",
-                priority: -1,
-                content: `[Active Skill: ${modeSkillName}]\n${modeSkillBody}`,
-              };
-            } catch (skillErr) {
-              logger.warn("[skills] Failed to load mode skill:", skillErr);
-              return null;
-            }
-          };
-
-          // WORKFORCE Feature 1: repo-scoped priority skills from .atlarix/skills/.
-          // Injected ahead of the active mode skill (priority -2). The `priority: true`
-          // frontmatter flag only takes effect for Workforce accounts; Free/Pro still
-          // load files in the folder as regular local skills.
-          const loadRepoSkillsSection = async (): Promise<ContextSection | null> => {
-            if (!(hasWorkspace && appPath)) return null;
-            try {
-              const isWorkforce =
-                SubscriptionManager.getEffectiveTier() === "workforce";
-              const prioritySkills = await preflight.time(
-                "priority-skills",
-                () => loadPrioritySkillsForWorkspace(appPath, isWorkforce),
-              );
-              if (prioritySkills.length === 0) return null;
-              const block = formatPrioritySkillsForPrompt(
-                prioritySkills,
-                effectiveWorkMode,
-              );
-              if (!block.trim()) return null;
-              const priorityCount = prioritySkills.filter((s) => s.priority).length;
-              const localCount = prioritySkills.length - priorityCount;
-              logger.info(
-                `[priority-skills] Injected ${priorityCount} priority + ${localCount} local skill(s) for mode "${effectiveWorkMode}"`,
-              );
-              return { name: "repoSkills", priority: -2, content: block };
-            } catch (repoSkillErr) {
-              logger.warn(
-                "[priority-skills] Failed to load repo skills:",
-                repoSkillErr,
-              );
-              return null;
-            }
-          };
-
-          const loadWorkspaceCapsSection = async (): Promise<ContextSection | null> => {
-            if (!(hasWorkspace && appPath && effectiveAppId != null)) return null;
-            try {
-              const {
-                loadWorkspaceCapabilitiesSummary,
-                formatWorkspaceCapabilitiesForPrompt,
-              } = await import("@/lib/workspace/workspace-capabilities");
-              const caps = await preflight.time("workspace-caps", () =>
-                loadWorkspaceCapabilitiesSummary({
-                  workspaceId: effectiveAppId,
-                  workspacePath: appPath,
-                }),
-              );
-              const capsBlock = formatWorkspaceCapabilitiesForPrompt(caps);
-              if (!capsBlock.trim()) return null;
-              return {
-                name: "workspaceCapabilities",
-                priority: -3,
-                content: capsBlock,
-              };
-            } catch (capsErr) {
-              logger.warn("[workspace-capabilities] Failed to load:", capsErr);
-              return null;
-            }
-          };
-
-          const loadActivePlanSection = async (): Promise<ContextSection | null> => {
-            if (
-              !req.workspaceSessionId ||
-              !hasWorkspace ||
-              req.prompt.startsWith("Summarize from chat-id=")
-            ) {
-              return null;
-            }
-            try {
-              const { getLatestPlanArtifact } = await import("@/lib/plans/plan-artifacts");
-              const activePlan = await preflight.time(
-                "plan-artifact",
-                async () =>
-                  (await getLatestPlanArtifact(
-                    req.workspaceSessionId!,
-                    "building",
-                  )) ?? (await getLatestPlanArtifact(req.workspaceSessionId!)),
-              );
-              if (!activePlan?.content?.trim()) return null;
-              // #A1: build the compact recency ledger block from the same fetch.
-              try {
-                taskLedgerBlock = formatPlanChecklistForPrompt(
-                  parsePlanChecklist(activePlan.content),
-                  extractPlanChecklistTitle(activePlan.content),
-                );
-              } catch {
-                taskLedgerBlock = null;
-              }
-              const snippet =
-                activePlan.content.length > 3000
-                  ? `${activePlan.content.slice(0, 3000)}\n\n...(truncated)`
-                  : activePlan.content;
-              return {
-                name: "activePlan",
-                priority: 0.05,
-                content: `Active session plan (planId: ${activePlan.id}, status: ${activePlan.planStatus}) — advance it with plan({operation: "set_status", planId: "${activePlan.id}", plan_status: "building" | "built"}). The user may edit or add to this plan while you work; before starting the next step, call plan({operation: "read", planId: "${activePlan.id}"}) to pick up any changes and honor them.\n\n${snippet}`,
-              };
-            } catch (planCtxErr) {
-              logger.warn("[plan-artifact] context inject failed:", planCtxErr);
-              return null;
-            }
-          };
-
-          // Project instructions: .atlarix/atlarix.md (canonical, legacy
-          // auto-migrated), falling back to a repo's AGENTS.md / CLAUDE.md
-          // (v13.1 interop) so Atlarix is drop-in on repos configured for
-          // other agents.
-          const loadAtlarixMdSection = async (): Promise<ContextSection | null> => {
-            if (!(hasWorkspace && appPath)) return null;
-            try {
-              const instructions = await preflight.time("atlarix-md", () =>
-                readProjectInstructions(appPath),
-              );
-              if (!instructions) return null;
-              const heading =
-                instructions.source === "atlarix"
-                  ? "## Project memory (.atlarix/atlarix.md)"
-                  : instructions.source === "agents"
-                    ? "## Project instructions (AGENTS.md)"
-                    : "## Project instructions (CLAUDE.md)";
-              logger.info(`Injected project instructions (${instructions.source})`);
-              return {
-                name: "projectMemory",
-                priority: 4,
-                content: `${heading}\n${instructions.content}`,
-              };
-            } catch (memErr) {
-              logger.warn("Failed to read project instructions:", memErr);
-              return null;
-            }
-          };
-
-          // v13: .atlarix/memory.md (agent-maintained project knowledge) is
-          // auto-injected — the memory tool family was removed; the model
-          // updates the file via edit_file.
-          const loadMemoryMdSection = async (): Promise<ContextSection | null> => {
-            if (!(hasWorkspace && appPath)) return null;
-            try {
-              const { readMemoryMd } = await import("@/lib/project-memory");
-              const memoryMd = await preflight.time("memory-md", () =>
-                readMemoryMd(appPath),
-              );
-              if (!memoryMd) return null;
-              return {
-                name: "projectKnowledge",
-                priority: 3.9,
-                content: `## Project knowledge (.atlarix/memory.md — update via edit_file when you learn durable facts)\n${memoryMd}`,
-              };
-            } catch (memErr) {
-              logger.warn("Failed to read memory.md:", memErr);
-              return null;
-            }
-          };
-
-          // v13: installed (marketplace/global) skills are auto-injected —
-          // the get_active_skills / list_installed_skills tools were removed.
-          // Repo skills (.atlarix/skills/) are already injected above.
-          const loadInstalledSkillsSection = async (): Promise<ContextSection | null> => {
-            try {
-              const { loadInstalledSkillsForSession } = await import(
-                "@/lib/skills/installed-skills"
-              );
-              const skills = await preflight.time("installed-skills", () =>
-                loadInstalledSkillsForSession({
-                  workspacePath: appPath ?? null,
-                  maxTotalSkills: 10,
-                  maxCharsPerSkill: 6_000,
-                  maxTotalChars: 24_000,
-                }),
-              );
-              if (!skills.length) return null;
-              const body = skills
-                .map((s) => `### Skill: ${s.name} (${s.scope})\n${s.content}`)
-                .join("\n\n");
-              return {
-                name: "installedSkills",
-                priority: 3.8,
-                content: `## Installed skills\n${body}`,
-              };
-            } catch (skillErr) {
-              logger.warn("Failed to load installed skills:", skillErr);
-              return null;
-            }
-          };
+          // --- 7 context-section loaders moved to ./chat_stream/context-sections ---
 
           // R2 single-consumer invariant: decide the delivery channel ONCE, up
           // front — BEFORE any take-once drain. On a wake turn (auto-resume with
@@ -1969,17 +1761,44 @@ ${componentSnippet}
             };
           };
 
-          const loadedSections = await Promise.all([
-            loadModeSkillSection(),
-            loadRepoSkillsSection(),
-            loadWorkspaceCapsSection(),
-            loadActivePlanSection(),
-            loadAtlarixMdSection(),
-            loadMemoryMdSection(),
-            loadInstalledSkillsSection(),
-            Promise.resolve(loadBackgroundResultsSection()),
-            Promise.resolve(loadSubagentResultsSection()),
+          const contextSectionParams = {
+            effectiveWorkMode,
+            preflight,
+            hasWorkspace,
+            appPath,
+            effectiveAppId,
+            req,
+          };
+          const [
+            modeSkillSection,
+            repoSkillsSection,
+            workspaceCapsSection,
+            activePlanResult,
+            atlarixMdSection,
+            memoryMdSection,
+            installedSkillsSection,
+          ] = await Promise.all([
+            loadModeSkillSection(contextSectionParams),
+            loadRepoSkillsSection(contextSectionParams),
+            loadWorkspaceCapsSection(contextSectionParams),
+            loadActivePlanSection(contextSectionParams),
+            loadAtlarixMdSection(contextSectionParams),
+            loadMemoryMdSection(contextSectionParams),
+            loadInstalledSkillsSection(contextSectionParams),
           ]);
+          // loadActivePlanSection is the sole writer of taskLedgerBlock.
+          taskLedgerBlock = activePlanResult.taskLedgerBlock;
+          const loadedSections = [
+            modeSkillSection,
+            repoSkillsSection,
+            workspaceCapsSection,
+            activePlanResult.section,
+            atlarixMdSection,
+            memoryMdSection,
+            installedSkillsSection,
+            loadBackgroundResultsSection(),
+            loadSubagentResultsSection(),
+          ];
           for (const section of loadedSections) {
             if (section) contextSections.push(section);
           }
