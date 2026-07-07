@@ -1,17 +1,24 @@
 # Atlarix TODO
 
-**Current Version:** v14.8.12 (staged, pending owner smoke + tag) — bumped from v14.8.11
+**Current Version:** v14.8.13 (releasing — merged to main + tagged) — bumped from shipped v14.8.11
 **Last Updated:** 2026-07-07
 
 ## 🔐 Security follow-ups (from `docs/SECURITY_REVIEW_v14.8.12.md`, owner-triaged)
 
-Fixed in v14.8.12: compound-command danger gate, exfil taxonomy, deep-link auth-CSRF +
+Fixed by v14.8.13: compound-command danger gate, exfil taxonomy, deep-link auth-CSRF +
 pro-return confirmation, MCP consent gate, `.atlarix` authority-file approval, MCP
-description wrapping + OAuth-URL validation. **Deferred (tracked):**
+description wrapping + OAuth-URL validation, the **universal write-confining sandbox**
+(Win AppContainer + Linux Landlock bundled), and the **system-scope approval gate** (which
+also closed M1 — cwd `allowedRoots` widening is now gated on interactive approval).
+**Deferred (tracked):**
 
 - **C6 — auto-update signature verification (Windows/Linux).** Highest blast radius, but
   release-infra (code-signing certs + `app-update.yml` for NsisUpdater; out-of-band
   signature for AppImage), not app code. Owner chose NOT to gate the public release on it.
+  (Windows helper sign step is already wired — set the cert secret to enable.)
+- **Native sandbox validation in CI.** The Windows/Linux helpers can't compile on macOS; they
+  build (non-blocking) in the first Windows/Linux CI job — watch those `cargo build` steps and
+  budget one small fix-up iteration if the Linux `landlock` 0.4 API drifted.
 - **Unattended read-only allowlist-flip** (positive allowlist for Automation runs) — the
   denylist taxonomy is done; the flip needs per-automation design to not break legit builds/tests.
 - **Round-tripped auth `state` nonce** — needs confirming the Supabase redirect-URL
@@ -19,19 +26,24 @@ description wrapping + OAuth-URL validation. **Deferred (tracked):**
 - **XSS-gated privileged IPC** (`terminal:run`, `mcp:create-server`, `execute-all-permissions`)
   + preload arg-validation — safe today (markdown rendering is XSS-free); structural pass.
 - Sandbox **read**-confinement, model-context **secret redaction**, **egress** gating, and the
-  Medium items (cwd `allowedRoots` widening, env-var key inheritance, secret-basename list,
-  cross-workspace file scope, plaintext-keychain fallback).
+  remaining Medium items (env-var key inheritance, secret-basename list, cross-workspace file
+  scope, plaintext-keychain fallback).
 
-## ✅ Implemented, pending owner smoke + release
+## ✅ Shipped in v14.8.13 (2026-07-07)
 
-Full detail in [`docs/CHANGELOG.md`](./CHANGELOG.md) `[14.8.12]`.
+Full detail in [`docs/CHANGELOG.md`](./CHANGELOG.md) `[14.8.13]`.
 
-- **v14.8.12 harness + security + feature pass (2026-07-07).** Shift+Tab global, streaming
-  scroll-lock, attachment vision cold-cache, indefinite MCP auth waits, terminal mode-block
-  message; the security fixes above; notification sound (+ unfocused OS notification); prompt
-  refinement (harvest + Debug reasoning_extraction reframe + read-only branch-nav). B4
-  (bg-command "done" while running) confirmed a model-behavior quirk — harness re-injects the
-  exit result via auto-wake; mitigated by the prompt lines.
+- **Universal sandbox + system-scope gate + done-responding notification (2026-07-07).** Bundled
+  Windows AppContainer + Linux Landlock write-confining helpers (macOS Seatbelt already built-in;
+  non-blocking CI, sign-ready); the system-scope approval gate (distinct "System change" prompt,
+  runs approved installs unsandboxed, closes M1); the OS notification now also fires when a turn
+  finishes responding (unfocused). Native helpers validate in Windows/Linux CI.
+- **Harness + security + feature pass (2026-07-07).** Shift+Tab global, streaming scroll-lock,
+  attachment vision cold-cache, indefinite MCP auth waits, terminal mode-block message; the
+  security fixes above; notification sound (+ unfocused OS notification); prompt refinement
+  (harvest + Debug reasoning_extraction reframe + read-only branch-nav). B4 (bg-command "done"
+  while running) confirmed a model-behavior quirk — harness re-injects the exit result via
+  auto-wake; mitigated by the prompt lines.
 
 - **Native-git reads + Code-tab removal + universal language (2026-07-06).** Local git ops are
   native-git-only (production Sentry `null.slice` fix; `enableNativeGit` deleted); Code tab + Monaco +

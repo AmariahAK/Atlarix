@@ -3,11 +3,29 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
-## [14.8.12] (2026-07-07) — Harness contract fixes, security hardening, notification sound
+## [14.8.13] (2026-07-07) — Universal sandbox, system-scope gate, security hardening, notifications
 
-tsc + oxlint clean; vitest **1627** (node 1496 / renderer 58 / agent-evals 73). This release
-also carries the previously-unreleased bundle below (native-git reads, Code-tab removal,
-universal language, Automations, the `chat_stream_handlers` 7984→2364 decomposition).
+tsc + oxlint clean; vitest **1635** (node 1504 / renderer 58 / agent-evals 73). The first release
+since **v14.8.11**, so this is a large cumulative update — it rolls up everything below plus the
+previously-unreleased platform bundle (Automations, native-git reads, Code-tab removal, universal
+language, the `chat_stream_handlers` 7984→2364 decomposition). Security detail:
+`docs/SECURITY_REVIEW_v14.8.12.md`.
+
+### Added — sandbox, system-scope gate, notifications
+
+- **Self-contained write-confining sandbox on every OS.** `run_command` writes are confined to the
+  workspace + caches (reads + network stay open) via the OS's own kernel sandbox — macOS Seatbelt
+  (built-in), a bundled Windows AppContainer helper, and a bundled Linux **Landlock** helper (falls
+  back to `bwrap`, then unsandboxed). Ships unsigned for now; CI signs the Windows helper only when a
+  cert is configured, and never blocks a release if a helper fails to build.
+- **System-scope approval gate.** A command that changes things OUTSIDE the project — an on-device
+  install (`brew`/`apt`/`rustup`/`npm -g`/`cargo install`/…), `sudo`, or a write outside the workspace —
+  shows a distinct **"System change"** approval and is never silently auto-allowed. Approving it runs
+  that one command unsandboxed so the install works; unattended Automations never get the prompt and
+  stay sandboxed.
+- **"Finished responding" desktop notification.** The same OS notification used when Atlarix needs you
+  now also fires when a turn finishes (any mode, incl. a text-only Explore answer) — when the app is in
+  the background. On/off + volume in Settings → General.
 
 ### Fixed (harness contracts)
 
@@ -57,13 +75,9 @@ universal language, Automations, the `chat_stream_handlers` 7984→2364 decompos
   `reasoning_extraction` refusal on Claude-5-family models); `git checkout`/`switch` branch
   navigation is allowed in read-only modes (discard forms stay blocked).
 
----
+### Platform bundle (rolled into this release) — native-git reads, Code-tab removal, universal language, Automations
 
-## [Unreleased bundle rolled into 14.8.12] — Native-git reads, Code tab removal, universal language support
-
-tsc + oxlint clean; vitest **1600**.
-
-### Added
+#### Added
 
 - **Automations** — Codex-app-style local recurring triggers with a triage feed, in the tab slot
   freed by the Code tab. Notify-only by default (a fired trigger posts to the feed with zero model
@@ -76,7 +90,7 @@ tsc + oxlint clean; vitest **1600**.
   sonner/OS notifications); transcripts persist as background chat sessions; interrupted runs recover
   on boot. (Migration `0066_automations`.)
 
-### Fixed
+#### Fixed
 
 - **Version history no longer crashes on large repos (production Sentry `null.slice`).** All local git
   ops shell out to system git (isomorphic-git buffered whole packfiles → hard-fails at 2 GiB);
@@ -84,7 +98,7 @@ tsc + oxlint clean; vitest **1600**.
   clone/push/set-remote. `list-versions` degrades to `[]` with one warning per workspace.
 - **ast-grep no longer mis-parses unknown languages as TypeScript** — unregistered grammars are skipped.
 
-### Removed
+#### Removed
 
 - **ast-grep, blast-radius, and the dead blueprint-parse chain.** A consumer trace proved the working
   "Blueprint" is ctags + FTS5/BM25 only (grep reranking); ast-grep edges fed only the blast-radius line,
@@ -97,7 +111,7 @@ tsc + oxlint clean; vitest **1600**.
   the Errors tab, and approve/reject are independent and unchanged; write-proposal cards render
   read-only with highlighting. `@file:`/`@dir:` mentions untouched.
 
-### Changed
+#### Changed
 
 - **`run_command` steers file-finding/content-search to `glob`/`grep`** (indexed, permission-free);
   `ls` still fine for listings.
