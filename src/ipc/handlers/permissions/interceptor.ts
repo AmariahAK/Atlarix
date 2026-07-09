@@ -1038,7 +1038,7 @@ export class PermissionInterceptor extends EventEmitter {
             const relativeToWorkspace = path.relative(normalizedWorkspace, resolved);
             const inWorkspace =
                 !relativeToWorkspace.startsWith("..") && !path.isAbsolute(relativeToWorkspace);
-            const inAllowedRoot = this.allowedRoots.some((root) => {
+            const inAllowedRoot = [...this.allowedRoots].some((root) => {
                 const relativeToRoot = path.relative(root, resolved);
                 return !relativeToRoot.startsWith("..") && !path.isAbsolute(relativeToRoot);
             });
