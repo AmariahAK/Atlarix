@@ -46,6 +46,16 @@ export function createMcpOAuthLoopbackServer(): Promise<McpOAuthLoopbackServer> 
             url.searchParams.get("error_description") ?? undefined,
         };
 
+        // A21/L-6: ignore requests that aren't the OAuth callback (e.g. the
+        // browser's automatic favicon.ico fetch) so they don't prematurely
+        // resolve the callback with an empty payload. The real state/PKCE
+        // validation still happens downstream in finishMcpOAuthCallback.
+        if (!payload.code && !payload.state && !payload.error) {
+          res.writeHead(404, { "Content-Type": "text/plain" });
+          res.end("Not found");
+          return;
+        }
+
         res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
         res.end(SUCCESS_HTML);
 

@@ -7,8 +7,12 @@ import log from "electron-log";
 import type { CommandPermissionDecision } from "@/lib/terminal-command-category";
 import { getCommandCategory } from "@/lib/terminal-command-category";
 import { isDangerousCommand, dangerLabelKey } from "@/lib/dangerous-commands";
-import { commandSegments } from "@/lib/command-mutation";
 import { isSystemScopeCommand } from "@/lib/system-scope-commands";
+import {
+  quoteAwareSegments,
+  isDefaultAllowedSegment,
+  DEFAULT_ALLOW_CATEGORIES,
+} from "@/lib/command-default-allow";
 import {
   getWorkspaceCommandPermission,
   listWorkspaceCommandPermissions,
@@ -23,48 +27,81 @@ export type RunCommandPermissionGate =
   | { action: "auto_deny"; category: string }
   | { action: "prompt"; category: string; dangerous: boolean };
 
+/** Per-segment verdict + the store key that would flip it (for "always allow"). */
+type SegmentVerdict = { state: "allow" | "deny" | "prompt"; key: string; dangerous: boolean };
+
+/**
+ * Classify ONE command segment against the user's rules + the default read-only
+ * set. Dangerous segments key on their fine-grained `danger:<id>` (a coarse
+ * "always allow git" can never satisfy `git push --force`) and are NEVER covered
+ * by the default set. Non-dangerous segments: a user rule wins, else the default
+ * read-only allow applies. See command-default-allow.ts for the default set.
+ */
+function classifySegment(
+  segment: string,
+  appId: number | null | undefined,
+): SegmentVerdict {
+  if (isDangerousCommand(segment)) {
+    const key = dangerLabelKey(segment) ?? getCommandCategory(segment);
+    const decision = appId != null ? getWorkspaceCommandPermission(appId, key) : null;
+    const state =
+      decision === "always_deny" ? "deny" : decision === "always_allow" ? "allow" : "prompt";
+    return { state, key, dangerous: true };
+  }
+  const key = getCommandCategory(segment);
+  const decision = appId != null ? getWorkspaceCommandPermission(appId, key) : null;
+  if (decision === "always_deny") return { state: "deny", key, dangerous: false };
+  if (decision === "always_allow") return { state: "allow", key, dangerous: false };
+  if (isDefaultAllowedSegment(segment)) return { state: "allow", key, dangerous: false };
+  return { state: "prompt", key, dangerous: false };
+}
+
+/**
+ * Reference-grade per-segment gate (opencode / Claude Code model): split the
+ * command into its pipeline/chain segments and require EVERY segment to be
+ * allowed for it to auto-run. Any denied segment denies the whole command; a
+ * system-scope command (on-device install / sudo / outside-workspace write —
+ * detected with the REAL workspace root when available) never silently
+ * auto-allows; otherwise the default is a prompt. The trust boundary remains the
+ * OS write-sandbox + dangerous-gate; this only decides whether to skip the prompt.
+ */
 export function resolveRunCommandPermissionGate(
   command: string,
   appId: number | null | undefined,
+  workspaceRoot?: string,
 ): RunCommandPermissionGate {
-  const dangerous = isDangerousCommand(command);
-  // The permission-store key: the fine-grained `danger:<id>` key for dangerous
-  // commands (so a coarse first-token allow can't satisfy them), else the
-  // first-token category. This key is also what an always-allow persists under
-  // and what the UI shows as the rule label.
-  const category = dangerous
-    ? (dangerLabelKey(command) ?? getCommandCategory(command))
-    : getCommandCategory(command);
-
-  // A dangerous command with no workspace decision yet ALWAYS prompts — never
-  // auto-allowed, even in autonomous mode. Only an explicit always-allow (keyed
-  // by its danger key) lets it run without a prompt; the user can revoke it in
-  // Settings. This is the safety invariant that replaces the old hard-floor
-  // throw (which was an unsatisfiable dead-end in autonomous mode).
-  if (appId == null) {
-    return { action: "prompt", category, dangerous };
+  const segments = quoteAwareSegments(command);
+  // Unparseable (substitution in double quotes / unbalanced quotes) or empty →
+  // fail safe to a prompt with a coarse category label.
+  if (!segments || segments.length === 0) {
+    return { action: "prompt", category: getCommandCategory(command), dangerous: isDangerousCommand(command) };
   }
 
-  const decision = getWorkspaceCommandPermission(appId, category);
-  // A first-token always-allow must NOT blanket-approve a compound line — the
-  // category is only the first segment's token, so `echo && npm publish` would
-  // otherwise auto-run the whole chain under an "always allow echo" rule. For
-  // compound commands, downgrade auto_allow to a prompt (auto_deny still stands —
-  // denying is always safe).
-  const isCompound = commandSegments(command).length > 1;
-  // A system-scope command (on-device install, sudo, outside-workspace write) is
-  // NEVER silently auto-allowed — it always surfaces the distinct "changes your
-  // system outside this project" prompt. (workspace root unavailable here — the
-  // installer/sudo signals don't need it; the interceptor does the full check.)
-  const systemScope = isSystemScopeCommand(command, "");
-  if (decision === "always_allow" && !isCompound && !systemScope) {
-    return { action: "auto_allow", category };
-  }
-  if (decision === "always_deny") {
-    return { action: "auto_deny", category };
-  }
+  const verdicts = segments.map((seg) => classifySegment(seg, appId));
+  const anyDangerous = verdicts.some((v) => v.dangerous);
 
-  return { action: "prompt", category, dangerous };
+  // Deny wins: any denied segment blocks the whole command.
+  const denied = verdicts.find((v) => v.state === "deny");
+  if (denied) return { action: "auto_deny", category: denied.key };
+
+  // System-scope (real root when threaded through) is never silently auto-allowed.
+  const systemScope = isSystemScopeCommand(command, workspaceRoot ?? "");
+  const firstBlocking = verdicts.find((v) => v.state === "prompt");
+
+  if (systemScope) {
+    return {
+      action: "prompt",
+      category: firstBlocking?.key ?? verdicts[0]!.key,
+      dangerous: anyDangerous,
+    };
+  }
+  if (!firstBlocking) {
+    // Every segment allowed → auto-run, no prompt.
+    return { action: "auto_allow", category: verdicts[0]!.key };
+  }
+  // At least one segment needs approval → prompt, keyed to the first blocker so
+  // "always allow" saves the rule that unblocks the command.
+  return { action: "prompt", category: firstBlocking.key, dangerous: anyDangerous };
 }
 
 export type RunCommandCategoryPreflight =
@@ -75,8 +112,9 @@ export type RunCommandCategoryPreflight =
 export function runCommandCategoryPreflight(
   command: string,
   appId: number | null | undefined,
+  workspaceRoot?: string,
 ): RunCommandCategoryPreflight {
-  const gate = resolveRunCommandPermissionGate(command, appId);
+  const gate = resolveRunCommandPermissionGate(command, appId, workspaceRoot);
   if (gate.action === "auto_allow") {
     return { type: "auto_allow", category: gate.category };
   }
@@ -98,6 +136,10 @@ export function registerCommandPermissionHandlers(): void {
       return listWorkspaceCommandPermissions(appId);
     },
   );
+
+  // The built-in read-only commands that auto-run without a prompt (overridable
+  // by a user `always_deny`). Surfaced in Settings so users can see + deny them.
+  ipcMain.handle("command-permissions:defaults", () => [...DEFAULT_ALLOW_CATEGORIES].sort());
 
   ipcMain.handle(
     "command-permissions:upsert",

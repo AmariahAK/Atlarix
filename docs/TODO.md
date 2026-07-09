@@ -1,7 +1,28 @@
 # Atlarix TODO
 
-**Current Version:** v14.8.13 (releasing — merged to main + tagged) — bumped from shipped v14.8.11
-**Last Updated:** 2026-07-07
+**Current Version:** v14.8.14 (releasing — on main + tagged) — bumped from shipped v14.8.13
+**Last Updated:** 2026-07-09
+
+## 🔥 Open — TOP PRIORITY (next session)
+
+- **[HIGH] Sustained high CPU → device heat (fast).** Persists AFTER the v14.8.14 watcher +
+  index fixes, so the `@parcel/watcher` swap helped but a hog remains. It's CPU, not memory
+  (quit RSS ~200 MB, no leak). **Method:** packaged app on a big repo (`vscode`), drive a chatty
+  `run_command` + a first `grep`; in Activity Monitor find the hot process (main `atlarix` vs a
+  renderer Helper vs GPU) and take a CPU `sample <pid>`. **Ranked suspects:** (1) **terminal-output
+  streaming firehose** — `chat_stream_handlers` `[Build Mode] Terminal output sent … (running)`
+  logs + IPCs + re-renders EVERY output chunk (760 log lines in one session); a command with
+  continuous output (dev server / build / watch) → sustained main+renderer CPU → **fix: throttle/
+  coalesce terminal-output IPC + drop the per-chunk `(running)` log.** (2) ctags/FTS5 index build
+  CPU on huge repos (ctags subprocess over the whole code tree). (3) `@parcel/watcher` initial
+  crawl on very large code trees. (4) renderer re-render if the Helper is the hot process → wire
+  the already-installed `@tanstack/react-virtual`.
+- **C-1 secrets rotation (still required).** `LEMONSQUEEZY_API_KEY` / `RESEND_API_KEY` /
+  `COMPASS_OPENROUTER_API_KEY` are still compiled into the bundle (removing them from `MAIN_KEYS`
+  needs backend endpoints — Supabase Edge Functions — that don't exist yet). Rotate the keys +
+  proxy their use server-side. Shipped in v14.8.14 unchanged. See [`SECURITY_AUDIT.md` history].
+- **Deferred perf follow-ups:** fts5 handle eviction shipped; renderer virtualization deferred
+  (measure-first — see the heat item). Full `@parcel/watcher` Win/Linux packaged smoke-test.
 
 ## 🔐 Security follow-ups (from `docs/SECURITY_REVIEW_v14.8.12.md`, owner-triaged)
 

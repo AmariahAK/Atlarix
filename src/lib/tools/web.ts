@@ -441,7 +441,7 @@ ToolRegistry.register({
                     try {
                         const response = await fetchWithCfRetry(
                             (headers) =>
-                                fetch(result.url, {
+                                safeFetch(result.url, {
                                     headers,
                                     signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
                                 }),
@@ -567,7 +567,7 @@ async function runDeepSearch(query: string, maxSources: number = 3) {
             try {
                 const response = await fetchWithCfRetry(
                     (headers) =>
-                        fetch(result.url, {
+                        safeFetch(result.url, {
                             headers,
                             signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
                         }),

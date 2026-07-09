@@ -108,7 +108,6 @@ export function AppSidebar() {
   const isAppRoute =
     routerState.location.pathname === "/" ||
     routerState.location.pathname.startsWith("/app-details");
-  const isChatRoute = routerState.location.pathname === "/chat";
   const isSettingsRoute = routerState.location.pathname.startsWith("/settings");
 
   let selectedItem: string | null = null;
@@ -123,8 +122,6 @@ export function AppSidebar() {
   } else if (state === "expanded") {
     if (isAppRoute) {
       selectedItem = "Apps";
-    } else if (isChatRoute) {
-      selectedItem = "Chat";
     } else if (isSettingsRoute) {
       selectedItem = "Settings";
     }

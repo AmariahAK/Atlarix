@@ -535,6 +535,7 @@ export async function runBuildBranch(
                           effectiveAppId,
                           req.chatId,
                           event.sender,
+                          workspacePath,
                         );
                         if (categoryBlock) return categoryBlock;
                       }
@@ -570,6 +571,7 @@ export async function runBuildBranch(
                             effectiveAppId,
                             req.chatId,
                             event.sender,
+                            workspacePath,
                           )) ||
                         shouldAutoApprovePermissions(settings.agentMode, req.chatId) ||
                         permissionInterceptor.shouldAlwaysAutoApprove(permRequest);
@@ -760,7 +762,7 @@ export async function runBuildBranch(
 
                       // Send permission request to frontend for display
                       const __enrichT0 = Date.now();
-                      const __enriched = enrichPermissionRequestForUi(permRequest, effectiveAppId);
+                      const __enriched = enrichPermissionRequestForUi(permRequest, effectiveAppId, workspacePath);
                       if (process.env.ATLARIX_DIAG_146 === "1") {
                         const prev = permRequest.preview as { path?: string; command?: string };
                         logger.info(
@@ -1215,6 +1217,7 @@ export async function runBuildBranch(
                             effectiveAppId,
                             req.chatId,
                             event.sender,
+                            workspacePath,
                           );
                           if (categoryBlock) {
                             iterationResults.push({
@@ -1259,6 +1262,7 @@ export async function runBuildBranch(
                               effectiveAppId,
                               req.chatId,
                               event.sender,
+                              workspacePath,
                             )) ||
                           shouldAutoApprovePermissions(settings.agentMode, req.chatId) ||
                           permissionInterceptor.shouldAlwaysAutoApprove(permRequest);
@@ -1347,7 +1351,7 @@ export async function runBuildBranch(
                           safeSend(event.sender, "permission-request", {
                             chatId: req.chatId,
                             operationId,
-                            request: enrichPermissionRequestForUi(permRequest, effectiveAppId),
+                            request: enrichPermissionRequestForUi(permRequest, effectiveAppId, workspacePath),
                           });
                           logger.log(`[Agentic Loop] Permission request buffered: ${operationId}`);
                           hasPermissionRequest = true;

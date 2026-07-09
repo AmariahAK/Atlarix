@@ -38,14 +38,18 @@ export async function automationAutoApprove(opts: {
       const operationId = s.payload?.operationId as string | undefined;
       if (!operationId || seen.has(operationId)) continue;
       seen.add(operationId);
-      const isDangerous = Boolean(
-        (
-          s.payload?.request as
-            | { preview?: { isDangerous?: boolean } }
-            | undefined
-        )?.preview?.isDangerous,
-      );
-      const approvalMode: "once" | "deny" = isDangerous ? "deny" : "once";
+      const preview = (
+        s.payload?.request as
+          | { preview?: { isDangerous?: boolean; systemScope?: boolean } }
+          | undefined
+      )?.preview;
+      // Deny unattended not only on `isDangerous` but also on `systemScope` — a
+      // non-dangerous on-device install / outside-workspace write (e.g.
+      // `cargo install x`) must not auto-run on the user's real machine on a
+      // schedule (A7/H-6). Interactive runs still get the distinct system-scope
+      // prompt; only the unattended path hard-denies.
+      const mustDeny = Boolean(preview?.isDangerous) || Boolean(preview?.systemScope);
+      const approvalMode: "once" | "deny" = mustDeny ? "deny" : "once";
       try {
         await executePermission(sender.event, { chatId, operationId, approvalMode });
       } catch {

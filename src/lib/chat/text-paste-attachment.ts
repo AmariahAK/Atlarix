@@ -7,6 +7,31 @@ export function isTextPasteAttachment(
   return Boolean(attachment.textPaste?.content);
 }
 
+/**
+ * Read pasted text from the clipboard, resilient to the SOURCE app.
+ *
+ * Code editors (Cursor/VS Code) populate `text/plain`, but rich-text apps
+ * (Notes/TextEdit/word processors) may put the content only in `text/html` and
+ * leave `text/plain` empty — which meant a large paste from those apps silently
+ * fell through and got dropped inline instead of becoming an attachment. When
+ * `text/plain` is empty we fall back to `text/html`, stripped to plain text via
+ * the DOM (renderer-only; no dependency).
+ */
+export function readClipboardPlainText(clipboardData: DataTransfer): string {
+  const plain = clipboardData.getData("text/plain");
+  if (plain.trim()) return plain;
+  const html = clipboardData.getData("text/html");
+  if (html.trim() && typeof DOMParser !== "undefined") {
+    try {
+      const doc = new DOMParser().parseFromString(html, "text/html");
+      return doc.body?.textContent ?? "";
+    } catch {
+      /* fall through to empty */
+    }
+  }
+  return "";
+}
+
 export function textPasteLineCount(content: string): number {
   if (!content) return 0;
   return (content.match(/\n/g) || []).length + 1;

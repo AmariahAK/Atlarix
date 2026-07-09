@@ -33,7 +33,10 @@ describe("background commands (7A)", () => {
     ctx.server.register(
       scenario("bg-cmd-start")
         .toolCall("run_command", {
-          command: "echo background-finished-marker",
+          // `sleep` (not a lone read) keeps this on the permission-prompt path —
+          // a bare `echo` is now auto-allowed by the safe read-only fast-path, so
+          // it would skip the permission-request this test waits on.
+          command: "sleep 0.2; echo background-finished-marker",
           description: "Long task in the background",
           background: true,
         })

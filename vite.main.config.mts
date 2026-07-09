@@ -44,6 +44,11 @@ export const mainRollupExternals: readonly string[] = [
   "unpdf",
   "@vscode/sudo-prompt",
   "better-sqlite3",
+  // Native file watcher (N-API prebuild — no electron-rebuild needed; the
+  // AutoUnpackNativesPlugin unpacks its watcher.node from the asar). Its
+  // platform binding (@parcel/watcher-<platform>-<arch>) is an optional dep
+  // loaded via a runtime computed require, so it stays external naturally.
+  "@parcel/watcher",
   "keytar",
   "mysql2",
   "pg",

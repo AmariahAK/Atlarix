@@ -53,7 +53,12 @@ export function commandSegments(command: string): string[] {
     // surface command substitutions so an inner mutating cmd is seen
     .replace(/\$\(([^)]*)\)/g, " ; $1 ; ")
     .replace(/`([^`]*)`/g, " ; $1 ; ")
-    .split(/&&|\|\||[;\n|]/)
+    // Split on real shell separators. `&&`/`||` first (so they aren't split by
+    // the single-operator alternatives), then a standalone `&` (background/
+    // sequencing operator — `a & b` runs BOTH sides, so `b` must be its own
+    // segment or a risky command could hide behind a benign `a`), then `;`,
+    // newline, and `|`. `&(?!&)` matches a single `&` but never the `&&` pair.
+    .split(/&&|\|\||&(?!&)|[;\n|]/)
     .map((s) => s.trim())
     .filter(Boolean)
     // strip benign leading wrappers (cd DIR, env VAR=…, time, nice) — NOT sudo

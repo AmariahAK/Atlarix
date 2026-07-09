@@ -4,7 +4,7 @@
  * keys off the same `ui.groups` payload shape).
  */
 
-import { exec } from "child_process";
+import { execFile } from "child_process";
 import { promisify } from "util";
 import * as path from "node:path";
 import { truncateUtf8ByBytes } from "@/lib/truncate";
@@ -22,7 +22,7 @@ import {
   numberParam,
 } from "./registry";
 
-const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
 type GrepGroup = {
   file: string;
@@ -92,13 +92,25 @@ async function runRipgrepSearch(args: {
   caseSensitive: boolean;
 }): Promise<GrepGroup[]> {
   const { pattern, workspace, contextLines, filePattern, caseSensitive } = args;
-  const caseFlag = caseSensitive ? "" : "-i";
-  const escaped = pattern.replace(/"/g, '\\"');
-  let command = `rg "${escaped}" "${workspace}" -n -C ${contextLines} ${caseFlag}`;
-  if (filePattern) command += ` -g "${filePattern}"`;
+  // Argv form (no shell): pattern/filePattern are model-controlled, so they must
+  // never be interpolated into a shell string — `rg` receives them as literal
+  // argv entries. `--` terminates option parsing so a pattern beginning with `-`
+  // is treated as a pattern, not a flag.
+  const rgArgs = [
+    "-n",
+    "-C",
+    String(contextLines),
+    ...(caseSensitive ? [] : ["-i"]),
+    ...(filePattern ? ["-g", filePattern] : []),
+    "--",
+    pattern,
+    workspace,
+  ];
 
   try {
-    const { stdout } = await execAsync(command, { maxBuffer: 10 * 1024 * 1024 });
+    const { stdout } = await execFileAsync("rg", rgArgs, {
+      maxBuffer: 10 * 1024 * 1024,
+    });
     return parseGrepOutput(stdout);
   } catch {
     return [];

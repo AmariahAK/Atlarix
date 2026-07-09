@@ -8,6 +8,7 @@
  */
 
 import * as fs from "fs/promises";
+import { realpathSync } from "node:fs";
 import * as path from "path";
 import { createHash } from "crypto";
 import { recordMutationOutcome } from "@/lib/agent/mutation-verify";
@@ -1029,22 +1030,76 @@ export class PermissionInterceptor extends EventEmitter {
      */
     private resolvePathWithinWorkspace(filePath: string): string {
         const normalizedWorkspace = path.resolve(this.workspacePath);
+        let resolved: string;
         if (!path.isAbsolute(filePath)) {
-            return resolvePathUnderWorkspace(this.workspacePath, filePath);
-        }
-        const normalizedPath = path.resolve(filePath);
-        const relativeToWorkspace = path.relative(normalizedWorkspace, normalizedPath);
-        if (!relativeToWorkspace.startsWith("..") && !path.isAbsolute(relativeToWorkspace)) {
-            return normalizedPath;
-        }
-        for (const root of this.allowedRoots) {
-            const relativeToRoot = path.relative(root, normalizedPath);
-            if (!relativeToRoot.startsWith("..") && !path.isAbsolute(relativeToRoot)) {
-                return normalizedPath;
+            resolved = resolvePathUnderWorkspace(this.workspacePath, filePath);
+        } else {
+            resolved = path.resolve(filePath);
+            const relativeToWorkspace = path.relative(normalizedWorkspace, resolved);
+            const inWorkspace =
+                !relativeToWorkspace.startsWith("..") && !path.isAbsolute(relativeToWorkspace);
+            const inAllowedRoot = this.allowedRoots.some((root) => {
+                const relativeToRoot = path.relative(root, resolved);
+                return !relativeToRoot.startsWith("..") && !path.isAbsolute(relativeToRoot);
+            });
+            if (!inWorkspace && !inAllowedRoot) {
+                throw new Error(
+                    `Path is outside workspace: ${filePath}. Import this folder as the project or use "Create app" with a target folder so files and commands use the same location.`
+                );
             }
         }
+        // A9/M-2: the string containment above is symlink-blind. Verify the REAL
+        // target (resolving symlinks in the path) still lands inside the real
+        // workspace/allowed roots — else a symlink committed into the repo could
+        // point edit_file/write_file/delete at `~/.zshrc` while the card shows an
+        // in-workspace path. Both sides are realpath'd so macOS /var→/private/var
+        // symlinks don't cause false rejections; any realpath error fails OPEN.
+        this.assertRealpathContained(resolved, normalizedWorkspace, filePath);
+        return resolved;
+    }
+
+    /** Reject when the real (symlink-resolved) target escapes the workspace. */
+    private assertRealpathContained(
+        resolved: string,
+        normalizedWorkspace: string,
+        original: string,
+    ): void {
+        let realWorkspace: string;
+        try {
+            realWorkspace = realpathSync(normalizedWorkspace);
+        } catch {
+            return; // can't canonicalize the root — fail open (no new rejections)
+        }
+        const realAllowed: string[] = [];
+        for (const root of this.allowedRoots) {
+            try {
+                realAllowed.push(realpathSync(root));
+            } catch {
+                /* skip unresolvable roots */
+            }
+        }
+        // The target may not exist yet (a write) — realpath the nearest existing
+        // ancestor, then re-append the not-yet-existing suffix.
+        let probe = resolved;
+        let realAncestor: string;
+        for (;;) {
+            try {
+                realAncestor = realpathSync(probe);
+                break;
+            } catch {
+                const parent = path.dirname(probe);
+                if (parent === probe) return; // no existing ancestor — nothing to check
+                probe = parent;
+            }
+        }
+        const realTarget = path.resolve(realAncestor, path.relative(probe, resolved));
+        const contained = (root: string): boolean => {
+            const rel = path.relative(root, realTarget);
+            return rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
+        };
+        if (contained(realWorkspace) || realAllowed.some(contained)) return;
         throw new Error(
-            `Path is outside workspace: ${filePath}. Import this folder as the project or use "Create app" with a target folder so files and commands use the same location.`
+            `Path escapes the workspace via a symlink: ${original}. Refusing to operate outside the project.`
         );
     }
 

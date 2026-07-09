@@ -73,4 +73,26 @@ describe("isMutatingCommand — blocked in read-only modes (mutating)", () => {
     expect(isMutatingCommand("git status; git commit -m x")).toBe(true);
     expect(isMutatingCommand("echo hi | grep h")).toBe(false);
   });
+
+  it("background `&`: a mutating segment after a single & is caught (H-3)", () => {
+    // `a & b` runs BOTH sides — the mutating half must not hide behind a benign
+    // first segment. `&&` must still behave exactly as before.
+    expect(isMutatingCommand("true & git push origin main")).toBe(true);
+    expect(isMutatingCommand("echo ok & npm publish")).toBe(true);
+    expect(isMutatingCommand("echo ok &git commit -m x")).toBe(true);
+    expect(isMutatingCommand("true && echo done")).toBe(false); // && unaffected
+    expect(isMutatingCommand("echo a & echo b")).toBe(false); // both benign
+  });
+});
+
+describe("commandSegments — single & is a separator, && is not", () => {
+  it("splits a standalone & but preserves &&", async () => {
+    const { commandSegments } = await import("@/lib/command-mutation");
+    expect(commandSegments("a & b")).toEqual(["a", "b"]);
+    expect(commandSegments("a &b")).toEqual(["a", "b"]);
+    expect(commandSegments("a && b")).toEqual(["a", "b"]);
+    expect(commandSegments("echo ok & git push")).toEqual(["echo ok", "git push"]);
+    // trailing background operator yields no empty phantom segment
+    expect(commandSegments("sleep 1 &")).toEqual(["sleep 1"]);
+  });
 });

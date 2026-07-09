@@ -156,9 +156,18 @@ function targetsOutsideWorkspace(command: string, workspaceRoot: string): boolea
   // `cd <abs-or-~>` that escapes the workspace (mirrors interceptor.ts widening).
   const cd = command.match(/(?:^|[\s;&|])cd\s+(~?\/[^\s;&|]+|~)(?:\s|$|[;&|])/);
   if (cd?.[1] && isOutsideWorkspace(expandHome(cd[1]), workspaceRoot)) return true;
-  // Redirection write to an absolute / home path outside the workspace.
+  // Redirection write to an absolute / home path outside the workspace. Special
+  // device sinks (`/dev/null`, `/dev/stderr`, `2>&1` targets, etc.) are no-op
+  // "writes" — a `grep … 2>/dev/null` is a plain read, not a system change, so
+  // they must NOT be flagged system-scope (which would run it unsandboxed).
   const redir = command.match(/>>?\s*("?)(~?\/[^\s;&|"']+)\1/);
-  if (redir?.[2] && isOutsideWorkspace(expandHome(redir[2]), workspaceRoot)) return true;
+  if (
+    redir?.[2] &&
+    !/^\/dev\/(null|stdout|stderr|tty|fd\/\d+)$/.test(redir[2]) &&
+    isOutsideWorkspace(expandHome(redir[2]), workspaceRoot)
+  ) {
+    return true;
+  }
   return false;
 }
 

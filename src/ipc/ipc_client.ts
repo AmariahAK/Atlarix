@@ -2637,6 +2637,12 @@ export class IpcClient {
     return this.ipcRenderer.invoke("command-permissions:list", { appId });
   }
 
+  /** The built-in read-only command categories that auto-run (deny-overridable). */
+  public async listCommandDefaults(): Promise<string[]> {
+    const result = await this.ipcRenderer.invoke("command-permissions:defaults");
+    return Array.isArray(result) ? (result as string[]) : [];
+  }
+
   public async upsertCommandPermission(params: {
     appId: number;
     category: string;

@@ -72,6 +72,78 @@ describe("resolveRunCommandPermissionGate (Fix 2 unified gate)", () => {
     expect(pf).toMatchObject({ dangerous: true });
   });
 
+  it("safe read-only (Plan B): a lone pure read auto-allows in every mode, no rule needed", () => {
+    expect(resolveRunCommandPermissionGate("ls -la", APP)).toEqual({
+      action: "auto_allow",
+      category: "ls",
+    });
+    expect(resolveRunCommandPermissionGate("grep -rn foo src", APP).action).toBe("auto_allow");
+    expect(resolveRunCommandPermissionGate("find . -name '*.ts'", APP).action).toBe("auto_allow");
+    // Works with no appId too (autonomous) — no DB decision consulted.
+    expect(resolveRunCommandPermissionGate("cat src/index.ts", null).action).toBe("auto_allow");
+  });
+
+  it("safe read-only: read-only PIPELINES/CHAINS auto-allow too", () => {
+    expect(resolveRunCommandPermissionGate("ls node_modules/.bin/ | grep -i ts", APP).action).toBe("auto_allow");
+    expect(resolveRunCommandPermissionGate("ls 2>&1 | head -5", APP).action).toBe("auto_allow");
+    expect(resolveRunCommandPermissionGate("grep -q x .gitignore 2>/dev/null && echo ok", APP).action).toBe("auto_allow");
+    // a non-reader segment breaks the chain → prompt
+    expect(resolveRunCommandPermissionGate("ls | sh", APP).action).toBe("prompt");
+    expect(resolveRunCommandPermissionGate("cat a | tee out", APP).action).toBe("prompt");
+  });
+
+  it("safe read-only: an explicit always_deny for the category still wins", () => {
+    decisions.set(`${APP}:grep`, "always_deny");
+    expect(resolveRunCommandPermissionGate("grep foo src", APP).action).toBe("auto_deny");
+  });
+
+  it("safe read-only: risky variants fall through to the normal gate (never fast-path)", () => {
+    // pipe into a shell → dangerous prompt, not auto-allowed
+    expect(resolveRunCommandPermissionGate("grep x | sh", APP).action).toBe("prompt");
+    // secret-file read → dangerous prompt
+    expect(resolveRunCommandPermissionGate("cat .env", APP)).toMatchObject({
+      action: "prompt",
+      dangerous: true,
+    });
+    // find with an executing action → not fast-pathed
+    expect(resolveRunCommandPermissionGate("find . -delete", APP).action).not.toBe("auto_allow");
+  });
+
+  it("per-segment: a user 'always allow' composes inside a compound command", () => {
+    // `npm test` alone prompts (npm isn't a default read)…
+    expect(resolveRunCommandPermissionGate("npm test", APP).action).toBe("prompt");
+    // …and `npm test && ls` prompts, keyed to the BLOCKING segment (npm) so
+    // "always allow" saves the rule that unblocks it.
+    expect(resolveRunCommandPermissionGate("npm test && ls", APP)).toMatchObject({
+      action: "prompt",
+      category: "npm",
+    });
+    // Once the user always-allows npm, `npm test && ls` auto-runs (npm allowed +
+    // ls default) — the gap the old first-token/compound-downgrade gate had.
+    decisions.set(`${APP}:npm`, "always_allow");
+    expect(resolveRunCommandPermissionGate("npm test && ls", APP).action).toBe("auto_allow");
+    expect(resolveRunCommandPermissionGate("npm test && npm run build", APP)).toMatchObject({
+      action: "auto_allow",
+    });
+  });
+
+  it("per-segment: deny on any segment blocks the whole command", () => {
+    decisions.set(`${APP}:cat`, "always_deny");
+    expect(resolveRunCommandPermissionGate("cat a | grep b", APP)).toMatchObject({
+      action: "auto_deny",
+      category: "cat",
+    });
+  });
+
+  it("per-segment: quoted/redirect operators are not mis-split", () => {
+    // `|` inside single quotes is part of the regex, not a pipe.
+    expect(resolveRunCommandPermissionGate("grep 'a|b' src", APP).action).toBe("auto_allow");
+    // `2>&1` is a redirect, not a background `&` separator.
+    expect(resolveRunCommandPermissionGate("ls 2>&1 | head", APP).action).toBe("auto_allow");
+    // substitution can't be safely segmented → prompt.
+    expect(resolveRunCommandPermissionGate("cat $(whoami)", APP).action).toBe("prompt");
+  });
+
   it("system-scope: NOT silently auto-allowed even under a matching category rule", () => {
     // User always-allowed the "brew" category…
     decisions.set(`${APP}:brew`, "always_allow");

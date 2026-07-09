@@ -96,8 +96,11 @@ export const DANGEROUS_PATTERNS: DangerMatch[] = [
   // letting a prompt-injected run exfiltrate via the network channel unattended.
   {
     id: "interpreter-eval",
+    // Generic interpreter basenames (version suffixes included) + an inline-eval
+    // flag. A basename-exact list (`python3`, `node`) missed `python2`/`python3.11`
+    // (the `\s` failed on `.11`), `nodejs`, `php -r`, `Rscript -e`, `pypy`, etc.
     pattern:
-      /\b(node|deno|bun)\s+(-e|--eval|-p|--print)\b|\bpython3?\s+-c\b|\b(perl|ruby)\s+-e\b/,
+      /\b(node|nodejs|deno|bun)\s+(-e|--eval|-p|--print)\b|\bpython[0-9.]*\s+-c\b|\bpypy[0-9.]*\s+-c\b|\b(perl|ruby|jruby)\s+-e\b|\bphp\s+-r\b|\bRscript\s+-e\b/,
     explanation:
       "This runs an inline script through a language interpreter — it can read any file or open any network connection. Review the code before allowing.",
   },
@@ -115,10 +118,15 @@ export const DANGEROUS_PATTERNS: DangerMatch[] = [
   },
   {
     id: "read-credential-file",
+    // Path-is-the-invariant (H-6): flag ANY command referencing a well-known
+    // credential/secret path, regardless of the reader binary — a reader
+    // blocklist (`cat|head|…`) can never be complete (`awk`/`sort`/`cp`/`grep`
+    // and copy-then-read all evade it). Matches SSH keys, cloud/CI credential
+    // files, and `.env*` (`\.env\b` so `.environment` is NOT matched).
     pattern:
-      /\b(cat|less|more|head|tail|strings|xxd|od|base64|nl)\s+[^|;&]*(\.ssh\/id_|id_rsa|id_ed25519|id_ecdsa|id_dsa|\.aws\/credentials|\.netrc|\.git-credentials|\.npmrc|\.kube\/config|\.docker\/config\.json)/,
+      /\.ssh\/id_|\bid_(rsa|ed25519|ecdsa|dsa)\b|\.aws\/credentials|\.netrc|\.git-credentials|\.npmrc|\.kube\/config|\.docker\/config\.json|\.env\b/,
     explanation:
-      "This reads a well-known credential/secret file. Only allow if you intend to expose its contents to the model.",
+      "This references a well-known credential/secret file. Only allow if you intend to expose its contents to the model.",
   },
 ];
 

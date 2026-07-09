@@ -75,6 +75,15 @@ ToolRegistry.register({
         workspace?: string;
     }) => {
         const max = Math.min(MAX_LIMIT, Math.max(1, limit ?? DEFAULT_LIMIT));
+        // A18/L-3: the glob library honors `../` in the PATTERN, so `../../*`
+        // would enumerate outside the workspace even though `searchPath` is
+        // confined. Reject any `..` path segment in the pattern.
+        if (/(^|[\\/])\.\.([\\/]|$)/.test(pattern)) {
+            return {
+                success: false,
+                error: "glob pattern may not contain '..' (it would escape the workspace). Use a path within the project.",
+            };
+        }
         try {
             const fullPath = workspace
                 ? resolvePathUnderWorkspace(workspace, searchPath || ".")

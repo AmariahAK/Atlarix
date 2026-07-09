@@ -1,5 +1,5 @@
 import "./preload-env";
-import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, Notification, powerMonitor, shell, type MenuItemConstructorOptions } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, Notification, powerMonitor, session, shell, type MenuItemConstructorOptions } from "electron";
 import * as path from "node:path";
 import dotenv from "dotenv";
 // @ts-ignore
@@ -139,7 +139,8 @@ if (SENTRY_DSN) {
   Sentry.init({
     dsn: SENTRY_DSN,
     release: app.getVersion(),
-    tracesSampleRate: 1.0,
+    // A15/M-8: full tracing only in dev; sample down in packaged builds.
+    tracesSampleRate: app.isPackaged ? 0.1 : 1.0,
     ignoreErrors: SENTRY_IGNORE_ERROR_PATTERNS,
     beforeSend: sentryBeforeSendDropExpected,
   });
@@ -257,8 +258,54 @@ if (process.defaultApp) {
   app.setAsDefaultProtocolClient("atlarix");
 }
 
+/**
+ * A13/M-6: apply a Content-Security-Policy to the app's own file:// document.
+ * The core protection is `script-src 'self'` — an injected inline script from an
+ * XSS in rendered model/tool/web content cannot execute, which is what makes the
+ * IPC bridge reachable (H-2). Packaged-only: the dev server needs
+ * 'unsafe-inline'/'unsafe-eval' + ws: for HMR, and dev isn't a shipped surface.
+ * Scoped to main/sub frames loaded from file:// so it constrains only the app
+ * document (the in-app browser uses a separate `persist:atlarix-browser` session
+ * and is unaffected). `style-src`/`connect-src` stay permissive enough not to
+ * break the UI (Radix/framer inline styles, Supabase/Sentry/provider calls) —
+ * TUNE against a packaged smoke-test before relying on it.
+ */
+function installContentSecurityPolicy(): void {
+  if (!app.isPackaged) return;
+  const csp = [
+    "default-src 'self'",
+    "script-src 'self'",
+    "style-src 'self' 'unsafe-inline'",
+    "img-src 'self' data: blob:",
+    "font-src 'self' data:",
+    "media-src 'self' data: blob:",
+    "connect-src 'self' https: wss:",
+    "frame-src 'self' blob: data:",
+    "worker-src 'self' blob:",
+    "object-src 'none'",
+    "base-uri 'self'",
+    "form-action 'self'",
+  ].join("; ");
+  session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+    const isAppDocument =
+      (details.resourceType === "mainFrame" || details.resourceType === "subFrame") &&
+      /^file:\/\//i.test(details.url);
+    if (!isAppDocument) {
+      callback({ responseHeaders: details.responseHeaders });
+      return;
+    }
+    const headers = { ...details.responseHeaders };
+    for (const key of Object.keys(headers)) {
+      if (/^content-security-policy$/i.test(key)) delete headers[key];
+    }
+    headers["Content-Security-Policy"] = [csp];
+    callback({ responseHeaders: headers });
+  });
+}
+
 export async function onReady() {
   logger.info("main onReady started", { packaged: app.isPackaged });
+  installContentSecurityPolicy();
   try {
     const backupManager = new BackupManager({
       settingsFile: getSettingsFilePath(),
@@ -882,6 +929,37 @@ const createWindow = () => {
     return { action: "deny" };
   });
 
+  // Navigation lockdown (A4/H-2): the main frame must NEVER leave the packaged
+  // app origin. Without this, a same-frame navigation (window.location, an
+  // in-app <a> without target=_blank, a meta-refresh, or a form submit inside
+  // rendered AI/tool/web content) could move the top frame to an attacker
+  // origin that then inherits the context bridge. Same-origin app navigation and
+  // dev-server HMR are allowed; an off-origin http(s) target opens externally.
+  const isAppOriginUrl = (target: string): boolean => {
+    try {
+      const u = new URL(target);
+      if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
+        return u.origin === new URL(MAIN_WINDOW_VITE_DEV_SERVER_URL).origin;
+      }
+      return u.protocol === "file:";
+    } catch {
+      return false;
+    }
+  };
+  const guardNavigation = (
+    e: Electron.Event,
+    url: string,
+    openExternally: boolean,
+  ) => {
+    if (isAppOriginUrl(url)) return;
+    e.preventDefault();
+    if (openExternally && /^https?:\/\//i.test(url)) {
+      void shell.openExternal(url);
+    }
+  };
+  mainWindow.webContents.on("will-navigate", (e, url) => guardNavigation(e, url, true));
+  mainWindow.webContents.on("will-redirect", (e, url) => guardNavigation(e, url, false));
+
   // and load the index.html of the app.
   if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
     mainWindow.loadURL(MAIN_WINDOW_VITE_DEV_SERVER_URL);
@@ -1390,6 +1468,15 @@ app.on("before-quit", (e) => {
       abortAllStreams();
     } catch (abortErr) {
       logger.warn("abortAllStreams on quit:", abortErr);
+    }
+    // Tear down the file watcher so its native subscription doesn't outlive the
+    // app (leaked watch = sustained background CPU; on Windows a live watch over
+    // a removed dir can abort libuv).
+    try {
+      const { stopSearchIndexWatcher } = await import("./lib/search/search-index-watcher");
+      stopSearchIndexWatcher();
+    } catch (watcherErr) {
+      logger.warn("stopSearchIndexWatcher on quit:", watcherErr);
     }
     // v12 3.7: drain tracked state-mutating background work (self-correction
     // dispatch, snapshot writes, usage records) before the process dies.

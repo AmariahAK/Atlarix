@@ -28,6 +28,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
  *     content lands between the pin and the event.
  */
 const AT_BOTTOM_THRESHOLD_PX = 80;
+// Re-engaging follow off the loose 80px zone was too eager: trackpad momentum /
+// rubber-band re-enters it and the aggressive pin yanks the reader back down (the
+// "scroll fight"). Follow is re-engaged only when at/near the TRUE bottom AND not
+// moving up; the 80px threshold is kept for the "Jump to latest" button only.
+const AT_BOTTOM_REENGAGE_PX = 24;
 const AUTO_SCROLL_GRACE_MS = 1500;
 
 export function useStickToBottom(
@@ -37,18 +42,12 @@ export function useStickToBottom(
 ) {
   const isAtBottomRef = useRef(true);
   const rafScheduledRef = useRef(false);
+  // Last observed scrollTop, to detect scroll DIRECTION in the handler.
+  const lastScrollTopRef = useRef(0);
   // Records the scrollTop we expect after a programmatic pin, so an async scroll
   // event arriving with stale/grown content isn't misread as a user scroll.
   const autoRef = useRef<{ top: number; time: number } | null>(null);
   const [showJumpButton, setShowJumpButton] = useState(false);
-
-  const computeAtBottom = useCallback(() => {
-    const el = containerRef.current;
-    if (!el) return true;
-    return (
-      el.scrollHeight - el.scrollTop - el.clientHeight <= AT_BOTTOM_THRESHOLD_PX
-    );
-  }, [containerRef]);
 
   // `none` while following → the browser stops competing with our manual pin.
   // `auto` while the user reads history → the browser keeps their view stable.
@@ -110,18 +109,30 @@ export function useStickToBottom(
         rafScheduledRef.current = false;
         const node = containerRef.current;
         if (!node) return;
-        const atBottom = computeAtBottom();
-        // Our own pin can fire a `scroll` event after new content grew the list;
-        // ignore it so we don't flip into "user scrolled up" and unfollow.
-        if (!atBottom && isAuto(node)) return;
-        isAtBottomRef.current = atBottom;
-        setShowJumpButton((prev) => (prev === !atBottom ? prev : !atBottom));
-        applyOverflowAnchor(atBottom);
+        const prevTop = lastScrollTopRef.current;
+        const curTop = node.scrollTop;
+        lastScrollTopRef.current = curTop;
+        const auto = isAuto(node); // our own pin fired this scroll event
+        const dist = node.scrollHeight - curTop - node.clientHeight;
+        const nearBottom = dist <= AT_BOTTOM_THRESHOLD_PX;
+        const movingUp = curTop < prevTop - 1;
+        if (!auto) {
+          if (movingUp) {
+            // Universal backstop: ANY real upward scroll (wheel, trackpad,
+            // scrollbar drag, momentum) disengages follow immediately.
+            disengageFollow();
+          } else if (dist <= AT_BOTTOM_REENGAGE_PX) {
+            // At/near the true bottom and NOT moving up → follow again.
+            isAtBottomRef.current = true;
+            applyOverflowAnchor(true);
+          }
+        }
+        setShowJumpButton((prev) => (prev === !nearBottom ? prev : !nearBottom));
       });
     };
     el.addEventListener("scroll", onScroll, { passive: true });
     return () => el.removeEventListener("scroll", onScroll);
-  }, [containerRef, computeAtBottom, isAuto, applyOverflowAnchor]);
+  }, [containerRef, isAuto, disengageFollow, applyOverflowAnchor]);
 
   // User-intent-to-scroll-up listeners → disengage follow SYNCHRONOUSLY (before
   // the next ResizeObserver pin reads `isAtBottomRef`). Wheel is the desktop

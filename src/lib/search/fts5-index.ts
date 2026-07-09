@@ -63,6 +63,46 @@ type Handle = {
 const handles = new Map<number, Handle>();
 const dirty = new Set<number>();
 
+/**
+ * Cap the number of open per-workspace FTS5 connections. Each handle is a live
+ * better-sqlite3 connection (+ WAL files); the map used to only grow, leaking a
+ * connection per workspace opened in a session. `inUse` tracks workspaces whose
+ * handle is being (re)built across an await inside `ensureHandle`, so eviction
+ * never closes a DB an in-flight rebuild still references. (searchFts5 queries
+ * the handle SYNCHRONOUSLY after ensureHandle returns, so no other use spans an
+ * await.)
+ */
+const MAX_FTS5_HANDLES = 4;
+const inUse = new Set<number>();
+
+function evictLruHandles(): void {
+  while (handles.size > MAX_FTS5_HANDLES) {
+    let evicted = false;
+    for (const id of handles.keys()) {
+      // Oldest-first (Map insertion order); skip anything mid-rebuild.
+      if (inUse.has(id)) continue;
+      try {
+        handles.get(id)?.db.close();
+      } catch {
+        /* already closed / closing */
+      }
+      handles.delete(id);
+      dirty.delete(id);
+      evicted = true;
+      break;
+    }
+    if (!evicted) break; // everything over the cap is in use — try again later
+  }
+}
+
+/** Move a handle to the LRU end and evict any beyond the cap. */
+function touchAndEvict(workspaceId: number, handle: Handle): Handle {
+  handles.delete(workspaceId);
+  handles.set(workspaceId, handle);
+  evictLruHandles();
+  return handle;
+}
+
 function workspaceKey(root: string): string {
   return createHash("sha256").update(path.resolve(root)).digest("hex").slice(0, 16);
 }
@@ -100,22 +140,35 @@ function openDb(root: string): Database.Database | null {
   }
 }
 
-/** Read each file once and return line-content (1-indexed) for its symbols. */
+/** Max files read concurrently — bounds open FDs + peak memory on a big repo. */
+const SNIPPET_READ_CONCURRENCY = 64;
+
+/**
+ * Read each file once and return line-content (1-indexed) for its symbols.
+ * Perf: reads are BATCHED (not one big `Promise.all` over every unique file) —
+ * on a big repo an unbounded fan-out opened thousands of FDs at once → `EMFILE`
+ * (worst on macOS's 256 default) + a large transient memory spike holding every
+ * file's contents simultaneously.
+ */
 async function snippetsByFile(
   workspaceRootAbs: string,
   symbols: SymbolRecord[],
 ): Promise<Map<string, string[]>> {
   const out = new Map<string, string[]>();
-  await Promise.all(
-    [...new Set(symbols.map((s) => s.path))].map(async (rel) => {
-      try {
-        const raw = await fsp.readFile(path.join(workspaceRootAbs, rel), "utf-8");
-        out.set(rel, raw.split("\n"));
-      } catch {
-        out.set(rel, []);
-      }
-    }),
-  );
+  const uniquePaths = [...new Set(symbols.map((s) => s.path))];
+  for (let i = 0; i < uniquePaths.length; i += SNIPPET_READ_CONCURRENCY) {
+    const batch = uniquePaths.slice(i, i + SNIPPET_READ_CONCURRENCY);
+    await Promise.all(
+      batch.map(async (rel) => {
+        try {
+          const raw = await fsp.readFile(path.join(workspaceRootAbs, rel), "utf-8");
+          out.set(rel, raw.split("\n"));
+        } catch {
+          out.set(rel, []);
+        }
+      }),
+    );
+  }
   return out;
 }
 
@@ -197,40 +250,46 @@ async function ensureHandle(
   workspaceId: number,
   workspaceRootAbs: string,
 ): Promise<Handle | null> {
-  let handle = handles.get(workspaceId);
-  const isDirty = dirty.has(workspaceId);
-
-  if (handle && !isDirty) {
-    let head: string | null = null;
-    try {
-      head = await getCurrentCommitHash({ path: workspaceRootAbs });
-    } catch {
-      head = null;
-    }
-    if (handle.commitHash !== undefined && head !== handle.commitHash) {
-      // HEAD moved — rebuild below.
-    } else {
-      return handle;
-    }
-  }
-
-  if (!handle) {
-    const db = openDb(workspaceRootAbs);
-    if (!db) return null;
-    handle = { db, commitHash: null, filesIndexed: 0, pkgMap: null };
-    handles.set(workspaceId, handle);
-  }
-
+  // Guard this workspace against eviction while its handle is built/queried.
+  inUse.add(workspaceId);
   try {
-    const { filesIndexed, commitHash, pkgMap } = await rebuild(handle.db, workspaceRootAbs);
-    handle.filesIndexed = filesIndexed;
-    handle.commitHash = commitHash;
-    handle.pkgMap = pkgMap;
-    dirty.delete(workspaceId);
-    return handle;
-  } catch (e) {
-    logger.warn("fts5 rebuild failed:", e);
-    return null;
+    let handle = handles.get(workspaceId);
+    const isDirty = dirty.has(workspaceId);
+
+    if (handle && !isDirty) {
+      let head: string | null = null;
+      try {
+        head = await getCurrentCommitHash({ path: workspaceRootAbs });
+      } catch {
+        head = null;
+      }
+      if (handle.commitHash !== undefined && head !== handle.commitHash) {
+        // HEAD moved — rebuild below.
+      } else {
+        return touchAndEvict(workspaceId, handle);
+      }
+    }
+
+    if (!handle) {
+      const db = openDb(workspaceRootAbs);
+      if (!db) return null;
+      handle = { db, commitHash: null, filesIndexed: 0, pkgMap: null };
+      handles.set(workspaceId, handle);
+    }
+
+    try {
+      const { filesIndexed, commitHash, pkgMap } = await rebuild(handle.db, workspaceRootAbs);
+      handle.filesIndexed = filesIndexed;
+      handle.commitHash = commitHash;
+      handle.pkgMap = pkgMap;
+      dirty.delete(workspaceId);
+      return touchAndEvict(workspaceId, handle);
+    } catch (e) {
+      logger.warn("fts5 rebuild failed:", e);
+      return null;
+    }
+  } finally {
+    inUse.delete(workspaceId);
   }
 }
 

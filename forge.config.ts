@@ -213,9 +213,14 @@ async function stripSourceMapsFromBuild(buildPath: string): Promise<number> {
 
 const config: ForgeConfig = {
   packagerConfig: {
+    // A12/M-5: keep the Chromium OS sandbox ENABLED (was `false`). It shrinks the
+    // blast radius of a renderer compromise and pairs with the CSP (A13) and the
+    // main-frame navigation lockdown (A4). NOTE: must be smoke-tested on Linux —
+    // if a specific environment needs it off, scope that exception rather than
+    // disabling globally. Trivially reverted to `false` if it blocks launch.
     // Electron Packager supports this flag even though Forge's type lags behind.
     // @ts-expect-error chromiumSandbox is forwarded to electron-packager
-    chromiumSandbox: false,
+    chromiumSandbox: true,
     protocols: [
       {
         name: "Atlarix",

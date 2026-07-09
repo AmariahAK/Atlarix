@@ -11,6 +11,24 @@ describe("sentryBeforeSendDropExpected", () => {
     expect(sentryBeforeSendDropExpected(event as ErrorEvent, undefined)).toBeNull();
   });
 
+  it("redacts secrets from message, exception value, request URL, and breadcrumbs (A15)", () => {
+    const event = {
+      message: "auth failed with sk-ant-abcdefghijklmnopqrstuvwxyz0123",
+      exception: {
+        values: [{ type: "Error", value: "token ghp_" + "a".repeat(40) + " rejected" }],
+      },
+      request: { url: "https://api.example.com/x?key=AKIAABCDEFGHIJKLMNOP" },
+      breadcrumbs: [{ message: "GET https://x/?t=AKIAABCDEFGHIJKLMNOP" }],
+    };
+    const out = sentryBeforeSendDropExpected(event as ErrorEvent, undefined);
+    expect(out).not.toBeNull();
+    expect(out!.message).not.toMatch(/sk-ant-/);
+    expect(out!.exception!.values![0]!.value).not.toMatch(/ghp_/);
+    expect(out!.request!.url).not.toMatch(/AKIA/);
+    expect(out!.breadcrumbs![0]!.message).not.toMatch(/AKIA/);
+    expect(out!.message).toMatch(/redacted secret/);
+  });
+
   it("drops PlanLimitError originals", () => {
     const event = { exception: { values: [{ type: "Error", value: "limit" }] } };
     expect(

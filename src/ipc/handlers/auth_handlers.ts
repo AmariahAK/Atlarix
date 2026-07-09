@@ -110,7 +110,11 @@ export function registerAuthHandlers() {
             logger.error(`[AuthHandlers] Can create workspace error:`, error);
             return {
                 success: false,
-                allowed: true, // Fail open - allow creation if check fails
+                // A16/L-1: fail CLOSED — a thrown check must not become a free
+                // pass past the free-tier cap. The UI surfaces the reason so the
+                // user can retry once the plan check recovers.
+                allowed: false,
+                reason: "Couldn't verify your plan limit — please try again.",
                 error: error instanceof Error ? error.message : "Unknown error"
             };
         }
@@ -128,7 +132,11 @@ export function registerAuthHandlers() {
             };
         } catch (error) {
             logger.error(`[AuthHandlers] Check workspace limit error:`, error);
-            return { allowed: true }; // Fail open
+            // A16/L-1: fail CLOSED (was `allowed: true`).
+            return {
+                allowed: false,
+                reason: "Couldn't verify your plan limit — please try again.",
+            };
         }
     });
 

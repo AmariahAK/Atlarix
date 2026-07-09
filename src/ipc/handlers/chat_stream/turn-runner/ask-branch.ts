@@ -562,6 +562,7 @@ export async function runAskBranch(
                             effectiveAppId,
                             req.chatId,
                             event.sender,
+                            appPath,
                           );
                           if (categoryBlock) return categoryBlock;
                         }
@@ -594,6 +595,7 @@ export async function runAskBranch(
                               effectiveAppId,
                               req.chatId,
                               event.sender,
+                              appPath,
                             )) ||
                           shouldAutoApprovePermissions(settings.agentMode, req.chatId) ||
                           askPermissionInterceptor.shouldAlwaysAutoApprove(permRequest);
@@ -612,7 +614,7 @@ export async function runAskBranch(
                           safeSend(event.sender, "permission-request", {
                             chatId: req.chatId,
                             operationId,
-                            request: enrichPermissionRequestForUi(permRequest, effectiveAppId),
+                            request: enrichPermissionRequestForUi(permRequest, effectiveAppId, appPath),
                           });
 
                           logger.log(`[Ask Mode] Permission request buffered: ${operationId}`);

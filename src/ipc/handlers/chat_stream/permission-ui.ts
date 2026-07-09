@@ -100,9 +100,10 @@ export function emitFilePermissionActivity(
 export function enrichPermissionRequestForUi(
   permRequest: { operation: string; preview: unknown },
   appId: number | null | undefined,
+  workspaceRoot?: string,
 ) {
   if (permRequest.operation === "run_command") {
-    return enrichRunCommandPermissionRequest(permRequest, appId);
+    return enrichRunCommandPermissionRequest(permRequest, appId, workspaceRoot);
   }
   return enrichFilePermissionRequest(permRequest as import("@/lib/tools/permissions/schema").PermissionRequest, appId);
 }
@@ -152,8 +153,9 @@ export function runCommandCategoryGateToolResult(
   appId: number | null | undefined,
   chatId: number,
   sender: Electron.WebContents,
+  workspaceRoot?: string,
 ): string | null {
-  const preflight = runCommandCategoryPreflight(command, appId);
+  const preflight = runCommandCategoryPreflight(command, appId, workspaceRoot);
   if (preflight.type === "auto_deny") {
     emitRunCommandPermissionActivity(
       sender,
@@ -180,8 +182,9 @@ export function shouldSkipPermissionWaitForRunCommand(
   appId: number | null | undefined,
   chatId: number,
   sender: Electron.WebContents,
+  workspaceRoot?: string,
 ): boolean {
-  const preflight = runCommandCategoryPreflight(command, appId);
+  const preflight = runCommandCategoryPreflight(command, appId, workspaceRoot);
   if (preflight.type === "auto_allow") {
     emitRunCommandPermissionActivity(
       sender,
@@ -197,17 +200,23 @@ export function shouldSkipPermissionWaitForRunCommand(
 export function enrichRunCommandPermissionRequest<T extends { operation: string; preview: unknown }>(
   permRequest: T,
   appId: number | null | undefined,
+  workspaceRoot?: string,
 ): T {
   if (permRequest.operation !== "run_command") return permRequest;
   const preview = permRequest.preview as { command?: string; isDangerous?: boolean };
-  const preflight = runCommandCategoryPreflight(preview.command ?? "", appId);
+  const preflight = runCommandCategoryPreflight(preview.command ?? "", appId, workspaceRoot);
   const dangerous =
     preflight.type === "prompt" ? preflight.dangerous : false;
   // System-scope = changes something OUTSIDE the project (on-device install, sudo,
-  // outside-workspace write). Workspace root isn't available at this UI layer —
-  // the installer/sudo signals don't need it; the interceptor does the full check.
+  // outside-workspace write). A8/M-1: pass the REAL workspace root so the
+  // outside-path branch (e.g. `echo x >> ~/.zshrc`) actually surfaces the
+  // system-scope prompt — with an empty root it short-circuits to false and the
+  // card wrongly renders an ordinary command while the interceptor runs it
+  // unsandboxed. Falls back to "" (installer/sudo signals still fire) when the
+  // root isn't threaded through.
+  const root = workspaceRoot ?? "";
   const command = preview.command ?? "";
-  const systemScope = isSystemScopeCommand(command, "");
+  const systemScope = isSystemScopeCommand(command, root);
   return {
     ...permRequest,
     preview: {
@@ -218,7 +227,7 @@ export function enrichRunCommandPermissionRequest<T extends { operation: string;
       isDangerous: dangerous || preview.isDangerous,
       systemScope,
       systemScopeExplanation: systemScope
-        ? getSystemScopeExplanation(command, "")
+        ? getSystemScopeExplanation(command, root)
         : undefined,
       // Dangerous commands can now be always-allowed too (the badge is
       // informational, not a blocker). Only a resolved auto_allow/deny (no

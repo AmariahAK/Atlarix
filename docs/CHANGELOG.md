@@ -3,6 +3,52 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
+## [14.8.14] (2026-07-09) — Security fixes, reference-grade command permissions, cross-platform performance overhaul
+
+tsc + oxlint clean; vitest **1682** green (+ knip no new orphans). A large hardening + performance
+release. **Known-open (tracked in `docs/TODO.md`):** residual high CPU/heat under a hot suspect
+(terminal-output streaming), and the embedded-secrets rotation (C-1) still pending a backend.
+
+### Security (from a full 5-agent audit)
+- **grep tool no longer shell-injectable** — `src/lib/tools/grep.ts` builds an `execFile` argv (no shell).
+- **Egress + SSRF** — `read_url` and `browser_navigate` both route through `assertUrlAllowed`, which now
+  also blocks URLs carrying a secret shape (`src/lib/security/url-policy.ts`); web-search fetches use `safeFetch`.
+- **IPC trust boundary** — main-frame `will-navigate`/`will-redirect` lockdown (`src/main.ts`) + a
+  production-only sender-frame guard (`src/ipc/handlers/safe_handle.ts`).
+- **Danger taxonomy** — generic interpreter-eval + reader-agnostic credential-path detection
+  (`src/lib/dangerous-commands.ts`); automations deny on `systemScope`; single-`&` is now a command separator.
+- **Symlink write-escape guard** (`interceptor.ts` realpath check), browser untrusted-content envelope hardened,
+  Sentry `beforeSend` secret redaction, fail-closed workspace limits, OAuth loopback path guard, `chromiumSandbox: true`,
+  a packaged-only CSP, and glob `..` rejection.
+
+### Command permissions — reference-grade per-segment model (opencode / Claude Code)
+- The gate now evaluates **per segment**: a command auto-runs only if EVERY segment is allowed (a user rule OR
+  a built-in default read); **deny wins**; dangerous segments still key on `danger:<id>`; system-scope never
+  silently auto-allows. A user "always allow npm" now composes inside `npm test && ls`.
+  (`src/lib/command-default-allow.ts`, `src/ipc/handlers/command_permission_handlers.ts`.)
+- Built-in read-only defaults (`ls/grep/find/cat/…` + pipelines of them) are visible + deny-overridable in
+  Settings → Terminal permissions (`WorkspaceTerminalPermissions.tsx`).
+
+### UX
+- **Paste from any source** — a large paste now becomes an attachment chip even from rich-text apps (Notes/TextEdit):
+  `text/plain` falls back to stripped `text/html` (`src/lib/chat/text-paste-attachment.ts`, `useAttachments.ts`).
+- **One completion sound** — task-done no longer double-plays the in-app chime alongside the OS notification (`useStreamChat.ts`).
+- **Chat render-cap** — only the last 120 messages mount, with a "Show earlier messages" button, so long sessions
+  stay light (`SimpleInlineChat.tsx`). Streaming scroll-follow hardened against the "scroll fight" (`useStickToBottom.ts`).
+
+### Performance (cross-platform)
+- **File watcher → `@parcel/watcher`** (native; VS Code/opencode/Cursor's choice) with `.gitignore`-derived ignores
+  applied at REGISTRATION, so node_modules/.git churn no longer floods the main thread. Replaces the recursive
+  `fs.watch` firehose (which also threw on Linux). (`src/lib/search/search-index-watcher.ts`; graceful-degrades if the
+  native binding is absent; torn down on quit.)
+- **First-grep unblock** — sampled path validation instead of `existsSync` over every file (`ctags-index.ts`);
+  FTS5 rebuild reads bounded to 64-concurrent (`fts5-index.ts`).
+- **Memory** — ctags symbol cache LRU-capped (3 workspaces); FTS5 DB handles LRU-capped (4, safe close).
+
+### Cleanup
+- Removed the dead legacy `/chat` page + its orphan chain (~12 files; `ChatInterface`, `InputBar`, `ChatHandler`,
+  legacy providers).
+
 ## [14.8.13] (2026-07-07) — Universal sandbox, system-scope gate, security hardening, notifications
 
 tsc + oxlint clean; vitest **1635** (node 1504 / renderer 58 / agent-evals 73). The first release

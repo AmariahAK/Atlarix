@@ -4,9 +4,32 @@
 
 import dns from "node:dns/promises";
 import net from "node:net";
+import { containsSecret } from "./redact-secrets";
 
 const MAX_REDIRECTS = 3;
 const DEFAULT_TIMEOUT_MS = 15_000;
+
+/**
+ * Egress control (A5/H-4): a recognizable secret shape in the URL path/query is
+ * an exfiltration attempt, not a legitimate request — block it regardless of
+ * host. High-confidence shapes only (see redact-secrets), so false positives are
+ * negligible. Applies to every outbound channel that validates via
+ * assertUrlAllowed (read_url's safeFetch and browser_navigate).
+ */
+function assertNoSecretInUrl(parsed: URL): void {
+  const raw = `${parsed.pathname}${parsed.search}${parsed.hash}`;
+  let decoded = raw;
+  try {
+    decoded = decodeURIComponent(raw);
+  } catch {
+    /* keep raw if malformed percent-encoding */
+  }
+  if (containsSecret(raw) || containsSecret(decoded)) {
+    throw new Error(
+      "URL blocked: it contains what looks like a secret/credential in the path or query. Outbound requests must not carry secrets (possible exfiltration).",
+    );
+  }
+}
 
 export type UrlPolicyOptions = {
   /** Allow private/loopback/link-local when request origin matches one of these (normalized origins). */
@@ -124,6 +147,8 @@ export async function assertUrlAllowed(
   if (parsed.username || parsed.password) {
     throw new Error("URL blocked: credentials in URL are not allowed");
   }
+
+  assertNoSecretInUrl(parsed);
 
   const trusted = normalizeTrustedOrigins(options?.trustedOrigins);
   const origin = normalizeOrigin(parsed.href);

@@ -1579,16 +1579,15 @@ export function useStreamChat({
             refreshVersions();
             invalidateTokenCount();
 
-            // Turn finished. When the app is UNFOCUSED, notify that Atlarix is
-            // done responding (or is waiting on an ask_user answer) — the same OS
-            // notification used for the waiting-on-user case — and play the sound
-            // even for a text-only Explore answer. When FOCUSED, keep the prior
-            // behavior (chime only on tool/permission turns; the user is watching,
-            // so no OS-notification spam).
+            // Turn finished. When the app is UNFOCUSED, fire the OS "finished
+            // responding" notification (also covers the waiting-on-ask_user case).
+            // The OS notification is the SINGLE completion sound — we no longer
+            // ALSO play the in-app chime here, which doubled up annoyingly. When
+            // FOCUSED, keep the in-app chime on tool/permission turns only (the
+            // user is watching, so no OS-notification spam).
             const appUnfocused =
               typeof document !== "undefined" && !document.hasFocus();
             if (appUnfocused) {
-              playNotify();
               IpcClient.getInstance().notifyTurnDone(
                 response.endedWaitingOnUser === true,
               );

@@ -275,6 +275,8 @@ export function writeSettings(settings: Partial<UserSettings>): void {
   }
 }
 
+let warnedPlaintextSecret = false;
+
 export function encrypt(data: string): Secret {
   const safeStorage = getSafeStorage();
   if (safeStorage?.isEncryptionAvailable() && !IS_TEST_BUILD) {
@@ -282,6 +284,16 @@ export function encrypt(data: string): Secret {
       value: safeStorage.encryptString(data).toString("base64"),
       encryptionType: "electron-safe-storage",
     };
+  }
+  // A20/L-5: OS encryption unavailable (e.g. Linux without a Secret Service /
+  // keyring) — the secret is persisted in cleartext. Warn once so this degraded
+  // mode is visible in logs rather than silent. (Test builds intentionally use
+  // plaintext and are not warned.)
+  if (!IS_TEST_BUILD && !warnedPlaintextSecret) {
+    warnedPlaintextSecret = true;
+    logger.warn(
+      "safeStorage/OS encryption is unavailable — provider keys and OAuth tokens are being stored WITHOUT encryption (plaintext at rest). Install a system keyring (e.g. gnome-keyring / libsecret) to enable encryption.",
+    );
   }
   return {
     value: data,

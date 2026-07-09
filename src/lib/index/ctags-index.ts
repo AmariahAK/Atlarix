@@ -35,6 +35,23 @@ const inflightByPath = new Map<string, Promise<SymbolIndexCache>>();
 const memoryByPath = new Map<string, SymbolIndexCache>();
 const dirtyPaths = new Set<string>();
 
+/**
+ * Keep only the most-recently-used workspaces' symbol caches in memory. Each
+ * cache holds the whole repo's `SymbolRecord[]` (huge on a big repo), so an
+ * unbounded map made RSS grow across every workspace opened in a session. An
+ * evicted workspace just reloads from `symbols.json`/ctags on next access.
+ */
+const MAX_CACHED_WORKSPACES = 3;
+function rememberSymbolCache(normPath: string, cache: SymbolIndexCache): void {
+  memoryByPath.delete(normPath); // re-insert at the end (LRU recency)
+  memoryByPath.set(normPath, cache);
+  while (memoryByPath.size > MAX_CACHED_WORKSPACES) {
+    const oldest = memoryByPath.keys().next().value as string | undefined;
+    if (oldest === undefined || oldest === normPath) break;
+    memoryByPath.delete(oldest);
+  }
+}
+
 /** Per-workspace userData dir for the ctags index (mirrors the FTS5 index). */
 function ctagsCacheDir(projectPath: string): string {
   const key = createHash("sha256")
@@ -191,7 +208,7 @@ export async function ensureSymbolIndex(projectPath: string): Promise<SymbolInde
     if (mem) return mem;
     const disk = await loadDiskCache(normPath);
     if (disk && !(await isCacheStale(normPath, disk))) {
-      memoryByPath.set(normPath, disk);
+      rememberSymbolCache(normPath, disk);
       return disk;
     }
     staleDisk = disk;
@@ -209,15 +226,22 @@ export async function ensureSymbolIndex(projectPath: string): Promise<SymbolInde
     let { files } = await getProjectFiles(normPath);
     // Validate that discovered paths actually resolve under the workspace.
     // fd / rg sometimes return paths that mishandle Windows drives; the legacy
-    // recursive scan is a known-good fallback.
-    const allResolvable = files.length > 0 && files.every((f) => {
-      try {
-        return fsSync.existsSync(path.join(normPath, f));
-      } catch {
-        return false;
-      }
-    });
-    if (!allResolvable) {
+    // recursive scan is a known-good fallback. Perf: SAMPLE a handful rather than
+    // `existsSync`-ing every file — on a big repo (tens of thousands of files)
+    // the exhaustive per-file sync stat froze the main event loop on the first
+    // grep. A bad fd/rg mapping affects all paths uniformly, so a sample detects
+    // it just as reliably.
+    const sample = files.slice(0, 20);
+    const sampleResolvable =
+      files.length > 0 &&
+      sample.every((f) => {
+        try {
+          return fsSync.existsSync(path.join(normPath, f));
+        } catch {
+          return false;
+        }
+      });
+    if (!sampleResolvable) {
       files = getFilesRecursively(normPath, normPath).map((f) => f.replace(/\\/g, "/"));
     }
 
@@ -296,7 +320,7 @@ export async function ensureSymbolIndex(projectPath: string): Promise<SymbolInde
     };
 
     await saveDiskCache(normPath, cache);
-    memoryByPath.set(normPath, cache);
+    rememberSymbolCache(normPath, cache);
     dirtyPaths.delete(normPath);
     logger.info("ensureSymbolIndex: complete", {
       projectPath: normPath,
@@ -443,7 +467,7 @@ export async function updateSymbolIndexForFile(
   }
 
   await saveDiskCache(normPath, cache);
-  memoryByPath.set(normPath, cache);
+  rememberSymbolCache(normPath, cache);
   dirtyPaths.delete(normPath);
   return cache;
 }

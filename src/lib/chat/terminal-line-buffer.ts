@@ -10,6 +10,7 @@ import {
   linesToModelText,
   linesToVisibleText,
 } from "@/lib/chat/terminal-line-format";
+import { readClipboardPlainText } from "@/lib/chat/text-paste-attachment";
 
 export const TERMINAL_MAX_LINES = 600;
 
@@ -221,7 +222,7 @@ export function parseTerminalPasteFromClipboard(
     }
   }
 
-  const plainText = clipboardData.getData("text/plain");
+  const plainText = readClipboardPlainText(clipboardData);
   if (!plainText?.trim() || !looksLikeTerminalTranscript(plainText)) {
     return null;
   }

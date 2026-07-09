@@ -36,6 +36,7 @@ type PermissionRow = {
 export function WorkspaceTerminalPermissions() {
   const appId = useAtomValue(selectedAppIdAtom);
   const [rows, setRows] = useState<PermissionRow[]>([]);
+  const [defaults, setDefaults] = useState<string[]>([]);
   const [categoryInput, setCategoryInput] = useState("");
   const [decisionInput, setDecisionInput] = useState<"always_allow" | "always_deny">(
     "always_allow",
@@ -49,10 +50,15 @@ export function WorkspaceTerminalPermissions() {
     }
     setLoading(true);
     try {
-      const list = await IpcClient.getInstance().listCommandPermissions(appId);
+      const [list, defs] = await Promise.all([
+        IpcClient.getInstance().listCommandPermissions(appId),
+        IpcClient.getInstance().listCommandDefaults(),
+      ]);
       setRows(Array.isArray(list) ? list : []);
+      setDefaults(Array.isArray(defs) ? defs : []);
     } catch {
       setRows([]);
+      setDefaults([]);
     } finally {
       setLoading(false);
     }
@@ -89,6 +95,20 @@ export function WorkspaceTerminalPermissions() {
     await IpcClient.getInstance().revokeCommandPermission({ appId, category });
     void reload();
   };
+
+  const handleDenyDefault = async (category: string) => {
+    await IpcClient.getInstance().upsertCommandPermission({
+      appId,
+      category,
+      decision: "always_deny",
+    });
+    void reload();
+  };
+
+  // A default is currently overridden when the user has an always_deny rule for it.
+  const deniedDefaults = new Set(
+    rows.filter((r) => r.decision === "always_deny").map((r) => r.category),
+  );
 
   return (
     <div className="bg-card rounded-xl shadow-sm p-6 border border-border mt-6">
@@ -175,6 +195,54 @@ export function WorkspaceTerminalPermissions() {
           </table>
         </div>
       )}
+
+      {defaults.length > 0 ? (
+        <div className="mt-6">
+          <h3 className="text-sm font-medium text-foreground mb-1">
+            Built-in read-only commands
+          </h3>
+          <p className="text-sm text-muted-foreground mb-3">
+            These read/search commands (and pipelines of them) run without a prompt.
+            Deny any you don’t want auto-running — the OS sandbox still applies either way.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {defaults.map((cat) => {
+              const denied = deniedDefaults.has(cat);
+              return (
+                <span
+                  key={cat}
+                  className="inline-flex items-center gap-2 rounded-full border border-border bg-muted/30 pl-3 pr-1 py-1 text-xs font-mono"
+                >
+                  <span className={denied ? "line-through text-muted-foreground" : ""}>
+                    {cat}
+                  </span>
+                  {denied ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 px-2 text-[11px]"
+                      onClick={() => void handleRevoke(cat)}
+                    >
+                      Restore
+                    </Button>
+                  ) : (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 px-2 text-[11px] text-red-600 dark:text-red-400"
+                      onClick={() => void handleDenyDefault(cat)}
+                    >
+                      Deny
+                    </Button>
+                  )}
+                </span>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

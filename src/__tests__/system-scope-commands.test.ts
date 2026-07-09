@@ -67,6 +67,13 @@ describe("system-scope-commands — outside-workspace paths", () => {
     expect(isSystemScopeCommand("echo x > ./out.txt", WS)).toBe(false);
     expect(isSystemScopeCommand("cat /etc/hosts", WS)).toBe(false); // read, not a write/cd
   });
+
+  it("does NOT flag redirects to /dev sinks (no-op writes, e.g. 2>/dev/null)", () => {
+    expect(isSystemScopeCommand("grep -q x .gitignore 2>/dev/null && echo ok", WS)).toBe(false);
+    expect(isSystemScopeCommand("ls 2>/dev/null", WS)).toBe(false);
+    expect(isSystemScopeCommand("cmd > /dev/null 2>&1", WS)).toBe(false);
+    expect(isSystemScopeCommand("cmd 2>/dev/stderr", WS)).toBe(false);
+  });
 });
 
 describe("system-scope-commands — explanation + label", () => {

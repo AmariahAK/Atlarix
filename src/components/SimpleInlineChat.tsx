@@ -53,6 +53,9 @@ interface SimpleInlineChatProps {
     onSendMessage: (prompt: string, attachments?: FileAttachment[]) => void;
 }
 
+/** Max messages mounted at once; older ones load on demand ("Show earlier"). */
+const RENDER_CAP = 120;
+
 export function SimpleInlineChat({
     chatId,
     onSendMessage,
@@ -86,6 +89,11 @@ export function SimpleInlineChat({
     } | null>(null);
     const [editReverting, setEditReverting] = useState(false);
 
+    // Render-cap: only mount the last N messages so a long session doesn't grow
+    // the DOM unbounded (the last/streaming message is always in the window, so
+    // streaming + scroll-to-bottom are unaffected). "Show earlier" reveals more.
+    const [renderLimit, setRenderLimit] = useState(RENDER_CAP);
+
     useEffect(() => {
         if (selectedAppId != null) {
             setChatAppId((prev) => prev ?? selectedAppId);
@@ -110,10 +118,12 @@ export function SimpleInlineChat({
     // viewport pinned (and follow felt inconsistent). (Fix 5.)
     const liveThreadLen = useAtomValue(streamThreadForChatAtom(chatId)).length;
 
-    // Switching chats: jump straight to the latest and re-pin to the bottom.
+    // Switching chats: jump straight to the latest and re-pin to the bottom, and
+    // reset the render-cap so each chat opens showing only its latest window.
     useEffect(() => {
         if (chatId) {
             isAtBottomRef.current = true;
+            setRenderLimit(RENDER_CAP);
             scrollToBottom("auto");
         }
     }, [chatId, scrollToBottom, isAtBottomRef]);
@@ -192,6 +202,13 @@ export function SimpleInlineChat({
     const lastAssistantIndex = visibleMessages
         .map((m) => m.role)
         .lastIndexOf("assistant");
+    // Render only the last `renderLimit` messages (the tail always includes the
+    // streaming message). `renderOffset` maps a rendered index back to the full
+    // array so the per-row index checks (streaming-last, latest-assistant) stay
+    // correct.
+    const renderOffset = Math.max(0, visibleMessages.length - renderLimit);
+    const renderedMessages =
+        renderOffset > 0 ? visibleMessages.slice(renderOffset) : visibleMessages;
     const isStreaming = isStreamingThisChat;
     const error = errorById.get(chatId) ?? null;
     const lastMessage =
@@ -403,19 +420,35 @@ export function SimpleInlineChat({
                         </span>
                     </div>
                 ) : (
-                    visibleMessages.map((message, index) => (
-                        <div key={message.id ?? `idx-${index}`} className="contents">
-                            <SimpleMessage
-                                message={message}
-                                chatId={chatId}
-                                workspaceAppId={chatAppId}
-                                isStreaming={isStreaming && index === visibleMessages.length - 1}
-                                isLatestAssistant={index === lastAssistantIndex}
-                                onEditUserMessage={handleEditUserMessage}
-                                onContinue={handleContinue}
-                            />
-                        </div>
-                    ))
+                    <>
+                        {renderOffset > 0 && (
+                            <div className="flex justify-center pb-1">
+                                <button
+                                    type="button"
+                                    onClick={() => setRenderLimit((n) => n + RENDER_CAP)}
+                                    className="px-3 py-1 text-xs font-medium text-muted-foreground bg-muted/40 hover:bg-muted/70 border border-border/60 rounded-full transition-colors"
+                                >
+                                    Show earlier messages ({renderOffset} hidden)
+                                </button>
+                            </div>
+                        )}
+                        {renderedMessages.map((message, index) => {
+                            const realIndex = renderOffset + index;
+                            return (
+                                <div key={message.id ?? `idx-${realIndex}`} className="contents">
+                                    <SimpleMessage
+                                        message={message}
+                                        chatId={chatId}
+                                        workspaceAppId={chatAppId}
+                                        isStreaming={isStreaming && realIndex === visibleMessages.length - 1}
+                                        isLatestAssistant={realIndex === lastAssistantIndex}
+                                        onEditUserMessage={handleEditUserMessage}
+                                        onContinue={handleContinue}
+                                    />
+                                </div>
+                            );
+                        })}
+                    </>
                 )}
 
                 {isStreaming && lastMessage?.role === "user" && (

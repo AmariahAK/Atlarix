@@ -260,10 +260,9 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   const activeChatId = useAtomValue(activeChatIdAtom);
   const location = useLocation();
 
-  /** Home chat UI covers the outlet only on `/` or `/chat`; other routes (e.g. `/account`, `/settings`) must always render. */
+  /** Home chat UI covers the outlet only on `/`; other routes (e.g. `/account`, `/settings`) must always render. */
   const suppressOutletForHomeChat =
-    activeChatId != null &&
-    (location.pathname === "/" || location.pathname.startsWith("/chat"));
+    activeChatId != null && location.pathname === "/";
 
   usePanelShortcuts();
 
@@ -280,8 +279,8 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     });
   }, [settings?.notificationSound?.enabled, settings?.notificationSound?.volume]);
 
-  // Home = "/" or "/chat". Show right panel on home when workspace or chat is active.
-  const isOnChatPage = location.pathname === "/" || location.pathname.startsWith("/chat");
+  // Home = "/". Show right panel on home when workspace or chat is active.
+  const isOnChatPage = location.pathname === "/";
   const showWorkspaceChrome = selectedAppId != null;
 
   // Load app when workspace is selected (even before first prompt)

@@ -5,6 +5,7 @@ import { attachmentsAtom } from "@/atoms/chatAtoms";
 import {
   shouldCaptureAsTextPaste,
   textPasteDisplayName,
+  readClipboardPlainText,
 } from "@/lib/chat/text-paste-attachment";
 import {
   parseTerminalPasteFromClipboard,
@@ -151,7 +152,7 @@ export function useAttachments() {
       return;
     }
 
-    const plainText = clipboardData.getData("text/plain");
+    const plainText = readClipboardPlainText(clipboardData);
     if (plainText && shouldCaptureAsTextPaste(plainText)) {
       e.preventDefault();
       e.stopPropagation();
@@ -180,7 +181,7 @@ export function useAttachments() {
       return;
     }
 
-    const plainText = clipboardData.getData("text/plain");
+    const plainText = readClipboardPlainText(clipboardData);
     if (plainText && shouldCaptureAsTextPaste(plainText)) {
       e.preventDefault();
       e.stopPropagation();

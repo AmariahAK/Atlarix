@@ -7,6 +7,34 @@ import {
   isStreamStopAbort,
   textHasStreamStopSentinel,
 } from "@/lib/stream/stream-stop-sentinels";
+import { redactSecretsInText } from "@/lib/security/redact-secrets";
+
+/**
+ * A15/M-8: scrub high-confidence secret shapes from every field we transmit —
+ * message, exception values, request URL, and breadcrumb message/data — before
+ * the event leaves the process. `beforeSend` previously only DROPPED expected
+ * errors; it performed no redaction, so a key/token in an exception message or a
+ * fetch-error URL was sent to Sentry verbatim.
+ */
+function redactEventSecrets(event: ErrorEvent): ErrorEvent {
+  if (event.message) event.message = redactSecretsInText(event.message);
+  for (const ex of event.exception?.values ?? []) {
+    if (ex.value) ex.value = redactSecretsInText(ex.value);
+  }
+  if (event.request?.url) {
+    event.request.url = redactSecretsInText(event.request.url);
+  }
+  for (const bc of event.breadcrumbs ?? []) {
+    if (bc.message) bc.message = redactSecretsInText(bc.message);
+    if (bc.data) {
+      for (const k of Object.keys(bc.data)) {
+        const v = bc.data[k];
+        if (typeof v === "string") bc.data[k] = redactSecretsInText(v);
+      }
+    }
+  }
+  return event;
+}
 
 /**
  * Drop expected non-errors so Sentry alerts stay actionable.
@@ -53,5 +81,5 @@ export function sentryBeforeSendDropExpected(
     return null;
   }
 
-  return event;
+  return redactEventSecrets(event);
 }
