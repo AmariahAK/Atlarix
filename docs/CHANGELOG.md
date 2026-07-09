@@ -37,10 +37,10 @@ release. **Known-open (tracked in `docs/TODO.md`):** residual high CPU/heat unde
   stay light (`SimpleInlineChat.tsx`). Streaming scroll-follow hardened against the "scroll fight" (`useStickToBottom.ts`).
 
 ### Performance (cross-platform)
-- **File watcher → `@parcel/watcher`** (native; VS Code/opencode/Cursor's choice) with `.gitignore`-derived ignores
-  applied at REGISTRATION, so node_modules/.git churn no longer floods the main thread. Replaces the recursive
-  `fs.watch` firehose (which also threw on Linux). (`src/lib/search/search-index-watcher.ts`; graceful-degrades if the
-  native binding is absent; torn down on quit.)
+- **File watcher → `chokidar`** (pure-JS; no native compile) with the composed `.gitignore`/`.atlarixignore` ignorer
+  applied as chokidar's `ignored` so node_modules/.git are PRUNED at traversal and never watched — replaces the
+  recursive `fs.watch` firehose (which flooded the main thread and threw on Linux). (`src/lib/search/search-index-watcher.ts`;
+  graceful-degrades if chokidar is absent; torn down on quit.)
 - **First-grep unblock** — sampled path validation instead of `existsSync` over every file (`ctags-index.ts`);
   FTS5 rebuild reads bounded to 64-concurrent (`fts5-index.ts`).
 - **Memory** — ctags symbol cache LRU-capped (3 workspaces); FTS5 DB handles LRU-capped (4, safe close).

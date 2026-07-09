@@ -1,6 +1,12 @@
 /**
  * File watcher: debounced incremental ctags/FTS5 search-index refresh on code
  * changes — keeps grep's Blueprint reranking fresh as the working tree evolves.
+ *
+ * Uses chokidar (pure-JS, no native compile) with the project's composed ignorer
+ * (BUILTIN ∪ .gitignore ∪ .atlarixignore) passed as `ignored` — so ignored
+ * directories are PRUNED during traversal and never watched. node_modules/.git/
+ * dist churn therefore produces zero events (the fix for the old recursive
+ * `fs.watch` main-thread firehose, which also threw on Linux).
  */
 
 import * as path from "path";
@@ -9,7 +15,6 @@ import log from "electron-log";
 import { updateBm25IndexForFile } from "@/lib/search/bm25_semantic_index";
 import {
   BUILTIN_IGNORE,
-  composeIgnoreSource,
   createIgnorerFromSource,
   isRelPathIgnored,
   loadIgnorerForProject,
@@ -18,14 +23,13 @@ import {
 
 const logger = log.scope("search-index-watcher");
 
-/** Minimal shape of the `@parcel/watcher` subscription we hold onto. */
-type ParcelSubscription = { unsubscribe: () => Promise<void> };
-type ParcelWatcher = {
-  subscribe: (
-    dir: string,
-    cb: (err: Error | null, events: { type: string; path: string }[]) => void,
-    opts: { ignore?: string[] },
-  ) => Promise<ParcelSubscription>;
+/** Minimal shape of the chokidar watcher we hold onto. */
+type ChokidarWatcher = {
+  on: (event: string, cb: (...args: unknown[]) => void) => ChokidarWatcher;
+  close: () => Promise<void>;
+};
+type ChokidarModule = {
+  watch: (paths: string, opts: Record<string, unknown>) => ChokidarWatcher;
 };
 
 /**
@@ -53,8 +57,8 @@ const CODE_EXT = new Set([
 ]);
 const DEBOUNCE_MS = 500;
 
-let subscription: ParcelSubscription | null = null;
-/** Bumped on every (re)subscribe so a stale async subscribe result is discarded. */
+let watcher: ChokidarWatcher | null = null;
+/** Bumped on every (re)watch/stop so a stale async watch result is discarded. */
 let watchGeneration = 0;
 let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 let lastProjectPath: string | null = null;
@@ -62,10 +66,9 @@ let lastWorkspaceId: number | null = null;
 const pending = new Set<string>();
 
 /**
- * The active ignore filter applied at the watcher's event gate so churn in
- * node_modules/.git/dist never drives per-file ctags+FTS5 work. Starts as the
- * synchronous BUILTIN_IGNORE baseline and is upgraded to the project's full
- * composed ignorer (baseline ∪ .gitignore ∪ .atlarixignore) once it loads.
+ * The active ignore filter (BUILTIN baseline → upgraded to the composed
+ * ignorer once .gitignore/.atlarixignore load). Used BOTH to prune chokidar's
+ * traversal (`ignored`) and as the per-event code-file gate.
  */
 let activeIgnorer: AtlarixIgnoreInstance = createIgnorerFromSource(BUILTIN_IGNORE);
 
@@ -85,7 +88,6 @@ export function shouldProcessWatcherPath(
 async function refreshActiveIgnorer(projectPath: string): Promise<void> {
   try {
     const ig = await loadIgnorerForProject(projectPath);
-    // Only apply if this is still the watched project (guards workspace switches).
     if (lastProjectPath === projectPath) activeIgnorer = ig;
   } catch {
     /* keep the BUILTIN_IGNORE baseline */
@@ -102,20 +104,18 @@ export function ensureSearchIndexWatcher(
   workspaceId: number | null,
 ): void {
   if (!projectPath) return;
-  if (subscription && lastProjectPath === projectPath && lastWorkspaceId === workspaceId) {
+  if (watcher && lastProjectPath === projectPath && lastWorkspaceId === workspaceId) {
     return;
   }
   void registerSearchIndexWatcher(projectPath, workspaceId);
 }
 
-/**
- * Stop the watcher and clear its state. Call on workspace close / app quit.
- */
+/** Stop the watcher and clear its state. Call on workspace close / app quit. */
 export function stopSearchIndexWatcher(): void {
-  watchGeneration++; // invalidate any in-flight subscribe
-  if (subscription) {
-    void subscription.unsubscribe().catch(() => {});
-    subscription = null;
+  watchGeneration++; // invalidate any in-flight watch
+  if (watcher) {
+    void watcher.close().catch(() => {});
+    watcher = null;
   }
   if (debounceTimer) {
     clearTimeout(debounceTimer);
@@ -127,67 +127,34 @@ export function stopSearchIndexWatcher(): void {
 }
 
 /**
- * Lazily load `@parcel/watcher` (native). Returns null if it can't be loaded so
- * the app degrades gracefully to no incremental index rather than crashing — the
- * native binding may be missing/incompatible on some packaged builds.
+ * Lazily load chokidar. Returns null (→ no incremental index, graceful) if it
+ * can't be loaded, rather than crashing.
  */
-async function loadParcelWatcher(): Promise<ParcelWatcher | null> {
+async function loadChokidar(): Promise<ChokidarModule | null> {
   try {
-    const mod = (await import("@parcel/watcher")) as unknown as {
-      default?: ParcelWatcher;
-    } & ParcelWatcher;
-    return (mod.default ?? mod) as ParcelWatcher;
+    const mod = (await import("chokidar")) as unknown as {
+      default?: ChokidarModule;
+    } & ChokidarModule;
+    return (mod.default ?? mod) as ChokidarModule;
   } catch (e) {
-    logger.warn("@parcel/watcher unavailable — incremental search index disabled:", e);
+    logger.warn("chokidar unavailable — incremental search index disabled:", e);
     return null;
   }
 }
 
 /**
- * Convert a composed ignore SOURCE (BUILTIN ∪ .gitignore ∪ .atlarixignore, in
- * gitignore syntax) into `@parcel/watcher` ignore globs, so ignored directories
- * are pruned at REGISTRATION — never watched, so node_modules/.git/dist churn
- * produces zero events (the fix for the main-thread firehose). `.git` isn't in
- * gitignore syntax (git ignores it implicitly), so it's added explicitly.
- */
-export function buildWatcherIgnore(composedSource: string): string[] {
-  const globs = new Set<string>([
-    "**/node_modules/**",
-    "**/node_modules",
-    "**/.git/**",
-    "**/.git",
-  ]);
-  for (const rawLine of composedSource.split("\n")) {
-    const line = rawLine.trim();
-    if (!line || line.startsWith("#") || line.startsWith("!")) continue;
-    // Strip anchoring/trailing slashes; skip complex negations/character classes.
-    const p = line.replace(/^\/+/, "").replace(/\/+$/, "");
-    if (!p || p.includes("[")) continue;
-    if (p.includes("/")) {
-      globs.add(p);
-      globs.add(`${p}/**`);
-    } else {
-      globs.add(`**/${p}`);
-      globs.add(`**/${p}/**`);
-    }
-  }
-  return [...globs];
-}
-
-/**
- * Register a `@parcel/watcher` subscription for projectPath. Ignored dirs are
- * excluded at the OS level; the surviving (tiny) event stream is filtered to
- * code files and debounced into incremental ctags/FTS5 refreshes.
+ * Watch projectPath with chokidar. Ignored dirs are pruned at traversal via the
+ * composed ignorer; the surviving (tiny) event stream is filtered to code files
+ * and debounced into incremental ctags/FTS5 refreshes.
  */
 async function registerSearchIndexWatcher(
   projectPath: string | null,
   workspaceId: number | null,
 ): Promise<void> {
-  // Tear down any prior subscription and take a fresh generation token.
   const generation = ++watchGeneration;
-  if (subscription) {
-    void subscription.unsubscribe().catch(() => {});
-    subscription = null;
+  if (watcher) {
+    void watcher.close().catch(() => {});
+    watcher = null;
   }
   if (debounceTimer) {
     clearTimeout(debounceTimer);
@@ -198,27 +165,14 @@ async function registerSearchIndexWatcher(
   lastWorkspaceId = workspaceId;
   if (!projectPath) return;
 
-  // Reset to the sync baseline immediately, then upgrade to the composed ignorer.
+  // Reset to the sync baseline immediately (so node_modules/.git are pruned even
+  // during the async load window), then upgrade to the composed ignorer.
   activeIgnorer = createIgnorerFromSource(BUILTIN_IGNORE);
   void refreshActiveIgnorer(projectPath);
 
-  const parcel = await loadParcelWatcher();
-  if (!parcel) return;
+  const chokidar = await loadChokidar();
+  if (!chokidar || generation !== watchGeneration) return;
 
-  let ignore: string[];
-  try {
-    ignore = buildWatcherIgnore(await composeIgnoreSource(projectPath));
-  } catch {
-    ignore = ["**/node_modules/**", "**/.git/**"];
-  }
-
-  // A newer register/stop superseded us while we awaited — abort this one.
-  if (generation !== watchGeneration) return;
-
-  // @parcel/watcher returns CANONICAL (realpath'd) event paths, so compute
-  // relatives against the realpath'd root — otherwise a symlinked root (macOS
-  // /var → /private/var) yields a `..`-escaping relative that the ignore matcher
-  // rejects (RangeError), which would kill the callback.
   let realRoot = projectPath;
   try {
     realRoot = realpathSync(projectPath);
@@ -226,28 +180,33 @@ async function registerSearchIndexWatcher(
     /* keep projectPath */
   }
 
-  const onEvents = (
-    err: Error | null,
-    events: { type: string; path: string }[],
-  ): void => {
-    if (err || generation !== watchGeneration) return;
-    let sawCode = false;
-    for (const ev of events) {
-      const rel = path.relative(realRoot, ev.path).replace(/\\/g, "/");
-      // Guard against any path outside the root (defensive; shouldn't happen).
-      if (rel.startsWith("..")) continue;
-      const base = rel.split("/").pop() ?? "";
-      // Ignore-rule changes → recompose ignorer AND re-subscribe (the ignore set
-      // itself changed). Debounced re-subscribe via generation guard.
-      if (base === ".gitignore" || base === ".atlarixignore") {
-        void registerSearchIndexWatcher(projectPath, workspaceId);
-        return;
-      }
-      if (!shouldProcessWatcherPath(activeIgnorer, rel)) continue;
-      pending.add(rel);
-      sawCode = true;
+  const toRel = (abs: string): string =>
+    path.relative(realRoot, abs).replace(/\\/g, "/");
+
+  // Prune ignored dirs at traversal. `.git` isn't gitignore syntax (git ignores
+  // it implicitly), so it's forced here alongside node_modules.
+  const ignored = (abs: string): boolean => {
+    if (abs === realRoot) return false;
+    const rel = toRel(abs);
+    if (!rel || rel.startsWith("..")) return false;
+    if (/(^|\/)(node_modules|\.git)(\/|$)/.test(rel)) return true;
+    return isRelPathIgnored(activeIgnorer, rel);
+  };
+
+  const onFsEvent = (event: string, abs: string): void => {
+    if (generation !== watchGeneration) return;
+    if (event === "addDir" || event === "unlinkDir") return;
+    if (typeof abs !== "string") return;
+    const rel = toRel(abs);
+    if (rel.startsWith("..")) return;
+    const base = rel.split("/").pop() ?? "";
+    // Ignore-rule change → recompose ignorer AND re-watch (the prune set changed).
+    if (base === ".gitignore" || base === ".atlarixignore") {
+      void registerSearchIndexWatcher(projectPath, workspaceId);
+      return;
     }
-    if (!sawCode) return;
+    if (!shouldProcessWatcherPath(activeIgnorer, rel)) return;
+    pending.add(rel);
     if (debounceTimer) clearTimeout(debounceTimer);
     debounceTimer = setTimeout(async () => {
       debounceTimer = null;
@@ -256,7 +215,7 @@ async function registerSearchIndexWatcher(
       if (lastProjectPath !== projectPath || lastWorkspaceId == null) return;
       try {
         await Promise.all(
-          batch.map((rel) => updateBm25IndexForFile(lastWorkspaceId!, projectPath, rel)),
+          batch.map((r) => updateBm25IndexForFile(lastWorkspaceId!, projectPath, r)),
         );
       } catch {
         /* ignore */
@@ -265,14 +224,23 @@ async function registerSearchIndexWatcher(
   };
 
   try {
-    const sub = await parcel.subscribe(projectPath, onEvents, { ignore });
-    // Superseded while subscribing → immediately unsubscribe the stale one.
+    const w = chokidar.watch(realRoot, {
+      ignored,
+      ignoreInitial: true,
+      persistent: true,
+      followSymlinks: false,
+      ignorePermissionErrors: true,
+    });
+    w.on("error", () => {});
+    w.on("all", (...args: unknown[]) =>
+      onFsEvent(args[0] as string, args[1] as string),
+    );
     if (generation !== watchGeneration) {
-      void sub.unsubscribe().catch(() => {});
+      void w.close().catch(() => {});
       return;
     }
-    subscription = sub;
+    watcher = w;
   } catch (e) {
-    logger.warn("search index watcher subscribe failed:", e);
+    logger.warn("search index watcher failed:", e);
   }
 }

@@ -18,25 +18,6 @@ vi.mock("@/lib/search/bm25_semantic_index", () => ({
   updateBm25IndexForFile: updateSpy,
 }));
 
-import { buildWatcherIgnore } from "@/lib/search/search-index-watcher";
-
-describe("buildWatcherIgnore — @parcel/watcher ignore globs from .gitignore", () => {
-  it("always excludes node_modules and .git, and derives globs from ignore source", () => {
-    const globs = buildWatcherIgnore(
-      "node_modules/\ndist/\n# comment\ncoverage/\nsrc/generated/\n!keep.ts\n*.log",
-    );
-    // firehose sources always covered (even though .git isn't gitignore syntax)
-    expect(globs).toContain("**/node_modules/**");
-    expect(globs).toContain("**/.git/**");
-    // bare dir entries → match anywhere
-    expect(globs).toContain("**/dist/**");
-    expect(globs).toContain("**/coverage/**");
-    // path entries → anchored
-    expect(globs).toContain("src/generated/**");
-    // comments and negations are skipped
-    expect(globs.some((g) => g.includes("keep.ts"))).toBe(false);
-  });
-});
 
 import {
   ensureSearchIndexWatcher,
