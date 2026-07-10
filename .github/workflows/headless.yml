@@ -43,7 +43,7 @@ jobs:
           cache: npm
 
       # Headless bundle is pure-JS esbuild; native deps are packed inside Docker
-      # by the tarball script — so postinstall (electron/ctags) is not needed.
+      # by the tarball script — so postinstall (electron) is not needed.
       - name: Install dependencies
         run: node scripts/verify-npm-lock-registry.mjs && npm ci --ignore-scripts && npx patch-package
 

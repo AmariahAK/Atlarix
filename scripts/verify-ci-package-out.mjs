@@ -41,7 +41,7 @@ function formatBytes(n) {
 
 /**
  * Coarse floor to catch a grossly broken/empty package (e.g. packageAfterPrune
- * skipped). The resource check (app.asar + ctags extraResource) is the real
+ * skipped). The resource check (app.asar present) is the real
  * "packaging stages ran" assertion; this is only a backstop.
  *
  * History: v9.0.0 Setup.exe ~360 MiB. The v11 packaging fix (the asar was
@@ -52,29 +52,13 @@ function formatBytes(n) {
  */
 const MIN_WIN_SETUP_BYTES = 100 * 1024 * 1024;
 
-function findFilesNamed(dir, name, out = []) {
-  if (!fs.existsSync(dir)) return out;
-  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-    const full = path.join(dir, entry.name);
-    if (entry.isDirectory()) findFilesNamed(full, name, out);
-    else if (entry.isFile() && entry.name === name) out.push(full);
-  }
-  return out;
-}
-
 function verifyWindowsPackagedResources(packageDir) {
   const resourcesDir = path.join(packageDir, "resources");
   const appAsar = path.join(resourcesDir, "app.asar");
   if (!fs.existsSync(appAsar)) {
     return `missing ${path.relative(process.cwd(), appAsar)}`;
   }
-  // The ctags extraResource dir proves the resource-staging stage ran.
-  const ctagsDir = path.join(resourcesDir, "win32-x64");
-  const ctagsFiles = findFilesNamed(ctagsDir, "ctags.exe");
-  if (ctagsFiles.length === 0) {
-    return `missing ctags under ${path.relative(process.cwd(), ctagsDir)} (extraResource staging may not have run)`;
-  }
-  console.log(`OK: win32 resources app.asar + ctags extraResource`);
+  console.log(`OK: win32 resources app.asar`);
   return null;
 }
 

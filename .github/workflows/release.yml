@@ -75,7 +75,7 @@ jobs:
           node-version: 20
           cache: npm
 
-      # postinstall builds electron + fetches ctags; not needed for type/lint/tests
+      # postinstall builds electron; not needed for type/lint/tests
       - name: Install dependencies
         run: node scripts/verify-npm-lock-registry.mjs && npm ci --ignore-scripts && npx patch-package
 
@@ -230,7 +230,7 @@ jobs:
           npm run ci:package -- --arch=${{ matrix.arch }}
           node scripts/verify-ci-package-out.mjs --stage package --platform darwin --arch ${{ matrix.arch }}
           # Packaged smoke: launch the real binary --self-test (pty spawn, worker
-          # resolution, rg, ctags) — catches packaged-only breakages the static
+          # resolution, rg) — catches packaged-only breakages the static
           # verifier can't. Only x64 CI runners can execute an arm64 bin natively,
           # so run the self-test only when the build arch matches the runner.
           if [ "${{ matrix.arch }}" = "$(node -p process.arch)" ]; then
@@ -660,7 +660,7 @@ jobs:
           node scripts/verify-ci-package-out.mjs --stage package --platform win32 --arch x64
           if (-not $?) { exit $LASTEXITCODE }
           # Packaged smoke: launch atlarix.exe --self-test (pty spawn via conpty,
-          # worker resolution, rg, ctags).
+          # worker resolution, rg).
           node scripts/run-packaged-self-test.mjs --arch=x64
           if (-not $?) { exit $LASTEXITCODE }
           node scripts/verify-ci-package-out.mjs --stage make --platform win32 --arch x64

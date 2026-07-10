@@ -102,7 +102,6 @@ async function main() {
     ["app.asar", asar],
     ["app.asar.unpacked", unpacked],
     ["Resources/git", path.join(resources, "git")],
-    ["Resources/ctags", path.join(resources, "ctags")],
     ["Resources/skills", path.join(resources, "src", "skills")],
   ]) {
     const [name, p] = label;
