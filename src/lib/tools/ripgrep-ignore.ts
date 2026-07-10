@@ -1,29 +1,35 @@
 /**
  * Shared ripgrep ignore config for the `grep` and `glob` tools.
  *
- * `--no-require-git` makes ripgrep honor .gitignore/.ignore/.rgignore even
- * OUTSIDE a git repo (rg's default only applies .gitignore inside a git tree) —
- * so file discovery is never flooded with node_modules/dist in a non-git
- * workspace, without any hardcoded exclude list. This is exactly how Claude Code
- * / opencode avoid the flood: ripgrep does the filtering, not a bespoke module.
+ * We confine ripgrep's ignore-reading to the WORKSPACE ITSELF:
+ * - `--no-ignore-parent` + `--no-ignore-global` stop rg from applying
+ *   `.gitignore`/`.ignore` files in PARENT directories or global git config
+ *   (`core.excludesFile`). Without this, opening a folder nested under another
+ *   repo — or a temp dir on a CI runner — would silently inherit unrelated
+ *   ignore rules and hide the workspace's own files.
+ * - The workspace's OWN `.gitignore` and `.atlarixignore` are applied explicitly
+ *   via `--ignore-file`, so they're honored even when the workspace is NOT a git
+ *   repo (rg's default only reads `.gitignore` inside a git tree). In a real git
+ *   repo the in-tree `.gitignore` still prunes node_modules/dist as usual.
  *
- * Back-compat: ripgrep reads `.ignore` files natively but not `.atlarixignore`
- * by name, so an existing workspace `.atlarixignore` is fed to rg via
- * `--ignore-file`. No compose/load machinery — just a flag pointing at the file.
+ * Net effect: file discovery honors the user's own ignores (like Claude Code /
+ * opencode) with zero dependence on the workspace's surrounding directory tree.
  */
 
 import * as path from "node:path";
 import { access } from "node:fs/promises";
 
 export async function ripgrepIgnoreArgs(workspace?: string): Promise<string[]> {
-  const args = ["--no-require-git"];
+  const args = ["--no-ignore-parent", "--no-ignore-global"];
   if (workspace) {
-    const atlarixIgnore = path.join(workspace, ".atlarixignore");
-    try {
-      await access(atlarixIgnore);
-      args.push("--ignore-file", atlarixIgnore);
-    } catch {
-      /* no .atlarixignore — rg's native .gitignore/.ignore handling is enough */
+    for (const name of [".gitignore", ".atlarixignore"]) {
+      const file = path.join(workspace, name);
+      try {
+        await access(file);
+        args.push("--ignore-file", file);
+      } catch {
+        /* absent — nothing to add for this file */
+      }
     }
   }
   return args;
