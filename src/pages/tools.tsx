@@ -16,7 +16,6 @@ type Category =
   | "all"
   | "ai"
   | "code"
-  | "blueprint"
   | "skills"
   | "mcp"
   | "preview"
@@ -37,7 +36,6 @@ const CATEGORIES: { id: Category; label: string }[] = [
   { id: "all", label: "All" },
   { id: "ai", label: "AI & modes" },
   { id: "code", label: "Code" },
-  { id: "blueprint", label: "Blueprint" },
   { id: "skills", label: "Skills" },
   { id: "mcp", label: "MCP" },
   { id: "preview", label: "Preview" },
@@ -103,7 +101,7 @@ const FEATURES: ToolFeature[] = [
       "Review proposals and diffs inline; use @ mentions to reference files",
     ],
     howItWorks:
-      "Atlarix works beside your editor rather than replacing it. The agent explores via Blueprint, search, and explicit file tools — no full-repo scan at startup.",
+      "Atlarix works beside your editor rather than replacing it. The agent explores via grep, glob, and explicit file tools.",
     link: { label: "Workspace chat", to: "/" },
   },
   {
@@ -172,9 +170,9 @@ const FEATURES: ToolFeature[] = [
     shortDescription:
       "Single search tool for keyword, semantic, or structural queries across the repo (replaces scattered find helpers).",
     category: "code",
-    steps: ["Ask in Build mode to locate symbols, routes, or text", "Mention files or folders to narrow scope", "grep results are relevance-ranked and symbol-annotated"],
+    steps: ["Ask in Build mode to locate symbols, routes, or text", "Mention files or folders to narrow scope", "Narrow with a path or include glob for a tighter sweep"],
     howItWorks:
-      "glob finds files by name; grep searches contents and is reranked by the Blueprint index so the most relevant files surface first.",
+      "glob finds files by name; grep searches contents with ripgrep (respecting .gitignore) and returns matches grouped by file — the same fast primitive Claude Code / opencode use.",
     link: { label: "Home → Chat", to: "/" },
   },
   {
@@ -193,21 +191,6 @@ const FEATURES: ToolFeature[] = [
     category: "code",
     steps: ["Ask the model to run targeted tests", "Use git summaries before pushing", "check_environment before new toolchain work"],
     howItWorks: "These tools share the same approval rules as other command executions.",
-    link: { label: "Home → Chat", to: "/" },
-  },
-  {
-    id: "blueprint-graph",
-    title: "Code Map (Blueprint retrieval substrate)",
-    shortDescription:
-      "Blueprint is the local retrieval index — Universal Ctags symbols + ast-grep import/call/route edges — that powers grep behind the scenes. There is no separate tool to call: grep just returns sharper results.",
-    category: "blueprint",
-    steps: [
-      "Open a workspace with your repo",
-      "Use grep normally — results come back relevance-ranked, most relevant files first",
-      "Each hit is annotated with its enclosing function/class so the agent jumps straight to the symbol",
-    ],
-    howItWorks:
-      "A disk-backed SQLite FTS5 index (Ctags symbols) reranks ripgrep's hits by relevance — no embeddings, no whole-repo dumps, constant low memory at any repo size. The agent reasons over the ranked results rather than calling a separate map tool (the same approach as Claude Code / opencode).",
     link: { label: "Home → Chat", to: "/" },
   },
   {

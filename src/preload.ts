@@ -23,7 +23,6 @@ const validInvokeChannels = [
   "chat:stream:reconnect", // FIX 4: re-dispatch the last chat:stream after silent retries failed
   "chat:abort",  // User can stop AI to save tokens
   "chat:submit-user-question-answer", // ask_user tool: submit answer from UI
-  "workspace:prewarm-cache",
   "workspace:open-in-new-window",
   "window:open-blank",
   "workspace:consume-pending-cli",

@@ -28,6 +28,7 @@ import {
 } from "@/lib/context/resolve-model-context-limit";
 import { estimateTokens } from "@/ipc/utils/token_utils";
 import { recordAuxUsage } from "@/lib/usage/turn-usage-aggregator";
+import { totalTokensFromAiUsage } from "@/lib/auth/compass_usage";
 import { ToolRegistry } from "@/lib/tools/registry";
 import { loadSkill } from "../skills/skill-loader";
 import { readSettings } from "../../main/settings";
@@ -50,6 +51,13 @@ import { applyEditProposalToWorktree } from "./subagent-worktree";
 const logger = log.scope("run-subagent");
 
 const SUBAGENT_LENGTH_CONTINUATION_MAX = 3;
+
+/** Compact token count for the sub-agent summary badge (e.g. 12345 → "12.3k"). */
+function formatCompactTokens(n: number): string {
+  if (n < 1000) return String(n);
+  if (n < 1_000_000) return `${(n / 1000).toFixed(1)}k`;
+  return `${(n / 1_000_000).toFixed(1)}M`;
+}
 
 /** Live UI events emitted while a sub-agent runs (rendered in its round card). */
 export type SubagentActivityEmit =
@@ -156,6 +164,8 @@ export type RunSubagentResult = {
   success: boolean;
   summary?: string;
   stepsUsed?: number;
+  /** Total tokens this sub-agent burned (all rounds) — for the per-agent UI badge. */
+  tokensUsed?: number;
   error?: string;
 };
 
@@ -429,6 +439,7 @@ export async function runSubagent(
     let msgs: ModelMessage[] = [{ role: "user", content: args.prompt }];
     let lengthAttempts = 0;
     let totalSteps = 0;
+    let subagentTokens = 0;
     let round = 0;
 
     let tierLimit = GENERIC_CONTEXT_FALLBACK;
@@ -501,6 +512,7 @@ export async function runSubagent(
     let result = await runRound();
     totalSteps += result.steps?.length ?? 0;
     recordAuxUsage(args.chatId, result.usage, "subagent:task");
+    subagentTokens += totalTokensFromAiUsage(result.usage) ?? 0;
 
     while (
       shouldContinue(result.finishReason, {
@@ -539,6 +551,7 @@ export async function runSubagent(
       result = await runRound();
       totalSteps += result.steps?.length ?? 0;
       recordAuxUsage(args.chatId, result.usage, "subagent:task");
+      subagentTokens += totalTokensFromAiUsage(result.usage) ?? 0;
     }
 
     const toolNames: string[] = [];
@@ -553,14 +566,20 @@ export async function runSubagent(
     const uniqTools = [...new Set(toolNames)];
     const toolsFooter =
       uniqTools.length > 0 ? `\n\n— Tools used: ${uniqTools.join(", ")}` : "";
+    // Per-sub-agent token readout, folded into the summary so it shows on the
+    // sub-agent card and gives the main agent honest delegation-cost feedback.
+    const tokensFooter =
+      subagentTokens > 0 ? `\n— ${formatCompactTokens(subagentTokens)} tokens` : "";
 
     logger.info(
-      `Subagent run complete (id=${delegationId}); steps=${totalSteps}`,
+      `Subagent run complete (id=${delegationId}); steps=${totalSteps}; tokens=${subagentTokens}`,
     );
     return {
       success: true,
-      summary: (result.text?.trim() || "(No summary produced)") + toolsFooter,
+      summary:
+        (result.text?.trim() || "(No summary produced)") + toolsFooter + tokensFooter,
       stepsUsed: totalSteps,
+      tokensUsed: subagentTokens,
     };
   } catch (err) {
     logger.error(`runSubagent failed (id=${delegationId}):`, err);

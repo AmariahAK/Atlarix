@@ -3,6 +3,50 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
+## [14.9.0] (2026-07-10) — Lightweight retrieval teardown + opencode-parity providers
+
+The harness gets dramatically lighter and cooler on large repos, and gains full
+multi-provider parity. Net **−5,246 lines**; vitest 1621 green, oxlint 0, ts/knip clean,
+packaged self-test 4/4.
+
+### Fixed
+- **fd-leak + high CPU/heat on large repos (root cause).** The `search-index-watcher`
+  (chokidar 4) on macOS used `fs.watch`/kqueue = **one open fd per watched file** → ~12,365
+  fds on a Jenkins-scale repo → `spawn EBADF` on every child process, plus sustained heat
+  from FTS5 rebuilds reading every file. The entire watcher + index apparatus is deleted;
+  the main process now stays calm and fd count stays flat (~113) under real load.
+
+### Changed
+- **Retrieval collapsed to pure ripgrep** — same shape as Claude Code / opencode / codex.
+  Deleted `search-index-watcher` (chokidar), FTS5/SQLite/BM25 (`fts5-index`, `fts5-core`,
+  `bm25_semantic_index`, `retrieval-common`, `package-boundaries`), the grep reranker
+  (`grep-blueprint-reranker`), ctags/symbols (`lib/index/*`), and the dead
+  `lib/analysis/*` workspace-analyzer→diagram→context chain (ran a full-repo ctags scan
+  that nothing consumed). `lib/tools/grep.ts` + `lib/tools/glob.ts` now both run on ripgrep;
+  `--no-require-git` + optional `--ignore-file` (`lib/tools/ripgrep-ignore.ts`) honor
+  `.gitignore`/`.ignore`/`.atlarixignore` even outside a git tree. Removed the
+  `atlarix-ignore` module, the bundled ctags binary, and the `fetch-ctags` machinery
+  (postinstall + CI steps + assets).
+- **Dependency diet** — removed 4 extraneous deps (`dompurify`, `marked`,
+  `@tanstack/react-virtual`, `wink-bm25-text-search`) + `chokidar`. Removed 11 retrieval
+  test files.
+
+### Added
+- **opencode-parity multi-provider.** `getLanguageModelProviders`
+  (`ipc/shared/language_model_helpers.ts`) now merges a third source — the full models.dev
+  catalog (`getModelsDevProviderCatalog`, `lib/models_dev.ts`): every provider carrying a
+  base URL (~124 net-new) is connectable via the shared OpenAI-compatible `default:` path in
+  `ipc/utils/get_model_client.ts`; hardcoded/custom providers still win by id. Models +
+  context limits stay live (provider-native `/models` first, models.dev fallback) with an
+  hourly auto-refresh and last-good-cache fallback.
+- **Per-sub-agent token usage.** Each sub-agent's total tokens (`lib/agents/run-subagent.ts`)
+  now show as a badge on its run card (`components/chat/subagent/SubAgentRunCard.tsx`),
+  alongside the existing session total + "Sub-agents (last turn)" readout in `TokenBar`.
+- **Terminal background-tab auto-close** (`components/panels/TerminalPanel.tsx`) — a
+  background command's dedicated tab auto-closes ~6s after it exits successfully; failed
+  commands and long-running servers stay, and foreground commands keep sharing the one
+  persistent "Agent" tab.
+
 ## [14.8.16] (2026-07-10) — Hotfix: wire the Core proxy URL into release builds
 
 v14.8.15 stripped `COMPASS_OPENROUTER_API_KEY` from the client and moved Core behind

@@ -664,14 +664,11 @@ async function getRegularModelClient(
       };
     }
     default: {
-      // Handle custom providers
-      if (providerConfig.type === "custom") {
-        if (!providerConfig.apiBaseUrl) {
-          throw new Error(
-            `Custom provider ${model.provider} is missing the API Base URL.`,
-          );
-        }
-        // Assume custom providers are OpenAI compatible for now
+      // Any provider carrying a base URL is treated as OpenAI-compatible and
+      // instantiated from that URL + key: this covers user-defined custom (DB)
+      // providers AND the full models.dev catalog (opencode parity — the long
+      // tail of providers that share the OpenAI wire format, no per-provider SDK).
+      if (providerConfig.apiBaseUrl) {
         const provider = createOpenAICompatible({
           name: providerConfig.id,
           baseURL: providerConfig.apiBaseUrl,
@@ -680,11 +677,17 @@ async function getRegularModelClient(
         return {
           modelClient: {
             model: provider(model.name),
+            builtinProviderId: providerConfig.id,
           },
           backupModelClients: [],
         };
       }
-      // If it's not a known ID and not type 'custom', it's unsupported
+      if (providerConfig.type === "custom") {
+        throw new Error(
+          `Custom provider ${model.provider} is missing the API Base URL.`,
+        );
+      }
+      // Not a known ID, no base URL to fall back on → unsupported.
       throw new Error(`Unsupported model provider: ${model.provider}`);
     }
   }

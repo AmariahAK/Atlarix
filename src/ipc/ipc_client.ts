@@ -2818,15 +2818,6 @@ export class IpcClient {
     });
   }
 
-  /** Fire-and-forget workspace analysis cache so first chat turn hits cache. */
-  public async prewarmWorkspaceCache(workspacePath: string): Promise<void> {
-    try {
-      await this.ipcRenderer.invoke("workspace:prewarm-cache", workspacePath);
-    } catch {
-      /* non-fatal */
-    }
-  }
-
   /**
    * Register a handler for terminal output events for a specific chat
    * Returns unsubscribe function

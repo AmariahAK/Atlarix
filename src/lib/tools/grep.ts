@@ -2,18 +2,17 @@
  * `grep` — text/regex content search via ripgrep (v13; extracted from the
  * deleted unified `search` tool's text mode — the renderer match-list card
  * keys off the same `ui.groups` payload shape).
+ *
+ * Pure ripgrep: matches are returned in ripgrep's own order (the same shape
+ * Claude Code / opencode / codex ship). There is no symbol index or relevance
+ * rerank — a smart model narrows its own query when a result set is too broad.
  */
 
 import { execFile } from "child_process";
 import { promisify } from "util";
 import * as path from "node:path";
 import { truncateUtf8ByBytes } from "@/lib/truncate";
-import {
-  rankGrepHitsByBlueprint,
-  suggestClosestIndexedSymbols,
-} from "@/lib/blueprint/grep-blueprint-reranker";
-import { ensureSymbolIndex, findEnclosingSymbol } from "@/lib/index/ctags-index";
-import type { SymbolRecord } from "@/lib/index/symbol-types";
+import { ripgrepIgnoreArgs } from "./ripgrep-ignore";
 import {
   ToolRegistry,
   createParameters,
@@ -27,40 +26,9 @@ const execFileAsync = promisify(execFile);
 type GrepGroup = {
   file: string;
   matches: { line: number; content: string }[];
-  /** Workspace-relative path (set during symbol annotation). */
+  /** Workspace-relative path (set for display). */
   relFile?: string;
-  /** Enclosing function/class of the file's top match (zoekt-style context). */
-  symbol?: SymbolRecord | null;
 };
-
-/** Compact, readable label for an enclosing symbol (e.g. `Class.method`). */
-function symbolLabel(s: SymbolRecord): string {
-  return s.scope ? `${s.scope}.${s.name}` : s.name;
-}
-
-/**
- * Annotate each grep group with its workspace-relative path and the symbol
- * enclosing its top match, so results read zoekt-style ("the match is inside
- * `UserRegistrationView.create`"). Degrades silently (groups returned unchanged)
- * when the symbol index is cold/unavailable — grep must never get worse.
- */
-async function annotateWithSymbols(
-  groups: GrepGroup[],
-  workspaceRootAbs: string,
-): Promise<GrepGroup[]> {
-  try {
-    const cache = await ensureSymbolIndex(workspaceRootAbs);
-    for (const g of groups) {
-      g.relFile = path.relative(workspaceRootAbs, g.file).replace(/\\/g, "/");
-      const topLine = g.matches[0]?.line;
-      g.symbol =
-        topLine != null ? findEnclosingSymbol(cache, g.relFile, topLine) : null;
-    }
-  } catch {
-    /* no symbol index — leave groups unannotated */
-  }
-  return groups;
-}
 
 function parseGrepOutput(output: string): GrepGroup[] {
   const groups: GrepGroup[] = [];
@@ -92,6 +60,9 @@ async function runRipgrepSearch(args: {
   caseSensitive: boolean;
 }): Promise<GrepGroup[]> {
   const { pattern, workspace, contextLines, filePattern, caseSensitive } = args;
+  // `--no-require-git` + optional .atlarixignore, so ignores are honored even in
+  // a non-git workspace (matches the glob tool; see ripgrep-ignore.ts).
+  const ignoreArgs = await ripgrepIgnoreArgs(workspace);
   // Argv form (no shell): pattern/filePattern are model-controlled, so they must
   // never be interpolated into a shell string — `rg` receives them as literal
   // argv entries. `--` terminates option parsing so a pattern beginning with `-`
@@ -102,6 +73,7 @@ async function runRipgrepSearch(args: {
     String(contextLines),
     ...(caseSensitive ? [] : ["-i"]),
     ...(filePattern ? ["-g", filePattern] : []),
+    ...ignoreArgs,
     "--",
     pattern,
     workspace,
@@ -134,10 +106,9 @@ function formatGrepGroupsForDisplay(
   const maxBytes = Math.min(500_000, Math.max(1024, opts?.maxBytes ?? 24_000));
   if (groups.length === 0) return `No matches for "${query}".`;
   const total = groups.reduce((s, g) => s + g.matches.length, 0);
-  let out = `${total} match(es) for "${query}" across ${groups.length} file(s), most relevant first:\n\n`;
+  let out = `${total} match(es) for "${query}" across ${groups.length} file(s):\n\n`;
   for (const g of groups) {
-    const head = g.relFile ?? g.file;
-    out += g.symbol ? `${head}  › ${symbolLabel(g.symbol)}\n` : `${head}\n`;
+    out += `${g.relFile ?? g.file}\n`;
     for (const m of g.matches.slice(0, perFile)) {
       out += `  ${m.line}: ${m.content}\n`;
     }
@@ -154,10 +125,9 @@ function formatGrepGroupsForDisplay(
 ToolRegistry.register({
   name: "grep",
   description:
-    "Search file CONTENTS with a regex (ripgrep). Returns sharp, low-token results: the most relevant " +
-    "files first (relevance-ranked by the codebase's local index), each annotated with the enclosing " +
-    "function/class so you can jump straight to the symbol. This is the primary tool for structural/architecture " +
-    "questions. Raise max_results for a wider sweep. Use glob to find files by NAME. " +
+    "Search file CONTENTS with a regex (ripgrep). Returns matching lines grouped by file, " +
+    "respecting .gitignore. Use glob to find files by NAME. Raise max_results for a wider sweep; " +
+    "narrow with path/include to focus. " +
     "Examples: grep({ pattern: \"handleLogin\" }), grep({ pattern: \"TODO|FIXME\", include: \"*.ts\" }).",
   requiresWorkspace: true,
   isCore: true,
@@ -219,40 +189,25 @@ ToolRegistry.register({
         caseSensitive: params.case_sensitive === true,
       });
 
-      // Blueprint is the retrieval substrate: reorder file groups by structural
-      // relevance BEFORE the cap, so the most relevant files survive truncation.
-      const ranked = await rankGrepHitsByBlueprint(groups, {
-        workspaceId: params.workspaceId,
-        workspaceRootAbs: params.workspace,
-        query: params.pattern,
-      });
-
+      // Trim to the match cap in ripgrep's own order, then label each kept file
+      // with its workspace-relative path for a clean, low-token result.
       let kept = 0;
       const trimmed: GrepGroup[] = [];
-      for (const g of ranked) {
+      for (const g of groups) {
         if (kept >= maxResults) break;
         const slice = g.matches.slice(0, Math.max(0, maxResults - kept));
-        trimmed.push({ file: g.file, matches: slice });
+        trimmed.push({
+          file: g.file,
+          matches: slice,
+          relFile: path.relative(workspace, g.file).replace(/\\/g, "/"),
+        });
         kept += slice.length;
       }
 
-      // Annotate each kept file with the symbol enclosing its top match
-      // (zoekt-style) so the model can jump straight to the function/class.
-      await annotateWithSymbols(trimmed, workspace);
-
-      // v13.2: zero hits → Blueprint lexical suggestions instead of a dead
-      // end (fires only on misses; prevents a wasted retry round).
       if (trimmed.length === 0) {
-        const suggestions = await suggestClosestIndexedSymbols({
-          workspaceId: params.workspaceId,
-          workspaceRootAbs: params.workspace,
-          query: params.pattern,
-        });
         return {
           success: true,
-          result: `No matches for "${params.pattern}".${
-            suggestions ? `\n\n${suggestions}` : ""
-          }`,
+          result: `No matches for "${params.pattern}".`,
           ui: { groups: [] },
         };
       }
@@ -267,9 +222,6 @@ ToolRegistry.register({
           groups: trimmed.map((g) => ({
             file: g.file,
             matchCount: g.matches.length,
-            ...(g.symbol
-              ? { enclosingSymbol: { name: symbolLabel(g.symbol), kind: g.symbol.kind } }
-              : {}),
           })),
         },
       };

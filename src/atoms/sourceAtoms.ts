@@ -411,6 +411,3 @@ export const visibleBrowserErrorsAtom = atom((get) => {
   return errors.filter((e) => !dismissed.has(getErrorSignature(e)));
 });
 
-/** Recent codebase search queries (max 10, for "Recent Searches" dropdown) */
-export const recentCodeSearchesAtom = atom<string[]>([]);
-

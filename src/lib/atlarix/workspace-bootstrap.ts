@@ -6,19 +6,21 @@ import * as fs from "fs/promises";
 import * as path from "path";
 import log from "electron-log";
 import { migrateLegacyAtlarixFiles } from "@/lib/project-memory";
-import { ensureDefaultAtlarixIgnore } from "@/lib/atlarix/atlarix-ignore";
 
 const logger = log.scope("workspace-bootstrap");
 
 const LEGACY_PLAN_REL = path.join(".atlarix", "ATLARIX_PLAN.md");
 const ARCHIVE_DIR_REL = path.join(".atlarix", "plans", "archive");
 
-/** Migrate atlarix.md, .atlarixignore, and archive legacy ATLARIX_PLAN.md (reference only). */
+/**
+ * Migrate atlarix.md and archive legacy ATLARIX_PLAN.md (reference only). No
+ * `.atlarixignore` scaffold — grep/glob run on ripgrep, which honors the user's
+ * own .gitignore/.ignore/.atlarixignore if present (see ripgrep-ignore.ts).
+ */
 export async function bootstrapAtlarixWorkspaceFolder(workspacePath: string): Promise<void> {
   if (!workspacePath?.trim()) return;
   try {
     await migrateLegacyAtlarixFiles(workspacePath);
-    await ensureDefaultAtlarixIgnore(workspacePath);
     await archiveLegacyPlanFileIfPresent(workspacePath);
   } catch (err) {
     logger.warn("workspace bootstrap failed:", err);

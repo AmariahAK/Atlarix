@@ -1180,29 +1180,6 @@ export class PermissionInterceptor extends EventEmitter {
         if (isAtlarixPlanRelativePath(rel)) {
             await this.refreshPlanLedgerFromWrittenFile(fullPath, rel);
         }
-        this.refreshSearchIndexForWrittenFiles([rel]);
-    }
-
-    /**
-     * v14.8.10 Fix G: keep the FTS5/BM25 layer fresh for the turn's OWN writes.
-     * Nothing else updates it mid-session (the file-watcher is only registered
-     * when the Blueprint panel is opened; the index otherwise rebuilds only on
-     * a git-HEAD change), so a just-written file ranked WORST in grep's rerank
-     * and was missing from zero-hit suggestions — the model concluded "the grep
-     * index is stale" and retried into the repetition guard. Best-effort and
-     * fire-and-forget: a write must never wait on (or fail because of) indexing.
-     */
-    private refreshSearchIndexForWrittenFiles(relPaths: string[]): void {
-        if (this.workspaceId == null || relPaths.length === 0) return;
-        const workspaceId = this.workspaceId;
-        void (async () => {
-            const { updateBm25IndexForFile } = await import("@/lib/search/bm25_semantic_index");
-            for (const rel of relPaths) {
-                await updateBm25IndexForFile(workspaceId, this.workspacePath, rel);
-            }
-        })().catch((err) => {
-            logger.log(`[PermissionInterceptor] search-index refresh skipped: ${String(err)}`);
-        });
     }
 
     private async executeWriteMultipleFiles(request: PermissionRequest): Promise<void> {
@@ -1231,7 +1208,6 @@ export class PermissionInterceptor extends EventEmitter {
         if (this.snapshotTurnId && relPaths.length > 0) {
             appendLedgerFilesWritten(this.snapshotTurnId, relPaths);
         }
-        this.refreshSearchIndexForWrittenFiles(relPaths);
     }
 
     private async executeDeleteFile(request: PermissionRequest): Promise<void> {

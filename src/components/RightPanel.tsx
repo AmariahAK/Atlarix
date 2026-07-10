@@ -255,7 +255,7 @@ Please fix these errors in priority order (structural/build errors first, then r
                         </div>
                     </TooltipTrigger>
                     <TooltipContent side="left" className="max-w-[14rem]">
-                        Drag to resize the panel. Tabs switch between Preview, Code, Terminal, and more.
+                        Drag to resize the panel. Tabs switch between Preview, Terminal, and more.
                     </TooltipContent>
                 </Tooltip>
             </TooltipProvider>

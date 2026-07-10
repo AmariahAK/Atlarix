@@ -189,7 +189,7 @@ if (started) {
 
 /**
  * Packaged self-test (`--self-test`): exercise the real ship paths (node-pty
- * spawn, proxy-worker resolution from the asar, ripgrep, ctags) and exit BEFORE
+ * spawn, proxy-worker resolution from the asar, ripgrep) and exit BEFORE
  * any app lifecycle — no single-instance lock (which would collide with a
  * running copy and hang), no window, no GPU/DB. The probes need none of it.
  */
@@ -1468,15 +1468,6 @@ app.on("before-quit", (e) => {
       abortAllStreams();
     } catch (abortErr) {
       logger.warn("abortAllStreams on quit:", abortErr);
-    }
-    // Tear down the file watcher so its native subscription doesn't outlive the
-    // app (leaked watch = sustained background CPU; on Windows a live watch over
-    // a removed dir can abort libuv).
-    try {
-      const { stopSearchIndexWatcher } = await import("./lib/search/search-index-watcher");
-      stopSearchIndexWatcher();
-    } catch (watcherErr) {
-      logger.warn("stopSearchIndexWatcher on quit:", watcherErr);
     }
     // v12 3.7: drain tracked state-mutating background work (self-correction
     // dispatch, snapshot writes, usage records) before the process dies.

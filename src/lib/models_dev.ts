@@ -344,6 +344,41 @@ export async function getModelsFromModelsDev(
 }
 
 /**
+ * Full provider catalog from models.dev — every provider that carries an API
+ * base URL (`api`) and at least one model. Drives opencode-style "all providers
+ * off the bat": each becomes a connectable OpenAI-compatible provider (its base
+ * URL + key env var), instantiated via the shared default path in
+ * get_model_client. Providers Atlarix hardcodes (special auth / native wire
+ * formats — anthropic, google, vertex, bedrock, compass, openrouter) override
+ * these by id, so this only ADDS the long tail. Catalog is disk-cached and
+ * hourly-refreshed with last-good fallback, so it never blocks or throws.
+ */
+export async function getModelsDevProviderCatalog(): Promise<
+  Array<{ id: string; name: string; apiBaseUrl: string; envVarName?: string }>
+> {
+  const data = await getModelsDevData();
+  const out: Array<{
+    id: string;
+    name: string;
+    apiBaseUrl: string;
+    envVarName?: string;
+  }> = [];
+  for (const [modelsDevId, provider] of Object.entries(data)) {
+    // No base URL → can't instantiate via OpenAI-compatible; skip.
+    if (!provider?.api) continue;
+    if (!provider.models || Object.keys(provider.models).length === 0) continue;
+    const atlarixId = REVERSE_PROVIDER_ID_MAP[modelsDevId] ?? modelsDevId;
+    out.push({
+      id: atlarixId,
+      name: provider.name || atlarixId,
+      apiBaseUrl: provider.api,
+      envVarName: provider.env?.[0],
+    });
+  }
+  return out;
+}
+
+/**
  * Start background refresh (call from main process on app ready)
  */
 export function startModelsDevRefresh(): void {

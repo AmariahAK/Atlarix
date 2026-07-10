@@ -53,6 +53,15 @@ function mergeLines(prev: TerminalLine[], add: TerminalLine[]): TerminalLine[] {
  */
 const AGENT_FG_KEY = "__agent_fg__";
 const AGENT_FG_LABEL = "Agent";
+/**
+ * A background agent command gets its own tab while it runs; once it EXITS
+ * SUCCESSFULLY we auto-close that tab after a short grace so completed one-shots
+ * (builds, installs) don't pile up. Long-running servers never "complete", so
+ * they stay; FAILED commands stay too, so a failure is always inspectable. The
+ * result already reached the agent + chat, and the shared "Agent" tab keeps the
+ * running history of foreground commands.
+ */
+const AGENT_BG_AUTOCLOSE_MS = 6000;
 
 function upsertAgentOutputLines(
   instances: TerminalInstance[],
@@ -138,6 +147,8 @@ export function TerminalPanel() {
   const seenOps = useRef<Set<string>>(new Set());
   const scrollRef = useRef<HTMLDivElement>(null);
   const skipSyncRef = useRef(false);
+  /** Pending auto-close timers for finished background agent tabs, by instance id. */
+  const bgCloseTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
 
   const workspacePath = useMemo(() => {
     if (workspace?.path) return workspace.path;
@@ -507,8 +518,31 @@ export function TerminalPanel() {
           out.status,
         ),
       );
+      // A finished background one-shot: auto-close its dedicated tab after a grace
+      // so completed builds/installs don't accumulate. Success only — failures and
+      // still-running servers stay visible. (Never the shared "Agent"/user tabs.)
+      if (
+        out.background &&
+        out.status === "completed" &&
+        !bgCloseTimers.current.has(instanceId)
+      ) {
+        const timer = setTimeout(() => {
+          bgCloseTimers.current.delete(instanceId);
+          deleteInstance(instanceId);
+        }, AGENT_BG_AUTOCLOSE_MS);
+        bgCloseTimers.current.set(instanceId, timer);
+      }
     }
-  }, [terminalOutputs, getOrCreateAgentInstance, setInstances]);
+  }, [terminalOutputs, getOrCreateAgentInstance, setInstances, deleteInstance]);
+
+  // Clear any pending auto-close timers on unmount.
+  useEffect(() => {
+    const timers = bgCloseTimers.current;
+    return () => {
+      for (const t of timers.values()) clearTimeout(t);
+      timers.clear();
+    };
+  }, []);
 
   useEffect(() => {
     const el = scrollRef.current;

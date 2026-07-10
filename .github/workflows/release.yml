@@ -209,11 +209,6 @@ jobs:
           p12-file-base64: ${{ secrets.APPLE_CERT_BASE64 }}
           p12-password: ${{ secrets.APPLE_CERT_PASSWORD }}
 
-      - name: Fetch Universal Ctags
-        run: npm run fetch-ctags
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
       # The packaged --self-test probes ripgrep (`rg`); the macos-latest (arm64)
       # runner doesn't ship it, so the arm64 self-test failed with `spawn rg ENOENT`.
       # Install it here, mirroring the Windows job's `choco install ripgrep`.
@@ -429,11 +424,6 @@ jobs:
       - name: Verify Forge patch applied
         run: node scripts/verify-forge-patch.mjs
 
-      - name: Fetch Universal Ctags
-        run: npm run fetch-ctags
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Tests
         run: npm test
 
@@ -579,12 +569,6 @@ jobs:
       - name: Verify Forge patch applied
         shell: pwsh
         run: node scripts/verify-forge-patch.mjs
-
-      - name: Fetch Universal Ctags
-        shell: pwsh
-        run: npm run fetch-ctags
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Ensure Electron binary (Windows)
         shell: pwsh

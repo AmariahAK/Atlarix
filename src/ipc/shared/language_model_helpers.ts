@@ -10,7 +10,10 @@ import {
   CLOUD_PROVIDERS,
   PROVIDER_TO_ENV_VAR,
 } from "./language_model_constants";
-import { getModelsFromModelsDev } from "@/lib/models_dev";
+import {
+  getModelsFromModelsDev,
+  getModelsDevProviderCatalog,
+} from "@/lib/models_dev";
 import {
   fetchModelsFromProvider,
   supportsProviderNativeFetch,
@@ -91,7 +94,38 @@ export async function getLanguageModelProviders(): Promise<
     return a.id.localeCompare(b.id);
   });
 
-  return [...hardcodedProviders, ...customProvidersMap.values()];
+  // Third source: the full models.dev provider catalog (opencode parity). Every
+  // provider models.dev knows becomes connectable via the shared OpenAI-compatible
+  // path (base URL + key env var from api.json); models + limits stay live. The
+  // hardcoded (special-auth / native) and custom entries win by id, so this only
+  // ADDS the long tail. Never throws — models.dev has a last-good cache fallback.
+  const existingIds = new Set<string>([
+    ...hardcodedProviders.map((p) => p.id),
+    ...customProvidersMap.keys(),
+  ]);
+  const modelsDevProviders: LanguageModelProvider[] = [];
+  try {
+    for (const c of await getModelsDevProviderCatalog()) {
+      if (existingIds.has(c.id)) continue;
+      existingIds.add(c.id);
+      modelsDevProviders.push({
+        id: c.id,
+        name: c.name,
+        apiBaseUrl: c.apiBaseUrl,
+        envVarName: c.envVarName,
+        type: "cloud",
+      });
+    }
+    modelsDevProviders.sort((a, b) => a.name.localeCompare(b.name));
+  } catch {
+    /* models.dev unavailable — hardcoded + custom still work */
+  }
+
+  return [
+    ...hardcodedProviders,
+    ...customProvidersMap.values(),
+    ...modelsDevProviders,
+  ];
 }
 
 /**

@@ -465,7 +465,7 @@ export function AppList({ show }: { show?: boolean }) {
                       )}
                     </div>
 
-                    {/* Sessions — when expanded (files live in the right-panel Code tab) */}
+                    {/* Sessions — when expanded */}
                     {ws.isExpanded && !isMissing && (
                       <div className="pl-6 pr-2 pt-1">
                         <div className="text-[10px] font-medium text-muted-foreground px-1 mb-1">

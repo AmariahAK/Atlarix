@@ -66,6 +66,12 @@ function firstLineSummary(summary: string | undefined): string | null {
   return line.length > 160 ? `${line.slice(0, 157)}…` : line;
 }
 
+/** Compact token figure run-subagent appends to the summary (`— 12.3k tokens`). */
+function subagentTokensLabel(summary: string | undefined): string | null {
+  const m = summary?.match(/—\s*([\d.]+[kKmM]?)\s+tokens\b/);
+  return m ? `${m[1]} tok` : null;
+}
+
 const GENERIC_PHASE_LINES = new Set([
   "Exploring…",
   "Explore complete",
@@ -188,6 +194,7 @@ export function SubAgentRunCard({
           );
 
   const openDialog = () => setDialogOpen(true);
+  const tokensLabel = subagentTokensLabel(agent.summary);
 
   return (
     <div className={cn(streamToolCardShell, "rounded-lg border overflow-hidden")}>
@@ -206,6 +213,11 @@ export function SubAgentRunCard({
             {subtitle}
           </span>
         </span>
+        {tokensLabel ? (
+          <span className="text-[10px] tabular-nums text-muted-foreground/70 shrink-0 mr-1 self-center">
+            {tokensLabel}
+          </span>
+        ) : null}
         <Maximize2 className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
       </button>
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>

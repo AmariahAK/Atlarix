@@ -2,7 +2,6 @@
  * File Handlers
  * =============
  * IPC handlers for direct file read/write operations.
- * Used by the Code tab's FileEditor fallback paths for live code editing.
  *
  * Secret paths: basename-only block + verify filePath is under a registered app path
  * (renderer does not thread workspaceRoot through IPC).

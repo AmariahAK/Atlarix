@@ -26,8 +26,6 @@ import {
     stripToolPathPrefixes,
 } from "../../ipc/utils/safeWorkspaceRelativePath";
 
-import {
-    } from "@/lib/atlarix/atlarix-ignore";
 import { isAllowedToolOutputPath } from "@/lib/security/tool-output-paths";
 import {
     assertReadablePath,
@@ -146,7 +144,7 @@ function smartSliceFile(lines: string[], maxLines: number, context: SliceContext
                 text: [
                     ...head,
                     '',
-                    `... [${lines.length - headLines - tailLines} lines omitted - use line_range or get_file_outline for details] ...`,
+                    `... [${lines.length - headLines - tailLines} lines omitted - use line_range for details] ...`,
                     '',
                     ...tail
                 ].join('\n'),
@@ -358,7 +356,7 @@ ToolRegistry.register({
                     .map((line, idx) => `${idx + 1}: ${line}`)
                     .join("\n");
                 const remaining = lines.length - capLines;
-                const footer = `\n\n(truncated — ${remaining} more line(s); call again with offset=${capLines + 1}, or use get_file_outline / context to navigate)`;
+                const footer = `\n\n(truncated — ${remaining} more line(s); call again with offset=${capLines + 1} to page, or use context to navigate)`;
                 const block = `File: ${displayPath}\nLines: 1-${capLines} of ${lines.length}\n\n${numberedLines}${footer}`;
                 return truncateUtf8ByBytes(block, capBytes, { margin: 160, suffix: "\n\n… [truncated: exceeded max_bytes; page with offset/limit]" });
             }

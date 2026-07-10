@@ -1,6 +1,6 @@
 /**
  * Small session/mode IPC handlers extracted from registerChatStreamHandlers:
- * respond-mode-change, chat:submit-user-question-answer, workspace:prewarm-cache.
+ * respond-mode-change, chat:submit-user-question-answer.
  * Independent of the streaming turn engine — registered by the parent.
  *
  * (Satellite: never imports the parent handler.)
@@ -97,9 +97,4 @@ export function registerSessionHandlers(): void {
     },
   );
 
-  ipcMain.handle("workspace:prewarm-cache", async (_event, workspacePath: string) => {
-    const { prewarmWorkspaceCache } = await import("./workspace-context");
-    await prewarmWorkspaceCache(workspacePath);
-    return { ok: true };
-  });
 }

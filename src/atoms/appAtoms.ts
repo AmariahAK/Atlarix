@@ -10,7 +10,7 @@ export const pendingWorkspaceAppIdAtom = atom<number | null>(null);
 export const chatBoundAppIdByChatIdAtom = atom<Map<number, number | undefined>>(
   new Map(),
 );
-// Store workspace info (id + name + path) for reliable display and Code tab when apps list is stale
+// Store workspace info (id + name + path) for reliable display when apps list is stale
 export const selectedWorkspaceInfoAtom = atom<{ id: number; name: string; path?: string } | null>(null);
 export const appsListAtom = atom<App[]>([]);
 export const appBasePathAtom = atom<string>("");

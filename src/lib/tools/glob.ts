@@ -2,11 +2,16 @@
  * `glob` — find files by name pattern (v13; replaces find_file and the
  * list_files/explore_folder/get_project_structure family for discovery).
  * Results are modification-time sorted (newest first), like opencode/Claude Code.
+ *
+ * Backed by ripgrep (`rg --files -g <pattern>`), the SAME engine as `grep`: it
+ * honors .gitignore/.ignore/.atlarixignore natively (see ripgrep-ignore.ts), so
+ * node_modules/dist/.git never reach the model without any bespoke ignore code.
  */
 
 import * as path from "path";
+import { execFile } from "child_process";
+import { promisify } from "util";
 import * as fsp from "fs/promises";
-import { glob as runGlob } from "glob";
 import {
     ToolRegistry,
     createParameters,
@@ -18,26 +23,12 @@ import {
     stripToolPathPrefixes,
 } from "../../ipc/utils/safeWorkspaceRelativePath";
 import { isBlockedSecretBasename } from "@/lib/security/env-secret-paths";
-import { loadIgnorerForProject, isRelPathIgnored } from "@/lib/atlarix/atlarix-ignore";
+import { ripgrepIgnoreArgs } from "./ripgrep-ignore";
+
+const execFileAsync = promisify(execFile);
 
 const DEFAULT_LIMIT = 100;
 const MAX_LIMIT = 1000;
-
-// Pruned during traversal so we never walk into heavy dirs (perf). Finer
-// exclusions (.DS_Store, .vscode, .idea, user-defined) are applied afterward
-// via the workspace .atlarixignore — the same rules Blueprint/RTE use.
-const TRAVERSAL_PRUNE = [
-    "node_modules/**",
-    "**/node_modules/**",
-    ".git/**",
-    "dist/**",
-    "build/**",
-    "out/**",
-    "coverage/**",
-    ".next/**",
-    ".cache/**",
-    ".turbo/**",
-];
 
 ToolRegistry.register({
     name: "glob",
@@ -75,9 +66,8 @@ ToolRegistry.register({
         workspace?: string;
     }) => {
         const max = Math.min(MAX_LIMIT, Math.max(1, limit ?? DEFAULT_LIMIT));
-        // A18/L-3: the glob library honors `../` in the PATTERN, so `../../*`
-        // would enumerate outside the workspace even though `searchPath` is
-        // confined. Reject any `..` path segment in the pattern.
+        // A18/L-3: a `../` segment in the PATTERN would enumerate outside the
+        // workspace even though `searchPath` is confined. Reject it.
         if (/(^|[\\/])\.\.([\\/]|$)/.test(pattern)) {
             return {
                 success: false,
@@ -88,28 +78,44 @@ ToolRegistry.register({
             const fullPath = workspace
                 ? resolvePathUnderWorkspace(workspace, searchPath || ".")
                 : path.resolve(stripToolPathPrefixes(searchPath || ".") || ".");
-            const matched = await runGlob(pattern, {
-                cwd: fullPath,
-                ignore: TRAVERSAL_PRUNE,
-                nodir: true,
-            });
+
+            // ripgrep lists files under cwd (paths relative to it), filtered by
+            // .gitignore/.ignore/.atlarixignore. A CATCH-ALL `-g` glob (`*`, `**`,
+            // `**/*`) makes ripgrep override those ignores and re-include
+            // node_modules/dist — so for the universal patterns we pass NO `-g`
+            // (plain `rg --files` is already correctly ignore-filtered) and, for a
+            // bare `*`, keep only top-level entries (matching the old glob's
+            // non-recursive `*` semantics). Constrained patterns respect ignores.
+            const trimmed = pattern.trim();
+            const isUniversal =
+                trimmed === "" ||
+                trimmed === "*" ||
+                trimmed === "**" ||
+                trimmed === "**/*";
+            const ignoreArgs = await ripgrepIgnoreArgs(workspace);
+            const rgArgs = ["--files", ...ignoreArgs];
+            if (!isUniversal) rgArgs.push("-g", pattern);
+            let matched: string[] = [];
+            try {
+                const { stdout } = await execFileAsync("rg", rgArgs, {
+                    cwd: fullPath,
+                    maxBuffer: 20 * 1024 * 1024,
+                });
+                matched = stdout.split("\n").map((l) => l.trim()).filter(Boolean);
+            } catch {
+                // rg exits non-zero when nothing matches — treat as empty, not error.
+                matched = [];
+            }
+            if (trimmed === "*") {
+                // Bare `*` = list this directory's own files, not the whole tree.
+                matched = matched.filter((f) => !f.includes("/"));
+            }
+
             // Secret-path denylist: never enumerate .env-style files — listing
             // names leaks that secrets exist and invites a follow-up read.
-            let files = matched.filter(
+            const files = matched.filter(
                 (f) => !isBlockedSecretBasename(path.basename(f)),
             );
-            // Honor the workspace .atlarixignore (same source of truth as the
-            // Blueprint index), so OS/editor cruft like .DS_Store / .vscode /
-            // .idea — and any user-defined excludes — never reach the model.
-            if (workspace) {
-                const ig = await loadIgnorerForProject(workspace);
-                files = files.filter((f) => {
-                    const relToWs = path
-                        .relative(workspace, path.join(fullPath, f))
-                        .replace(/\\/g, "/");
-                    return !relToWs || !isRelPathIgnored(ig, relToWs);
-                });
-            }
 
             if (files.length === 0) {
                 return `No files found matching pattern: ${pattern}. Often an extension or casing issue — try a broader glob (e.g. "**/${pattern}"), or use grep to find the file by its content.`;

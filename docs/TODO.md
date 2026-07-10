@@ -1,42 +1,27 @@
 # Atlarix TODO
 
-**Current Version:** v14.8.16 (RELEASED — Latest on atlarix-releases) — hotfix over v14.8.15 (CI proxy-url wiring)
+**Current Version:** v14.9.0 (RELEASED — Latest on atlarix-releases) — lightweight retrieval teardown + opencode-parity providers
 **Last Updated:** 2026-07-10
 
-## 🔥 Open — TOP PRIORITY (next session)
+## ✅ Shipped in v14.9.0 (2026-07-10)
 
-- **[HIGH] Retrieval simplification — kills the fd leak + high-CPU/heat (ROOT CAUSE CONFIRMED 2026-07-10).**
-  **Diagnosis (from live logs/lsof/sample on the packaged 14.8.16 over big repos jenkins/moby/traefik):**
-  the `search-index-watcher` uses **chokidar 4 (dropped fsevents) → Node `fs.watch` → macOS kqueue,
-  which opens ONE fd per watched file**. On the 12,365-file Jenkins repo that's **12,365 open REG fds**
-  → process hits its fd budget → **`spawn EBADF` on every child process** (`run_command`, sub-agent
-  shells, ripgrep — file reads survive since they don't spawn). Same root drives the heat (CPU sample
-  under load dominated by `read()` + FTS5 sqlite). **NOT the security release** (only 1 socket open).
-  The v14.8.14 `@parcel/watcher`→chokidar swap (to fix Windows compile) reintroduced it as a macOS
-  kqueue/fd blowup. **Agreed plan (see this session's research):**
-  (1) **Remove the chokidar filesystem watcher** entirely (`search-index-watcher.ts` + its
-  `ensureSearchIndexWatcher` registration in `chat_stream_handlers.ts:1180` + `stopSearchIndexWatcher`).
-  (2) **Keep `symbols.json`** (ctags cache in `userData/ctags-index/`; saves the ~3s cold-start ctags run).
-  (3) **Incremental freshness goes INTERNAL** — instead of watching the OS, hook `updateSymbolIndexForFile`
-  to Atlarix's OWN edit events (`edit_file`/`write`/git mutations): the app already knows what it changed,
-  so re-index just those files (same cheap single-file ctags update, ZERO fs-watch, zero fd leak).
-  (4) **Keep the lazy staleness check** (`ensureSymbolIndex` git-HEAD + mtimes) — catches external/IDE edits on next grep.
-  (5) **Remove FTS5 + SQLite** — the rerank is candidate-set (`restrictToFiles` = grep hits only), and the
-  ctags symbols are ALREADY in memory (`memoryByPath`), so replace `searchBlueprintBm25`/FTS5 with an
-  **in-memory BM25 over the candidate files' symbols** (optionally a small global term→docfreq map to keep
-  FTS5-equal IDF). FTS5's disk index only existed to avoid whole-repo in-memory OOM — moot once reranking
-  is candidate-set. Zero-hit "closest symbol" suggestion → drop or light in-memory name-match.
-  **Keep ctags** (powers symbols + `findEnclosingSymbol` annotations + blast-radius). Net end state:
-  `ripgrep` → on-demand ctags (symbols.json, refreshed by internal edit-hook + lazy staleness) →
-  in-memory candidate BM25 rerank. No chokidar, no FTS5/SQLite, no fd leak, no heat. Optional first step:
-  benchmark in-memory candidate BM25 vs FTS5 ranking on jenkins/moby to prove parity before deleting FTS5.
-- **C-1 secrets — RESOLVED in v14.8.15.** `COMPASS_OPENROUTER_API_KEY` / `LEMONSQUEEZY_API_KEY` /
-  `LEMONSQUEEZY_WEBHOOK_SECRET` / `RESEND_API_KEY` removed from `MAIN_KEYS`; Core routes through the
-  new `atlarix-proxy`, and checkout/cancel/email moved to Supabase edge functions. Client now ships
-  **zero server secrets**. Remaining owner action: rotate the OpenRouter master key (Railway) + the
-  app Supabase service-role key (both were in prior shipped builds). See `docs/SUPABASE_SECURITY_AUDIT.md`.
-- **Deferred perf follow-ups:** fts5 handle eviction shipped; renderer virtualization deferred
-  (measure-first — see the heat item). Full `@parcel/watcher` Win/Linux packaged smoke-test.
+Full detail in [`docs/CHANGELOG.md`](./CHANGELOG.md) `[14.9.0]`. Net **−5,246 lines**; vitest 1621,
+oxlint 0, ts/knip clean, packaged self-test 4/4; verified under real jenkins load (flat ~113 fds, main
+process calm).
+
+- **Retrieval teardown (fd-leak + heat root cause).** Deleted the chokidar `search-index-watcher`
+  (macOS kqueue = 1 fd/file → `spawn EBADF` on big repos), FTS5/SQLite/BM25, the grep reranker,
+  ctags/symbols, and the dead `workspace-analyzer→diagram→context` chain. `grep`/`glob` now run on
+  pure ripgrep (`--no-require-git` + `--ignore-file`); `atlarix-ignore` module + ctags binary +
+  `fetch-ctags` machinery removed. `.atlarixignore` still honored via ripgrep.
+- **opencode-parity multi-provider.** Full models.dev catalog merged (~124 net-new providers via the
+  shared OpenAI-compatible path); live models/limits + hourly auto-refresh with cache fallback.
+- **Per-sub-agent token badge** on run cards; **terminal background-tab auto-close** (success, 6s grace).
+- **Dependency diet:** 4 extraneous deps + chokidar removed; 11 retrieval test files removed.
+
+**Post-release owner actions (NOT release-blocking — client ships zero server secrets):** rotate the
+OpenRouter master key + app Supabase service-role key; remove `COMPASS_OPENROUTER_API_KEY` /
+`ATLARIX_CORE_MODELS_URL` from GH Actions.
 
 ## 🔐 Security follow-ups (from `docs/SECURITY_REVIEW_v14.8.12.md`, owner-triaged)
 

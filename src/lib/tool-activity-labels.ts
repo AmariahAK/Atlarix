@@ -80,7 +80,6 @@ const ARG_VERBS: Record<string, string> = {
   delete_file: "Deleting",
   rename_file: "Renaming",
   explore_folder: "Exploring",
-  get_file_outline: "Outlining",
 };
 
 /** Pull a human-readable subject (file path, query, command) out of tool args. */

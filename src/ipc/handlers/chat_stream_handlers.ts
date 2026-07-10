@@ -1172,15 +1172,6 @@ ${componentSnippet}
         logger.log(
           `Using workspace for chat ${req.chatId}: ${appPath || "(none)"} (appId: ${effectiveAppId ?? req.appId ?? "n/a"})`,
         );
-        // v14.8.10 Fix G: keep the incremental ctags/FTS5 search-index refresh
-        // alive for ordinary agent sessions. Idempotent; ignore-filtered; cheap.
-        // Automation runs skip this — never re-point the singleton watcher at a
-        // throwaway worktree.
-        if (hasWorkspace && appPath && !req.automation) {
-          void import("@/lib/search/search-index-watcher")
-            .then((m) => m.ensureSearchIndexWatcher(appPath, effectiveAppId ?? null))
-            .catch(() => {});
-        }
         if (hasWorkspace && appPath && !fs.existsSync(appPath)) {
           logger.warn(`Workspace path does not exist on disk: ${appPath}`);
           safeSend(event.sender, "chat:activity", {
@@ -1721,8 +1712,8 @@ ${componentSnippet}
           // Legacy hosted credential store removed; per-extension state lives in MCP server
           // env vars.
 
-          // Blueprint is the silent grep-ranking substrate (ctags + FTS5) — no
-          // map tool. Architecture exploration is tool-driven via grep + read_file.
+          // Architecture exploration is tool-driven via grep + read_file — no
+          // symbol index or map tool (pure ripgrep, like Claude Code / opencode).
 
           // PASS5: SQLite project memory is tool-driven — the model calls
           // get_project_memory when it needs project context. (v11.1: the

@@ -112,18 +112,6 @@ const DEFAULT_PROBES: SelfTestProbe[] = [
     },
   },
   {
-    // Universal Ctags resolves (extraResource wiring); resolveCtagsPath runs --version.
-    name: "ctags",
-    run: async () => {
-      const { resolveCtagsPath } = await import("@/lib/native/resolve-ctags-path");
-      const p = resolveCtagsPath();
-      if (!p) {
-        throw new Error(`resolveCtagsPath() null (resourcesPath=${process.resourcesPath})`);
-      }
-      return p;
-    },
-  },
-  {
     // Shipped externals resolve their peer deps at runtime — @ai-sdk/* require
     // zod/v4, which a bad prune drops ("Cannot find module 'zod/v4'"). Load a
     // real model-provider factory to force that transitive resolution.

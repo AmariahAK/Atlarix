@@ -262,13 +262,6 @@ const config: ForgeConfig = {
       // prompt (root-level files are otherwise excluded by the `ignore` allowlist).
       path.join(__dirname, "AGENTS.md"),
       path.join(__dirname, "src/skills"),
-      path.join(__dirname, "assets/ctags", process.platform === "darwin"
-        ? (process.arch === "arm64" ? "darwin-arm64" : "darwin-x64")
-        : process.platform === "win32"
-          ? "win32-x64"
-          : process.arch === "arm64"
-            ? "linux-arm64"
-            : "linux-x64"),
       // Windows AppContainer sandbox helper (cargo-built + signed in CI before
       // packaging). Resolves at runtime via process.resourcesPath/atlarix-sandbox.exe
       // (see src/lib/sandbox/wrap-command.ts). Guarded so non-Windows / un-built

@@ -37,24 +37,11 @@ npm run email:v85-upgrade
 
 Workspace copy (same campaign): `../scripts/send-v85-upgrade-emails.mjs` with `node --env-file=../Atlarix/.env`.
 
-## fetch-ctags.mjs
-
-Downloads or copies **Universal Ctags** into `assets/ctags/{platform}/` (gitignored). Used by the Blueprint symbol index and `get_file_outline`.
-
-```bash
-cd Atlarix
-npm run fetch-ctags
-```
-
-- **macOS:** Homebrew `universal-ctags` if present, else nightly build from [ctags-nightly-build](https://github.com/universal-ctags/ctags-nightly-build).
-- **Linux / Windows:** pinned nightly / ctags-win32 release.
-- Also runs automatically on **`npm install`** (`postinstall`).
-
 ## run-packaged-self-test.mjs
 
 Launches the packaged binary with `--self-test` and propagates its exit code — a
 headless smoke that exercises the real ship paths (node-pty spawn, proxy-worker
-resolution from the asar, ripgrep, ctags) to catch packaged-only breakages the
+resolution from the asar, ripgrep) to catch packaged-only breakages the
 static `verify-ci-package-out.mjs` can't. Runs after each CI package job and
 locally:
 
