@@ -1,22 +1,35 @@
 # Atlarix TODO
 
-**Current Version:** v14.8.16 (releasing — on main + tagged) — hotfix over v14.8.15 (CI proxy-url wiring)
+**Current Version:** v14.8.16 (RELEASED — Latest on atlarix-releases) — hotfix over v14.8.15 (CI proxy-url wiring)
 **Last Updated:** 2026-07-10
 
 ## 🔥 Open — TOP PRIORITY (next session)
 
-- **[HIGH] Sustained high CPU → device heat (fast).** Persists AFTER the v14.8.14 watcher +
-  index fixes, so the `@parcel/watcher` swap helped but a hog remains. It's CPU, not memory
-  (quit RSS ~200 MB, no leak). **Method:** packaged app on a big repo (`vscode`), drive a chatty
-  `run_command` + a first `grep`; in Activity Monitor find the hot process (main `atlarix` vs a
-  renderer Helper vs GPU) and take a CPU `sample <pid>`. **Ranked suspects:** (1) **terminal-output
-  streaming firehose** — `chat_stream_handlers` `[Build Mode] Terminal output sent … (running)`
-  logs + IPCs + re-renders EVERY output chunk (760 log lines in one session); a command with
-  continuous output (dev server / build / watch) → sustained main+renderer CPU → **fix: throttle/
-  coalesce terminal-output IPC + drop the per-chunk `(running)` log.** (2) ctags/FTS5 index build
-  CPU on huge repos (ctags subprocess over the whole code tree). (3) `@parcel/watcher` initial
-  crawl on very large code trees. (4) renderer re-render if the Helper is the hot process → wire
-  the already-installed `@tanstack/react-virtual`.
+- **[HIGH] Retrieval simplification — kills the fd leak + high-CPU/heat (ROOT CAUSE CONFIRMED 2026-07-10).**
+  **Diagnosis (from live logs/lsof/sample on the packaged 14.8.16 over big repos jenkins/moby/traefik):**
+  the `search-index-watcher` uses **chokidar 4 (dropped fsevents) → Node `fs.watch` → macOS kqueue,
+  which opens ONE fd per watched file**. On the 12,365-file Jenkins repo that's **12,365 open REG fds**
+  → process hits its fd budget → **`spawn EBADF` on every child process** (`run_command`, sub-agent
+  shells, ripgrep — file reads survive since they don't spawn). Same root drives the heat (CPU sample
+  under load dominated by `read()` + FTS5 sqlite). **NOT the security release** (only 1 socket open).
+  The v14.8.14 `@parcel/watcher`→chokidar swap (to fix Windows compile) reintroduced it as a macOS
+  kqueue/fd blowup. **Agreed plan (see this session's research):**
+  (1) **Remove the chokidar filesystem watcher** entirely (`search-index-watcher.ts` + its
+  `ensureSearchIndexWatcher` registration in `chat_stream_handlers.ts:1180` + `stopSearchIndexWatcher`).
+  (2) **Keep `symbols.json`** (ctags cache in `userData/ctags-index/`; saves the ~3s cold-start ctags run).
+  (3) **Incremental freshness goes INTERNAL** — instead of watching the OS, hook `updateSymbolIndexForFile`
+  to Atlarix's OWN edit events (`edit_file`/`write`/git mutations): the app already knows what it changed,
+  so re-index just those files (same cheap single-file ctags update, ZERO fs-watch, zero fd leak).
+  (4) **Keep the lazy staleness check** (`ensureSymbolIndex` git-HEAD + mtimes) — catches external/IDE edits on next grep.
+  (5) **Remove FTS5 + SQLite** — the rerank is candidate-set (`restrictToFiles` = grep hits only), and the
+  ctags symbols are ALREADY in memory (`memoryByPath`), so replace `searchBlueprintBm25`/FTS5 with an
+  **in-memory BM25 over the candidate files' symbols** (optionally a small global term→docfreq map to keep
+  FTS5-equal IDF). FTS5's disk index only existed to avoid whole-repo in-memory OOM — moot once reranking
+  is candidate-set. Zero-hit "closest symbol" suggestion → drop or light in-memory name-match.
+  **Keep ctags** (powers symbols + `findEnclosingSymbol` annotations + blast-radius). Net end state:
+  `ripgrep` → on-demand ctags (symbols.json, refreshed by internal edit-hook + lazy staleness) →
+  in-memory candidate BM25 rerank. No chokidar, no FTS5/SQLite, no fd leak, no heat. Optional first step:
+  benchmark in-memory candidate BM25 vs FTS5 ranking on jenkins/moby to prove parity before deleting FTS5.
 - **C-1 secrets — RESOLVED in v14.8.15.** `COMPASS_OPENROUTER_API_KEY` / `LEMONSQUEEZY_API_KEY` /
   `LEMONSQUEEZY_WEBHOOK_SECRET` / `RESEND_API_KEY` removed from `MAIN_KEYS`; Core routes through the
   new `atlarix-proxy`, and checkout/cancel/email moved to Supabase edge functions. Client now ships
