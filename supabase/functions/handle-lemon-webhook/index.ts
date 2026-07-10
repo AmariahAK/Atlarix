@@ -41,7 +41,19 @@ async function verifySignature(payload: string, signature: string | null): Promi
         .map(b => b.toString(16).padStart(2, '0'))
         .join('');
 
-    return signature === expectedSignature;
+    // SB-10: constant-time compare so total time never depends on where the first
+    // mismatch occurs (a plain `===` short-circuits and leaks position via timing).
+    return timingSafeEqualHex(signature, expectedSignature);
+}
+
+/** Constant-time comparison of two equal-length hex digests. */
+function timingSafeEqualHex(a: string, b: string): boolean {
+    if (a.length !== b.length) return false;
+    let result = 0;
+    for (let i = 0; i < a.length; i++) {
+        result |= a.charCodeAt(i) ^ b.charCodeAt(i);
+    }
+    return result === 0;
 }
 
 serve(async (req: Request) => {
@@ -90,14 +102,18 @@ serve(async (req: Request) => {
 
         console.log(`[Webhook] Event type: ${eventName}`);
 
-        const customerEmail = data?.user_email;
-        if (!customerEmail) {
-            console.error('[Webhook] No user email in event');
-            return new Response(JSON.stringify({ error: 'No user email' }), {
-                status: 400,
-                headers: { 'Content-Type': 'application/json' }
-            });
-        }
+        // Email is INFORMATIONAL ONLY now (audit trail / team-name default). It is
+        // attacker-controlled (it comes from the subscriber's own checkout), so it
+        // must NEVER be the key we mutate accounts by (SB-07).
+        const customerEmail = data?.user_email ?? null;
+
+        // SB-07: the account to mutate is resolved from a TRUSTED id — the
+        // supabase_user_id our own create-checkout edge function embeds in the
+        // checkout custom_data (server-set from the caller's JWT), echoed back on
+        // every webhook as event.meta.custom_data. `user_id` is accepted as a
+        // legacy alias for in-flight checkouts created before the rename.
+        const customData = event.meta?.custom_data ?? {};
+        const customUserId = String(customData.supabase_user_id ?? customData.user_id ?? '').trim();
 
         if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
             console.error('[Webhook] Missing Supabase credentials');
@@ -132,11 +148,18 @@ serve(async (req: Request) => {
                 const endsAt = data?.ends_at || null;
                 const isActive = ['active', 'on_trial'].includes(status);
 
-                const { data: existingUser } = await supabase
-                    .from('users')
-                    .select('id')
-                    .eq('email', customerEmail)
-                    .single();
+                // Resolve target by trusted id, else by the existing subscription
+                // link (covers renewals/updates on already-provisioned subs). Never
+                // by the payload email.
+                let existingUser: { id: string } | null = null;
+                if (customUserId) {
+                    const { data } = await supabase.from('users').select('id').eq('id', customUserId).maybeSingle();
+                    existingUser = data;
+                }
+                if (!existingUser && subscriptionId) {
+                    const { data } = await supabase.from('users').select('id').eq('lemon_subscription_id', subscriptionId).maybeSingle();
+                    existingUser = data;
+                }
 
                 // Cancelled but still in paid period: set tier from variant so plan is not left as free if active events were missed.
                 if (status === 'cancelled') {
@@ -159,7 +182,7 @@ serve(async (req: Request) => {
                             customer_portal_url: data?.urls?.customer_portal || null,
                             updated_at: new Date().toISOString(),
                         })
-                        .eq('email', customerEmail);
+                        .eq('id', existingUser.id);
                     if (cancelErr) {
                         console.error('[Webhook] Cancelled update error:', cancelErr);
                         return new Response(JSON.stringify({ error: 'Database update error' }), { status: 500, headers: { 'Content-Type': 'application/json' } });
@@ -198,9 +221,16 @@ serve(async (req: Request) => {
                 }
 
                 if (!existingUser) {
+                    // No trusted target. We only ever provision a row keyed by the
+                    // trusted supabase_user_id — never by the payload email (SB-07).
+                    if (!customUserId) {
+                        console.error('[Webhook] No trusted supabase_user_id in custom_data and no subscription link; refusing to provision by email');
+                        return new Response(JSON.stringify({ error: 'Missing supabase_user_id in checkout custom_data' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+                    }
                     const { error: insertError } = await supabase
                         .from('users')
                         .insert({
+                            id: customUserId,
                             email: customerEmail,
                             plan: isActive ? (isWorkforce ? 'workforce' : 'pro') : 'free',
                             effective_tier: isActive ? (isWorkforce ? 'workforce' : 'pro') : 'free',
@@ -216,14 +246,15 @@ serve(async (req: Request) => {
                         return new Response(JSON.stringify({ error: 'Database insert error' }), { status: 500, headers: { 'Content-Type': 'application/json' } });
                     }
                     if (isActive && isWorkforce) {
-                        const { data: newUser } = await supabase.from('users').select('id').eq('email', customerEmail).single();
-                        if (newUser) {
+                        const newUserId = customUserId;
+                        {
                             const { data: existingTeam } = await supabase.from('teams').select('id').eq('lemonsqueezy_subscription_id', subscriptionId).maybeSingle();
                             if (!existingTeam) {
                                 const { error: teamErr } = await supabase.from('teams').insert({
-                                    owner_user_id: newUser.id,
+                                    owner_user_id: newUserId,
                                     lemonsqueezy_subscription_id: subscriptionId,
-                                    name: `Team ${customerEmail.split('@')[0]}`,
+                                    name: `Team ${(customerEmail || 'workspace').split('@')[0]}`,
+                                    tier: 'workforce',
                                     seat_limit: 5,
                                     extra_seats: 0,
                                     active: true,
@@ -255,7 +286,7 @@ serve(async (req: Request) => {
                     const { error: updateError } = await supabase
                         .from('users')
                         .update(updateRow)
-                        .eq('email', customerEmail);
+                        .eq('id', existingUser.id);
                     if (updateError) {
                         console.error('[Webhook] Update error:', updateError);
                         return new Response(JSON.stringify({ error: 'Database update error' }), { status: 500, headers: { 'Content-Type': 'application/json' } });
@@ -266,7 +297,8 @@ serve(async (req: Request) => {
                             const { error: teamInsErr } = await supabase.from('teams').insert({
                                 owner_user_id: existingUser.id,
                                 lemonsqueezy_subscription_id: subscriptionId,
-                                name: `Team ${customerEmail.split('@')[0]}`,
+                                name: `Team ${(customerEmail || 'workspace').split('@')[0]}`,
+                                tier: 'workforce',
                                 seat_limit: 5,
                                 extra_seats: 0,
                                 active: true,

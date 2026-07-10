@@ -9,22 +9,29 @@ try {
   // dotenv optional
 }
 
-// Build-time credentials embedded via Vite define (main process)
+// Build-time values embedded via Vite define (main process).
+// SERVER SECRETS ARE NOT PERMITTED HERE — anything in this list ships inside the
+// packaged binary and is extractable by any user. The following were removed and
+// moved server-side (Supabase edge functions / atlarix-proxy):
+//   COMPASS_OPENROUTER_API_KEY (SB-02/06 → atlarix-proxy)
+//   LEMONSQUEEZY_API_KEY       (A2 → create-checkout / cancel-subscription edge fns)
+//   LEMONSQUEEZY_WEBHOOK_SECRET(A1 → only the webhook function needs it)
+//   RESEND_API_KEY             (A3 → send-email edge fn)
 const MAIN_KEYS = [
-  "LEMONSQUEEZY_API_KEY",
   "LEMONSQUEEZY_STORE_ID",
   "LEMONSQUEEZY_VARIANT_ID",
   "LEMONSQUEEZY_WORKFORCE_VARIANT_ID",
   "LEMONSQUEEZY_EXTRA_SEAT_VARIANT_ID",
-  "LEMONSQUEEZY_WEBHOOK_SECRET",
-  "RESEND_API_KEY",
   "EMAIL_SOURCE",
   "NEXT_PUBLIC_SUPABASE_URL",
   "NEXT_PUBLIC_SUPABASE_ANON_KEY",
   "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY",
   "SENTRY_DSN",
   "POSTHOG_API_KEY",
-  "COMPASS_OPENROUTER_API_KEY",
+  // COMPASS_OPENROUTER_API_KEY intentionally REMOVED — the managed key must never
+  // ship in the client (SB-02/06). Core routes through atlarix-proxy instead; the
+  // client only needs the public proxy URL below.
+  "ATLARIX_CORE_PROXY_URL",
   "ATLARIX_CORE_MODEL_1",
   "ATLARIX_CORE_MODEL_2",
   "ATLARIX_CORE_MODEL_3",

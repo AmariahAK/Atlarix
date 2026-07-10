@@ -3,6 +3,40 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
+## [14.8.15] (2026-07-10) — Atlarix Core moves server-side: zero client secrets, hardened entitlement
+
+tsc + oxlint clean; vitest **1681** green. A security-architecture release that **closes the
+embedded-secrets item (C-1) left open in 14.8.14** — the client now ships with **no server
+secrets at all**. From a 20-agent audit of the Supabase backend + Core-key handling
+(`docs/SUPABASE_SECURITY_AUDIT.md`, kept local). **Known-open (tracked in `docs/TODO.md`):**
+residual high CPU/heat under a hot suspect (terminal-output streaming).
+
+### Atlarix Core → hosted proxy (SB-02 / SB-06)
+- The managed OpenRouter key **no longer ships in the app**. Core requests now route through a
+  new server-side proxy (`atlarix-proxy`, Hono on Railway): it verifies the caller's Supabase
+  JWT, enforces the monthly Compass quota, forwards on the master key (server-only), and meters
+  usage server-side (the client can no longer skip metering).
+- `get_model_client.ts` `compass` case authenticates with the user's `session.access_token` and
+  a public `ATLARIX_CORE_PROXY_URL` (new `core_proxy.ts`); a local dev key is the only fallback
+  and is never present in a release. Client-side usage recording is now dev-only to avoid
+  double-counting. The proxy's Core-model allowlist syncs from the hosted `core-models.json`, so
+  switching Core models stays a one-file edit — no redeploy.
+
+### No server secrets in the client bundle (A1 / A2 / A3)
+- `vite.main.config.mts` `define` **stripped of** `COMPASS_OPENROUTER_API_KEY`,
+  `LEMONSQUEEZY_API_KEY`, `LEMONSQUEEZY_WEBHOOK_SECRET`, `RESEND_API_KEY`.
+- Checkout, subscription-cancel, and transactional email moved to Supabase edge functions
+  (`create-checkout`, `cancel-subscription`, `send-email`) authenticated by the user's JWT;
+  `lemonsqueezy.ts`, `auth_handlers.ts` cancel, and `email/resend.ts` now call those functions.
+
+### Entitlement + billing hardening (SB-01 / SB-03 / SB-04 / SB-07 / SB-10)
+- Migration `20260710120000`: authoritative `teams.tier`, guard triggers that block client team
+  creation, membership `team_id` redirects, and self-inserted active memberships, plus a rewritten
+  `guard_users_sensitive_columns` that validates `effective_tier` **independently** against the
+  team's real tier — closing $0 self-escalation to Workforce.
+- `handle-lemon-webhook` keys account mutations off the verified `custom_data.supabase_user_id`
+  (never the payload email) and uses a constant-time signature compare.
+
 ## [14.8.14] (2026-07-09) — Security fixes, reference-grade command permissions, cross-platform performance overhaul
 
 tsc + oxlint clean; vitest **1682** green (+ knip no new orphans). A large hardening + performance

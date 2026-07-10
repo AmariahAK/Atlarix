@@ -115,43 +115,35 @@ function escapeHtml(s: string): string {
 }
 
 /**
- * Send a single email via Resend REST API.
- * No-op if RESEND_API_KEY or EMAIL_SOURCE is missing (logs only).
+ * Send a single email via the `send-email` Supabase edge function.
+ *
+ * The RESEND_API_KEY and sender (EMAIL_SOURCE) live only in that function (A3) —
+ * the client builds the html/subject (not secret) and the keyed send happens
+ * server-side, authenticated by the user's JWT.
  */
 export async function sendTeamEmail(params: {
   to: string[];
   subject: string;
   html: string;
 }): Promise<{ ok: boolean; error?: string }> {
-  const apiKey = process.env.RESEND_API_KEY;
-  const from = process.env.EMAIL_SOURCE;
-  if (!apiKey || !from) {
-    logger.warn("[Resend] Missing RESEND_API_KEY or EMAIL_SOURCE, skipping send");
-    return { ok: false, error: "Resend not configured" };
-  }
   if (!params.to.length) {
     return { ok: false, error: "No recipients" };
   }
   try {
-    const res = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        from,
-        to: params.to,
-        subject: params.subject,
-        html: params.html,
-      }),
+    const { getSupabaseClient } = await import("../auth/supabase-client");
+    const supabase = getSupabaseClient();
+    const { data, error } = await supabase.functions.invoke("send-email", {
+      body: { to: params.to, subject: params.subject, html: params.html },
     });
-    const data = (await res.json()) as { id?: string; message?: string };
-    if (!res.ok) {
-      logger.warn("[Resend] Send failed:", res.status, data);
-      return { ok: false, error: data.message || String(res.status) };
+    if (error) {
+      logger.warn("[Resend] send-email edge function failed:", error.message);
+      return { ok: false, error: error.message };
     }
-    logger.log("[Resend] Sent:", data.id);
+    const result = data as { ok?: boolean; error?: string; id?: string } | null;
+    if (!result?.ok) {
+      return { ok: false, error: result?.error || "send failed" };
+    }
+    logger.log("[Resend] Sent via edge function:", result.id);
     return { ok: true };
   } catch (err) {
     logger.error("[Resend] Send exception:", err);

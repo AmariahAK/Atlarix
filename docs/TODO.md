@@ -1,7 +1,7 @@
 # Atlarix TODO
 
-**Current Version:** v14.8.14 (releasing — on main + tagged) — bumped from shipped v14.8.13
-**Last Updated:** 2026-07-09
+**Current Version:** v14.8.15 (releasing — on main + tagged) — bumped from shipped v14.8.14
+**Last Updated:** 2026-07-10
 
 ## 🔥 Open — TOP PRIORITY (next session)
 
@@ -17,10 +17,11 @@
   CPU on huge repos (ctags subprocess over the whole code tree). (3) `@parcel/watcher` initial
   crawl on very large code trees. (4) renderer re-render if the Helper is the hot process → wire
   the already-installed `@tanstack/react-virtual`.
-- **C-1 secrets rotation (still required).** `LEMONSQUEEZY_API_KEY` / `RESEND_API_KEY` /
-  `COMPASS_OPENROUTER_API_KEY` are still compiled into the bundle (removing them from `MAIN_KEYS`
-  needs backend endpoints — Supabase Edge Functions — that don't exist yet). Rotate the keys +
-  proxy their use server-side. Shipped in v14.8.14 unchanged. See [`SECURITY_AUDIT.md` history].
+- **C-1 secrets — RESOLVED in v14.8.15.** `COMPASS_OPENROUTER_API_KEY` / `LEMONSQUEEZY_API_KEY` /
+  `LEMONSQUEEZY_WEBHOOK_SECRET` / `RESEND_API_KEY` removed from `MAIN_KEYS`; Core routes through the
+  new `atlarix-proxy`, and checkout/cancel/email moved to Supabase edge functions. Client now ships
+  **zero server secrets**. Remaining owner action: rotate the OpenRouter master key (Railway) + the
+  app Supabase service-role key (both were in prior shipped builds). See `docs/SUPABASE_SECURITY_AUDIT.md`.
 - **Deferred perf follow-ups:** fts5 handle eviction shipped; renderer virtualization deferred
   (measure-first — see the heat item). Full `@parcel/watcher` Win/Linux packaged smoke-test.
 
@@ -100,6 +101,17 @@ Full detail in [`docs/CHANGELOG.md`](./CHANGELOG.md) `[14.8.13]`.
   (@ai-sdk/anthropic MUST stay 2.x w/ ai@5 [[atlarix-ai-sdk-version-trap]]; zod mid-v4; 3 patch-package
   patches; ABI-pinned better-sqlite3/node-pty/keytar). Worklist = `npm outdated` (direct) + `npm audit`
   + own deprecated-API usage + CI action EOLs; leave pinned/transitive with a note.
+
+## 🔭 Long-term / far-off (not soon)
+
+- **Collaborative agent (the "team + @atlarix" direction).** NOT a Slack/Discord clone — real-time
+  chat + calls is a money pit and teams already have those. Two pieces instead: (a) **`@atlarix`
+  bots inside the tools teams already use** — Slack / Discord / GitHub issues — extending the existing
+  `@atlarix review` GitHub bot: mention it, it picks up the task, works in a real Atlarix workspace,
+  and posts the PR/result back (near-zero switching cost, big reach; how Devin / Copilot-in-Slack win).
+  (b) A **shared, observable agent session** — a "war room" where several teammates watch one Atlarix
+  run live, drop steering comments, approve actions, and hand off — tied to the Workforce tier. The
+  chat shell is not the differentiator; the shared *agent* session is. Far-off; capture, don't build yet.
 
 > Open work + the current release only. **Full shipped-version history lives in
 > [`docs/CHANGELOG.md`](./CHANGELOG.md)** (and `docs/CHANGELOG_PREVIOUS.md`).

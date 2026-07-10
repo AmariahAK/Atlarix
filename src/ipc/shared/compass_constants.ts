@@ -13,6 +13,7 @@ import {
 } from "@/lib/format-openrouter-model-label";
 import { CORE_TIER_ROWS } from "../../shared/compass_product_copy";
 import { getCoreModelOverrideId } from "./core-model-override-store";
+import { getCoreProxyBaseUrl } from "./core_proxy";
 
 export const COMPASS_PROVIDER_ID = "compass";
 
@@ -118,13 +119,19 @@ function coreEnvAvailable(): boolean {
   return typeof process !== "undefined" && !!process.env;
 }
 
+/**
+ * LOCAL/DEV Core key only. The embedded-key path was removed for security (the
+ * master key is no longer in the Vite `define` list — it lives on the Core proxy),
+ * so in a packaged release `process.env.COMPASS_OPENROUTER_API_KEY` is undefined
+ * and the dev provider is a no-op → this returns undefined and Core routes through
+ * the proxy. A developer running locally without the proxy can still set the var
+ * in their shell to exercise Core directly. See `core_proxy.ts`.
+ */
 export function getCompassMasterApiKey(): string | undefined {
-  // Build-time embedded key (CI secret via Vite define) wins; otherwise fall
-  // through to the dev-only local-shell key (no-op in renderer/release).
-  const embedded = coreEnvAvailable()
+  const local = coreEnvAvailable()
     ? trimEnv(process.env.COMPASS_OPENROUTER_API_KEY)
     : undefined;
-  return embedded ?? devCoreKeyProvider.apiKey();
+  return local ?? devCoreKeyProvider.apiKey();
 }
 
 export function getOpenRouterModelIdForCoreTier(
@@ -156,9 +163,13 @@ export function getOpenRouterModelIdForCoreTier(
   return embedded ?? devCoreKeyProvider.modelId(norm);
 }
 
-/** True when the packaged app has Core credentials (counts as "configured" in Settings). */
+/**
+ * True when Core is usable in this build. Production: a proxy URL is configured
+ * (no key needed in the client). Dev: a local dev key is present. Either way the
+ * Core provider will resolve at dispatch.
+ */
 export function isCompassBuildConfigured(): boolean {
-  return !!getCompassMasterApiKey();
+  return !!getCoreProxyBaseUrl() || !!getCompassMasterApiKey();
 }
 
 export const COMPASS_REACHABILITY_ERROR =

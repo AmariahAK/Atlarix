@@ -33,6 +33,7 @@ import { clearMutationOutcomes } from "@/lib/agent/mutation-verify";
 import { runningSubagentCount } from "@/lib/agents/subagent-results";
 import { hasNativeToolParts, serializeNativeHistory } from "@/lib/ai/native-history";
 import { recordCompassUsageTokens } from "@/lib/auth/compass_usage";
+import { getCoreProxyBaseUrl } from "@/ipc/shared/core_proxy";
 import { getStreamTransport } from "@/lib/chat/stream-transport";
 import { trackPendingWork } from "@/lib/pending-work";
 import { estimateTurnCostUsd } from "@/lib/routing/byok-pricing";
@@ -273,30 +274,32 @@ export async function finalizeTurn(
                 ctx.compassStreamTokens = (ctx.compassStreamTokens ?? 0) + auxUsage.totalTokens;
                 ctx.compassUsedThisTurn += auxUsage.totalTokens;
                 // Turn is over at this point — record for the pool, no abort
-                // needed. v12 1.5: AWAIT the record (it used to be
-                // fire-and-forget) and surface a visible notice when the pool
-                // ran out — the next turn's pre-flight will hard-block, so
-                // tell the user now instead of letting that block surprise
-                // them.
-                try {
-                  const r = await recordCompassUsageTokens(auxUsage.totalTokens);
-                  if (!r.ok && r.error === "limit_exceeded") {
-                    logger.warn("[compass] Monthly limit hit while recording aux usage");
-                    safeSend(event.sender, "chat:activity", {
-                      id: `compass-limit-aux-${req.chatId}-${Date.now()}`,
-                      type: "compass_limit",
-                      label: "Monthly Atlarix Core token limit reached",
-                      detail: compassExhaustedUserMessage(ctx.compassStreamTier ?? "free"),
-                      status: "error",
-                      timestamp: Date.now(),
-                      chatId: req.chatId,
-                    });
+                // needed. When Core is routed through the proxy it records aux
+                // usage server-side (authoritative), so recording here would
+                // double-count — only record client-side in the dev-direct
+                // fallback (no proxy configured). Over-limit is then surfaced by
+                // the proxy's 402 on the next request.
+                if (!getCoreProxyBaseUrl()) {
+                  try {
+                    const r = await recordCompassUsageTokens(auxUsage.totalTokens);
+                    if (!r.ok && r.error === "limit_exceeded") {
+                      logger.warn("[compass] Monthly limit hit while recording aux usage");
+                      safeSend(event.sender, "chat:activity", {
+                        id: `compass-limit-aux-${req.chatId}-${Date.now()}`,
+                        type: "compass_limit",
+                        label: "Monthly Atlarix Core token limit reached",
+                        detail: compassExhaustedUserMessage(ctx.compassStreamTier ?? "free"),
+                        status: "error",
+                        timestamp: Date.now(),
+                        chatId: req.chatId,
+                      });
+                    }
+                  } catch (auxRecordErr) {
+                    // Transient RPC/network failure must never block the turn end.
+                    logger.warn(
+                      `[compass] aux usage record failed: ${String(auxRecordErr)}`,
+                    );
                   }
-                } catch (auxRecordErr) {
-                  // Transient RPC/network failure must never block the turn end.
-                  logger.warn(
-                    `[compass] aux usage record failed: ${String(auxRecordErr)}`,
-                  );
                 }
               }
             }

@@ -338,67 +338,33 @@ export function registerAuthHandlers() {
                 return { success: false, error: "Not signed in" };
             }
 
-            // Get the subscription ID from the database
+            // Cancel server-side via the cancel-subscription edge function. The
+            // LEMONSQUEEZY_API_KEY no longer lives in the client (A2); the function
+            // looks the subscription up by the verified user id and cancels it. The
+            // billing webhook then reconciles subscription_status / ends_at on the
+            // users row (which the client is not allowed to write directly anyway).
             const { getSupabaseClient } = await import("../../lib/auth/supabase-client");
             const supabase = getSupabaseClient();
 
-            const { data, error } = await supabase
-                .from('users')
-                .select('lemon_subscription_id')
-                .eq('email', currentUser.email)
-                .single();
+            const { data: cancelResult, error: cancelError } = await supabase.functions.invoke(
+                "cancel-subscription",
+                { body: {} },
+            );
 
-            if (error || !data?.lemon_subscription_id) {
-                logger.error("[AuthHandlers] No subscription found to cancel");
-                return { success: false, error: "No active subscription found" };
+            if (cancelError || !(cancelResult as { success?: boolean })?.success) {
+                logger.error("[AuthHandlers] cancel-subscription failed:", cancelError?.message);
+                const code = (cancelResult as { error?: string })?.error;
+                return {
+                    success: false,
+                    error:
+                        code === "no_active_subscription"
+                            ? "No active subscription found"
+                            : "Failed to cancel subscription",
+                };
             }
 
-            const subscriptionId = data.lemon_subscription_id;
-            logger.log(`[AuthHandlers] Cancelling subscription: ${subscriptionId}`);
-
-            const API_KEY = process.env.LEMONSQUEEZY_API_KEY?.trim();
-            if (!API_KEY) {
-                logger.error("[AuthHandlers] LEMONSQUEEZY_API_KEY is not set");
-                return { success: false, error: "Billing is not configured in this app build." };
-            }
-
-            const response = await fetch(`https://api.lemonsqueezy.com/v1/subscriptions/${subscriptionId}`, {
-                method: 'DELETE',
-                headers: {
-                    'Accept': 'application/vnd.api+json',
-                    'Content-Type': 'application/vnd.api+json',
-                    'Authorization': `Bearer ${API_KEY}`,
-                },
-            });
-
-            if (!response.ok) {
-                const errorText = await response.text();
-                logger.error("[AuthHandlers] LemonSqueezy cancel error:", errorText);
-                return { success: false, error: "Failed to cancel subscription" };
-            }
-
-            const result = await response.json();
-            const endsAt = result.data?.attributes?.ends_at;
-            logger.log("[AuthHandlers] Subscription cancelled successfully. Ends at:", endsAt);
-
-            // Update local database - keep plan as 'pro' until ends_at, just update status
-            logger.log(`[AuthHandlers] Updating Supabase for email: ${currentUser.email}`);
-            const { data: updateData, error: updateError } = await supabase
-                .from('users')
-                .update({
-                    // Keep plan as 'pro' - LemonSqueezy webhook will set to 'free' when it actually expires
-                    subscription_status: 'cancelled',
-                    subscription_ends_at: endsAt || null,
-                    updated_at: new Date().toISOString(),
-                })
-                .eq('email', currentUser.email)
-                .select(); // Add select() to get the updated row back
-
-            logger.log(`[AuthHandlers] Supabase update result:`, {
-                updateData,
-                updateError: updateError?.message,
-                rowsUpdated: updateData?.length || 0
-            });
+            const endsAt = (cancelResult as { endsAt?: string | null }).endsAt ?? null;
+            logger.log("[AuthHandlers] Subscription cancelled. Ends at:", endsAt);
 
             await SubscriptionManager.refreshPlan();
             const effectiveTier = SubscriptionManager.getEffectiveTier();

@@ -44,6 +44,8 @@ import {
   getCompassMasterApiKey,
   getOpenRouterModelIdForCoreTier,
 } from "../shared/compass_constants";
+import { getCoreProxyBaseUrl } from "../shared/core_proxy";
+import { getSession } from "../../lib/auth/supabase-client";
 import { LM_STUDIO_BASE_URL } from "./lm_studio_utils";
 import { createOllamaProvider } from "./ollama_provider";
 import { getOllamaApiUrl } from "../handlers/local_model_ollama_handler";
@@ -324,20 +326,52 @@ async function getRegularModelClient(
       };
     }
     case "compass": {
-      const masterKey = getCompassMasterApiKey();
-      if (!masterKey) {
-        throw new Error(
-          "Atlarix Core is not configured for this build. Add your own API keys in Settings or use a release build.",
-        );
-      }
       const openRouterModelId = getOpenRouterModelIdForCoreTier(model.name);
       if (!openRouterModelId) {
         throw new Error(
           `Atlarix Core model "${model.name}" is not configured for this build. Choose another Core model or add BYOK keys in Settings.`,
         );
       }
+
+      // Production path: route through the Atlarix Core proxy so the managed
+      // provider key never ships in the client. We authenticate as the user with
+      // their Supabase JWT; the proxy verifies entitlement, meters usage, and
+      // forwards on the master key (held server-side only).
+      const proxyBaseUrl = getCoreProxyBaseUrl();
+      if (proxyBaseUrl) {
+        const session = await getSession();
+        const accessToken = session?.access_token;
+        if (!accessToken) {
+          throw new Error(
+            "Sign in to use Atlarix Core. (Core requests are authorized with your Atlarix account.)",
+          );
+        }
+        const or = createOpenRouter({
+          apiKey: accessToken,
+          baseURL: proxyBaseUrl,
+          headers: { ...OPENROUTER_APP_HEADERS },
+        });
+        return {
+          modelClient: {
+            model: or(openRouterModelId),
+            builtinProviderId: "compass",
+          },
+          backupModelClients: [],
+        };
+      }
+
+      // Dev-only fallback: no proxy configured (local dev). Use a LOCAL dev key
+      // and call OpenRouter directly. This path is never reachable in a packaged
+      // release — the embedded master key was removed and the dev key provider is
+      // a no-op there — so production always goes through the proxy above.
+      const devKey = getCompassMasterApiKey();
+      if (!devKey) {
+        throw new Error(
+          "Atlarix Core is not configured for this build (no proxy URL and no local dev key). Add your own API keys in Settings or use a release build.",
+        );
+      }
       const or = createOpenRouter({
-        apiKey: masterKey,
+        apiKey: devKey,
         headers: { ...OPENROUTER_APP_HEADERS },
       });
       return {

@@ -33,6 +33,7 @@ import {
   totalTokensFromAiUsage,
 } from "@/lib/auth/compass_usage";
 import { COMPASS_REACHABILITY_ERROR } from "@/ipc/shared/compass_constants";
+import { getCoreProxyBaseUrl } from "@/ipc/shared/core_proxy";
 import {
   getNativeWebSearchSupport,
   reservedNativeToolNames,
@@ -607,7 +608,13 @@ export async function simpleStreamText(
                 if (stepTokens > 0) {
                   ctx.compassUsedThisTurn += stepTokens;
                   ctx.compassStreamTokens = (ctx.compassStreamTokens ?? 0) + stepTokens;
-                  recordResult = await recordCompassUsageTokens(stepTokens);
+                  // When Core is routed through the proxy, it records usage
+                  // server-side (authoritative, un-bypassable) — recording here too
+                  // would double-count. Only record client-side in the dev-direct
+                  // fallback (no proxy configured).
+                  if (!getCoreProxyBaseUrl()) {
+                    recordResult = await recordCompassUsageTokens(stepTokens);
+                  }
                 }
                 if (
                   shouldStopForCompassLimit(
