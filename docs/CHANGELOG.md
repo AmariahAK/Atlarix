@@ -3,6 +3,15 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
+## [14.8.16] (2026-07-10) — Hotfix: wire the Core proxy URL into release builds
+
+v14.8.15 stripped `COMPASS_OPENROUTER_API_KEY` from the client and moved Core behind
+`atlarix-proxy`, but the release workflow never passed the new `ATLARIX_CORE_PROXY_URL`
+into the build env — so the shipped 14.8.15 binary embedded no proxy endpoint and Core
+failed with "Atlarix Core is not configured for this build." This wires
+`ATLARIX_CORE_PROXY_URL` into `release.yml`'s env block (covers mac/linux/windows) and
+drops the now-dead `COMPASS_OPENROUTER_API_KEY` env. No app-code change; Core works again.
+
 ## [14.8.15] (2026-07-10) — Atlarix Core moves server-side: zero client secrets, hardened entitlement
 
 tsc + oxlint clean; vitest **1681** green. A security-architecture release that **closes the

@@ -19,6 +19,11 @@ const NOOP_DEV_PROVIDER = {
 };
 
 describe("compass_constants build env", () => {
+  beforeEach(() => {
+    // ATLARIX_CORE_PROXY_URL is embedded via CI/build env, so it's ambient on CI.
+    // Clear it so isCompassBuildConfigured() reflects only what each test stubs.
+    vi.stubEnv("ATLARIX_CORE_PROXY_URL", "");
+  });
   afterEach(() => {
     vi.unstubAllEnvs();
   });
@@ -90,6 +95,7 @@ describe("compass_constants dev-key fallback (Bug 3)", () => {
   // Clear all of them first; each test re-stubs what it needs.
   beforeEach(() => {
     vi.stubEnv("COMPASS_OPENROUTER_API_KEY", "");
+    vi.stubEnv("ATLARIX_CORE_PROXY_URL", "");
     vi.stubEnv("ATLARIX_CORE_MODEL_1", "");
     vi.stubEnv("ATLARIX_CORE_MODEL_2", "");
     vi.stubEnv("ATLARIX_CORE_MODEL_3", "");

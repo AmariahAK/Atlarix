@@ -40,7 +40,10 @@ env:
   EMAIL_SOURCE: ${{ secrets.EMAIL_SOURCE }}
   SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
   POSTHOG_API_KEY: ${{ secrets.POSTHOG_API_KEY }}
-  COMPASS_OPENROUTER_API_KEY: ${{ secrets.COMPASS_OPENROUTER_API_KEY }}
+  # Atlarix Core routes through atlarix-proxy — the client embeds only the PUBLIC
+  # proxy URL (never the OpenRouter key, which was removed and now lives on the
+  # proxy). This must be in the build env or a release ships with no Core endpoint.
+  ATLARIX_CORE_PROXY_URL: ${{ secrets.ATLARIX_CORE_PROXY_URL }}
   # v11 Core slots — falls back to the legacy COMPASS_MODEL_* secrets until
   # the ATLARIX_CORE_MODEL_* repository secrets are configured.
   ATLARIX_CORE_MODEL_1: ${{ secrets.ATLARIX_CORE_MODEL_1 || secrets.COMPASS_MODEL_FAST }}

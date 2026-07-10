@@ -1,6 +1,6 @@
 # Atlarix TODO
 
-**Current Version:** v14.8.15 (releasing — on main + tagged) — bumped from shipped v14.8.14
+**Current Version:** v14.8.16 (releasing — on main + tagged) — hotfix over v14.8.15 (CI proxy-url wiring)
 **Last Updated:** 2026-07-10
 
 ## 🔥 Open — TOP PRIORITY (next session)
