@@ -24,6 +24,7 @@ import {
 } from "../../ipc/utils/safeWorkspaceRelativePath";
 import { isBlockedSecretBasename } from "@/lib/security/env-secret-paths";
 import { ripgrepIgnoreArgs } from "./ripgrep-ignore";
+import { resolveRipgrepPath } from "./resolve-ripgrep";
 
 const execFileAsync = promisify(execFile);
 
@@ -97,7 +98,7 @@ ToolRegistry.register({
             if (!isUniversal) rgArgs.push("-g", pattern);
             let matched: string[] = [];
             try {
-                const { stdout } = await execFileAsync("rg", rgArgs, {
+                const { stdout } = await execFileAsync(await resolveRipgrepPath(), rgArgs, {
                     cwd: fullPath,
                     maxBuffer: 20 * 1024 * 1024,
                 });

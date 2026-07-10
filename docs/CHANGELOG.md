@@ -3,6 +3,19 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
+## [14.9.1] (2026-07-10) — Bundle ripgrep (self-contained grep/glob)
+
+### Fixed
+- **`grep`/`glob` no longer depend on the user having `rg` on their PATH.** They
+  now use a bundled ripgrep binary via `@vscode/ripgrep` (the same package VS
+  Code / Claude Code ship), resolved through `lib/tools/resolve-ripgrep.ts` with
+  a PATH fallback. The binary ships unpacked from the asar
+  (`@vscode/ripgrep-<platform>-<arch>/bin/rg`, forge `asar.unpack`); the packaged
+  `--self-test` confirms it resolves the bundled binary, not PATH. Also installs
+  ripgrep in the CI quality/linux jobs (belt-and-suspenders) and removes a stale
+  `chokidar` entry from the Vite main externals so it isn't re-installed into the
+  package.
+
 ## [14.9.0] (2026-07-10) — Lightweight retrieval teardown + opencode-parity providers
 
 The harness gets dramatically lighter and cooler on large repos, and gains full

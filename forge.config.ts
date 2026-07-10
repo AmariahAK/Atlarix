@@ -253,7 +253,7 @@ const config: ForgeConfig = {
     // and the shell dies with "posix_spawnp failed" (can't exec inside an asar).
     asar: {
       unpack:
-        "{**/@lydell/node-pty-darwin-*/**,**/@lydell/node-pty-linux-*/**,**/@lydell/node-pty-win32-*/**}",
+        "{**/@lydell/node-pty-darwin-*/**,**/@lydell/node-pty-linux-*/**,**/@lydell/node-pty-win32-*/**,**/@vscode/ripgrep-*/bin/**}",
     },
     ignore,
     extraResource: [

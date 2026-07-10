@@ -13,6 +13,7 @@ import { promisify } from "util";
 import * as path from "node:path";
 import { truncateUtf8ByBytes } from "@/lib/truncate";
 import { ripgrepIgnoreArgs } from "./ripgrep-ignore";
+import { resolveRipgrepPath } from "./resolve-ripgrep";
 import {
   ToolRegistry,
   createParameters,
@@ -80,7 +81,7 @@ async function runRipgrepSearch(args: {
   ];
 
   try {
-    const { stdout } = await execFileAsync("rg", rgArgs, {
+    const { stdout } = await execFileAsync(await resolveRipgrepPath(), rgArgs, {
       maxBuffer: 10 * 1024 * 1024,
     });
     return parseGrepOutput(stdout);

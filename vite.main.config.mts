@@ -50,11 +50,11 @@ export const mainRollupExternals: readonly string[] = [
   "tiktoken",
   "unpdf",
   "@vscode/sudo-prompt",
+  // Bundled ripgrep binary (grep/glob) — external so the binary resolves from
+  // node_modules at runtime and ships unpacked (see forge asar.unpack). Makes
+  // the app self-contained instead of relying on `rg` being on the user's PATH.
+  "@vscode/ripgrep",
   "better-sqlite3",
-  // File watcher (pure-JS; no native compile — avoids Windows node-gyp/VS
-  // issues). External so its optional mac `fsevents` require resolves from
-  // node_modules at runtime rather than being bundled.
-  "chokidar",
   "keytar",
   "mysql2",
   "pg",

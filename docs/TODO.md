@@ -1,7 +1,13 @@
 # Atlarix TODO
 
-**Current Version:** v14.9.0 (RELEASED — Latest on atlarix-releases) — lightweight retrieval teardown + opencode-parity providers
+**Current Version:** v14.9.1 (RELEASED — Latest on atlarix-releases) — bundle ripgrep (self-contained grep/glob) over v14.9.0
 **Last Updated:** 2026-07-10
+
+## ✅ Shipped in v14.9.1 (2026-07-10)
+
+Bundled ripgrep via `@vscode/ripgrep` so `grep`/`glob` no longer need `rg` on the user's PATH
+(resolver `lib/tools/resolve-ripgrep.ts` with PATH fallback; binary unpacked from the asar;
+packaged self-test confirms "bundled"). Removed stale `chokidar` from Vite main externals.
 
 ## ✅ Shipped in v14.9.0 (2026-07-10)
 

@@ -99,16 +99,19 @@ const DEFAULT_PROBES: SelfTestProbe[] = [
     },
   },
   {
-    // ripgrep reachable on PATH (grep tool swallows rg errors, so probe directly).
+    // ripgrep resolves and runs (grep/glob swallow rg errors, so probe directly).
+    // Uses the bundled @vscode/ripgrep binary when present, else PATH `rg`.
     name: "ripgrep",
     run: async () => {
       const { promisify } = await import("node:util");
       const { execFile } = await import("node:child_process");
-      const { stdout } = await promisify(execFile)("rg", ["--version"]);
+      const { resolveRipgrepPath } = await import("@/lib/tools/resolve-ripgrep");
+      const rg = await resolveRipgrepPath();
+      const { stdout } = await promisify(execFile)(rg, ["--version"]);
       if (!stdout.toLowerCase().includes("ripgrep")) {
         throw new Error(`unexpected rg output: ${stdout.slice(0, 60)}`);
       }
-      return stdout.split("\n")[0];
+      return `${stdout.split("\n")[0]} (${rg === "rg" ? "PATH" : "bundled"})`;
     },
   },
   {

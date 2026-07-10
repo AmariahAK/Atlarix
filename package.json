@@ -1,7 +1,7 @@
 {
   "name": "atlarix",
   "productName": "Atlarix",
-  "version": "14.9.0",
+  "version": "14.9.1",
   "description": "The open-weight frontier harness — the agent workstation built for DeepSeek, Qwen, Kimi, and MiniMax, with any-model BYOK and local-first execution.",
   "main": ".vite/build/main.js",
   "repository": {
@@ -171,6 +171,7 @@
     "@types/node-cron": "^3.0.11",
     "@types/turndown": "^5.0.6",
     "@types/uuid": "^10.0.0",
+    "@vscode/ripgrep": "^1.18.0",
     "@vscode/sudo-prompt": "^9.3.2",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/addon-serialize": "^0.14.0",
