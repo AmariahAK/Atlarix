@@ -101,6 +101,14 @@ Full detail in [`docs/CHANGELOG.md`](./CHANGELOG.md) `[14.8.13]`.
   Build mode now auto-runs plain `git push`/`npm publish`/deploy (Codex workspace-write behavior);
   force-push/exfil/credential-reads still ask. If auto-run feels too loose, ship a default `ask` ruleset
   (data, the Claude-Code way) rather than re-hardcoding git.
+- **DB shutdown race — `TypeError: The database connection is not open`** (Sentry, seen on 14.9.1,
+  still present in 14.10.0; **benign** — `handled`, fires only during app quit, no in-session impact,
+  worst case one dropped pending write). Cause: the SQLite handle is closed (`db/index.ts:65`
+  `sqlite.close()` / `app_handlers.ts:1185` `db.$client.close()`) while `main.ts:1437` `before-quit`'s
+  async flush/session chain still has a drizzle query in flight → straggler `.prepare()` throws. Fix
+  (target 14.10.1): a `closing`/`isClosed` guard so `db` calls short-circuit once shutdown starts
+  (robust vs. `void`-ed late writers), or reorder to `await` the flush chain before `db.$client.close()`.
+  ~15-min change + a test; own fresh plan-mode session.
 - **DONE in v14.8.12:** approval-wait audit (MCP auth waits now indefinite + Stop-cancellable),
   Shift+Tab global, attachment vision cold-cache, notification sound. **B4 (bg-command "done" while
   running)** resolved as model behavior — the harness DOES re-inject the exit result via auto-wake
