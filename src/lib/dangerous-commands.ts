@@ -20,7 +20,7 @@
  *     only (matches the old category semantics: `foo && rm x` was category "foo").
  */
 
-import { commandSegments } from "./command-mutation";
+import { commandSegments } from "./command-segments";
 
 export interface DangerMatch {
   /** Stable, kebab-case id — used as the always-allow permission key. */

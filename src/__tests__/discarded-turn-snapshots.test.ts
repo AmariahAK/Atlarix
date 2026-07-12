@@ -17,14 +17,16 @@ describe("discardedTurnSnapshotIds", () => {
     [6, "6"],
   ]);
 
-  it("returns assistant turns AFTER the edited message, chronological, snapshots only", () => {
-    // Edit message 1 → discards assistants 2,4,5,6; 5 has no snapshot.
-    expect(discardedTurnSnapshotIds(msgs, 1, snap)).toEqual(["2", "4", "6"]);
+  it("returns every discarded assistant turn AFTER the edited message, chronological", () => {
+    // Edit message 1 → discards assistants 2,4,5,6. 5 has no atom entry, so it
+    // falls back to its message id ("5") as a candidate — the disk read decides
+    // whether it actually has a snapshot.
+    expect(discardedTurnSnapshotIds(msgs, 1, snap)).toEqual(["2", "4", "5", "6"]);
   });
 
   it("only counts turns after the edited message", () => {
     // Edit message 3 → discards assistants 4,5,6 (not 2).
-    expect(discardedTurnSnapshotIds(msgs, 3, snap)).toEqual(["4", "6"]);
+    expect(discardedTurnSnapshotIds(msgs, 3, snap)).toEqual(["4", "5", "6"]);
   });
 
   it("returns [] when nothing is discarded (last user message edited)", () => {
@@ -36,8 +38,15 @@ describe("discardedTurnSnapshotIds", () => {
     expect(discardedTurnSnapshotIds(tail, 3, new Map([[2, "2"]]))).toEqual([]);
   });
 
-  it("returns [] when discarded turns have no snapshots", () => {
-    expect(discardedTurnSnapshotIds(msgs, 1, new Map())).toEqual([]);
+  it("falls back to message ids when the atom is empty (stopped/cancelled turns)", () => {
+    // A cancelled turn never populates the atom, but its snapshot is on disk
+    // under the message id — so every discarded assistant is a candidate.
+    expect(discardedTurnSnapshotIds(msgs, 1, new Map())).toEqual([
+      "2",
+      "4",
+      "5",
+      "6",
+    ]);
   });
 
   it("returns [] when the edited id is missing or not a user message", () => {

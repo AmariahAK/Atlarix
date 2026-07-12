@@ -177,7 +177,7 @@ export class ToolRegistry {
 
     /**
      * Get tools for Ask mode (read-only tools only)
-     * Includes: read_file, list_files, search_code, web_search, get_diagram, git_log, etc.
+     * Includes: read_file, glob, grep, web_search, read_url, etc.
      * Excludes: write_file, delete_file, run_command, code generation tools
      * @returns Read-only tools safe for Ask mode
      */

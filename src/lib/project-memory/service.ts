@@ -25,8 +25,6 @@ export type ProjectSnapshotTrigger =
 
 const MAX_SNAPSHOTS_PER_WORKSPACE = 100;
 const touchedWorkspaces = new Set<number>();
-// PASS6: Blueprint subsystem restored — debounce per workspace blueprint writes.
-const blueprintDebounce = new Map<number, ReturnType<typeof setTimeout>>();
 /** Coalesce burst plan writes (e.g. duplicate permission ops) into one snapshot per workspace. */
 const planUpdateSnapshotDebounce = new Map<number, ReturnType<typeof setTimeout>>();
 const PLAN_UPDATE_SNAPSHOT_DEBOUNCE_MS = 400;
@@ -97,31 +95,6 @@ export async function insertProjectSnapshot(params: {
   } catch (e) {
     logger.warn("insertProjectSnapshot failed:", e);
   }
-}
-
-/**
- * PASS6: Debounced blueprint-change snapshot writer used by Blueprint IPC handlers.
- */
-export function scheduleBlueprintChangeSnapshot(
-  workspaceId: number,
-  workspacePath: string,
-  blueprintJson: string,
-): void {
-  markTouched(workspaceId);
-  const prev = blueprintDebounce.get(workspaceId);
-  if (prev) clearTimeout(prev);
-  blueprintDebounce.set(
-    workspaceId,
-    setTimeout(() => {
-      blueprintDebounce.delete(workspaceId);
-      void insertProjectSnapshot({
-        workspaceId,
-        workspacePath,
-        trigger: "blueprint_change",
-        blueprintJson,
-      });
-    }, 1500),
-  );
 }
 
 export async function recordPlanUpdateSnapshot(workspaceId: number, workspacePath: string): Promise<void> {

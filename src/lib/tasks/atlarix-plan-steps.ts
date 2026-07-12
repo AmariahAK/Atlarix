@@ -2,54 +2,6 @@
  * Parse numbered tasks from `.atlarix/ATLARIX_PLAN.md` for task ledger seeding.
  */
 
-import * as fs from "fs/promises";
-import * as path from "path";
-
-const PLAN_REL = path.join(".atlarix", "ATLARIX_PLAN.md");
-
-export type PlanFileStatus = "PENDING" | "IN_PROGRESS" | "COMPLETE" | "FAILED" | "UNKNOWN";
-
-export interface PlanFileResult {
-  content: string;
-  status: PlanFileStatus;
-  steps: string[];
-  hasIncompleteSteps: boolean;
-}
-
-/** Match `**Status:** In progress` from plan-sync / living plan output. */
-function parsePlanStatusLine(content: string): PlanFileStatus {
-  const m = content.match(/^\*\*Status:\*\*\s*(.+)$/im);
-  if (!m?.[1]) return "UNKNOWN";
-  const raw = m[1].trim().toLowerCase();
-  if (raw.includes("complete")) return "COMPLETE";
-  if (raw.includes("fail")) return "FAILED";
-  if (raw.includes("cancel")) return "FAILED";
-  if (raw.includes("progress")) return "IN_PROGRESS";
-  return "UNKNOWN";
-}
-
-export async function tryReadPlan(workspacePath: string): Promise<string | null> {
-  const detailed = await tryReadPlanDetailed(workspacePath);
-  return detailed?.content ?? null;
-}
-
-export async function tryReadPlanDetailed(
-  workspacePath: string | undefined,
-): Promise<PlanFileResult | null> {
-  if (!workspacePath?.trim()) return null;
-  const full = path.join(workspacePath, PLAN_REL);
-  let content: string;
-  try {
-    content = await fs.readFile(full, "utf8");
-  } catch {
-    return null;
-  }
-  const status = parsePlanStatusLine(content);
-  const steps = parsePlanToSteps(content);
-  const hasIncompleteSteps =
-    /\[[ ~]\]/.test(content) || /\[~\]/.test(content) || /\[\s\]/.test(content);
-  return { content, status, steps, hasIncompleteSteps };
-}
 
 /**
  * Lines like `1. Do thing`, `2) Other`, or `3. [ ] Checkbox step` → step descriptions.

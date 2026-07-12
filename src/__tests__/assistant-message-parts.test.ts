@@ -10,7 +10,10 @@ import {
   enrichStreamThreadFromAssistantContent,
   proseAlreadyRendered,
 } from "@/lib/chat/stream-thread";
-import { extractVisibleAnswerMarkdown } from "@/lib/chat/answer-display";
+import {
+  extractVisibleAnswerMarkdown,
+  sanitizeMarkdownForDisplay,
+} from "@/lib/chat/answer-display";
 import {
   getPersistedToolExpandView,
   persistedToolPartToStreamCard,
@@ -306,5 +309,40 @@ describe("splitContentPartsAtOffset (native-FC sub-agent seam)", () => {
     const { before, after } = splitContentPartsAtOffset(content, 0, true);
     expect(before).toEqual([]);
     expect(after.length).toBeGreaterThan(0);
+  });
+});
+
+describe("parseAssistantMessageParts pure-prose fast path", () => {
+  it("returns a single sanitized markdown part for tag-free, brace-free prose", () => {
+    const prose =
+      "# Title\n\nHere is a paragraph.\n\nAnd another with **bold** and a list:\n\n- one\n- two";
+    expect(parseAssistantMessageParts(prose, true)).toEqual([
+      { type: "markdown", content: sanitizeMarkdownForDisplay(prose) },
+    ]);
+  });
+
+  it("streaming and completed parse identically for growing prose (no flicker)", () => {
+    // The streaming flush (isStreaming=true) and the final render (false) must
+    // yield the same parts for prose, or the view would jump on completion.
+    const prose = "Paragraph one.\n\nParagraph two is still growing";
+    expect(parseAssistantMessageParts(prose, true)).toEqual(
+      parseAssistantMessageParts(prose, false),
+    );
+  });
+
+  it("does NOT take the fast path when a brace-delimited envelope is present", () => {
+    // A bare JSON envelope has no `<` but must still be parsed structurally.
+    const withEnvelope =
+      'Answer.\n\n{"tool":"grep","result":"x","status":"success"}';
+    const parts = parseAssistantMessageParts(withEnvelope, true);
+    // Prose fast path would have returned one markdown part containing the JSON;
+    // the real parser must treat the envelope separately.
+    expect(parts).not.toEqual([{ type: "markdown", content: withEnvelope }]);
+  });
+
+  it("does NOT take the fast path when a tag is present", () => {
+    const withTag = "Thinking done.\n\n<think>hidden</think>\n\nVisible answer.";
+    const parts = parseAssistantMessageParts(withTag, false);
+    expect(parts.some((p) => p.type === "thought")).toBe(true);
   });
 });

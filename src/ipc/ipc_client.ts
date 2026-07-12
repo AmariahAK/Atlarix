@@ -1390,6 +1390,8 @@ export class IpcClient {
       onProblems?: (problems: ChatProblemsEvent) => void;
       /** v3.9: Continue after clarifying questions (no new user message; use last user message content). */
       continueAfterQuestions?: boolean;
+      /** Resume an interrupted turn: no new user message; model gets a system-reminder directive. */
+      continueInterrupted?: boolean;
       workspaceSessionId?: string | null;
       prefillTaskLedger?: {
         steps: { description: string }[];
@@ -1410,6 +1412,7 @@ export class IpcClient {
       onEnd,
       onError,
       continueAfterQuestions,
+      continueInterrupted,
       workspaceSessionId,
       prefillTaskLedger,
       workModeOverride,
@@ -1438,6 +1441,7 @@ export class IpcClient {
               attachments: fileDataArray,
               modelOverride: modelOverride ?? undefined,
               continueAfterQuestions: continueAfterQuestions ?? undefined,
+              continueInterrupted: continueInterrupted ?? undefined,
               workspaceSessionId: workspaceSessionId ?? undefined,
               prefillTaskLedger: prefillTaskLedger ?? undefined,
               workModeOverride: workModeOverride ?? undefined,
@@ -1471,6 +1475,7 @@ export class IpcClient {
           appId: appId ?? undefined,
           modelOverride: modelOverride ?? undefined,
           continueAfterQuestions: continueAfterQuestions ?? undefined,
+          continueInterrupted: continueInterrupted ?? undefined,
           workspaceSessionId: workspaceSessionId ?? undefined,
           prefillTaskLedger: prefillTaskLedger ?? undefined,
           workModeOverride: workModeOverride ?? undefined,

@@ -13,6 +13,8 @@ export interface SandboxRunOptions {
   extraWritablePaths?: string[];
   /** When true, refuse to run the command if no sandbox is available (default: fall back). */
   enforce?: boolean;
+  /** Read-only mode: deny workspace-source writes (Explore/Plan/Review). */
+  readOnly?: boolean;
 }
 
 let cachedShell: string | null = null;
@@ -98,6 +100,7 @@ function runShellProcess(options: RunShellProcessOptions): Promise<CommandResult
       shell,
       workspacePath: sandbox.workspacePath,
       extraWritablePaths: sandbox.extraWritablePaths,
+      readOnly: sandbox.readOnly,
     });
     if (wrapped.sandboxed) {
       spawnFile = wrapped.file;

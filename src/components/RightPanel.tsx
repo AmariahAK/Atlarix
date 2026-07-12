@@ -281,7 +281,7 @@ Please fix these errors in priority order (structural/build errors first, then r
             {context.tabs.length > 0 && (
                 <TooltipProvider>
                     <div className="flex flex-nowrap items-center gap-1 px-3 py-2 border-b border-border/50 bg-muted/20 overflow-x-auto flex-shrink-0 min-w-0">
-                        {context.tabs.filter((tab) => !["diagram", "permissions", "permission", "approve"].includes(tab)).map((tab) => {
+                        {context.tabs.filter((tab) => !["permissions", "permission", "approve"].includes(tab)).map((tab) => {
                             const tabConfig = TAB_ICONS[tab];
                             const Icon = tabConfig?.icon || Code2;
                             const label = tabConfig?.label || tab;

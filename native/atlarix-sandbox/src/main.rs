@@ -73,23 +73,44 @@ struct Args {
 
 fn parse_args() -> Args {
     let argv: Vec<String> = std::env::args().skip(1).collect();
+    // Track the workspace separately so `--read-only` can exclude it from the
+    // write grant (read-only modes: workspace source is not writable).
+    let mut workspace: Option<String> = None;
     let mut writable = Vec::new();
+    let mut read_only = false;
     let mut command = String::new();
     let mut i = 0;
     while i < argv.len() {
         match argv[i].as_str() {
-            "--workspace" | "--writable" => {
+            "--workspace" => {
                 if i + 1 >= argv.len() {
-                    die("missing value after --workspace/--writable");
+                    die("missing value after --workspace");
+                }
+                workspace = Some(argv[i + 1].clone());
+                i += 2;
+            }
+            "--writable" => {
+                if i + 1 >= argv.len() {
+                    die("missing value after --writable");
                 }
                 writable.push(argv[i + 1].clone());
                 i += 2;
+            }
+            "--read-only" => {
+                read_only = true;
+                i += 1;
             }
             "--" => {
                 command = argv[i + 1..].join(" ");
                 break;
             }
             other => die(&format!("unexpected argument: {other}")),
+        }
+    }
+    // Grant write to the workspace only when NOT read-only.
+    if !read_only {
+        if let Some(ws) = workspace {
+            writable.insert(0, ws);
         }
     }
     if command.trim().is_empty() {

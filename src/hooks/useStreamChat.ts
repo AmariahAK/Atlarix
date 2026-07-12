@@ -159,6 +159,14 @@ import { playNotify, playRemaining } from "@/lib/sounds";
 
 /** PASS6: cap renderer-held chat history to limit heap growth (SQLite still has full history). */
 const MAX_RENDERER_MESSAGES = 100;
+
+/**
+ * Above this streamed-answer length (chars), the message-flush throttle drops to
+ * every other 50ms tick (~100ms). Per-flush render cost scales with answer
+ * length, so long answers get the cheaper cadence; short ones stay at 50ms.
+ */
+const ADAPTIVE_FLUSH_LEN_THRESHOLD = 20_000;
+
 function trimRendererMessages(msgs: Message[]): Message[] {
   if (msgs.length <= MAX_RENDERER_MESSAGES) return msgs;
   return msgs.slice(-MAX_RENDERER_MESSAGES);
@@ -366,7 +374,17 @@ export function useStreamChat({
     timer: ReturnType<typeof setInterval> | null;
     pending: Map<number, Message[]>;
     lastAssistantRawByChatId: Map<number, string>;
-  }>({ timer: null, pending: new Map(), lastAssistantRawByChatId: new Map() });
+    /** Monotonic tick counter for the adaptive-cadence flush skip. */
+    tick: number;
+    /** Last-flushed source count per chat — skips the per-chunk sources rebuild. */
+    sourcesCountByChatId: Map<number, number>;
+  }>({
+    timer: null,
+    pending: new Map(),
+    lastAssistantRawByChatId: new Map(),
+    tick: 0,
+    sourcesCountByChatId: new Map(),
+  });
 
   /** Pairs with IPC tool:start / tool:end (end often omits toolId). */
   const toolEndStackRef = useRef<
@@ -506,6 +524,7 @@ export function useStreamChat({
       modelOverride,
       onSettled,
       continueAfterQuestions,
+      continueInterrupted,
       prefillTaskLedger,
       workModeOverride,
     }: {
@@ -518,6 +537,8 @@ export function useStreamChat({
       onSettled?: () => void;
       /** v3.9: Continue after clarifying questions (no new user message). */
       continueAfterQuestions?: boolean;
+      /** Resume an interrupted turn: no new user message; system-reminder directive to the model. */
+      continueInterrupted?: boolean;
       prefillTaskLedger?: {
         steps: { description: string }[];
         sourcePlanMessageId?: number;
@@ -535,7 +556,12 @@ export function useStreamChat({
             a.textPaste?.content ||
             a.terminalPaste?.content,
         ) ?? false;
-      if (!continueAfterQuestions && !prompt.trim() && !hasAttachments) {
+      if (
+        !continueAfterQuestions &&
+        !continueInterrupted &&
+        !prompt.trim() &&
+        !hasAttachments
+      ) {
         return;
       }
 
@@ -1244,7 +1270,12 @@ export function useStreamChat({
 
         const streamAppId = resolveStreamAppId(chatId);
         let workspaceSessionId: string | null = null;
-        if (streamAppId != null && !continueAfterQuestions && !redo) {
+        if (
+          streamAppId != null &&
+          !continueAfterQuestions &&
+          !continueInterrupted &&
+          !redo
+        ) {
           const store = getDefaultStore();
           workspaceSessionId =
             store.get(chatIdToSessionIdAtom).get(chatId) ??
@@ -1270,6 +1301,7 @@ export function useStreamChat({
           modelOverride,
           appId: streamAppId,
           continueAfterQuestions,
+          continueInterrupted,
           workspaceSessionId: workspaceSessionId ?? undefined,
           prefillTaskLedger,
           workModeOverride,
@@ -1293,6 +1325,20 @@ export function useStreamChat({
               return n;
             });
 
+            // Extract and enrich sources from messages. This runs on EVERY raw
+            // chunk; sources only ever grow, so skip the whole rebuild (favicon
+            // string-building + sort + atom writes) when the total count is
+            // unchanged since the last chunk for this chat.
+            const th = messageStreamThrottleRef.current;
+            const lastAsst = [...messagesForUi]
+              .reverse()
+              .find((m) => m.role === "assistant");
+            let sourceCount = 0;
+            for (const msg of messagesForUi) {
+              if (Array.isArray(msg.sources)) sourceCount += msg.sources.length;
+            }
+            if (th.sourcesCountByChatId.get(chatId) !== sourceCount) {
+            th.sourcesCountByChatId.set(chatId, sourceCount);
             // Extract and enrich sources from messages
             const allSources: SourceItem[] = [];
             const seenUrls = new Set<string>();
@@ -1335,14 +1381,14 @@ export function useStreamChat({
               maybeAutoOpenRightPanel();
             }
 
-            const th = messageStreamThrottleRef.current;
-            const lastAsst = [...messagesForUi].reverse().find((m) => m.role === "assistant");
             if (lastAsst?.id != null && allSources.length > 0) {
               getDefaultStore().set(sourcesByAssistantMessageIdAtom, (prev) => ({
                 ...prev,
                 [lastAsst.id]: allSources,
               }));
             }
+            } // end sources rebuild (skipped when count unchanged)
+
             if (lastAsst?.content) {
               th.lastAssistantRawByChatId.set(chatId, lastAsst.content);
             }
@@ -1361,6 +1407,20 @@ export function useStreamChat({
             if (th.timer == null) {
               th.timer = setInterval(() => {
                 if (th.pending.size === 0) return;
+                // Adaptive cadence: the per-flush render cost grows with answer
+                // length, so once a long answer is streaming, drop to every other
+                // 50ms tick (~100ms effective). The eye can't resolve faster than
+                // that, and it halves the whole-tree reconcile rate on the exact
+                // case that spikes. Short answers keep the full 50ms cadence.
+                th.tick += 1;
+                let maxLen = 0;
+                for (const cid of th.pending.keys()) {
+                  const len = th.lastAssistantRawByChatId.get(cid)?.length ?? 0;
+                  if (len > maxLen) maxLen = len;
+                }
+                if (maxLen > ADAPTIVE_FLUSH_LEN_THRESHOLD && th.tick % 2 !== 0) {
+                  return; // skip this tick; pending is retained for the next one
+                }
                 const snapshot = new Map(th.pending);
                 th.pending.clear();
                 setMessagesById((prev) => {

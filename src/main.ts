@@ -56,6 +56,7 @@ import {
   parseDirectoryArgFromArgv,
 } from "./main/open_workspace_from_cli";
 import { registerWorkspaceWindowIpc } from "./main/workspace_window_ipc";
+import { cleanupLegacyIndexDirs } from "./main/startup/cleanup-legacy-index-dirs";
 import { registerIpcHandlers } from "./ipc/ipc_host";
 import { killAllPtys } from "./lib/pty/pty-session-manager";
 import { __setDevCoreKeyProvider } from "./ipc/shared/compass_constants";
@@ -337,6 +338,12 @@ export async function onReady() {
   }
 
   createWindow();
+
+  // One-time removal of orphaned index dirs from the pre-14.9.0 retrieval
+  // teardown (~1.4 GB of dead data). Fire-and-forget — never blocks startup.
+  void cleanupLegacyIndexDirs().catch((err) => {
+    logger.warn("legacy-index cleanup failed (non-fatal):", err);
+  });
 
   try {
     initializeDatabase();

@@ -18,9 +18,7 @@ const LABELS: Record<string, string> = {
   explore_folder: "Exploring folder…",
   search_code: "Searching code…",
   search: "Searching codebase…",
-  visualize_graph: "Building graph…",
   find_file: "Finding files…",
-  get_diagram: "Reading diagram…",
   edit_file: "Editing file…",
   run_command: "Running command…",
   execute_command: "Running command…",
@@ -82,10 +80,24 @@ const ARG_VERBS: Record<string, string> = {
   explore_folder: "Exploring",
 };
 
+/** Clamp a subject string so status lines stay short. */
+function clampSubject(s: string, max = 40): string {
+  return s.length > max ? `${s.slice(0, max)}…` : s;
+}
+
 /** Pull a human-readable subject (file path, query, command) out of tool args. */
 function subjectFromArgs(toolName: string, args: Record<string, unknown>): string | null {
   const str = (v: unknown): string | null =>
     typeof v === "string" && v.trim() ? v.trim() : null;
+  // grep/glob first: their `pattern` is the subject, and grep's `path` arg is the
+  // search root (not what we want to surface), so this must precede the path check.
+  if (toolName === "grep" || toolName === "glob") {
+    const pattern = str(args.pattern) ?? str(args.query);
+    if (pattern) {
+      const include = toolName === "grep" ? str(args.include) : null;
+      return clampSubject(include ? `${pattern} in ${include}` : pattern);
+    }
+  }
   const path =
     str(args.path) ?? str(args.file_path) ?? str(args.filePath) ?? str(args.folder_path);
   if (path) {
@@ -203,6 +215,8 @@ export function getToolActivityLabelWithArgs(
       const verb = isWholeFileWrite ? "Writing" : ARG_VERBS[toolName];
       if (verb) return `${verb} ${subject}…`;
       if (toolName === "web_search") return `Searching: ${subject}…`;
+      if (toolName === "grep") return `Searching for ${subject}…`;
+      if (toolName === "glob") return `Finding files ${subject}…`;
       if (toolName === "search" || toolName === "search_code")
         return `Searching for ${subject}…`;
       if (toolName === "run_command" || toolName === "execute_command")
@@ -228,8 +242,6 @@ const DONE_LABELS: Record<string, string> = {
   search_code: "Searched codebase",
   search: "Ran codebase search",
   find_file: "Found files",
-  get_diagram: "Read diagram",
-  visualize_graph: "Built graph",
   edit_file: "Edited file",
   run_command: "Ran command",
   execute_command: "Ran command",
@@ -275,6 +287,14 @@ export function getToolDoneLabel(
   if (args) {
     const browser = browserToolLabel(toolName, args, "done");
     if (browser) return browser;
+    if (toolName === "grep" || toolName === "glob") {
+      const subject = subjectFromArgs(toolName, args);
+      if (subject) {
+        return toolName === "grep"
+          ? `Searched for ${subject}`
+          : `Found files matching ${subject}`;
+      }
+    }
   }
   if (toolName.includes("__")) {
     const [server, tool] = toolName.split("__").filter(Boolean);

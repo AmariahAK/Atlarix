@@ -8,10 +8,6 @@
 import log from "electron-log";
 import type { WorkMode } from "@/lib/schemas";
 import { WorkModeSchema } from "@/lib/schemas";
-import { isMutatingCommand } from "@/lib/command-mutation";
-import { labelForWorkMode } from "@/lib/work-mode";
-import { runCommandGitInitGateResult } from "@/lib/git-init-command-guard";
-import { readSettings } from "@/main/settings";
 import { safeSend } from "@/ipc/utils/safe_sender";
 import { enrichFilePermissionRequest } from "../file_permission_preflight";
 import { runCommandCategoryPreflight } from "../command_permission_handlers";
@@ -22,24 +18,14 @@ import {
 
 const logger = log.scope("chat_stream_handlers");
 
-export function runCommandModeGateResult(
-  command: string,
-  workMode: WorkMode,
-): string | null {
-  // v14 pt3: read-only modes (Explore/Plan/Review) may run NON-mutating commands
-  // (reads, dev servers, builds, tests, installs, curl GET) — only clearly
-  // mutating/destructive commands are blocked. Build/Debug authorize mutation.
-  // Compound-aware (fixes the old `cd x && git push` bypass + `npm run dev`
-  // mis-block). The dangerous gate + .atlarix rules are enforced separately.
-  if (!isMutatingCommand(command)) return null;
-  if (workMode === "build" || workMode === "debug") return null;
-  return JSON.stringify({
-    success: false,
-    error: `Blocked by MODE, not by permissions: "${command}" changes the workspace/repo, and the current ${labelForWorkMode(workMode)} mode is read-only for the source. This is NOT an approval prompt — retrying this command or asking for approval will not help while the mode is unchanged (a previous mode may have allowed it; this one does not). Do exactly one of: run a non-mutating alternative (reads, dev servers, builds, tests, installs are fine here), or call ask_user to have the user switch to Build/Debug — then STOP retrying this command.`,
-  });
-}
-
-export function runCommandGateResult(command: string, workMode: WorkMode): string | null {
+/**
+ * Command work-mode gate. The read-only enforcement (Explore/Plan/Review can't
+ * modify the workspace source) is now done by the OS SANDBOX at execution time
+ * (`buildRunCommandSandbox` → read-only profile), NOT by classifying command
+ * strings — so there is no mutating/git command taxonomy here. This gate only
+ * fail-closes when the work mode itself can't be resolved.
+ */
+export function runCommandGateResult(_command: string, workMode: WorkMode): string | null {
   // v12 3.6: fail-closed on an invalid workMode — runtime values flow in from
   // persisted settings / IPC, so don't trust the static type at this gate.
   if (!WorkModeSchema.safeParse(workMode).success) {
@@ -52,12 +38,7 @@ export function runCommandGateResult(command: string, workMode: WorkMode): strin
         "Command blocked: the active work mode could not be determined. Switch modes in the UI and retry.",
     });
   }
-  const gitInitBlock = runCommandGitInitGateResult(
-    command,
-    readSettings().allowGitInit,
-  );
-  if (gitInitBlock) return gitInitBlock;
-  return runCommandModeGateResult(command, workMode);
+  return null;
 }
 
 export function emitRunCommandPermissionActivity(

@@ -62,6 +62,7 @@ import { MAX_CHAT_TURNS_IN_CONTEXT } from "@/constants/settings_constants";
 import { safeSend } from "../utils/safe_sender";
 import {
   buildContinueAfterQuestionsPrompt,
+  buildInterruptedContinuePrompt,
   nextEphemeralMessageId,
   getStreamTransport,
 } from "@/lib/chat/stream-transport";
@@ -123,18 +124,8 @@ import {
 } from "../../lib/attachment-persistence";
 import type { StoredFileAttachment } from "../ipc_types";
 import {
-  createLedger,
-  getLedger,
-  hasActivePlanLedger,
-  hydrateLedgerFromDisk,
-  persistLedgerToDisk,
-  planLedgerTurnId,
-  getWorkspacePlanLedger,
-  registerLedgerPlanUiNotifier,
-  setLedgerSteps,
   unregisterLedgerPlanUiNotifier,
 } from "@/lib/tasks/task-ledger";
-import { emitPlanUpdate } from "@/ipc/utils/emit_plan_update";
 import { type ContextSection } from "@/lib/context/ContextAssembler";
 import { ContextBudgetTracker } from "@/lib/context/context-budget-tracker";
 import { pruneContextSectionsForBudget } from "@/lib/context/context-budget-pruning";
@@ -418,7 +409,7 @@ export function registerChatStreamHandlers() {
         }
 
         try {
-          if (!req.continueAfterQuestions) {
+          if (!req.continueAfterQuestions && !req.continueInterrupted) {
             req.prompt = prepareUserChatTurnInput(req.prompt);
           }
         } catch (e) {
@@ -593,6 +584,11 @@ export function registerChatStreamHandlers() {
           throw new Error("Continue after questions: no user message content found");
         }
         userPrompt = prepareUserChatTurnInput(composed);
+      } else if (req.continueInterrupted) {
+        // Resume an interrupted turn (e.g. after a disconnect). No new user message
+        // is shown or persisted; the model receives an out-of-band directive so it
+        // continues rather than mistaking a harness resume for a user "continue" turn.
+        userPrompt = buildInterruptedContinuePrompt();
       }
 
       // Process attachments if any (skip when continuing after questions)
@@ -627,7 +623,12 @@ export function registerChatStreamHandlers() {
         ".svg": "image/svg+xml",
       };
 
-      if (!req.continueAfterQuestions && req.attachments && req.attachments.length > 0) {
+      if (
+        !req.continueAfterQuestions &&
+        !req.continueInterrupted &&
+        req.attachments &&
+        req.attachments.length > 0
+      ) {
         // Model-only attachment directive (do not leak into user-visible bubble).
         attachmentInfoForModel =
           "\n\nFILES ATTACHED (already uploaded; do NOT ask the user to attach again):\n";
@@ -739,11 +740,14 @@ export function registerChatStreamHandlers() {
       // Add user message to database (skip when continueAfterQuestions).
       // Display text uses stub attachment tags; model uses full bodies in req.prompt.
       let userDisplayContent = userPrompt;
-      if (!req.continueAfterQuestions) {
+      if (!req.continueAfterQuestions && !req.continueInterrupted) {
         userDisplayContent = req.displayPrompt ?? req.prompt;
         userPrompt = req.prompt;
       }
-      const componentsToProcess = req.continueAfterQuestions ? [] : (req.selectedComponents || []);
+      const componentsToProcess =
+        req.continueAfterQuestions || req.continueInterrupted
+          ? []
+          : (req.selectedComponents || []);
 
       if (componentsToProcess.length > 0) {
         userPrompt += "\n\nSelected components:\n";
@@ -808,7 +812,11 @@ ${componentSnippet}
       // model ("attachment is truncated"). One retry covers transient sqlite
       // contention; a double failure is loudly logged.
       let persistedUserRowId: string | undefined;
-      if (req.workspaceSessionId && !req.continueAfterQuestions) {
+      if (
+        req.workspaceSessionId &&
+        !req.continueAfterQuestions &&
+        !req.continueInterrupted
+      ) {
         const { persistWorkspaceSessionUserMessage } = await import(
           "./workspace_session_handlers"
         );
@@ -920,7 +928,7 @@ ${componentSnippet}
         commitHash: null,
       };
 
-      if (req.continueAfterQuestions) {
+      if (req.continueAfterQuestions || req.continueInterrupted) {
         updatedChat.messages = [...existingMessages, placeholderMessage];
       } else {
         const newUserMessage = {
@@ -1554,157 +1562,6 @@ ${componentSnippet}
           for (const section of loadedSections) {
             if (section) contextSections.push(section);
           }
-          const shouldCreateTaskLedger = false;
-          if (
-            shouldCreateTaskLedger &&
-            !req.prompt.startsWith("Summarize from chat-id=")
-          ) {
-            let shouldEmitPlanCreated = false;
-            const wsId = effectiveAppId ?? req.appId ?? undefined;
-            let usedWorkspacePlanLedger = false;
-
-            if (typeof wsId === "number" && wsId > 0 && hasWorkspace && appPath) {
-              if (hasActivePlanLedger(wsId)) {
-                const planTid = planLedgerTurnId(wsId);
-                if (planTid != null) {
-                  streamTurnId = planTid;
-                  const planLedger = getWorkspacePlanLedger(wsId)!;
-                  planLedger.chatId = req.chatId;
-                  planLedger.finishReason = "in_progress";
-                  const hasInProg = planLedger.steps.some((s) => s.status === "in_progress");
-                  if (!hasInProg) {
-                    const firstPending = planLedger.steps.find((s) => s.status === "pending");
-                    if (firstPending) {
-                      firstPending.status = "in_progress";
-                      planLedger.currentStepId = firstPending.id;
-                    }
-                  }
-                  await persistLedgerToDisk(planLedger);
-                  const { syncPlanFile } = await import("@/lib/tasks/plan-sync");
-                  await syncPlanFile(appPath, planLedger);
-                  usedWorkspacePlanLedger = true;
-                }
-              } else {
-                try {
-                  const { tryReadPlanDetailed, extractPlanTitle } = await import(
-                    "@/lib/tasks/atlarix-plan-steps"
-                  );
-                  const planResult = await tryReadPlanDetailed(appPath);
-                  const planDead =
-                    planResult?.status === "COMPLETE" || planResult?.status === "FAILED";
-                  const canResumeFromDisk =
-                    planResult &&
-                    !planDead &&
-                    planResult.hasIncompleteSteps &&
-                    planResult.steps.length > 0;
-
-                  if (canResumeFromDisk) {
-                    const planTid = planLedgerTurnId(wsId);
-                    if (planTid != null) {
-                      const hydrated = await hydrateLedgerFromDisk(planTid, appPath);
-                      if (hydrated) {
-                        streamTurnId = planTid;
-                        hydrated.chatId = req.chatId;
-                        hydrated.finishReason = "in_progress";
-                        const hip = hydrated.steps.some((s) => s.status === "in_progress");
-                        if (!hip) {
-                          const fp = hydrated.steps.find((s) => s.status === "pending");
-                          if (fp) {
-                            fp.status = "in_progress";
-                            hydrated.currentStepId = fp.id;
-                          }
-                        }
-                        await persistLedgerToDisk(hydrated);
-                        const { syncPlanFile } = await import("@/lib/tasks/plan-sync");
-                        await syncPlanFile(appPath, hydrated);
-                        usedWorkspacePlanLedger = true;
-                      } else {
-                        const taskHead = extractPlanTitle(
-                          planResult.content,
-                          (userPrompt || req.prompt).slice(0, 8000),
-                        );
-                        createLedger({
-                          turnId: planTid,
-                          chatId: req.chatId,
-                          originalTask: taskHead,
-                          chatType: "workspace",
-                          workspacePath: appPath,
-                          stepDescriptions: planResult.steps,
-                        });
-                        streamTurnId = planTid;
-                        usedWorkspacePlanLedger = true;
-                        if (planResult.steps.length > 1) {
-                          shouldEmitPlanCreated = true;
-                        }
-                      }
-                    }
-                  }
-                } catch (planErr) {
-                  logger.warn("[ledger] Plan resume / hydrate failed:", planErr);
-                }
-              }
-            }
-
-            if (!usedWorkspacePlanLedger) {
-              const prefillLen = req.prefillTaskLedger?.steps?.length ?? 0;
-              if (prefillLen > 1) {
-                shouldEmitPlanCreated = true;
-              }
-              createLedger({
-                turnId: streamTurnId,
-                chatId: req.chatId,
-                originalTask: (userPrompt || req.prompt).slice(0, 8000),
-                chatType: hasWorkspace && appPath ? "workspace" : "general",
-                workspacePath: hasWorkspace && appPath ? appPath : undefined,
-                stepDescriptions: req.prefillTaskLedger?.steps?.map((s) => s.description),
-              });
-              if (hasWorkspace && appPath) {
-                try {
-                  const { tryReadPlan, parsePlanToSteps } = await import(
-                    "@/lib/tasks/atlarix-plan-steps"
-                  );
-                  const planBody = await tryReadPlan(appPath);
-                  if (planBody) {
-                    const planSteps = parsePlanToSteps(planBody);
-                    if (planSteps.length > 0) {
-                      await setLedgerSteps(streamTurnId, planSteps);
-                      if (planSteps.length > 1) {
-                        shouldEmitPlanCreated = true;
-                      }
-                    }
-                  }
-                } catch (planErr) {
-                  logger.warn("[ledger] Failed to seed steps from plan file:", planErr);
-                }
-              }
-            }
-
-            const ledgerForUi = getLedger(streamTurnId);
-            if (ledgerForUi && ledgerForUi.steps.length > 0) {
-              const planCardAssistantMessageId = placeholderAssistantMessage.id;
-              registerLedgerPlanUiNotifier(req.chatId, (ledger) => {
-                emitPlanUpdate(event.sender, ledger, planCardAssistantMessageId);
-              });
-              emitPlanUpdate(event.sender, ledgerForUi, planCardAssistantMessageId);
-              if (shouldEmitPlanCreated && ledgerForUi.steps.length > 1) {
-                safeSend(event.sender, "chat:activity", {
-                  id: `plan-created-${Date.now()}`,
-                  type: "plan_created",
-                  label: `Plan created — ${ledgerForUi.steps.length} steps`,
-                  status: "done",
-                  timestamp: Date.now(),
-                  chatId: req.chatId,
-                  task: ledgerForUi.originalTask.slice(0, 800),
-                  stepCount: ledgerForUi.steps.length,
-                });
-              }
-            }
-          }
-
-          // v14.8.7 §A: the legacy taskProgress injection here keyed off the
-          // dead task-ledger (getLedger(streamTurnId) is always undefined with
-          // shouldCreateTaskLedger=false); the live compact ledger now rides the
-          // per-turn recency slot (taskLedgerBlock) from the plan artifact.
 
           // (fileSystemTruth is loaded concurrently above — S18.)
 

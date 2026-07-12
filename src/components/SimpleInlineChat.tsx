@@ -22,6 +22,7 @@ import {
 import { IpcClient } from "@/ipc/ipc_client";
 import { buildRevertSnapshotMap } from "@/lib/chat/revert-snapshot-rehydrate";
 import { SimpleMessage } from "./SimpleMessage";
+import { VirtualizedMessageList } from "./VirtualizedMessageList";
 import { SimpleChatInput } from "./SimpleChatInput";
 import { InlineUserQuestions } from "@/components/chat/InlineUserQuestions";
 import { BackgroundJobsIndicator } from "@/components/chat/BackgroundJobsIndicator";
@@ -51,14 +52,25 @@ import {
 interface SimpleInlineChatProps {
     chatId: number;
     onSendMessage: (prompt: string, attachments?: FileAttachment[]) => void;
+    /** Override the virtualized-history kill-switch (defaults to USE_VIRTUALIZED_CHAT). */
+    virtualizeHistory?: boolean;
 }
 
 /** Max messages mounted at once; older ones load on demand ("Show earlier"). */
 const RENDER_CAP = 120;
 
+/**
+ * Kill-switch for the virtualized chat history (completed messages via
+ * react-virtuoso, streaming tail live outside). Flip to `false` to fall back to
+ * the render-all path with zero behavior change if a scroll/stick-to-bottom
+ * regression surfaces. Default ON.
+ */
+const USE_VIRTUALIZED_CHAT = true;
+
 export function SimpleInlineChat({
     chatId,
     onSendMessage,
+    virtualizeHistory = USE_VIRTUALIZED_CHAT,
 }: SimpleInlineChatProps) {
     // Scoped to THIS chat (perf: a stream in another chat no longer re-renders
     // this whole chat view every ~50ms). Writes still go through the whole-map
@@ -301,6 +313,7 @@ export function SimpleInlineChat({
             }
             let changed = 0;
             let created = 0;
+            let lookupFailed = false;
             try {
                 const files = await IpcClient.getInstance().getSnapshotFilesRange(
                     chatId,
@@ -309,10 +322,11 @@ export function SimpleInlineChat({
                 changed = files?.filesChanged.length ?? 0;
                 created = files?.createdFiles.length ?? 0;
             } catch {
-                // Show the dialog anyway (unknown counts) rather than silently
-                // discarding the file-revert choice.
+                // Counts unknown — fall through to the dialog (below) rather than
+                // silently discarding the file-revert choice.
+                lookupFailed = true;
             }
-            if (changed === 0 && created === 0) {
+            if (!lookupFailed && changed === 0 && created === 0) {
                 // Snapshots existed but recorded no file changes — nothing to
                 // revert; just edit + resend.
                 await performEdit(messageId, newContent, turnIds);
@@ -376,8 +390,12 @@ export function SimpleInlineChat({
                 }
                 return next;
             });
+            // Resume as an out-of-band system directive — NOT a user "continue"
+            // message. The main-side handler injects the continuation as a
+            // <system-reminder> so the transcript shows no fake user turn.
             streamMessage({
-                prompt: "Continue from where you left off, without repeating what you already wrote.",
+                prompt: "",
+                continueInterrupted: true,
                 chatId,
             });
         },
@@ -399,6 +417,17 @@ export function SimpleInlineChat({
 
             <LoadedSessionBanner />
 
+            {virtualizeHistory && (visibleMessages.length > 0 || isStreaming) ? (
+                <VirtualizedMessageList
+                    messages={visibleMessages}
+                    chatId={chatId}
+                    workspaceAppId={chatAppId}
+                    isStreaming={isStreaming}
+                    lastAssistantIndex={lastAssistantIndex}
+                    onEditUserMessage={handleEditUserMessage}
+                    onContinue={handleContinue}
+                />
+            ) : (
             <div className="relative flex-1 min-h-0 flex flex-col">
             <div
                 ref={messagesContainerRef}
@@ -481,6 +510,7 @@ export function SimpleInlineChat({
                     </button>
                 )}
             </div>
+            )}
 
             <div className="flex-shrink-0 px-4 pb-2 space-y-2">
                 {/* Stream failure: pinned just above the input (never scrolled away),

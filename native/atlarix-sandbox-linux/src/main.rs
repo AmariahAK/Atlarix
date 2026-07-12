@@ -36,6 +36,8 @@ fn die(msg: &str) -> ! {
 struct Args {
     workspace: String,
     writable: Vec<String>,
+    /// Read-only mode: the workspace is NOT granted write (only `--writable` roots are).
+    read_only: bool,
     command: String,
 }
 
@@ -43,6 +45,7 @@ fn parse_args() -> Args {
     let argv: Vec<String> = std::env::args().skip(1).collect();
     let mut workspace = String::new();
     let mut writable: Vec<String> = Vec::new();
+    let mut read_only = false;
     let mut command = String::new();
     let mut i = 0;
     while i < argv.len() {
@@ -56,6 +59,9 @@ fn parse_args() -> Args {
                 if let Some(p) = argv.get(i) {
                     writable.push(p.clone());
                 }
+            }
+            "--read-only" => {
+                read_only = true;
             }
             "--" => {
                 // Everything after `--` is the command string (run via sh -c).
@@ -75,6 +81,7 @@ fn parse_args() -> Args {
     Args {
         workspace,
         writable,
+        read_only,
         command,
     }
 }
@@ -84,15 +91,22 @@ fn parse_args() -> Args {
 /// handled, so they stay unrestricted everywhere. Writes are then granted back
 /// under the workspace + writable roots. On any Landlock error we log and return
 /// (run unconfined) — matching the "sandbox never breaks the workflow" policy.
-fn apply_landlock(workspace: &str, writable: &[String]) {
+fn apply_landlock(workspace: &str, writable: &[String], read_only: bool) {
     // Request the newest ABI; `Ruleset::default()` is best-effort, so this clamps
     // down to whatever the running kernel actually supports.
     let abi = ABI::V2;
     let write = AccessFs::from_write(abi);
 
     // Existing writable roots only (a cache dir may not exist yet — skip it,
-    // mirroring bwrap's `--bind-try`). Workspace first.
-    let roots: Vec<String> = std::iter::once(workspace.to_string())
+    // mirroring bwrap's `--bind-try`). Workspace first — UNLESS read-only, where the
+    // workspace source stays non-writable (writes there fail cleanly).
+    let base: Vec<String> = if read_only {
+        Vec::new()
+    } else {
+        vec![workspace.to_string()]
+    };
+    let roots: Vec<String> = base
+        .into_iter()
         .chain(writable.iter().cloned())
         .filter(|p| Path::new(p).exists())
         .collect();
@@ -112,7 +126,7 @@ fn apply_landlock(workspace: &str, writable: &[String]) {
 
 fn main() {
     let args = parse_args();
-    apply_landlock(&args.workspace, &args.writable);
+    apply_landlock(&args.workspace, &args.writable, args.read_only);
     // Replace this process with the command (in a shell, like the AppContainer
     // helper's `cmd.exe /c`). The Landlock domain is inherited across execve, and
     // the shell's exit code becomes ours. `exec` only returns on failure.

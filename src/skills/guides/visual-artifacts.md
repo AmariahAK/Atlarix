@@ -77,8 +77,7 @@ Schema:
 Rules:
 - Use for flows, request paths, architecture, and dependencies.
 - Do **not** include x/y coordinates unless the user asks for a fixed layout.
-- Do **not** output rendering code — only JSON.
-- You may call `visualize_graph` to validate JSON and get a ready-made fence.
+- Do **not** output rendering code — only JSON inside a ` ```graph ` fence; Atlarix renders it.
 
 ## Markmap (` ```markmap `)
 

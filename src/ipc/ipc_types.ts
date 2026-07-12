@@ -43,6 +43,9 @@ export interface ChatStreamParams {
   modelOverride?: { provider: string; name: string };
   /** v3.9: When true, do not add a new user message; use the last user message content (after question answers) as prompt. */
   continueAfterQuestions?: boolean;
+  /** Resume an interrupted turn (e.g. after a disconnect): add NO new user message; the
+   *  model receives a `<system-reminder>` continuation directive, not a user turn. */
+  continueInterrupted?: boolean;
   // Pass 7: Blueprint injection-mode + debug-trace fields removed with the Blueprint subsystem.
   /** Workspace SQLite session id for plan artifacts and message persistence. */
   workspaceSessionId?: string | null;

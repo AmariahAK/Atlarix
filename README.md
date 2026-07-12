@@ -5,26 +5,26 @@ Atlarix is the agent workstation built for the open-weight frontier labs —
 **DeepSeek, Qwen, Kimi, MiniMax** — with any-model BYOK and local-first
 execution, without replacing your editor.
 
-Atlarix Core ships the frontier open-weight labs; **Blueprint** — the local
-structural index — silently sharpens every `grep` so any model performs like it
-knows your codebase; and everything runs through your approval, on your machine.
-Your team writes code in VS Code, IntelliJ, or Vim. Atlarix gives the agent a
-fast, relevance-ranked view of the codebase, a terminal, file operations, web
-search, and external integrations. The agent has a workspace. You have control.
+Atlarix Core ships the frontier open-weight labs; everything runs through your
+approval, on your machine, over your files. Your team writes code in VS Code,
+IntelliJ, or Vim. Atlarix gives the agent fast search over your codebase, a
+terminal, file operations, web search, and external integrations — no index to
+build, no background watcher, constant low memory at any repo size. The agent
+has a workspace. You have control.
 
 ## How it works
 
-**Map** — Atlarix builds a live **Blueprint** per workspace (Universal Ctags + ast-grep edges) into a disk-backed SQLite **FTS5** index. There's no map tool to call: Blueprint silently reranks every `grep` by structural relevance (most relevant files first, each annotated with its enclosing function/class) and powers edit-time blast-radius — no whole-repo dumps, no embeddings, constant low memory at any size.
+**Search** — Atlarix gives the agent fast, **bundled-ripgrep** search over your workspace — `grep` and `glob` with no index to build, no background file-watcher, and constant low memory at any repo size. Like **Claude Code** and **opencode**, retrieval stays purely lexical: the agent reasons over ranked search results rather than a vector index or a structural map. Nothing is scanned until the agent searches.
 
 **Connect** — Wire in any LLM: local **Ollama / LM Studio**, OpenAI, Anthropic, Google Gemini, OpenRouter, Groq, Mistral, xAI, **Hugging Face**, Azure, Bedrock, or **Atlarix Core** (managed models with real catalog names, not raw tier ids — the Core tiers are configured remotely, so the underlying models stay current without an app update).
 
 **Execute** — The agent plans, reads, writes, runs commands (inside a per-OS write-confining sandbox — workspace writes only, network on), and searches the web. You approve every destructive action.
 
-**Remember** — Workspace sessions, attachments, task progress, and project context persist across reloads. The agent maintains `.atlarix/memory.md` (stack, architecture, layout) so new sessions skip full re-scans.
+**Remember** — Workspace sessions, attachments, task progress, and project context persist across reloads. The agent maintains `.atlarix/memory.md` (stack, architecture, layout) so new sessions start with project context instead of re-deriving it.
 
 **Created by [NorahLabs](https://norahlabs.com)** (Nairobi, Kenya)  
 **Website:** [atlarix.dev](https://atlarix.dev)  
-**Current release:** **v14.9.1**
+**Current release:** **v14.10.0**
 
 **Downloads:** Installers for **macOS**, **Linux**, and **Windows** are on [atlarix.dev](https://atlarix.dev). *(Windows builds are currently unsigned; code signing is coming soon.)*
 
@@ -36,10 +36,10 @@ Release notes: **[docs/CHANGELOG.md](docs/CHANGELOG.md)** (current: 14.0+). Olde
 
 ## What makes Atlarix different
 
-- **Live Code Map:** Your repo is parsed into a live structural index (Ctags symbols + ast-grep edges) that reranks `grep` and drives edit-time blast-radius — the agent gets relevance-ranked, symbol-annotated results without a separate map tool. Technical details: [docs/architecture.md](docs/architecture.md).
+- **Fast search, no index:** The agent searches your repo with **bundled ripgrep** (`grep` + `glob`) — no structural index to build, no background file-watcher, constant low memory at any size. Like **Claude Code** and **opencode**, retrieval stays lexical; the agent reasons over ranked results rather than a vector index or a structural map.
 - **Workspace-first:** Open a folder from the welcome screen. Chat, sessions, MCP, and Skills belong to that workspace—no global chat without a project.
 - **Work modes:** **Explore** (read-only), **Plan**, **Build**, **Debug**, **Review**.
-- **On-demand file discovery:** Opening a workspace does not scan the whole repo via git. The Code tab loads the file tree when you need it (plus a **Cmd/Ctrl+P** fuzzy file opener); the sidebar stays focused on sessions; the agent uses `glob` and `grep` (Blueprint-reranked).
+- **No whole-repo scan:** Opening a workspace doesn't index or scan the repo. The agent discovers files on demand with `glob` and `grep` (ripgrep); the sidebar stays focused on sessions.
 - **Attachments:** Paste text, terminal output, and files into chat. After send they appear as chips with preview; content persists across session reload.
 - **`@` file & folder mentions:** Type `@` in the composer to point the agent at part of the current workspace. Mentioning a **file** injects its contents (capped); mentioning a **folder** injects just its file listing, so the agent then `grep`s/reads within that scope instead of dumping a whole tree — precise context, low token cost.
 - **Agent Behaviors & workspace memory:** Project instructions in `.atlarix/atlarix.md` and behaviors under `.atlarix/skills/` shape the agent without repeating yourself every turn.
@@ -60,9 +60,9 @@ Release notes: **[docs/CHANGELOG.md](docs/CHANGELOG.md)** (current: 14.0+). Olde
 
 ## Features
 
-### Live Code Map & Blueprint
+### Search (ripgrep)
 
-Retrieval is **structural + lexical, no embeddings, no map tool**. Blueprint (Universal Ctags + ast-grep edges) feeds a disk-backed SQLite **FTS5** index that reranks `grep` by relevance and scales to any repo size at constant low memory. `grep` returns sharp, low-token results: the most relevant files first, each annotated with its enclosing function/class (zoekt-style) so the model jumps straight to the symbol — and the same index drives edit-time blast-radius. There's no separate structural tool for the agent to call; like **Claude Code** and **opencode**, retrieval stays lexical and the agent reasons over ranked results rather than a vector index. `.atlarixignore` and parser tiers are documented in **[docs/architecture.md](docs/architecture.md)**.
+Retrieval is **purely lexical — no index, no embeddings, no map tool, no background watcher.** `grep` and `glob` run on **bundled ripgrep** (`@vscode/ripgrep`, shipped inside the app so search works even where `rg` isn't on `PATH`), honoring `.gitignore` and `.atlarixignore`. Like **Claude Code** and **opencode**, the agent reasons over ranked search results rather than a vector index or a structural map — which keeps memory flat and startup instant at any repo size. There's nothing to build on workspace open and nothing running in the background between searches.
 
 ### AI Agents & Modes
 
@@ -71,7 +71,7 @@ Retrieval is **structural + lexical, no embeddings, no map tool**. Blueprint (Un
 
 ### Workspace Tools & Extensions
 
-- **Core tools:** A deliberately minimal tool surface — `read_file`, a single `edit_file` (one tool for create/overwrite via `operation:"write"` plus surgical `operation:"replace"` with self-healing match), **`glob`** + **`grep`** (Blueprint-reranked), `run_command` (incl. `git` CLI and background commands), web search/read, `task` sub-agents, `plan`, MCP, attachments, and three in-app browser tools (`browser_navigate`/`browser_inspect`/`browser_interact`). Explore/Plan/Review use read-only allowlists.
+- **Core tools:** A deliberately minimal tool surface — `read_file`, a single `edit_file` (one tool for create/overwrite via `operation:"write"` plus surgical `operation:"replace"` with self-healing match), **`glob`** + **`grep`** (bundled ripgrep), `run_command` (incl. `git` CLI and background commands), web search/read, `task` sub-agents, `plan`, MCP, attachments, and three in-app browser tools (`browser_navigate`/`browser_inspect`/`browser_interact`). Explore/Plan/Review use read-only allowlists.
 - **MCP:** MCP servers are configured **per workspace** — Solo connects **1** (manual config); Studio / Team get the marketplace plus up to **10** per workspace (one-click OAuth connect from the marketplace). On-demand **`list_available_mcps`** / **`mcp_call`** in workspace chat.
 - **Agent Behaviors:** Install from [atlarix-skills](https://github.com/AmariahAK/atlarix-skills). Optional **`.atlarix/skills/`** in the repo.
 
@@ -162,7 +162,7 @@ cp .env.example .env
 npm start
 ```
 
-After `npm install`, **`postinstall`** runs Electron install, **`fetch-ctags`**, and **`build:astgrep-worker`**. Blueprint details: [docs/architecture.md](docs/architecture.md).
+After `npm install`, **`postinstall`** runs `patch-package` and the Electron install. `grep`/`glob` use **bundled ripgrep** (`@vscode/ripgrep`), so there's no separate index, parser, or symbol database to fetch or build.
 
 **npm registry:** The repo includes [`.npmrc`](.npmrc) so installs use the public npm registry, not a machine-wide private registry (e.g. AWS CodeArtifact from another project). CI runs [`scripts/verify-npm-lock-registry.mjs`](scripts/verify-npm-lock-registry.mjs) before `npm ci` — run `npm run verify:lockfile` locally before committing lockfile changes. If `npm install` / `npm ci` fails with **401** and CodeArtifact URLs in the log, check your user `~/.npmrc` and remove work-registry settings (optional helper at [`../scripts/strip_work_codeartifact.py`](../scripts/strip_work_codeartifact.py) in the parent workspace). Then `rm -rf node_modules && npm ci` from this directory.
 

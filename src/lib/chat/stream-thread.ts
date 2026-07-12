@@ -176,8 +176,9 @@ function mergeToolItems(
       expand: next.expand ?? prev.expand,
       summary:
         next.status === "running"
-          ? getToolRunningSummary(prev.toolName)
-          : next.summary || getToolCompletedSummary(prev.toolName),
+          ? getToolRunningSummary(prev.toolName, next.toolArgs ?? prev.toolArgs)
+          : next.summary ||
+            getToolCompletedSummary(prev.toolName, next.toolArgs ?? prev.toolArgs),
     };
   }
   return {
@@ -276,7 +277,7 @@ export function streamThreadItemFromToolStart(payload: {
     // display name regardless.
     id: payload.toolCallId?.trim() || registryName,
     toolName: registryName,
-    summary: getToolRunningSummary(registryName),
+    summary: getToolRunningSummary(registryName, payload.toolArgs),
     status: "running",
     toolArgs: payload.toolArgs,
     ts: Date.now(),
@@ -310,8 +311,8 @@ function finalizeToolItem(
     summary:
       opts?.summary ??
       (status === "running"
-        ? getToolRunningSummary(registryName)
-        : getToolCompletedSummary(registryName)),
+        ? getToolRunningSummary(registryName, item.toolArgs)
+        : getToolCompletedSummary(registryName, item.toolArgs)),
     detail: rawDetail,
     resultText,
     expand,
@@ -378,7 +379,9 @@ export function handleStreamToolEnd(
     detail: payload.detail,
     resultText: payload.resultText,
     expand: payload.expand,
-    summary: getToolCompletedSummary(registryName),
+    // Summary intentionally omitted: finalizeToolItem derives it arg-aware from
+    // the running card's toolArgs (so grep/glob keep their pattern). tool:end has
+    // no toolArgs of its own.
   });
 }
 
@@ -1406,10 +1409,14 @@ function assistantPartToStreamItem(
         ? "error"
         : "done";
   const registryName = part.toolName;
+  const toolArgs =
+    part.args && typeof part.args === "object"
+      ? (part.args as Record<string, unknown>)
+      : undefined;
   const rawDetail = part.resultText?.trim();
   const expand =
     rawDetail && status !== "running"
-      ? buildToolExpandView(registryName, undefined, rawDetail, status)
+      ? buildToolExpandView(registryName, toolArgs, rawDetail, status)
       : undefined;
   const preview =
     rawDetail && status === "done"
@@ -1418,8 +1425,8 @@ function assistantPartToStreamItem(
   const summary =
     preview?.trim() ||
     (status === "running"
-      ? getToolRunningSummary(registryName)
-      : getToolCompletedSummary(registryName));
+      ? getToolRunningSummary(registryName, toolArgs)
+      : getToolCompletedSummary(registryName, toolArgs));
 
   return {
     kind: "tool",
@@ -1429,6 +1436,7 @@ function assistantPartToStreamItem(
     detail: rawDetail,
     expand,
     status,
+    toolArgs,
     ts,
   };
 }

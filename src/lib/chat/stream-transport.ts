@@ -17,6 +17,7 @@
 import log from "electron-log";
 import type { Message } from "@/ipc/ipc_types";
 import type { DisplaySnapshotV1 } from "@/lib/chat/display-snapshot";
+import { systemReminder } from "@/lib/streaming/system-reminder";
 
 const logger = log.scope("stream-transport");
 
@@ -56,6 +57,18 @@ export function buildContinueAfterQuestionsPrompt(
   if (!a) return b;
   if (!b) return a;
   return `${a}\n\n---\n\n${b}`;
+}
+
+/**
+ * Model-facing prompt for resuming an interrupted turn (the "Continue" affordance
+ * after a disconnect/stop). Wrapped as a `<system-reminder>` so the model reads it
+ * as an out-of-band harness resume — NOT a fresh user "continue" turn (which is how
+ * the un-framed string used to render in the transcript).
+ */
+export function buildInterruptedContinuePrompt(): string {
+  return systemReminder(
+    "Continue from where you left off, without repeating what you already wrote.",
+  );
 }
 
 export function insertAskUserAnswerUserMessage(

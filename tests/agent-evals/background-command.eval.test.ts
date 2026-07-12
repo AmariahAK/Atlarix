@@ -10,7 +10,6 @@ import { describe, expect, it, beforeAll, afterAll } from "vitest";
 import {
   setupEvalContext,
   runTurn,
-  getIpcHandler,
   type EvalContext,
 } from "../infra/turn";
 import { scenario } from "../infra/scenario";
@@ -49,23 +48,13 @@ describe("background commands (7A)", () => {
     );
 
     const chatId = await ctx.newChat();
+    // New command model: a plain command auto-runs (the OS sandbox is the
+    // boundary), so there is no permission prompt to approve — the background
+    // command executes immediately in Build mode.
     const { fakeIpc } = await runTurn(ctx, {
       chatId,
       prompt: "sc=bg-cmd-start Run the long task in the background.",
       mode: "build",
-      during: async (ipc) => {
-        const permission = await ipc.waitFor(
-          "permission-request",
-          (p) => p?.chatId === chatId,
-        );
-        expect(permission.payload.request?.operation).toBe("run_command");
-        const executePermission = await getIpcHandler("execute-permission");
-        const result: unknown = await executePermission({} as never, {
-          chatId,
-          operationId: permission.payload.operationId,
-        });
-        expect((result as { approved?: boolean }).approved).toBe(true);
-      },
     });
 
     expectNoStreamError(fakeIpc.sends, chatId);

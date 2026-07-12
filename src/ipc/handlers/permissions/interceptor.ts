@@ -40,11 +40,11 @@ import {
 import { FileUploadsState } from "../../utils/file_uploads_state";
 import { clearAllConsoleBuffers } from "../console_debugger";
 import { readSettings } from "../../../main/settings";
+import { resolveEffectiveWorkMode, isReadOnlyWorkMode } from "@/lib/work-mode";
 import {
   openTerminalInstance,
   resolveScopeKey,
 } from "../../../lib/terminal-instance-store";
-import { runCommandGitInitGateResult } from "../../../lib/git-init-command-guard";
 import { injectAgentGitIdentity } from "../../utils/git_author";
 
 const logger = log.scope("permission-interceptor");
@@ -1320,10 +1320,19 @@ export class PermissionInterceptor extends EventEmitter {
         if (settings.sandboxRunCommand === false) return undefined;
         if (!this.workspacePath) return undefined;
         const cfg = settings.sandboxRunCommandConfig;
+        // Read-only work modes (Explore/Plan/Review) run commands in a read-only
+        // sandbox — the OS denies workspace-source writes, replacing the old
+        // command-string mutation classifier. Build/Debug get workspace-write.
+        const workMode = resolveEffectiveWorkMode({
+            intentMode: settings.intentMode,
+            workModePreference: settings.workModePreference,
+            selectedChatMode: settings.selectedChatMode ?? "ask",
+        });
         return {
             workspacePath: this.workspacePath,
             extraWritablePaths: cfg?.extraWritablePaths,
             enforce: cfg?.enforce === true,
+            readOnly: isReadOnlyWorkMode(workMode),
         };
     }
 
@@ -1377,15 +1386,6 @@ export class PermissionInterceptor extends EventEmitter {
             logger.log(`[executeRunCommand] Stripped 'cd /workspace' prefix (shell already in workspace); running: ${commandToRun}`);
         }
 
-        const gitInitBlock = runCommandGitInitGateResult(
-            commandToRun,
-            readSettings().allowGitInit,
-        );
-        if (gitInitBlock) {
-            const err = JSON.parse(gitInitBlock).error as string;
-            logger.warn(`[executeRunCommand] Blocked git init: ${commandToRun}`);
-            throw new Error(err);
-        }
 
         // Attribute bare `git commit` to the agent identity ("<Model> agent")
         // without touching the user's git config.

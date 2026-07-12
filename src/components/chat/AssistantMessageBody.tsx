@@ -2,22 +2,20 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useAtomValue } from "jotai";
 import {
   activeChatIdAtom,
-  completedStreamThreadByAssistantMessageIdAtom,
-  completedTurnThinkingByAssistantMessageIdAtom,
-  inlineTimelineByMessageIdAtom,
-  interleavedDisplayContentByMessageIdAtom,
+  activityStreamItemsForChatAtom,
+  completedStreamThreadForMessageAtom,
+  completedTurnThinkingForMessageAtom,
+  inlineTimelineForMessageAtom,
+  interleavedDisplayContentForMessageAtom,
   selectedChatIdAtom,
-  sourcesByAssistantMessageIdAtom,
+  sourcesForMessageAtom,
   streamThreadForChatAtom,
 } from "@/atoms/chatAtoms";
 import {
   extractInlineSourcesFromContent,
   extractSourcesFromMessageParts,
 } from "@/lib/chat/citation-sources";
-import {
-  activityStreamItemsAtom,
-  type SourceItem,
-} from "@/atoms/sourceAtoms";
+import { type SourceItem } from "@/atoms/sourceAtoms";
 import { frozenThoughtContentForTurn } from "@/lib/chat/frozen-turn-display";
 import {
   extractVisibleAnswerMarkdown,
@@ -94,17 +92,19 @@ export function AssistantMessageBody({
   // Scoped to THIS chat — a stream in another chat no longer re-renders this
   // message body every ~50ms flush (perf: kills whole-map fanout).
   const streamThreadForChat = useAtomValue(streamThreadForChatAtom(chatId ?? -1));
-  const completedStreamThreadByMessage = useAtomValue(
-    completedStreamThreadByAssistantMessageIdAtom,
+  // Per-message / per-chat scoped selectors: a body re-renders only when ITS own
+  // slice changes, not on every other message's stream flush (perf: kills the
+  // all-mounted-bodies fanout). `-1` for a null id yields the empty slice.
+  const msgId = assistantMessageId ?? -1;
+  const completedStreamThreadForMessage = useAtomValue(
+    completedStreamThreadForMessageAtom(msgId),
   );
-  const inlineTimelineByMessage = useAtomValue(inlineTimelineByMessageIdAtom);
-  const thinkingByMessage = useAtomValue(
-    completedTurnThinkingByAssistantMessageIdAtom,
-  );
-  const sourcesByMessage = useAtomValue(sourcesByAssistantMessageIdAtom);
-  const activityItems = useAtomValue(activityStreamItemsAtom);
-  const interleavedDisplayContentByMessage = useAtomValue(
-    interleavedDisplayContentByMessageIdAtom,
+  const inlineTimelineForMessage = useAtomValue(inlineTimelineForMessageAtom(msgId));
+  const thinkingForMessage = useAtomValue(completedTurnThinkingForMessageAtom(msgId));
+  const sourcesForMessage = useAtomValue(sourcesForMessageAtom(msgId));
+  const activityItems = useAtomValue(activityStreamItemsForChatAtom(chatId ?? -1));
+  const interleavedDisplayContentForMessage = useAtomValue(
+    interleavedDisplayContentForMessageAtom(msgId),
   );
 
   // Persisted `content` is `<think>`-stripped (for model re-ingestion), which
@@ -113,8 +113,8 @@ export function AssistantMessageBody({
   // streaming. During streaming, `content` already carries the live tags.
   const effectiveContent = useMemo(() => {
     if (isStreaming || assistantMessageId == null) return content;
-    return interleavedDisplayContentByMessage[assistantMessageId] ?? content;
-  }, [isStreaming, assistantMessageId, interleavedDisplayContentByMessage, content]);
+    return interleavedDisplayContentForMessage ?? content;
+  }, [isStreaming, assistantMessageId, interleavedDisplayContentForMessage, content]);
 
   const parts = useMemo(
     () => parseAssistantMessageParts(effectiveContent, isStreaming),
@@ -148,7 +148,7 @@ export function AssistantMessageBody({
 
   const completedThreadRaw = useMemo(() => {
     if (isStreaming || assistantMessageId == null) return [];
-    const completed = completedStreamThreadByMessage[assistantMessageId];
+    const completed = completedStreamThreadForMessage;
     if (completed && completed.length) return completed;
     // End-of-stream gap: `isStreaming` flips false a few statements before
     // `persistAndClearLiveStreamThread` freezes the completed thread (same IPC
@@ -164,7 +164,7 @@ export function AssistantMessageBody({
   }, [
     isStreaming,
     assistantMessageId,
-    completedStreamThreadByMessage,
+    completedStreamThreadForMessage,
     isLatestAssistant,
     chatId,
     streamThreadForChat,
@@ -318,7 +318,7 @@ export function AssistantMessageBody({
 
   const citationSources = useMemo(() => {
     if (assistantMessageId != null) {
-      const stored = sourcesByMessage[assistantMessageId];
+      const stored = sourcesForMessage;
       if (stored?.length) return stored;
     }
     // Tool-result sources (client web_search) + provider-native search sources
@@ -328,7 +328,7 @@ export function AssistantMessageBody({
     if (inline.length === 0) return fromParts;
     const seen = new Set(fromParts.map((s) => s.url));
     return [...fromParts, ...inline.filter((s) => !seen.has(s.url))];
-  }, [assistantMessageId, sourcesByMessage, parts, content]);
+  }, [assistantMessageId, sourcesForMessage, parts, content]);
 
   const interleavedParts = useMemo(
     () => filterDelegateToolParts(parts, suppressDelegateTools),
@@ -344,16 +344,16 @@ export function AssistantMessageBody({
     if (!useInterleavedTimeline || hasThoughtInInterleavedParts) return null;
     if (isStreaming || assistantMessageId == null) return null;
     return frozenThoughtContentForTurn(
-      inlineTimelineByMessage[assistantMessageId],
-      thinkingByMessage[assistantMessageId],
+      inlineTimelineForMessage,
+      thinkingForMessage,
     );
   }, [
     useInterleavedTimeline,
     hasThoughtInInterleavedParts,
     isStreaming,
     assistantMessageId,
-    inlineTimelineByMessage,
-    thinkingByMessage,
+    inlineTimelineForMessage,
+    thinkingForMessage,
   ]);
 
   const ipcTailWhileStreaming = useMemo(() => {

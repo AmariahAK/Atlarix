@@ -11,6 +11,15 @@ export function chatModeForWorkMode(mode: WorkMode): "ask" | "build" {
   return mode === "build" ? "build" : "ask";
 }
 
+/**
+ * Read-only work modes (Explore / Plan / Review + legacy Ask) — the workspace
+ * source is NOT writable; only Build/Debug authorize mutation. Drives the
+ * read-only run_command sandbox profile (writes to source fail at the OS layer).
+ */
+export function isReadOnlyWorkMode(mode: WorkMode): boolean {
+  return mode !== "build" && mode !== "debug";
+}
+
 /** Tool handler chatMode (file write gates, plan/debug rules). */
 export function toolExecutionChatMode(
   workMode: WorkMode,

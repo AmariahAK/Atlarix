@@ -8,11 +8,7 @@ import type { CommandPermissionDecision } from "@/lib/terminal-command-category"
 import { getCommandCategory } from "@/lib/terminal-command-category";
 import { isDangerousCommand, dangerLabelKey } from "@/lib/dangerous-commands";
 import { isSystemScopeCommand } from "@/lib/system-scope-commands";
-import {
-  quoteAwareSegments,
-  isDefaultAllowedSegment,
-  DEFAULT_ALLOW_CATEGORIES,
-} from "@/lib/command-default-allow";
+import { quoteAwareSegments } from "@/lib/command-segments";
 import {
   getWorkspaceCommandPermission,
   listWorkspaceCommandPermissions,
@@ -31,11 +27,13 @@ export type RunCommandPermissionGate =
 type SegmentVerdict = { state: "allow" | "deny" | "prompt"; key: string; dangerous: boolean };
 
 /**
- * Classify ONE command segment against the user's rules + the default read-only
- * set. Dangerous segments key on their fine-grained `danger:<id>` (a coarse
- * "always allow git" can never satisfy `git push --force`) and are NEVER covered
- * by the default set. Non-dangerous segments: a user rule wins, else the default
- * read-only allow applies. See command-default-allow.ts for the default set.
+ * Classify ONE command segment. Reference model (Codex + Claude Code): the OS
+ * sandbox is the enforcement boundary (read-only vs workspace-write per work mode),
+ * so a plain command AUTO-RUNS — there is no read/mutate command taxonomy. We only
+ * ASK for the always-on danger/outward backstop (`dangerous-commands.ts` — kept as
+ * the sole small list, surfaced as a prompt) and honor the user's workspace rules.
+ * Dangerous segments key on their fine-grained `danger:<id>` (a coarse "always
+ * allow git" can never satisfy `git push --force`).
  */
 function classifySegment(
   segment: string,
@@ -51,9 +49,10 @@ function classifySegment(
   const key = getCommandCategory(segment);
   const decision = appId != null ? getWorkspaceCommandPermission(appId, key) : null;
   if (decision === "always_deny") return { state: "deny", key, dangerous: false };
-  if (decision === "always_allow") return { state: "allow", key, dangerous: false };
-  if (isDefaultAllowedSegment(segment)) return { state: "allow", key, dangerous: false };
-  return { state: "prompt", key, dangerous: false };
+  // Default: auto-run. The mode's OS sandbox contains it (read-only source in
+  // Explore/Plan/Review; workspace-write in Build/Debug). A write the mode
+  // disallows fails cleanly at the OS layer — never a pre-emptive dead-end.
+  return { state: "allow", key, dangerous: false };
 }
 
 /**
@@ -137,9 +136,11 @@ export function registerCommandPermissionHandlers(): void {
     },
   );
 
-  // The built-in read-only commands that auto-run without a prompt (overridable
-  // by a user `always_deny`). Surfaced in Settings so users can see + deny them.
-  ipcMain.handle("command-permissions:defaults", () => [...DEFAULT_ALLOW_CATEGORIES].sort());
+  // No built-in read-only allow-set anymore: commands auto-run inside the OS
+  // sandbox (read-only in Explore/Plan/Review, workspace-write in Build/Debug);
+  // only the danger backstop + user rules gate. Kept as an empty list so the
+  // Settings UI + any renderer caller keep working.
+  ipcMain.handle("command-permissions:defaults", () => []);
 
   ipcMain.handle(
     "command-permissions:upsert",

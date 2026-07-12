@@ -68,3 +68,53 @@ describe("browserToolLabel", () => {
     expect(getToolDoneLabel("read_file")).toBe("Read files");
   });
 });
+
+describe("grep/glob search labels surface the pattern", () => {
+  it("grep running + done include the pattern", () => {
+    expect(getToolActivityLabelWithArgs("grep", { pattern: "handleLogin" })).toBe(
+      "Searching for handleLogin…",
+    );
+    expect(getToolDoneLabel("grep", { pattern: "handleLogin" })).toBe(
+      "Searched for handleLogin",
+    );
+  });
+
+  it("grep folds in the include filter", () => {
+    expect(
+      getToolActivityLabelWithArgs("grep", { pattern: "TODO|FIXME", include: "*.ts" }),
+    ).toBe("Searching for TODO|FIXME in *.ts…");
+    expect(getToolDoneLabel("grep", { pattern: "TODO|FIXME", include: "*.ts" })).toBe(
+      "Searched for TODO|FIXME in *.ts",
+    );
+  });
+
+  it("glob running + done include the pattern", () => {
+    expect(getToolActivityLabelWithArgs("glob", { pattern: "**/*.tsx" })).toBe(
+      "Finding files **/*.tsx…",
+    );
+    expect(getToolDoneLabel("glob", { pattern: "**/*.tsx" })).toBe(
+      "Found files matching **/*.tsx",
+    );
+  });
+
+  it("grep's search-root path never masks the pattern subject", () => {
+    // grep may receive a `path` (search root); the pattern must still win.
+    expect(getToolDoneLabel("grep", { pattern: "foo", path: "src/lib" })).toBe(
+      "Searched for foo",
+    );
+  });
+
+  it("falls back to the static label when no pattern is present", () => {
+    expect(getToolDoneLabel("grep", {})).toBe("Searched code");
+    expect(getToolDoneLabel("glob", {})).toBe("Found files");
+    expect(getToolActivityLabelWithArgs("grep", {})).toBe("Searching code…");
+  });
+
+  it("clamps very long patterns", () => {
+    const long = "x".repeat(80);
+    const done = getToolDoneLabel("grep", { pattern: long });
+    expect(done.startsWith("Searched for ")).toBe(true);
+    expect(done).toContain("…");
+    expect(done.length).toBeLessThan("Searched for ".length + 45);
+  });
+});

@@ -549,9 +549,18 @@ export function formatToolStartPreview(
     undefined;
   const query =
     typeof toolArgs.query === "string" ? toolArgs.query.trim() : undefined;
+  const pattern =
+    (registryName === "grep" || registryName === "glob") &&
+    typeof toolArgs.pattern === "string"
+      ? toolArgs.pattern.trim()
+      : undefined;
   const command =
     typeof toolArgs.command === "string" ? toolArgs.command.trim() : undefined;
   const base = getToolActivityLabel(registryName).replace(/…$/, "");
+  if (pattern) {
+    const p = pattern.length > 56 ? `${pattern.slice(0, 53)}…` : pattern;
+    return `${base}: ${p}…`;
+  }
   if (path) {
     const short = path.length > 72 ? `${path.slice(0, 69)}…` : path;
     return `${base} (${short})…`;

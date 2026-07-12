@@ -21,7 +21,7 @@
 
 import path from "node:path";
 import os from "node:os";
-import { commandSegments } from "./command-mutation";
+import { commandSegments } from "./command-segments";
 
 interface SystemScopeMatch {
   id: string;

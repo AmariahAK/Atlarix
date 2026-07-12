@@ -8,7 +8,8 @@ import { atom } from "jotai";
 import { atomFamily, selectAtom } from "jotai/utils";
 import type { CompletedTurnThinkingSnapshot } from "@/lib/thinking/extract-thinking-from-content";
 import type { InlineTimelineItem } from "@/lib/chat/inline-timeline";
-import type { SourceItem } from "@/atoms/sourceAtoms";
+import type { SourceItem, ActivityStreamItem } from "@/atoms/sourceAtoms";
+import { activityStreamItemsAtom } from "@/atoms/sourceAtoms";
 import type { StreamThreadItem } from "@/lib/chat/stream-thread";
 
 // Per-chat atoms implemented with maps keyed by chatId
@@ -198,6 +199,63 @@ export const streamThreadForChatAtom = atomFamily((chatId: number) =>
 export const sourcesByAssistantMessageIdAtom = atom<
   Record<number, SourceItem[]>
 >({});
+
+// ── Per-MESSAGE scoped selectors (perf) ──────────────────────────────────────
+// AssistantMessageBody previously read these whole `Record<number, …>` maps, so
+// EVERY mounted body re-rendered on ANY message's change (e.g. a tool event mid-
+// stream re-rendered all ≤120 bodies). These selectAtom views subscribe a body
+// to just its own message's slice: the writers use `{...prev, [id]: v}`, keeping
+// sibling slice references stable, so a body re-renders only when ITS slice's
+// reference changes. READ-ONLY — keep writing through the whole-map atoms.
+const EMPTY_TIMELINE: InlineTimelineItem[] = [];
+const EMPTY_SOURCES: SourceItem[] = [];
+const EMPTY_ACTIVITY: ActivityStreamItem[] = [];
+
+function shallowArrayEqual<T>(a: readonly T[], b: readonly T[]): boolean {
+  if (a === b) return true;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
+}
+
+export const completedStreamThreadForMessageAtom = atomFamily((messageId: number) =>
+  selectAtom(
+    completedStreamThreadByAssistantMessageIdAtom,
+    (r) => r[messageId] ?? EMPTY_THREAD,
+  ),
+);
+
+export const inlineTimelineForMessageAtom = atomFamily((messageId: number) =>
+  selectAtom(inlineTimelineByMessageIdAtom, (r) => r[messageId] ?? EMPTY_TIMELINE),
+);
+
+export const completedTurnThinkingForMessageAtom = atomFamily((messageId: number) =>
+  selectAtom(completedTurnThinkingByAssistantMessageIdAtom, (r) => r[messageId]),
+);
+
+export const interleavedDisplayContentForMessageAtom = atomFamily((messageId: number) =>
+  selectAtom(interleavedDisplayContentByMessageIdAtom, (r) => r[messageId]),
+);
+
+export const sourcesForMessageAtom = atomFamily((messageId: number) =>
+  selectAtom(sourcesByAssistantMessageIdAtom, (r) => r[messageId] ?? EMPTY_SOURCES),
+);
+
+/**
+ * Activity-stream items filtered to one chat. The base array is replaced on
+ * every activity event; the shallow-array comparator re-renders a consumer only
+ * when THIS chat's items actually change (item refs are stable across replaces).
+ */
+export const activityStreamItemsForChatAtom = atomFamily((chatId: number) =>
+  selectAtom(
+    activityStreamItemsAtom,
+    (items) => {
+      const scoped = items.filter((it) => it.chatId === chatId);
+      return scoped.length ? scoped : EMPTY_ACTIVITY;
+    },
+    shallowArrayEqual,
+  ),
+);
 
 /** Last chunk time per chat — feeds the "still working" elapsed note. */
 export const streamLastActivityAtByChatIdAtom = atom<Map<number, number>>(new Map());

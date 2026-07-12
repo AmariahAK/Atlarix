@@ -8,11 +8,6 @@ vi.mock("electron-log", () => ({
   default: { scope: () => ({ info: vi.fn(), warn: vi.fn(), debug: vi.fn() }) },
 }));
 
-vi.mock("@/lib/index/ctags-index", () => ({
-  ensureSymbolIndex: vi.fn(),
-  getSymbolsForFile: vi.fn(),
-}));
-
 describe("getProjectFiles scoped discovery", () => {
   beforeEach(() => {
     vi.resetModules();

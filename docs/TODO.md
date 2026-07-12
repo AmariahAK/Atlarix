@@ -1,33 +1,35 @@
 # Atlarix TODO
 
-**Current Version:** v14.9.1 (RELEASED — Latest on atlarix-releases) — bundle ripgrep (self-contained grep/glob) over v14.9.0
-**Last Updated:** 2026-07-10
+**Current Version:** v14.10.0 (RELEASED — Latest on atlarix-releases) — command permissions rebuilt + accuracy skills + streaming/UI overhaul over v14.9.1
+**Last Updated:** 2026-07-12
 
-## ✅ Shipped in v14.9.1 (2026-07-10)
+## ✅ Shipped in v14.10.0 (2026-07-12)
 
-Bundled ripgrep via `@vscode/ripgrep` so `grep`/`glob` no longer need `rg` on the user's PATH
-(resolver `lib/tools/resolve-ripgrep.ts` with PATH fallback; binary unpacked from the asar;
-packaged self-test confirms "bundled"). Removed stale `chokidar` from Vite main externals.
+Full detail in [`docs/CHANGELOG.md`](./CHANGELOG.md) `[14.10.0]`. Net **−362 lines**;
+`npm run check` 0/0, vitest 1566 green, knip clean, packaged self-test 4/4. Owner-smoke-tested.
 
-## ✅ Shipped in v14.9.0 (2026-07-10)
+- **Command permissions rebuilt on the Codex sandbox + Claude Code ask model.** Deleted the hardcoded
+  read/mutate/git command taxonomies that false-blocked valid commands (`git fetch`, `docker build`)
+  in read-only modes. Enforcement = OS sandbox (read-only profile for Explore/Plan/Review; workspace-write
+  for Build/Debug; native helpers gained `--read-only`); commands auto-run, only the danger gate +
+  `.atlarix/permissions.json` rules prompt. CPU-throttle experiment stripped.
+- **Accuracy prompt-skills** (`mode-prompt-bundle.ts`) — red-green ("a test must be red against the
+  un-fixed code before it's trusted green"), test-connection ("assert the real code path, not a mock of
+  the unit under test"), anti-flail ("switch verification approach after ~2–3 repeats"), reuse-before-build.
+- **UI heat + streaming/virtualization overhaul** — react-virtuoso message virtualization (default-on,
+  kill-switch), adaptive flush cadence, tail-bounded markdown re-parse, atom-fanout narrowing, one-time
+  stale-index cleanup (~1.4 GB), grep/glob search labels. Calm/cool main process on large repos + long streams.
+- **Fixes:** reconnect no longer shows a fake "user said continue" turn (out-of-band `<system-reminder>`
+  continuation via new `continueInterrupted` flag); "Jump to latest" lands at the live generating edge
+  (`align:"end"`). Dead task-ledger/completion-detector code removed.
 
-Full detail in [`docs/CHANGELOG.md`](./CHANGELOG.md) `[14.9.0]`. Net **−5,246 lines**; vitest 1621,
-oxlint 0, ts/knip clean, packaged self-test 4/4; verified under real jenkins load (flat ~113 fds, main
-process calm).
+## ✅ Recent shipped (detail in [`docs/CHANGELOG.md`](./CHANGELOG.md))
 
-- **Retrieval teardown (fd-leak + heat root cause).** Deleted the chokidar `search-index-watcher`
-  (macOS kqueue = 1 fd/file → `spawn EBADF` on big repos), FTS5/SQLite/BM25, the grep reranker,
-  ctags/symbols, and the dead `workspace-analyzer→diagram→context` chain. `grep`/`glob` now run on
-  pure ripgrep (`--no-require-git` + `--ignore-file`); `atlarix-ignore` module + ctags binary +
-  `fetch-ctags` machinery removed. `.atlarixignore` still honored via ripgrep.
-- **opencode-parity multi-provider.** Full models.dev catalog merged (~124 net-new providers via the
-  shared OpenAI-compatible path); live models/limits + hourly auto-refresh with cache fallback.
-- **Per-sub-agent token badge** on run cards; **terminal background-tab auto-close** (success, 6s grace).
-- **Dependency diet:** 4 extraneous deps + chokidar removed; 11 retrieval test files removed.
-
-**Post-release owner actions (NOT release-blocking — client ships zero server secrets):** rotate the
-OpenRouter master key + app Supabase service-role key; remove `COMPASS_OPENROUTER_API_KEY` /
-`ATLARIX_CORE_MODELS_URL` from GH Actions.
+- **v14.9.1 (2026-07-10)** — bundled ripgrep via `@vscode/ripgrep` so `grep`/`glob` no longer need `rg`
+  on PATH.
+- **v14.9.0 (2026-07-10)** — retrieval teardown (fd-leak + heat root cause; −5,246 lines), opencode-parity
+  multi-provider (full models.dev catalog), per-sub-agent token badge. **Post-release owner actions
+  (done):** rotated OpenRouter master + app Supabase service-role keys; cleaned GH Actions vars.
 
 ## 🔐 Security follow-ups (from `docs/SECURITY_REVIEW_v14.8.12.md`, owner-triaged)
 
@@ -91,6 +93,14 @@ Full detail in [`docs/CHANGELOG.md`](./CHANGELOG.md) `[14.8.13]`.
 
 ## Open follow-ups
 
+- **Stale removed-tool references in the prompt (from v14.10.0).** `system_prompt.ts:290` +
+  `workspace-capabilities.ts:85` still tell the model to call `get_active_skills` /
+  `list_installed_skills`, which were deleted. 2-line fix (drop or repoint the guidance); the
+  Visual Artifacts guide is still injected always-on so no capability is lost.
+- **Optional default `.atlarix/permissions.json` ask-ruleset for outward commands** (from v14.10.0).
+  Build mode now auto-runs plain `git push`/`npm publish`/deploy (Codex workspace-write behavior);
+  force-push/exfil/credential-reads still ask. If auto-run feels too loose, ship a default `ask` ruleset
+  (data, the Claude-Code way) rather than re-hardcoding git.
 - **DONE in v14.8.12:** approval-wait audit (MCP auth waits now indefinite + Stop-cancellable),
   Shift+Tab global, attachment vision cold-cache, notification sound. **B4 (bg-command "done" while
   running)** resolved as model behavior — the harness DOES re-inject the exit result via auto-wake

@@ -26,10 +26,17 @@ export interface SandboxRequest {
   command: string;
   /** Resolved shell binary, e.g. /bin/zsh. The command runs as `<shell> -c <command>`. */
   shell: string;
-  /** Workspace root — granted write access. */
+  /** Workspace root — granted write access (unless `readOnly`). */
   workspacePath: string;
   /** Extra absolute paths to allow writes to (from settings). */
   extraWritablePaths?: string[];
+  /**
+   * Read-only mode (Explore/Plan/Review): the command can read anything but the
+   * WORKSPACE (and extra paths) are NOT writable — only /tmp + toolchain caches +
+   * /dev. A write to the source fails cleanly at the OS layer instead of being
+   * pre-blocked by a command classifier.
+   */
+  readOnly?: boolean;
 }
 
 export interface WrappedSpawn {
@@ -169,6 +176,7 @@ function wrapLinux(req: SandboxRequest, writable: string[]): WrappedSpawn | null
   const helper = findLinuxHelper();
   if (helper) {
     const args = ["--workspace", req.workspacePath];
+    if (req.readOnly) args.push("--read-only"); // deny workspace writes
     for (const p of writable) args.push("--writable", p);
     args.push("--", req.command);
     return { file: helper, args, sandboxed: true, useShellOption: false };
@@ -223,6 +231,7 @@ function wrapWindows(req: SandboxRequest, writable: string[]): WrappedSpawn | nu
   const helper = findWindowsHelper();
   if (!helper) return null;
   const args = ["--workspace", req.workspacePath];
+  if (req.readOnly) args.push("--read-only"); // deny workspace writes
   for (const p of writable) args.push("--writable", p);
   args.push("--", req.command);
   return { file: helper, args, sandboxed: true, useShellOption: false };
@@ -237,7 +246,11 @@ function wrapWindows(req: SandboxRequest, writable: string[]): WrappedSpawn | nu
  */
 export function wrapCommandInSandbox(req: SandboxRequest): WrappedSpawn {
   const workspaceReal = realIfExists(req.workspacePath) ?? req.workspacePath;
-  const writable = defaultWritablePaths(workspaceReal, req.extraWritablePaths);
+  // Read-only: writable = only toolchain caches + /tmp (+ /dev), NOT the workspace
+  // or extra paths. Passing "" as the workspace drops it from the candidate set.
+  const writable = req.readOnly
+    ? defaultWritablePaths("", [])
+    : defaultWritablePaths(workspaceReal, req.extraWritablePaths);
 
   let wrapped: WrappedSpawn | null = null;
   let unavailableNote = "";

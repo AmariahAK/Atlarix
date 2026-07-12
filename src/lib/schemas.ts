@@ -362,9 +362,6 @@ export const UserSettingsSchema = z.object({
 
   /** v10: interactive PTY terminal for user shell tabs (default true). Kill-switch per platform. */
   enablePtyTerminal: z.boolean().optional(),
-
-  /** When true, run_command may execute git init. Default false. */
-  allowGitInit: z.boolean().optional(),
   /**
    * Keep the machine awake (prevent idle/display sleep) while an agent run is in
    * flight, so away-from-keyboard tasks keep progressing. Default true. Cannot

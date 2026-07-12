@@ -3,6 +3,39 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
+## [14.10.0] (2026-07-12) — Command permissions rebuilt + accuracy skills + streaming/UI overhaul
+
+Net **−362 lines**; `npm run check` 0/0, vitest 1566 green, knip clean, packaged self-test 4/4.
+
+### Changed
+- **Command permissions rebuilt on the Codex sandbox + Claude Code ask model.** Deleted the
+  hardcoded read/mutate/git command taxonomies (`command-mutation.ts`, `command-default-allow.ts`,
+  `git-init-command-guard.ts`) that false-blocked valid commands (`git fetch`, `docker build`) in
+  read-only modes. Enforcement is now the OS sandbox: Explore/Plan/Review get a **read-only**
+  profile (workspace source not writable), Build/Debug keep workspace-write (`work-mode.ts`,
+  `sandbox/wrap-command.ts`, native `atlarix-sandbox`/`atlarix-sandbox-linux` gained `--read-only`).
+  Commands **auto-run** in the sandbox; only the danger gate (`dangerous-commands.ts`) and user
+  `.atlarix/permissions.json` rules prompt. The CPU-throttle experiment was fully stripped.
+- **Accuracy prompt-skills** (`lib/tools/mode-prompt-bundle.ts`) — Build/Debug now require a test
+  to be **red against the un-fixed code before it's trusted green** (kills tests that pass without
+  exercising the code), to **assert on the real code path not a mock of the unit under test**, to
+  **switch verification approach after ~2–3 repeats** instead of flailing, and to **reuse existing
+  utils/deps before writing new code**.
+- **Dead-code removal** — trimmed the orphaned task-ledger/plan-step helpers and deleted
+  `completion-detector.ts`.
+
+### Fixed
+- **UI heat + streaming render overhaul** — react-virtuoso message virtualization (default-on,
+  kill-switch), adaptive flush cadence, tail-bounded markdown re-parse, atom-fanout narrowing,
+  one-time stale-index cleanup (`main/startup/cleanup-legacy-index-dirs.ts`), and a grep/glob
+  search label. Keeps the main process calm and cool on large repos and during long streams.
+- **Reconnect no longer shows a fake "user said continue" turn.** Resuming an interrupted turn
+  (`SimpleInlineChat` continue) now sends an out-of-band `<system-reminder>` continuation
+  (`buildInterruptedContinuePrompt` in `lib/chat/stream-transport.ts`, threaded via a new
+  `continueInterrupted` flag) instead of a persisted user message.
+- **"Jump to latest" lands at the live generating edge** — `VirtualizedMessageList` scrolls with
+  `align:"end"` so a tall streaming message pins to the bottom, not its top (mid-screen).
+
 ## [14.9.1] (2026-07-10) — Bundle ripgrep (self-contained grep/glob)
 
 ### Fixed

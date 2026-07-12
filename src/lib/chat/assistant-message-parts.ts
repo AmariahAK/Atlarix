@@ -435,6 +435,20 @@ export function parseAssistantMessageParts(
   isStreaming: boolean,
 ): AssistantMessagePart[] {
   if (!raw) return [];
+  // Fast path for pure prose. Every structural form parseSegmentContent looks
+  // for starts with a sentinel char: tags/thoughts/plan-markers with `<`, tool
+  // envelopes with `{`. When neither appears, the only transform the full path
+  // applies is flushMarkdown's sanitize — so replicate exactly that and skip the
+  // per-flush tag/envelope/plan-marker regex sweep. This is the common long-
+  // answer case that drove the O(len)×20Hz streaming cost. Parity: the full path
+  // yields exactly one sanitized markdown part here, matching completion render.
+  if (!raw.includes("<") && !raw.includes("{")) {
+    const sanitized = sanitizeMarkdownForDisplay(raw);
+    if (!sanitized || isOnlyToolDebris(sanitized)) return [];
+    const lines = sanitized.split("\n").filter((l) => l.trim());
+    if (lines.length > 0 && lines.every((l) => isToolJsonLine(l))) return [];
+    return [{ type: "markdown", content: sanitized }];
+  }
   envelopeSeq = 0;
   const hasMarker = contentHasPlanArtifactMarker(raw);
   const segments = splitContentByPlanMarkers(raw);

@@ -5,10 +5,6 @@
 import * as fs from "fs/promises";
 import * as path from "path";
 import { atlasDir } from "../snapshot/workspace-hash";
-import {
-  getRemainingSteps,
-  buildPendingStepsContinuationPrompt,
-} from "./completion-detector";
 
 /** Tools that indicate substantive work finished for a single-step ledger (no plan file). */
 const LEDGER_COMPLETION_TOOLS = new Set([
@@ -52,13 +48,6 @@ const memoryLedgers = new Map<string, TaskLedger>();
 
 const ledgerPlanUiNotifiers = new Map<number, (ledger: TaskLedger) => void>();
 
-export function registerLedgerPlanUiNotifier(
-  chatId: number,
-  notifier: (ledger: TaskLedger) => void,
-): void {
-  ledgerPlanUiNotifiers.set(chatId, notifier);
-}
-
 export function unregisterLedgerPlanUiNotifier(chatId: number): void {
   ledgerPlanUiNotifiers.delete(chatId);
 }
@@ -100,33 +89,6 @@ export function planLedgerTurnId(workspaceId: number | undefined | null): string
   return `plan:${workspaceId}`;
 }
 
-export function getWorkspacePlanLedger(workspaceId: number | undefined | null): TaskLedger | undefined {
-  if (
-    workspaceId == null ||
-    !Number.isFinite(workspaceId) ||
-    workspaceId <= 0
-  ) {
-    return undefined;
-  }
-  const tid = planLedgerTurnId(workspaceId);
-  if (tid == null) return undefined;
-  return getLedger(tid);
-}
-
-/** True when the workspace plan ledger exists and has pending or in-progress steps. */
-export function hasActivePlanLedger(workspaceId: number | undefined | null): boolean {
-  if (
-    workspaceId == null ||
-    !Number.isFinite(workspaceId) ||
-    workspaceId <= 0
-  ) {
-    return false;
-  }
-  const L = getWorkspacePlanLedger(workspaceId);
-  if (!L || L.finishReason === "cancelled") return false;
-  return L.steps.some((s) => s.status === "pending" || s.status === "in_progress");
-}
-
 /** Remove one ledger from memory only (disk JSON may remain as audit trail). */
 export function clearLedger(turnId: string): void {
   memoryLedgers.delete(turnId);
@@ -156,31 +118,8 @@ export async function persistLedgerToDisk(ledger: TaskLedger): Promise<void> {
   await fs.writeFile(path.join(root, "ledger.json"), JSON.stringify(ledger, null, 2), "utf8");
 }
 
-export async function loadLedgerFromDisk(
-  workspacePath: string,
-  turnId: string,
-): Promise<TaskLedger | null> {
-  try {
-    const p = path.join(ledgerRootDir(workspacePath, turnId), "ledger.json");
-    const raw = await fs.readFile(p, "utf8");
-    return JSON.parse(raw) as TaskLedger;
-  } catch {
-    return null;
-  }
-}
-
 export function getLedger(turnId: string): TaskLedger | undefined {
   return memoryLedgers.get(turnId);
-}
-
-export async function hydrateLedgerFromDisk(
-  turnId: string,
-  workspacePath: string,
-): Promise<TaskLedger | undefined> {
-  if (memoryLedgers.has(turnId)) return memoryLedgers.get(turnId);
-  const disk = await loadLedgerFromDisk(workspacePath, turnId);
-  if (disk) memoryLedgers.set(turnId, disk);
-  return disk ?? undefined;
 }
 
 export function createLedger(params: {
@@ -229,66 +168,6 @@ export function createLedger(params: {
   return ledger;
 }
 
-export function formatLedgerForPrompt(ledger: TaskLedger): string {
-  const done = ledger.steps.filter((s) => s.status === "done");
-  const pending = ledger.steps.filter((s) => s.status === "pending");
-  const failed = ledger.steps.filter((s) => s.status === "failed");
-  const inProg = ledger.steps.find((s) => s.status === "in_progress");
-  const allWritten = [
-    ...new Set(ledger.steps.flatMap((s) => s.filesWritten ?? [])),
-  ];
-  const header = ledger.turnId.startsWith("plan:")
-    ? "## Active Plan (from Plan mode)\n"
-    : "[Task Progress]\n";
-  let out = `${header}Original task: ${ledger.originalTask}\n`;
-  if (done.length) {
-    out += "Completed steps:\n";
-    for (const s of done) {
-      out += `- ${s.description}${s.result ? ` → ${s.result.slice(0, 400)}` : ""}\n`;
-    }
-  }
-  if (inProg) {
-    out += `Current step: ${inProg.description}\n`;
-    if (inProg.result?.trim()) {
-      out += `Notes: ${inProg.result.slice(0, 600)}\n`;
-    }
-  }
-  if (pending.length) {
-    out += "Remaining steps:\n";
-    for (const s of pending) {
-      out += `- ${s.description}\n`;
-    }
-  }
-  if (failed.length) {
-    out += "Failed steps:\n";
-    for (const s of failed) {
-      out += `- ${s.description}\n`;
-    }
-  }
-  if (allWritten.length) {
-    out += `Files written so far: ${allWritten.join(", ")}\n`;
-  }
-  const remaining = getRemainingSteps(ledger);
-  if (remaining.length > 0) {
-    out += `\n\n${buildPendingStepsContinuationPrompt(remaining)}\n\nDo not stop until all steps are complete.`;
-  }
-  return out.trim();
-}
-
-export function getLedgerStateString(turnId: string): string | undefined {
-  const L = memoryLedgers.get(turnId);
-  if (!L) return undefined;
-  return formatLedgerForPrompt(L);
-}
-
-export async function cancelLedger(turnId: string): Promise<void> {
-  const L = memoryLedgers.get(turnId);
-  if (L) {
-    L.finishReason = "cancelled";
-    if (L.workspacePath) await persistLedgerToDisk(L);
-  }
-  memoryLedgers.delete(turnId);
-}
 
 export function markLedgerStreamComplete(turnId: string): void {
   const L = memoryLedgers.get(turnId);

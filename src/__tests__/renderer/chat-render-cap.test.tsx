@@ -1,8 +1,10 @@
 /**
- * F2: the chat message list is render-capped — only the last RENDER_CAP (120)
- * messages mount, with a "Show earlier messages" affordance to reveal more, so a
- * long session doesn't grow the DOM unbounded. The streaming/last message is
- * always in the window.
+ * F2: the render-all FALLBACK path (virtualizeHistory=false) is render-capped —
+ * only the last RENDER_CAP (120) messages mount, with a "Show earlier messages"
+ * affordance to reveal more. In the default VIRTUALIZED path react-virtuoso
+ * windows the DOM instead, so these tests pin `virtualizeHistory={false}` to keep
+ * the kill-switch fallback covered. A separate test asserts the virtualized
+ * branch mounts by default.
  */
 
 import React from "react";
@@ -36,6 +38,11 @@ vi.mock("@/components/chat/LoadedSessionBanner", () => ({
 vi.mock("@/lib/open-workspace-session", () => ({
   startNewWorkspaceConversation: vi.fn(),
 }));
+vi.mock("@/components/VirtualizedMessageList", () => ({
+  // Virtuoso needs a real viewport (absent in jsdom); mock it to a marker so we
+  // can assert the default path selects the virtualized branch.
+  VirtualizedMessageList: () => <div data-testid="virtualized-list" />,
+}));
 
 import { SimpleInlineChat } from "@/components/SimpleInlineChat";
 
@@ -59,7 +66,7 @@ describe("chat render-cap (F2)", () => {
   it("mounts only the last RENDER_CAP messages + a 'Show earlier' button, then reveals more on click", () => {
     const total = 150;
     const { store } = renderWithProviders(
-      <SimpleInlineChat chatId={CHAT_ID} onSendMessage={() => {}} />,
+      <SimpleInlineChat chatId={CHAT_ID} onSendMessage={() => {}} virtualizeHistory={false} />,
     );
     act(() => {
       store.set(chatMessagesByIdAtom, new Map([[CHAT_ID, makeMessages(total) as never]]));
@@ -80,7 +87,7 @@ describe("chat render-cap (F2)", () => {
 
   it("renders all messages with no button when under the cap", () => {
     const { store } = renderWithProviders(
-      <SimpleInlineChat chatId={CHAT_ID} onSendMessage={() => {}} />,
+      <SimpleInlineChat chatId={CHAT_ID} onSendMessage={() => {}} virtualizeHistory={false} />,
     );
     act(() => {
       store.set(chatMessagesByIdAtom, new Map([[CHAT_ID, makeMessages(20) as never]]));
@@ -89,5 +96,17 @@ describe("chat render-cap (F2)", () => {
     expect(
       screen.queryByRole("button", { name: /Show earlier messages/i }),
     ).not.toBeInTheDocument();
+  });
+
+  it("uses the virtualized list by default (flag ON) when there are messages", () => {
+    const { store } = renderWithProviders(
+      <SimpleInlineChat chatId={CHAT_ID} onSendMessage={() => {}} />,
+    );
+    act(() => {
+      store.set(chatMessagesByIdAtom, new Map([[CHAT_ID, makeMessages(5) as never]]));
+    });
+    // Default path renders the (mocked) virtualizer, not the render-all list.
+    expect(screen.getByTestId("virtualized-list")).toBeInTheDocument();
+    expect(screen.queryByTestId("message")).not.toBeInTheDocument();
   });
 });
