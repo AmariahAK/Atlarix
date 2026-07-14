@@ -205,6 +205,9 @@ export function useAuth() {
                     currentWorkspaceCount: 0,
                     canCreateWorkspace: true,
                 });
+                // One-time $1 Atlarix Core trial credit (idempotent server-side —
+                // grants once per user, no-op on every subsequent sign-in).
+                void ipcRenderer.invoke('auth:claim-signup-credit').catch(() => {});
                 // Fetch full plan info (subscriptionEndsAt, etc.) for billing UI
                 type PlanResult = { success?: boolean; plan?: string; workspaceLimit?: number; currentWorkspaceCount?: number; canCreateWorkspace?: boolean; subscriptionStatus?: string | null; subscriptionEndsAt?: string | null; isLoggedIn?: boolean };
                 const planResult = (await ipcRenderer.invoke('auth:get-plan-info')) as PlanResult | undefined;

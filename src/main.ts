@@ -280,7 +280,8 @@ function installContentSecurityPolicy(): void {
     // builds. It does NOT permit arbitrary JS eval (that's 'unsafe-eval').
     "script-src 'self' 'wasm-unsafe-eval'",
     "style-src 'self' 'unsafe-inline'",
-    "img-src 'self' data: blob:",
+    // Allow OAuth provider avatars (GitHub / Google) — user profile pictures.
+    "img-src 'self' data: blob: https://avatars.githubusercontent.com https://*.googleusercontent.com",
     "font-src 'self' data:",
     "media-src 'self' data: blob:",
     "connect-src 'self' https: wss:",
