@@ -63,7 +63,7 @@ const FEATURES: ToolFeature[] = [
     id: "atlarix-core",
     title: "Atlarix Core",
     shortDescription:
-      "Atlarix Core is the managed provider (no API key) with real model names in the picker. Every plan gets all four Core models — Core 1 (fastest) through Core 4 (most capable). Atlarix Core is pay-as-you-go: top up credit and it's metered at cost.",
+      "Atlarix Core is the managed provider (no API key) with real model names in the picker. Every plan gets all four Core models — Core 1 (fastest) through Core 4 (most capable). Atlarix Core is pay-as-you-go: top up credit and it's metered per use.",
     category: "models",
     steps: [
       "Sign in for Atlarix Core, or add BYOK keys under Settings → Model Providers",
@@ -71,7 +71,7 @@ const FEATURES: ToolFeature[] = [
       "Watch the context bar for long threads — Core 3/4 use tier-aware context windows",
     ],
     howItWorks:
-      "Atlarix Core is billed against your prepaid credit balance (metered at cost). BYOK (OpenRouter, OpenAI, Anthropic, Gemini, local Ollama, etc.) can run alongside Core—pick the active model per chat.",
+      "Atlarix Core is billed against your prepaid credit balance (metered per use). BYOK (OpenRouter, OpenAI, Anthropic, Gemini, local Ollama, etc.) can run alongside Core—pick the active model per chat.",
     link: { label: "Settings → Providers", to: "/settings" },
   },
   {
@@ -328,7 +328,7 @@ export default function ToolsPage() {
         <div className="rounded-lg border border-border bg-muted/30 p-4 text-sm">
           <p className="font-medium text-foreground mb-1">Models & tiers</p>
           <p className="text-muted-foreground mb-2">
-            Free and Pro both run all four Atlarix Core models plus BYOK/local. Atlarix Core is pay-as-you-go — top up credit, metered at cost.
+            Free and Pro both run all four Atlarix Core models plus BYOK/local. Atlarix Core is pay-as-you-go — top up credit, metered per use.
             Pro adds unlimited workspaces, the Skills &amp; MCP marketplaces, one-click connectors, and higher MCP &amp; automation capacity.
           </p>
           <Button variant="outline" size="sm" onClick={() => goTo("/settings")}>

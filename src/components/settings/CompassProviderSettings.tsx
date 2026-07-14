@@ -13,7 +13,7 @@ export function CompassProviderSettings() {
     <div className="mt-6 space-y-6">
       <p className="text-sm text-muted-foreground">
         <strong>{ATLARIX_CORE_CATEGORY_LABEL}</strong> models are pay-as-you-go —
-        metered at cost from your prepaid credit balance (no API key needed). Every
+        metered per use from your prepaid credit balance (no API key needed). Every
         plan can use all Core models; top up your balance any time below.
       </p>
 

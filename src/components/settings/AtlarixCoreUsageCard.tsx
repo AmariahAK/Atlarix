@@ -110,7 +110,7 @@ export function AtlarixCoreUsageCard({
     <div className={`space-y-3 rounded-lg border border-border p-4 ${className}`}>
       {showIntro ? (
         <p className="text-xs text-muted-foreground leading-relaxed">
-          {ATLARIX_CORE_CATEGORY_LABEL} is pay-as-you-go — you're metered at cost from a
+          {ATLARIX_CORE_CATEGORY_LABEL} is pay-as-you-go — you're metered per use from a
           prepaid credit balance. Top up any time. Your own API keys and local models are
           always free.
         </p>
