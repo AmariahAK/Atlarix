@@ -40,11 +40,13 @@ export function getSupabaseClient(): SupabaseClient {
     if (!supabaseClient) {
         const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ||
             process.env.SUPABASE_URL;
-        const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
-            process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY;
+        // Publishable key is the current Supabase API-key system; the legacy anon
+        // JWT is kept only as a fallback for older local .env files.
+        const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY ||
+            process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
         if (!supabaseUrl || !supabaseAnonKey) {
-            logger.warn('[Supabase] Missing credentials - set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in .env or CI');
+            logger.warn('[Supabase] Missing credentials - set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY in .env or CI');
             throw new Error('Supabase URL and anon key are required. Add them to .env (see .env.example).');
         }
 
@@ -119,7 +121,7 @@ export async function signInWithOAuth(provider: OAuthProvider): Promise<{ error:
         supabase = getSupabaseClient();
     } catch (err) {
         logger.warn('[Supabase] Cannot sign in: missing or invalid Supabase config.', err instanceof Error ? err.message : String(err));
-        return { error: new Error('Supabase is not configured. Add NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY to .env (see .env.example).') };
+        return { error: new Error('Supabase is not configured. Add NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY to .env (see .env.example).') };
     }
     try {
         logger.log(`[Supabase] Starting OAuth with ${provider}`);

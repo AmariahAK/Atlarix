@@ -13,7 +13,6 @@ import {
     messagesForChatAtom,
     chatStreamCountByIdAtom,
     isStreamingForChatAtom,
-    activeChatIdAtom,
     pendingUserQuestionByChatIdAtom,
     chatErrorByIdAtom,
     turnSnapshotTurnIdByMessageIdAtom,
@@ -26,7 +25,7 @@ import { VirtualizedMessageList } from "./VirtualizedMessageList";
 import { SimpleChatInput } from "./SimpleChatInput";
 import { InlineUserQuestions } from "@/components/chat/InlineUserQuestions";
 import { BackgroundJobsIndicator } from "@/components/chat/BackgroundJobsIndicator";
-import { Plus, ArrowDown } from "lucide-react";
+import { ArrowDown } from "lucide-react";
 import { useStreamChat } from "@/hooks/useStreamChat";
 import { useStickToBottom } from "@/hooks/useStickToBottom";
 import type { FileAttachment, Message } from "@/ipc/ipc_types";
@@ -34,7 +33,6 @@ import { ChatErrorBox } from "@/components/chat/ChatErrorBox";
 import { Button } from "@/components/ui/button";
 import { selectedAppIdAtom } from "@/atoms/appAtoms";
 import { LoadedSessionBanner } from "@/components/chat/LoadedSessionBanner";
-import { startNewWorkspaceConversation } from "@/lib/open-workspace-session";
 import { InlineStreamStatus } from "@/components/chat/InlineStreamStatus";
 import { discardedTurnSnapshotIds } from "@/lib/chat/discarded-turn-snapshots";
 import { showError } from "@/lib/toast";
@@ -81,7 +79,6 @@ export function SimpleInlineChat({
     const streamCountById = useAtomValue(chatStreamCountByIdAtom);
     const errorById = useAtomValue(chatErrorByIdAtom);
     const setErrorById = useSetAtom(chatErrorByIdAtom);
-    const setActiveChatId = useSetAtom(activeChatIdAtom);
     const selectedAppId = useAtomValue(selectedAppIdAtom);
     const setPendingUserQuestionByChatId = useSetAtom(pendingUserQuestionByChatIdAtom);
     const snapshotByMessageId = useAtomValue(turnSnapshotTurnIdByMessageIdAtom);
@@ -239,15 +236,6 @@ export function SimpleInlineChat({
     useEffect(() => {
         onContentChange();
     }, [messages, streamCount, liveThreadLen, onContentChange]);
-    const handleNewChat = useCallback(async () => {
-        const workspaceId = selectedAppId ?? chatAppId;
-        if (workspaceId != null) {
-            await startNewWorkspaceConversation({ workspaceId });
-            return;
-        }
-        setActiveChatId(null);
-    }, [selectedAppId, chatAppId, setActiveChatId]);
-
     const performEdit = useCallback(
         async (
             messageId: number,
@@ -408,17 +396,6 @@ export function SimpleInlineChat({
 
     return (
         <div className="flex flex-col h-full min-h-0 w-full max-w-4xl mx-auto overflow-hidden relative">
-            <div className="flex-shrink-0 z-10 flex items-center justify-between gap-2 px-4 pt-3 pb-2 border-b border-border/40 bg-background/95">
-                <button
-                    type="button"
-                    onClick={handleNewChat}
-                    className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground bg-muted/50 border border-border/50 rounded-lg hover:bg-accent transition-colors"
-                >
-                    <Plus size={14} />
-                    <span>New chat</span>
-                </button>
-            </div>
-
             <LoadedSessionBanner />
 
             {virtualizeHistory && (visibleMessages.length > 0 || isStreaming) ? (
@@ -447,7 +424,7 @@ export function SimpleInlineChat({
                 >
                 {visibleMessages.length === 0 && !isStreaming ? (
                     <div className="flex flex-col items-center justify-center min-h-[8rem] text-center text-muted-foreground text-sm px-4 gap-2">
-                        <span>Starting chat…</span>
+                        <span>What are we building?</span>
                         <span className="text-xs max-w-sm">
                             Workspace conversations save as sessions in the sidebar — resume anytime.
                         </span>

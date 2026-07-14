@@ -12,8 +12,8 @@ export function formatCompassSubscriptionTier(
 ): string {
   const t = (tier ?? "free").toLowerCase();
   if (t === "workforce") return "Team";
-  if (t === "pro") return "Studio";
-  return "Solo";
+  if (t === "pro") return "Pro";
+  return "Free";
 }
 
 /** Pre-v11 ids (`compass-*`) still count as Core tiers so old persisted selections render. */

@@ -30,11 +30,11 @@ env:
   LEMONSQUEEZY_API_KEY: ${{ secrets.LEMONSQUEEZY_API_KEY }}
   LEMONSQUEEZY_STORE_ID: ${{ secrets.LEMONSQUEEZY_STORE_ID }}
   LEMONSQUEEZY_VARIANT_ID: ${{ secrets.LEMONSQUEEZY_VARIANT_ID }}
+  LEMONSQUEEZY_CREDIT_VARIANT_ID: ${{ secrets.LEMONSQUEEZY_CREDIT_VARIANT_ID }}
   LEMONSQUEEZY_WORKFORCE_VARIANT_ID: ${{ secrets.LEMONSQUEEZY_WORKFORCE_VARIANT_ID }}
   LEMONSQUEEZY_EXTRA_SEAT_VARIANT_ID: ${{ secrets.LEMONSQUEEZY_EXTRA_SEAT_VARIANT_ID }}
   LEMONSQUEEZY_WEBHOOK_SECRET: ${{ secrets.LEMONSQUEEZY_WEBHOOK_SECRET }}
   NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
-  NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
   NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY }}
   RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
   EMAIL_SOURCE: ${{ secrets.EMAIL_SOURCE }}
@@ -44,11 +44,10 @@ env:
   # proxy URL (never the OpenRouter key, which was removed and now lives on the
   # proxy). This must be in the build env or a release ships with no Core endpoint.
   ATLARIX_CORE_PROXY_URL: ${{ secrets.ATLARIX_CORE_PROXY_URL }}
-  # v11 Core slots — falls back to the legacy COMPASS_MODEL_* secrets until
-  # the ATLARIX_CORE_MODEL_* repository secrets are configured.
-  ATLARIX_CORE_MODEL_1: ${{ secrets.ATLARIX_CORE_MODEL_1 || secrets.COMPASS_MODEL_FAST }}
-  ATLARIX_CORE_MODEL_2: ${{ secrets.ATLARIX_CORE_MODEL_2 || secrets.COMPASS_MODEL_BALANCED }}
-  ATLARIX_CORE_MODEL_3: ${{ secrets.ATLARIX_CORE_MODEL_3 || secrets.COMPASS_MODEL_THINKING }}
+  # v11 Core slots (the four Atlarix Core model ids).
+  ATLARIX_CORE_MODEL_1: ${{ secrets.ATLARIX_CORE_MODEL_1 }}
+  ATLARIX_CORE_MODEL_2: ${{ secrets.ATLARIX_CORE_MODEL_2 }}
+  ATLARIX_CORE_MODEL_3: ${{ secrets.ATLARIX_CORE_MODEL_3 }}
   ATLARIX_CORE_MODEL_4: ${{ secrets.ATLARIX_CORE_MODEL_4 }}
   OAUTH_CLIENT_ID: ${{ secrets.OAUTH_CLIENT_ID }}
   # Opt in to Node 24 action runtime now rather than waiting for the forced migration (June 2026).

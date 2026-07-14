@@ -189,7 +189,9 @@ async function main() {
   loadEnv();
 
   const supabaseUrl = requireEnv("NEXT_PUBLIC_SUPABASE_URL");
-  const serviceKey = requireEnv("SUPABASE_SERVICE_ROLE_KEY");
+  // New Supabase API-key system: the secret key replaces the legacy service_role JWT.
+  const serviceKey =
+    process.env.NEXT_PUBLIC_SUPABASE_SECRET_KEY?.trim() || requireEnv("SUPABASE_SERVICE_ROLE_KEY");
   const resendKey = requireEnv("RESEND_API_KEY");
 
   const replyTo = process.env.OUTREACH_REPLY_TO?.trim() || DEFAULT_REPLY_TO;

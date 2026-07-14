@@ -280,7 +280,7 @@ export function FirstRunWizard() {
                 </div>
                 <p className="mt-1 text-xs text-muted-foreground">
                   One-click integrations (GitHub, Slack, search, …) per workspace.
-                  Marketplace installs are a Studio/Team feature — browsing is free.
+                  Marketplace installs are a Pro feature — browsing is free.
                 </p>
               </div>
             </div>
