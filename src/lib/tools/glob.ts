@@ -103,9 +103,20 @@ ToolRegistry.register({
                     maxBuffer: 20 * 1024 * 1024,
                 });
                 matched = stdout.split("\n").map((l) => l.trim()).filter(Boolean);
-            } catch {
-                // rg exits non-zero when nothing matches — treat as empty, not error.
-                matched = [];
+            } catch (e) {
+                // ripgrep --files exits 1 when NOTHING matches (not an error) but
+                // 2 on a real failure (e.g. a malformed glob like an unbalanced
+                // '['). Only the former is "no files"; surface the latter so the
+                // model fixes the pattern instead of trusting an empty result.
+                const err = e as { code?: number; stderr?: string };
+                if (err.code === 1) {
+                    matched = [];
+                } else {
+                    const msg = (err.stderr || "").trim().split("\n")[0];
+                    throw new Error(
+                        msg ? `Invalid glob pattern: ${msg}` : "glob failed to run the pattern",
+                    );
+                }
             }
             if (trimmed === "*") {
                 // Bare `*` = list this directory's own files, not the whole tree.

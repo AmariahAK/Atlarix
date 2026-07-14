@@ -17,6 +17,7 @@ import {
 } from "@/lib/chat/edit-attachment-tags";
 import type { ParsedAttachmentTag } from "@/lib/chat/attachment-tag-parse";
 import { PastedTextAttachmentChip } from "@/components/chat/PastedTextAttachmentChip";
+import { BackgroundJobAttachmentChip } from "@/components/chat/BackgroundJobAttachmentChip";
 import { TerminalOutputAttachmentChip } from "@/components/chat/TerminalOutputAttachmentChip";
 import {
     CHAT_MESSAGE_MARKDOWN_PROSE,
@@ -199,6 +200,18 @@ function SimpleMessageImpl({
                                                         />
                                                     );
                                                 }
+                                                if (tag.tag === "atlarix-background-job") {
+                                                    const jobId = tag.attributes.job_id || "job";
+                                                    return (
+                                                        <BackgroundJobAttachmentChip
+                                                            key={`edit-tag-${ti}`}
+                                                            displayName={`id-${jobId}`}
+                                                            command={tag.attributes.command || ""}
+                                                            outputTail={tag.content.trim() || undefined}
+                                                            readOnly
+                                                        />
+                                                    );
+                                                }
                                                 const label =
                                                     tag.attributes.label || "Terminal output";
                                                 const body = lookupTerminalPasteContent(
@@ -322,7 +335,11 @@ function SimpleMessageImpl({
                         ) : null}
                     </div>
                 )}
-                {isUser && (message.content || isEditing) && !isStreaming && (
+                {/* Edit is allowed mid-stream: editing a user message truncates
+                    and resends, which cancels the in-flight turn (see
+                    performEdit). Lets users correct a prompt without the
+                    stop-then-edit two-step. */}
+                {isUser && (message.content || isEditing) && (
                     <div className="flex mt-1 justify-end">
                         <div className="flex flex-wrap items-center gap-1">
                             <button

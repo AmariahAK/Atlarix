@@ -8,9 +8,10 @@
  * reports. Dismissing it is cosmetic (the background work keeps running and
  * still auto-resumes); it only hides the reassurance.
  */
-import { useAtom } from "jotai";
+import { useAtom, useAtomValue } from "jotai";
 import { Hourglass } from "lucide-react";
 import { parkedWaitingByChatIdAtom } from "@/atoms/chatAtoms";
+import { backgroundJobsByChatIdAtom } from "@/atoms/sourceAtoms";
 
 function plural(n: number, word: string): string {
   return `${n} ${word}${n === 1 ? "" : "s"}`;
@@ -26,14 +27,27 @@ function describe(commands: number, subagents: number): string {
 
 export function ParkedWaitingChip({ chatId }: { chatId: number }) {
   const [parkedByChatId, setParkedByChatId] = useAtom(parkedWaitingByChatIdAtom);
+  const jobsByChat = useAtomValue(backgroundJobsByChatIdAtom);
   const parked = parkedByChatId.get(chatId);
   if (!parked) return null;
+
+  // Reconcile the parked snapshot against the LIVE background jobs: if the user
+  // cancels/turns off the task, the live job list shrinks, so the chip must not
+  // keep claiming "Waiting on 1 background task." Distinguish "not fetched yet"
+  // (undefined → trust the snapshot) from "fetched, now empty" ([] → the jobs
+  // really are gone), so a lagging fetch never false-hides a live wait.
+  const liveEntry = jobsByChat[chatId];
+  const commands =
+    liveEntry === undefined
+      ? parked.commands
+      : Math.min(parked.commands, liveEntry.length);
+  if (commands <= 0 && parked.subagents <= 0) return null;
 
   return (
     <div className="mx-3 mb-1 flex items-center gap-2 rounded-md border border-border bg-muted/40 px-2 py-1 text-[11px] text-muted-foreground">
       <Hourglass className="size-3 shrink-0 animate-pulse" aria-hidden />
       <span className="truncate flex-1">
-        {describe(parked.commands, parked.subagents)}
+        {describe(commands, parked.subagents)}
       </span>
       <button
         type="button"

@@ -68,25 +68,50 @@ async function runRipgrepSearch(args: {
   // never be interpolated into a shell string — `rg` receives them as literal
   // argv entries. `--` terminates option parsing so a pattern beginning with `-`
   // is treated as a pattern, not a flag.
-  const rgArgs = [
+  const buildArgs = (extra: string[]) => [
     "-n",
     "-C",
     String(contextLines),
     ...(caseSensitive ? [] : ["-i"]),
     ...(filePattern ? ["-g", filePattern] : []),
     ...ignoreArgs,
+    ...extra,
     "--",
     pattern,
     workspace,
   ];
 
-  try {
-    const { stdout } = await execFileAsync(await resolveRipgrepPath(), rgArgs, {
+  const rgPath = await resolveRipgrepPath();
+  const runOnce = async (extra: string[]) => {
+    const { stdout } = await execFileAsync(rgPath, buildArgs(extra), {
       maxBuffer: 10 * 1024 * 1024,
     });
     return parseGrepOutput(stdout);
-  } catch {
-    return [];
+  };
+
+  try {
+    return await runOnce([]);
+  } catch (e) {
+    // ripgrep exit codes: 0 = matches, 1 = NO matches (not an error), 2 = a real
+    // error (most commonly a regex the default Rust engine can't parse, e.g.
+    // lookahead/backreferences). Previously ALL of these collapsed to "no
+    // matches", so an unsupported pattern silently returned empty and the model
+    // wrongly concluded there was nothing to find. Distinguish them:
+    const err = e as { code?: number; stderr?: string };
+    if (err.code === 1) return []; // genuinely no matches
+    // Retry once with PCRE2 so lookahead/backreferences/etc. actually work.
+    try {
+      return await runOnce(["--pcre2"]);
+    } catch (e2) {
+      const err2 = e2 as { code?: number; stderr?: string };
+      if (err2.code === 1) return [];
+      const msg = (err2.stderr || err.stderr || "").trim().split("\n")[0];
+      // Surface the real problem to the model instead of a misleading "no
+      // matches" so it can fix the pattern rather than trust an empty result.
+      throw new Error(
+        msg ? `Invalid grep pattern: ${msg}` : "grep failed to run the pattern",
+      );
+    }
   }
 }
 

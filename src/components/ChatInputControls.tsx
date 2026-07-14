@@ -21,7 +21,11 @@ import {
 import { getChatBoundAppId, resolveChatWorkspaceAppId } from "@/lib/chat-workspace-binding";
 import { openWorkspaceFromDialog } from "@/lib/open-workspace";
 import { toast } from "sonner";
-import { chatMessagesByIdAtom, selectedChatIdAtom } from "@/atoms/chatAtoms";
+import {
+  chatMessagesByIdAtom,
+  selectedChatIdAtom,
+  liveTurnUsageByChatIdAtom,
+} from "@/atoms/chatAtoms";
 import { rightPanelVisibleAtom } from "@/atoms/sourceAtoms";
 import { NoWorkspaceBanner } from "./chat/NoWorkspaceBanner";
 import { CompactModelSearch } from "./CompactModelSearch";
@@ -104,8 +108,17 @@ export function ChatInputControls({
   }
 
   let tokenWarning: string | null = null;
-  const usedTokens =
+  // Prefer live provider usage while a turn streams (same source as TokenBar) so
+  // BOTH counters grow live together instead of this one staying on the frozen
+  // dispatch estimate.
+  const liveUsageByChat = useAtomValue(liveTurnUsageByChatIdAtom);
+  const liveUsage = chatId != null ? liveUsageByChat[chatId] : undefined;
+  const estimateUsed =
     contextReport?.dispatchedTokens ?? tokenResult?.estimatedTotalTokens ?? 0;
+  const usedTokens =
+    liveUsage != null
+      ? (liveUsage.input ?? estimateUsed) + liveUsage.output
+      : estimateUsed;
   const budgetTokens =
     contextReport?.contextWindow ??
     tokenResult?.effectiveBudget ??

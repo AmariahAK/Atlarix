@@ -82,7 +82,6 @@ You are in Build mode. Full implementation for this chat turn.
 You CAN:
 - Read and write files (approval queue for mutating operations)
 - run_command, all workspace tools via progressive reveal
-- Verify with the project's own checks/tests (run_command) and write tests for new logic
 - Spawn parallel read-only sub-agents with multiple task calls in one response for independent reconnaissance
 - Delegate an isolated implementation to a WRITER sub-agent — task({write:true, ...}) or task({subagent_type:"implementer", ...}); it works in a throwaway git worktree (seeded from your current working tree) and returns a reviewable diff you apply with your own write tools. Built-in agents: explorer (read-only recon), architect (planning), implementer (writer). For any long delegation — read-only or writer — prefer background:true and keep working or end your turn; each result is delivered automatically when it finishes
 
@@ -160,7 +159,7 @@ If you delegate to an architect sub-agent, its plan comes back as data in <task_
 - **Implement:** native function tools; project files at the workspace root (not under .atlarix/ unless asked). One run_command for scaffolding. Keep each whole-file edit_file(operation:"write") ≲800 lines (split larger files across calls) so writes aren't truncated.
 - **Verify with the project's OWN tooling** after edits: discover the real commands (package.json scripts, Makefile, pyproject.toml — don't invent names) and prefer its typecheck/lint/test/build, else run the tools directly (tsc --noEmit, eslint, ruff/mypy/pytest, cargo check, go build); fix from the output. Syntax floor when no linter exists: \`node --check\` / \`python3 -m py_compile\`. Never claim a change is clean while a check reports errors. Write/extend tests for non-trivial logic (skip trivial edits like renames) — but a test only counts if it can fail: confirm a new test is RED against the un-fixed code (failing for the right reason) before you trust it green, and assert on the real code path, not a mock of the unit under test. A test that passes before your change tests nothing.
 - **Session plan** (when one is active — its planId is in context): set_status "building" before implementing, "built" when done; mark each step update_step "in_progress"/"done" as you go; plan(read) before the next step to pick up user additions; append_step to add one.
-- **Persist to completion:** keep going until the task is fully resolved end-to-end (implement → verify) before yielding — don't stop after only planning or reporting status. If a session plan is active, DRIVE IT TO DONE: keep exactly ONE step in_progress, mark steps done as you finish them, and continue while any step remains.
+- **Drive the plan to done:** if a session plan is active, keep exactly ONE step in_progress, mark steps done as you finish them, and continue while any step remains — implement → verify end-to-end, don't yield after only planning.
 - **Verify each step before advancing:** after a meaningful change, run the relevant checks/tests, debug and fix any failures, THEN mark that step done and move to the next — don't advance on a red check or stack work on an unverified step (skip the ceremony for trivial edits like renames or copy tweaks). Build on tool results you already have (don't re-run to re-view). **Stop only when** the plan is fully built and its checks pass, OR you need the user (a decision, or a manual test you can't run yourself), OR you're genuinely blocked. If the SAME verification approach fails ~2–3 times, switch the approach (e.g. an end-to-end check that can't isolate your change → a focused unit test with a controllable seam) instead of repeating it; if it still won't resolve after ~3 focused attempts, STOP and report what you changed, the exact failure, and your best next hypothesis — don't grind. The turn ends when you make no more tool calls.
 </work_mode>`;
     case "debug":
@@ -205,15 +204,4 @@ export function renderModePromptBundle(
 /** Tools that imply web research rules in the stable header. */
 export function modeAllowlistIncludesWebResearch(mode: ModeRegistryKey): boolean {
   return mode === "ask" || mode === "build" || mode === "plan";
-}
-
-/** Tools that imply inline visual artifact guidance. */
-export function modeAllowlistIncludesVisualTools(mode: ModeRegistryKey): boolean {
-  return (
-    mode === "ask" ||
-    mode === "build" ||
-    mode === "plan" ||
-    mode === "debug" ||
-    mode === "review"
-  );
 }

@@ -6,7 +6,10 @@
 import { unescapeAttachmentTagBody } from "@/lib/chat/attachment-tag-escape";
 
 export type ParsedAttachmentTag = {
-  tag: "atlarix-text-attachment" | "atlarix-terminal-attachment";
+  tag:
+    | "atlarix-text-attachment"
+    | "atlarix-terminal-attachment"
+    | "atlarix-background-job";
   attributes: Record<string, string>;
   content: string;
   fullMatch: string;
@@ -16,6 +19,7 @@ export type ParsedAttachmentTag = {
 const ATTACHMENT_TAG_NAMES = [
   "atlarix-text-attachment",
   "atlarix-terminal-attachment",
+  "atlarix-background-job",
 ] as const;
 
 function unescapeXmlAttr(value: string): string {

@@ -20,6 +20,25 @@ describe("attachment-tag-parse", () => {
     expect(tags[0]?.content).toBe("");
   });
 
+  it("parses a self-closing background-job display stub (renders as a chip, not raw text)", () => {
+    const content =
+      'does that mean we can stop this?\n\n<atlarix-background-job job_id="op_1783968408218_2j0czw7yb" />';
+    const tags = findAttachmentTagsInContent(content);
+    expect(tags).toHaveLength(1);
+    expect(tags[0]?.tag).toBe("atlarix-background-job");
+    expect(tags[0]?.attributes.job_id).toBe("op_1783968408218_2j0czw7yb");
+    expect(tags[0]?.content).toBe("");
+  });
+
+  it("parses a background-job model block with command + output tail", () => {
+    const content =
+      '<atlarix-background-job job_id="op_1" command="npm test">\n42 passing\n</atlarix-background-job>';
+    const tags = findAttachmentTagsInContent(content);
+    expect(tags).toHaveLength(1);
+    expect(tags[0]?.attributes.command).toBe("npm test");
+    expect(tags[0]?.content).toContain("42 passing");
+  });
+
   it("parses terminal self-closing tag without displayContent attribute", () => {
     const content =
       'Hi\n\n<atlarix-terminal-attachment label="ls (1-16)" owner="user" lines="1-16" />';

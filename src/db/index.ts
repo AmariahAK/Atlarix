@@ -687,6 +687,28 @@ export function isDbInitialized(): boolean {
   return _db !== null;
 }
 
+/** Named error thrown when the DB is accessed after shutdown began — lets
+ * straggler writes be swallowed quietly instead of surfacing better-sqlite3's
+ * opaque "The database connection is not open" as a handled Sentry error. */
+export class DatabaseClosingError extends Error {
+  constructor() {
+    super("Database is closing (shutdown in progress)");
+    this.name = "DatabaseClosingError";
+  }
+}
+
+let _dbClosing = false;
+
+/** Mark the DB as shutting down. After this, `db` access throws
+ * DatabaseClosingError so a late async query short-circuits cleanly. */
+export function beginDatabaseClosing(): void {
+  _dbClosing = true;
+}
+
+export function isDatabaseClosing(): boolean {
+  return _dbClosing;
+}
+
 /**
  * Get the database instance (throws if not initialized)
  */
@@ -703,6 +725,9 @@ export function getDb(): BetterSQLite3Database<typeof schema> & {
 
 export const db = new Proxy({} as any, {
   get(target, prop) {
+    // Once shutdown starts, short-circuit with a recognizable error instead of
+    // letting a straggler hit a closed handle deep inside a query (opaque throw).
+    if (_dbClosing) throw new DatabaseClosingError();
     const database = getDb();
     return database[prop as keyof typeof database];
   },

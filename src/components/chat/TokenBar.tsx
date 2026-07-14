@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { toast } from "sonner";
 import {
   Tooltip,
@@ -20,8 +20,11 @@ import {
   lastTurnCostUsdByChatIdAtom,
   sessionCostUsdByChatIdAtom,
   sessionTokensByChatIdAtom,
+  liveTurnUsageByChatIdAtom,
+  isStreamingForChatAtom,
 } from "@/atoms/chatAtoms";
-import { useAtom, useAtomValue } from "jotai";
+import { useAtom, useAtomValue, useSetAtom } from "jotai";
+import { IpcClient } from "@/ipc/ipc_client";
 import { useContextReport } from "@/hooks/useContextReport";
 import { Scissors, Bot as BotIcon, DollarSign } from "lucide-react";
 import { useSettings } from "@/hooks/useSettings";
@@ -61,6 +64,51 @@ export function TokenBar({
   const sessionCostUsd = chatId != null ? sessionCostByChat[chatId] : undefined;
   const sessionTokensByChat = useAtomValue(sessionTokensByChatIdAtom);
   const sessionTokens = chatId != null ? sessionTokensByChat[chatId] : undefined;
+
+  // Live per-turn usage (Claude-Code-style): the provider's REAL context/output
+  // tokens streamed during a turn drive the headline, so the meter is live and
+  // provider-accurate (not the Anthropic-tokenizer estimate). Held at rest as
+  // the authoritative last-known occupancy until the next turn starts.
+  const setLiveUsage = useSetAtom(liveTurnUsageByChatIdAtom);
+  const liveUsageByChat = useAtomValue(liveTurnUsageByChatIdAtom);
+  const liveUsage = chatId != null ? liveUsageByChat[chatId] : undefined;
+  const isStreaming = useAtomValue(
+    useMemo(() => isStreamingForChatAtom(chatId ?? -1), [chatId]),
+  );
+  useEffect(() => {
+    const unsub = IpcClient.getInstance().onTokenUsage((p) => {
+      if (chatId == null || p.chatId !== chatId) return;
+      setLiveUsage((prev) => {
+        const cur = prev[chatId];
+        // Real provider usage (inputTokens set) is authoritative — overwrite.
+        if (p.inputTokens != null) {
+          return { ...prev, [chatId]: { input: p.inputTokens, output: p.outputTokens } };
+        }
+        // Throttled stream estimate — only applies before the first real step
+        // this turn (input still null); once real data arrives we ignore it to
+        // avoid per-step jitter. Output only grows.
+        if (cur?.input != null) return prev;
+        return {
+          ...prev,
+          [chatId]: { input: null, output: Math.max(cur?.output ?? 0, p.outputTokens) },
+        };
+      });
+    });
+    return unsub;
+  }, [chatId, setLiveUsage]);
+  // New stream → clear stale live usage so it ticks fresh (kept at rest otherwise).
+  const prevStreamingRef = useRef(false);
+  useEffect(() => {
+    if (isStreaming && !prevStreamingRef.current && chatId != null) {
+      setLiveUsage((prev) => {
+        if (!prev[chatId]) return prev;
+        const next = { ...prev };
+        delete next[chatId];
+        return next;
+      });
+    }
+    prevStreamingRef.current = isStreaming;
+  }, [isStreaming, chatId, setLiveUsage]);
 
   // #3: notify when switching to a model whose context window is smaller than
   // the current usage. The dispatch already auto-compacts to fit; this is a
@@ -107,6 +155,7 @@ export function TokenBar({
     contextWindow,
     effectiveBudget,
     budgetSource,
+    actualMaxTokens,
   } = result;
 
   // Headline = the MODEL-FACING context. After a dispatch the backend reports
@@ -115,10 +164,25 @@ export function TokenBar({
   // summarize, instead of the full untrimmed conversation estimate. Falls back
   // to the estimate before the first dispatch.
   const dispatchedTokens = contextReport?.dispatchedTokens;
+  // Prefer live provider usage when present: real context (input) + output. The
+  // input baseline falls back to the dispatch estimate before the provider's
+  // first usage report. At rest (not streaming) add the composer draft so the
+  // meter previews what the NEXT send will occupy.
+  const liveBaseline =
+    liveUsage?.input ??
+    dispatchedTokens ??
+    Math.max(estimatedTotalTokens - inputTokens, 0);
+  const composerDraftTokens = isStreaming ? 0 : inputTokens;
   const totalTokens =
-    dispatchedTokens != null
-      ? dispatchedTokens + inputTokens
-      : estimatedTotalTokens;
+    liveUsage != null
+      ? liveBaseline + liveUsage.output + composerDraftTokens
+      : // Reloaded session (no live emit yet): the provider's real last-turn
+        // total is more accurate than the client-side estimate.
+        actualMaxTokens != null && !isStreaming
+        ? actualMaxTokens + inputTokens
+        : dispatchedTokens != null
+          ? dispatchedTokens + inputTokens
+          : estimatedTotalTokens;
 
   const budget = contextReport?.contextWindow ?? effectiveBudget ?? contextWindow;
   const percentUsed = Math.min((totalTokens / budget) * 100, 100);

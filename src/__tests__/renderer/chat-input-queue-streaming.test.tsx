@@ -37,7 +37,6 @@ vi.mock("@/hooks/useAttachments", () => ({
     handleDrop: vi.fn(),
     clearAttachments: vi.fn(),
     handlePaste: vi.fn(),
-    handlePasteCapture: vi.fn(),
   }),
 }));
 vi.mock("@/components/ChatInputControls", () => ({

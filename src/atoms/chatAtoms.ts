@@ -70,6 +70,18 @@ export const lastTurnCostUsdByChatIdAtom = atom<Record<number, number>>({});
 export const sessionCostUsdByChatIdAtom = atom<Record<number, number>>({});
 export const sessionTokensByChatIdAtom = atom<Record<number, number>>({});
 
+/**
+ * Live per-turn token usage for the composer meter, driven by the provider's
+ * REAL usage while a turn streams (Claude-Code-style live occupancy). Real
+ * per-step emits set `input` (context tokens); throttled stream ticks only grow
+ * `output`. Cleared when a new stream starts and reconciled/cleared at
+ * response:end. `undefined` for a chat = no active live usage (meter falls back
+ * to the dispatch estimate).
+ */
+export const liveTurnUsageByChatIdAtom = atom<
+  Record<number, { input: number | null; output: number } | undefined>
+>({});
+
 /** Autonomous mode: post-turn review payload from main (cleared on accept or dismiss). */
 export const autonomousSessionReviewAtom = atom<AutonomousSessionCompletePayload | null>(null);
 

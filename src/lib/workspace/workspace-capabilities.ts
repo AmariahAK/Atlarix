@@ -80,10 +80,11 @@ export async function loadWorkspaceCapabilitiesSummary(opts: {
 export function formatWorkspaceCapabilitiesForPrompt(
   summary: WorkspaceCapabilitiesSummary,
 ): string {
+  // Only the DYNAMIC state lives here (which skills/MCP servers this workspace
+  // has, + oauth status). The static "how to invoke MCP/skills" guidance is in
+  // <tools_registry> (mode-tool-registry.ts) — not duplicated here.
   const lines: string[] = [
     "## Workspace integrations (installed skills + MCP)",
-    "Use **list_installed_skills** / **get_active_skills** for full SKILL.md content.",
-    "Use **list_available_mcps** then **mcp_call** to invoke MCP tools (user consent on first use per tool).",
     "",
   ];
 

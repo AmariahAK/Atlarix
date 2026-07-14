@@ -48,9 +48,19 @@ export function ensurePasteAttachmentIds(
   // branch here used to mint a fresh id on every rehydration, so after an
   // interrupted turn the model's previously announced attachmentId returned
   // "Attachment not found" on re-read. Same content ⟹ same id, forever.
-  return pastes.map((paste) =>
-    paste.id ? paste : { ...paste, id: resolvePasteAttachmentId(paste) },
-  );
+  // Dedup by that id too: identical paste content is one attachment, so it's
+  // never listed/injected twice (one directive line, one inline block).
+  const seen = new Set<string>();
+  const out: PasteAttachmentMeta[] = [];
+  for (const paste of pastes) {
+    const withId = paste.id
+      ? paste
+      : { ...paste, id: resolvePasteAttachmentId(paste) };
+    if (seen.has(withId.id!)) continue;
+    seen.add(withId.id!);
+    out.push(withId);
+  }
+  return out;
 }
 
 export function pasteToAttachmentData(paste: PasteAttachmentMeta): AttachmentData {

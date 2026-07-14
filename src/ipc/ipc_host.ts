@@ -38,6 +38,7 @@ import { registerBrowserHandlers } from "./handlers/browser_handlers";
 import { registerMediaHandlers } from "./handlers/media_handlers";
 import { registerBackgroundHandlers } from "./handlers/background_handlers";
 import { registerAutomationHandlers } from "./handlers/automation_handlers";
+import { registerVoiceHandlers } from "./handlers/voice_handlers";
 import { registerSkillsHandlers } from "./handlers/skills_handlers";
 import { registerVisualEditingHandlers } from "../pro/main/ipc/handlers/visual_editing_handlers";
 import { registerFolderDialogHandler } from "./handlers/atlarix_handlers";
@@ -118,4 +119,5 @@ export function registerIpcHandlers() {
   registerMediaHandlers(); // browser/preview session recordings (frame reels)
   registerBackgroundHandlers(); // v14 background-job indicator/cancel + auto-wake
   registerAutomationHandlers(); // Automations: definitions CRUD + triage feed + proposal apply
+  registerVoiceHandlers(); // BYOK cloud transcription (optional; local Whisper is default)
 }

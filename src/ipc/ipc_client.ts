@@ -58,6 +58,7 @@ import type {
   InstalledSkillRow,
   ActiveSkillContent,
   ListRepoSkillsResult,
+  ChatTokenUsage,
 } from "./ipc_types";
 import type {
   AppChatContext,
@@ -133,6 +134,29 @@ function uint8ToBase64(bytes: Uint8Array): string {
   return btoa(binaryChunks.join(""));
 }
 
+/** SHA-256 (hex, 32 chars) of the file bytes — a stable content id. */
+async function contentHashId(buffer: ArrayBuffer): Promise<string | undefined> {
+  try {
+    if (typeof crypto !== "undefined" && crypto.subtle) {
+      const digest = await crypto.subtle.digest("SHA-256", buffer);
+      return Array.from(new Uint8Array(digest))
+        .map((b) => b.toString(16).padStart(2, "0"))
+        .join("")
+        .slice(0, 32);
+    }
+  } catch {
+    /* fall through to random id */
+  }
+  return undefined;
+}
+
+/** Last-resort id when content hashing is unavailable. */
+function randomAttachmentId(): string | undefined {
+  return typeof crypto !== "undefined" && "randomUUID" in crypto
+    ? crypto.randomUUID()
+    : undefined;
+}
+
 async function encodeFileAttachmentForStream(attachment: FileAttachment): Promise<{
   id?: string;
   name: string;
@@ -161,11 +185,10 @@ async function encodeFileAttachmentForStream(attachment: FileAttachment): Promis
   }
   const mime = attachmentMimeType(file);
   const raw = `data:${mime};base64,${base64Data}`;
-  const id =
-    attachment.id ??
-    (typeof crypto !== "undefined" && "randomUUID" in crypto
-      ? crypto.randomUUID()
-      : undefined);
+  // Deterministic content-hash id: the same file encoded twice (double-add,
+  // edit/resend) resolves to the SAME id, so AttachmentStore + the server-side
+  // backstop collapse it to one record instead of two random-UUID copies.
+  const id = attachment.id ?? (await contentHashId(buffer)) ?? randomAttachmentId();
 
   import("@/lib/attachment-store")
     .then(({ AttachmentStore }) => {
@@ -254,6 +277,9 @@ export class IpcClient {
   // error + model-switch continue crossed in flight).
   private currentStreamIdByChat: Map<number, number> = new Map();
   private pendingStreamDispatch: Map<number, number> = new Map();
+  /** Chats the user just clicked Stop on — chunks drop instantly until the
+   * turn's response:end (or a new dispatch) clears the flag. */
+  private optimisticallyCancelled: Set<number> = new Set();
   private appStreams: Map<number, AppStreamCallbacks>;
   private helpStreams: Map<
     string,
@@ -354,6 +380,9 @@ export class IpcClient {
   private contextReportHandlers = new Set<
     (payload: import("./ipc_types").ChatContextReport) => void
   >();
+  private tokenUsageHandlers = new Set<
+    (payload: ChatTokenUsage) => void
+  >();
   private constructor() {
     this.ipcRenderer = (window as any).electron.ipcRenderer as PreloadIpcRenderer;
     this.chatStreams = new Map();
@@ -373,6 +402,11 @@ export class IpcClient {
         "chatId" in data
       ) {
         const { chatId } = data as { chatId: number };
+
+        // Optimistic stop: the user clicked Stop; drop further CHUNKS instantly
+        // (kills the streaming re-render flood that makes Stop feel laggy) while
+        // still letting the eventual response:end finalize + clear this flag.
+        if (this.optimisticallyCancelled.has(chatId)) return;
 
         // Fix S: ignore updates from a superseded stream leg.
         if (this.shouldDropStreamEvent(chatId, (data as { streamId?: unknown }).streamId)) {
@@ -426,6 +460,9 @@ export class IpcClient {
 
     this.ipcRenderer.on("chat:response:end", (payload) => {
       const { chatId, streamId } = payload as unknown as ChatResponseEnd;
+      // Optimistic-stop resolved: the turn actually ended, so re-enable chunk
+      // delivery for any future turn on this chat.
+      this.optimisticallyCancelled.delete(chatId);
       // Fix S: a superseded leg's late end must not tear down the live leg's
       // callbacks/state (observed: frozen inline chat after an error +
       // model-switch continue crossed in flight).
@@ -757,6 +794,17 @@ export class IpcClient {
       });
     });
 
+    // Live per-turn token usage (real per-step + throttled stream estimates).
+    this.ipcRenderer.on("chat:token-usage", (payload: unknown) => {
+      this.tokenUsageHandlers.forEach((h) => {
+        try {
+          h(payload as ChatTokenUsage);
+        } catch {
+          /* noop */
+        }
+      });
+    });
+
     this.ipcRenderer.on("plan:file-updated", (_e, payload: unknown) => {
       if (!payload || typeof payload !== "object" || !("workspacePath" in payload)) return;
       const p = payload as { workspacePath: string; mtime: number | null };
@@ -980,6 +1028,35 @@ export class IpcClient {
   ): () => void {
     this.contextReportHandlers.add(handler);
     return () => this.contextReportHandlers.delete(handler);
+  }
+
+  /** Live per-turn token usage (real per-step + throttled stream estimates). */
+  public onTokenUsage(
+    handler: (payload: ChatTokenUsage) => void,
+  ): () => void {
+    this.tokenUsageHandlers.add(handler);
+    return () => this.tokenUsageHandlers.delete(handler);
+  }
+
+  /** Fire-and-forget voice diagnostics → main's electron-log (renderer console
+   * isn't captured in the packaged main.log). */
+  public logVoiceDiag(message: string): void {
+    void this.ipcRenderer.invoke("voice:log", message);
+  }
+
+  /** BYOK cloud transcription (OpenAI/Groq/Gemini) — main holds the key. Returns
+   * the transcript text (empty string on failure; check thrown errors). */
+  public async transcribeAudioCloud(params: {
+    provider: "openai" | "groq" | "gemini";
+    mimeType: string;
+    dataBase64: string;
+    language?: string;
+  }): Promise<string> {
+    const res = (await this.ipcRenderer.invoke("voice:transcribe-cloud", params)) as
+      | { ok: true; text: string }
+      | { ok: false; error: string };
+    if (!res.ok) throw new Error(res.error);
+    return res.text;
   }
 
   // ── v10 interactive PTY terminal ────────────────────────────────────────
@@ -1340,6 +1417,8 @@ export class IpcClient {
    * dying leg and are dropped.
    */
   private beginStreamDispatch(chatId: number): void {
+    // A fresh dispatch supersedes any prior optimistic Stop for this chat.
+    this.optimisticallyCancelled.delete(chatId);
     this.pendingStreamDispatch.set(
       chatId,
       (this.pendingStreamDispatch.get(chatId) ?? 0) + 1,
@@ -1493,9 +1572,15 @@ export class IpcClient {
 
   // Method to cancel an ongoing stream (stops AI to save tokens)
   public cancelChatStream(chatId: number): void {
-    this.ipcRenderer.invoke("chat:cancel", chatId);
+    // Instant UI stop: suppress further chunks NOW so the composer/list stop
+    // re-rendering immediately, before the async backend teardown lands. The
+    // response:end (or a new dispatch) clears this flag.
+    this.optimisticallyCancelled.add(chatId);
+    // Fire-and-forget the backend teardown (do not await — keeps the click
+    // handler off the IPC round-trip so the cursor never beachballs).
+    void this.ipcRenderer.invoke("chat:cancel", chatId);
     // Also abort the backend stream to save tokens
-    this.ipcRenderer.invoke("chat:abort", chatId);
+    void this.ipcRenderer.invoke("chat:abort", chatId);
   }
 
   // FIX 4: re-dispatch the last `chat:stream` request for this chat. Backend

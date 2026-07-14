@@ -183,6 +183,20 @@ export interface ChatContextReport {
   contextWindow?: number;
 }
 
+/** Live per-turn token usage for the composer meter (streamed during a turn).
+ * Real provider usage lands at each step (inputTokens set); throttled output
+ * estimates during streaming carry inputTokens=null (renderer keeps the last
+ * real input baseline and just grows output). */
+export interface ChatTokenUsage {
+  chatId: number;
+  /** Provider-reported input/context tokens; null for a mid-stream estimate. */
+  inputTokens: number | null;
+  /** Provider-reported or estimated output tokens so far. */
+  outputTokens: number;
+  /** Provider total when known (input+output+cache+reasoning). */
+  totalTokens?: number;
+}
+
 /**
  * FIX 4: payload for `chat:stream:disconnected`. Emitted after silent
  * reconnect attempts (2s/5s/10s) all fail. The renderer keeps the partial

@@ -602,6 +602,27 @@ export async function simpleStreamText(
                     | readonly ModelMessage[]
                     | undefined,
                 );
+                // Live token meter — emit the provider's REAL usage every step,
+                // for EVERY provider (not just compass), so the composer meter
+                // reflects true context occupancy as the turn progresses. The
+                // latest step's input already includes full history + prior
+                // tool results, so input+output ≈ current occupancy.
+                try {
+                  const split = inputOutputTokensFromUsage(step.usage);
+                  const total = totalTokensFromAiUsage(step.usage);
+                  if (split || total != null) {
+                    safeSend(event.sender, "chat:token-usage", {
+                      chatId: req.chatId,
+                      inputTokens: split?.inputTokens ?? null,
+                      outputTokens: split?.outputTokens ?? 0,
+                      totalTokens:
+                        total ??
+                        (split?.inputTokens ?? 0) + (split?.outputTokens ?? 0),
+                    });
+                  }
+                } catch {
+                  /* best-effort live meter — never break the stream */
+                }
                 if (modelClient.builtinProviderId !== "compass") return;
                 const stepTokens = totalTokensFromAiUsage(step.usage) ?? 0;
                 let recordResult = null;

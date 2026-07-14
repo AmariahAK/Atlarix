@@ -308,6 +308,14 @@ export const UserSettingsSchema = z.object({
   maxChatTurnsInContext: z.number().optional(),
   /** Phase 6: When true, use context bar + auto-summarize instead of fixed turn truncation */
   enableContextAutoSummarize: z.boolean().optional(),
+  /** Voice dictation: transcription engine. "local" = free on-device Whisper
+   * (default); the others are BYOK cloud STT using the user's own provider key. */
+  voiceTranscriptionProvider: z
+    .enum(["local", "openai", "groq", "gemini"])
+    .optional(),
+  /** Voice dictation mode: "dictate" = transcribe on stop (default, most
+   * accurate); "live" = stream words as you speak (local + WebGPU only). */
+  voiceInputMode: z.enum(["dictate", "live"]).optional(),
   /** @deprecated superseded by the binary `deepThinking` toggle (v14.8.5). */
   thinkingBudget: z.enum(["low", "medium", "high"]).optional(),
   /**

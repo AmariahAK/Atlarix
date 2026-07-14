@@ -8,7 +8,8 @@
 import React, { useRef, useEffect } from "react";
 import { SendIcon, Paperclip, StopCircle, ChartColumnIncreasing, Upload } from "lucide-react";
 import { useSettings } from "@/hooks/useSettings";
-import { useAtom, useAtomValue } from "jotai";
+import { useAtom, useAtomValue, useSetAtom } from "jotai";
+import { IpcClient } from "@/ipc/ipc_client";
 import {
     isStreamingByIdAtom,
     chatInputValueAtom,
@@ -28,6 +29,7 @@ import {
     TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { TokenBar } from "@/components/chat/TokenBar";
+import { VoiceInputButton } from "@/components/chat/VoiceInputButton";
 import type { FileAttachment } from "@/ipc/ipc_types";
 import { useState } from "react";
 import { useAuth } from "@/lib/auth/useAuth";
@@ -50,9 +52,34 @@ export function SimpleChatInput({ chatId, onSubmit, placeholder = "Continue the 
     const [inputValue, setInputValue] = useAtom(chatInputValueAtom);
     const [tokenUsagePopoverOpen, setTokenUsagePopoverOpen] = useState(false);
     const [attachmentMenuOpen, setAttachmentMenuOpen] = useState(false);
+    // Dictation: live mode re-transcribes the whole clip, so each interim result
+    // REPLACES the session's text on top of whatever was already typed; the base
+    // is captured once per session and cleared on the final result.
+    const dictationBaseRef = useRef<string | null>(null);
+    const handleTranscript = (text: string, isFinal: boolean) => {
+        if (dictationBaseRef.current === null) {
+            dictationBaseRef.current = inputValue ? `${inputValue.trimEnd()} ` : "";
+        }
+        setInputValue(`${dictationBaseRef.current}${text}`);
+        if (isFinal) dictationBaseRef.current = null;
+    };
     const { settings } = useSettings();
     const isStreamingById = useAtomValue(isStreamingByIdAtom);
     const isStreaming = isStreamingById.get(chatId) ?? false;
+    const setIsStreamingById = useSetAtom(isStreamingByIdAtom);
+    // Instant Stop: flip the UI out of the streaming state synchronously on
+    // click and suppress further chunks (IpcClient.cancelChatStream) so the
+    // composer swaps Stop→Send immediately — no waiting on the backend teardown
+    // (the source of the mac beachball). response:end reconciles the rest.
+    const stopStreamNow = () => {
+        setIsStreamingById((prev) => {
+            if (!prev.get(chatId)) return prev;
+            const next = new Map(prev);
+            next.set(chatId, false);
+            return next;
+        });
+        IpcClient.getInstance().cancelChatStream(chatId);
+    };
     // v13.1: while ANY turn is streaming, the user can type and queue ONE
     // follow-up message that is sent automatically when the turn ends (the
     // stop square stays visible; Enter/Send queues). Generalizes the v13 7B
@@ -82,7 +109,6 @@ export function SimpleChatInput({ chatId, onSubmit, placeholder = "Continue the 
         handleDrop,
         clearAttachments,
         handlePaste,
-        handlePasteCapture,
     } = useAttachments();
 
     const attachDisabled = isStreaming || mustSignIn;
@@ -204,7 +230,7 @@ export function SimpleChatInput({ chatId, onSubmit, placeholder = "Continue the 
 
                 <DragDropOverlay isDraggingOver={isDraggingOver} />
 
-                <form onSubmit={handleSubmit} className="flex items-center" onPasteCapture={handlePasteCapture}>
+                <form onSubmit={handleSubmit} className="flex items-center">
                     <textarea
                         ref={inputRef}
                         value={inputValue}
@@ -273,6 +299,11 @@ export function SimpleChatInput({ chatId, onSubmit, placeholder = "Continue the 
                         }}
                     />
 
+                    <VoiceInputButton
+                        disabled={mustSignIn}
+                        onInsertText={handleTranscript}
+                    />
+
                     {/* v13.2: ONE action slot — Stop replaces Send while
                         streaming (and vice versa). Enter still queues a
                         follow-up mid-stream (handleSubmit); the queued chip
@@ -283,11 +314,7 @@ export function SimpleChatInput({ chatId, onSubmit, placeholder = "Continue the 
                             variant="ghost"
                             size="icon"
                             className="mx-1 hover:bg-destructive/10 hover:text-destructive"
-                            onClick={() => {
-                                import("@/ipc/ipc_client").then(({ IpcClient }) => {
-                                    IpcClient.getInstance().cancelChatStream(chatId);
-                                });
-                            }}
+                            onClick={stopStreamNow}
                             title="Stop generation (Enter queues your typed message)"
                         >
                             <StopCircle className="h-4 w-4" />

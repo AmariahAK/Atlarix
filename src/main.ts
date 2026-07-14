@@ -20,7 +20,7 @@ import {
   type UpdateStatus,
 } from "./main/update-helpers";
 import { BackupManager } from "./backup_manager";
-import { getDatabasePath, initializeDatabase } from "./db/index";
+import { getDatabasePath, initializeDatabase, beginDatabaseClosing } from "./db/index";
 import { UserSettings } from "./lib/schemas";
 import {
   AddMcpServerConfigSchema,
@@ -275,7 +275,10 @@ function installContentSecurityPolicy(): void {
   if (!app.isPackaged) return;
   const csp = [
     "default-src 'self'",
-    "script-src 'self'",
+    // 'wasm-unsafe-eval' lets on-device Whisper (onnxruntime-web) compile its
+    // WASM backend; without it WebAssembly.instantiate is blocked in packaged
+    // builds. It does NOT permit arbitrary JS eval (that's 'unsafe-eval').
+    "script-src 'self' 'wasm-unsafe-eval'",
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: blob:",
     "font-src 'self' data:",
@@ -304,9 +307,23 @@ function installContentSecurityPolicy(): void {
   });
 }
 
+/**
+ * Grant microphone access for on-device voice dictation. Electron denies `media`
+ * by default unless a handler grants it; the app's content is local/trusted
+ * (file://), so we grant media and preserve the permissive default for the rest.
+ */
+function configureMediaPermissions(): void {
+  session.defaultSession.setPermissionRequestHandler(
+    (_wc, permission, callback) => {
+      callback(true);
+    },
+  );
+}
+
 export async function onReady() {
   logger.info("main onReady started", { packaged: app.isPackaged });
   installContentSecurityPolicy();
+  configureMediaPermissions();
   try {
     const backupManager = new BackupManager({
       settingsFile: getSettingsFilePath(),
@@ -1529,6 +1546,14 @@ app.on("will-quit", () => {
   logger.info("App is quitting, setting isRunning to false", {
     memory: process.memoryUsage(),
   });
+  // Shutdown has begun: short-circuit any late async db write with a clean
+  // DatabaseClosingError instead of the opaque "connection is not open" throw.
+  // (The awaited before-quit flush chain runs earlier, while the DB is open.)
+  try {
+    beginDatabaseClosing();
+  } catch {
+    /* db module may not be loaded in some early-exit paths */
+  }
   // v10: tear down interactive terminal shells.
   killAllPtys();
   analyticsShutdown();

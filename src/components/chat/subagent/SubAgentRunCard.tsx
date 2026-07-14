@@ -72,6 +72,21 @@ function subagentTokensLabel(summary: string | undefined): string | null {
   return m ? `${m[1]} tok` : null;
 }
 
+function formatCompactTokens(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
+  return `${n}`;
+}
+
+/** Prefer the live structured token count (streamed per round); fall back to
+ * parsing the final summary footer for persisted/historical runs. */
+function tokensBadge(agent: SubAgentRunEntry): string | null {
+  if (typeof agent.liveTokens === "number" && agent.liveTokens > 0) {
+    return `${formatCompactTokens(agent.liveTokens)} tok`;
+  }
+  return subagentTokensLabel(agent.summary);
+}
+
 const GENERIC_PHASE_LINES = new Set([
   "Exploring…",
   "Explore complete",
@@ -194,7 +209,7 @@ export function SubAgentRunCard({
           );
 
   const openDialog = () => setDialogOpen(true);
-  const tokensLabel = subagentTokensLabel(agent.summary);
+  const tokensLabel = tokensBadge(agent);
 
   return (
     <div className={cn(streamToolCardShell, "rounded-lg border overflow-hidden")}>

@@ -36,6 +36,7 @@ import {
   lookupTextPasteContent,
 } from "@/lib/chat/paste-attachment-meta";
 import { PastedTextAttachmentChip } from "./PastedTextAttachmentChip";
+import { BackgroundJobAttachmentChip } from "./BackgroundJobAttachmentChip";
 import { TerminalOutputAttachmentChip } from "./TerminalOutputAttachmentChip";
 import { findAttachmentTagsInContent } from "@/lib/chat/attachment-tag-parse";
 
@@ -121,6 +122,7 @@ const markdownTableComponents = {
 const ATTACHMENT_TAG_MARKERS = [
   "<atlarix-text-attachment",
   "<atlarix-terminal-attachment",
+  "<atlarix-background-job",
 ] as const;
 
 function contentHasAttachmentTags(text: string): boolean {
@@ -151,7 +153,8 @@ export const UserMessageMarkdownParser = ({
         }
         if (
           piece.tagInfo.tag === "atlarix-text-attachment" ||
-          piece.tagInfo.tag === "atlarix-terminal-attachment"
+          piece.tagInfo.tag === "atlarix-terminal-attachment" ||
+          piece.tagInfo.tag === "atlarix-background-job"
         ) {
           return (
             <React.Fragment key={`tag-${index}`}>
@@ -665,6 +668,20 @@ function renderCustomTag(
           <PastedTextAttachmentChip
             content={textBody}
             displayName={filename}
+            readOnly
+          />
+        </span>
+      );
+    }
+
+    case "atlarix-background-job": {
+      const jobId = attributes.job_id || "job";
+      return (
+        <span className="inline-block my-1">
+          <BackgroundJobAttachmentChip
+            displayName={`id-${jobId}`}
+            command={attributes.command || ""}
+            outputTail={content.trim() || undefined}
             readOnly
           />
         </span>

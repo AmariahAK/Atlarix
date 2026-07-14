@@ -14,8 +14,6 @@ import {
   type ModeSystemKey,
 } from "../../prompts/system_prompt";
 import { getActiveModeReanchor } from "@/lib/tools/mode-prompt-bundle";
-import { detectVisionCapability } from "@/lib/routing/model-capability-profile";
-import { getModelsDevData } from "@/lib/models_dev";
 import {
   parseNativeHistory,
   isNativeHistoryEnvelope,
@@ -131,7 +129,7 @@ import { ContextBudgetTracker } from "@/lib/context/context-budget-tracker";
 import { pruneContextSectionsForBudget } from "@/lib/context/context-budget-pruning";
 import { resolveModelContextLimit } from "@/lib/context/resolve-model-context-limit";
 import { estimateDispatchTokens } from "@/lib/routing/tier_context_budget";
-// Pass 7: loadInstalledSkillsForSession is now reached through the get_active_skills tool.
+// Installed skills are auto-injected into context (no get_active_skills tool).
 import {
   requireAuthSession,
   formatAuthRequiredIpcError,
@@ -635,21 +633,26 @@ export function registerChatStreamHandlers() {
 
         // W10: temp-file writes + AttachmentStore/PDF pre-extract are real
         // I/O that previously fell into the "unaccounted" preflight gap.
+        // Backstop dedup: the client already collapses duplicate chips, but an
+        // edit/resend or any client that sends the same file twice must not
+        // produce two directive lines + two inline previews + two image embeds.
+        // Key on the content id (deterministic content hash from the client, or
+        // a content-hash fallback) so identical bytes ingest exactly once.
+        const seenAttachmentHashes = new Set<string>();
         await preflight.time("ingest-attachments", async () => {
         for (const [index, attachment] of req.attachments!.entries()) {
-          // Generate a unique filename
+          // Extract the base64 data (remove the data:mime/type;base64, prefix)
+          const base64Data = attachment.data.split(";base64,").pop() || "";
+          // Generate a unique filename — content-derived so it's stable across
+          // encodes (no Date.now(), which would defeat dedup).
           const hash =
             attachment.id ||
-            crypto
-              .createHash("md5")
-              .update(attachment.name + Date.now())
-              .digest("hex");
+            crypto.createHash("md5").update(base64Data).digest("hex");
+          if (seenAttachmentHashes.has(hash)) continue;
+          seenAttachmentHashes.add(hash);
           const fileExtension = path.extname(attachment.name);
           const filename = `${hash}${fileExtension}`;
           const filePath = path.join(TEMP_DIR, filename);
-
-          // Extract the base64 data (remove the data:mime/type;base64, prefix)
-          const base64Data = attachment.data.split(";base64,").pop() || "";
 
           await writeFile(filePath, Buffer.from(base64Data, "base64"));
           attachmentPaths.push(filePath);
@@ -718,8 +721,12 @@ export function registerChatStreamHandlers() {
           }
         }
         });
+        // Inline is canonical: images are embedded (seen directly) and short
+        // text files may be fully shown in the preview above — read_attachment
+        // is for the FULL body of a file whose inline preview is clipped or that
+        // is non-text, NOT a mandatory re-fetch of content already in context.
         attachmentInfoForModel +=
-          '\nMANDATORY TOOL USE:\n- If the user asks to read/summarize any attached file, you MUST call the tool `read_attachment` with the exact `attachmentId` shown above.\n- Example: read_attachment({ "attachmentId": "<id>" })\n';
+          '\nReading attached files:\n- Attached IMAGES are embedded in this message — look at them directly; do NOT call read_attachment for them.\n- For any other attached file, call read_attachment({ "attachmentId": "<id>" }) to read its FULL content when the inline preview is clipped or the file is non-text (a short preview shown above may already be the whole file).\n';
       }
 
       if (pasteAttachmentsForMessage?.length) {
@@ -730,11 +737,10 @@ export function registerChatStreamHandlers() {
             req.workspaceSessionId ?? undefined,
           );
         }
+        // The full paste body is already inline in the user message; the
+        // directive lists ids + notes read_attachment is optional (no MANDATORY
+        // re-fetch of content the model already has).
         attachmentInfoForModel += buildPasteAttachmentDirective(pasteAttachmentsForMessage);
-        if (!attachmentInfoForModel.includes("MANDATORY TOOL USE")) {
-          attachmentInfoForModel +=
-            '\nMANDATORY TOOL USE:\n- For pasted text or terminal snippets, content is inline in the user message AND available via read_attachment using the attachmentId above.\n';
-        }
       }
 
       // Add user message to database (skip when continueAfterQuestions).
@@ -1861,13 +1867,8 @@ ${componentSnippet}
             ...limitedHistoryChatMessages,
           ];
 
-          // Check if the last message should include attachments (model-only injection)
-          // Follow-on to W4 (v14.8.11): on a vision-capable dispatch the
-          // current turn's image attachments ride the user message as NATIVE
-          // image parts — seen immediately, no tool round-trip. Uses
-          // detectVisionCapability (user-message image INPUT — models.dev
-          // aware), NOT the tool-result media gate: OpenAI-compatible APIs
-          // accept images in user messages but not in tool results.
+          // Current-turn image attachments ride the user message as native image
+          // parts (embedded immediately, no tool round-trip) for every model.
 
           // Edited/resent turns carry no fresh req.attachments — recover the
           // last user message's persisted attachments from the transport so an
@@ -1879,33 +1880,20 @@ ${componentSnippet}
             }
             return undefined;
           })();
-          // B2: for native OpenAI-compatible providers (DeepSeek/Qwen/…), the
-          // vision gate resolves from the models.dev registry, which is
-          // populated ASYNC. If it's cold when we evaluate the gate here, a
-          // capable model's attachment is silently dropped — the exact reason
-          // screenshots (gate evaluated later, warm) were seen but attachments
-          // (gate evaluated here, cold) were not. Warm the registry BEFORE the
-          // gate when images are actually pending; getModelsDevData() is cached
-          // after first load, so this costs nothing on the steady-state path and
-          // preserves the "never send base64 to a non-vision model" guarantee.
-          const hasPendingImages =
-            storedFileAttachments.length > 0 ||
-            (lastUserTransportMessage?.fileAttachments ?? []).some(
-              (f: { mimeType?: string }) => f.mimeType?.startsWith("image/"),
-            );
-          if (hasPendingImages) {
-            try {
-              await getModelsDevData();
-            } catch {
-              // best-effort warm-up; fall through to whatever the gate resolves
-            }
-          }
-          const visionOk = detectVisionCapability(
-            modelClient.builtinProviderId,
-            resolveReasoningCatalogModelId(effectiveModel),
-          );
-          const lastUserTransportImages = (() => {
-            if (!visionOk) return [] as Array<{ filename: string; mimeType: string; data: string }>;
+          // User-attached images ride the current user message as native image
+          // parts for EVERY model — no vision-capability pre-filter (opencode /
+          // Claude Code parity). Most models accept image input; if a provider
+          // genuinely can't, let the SDK surface that honestly rather than
+          // silently dropping the image (and lying "this model can't view
+          // images"). prepareMessageWithAttachments filters to image/* and caps
+          // count/size. Tool-RESULT media keeps its own transport gate in
+          // tool-model-output.ts — a real OpenAI-compatible limitation, distinct
+          // from this user-image path.
+          const lastUserTransportImages = ((): Array<{
+            filename: string;
+            mimeType: string;
+            data: string;
+          }> => {
             if (storedFileAttachments.length > 0) return storedFileAttachments;
             return (lastUserTransportMessage?.fileAttachments ?? [])
               .filter((f: { mimeType?: string }) => f.mimeType?.startsWith("image/"))
@@ -1967,7 +1955,7 @@ ${componentSnippet}
                   prepareMessageWithAttachments({
                     message: lastUserMessage,
                     attachmentInfoForModel,
-                    imageAttachments: visionOk ? lastUserTransportImages : [],
+                    imageAttachments: lastUserTransportImages,
                   }),
               );
             }

@@ -12,7 +12,7 @@
  * Gated behind SimpleInlineChat's USE_VIRTUALIZED_CHAT kill-switch; when off,
  * SimpleInlineChat renders its original render-all list unchanged.
  */
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
 import { ArrowDown } from "lucide-react";
 import type { Message } from "@/ipc/ipc_types";
@@ -65,6 +65,23 @@ export function VirtualizedMessageList({
 }) {
   const virtuosoRef = useRef<VirtuosoHandle | null>(null);
   const [atBottom, setAtBottom] = useState(true);
+
+  // When streaming ends while the user is at the bottom, `followOutput` switches
+  // off in the same commit that the final message re-renders at a different
+  // height — so Virtuoso stops holding the bottom and the view drifts up to a
+  // stale position. Re-pin to the last item's end explicitly (next frame, after
+  // the final layout settles) so "at the bottom when it finishes" stays there.
+  const wasStreamingRef = useRef(isStreaming);
+  useEffect(() => {
+    if (wasStreamingRef.current && !isStreaming && atBottom) {
+      const raf = requestAnimationFrame(() => {
+        virtuosoRef.current?.scrollToIndex({ index: "LAST", align: "end" });
+      });
+      wasStreamingRef.current = isStreaming;
+      return () => cancelAnimationFrame(raf);
+    }
+    wasStreamingRef.current = isStreaming;
+  }, [isStreaming, atBottom]);
 
   const lastIndex = messages.length - 1;
   const lastMessage = lastIndex >= 0 ? messages[lastIndex] : undefined;

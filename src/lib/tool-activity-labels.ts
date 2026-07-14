@@ -37,8 +37,6 @@ const LABELS: Record<string, string> = {
   memory: "Recalling memory…",
   list_available_mcps: "Listing MCP servers…",
   mcp_call: "Calling MCP tool…",
-  get_active_skills: "Reading active skills…",
-  list_installed_skills: "Listing installed skills…",
   // PASS8 B2: get_workspace_overview removed (phantom — never registered).
   get_plan_scope: "Scoping plan…",
   read_implementation_plan: "Reading plan…",
@@ -260,8 +258,6 @@ const DONE_LABELS: Record<string, string> = {
   memory: "Recalled memory",
   list_available_mcps: "Listed MCP servers",
   mcp_call: "Called MCP tool",
-  get_active_skills: "Read active skills",
-  list_installed_skills: "Listed installed skills",
   get_plan_scope: "Scoped plan",
   read_implementation_plan: "Read plan",
   write_implementation_plan: "Saved plan",

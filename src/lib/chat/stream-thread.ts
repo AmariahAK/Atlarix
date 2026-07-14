@@ -35,6 +35,9 @@ export type SubAgentRunEntry = {
   summary?: string;
   status: StreamThreadToolStatus;
   nestedItems: StreamThreadItem[];
+  /** Live cumulative token usage streamed via `subagent_tokens` — drives the
+   * card's "tok" badge while running (no longer parsed from the final summary). */
+  liveTokens?: number;
 };
 
 export type StreamThreadItem = (
@@ -120,6 +123,7 @@ const SUBAGENT_TYPES = new Set([
   "subagent_start",
   "subagent_progress",
   "subagent_thought",
+  "subagent_tokens",
   "subagent_complete",
 ]);
 
@@ -751,6 +755,21 @@ export function mergeSubagentActivityIntoThread(
           nestedItems,
         },
       ];
+    });
+    return consolidateSubagentRoundsInThread(next);
+  }
+
+  if (item.type === "subagent_tokens") {
+    if (typeof item.tokens !== "number") return items;
+    const next = upsertAgent({
+      id: subId,
+      agentType,
+      label: existingAgent?.label ?? item.label ?? agentType,
+      scope: existingAgent?.scope,
+      summary: existingAgent?.summary,
+      status: existingAgent?.status ?? "running",
+      nestedItems: existingAgent?.nestedItems ?? [],
+      liveTokens: item.tokens,
     });
     return consolidateSubagentRoundsInThread(next);
   }

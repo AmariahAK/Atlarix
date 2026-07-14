@@ -82,6 +82,12 @@ export type SubagentActivityEmit =
       id: string;
       channel: "reasoning" | "text";
       content: string;
+    }
+  | {
+      /** Live cumulative token usage for this sub-agent — emitted per round so
+       * the card shows a live "tok" badge instead of parsing the final summary. */
+      type: "subagent_tokens";
+      tokens: number;
     };
 
 /**
@@ -513,6 +519,7 @@ export async function runSubagent(
     totalSteps += result.steps?.length ?? 0;
     recordAuxUsage(args.chatId, result.usage, "subagent:task");
     subagentTokens += totalTokensFromAiUsage(result.usage) ?? 0;
+    if (subagentTokens > 0) emit?.({ type: "subagent_tokens", tokens: subagentTokens });
 
     while (
       shouldContinue(result.finishReason, {
@@ -552,6 +559,7 @@ export async function runSubagent(
       totalSteps += result.steps?.length ?? 0;
       recordAuxUsage(args.chatId, result.usage, "subagent:task");
       subagentTokens += totalTokensFromAiUsage(result.usage) ?? 0;
+      if (subagentTokens > 0) emit?.({ type: "subagent_tokens", tokens: subagentTokens });
     }
 
     const toolNames: string[] = [];

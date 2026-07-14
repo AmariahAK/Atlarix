@@ -940,6 +940,7 @@ export function useStreamChat({
               item.type === "subagent_start" ||
               item.type === "subagent_progress" ||
               item.type === "subagent_thought" ||
+              item.type === "subagent_tokens" ||
               item.type === "subagent_complete";
             if (isSubagent) {
               getDefaultStore().set(streamThreadByChatIdAtom, (prev) => {

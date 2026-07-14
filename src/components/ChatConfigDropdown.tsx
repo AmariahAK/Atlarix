@@ -20,7 +20,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { SlidersHorizontal, Cpu, Brain } from "lucide-react";
+import { SlidersHorizontal, Cpu, Brain, Mic } from "lucide-react";
 import { isReasoningCapableModel } from "@/lib/routing/reasoning-detector";
 import { useAtlarixCoreCatalog } from "@/hooks/useAtlarixCoreCatalog";
 import { resolveModelDisplayLabel } from "@/lib/resolve-model-display-label";
@@ -60,6 +60,14 @@ export function ChatConfigDropdown({
   // capability gate) — otherwise the toggle would be a no-op.
   const reasoningCapable = isReasoningCapableModel(settings?.selectedModel);
   const deepThinking = !!settings?.deepThinking;
+  const voiceProvider = settings?.voiceTranscriptionProvider ?? "local";
+  const voiceMode = settings?.voiceInputMode ?? "dictate";
+  const VOICE_PROVIDERS = [
+    { id: "local", label: "On-device (free)" },
+    { id: "openai", label: "OpenAI (BYOK)" },
+    { id: "groq", label: "Groq (BYOK)" },
+    { id: "gemini", label: "Gemini (BYOK)" },
+  ] as const;
 
   return (
     <DropdownMenu>
@@ -129,6 +137,39 @@ export function ChatConfigDropdown({
               </p>
             </>
           ) : null}
+          <DropdownMenuSeparator />
+          <DropdownMenuLabel className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+            <Mic className="h-3.5 w-3.5" />
+            Voice input
+          </DropdownMenuLabel>
+          {VOICE_PROVIDERS.map((p) => (
+            <DropdownMenuCheckboxItem
+              key={p.id}
+              checked={voiceProvider === p.id}
+              onCheckedChange={() =>
+                updateSettings({ voiceTranscriptionProvider: p.id })
+              }
+              onSelect={(e) => e.preventDefault()}
+            >
+              {p.label}
+            </DropdownMenuCheckboxItem>
+          ))}
+          <DropdownMenuCheckboxItem
+            checked={voiceMode === "live"}
+            onCheckedChange={(v) =>
+              updateSettings({ voiceInputMode: v ? "live" : "dictate" })
+            }
+            onSelect={(e) => e.preventDefault()}
+          >
+            Live transcription
+            <span className="ml-auto text-[10px] text-muted-foreground">
+              {voiceMode === "live" ? "on" : "off"}
+            </span>
+          </DropdownMenuCheckboxItem>
+          <p className="px-2 pb-1 pt-0.5 text-[10px] leading-snug text-muted-foreground">
+            On-device is free & private (first use downloads a small model). Live
+            shows words as you speak (on-device + WebGPU).
+          </p>
         </div>
       </DropdownMenuContent>
     </DropdownMenu>

@@ -22,6 +22,12 @@ export interface ProcessResponseChunkUpdateDeps {
   streamId: number;
 }
 
+/** Throttle for the live output-token tick (per chat). The real provider usage
+ * lands at each onStepFinish; between checkpoints this gives the meter its
+ * "ticking up" feel using a cheap char/4 estimate of the reply so far. */
+const lastTokenTickAt = new Map<number, number>();
+const TOKEN_TICK_INTERVAL_MS = 400;
+
 export async function processResponseChunkUpdate(
   deps: ProcessResponseChunkUpdateDeps,
   { fullResponse }: { fullResponse: string },
@@ -66,5 +72,20 @@ export async function processResponseChunkUpdate(
     streamId,
     messages: currentMessages,
   });
+
+  // Live token tick — throttled estimate of the reply's output tokens so the
+  // meter ticks up between the real per-step usage checkpoints. inputTokens is
+  // null here (unknown until the provider reports); the renderer keeps the last
+  // real input baseline and just grows the output.
+  const now = Date.now();
+  const last = lastTokenTickAt.get(req.chatId) ?? 0;
+  if (now - last >= TOKEN_TICK_INTERVAL_MS) {
+    lastTokenTickAt.set(req.chatId, now);
+    safeSend(event.sender, "chat:token-usage", {
+      chatId: req.chatId,
+      inputTokens: null,
+      outputTokens: Math.round(fullResponse.length / 4),
+    });
+  }
   return fullResponse;
 }

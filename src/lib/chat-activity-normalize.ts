@@ -48,6 +48,7 @@ const VALID_TYPES = new Set<string>([
   "subagent_start",
   "subagent_progress",
   "subagent_thought",
+  "subagent_tokens",
   "subagent_complete",
 ]);
 

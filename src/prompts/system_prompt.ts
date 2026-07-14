@@ -20,7 +20,6 @@ import {
   resolveActiveModelIdentity,
 } from "../lib/model-identity-prompt";
 import type { LargeLanguageModel } from "../lib/schemas";
-import { loadVisualArtifactsGuide } from "../lib/skills/builtin-guides";
 import {
     MODE_SYSTEM_TOOL_LISTS,
     EVERY_MODE_TOOLS,
@@ -30,7 +29,6 @@ import {
     renderModePromptBundle,
     GIT_VIA_TERMINAL_NOTE,
     modeAllowlistIncludesWebResearch,
-    modeAllowlistIncludesVisualTools,
 } from "../lib/tools/mode-prompt-bundle";
 import { getAppVersion } from "../lib/app-version";
 import { gitAuthorNameForModel } from "../ipc/utils/git_author";
@@ -276,21 +274,10 @@ If \`web_search\` returns nothing or errors, tell the user they can enable **Sea
 
     const includeWeb =
         effectiveWorkMode == null || modeAllowlistIncludesWebResearch(effectiveWorkMode);
-    // Headless drops the visual-artifacts guidance + get_active_skills mention —
-    // not bound/relevant to autonomous terminal tasks.
-    const includeViz =
-        !headless &&
-        (effectiveWorkMode == null || modeAllowlistIncludesVisualTools(effectiveWorkMode));
-    const visualArtifactsGuide = includeViz ? loadVisualArtifactsGuide() : "";
-    const inlineVizRules = includeViz
-        ? `**Inline visualizations (Visual Artifacts skill)**
-
-Before emitting any **table**, **chart**, **graph**, or **markmap**, follow the Visual Artifacts skill below. Diagrams and charts render inline as collapsible artifact cards (no side panel). When a visual clearly helps, **include it in the same reply**—do not ask "Would you like a diagram?" if you can show one. Use **one** primary visual per answer unless the user asked for multiple views.
-
-You may also call \`get_active_skills({ filter: "visual" })\` or \`get_active_skills({ filter: "artifact" })\` for the same guidance.
-
-${visualArtifactsGuide ? visualArtifactsGuide.trim() : ""}`
-        : "";
+    // Visual-artifacts guidance now lives as a compact fence-schema section in
+    // AGENTS.md (base, every interactive mode) — no separate always-on guide
+    // block or per-mode gate. The old ~1k-token injected guide + get_active_skills
+    // mention (a deleted tool) are gone.
 
     const identity =
         activeModel != null
@@ -336,7 +323,6 @@ You run inside **Atlarix** ([atlarix.dev](https://atlarix.dev)) — an agent wor
         base.trim(),
         toolContract,
         outputStyleRule,
-        inlineVizRules,
         modeBundle,
         // Headless drops web_search/read_url from the toolset, so omit the web
         // research rules (incl. the "enable SearxNG in Settings" UI guidance).

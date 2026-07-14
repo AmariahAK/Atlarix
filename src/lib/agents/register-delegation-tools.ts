@@ -218,6 +218,22 @@ export function attachDelegationToolsToSet(
             });
             return;
           }
+          if (payload.type === "subagent_tokens") {
+            // Live cumulative token usage → the card's "tok" badge.
+            ctx.safeSend(ctx.sender, "chat:activity", {
+              type: "subagent_tokens",
+              id,
+              chatId: ctx.chatId,
+              agent: agentId,
+              agentType: agentId,
+              parentDelegationId: id,
+              roundId: ctx.turnId,
+              status: "running",
+              timestamp: ts,
+              tokens: payload.tokens,
+            });
+            return;
+          }
           ctx.safeSend(ctx.sender, "chat:activity", {
             type: "tool_use",
             id: payload.id,

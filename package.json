@@ -146,6 +146,7 @@
     "@anthropic-ai/tokenizer": "^0.0.4",
     "@babel/parser": "^7.28.5",
     "@babel/traverse": "^7.29.7",
+    "@huggingface/transformers": "^4.2.0",
     "@lydell/node-pty": "^1.1.0",
     "@mixmark-io/domino": "^2.2.0",
     "@modelcontextprotocol/sdk": "^1.17.5",

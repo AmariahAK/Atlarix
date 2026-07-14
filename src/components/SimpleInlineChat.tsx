@@ -254,6 +254,10 @@ export function SimpleInlineChat({
             newContent: string,
             discardedTurnIds?: string[],
         ) => {
+            // Mid-stream edit: an edit truncates the turn being streamed below,
+            // so stop the in-flight turn first (instant, stops spending tokens
+            // and drops its chunks) before editing + resending the edited msg.
+            IpcClient.getInstance().cancelChatStream(chatId);
             await IpcClient.getInstance().editMessage(chatId, messageId, newContent);
             const chat = await IpcClient.getInstance().getChat(chatId);
             setChatAppId(chat.appId ?? null);

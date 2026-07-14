@@ -178,6 +178,7 @@ export interface ActivityStreamItem {
     | 'subagent_start'
     | 'subagent_progress'
     | 'subagent_thought'
+    | 'subagent_tokens'
     | 'subagent_complete';
   label: string;
   status: 'running' | 'done' | 'error' | 'active';
