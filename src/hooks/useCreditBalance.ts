@@ -1,6 +1,10 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useAtomValue } from "jotai";
+import { toast } from "sonner";
 import { compassUsageBumpAtom } from "@/atoms/viewAtoms";
+
+/** Warn once when the Core credit balance drops below this (but isn't yet empty). */
+const LOW_CREDIT_CENTS = 100; // $1
 
 export interface CreditBalanceState {
   /** Prepaid Atlarix Core wallet balance in integer cents, or null when unknown. */
@@ -78,4 +82,30 @@ export function useCreditBalance(): CreditBalanceState {
   }, [refetch, bump]);
 
   return { balanceCents, loading, error, needsSignIn, refetch };
+}
+
+/**
+ * Fires a single low-balance nudge when the Core credit balance drops below $1
+ * (but isn't yet empty — an empty balance is handled by the hard-stop message on
+ * the next Core call). Re-arms after a top-up lifts the balance back up. Call this
+ * ONCE from an always-mounted component (not per consumer), so it can't double-toast.
+ */
+export function useLowBalanceNudge(): void {
+  const { balanceCents } = useCreditBalance();
+  const nudgedRef = useRef(false);
+
+  useEffect(() => {
+    if (balanceCents == null) return;
+    if (balanceCents >= LOW_CREDIT_CENTS) {
+      nudgedRef.current = false; // topped back up → re-arm
+      return;
+    }
+    if (balanceCents > 0 && !nudgedRef.current) {
+      nudgedRef.current = true;
+      toast.message("Atlarix Core credit is running low", {
+        description: `$${(balanceCents / 100).toFixed(2)} left — top up in Settings to avoid interruptions.`,
+        duration: 8000,
+      });
+    }
+  }, [balanceCents]);
 }

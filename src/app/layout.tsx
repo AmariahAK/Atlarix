@@ -23,6 +23,7 @@ import { chatInputValueAtom, activeChatIdAtom, selectedChatIdAtom } from "@/atom
 import { useNavigate } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAIPanelListener } from "@/hooks/useAIPanelListener";
+import { useLowBalanceNudge } from "@/hooks/useCreditBalance";
 import { useLocation } from "@tanstack/react-router";
 import { SimpleInlineChat } from "@/components/SimpleInlineChat";
 import { ChatTabStrip } from "@/components/chat/ChatTabStrip";
@@ -241,6 +242,8 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   streamMessageRef.current = streamMessage;
   // Listen for AI-controlled panel updates from main process
   useAIPanelListener();
+  // One-time nudge when Atlarix Core credit drops below $1 (PAYG low-balance warning).
+  useLowBalanceNudge();
   const { refreshAppIframe } = useRunApp();
   const previewMode = useAtomValue(previewModeAtom);
   const { settings } = useSettings();
