@@ -34,8 +34,7 @@ import {
 import { useNavigate } from "@tanstack/react-router";
 import { Server, ChevronRight, Sparkles } from "lucide-react";
 import { useAuth } from "@/lib/auth/useAuth";
-import { triggerUpgradeWorkforce } from "@/hooks/useUpgrade";
-import { UpgradeChoiceDialog } from "@/components/UpgradeChoiceDialog";
+import { triggerUpgrade } from "@/hooks/useUpgrade";
 import { ProviderSettingsGrid } from "@/components/ProviderSettings";
 
 
@@ -44,9 +43,7 @@ export default function SettingsPage() {
   const [isResetting, setIsResetting] = useState(false);
   const appVersion = useAppVersion();
   const { settings, updateSettings } = useSettings();
-  const navigate = useNavigate();
   const setActiveSettingsSection = useSetAtom(activeSettingsSectionAtom);
-  const { status } = useAuth();
 
   useEffect(() => {
     // Honor a one-shot deep-link target (e.g. ChatErrorBox → "ai", MCP prompts →
@@ -137,29 +134,6 @@ export default function SettingsPage() {
           {/* Skills - clickable card like MCP */}
           <div id="skills" className="bg-card rounded-xl shadow-sm p-6 border border-border">
             <SkillsCard />
-          </div>
-
-          {/* Team — only unlocked on Workforce */}
-          <div id="team" className="bg-card rounded-xl shadow-sm p-6 border border-border">
-            <h2 className="text-lg font-medium text-foreground mb-4">Team</h2>
-            {status?.plan === "workforce" ? (
-              <>
-                <p className="text-xs text-muted-foreground mb-4">
-                  Manage your team, invite members, and handle seats. Team features are available on Atlarix Workforce.
-                </p>
-                <Button variant="outline" size="sm" onClick={() => navigate({ to: "/account" })}>
-                  Manage team in Account
-                </Button>
-              </>
-            ) : (
-              <div className="rounded-lg border border-border bg-muted/30 p-4 text-sm text-muted-foreground">
-                <p className="font-medium text-foreground mb-1">Unlock with Workforce</p>
-                <p className="mb-3">Teams, seats, and invites are available on Atlarix Workforce. Upgrade to add your team.</p>
-                <Button size="sm" onClick={() => triggerUpgradeWorkforce()}>
-                  Upgrade to Workforce
-                </Button>
-              </div>
-            )}
           </div>
 
           {/* Integrations */}
@@ -263,40 +237,36 @@ function McpServersCard() {
 function SkillsCard() {
   const navigate = useNavigate();
   const { status, loading } = useAuth();
-  const [upgradeOpen, setUpgradeOpen] = useState(false);
   const plan = status?.plan ?? "free";
-  const isPaid = plan === "pro" || plan === "workforce";
+  const isPaid = plan === "pro";
   return (
-    <>
-      <UpgradeChoiceDialog open={upgradeOpen} onOpenChange={setUpgradeOpen} />
-      <button
-        type="button"
-        onClick={() => {
-          if (loading) return;
-          if (!isPaid) {
-            setUpgradeOpen(true);
-            return;
-          }
-          navigate({ to: "/settings/skills" });
-        }}
-        className="w-full text-left flex items-center justify-between p-4 rounded-lg border border-border bg-card/50 hover:bg-card hover:shadow-md transition-all cursor-pointer group"
-      >
-        <div className="flex items-center gap-3">
-          <div className="p-2 rounded-md bg-primary/10 text-primary">
-            <Sparkles className="h-5 w-5" />
-          </div>
-          <div>
-            <h2 className="text-lg font-medium text-foreground">Skills</h2>
-            <p className="text-sm text-muted-foreground">
-              {isPaid
-                ? "Browse the registry and install skills for the current workspace (10 max)."
-                : "Upgrade to Pro or Workforce to unlock Skills."}
-            </p>
-          </div>
+    <button
+      type="button"
+      onClick={() => {
+        if (loading) return;
+        if (!isPaid) {
+          void triggerUpgrade();
+          return;
+        }
+        navigate({ to: "/settings/skills" });
+      }}
+      className="w-full text-left flex items-center justify-between p-4 rounded-lg border border-border bg-card/50 hover:bg-card hover:shadow-md transition-all cursor-pointer group"
+    >
+      <div className="flex items-center gap-3">
+        <div className="p-2 rounded-md bg-primary/10 text-primary">
+          <Sparkles className="h-5 w-5" />
         </div>
-        <ChevronRight className="h-5 w-5 text-muted-foreground group-hover:text-foreground" />
-      </button>
-    </>
+        <div>
+          <h2 className="text-lg font-medium text-foreground">Skills</h2>
+          <p className="text-sm text-muted-foreground">
+            {isPaid
+              ? "Browse the registry and install skills for the current workspace (10 max)."
+              : "Upgrade to Pro to unlock Skills."}
+          </p>
+        </div>
+      </div>
+      <ChevronRight className="h-5 w-5 text-muted-foreground group-hover:text-foreground" />
+    </button>
   );
 }
 

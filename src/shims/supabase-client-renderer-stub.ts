@@ -25,7 +25,7 @@ export async function setOnboardingCompleted(_value: boolean): Promise<void> {}
 
 export type OAuthProvider = "google" | "github";
 
-export type UserPlanDb = "free" | "pro" | "workforce";
+export type UserPlanDb = "free" | "pro";
 
 export async function getUser(): Promise<null> {
   return null;
@@ -40,10 +40,6 @@ export async function getEffectiveTier(
   _ownPlan?: UserPlanDb,
 ): Promise<UserPlanDb> {
   return "free";
-}
-
-export async function getHasDbStudioLegacy(_userId: string): Promise<boolean> {
-  return false;
 }
 
 export async function signInWithOAuth(

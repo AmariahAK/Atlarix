@@ -443,7 +443,7 @@ async function ensureUserExists(user: User): Promise<void> {
     }
 }
 
-export type UserPlanDb = 'free' | 'pro' | 'workforce';
+export type UserPlanDb = 'free' | 'pro';
 
 type PlanRowInput = {
     plan: string;
@@ -454,14 +454,10 @@ type PlanRowInput = {
     lemon_variant_id?: string | null;
 };
 
-function trimEnv(key: string): string {
-    const v = process.env[key];
-    return typeof v === 'string' ? v.trim() : '';
-}
 
 /**
  * When plan/effective_tier are still "free" but LemonSqueezy rows show a paid period,
- * infer Pro or Workforce so the app matches billing (webhook may have updated status only).
+ * infer Pro so the app matches billing (webhook may have updated status only).
  * For active/on_trial we do not require subscription_ends_at (renewal date is often null in DB).
  */
 function inferPaidTierWhenStoredFree(row: PlanRowInput): UserPlanDb | null {
@@ -473,17 +469,13 @@ function inferPaidTierWhenStoredFree(row: PlanRowInput): UserPlanDb | null {
     const paidish = ['active', 'on_trial', 'cancelled', 'paused', 'past_due'].includes(st);
     if (!paidish) return null;
 
-    const wf = trimEnv('LEMONSQUEEZY_WORKFORCE_VARIANT_ID');
-    const tierFromVariant =
-        row.lemon_variant_id && wf && row.lemon_variant_id === wf ? ('workforce' as const) : ('pro' as const);
-
     if (st === 'active' || st === 'on_trial') {
-        return tierFromVariant;
+        return 'pro';
     }
 
     const endsMs = row.subscription_ends_at ? new Date(row.subscription_ends_at).getTime() : 0;
     if (!endsMs || Number.isNaN(endsMs) || Date.now() >= endsMs) return null;
-    return tierFromVariant;
+    return 'pro';
 }
 
 /** Paid access: trust active/on_trial; otherwise use subscription_ends_at vs now. */
@@ -502,7 +494,7 @@ function computeEntitledPlan(row: PlanRowInput): UserPlanDb {
 
     const plan = (row.plan as UserPlanDb) || 'free';
     const eff = (row.effective_tier as UserPlanDb) || plan;
-    const tier: UserPlanDb = eff === 'workforce' || eff === 'pro' ? eff : plan;
+    const tier: UserPlanDb = eff === 'pro' ? eff : plan;
     if (tier === 'free') return 'free';
     const ends = row.subscription_ends_at ? new Date(row.subscription_ends_at).getTime() : 0;
     if (!activelyBilled && ends && Date.now() > ends) return 'free';
@@ -512,43 +504,6 @@ function computeEntitledPlan(row: PlanRowInput): UserPlanDb {
 const PLAN_ROW_SELECT_BASE =
     'plan, effective_tier, subscription_ends_at, subscription_status, lemon_subscription_id';
 const PLAN_ROW_SELECT_WITH_VARIANT = `${PLAN_ROW_SELECT_BASE}, lemon_variant_id`;
-
-const TIER_RANK: Record<UserPlanDb, number> = { free: 0, pro: 1, workforce: 2 };
-
-function maxUserPlan(a: UserPlanDb, b: UserPlanDb): UserPlanDb {
-    return TIER_RANK[a] >= TIER_RANK[b] ? a : b;
-}
-
-/**
- * If the user is an active member of someone else's team, inherit the team owner's entitled tier
- * (e.g. Workforce subscriber's members get workforce) even when users.effective_tier was not updated.
- */
-async function tierFromActiveTeamMembership(
-    supabase: ReturnType<typeof getSupabaseClient>,
-    userId: string,
-): Promise<UserPlanDb | null> {
-    const { data: memberRow, error: mErr } = await supabase
-        .from("team_members")
-        .select("team_id")
-        .eq("user_id", userId)
-        .eq("status", "active")
-        .maybeSingle();
-    if (mErr || !memberRow?.team_id) return null;
-
-    const { data: team, error: tErr } = await supabase
-        .from("teams")
-        .select("owner_user_id, active")
-        .eq("id", memberRow.team_id)
-        .maybeSingle();
-    if (tErr || !team?.active || !team.owner_user_id) return null;
-    if (team.owner_user_id === userId) return null;
-
-    const { data: ownerData, error: oErr } = await fetchPlanRowForUser(supabase, team.owner_user_id);
-    if (oErr || !ownerData) return null;
-    const ownerTier = computeEntitledPlan(ownerData);
-    if (ownerTier === "free") return null;
-    return ownerTier;
-}
 
 async function fetchPlanRowForUser(
     supabase: ReturnType<typeof getSupabaseClient>,
@@ -651,7 +606,8 @@ export async function getSubscriptionDetails(
 }
 
 /**
- * v4.0: Get effective tier (max of own plan, users row, or active team owner's plan).
+ * Effective tier from the user's own plan row. Equals the entitled plan now that
+ * the Team tier is removed (kept as a function for API compatibility + caching).
  */
 export async function getEffectiveTier(userId: string, ownPlan?: UserPlanDb): Promise<UserPlanDb> {
     const cached = _tierCache;
@@ -661,46 +617,12 @@ export async function getEffectiveTier(userId: string, ownPlan?: UserPlanDb): Pr
     try {
         const supabase = getSupabaseClient();
         const { data, error } = await fetchPlanRowForUser(supabase, userId);
-
-        let tier: UserPlanDb;
-        if (error || !data) {
-            const fallback = ownPlan || 'free';
-            const fromTeam = await tierFromActiveTeamMembership(supabase, userId);
-            tier = fromTeam ? maxUserPlan(fallback, fromTeam) : fallback;
-        } else {
-            tier = computeEntitledPlan(data);
-            // Already at the max tier — a team membership can't upgrade further,
-            // so skip the team_members/teams lookups (2 fewer queries).
-            if (tier !== 'workforce') {
-                const fromTeam = await tierFromActiveTeamMembership(supabase, userId);
-                if (fromTeam) tier = maxUserPlan(tier, fromTeam);
-            }
-        }
+        const tier: UserPlanDb = error || !data ? (ownPlan || 'free') : computeEntitledPlan(data);
         _tierCache = { userId, tier, at: Date.now() };
         return tier;
     } catch (err) {
         logger.warn('[Supabase] getEffectiveTier exception:', err);
         return ownPlan || 'free';
-    }
-}
-
-/**
- * v4.0: Whether user has grandfathered DB Studio (Pro before move to Workforce)
- */
-export async function getHasDbStudioLegacy(userId: string): Promise<boolean> {
-    try {
-        const supabase = getSupabaseClient();
-        const { data, error } = await supabase
-            .from('users')
-            .select('has_db_studio_legacy')
-            .eq('id', userId)
-            .maybeSingle();
-
-        if (error || !data) return false;
-        return data.has_db_studio_legacy === true;
-    } catch (err) {
-        logger.warn('[Supabase] getHasDbStudioLegacy exception:', err);
-        return false;
     }
 }
 
@@ -767,10 +689,10 @@ export function onAuthStateChange(callback: (session: Session | null) => void): 
 // ============================================
 
 export interface SubscriptionData {
-    plan: 'free' | 'pro' | 'workforce';
+    plan: 'free' | 'pro';
     subscriptionStatus: 'active' | 'cancelled' | null;
     subscriptionEndsAt: string | null;
-    effectiveTier?: 'free' | 'pro' | 'workforce';
+    effectiveTier?: 'free' | 'pro';
 }
 
 type SubscriptionChangeCallback = (newData: SubscriptionData, oldData: SubscriptionData) => void;
@@ -811,17 +733,17 @@ export function subscribeToPlanChanges(userEmail: string, callback: Subscription
                 const oldRow = payload.old as { plan: string; subscription_status: string | null; subscription_ends_at: string | null; effective_tier?: string };
 
                 const newData: SubscriptionData = {
-                    plan: (newRow?.plan || 'free') as 'free' | 'pro' | 'workforce',
+                    plan: (newRow?.plan || 'free') as 'free' | 'pro',
                     subscriptionStatus: (newRow?.subscription_status || null) as 'active' | 'cancelled' | null,
                     subscriptionEndsAt: newRow?.subscription_ends_at || null,
-                    effectiveTier: (newRow?.effective_tier as 'free' | 'pro' | 'workforce') || undefined,
+                    effectiveTier: (newRow?.effective_tier as 'free' | 'pro') || undefined,
                 };
 
                 const oldData: SubscriptionData = {
-                    plan: (oldRow?.plan || 'free') as 'free' | 'pro' | 'workforce',
+                    plan: (oldRow?.plan || 'free') as 'free' | 'pro',
                     subscriptionStatus: (oldRow?.subscription_status || null) as 'active' | 'cancelled' | null,
                     subscriptionEndsAt: oldRow?.subscription_ends_at || null,
-                    effectiveTier: (oldRow?.effective_tier as 'free' | 'pro' | 'workforce') || undefined,
+                    effectiveTier: (oldRow?.effective_tier as 'free' | 'pro') || undefined,
                 };
 
                 const materialChange =

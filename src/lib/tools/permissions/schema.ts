@@ -72,7 +72,7 @@ export const CommandOperationPreviewSchema = z.object({
 export type CommandOperationPreview = z.infer<typeof CommandOperationPreviewSchema>;
 
 export const WorkforceActionPreviewSchema = z.object({
-    service: z.string().describe("Target workforce service (e.g. slack, jira, gitlab)"),
+    service: z.string().describe("Target connector service (e.g. slack, jira, gitlab)"),
     action: z.string().describe("Action name to execute"),
     description: z.string().describe("Human-readable summary of the action"),
     payload: z.record(z.string(), z.unknown()).describe("Action payload arguments"),

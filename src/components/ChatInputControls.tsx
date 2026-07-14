@@ -34,7 +34,7 @@ import { labelForWorkMode } from "@/lib/work-mode";
 import { TokenCircle } from "./chat/TokenCircle";
 import { useCompactionTokenVisuals } from "@/hooks/useCompactionTokenVisuals";
 import { selectionUsesCompass } from "@/hooks/useCompassSendGate";
-import { useCompassUsage } from "@/hooks/useCompassUsage";
+import { useCreditBalance } from "@/hooks/useCreditBalance";
 import { useLoadApps } from "@/hooks/useLoadApps";
 function formatTokens(n: number): string {
   if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
@@ -70,7 +70,7 @@ export function ChatInputControls({
   // stream end (Feed A / count-tokens is only invalidated at stream end).
   const contextReport = useContextReport(chatId ?? null);
   const { pulse, flashSuccess } = useCompactionTokenVisuals(chatId ?? null);
-  const compassUsage = useCompassUsage();
+  const creditBalance = useCreditBalance();
 
   const effectivePermission =
     settings?.selectedChatMode === "agent"
@@ -133,12 +133,11 @@ export function ChatInputControls({
     else if (contextPercent >= 80) tokenWarning = "Approaching token limit";
   }
 
-  const usesCompassQuotaRow = selectionUsesCompass(settings?.selectedModel);
-  const compassQuotaReady =
-    usesCompassQuotaRow &&
-    !compassUsage.loading &&
-    compassUsage.percentRemaining != null &&
-    compassUsage.monthlyLimit != null;
+  const usesCore = selectionUsesCompass(settings?.selectedModel);
+  const coreCreditLabel =
+    usesCore && !creditBalance.loading && creditBalance.balanceCents != null
+      ? `$${(creditBalance.balanceCents / 100).toFixed(2)}`
+      : null;
 
   const handleOpenWorkspace = useCallback(async () => {
     try {
@@ -176,7 +175,15 @@ export function ChatInputControls({
             ({tokenWarning})
           </span>
         )}
-        {chatId != null && budgetTokens > 0 && tokenResult && !compassQuotaReady && (
+        {coreCreditLabel && (
+          <span
+            className="tabular-nums text-[10px] text-muted-foreground/90 shrink-0"
+            title="Atlarix Core credit balance"
+          >
+            Core: {coreCreditLabel}
+          </span>
+        )}
+        {chatId != null && budgetTokens > 0 && tokenResult && (
           <div
             className="flex items-center gap-1.5 shrink-0"
             title={`Context: ${usedTokens.toLocaleString()} / ${formatTokens(budgetTokens)} (${contextPercent.toFixed(0)}%)`}

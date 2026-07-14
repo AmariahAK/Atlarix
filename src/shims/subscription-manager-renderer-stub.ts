@@ -2,7 +2,7 @@
  * Renderer stub — subscription/auth gating runs in the main process (IPC).
  */
 
-export type UserPlan = "free" | "pro" | "workforce";
+export type UserPlan = "free" | "pro";
 
 export interface UserSession {
   id: string;
@@ -11,7 +11,6 @@ export interface UserSession {
   avatar?: string;
   plan: UserPlan;
   effectiveTier?: UserPlan;
-  hasDbStudioLegacy?: boolean;
 }
 
 export class SubscriptionManager {
@@ -33,16 +32,8 @@ export class SubscriptionManager {
     return false;
   }
 
-  static isWorkforce(): boolean {
-    return false;
-  }
-
   static getEffectiveTier(): UserPlan {
     return "free";
-  }
-
-  static hasDbStudioLegacy(): boolean {
-    return false;
   }
 
   static async refreshPlan(): Promise<UserPlan> {

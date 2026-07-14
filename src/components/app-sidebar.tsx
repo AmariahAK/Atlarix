@@ -31,8 +31,7 @@ import {
 import { AppList } from "./AppList";
 import { HelpDialog } from "./HelpDialog"; // Import the new dialog
 import { SettingsList } from "./SettingsList";
-import { triggerUpgrade, triggerUpgradeWorkforce } from "@/hooks/useUpgrade";
-import { UpgradeChoiceDialog } from "./UpgradeChoiceDialog";
+import { triggerUpgrade } from "@/hooks/useUpgrade";
 
 // Menu items.
 const items = [
@@ -70,7 +69,6 @@ export function AppSidebar() {
   const [isHelpDialogOpen, setIsHelpDialogOpen] = useState(false); // State for dialog
   const [isDropdownOpen] = useAtom(dropdownOpenAtom);
   const [showAuthMenu, setShowAuthMenu] = useState(false);
-  const [upgradeChoiceOpen, setUpgradeChoiceOpen] = useState(false);
 
   // Auth hook for OAuth login
   const {
@@ -196,27 +194,27 @@ export function AppSidebar() {
 
                     {/* Plan badge with upgrade/manage button */}
                     <div className="flex items-center justify-between px-2 py-1.5 mb-2">
-                      <span className={`text-xs px-2 py-0.5 rounded-full ${status?.plan === 'pro' || status?.plan === 'workforce'
+                      <span className={`text-xs px-2 py-0.5 rounded-full ${status?.plan === 'pro'
                         ? 'bg-primary/20 text-primary'
                         : 'bg-muted text-muted-foreground'
                         }`}>
-                        {status?.plan === 'workforce' ? 'Workforce' : status?.plan === 'pro' ? 'Pro' : 'Free Plan'}
+                        {status?.plan === 'pro' ? 'Pro' : 'Free Plan'}
                       </span>
-                      {/* Free tier: primary upgrade = Workforce (LEMONSQUEEZY_WORKFORCE_VARIANT_ID) */}
+                      {/* Free tier: upgrade to Pro */}
                       {status?.plan === 'free' && (
                         <button
                           type="button"
                           onClick={() => {
                             setShowAuthMenu(false);
-                            setUpgradeChoiceOpen(true);
+                            void triggerUpgrade();
                           }}
                           className="text-xs px-2 py-0.5 bg-primary text-primary-foreground rounded-full hover:bg-primary/90 transition-colors"
                         >
                           Upgrade
                         </button>
                       )}
-                      {/* Pro or Workforce (active): show Unsubscribe button */}
-                      {(status?.plan === 'pro' || status?.plan === 'workforce') && status?.subscriptionStatus !== 'cancelled' && (
+                      {/* Pro (active): show Unsubscribe button */}
+                      {status?.plan === 'pro' && status?.subscriptionStatus !== 'cancelled' && (
                         <button
                           onClick={async () => {
                             const confirmed = window.confirm(
@@ -240,26 +238,24 @@ export function AppSidebar() {
                       )}
                     </div>
 
-                    {/* Subscription date info for Pro/Workforce users — same tier date, next payment */}
-                    {(status?.plan === 'pro' || status?.plan === 'workforce') && status?.subscriptionEndsAt && (
+                    {/* Subscription date info for Pro users — next payment / end date */}
+                    {status?.plan === 'pro' && status?.subscriptionEndsAt && (
                       <div className="px-2 pb-2 mb-2 border-b border-border text-xs text-muted-foreground">
                         {status.subscriptionStatus === 'cancelled' ? (
-                          <span>{status.plan === 'workforce' ? 'Workforce' : 'Pro'} ends: {new Date(status.subscriptionEndsAt).toLocaleDateString('en-GB')}</span>
+                          <span>Pro ends: {new Date(status.subscriptionEndsAt).toLocaleDateString('en-GB')}</span>
                         ) : (
                           <span>Next payment: {new Date(status.subscriptionEndsAt).toLocaleDateString('en-GB')}</span>
                         )}
                       </div>
                     )}
 
-                    {/* Pro or Workforce (cancelled): show Subscribe Again */}
-                    {(status?.plan === 'pro' || status?.plan === 'workforce') && status?.subscriptionStatus === 'cancelled' && (
+                    {/* Pro (cancelled): show Subscribe Again */}
+                    {status?.plan === 'pro' && status?.subscriptionStatus === 'cancelled' && (
                       <div className="px-2 pb-2 mb-2">
                         <button
                           type="button"
                           onClick={() => {
-                            void (status?.plan === 'workforce'
-                              ? triggerUpgradeWorkforce()
-                              : triggerUpgrade());
+                            void triggerUpgrade();
                             setShowAuthMenu(false);
                           }}
                           className="w-full text-xs py-1.5 bg-primary text-primary-foreground rounded hover:bg-primary/90 transition-colors"
@@ -332,10 +328,6 @@ export function AppSidebar() {
             <HelpDialog
               isOpen={isHelpDialogOpen}
               onClose={() => setIsHelpDialogOpen(false)}
-            />
-            <UpgradeChoiceDialog
-              open={upgradeChoiceOpen}
-              onOpenChange={setUpgradeChoiceOpen}
             />
           </SidebarMenuItem>
         </SidebarMenu>

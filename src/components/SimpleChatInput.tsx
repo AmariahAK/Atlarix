@@ -384,7 +384,7 @@ export function SimpleChatInput({ chatId, onSubmit, placeholder = "Continue the 
                             className="w-auto max-w-[min(100vw,22rem)] p-0"
                             sideOffset={8}
                         >
-                            <TokenBar chatId={chatId} includeCompassMonthlyStrip={false} />
+                            <TokenBar chatId={chatId} />
                         </PopoverContent>
                     </Popover>
                 </div>

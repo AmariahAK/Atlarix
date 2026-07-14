@@ -26,7 +26,7 @@ function requirePaidSkills(): void {
   // Mirror MCP: Pro OR Workforce unlocks paid features.
   const isPro = SubscriptionManager.isPro();
   if (!isPro) {
-    throw new Error("Skills are available on Pro/Workforce. Upgrade to use Skills.");
+    throw new Error("Skills are available on Pro. Upgrade to use Skills.");
   }
 }
 
@@ -337,7 +337,8 @@ export function registerSkillsHandlers() {
       }>;
       isWorkforce: boolean;
     }> => {
-      const isWorkforce = SubscriptionManager.getEffectiveTier() === "workforce";
+      // Team tier removed — repo skill priority (was Team-only) is disabled.
+      const isWorkforce = false;
       const workspaceId = params?.workspaceId;
       if (typeof workspaceId !== "number" || workspaceId <= 0) {
         return { skills: [], isWorkforce };

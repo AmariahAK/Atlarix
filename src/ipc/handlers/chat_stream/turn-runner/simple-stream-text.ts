@@ -32,7 +32,11 @@ import {
   reasoningTokensFromAiUsage,
   totalTokensFromAiUsage,
 } from "@/lib/auth/compass_usage";
-import { COMPASS_REACHABILITY_ERROR } from "@/ipc/shared/compass_constants";
+import {
+  COMPASS_REACHABILITY_ERROR,
+  compassExhaustedUserMessage,
+  coreUnavailableUserMessage,
+} from "@/ipc/shared/compass_constants";
 import { getCoreProxyBaseUrl } from "@/ipc/shared/core_proxy";
 import {
   getNativeWebSearchSupport,
@@ -798,8 +802,27 @@ export async function simpleStreamText(
                   errorMessage += "\n\nDetails: " + responseBody;
                 }
                 let message = errorMessage || JSON.stringify(error);
+                // Only Core INFRA errors (reachability / core_unavailable) warrant a
+                // Sentry event; a user running out of credit (402) is expected state.
+                let isCompassInfraError = false;
                 if (modelClient.builtinProviderId === "compass") {
-                  message = COMPASS_REACHABILITY_ERROR;
+                  const statusCode =
+                    (error as any)?.statusCode ?? (error as any)?.error?.statusCode;
+                  const rawBody =
+                    (error as any)?.responseBody ?? (error as any)?.error?.responseBody ?? "";
+                  const bodyStr =
+                    typeof rawBody === "string" ? rawBody : JSON.stringify(rawBody ?? "");
+                  if (statusCode === 402 || /insufficient_credit/.test(bodyStr)) {
+                    // The user's own credit is used up (proxy pre-flight reserve gate).
+                    message = compassExhaustedUserMessage();
+                  } else if (statusCode === 503 || /core_unavailable/.test(bodyStr)) {
+                    // Core is down on OUR side; the proxy already alerted the owner.
+                    message = coreUnavailableUserMessage();
+                    isCompassInfraError = true;
+                  } else {
+                    message = COMPASS_REACHABILITY_ERROR;
+                    isCompassInfraError = true;
+                  }
                 } else {
                   message = modelFailureUserMessage(message);
                 }
@@ -810,7 +833,7 @@ export async function simpleStreamText(
                   `AI stream text error for request: ${requestIdPrefix} errorMessage=${errorMessage} error=`,
                   error,
                 );
-                if (modelClient.builtinProviderId === "compass") {
+                if (modelClient.builtinProviderId === "compass" && isCompassInfraError) {
                   sentryCaptureExceptionSafe(
                     new Error(`${requestIdPrefix}${message}`.slice(0, 500)),
                     {

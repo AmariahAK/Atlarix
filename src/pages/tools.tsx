@@ -40,7 +40,7 @@ const CATEGORIES: { id: Category; label: string }[] = [
   { id: "mcp", label: "MCP" },
   { id: "preview", label: "Preview" },
   { id: "models", label: "Models" },
-  { id: "integration", label: "Workforce" },
+  { id: "integration", label: "Connectors" },
 ];
 
 const FEATURES: ToolFeature[] = [
@@ -63,7 +63,7 @@ const FEATURES: ToolFeature[] = [
     id: "atlarix-core",
     title: "Atlarix Core",
     shortDescription:
-      "Atlarix Core is the managed provider (no API key) with real model names in the picker. Every plan gets all four Core models — Core 1 (fastest) through Core 4 (most capable); plans differ by monthly allowance.",
+      "Atlarix Core is the managed provider (no API key) with real model names in the picker. Every plan gets all four Core models — Core 1 (fastest) through Core 4 (most capable). Atlarix Core is pay-as-you-go: top up credit and it's metered at cost.",
     category: "models",
     steps: [
       "Sign in for Atlarix Core, or add BYOK keys under Settings → Model Providers",
@@ -71,7 +71,7 @@ const FEATURES: ToolFeature[] = [
       "Watch the context bar for long threads — Core 3/4 use tier-aware context windows",
     ],
     howItWorks:
-      "Atlarix Core tiers are enforced server-side. BYOK (OpenRouter, OpenAI, Anthropic, Gemini, local Ollama, etc.) can run alongside Core—pick the active model per chat.",
+      "Atlarix Core is billed against your prepaid credit balance (metered at cost). BYOK (OpenRouter, OpenAI, Anthropic, Gemini, local Ollama, etc.) can run alongside Core—pick the active model per chat.",
     link: { label: "Settings → Providers", to: "/settings" },
   },
   {
@@ -195,7 +195,7 @@ const FEATURES: ToolFeature[] = [
   },
   {
     id: "skills-marketplace",
-    title: "Skills marketplace (Pro / Workforce)",
+    title: "Skills marketplace (Pro)",
     shortDescription:
       "Install Apache-licensed playbooks from the public registry—five global slots and five per workspace.",
     category: "skills",
@@ -206,19 +206,19 @@ const FEATURES: ToolFeature[] = [
   },
   {
     id: "repo-skills",
-    title: "Repo skills & Workforce priority",
+    title: "Repo skills (.atlarix/skills/)",
     shortDescription:
-      "Drop markdown skills under `.atlarix/skills/`. The priority flag is honored only for Workforce seats.",
+      "Drop markdown skills under `.atlarix/skills/`; they load as workspace context on every plan.",
     category: "skills",
-    steps: ["Add skill files to `.atlarix/skills/`", "Commit them like other project docs", "Upgrade to Workforce to enforce priority ordering"],
-    howItWorks: "Free and Pro still read the folder for context, but priority ordering remains a Workforce feature.",
+    steps: ["Add skill files to `.atlarix/skills/`", "Commit them like other project docs", "They load automatically as workspace context"],
+    howItWorks: "Skills in `.atlarix/skills/` are read as additional workspace context, committed alongside your project.",
     link: { label: "Open workspace folder", to: "/" },
   },
   {
     id: "mcp-manual",
     title: "MCP servers (manual)",
     shortDescription:
-      "Wire stdio or HTTP MCP servers globally or per workspace. Free tier: one global server; Pro/Workforce: up to five global and five per workspace.",
+      "Wire stdio or HTTP MCP servers globally or per workspace. Free tier: one MCP server per workspace; Pro: up to ten per workspace.",
     category: "mcp",
     steps: ["Settings → Tools → MCP", "Add command or URL + env", "Approve tool calls per capability"],
     howItWorks:
@@ -227,13 +227,13 @@ const FEATURES: ToolFeature[] = [
   },
   {
     id: "mcp-marketplace",
-    title: "MCP marketplace (Pro / Workforce)",
+    title: "MCP marketplace (Pro)",
     shortDescription:
       "One-click installs from the curated atlarix-mcps registry; pagination matches the skills browser.",
     category: "mcp",
     steps: ["Open MCP → Marketplace tab", "Filter or search", "Connect with env vars, choose scope"],
     howItWorks:
-      "Registry rows carry installUrl metadata; installs still respect the same caps as manual servers. Some entries may be Workforce-only.",
+      "Registry rows carry installUrl metadata; installs still respect the same caps as manual servers. Some entries require Pro.",
     link: { label: "Settings → MCP marketplace", to: "/settings" },
   },
   {
@@ -264,19 +264,19 @@ const FEATURES: ToolFeature[] = [
     link: { label: "Home → Search tab", to: "/" },
   },
   {
-    id: "workspace-workforce",
-    title: "Workforce: teams, MCP integrations, session scope",
+    id: "workspace-connectors",
+    title: "One-click connectors (Pro)",
     shortDescription:
-      "Workforce unlocks team billing (default five seats), the largest Compass pool, MCP-based team integrations, repo skill priority, Blueprint commit, and Workforce-only MCP catalog rows.",
+      "Connect Slack, Jira, Linear, Notion, Sentry, CI, and calendar as MCP servers with one click — pick org/repo/channel scope per chat session.",
     category: "integration",
     steps: [
-      "Upgrade in Settings → Subscription",
-      "Connect Slack, Jira, Linear, Sentry, CI, calendar under Settings → Workspace",
+      "Upgrade to Pro in Settings → Subscription",
+      "Connect a service from Settings → MCP marketplace",
       "When a tool needs context, pick org/repo/channel scope for that chat session (clears on New Chat)",
     ],
     howItWorks:
-      "Effective tier can follow your personal plan or team membership. Integrations never bypass the permission queue for writes.",
-    link: { label: "Settings → Workspace", to: "/settings" },
+      "Connectors run as MCP servers and never bypass the permission queue for writes.",
+    link: { label: "Settings → MCP marketplace", to: "/settings" },
   },
 ];
 
@@ -328,8 +328,8 @@ export default function ToolsPage() {
         <div className="rounded-lg border border-border bg-muted/30 p-4 text-sm">
           <p className="font-medium text-foreground mb-1">Models & tiers</p>
           <p className="text-muted-foreground mb-2">
-            Free includes Compass Fast plus BYOK/local models. Pro and Workforce unlock Compass Balanced &amp; Thinking, the Skills and MCP marketplaces, and higher MCP capacity.
-            Workforce adds MCP-based team integrations, repo skill priority, Blueprint git snapshots, and pooled team usage.
+            Free and Pro both run all four Atlarix Core models plus BYOK/local. Atlarix Core is pay-as-you-go — top up credit, metered at cost.
+            Pro adds unlimited workspaces, the Skills &amp; MCP marketplaces, one-click connectors, and higher MCP &amp; automation capacity.
           </p>
           <Button variant="outline" size="sm" onClick={() => goTo("/settings")}>
             Open Settings

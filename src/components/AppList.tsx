@@ -53,11 +53,11 @@ export function AppList({ show }: { show?: boolean }) {
   const setActiveChatId = useSetAtom(activeChatIdAtom);
   const [activeWorkspaceSessionId] = useAtom(activeWorkspaceSessionIdAtom);
 
-  // Paid tiers + main-process limit (Workforce was incorrectly gated as Free before)
+  // Pro (unlimited) + the main-process workspace-limit signal.
   const canAddWorkspace = useMemo(() => {
     if (!isAuthenticated || !status) return false;
     if (status.canCreateWorkspace) return true;
-    if (status.plan === "pro" || status.plan === "workforce") return true;
+    if (status.plan === "pro") return true;
     return apps.length < 1;
   }, [status, apps.length, isAuthenticated]);
 

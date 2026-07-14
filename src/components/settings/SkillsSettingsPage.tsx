@@ -284,7 +284,7 @@ export function SkillsSettingsPage() {
   const { status, loading: authLoading } = useAuth();
   const { handleUpgrade, isLoading: upgradeLoading } = useUpgrade();
   const plan = status?.plan ?? "free";
-  const isPaid = plan === "pro" || plan === "workforce";
+  const isPaid = plan === "pro";
 
   const [registryUrl, setRegistryUrl] = useState(OFFICIAL_REGISTRY_URL);
   const [registry, setRegistry] = useState<SkillRegistryIndex | null>(null);
@@ -518,8 +518,7 @@ export function SkillsSettingsPage() {
           <div className="rounded-xl border border-border bg-card p-6 space-y-3">
             <div className="font-semibold text-lg">Upgrade required</div>
             <p className="text-sm text-muted-foreground">
-              Skills are available on <span className="font-medium">Pro</span> and{" "}
-              <span className="font-medium">Workforce</span>.
+              Skills are available on <span className="font-medium">Pro</span>.
             </p>
             <div className="flex flex-wrap gap-2">
               <Button
@@ -617,28 +616,11 @@ export function SkillsSettingsPage() {
                     </div>
                     {repoSkillsInfo ? (
                       <div className="text-xs text-muted-foreground">
-                        {repoSkillsInfo.isWorkforce && repoSkillsInfo.priority > 0 ? (
-                          <span>
-                            {repoSkillsInfo.priority} priority skill
-                            {repoSkillsInfo.priority === 1 ? "" : "s"} from{" "}
-                            <code className="text-[10px]">.atlarix/skills/</code>
-                          </span>
-                        ) : !repoSkillsInfo.isWorkforce && repoSkillsInfo.priority > 0 ? (
-                          <span>
-                            {repoSkillsInfo.total} repo skill
-                            {repoSkillsInfo.total === 1 ? "" : "s"} from{" "}
-                            <code className="text-[10px]">.atlarix/skills/</code>{" "}
-                            <span className="text-amber-600 dark:text-amber-400">
-                              (Workforce required for priority)
-                            </span>
-                          </span>
-                        ) : (
-                          <span>
-                            {repoSkillsInfo.total} repo skill
-                            {repoSkillsInfo.total === 1 ? "" : "s"} from{" "}
-                            <code className="text-[10px]">.atlarix/skills/</code>
-                          </span>
-                        )}
+                        <span>
+                          {repoSkillsInfo.total} repo skill
+                          {repoSkillsInfo.total === 1 ? "" : "s"} from{" "}
+                          <code className="text-[10px]">.atlarix/skills/</code>
+                        </span>
                       </div>
                     ) : null}
                   </div>

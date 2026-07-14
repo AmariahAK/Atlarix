@@ -303,7 +303,9 @@ const validInvokeChannels = [
   "auth:enforce-workspace-limit", // Enforce workspace limit on login
   "auth:get-plan-info",
   "auth:upgrade",
-  "auth:upgrade-workforce",
+  "auth:add-credit",          // PAYG: open a credit top-up checkout
+  "auth:get-credit-balance",  // PAYG: read the user's Core credit balance (cents)
+  "auth:claim-signup-credit", // PAYG: one-time $1 trial credit
   "auth:refresh-plan",
   "auth:manage-subscription",
   "auth:cancel-subscription",
@@ -311,17 +313,6 @@ const validInvokeChannels = [
   "onboarding:set-completed",
   "tour:get-state",
   "tour:set-state",
-  // v4.0 Teams (Workforce)
-  "team:get",
-  "team:list-members",
-  "team:get-pending-invites",
-  "team:invite",
-  "team:accept-invite",
-  "team:reject-invite",
-  "team:leave",
-  "team:remove-member",
-  "team:add-seats",
-  "team:send-test-email",
   // Community (Discord)
   "discord:get-invite-info",
   // Auto-updater

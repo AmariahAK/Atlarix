@@ -1,53 +1,124 @@
-import { Progress } from "@/components/ui/progress";
-import { useCompassUsage } from "@/hooks/useCompassUsage";
+import { useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { useCreditBalance } from "@/hooks/useCreditBalance";
 import {
   ATLARIX_CORE_CATEGORY_LABEL,
   formatCompassSubscriptionTier,
 } from "@/shared/compass_product_copy";
+import { useAuth } from "@/lib/auth/useAuth";
 
 type AtlarixCoreUsageCardProps = {
   className?: string;
   showIntro?: boolean;
 };
 
+const PRESET_TOPUPS_CENTS = [1000, 2000, 5000] as const;
+const MIN_TOPUP_CENTS = 1000;
+
+function getInvoke():
+  | ((channel: string, ...args: unknown[]) => Promise<unknown>)
+  | null {
+  const electron = (
+    window as unknown as {
+      electron?: {
+        ipcRenderer?: {
+          invoke: (channel: string, ...args: unknown[]) => Promise<unknown>;
+        };
+      };
+    }
+  ).electron;
+  return electron?.ipcRenderer?.invoke ?? null;
+}
+
 export function AtlarixCoreUsageCard({
   className = "",
   showIntro = true,
 }: AtlarixCoreUsageCardProps) {
-  const {
-    percentRemaining,
-    monthlyLimit,
-    tokensUsedThisMonth,
-    tier,
-    loading,
-    error,
-    needsSignIn,
-  } = useCompassUsage();
+  const { balanceCents, loading, error, needsSignIn } = useCreditBalance();
+  const { status } = useAuth();
+  // Additive tally — tap $20 then $10 → a running $30 total; custom adds any amount.
+  const [tallyCents, setTallyCents] = useState(0);
+  const [customDollars, setCustomDollars] = useState("");
+  const [topUpPending, setTopUpPending] = useState(false);
+  const [topUpHint, setTopUpHint] = useState<string | null>(null);
+  const [topUpError, setTopUpError] = useState<string | null>(null);
 
-  const pct =
-    typeof percentRemaining === "number" && !Number.isNaN(percentRemaining)
-      ? Math.max(0, Math.min(100, percentRemaining))
-      : null;
+  const tier = status?.plan ?? null;
+  const balanceLabel =
+    typeof balanceCents === "number" ? `$${(balanceCents / 100).toFixed(2)}` : null;
+  const tallyLabel = `$${(tallyCents / 100).toFixed(2)}`;
+
+  const addToTally = (cents: number) => {
+    setTopUpError(null);
+    setTopUpHint(null);
+    setTallyCents((t) => t + cents);
+  };
+
+  const addCustom = () => {
+    const dollars = Number.parseFloat(customDollars);
+    if (!Number.isFinite(dollars) || dollars <= 0) {
+      setTopUpError("Enter a dollar amount to add.");
+      return;
+    }
+    addToTally(Math.round(dollars * 100));
+    setCustomDollars("");
+  };
+
+  const resetTally = () => {
+    setTallyCents(0);
+    setCustomDollars("");
+    setTopUpError(null);
+    setTopUpHint(null);
+  };
+
+  const confirmTopUp = async () => {
+    setTopUpError(null);
+    setTopUpHint(null);
+    if (tallyCents < MIN_TOPUP_CENTS) {
+      setTopUpError("Minimum top-up is $10.");
+      return;
+    }
+    try {
+      setTopUpPending(true);
+      const invoke = getInvoke();
+      if (!invoke) {
+        setTopUpError("Top-up is unavailable in this environment.");
+        return;
+      }
+      const result = (await invoke("auth:add-credit", tallyCents)) as
+        | { success: boolean; error?: string }
+        | undefined;
+      if (result?.success) {
+        setTopUpHint(
+          "Checkout opened in your browser — your balance updates here after payment.",
+        );
+        setTallyCents(0);
+      } else {
+        setTopUpError(result?.error ?? "Could not start the top-up checkout.");
+      }
+    } catch (e) {
+      setTopUpError(e instanceof Error ? e.message : "Could not start top-up.");
+    } finally {
+      setTopUpPending(false);
+    }
+  };
+
+  const controlsDisabled = loading || needsSignIn || topUpPending;
 
   return (
     <div className={`space-y-3 rounded-lg border border-border p-4 ${className}`}>
       {showIntro ? (
         <p className="text-xs text-muted-foreground leading-relaxed">
-          Monthly {ATLARIX_CORE_CATEGORY_LABEL} token limits are tied to your Atlarix
-          subscription (synced from billing). Usage refreshes each billing month.
+          {ATLARIX_CORE_CATEGORY_LABEL} is pay-as-you-go — you're metered at cost from a
+          prepaid credit balance. Top up any time. Your own API keys and local models are
+          always free.
         </p>
       ) : null}
+
       <div className="flex items-center justify-between text-sm gap-2">
         <span className="text-muted-foreground shrink-0">Account tier</span>
-        {loading ? (
-          <span className="text-muted-foreground">…</span>
-        ) : error ? (
-          <span className="text-muted-foreground text-xs text-right max-w-[min(100%,280px)]">
-            {error}
-          </span>
-        ) : needsSignIn ? (
-          <span className="text-muted-foreground text-xs">Sign in to load tier</span>
-        ) : tier ? (
+        {tier ? (
           <span className="font-medium text-foreground">
             {formatCompassSubscriptionTier(tier)}
           </span>
@@ -55,38 +126,99 @@ export function AtlarixCoreUsageCard({
           <span className="text-muted-foreground text-xs">—</span>
         )}
       </div>
-      <div className="flex flex-col gap-1 text-sm">
-        <div className="flex items-center justify-between gap-2">
-          <span className="text-muted-foreground">
-            {ATLARIX_CORE_CATEGORY_LABEL} tokens (this month)
+
+      <div className="flex items-center justify-between text-sm gap-2">
+        <span className="text-muted-foreground shrink-0">Credit balance</span>
+        {loading ? (
+          <span className="text-muted-foreground">…</span>
+        ) : error ? (
+          <span className="text-muted-foreground text-xs text-right max-w-[min(100%,280px)]">
+            {error}
           </span>
-          {loading ? (
-            <span className="text-muted-foreground">…</span>
-          ) : error || needsSignIn ? (
-            <span className="text-muted-foreground text-xs">—</span>
-          ) : monthlyLimit != null &&
-            tokensUsedThisMonth != null &&
-            pct != null ? (
-            <span className="font-medium tabular-nums text-right">
-              {(monthlyLimit - tokensUsedThisMonth).toLocaleString()} left of{" "}
-              {monthlyLimit.toLocaleString()}
-            </span>
-          ) : (
-            <span className="text-muted-foreground text-xs">—</span>
-          )}
+        ) : needsSignIn ? (
+          <span className="text-muted-foreground text-xs">Sign in to view balance</span>
+        ) : balanceLabel ? (
+          <span className="font-semibold tabular-nums text-foreground text-base">
+            {balanceLabel}
+          </span>
+        ) : (
+          <span className="text-muted-foreground text-xs">—</span>
+        )}
+      </div>
+
+      <div className="space-y-2 pt-1">
+        <div className="flex flex-wrap items-center gap-2">
+          {PRESET_TOPUPS_CENTS.map((cents) => (
+            <Button
+              key={cents}
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={controlsDisabled}
+              onClick={() => addToTally(cents)}
+            >
+              +${cents / 100}
+            </Button>
+          ))}
+          <div className="flex items-center gap-1.5">
+            <span className="text-muted-foreground text-sm">$</span>
+            <Input
+              type="number"
+              inputMode="decimal"
+              min={1}
+              step={1}
+              placeholder="Custom"
+              value={customDollars}
+              onChange={(e) => setCustomDollars(e.target.value)}
+              disabled={controlsDisabled}
+              className="h-8 w-24 tabular-nums"
+            />
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              disabled={controlsDisabled || customDollars.trim() === ""}
+              onClick={addCustom}
+            >
+              Add
+            </Button>
+          </div>
         </div>
-        {monthlyLimit != null &&
-        tokensUsedThisMonth != null &&
-        !loading &&
-        !error &&
-        !needsSignIn ? (
-          <p className="text-xs text-muted-foreground tabular-nums">
-            Used {tokensUsedThisMonth.toLocaleString()} · {pct?.toFixed(1)}% of quota
-            remaining
+
+        {tallyCents > 0 ? (
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-primary/20 bg-primary/5 px-3 py-2">
+            <span className="text-sm">
+              You'll pay <span className="font-semibold tabular-nums">{tallyLabel}</span>
+              {tallyCents < MIN_TOPUP_CENTS ? (
+                <span className="text-xs text-muted-foreground"> (min $10)</span>
+              ) : null}
+            </span>
+            <div className="flex items-center gap-2">
+              <Button type="button" size="sm" variant="ghost" onClick={resetTally} disabled={topUpPending}>
+                Reset
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                disabled={controlsDisabled || tallyCents < MIN_TOPUP_CENTS}
+                onClick={() => void confirmTopUp()}
+              >
+                {topUpPending ? "Opening…" : `Top up ${tallyLabel}`}
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <p className="text-[11px] text-muted-foreground">
+            Tap amounts to build a top-up (minimum $10), then confirm.
           </p>
+        )}
+
+        {topUpError ? (
+          <p className="text-xs text-destructive">{topUpError}</p>
+        ) : topUpHint ? (
+          <p className="text-xs text-muted-foreground">{topUpHint}</p>
         ) : null}
       </div>
-      {pct != null ? <Progress value={pct} className="h-2" /> : null}
     </div>
   );
 }

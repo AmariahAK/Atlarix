@@ -32,7 +32,7 @@ export interface McpRegistryEnvVar {
 }
 
 export type McpRegistryAuthType = "none" | "env" | "oauth";
-export type McpRegistryTier = "free" | "workforce";
+export type McpRegistryTier = "free" | "pro";
 
 /**
  * Structured OAuth config for `authType: "oauth"` HTTP MCPs.
@@ -87,7 +87,7 @@ export interface McpRegistryEntry {
   category?: string;
   /** Approximate install count from the registry publisher. Optional badge. */
   installs?: number;
-  /** Visibility — `"workforce"` entries are hidden for free/pro users. */
+  /** Visibility — `"pro"` entries are hidden for free users. */
   tier?: McpRegistryTier;
 }
 

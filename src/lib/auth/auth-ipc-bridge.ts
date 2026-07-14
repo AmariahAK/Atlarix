@@ -6,9 +6,9 @@ import type { AuthUser } from "./useAuth";
 
 type OAuthPayload = { user: AuthUser };
 type PlanChangedPayload = {
-  plan: "free" | "pro" | "workforce";
-  effectiveTier?: "free" | "pro" | "workforce";
-  previousPlan?: "free" | "pro" | "workforce";
+  plan: "free" | "pro";
+  effectiveTier?: "free" | "pro";
+  previousPlan?: "free" | "pro";
   subscriptionStatus?: string | null;
   subscriptionEndsAt?: string | null;
 };

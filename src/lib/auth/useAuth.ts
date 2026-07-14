@@ -17,7 +17,7 @@ export interface AuthUser {
 }
 
 export interface UserStatus {
-    plan: 'free' | 'pro' | 'workforce';
+    plan: 'free' | 'pro';
     isLoggedIn: boolean;
     workspaceLimit: number;
     currentWorkspaceCount: number;
@@ -119,10 +119,10 @@ export function useAuth() {
 
         // Listen for realtime plan changes (Supabase Realtime → main process → frontend)
         const handlePlanChanged = (data: {
-            plan: 'free' | 'pro' | 'workforce';
+            plan: 'free' | 'pro';
             /** Effective tier (own or team); prefer over `plan` when present */
-            effectiveTier?: 'free' | 'pro' | 'workforce';
-            previousPlan?: 'free' | 'pro' | 'workforce';
+            effectiveTier?: 'free' | 'pro';
+            previousPlan?: 'free' | 'pro';
             subscriptionStatus?: string | null;
             subscriptionEndsAt?: string | null;
         }) => {
@@ -141,11 +141,6 @@ export function useAuth() {
                 nextPlan === 'pro' &&
                 data.previousPlan === 'free' &&
                 data.subscriptionStatus === 'active';
-            const isWorkforceUpgrade =
-                nextPlan === 'workforce' &&
-                data.previousPlan !== 'workforce' &&
-                data.subscriptionStatus === 'active';
-
             if (isProUpgrade) {
                 const notification = document.createElement('div');
                 notification.className = 'fixed bottom-4 right-4 bg-gradient-to-r from-purple-600 to-pink-600 text-white px-4 py-3 rounded-lg shadow-lg z-[9999] flex items-center gap-3 animate-in slide-in-from-bottom-5';
@@ -153,18 +148,6 @@ export function useAuth() {
                     <div>
                         <div class="font-medium">Welcome to Atlarix Pro!</div>
                         <div class="text-sm opacity-90">All Pro features are now unlocked.</div>
-                    </div>
-                `;
-                document.body.appendChild(notification);
-                setTimeout(() => notification.remove(), 6000);
-            }
-            if (isWorkforceUpgrade) {
-                const notification = document.createElement('div');
-                notification.className = 'fixed bottom-4 right-4 bg-gradient-to-r from-indigo-600 to-purple-600 text-white px-4 py-3 rounded-lg shadow-lg z-[9999] flex items-center gap-3 animate-in slide-in-from-bottom-5';
-                notification.innerHTML = `
-                    <div>
-                        <div class="font-medium">Welcome to Atlarix Workforce!</div>
-                        <div class="text-sm opacity-90">Teams, extensions, and workspace context are now unlocked.</div>
                     </div>
                 `;
                 document.body.appendChild(notification);
@@ -197,7 +180,7 @@ export function useAuth() {
                     name?: string;
                     avatar?: string;
                     plan?: string;
-                    effectiveTier?: 'free' | 'pro' | 'workforce';
+                    effectiveTier?: 'free' | 'pro';
                 };
                 isPro?: boolean;
             };
@@ -214,7 +197,7 @@ export function useAuth() {
                     result.user.effectiveTier ??
                     result.user.plan ??
                     "free"
-                ) as "free" | "pro" | "workforce";
+                ) as "free" | "pro";
                 setStatus({
                     plan,
                     isLoggedIn: true,
@@ -355,7 +338,7 @@ export function useAuth() {
                 console.log('[useAuth] Plan refreshed:', result.plan);
 
                 // Show notification if upgraded
-                const newPlan = (result.plan ?? status.plan) as 'free' | 'pro' | 'workforce';
+                const newPlan = (result.plan ?? status.plan) as 'free' | 'pro';
                 if (newPlan === 'pro' && status.plan !== 'pro') {
                     const notification = document.createElement('div');
                     notification.className = 'fixed bottom-4 right-4 bg-emerald-600 text-white px-4 py-3 rounded-lg shadow-lg z-[9999] flex items-center gap-3 animate-in slide-in-from-bottom-5';
@@ -363,18 +346,6 @@ export function useAuth() {
                         <div>
                             <div class="font-medium">Welcome to Atlarix Pro!</div>
                             <div class="text-sm opacity-90">All Pro features are now unlocked.</div>
-                        </div>
-                    `;
-                    document.body.appendChild(notification);
-                    setTimeout(() => notification.remove(), 5000);
-                }
-                if (newPlan === 'workforce' && status.plan !== 'workforce') {
-                    const notification = document.createElement('div');
-                    notification.className = 'fixed bottom-4 right-4 bg-indigo-600 text-white px-4 py-3 rounded-lg shadow-lg z-[9999] flex items-center gap-3 animate-in slide-in-from-bottom-5';
-                    notification.innerHTML = `
-                        <div>
-                            <div class="font-medium">Welcome to Atlarix Workforce!</div>
-                            <div class="text-sm opacity-90">Teams and extensions are now unlocked.</div>
                         </div>
                     `;
                     document.body.appendChild(notification);

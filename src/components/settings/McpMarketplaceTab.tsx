@@ -64,7 +64,7 @@ export function McpMarketplaceTab({
   const ipc = IpcClient.getInstance();
   const { status } = useAuth();
   const tier = status?.plan ?? "free";
-  const isPaid = tier === "pro" || tier === "workforce";
+  const isPaid = tier === "pro";
 
   const [registry, setRegistry] = useState<McpRegistryIndex | null>(null);
   const [fetching, setFetching] = useState(false);
@@ -149,7 +149,7 @@ export function McpMarketplaceTab({
     if (!registry) return [];
     const q = search.trim().toLowerCase();
     return registry.mcps.filter((m) => {
-      if (m.tier === "workforce" && tier !== "workforce") return false;
+      if (m.tier === "pro" && tier !== "pro") return false;
       if (tagFilter !== "all" && !(m.tags ?? []).includes(tagFilter)) return false;
       if (categoryFilter !== "all" && m.category?.trim() !== categoryFilter) return false;
       if (!q) return true;
@@ -258,7 +258,7 @@ export function McpMarketplaceTab({
         <div className="font-medium text-foreground mb-1">Marketplace is a Pro feature</div>
         <p className="text-muted-foreground">
           Free accounts can add <strong>one</strong> MCP per workspace manually. One-click marketplace installs
-          require Pro or Workforce. Upgrade in Settings → Pricing.
+          require Pro. Upgrade in Settings → Pricing.
         </p>
       </div>
     );
@@ -361,9 +361,9 @@ export function McpMarketplaceTab({
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-1.5">
                       <span className="font-medium truncate">{entry.name}</span>
-                      {entry.tier === "workforce" && (
+                      {entry.tier === "pro" && (
                         <span className="text-[10px] uppercase tracking-wide rounded bg-amber-500/15 text-amber-600 px-1.5 py-0.5">
-                          Workforce
+                          Pro
                         </span>
                       )}
                       {entry.authType === "env" && (
@@ -530,7 +530,7 @@ export function McpMarketplaceTab({
       </Dialog>
 
       <p className="text-xs text-muted-foreground">
-        Workforce-tier extensions (Slack, Jira, Sentry, etc.) install as standard MCP servers from this
+        Pro connectors (Slack, Jira, Sentry, etc.) install as standard MCP servers from this
         registry. Manage their credentials per-entry above; rotate by removing and reconnecting.
       </p>
     </div>

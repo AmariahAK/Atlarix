@@ -17,9 +17,14 @@ import {
 } from "@/lib/automations/types";
 import { getAutomationRunView } from "@/lib/automations/notify";
 import { resolveAppPath } from "../../paths/paths";
+import { SubscriptionManager } from "../../lib/SubscriptionManager";
 
 const logger = log.scope("automation_handlers");
 const handle = createLoggedHandler(logger);
+
+/** Automations per workspace: Free = 2, Pro = 10. */
+const AUTOMATIONS_FREE_MAX = 2;
+const AUTOMATIONS_WORKSPACE_MAX = 10;
 
 async function upsertMcpConsentIfNeeded(input: AutomationInput): Promise<void> {
   if (input.trigger.kind !== "mcp") return;
@@ -85,6 +90,23 @@ export function registerAutomationHandlers(): void {
         where: eq(apps.id, payload.workspaceId),
       });
       if (!app) throw new Error("Workspace not found");
+
+      const existing = await db
+        .select({ count: sql<number>`count(*)` })
+        .from(automations)
+        .where(eq(automations.workspaceId, payload.workspaceId));
+      const count = existing[0]?.count ?? 0;
+      if (count >= AUTOMATIONS_WORKSPACE_MAX) {
+        throw new Error(
+          `Maximum ${AUTOMATIONS_WORKSPACE_MAX} automations per workspace. Remove one to add another.`,
+        );
+      }
+      if (!SubscriptionManager.isPro() && count >= AUTOMATIONS_FREE_MAX) {
+        throw new Error(
+          `Free tier is limited to ${AUTOMATIONS_FREE_MAX} automations per workspace. Upgrade to Pro for up to ${AUTOMATIONS_WORKSPACE_MAX}.`,
+        );
+      }
+
       await upsertMcpConsentIfNeeded(input);
       const id = randomUUID();
       const now = new Date();

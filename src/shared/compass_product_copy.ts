@@ -11,7 +11,6 @@ export function formatCompassSubscriptionTier(
   tier: string | null | undefined,
 ): string {
   const t = (tier ?? "free").toLowerCase();
-  if (t === "workforce") return "Team";
   if (t === "pro") return "Pro";
   return "Free";
 }

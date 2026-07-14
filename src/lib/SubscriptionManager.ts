@@ -14,7 +14,6 @@ import {
     getSession,
     getUserPlan,
     getEffectiveTier,
-    getHasDbStudioLegacy,
     invalidatePlanCaches,
     signInWithOAuth,
     signOut,
@@ -30,7 +29,7 @@ const logger = log.scope('subscription');
 // TYPES
 // ============================================
 
-export type UserPlan = 'free' | 'pro' | 'workforce';
+export type UserPlan = 'free' | 'pro';
 
 export interface UserSession {
     id: string;
@@ -38,10 +37,8 @@ export interface UserSession {
     name?: string;
     avatar?: string;
     plan: UserPlan;
-    /** v4.0: effective tier (max of own plan or team plan) */
+    /** Effective tier — always equals `plan` since the Team tier was removed. */
     effectiveTier?: UserPlan;
-    /** v4.0: grandfathered Pro users keep DB Studio access */
-    hasDbStudioLegacy?: boolean;
 }
 
 // ============================================
@@ -54,9 +51,6 @@ export const PLAN_LIMITS = {
         maxWorkspaces: 1,
     },
     pro: {
-        maxWorkspaces: Infinity,
-    },
-    workforce: {
         maxWorkspaces: Infinity,
     },
 };
@@ -134,7 +128,6 @@ export class SubscriptionManager {
         const name = userMeta.full_name || userMeta.name || user.email?.split('@')[0] || 'User';
 
         const effectiveTier = await getEffectiveTier(user.id, plan);
-        const hasDbStudioLegacy = await getHasDbStudioLegacy(user.id);
 
         this.session = {
             id: user.id,
@@ -143,7 +136,6 @@ export class SubscriptionManager {
             avatar,
             plan,
             effectiveTier,
-            hasDbStudioLegacy,
         };
 
         this.cachedWorkspaceCount = null; // Clear cache
@@ -269,29 +261,14 @@ export class SubscriptionManager {
      * Check if user has Pro plan (or higher)
      */
     static isPro(): boolean {
-        const p = this.getLocalUserPlan();
-        return p === 'pro' || p === 'workforce';
+        return this.getLocalUserPlan() === 'pro';
     }
 
     /**
-     * v4.0: Check if user has Workforce plan (effective tier)
-     */
-    static isWorkforce(): boolean {
-        return this.getEffectiveTier() === 'workforce';
-    }
-
-    /**
-     * v4.0: Effective tier (own plan or team plan, whichever is higher)
+     * Effective tier — equals `plan` (kept for API compatibility; Team removed).
      */
     static getEffectiveTier(): UserPlan {
         return this.session?.effectiveTier ?? this.session?.plan ?? 'free';
-    }
-
-    /**
-     * v4.0: Whether user has grandfathered DB Studio access (Pro before move to Workforce)
-     */
-    static hasDbStudioLegacy(): boolean {
-        return this.session?.hasDbStudioLegacy === true;
     }
 
     /**
@@ -308,12 +285,10 @@ export class SubscriptionManager {
         invalidatePlanCaches();
         const newPlan = await getUserPlan(this.session.id);
         const effectiveTier = await getEffectiveTier(this.session.id, newPlan);
-        const hasDbStudioLegacy = await getHasDbStudioLegacy(this.session.id);
 
         const changed =
             newPlan !== this.session.plan ||
-            effectiveTier !== this.session.effectiveTier ||
-            hasDbStudioLegacy !== this.session.hasDbStudioLegacy;
+            effectiveTier !== this.session.effectiveTier;
 
         if (changed) {
             logger.log(`[SubscriptionManager] Plan/effective tier refreshed: ${this.session.plan} → ${newPlan}, effective: ${effectiveTier}`);
@@ -321,7 +296,6 @@ export class SubscriptionManager {
                 ...this.session,
                 plan: newPlan,
                 effectiveTier,
-                hasDbStudioLegacy,
             };
         }
 

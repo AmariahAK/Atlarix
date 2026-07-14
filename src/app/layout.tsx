@@ -28,7 +28,6 @@ import { SimpleInlineChat } from "@/components/SimpleInlineChat";
 import { ChatTabStrip } from "@/components/chat/ChatTabStrip";
 import { RightPanel } from "@/components/RightPanel";
 import { WorkspaceNotFoundBanner } from "@/components/WorkspaceNotFoundBanner";
-import { PendingInviteBanner } from "@/components/PendingInviteBanner";
 import { UpdateBanner } from "@/components/UpdateBanner";
 import { AnalyticsConsentModal } from "@/components/AnalyticsConsentModal";
 import {
@@ -499,8 +498,6 @@ export default function RootLayout({ children }: { children: ReactNode }) {
               )}
               {/* Main content: chat when active, else route content */}
               <div className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden">
-                {/* Pending team invites (signed-in user) */}
-                <PendingInviteBanner />
                 {/* Auto-update: download progress + ready-to-install banner */}
                 <UpdateBanner />
                 {/* Workspace folder missing (deleted outside app) */}

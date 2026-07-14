@@ -175,13 +175,16 @@ export function isCompassBuildConfigured(): boolean {
 export const COMPASS_REACHABILITY_ERROR =
   "We're currently having trouble reaching Atlarix Core. Please retry or switch to another provider in Settings.";
 
-export function compassExhaustedUserMessage(tier: string): string {
-  const t = (tier || "free").toLowerCase();
-  if (t === "free") {
-    return "Your Atlarix Core usage for this month is over. Upgrade to Pro or Workforce for more, or add your own API keys in Settings.";
-  }
-  if (t === "pro") {
-    return "Your Atlarix Core usage for this month is over. Upgrade to Workforce for more, or add your own API keys in Settings.";
-  }
-  return "Your Atlarix Core usage for this month is over. Contact support@atlarix.dev for Pay-as-You-Go options, or add your own API keys in Settings.";
+export function compassExhaustedUserMessage(_tier?: string): string {
+  return "Your Atlarix Core credit is used up. Top up your balance in Settings to continue, or add your own API keys in Settings.";
+}
+
+/**
+ * Shown when Atlarix Core fails on OUR side (the proxy returns 503 core_unavailable
+ * because the managed OpenRouter key is out of credit / rate-limited / down). Neutral
+ * by design — the user is never told "we ran out of money"; the owner is alerted
+ * separately by the proxy.
+ */
+export function coreUnavailableUserMessage(): string {
+  return "Atlarix Core is currently overloaded — we apologize for any inconvenience. Please retry shortly or switch to another provider in Settings.";
 }

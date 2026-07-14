@@ -4,7 +4,7 @@
  * The checkout session is created SERVER-SIDE by the `create-checkout` Supabase
  * edge function (A2 / SB-07): the LEMONSQUEEZY_API_KEY lives only there, and the
  * checkout's `custom_data.supabase_user_id` is set from the caller's verified JWT
- * so the billing webhook can trust it. The client only asks for a tier and opens
+ * so the billing webhook can trust it. The client only asks for a mode and opens
  * the returned URL.
  */
 
@@ -15,12 +15,12 @@ import { getSupabaseClient } from "./auth/supabase-client";
 const logger = log.scope("lemonsqueezy");
 
 async function createCheckoutViaEdge(
-  tier: "pro" | "workforce",
+  body: Record<string, unknown>,
 ): Promise<string | null> {
   try {
     const supabase = getSupabaseClient();
     const { data, error } = await supabase.functions.invoke("create-checkout", {
-      body: { tier },
+      body,
     });
     if (error) {
       logger.error(`create-checkout edge function failed: ${error.message}`);
@@ -34,7 +34,7 @@ async function createCheckoutViaEdge(
   }
 }
 
-/** Pro (solo) checkout. */
+/** Atlarix Pro subscription checkout. */
 export async function openUpgradeCheckout(): Promise<{
   success: boolean;
   error?: string;
@@ -45,7 +45,7 @@ export async function openUpgradeCheckout(): Promise<{
     return { success: false, error: "Please sign in first to upgrade." };
   }
 
-  const checkoutUrl = await createCheckoutViaEdge("pro");
+  const checkoutUrl = await createCheckoutViaEdge({ mode: "subscription" });
   if (!checkoutUrl) {
     return {
       success: false,
@@ -59,25 +59,28 @@ export async function openUpgradeCheckout(): Promise<{
   return { success: true };
 }
 
-/** Atlarix Workforce (teams) checkout. */
-export async function openWorkforceCheckout(): Promise<{
+/** PAYG top-up: buy Atlarix Core credit. `amountCents` must be >= $10 (1000). */
+export async function openCreditCheckout(amountCents: number): Promise<{
   success: boolean;
   error?: string;
 }> {
   const currentUser = SubscriptionManager.getCurrentUser();
   if (!currentUser) {
-    return {
-      success: false,
-      error: "Please sign in first to upgrade to Atlarix Workforce.",
-    };
+    return { success: false, error: "Please sign in first to add credit." };
+  }
+  if (!Number.isFinite(amountCents) || amountCents < 1000) {
+    return { success: false, error: "Minimum top-up is $10." };
   }
 
-  const checkoutUrl = await createCheckoutViaEdge("workforce");
+  const checkoutUrl = await createCheckoutViaEdge({
+    mode: "credit",
+    amount_cents: Math.floor(amountCents),
+  });
   if (!checkoutUrl) {
     return { success: false, error: "Unable to create checkout. Please try again." };
   }
 
-  logger.info("Opening Workforce checkout");
+  logger.info(`Opening credit checkout ($${(amountCents / 100).toFixed(2)})`);
   const { shell } = await import("electron");
   await shell.openExternal(checkoutUrl);
   return { success: true };

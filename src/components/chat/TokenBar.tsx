@@ -31,28 +31,18 @@ import { useSettings } from "@/hooks/useSettings";
 import { TokenCircle } from "./TokenCircle";
 import { useCompactionTokenVisuals } from "@/hooks/useCompactionTokenVisuals";
 import { selectionUsesCompass } from "@/hooks/useCompassSendGate";
-import { useCompassUsage } from "@/hooks/useCompassUsage";
-import { CompassUsageStrip } from "./CompassUsageStrip";
-import { formatCompassSubscriptionTier } from "@/shared/compass_product_copy";
+import { useCreditBalance } from "@/hooks/useCreditBalance";
 
 interface TokenBarProps {
   chatId?: number;
-  /**
-   * When true and Compass monthly quota is loaded, show the monthly strip here.
-   * Default false — monthly quota is shown once in ChatPanel (or home composer footer).
-   */
-  includeCompassMonthlyStrip?: boolean;
 }
 
-export function TokenBar({
-  chatId,
-  includeCompassMonthlyStrip = false,
-}: TokenBarProps) {
+export function TokenBar({ chatId }: TokenBarProps) {
   const [inputValue] = useAtom(chatInputValueAtom);
   const { settings } = useSettings();
   const { result, error } = useCountTokens(chatId ?? null, inputValue);
   const { pulse, flashSuccess } = useCompactionTokenVisuals(chatId ?? null);
-  const compassUsage = useCompassUsage();
+  const creditBalance = useCreditBalance();
   // v10 context meter: what was assembled/trimmed at last dispatch + aux usage.
   const contextReport = useContextReport(chatId ?? null);
   const auxTokensByChat = useAtomValue(lastAuxTokensByChatIdAtom);
@@ -186,12 +176,11 @@ export function TokenBar({
 
   const budget = contextReport?.contextWindow ?? effectiveBudget ?? contextWindow;
   const percentUsed = Math.min((totalTokens / budget) * 100, 100);
-  const usesCompass = selectionUsesCompass(settings?.selectedModel);
-  const compassQuotaReady =
-    usesCompass &&
-    !compassUsage.loading &&
-    compassUsage.percentRemaining != null &&
-    compassUsage.monthlyLimit != null;
+  const usesCore = selectionUsesCompass(settings?.selectedModel);
+  const coreCreditLabel =
+    usesCore && !creditBalance.loading && creditBalance.balanceCents != null
+      ? `$${(creditBalance.balanceCents / 100).toFixed(2)}`
+      : null;
 
   const isCritical = percentUsed >= 90;
   const showWarningBanner = percentUsed >= 80;
@@ -220,20 +209,7 @@ export function TokenBar({
               : "Approaching token limit"}
         </div>
       )}
-      {compassQuotaReady && includeCompassMonthlyStrip ? (
-        <CompassUsageStrip
-          subscriptionTierLabel={
-            compassUsage.tier
-              ? formatCompassSubscriptionTier(compassUsage.tier)
-              : "—"
-          }
-          tokensUsedThisMonth={compassUsage.tokensUsedThisMonth}
-          monthlyLimit={compassUsage.monthlyLimit}
-          percentRemaining={compassUsage.percentRemaining}
-          loading={false}
-        />
-      ) : (
-        <TooltipProvider>
+      <TooltipProvider>
           <Tooltip>
             <TooltipTrigger asChild>
               <div className="flex items-center gap-2 w-full min-w-0">
@@ -253,6 +229,11 @@ export function TokenBar({
                   </span>
                   <span className="text-[10px] text-muted-foreground/80">
                     {Math.round(percentUsed)}% context
+                    {coreCreditLabel ? (
+                      <span className="ml-1.5 text-muted-foreground/70 tabular-nums">
+                        · Core {coreCreditLabel}
+                      </span>
+                    ) : null}
                     {/* Fix 6: running session spend — actual provider burn,
                         which the occupancy meter above does NOT reflect. */}
                     {typeof sessionCostUsd === "number" && sessionCostUsd > 0 ? (
@@ -350,7 +331,6 @@ export function TokenBar({
             </TooltipContent>
           </Tooltip>
         </TooltipProvider>
-      )}
       {error && (
         <div className="text-red-500 text-xs mt-1">Failed to count tokens</div>
       )}

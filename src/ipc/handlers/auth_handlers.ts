@@ -254,17 +254,45 @@ export function registerAuthHandlers() {
         }
     });
 
-    // v4.0: Open Workforce checkout ($79/mo, up to 5 seats; add paid seats as needed)
-    ipcMain.handle("auth:upgrade-workforce", async () => {
-        logger.log("[AuthHandlers] Upgrade to Workforce requested");
+    // PAYG: open a credit top-up checkout ($10 minimum). Amount in cents.
+    ipcMain.handle("auth:add-credit", async (_e, amountCents: number) => {
+        logger.log("[AuthHandlers] Add credit requested");
         try {
-            const { openWorkforceCheckout } = await import("../../lib/lemonsqueezy");
-            const result = await openWorkforceCheckout();
+            const { openCreditCheckout } = await import("../../lib/lemonsqueezy");
+            const result = await openCreditCheckout(Number(amountCents));
             if (!result.success) return { success: false, error: result.error };
-            return { success: true, message: "Workforce checkout opened in browser" };
+            return { success: true, message: "Credit checkout opened in browser" };
         } catch (error) {
-            logger.error(`[AuthHandlers] Workforce upgrade error:`, error);
+            logger.error(`[AuthHandlers] Add credit error:`, error);
             return { success: false, error: error instanceof Error ? error.message : "Unknown error" };
+        }
+    });
+
+    // PAYG: read the user's Atlarix Core credit balance (integer cents).
+    ipcMain.handle("auth:get-credit-balance", async () => {
+        try {
+            const { getSupabaseClient } = await import("../../lib/auth/supabase-client");
+            const supabase = getSupabaseClient();
+            const { data, error } = await supabase.rpc("get_credit_balance");
+            if (error) return { ok: false, error: error.message, balanceCents: 0 };
+            const row = data as { ok?: boolean; balance_cents?: number } | null;
+            return { ok: row?.ok !== false, balanceCents: Number(row?.balance_cents ?? 0) };
+        } catch (error) {
+            return { ok: false, error: error instanceof Error ? error.message : "Unknown error", balanceCents: 0 };
+        }
+    });
+
+    // PAYG: claim the one-time $1 signup trial credit (idempotent server-side).
+    ipcMain.handle("auth:claim-signup-credit", async () => {
+        try {
+            const { getSupabaseClient } = await import("../../lib/auth/supabase-client");
+            const supabase = getSupabaseClient();
+            const { data, error } = await supabase.rpc("claim_signup_credit");
+            if (error) return { ok: false, error: error.message };
+            const row = data as { ok?: boolean; balance_cents?: number; granted?: boolean } | null;
+            return { ok: row?.ok !== false, balanceCents: Number(row?.balance_cents ?? 0), granted: row?.granted === true };
+        } catch (error) {
+            return { ok: false, error: error instanceof Error ? error.message : "Unknown error" };
         }
     });
 
@@ -417,7 +445,7 @@ export function registerAuthHandlers() {
                 });
             }
 
-            const tierLabel = effectiveTier === 'workforce' ? 'Workforce' : 'Pro';
+            const tierLabel = 'Pro';
             return {
                 success: true,
                 endsAt,

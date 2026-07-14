@@ -15,7 +15,6 @@ import type { PreflightTimer } from "@/lib/agent/preflight-timing";
 import type { ContextSection } from "@/lib/context/ContextAssembler";
 import { getSkillNameForMode } from "@/lib/skills/skill-registry";
 import { loadSkill } from "@/lib/skills/skill-loader";
-import { SubscriptionManager } from "@/lib/SubscriptionManager";
 import {
   loadPrioritySkillsForWorkspace,
   formatPrioritySkillsForPrompt,
@@ -73,11 +72,10 @@ export async function loadRepoSkillsSection(
   const { effectiveWorkMode, preflight, hasWorkspace, appPath } = p;
   if (!(hasWorkspace && appPath)) return null;
   try {
-    const isWorkforce =
-      SubscriptionManager.getEffectiveTier() === "workforce";
+    // Repo skill priority was a Team-only feature; Team was removed, so it's off.
     const prioritySkills = await preflight.time(
       "priority-skills",
-      () => loadPrioritySkillsForWorkspace(appPath, isWorkforce),
+      () => loadPrioritySkillsForWorkspace(appPath, false),
     );
     if (prioritySkills.length === 0) return null;
     const block = formatPrioritySkillsForPrompt(

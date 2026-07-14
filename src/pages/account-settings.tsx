@@ -9,28 +9,12 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { useNavigate } from '@tanstack/react-router';
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect } from 'react';
 import { showError, showSuccess } from '@/lib/toast';
-import { triggerUpgrade, triggerUpgradeWorkforce } from '@/hooks/useUpgrade';
+import { triggerUpgrade } from '@/hooks/useUpgrade';
 import { SettingsWorkspaceNav } from '@/components/settings/SettingsWorkspaceNav';
 import { AtlarixCoreUsageCard } from '@/components/settings/AtlarixCoreUsageCard';
-import { Users, LogOut } from 'lucide-react';
-
-interface TeamInfo {
-  id: string;
-  name: string;
-  owner_user_id: string;
-  seat_limit: number;
-  extra_seats: number;
-}
-
-interface TeamMemberRow {
-  id: string;
-  email: string;
-  status: string;
-  role: string;
-  user_id: string | null;
-}
+import { LogOut } from 'lucide-react';
 
 function getInvoke(): ((channel: string, ...args: unknown[]) => Promise<unknown>) | null {
   const electron = (window as unknown as { electron?: { ipcRenderer?: { invoke: (channel: string, ...args: unknown[]) => Promise<unknown> } } }).electron;
@@ -40,32 +24,6 @@ function getInvoke(): ((channel: string, ...args: unknown[]) => Promise<unknown>
 export function AccountSettings() {
   const { user, status, loading, signOut, refreshStatus } = useAuth();
   const navigate = useNavigate();
-  const [team, setTeam] = useState<TeamInfo | null>(null);
-  const [members, setMembers] = useState<TeamMemberRow[]>([]);
-  const [inviteEmail, setInviteEmail] = useState('');
-  const [inviting, setInviting] = useState(false);
-  const [removing, setRemoving] = useState<string | null>(null);
-  const [leaving, setLeaving] = useState(false);
-  const isOwner = user && team && team.owner_user_id === user.id;
-
-  const loadTeam = useCallback(async () => {
-    const invoke = getInvoke();
-    if (!invoke || !user) return;
-    try {
-      const res = (await invoke('team:get')) as { team: TeamInfo | null; error?: string };
-      if (res.team) {
-        setTeam(res.team);
-        const listRes = (await invoke('team:list-members', res.team.id)) as { members: TeamMemberRow[] };
-        setMembers(listRes.members ?? []);
-      } else {
-        setTeam(null);
-        setMembers([]);
-      }
-    } catch {
-      setTeam(null);
-      setMembers([]);
-    }
-  }, [user]);
 
   useEffect(() => {
     if (loading) return;
@@ -73,9 +31,8 @@ export function AccountSettings() {
       navigate({ to: '/sign-in' });
     } else {
       refreshStatus?.();
-      if (status?.plan === 'workforce') loadTeam();
     }
-  }, [loading, user, navigate, refreshStatus, status?.plan, loadTeam]);
+  }, [loading, user, navigate, refreshStatus]);
 
   if (loading) {
     return (
@@ -118,71 +75,6 @@ export function AccountSettings() {
       showError(result?.error ?? 'Could not cancel subscription.');
     }
   };
-
-  const handleInvite = async () => {
-    if (!team || !inviteEmail.trim()) return;
-    setInviting(true);
-    try {
-      const res = (await getInvoke()?.('team:invite', team.id, inviteEmail.trim())) as { success?: boolean; error?: string };
-      if (res?.success) {
-        showSuccess('Invite sent.');
-        setInviteEmail('');
-        await loadTeam();
-      } else {
-        showError(res?.error ?? 'Failed to send invite');
-      }
-    } catch (e) {
-      showError(e instanceof Error ? e.message : 'Failed to send invite');
-    } finally {
-      setInviting(false);
-    }
-  };
-
-  const handleRemoveMember = async (memberId: string) => {
-    if (!team || !window.confirm('Remove this member from the team?')) return;
-    setRemoving(memberId);
-    try {
-      const res = (await getInvoke()?.('team:remove-member', team.id, memberId)) as { success?: boolean; error?: string };
-      if (res?.success) {
-        showSuccess('Member removed.');
-        await loadTeam();
-      } else {
-        showError(res?.error ?? 'Failed to remove member');
-      }
-    } catch (e) {
-      showError(e instanceof Error ? e.message : 'Failed to remove member');
-    } finally {
-      setRemoving(null);
-    }
-  };
-
-  const handleLeaveTeam = async () => {
-    if (!window.confirm('Leave this team? You will lose access to team features until you are re-invited.')) return;
-    setLeaving(true);
-    try {
-      const res = (await getInvoke()?.('team:leave')) as { success?: boolean; error?: string };
-      if (res?.success) {
-        showSuccess('You left the team.');
-        await loadTeam();
-        refreshStatus?.();
-      } else {
-        showError(res?.error ?? 'Failed to leave team');
-      }
-    } catch (e) {
-      showError(e instanceof Error ? e.message : 'Failed to leave team');
-    } finally {
-      setLeaving(false);
-    }
-  };
-
-  const handleAddSeats = async () => {
-    const res = (await getInvoke()?.('team:add-seats')) as { success?: boolean; error?: string };
-    if (res?.error) showError(res.error);
-    else if (res?.success) showSuccess('Opened billing.');
-  };
-
-  const activeCount = members.filter((m) => m.status === 'active').length;
-  const totalSeats = team ? team.seat_limit + (team.extra_seats ?? 0) : 0;
 
   return (
     <div className="min-h-full bg-background p-8 pb-12">
@@ -242,11 +134,7 @@ export function AccountSettings() {
               <div>
                 <h4 className="font-semibold">Current Plan</h4>
                 <p className="text-2xl font-bold text-primary">
-                  {status.plan === 'workforce'
-                    ? 'Atlarix Workforce'
-                    : status.plan === 'pro'
-                      ? 'Atlarix Pro'
-                      : 'Free'}
+                  {status.plan === 'pro' ? 'Atlarix Pro' : 'Free'}
                 </p>
               </div>
               {status.subscriptionStatus && (
@@ -263,7 +151,7 @@ export function AccountSettings() {
               )}
             </div>
             <AtlarixCoreUsageCard showIntro className="mt-2" />
-            {(status.plan === 'pro' || status.plan === 'workforce') && status.subscriptionEndsAt && (() => {
+            {status.plan === 'pro' && status.subscriptionEndsAt && (() => {
               const end = new Date(status.subscriptionEndsAt);
               const periodEndFuture = !Number.isNaN(+end) && end > new Date();
               return (
@@ -284,7 +172,7 @@ export function AccountSettings() {
                   <>
                     <p className="text-sm text-muted-foreground">
                       <span className="font-medium text-foreground">
-                        {status.plan === 'workforce' ? 'Workforce' : 'Pro'} access until:{' '}
+                        Pro access until:{' '}
                       </span>
                       {new Date(status.subscriptionEndsAt).toLocaleDateString(undefined, {
                         year: 'numeric',
@@ -300,7 +188,7 @@ export function AccountSettings() {
                 )}
                 {status.subscriptionStatus === 'cancelled' && !periodEndFuture && (
                   <p className="text-sm text-muted-foreground">
-                    Your paid period has ended. Subscribe again to restore {status.plan === 'workforce' ? 'Workforce' : 'Pro'}.
+                    Your paid period has ended. Subscribe again to restore Pro.
                   </p>
                 )}
                 {status.subscriptionStatus &&
@@ -322,26 +210,10 @@ export function AccountSettings() {
                 <Button onClick={() => triggerUpgrade()} size="sm" variant="default">
                   Upgrade to Pro
                 </Button>
-                <Button onClick={() => triggerUpgradeWorkforce()} size="sm" variant="secondary">
-                  Upgrade to Workforce
-                </Button>
               </div>
             )}
             {status.plan === 'pro' && (
-              <div className="pt-4 border-t flex flex-wrap gap-2">
-                <Button onClick={() => triggerUpgradeWorkforce()} size="sm" variant="default">
-                  Upgrade to Workforce
-                </Button>
-              </div>
-            )}
-            {(status.plan === 'pro' || status.plan === 'workforce') && (
               <div className="pt-4 border-t space-y-3">
-                {status.plan === 'workforce' && (
-                  <p className="text-xs text-muted-foreground max-w-xl">
-                    To switch to Pro: cancel Workforce below or in the customer portal, then subscribe to Pro from this
-                    page after the team billing period ends.
-                  </p>
-                )}
                 <div className="flex flex-wrap gap-2">
                   <Button onClick={handleManageSubscription} variant="outline" size="sm">
                     Manage subscription
@@ -357,120 +229,6 @@ export function AccountSettings() {
                     </Button>
                   )}
                 </div>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Team Card — Workforce */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Users className="h-5 w-5" />
-              Team
-            </CardTitle>
-            <CardDescription>
-              {status.plan === 'workforce'
-                ? 'Invite members and manage your team (Workforce)'
-                : 'Upgrade to Workforce to create a team and invite members'}
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {status.plan !== 'workforce' ? (
-              <div className="rounded-lg border border-border bg-muted/30 p-4">
-                <p className="text-sm text-muted-foreground mb-3">
-                  Teams, seats, and invites are available on Atlarix Workforce.
-                </p>
-                <Button size="sm" onClick={() => triggerUpgradeWorkforce()}>
-                  Upgrade to Workforce
-                </Button>
-              </div>
-            ) : team ? (
-              <>
-                <div className="flex items-center justify-between flex-wrap gap-2">
-                  <p className="font-medium">{team.name}</p>
-                  <p className="text-sm text-muted-foreground">
-                    {activeCount} of {totalSeats || '—'} seats used
-                  </p>
-                </div>
-                {isOwner && (
-                  <>
-                    <div className="flex gap-2 flex-wrap">
-                      <input
-                        type="email"
-                        placeholder="Email to invite"
-                        value={inviteEmail}
-                        onChange={(e) => setInviteEmail(e.target.value)}
-                        className="flex-1 min-w-[200px] rounded-md border border-input bg-background px-3 py-2 text-sm"
-                      />
-                      <Button size="sm" onClick={handleInvite} disabled={inviting || !inviteEmail.trim()}>
-                        {inviting ? 'Sending…' : 'Invite'}
-                      </Button>
-                    </div>
-                    {totalSeats > 0 && activeCount >= totalSeats && (
-                      <p className="text-xs text-amber-600 dark:text-amber-400">
-                        All seats are in use. Add more seats to invite additional members.
-                      </p>
-                    )}
-                    <Button variant="outline" size="sm" onClick={handleAddSeats}>
-                      Add seats (via billing)
-                    </Button>
-                  </>
-                )}
-                <div className="border-t pt-4 space-y-2">
-                  <h4 className="text-sm font-medium">Members</h4>
-                  <ul className="space-y-2">
-                    {members.map((m) => (
-                      <li
-                        key={m.id}
-                        className="flex items-center justify-between gap-2 py-2 px-3 rounded-lg border border-border bg-muted/20"
-                      >
-                        <div>
-                          <span className="font-medium">{m.email}</span>
-                          <span className="text-xs text-muted-foreground ml-2 capitalize">{m.status}</span>
-                          {m.role && (
-                            <Badge variant="outline" className="ml-2 text-xs">
-                              {m.role}
-                            </Badge>
-                          )}
-                        </div>
-                        {isOwner && m.user_id !== user.id && m.status === 'active' && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="text-destructive hover:text-destructive"
-                            onClick={() => handleRemoveMember(m.id)}
-                            disabled={removing === m.id}
-                          >
-                            {removing === m.id ? 'Removing…' : 'Remove'}
-                          </Button>
-                        )}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-                {!isOwner && (
-                  <div className="pt-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="text-destructive border-destructive/30 hover:bg-destructive/10"
-                      onClick={handleLeaveTeam}
-                      disabled={leaving}
-                    >
-                      {leaving ? 'Leaving…' : 'Leave team'}
-                    </Button>
-                  </div>
-                )}
-              </>
-            ) : (
-              <div className="rounded-lg border border-border bg-muted/30 p-4 text-sm text-muted-foreground space-y-3">
-                <p>
-                  No team loaded yet. If you just subscribed, open this page again — a team is created automatically for Workforce subscribers.
-                </p>
-                <p>
-                  Otherwise, accept an invite from a team owner, or use <strong>Invite</strong> above once your team appears.
-                </p>
               </div>
             )}
           </CardContent>
