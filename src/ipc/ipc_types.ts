@@ -463,6 +463,8 @@ export type LanguageModel =
     contextWindow?: number;
     temperature?: number;
     dollarSigns?: number;
+    /** Real USD price per 1M tokens from the models.dev catalog (when known). */
+    cost?: { input: number; output: number };
     supportsToolChoice?: boolean;
     type: "local" | "cloud";
   };

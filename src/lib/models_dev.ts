@@ -240,6 +240,7 @@ function toLanguageModel(
     description: m.family ?? "",
     maxOutputTokens: m.limit?.output,
     contextWindow: m.limit?.context ?? 0,
+    cost: m.cost,
     type: "cloud",
   };
 }

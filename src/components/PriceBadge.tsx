@@ -1,17 +1,39 @@
+const basePill = "text-[10px] px-1.5 py-0.5 rounded-full font-medium";
 
+/**
+ * Model price badge:
+ *  - Atlarix Core → "Paid" (pay-as-you-go metered credit, not free).
+ *  - Priced BYOK/catalog models → real output price per 1M tokens (models.dev).
+ *  - Local models + genuinely $0 models → "Free".
+ */
 export function PriceBadge({
-  dollarSigns,
+  cost,
+  isCore,
 }: {
-  dollarSigns: number | undefined;
+  cost?: { input: number; output: number };
+  isCore?: boolean;
 }) {
-  if (dollarSigns === undefined || dollarSigns === null) return null;
+  if (isCore) {
+    return <span className={`${basePill} bg-primary/10 text-primary`}>Paid</span>;
+  }
 
-  const label = dollarSigns === 0 ? "Free" : "$";
+  const out = cost?.output ?? 0;
+  const inp = cost?.input ?? 0;
+  const priced = out > 0 || inp > 0;
 
-  const className =
-    dollarSigns === 0
-      ? "text-[10px] text-primary border border-primary px-1.5 py-0.5 rounded-full font-medium"
-      : "text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded-full font-medium";
+  if (!priced) {
+    return (
+      <span className={`${basePill} text-primary border border-primary`}>Free</span>
+    );
+  }
 
-  return <span className={className}>{label}</span>;
+  const label = out >= 1 ? `$${out.toFixed(2)}/M` : `$${out.toFixed(3)}/M`;
+  return (
+    <span
+      className={`${basePill} bg-primary/10 text-primary`}
+      title={`Per 1M tokens — input $${inp}, output $${out}`}
+    >
+      {label}
+    </span>
+  );
 }

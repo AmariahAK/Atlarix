@@ -154,7 +154,8 @@ export function ModelPickerSheetContent({
                               {model.displayName}
                             </span>
                             <PriceBadge
-                              dollarSigns={model.dollarSigns ?? 0}
+                              cost={"cost" in model ? model.cost : undefined}
+                              isCore={providerId === "compass"}
                             />
                           </button>
                         ))

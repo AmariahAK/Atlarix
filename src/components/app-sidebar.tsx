@@ -32,6 +32,7 @@ import { AppList } from "./AppList";
 import { HelpDialog } from "./HelpDialog"; // Import the new dialog
 import { SettingsList } from "./SettingsList";
 import { triggerUpgrade } from "@/hooks/useUpgrade";
+import { useCreditBalance } from "@/hooks/useCreditBalance";
 
 // Menu items.
 const items = [
@@ -69,6 +70,7 @@ export function AppSidebar() {
   const [isHelpDialogOpen, setIsHelpDialogOpen] = useState(false); // State for dialog
   const [isDropdownOpen] = useAtom(dropdownOpenAtom);
   const [showAuthMenu, setShowAuthMenu] = useState(false);
+  const { balanceCents } = useCreditBalance();
 
   // Auth hook for OAuth login
   const {
@@ -190,6 +192,14 @@ export function AppSidebar() {
                       <div className="text-sm font-medium truncate" title={user.email}>
                         {user.email}
                       </div>
+                    </div>
+
+                    {/* Atlarix Core credit balance (PAYG) — shown above the plan */}
+                    <div className="flex items-center justify-between px-2 pb-2 mb-2 border-b border-border">
+                      <span className="text-xs text-muted-foreground">Core credit</span>
+                      <span className="text-sm font-semibold text-foreground tabular-nums">
+                        {typeof balanceCents === "number" ? `$${(balanceCents / 100).toFixed(2)}` : "—"}
+                      </span>
                     </div>
 
                     {/* Plan badge with upgrade/manage button */}
