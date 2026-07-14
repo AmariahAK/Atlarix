@@ -17,7 +17,7 @@ function openAiSettings() {
 }
 
 /** Stable phrases emitted by the Compass token-pool guard (see compass_constants.ts). */
-const COMPASS_EXHAUSTED_MARKER = "Atlarix Core usage for this month is over";
+const COMPASS_EXHAUSTED_MARKER = "Atlarix Core credit is used up";
 const COMPASS_REACHABILITY_MARKER = "trouble reaching Atlarix Core";
 
 export function ChatErrorBox({
@@ -29,16 +29,14 @@ export function ChatErrorBox({
   error: string;
   isAtlarixProEnabled: boolean;
 }) {
-  // Atlarix Core monthly token pool exhausted — offer upgrade + switch to
-  // another provider/model (BYOK) without losing the chat.
+  // Atlarix Core credit used up (PAYG) — top up, or switch to a BYOK model,
+  // without losing the chat.
   if (error.includes(COMPASS_EXHAUSTED_MARKER)) {
     return (
       <ChatInfoContainer onDismiss={onDismiss}>
         <span>{error.replace(AI_STREAMING_ERROR_MESSAGE_PREFIX, "")}</span>
         <div className="mt-2 space-y-2 space-x-2">
-          {!isAtlarixProEnabled && (
-            <UpgradeButton>Upgrade for more</UpgradeButton>
-          )}
+          <TopUpButton>Top up credit</TopUpButton>
           <SwitchProviderButton>Choose another model</SwitchProviderButton>
         </div>
       </ChatInfoContainer>
@@ -225,6 +223,20 @@ function UpgradeButton({ children }: { children: React.ReactNode }) {
     >
       <span>{children}</span>
       <CircleArrowUp size={18} />
+    </a>
+  );
+}
+
+/** Opens Settings → AI where the Atlarix Core credit balance + top-up live. */
+function TopUpButton({ children }: { children: React.ReactNode }) {
+  const baseClasses =
+    "cursor-pointer inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium shadow-sm focus:outline-none focus:ring-2";
+  const primaryClasses =
+    "bg-blue-600 text-white hover:bg-blue-700 focus:ring-blue-300";
+  return (
+    <a className={`${baseClasses} ${primaryClasses}`} onClick={openAiSettings}>
+      <span>{children}</span>
+      <CircleArrowUp size={14} />
     </a>
   );
 }

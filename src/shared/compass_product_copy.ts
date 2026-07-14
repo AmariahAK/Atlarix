@@ -3,9 +3,9 @@
 export const ATLARIX_CORE_CATEGORY_LABEL = "Atlarix Core";
 
 /**
- * Label for the subscription tier returned by Supabase (`get_compass_usage_state` / `users.plan`·`effective_tier`).
+ * Label for the subscription tier (users.plan / effective_tier from Supabase).
  * Billing is owned by Lemon Squeezy → Supabase; the app only displays this value.
- * Plans gate the monthly token quota only — every plan can use all Core models.
+ * Atlarix Core is pay-as-you-go (prepaid credit) on every plan, so this is display-only.
  */
 export function formatCompassSubscriptionTier(
   tier: string | null | undefined,

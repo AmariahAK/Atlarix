@@ -223,7 +223,7 @@ export function FirstRunWizard() {
                 Models & providers
               </DialogTitle>
               <DialogDescription>
-                Use Atlarix Core (managed) or bring your own keys.
+                Use Atlarix Core (pay-as-you-go — $1 free to start) or bring your own keys.
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-2 text-sm">

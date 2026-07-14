@@ -12,9 +12,9 @@ export function CompassProviderSettings() {
   return (
     <div className="mt-6 space-y-6">
       <p className="text-sm text-muted-foreground">
-        <strong>{ATLARIX_CORE_CATEGORY_LABEL}</strong> models are included with your
-        Atlarix subscription and billed against your monthly token quota (not BYOK).
-        Every plan can use all Core models — usage is metered by tokens, not by tier.
+        <strong>{ATLARIX_CORE_CATEGORY_LABEL}</strong> models are pay-as-you-go —
+        metered at cost from your prepaid credit balance (no API key needed). Every
+        plan can use all Core models; top up your balance any time below.
       </p>
 
       <div className="space-y-4">
