@@ -16,13 +16,14 @@ import dotenv from "dotenv";
 import { createClient } from "@supabase/supabase-js";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
-const LOG_FILE = join(ROOT, "scripts", ".outreach-sent.log.json");
+// Campaign-specific log so this send does NOT dedup against earlier campaigns.
+const LOG_FILE = join(ROOT, "scripts", ".outreach-token-wall.log.json");
 
 const EXCLUDED_EMAILS = new Set(
   ["amariah.abish@gmail.com", "amani.kamau06@gmail.com"].map((e) => e.toLowerCase()),
 );
 
-const SUBJECT = "Quick question about how you use Atlarix";
+const SUBJECT = "The token wall is gone (and thank you)";
 const PREFERRED_FROM = "Amariah <amariah@atlarix.dev>";
 const DEFAULT_REPLY_TO = "amariah@atlarix.dev";
 const THROTTLE_MS = 600;
@@ -74,23 +75,41 @@ function deriveFirstName(user) {
 }
 
 function buildBodies(firstName) {
-  const text = `Hi ${firstName},
+  const text = `Hey ${firstName},
 
-One question — are you using Atlarix on client work or just personal projects?
+Two things.
 
-Trying to understand who actually finds it useful before I build anything new.
+One — thank you. Your feedback and the way you've pushed Atlarix is why it's now a recognized contributor to real open-source projects: Qwen Code (Alibaba), Crawlee (Apify), and PdfDing. That only happens when the harness genuinely works. That's on you.
 
-Amariah
+Two — you told us the token limit ran out too fast. We listened, and we rebuilt it.
 
-You can reply to this email, or write to amariah@atlarix.dev.`;
+No more capped free pool. Now you can:
+- Run free with your own model — DeepSeek, Qwen, or local via Ollama. No wall, no limit.
+- Or go pay-as-you-go — we handle the model, you pay only for what you use.
+
+Same harness. Same speed and security. Just no ceiling.
+
+One quick step: you'll need to re-download Atlarix to get this update. This release adds automatic updates — so this is the last time you'll ever have to update it by hand. Grab it here: https://www.atlarix.dev/#download
+
+Thanks for building this with us.
+
+— Amariah, Atlarix`;
 
   const html = `<!DOCTYPE html>
-<html><body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;line-height:1.5;color:#0f172a;">
-<p>Hi ${escapeHtml(firstName)},</p>
-<p>One question — are you using Atlarix on client work or just personal projects?</p>
-<p>Trying to understand who actually finds it useful before I build anything new.</p>
-<p>Amariah</p>
-<p style="color:#64748b;font-size:14px;">You can reply to this email, or write to <a href="mailto:amariah@atlarix.dev">amariah@atlarix.dev</a>.</p>
+<html><body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;line-height:1.6;color:#0f172a;max-width:560px;">
+<p>Hey ${escapeHtml(firstName)},</p>
+<p>Two things.</p>
+<p><strong>One — thank you.</strong> Your feedback and the way you've pushed Atlarix is why it's now a recognized contributor to real open-source projects: Qwen Code (Alibaba), Crawlee (Apify), and PdfDing. That only happens when the harness genuinely works. That's on you.</p>
+<p><strong>Two — you told us the token limit ran out too fast.</strong> We listened, and we rebuilt it.</p>
+<p>No more capped free pool. Now you can:</p>
+<ul>
+<li>Run free with your own model — DeepSeek, Qwen, or local via Ollama. No wall, no limit.</li>
+<li>Or go pay-as-you-go — we handle the model, you pay only for what you use.</li>
+</ul>
+<p>Same harness. Same speed and security. Just no ceiling.</p>
+<p>One quick step: you'll need to re-download Atlarix to get this update. This release adds automatic updates — so this is the last time you'll ever have to update it by hand. <a href="https://www.atlarix.dev/#download">Grab it here</a>.</p>
+<p>Thanks for building this with us.</p>
+<p>— Amariah, Atlarix</p>
 </body></html>`;
 
   return { text, html };
@@ -236,12 +255,6 @@ async function main() {
   console.log(`Already sent (skipped): ${recipients.length - pending.length}`);
   console.log(`To send this run: ${pending.length}`);
 
-  if (recipients.length !== 53 && !ONLY_EMAIL && LIMIT == null) {
-    console.warn(
-      `WARNING: expected 53 recipients; got ${recipients.length}. Review list before bulk send.`,
-    );
-  }
-
   if (DRY_RUN) {
     console.log("\n--- DRY RUN (no emails sent) ---\n");
     for (const r of pending.slice(0, 5)) {
@@ -352,9 +365,6 @@ async function main() {
   }
 
   console.log(`\nDone. Sent: ${sent}, Failed: ${failed}, Total targeted: ${pending.length}`);
-  if (sent !== 53 && !ONLY_EMAIL && LIMIT == null) {
-    console.warn(`Expected 53 successful sends; got ${sent}. Check failures and log.`);
-  }
 }
 
 main().catch((err) => {

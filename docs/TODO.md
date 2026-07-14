@@ -1,7 +1,34 @@
 # Atlarix TODO
 
-**Current Version:** v14.10.0 (RELEASED — Latest on atlarix-releases) — command permissions rebuilt + accuracy skills + streaming/UI overhaul over v14.9.1
-**Last Updated:** 2026-07-12
+**Current Version:** v14.11.0 (RELEASED — Latest on atlarix-releases) — pricing reframe: Free + Pro + PAYG credits; Team tier removed; Core → prepaid credit wallet
+**Last Updated:** 2026-07-14
+
+## ✅ Shipped in v14.11.0 (2026-07-14)
+
+Full detail in [`docs/CHANGELOG.md`](./CHANGELOG.md) `[14.11.0]`. `npm run check` 0/0, vitest **1572** green.
+Multi-repo (app + proxy + edge fns + Supabase migrations + launchpad); backend applied/deployed in prod.
+
+- **Pricing reframe — Free + Pro + PAYG credits.** No tier bundles AI; Atlarix Core is pay-as-you-go
+  prepaid credit on every tier. Team/`workforce` tier removed (connectors → Pro); Studio→Pro, Solo→Free.
+- **Credit wallet + metering.** `credit_wallet` ledger + idempotent RPCs; proxy meters real OpenRouter
+  cost +40% markup behind a **per-call cost reserve gate** (402 `insufficient_credit`) + 503
+  `core_unavailable` + owner Discord alert. LS single credit product via `custom_price`; order webhook
+  credits/claws back.
+- **App.** Wallet UI (balance + additive top-up), automations gate (Free 2 / Pro 10), $1 trial credit,
+  low-balance nudge, Team teardown, dead DB-Studio-legacy removed, avatar CSP fix, model-picker Core→"Paid".
+- **vNEXT (`8d1e990`).** Voice-to-text (Whisper + BYOK cloud), live token counters, attachment dedup,
+  image-gate removed, DB-closing guard, optimistic stop + mid-stream edit.
+- **Launchpad.** Pricing → PAYG, Docs accuracy pass, Team pages removed.
+
+## 🔜 Deferred / next
+
+- **Model-picker per-provider real pricing.** Picker shows "Free" for OpenRouter/DeepSeek: those models
+  come from the provider's **native `/models`** path (`ipc/shared/language_model_helpers.ts`), which — unlike
+  OpenRouter's API — carries no cost, so only models built via the models.dev fallback thread `cost`. Merge
+  the models.dev catalog `cost` into natively-fetched models so `PriceBadge` shows real `$/M` (Core already
+  shows "Paid", locals "Free"). Optional: input/output dual-rate display.
+- **Runtime-verify voice mic + DB shutdown-race** on a packaged build (voice confirmed working by owner
+  2026-07-14; shutdown-guard committed, not stress-verified).
 
 ## ✅ Shipped in v14.10.0 (2026-07-12)
 
@@ -93,10 +120,6 @@ Full detail in [`docs/CHANGELOG.md`](./CHANGELOG.md) `[14.8.13]`.
 
 ## Open follow-ups
 
-- **Stale removed-tool references in the prompt (from v14.10.0).** `system_prompt.ts:290` +
-  `workspace-capabilities.ts:85` still tell the model to call `get_active_skills` /
-  `list_installed_skills`, which were deleted. 2-line fix (drop or repoint the guidance); the
-  Visual Artifacts guide is still injected always-on so no capability is lost.
 - **Optional default `.atlarix/permissions.json` ask-ruleset for outward commands** (from v14.10.0).
   Build mode now auto-runs plain `git push`/`npm publish`/deploy (Codex workspace-write behavior);
   force-push/exfil/credential-reads still ask. If auto-run feels too loose, ship a default `ask` ruleset

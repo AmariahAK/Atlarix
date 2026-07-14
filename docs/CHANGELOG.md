@@ -3,6 +3,53 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
+## [14.11.0] (2026-07-14) — Pricing reframe: Free + Pro + PAYG credits
+
+`npm run check` 0/0, vitest **1572** green. Multi-repo refactor (app + proxy + edge functions +
+Supabase migrations + launchpad). Backend migrations applied to prod; proxy + edge functions deployed.
+
+### Changed
+- **Pricing reframe — no tier bundles AI.** Atlarix is a harness, not an AI provider: **Atlarix Core is
+  pay-as-you-go prepaid credit on every tier**. The **Team/`workforce` tier is removed** (its one-click
+  OAuth connectors fold into Pro); "Studio"→"Pro", "Solo"→"Free". Free = full harness on BYOK/local +
+  bounded scale (1 workspace, 1 MCP/ws, 2 automations); Pro ($19/mo) = unlimited workspaces, 10 MCP/ws,
+  10 automations, marketplace + connectors.
+- **Metering → credit wallet.** The monthly token *allowance* (`compass_tokens`) is replaced by a dollar
+  *balance* (`credit_wallet` + append-only `credit_transactions`, idempotent SECURITY DEFINER RPCs). The
+  proxy meters the **real OpenRouter cost + 40% markup**, and **gates each call on a per-call cost
+  reserve** (est input + max output × price × markup) — a user always affords the call they start; it
+  never aborts mid-stream. Two exhaustion cases split cleanly: user out of credit → **402
+  `insufficient_credit`** (top-up message); managed key fails → **503 `core_unavailable`** + neutral
+  "overloaded" message + owner Discord alert (`CORE_ALERT_WEBHOOK_URL`).
+
+### Added
+- **PAYG wallet UI** — credit balance + **additive top-up tally** ($10/$20/$50/custom, running total +
+  reset + confirm, $10 min) via a single LemonSqueezy "Atlarix Core Credit" product with per-checkout
+  `custom_price`; `order_created`/`order_refunded` webhook credits/claws back. Balance shown in the token
+  bar and account menu.
+- **Automations gate** (net-new): Free 2 / Pro 10 per workspace. **One-time $1 signup trial credit**
+  (`claim_signup_credit`, fired on sign-in). **Low-balance nudge** (one-time toast under $1).
+- **vNEXT (commit `8d1e990`).** Voice-to-text (on-device Whisper + BYOK cloud), live provider-usage token
+  counters (main + per-sub-agent), unified content-hash attachment dedup, image-gate removed (user images
+  → any model), DB-closing guard, optimistic stop + mid-stream edit.
+
+### Fixed
+- OAuth **avatar CSP** (GitHub/Google profile pictures were blocked → placeholder).
+- Model picker labels Atlarix Core as **"Paid"** (was "Free").
+- Wallet RPC idempotency index (`ON CONFLICT (kind, ref)` needs a non-partial unique index — the partial
+  index silently failed every wallet write, incl. debits).
+- Two chat nits: empty state reads "What are we building?"; the duplicate New-chat header removed.
+
+### Removed
+- Team/`workforce` tier surface (team-service, team handlers, invite banner, upgrade-choice dialog,
+  workforce checkout/IPC). Dead **DB-Studio-legacy** plumbing. Launchpad Team pages + stale allowance/
+  Blueprint docs claims.
+
+### Migrations (Supabase `oubgrpkqyyjwytspycpd`, applied to prod)
+- `20260714120000_credit_wallet` (wallet + RPCs) · `20260714140000_fix_credit_conflict_index` (index fix)
+  · `20260714130000_pricing_reframe_teardown` (drop teams + compass allowance, tiers → `free|pro`, rewrite
+  the users guard trigger).
+
 ## [14.10.0] (2026-07-12) — Command permissions rebuilt + accuracy skills + streaming/UI overhaul
 
 Net **−362 lines**; `npm run check` 0/0, vitest 1566 green, knip clean, packaged self-test 4/4.
