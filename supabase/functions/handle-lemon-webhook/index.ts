@@ -4,16 +4,23 @@ import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 /**
  * LemonSqueezy Webhook Handler
  * ============================
- * Receives subscription events from LemonSqueezy and updates user plans.
- * 
- * IMPORTANT: This function must be publicly accessible (no auth required)
- * because LemonSqueezy sends webhooks without Supabase auth tokens.
- * We verify the request using LemonSqueezy's HMAC signature instead.
+ * Two responsibilities under the PAYG reframe:
+ *   1. subscription_* events -> Atlarix Pro entitlement on public.users.
+ *   2. order_created / order_refunded for the "Atlarix Core Credit" product ->
+ *      credit / claw back the PAYG wallet (public.credit_wallet).
+ *
+ * IMPORTANT: publicly accessible (LemonSqueezy sends no Supabase auth token); we
+ * verify the HMAC signature instead. The account to mutate is always resolved
+ * from the TRUSTED supabase_user_id our create-checkout edge function embeds in
+ * the checkout custom_data (server-set from the caller's JWT), never the
+ * attacker-controlled payload email (SB-07).
  */
 
 const WEBHOOK_SECRET = Deno.env.get('LEMONSQUEEZY_WEBHOOK_SECRET');
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL');
-const SUPABASE_SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+// New API-key system: prefer the secret key; fall back to the auto-injected legacy service_role.
+const SUPABASE_SERVICE_KEY =
+    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? Deno.env.get('NEXT_PUBLIC_SUPABASE_SECRET_KEY');
 
 // HMAC-SHA256 signature verification
 async function verifySignature(payload: string, signature: string | null): Promise<boolean> {
@@ -56,6 +63,13 @@ function timingSafeEqualHex(a: string, b: string): boolean {
     return result === 0;
 }
 
+function jsonResponse(body: Record<string, unknown>, status = 200): Response {
+    return new Response(JSON.stringify(body), {
+        status,
+        headers: { 'Content-Type': 'application/json' },
+    });
+}
+
 serve(async (req: Request) => {
     // Handle CORS preflight
     if (req.method === 'OPTIONS') {
@@ -68,33 +82,20 @@ serve(async (req: Request) => {
         });
     }
 
-    // Only accept POST requests
     if (req.method !== 'POST') {
         return new Response('Method not allowed', { status: 405 });
     }
 
     try {
-        // Get the raw body for signature verification
         const body = await req.text();
         const signature = req.headers.get('X-Signature');
 
-        console.log('[Webhook] Received request');
-        console.log('[Webhook] Has signature:', !!signature);
-        console.log('[Webhook] Has webhook secret:', !!WEBHOOK_SECRET);
-
-        // Verify webhook signature
         const isValid = await verifySignature(body, signature);
         if (!isValid) {
             console.error('[Webhook] Invalid signature');
-            return new Response(JSON.stringify({ error: 'Invalid signature' }), {
-                status: 401,
-                headers: { 'Content-Type': 'application/json' }
-            });
+            return jsonResponse({ error: 'Invalid signature' }, 401);
         }
 
-        console.log('[Webhook] Signature verified successfully');
-
-        // Parse the event
         const event = JSON.parse(body);
         const eventName = event.meta?.event_name;
         const data = event.data?.attributes;
@@ -102,78 +103,122 @@ serve(async (req: Request) => {
 
         console.log(`[Webhook] Event type: ${eventName}`);
 
-        // Email is INFORMATIONAL ONLY now (audit trail / team-name default). It is
-        // attacker-controlled (it comes from the subscriber's own checkout), so it
-        // must NEVER be the key we mutate accounts by (SB-07).
+        // Email is INFORMATIONAL ONLY (attacker-controlled). Never the mutation key.
         const customerEmail = data?.user_email ?? null;
 
-        // SB-07: the account to mutate is resolved from a TRUSTED id — the
-        // supabase_user_id our own create-checkout edge function embeds in the
-        // checkout custom_data (server-set from the caller's JWT), echoed back on
-        // every webhook as event.meta.custom_data. `user_id` is accepted as a
-        // legacy alias for in-flight checkouts created before the rename.
+        // SB-07: the account to mutate is resolved from the TRUSTED supabase_user_id
+        // our create-checkout edge function embeds in the checkout custom_data
+        // (server-set from the caller's JWT), echoed back on every webhook.
         const customData = event.meta?.custom_data ?? {};
         const customUserId = String(customData.supabase_user_id ?? customData.user_id ?? '').trim();
+        const kind = String(customData.kind ?? '').trim();
 
         if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
             console.error('[Webhook] Missing Supabase credentials');
-            return new Response(JSON.stringify({ error: 'Server configuration error' }), {
-                status: 500,
-                headers: { 'Content-Type': 'application/json' }
-            });
+            return jsonResponse({ error: 'Server configuration error' }, 500);
         }
 
         const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
 
-        // Infer tier from variant_id (Workforce = monthly variant only; no annual)
-        const variantId = data?.variant_id?.toString() ?? '';
-        const workforceVariantId = Deno.env.get('LEMONSQUEEZY_WORKFORCE_VARIANT_ID') ?? '';
-        // v10.1 guard: an unset variant env would silently classify every
-        // Workforce subscriber as Pro (and '' === '' would do the inverse).
-        // Fail loudly so Lemon retries after the env is fixed.
-        if (!workforceVariantId) {
-            console.error('[Webhook] LEMONSQUEEZY_WORKFORCE_VARIANT_ID is not configured');
-            return new Response(
-                JSON.stringify({ error: 'LEMONSQUEEZY_WORKFORCE_VARIANT_ID not configured' }),
-                { status: 500, headers: { 'Content-Type': 'application/json' } },
-            );
-        }
-        const isWorkforce = variantId === workforceVariantId;
-
         switch (eventName) {
+            // -----------------------------------------------------------------
+            // PAYG credit top-up. Only the "Atlarix Core Credit" product carries
+            // custom_data.kind === 'credit'. Subscription first-orders also fire
+            // order_created but are handled by the subscription_* events, so we
+            // skip anything that isn't a credit order.
+            // -----------------------------------------------------------------
+            case 'order_created': {
+                if (kind !== 'credit') {
+                    console.log('[Webhook] order_created is not a credit top-up; skipping');
+                    break;
+                }
+                const orderId = String(event.data?.id ?? '');
+                // LS money fields are integer cents. Credit the pre-tax subtotal —
+                // the amount the buyer chose; MoR tax is added on top and is not credit.
+                const subtotalCents = Number(data?.subtotal ?? 0);
+                if (!customUserId) {
+                    console.error('[Webhook] credit order missing trusted supabase_user_id');
+                    return jsonResponse({ error: 'Missing supabase_user_id in custom_data' }, 400);
+                }
+                if (!orderId || !Number.isFinite(subtotalCents) || subtotalCents <= 0) {
+                    console.error('[Webhook] credit order missing order_id/amount');
+                    return jsonResponse({ error: 'Invalid credit order' }, 400);
+                }
+                const { error: creditErr } = await supabase.rpc('credit_wallet_service', {
+                    p_user_id: customUserId,
+                    p_cents: Math.round(subtotalCents),
+                    p_kind: 'topup',
+                    p_ref: orderId,
+                });
+                if (creditErr) {
+                    console.error('[Webhook] credit_wallet_service failed:', creditErr);
+                    return jsonResponse({ error: 'Wallet credit failed' }, 500);
+                }
+                console.log(`[Webhook] credited ${subtotalCents}c to ${customUserId} (order ${orderId})`);
+                break;
+            }
+
+            // Refund of a credit top-up -> claw back the credited amount. Idempotent
+            // on ('refund', order_id), distinct from the ('topup', order_id) row.
+            case 'order_refunded': {
+                if (kind !== 'credit') {
+                    console.log('[Webhook] order_refunded is not a credit order; skipping');
+                    break;
+                }
+                const orderId = String(event.data?.id ?? '');
+                const subtotalCents = Number(data?.subtotal ?? 0);
+                if (!customUserId || !orderId || !Number.isFinite(subtotalCents) || subtotalCents <= 0) {
+                    console.log('[Webhook] refund missing user/order/amount; skipping');
+                    break;
+                }
+                const { error: refundErr } = await supabase.rpc('credit_wallet_service', {
+                    p_user_id: customUserId,
+                    p_cents: -Math.round(subtotalCents),
+                    p_kind: 'refund',
+                    p_ref: orderId,
+                });
+                if (refundErr) {
+                    console.error('[Webhook] refund clawback failed:', refundErr);
+                    return jsonResponse({ error: 'Wallet refund failed' }, 500);
+                }
+                console.log(`[Webhook] clawed back ${subtotalCents}c from ${customUserId} (order ${orderId})`);
+                break;
+            }
+
+            // -----------------------------------------------------------------
+            // Atlarix Pro subscription lifecycle. Only one paid plan now: 'pro'.
+            // -----------------------------------------------------------------
             case 'subscription_created':
             case 'subscription_updated': {
                 const status = data?.status ?? '';
                 const renewsAt = data?.renews_at || null;
                 const endsAt = data?.ends_at || null;
+                const variantId = data?.variant_id?.toString() ?? '';
                 const isActive = ['active', 'on_trial'].includes(status);
 
-                // Resolve target by trusted id, else by the existing subscription
-                // link (covers renewals/updates on already-provisioned subs). Never
-                // by the payload email.
+                // Resolve target by trusted id, else by existing subscription link.
                 let existingUser: { id: string } | null = null;
                 if (customUserId) {
-                    const { data } = await supabase.from('users').select('id').eq('id', customUserId).maybeSingle();
-                    existingUser = data;
+                    const { data: u } = await supabase.from('users').select('id').eq('id', customUserId).maybeSingle();
+                    existingUser = u;
                 }
                 if (!existingUser && subscriptionId) {
-                    const { data } = await supabase.from('users').select('id').eq('lemon_subscription_id', subscriptionId).maybeSingle();
-                    existingUser = data;
+                    const { data: u } = await supabase.from('users').select('id').eq('lemon_subscription_id', subscriptionId).maybeSingle();
+                    existingUser = u;
                 }
 
-                // Cancelled but still in paid period: set tier from variant so plan is not left as free if active events were missed.
+                // Cancelled but still in paid period: keep Pro until period end.
                 if (status === 'cancelled') {
                     if (!existingUser) {
-                        console.log('[Webhook] subscription_updated cancelled but no user row; skipping');
+                        console.log('[Webhook] cancelled but no user row; skipping');
                         break;
                     }
                     const periodEnd = endsAt || renewsAt;
-                    const paidPlan = isWorkforce ? 'workforce' : 'pro';
-                    const { error: cancelErr } = await supabase
+                    const { error } = await supabase
                         .from('users')
                         .update({
-                            plan: paidPlan,
-                            effective_tier: paidPlan,
+                            plan: 'pro',
+                            effective_tier: 'pro',
                             lemon_variant_id: variantId || null,
                             subscription_status: 'cancelled',
                             subscription_ends_at: periodEnd,
@@ -183,57 +228,41 @@ serve(async (req: Request) => {
                             updated_at: new Date().toISOString(),
                         })
                         .eq('id', existingUser.id);
-                    if (cancelErr) {
-                        console.error('[Webhook] Cancelled update error:', cancelErr);
-                        return new Response(JSON.stringify({ error: 'Database update error' }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+                    if (error) {
+                        console.error('[Webhook] cancelled update error:', error);
+                        return jsonResponse({ error: 'Database update error' }, 500);
                     }
-                    console.log(`[Webhook] Cancelled (access until ${periodEnd}) for ${customerEmail}`);
                     break;
                 }
 
-                // Definitive expiry in payload (some billing events): downgrade immediately
+                // Definitive expiry: downgrade to free immediately.
                 if (status === 'expired') {
-                    const { data: team } = await supabase.from('teams').select('id').eq('lemonsqueezy_subscription_id', subscriptionId).maybeSingle();
-                    if (team) {
-                        await supabase.from('team_members').update({ status: 'removed' }).eq('team_id', team.id);
-                        await supabase.from('teams').update({ active: false, updated_at: new Date().toISOString() }).eq('id', team.id);
-                        const { data: members } = await supabase.from('team_members').select('user_id').eq('team_id', team.id);
-                        for (const m of members ?? []) {
-                            if (m.user_id) {
-                                const { data: u } = await supabase.from('users').select('plan').eq('id', m.user_id).single();
-                                await supabase.from('users').update({ team_id: null, effective_tier: u?.plan ?? 'free', updated_at: new Date().toISOString() }).eq('id', m.user_id);
-                            }
-                        }
-                    }
-                    const { error: expErr } = await supabase
+                    const { error } = await supabase
                         .from('users')
                         .update({
                             plan: 'free',
                             effective_tier: 'free',
                             subscription_status: 'expired',
                             subscription_ends_at: null,
-                            team_id: null,
                             updated_at: new Date().toISOString(),
                         })
                         .eq('lemon_subscription_id', subscriptionId);
-                    if (expErr) console.error('[Webhook] Expired status update error:', expErr);
+                    if (error) console.error('[Webhook] expired update error:', error);
                     break;
                 }
 
                 if (!existingUser) {
-                    // No trusted target. We only ever provision a row keyed by the
-                    // trusted supabase_user_id — never by the payload email (SB-07).
                     if (!customUserId) {
-                        console.error('[Webhook] No trusted supabase_user_id in custom_data and no subscription link; refusing to provision by email');
-                        return new Response(JSON.stringify({ error: 'Missing supabase_user_id in checkout custom_data' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+                        console.error('[Webhook] no trusted supabase_user_id and no subscription link; refusing to provision by email');
+                        return jsonResponse({ error: 'Missing supabase_user_id in checkout custom_data' }, 400);
                     }
                     const { error: insertError } = await supabase
                         .from('users')
                         .insert({
                             id: customUserId,
                             email: customerEmail,
-                            plan: isActive ? (isWorkforce ? 'workforce' : 'pro') : 'free',
-                            effective_tier: isActive ? (isWorkforce ? 'workforce' : 'pro') : 'free',
+                            plan: isActive ? 'pro' : 'free',
+                            effective_tier: isActive ? 'pro' : 'free',
                             lemon_variant_id: variantId || null,
                             lemon_subscription_id: subscriptionId,
                             lemon_customer_id: String(data?.customer_id),
@@ -242,33 +271,12 @@ serve(async (req: Request) => {
                             customer_portal_url: data?.urls?.customer_portal || null,
                         });
                     if (insertError) {
-                        console.error('[Webhook] Insert error:', insertError);
-                        return new Response(JSON.stringify({ error: 'Database insert error' }), { status: 500, headers: { 'Content-Type': 'application/json' } });
-                    }
-                    if (isActive && isWorkforce) {
-                        const newUserId = customUserId;
-                        {
-                            const { data: existingTeam } = await supabase.from('teams').select('id').eq('lemonsqueezy_subscription_id', subscriptionId).maybeSingle();
-                            if (!existingTeam) {
-                                const { error: teamErr } = await supabase.from('teams').insert({
-                                    owner_user_id: newUserId,
-                                    lemonsqueezy_subscription_id: subscriptionId,
-                                    name: `Team ${(customerEmail || 'workspace').split('@')[0]}`,
-                                    tier: 'workforce',
-                                    seat_limit: 5,
-                                    extra_seats: 0,
-                                    active: true,
-                                });
-                                if (teamErr) console.error('[Webhook] Team insert error:', teamErr);
-                            }
-                        }
+                        console.error('[Webhook] insert error:', insertError);
+                        return jsonResponse({ error: 'Database insert error' }, 500);
                     }
                 } else {
-                    // Active / trial: set paid tier. Other non-terminal states (e.g. past_due, paused): update status and period hints but do NOT downgrade to free.
-                    const paidPlan = isWorkforce ? 'workforce' : 'pro';
-                    const plan = isActive ? paidPlan : undefined;
-                    const effectiveTier = isActive ? paidPlan : undefined;
-
+                    // Active/trial -> Pro. Other non-terminal states (past_due, paused):
+                    // update status/period hints but do NOT downgrade to free.
                     const updateRow: Record<string, unknown> = {
                         lemon_variant_id: variantId || null,
                         lemon_subscription_id: subscriptionId,
@@ -279,76 +287,42 @@ serve(async (req: Request) => {
                         updated_at: new Date().toISOString(),
                     };
                     if (isActive) {
-                        updateRow.plan = plan;
-                        updateRow.effective_tier = effectiveTier;
+                        updateRow.plan = 'pro';
+                        updateRow.effective_tier = 'pro';
                     }
-
                     const { error: updateError } = await supabase
                         .from('users')
                         .update(updateRow)
                         .eq('id', existingUser.id);
                     if (updateError) {
-                        console.error('[Webhook] Update error:', updateError);
-                        return new Response(JSON.stringify({ error: 'Database update error' }), { status: 500, headers: { 'Content-Type': 'application/json' } });
-                    }
-                    if (isActive && isWorkforce) {
-                        const { data: existingTeam } = await supabase.from('teams').select('id').eq('lemonsqueezy_subscription_id', subscriptionId).maybeSingle();
-                        if (!existingTeam) {
-                            const { error: teamInsErr } = await supabase.from('teams').insert({
-                                owner_user_id: existingUser.id,
-                                lemonsqueezy_subscription_id: subscriptionId,
-                                name: `Team ${(customerEmail || 'workspace').split('@')[0]}`,
-                                tier: 'workforce',
-                                seat_limit: 5,
-                                extra_seats: 0,
-                                active: true,
-                            });
-                            if (teamInsErr) console.error('[Webhook] Team insert error:', teamInsErr);
-                        } else {
-                            const { error: teamUpd } = await supabase.from('teams').update({ active: true, updated_at: new Date().toISOString() }).eq('id', existingTeam.id);
-                            if (teamUpd) console.error('[Webhook] Team update error:', teamUpd);
-                        }
+                        console.error('[Webhook] update error:', updateError);
+                        return jsonResponse({ error: 'Database update error' }, 500);
                     }
                 }
-                console.log(`[Webhook] Successfully processed ${eventName} for ${customerEmail}`);
+                console.log(`[Webhook] processed ${eventName} for ${customerEmail}`);
                 break;
             }
 
             case 'subscription_cancelled': {
                 const endsAt = data?.ends_at || null;
-                const variantIdCancelled = data?.variant_id?.toString() ?? '';
-                const workforceVariantCancelled = Deno.env.get('LEMONSQUEEZY_WORKFORCE_VARIANT_ID') ?? '';
-                const isWorkforceCancelled = variantIdCancelled === workforceVariantCancelled;
-                const paidPlanCancelled = isWorkforceCancelled ? 'workforce' : 'pro';
-                // User keeps paid features until subscription_ends_at; align plan with variant if DB was never updated on active.
+                const variantId = data?.variant_id?.toString() ?? '';
+                // Keep Pro until subscription_ends_at.
                 await supabase
                     .from('users')
                     .update({
-                        plan: paidPlanCancelled,
-                        effective_tier: paidPlanCancelled,
-                        lemon_variant_id: variantIdCancelled || null,
+                        plan: 'pro',
+                        effective_tier: 'pro',
+                        lemon_variant_id: variantId || null,
                         subscription_status: 'cancelled',
                         subscription_ends_at: endsAt,
                         updated_at: new Date().toISOString(),
                     })
                     .eq('lemon_subscription_id', subscriptionId);
-                console.log(`[Webhook] Processed ${eventName}, access until: ${endsAt}`);
+                console.log(`[Webhook] processed ${eventName}, access until: ${endsAt}`);
                 break;
             }
 
             case 'subscription_expired': {
-                const { data: team } = await supabase.from('teams').select('id').eq('lemonsqueezy_subscription_id', subscriptionId).maybeSingle();
-                if (team) {
-                    await supabase.from('team_members').update({ status: 'removed' }).eq('team_id', team.id);
-                    await supabase.from('teams').update({ active: false, updated_at: new Date().toISOString() }).eq('id', team.id);
-                    const { data: members } = await supabase.from('team_members').select('user_id').eq('team_id', team.id);
-                    for (const m of members ?? []) {
-                        if (m.user_id) {
-                            const { data: u } = await supabase.from('users').select('plan').eq('id', m.user_id).single();
-                            await supabase.from('users').update({ team_id: null, effective_tier: u?.plan ?? 'free', updated_at: new Date().toISOString() }).eq('id', m.user_id);
-                        }
-                    }
-                }
                 const { error } = await supabase
                     .from('users')
                     .update({
@@ -356,25 +330,19 @@ serve(async (req: Request) => {
                         effective_tier: 'free',
                         subscription_status: 'expired',
                         subscription_ends_at: null,
-                        team_id: null,
                         updated_at: new Date().toISOString(),
                     })
                     .eq('lemon_subscription_id', subscriptionId);
                 if (error) {
-                    console.error('[Webhook] Update error:', error);
-                    return new Response(JSON.stringify({ error: 'Database error' }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+                    console.error('[Webhook] update error:', error);
+                    return jsonResponse({ error: 'Database error' }, 500);
                 }
-                console.log(`[Webhook] Successfully processed ${eventName}`);
+                console.log(`[Webhook] processed ${eventName}`);
                 break;
             }
 
             case 'subscription_payment_failed': {
-                console.log(`[Webhook] Payment failed for subscription ${subscriptionId}; notify owner and grace period`);
-                const { data: team } = await supabase.from('teams').select('owner_user_id').eq('lemonsqueezy_subscription_id', subscriptionId).maybeSingle();
-                if (team) {
-                    const { data: owner } = await supabase.from('users').select('email').eq('id', team.owner_user_id).single();
-                    if (owner?.email) console.log(`[Webhook] Notify owner: ${owner.email}`);
-                }
+                console.log(`[Webhook] payment failed for subscription ${subscriptionId}; grace period`);
                 break;
             }
 
@@ -382,19 +350,9 @@ serve(async (req: Request) => {
                 console.log(`[Webhook] Ignoring event: ${eventName}`);
         }
 
-        return new Response(
-            JSON.stringify({ received: true, event: eventName }),
-            {
-                status: 200,
-                headers: { 'Content-Type': 'application/json' }
-            }
-        );
-
+        return jsonResponse({ received: true, event: eventName }, 200);
     } catch (error) {
         console.error('[Webhook] Error:', error);
-        return new Response(
-            JSON.stringify({ error: 'Internal server error', details: String(error) }),
-            { status: 500, headers: { 'Content-Type': 'application/json' } }
-        );
+        return jsonResponse({ error: 'Internal server error', details: String(error) }, 500);
     }
 });
