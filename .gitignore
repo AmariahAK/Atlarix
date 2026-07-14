@@ -7,6 +7,7 @@ src/lib/monaco/grammars/*
 !src/lib/monaco/grammars/.gitkeep
 
 scripts/.outreach-sent.log.json
+scripts/.outreach-*.log.json
 scripts/.feedback-outreach-v85-sent.jsonl
 
 # Supabase local audit dumps (not committed)

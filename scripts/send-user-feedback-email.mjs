@@ -69,7 +69,11 @@ function deriveFirstName(user) {
   const local = email.split("@")[0] || "";
   if (local) {
     const part = local.split(/[._+-]/)[0];
-    return part.charAt(0).toUpperCase() + part.slice(1).toLowerCase();
+    // Only use the local part when it looks like an actual name (2+ letters, all
+    // alphabetic) — otherwise "Hey 3104560364," reads as spam. Fall back to "there".
+    if (/^[a-zA-Z]{2,}$/.test(part)) {
+      return part.charAt(0).toUpperCase() + part.slice(1).toLowerCase();
+    }
   }
   return "there";
 }
