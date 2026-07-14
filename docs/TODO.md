@@ -27,6 +27,9 @@ Multi-repo (app + proxy + edge fns + Supabase migrations + launchpad); backend a
   OpenRouter's API — carries no cost, so only models built via the models.dev fallback thread `cost`. Merge
   the models.dev catalog `cost` into natively-fetched models so `PriceBadge` shows real `$/M` (Core already
   shows "Paid", locals "Free"). Optional: input/output dual-rate display.
+- **Windows grep PCRE2 lookahead** — `grep-pcre-fallback.test.ts`'s lookahead assertion returns "no matches"
+  on the Windows runner (bundled ripgrep path/pcre2 nuance); skipped on win32 to unblock the release.
+  Verify whether real Windows users' lookahead grep patterns work, or if it's only a test-fixture path issue.
 - **Runtime-verify voice mic + DB shutdown-race** on a packaged build (voice confirmed working by owner
   2026-07-14; shutdown-guard committed, not stress-verified).
 
