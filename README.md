@@ -43,12 +43,14 @@ Release notes: **[docs/CHANGELOG.md](docs/CHANGELOG.md)** (current: 14.0+). Olde
 - **Attachments:** Paste text, terminal output, and files into chat. After send they appear as chips with preview; content persists across session reload.
 - **`@` file & folder mentions:** Type `@` in the composer to point the agent at part of the current workspace. Mentioning a **file** injects its contents (capped); mentioning a **folder** injects just its file listing, so the agent then `grep`s/reads within that scope instead of dumping a whole tree — precise context, low token cost.
 - **Agent Behaviors & workspace memory:** Project instructions in `.atlarix/atlarix.md` and behaviors under `.atlarix/skills/` shape the agent without repeating yourself every turn.
-- **Parallel sub-agents:** The `task` tool spawns scoped read-only scouts — up to five run **concurrently** per turn, with their live thinking, narration, and tool activity streaming into per-agent cards.
-- **Background commands:** The agent can run long commands detached (`run_command background:true`) and keep working; the exit result is delivered back automatically. Foreground commands that run long flip the chat into a visible **"Waiting on command"** state with a timer — you can queue a message that sends when the turn resumes.
+- **Parallel sub-agents:** The `task` tool spawns scoped sub-agents — read-only **explorer** and **architect** (recon, planning, web search) plus writer **implementer** agents that edit inside a throwaway git worktree and hand back a reviewable diff — up to five run **concurrently** per turn, with their live thinking, narration, and tool activity streaming into per-agent cards.
+- **Background commands:** A foreground command still running after **~15s auto-promotes to the background** (kept alive, not killed) so the agent keeps working; the exit result is delivered back automatically. The agent can also detach explicitly (`run_command background:true`), and a still-foreground command surfaces a **"Waiting on command"** state where you can queue a message that sends when the turn resumes.
 - **User-defined agents & portable config:** `.atlarix/agents/<name>.md` (system prompt + tools + model) shows up in the picker; `.atlarix/permissions.json` deny/ask rules and `.atlarix/hooks/` (blocking pre-tool, advisory post-tool, stop gate) are committable and enforced at the single tool-execution funnel — plus a global `~/.atlarix/` layer.
-- **Verified edits:** In **Build** and **Debug** the agent discovers and runs the project's *own* checks (package.json scripts, `tsc`/`eslint`, `ruff`/`mypy`/`pytest`) through the terminal — every command routed through the approval queue — and writes tests for non-trivial logic. It is held to not declaring a task complete while those checks report errors. Verification uses the project's real tooling, so it works on any machine with the language runtime installed.
+- **Verified edits:** In **Build** and **Debug** the agent discovers and runs the project's *own* checks (package.json scripts, `tsc`/`eslint`, `ruff`/`mypy`/`pytest`) through the terminal — every command run inside the per-OS sandbox — and writes tests for non-trivial logic. It is held to not declaring a task complete while those checks report errors. Verification uses the project's real tooling, so it works on any machine with the language runtime installed.
 - **Native tool history:** Tool calls/results ride as provider-native blocks (not flattened text) — weak and local models perform notably better, and multi-step prompt caching holds.
-- **Approval queue:** File writes and shell commands wait for explicit approval with diff preview — accept or reject **individual hunks**, not just whole files. Allow-once / always-allow decisions are **scoped to the workspace** — approvals saved in one project never carry to another.
+- **Approvals & command sandbox:** File writes wait for explicit approval with a diff preview — accept or reject **individual hunks**, not just whole files, all **inline in chat** (no separate panel). Shell commands run inside a per-OS write-confining sandbox and only the genuinely dangerous ones ask; Explore/Plan/Review are read-only. Allow-once / always-allow decisions are **scoped to the workspace** — approvals saved in one project never carry to another. The same stance as Codex and Claude Code.
+- **Voice-to-text:** Dictate to the composer — free on-device **Whisper** by default (private, no key), or **BYOK cloud** (OpenAI / Groq / Gemini with your own key, never billed to Atlarix Core).
+- **Automations:** Schedule unattended runs on a cron, GitHub event, or MCP trigger from the Automations tab, with a triage feed of past runs — **2 per workspace on Free, 10 on Pro**.
 - **Interactive questions:** The agent can ask you **up to 5 questions in one inline card** (options + free text) and the stream genuinely pauses until you answer — no invented answers, no missed prompts.
 - **Native web search:** On providers with built-in search (Anthropic, OpenAI, Gemini 2+, OpenRouter BYOK) the provider's own search tool runs at dispatch with **inline citations that survive reload**; everywhere else the client chain (SearxNG → public SearxNG → DuckDuckGo) is the universal fallback.
 - **Prompt caching:** Dispatches are cache-friendly out of the box — Anthropic BYOK turns place `cache_control` breakpoints over the stable system header and conversation history, cutting repeat-turn input cost and latency.
@@ -67,18 +69,18 @@ Retrieval is **purely lexical — no index, no embeddings, no map tool, no backg
 ### AI Agents & Modes
 
 - **Work modes:** Explore, Plan, Build, Debug, Review.
-- **Atlarix Core:** Four managed open-weight models — **Core 1** (fastest) through **Core 4** (most capable). Every plan gets all four; plans differ by monthly allowance.
+- **Atlarix Core:** Four managed open-weight models — **Core 1** (fastest) through **Core 4** (most capable). Every plan gets all four; Core is **pay-as-you-go** from a prepaid credit balance (top up from $10), the same on Free and Pro.
 
 ### Workspace Tools & Extensions
 
-- **Core tools:** A deliberately minimal tool surface — `read_file`, a single `edit_file` (one tool for create/overwrite via `operation:"write"` plus surgical `operation:"replace"` with self-healing match), **`glob`** + **`grep`** (bundled ripgrep), `run_command` (incl. `git` CLI and background commands), web search/read, `task` sub-agents, `plan`, MCP, attachments, and three in-app browser tools (`browser_navigate`/`browser_inspect`/`browser_interact`). Explore/Plan/Review use read-only allowlists.
-- **MCP:** MCP servers are configured **per workspace** — Solo connects **1** (manual config); Studio / Team get the marketplace plus up to **10** per workspace (one-click OAuth connect from the marketplace). On-demand **`list_available_mcps`** / **`mcp_call`** in workspace chat.
+- **Core tools:** A deliberately minimal tool surface — `read_file`, a single `edit_file` (one tool for create/overwrite via `operation:"write"` plus surgical `operation:"replace"` with self-healing match), **`glob`** + **`grep`** (bundled ripgrep), `run_command` (incl. `git` CLI and background commands), web search/read, `task` sub-agents, `plan`, MCP, attachments, and three in-app browser tools (`browser_navigate`/`browser_inspect`/`browser_interact`). Explore/Plan/Review run a read-only sandbox profile.
+- **MCP:** MCP servers are configured **per workspace** — **Free** connects **1** (manual config); **Pro** gets the marketplace plus up to **10** per workspace (one-click OAuth connect from the marketplace). On-demand **`list_available_mcps`** / **`mcp_call`** in workspace chat.
 - **Agent Behaviors:** Install from [atlarix-skills](https://github.com/AmariahAK/atlarix-skills). Optional **`.atlarix/skills/`** in the repo.
 
 ### Diagnostics & panels
 
 - **Shiki-highlighted code in chat:** code blocks, write proposals, and diffs render with full syntax highlighting — Atlarix works beside your IDE rather than replacing it, so file editing stays in your editor of choice.
-- **Right panel:** Preview, Browser, Terminal (interactive PTY), Plan (when a session plan is active), and Errors (dev-server/runtime). Diffs and approvals render inline in chat.
+- **Right panel:** Preview, Browser, Terminal (interactive PTY), Plan (when a session plan is active), Automations (scheduled unattended runs), and Errors (dev-server/runtime). Diffs and approvals render inline in chat.
 - **Streaming status:** A small inline compass under the **current** response shows a human-readable one-liner of what the agent is doing ("Writing src/auth.ts…"), settling into the Atlarix "A" when the turn completes.
 
 ### Context & Session Management
@@ -174,11 +176,10 @@ After `npm install`, **`postinstall`** runs `patch-package` and the Electron ins
 
 | Tier      | Price   | Workspaces | Highlights |
 |-----------|---------|------------|------------|
-| **Solo**  | $0      | 1          | All four Core models (**starter allowance**); BYOK / local; core tools; **1** MCP server per workspace (manual config) |
-| **Studio**   | $19/mo  | Unlimited  | All four Core models (**higher allowance**); Agent Behaviors + MCP marketplace; **10** MCP servers per workspace |
-| **Team** | $79/mo | Unlimited | Studio + seats, **team allowance pool**, team MCP integrations, repo behavior priority |
+| **Free**  | $0      | 1          | All four Core models (pay-as-you-go credits); BYOK / local free; core tools; **1** MCP server per workspace (manual config); **2** automations per workspace |
+| **Pro**   | $19/mo  | Unlimited  | Everything in Free + Agent Behaviors + MCP marketplace + one-click OAuth connectors; **10** MCP servers and **10** automations per workspace |
 
-Every plan gets all four **Atlarix Core** models (Core 1 fastest → Core 4 most capable) — only the monthly allowance differs by tier. Default allowances: [docs/compass-limits.md](docs/compass-limits.md).
+No plan bundles AI. **Atlarix Core is pay-as-you-go on every plan** — top up a prepaid credit balance (from **$10**) and it's metered as you go (each new account gets a one-time **$1** trial credit); **BYOK and local models are free on every plan**. Only the harness features differ by tier. See [docs/compass-limits.md](docs/compass-limits.md).
 
 ---
 

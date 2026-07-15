@@ -1,60 +1,62 @@
-# Atlarix Core token limits (Compass pool)
+# Atlarix Core billing & plan limits (pay-as-you-go credit wallet)
 
-> **v11:** The earlier multi-tier Compass model abstraction was replaced by four
-> **Core** model slots (`core-1`…`core-4`, env `ATLARIX_CORE_MODEL_1..4`). Every
-> plan can use **all** Core models; access is metered strictly by this shared
-> token pool. The Supabase objects keep their `compass_*` names — nothing in
-> this document's SQL changes. Enforcement is now strict: the app blocks new
-> turns when the pool is exhausted **and stops a running turn mid-task** at the
-> step that crosses the limit.
+> **v14.11.0 — pricing reframe.** No plan bundles AI. **Atlarix Core is pay-as-you-go on
+> every tier**, billed from a prepaid **credit wallet** (a dollar balance in cents), not a
+> monthly token allowance. The earlier `compass_tokens` monthly-allowance pool and the
+> **Team / Workforce** tier were removed. Tiers are now **Free** and **Pro** only.
+>
+> The teardown + wallet migrations are
+> [`supabase/migrations/20260714120000_credit_wallet.sql`](../supabase/migrations/20260714120000_credit_wallet.sql)
+> (wallet + RPCs) and
+> [`supabase/migrations/20260714130000_pricing_reframe_teardown.sql`](../supabase/migrations/20260714130000_pricing_reframe_teardown.sql)
+> (drop teams + `compass_tokens`, collapse tiers to `free | pro`).
 
 ## Run in Supabase SQL Editor
 
-To create **RLS**, the **`compass_tokens`** table, and the RPCs **`get_compass_usage_state`** / **`record_compass_usage`** in one go:
+To create the **`credit_wallet`** table, the append-only **`credit_transactions`** ledger, RLS,
+and the RPCs (`get_credit_balance`, `debit_wallet`, `claim_signup_credit`):
 
 1. Open your Supabase project → **SQL Editor** → New query.
-2. Paste the **entire** contents of [`supabase/migrations/20260329120000_compass_tokens.sql`](../supabase/migrations/20260329120000_compass_tokens.sql) and run it once.
+2. Paste the **entire** contents of [`supabase/migrations/20260714120000_credit_wallet.sql`](../supabase/migrations/20260714120000_credit_wallet.sql) and run it once.
+3. Then run [`supabase/migrations/20260714130000_pricing_reframe_teardown.sql`](../supabase/migrations/20260714130000_pricing_reframe_teardown.sql) to drop the retired teams + `compass_tokens` objects and collapse tiers to `free | pro`.
 
-The script is idempotent where possible (`CREATE TABLE IF NOT EXISTS`, `CREATE OR REPLACE FUNCTION`, policies use fixed names).
+The scripts are idempotent where possible (`CREATE TABLE IF NOT EXISTS`, `CREATE OR REPLACE FUNCTION`).
+Direct `INSERT`/`UPDATE`/`DELETE` on `credit_wallet` is revoked from `authenticated`/`anon` — only the
+`SECURITY DEFINER` RPCs may change the balance (RLS limits `SELECT` to the owning user).
 
-**Follow-up (recommended):** Run [`supabase/migrations/20260605120000_compass_tokens_revoke_direct_write.sql`](../supabase/migrations/20260605120000_compass_tokens_revoke_direct_write.sql) in the same SQL Editor. It REVOKEs `INSERT`/`UPDATE`/`DELETE` on `compass_tokens` from `authenticated`/`anon` so only the `SECURITY DEFINER` RPCs may change usage (RLS already limits `SELECT` to the owning user).
+## How Core billing works
 
-**Prerequisite:** The RPCs read subscription tier from **`public.users`** (`plan` / `effective_tier`). Your project must expose that table and columns to Postgres (same schema the app already uses for billing). If your column names differ, edit the `SELECT ... FROM public.users u WHERE u.id = uid` blocks in both functions before running.
+- **Credit wallet.** Each user has a prepaid balance in `credit_wallet` (integer cents) with an
+  append-only `credit_transactions` ledger. All changes go through idempotent `SECURITY DEFINER`
+  RPCs — direct writes are revoked.
+- **Metering + markup.** The proxy (`atlarix-proxy`) prices each Core call from OpenRouter's live
+  model catalog and debits the **real cost + 40% markup** (`MARKUP = 1.4`).
+- **Per-call reserve gate.** Before forwarding a Core call the proxy reserves the worst-case cost
+  (`est input × prompt price + max output × completion price`, × markup). If the wallet can't cover
+  it, the call is rejected up front with **HTTP 402 `insufficient_credit`** — a call that starts
+  always finishes, it never aborts mid-stream. If a managed key fails, the proxy returns **503
+  `core_unavailable`** with a neutral "overloaded" message.
+- **Top-ups.** Minimum top-up **$10** (`MIN_TOPUP_CENTS = 1000`), presets **$10 / $20 / $50**, via a
+  single LemonSqueezy "Atlarix Core Credit" product with a per-checkout `custom_price`. The
+  `order_created` / `order_refunded` webhook credits / claws back the wallet.
+- **Trial credit.** Each new account gets a one-time **$1** signup credit (`claim_signup_credit`,
+  granted on first sign-in, idempotent per user).
+- **BYOK & local are free.** Bring-your-own-key providers and local Ollama / LM Studio never touch
+  the wallet on any plan.
 
----
+## Plan limits (Free vs Pro)
 
-## COMPASS TOKEN LIMITS — ADJUSTABLE VALUES
+| Capability                  | Free                  | Pro ($19/mo)          |
+|-----------------------------|-----------------------|-----------------------|
+| Atlarix Core (all 4 models) | Pay-as-you-go credits | Pay-as-you-go credits |
+| Workspaces                  | 1                     | Unlimited             |
+| MCP servers / workspace     | 1 (manual config)     | 10 + marketplace      |
+| Automations / workspace     | 2                     | 10                    |
+| Agent Behaviors             | `.atlarix/skills/`    | + marketplace         |
+| BYOK / local models         | Free                  | Free                  |
 
-To change token limits per tier, update the DEFAULT values in the Supabase migration
-[`supabase/migrations/20260329120000_compass_tokens.sql`](../supabase/migrations/20260329120000_compass_tokens.sql)
-(in the `CASE t` branches inside `get_compass_usage_state` and `record_compass_usage`)
-and run a targeted UPDATE on existing users:
-
-```sql
-UPDATE compass_tokens SET monthly_limit = <new_value> WHERE tier = '<tier>';
-```
-
-These values were set conservatively for launch (Month 1-2).
-Review after first billing cycle and adjust based on actual usage patterns.
-
-**Monthly reset logic:** on each Compass API call, `record_compass_usage` checks if `last_reset_at` is more than 30 days ago — if so, it resets `tokens_used_this_month` to 0 and updates `last_reset_at`. The read path `get_compass_usage_state` applies the same rule so the UI stays consistent.
-
-**Default limits:**
-
-| Tier      | Monthly limit |
-|-----------|---------------|
-| Free      | 75,000        |
-| Pro       | 1,500,000     |
-| Workforce | 3,000,000     |
-
----
-
-## Teams RLS (Workforce) — fix “infinite recursion”
-
-If the app logs **`infinite recursion detected in policy for relation "teams"`** when loading Team / `getTeamByOwner`, Postgres is cycling between `teams` and `team_members` policies.
-
-Run once in the **Supabase SQL Editor**:
-
-[`supabase/migrations/20260329140000_teams_rls_fix_recursion.sql`](../supabase/migrations/20260329140000_teams_rls_fix_recursion.sql)
-
-It replaces the cross-table subqueries with `SECURITY DEFINER` helpers so team rows resolve without RLS recursion.
+Limit constants live with their enforcement:
+`MCP_FREE_TIER_LIMIT` / `MCP_WORKSPACE_MAX` (`src/ipc/handlers/mcp_handlers.ts`),
+`AUTOMATIONS_FREE_MAX` / `AUTOMATIONS_WORKSPACE_MAX` (`src/ipc/handlers/automation_handlers.ts`),
+`MIN_TOPUP_CENTS` / `PRESET_TOPUPS_CENTS` (`src/components/settings/AtlarixCoreUsageCard.tsx`),
+and the proxy's `MARKUP` + reserve gate (`atlarix-proxy/src/server.ts`, `pricing.ts`).
