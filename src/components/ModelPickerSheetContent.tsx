@@ -104,7 +104,7 @@ export function ModelPickerSheetContent({
           Claude).
         </p>
       ) : (
-        <ScrollArea className="h-[min(60vh,400px)] rounded-md border">
+        <ScrollArea className="h-[min(60vh,400px)] rounded-md border [&_[data-radix-scroll-area-viewport]>div]:!block">
           <Accordion type="multiple" className="w-full p-2">
             {providerEntries.map(([providerId, models]) => {
               const q = searchQuery.trim().toLowerCase();
