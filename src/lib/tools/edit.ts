@@ -23,6 +23,7 @@ import { assertReadablePath } from "@/lib/security/env-secret-paths";
 import { ToolRegistry } from "./registry";
 import { isAtlarixDocWritePath } from "../project-memory";
 import { findReplacement, reindentReplacement } from "./edit-match";
+import { mergeElision } from "./edit-merge";
 import { suggestClosestPath } from "./workspace-file-hints";
 import {
   analyzeEscaping,
@@ -33,7 +34,7 @@ import {
 
 const logger = log.scope("edit-tools");
 
-type EditOperation = "write" | "replace";
+type EditOperation = "write" | "replace" | "merge";
 
 interface EditFileArgs {
   path: string;
@@ -42,6 +43,8 @@ interface EditFileArgs {
   content?: string;
   old_content?: string;
   new_content?: string;
+  /** Multi-edit: apply several old→new replaces in one call, atomically. */
+  edits?: Array<{ old_content: string; new_content: string }>;
   workspace?: string;
   chatMode?: string;
   agentMode?: string;
@@ -172,95 +175,92 @@ async function runWrite(
   };
 }
 
-async function runReplace(
-  args: EditFileArgs,
-  normalizedPath: string,
-  fullPath: string,
-  workspace?: string,
-) {
-  const { old_content, new_content, description } = args;
-  if (!old_content || new_content === undefined) {
-    return { error: "operation=replace requires old_content and new_content", operation: "edit_file" };
-  }
-  const r = await readFileSafe(fullPath, normalizedPath, "edit_file", workspace);
-  if (!r.ok) return r.error;
+/** Result of applying ONE replace to an in-memory content string. */
+type ApplyReplaceResult =
+  | { ok: false; error: Record<string, unknown> }
+  | { ok: true; content: string; notice?: string; added: number; removed: number };
 
-  // v14.8.7 §B: repair over-escaped new_content before it splices in; hard-block
+/**
+ * Apply a single old→new replace to `content` (in memory) via the robust match
+ * cascade, with escape-repair + fuzzy re-indent. Pure — returns the new content
+ * or a structured error; the caller decides whether to write (so a multi-edit
+ * set stays atomic: nothing is written if any edit fails).
+ */
+function applyOneReplace(
+  content: string,
+  oldRaw: string,
+  newRaw: string,
+  normalizedPath: string,
+): ApplyReplaceResult {
+  // §B: repair over-escaped new_content before it splices in; hard-block
   // ambiguous partial over-escaping rather than corrupt the file.
-  const newEscapeVerdict = analyzeEscaping(new_content);
+  const newEscapeVerdict = analyzeEscaping(newRaw);
   if (newEscapeVerdict === "ambiguous") {
-    return { error: OVER_ESCAPE_AMBIGUOUS_ERROR, operation: "edit_file" };
+    return { ok: false, error: { error: OVER_ESCAPE_AMBIGUOUS_ERROR, operation: "edit_file" } };
   }
-  const effectiveNew = newEscapeVerdict === "repair" ? repairOverEscaped(new_content) : new_content;
+  const effectiveNew = newEscapeVerdict === "repair" ? repairOverEscaped(newRaw) : newRaw;
   const escapeNotice = newEscapeVerdict === "repair" ? OVER_ESCAPE_REPAIR_NOTICE : undefined;
 
-  // v14.8.7 §D: robust match cascade (edit-match.ts) — a near-miss self-heals
-  // instead of erroring, with uniqueness + disproportion rails so we never edit
-  // the wrong region.
-  const match = findReplacement(r.content, old_content);
+  // §D: robust match cascade — a near-miss self-heals instead of erroring, with
+  // uniqueness + disproportion rails so we never edit the wrong region.
+  const match = findReplacement(content, oldRaw);
 
   if (match.kind === "none") {
-    // v12 0.3: structured retry guidance (Claude Code-style) — show the
-    // closest candidate region so the model can re-read and retry with exact
-    // context instead of guessing.
-    const lines = r.content.split("\n");
-    const firstLineOfOld = old_content.split("\n")[0].trim();
+    const lines = content.split("\n");
+    const firstLineOfOld = oldRaw.split("\n")[0].trim();
     const similarLine = lines.findIndex((l) => l.includes(firstLineOfOld.slice(0, 30)));
     let hint = "";
-    let nearMiss:
-      | { line: number; preview: string }
-      | undefined;
+    let nearMiss: { line: number; preview: string } | undefined;
     if (similarLine !== -1) {
       const from = Math.max(0, similarLine - 2);
       const to = Math.min(lines.length, similarLine + 3);
-      nearMiss = {
-        line: similarLine + 1,
-        preview: lines.slice(from, to).join("\n"),
-      };
+      nearMiss = { line: similarLine + 1, preview: lines.slice(from, to).join("\n") };
       hint = `\n\nClosest candidate at line ${similarLine + 1}:\n---\n${nearMiss.preview}\n---\nThe file likely changed since you read it. Re-read with read_file (start_line=${from + 1}, end_line=${to}) and retry with the EXACT current content as old_content.`;
     } else {
       hint =
         "\n\nNo similar content found — the file may have changed substantially since you read it, or this may be the wrong file. Re-read the file (or search for the function) before retrying.";
     }
     return {
-      error: `Content to replace not found in ${normalizedPath}. old_content must match exactly (whitespace included).${hint}`,
-      operation: "edit_file",
-      retry: {
-        reason: "no_match",
-        ...(nearMiss ? { nearMiss } : {}),
-        guidance: "re-read the target range, then retry with exact content",
+      ok: false,
+      error: {
+        error: `Content to replace not found in ${normalizedPath}. old_content must match exactly (whitespace included).${hint}`,
+        operation: "edit_file",
+        retry: {
+          reason: "no_match",
+          ...(nearMiss ? { nearMiss } : {}),
+          guidance: "re-read the target range, then retry with exact content",
+        },
+      },
+    };
+  }
+  if (match.kind === "multiple") {
+    return {
+      ok: false,
+      error: {
+        error: `Found ${match.occurrences} occurrences of old_content in ${normalizedPath}. Provide more surrounding context to make the match unique.`,
+        operation: "edit_file",
+      },
+    };
+  }
+  if (match.kind === "disproportionate") {
+    return {
+      ok: false,
+      error: {
+        error: `Refusing this replace: the closest match in ${normalizedPath} spans far more than old_content, so applying it would likely clobber the wrong region. Re-read the target and pass the exact, complete old_content.`,
+        operation: "edit_file",
+        retry: { reason: "disproportionate_match", guidance: "re-read and pass exact old_content" },
       },
     };
   }
 
-  if (match.kind === "multiple") {
-    return {
-      error: `Found ${match.occurrences} occurrences of old_content in ${normalizedPath}. Provide more surrounding context to make the match unique.`,
-      operation: "edit_file",
-    };
-  }
-
-  if (match.kind === "disproportionate") {
-    return {
-      error: `Refusing this replace: the closest match in ${normalizedPath} spans far more than old_content, so applying it would likely clobber the wrong region. Re-read the target and pass the exact, complete old_content.`,
-      operation: "edit_file",
-      retry: { reason: "disproportionate_match", guidance: "re-read and pass exact old_content" },
-    };
-  }
-
-  // v12 (TODO 1.4): fuzzy drift is no longer silent — surface it to the model
-  // (tool result `output`) and the activity/approval card so indentation-
-  // sensitive files (Python/YAML) get re-verified instead of corrupted.
+  // §1.4: fuzzy drift is not silent — re-anchor to the file's ACTUAL indentation
+  // and surface a notice so indentation-sensitive files get re-verified.
   let fuzzyNotice: string | undefined;
   let effectiveReplacement = effectiveNew;
   if (match.fuzzy) {
-    const matchLine = r.content.slice(0, match.index).split("\n").length;
-    // Re-anchor new_content to the file's ACTUAL indentation (the matched
-    // region), so a tolerant match never writes the model's drifted whitespace
-    // into the file — the opencode port spliced verbatim and corrupted
-    // tab-indented files when the model supplied spaces.
-    const matchedText = r.content.slice(match.index, match.index + match.matchLength);
-    const reindented = reindentReplacement(matchedText, old_content, effectiveNew);
+    const matchLine = content.slice(0, match.index).split("\n").length;
+    const matchedText = content.slice(match.index, match.index + match.matchLength);
+    const reindented = reindentReplacement(matchedText, oldRaw, effectiveNew);
     if (reindented.changed) effectiveReplacement = reindented.text;
     fuzzyNotice = reindented.changed
       ? `Applied with indent/EOL tolerance at line ${matchLine} — old_content did not match exactly; new_content was re-anchored to the file's actual indentation. Re-read the edited range to verify.`
@@ -271,40 +271,179 @@ async function runReplace(
   }
 
   const notice = [fuzzyNotice, escapeNotice].filter(Boolean).join(" ") || undefined;
-
   const newContent =
-    r.content.slice(0, match.index) +
+    content.slice(0, match.index) +
     effectiveReplacement +
-    r.content.slice(match.index + match.matchLength);
-  const oldLines = old_content.split("\n").length;
-  const newLines = effectiveReplacement.split("\n").length;
+    content.slice(match.index + match.matchLength);
+  return {
+    ok: true,
+    content: newContent,
+    ...(notice ? { notice } : {}),
+    added: effectiveReplacement.split("\n").length,
+    removed: oldRaw.split("\n").length,
+  };
+}
+
+async function runReplace(
+  args: EditFileArgs,
+  normalizedPath: string,
+  fullPath: string,
+  workspace?: string,
+) {
+  const { description } = args;
+  // Multi-edit: an `edits` array applies several replaces in one call, atomically
+  // (nothing is written if ANY fails). Falls back to the single old/new fields.
+  const edits =
+    Array.isArray(args.edits) && args.edits.length > 0
+      ? args.edits
+      : args.old_content != null && args.new_content !== undefined
+        ? [{ old_content: args.old_content, new_content: args.new_content }]
+        : null;
+  if (!edits) {
+    return {
+      error:
+        "operation=replace requires old_content + new_content, or an edits array of {old_content, new_content}",
+      operation: "edit_file",
+    };
+  }
+  for (const e of edits) {
+    if (!e.old_content || e.new_content === undefined) {
+      return { error: "each edit needs old_content and new_content", operation: "edit_file" };
+    }
+  }
+
+  const r = await readFileSafe(fullPath, normalizedPath, "edit_file", workspace);
+  if (!r.ok) return r.error;
+
+  let content = r.content;
+  const notices: string[] = [];
+  let totalAdded = 0;
+  let totalRemoved = 0;
+  for (let i = 0; i < edits.length; i++) {
+    const res = applyOneReplace(content, edits[i].old_content, edits[i].new_content, normalizedPath);
+    if (!res.ok) {
+      // Atomic: abort the whole set — nothing is written.
+      if (edits.length > 1) {
+        res.error.error = `Edit ${i + 1} of ${edits.length} failed — no changes applied. ${String(res.error.error ?? "")}`;
+      }
+      return res.error;
+    }
+    content = res.content;
+    if (res.notice) notices.push(res.notice);
+    totalAdded += res.added;
+    totalRemoved += res.removed;
+  }
+
+  const notice = notices.length ? notices.join(" ") : undefined;
+  const label = edits.length > 1 ? `${edits.length} edits` : "Surgical replace";
   return permissionPayload({
     normalizedPath,
-    newContent,
+    newContent: content,
     oldContent: r.content,
-    description: fuzzyNotice
-      ? `${description ?? "Surgical replace"} (${fuzzyNotice})`
-      : (description ?? "Surgical replace"),
+    description: notice ? `${description ?? label} (${notice})` : (description ?? label),
     ...(notice ? { notice } : {}),
     operation: "edit_file",
     diff: {
-      removed: oldLines,
-      added: newLines,
-      old_snippet: old_content.slice(0, 200) + (old_content.length > 200 ? "..." : ""),
+      removed: totalRemoved,
+      added: totalAdded,
+      old_snippet:
+        edits[0].old_content.slice(0, 200) + (edits[0].old_content.length > 200 ? "..." : ""),
       new_snippet:
-        effectiveReplacement.slice(0, 200) + (effectiveReplacement.length > 200 ? "..." : ""),
+        edits[0].new_content.slice(0, 200) + (edits[0].new_content.length > 200 ? "..." : ""),
     },
-    reasoning: `Replace in ${normalizedPath}: ${description ?? "(no description)"} (${oldLines}→${newLines} lines)`,
+    reasoning: `Replace in ${normalizedPath}: ${description ?? "(no description)"} (${edits.length} edit${edits.length > 1 ? "s" : ""})`,
+  });
+}
+
+/**
+ * Elision-merge: the model provides the file's new shape with unchanged spans
+ * collapsed to `// ... existing code ...` markers, so it never has to reproduce
+ * exact old text. We stitch it into the real file deterministically (edit-merge)
+ * and refuse (rather than corrupt) if a marker can't be anchored.
+ */
+async function runMerge(
+  args: EditFileArgs,
+  normalizedPath: string,
+  fullPath: string,
+  workspace?: string,
+) {
+  const { content, description } = args;
+  if (content === undefined || content === "") {
+    return {
+      error:
+        "operation=merge requires content: the file's new form with '// ... existing code ...' markers where spans are unchanged. Keep the lines adjacent to each marker copied verbatim from the file.",
+      operation: "edit_file",
+    };
+  }
+  const escapeVerdict = analyzeEscaping(content);
+  if (escapeVerdict === "ambiguous") {
+    return { error: OVER_ESCAPE_AMBIGUOUS_ERROR, operation: "edit_file" };
+  }
+  const effective = escapeVerdict === "repair" ? repairOverEscaped(content) : content;
+  const escapeNotice = escapeVerdict === "repair" ? OVER_ESCAPE_REPAIR_NOTICE : undefined;
+
+  const r = await readFileSafe(fullPath, normalizedPath, "edit_file", workspace);
+  if (!r.ok) return r.error;
+
+  const merged = mergeElision(r.content, effective);
+  if (!merged.ok) {
+    return {
+      error: merged.error,
+      operation: "edit_file",
+      retry: {
+        reason: "merge_anchor_failed",
+        guidance:
+          "keep the lines right before/after each marker unchanged, or use operation=replace for a surgical edit",
+      },
+    };
+  }
+
+  // Accurate +/- for the card: trim the common head/tail, the middle is the change.
+  const oldL = r.content.split("\n");
+  const newL = merged.merged.split("\n");
+  let p = 0;
+  while (p < oldL.length && p < newL.length && oldL[p] === newL[p]) p++;
+  let sfx = 0;
+  while (
+    sfx < oldL.length - p &&
+    sfx < newL.length - p &&
+    oldL[oldL.length - 1 - sfx] === newL[newL.length - 1 - sfx]
+  )
+    sfx++;
+
+  const notice =
+    [
+      merged.fullRewrite ? undefined : "Merged via elision markers — re-read the file to verify.",
+      escapeNotice,
+    ]
+      .filter(Boolean)
+      .join(" ") || undefined;
+
+  return permissionPayload({
+    normalizedPath,
+    newContent: merged.merged,
+    oldContent: r.content,
+    description: description ?? (merged.fullRewrite ? "Rewrite file" : "Merge edit"),
+    ...(notice ? { notice } : {}),
+    operation: "edit_file",
+    diff: {
+      removed: Math.max(0, oldL.length - p - sfx),
+      added: Math.max(0, newL.length - p - sfx),
+      old_snippet: "",
+      new_snippet: "",
+    },
+    reasoning: `Merge into ${normalizedPath}: ${description ?? "(no description)"}`,
   });
 }
 
 ToolRegistry.register({
   name: "edit_file",
-  description: `Create, overwrite, or surgically edit a file — the single tool for all file changes. Two operations:
+  description: `Create, overwrite, or surgically edit a file — the single tool for all file changes. Operations:
 - write: create a NEW file, or fully overwrite an existing one, with \`content\` (the complete file body)
-- replace: find \`old_content\` in the file and swap it for \`new_content\`
+- replace: find \`old_content\` in the file and swap it for \`new_content\` (or pass an \`edits\` array to make SEVERAL replaces in one atomic call)
+- merge: give the file's new form in \`content\` but collapse UNCHANGED spans to a \`// ... existing code ...\` marker — you don't reproduce the parts you aren't changing
 
-Use "write" for a new file or a full rewrite. For ANY change to an existing file prefer "replace": pass enough surrounding context in old_content to match ONE unique spot (minor whitespace/indentation drift is tolerated automatically; an ambiguous or missing match is reported so you can re-read and retry). "replace" is faster and safer than rewriting a large file. Put REAL newlines in content/new_content — never the two characters backslash-n. Never describe an edit instead of making it.`,
+Use "write" for a new file or a full rewrite. For a change to an existing file prefer "replace" (surgical, unique context; minor whitespace/indent drift tolerated; ambiguous/missing matches reported so you re-read and retry) — and use its \`edits\` array to batch multiple changes. Use "merge" for a larger edit where reproducing exact surrounding text is error-prone: write the changed code and put \`// ... existing code ...\` where spans are untouched, keeping the lines right before/after each marker copied verbatim from the file. Put REAL newlines in content/new_content — never the two characters backslash-n. Never describe an edit instead of making it.`,
   requiresWorkspace: true,
   isCore: true,
   isReadOnly: false,
@@ -317,14 +456,14 @@ Use "write" for a new file or a full rewrite. For ANY change to an existing file
       },
       operation: {
         type: "string",
-        enum: ["write", "replace"],
+        enum: ["write", "replace", "merge"],
         description:
-          "\"replace\" for any change to an EXISTING file (surgical, safer — the default choice); \"write\" only to CREATE a new file or fully rewrite one.",
+          "\"replace\" for a surgical change to an EXISTING file (the default choice); \"merge\" for a larger edit using '... existing code ...' markers; \"write\" only to CREATE a new file or fully rewrite one.",
       },
       description: { type: "string", description: "Brief description of what this edit does." },
       content: {
         type: "string",
-        description: "(write) Full file body to create or overwrite. Required for operation=write. Use real newlines.",
+        description: "(write) Full file body to create or overwrite. (merge) The file's new form with '// ... existing code ...' markers for unchanged spans. Use real newlines.",
       },
       old_content: {
         type: "string",
@@ -333,6 +472,19 @@ Use "write" for a new file or a full rewrite. For ANY change to an existing file
       new_content: {
         type: "string",
         description: "(replace) Replacement content. Required for operation=replace. Use real newlines.",
+      },
+      edits: {
+        type: "array",
+        description:
+          "(replace) OPTIONAL — apply SEVERAL edits to the file in ONE call instead of one round-trip each. Each item is {old_content, new_content}; they apply top-to-bottom and are ATOMIC (if any old_content doesn't match, NOTHING is written and you get told which edit failed). Use this instead of many separate replace calls.",
+        items: {
+          type: "object",
+          properties: {
+            old_content: { type: "string", description: "Content to find (unique context)." },
+            new_content: { type: "string", description: "Replacement content." },
+          },
+          required: ["old_content", "new_content"],
+        },
       },
     },
     required: ["path", "operation"],
@@ -367,8 +519,10 @@ Use "write" for a new file or a full rewrite. For ANY change to an existing file
         return runWrite(rawArgs, normalizedPath, fullPath, workspace);
       case "replace":
         return runReplace(rawArgs, normalizedPath, fullPath, workspace);
+      case "merge":
+        return runMerge(rawArgs, normalizedPath, fullPath, workspace);
       default:
-        return { error: `Unknown operation: ${operation}. Use write | replace.`, operation: "edit_file" };
+        return { error: `Unknown operation: ${operation}. Use write | replace | merge.`, operation: "edit_file" };
     }
   },
 });
