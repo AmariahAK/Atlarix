@@ -1,4 +1,5 @@
-const basePill = "text-[10px] px-1.5 py-0.5 rounded-full font-medium";
+const basePill =
+  "text-[10px] px-1.5 py-0.5 rounded-full font-medium shrink-0 whitespace-nowrap";
 
 /**
  * Model price badge:
