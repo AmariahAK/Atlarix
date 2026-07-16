@@ -5,8 +5,10 @@
  */
 
 import { ipcMain, IpcMainInvokeEvent, BrowserWindow } from "electron";
+import { z } from "zod";
 import log from "electron-log";
 import { showAgentNotification } from "@/main/agent-notification";
+import { createLoggedHandler } from "@/ipc/handlers/safe_handle";
 import { PermissionInterceptor } from "./interceptor";
 import {
     PermissionRequest,
@@ -26,6 +28,11 @@ import {
 } from "@/lib/file-permission-scope";
 
 const logger = log.scope("permission-handlers");
+
+// Origin-gated + logged registration for the PRIVILEGED blanket-approval channels
+// (a hijacked frame that could reach these could auto-approve destructive ops).
+const gatedHandle = createLoggedHandler(logger);
+const ChatIdPayloadSchema = z.object({ chatId: z.number() });
 
 // Track active permission interceptors by chat ID
 const activeInterceptors = new Map<number, PermissionInterceptor>();
@@ -357,12 +364,13 @@ ipcMain.handle(
     },
 );
 
-ipcMain.handle(
+gatedHandle(
     "execute-all-permissions",
     async (
         _event: IpcMainInvokeEvent,
-        { chatId }: { chatId: number },
+        rawPayload: unknown,
     ): Promise<PermissionResult[]> => {
+        const { chatId } = ChatIdPayloadSchema.parse(rawPayload);
         logger.log(`Executing all permissions for chat ${chatId}`);
 
         const interceptor = activeInterceptors.get(chatId);
@@ -374,12 +382,13 @@ ipcMain.handle(
     },
 );
 
-ipcMain.handle(
+gatedHandle(
     "reject-all-permissions",
     async (
         _event: IpcMainInvokeEvent,
-        { chatId }: { chatId: number },
+        rawPayload: unknown,
     ): Promise<PermissionResult[]> => {
+        const { chatId } = ChatIdPayloadSchema.parse(rawPayload);
         logger.log(`Rejecting all permissions for chat ${chatId}`);
 
         const interceptor = activeInterceptors.get(chatId);

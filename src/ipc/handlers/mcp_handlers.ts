@@ -107,6 +107,18 @@ export function registerMcpHandlers() {
   handle(
     "mcp:create-server",
     async (_event: IpcMainInvokeEvent, params: CreateMcpServer) => {
+      // Defense-in-depth behind the origin gate: reject a malformed payload
+      // rather than trusting the compile-time type at runtime. (Kept lenient —
+      // the transport config is a union; over-strict validation would break
+      // existing saved servers.)
+      if (
+        params == null ||
+        typeof params !== "object" ||
+        typeof (params as { name?: unknown }).name !== "string" ||
+        !(params as { name: string }).name.trim()
+      ) {
+        throw new Error("Invalid MCP server payload.");
+      }
       const scope = "workspace";
       const appId = params.appId ?? null;
       if (appId == null) {

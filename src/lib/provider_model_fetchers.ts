@@ -558,9 +558,16 @@ export async function fetchModelsFromOpenRouter(
           modality?: string;
         };
         context_length?: number;
+        // OpenRouter reports per-TOKEN USD prices as strings ("0.0000003").
+        pricing?: { prompt?: string; completion?: string };
       }>;
     };
     const items = data.data ?? [];
+    // Per-token USD string → USD per 1M tokens (the picker's PriceBadge unit).
+    const perMillion = (v?: string): number | undefined => {
+      const n = v ? Number.parseFloat(v) : Number.NaN;
+      return Number.isFinite(n) ? n * 1_000_000 : undefined;
+    };
     const models: LanguageModel[] = items
       .filter((m) => {
         const id = (m.id ?? "").toLowerCase();
@@ -571,14 +578,24 @@ export async function fetchModelsFromOpenRouter(
         }
         return true;
       })
-      .map((m) => ({
-        apiName: m.id,
-        displayName: m.name ?? m.id,
-        description: "OpenRouter-hosted model",
-        contextWindow: m.context_length,
-        type: "cloud" as const,
-        supportsToolChoice: true,
-      }));
+      .map((m) => {
+        const input = perMillion(m.pricing?.prompt);
+        const output = perMillion(m.pricing?.completion);
+        // Attach cost only for PAID models — a $0 model stays "Free" in the badge.
+        const cost =
+          (input ?? 0) > 0 || (output ?? 0) > 0
+            ? { input: input ?? 0, output: output ?? 0 }
+            : undefined;
+        return {
+          apiName: m.id,
+          displayName: m.name ?? m.id,
+          description: "OpenRouter-hosted model",
+          contextWindow: m.context_length,
+          type: "cloud" as const,
+          supportsToolChoice: true,
+          ...(cost ? { cost } : {}),
+        };
+      });
     sortModels(models);
     toCache("openrouter", models);
     logger.info(`[OpenRouter] Fetched ${models.length} models`);

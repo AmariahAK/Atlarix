@@ -21,6 +21,7 @@
  */
 
 import { commandSegments } from "./command-segments";
+import { SECRET_PATH_RE } from "./security/env-secret-paths";
 
 export interface DangerMatch {
   /** Stable, kebab-case id — used as the always-allow permission key. */
@@ -122,9 +123,10 @@ export const DANGEROUS_PATTERNS: DangerMatch[] = [
     // credential/secret path, regardless of the reader binary — a reader
     // blocklist (`cat|head|…`) can never be complete (`awk`/`sort`/`cp`/`grep`
     // and copy-then-read all evade it). Matches SSH keys, cloud/CI credential
-    // files, and `.env*` (`\.env\b` so `.environment` is NOT matched).
-    pattern:
-      /\.ssh\/id_|\bid_(rsa|ed25519|ecdsa|dsa)\b|\.aws\/credentials|\.netrc|\.git-credentials|\.npmrc|\.kube\/config|\.docker\/config\.json|\.env\b/,
+    // files, and `.env*` (`\.env\b` so `.environment` is NOT matched). Shared
+    // with read_file's block-list (env-secret-paths.ts) as the single source of
+    // truth, so a file the command gate prompts on can't be read friction-free.
+    pattern: SECRET_PATH_RE,
     explanation:
       "This references a well-known credential/secret file. Only allow if you intend to expose its contents to the model.",
   },

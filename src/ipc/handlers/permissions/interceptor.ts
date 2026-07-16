@@ -8,8 +8,8 @@
  */
 
 import * as fs from "fs/promises";
-import { realpathSync } from "node:fs";
 import * as path from "path";
+import { assertRealpathContained as assertRealpathContainedShared } from "@/lib/security/realpath-contain";
 import { createHash } from "crypto";
 import { recordMutationOutcome } from "@/lib/agent/mutation-verify";
 import { wrapUntrustedData } from "@/lib/streaming/untrusted-data";
@@ -1058,49 +1058,14 @@ export class PermissionInterceptor extends EventEmitter {
         return resolved;
     }
 
-    /** Reject when the real (symlink-resolved) target escapes the workspace. */
+    /** Reject when the real (symlink-resolved) target escapes the workspace.
+     * Delegates to the shared helper so reads (read_file/glob) and writes agree. */
     private assertRealpathContained(
         resolved: string,
         normalizedWorkspace: string,
         original: string,
     ): void {
-        let realWorkspace: string;
-        try {
-            realWorkspace = realpathSync(normalizedWorkspace);
-        } catch {
-            return; // can't canonicalize the root — fail open (no new rejections)
-        }
-        const realAllowed: string[] = [];
-        for (const root of this.allowedRoots) {
-            try {
-                realAllowed.push(realpathSync(root));
-            } catch {
-                /* skip unresolvable roots */
-            }
-        }
-        // The target may not exist yet (a write) — realpath the nearest existing
-        // ancestor, then re-append the not-yet-existing suffix.
-        let probe = resolved;
-        let realAncestor: string;
-        for (;;) {
-            try {
-                realAncestor = realpathSync(probe);
-                break;
-            } catch {
-                const parent = path.dirname(probe);
-                if (parent === probe) return; // no existing ancestor — nothing to check
-                probe = parent;
-            }
-        }
-        const realTarget = path.resolve(realAncestor, path.relative(probe, resolved));
-        const contained = (root: string): boolean => {
-            const rel = path.relative(root, realTarget);
-            return rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
-        };
-        if (contained(realWorkspace) || realAllowed.some(contained)) return;
-        throw new Error(
-            `Path escapes the workspace via a symlink: ${original}. Refusing to operate outside the project.`
-        );
+        assertRealpathContainedShared(resolved, normalizedWorkspace, [...this.allowedRoots], original);
     }
 
     private toWorkspaceRelativePosix(filePath: string): string {

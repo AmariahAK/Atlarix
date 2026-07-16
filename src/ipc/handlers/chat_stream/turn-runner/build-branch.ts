@@ -47,7 +47,7 @@ import { PermissionInterceptor } from "@/ipc/handlers/permissions/interceptor";
 import { recordUnverifiedEdit, clearUnverifiedEdit } from "@/lib/agent/mutation-verify";
 import { runAgentTurn } from "@/lib/agent/run-agent-turn";
 import { sanitizeJsonSchemaForProvider } from "@/lib/ai/normalize-tool-schema";
-import { buildToolModelOutput, redactToolMediaForDisplay, extractImageMedia } from "@/lib/ai/tool-model-output";
+import { buildToolModelOutput, redactToolMediaForDisplay, extractImageMedia, redactedToolTextForModel } from "@/lib/ai/tool-model-output";
 import { stripHallucinatedAtlarixToolTagsFromDelta } from "@/lib/chat/answer-display";
 import { summarizeToolResultForActivityDetail, toolResultTextForExpand } from "@/lib/chat/stream-tool-display";
 import { computeDiffHunks } from "@/lib/diff/compose-hunks";
@@ -274,8 +274,7 @@ export async function runBuildBranch(
                     modelApiId: resolveReasoningCatalogModelId(effectiveModel),
                   }) ?? {
                     type: "text",
-                    value:
-                      typeof output === "string" ? output : JSON.stringify(output),
+                    value: redactedToolTextForModel(output),
                   },
                 execute: async (
                   args: any,

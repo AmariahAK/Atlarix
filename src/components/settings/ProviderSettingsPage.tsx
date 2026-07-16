@@ -11,6 +11,7 @@ import { } from "@/components/ui/accordion";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { showError } from "@/lib/toast";
+import { IpcClient } from "@/ipc/ipc_client";
 import {
   UserSettings,
   AzureProviderSetting,
@@ -50,6 +51,22 @@ export function ProviderSettingsPage({ provider }: ProviderSettingsPageProps) {
     isLoading: providersLoading,
     error: providersError,
   } = useLanguageModelProviders();
+
+  // A20/L-5: warn when provider keys / OAuth tokens are stored WITHOUT OS
+  // encryption (no keystore) — persistent, since it's a real at-rest exposure.
+  const [secretsEncrypted, setSecretsEncrypted] = useState(true);
+  useEffect(() => {
+    let cancelled = false;
+    IpcClient.getInstance()
+      .getSecretEncryptionAvailable()
+      .then((ok) => {
+        if (!cancelled) setSecretsEncrypted(ok);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Find the specific provider data from the fetched list
   const providerData = allProviders?.find((p) => p.id === provider);
@@ -304,6 +321,19 @@ export function ProviderSettingsPage({ provider }: ProviderSettingsPageProps) {
           isAtlarix={isAtlarix}
           onBackClick={() => router.history.back()}
         />
+
+        {!secretsEncrypted && (
+          <Alert variant="destructive" className="mt-4">
+            <AlertTriangle className="h-4 w-4" />
+            <AlertTitle>Keys stored without encryption</AlertTitle>
+            <AlertDescription>
+              No OS keystore is available, so provider API keys and sign-in tokens
+              are saved unencrypted on this device. Install a system keyring (e.g.
+              gnome-keyring / libsecret on Linux) and restart — Atlarix will
+              re-encrypt them automatically.
+            </AlertDescription>
+          </Alert>
+        )}
 
         {settingsLoading ? (
           <div className="space-y-4">

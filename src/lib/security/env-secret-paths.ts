@@ -17,6 +17,18 @@ const SECRET_EXACT_BASENAMES = new Set([
   "service-account.json",
 ]);
 
+/**
+ * Well-known credential/secret PATHS — the single source of truth, also imported
+ * by the run_command danger-gate (`dangerous-commands.ts`) so a file the command
+ * gate prompts on can't be read friction-free by `read_file`. Matched as a
+ * SUBSTRING against a normalized path OR a command string, so it catches both
+ * bare basenames (`id_rsa`, `.npmrc`) and two-segment paths (`.aws/credentials`,
+ * `.kube/config`, `.docker/config.json`). `\.env\b` matches `.env`/`.env.local`
+ * but NOT `.environment`. Case-insensitive (hardening over the old gate).
+ */
+export const SECRET_PATH_RE =
+  /\.ssh\/id_|\bid_(?:rsa|ed25519|ecdsa|dsa)\b|\.aws\/credentials|\.netrc|\.git-credentials|\.npmrc|\.kube\/config|\.docker\/config\.json|\.env\b/i;
+
 export const ENV_SECRET_BLOCK_MESSAGE =
   "This file contains sensitive environment variables and cannot be read by the agent.";
 
@@ -51,7 +63,22 @@ export function isBlockedSecretBasename(name: string): boolean {
   if (SECRET_EXACT_BASENAMES.has(lower)) return true;
   if (ENV_SECRET_BASENAME_RE.test(basename)) return true;
   if (SECRET_EXTENSION_RE.test(basename)) return true;
+  // Bare credential basenames: id_rsa/id_ed25519/…, .npmrc, .netrc, .git-credentials.
+  if (SECRET_PATH_RE.test(basename)) return true;
   return false;
+}
+
+/**
+ * True when a FULL path (not just the basename) references a secret — catches the
+ * two-segment credential paths (`.aws/credentials`, `.kube/config`,
+ * `.docker/config.json`) that a basename-only check misses, plus everything
+ * `isBlockedSecretBasename` covers.
+ */
+export function isBlockedSecretPath(p: string): boolean {
+  if (!p || typeof p !== "string") return false;
+  const norm = sanitizePathInput(p);
+  if (isBlockedSecretBasename(norm)) return true;
+  return SECRET_PATH_RE.test(norm);
 }
 
 /**
@@ -70,7 +97,9 @@ export function assertReadablePath(p: string, workspaceRoot: string): void {
   if (resolved !== root && !resolved.startsWith(root + path.sep)) {
     throw new Error(PATH_ESCAPE_BLOCK_MESSAGE);
   }
-  if (isBlockedSecretBasename(path.basename(resolved))) {
+  // Full-path check so two-segment credential paths (.aws/credentials,
+  // .kube/config, .docker/config.json) are caught, not just the basename.
+  if (isBlockedSecretPath(resolved)) {
     throw new Error(ENV_SECRET_BLOCK_MESSAGE);
   }
 }
@@ -80,8 +109,7 @@ export function assertReadablePath(p: string, workspaceRoot: string): void {
  */
 export function assertIpcReadableFilePath(filePath: string): void {
   const sanitized = sanitizePathInput(filePath);
-  const basename = path.basename(sanitized.replace(/\\/g, "/"));
-  if (isBlockedSecretBasename(basename)) {
+  if (isBlockedSecretPath(sanitized)) {
     throw new Error(ENV_SECRET_BLOCK_MESSAGE);
   }
 }

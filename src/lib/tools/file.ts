@@ -32,6 +32,7 @@ import {
     ENV_SECRET_BLOCK_MESSAGE,
     isBlockedSecretBasename,
 } from "@/lib/security/env-secret-paths";
+import { assertRealpathContained } from "@/lib/security/realpath-contain";
 import {
     enrichReadFileStructuredError,
     logReadFileError,
@@ -281,6 +282,9 @@ ToolRegistry.register({
                     // path stays supported and is restricted to the tmp dir.
                 } else if (workspace) {
                     assertReadablePath(String(filePath), workspace);
+                    // String checks are symlink-blind — reject a workspace symlink
+                    // whose real target escapes the workspace (id_rsa, /etc, …).
+                    assertRealpathContained(fullPath, workspace, [], String(filePath));
                 } else if (isBlockedSecretBasename(path.basename(fullPath))) {
                     throw new Error(ENV_SECRET_BLOCK_MESSAGE);
                 }

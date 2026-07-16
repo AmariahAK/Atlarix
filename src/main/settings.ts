@@ -270,8 +270,54 @@ export function writeSettings(settings: Partial<UserSettings>): void {
     }
     const validatedSettings = UserSettingsSchema.parse(newSettings);
     fs.writeFileSync(filePath, JSON.stringify(validatedSettings, null, 2));
+    // The settings file holds provider keys + OAuth tokens (encrypted when a
+    // keystore is available, plaintext otherwise). Restrict it to the owner on
+    // POSIX so other local users can't read the fallback plaintext. (no-op on
+    // Windows, where ACLs govern instead — guarded to avoid an EPERM throw.)
+    if (process.platform !== "win32") {
+      try {
+        fs.chmodSync(filePath, 0o600);
+      } catch {
+        /* best-effort hardening */
+      }
+    }
   } catch (error) {
     logger.error("Error writing settings:", error);
+  }
+}
+
+/** True when OS-backed secret encryption is active (else keys persist plaintext). */
+export function isSecretEncryptionAvailable(): boolean {
+  if (IS_TEST_BUILD) return true;
+  return getSafeStorage()?.isEncryptionAvailable() === true;
+}
+
+/**
+ * A20/L-5 recovery: if the OS keystore is now available but stored secrets are
+ * still `plaintext` (written while it was down — e.g. before gnome-keyring was
+ * installed), re-encrypt them. `readSettings` decrypts to plaintext values, so a
+ * no-op `writeSettings({})` re-encrypts every secret via the now-available
+ * keystore. Cheap-guarded: only writes when a plaintext secret actually exists.
+ */
+export function reEncryptPlaintextSecretsIfPossible(): void {
+  if (!isSecretEncryptionAvailable()) return;
+  try {
+    const s = readSettings();
+    const isPlain = (sec?: { encryptionType?: string }) =>
+      sec?.encryptionType === "plaintext";
+    let hasPlaintext = isPlain(s.githubAccessToken);
+    for (const p in s.providerSettings ?? {}) {
+      const ps = s.providerSettings[p] as { apiKey?: Secret } & VertexProviderSetting;
+      if (isPlain(ps.apiKey)) hasPlaintext = true;
+      if (p === "vertex" && isPlain(ps.serviceAccountKey)) hasPlaintext = true;
+    }
+    if (!hasPlaintext) return;
+    writeSettings({});
+    logger.log(
+      "[settings] OS keystore recovered — re-encrypted previously-plaintext secrets.",
+    );
+  } catch (error) {
+    logger.warn("[settings] re-encrypt on recovery failed:", error);
   }
 }
 

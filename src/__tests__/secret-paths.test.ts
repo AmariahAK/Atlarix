@@ -5,6 +5,7 @@ import {
   assertReadablePath,
   ENV_SECRET_BLOCK_MESSAGE,
   isBlockedSecretBasename,
+  isBlockedSecretPath,
   PATH_ESCAPE_BLOCK_MESSAGE,
 } from "../lib/security/env-secret-paths";
 
@@ -24,13 +25,44 @@ describe("isBlockedSecretBasename", () => {
     "secrets.json",
     "Credentials.JSON",
     "service-account.json",
+    // Unified with the run_command danger-gate: bare SSH keys + rc credential files.
+    "id_rsa",
+    "id_ed25519",
+    "id_ecdsa",
+    "id_dsa",
+    ".npmrc",
+    ".netrc",
+    ".git-credentials",
   ])("blocks %s", (name) => {
     expect(isBlockedSecretBasename(name)).toBe(true);
   });
 
-  it.each(["src/config.ts", "README.md", "package.json", "app.ts"])("allows %s", (name) => {
-    expect(isBlockedSecretBasename(name)).toBe(false);
+  it.each(["src/config.ts", "README.md", "package.json", "app.ts", ".environment"])(
+    "allows %s",
+    (name) => {
+      expect(isBlockedSecretBasename(name)).toBe(false);
+    },
+  );
+});
+
+describe("isBlockedSecretPath (two-segment credential paths)", () => {
+  it.each([
+    ".aws/credentials",
+    "home/user/.aws/credentials",
+    ".kube/config",
+    ".docker/config.json",
+    "id_ed25519",
+    ".npmrc",
+  ])("blocks %s", (p) => {
+    expect(isBlockedSecretPath(p)).toBe(true);
   });
+
+  it.each(["config/credentials", "app/config.json", "src/config.ts", "kube/config-map.yaml"])(
+    "allows non-secret %s",
+    (p) => {
+      expect(isBlockedSecretPath(p)).toBe(false);
+    },
+  );
 });
 
 describe("assertReadablePath", () => {

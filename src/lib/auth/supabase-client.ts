@@ -59,6 +59,11 @@ export function getSupabaseClient(): SupabaseClient {
                 persistSession: true,
                 autoRefreshToken: true,
                 detectSessionInUrl: false, // We handle deep links manually
+                // PKCE: Supabase manages a per-request state + code_verifier
+                // round-trip itself (real CSRF binding, not just a flow flag).
+                // The verifier persists in `fileStorage` across the browser
+                // round-trip; the callback returns `?code=` which we exchange.
+                flowType: "pkce",
             },
         });
 
@@ -234,39 +239,52 @@ export async function handleAuthCallback(url: string): Promise<{
             };
         }
 
-        // Parse the URL to extract tokens
+        // PKCE: the callback carries `?code=` in the QUERY (Supabase manages the
+        // state/verifier). Exchange it for a session — the verifier persisted in
+        // fileStorage from signInWithOAuth. (Provider errors also arrive in the
+        // query.) A legacy hash `#access_token=` is handled as a fallback so an
+        // in-flight implicit-flow callback across an upgrade still completes.
         const urlObj = new URL(url);
+        const queryParams = urlObj.searchParams;
         const hashParams = new URLSearchParams(urlObj.hash.substring(1));
-        const accessToken = hashParams.get('access_token');
-        const refreshToken = hashParams.get('refresh_token');
 
-        if (!accessToken) {
-            // Check for error in callback
-            const error = hashParams.get('error');
-            const errorDescription = hashParams.get('error_description');
+        const authError = queryParams.get('error') || hashParams.get('error');
+        if (authError) {
+            const desc =
+                queryParams.get('error_description') ||
+                hashParams.get('error_description');
+            return { session: null, user: null, error: new Error(desc || authError) };
+        }
+
+        const code = queryParams.get('code');
+        const accessToken = hashParams.get('access_token');
+
+        let data: { session: Session | null; user: User | null };
+        if (code) {
+            const { data: exchanged, error } =
+                await supabase.auth.exchangeCodeForSession(code);
             if (error) {
-                return {
-                    session: null,
-                    user: null,
-                    error: new Error(errorDescription || error),
-                };
+                logger.error(`[Supabase] Code exchange error:`, error);
+                return { session: null, user: null, error };
             }
+            data = { session: exchanged.session, user: exchanged.user };
+        } else if (accessToken) {
+            // Legacy implicit-flow fallback (tokens in the hash).
+            const { data: sessionData, error } = await supabase.auth.setSession({
+                access_token: accessToken,
+                refresh_token: hashParams.get('refresh_token') || '',
+            });
+            if (error) {
+                logger.error(`[Supabase] Set session error:`, error);
+                return { session: null, user: null, error };
+            }
+            data = { session: sessionData.session, user: sessionData.user };
+        } else {
             return {
                 session: null,
                 user: null,
-                error: new Error('No access token in callback'),
+                error: new Error('No authorization code in callback'),
             };
-        }
-
-        // Set the session with the tokens
-        const { data, error } = await supabase.auth.setSession({
-            access_token: accessToken,
-            refresh_token: refreshToken || '',
-        });
-
-        if (error) {
-            logger.error(`[Supabase] Set session error:`, error);
-            return { session: null, user: null, error };
         }
 
         logger.log(`[Supabase] Session set successfully for ${data.user?.email}`);

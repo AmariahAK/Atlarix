@@ -2,14 +2,16 @@
  * Terminal IPC — interactive user commands + shared streaming output channel.
  */
 
-import { ipcMain, BrowserWindow, IpcMainInvokeEvent } from "electron";
+import { BrowserWindow, IpcMainInvokeEvent } from "electron";
 import { randomUUID } from "crypto";
+import { z } from "zod";
 import log from "electron-log";
 import {
   runShellCommandStreaming,
   killShellProcess,
   type CommandResult,
 } from "../utils/runShellCommand";
+import { createLoggedHandler } from "./safe_handle";
 import type { ChildProcess } from "child_process";
 
 const logger = log.scope("terminal-handlers");
@@ -21,6 +23,16 @@ export interface TerminalRunParams {
   chatId?: number;
   source?: "user" | "agent";
 }
+
+/** Runtime shape gate for the privileged `terminal:run` channel (defense in depth
+ * behind the CSP): a hijacked frame can't smuggle a non-string command or extras. */
+const TerminalRunParamsSchema = z.object({
+  command: z.string(),
+  cwd: z.string().optional(),
+  timeoutMs: z.number().optional(),
+  chatId: z.number().optional(),
+  source: z.enum(["user", "agent"]).optional(),
+});
 
 export interface TerminalRunResult {
   exitCode: number;
@@ -52,12 +64,14 @@ function trimOutputForResult(stdout: string, stderr: string, maxBytes = 8000): s
 }
 
 export function registerTerminalHandlers(): void {
-  ipcMain.handle(
+  const handle = createLoggedHandler(logger);
+  handle(
     "terminal:run",
     async (
       _event: IpcMainInvokeEvent,
-      params: TerminalRunParams,
+      rawParams: unknown,
     ): Promise<TerminalRunResult> => {
+      const params = TerminalRunParamsSchema.parse(rawParams);
       const command = String(params.command ?? "").trim();
       if (!command) {
         return {

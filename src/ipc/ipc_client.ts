@@ -1941,6 +1941,20 @@ export class IpcClient {
     }
   }
 
+  /** True when provider keys / OAuth tokens are encrypted at rest (OS keystore
+   * available). Fails to `true` (no scary banner) when it can't be determined. */
+  public async getSecretEncryptionAvailable(): Promise<boolean> {
+    try {
+      return (
+        (await this.ipcRenderer.invoke(
+          "settings:secret-encryption-available",
+        )) === true
+      );
+    } catch {
+      return true;
+    }
+  }
+
   // Update user settings
   public async setUserSettings(
     settings: Partial<UserSettings>,

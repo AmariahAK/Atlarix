@@ -10,6 +10,7 @@ import {
   getSettingsFilePath,
   readSettings,
   writeSettings,
+  reEncryptPlaintextSecretsIfPossible,
 } from "./main/settings";
 import { handleAtlarixProReturn } from "./main/pro";
 import { IS_TEST_BUILD } from "./ipc/utils/test_utils";
@@ -1179,6 +1180,13 @@ if (!gotTheLock) {
     );
   }
   app.whenReady().then(() => {
+    // A20/L-5: if the OS keystore is back (e.g. keyring now installed), upgrade
+    // any secrets written in plaintext-fallback mode to encrypted at rest.
+    try {
+      reEncryptPlaintextSecretsIfPossible();
+    } catch (e) {
+      logger.warn("re-encrypt secrets on startup failed:", e);
+    }
     void onReady().catch((err: unknown) => {
       logger.error("onReady failed:", err);
       dialog.showErrorBox(
@@ -1298,18 +1306,17 @@ function handleDeepLinkReturn(url: string) {
     return;
   }
 
-  // Handle OAuth callback: atlarix://auth/callback#access_token=...&refresh_token=...
-  // Supabase OAuth returns tokens in hash fragment, not query params
+  // Handle OAuth callback: atlarix://auth/callback?code=... (PKCE; a legacy
+  // implicit-flow #access_token= callback is still accepted as a fallback).
   if (parsed.hostname === "auth" || parsed.pathname.startsWith("/auth/callback")) {
     // Cancel the 60s inbound-timeout fallback — deep link was received successfully.
     import('./lib/auth/supabase-client').then(({ cancelPendingOAuthTimeout }) => {
       cancelPendingOAuthTimeout();
     }).catch(() => { /* non-fatal */ });
 
-    // Supabase sends tokens in hash fragment: #access_token=xxx&refresh_token=yyy
-    // We need to pass the full URL to SubscriptionManager for parsing
+    // Pass the full URL through — handleAuthCallback exchanges the `?code=` (PKCE)
+    // or, as a fallback, reads legacy hash tokens.
     log.log("Handling Supabase OAuth callback");
-    log.log("OAuth callback URL has hash:", url.includes('#'));
 
     // Import dynamically to avoid circular dependencies
     import('./lib/SubscriptionManager').then(async ({ SubscriptionManager }) => {

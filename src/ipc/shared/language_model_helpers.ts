@@ -129,6 +129,35 @@ export async function getLanguageModelProviders(): Promise<
 }
 
 /**
+ * Native `/models` endpoints that don't return pricing (e.g. DeepSeek) leave the
+ * picker showing "Free". Backfill each model's `cost` from the models.dev catalog
+ * by `apiName`. Best-effort — native models still work if models.dev is
+ * unavailable, and models already carrying cost (e.g. OpenRouter, which reports
+ * its own pricing) are left untouched.
+ */
+async function backfillCostFromModelsDev(
+  providerId: string,
+  models: LanguageModel[],
+): Promise<LanguageModel[]> {
+  if (!models.some((m) => m.type === "cloud" && !m.cost)) return models;
+  try {
+    const catalog = await getModelsFromModelsDev(providerId);
+    const costById = new Map<string, { input: number; output: number }>();
+    for (const m of catalog) {
+      if (m.type === "cloud" && m.cost) costById.set(m.apiName, m.cost);
+    }
+    if (costById.size === 0) return models;
+    return models.map((m) =>
+      m.type === "cloud" && !m.cost && costById.has(m.apiName)
+        ? { ...m, cost: costById.get(m.apiName) }
+        : m,
+    );
+  } catch {
+    return models;
+  }
+}
+
+/**
  * Fetches language models for a specific provider.
  * @param obj An object containing the providerId.
  * @returns A promise that resolves to an array of LanguageModel objects.
@@ -210,6 +239,7 @@ export async function getLanguageModels({
     } else if (supportsProviderNativeFetch(providerId)) {
       try {
         cloudModels = await fetchModelsFromProvider(providerId, apiKey);
+        cloudModels = await backfillCostFromModelsDev(providerId, cloudModels);
       } catch (error) {
         console.warn(
           `[${providerId}] Native fetch failed, falling back to models.dev:`,

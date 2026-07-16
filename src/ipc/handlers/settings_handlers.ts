@@ -1,7 +1,7 @@
 import { ipcMain } from "electron";
 import type { UserSettings } from "../../lib/schemas";
 import { writeSettings } from "../../main/settings";
-import { readSettings } from "../../main/settings";
+import { readSettings, isSecretEncryptionAvailable } from "../../main/settings";
 import { capture as analyticsCapture } from "../../main/lib/analytics";
 
 export function registerSettingsHandlers() {
@@ -9,6 +9,12 @@ export function registerSettingsHandlers() {
   ipcMain.handle("get-user-settings", async () => {
     const settings = readSettings();
     return settings;
+  });
+
+  // A20/L-5: lets the renderer warn when provider keys / OAuth tokens are stored
+  // WITHOUT OS encryption (no keystore) — a non-sensitive boolean only.
+  ipcMain.handle("settings:secret-encryption-available", async () => {
+    return isSecretEncryptionAvailable();
   });
 
   // Intentionally do NOT use handle because it could log sensitive data from the args.

@@ -89,6 +89,7 @@ const validInvokeChannels = [
   "rename-app",
   "get-user-settings",
   "set-user-settings",
+  "settings:secret-encryption-available",
   "workspace:list-paths",
   "get-env-vars",
   "get-db-ready",
