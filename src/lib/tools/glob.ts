@@ -22,7 +22,6 @@ import {
     resolvePathUnderWorkspace,
     stripToolPathPrefixes,
 } from "../../ipc/utils/safeWorkspaceRelativePath";
-import { isBlockedSecretBasename } from "@/lib/security/env-secret-paths";
 import { ripgrepIgnoreArgs } from "./ripgrep-ignore";
 import { resolveRipgrepPath } from "./resolve-ripgrep";
 
@@ -123,11 +122,9 @@ ToolRegistry.register({
                 matched = matched.filter((f) => !f.includes("/"));
             }
 
-            // Secret-path denylist: never enumerate .env-style files — listing
-            // names leaks that secrets exist and invites a follow-up read.
-            const files = matched.filter(
-                (f) => !isBlockedSecretBasename(path.basename(f)),
-            );
+            // Like opencode / Claude Code, in-workspace files (incl. .env) are
+            // enumerable — the agent works over the whole project.
+            const files = matched;
 
             if (files.length === 0) {
                 return `No files found matching pattern: ${pattern}. Often an extension or casing issue — try a broader glob (e.g. "**/${pattern}"), or use grep to find the file by its content.`;

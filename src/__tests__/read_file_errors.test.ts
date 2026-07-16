@@ -15,7 +15,7 @@ import {
   enrichReadFileStructuredError,
   readFileStructuredError,
 } from "../lib/tools/file-read-errors";
-import { ENV_SECRET_BLOCK_MESSAGE, PATH_ESCAPE_BLOCK_MESSAGE } from "../lib/security/env-secret-paths";
+import { PATH_ESCAPE_BLOCK_MESSAGE } from "../lib/security/env-secret-paths";
 
 describe("readFileStructuredError", () => {
   it("maps ENOENT to file_not_found", () => {
@@ -44,8 +44,11 @@ describe("readFileStructuredError", () => {
     expect(result?.error).toBe("path_not_allowed");
   });
 
-  it("maps secret block to path_not_allowed", () => {
-    const result = readFileStructuredError(new Error(ENV_SECRET_BLOCK_MESSAGE), ".env");
+  it("maps a symlink-escape error to path_not_allowed", () => {
+    const result = readFileStructuredError(
+      new Error("Path escapes the workspace via a symlink: leak.txt"),
+      "leak.txt",
+    );
     expect(result?.error).toBe("path_not_allowed");
   });
 

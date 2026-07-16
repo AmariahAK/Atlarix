@@ -1,8 +1,5 @@
 import log from "electron-log";
-import {
-  ENV_SECRET_BLOCK_MESSAGE,
-  PATH_ESCAPE_BLOCK_MESSAGE,
-} from "@/lib/security/env-secret-paths";
+import { PATH_ESCAPE_BLOCK_MESSAGE } from "@/lib/security/env-secret-paths";
 
 const logger = log.scope("read_file");
 
@@ -76,9 +73,8 @@ export function readFileStructuredError(
 
   if (
     msg === PATH_ESCAPE_BLOCK_MESSAGE ||
-    msg === ENV_SECRET_BLOCK_MESSAGE ||
     msg.includes("escapes workspace") ||
-    msg.includes("secret") ||
+    msg.includes("symlink") ||
     msg.includes("not allowed")
   ) {
     return {

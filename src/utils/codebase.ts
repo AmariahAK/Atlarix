@@ -8,7 +8,6 @@ import { glob } from "glob";
 import { AppChatContext } from "../lib/schemas";
 import { readSettings } from "@/main/settings";
 import { AsyncVirtualFileSystem } from "../../shared/VirtualFilesystem";
-import { isBlockedSecretBasename } from "@/lib/security/env-secret-paths";
 import { isExcludedDir } from "@/ipc/utils/file_utils";
 import {
   isFsAccessDenied,
@@ -336,13 +335,6 @@ function shouldReadFileContents({
   const ext = path.extname(filePath).toLowerCase();
   const fileName = path.basename(filePath);
 
-  if (
-    isBlockedSecretBasename(path.basename(filePath)) ||
-    isBlockedSecretBasename(path.basename(normalizedRelativePath))
-  ) {
-    return false;
-  }
-
   // OMITTED_FILES takes precedence - never read if omitted
   if (
     OMITTED_FILES.some((pattern) => normalizedRelativePath.includes(pattern))
@@ -358,20 +350,11 @@ function shouldReadFileContents({
 
 function shouldReadFileContentsForSmartContext({
   filePath,
-  normalizedRelativePath,
 }: {
   filePath: string;
-  normalizedRelativePath: string;
 }): boolean {
   const ext = path.extname(filePath).toLowerCase();
   const fileName = path.basename(filePath);
-
-  if (
-    isBlockedSecretBasename(path.basename(filePath)) ||
-    isBlockedSecretBasename(path.basename(normalizedRelativePath))
-  ) {
-    return false;
-  }
 
   // Check if file should be included based on extension or filename
   return (
@@ -601,7 +584,6 @@ export async function extractCodebase({
     if (
       !shouldReadFileContentsForSmartContext({
         filePath: file,
-        normalizedRelativePath,
       })
     ) {
       fileContent = OMITTED_FILE_CONTENT;

@@ -135,19 +135,6 @@ export function buildToolModelOutput(
   };
 }
 
-/**
- * D1 (OUTBOUND): the model-facing TEXT of a non-media tool result, with
- * high-confidence secret shapes masked so raw keys/tokens never reach the
- * provider. This is the outbound counterpart to `redactToolMediaForDisplay`
- * (which only masks the UI copy) — used for the `toModelOutput` text fallback.
- * Conservative patterns only (see redact-secrets.ts): a `.env`/`printenv` dump
- * of an OpenAI/GitHub/AWS/JWT/PEM secret is masked; ordinary content is not.
- */
-export function redactedToolTextForModel(output: unknown): string {
-  const text = typeof output === "string" ? output : JSON.stringify(output);
-  return redactSecretsInText(text);
-}
-
 /** Display-only string fields that may carry tool output (and thus secrets). */
 const SECRET_REDACTABLE_FIELDS = [
   "result",

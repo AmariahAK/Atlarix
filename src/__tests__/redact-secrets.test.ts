@@ -7,7 +7,6 @@ import {
   redactSecretsInText,
   containsSecret,
 } from "@/lib/security/redact-secrets";
-import { redactedToolTextForModel } from "@/lib/ai/tool-model-output";
 
 describe("redactSecretsInText", () => {
   const SECRETS = [
@@ -56,30 +55,5 @@ describe("redactSecretsInText", () => {
     const once = redactSecretsInText("token ghp_0123456789abcdef0123456789abcdef0123");
     expect(redactSecretsInText(once)).toBe(once);
     expect(redactSecretsInText("")).toBe("");
-  });
-});
-
-// WS7: the OUTBOUND path — what the model receives, not just the UI copy.
-describe("redactedToolTextForModel (outbound tool result)", () => {
-  it("masks a secret in a raw string tool result", () => {
-    const out = redactedToolTextForModel(
-      "OPENAI_API_KEY=sk-abcdefghijklmnopqrstuvwx1234567890",
-    );
-    expect(out).not.toContain("sk-abcdefghijklmnopqrstuvwx1234567890");
-    expect(out).toContain("[redacted secret]");
-  });
-
-  it("masks a secret inside a stringified object tool result (stdout/stderr)", () => {
-    const out = redactedToolTextForModel({
-      success: true,
-      stdout: "AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE\nGITHUB_TOKEN=ghp_0123456789abcdef0123456789abcdef0123",
-    });
-    expect(out).not.toContain("AKIAIOSFODNN7EXAMPLE");
-    expect(out).not.toContain("ghp_0123456789abcdef0123456789abcdef0123");
-  });
-
-  it("leaves ordinary tool output untouched", () => {
-    const out = redactedToolTextForModel({ success: true, stdout: "Build ok in 3s" });
-    expect(out).toContain("Build ok in 3s");
   });
 });

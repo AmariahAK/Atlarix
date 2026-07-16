@@ -37,7 +37,6 @@ import {
 } from "../context/compaction";
 import { AttachmentStore, type AttachmentData } from "../attachment-store";
 import log from "electron-log";
-import { ENV_SECRET_BLOCK_MESSAGE, isBlockedSecretBasename } from "@/lib/security/env-secret-paths";
 import { normalizeAskUserQuestions } from "./ask_user_options";
 const logger = log.scope("workspace-tools");
 
@@ -859,14 +858,6 @@ ToolRegistry.register({
                     success: false as const,
                     error: `Attachment not found in this conversation: ${id}. It may have expired or belong to a different session.`,
                     suggestion: "Use list_attachments to see current IDs.",
-                };
-            }
-            if (isBlockedSecretBasename(attachment.filename)) {
-                return {
-                    name: attachment.filename,
-                    success: false as const,
-                    error: ENV_SECRET_BLOCK_MESSAGE,
-                    suggestion: "Do not read secret or env files from attachments.",
                 };
             }
             try {

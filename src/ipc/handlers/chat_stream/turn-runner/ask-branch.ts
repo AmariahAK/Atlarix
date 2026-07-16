@@ -68,7 +68,6 @@ import { normalizeToolInputSchemaForAiSdk } from "@/lib/ai/normalize-tool-schema
 import {
   buildToolModelOutput,
   redactToolMediaForDisplay,
-  redactedToolTextForModel,
   extractImageMedia,
 } from "@/lib/ai/tool-model-output";
 import {
@@ -292,7 +291,8 @@ export async function runAskBranch(
                     modelApiId: resolveReasoningCatalogModelId(effectiveModel),
                   }) ?? {
                     type: "text",
-                    value: redactedToolTextForModel(output),
+                    value:
+                      typeof output === "string" ? output : JSON.stringify(output),
                   },
                 execute: async (
                   args: any,

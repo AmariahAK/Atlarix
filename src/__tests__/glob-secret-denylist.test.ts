@@ -1,13 +1,11 @@
 /**
- * v12 S16 (v13: find_file → glob) — glob must never enumerate secret-path files
- * (.env*, keys, credentials): listing the names leaks that secrets exist and
- * invites a follow-up read. Same policy as read_file (env-secret-paths).
+ * v14.12: glob no longer hides secret-path files. Like opencode / Claude Code,
+ * in-workspace files (incl. `.env*`) are enumerable — the agent works over the
+ * whole project; the only read-side gate is the workspace boundary.
  *
- * glob is ripgrep-backed now (matches by PATTERN), so we assert the two
- * observable contracts that matter with reliable, constrained patterns (not a
- * bare recursive listing, whose ripgrep file-enumeration varies across
- * environments): (1) a glob that targets secrets never enumerates them, and
- * (2) a normal pattern finds real files without ever surfacing a secret.
+ * glob is ripgrep-backed (matches by PATTERN), so we assert with reliable,
+ * constrained patterns (not a bare recursive listing, whose ripgrep enumeration
+ * varies across environments).
  */
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import * as fs from "node:fs";
@@ -38,19 +36,15 @@ async function findFile(pattern: string): Promise<string> {
   return typeof raw === "string" ? raw : JSON.stringify(raw);
 }
 
-describe("glob secret denylist (S16)", () => {
-  it("never enumerates .env* files, even when the glob targets them", async () => {
+describe("glob enumerates in-workspace files (incl. .env)", () => {
+  it("finds .env* files when the glob targets them", async () => {
     const out = await findFile(".env*");
-    // The no-match guidance may echo the model's own pattern — fine. What must
-    // never appear is an enumeration ("Found N file(s)" + the secret names).
-    expect(out).not.toContain("Found");
-    expect(out).not.toContain(".env.local");
-    expect(out).toContain("No files found");
+    expect(out).toContain(".env");
+    expect(out).toContain(".env.local");
   });
 
-  it("finds normal files by pattern without ever surfacing a secret", async () => {
+  it("finds normal source files by pattern", async () => {
     const out = await findFile("**/*.ts");
     expect(out).toContain("config.ts");
-    expect(out).not.toContain(".env");
   });
 });
