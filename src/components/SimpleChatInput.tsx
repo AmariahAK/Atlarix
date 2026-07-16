@@ -40,6 +40,7 @@ import { AttachmentsList } from "@/components/chat/AttachmentsList";
 import { ParkedWaitingChip } from "@/components/chat/ParkedWaitingChip";
 import { DragDropOverlay } from "@/components/chat/DragDropOverlay";
 import { useComposerAutocomplete } from "@/components/chat/ComposerAutocomplete";
+import { useLiveTurnTokenUsage } from "@/hooks/useLiveTurnTokenUsage";
 
 interface SimpleChatInputProps {
     chatId: number;
@@ -64,6 +65,9 @@ export function SimpleChatInput({ chatId, onSubmit, placeholder = "Continue the 
         if (isFinal) dictationBaseRef.current = null;
     };
     const { settings } = useSettings();
+    // Keep live per-turn token usage fresh here (always-mounted composer) so the
+    // meter climbs live even when the usage popover is closed.
+    useLiveTurnTokenUsage(chatId);
     const isStreamingById = useAtomValue(isStreamingByIdAtom);
     const isStreaming = isStreamingById.get(chatId) ?? false;
     const setIsStreamingById = useSetAtom(isStreamingByIdAtom);

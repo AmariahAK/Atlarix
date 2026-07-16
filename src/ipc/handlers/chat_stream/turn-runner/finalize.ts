@@ -511,6 +511,32 @@ export async function handleTurnError(
           return;
         }
         {
+          // Image-content rejection (text-only chat API): surface a friendly
+          // "switch to a vision model" message instead of the raw provider dump.
+          // Handled in simple-stream-text's onError for the streaming path; this
+          // covers a pre-stream throw that reaches the outer catch.
+          const { isImageContentRejectionError, imageUnsupportedUserMessage } =
+            await import("@/lib/chat/image-embed-gate");
+          if (isImageContentRejectionError(error)) {
+            safeSend(event.sender, "chat:response:error", {
+              chatId: req.chatId,
+              streamId,
+              error: `${AI_STREAMING_ERROR_MESSAGE_PREFIX}${imageUnsupportedUserMessage()}`,
+            });
+            safeSend(event.sender, "chat:response:end", {
+              chatId: req.chatId,
+              streamId,
+              updatedFiles: false,
+              hadToolCallsOrPermissions: false,
+            } satisfies ChatResponseEnd);
+            if (activeStreamId.get(req.chatId) === streamId)
+              activeStreams.delete(req.chatId);
+            ctx.streamTerminated = true;
+            FileUploadsState.getInstance().clear(req.chatId);
+            return;
+          }
+        }
+        {
           const { isContextOverflowError } = await import("@/lib/context/compaction");
           if (isContextOverflowError(error)) {
             // v11.1: the provider just told us our context estimate was too

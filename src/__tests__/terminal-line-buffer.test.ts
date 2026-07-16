@@ -70,6 +70,19 @@ describe("terminal-line-buffer", () => {
     expect(att!.terminalPaste!.lineEnd).toBe(2);
   });
 
+  // Perf: the composer reads the clipboard text once and passes it in, so a
+  // large rich-text paste isn't parsed twice. Assert the pre-read text is used
+  // instead of re-reading the (here empty) clipboard.
+  it("parseTerminalPasteFromClipboard honors pre-read plain text (no re-read)", () => {
+    const dt = rwClip(); // empty clipboard — getData returns ""
+    const transcript = "[You] $ ls\n[Agent] file.txt\n";
+    const att = parseTerminalPasteFromClipboard(dt, transcript);
+    expect(att).not.toBeNull();
+    expect(att!.terminalPaste).toBeDefined();
+    // Without the pre-read text it would read the empty clipboard → null.
+    expect(parseTerminalPasteFromClipboard(dt)).toBeNull();
+  });
+
   it("lastCommandBlockRange returns prompt through status before next prompt", () => {
     const lines: TerminalLine[] = [
       line(0, "prompt", "$ ls"),

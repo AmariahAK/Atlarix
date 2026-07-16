@@ -20,6 +20,19 @@ const logger = log.scope("priority-skill-loader");
 const SKILLS_DIR_REL = ".atlarix/skills";
 const ALL_MODES = ["ask", "build", "plan", "debug", "review"] as const;
 
+/**
+ * Normalize a mode token for matching. Skills (local frontmatter + the
+ * marketplace `compatibleModes`) are authored with the DISPLAY names — Title
+ * case, and "Explore" after the 2026-07 ask→explore *display* rename — while the
+ * runtime WorkMode value is still the lowercase enum `"ask"` (schemas.ts, kept
+ * for back-compat). Lowercase both sides and fold the "explore" label onto its
+ * enum value so a `compatibleModes: [Explore]` skill matches `currentMode="ask"`.
+ */
+export function normalizeMode(mode: string): string {
+  const m = mode.trim().toLowerCase();
+  return m === "explore" ? "ask" : m;
+}
+
 export interface PrioritySkill {
   name: string;
   description: string;
@@ -176,9 +189,14 @@ export async function loadPrioritySkillsForWorkspace(
       const tags = Array.isArray(data.tags)
         ? (data.tags as unknown[]).map((t) => String(t))
         : [];
-      const modes = Array.isArray(data.modes)
-        ? (data.modes as unknown[]).map((m) => String(m))
-        : [...ALL_MODES];
+      // Accept both `modes` (local convention) and `compatibleModes` (the
+      // marketplace/community field). Absent → applies in every mode.
+      const rawModes = Array.isArray(data.modes)
+        ? (data.modes as unknown[])
+        : Array.isArray(data.compatibleModes)
+          ? (data.compatibleModes as unknown[])
+          : null;
+      const modes = rawModes ? rawModes.map((m) => String(m)) : [...ALL_MODES];
 
       const skill: PrioritySkill = {
         name:
@@ -223,8 +241,11 @@ export function formatPrioritySkillsForPrompt(
 ): string {
   if (!skills.length) return "";
 
+  const wanted = normalizeMode(currentMode);
   const applicable = skills.filter(
-    (s) => s.modes.includes(currentMode) || s.modes.includes("*"),
+    (s) =>
+      s.modes.includes("*") ||
+      s.modes.some((m) => normalizeMode(m) === wanted),
   );
   if (!applicable.length) return "";
 

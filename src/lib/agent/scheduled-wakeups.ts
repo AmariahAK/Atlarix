@@ -106,6 +106,18 @@ export function hasPendingScheduledWakeupNudges(chatId: number): boolean {
   return (nudgesByChat.get(chatId)?.length ?? 0) > 0;
 }
 
+/**
+ * Is there an OUTSTANDING (scheduled-but-not-yet-fired) self-wake for this chat?
+ * A fired timer removes itself from `timersByChat` (see setTimeout body), so a
+ * non-empty map means the model committed to waiting until at least one wake-up
+ * fires. The stall watchdog uses this to hush its "gone quiet, may be stuck"
+ * advisory while the model is deliberately waiting — the wake-up is the single
+ * authority, not a competing 3-min ping.
+ */
+export function hasActiveScheduledWakeup(chatId: number): boolean {
+  return (timersByChat.get(chatId)?.size ?? 0) > 0;
+}
+
 /** Cancel all timers + drop queued nudges for a chat (on chat close/delete). */
 export function clearScheduledWakeupsForChat(chatId: number): void {
   const chatTimers = timersByChat.get(chatId);

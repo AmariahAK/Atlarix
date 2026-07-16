@@ -202,6 +202,9 @@ export function buildTerminalPasteFromSelection(opts: {
 
 export function parseTerminalPasteFromClipboard(
   clipboardData: DataTransfer,
+  /** Pre-read plain text (the caller usually already read it) — avoids a second
+   *  clipboard read + DOMParser pass on a large rich-text paste. */
+  preReadPlainText?: string,
 ): FileAttachment | null {
   const json = clipboardData.getData(ATLARIX_TERMINAL_CLIPBOARD_MIME);
   if (json) {
@@ -222,7 +225,7 @@ export function parseTerminalPasteFromClipboard(
     }
   }
 
-  const plainText = readClipboardPlainText(clipboardData);
+  const plainText = preReadPlainText ?? readClipboardPlainText(clipboardData);
   if (!plainText?.trim() || !looksLikeTerminalTranscript(plainText)) {
     return null;
   }

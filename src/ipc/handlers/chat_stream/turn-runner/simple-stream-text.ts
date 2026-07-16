@@ -60,6 +60,10 @@ import {
   type VersionedFiles,
 } from "@/ipc/utils/versioned_codebase_context";
 import { isNetworkStreamError } from "@/ipc/handlers/chat_stream/network-retry";
+import {
+  isImageContentRejectionError,
+  imageUnsupportedUserMessage,
+} from "@/lib/chat/image-embed-gate";
 import { sentryCaptureExceptionSafe } from "@/ipc/handlers/chat_stream/sentry-safe";
 import {
   activeStreams,
@@ -805,7 +809,13 @@ export async function simpleStreamText(
                 // Only Core INFRA errors (reachability / core_unavailable) warrant a
                 // Sentry event; a user running out of credit (402) is expected state.
                 let isCompassInfraError = false;
-                if (modelClient.builtinProviderId === "compass") {
+                if (isImageContentRejectionError(error)) {
+                  // The model's API rejected the embedded image (text-only chat
+                  // API, e.g. DeepSeek's "unknown variant image_url"). Replace the
+                  // raw JSON deserialize error with a clear, actionable message
+                  // instead of the scary provider dump.
+                  message = imageUnsupportedUserMessage();
+                } else if (modelClient.builtinProviderId === "compass") {
                   const statusCode =
                     (error as any)?.statusCode ?? (error as any)?.error?.statusCode;
                   const rawBody =

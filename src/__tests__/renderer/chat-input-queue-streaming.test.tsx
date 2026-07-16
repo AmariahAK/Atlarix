@@ -46,7 +46,13 @@ vi.mock("@/components/chat/TokenBar", () => ({ TokenBar: () => null }));
 vi.mock("@/components/chat/AttachmentsList", () => ({ AttachmentsList: () => null }));
 vi.mock("@/components/chat/SignInToChatNotice", () => ({ SignInToChatNotice: () => null }));
 vi.mock("@/ipc/ipc_client", () => ({
-  IpcClient: { getInstance: () => ({ cancelChatStream: vi.fn() }) },
+  IpcClient: {
+    getInstance: () => ({
+      cancelChatStream: vi.fn(),
+      // SimpleChatInput mounts useLiveTurnTokenUsage → subscribes here.
+      onTokenUsage: () => () => {},
+    }),
+  },
 }));
 
 import { SimpleChatInput } from "@/components/SimpleChatInput";

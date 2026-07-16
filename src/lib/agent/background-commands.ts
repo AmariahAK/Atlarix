@@ -15,6 +15,7 @@
  */
 
 import type { ChildProcess } from "node:child_process";
+import { hasActiveScheduledWakeup } from "@/lib/agent/scheduled-wakeups";
 
 export type BackgroundJobStatus =
   | "running"
@@ -101,11 +102,13 @@ const MAX_QUEUED_PER_CHAT = 10;
  * the LLM stream's idle watchdog). Slow-but-progressing jobs reset the clock via
  * updateBackgroundOutput, so a chatty slow job never trips it.
  */
-// 3 min: advisory-only (never kills), so erring long is cheap. Installs, CI,
-// and slow downloads routinely go quiet for 2+ min on a slow network without
-// being stuck — 3 min suppresses the false "possibly stuck" noise while still
-// surfacing a genuine hang in reasonable time.
-const OUTPUT_IDLE_THRESHOLD_MS = 180_000;
+// 5 min: advisory-only (never kills), so erring long is cheap. First-run Gradle
+// builds, cold Docker pulls, and CI installs routinely go quiet for 3–4 min
+// while downloading multi-GB SDKs/images without being stuck. 3 min was too
+// eager (it woke the agent, which then cancelled a healthy build); 5 min
+// suppresses that false "possibly stuck" noise while still surfacing a genuine
+// hang in reasonable time.
+const OUTPUT_IDLE_THRESHOLD_MS = 300_000;
 /** How often the watchdog scans running jobs (cadence, not the threshold). */
 const STALL_CHECK_INTERVAL_MS = 60_000;
 
@@ -166,6 +169,13 @@ function totalRunningJobs(): number {
 function scanForStalledJobs(): void {
   const now = Date.now();
   for (const [chatId, jobs] of runningJobsByChat) {
+    // The model's schedule_wakeup is the single wait authority: while an
+    // outstanding self-wake covers this chat, the model deliberately chose to
+    // wait, so the idle-stall backstop is snoozed — otherwise the "gone quiet,
+    // may be stuck" advisory fires every ~3 min and auto-wakes a turn, yanking
+    // the model out of its own wait. wake_on matches + finished results are
+    // unaffected; only the idle-stall ping is suppressed.
+    const wakeupActive = hasActiveScheduledWakeup(chatId);
     for (const job of jobs.values()) {
       const tail =
         job.output.length > OUTPUT_TAIL_CAP
@@ -194,6 +204,8 @@ function scanForStalledJobs(): void {
         notify(chatId, job.operationId, "condition_met");
       }
 
+      // Snooze the idle-stall backstop while the model is deliberately waiting.
+      if (wakeupActive) continue;
       const idleMs = now - job.lastOutputAt;
       if (idleMs < OUTPUT_IDLE_THRESHOLD_MS) continue;
       if (stalledNotified.has(job.operationId)) continue;
@@ -300,11 +312,22 @@ export function updateBackgroundOutput(
 ): void {
   const job = runningJobsByChat.get(chatId)?.get(operationId);
   if (!job) return;
-  // A4: only a genuine output CHANGE counts as liveness — reset the idle clock
-  // and re-arm the stall advisory so a job that goes quiet AGAIN can re-advise.
-  if (output !== job.output) {
-    job.output = output;
-    job.lastOutputAt = Date.now();
+  if (output === job.output) return;
+  // A4: any output change is LIVENESS — reset the idle clock so an actively
+  // updating job (incl. a `\r`-redrawn progress bar, which never emits a new
+  // line) is never mis-flagged as stuck.
+  //
+  // But only a MEANINGFUL change RE-ARMS the advisory. Once we've advised on a
+  // quiet episode, a lone trivial byte (a spinner tick, a stray `\r`) must not
+  // clear `stalledNotified` and let the 3-min ping re-fire on the next quiet
+  // gap. Re-arm only when the delta carries a genuine new line — real progress
+  // worth re-advising if the job then goes quiet again.
+  const grew = output.length > job.output.length;
+  const delta = grew ? output.slice(job.output.length) : output;
+  const meaningfulChange = delta.includes("\n");
+  job.output = output;
+  job.lastOutputAt = Date.now();
+  if (meaningfulChange) {
     stalledNotified.delete(operationId);
   }
 }
@@ -490,16 +513,16 @@ export function takePendingStalledAdvisories(chatId: number): string | null {
           `Act on it now: read more with background_jobs({operation:"output", job_id:"${a.operationId}"}), or stop it with background_jobs({operation:"cancel", job_id:"${a.operationId}"}).`,
         ].join("\n")
       : [
-          `Background job ${a.operationId} has produced no output for ${Math.round(a.idleMs / 1000)}s and is STILL RUNNING (it may be stuck):`,
+          `Background job ${a.operationId} has produced no output for ${Math.round(a.idleMs / 1000)}s but is STILL RUNNING. For builds, installs, downloads, dependency fetches, and long test suites this is NORMAL — a quiet job is usually working, not stuck (a first Gradle build or an npm/pip install can be silent for minutes while it downloads).`,
           `$ ${a.command}`,
           a.outputTail ? "```\n" + a.outputTail + "\n```" : "(no output yet)",
-          `Decide: keep waiting, read more with background_jobs({operation:"output", job_id:"${a.operationId}"}), or stop it with background_jobs({operation:"cancel", job_id:"${a.operationId}"}).`,
+          `Prefer to KEEP WAITING: call schedule_wakeup to re-check it later so you don't hold the turn open, then continue or end your turn. Only cancel (background_jobs {operation:"cancel", job_id:"${a.operationId}"}) if the USER asked you to stop it, or you have concrete evidence it is genuinely hung (e.g. a deadlock/error in the output). Do NOT cancel just because it is quiet, and do NOT report work as done that this job has not finished.`,
         ].join("\n"),
   );
   return [
     `[Background job advisory]`,
     blocks.join("\n\n"),
-    `Handle each job above before ending your turn — do not ignore a matched condition or a possibly-stuck job.`,
+    `Handle each job above before ending your turn — act on a matched condition; for a quiet-but-running job, prefer waiting (schedule_wakeup) over cancelling.`,
   ].join("\n\n");
 }
 

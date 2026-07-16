@@ -23,6 +23,10 @@ import {
   takePendingSubagentResults,
 } from "@/lib/agents/subagent-results";
 import { computeWakePendingResults } from "@/lib/agent/collect-results";
+import {
+  scheduleWakeup,
+  clearScheduledWakeupsForChat,
+} from "@/lib/agent/scheduled-wakeups";
 
 describe("background-commands (v13 7A / v14 jobs)", () => {
   it("records, drains take-once, and tracks running state", () => {
@@ -175,12 +179,12 @@ describe("background-commands output-idle watchdog (A4)", () => {
     recordBackgroundCommandStart(chatId, "op-idle", "ssh prod tail -f log", Date.now());
     expect(statuses).toEqual(["running"]);
 
-    // 120s of silence — under the 180s threshold, no advisory yet.
-    vi.advanceTimersByTime(120_000);
+    // 240s of silence — under the 300s threshold, no advisory yet.
+    vi.advanceTimersByTime(240_000);
     expect(hasPendingStalledAdvisories(chatId)).toBe(false);
 
-    // Cross 180s of silence (next 60s scan tick) — exactly one "stalled" advisory.
-    vi.advanceTimersByTime(60_000);
+    // Cross 300s of silence (next 60s scan tick) — exactly one "stalled" advisory.
+    vi.advanceTimersByTime(120_000);
     expect(statuses.filter((s) => s === "stalled")).toHaveLength(1);
     expect(hasPendingStalledAdvisories(chatId)).toBe(true);
     // Advisory is NOT a kill: the job is still running and listed.
@@ -203,10 +207,10 @@ describe("background-commands output-idle watchdog (A4)", () => {
     expect(statuses.filter((s) => s === "stalled")).toHaveLength(1);
 
     // Output resumes → re-armed; a SECOND silent stretch re-advises. Advance
-    // past 180s of NEW silence AND across a 60s scan tick (the watchdog only
+    // past 300s of NEW silence AND across a 60s scan tick (the watchdog only
     // checks on its interval, so we land on a qualifying tick).
     updateBackgroundOutput(chatId, "op-idle", "some progress\n");
-    vi.advanceTimersByTime(180_000);
+    vi.advanceTimersByTime(360_000);
     expect(statuses.filter((s) => s === "stalled")).toHaveLength(2);
 
     clearBackgroundCommandsForChat(chatId);
@@ -283,6 +287,83 @@ describe("background-commands output-idle watchdog (A4)", () => {
     vi.advanceTimersByTime(300_000);
     expect(statuses.filter((s) => s === "stalled")).toHaveLength(0);
     expect(hasPendingStalledAdvisories(chatId)).toBe(false);
+    clearBackgroundCommandsForChat(chatId);
+  });
+});
+
+// WS1: the model's schedule_wakeup is the single wait authority. While an
+// outstanding self-wake covers the chat, the idle-stall backstop must stay
+// quiet (no advisory, no "stalled" notify → no auto-wake storm). And once a
+// stall HAS been advised, a `\r`-only redraw (no new line) must not re-arm it.
+describe("background-commands wait-timer coordination (WS1)", () => {
+  beforeEach(() => {
+    killAllBackgroundJobs();
+  });
+  afterEach(() => {
+    killAllBackgroundJobs();
+    setBackgroundJobNotifier(() => {});
+    vi.useRealTimers();
+  });
+
+  it("snoozes the stall advisory while a schedule_wakeup is active, then fires once cleared", () => {
+    vi.useFakeTimers();
+    const chatId = 9400;
+    const statuses: string[] = [];
+    setBackgroundJobNotifier((cid, ev) => {
+      if (cid === chatId) statuses.push(ev.status);
+    });
+
+    // Model commits to waiting: a long (1h) self-wake covers the chat.
+    scheduleWakeup(chatId, 3_600_000, "waiting for the install to finish");
+    recordBackgroundCommandStart(chatId, "op-wait", "pnpm install", Date.now());
+
+    // Well past the 180s idle threshold across several scan ticks — but the
+    // wakeup is still active, so NO stall advisory and NO "stalled" notify.
+    vi.advanceTimersByTime(300_000);
+    expect(statuses.filter((s) => s === "stalled")).toHaveLength(0);
+    expect(hasPendingStalledAdvisories(chatId)).toBe(false);
+
+    // The model stops waiting (wakeup cleared) → the fallback backstop resumes
+    // and advises on the next qualifying scan tick.
+    clearScheduledWakeupsForChat(chatId);
+    vi.advanceTimersByTime(120_000);
+    expect(statuses.filter((s) => s === "stalled")).toHaveLength(1);
+    expect(hasPendingStalledAdvisories(chatId)).toBe(true);
+
+    clearBackgroundCommandsForChat(chatId);
+    clearScheduledWakeupsForChat(chatId);
+  });
+
+  it("a \\r-only redraw does not re-arm a fired stall advisory; a new line does", () => {
+    vi.useFakeTimers();
+    const chatId = 9401;
+    const statuses: string[] = [];
+    setBackgroundJobNotifier((cid, ev) => {
+      if (cid === chatId) statuses.push(ev.status);
+    });
+
+    recordBackgroundCommandStart(chatId, "op-spin", "curl -O big.iso", Date.now());
+    // Cross 300s of silence → exactly one stall advisory.
+    vi.advanceTimersByTime(360_000);
+    expect(statuses.filter((s) => s === "stalled")).toHaveLength(1);
+
+    // A progress-bar redraw (carriage-return, NO new line) is liveness for the
+    // idle clock but must NOT re-arm the advisory — otherwise the ping re-fires
+    // forever on a job that's actually progressing.
+    updateBackgroundOutput(chatId, "op-spin", "Downloading 40%\rDownloading 41%");
+    vi.advanceTimersByTime(360_000);
+    expect(statuses.filter((s) => s === "stalled")).toHaveLength(1);
+
+    // A genuine new line = real progress → re-arms; a fresh silent stretch
+    // re-advises exactly once more.
+    updateBackgroundOutput(
+      chatId,
+      "op-spin",
+      "Downloading 40%\rDownloading 41%\nDownload complete\n",
+    );
+    vi.advanceTimersByTime(360_000);
+    expect(statuses.filter((s) => s === "stalled")).toHaveLength(2);
+
     clearBackgroundCommandsForChat(chatId);
   });
 });

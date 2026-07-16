@@ -23,8 +23,7 @@ import {
   liveTurnUsageByChatIdAtom,
   isStreamingForChatAtom,
 } from "@/atoms/chatAtoms";
-import { useAtom, useAtomValue, useSetAtom } from "jotai";
-import { IpcClient } from "@/ipc/ipc_client";
+import { useAtom, useAtomValue } from "jotai";
 import { useContextReport } from "@/hooks/useContextReport";
 import { Scissors, Bot as BotIcon, DollarSign } from "lucide-react";
 import { useSettings } from "@/hooks/useSettings";
@@ -56,49 +55,16 @@ export function TokenBar({ chatId }: TokenBarProps) {
   const sessionTokens = chatId != null ? sessionTokensByChat[chatId] : undefined;
 
   // Live per-turn usage (Claude-Code-style): the provider's REAL context/output
-  // tokens streamed during a turn drive the headline, so the meter is live and
-  // provider-accurate (not the Anthropic-tokenizer estimate). Held at rest as
-  // the authoritative last-known occupancy until the next turn starts.
-  const setLiveUsage = useSetAtom(liveTurnUsageByChatIdAtom);
+  // tokens drive the headline, so the meter is live and provider-accurate (not
+  // the Anthropic-tokenizer estimate). The atom is kept fresh by
+  // useLiveTurnTokenUsage() mounted in the always-present composer — TokenBar
+  // (a conditionally-mounted popover) only READS it, so the meter updates
+  // whether or not this popover is open.
   const liveUsageByChat = useAtomValue(liveTurnUsageByChatIdAtom);
   const liveUsage = chatId != null ? liveUsageByChat[chatId] : undefined;
   const isStreaming = useAtomValue(
     useMemo(() => isStreamingForChatAtom(chatId ?? -1), [chatId]),
   );
-  useEffect(() => {
-    const unsub = IpcClient.getInstance().onTokenUsage((p) => {
-      if (chatId == null || p.chatId !== chatId) return;
-      setLiveUsage((prev) => {
-        const cur = prev[chatId];
-        // Real provider usage (inputTokens set) is authoritative — overwrite.
-        if (p.inputTokens != null) {
-          return { ...prev, [chatId]: { input: p.inputTokens, output: p.outputTokens } };
-        }
-        // Throttled stream estimate — only applies before the first real step
-        // this turn (input still null); once real data arrives we ignore it to
-        // avoid per-step jitter. Output only grows.
-        if (cur?.input != null) return prev;
-        return {
-          ...prev,
-          [chatId]: { input: null, output: Math.max(cur?.output ?? 0, p.outputTokens) },
-        };
-      });
-    });
-    return unsub;
-  }, [chatId, setLiveUsage]);
-  // New stream → clear stale live usage so it ticks fresh (kept at rest otherwise).
-  const prevStreamingRef = useRef(false);
-  useEffect(() => {
-    if (isStreaming && !prevStreamingRef.current && chatId != null) {
-      setLiveUsage((prev) => {
-        if (!prev[chatId]) return prev;
-        const next = { ...prev };
-        delete next[chatId];
-        return next;
-      });
-    }
-    prevStreamingRef.current = isStreaming;
-  }, [isStreaming, chatId, setLiveUsage]);
 
   // #3: notify when switching to a model whose context window is smaller than
   // the current usage. The dispatch already auto-compacts to fit; this is a
