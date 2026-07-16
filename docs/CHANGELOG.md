@@ -3,6 +3,50 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
+## [14.12.0] (2026-07-16) — Harness fixes, real model pricing, edit_file overhaul, security hardening
+
+`npm run check` 0/0, vitest green.
+
+### Added
+- **Model-picker real pricing.** `$/M` from the models.dev catalog is merged into every provider's
+  natively-fetched models, and OpenRouter's own per-token pricing is parsed directly — the picker's
+  `PriceBadge` shows real cost instead of "Free". Locals stay "Free", Core "Paid".
+- **`edit_file` — multi-edit + elision-merge (weak-model robustness).** `operation:"replace"` now accepts
+  an `edits` array applied atomically in one call (nothing written if any hunk fails). New
+  `operation:"merge"` (Cursor-style): give the file's new shape with `// ... existing code ...` markers for
+  unchanged spans — stitched in deterministically (no apply-model), refusing rather than corrupting when a
+  marker can't be anchored.
+- **Live token counter** now updates from an always-mounted composer hook (works with the usage popover
+  closed) and holds occupancy across turns instead of dropping to the client estimate.
+- **`wake_on` nudge** — the run_command tool steers the model to attach a completion pattern
+  (`BUILD SUCCESSFUL|BUILD FAILED`, …) when backgrounding builds/tests/installs, for precise "is it done?"
+  detection instead of the silence heuristic.
+
+### Changed
+- **Wait-timer merge.** A background job's stall watchdog is snoozed while the model has an active
+  `schedule_wakeup`; carriage-return progress redraws no longer re-arm the advisory; the idle threshold is
+  180s→300s and the advisory is reframed toward patience (quiet builds are normal — don't cancel). Fixes the
+  "3-min pinger fires despite a longer wait" and the auto-wake retry loop.
+- **File reads align with opencode / Claude Code.** In-workspace files (incl. a project's own `.env` / keys)
+  read freely; the read-side gate is the workspace boundary only (path-escape + a new symlink realpath
+  check). Reading a credential file via a shell command still hits the run_command danger-gate, which asks.
+- **`ask`→"Explore" skill matching** is case/label-tolerant (reads `modes` and `compatibleModes`).
+
+### Fixed
+- **Paste** — a long paste no longer freezes the app or lands as inline text: the clipboard is read once,
+  `preventDefault` is synchronous, and large pastes become a chip instantly.
+- **Images** — a provider that rejects image input (text-only chat API, e.g. DeepSeek) now returns a clear
+  "switch to a vision model" message instead of a raw JSON deserialize error; capable models still send
+  images with no allowlist.
+- **PriceBadge clipping** in the model picker (Radix scroll-area content sizing).
+- Removed the dead LLM error-fallback in the Errors tab (deterministic SARIF + matcher path kept).
+
+### Security
+- **Plaintext-keychain fallback hardened** — the settings file is `chmod 600` on POSIX, a renderer banner
+  warns when no OS keystore is available, and secrets are re-encrypted once a keystore returns.
+- **Privileged IPC gated** — `terminal:run` and execute/reject-all-permissions now go through the
+  origin-gating handler with zod payload validation; `mcp:create-server` gets a runtime shape check.
+
 ## [14.11.0] (2026-07-14) — Pricing reframe: Free + Pro + PAYG credits
 
 `npm run check` 0/0, vitest **1572** green. Multi-repo refactor (app + proxy + edge functions +

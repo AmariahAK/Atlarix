@@ -1,7 +1,27 @@
 # Atlarix TODO
 
-**Current Version:** v14.11.0 (RELEASED — Latest on atlarix-releases) — pricing reframe: Free + Pro + PAYG credits; Team tier removed; Core → prepaid credit wallet
-**Last Updated:** 2026-07-14
+**Current Version:** v14.12.0 (RELEASED — Latest on atlarix-releases) — harness fixes, real model pricing, edit_file multi-edit + elision-merge, security hardening
+**Last Updated:** 2026-07-16
+
+## ✅ Shipped in v14.12.0 (2026-07-16)
+
+Full detail in [`docs/CHANGELOG.md`](./CHANGELOG.md) `[14.12.0]`. `npm run check` 0/0, vitest green.
+
+- **Harness batch.** Wait-timer merge (stall snooze under `schedule_wakeup`, `\r` no-rearm, 180→300s,
+  advisory reframed toward patience), live token counter (always-mounted composer hook + hold occupancy
+  across turns), paste beachball/first-time-miss fix, image graceful-degrade (friendly "switch to a vision
+  model" in onError, no allowlist), ask→explore case-tolerant skill match, errors-tab llmFallback deleted,
+  `wake_on` nudge for backgrounded builds/tests/installs.
+- **Model-picker real pricing.** models.dev cost merged into every provider's native fetch + OpenRouter's
+  own per-token pricing parsed; PriceBadge shows real `$/M` (clipping fix included).
+- **`edit_file` overhaul.** Multi-edit `edits` array (atomic) + Cursor-style `operation:"merge"` with
+  `// ... existing code ...` markers (deterministic stitch, refuses-not-corrupts).
+- **File reads align with opencode.** In-workspace files (incl. `.env`) read freely; workspace-boundary
+  confinement (path-escape + new symlink realpath check) + run_command ask-gate kept.
+- **Security.** Plaintext-keychain hardening (chmod 600 + banner + re-encrypt-on-recovery); privileged-IPC
+  gating (`terminal:run`/execute-all-permissions origin-gate + zod).
+- **Dropped/reverted:** OAuth PKCE (broke sign-in), outbound secret redaction, read-file secret-basename
+  block — reverted to keep working behavior / match opencode.
 
 ## ✅ Shipped in v14.11.0 (2026-07-14)
 
@@ -20,13 +40,26 @@ Multi-repo (app + proxy + edge fns + Supabase migrations + launchpad); backend a
   image-gate removed, DB-closing guard, optimistic stop + mid-stream edit.
 - **Launchpad.** Pricing → PAYG, Docs accuracy pass, Team pages removed.
 
+## 🔜 v14.13.0 — deferred security workstream (re-audited 2026-07-16, all still OPEN)
+
+Owner scoped these OUT of v14.12.0 to their own release with dedicated toolchain-regression testing (they
+can break legit installs/reads/builds):
+
+- **Env-var inheritance** — every spawned command gets full `process.env` incl. provider API keys
+  (`runShellCommand.ts:92`). Allowlist the child env.
+- **Automation allowlist-flip** — unattended runs are denylist (auto-approve except dangerous/system-scope);
+  flip read-only automations to a positive safe-command allowlist (`automations/auto-approve.ts`).
+- **Sandbox read-confinement** — sandbox confines writes only; reads are broad on all 3 OSes. Targeted
+  credential-path read-denylist (macOS Seatbelt first; Linux/Windows native helpers).
+- **Egress gating** — network unconditionally on. Soft proxy+logging first (owner chose deferral over strict
+  enforcement, which needs heavy per-OS native work).
+
+Not doing: **OAuth `state` nonce / PKCE** — attempted in v14.12.0, broke sign-in, reverted; the existing
+flow-in-progress gate stays. Windows code-signing/cert (C6 auto-update signing, native-sandbox CI) remain
+open (release-infra, no cert).
+
 ## 🔜 Deferred / next
 
-- **Model-picker per-provider real pricing.** Picker shows "Free" for OpenRouter/DeepSeek: those models
-  come from the provider's **native `/models`** path (`ipc/shared/language_model_helpers.ts`), which — unlike
-  OpenRouter's API — carries no cost, so only models built via the models.dev fallback thread `cost`. Merge
-  the models.dev catalog `cost` into natively-fetched models so `PriceBadge` shows real `$/M` (Core already
-  shows "Paid", locals "Free"). Optional: input/output dual-rate display.
 - **Windows grep PCRE2 lookahead** — `grep-pcre-fallback.test.ts`'s lookahead assertion returns "no matches"
   on the Windows runner (bundled ripgrep path/pcre2 nuance); skipped on win32 to unblock the release.
   Verify whether real Windows users' lookahead grep patterns work, or if it's only a test-fixture path issue.
