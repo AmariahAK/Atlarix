@@ -1306,17 +1306,18 @@ function handleDeepLinkReturn(url: string) {
     return;
   }
 
-  // Handle OAuth callback: atlarix://auth/callback?code=... (PKCE; a legacy
-  // implicit-flow #access_token= callback is still accepted as a fallback).
+  // Handle OAuth callback: atlarix://auth/callback#access_token=...&refresh_token=...
+  // Supabase OAuth returns tokens in hash fragment, not query params
   if (parsed.hostname === "auth" || parsed.pathname.startsWith("/auth/callback")) {
     // Cancel the 60s inbound-timeout fallback — deep link was received successfully.
     import('./lib/auth/supabase-client').then(({ cancelPendingOAuthTimeout }) => {
       cancelPendingOAuthTimeout();
     }).catch(() => { /* non-fatal */ });
 
-    // Pass the full URL through — handleAuthCallback exchanges the `?code=` (PKCE)
-    // or, as a fallback, reads legacy hash tokens.
+    // Supabase sends tokens in hash fragment: #access_token=xxx&refresh_token=yyy
+    // We need to pass the full URL to SubscriptionManager for parsing
     log.log("Handling Supabase OAuth callback");
+    log.log("OAuth callback URL has hash:", url.includes('#'));
 
     // Import dynamically to avoid circular dependencies
     import('./lib/SubscriptionManager').then(async ({ SubscriptionManager }) => {
