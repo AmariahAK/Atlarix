@@ -46,6 +46,7 @@ import {
   resolveScopeKey,
 } from "../../../lib/terminal-instance-store";
 import { injectAgentGitIdentity } from "../../utils/git_author";
+import { hasConfiguredGitIdentity } from "../../utils/git_utils";
 
 const logger = log.scope("permission-interceptor");
 
@@ -1352,12 +1353,19 @@ export class PermissionInterceptor extends EventEmitter {
         }
 
 
-        // Attribute bare `git commit` to the agent identity ("<Model> agent")
-        // without touching the user's git config.
-        const withAgentIdentity = injectAgentGitIdentity(commandToRun);
-        if (withAgentIdentity !== commandToRun) {
-            logger.log(`[executeRunCommand] Injected agent git identity into commit command`);
-            commandToRun = withAgentIdentity;
+        // Commits are authored by the user's own git config (Atlarix is credited
+        // via the co-author trailer only). Fall back to attributing a bare
+        // `git commit` to the agent identity ONLY when the machine has no git
+        // identity configured, so the commit still succeeds instead of failing.
+        if (
+            /\bgit\s+commit\b/.test(commandToRun) &&
+            !(await hasConfiguredGitIdentity(workingDir))
+        ) {
+            const withAgentIdentity = injectAgentGitIdentity(commandToRun);
+            if (withAgentIdentity !== commandToRun) {
+                logger.log(`[executeRunCommand] No git identity configured — injected agent identity into commit command`);
+                commandToRun = withAgentIdentity;
+            }
         }
 
         // NOTE: there is no longer a "dangerous command" hard-floor throw here.

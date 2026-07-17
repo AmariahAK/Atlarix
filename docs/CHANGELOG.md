@@ -3,6 +3,41 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
+## [14.13.0] (2026-07-17) — Co-author (not author) commits, working toggle, markdown replies
+
+`npm run check` 0/0, vitest green.
+
+### Added
+- **Markdown output guidance.** The `<output_style>` block now tells every model its
+  user-visible replies render as GitHub-flavored markdown — use headings, lists, fenced code
+  with a language tag, and tables where they aid clarity, without over-formatting short
+  answers (`src/prompts/system_prompt.ts`).
+
+### Fixed
+- **Atlarix is credited as co-author, not author.** Commits are authored by the user's own
+  git config again; Atlarix is credited only via the `Co-authored-by:` trailer. Both the
+  terminal `git commit` path (`src/ipc/handlers/permissions/interceptor.ts`) and the
+  programmatic auto-commit path (`src/ipc/utils/git_utils.ts` `gitCommit`) now attribute the
+  agent identity **only** as a fallback when the machine has no configured git identity — via
+  a new `hasConfiguredGitIdentity()` probe — so a bare machine's commit still succeeds instead
+  of failing.
+- **"Add Atlarix as co-author" toggle now works on the terminal path.** The setting
+  (`includeAtlarixCoAuthor`) previously only gated the trailer inside the programmatic helper;
+  the terminal/prompt path added it unconditionally. The commit-authoring note is now gated on
+  the setting and no longer instructs `--author` (`src/lib/tools/mode-prompt-bundle.ts`,
+  threaded from `src/prompts/system_prompt.ts`).
+
+### Changed
+- **Security scope trimmed.** Dropped four deferred "protect the user from their own agent"
+  items from the roadmap (egress gating, sandbox read-confinement, spawned-command env-var
+  allowlist, automation allowlist-flip) — matching opencode / Claude Code. Owner-protection
+  (payments, keychain, IPC gating) and the prompt-level untrusted-data defense are unchanged.
+
+### Tests
+- Real-git worktree suites (`subagent-cancel`, `subagent-worktree`) given the repo's 30s I/O
+  budget on their hooks/tests to end chronic load-flakiness (default 5s test / 10s hook was
+  too tight for real `git init`/commit/`worktree add` subprocesses under parallel load).
+
 ## [14.12.0] (2026-07-16) — Harness fixes, real model pricing, edit_file overhaul, security hardening
 
 `npm run check` 0/0, vitest green.

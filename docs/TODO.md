@@ -1,7 +1,23 @@
 # Atlarix TODO
 
-**Current Version:** v14.12.0 (RELEASED — Latest on atlarix-releases) — harness fixes, real model pricing, edit_file multi-edit + elision-merge, security hardening
-**Last Updated:** 2026-07-16
+**Current Version:** v14.13.0 (RELEASED — Latest on atlarix-releases) — co-author (not author) commits, working co-author toggle, markdown-reply guidance, security-scope trim
+**Last Updated:** 2026-07-17
+
+## ✅ Shipped in v14.13.0 (2026-07-17)
+
+Full detail in [`docs/CHANGELOG.md`](./CHANGELOG.md) `[14.13.0]`. `npm run check` 0/0, vitest green.
+
+- **Co-author, not author.** Commits are authored by the user's own git config; Atlarix is credited via the
+  `Co-authored-by:` trailer only. Terminal (`interceptor.ts`) + programmatic (`git_utils.ts`) paths inject the
+  agent identity **only** as a fallback when git is unconfigured (`hasConfiguredGitIdentity()` probe).
+- **Co-author toggle fixed.** `includeAtlarixCoAuthor` now gates the trailer on the terminal/prompt path too
+  (`mode-prompt-bundle.ts`, threaded from `system_prompt.ts`); the `--author` instruction is gone.
+- **Markdown replies.** `<output_style>` tells every model its user-visible replies render as GitHub-flavored
+  markdown.
+- **Security scope trimmed.** Dropped the four deferred "protect-user-from-their-own-agent" items (egress
+  gating, sandbox read-confinement, env-var allowlist, automation allowlist-flip) — matching opencode / CC.
+  Owner-protection + prompt-level untrusted-data defense unchanged.
+- **Flaky test fixed.** Real-git worktree suites given the repo's 30s hook/test I/O budget.
 
 ## ✅ Shipped in v14.12.0 (2026-07-16)
 
@@ -40,26 +56,11 @@ Multi-repo (app + proxy + edge fns + Supabase migrations + launchpad); backend a
   image-gate removed, DB-closing guard, optimistic stop + mid-stream edit.
 - **Launchpad.** Pricing → PAYG, Docs accuracy pass, Team pages removed.
 
-## 🔜 v14.13.0 — deferred security workstream (re-audited 2026-07-16, all still OPEN)
-
-Owner scoped these OUT of v14.12.0 to their own release with dedicated toolchain-regression testing (they
-can break legit installs/reads/builds):
-
-- **Env-var inheritance** — every spawned command gets full `process.env` incl. provider API keys
-  (`runShellCommand.ts:92`). Allowlist the child env.
-- **Automation allowlist-flip** — unattended runs are denylist (auto-approve except dangerous/system-scope);
-  flip read-only automations to a positive safe-command allowlist (`automations/auto-approve.ts`).
-- **Sandbox read-confinement** — sandbox confines writes only; reads are broad on all 3 OSes. Targeted
-  credential-path read-denylist (macOS Seatbelt first; Linux/Windows native helpers).
-- **Egress gating** — network unconditionally on. Soft proxy+logging first (owner chose deferral over strict
-  enforcement, which needs heavy per-OS native work).
-
-Not doing: **OAuth `state` nonce / PKCE** — attempted in v14.12.0, broke sign-in, reverted; the existing
-flow-in-progress gate stays. Windows code-signing/cert (C6 auto-update signing, native-sandbox CI) remain
-open (release-infra, no cert).
-
 ## 🔜 Deferred / next
 
+- **Windows code-signing / cert** — C6 auto-update signing + native-sandbox CI remain open (release-infra,
+  no cert). OAuth `state` nonce / PKCE stays **not doing** (attempted v14.12.0, broke sign-in, reverted; the
+  flow-in-progress gate stays).
 - **Windows grep PCRE2 lookahead** — `grep-pcre-fallback.test.ts`'s lookahead assertion returns "no matches"
   on the Windows runner (bundled ripgrep path/pcre2 nuance); skipped on win32 to unblock the release.
   Verify whether real Windows users' lookahead grep patterns work, or if it's only a test-fixture path issue.

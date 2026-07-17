@@ -86,6 +86,23 @@ async function execOrThrow(
   }
 }
 
+/**
+ * True when the repo has a resolvable `user.email` (from local or global git
+ * config). Used to decide whether Atlarix should fall back to the agent identity
+ * as author: configured machines keep the user as author (Atlarix is credited via
+ * the co-author trailer only); an unconfigured machine gets the agent identity so
+ * the commit still succeeds instead of failing with "tell me who you are".
+ */
+export async function hasConfiguredGitIdentity(
+  workspacePath: string,
+): Promise<boolean> {
+  const gitDir = resolveGitDir(workspacePath);
+  if (!gitDir) return false;
+  const result = await exec(["config", "--get", "user.email"], gitDir);
+  if (isGitMissingResult(result)) return false;
+  return result.exitCode === 0 && result.stdout.trim().length > 0;
+}
+
 export async function getCurrentCommitHash({
   path,
   ref = "HEAD",
@@ -146,15 +163,14 @@ export async function gitCommit({
       ? `${message}\n\n${coAuthorTrailer}`
       : message;
 
-  // Get author info for a stable identity even without user git config
-  const author = await getGitAuthor();
-  const args = [
-    "commit",
-    "-m",
-    finalMessage,
-    "--author",
-    `${author.name} <${author.email}>`,
-  ];
+  // Author = the user's own git config (Atlarix is credited via the co-author
+  // trailer only). Fall back to the agent identity as author ONLY when the
+  // machine has no configured git identity, so the commit still succeeds.
+  const args = ["commit", "-m", finalMessage];
+  if (!(await hasConfiguredGitIdentity(gitDir))) {
+    const author = await getGitAuthor();
+    args.push("--author", `${author.name} <${author.email}>`);
+  }
   if (amend) {
     args.push("--amend");
   }

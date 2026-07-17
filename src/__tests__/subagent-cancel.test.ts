@@ -15,6 +15,11 @@ import {
  * signal must short-circuit worktree creation instead of shelling out fully.
  */
 
+// Real git init/commit/worktree subprocesses are slow under full-suite parallel
+// load; give the hooks and tests the same 30s budget as subagent-worktree.test.ts
+// (and the eval project) so they don't flake on the default 5s test / 10s hook.
+const GIT_IO_TIMEOUT_MS = 30_000;
+
 let repo: string;
 let gitAvailable = false;
 
@@ -27,14 +32,14 @@ beforeAll(async () => {
   await exec(["add", "-A"], repo);
   await exec(["commit", "-m", "init"], repo);
   gitAvailable = await isGitRepo(repo);
-});
+}, GIT_IO_TIMEOUT_MS);
 
 afterAll(() => {
   fs.rmSync(repo, { recursive: true, force: true });
 });
 
 describe("writer worktree honors an abort signal", () => {
-  it("does not create a worktree when the signal is already aborted", async () => {
+  it("does not create a worktree when the signal is already aborted", { timeout: GIT_IO_TIMEOUT_MS }, async () => {
     if (!gitAvailable) return; // git not on PATH — skip (CI has git)
     const aborted = AbortSignal.abort();
     const wt = await createSubagentWorktree(repo, "cancel-task", aborted);
@@ -42,7 +47,7 @@ describe("writer worktree honors an abort signal", () => {
     expect(wt).toBeNull();
   });
 
-  it("still creates a worktree with a live (non-aborted) signal", async () => {
+  it("still creates a worktree with a live (non-aborted) signal", { timeout: GIT_IO_TIMEOUT_MS }, async () => {
     if (!gitAvailable) return;
     const ac = new AbortController();
     const wt = await createSubagentWorktree(repo, "live-task", ac.signal);

@@ -31,7 +31,7 @@ import {
     modeAllowlistIncludesWebResearch,
 } from "../lib/tools/mode-prompt-bundle";
 import { getAppVersion } from "../lib/app-version";
-import { gitAuthorNameForModel } from "../ipc/utils/git_author";
+import { readSettings } from "../main/settings";
 import { buildProjectDocsPromptHint } from "../lib/project-memory";
 
 /** Modes whose write tools may create/update the .atlarix doc files. */
@@ -262,6 +262,7 @@ Optional caps (max_bytes, max_lines, timeout_ms, …) are tuning knobs — raise
 </tool_contract>`;
 
     const outputStyleRule = `<output_style>
+Your user-visible replies are rendered as GitHub-flavored markdown. Use markdown structure where it aids clarity — headings, bullet/numbered lists, tables, and fenced code blocks with a language tag — but don't over-format short or conversational answers.
 In user-visible text, tool summaries, and markdown replies, prefer short ASCII markers or labels (e.g. [ok], [file], (check)) over emoji. The UI renders icons separately—do not rely on emoji for structure or status.
 </output_style>`;
 
@@ -283,16 +284,13 @@ If \`web_search\` returns nothing or errors, tell the user they can enable **Sea
         activeModel != null
             ? resolveActiveModelIdentity(activeModel)
             : null;
-    const effectiveModelDisplayName =
-        modelDisplayName ?? identity?.modelDisplayName;
     const modeBundle =
         effectiveWorkMode != null
             ? renderModePromptBundle(effectiveWorkMode, {
                   workspace: hasWorkspace,
                   registeredNames: registeredToolNames,
-                  gitAuthorName: effectiveModelDisplayName
-                      ? gitAuthorNameForModel(effectiveModelDisplayName)
-                      : undefined,
+                  includeCoAuthorTrailer:
+                      readSettings().includeAtlarixCoAuthor !== false,
               })
             : renderModeSystemBlock(undefined);
     const appVersion = getAppVersion();

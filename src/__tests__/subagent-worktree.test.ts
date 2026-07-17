@@ -54,13 +54,13 @@ describe("subagent worktree isolation", () => {
     workspace = await mkdtemp(path.join(tmpdir(), "atlarix-ws-"));
     nonGit = await mkdtemp(path.join(tmpdir(), "atlarix-ng-"));
     await initRepo(workspace);
-  });
+  }, GIT_IO_TIMEOUT_MS);
 
   afterAll(async () => {
     for (const d of [userData, workspace, nonGit]) {
       await rm(d, { recursive: true, force: true }).catch(() => {});
     }
-  });
+  }, GIT_IO_TIMEOUT_MS);
 
   it("detects git vs non-git workspaces", async () => {
     expect(await isGitRepo(workspace)).toBe(true);
@@ -125,7 +125,7 @@ describe("subagent worktree isolation", () => {
 describe("subagent worktree seeds from the live working tree", () => {
   beforeAll(async () => {
     userData = await mkdtemp(path.join(tmpdir(), "atlarix-ud2-"));
-  });
+  }, GIT_IO_TIMEOUT_MS);
   afterAll(async () => {
     await rm(userData, { recursive: true, force: true }).catch(() => {});
   });
@@ -206,7 +206,7 @@ describe("subagent worktree seeds from the live working tree", () => {
 describe("applyEditProposalToWorktree — writer edits actually land", () => {
   beforeAll(async () => {
     userData = await mkdtemp(path.join(tmpdir(), "atlarix-ud3-"));
-  });
+  }, GIT_IO_TIMEOUT_MS);
   afterAll(async () => {
     await rm(userData, { recursive: true, force: true }).catch(() => {});
   });

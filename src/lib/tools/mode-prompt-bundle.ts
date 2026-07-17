@@ -8,10 +8,7 @@ import {
   renderActiveModeToolsRegistry,
   type RenderActiveModeToolsRegistryOptions,
 } from "./mode-tool-registry";
-import {
-  ATLARIX_GIT_AUTHOR_EMAIL,
-  ATLARIX_CO_AUTHOR_TRAILER,
-} from "@/ipc/utils/git_author";
+import { ATLARIX_CO_AUTHOR_TRAILER } from "@/ipc/utils/git_author";
 
 export const GIT_VIA_TERMINAL_NOTE =
   "Git operations should use the **run_command** tool with standard git CLI (git status, git log, git diff, git show). Do not parse .git/objects manually when run_command can answer.";
@@ -26,11 +23,15 @@ export const BROWSER_NOTE = [
   "- LIVE PREVIEW: add target:\"preview\" to drive the running dev server the user sees (open routes, fill forms, verify UI); mode:\"console\" reads its runtime errors. To verify a UI change before finishing, prefer **preview_test** (one scripted navigate→act→assert pass/fail) — the turn won't finish while the preview throws runtime errors.",
 ].join("\n");
 
-/** Git note plus per-stream commit-author guidance (commit-capable modes only). */
-export function getGitTerminalNote(gitAuthorName?: string): string {
-  if (!gitAuthorName) return GIT_VIA_TERMINAL_NOTE;
+/**
+ * Git note plus commit-authoring guidance (commit-capable modes only). Commits
+ * are authored by the user's own git config — never `--author`. When the
+ * co-author setting is on, the agent is credited via a trailer line only.
+ */
+export function getGitTerminalNote(includeCoAuthorTrailer: boolean): string {
+  if (!includeCoAuthorTrailer) return GIT_VIA_TERMINAL_NOTE;
   return `${GIT_VIA_TERMINAL_NOTE}
-When you create git commits, author them as the agent: \`git commit --author="${gitAuthorName} <${ATLARIX_GIT_AUTHOR_EMAIL}>" -m "..."\`. End every commit message with the trailer line \`${ATLARIX_CO_AUTHOR_TRAILER}\` (blank line before it) so Atlarix is credited as co-author. Never change the user's git config.`;
+When you create git commits, let the user's own git config author them — do not pass \`--author\` or set \`user.name\`/\`user.email\`. End every commit message with the trailer line \`${ATLARIX_CO_AUTHOR_TRAILER}\` (blank line before it) so Atlarix is credited as co-author. Never change the user's git config.`;
 }
 
 /** ## Current mode: {label} + CAN/CANNOT (active mode only). */
@@ -178,8 +179,8 @@ Read-only review: cite files and concrete issues; never mutate. Do NOT call edit
 }
 
 export type RenderModePromptBundleOptions = RenderActiveModeToolsRegistryOptions & {
-  /** "<Model> agent" author name for git commit guidance (Build/Debug only). */
-  gitAuthorName?: string;
+  /** When true (default), add the co-author trailer guidance to the git note (Build/Debug only). */
+  includeCoAuthorTrailer?: boolean;
 };
 
 /** Single active-mode block: header + work_mode + tools_registry + git note. */
@@ -195,7 +196,9 @@ export function renderModePromptBundle(
     // browser_* tools are dropped from the headless toolset — don't advertise them.
     // Plan mode can't run the app, so the preview/browser workflow is noise there.
     process.env.ATLARIX_HEADLESS === "1" || mode === "plan" ? "" : BROWSER_NOTE,
-    canCommit ? getGitTerminalNote(opts?.gitAuthorName) : GIT_VIA_TERMINAL_NOTE,
+    canCommit
+      ? getGitTerminalNote(opts?.includeCoAuthorTrailer !== false)
+      : GIT_VIA_TERMINAL_NOTE,
   ]
     .filter((s) => s.length > 0)
     .join("\n\n");
