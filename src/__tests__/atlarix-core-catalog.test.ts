@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   buildAtlarixCoreTierCatalog,
+  coreTierPresentationFromModel,
   formatModelWithProvider,
   resolveAtlarixCoreIdentity,
 } from "@/lib/atlarix-core-catalog";
@@ -26,6 +27,27 @@ describe("atlarix-core-catalog", () => {
     expect(core2?.providerSlug).toBe("deepseek");
     const core4 = catalog.find((e) => e.internalTierId === "core-4");
     expect(core4?.openRouterModelId).toBe("anthropic/claude-opus-4");
+  });
+
+  it("coreTierPresentationFromModel parses a synthetic Core model into a presentation", () => {
+    const p = coreTierPresentationFromModel({
+      apiName: "core-1",
+      displayName: "Kimi K2.7 Code (moonshotai)",
+    });
+    expect(p.internalTierId).toBe("core-1");
+    expect(p.modelDisplayName).toBe("Kimi K2.7 Code");
+    expect(p.providerSlug).toBe("moonshotai");
+    expect(p.labelWithProvider).toBe("Kimi K2.7 Code (moonshotai)");
+  });
+
+  it("coreTierPresentationFromModel tolerates a name with no provider suffix", () => {
+    const p = coreTierPresentationFromModel({
+      apiName: "core-2",
+      displayName: "Core 2",
+    });
+    expect(p.internalTierId).toBe("core-2");
+    expect(p.labelWithProvider).toBe("Core 2");
+    expect(p.providerSlug).toBe("openrouter");
   });
 
   it("formatModelWithProvider uses lowercase provider slug", () => {

@@ -297,7 +297,7 @@ export function ProviderSettingsGrid() {
                         </span>
                       ) : (
                         <span className="text-sm text-gray-500 bg-gray-50 dark:bg-gray-900 dark:text-gray-300 px-2 py-1 rounded-full">
-                          Needs Setup
+                          Add key
                         </span>
                       )}
                     </CardTitle>
@@ -328,7 +328,7 @@ export function ProviderSettingsGrid() {
               Add custom provider
             </span>
             <span className="text-xs text-muted-foreground mt-1 px-2 text-center">
-              API key + model name, max 3 (Fast / Balanced / Thinking)
+              API key + model name(s)
             </span>
           </button>
 

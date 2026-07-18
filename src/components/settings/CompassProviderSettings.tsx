@@ -9,6 +9,20 @@ import { AtlarixCoreUsageCard } from "@/components/settings/AtlarixCoreUsageCard
 export function CompassProviderSettings() {
   const { data: catalog = [] } = useAtlarixCoreCatalog();
 
+  // Read the live Core models from the resolved catalog (hosted core-models.json).
+  // Fall back to the tier ids only until the catalog lands, so we never hardcode
+  // the model names or show the raw "Core N" placeholders once ids resolve.
+  const coreModels =
+    catalog.length > 0
+      ? catalog.map((entry) => ({
+          id: entry.internalTierId,
+          label: entry.labelWithProvider,
+        }))
+      : CORE_TIER_ROWS.map((row) => ({
+          id: row.id,
+          label: displayLabelForCompassTier(row.id, catalog),
+        }));
+
   return (
     <div className="mt-6 space-y-6">
       <p className="text-sm text-muted-foreground">
@@ -18,16 +32,13 @@ export function CompassProviderSettings() {
       </p>
 
       <div className="space-y-4">
-        {CORE_TIER_ROWS.map((m) => {
+        {coreModels.map((m) => {
           return (
             <div
               key={m.id}
               className="rounded-lg border border-border bg-card/50 p-4"
             >
-              <h3 className="font-medium text-foreground">
-                {m.label} — {displayLabelForCompassTier(m.id, catalog)}
-              </h3>
-              <p className="text-sm text-muted-foreground mt-1">{m.description}</p>
+              <h3 className="font-medium text-foreground">{m.label}</h3>
             </div>
           );
         })}

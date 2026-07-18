@@ -25,5 +25,9 @@ export function useLanguageModelsForProvider(providerId: string | undefined) {
       return ipcClient.getLanguageModels({ providerId });
     },
     enabled: !!providerId,
+    // Per-provider model fetch is expensive (provider API / models.dev catalog);
+    // cache briefly so remounts don't refetch. Provider CRUD + the manual refresh
+    // invalidate this key when the set actually changes.
+    staleTime: 5 * 60_000,
   });
 }

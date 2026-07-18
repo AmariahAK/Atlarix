@@ -113,7 +113,7 @@ export function CreateCustomProviderDialog({
           <DialogDescription>
             {isEditMode
               ? "Update your custom language model provider configuration."
-              : "Add a provider by API key and base URL. For providers with no API endpoint, use a placeholder base URL (e.g. https://api.example.com). After creation, add your API key and up to 3 model names (Fast, Balanced, Thinking) in the provider settings."}
+              : "Add a provider by API key and base URL. For providers with no API endpoint, use a placeholder base URL (e.g. https://api.example.com). After creation, add your API key and model name(s) in the provider settings."}
           </DialogDescription>
         </DialogHeader>
 
@@ -158,7 +158,7 @@ export function CreateCustomProviderDialog({
               disabled={isLoading}
             />
             <p className="text-xs text-muted-foreground">
-              Base URL for the API. For providers with no list endpoint, use any placeholder; then add API key and model name(s) in provider settings (max 3: Fast, Balanced, Thinking).
+              Base URL for the API. For providers with no list endpoint, use any placeholder; then add your API key and model name(s) in provider settings.
             </p>
           </div>
 

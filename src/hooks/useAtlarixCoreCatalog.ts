@@ -1,13 +1,30 @@
-import { useQuery } from "@tanstack/react-query";
-import { IpcClient } from "@/ipc/ipc_client";
-import type { AtlarixCoreTierPresentation } from "@/lib/atlarix-core-catalog";
+import { useMemo } from "react";
+import { useLanguageModelsByProviders } from "@/hooks/useLanguageModelsByProviders";
+import {
+  coreTierPresentationFromModel,
+  type AtlarixCoreTierPresentation,
+} from "@/lib/atlarix-core-catalog";
 
-export const ATLARIX_CORE_CATALOG_QUERY_KEY = ["atlarixCoreTierCatalog"] as const;
+/** Atlarix Core internal provider id. */
+const COMPASS_PROVIDER_ID = "compass";
 
+/**
+ * Live Atlarix Core tier catalog (model name + provider per Core slot).
+ *
+ * Derived from `useLanguageModelsByProviders` — the same working source the
+ * "Change model" picker reads — so Core rows show the real hosted model names
+ * (Kimi, Qwen, DeepSeek, MiniMax) and update live when `core-models.json`
+ * changes. That query is already invalidated on the `core-models:changed`
+ * broadcast, so no separate wiring is needed. (The `compass:get-tier-catalog`
+ * IPC is avoided here — see `coreTierPresentationFromModel` for why.)
+ */
 export function useAtlarixCoreCatalog() {
-  return useQuery<AtlarixCoreTierPresentation[], Error>({
-    queryKey: ATLARIX_CORE_CATALOG_QUERY_KEY,
-    queryFn: () => IpcClient.getInstance().getAtlarixCoreTierCatalog(),
-    staleTime: 60_000,
-  });
+  const { data: byProvider, isLoading, error } = useLanguageModelsByProviders();
+
+  const data = useMemo<AtlarixCoreTierPresentation[]>(() => {
+    const models = byProvider?.[COMPASS_PROVIDER_ID] ?? [];
+    return models.map(coreTierPresentationFromModel);
+  }, [byProvider]);
+
+  return { data, isLoading, error };
 }

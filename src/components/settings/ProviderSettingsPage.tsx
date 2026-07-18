@@ -23,7 +23,7 @@ import { ApiKeyConfiguration } from "./ApiKeyConfiguration";
 import { CompassProviderSettings } from "./CompassProviderSettings";
 import { ModelsSection } from "./ModelsSection";
 import { TokenBudgetInput } from "./TokenBudgetInput";
-import { LocalProviderFavoritesSelector } from "./LocalProviderFavoritesSelector";
+import { LocalProviderModelSelector } from "./LocalProviderModelSelector";
 
 const PROVIDERS_WITH_TOKEN_BUDGET = [
   "openai", "anthropic", "google",
@@ -311,7 +311,11 @@ export function ProviderSettingsPage({ provider }: ProviderSettingsPageProps) {
         <ProviderSettingsHeader
           providerDisplayName={providerDisplayName}
           isConfigured={
-            provider === "ollama" || provider === "lmstudio"
+            // Atlarix Core (pay-as-you-go, no API key) and local runtimes are
+            // always "set up" — there's nothing for the user to configure.
+            provider === "ollama" ||
+            provider === "lmstudio" ||
+            provider === "compass"
               ? true
               : isConfigured
           }
@@ -352,28 +356,13 @@ export function ProviderSettingsPage({ provider }: ProviderSettingsPageProps) {
             {provider === "ollama" || provider === "lmstudio" ? (
               <div className="mt-6 space-y-4">
                 <div>
-                  <h3 className="font-medium mb-1">Favorite Models</h3>
+                  <h3 className="font-medium mb-1">Models</h3>
                   <p className="text-sm text-muted-foreground">
-                    Select 3 models for Fast / Balanced / Thinking.
+                    Pick the model to use for chat.
                   </p>
                 </div>
-                <LocalProviderFavoritesSelector
+                <LocalProviderModelSelector
                   providerId={provider as "ollama" | "lmstudio"}
-                  favorites={
-                    (settings?.providerSettings?.[provider] as { favoriteModelIds?: string[] })
-                      ?.favoriteModelIds ?? []
-                  }
-                  onFavoritesChange={async (ids) => {
-                    await updateSettings({
-                      providerSettings: {
-                        ...settings?.providerSettings,
-                        [provider]: {
-                          ...(settings?.providerSettings?.[provider] as object),
-                          favoriteModelIds: ids,
-                        },
-                      },
-                    });
-                  }}
                 />
               </div>
             ) : provider === "compass" ? (

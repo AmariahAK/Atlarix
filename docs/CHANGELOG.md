@@ -3,6 +3,42 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
+## [14.13.2] (2026-07-18) — Core provider UI, faster model list, auto-update fix
+
+`npm run check` 0/0, vitest green.
+
+### Added
+
+- Atlarix Core provider page now shows the **real, live model names** (Kimi K2.7 Code, Qwen3.7 Plus,
+  DeepSeek V4 Pro, MiniMax M3) instead of `Core N` placeholders. `useAtlarixCoreCatalog` derives from
+  `useLanguageModelsByProviders` — the same working IPC the model picker uses — via new
+  `coreTierPresentationFromModel()` (`src/lib/atlarix-core-catalog.ts`). The `compass:get-tier-catalog`
+  IPC resolved the ids through a different `compass_constants` module instance (alias vs relative
+  import) than the runtime override store is written to, so it returned placeholders.
+- Ollama / LM Studio providers use a single-select model list (`LocalProviderModelSelector.tsx`,
+  replacing the dead 3-slot `LocalProviderFavoritesSelector`).
+
+### Fixed
+
+- Atlarix Core badge now reads **"Setup Complete"** — it needs no API key
+  (`src/components/settings/ProviderSettingsPage.tsx`).
+- Auto-update could get stuck on "Downloading": the deferred-update cold-start path ran a second
+  `checkForUpdates()` before the feed URL was set and registered a duplicate `update-downloaded`
+  handler, racing the real download. Unified into one flow; added
+  `autoUpdater.disableDifferentialDownload = true` (no `.blockmap` files are published) (`src/main.ts`).
+
+### Changed
+
+- Retired the Fast/Balanced/Thinking tier vocabulary from the provider UI: "Needs Setup" → **"Add
+  key"**, tier-free "Add custom provider" caption + dialog copy (`ProviderSettings.tsx`,
+  `CreateCustomProviderDialog.tsx`).
+
+### Performance
+
+- `staleTime: 5 min` on `useLanguageModelsByProviders` + `useLanguageModelsForProvider` — the
+  167-provider models.dev catalog was rebuilding on every mount/window-focus. Provider CRUD, the
+  core-models refresh, and the manual "Refresh model list" button still invalidate these keys.
+
 ## [14.13.1] (2026-07-18) — Cleaner markdown, hidden untrusted-data envelopes, clearer wallet
 
 `npm run check` 0/0, vitest green.

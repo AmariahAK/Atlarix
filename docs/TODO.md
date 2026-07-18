@@ -1,7 +1,22 @@
 # Atlarix TODO
 
-**Current Version:** v14.13.1 (RELEASED — Latest on atlarix-releases) — cleaner markdown output rule, untrusted-data envelope hidden in tool cards, negative-wallet-balance note
+**Current Version:** v14.13.2 (RELEASED — Latest on atlarix-releases) — Core provider page shows real live model names + "Setup Complete", "Add key" / single-select provider UI, model-list staleTime, auto-update stuck-on-downloading fix
 **Last Updated:** 2026-07-18
+
+## ✅ Shipped in v14.13.2 (2026-07-18)
+
+Full detail in [`docs/CHANGELOG.md`](./CHANGELOG.md) `[14.13.2]`. `npm run check` 0/0, vitest green.
+
+- **Core provider page shows real live model names** (Kimi/Qwen/DeepSeek/MiniMax) instead of
+  `Core N` — `useAtlarixCoreCatalog` now derives from the working `useLanguageModelsByProviders`
+  IPC (the `compass:get-tier-catalog` path resolved a different `compass_constants` instance than
+  the override store is written to). Core badge → "Setup Complete".
+- **Tier vocabulary retired from provider UI** — "Needs Setup" → "Add key", tier-free copy, and
+  the Ollama/LM Studio 3-slot favorites picker collapsed to single-select.
+- **Model-list perf** — `staleTime` on `useLanguageModelsByProviders`/`useLanguageModelsForProvider`
+  so the 167-provider models.dev catalog stops rebuilding on every mount/focus.
+- **Auto-update stuck-on-downloading fix** — removed the racy pre-feed deferred `checkForUpdates` +
+  duplicate handler; `disableDifferentialDownload = true` (`src/main.ts`).
 
 ## ✅ Shipped in v14.13.1 (2026-07-18)
 

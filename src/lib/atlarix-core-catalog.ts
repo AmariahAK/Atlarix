@@ -111,4 +111,32 @@ export function displayLabelForCompassTier(
   );
 }
 
+/**
+ * Renderer-safe: build a Core tier presentation from a synthetic Core model
+ * (`apiName` = `core-N`, `displayName` = `Model Name (slug)`) as returned by
+ * `getCompassSyntheticModels` over the `get-language-models-by-providers` IPC.
+ *
+ * The renderer sources Core names from that IPC (the same one the model picker
+ * uses) rather than the `compass:get-tier-catalog` handler: in the packaged main
+ * bundle the tier-catalog builder resolves the Core ids through a different
+ * `compass_constants` module instance than the one the runtime override store is
+ * written to, so it returns the raw `core-N` placeholders. The language-models
+ * path resolves them correctly, so we reuse it here.
+ */
+export function coreTierPresentationFromModel(model: {
+  apiName: string;
+  displayName: string;
+}): AtlarixCoreTierPresentation {
+  const match = /^(.*?)\s*\(([^()]+)\)\s*$/.exec(model.displayName);
+  const modelDisplayName = (match?.[1] ?? model.displayName).trim();
+  const providerSlug = (match?.[2] ?? "openrouter").trim().toLowerCase();
+  return {
+    internalTierId: model.apiName,
+    openRouterModelId: "",
+    modelDisplayName,
+    providerSlug,
+    labelWithProvider: model.displayName,
+  };
+}
+
 export { formatModelWithProvider };

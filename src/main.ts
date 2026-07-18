@@ -343,17 +343,16 @@ export async function onReady() {
     logger.warn("Auth session restore or subscription init (non-fatal):", e);
   }
 
-  // If user deferred an update on last session, install it silently on this cold start.
+  // If user deferred an update on last session, install it silently once this
+  // session's download completes. We only RECORD the intent here — the actual
+  // check/download is driven solely by initAutoUpdater() below (which sets the
+  // feed URL first). Kicking off a second checkForUpdates() here (before the feed
+  // is configured) raced the real flow and could leave it stuck mid-download.
   const deferFlagPath = path.join(app.getPath("userData"), "atlarix-pending-update.json");
   if (fs.existsSync(deferFlagPath)) {
     try { fs.unlinkSync(deferFlagPath); } catch { /* ignore */ }
-    log.info("[AutoUpdater] Deferred update flag found — checking for update on cold start");
-    autoUpdater.once("update-downloaded", () => {
-      autoUpdater.quitAndInstall();
-    });
-    autoUpdater.checkForUpdates().catch((err) => {
-      log.warn("[AutoUpdater] Cold-start deferred check failed:", err?.message ?? err);
-    });
+    installDeferredUpdateOnDownload = true;
+    log.info("[AutoUpdater] Deferred update flag found — will install once downloaded");
   }
 
   createWindow();
@@ -525,6 +524,9 @@ const UPDATE_RECHECK_INTERVAL_MS = 4 * 60 * 60 * 1000; // 4h — long-running se
 /** True once electron-updater is wired and able to drive a silent update. */
 let electronUpdaterActive = false;
 let updateRecheckTimer: ReturnType<typeof setInterval> | null = null;
+/** Set on cold start when the user deferred an update last session: install as
+ * soon as this session finishes downloading it, instead of showing the banner. */
+let installDeferredUpdateOnDownload = false;
 
 const updateStatus: UpdateStatus = {
   currentVersion: "",
@@ -687,6 +689,11 @@ function initAutoUpdater(): void {
   // Allow pre-releases to be downloaded if they are published (matches existing releaseChannel behavior).
   autoUpdater.allowPrerelease = false;
   autoUpdater.autoDownload = true;
+  // No .blockmap files are published (electron-forge's MakerZIP doesn't emit
+  // them), so differential download has nothing to diff against. Leaving it on
+  // makes electron-updater attempt a differential pass that can stall before
+  // falling back; disable it so it always does a clean full download.
+  autoUpdater.disableDifferentialDownload = true;
 
   autoUpdater.on("checking-for-update", () => {
     log.info("[AutoUpdater] Checking for update…");
@@ -723,6 +730,14 @@ function initAutoUpdater(): void {
       availableVersion: info.version,
       lastCheckAt: Date.now(),
     });
+    // The user deferred this update last session — honor that by installing on
+    // this cold start instead of prompting again.
+    if (installDeferredUpdateOnDownload) {
+      installDeferredUpdateOnDownload = false;
+      log.info("[AutoUpdater] Installing deferred update now (quitAndInstall)");
+      autoUpdater.quitAndInstall();
+      return;
+    }
     if (mainWindow && !mainWindow.webContents.isDestroyed()) {
       mainWindow.webContents.send("update:downloaded", { version: info.version });
     }
