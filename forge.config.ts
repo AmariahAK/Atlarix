@@ -262,6 +262,13 @@ const config: ForgeConfig = {
       // prompt (root-level files are otherwise excluded by the `ignore` allowlist).
       path.join(__dirname, "AGENTS.md"),
       path.join(__dirname, "src/skills"),
+      // electron-updater reads app-update.yml from Contents/Resources/ during the
+      // download stage. electron-forge (unlike electron-builder) never generates
+      // it, so without this the auto-update download throws an unhandled ENOENT and
+      // the banner sticks on "Downloading…" forever. Ship a static copy that
+      // matches autoUpdater.setFeedURL(...) in src/main.ts. Copied in before code
+      // signing, so it's covered by the bundle signature.
+      path.join(__dirname, "build/app-update.yml"),
       // Windows AppContainer sandbox helper (cargo-built + signed in CI before
       // packaging). Resolves at runtime via process.resourcesPath/atlarix-sandbox.exe
       // (see src/lib/sandbox/wrap-command.ts). Guarded so non-Windows / un-built

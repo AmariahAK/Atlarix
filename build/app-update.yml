@@ -1,0 +1,10 @@
+# electron-updater feed config. electron-forge does NOT generate this file (only
+# electron-builder does), but electron-updater reads it from
+# process.resourcesPath/app-update.yml during the DOWNLOAD stage — without it the
+# download fails with an unhandled ENOENT and the UI sticks on "Downloading…".
+# Copied into Contents/Resources/ via `extraResource` in forge.config.ts. Must
+# match the runtime autoUpdater.setFeedURL(...) in src/main.ts.
+owner: AmariahAK
+provider: github
+repo: atlarix-releases
+updaterCacheDirName: atlarix-updater

@@ -688,7 +688,12 @@ function initAutoUpdater(): void {
 
   // Allow pre-releases to be downloaded if they are published (matches existing releaseChannel behavior).
   autoUpdater.allowPrerelease = false;
-  autoUpdater.autoDownload = true;
+  // Drive the download ourselves (see update-available) instead of auto-download:
+  // with autoDownload the internal download promise is detached, so a failure
+  // (e.g. the ENOENT app-update.yml bug) escaped as an UNHANDLED rejection and
+  // never reached the 'error' handler — the banner stuck on "Downloading…". A
+  // manual downloadUpdate() gives us a promise we can .catch() and surface.
+  autoUpdater.autoDownload = false;
   // No .blockmap files are published (electron-forge's MakerZIP doesn't emit
   // them), so differential download has nothing to diff against. Leaving it on
   // makes electron-updater attempt a differential pass that can stall before
@@ -711,6 +716,14 @@ function initAutoUpdater(): void {
     if (mainWindow && !mainWindow.webContents.isDestroyed()) {
       mainWindow.webContents.send("update:downloading", { version: info.version });
     }
+    // Start the download ourselves so its promise is caught. Any failure here
+    // (missing app-update.yml, network, signature) becomes a visible 'error'
+    // state instead of leaving the banner stuck on "Downloading…" forever.
+    autoUpdater.downloadUpdate().catch((err: unknown) => {
+      const detail = err instanceof Error ? err.message : String(err);
+      log.error("[AutoUpdater] downloadUpdate failed:", detail);
+      setUpdateStatus({ lastResult: "error", detail, lastCheckAt: Date.now() });
+    });
   });
 
   autoUpdater.on("update-not-available", (info) => {
@@ -753,9 +766,11 @@ function initAutoUpdater(): void {
     });
   });
 
-  // Kick off the check. Errors are caught by the 'error' event handler above.
-  autoUpdater.checkForUpdatesAndNotify().catch((err) => {
-    log.warn("[AutoUpdater] checkForUpdatesAndNotify failed:", err?.message ?? err);
+  // Kick off the check. The download is started from the update-available handler
+  // (autoDownload is off), so use plain checkForUpdates rather than
+  // checkForUpdatesAndNotify. Errors surface via the 'error' handler above.
+  autoUpdater.checkForUpdates().catch((err) => {
+    log.warn("[AutoUpdater] checkForUpdates failed:", err?.message ?? err);
   });
 
   // Periodic re-check so a long-running session still updates (Cursor-style).
