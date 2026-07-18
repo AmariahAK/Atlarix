@@ -47,6 +47,9 @@ export function AtlarixCoreUsageCard({
   const tier = status?.plan ?? null;
   const balanceLabel =
     typeof balanceCents === "number" ? `$${(balanceCents / 100).toFixed(2)}` : null;
+  // A negative balance means a prior refund was clawed back after the credit had
+  // already been spent — the reserve gate blocks Core until a top-up covers it.
+  const balanceIsNegative = typeof balanceCents === "number" && balanceCents < 0;
   const tallyLabel = `$${(tallyCents / 100).toFixed(2)}`;
 
   const addToTally = (cents: number) => {
@@ -138,13 +141,24 @@ export function AtlarixCoreUsageCard({
         ) : needsSignIn ? (
           <span className="text-muted-foreground text-xs">Sign in to view balance</span>
         ) : balanceLabel ? (
-          <span className="font-semibold tabular-nums text-foreground text-base">
+          <span
+            className={`font-semibold tabular-nums text-base ${
+              balanceIsNegative ? "text-destructive" : "text-foreground"
+            }`}
+          >
             {balanceLabel}
           </span>
         ) : (
           <span className="text-muted-foreground text-xs">—</span>
         )}
       </div>
+
+      {balanceIsNegative ? (
+        <p className="text-xs text-muted-foreground leading-relaxed">
+          A prior refund was applied, so your balance is negative. Top up to restore a
+          positive balance before using {ATLARIX_CORE_CATEGORY_LABEL}.
+        </p>
+      ) : null}
 
       <div className="space-y-2 pt-1">
         <div className="flex flex-wrap items-center gap-2">

@@ -3,6 +3,7 @@ import {
   parseToolResultEnvelope,
 } from "@/lib/chat/stream-tool-display";
 import type { StreamThreadToolStatus } from "@/lib/chat/stream-thread";
+import { stripUntrustedDataEnvelope } from "@/lib/streaming/untrusted-data";
 
 const WRITE_TOOLS = new Set([
   "write_file",
@@ -457,12 +458,14 @@ function buildWebSearchResultsView(
     if (!url) continue;
     const title =
       (typeof o.title === "string" && o.title.trim()) || url;
-    const snippet =
+    const rawSnippet =
       typeof o.content === "string"
         ? o.content
         : typeof o.snippet === "string"
           ? o.snippet
           : undefined;
+    const snippet =
+      rawSnippet != null ? stripUntrustedDataEnvelope(rawSnippet) : undefined;
     results.push({ title, url, snippet });
   }
   if (results.length === 0) return null;
@@ -493,7 +496,8 @@ function buildCommandOutputView(
         : plainText?.trim() && !plainText.trim().startsWith("{")
           ? plainText
           : "";
-  if (!output.trim()) return null;
+  const displayOutput = stripUntrustedDataEnvelope(output);
+  if (!displayOutput.trim()) return null;
   const exitRaw = payload.exit_code ?? payload.exitCode ?? payload.code;
   const exitCode =
     typeof exitRaw === "number" && Number.isFinite(exitRaw) ? exitRaw : undefined;
@@ -505,7 +509,7 @@ function buildCommandOutputView(
     kind: "command",
     command,
     exitCode,
-    body: output.trim(),
+    body: displayOutput.trim(),
     isError: exitCode != null && exitCode !== 0,
   };
 }
@@ -627,7 +631,9 @@ function buildReadSnippetView(
   plainText: string | undefined,
   args?: unknown,
 ): Extract<ToolExpandView, { kind: "read_snippet" }> | null {
-  const content = plainText ?? (typeof payload.result === "string" ? payload.result : "");
+  const content = stripUntrustedDataEnvelope(
+    plainText ?? (typeof payload.result === "string" ? payload.result : ""),
+  );
   if (!content.trim()) return null;
 
   const path = pathFromArgs(args) ?? pathFromItem(payload) ?? "file";
@@ -745,7 +751,7 @@ function buildMcpResultView(
   const rawResult = payload.result;
   let body = "";
   if (typeof rawResult === "string") {
-    body = prettyMaybeJson(rawResult);
+    body = prettyMaybeJson(stripUntrustedDataEnvelope(rawResult));
   } else if (rawResult != null) {
     try {
       body = JSON.stringify(rawResult, null, 2);
@@ -958,7 +964,7 @@ export function buildToolExpandView(
     const header = parts.join(" — ");
     const body =
       typeof payload.content === "string" && payload.content.trim()
-        ? payload.content
+        ? stripUntrustedDataEnvelope(payload.content)
         : typeof payload.note === "string"
           ? payload.note
           : "";
@@ -1005,7 +1011,7 @@ export function buildToolExpandView(
         kind: "mcp_result",
         server: typeof payload.origin === "string" ? payload.origin : "webmcp",
         tool: typeof payload.tool === "string" ? payload.tool : "",
-        body: payload.result,
+        body: stripUntrustedDataEnvelope(payload.result),
       };
     }
   }
@@ -1021,7 +1027,9 @@ export function buildToolExpandView(
       : plain && !plain.trim().startsWith("{")
         ? plain.slice(0, 2000)
         : undefined;
-  if (short?.trim()) return { kind: "text", body: short.trim() };
+  if (short?.trim()) {
+    return { kind: "text", body: stripUntrustedDataEnvelope(short).trim() };
+  }
 
   return { kind: "none" };
 }

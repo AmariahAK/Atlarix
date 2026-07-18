@@ -769,7 +769,10 @@ export class PermissionInterceptor extends EventEmitter {
                     const base = {
                         success: cmdResult.success,
                         command: typeof cmdPreview?.command === "string" ? cmdPreview.command : undefined,
-                        // Model-facing only — untrusted command output framed as data.
+                        // Untrusted command output framed as data so the MODEL treats it
+                        // as data, not instructions. This same string is persisted and
+                        // reaches the UI; the chat display path strips the envelope
+                        // (stripUntrustedDataEnvelope) so the user sees only the output.
                         // A harness control message (bg-job start notice) is trusted → not wrapped.
                         output: cmdResult.harnessMessage
                             ? this.formatCommandOutput(cmdResult.stdout, cmdResult.stderr, maxOutBytes)

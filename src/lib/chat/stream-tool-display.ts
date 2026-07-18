@@ -5,6 +5,7 @@ import {
 } from "@/lib/tool-activity-labels";
 import type { StreamThreadToolStatus } from "@/lib/chat/stream-thread";
 import { computeDiffHunks } from "@/lib/diff/compose-hunks";
+import { stripUntrustedDataEnvelope } from "@/lib/streaming/untrusted-data";
 
 const WRITE_TOOLS = new Set([
   "write_file",
@@ -84,11 +85,11 @@ export function parseToolResultEnvelope(raw: string | unknown): ParsedEnvelope |
     const trimmed = raw.trim();
     if (!trimmed) return null;
     if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) {
-      return { payload: {}, plainText: trimmed };
+      return { payload: {}, plainText: stripUntrustedDataEnvelope(trimmed) };
     }
     const parsed = tryParseJson(trimmed);
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-      return { payload: {}, plainText: trimmed };
+      return { payload: {}, plainText: stripUntrustedDataEnvelope(trimmed) };
     }
     return envelopeFromObject(parsed as Record<string, unknown>);
   }
@@ -123,7 +124,7 @@ function envelopeFromObject(o: Record<string, unknown>): ParsedEnvelope {
     return { payload };
   }
   if (typeof result === "string") {
-    return { payload: o, plainText: result };
+    return { payload: o, plainText: stripUntrustedDataEnvelope(result) };
   }
 
   return { payload: o };
@@ -132,13 +133,15 @@ function envelopeFromObject(o: Record<string, unknown>): ParsedEnvelope {
 function extractShortField(payload: Record<string, unknown>): string | undefined {
   for (const key of ["message", "summary", "output"] as const) {
     const v = payload[key];
-    if (typeof v === "string" && v.trim()) return v.trim();
+    if (typeof v === "string" && v.trim()) {
+      return stripUntrustedDataEnvelope(v).trim();
+    }
   }
   if (typeof payload.result === "string" && payload.result.trim()) {
-    return payload.result.trim();
+    return stripUntrustedDataEnvelope(payload.result).trim();
   }
   if (typeof payload.error === "string" && payload.error.trim()) {
-    return payload.error.trim();
+    return stripUntrustedDataEnvelope(payload.error).trim();
   }
   return undefined;
 }

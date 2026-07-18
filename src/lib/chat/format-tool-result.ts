@@ -1,6 +1,7 @@
 import { summarizeInlineTool } from "@/lib/chat/inline-tool-summary";
 import type { AssistantMessagePart } from "@/lib/chat/assistant-message-parts";
 import { collapseToolOutput } from "@/lib/chat/collapse-tool-output";
+import { stripUntrustedDataEnvelope } from "@/lib/streaming/untrusted-data";
 
 export type ToolResultBodyKind =
   | "markdown"
@@ -130,7 +131,10 @@ export function formatToolResultDisplay(
 ): FormattedToolResult {
   const { toolName, args, resultText, status } = part;
   const baseSummary = summarizeInlineTool(part);
-  const { inner, error } = unwrapToolPayload(resultText);
+  const { inner: rawInner, error } = unwrapToolPayload(resultText);
+  // Display-only: the model keeps the <untrusted-data> envelope; the user's
+  // tool card shows just the framed content.
+  const inner = stripUntrustedDataEnvelope(rawInner);
 
   if (status === "error" || error) {
     return {

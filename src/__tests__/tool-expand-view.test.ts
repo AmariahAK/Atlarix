@@ -4,6 +4,7 @@ import {
   parseGrepDisplayText,
   splitPathForDisplay,
 } from "@/lib/chat/tool-expand-view";
+import { wrapUntrustedData } from "@/lib/streaming/untrusted-data";
 
 describe("splitPathForDisplay", () => {
   it("splits path into name and directory", () => {
@@ -148,6 +149,25 @@ describe("buildToolExpandView", () => {
       expect(view.command).toBe("npm test");
       expect(view.exitCode).toBe(1);
       expect(view.body).toContain("1 failing");
+    }
+  });
+
+  it("strips the <untrusted-data> envelope from a command card (display only)", () => {
+    const raw = JSON.stringify({
+      success: true,
+      command: "git push",
+      output: wrapUntrustedData(
+        "command-output",
+        "To github.com:AmariahAK/apollo-client.git\n   a0e765244..0974d3882  main -> main",
+      ),
+      exitCode: 0,
+    });
+    const view = buildToolExpandView("run_command", { command: "git push" }, raw, "done");
+    expect(view.kind).toBe("command");
+    if (view.kind === "command") {
+      expect(view.body).toContain("a0e765244..0974d3882");
+      expect(view.body).not.toContain("untrusted-data");
+      expect(view.body).not.toContain("<untrusted-data");
     }
   });
 

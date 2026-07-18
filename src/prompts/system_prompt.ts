@@ -263,6 +263,7 @@ Optional caps (max_bytes, max_lines, timeout_ms, …) are tuning knobs — raise
 
     const outputStyleRule = `<output_style>
 Your user-visible replies are rendered as GitHub-flavored markdown. Use markdown structure where it aids clarity — headings, bullet/numbered lists, tables, and fenced code blocks with a language tag — but don't over-format short or conversational answers.
+Never put multi-line code, a fenced code block, or a template literal that breaks across lines inside a table cell or inline backticks — GitHub-flavored markdown cannot render either, so the row/span breaks apart. Keep every table cell to a single line. When code spans multiple lines, put it in a fenced block (with a language tag) outside the table, and reference it from the cell if needed.
 In user-visible text, tool summaries, and markdown replies, prefer short ASCII markers or labels (e.g. [ok], [file], (check)) over emoji. The UI renders icons separately—do not rely on emoji for structure or status.
 </output_style>`;
 

@@ -1,7 +1,20 @@
 # Atlarix TODO
 
-**Current Version:** v14.13.0 (RELEASED — Latest on atlarix-releases) — co-author (not author) commits, working co-author toggle, markdown-reply guidance, security-scope trim
-**Last Updated:** 2026-07-17
+**Current Version:** v14.13.1 (RELEASED — Latest on atlarix-releases) — cleaner markdown output rule, untrusted-data envelope hidden in tool cards, negative-wallet-balance note
+**Last Updated:** 2026-07-18
+
+## ✅ Shipped in v14.13.1 (2026-07-18)
+
+Full detail in [`docs/CHANGELOG.md`](./CHANGELOG.md) `[14.13.1]`. `npm run check` 0/0, vitest green.
+
+- **Markdown structure rule.** `<output_style>` now forbids multi-line code / line-breaking
+  template literals inside table cells or inline backticks (GFM can't render them) — fixes
+  phantom table rows and stray `{`/`}` in inline code (`src/prompts/system_prompt.ts`).
+- **`<untrusted-data>` hidden in the UI.** New `stripUntrustedDataEnvelope()` strips the
+  injection-defense envelope on the display path across all tool cards + previews; model-facing
+  and persisted strings keep the wrapper.
+- **Negative wallet balance explained.** Refund-clawback negative balance now shows a colored
+  note to top up before using Core (`AtlarixCoreUsageCard.tsx`).
 
 ## ✅ Shipped in v14.13.0 (2026-07-17)
 

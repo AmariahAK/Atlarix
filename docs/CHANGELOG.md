@@ -3,6 +3,38 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
+## [14.13.1] (2026-07-18) — Cleaner markdown, hidden untrusted-data envelopes, clearer wallet
+
+`npm run check` 0/0, vitest green.
+
+### Added
+- **Markdown structure rule.** The `<output_style>` block now tells every model never to place
+  multi-line code, a fenced block, or a line-breaking template literal inside a table cell or
+  inline backticks (GitHub-flavored markdown cannot render either — the row/span breaks apart);
+  keep table cells single-line and put multi-line code in a fenced block outside the table
+  (`src/prompts/system_prompt.ts`). Fixes tables rendering with phantom rows and inline code
+  leaking stray `{`/`}` text.
+- **`stripUntrustedDataEnvelope()`** display helper (`src/lib/streaming/untrusted-data.ts`),
+  reusing the existing reversible `unescapeAttachmentTagBody` inverse.
+
+### Fixed
+- **`<untrusted-data>` envelope no longer leaks into the UI.** The injection-defense envelope
+  that wraps external tool output (command output, MCP, web/browser, automation) so the *model*
+  treats it as data was being shown verbatim to users in tool cards. It is now stripped on the
+  display path across command, read, MCP, web-search, browser, and preview/summary views
+  (`src/lib/chat/tool-expand-view.ts`, `src/lib/chat/stream-tool-display.ts`,
+  `src/lib/chat/format-tool-result.ts`). The model-facing and persisted strings keep the wrapper,
+  so the defense survives reload/replay/re-dispatch; comment corrected in
+  `src/ipc/handlers/permissions/interceptor.ts`.
+- **Negative wallet balance is explained.** When a refund clawback leaves the Atlarix Core credit
+  balance negative, the wallet card renders it in a distinct color with a note that a prior refund
+  was applied and to top up before using Core (`src/components/settings/AtlarixCoreUsageCard.tsx`).
+
+### Tests
+- Round-trip + passthrough coverage for `stripUntrustedDataEnvelope`
+  (`src/__tests__/untrusted-data.test.ts`) and a command-card envelope-strip assertion
+  (`src/__tests__/tool-expand-view.test.ts`).
+
 ## [14.13.0] (2026-07-17) — Co-author (not author) commits, working toggle, markdown replies
 
 `npm run check` 0/0, vitest green.
