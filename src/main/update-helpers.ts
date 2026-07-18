@@ -56,6 +56,32 @@ export function shouldRunNotifyOnlyCheck(env: {
 }
 
 /**
+ * Which updater mechanism to use for this install.
+ *
+ * Windows ships Squirrel.Windows installers (electron-forge `MakerSquirrel`),
+ * which electron-updater does NOT support (it only handles electron-builder's
+ * NSIS). So Windows uses Electron's built-in `autoUpdater` via
+ * `update-electron-app` / update.electronjs.org (the Squirrel-native path).
+ * macOS + Linux stay on electron-updater, gated by `canElectronUpdaterRun`.
+ *
+ * - `"squirrel"`   → Windows (packaged): built-in autoUpdater + update-electron-app.
+ * - `"electron-updater"` → mac (in /Applications) / Linux AppImage.
+ * - `"none"`       → unpackaged, or an install electron-updater can't drive
+ *                    (deb/rpm, mac outside /Applications) — the notify-only
+ *                    bridge handles those.
+ */
+export function chooseUpdaterKind(env: {
+  platform: NodeJS.Platform;
+  isPackaged: boolean;
+  isAppImage: boolean;
+  isInApplicationsFolder: boolean;
+}): "squirrel" | "electron-updater" | "none" {
+  if (!env.isPackaged) return "none";
+  if (env.platform === "win32") return "squirrel";
+  return canElectronUpdaterRun(env).ok ? "electron-updater" : "none";
+}
+
+/**
  * Whether electron-updater can drive a true silent background update for this
  * install. macOS additionally requires the app to live in /Applications.
  */

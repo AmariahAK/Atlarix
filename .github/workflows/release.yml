@@ -680,12 +680,15 @@ jobs:
           UPLOAD_URL="${UPLOAD_URL%\{*}"
           export UPLOAD_URL RELEASES_TOKEN
           shopt -s nullglob
-          mapfile -t assets < <(find out/make -type f \( -name "*.exe" -o -name "*.nupkg" \))
+          # Include the Squirrel `RELEASES` index (no extension): update.electronjs.org
+          # reads it + the *-full.nupkg to serve the Windows auto-update feed. Without
+          # it the built-in autoUpdater has nothing to download.
+          mapfile -t assets < <(find out/make -type f \( -name "*.exe" -o -name "*.nupkg" -o -name "RELEASES" \))
           if [ "${#assets[@]}" -eq 0 ]; then
             echo "::error::No Windows installers under out/make"
             exit 1
           fi
-          find out/make -type f \( -name "*.exe" -o -name "*.nupkg" \) -print0 | while IFS= read -r -d '' f; do
+          find out/make -type f \( -name "*.exe" -o -name "*.nupkg" -o -name "RELEASES" \) -print0 | while IFS= read -r -d '' f; do
             BASENAME=$(basename "$f")
             ENCODED=$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1]))" "$BASENAME")
             echo "Uploading $BASENAME..."
@@ -696,42 +699,11 @@ jobs:
               "$UPLOAD_URL?name=$ENCODED"
           done
 
-      - name: Generate and upload latest.yml (electron-updater feed)
-        if: success()
-        shell: bash
-        env:
-          RELEASES_TOKEN: ${{ secrets.RELEASES_TOKEN }}
-        run: |
-          UPLOAD_URL="${{ needs.create-draft.outputs.upload_url }}"
-          UPLOAD_URL="${UPLOAD_URL%\{*}"
-          EXE=$(find out/make -name "*.exe" | head -1)
-          if [ -z "$EXE" ]; then
-            echo "No EXE found, skipping latest.yml"
-            exit 0
-          fi
-          VERSION=$(node -p "require('./package.json').version")
-          FILENAME=$(basename "$EXE")
-          SIZE=$(wc -c < "$EXE" | tr -d ' ')
-          SHA512=$(openssl dgst -sha512 -binary "$EXE" | openssl base64 | tr -d '\n')
-          RELEASE_DATE=$(date -u +"%Y-%m-%dT%H:%M:%S.000Z")
-          cat > latest.yml << YAML
-          version: $VERSION
-          files:
-            - url: $FILENAME
-              sha512: $SHA512
-              size: $SIZE
-          path: $FILENAME
-          sha512: $SHA512
-          releaseDate: '$RELEASE_DATE'
-          YAML
-          sed -i 's/^          //' latest.yml
-          echo "--- latest.yml ---"
-          cat latest.yml
-          curl -sS -X POST \
-            -H "Authorization: token $RELEASES_TOKEN" \
-            -H "Content-Type: text/yaml" \
-            --data-binary @latest.yml \
-            "$UPLOAD_URL?name=latest.yml"
+      # NOTE: no latest.yml is generated for Windows. electron-updater's NSIS feed
+      # (latest.yml) does NOT match our Squirrel.Windows installers, and the old
+      # step also produced a broken url (space vs dot in the asset name). Windows
+      # now updates via update-electron-app / update.electronjs.org, which reads
+      # the RELEASES index + *-full.nupkg uploaded above — no latest.yml needed.
 
   publish-release:
     needs: [quality, create-draft, build-macos, build-linux, build-windows]

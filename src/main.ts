@@ -1,5 +1,6 @@
 import "./preload-env";
-import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, Notification, powerMonitor, session, shell, type MenuItemConstructorOptions } from "electron";
+import { app, autoUpdater as squirrelUpdater, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, Notification, powerMonitor, session, shell, type MenuItemConstructorOptions } from "electron";
+import { updateElectronApp } from "update-electron-app";
 import * as path from "node:path";
 import dotenv from "dotenv";
 // @ts-ignore
@@ -18,6 +19,7 @@ import {
   isNewer,
   shouldRunNotifyOnlyCheck,
   canElectronUpdaterRun,
+  chooseUpdaterKind,
   type UpdateStatus,
 } from "./main/update-helpers";
 import { BackupManager } from "./backup_manager";
@@ -497,18 +499,30 @@ export async function onReady() {
   // a manual "Check now" always work, even with auto-update off.
   registerUpdateStatusIpc();
   if (settings.enableAutoUpdate) {
-    initAutoUpdater();
+    // Windows ships Squirrel installers → built-in autoUpdater via
+    // update-electron-app; mac/Linux → electron-updater.
+    const kind = chooseUpdaterKind({
+      platform: process.platform,
+      isPackaged: app.isPackaged,
+      isAppImage: Boolean(process.env.APPIMAGE),
+      isInApplicationsFolder:
+        process.platform !== "darwin" || safeIsInApplicationsFolder(),
+    });
+    if (kind === "squirrel") {
+      initWindowsAutoUpdater();
+    } else {
+      initAutoUpdater();
+    }
   }
 
-  // Notify-only GitHub check is a BRIDGE for installs electron-updater can't
-  // silently update (deb/rpm, mac-not-in-/Applications, feed failure). When the
-  // real updater is active it would only double-fire a confusing banner, so we
-  // suppress it there.
+  // Notify-only GitHub check is a BRIDGE for installs no silent updater can drive
+  // (deb/rpm, mac-not-in-/Applications, feed failure). When a real updater is
+  // active it would only double-fire a confusing banner, so we suppress it there.
   setTimeout(() => {
     if (
       shouldRunNotifyOnlyCheck({
         isPackaged: app.isPackaged,
-        electronUpdaterActive,
+        electronUpdaterActive: activeUpdaterKind !== "none",
       })
     ) {
       void checkForUpdatesNotify();
@@ -521,8 +535,9 @@ const ATLARIX_RELEASES_API =
 
 const UPDATE_RECHECK_INTERVAL_MS = 4 * 60 * 60 * 1000; // 4h — long-running sessions
 
-/** True once electron-updater is wired and able to drive a silent update. */
-let electronUpdaterActive = false;
+/** Which silent updater is driving this install: electron-updater (mac/Linux),
+ * squirrel (Windows via update-electron-app), or none (notify-only handles it). */
+let activeUpdaterKind: "electron-updater" | "squirrel" | "none" = "none";
 let updateRecheckTimer: ReturnType<typeof setInterval> | null = null;
 /** Set on cold start when the user deferred an update last session: install as
  * soon as this session finishes downloading it, instead of showing the banner. */
@@ -549,7 +564,9 @@ function registerUpdateStatusIpc(): void {
   ipcMain.handle("update:check-now", async () => {
     setUpdateStatus({ lastResult: "checking", detail: undefined });
     try {
-      if (electronUpdaterActive) {
+      if (activeUpdaterKind === "squirrel") {
+        squirrelUpdater.checkForUpdates();
+      } else if (activeUpdaterKind === "electron-updater") {
         await autoUpdater.checkForUpdates();
       } else {
         await checkForUpdatesNotify();
@@ -566,6 +583,22 @@ function registerUpdateStatusIpc(): void {
       });
     }
     return { ...updateStatus };
+  });
+
+  // Install / defer are registered here (not inside a platform-specific init) so
+  // they work whichever updater is active. quitAndInstall targets the right one.
+  ipcMain.handle("update:install-now", () => {
+    if (activeUpdaterKind === "squirrel") {
+      squirrelUpdater.quitAndInstall();
+    } else {
+      autoUpdater.quitAndInstall();
+    }
+  });
+
+  ipcMain.handle("update:defer", () => {
+    const flagPath = path.join(app.getPath("userData"), "atlarix-pending-update.json");
+    fs.writeFileSync(flagPath, JSON.stringify({ deferred: true, timestamp: Date.now() }));
+    log.info("[AutoUpdater] Update deferred to next launch");
   });
 }
 
@@ -684,7 +717,7 @@ function initAutoUpdater(): void {
     return;
   }
 
-  electronUpdaterActive = true;
+  activeUpdaterKind = "electron-updater";
 
   // Allow pre-releases to be downloaded if they are published (matches existing releaseChannel behavior).
   autoUpdater.allowPrerelease = false;
@@ -781,18 +814,83 @@ function initAutoUpdater(): void {
       });
     }, UPDATE_RECHECK_INTERVAL_MS);
   }
+}
 
-  // IPC: renderer requests immediate install
-  ipcMain.handle("update:install-now", () => {
-    autoUpdater.quitAndInstall();
+/**
+ * Windows silent background auto-updater. Windows ships Squirrel.Windows
+ * installers (electron-forge MakerSquirrel), which electron-updater cannot drive,
+ * so we use Electron's built-in autoUpdater wired to update.electronjs.org via
+ * update-electron-app. Events are mapped onto the SAME status/banner surface as
+ * the electron-updater path. Note: the built-in updater emits no
+ * 'download-progress', so the banner shows "Downloading…" without a percentage.
+ */
+function initWindowsAutoUpdater(): void {
+  activeUpdaterKind = "squirrel";
+
+  squirrelUpdater.on("checking-for-update", () => {
+    log.info("[AutoUpdater] Checking for update…");
+    setUpdateStatus({ lastResult: "checking" });
+  });
+  squirrelUpdater.on("update-available", () => {
+    log.info("[AutoUpdater] Update available (squirrel)");
+    setUpdateStatus({ lastResult: "downloading", lastCheckAt: Date.now() });
+    if (mainWindow && !mainWindow.webContents.isDestroyed()) {
+      mainWindow.webContents.send("update:downloading", { version: "" });
+    }
+  });
+  squirrelUpdater.on("update-not-available", () => {
+    log.info("[AutoUpdater] Up to date (squirrel)");
+    setUpdateStatus({ lastResult: "up-to-date", lastCheckAt: Date.now() });
+  });
+  // Built-in autoUpdater signature: (event, releaseNotes, releaseName, ...)
+  squirrelUpdater.on("update-downloaded", (_e, _notes, releaseName) => {
+    const version = typeof releaseName === "string" ? releaseName : "";
+    log.info("[AutoUpdater] Update downloaded (squirrel):", version);
+    setUpdateStatus({
+      lastResult: "downloaded",
+      availableVersion: version || undefined,
+      lastCheckAt: Date.now(),
+    });
+    if (installDeferredUpdateOnDownload) {
+      installDeferredUpdateOnDownload = false;
+      log.info("[AutoUpdater] Installing deferred update now (quitAndInstall)");
+      squirrelUpdater.quitAndInstall();
+      return;
+    }
+    if (mainWindow && !mainWindow.webContents.isDestroyed()) {
+      mainWindow.webContents.send("update:downloaded", { version });
+    }
+  });
+  squirrelUpdater.on("error", (err) => {
+    log.error("[AutoUpdater] Error (squirrel):", err?.message ?? err);
+    setUpdateStatus({
+      lastResult: "error",
+      detail: err?.message ?? String(err),
+      lastCheckAt: Date.now(),
+    });
   });
 
-  // IPC: renderer defers install to next cold start
-  ipcMain.handle("update:defer", () => {
-    const flagPath = path.join(app.getPath("userData"), "atlarix-pending-update.json");
-    fs.writeFileSync(flagPath, JSON.stringify({ deferred: true, timestamp: Date.now() }));
-    log.info("[AutoUpdater] Update deferred to next launch");
-  });
+  // update-electron-app sets the built-in autoUpdater feed to update.electronjs.org
+  // and checks on an interval. notifyUser:false so OUR banner drives the UX.
+  // `repo` is explicit: package.json `repository` is the SOURCE repo, but the
+  // installers live in the public atlarix-releases repo.
+  try {
+    updateElectronApp({
+      repo: "AmariahAK/atlarix-releases",
+      updateInterval: "1 hour",
+      notifyUser: false,
+      logger: log,
+    });
+  } catch (err) {
+    log.error(
+      "[AutoUpdater] update-electron-app init failed:",
+      err instanceof Error ? err.message : String(err),
+    );
+    setUpdateStatus({
+      lastResult: "error",
+      detail: err instanceof Error ? err.message : String(err),
+    });
+  }
 }
 
 async function checkLinuxPackageUpdate(): Promise<void> {

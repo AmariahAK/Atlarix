@@ -3,6 +3,36 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
+## [14.13.3] (2026-07-18) — Auto-update fixed on all platforms
+
+`npm run check` 0/0, vitest green.
+
+### Fixed
+
+- **Auto-update no longer stuck on "Downloading…".** electron-forge never generates `app-update.yml`,
+  which electron-updater reads at download time, so the download threw an unhandled `ENOENT` and the
+  banner stuck forever. Ship a static `build/app-update.yml` via `extraResource` (lands in
+  `Contents/Resources/`, signed with the bundle) and harden the flow: drive `downloadUpdate()` ourselves
+  with a `.catch` so failures surface as an error state, `disableDifferentialDownload` (no `.blockmap`
+  published), unified deferred-install path (`src/main.ts`, `forge.config.ts`). Fixes macOS
+  (in /Applications) + Linux AppImage.
+- **Windows auto-update rebuilt on the Squirrel-native path.** Windows ships Squirrel.Windows installers
+  (`MakerSquirrel`), which electron-updater can't drive — it only supports NSIS. Windows now updates via
+  Electron's built-in `autoUpdater` + `update-electron-app` / update.electronjs.org, mapped onto the same
+  update banner/status IPC (`src/main.ts`).
+
+### Added
+
+- Pure `chooseUpdaterKind()` platform selector (`src/main/update-helpers.ts`) + unit tests — Windows →
+  squirrel, mac/Linux AppImage → electron-updater, else → notify-only bridge.
+- CI publishes the Squirrel `RELEASES` index + `*-full.nupkg` for Windows (needed by
+  update.electronjs.org); dropped the unused/broken NSIS `latest.yml` step (`.github/workflows/release.yml`).
+
+### Note
+
+- **One-time manual update:** installs on ≤14.13.2 lack `app-update.yml` and can't auto-update to this
+  fix — they need a single manual install of v14.13.3, after which auto-update self-heals.
+
 ## [14.13.2] (2026-07-18) — Core provider UI, faster model list, auto-update fix
 
 `npm run check` 0/0, vitest green.

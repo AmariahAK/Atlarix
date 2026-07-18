@@ -1,7 +1,21 @@
 # Atlarix TODO
 
-**Current Version:** v14.13.2 (RELEASED — Latest on atlarix-releases) — Core provider page shows real live model names + "Setup Complete", "Add key" / single-select provider UI, model-list staleTime, auto-update stuck-on-downloading fix
+**Current Version:** v14.13.3 (RELEASED — Latest on atlarix-releases) — cross-platform auto-update fix: bundle app-update.yml (mac/Linux), Squirrel-native update-electron-app (Windows)
 **Last Updated:** 2026-07-18
+
+## ✅ Shipped in v14.13.3 (2026-07-18)
+
+Full detail in [`docs/CHANGELOG.md`](./CHANGELOG.md) `[14.13.3]`. `npm run check` 0/0, vitest green.
+
+- **Auto-update fixed (mac + Linux AppImage).** Bundle `build/app-update.yml` via `extraResource` —
+  electron-forge never generated it, so electron-updater hit an unhandled ENOENT at download time and
+  stuck on "Downloading…". Plus updater hardening (manual `downloadUpdate().catch`,
+  `disableDifferentialDownload`, unified deferred flow).
+- **Auto-update fixed (Windows).** Squirrel.Windows ≠ electron-updater (NSIS-only) → switched Windows to
+  Electron's built-in `autoUpdater` + `update-electron-app`/update.electronjs.org, wired to the same
+  banner. Pure `chooseUpdaterKind()` selector + tests. CI now publishes the Squirrel `RELEASES` index.
+- **⚠️ One-time manual update:** ≤14.13.2 installs can't auto-update to this fix — they need one manual
+  install of v14.13.3, then auto-update self-heals. Windows auto-update pending real-device verification.
 
 ## ✅ Shipped in v14.13.2 (2026-07-18)
 

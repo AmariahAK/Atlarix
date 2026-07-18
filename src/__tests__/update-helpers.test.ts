@@ -7,6 +7,7 @@ import {
   isNewer,
   shouldRunNotifyOnlyCheck,
   canElectronUpdaterRun,
+  chooseUpdaterKind,
 } from "@/main/update-helpers";
 
 describe("isNewer", () => {
@@ -78,5 +79,40 @@ describe("canElectronUpdaterRun", () => {
   });
   it("not ok for an unpackaged dev build", () => {
     expect(canElectronUpdaterRun({ ...base, isPackaged: false }).ok).toBe(false);
+  });
+});
+
+describe("chooseUpdaterKind", () => {
+  const base = {
+    platform: "darwin" as NodeJS.Platform,
+    isPackaged: true,
+    isAppImage: false,
+    isInApplicationsFolder: true,
+  };
+
+  it("Windows (packaged) → squirrel (Squirrel.Windows, not electron-updater)", () => {
+    expect(
+      chooseUpdaterKind({ ...base, platform: "win32", isInApplicationsFolder: false }),
+    ).toBe("squirrel");
+  });
+  it("macOS in /Applications → electron-updater", () => {
+    expect(chooseUpdaterKind(base)).toBe("electron-updater");
+  });
+  it("Linux AppImage → electron-updater; deb/rpm → none", () => {
+    expect(
+      chooseUpdaterKind({ ...base, platform: "linux", isAppImage: true }),
+    ).toBe("electron-updater");
+    expect(
+      chooseUpdaterKind({ ...base, platform: "linux", isAppImage: false }),
+    ).toBe("none");
+  });
+  it("macOS outside /Applications → none (notify bridge handles it)", () => {
+    expect(chooseUpdaterKind({ ...base, isInApplicationsFolder: false })).toBe("none");
+  });
+  it("unpackaged dev build → none on every platform", () => {
+    expect(chooseUpdaterKind({ ...base, isPackaged: false })).toBe("none");
+    expect(
+      chooseUpdaterKind({ ...base, platform: "win32", isPackaged: false }),
+    ).toBe("none");
   });
 });
