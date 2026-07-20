@@ -42,4 +42,17 @@ describe("inline <atlarix-sources> citations", () => {
     expect(screen.queryByText(/atlarix-sources/)).not.toBeInTheDocument();
     expect(screen.queryByText(/example\.com\/answer/)).not.toBeInTheDocument();
   });
+
+  it("renders the sources strip (card) from <atlarix-sources> on a settled turn", () => {
+    renderWithProviders(
+      <AssistantMessageBody
+        content={CONTENT}
+        isStreaming={false}
+        chatId={3}
+        assistantMessageId={777}
+      />,
+    );
+    // The MessageSources card surfaces the source title — proves the strip mounts.
+    expect(screen.getByText("Answer Source")).toBeInTheDocument();
+  });
 });

@@ -5,11 +5,11 @@
  * `generateText` calls burn tokens that the parent stream's `onFinish`
  * never sees. Each stream resets its chat bucket at start; auxiliary
  * call sites record into it; the stream drains it at the end and folds
- * the total into Compass metering + the turn's usage report.
+ * the total into the turn's usage report.
  */
 
 import log from "electron-log";
-import { totalTokensFromAiUsage, type LooseAiUsage } from "@/lib/auth/compass_usage";
+import { totalTokensFromAiUsage, type LooseAiUsage } from "@/lib/usage/ai-usage";
 
 const logger = log.scope("turn-usage");
 

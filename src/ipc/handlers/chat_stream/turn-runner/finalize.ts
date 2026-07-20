@@ -21,7 +21,6 @@ import { NetworkStreamDisconnectedError } from "@/ipc/handlers/chat_stream/netwo
 import { clearInterruptedDraft } from "@/ipc/handlers/chat_stream/stream-lifecycle";
 import { activeStreams, activeStreamId, streamSessionByChatId, pendingAskUserArtifactByChatId, partialResponses } from "@/ipc/handlers/chat_stream/stream-state";
 import { type ChatResponseEnd } from "@/ipc/ipc_types";
-import { compassExhaustedUserMessage } from "@/ipc/shared/compass_constants";
 import { stripQuestionsBlockFromResponse } from "@/ipc/utils/cleanFullResponse";
 import { FileUploadsState } from "@/ipc/utils/file_uploads_state";
 import { getEffectiveModel } from "@/ipc/utils/get_model_client";
@@ -32,8 +31,6 @@ import { listBackgroundJobs } from "@/lib/agent/background-commands";
 import { clearMutationOutcomes } from "@/lib/agent/mutation-verify";
 import { runningSubagentCount } from "@/lib/agents/subagent-results";
 import { hasNativeToolParts, serializeNativeHistory } from "@/lib/ai/native-history";
-import { recordCompassUsageTokens } from "@/lib/auth/compass_usage";
-import { getCoreProxyBaseUrl } from "@/ipc/shared/core_proxy";
 import { getStreamTransport } from "@/lib/chat/stream-transport";
 import { trackPendingWork } from "@/lib/pending-work";
 import { estimateTurnCostUsd } from "@/lib/routing/byok-pricing";
@@ -260,7 +257,7 @@ export async function finalizeTurn(
             ctx.inFlightDelegationKeys.clear();
             notifyPlanUiForTurnIfPresent(streamTurnId);
             // v10 token accuracy: fold sub-agent + compaction usage into this
-            // turn's totals so Compass metering and the meter are exact.
+            // turn's totals so the usage meter is exact.
             const auxUsage = takeAuxUsage(req.chatId);
             if (auxUsage) {
               logger.log(
@@ -270,38 +267,6 @@ export async function finalizeTurn(
                   .map(([k, v]) => `${k}=${v}`)
                   .join(", ")}`,
               );
-              if (usedCompassThisStream) {
-                ctx.compassStreamTokens = (ctx.compassStreamTokens ?? 0) + auxUsage.totalTokens;
-                ctx.compassUsedThisTurn += auxUsage.totalTokens;
-                // Turn is over at this point — record for the pool, no abort
-                // needed. When Core is routed through the proxy it records aux
-                // usage server-side (authoritative), so recording here would
-                // double-count — only record client-side in the dev-direct
-                // fallback (no proxy configured). Over-limit is then surfaced by
-                // the proxy's 402 on the next request.
-                if (!getCoreProxyBaseUrl()) {
-                  try {
-                    const r = await recordCompassUsageTokens(auxUsage.totalTokens);
-                    if (!r.ok && r.error === "limit_exceeded") {
-                      logger.warn("[compass] Monthly limit hit while recording aux usage");
-                      safeSend(event.sender, "chat:activity", {
-                        id: `compass-limit-aux-${req.chatId}-${Date.now()}`,
-                        type: "compass_limit",
-                        label: "Monthly Atlarix Core token limit reached",
-                        detail: compassExhaustedUserMessage(ctx.compassStreamTier ?? "free"),
-                        status: "error",
-                        timestamp: Date.now(),
-                        chatId: req.chatId,
-                      });
-                    }
-                  } catch (auxRecordErr) {
-                    // Transient RPC/network failure must never block the turn end.
-                    logger.warn(
-                      `[compass] aux usage record failed: ${String(auxRecordErr)}`,
-                    );
-                  }
-                }
-              }
             }
             safeSend(event.sender, "chat:response:end", {
               chatId: req.chatId,
@@ -312,8 +277,6 @@ export async function finalizeTurn(
               // drives the "needs your answer" vs "finished responding" notification.
               endedWaitingOnUser: ctx.askUserEndedTurn === true,
               usedCompass: usedCompassThisStream,
-              compassTier: ctx.compassStreamTier,
-              compassTokens: ctx.compassStreamTokens,
               ...(auxUsage ? { auxTokens: auxUsage.totalTokens } : {}),
               ...(ctx.maxReasoningTokensUsed != null && ctx.maxReasoningTokensUsed > 0
                 ? { reasoningTokens: ctx.maxReasoningTokensUsed }

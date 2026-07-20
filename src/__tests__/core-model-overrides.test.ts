@@ -25,6 +25,7 @@ vi.mock("electron-log", () => ({
 import { refreshCoreModelOverrides } from "@/lib/routing/core-model-overrides";
 import {
   setCoreModelOverrides,
+  isCoreModelWebSearchEnabled,
   __resetCoreModelOverridesForTests,
 } from "@/ipc/shared/core-model-override-store";
 import { getOpenRouterModelIdForCoreTier } from "@/ipc/shared/compass_constants";
@@ -102,6 +103,18 @@ describe("core-model-overrides", () => {
     global.fetch = fetchOk({ version: 1, models: { "compass-thinking": "ovr/three" } });
     await refreshCoreModelOverrides();
     expect(getOpenRouterModelIdForCoreTier("core-3")).toBe("ovr/three");
+  });
+
+  it("parses the optional per-tier webSearch capability (default enabled, false opts out)", async () => {
+    global.fetch = fetchOk({
+      version: 1,
+      models: { "core-1": "ovr/one", "core-2": "ovr/two" },
+      webSearch: { "core-1": false, "core-9": false, "core-2": "nope" },
+    });
+    await refreshCoreModelOverrides();
+    expect(isCoreModelWebSearchEnabled("core-1")).toBe(false); // explicit opt-out
+    expect(isCoreModelWebSearchEnabled("core-2")).toBe(true); // non-boolean dropped → default on
+    expect(isCoreModelWebSearchEnabled("core-3")).toBe(true); // absent → default on
   });
 });
 

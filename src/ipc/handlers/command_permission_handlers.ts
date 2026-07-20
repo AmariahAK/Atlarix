@@ -168,7 +168,15 @@ export function registerCommandPermissionHandlers(): void {
       const cat = raw.startsWith("danger:")
         ? raw
         : getCommandCategory(raw) || raw.toLowerCase();
-      upsertWorkspaceCommandPermission(appId, cat, decision);
+      try {
+        upsertWorkspaceCommandPermission(appId, cat, decision);
+      } catch (e) {
+        // Degrade instead of throwing raw SqliteError out of IPC (e.g. disk full
+        // → the rollback journal can't be created). The renderer gets a clean
+        // failure it can surface, not an unhandled rejection.
+        logger.warn(`[command-permissions] upsert failed app=${appId} cat=${cat}:`, e);
+        return { success: false, error: "Couldn't save permission (storage may be full)." };
+      }
       logger.log(`[command-permissions] upsert app=${appId} cat=${cat} decision=${decision}`);
       return { success: true };
     },

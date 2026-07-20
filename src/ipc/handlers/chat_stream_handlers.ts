@@ -36,18 +36,9 @@ import {
 } from "@/ipc/utils/active-model-identity";
 import { resetAuxUsage } from "@/lib/usage/turn-usage-aggregator";
 import {
-  getCompassUsageFromSupabase,
-} from "../../lib/auth/compass_usage";
-import {
-  COMPASS_LIMIT_STREAM_STOP,
-} from "../../lib/auth/compass_enforcement";
-import {
   SUPERSEDED_STREAM_STOP,
   streamStopAbortReason,
 } from "../../lib/stream/stream-stop-sentinels";
-import {
-  compassExhaustedUserMessage,
-} from "../shared/compass_constants";
 import log from "electron-log";
 import fs from "node:fs";
 import * as path from "path";
@@ -1055,17 +1046,6 @@ ${componentSnippet}
             chatId: req.chatId,
           });
         }
-        // v12 S18: the Compass usage pre-flight is a Supabase round-trip that
-        // only gates dispatch (per-step metering still enforces mid-turn) —
-        // start it as soon as the provider is known and await at the original
-        // check site, overlapping the tier/window work between here and there.
-        const compassUsagePromise =
-          modelClient.builtinProviderId === "compass"
-            ? preflight.time("compass-preflight", () =>
-                getCompassUsageFromSupabase(),
-              )
-            : null;
-        compassUsagePromise?.catch(() => {});
         const isEngineEnabled = initialModelClientBundle.isEngineEnabled;
         const isSmartContextEnabled = initialModelClientBundle.isSmartContextEnabled;
         // Native extended-thinking/reasoning turns on whenever the selected
@@ -1092,67 +1072,10 @@ ${componentSnippet}
           `contextWindow=${budgetDetail.contextWindow} source=${budgetDetail.source}`,
         );
 
+        // True when this turn dispatched to the managed Atlarix Core provider
+        // (used only to flag the terminal payload for usage refresh; the PAYG
+        // wallet reserve gate + proxy metering enforce spend, not the client).
         const usedCompassThisStream = modelClient.builtinProviderId === "compass";
-        // v11 strict enforcement: tokens remaining at stream start (server
-        // authoritative; null when pre-flight could not verify) + local tally
-        // so the turn hard-stops on the step that exhausts the pool.
-
-        const stopStreamForCompassLimit = (origin: string) => {
-          if (ctx.compassLimitHit) return;
-          ctx.compassLimitHit = true;
-          logger.warn(
-            `[compass] Token pool exhausted mid-task (${origin}) — stopping stream for chat ${req.chatId}`,
-          );
-          safeSend(event.sender, "chat:response:error", {
-            chatId: req.chatId,
-            streamId,
-            error: `${AI_STREAMING_ERROR_MESSAGE_PREFIX}${compassExhaustedUserMessage(ctx.compassStreamTier ?? "free")}`,
-          });
-          abortController.abort(streamStopAbortReason(COMPASS_LIMIT_STREAM_STOP));
-        };
-
-        if (compassUsagePromise) {
-          const usagePre = await compassUsagePromise;
-          if (usagePre.ok) {
-            if (usagePre.tier) {
-              ctx.compassStreamTier = usagePre.tier;
-            }
-            if (usagePre.monthlyLimit > 0) {
-              ctx.compassRemainingBudget = Math.max(
-                0,
-                usagePre.monthlyLimit - usagePre.tokensUsedThisMonth,
-              );
-            }
-            // 3b diagnostics: the metering pool (this RPC) must match the
-            // budget the UI shows for the user's real plan. A mismatch here
-            // (e.g. a workforce account metered at a free-tier monthlyLimit)
-            // is what causes a premature "token pool exhausted" stop while the
-            // app still shows tokens remaining. Logged so the gap is visible.
-            logger.log(
-              `[compass] preflight budget chat ${req.chatId}: tier=${usagePre.tier} ` +
-                `monthlyLimit=${usagePre.monthlyLimit} usedThisMonth=${usagePre.tokensUsedThisMonth} ` +
-                `remaining=${ctx.compassRemainingBudget ?? "unknown"}`,
-            );
-          } else {
-            logger.warn(
-              `[compass] preflight usage unavailable for chat ${req.chatId} (reason=${usagePre.reason}) — ` +
-                `enforcement relies on the server RPC only this turn`,
-            );
-          }
-          if (
-            usagePre.ok &&
-            usagePre.monthlyLimit > 0 &&
-            usagePre.tokensUsedThisMonth >= usagePre.monthlyLimit
-          ) {
-            safeSend(event.sender, "chat:response:error", {
-              chatId: req.chatId,
-              streamId,
-              error: `${AI_STREAMING_ERROR_MESSAGE_PREFIX}${compassExhaustedUserMessage(usagePre.tier)}`,
-            });
-            if (activeStreamId.get(req.chatId) === streamId) activeStreams.delete(req.chatId);
-            return;
-          }
-        }
 
         // Workspace: use chat's linked app, or req.appId only when the chat has no app
         // (client binds appId on first stream — no mid-chat sidebar override).
@@ -2005,7 +1928,6 @@ ${componentSnippet}
             event,
             placeholderAssistantMessage,
             preflight,
-            stopStreamForCompassLimit,
             ttftStartRef,
             abortController,
           };

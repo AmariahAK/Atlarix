@@ -22,11 +22,11 @@ import {
 
 import {
     resolvePathUnderWorkspace,
+    resolveToolTargetPath,
     safeRelativePathUnderWorkspace,
     stripToolPathPrefixes,
 } from "../../ipc/utils/safeWorkspaceRelativePath";
 
-import { isAllowedToolOutputPath } from "@/lib/security/tool-output-paths";
 import { assertReadablePath } from "@/lib/security/env-secret-paths";
 import { assertRealpathContained } from "@/lib/security/realpath-contain";
 import {
@@ -241,15 +241,21 @@ ToolRegistry.register({
             }
 
             const rawPath = String(filePath);
-            const normalizedAbsolute = path.isAbsolute(rawPath)
-                ? path.normalize(rawPath)
-                : null;
-            const toolOutputSpill =
-                normalizedAbsolute != null &&
-                isAllowedToolOutputPath(normalizedAbsolute);
+            const isAbsolutePath = path.isAbsolute(rawPath);
 
-            if (toolOutputSpill) {
-                displayPath = normalizedAbsolute!;
+            let fullPath: string;
+            if (isAbsolutePath) {
+                // Explicit absolute target: reads are auto-allowed ANYWHERE. The
+                // workspace is the default SCOPE, not a wall — the approval gate
+                // governs WRITES, not reads. (Supersedes the narrower legacy
+                // tool-output-spill allowance.) Symlinks are realpath'd inside
+                // resolveToolTargetPath.
+                const { absPath } = resolveToolTargetPath(
+                    workspace || process.cwd(),
+                    rawPath,
+                );
+                displayPath = absPath;
+                fullPath = absPath;
             } else {
                 try {
                     displayPath = workspace
@@ -263,32 +269,26 @@ ToolRegistry.register({
                     }
                     throw normErr;
                 }
-            }
 
-            const fullPath = toolOutputSpill
-                ? normalizedAbsolute!
-                : workspace
-                  ? resolvePathUnderWorkspace(workspace, filePath)
-                  : path.resolve(stripToolPathPrefixes(filePath));
+                fullPath = workspace
+                    ? resolvePathUnderWorkspace(workspace, filePath)
+                    : path.resolve(stripToolPathPrefixes(filePath));
 
-            try {
-                if (toolOutputSpill) {
-                    // Legacy tool-output spill files (absolute tmp path intentional).
-                    // v14 no longer creates spills, but reading a previously-spilled
-                    // path stays supported and is restricted to the tmp dir.
-                } else if (workspace) {
-                    assertReadablePath(String(filePath), workspace);
-                    // String checks are symlink-blind — reject a workspace symlink
-                    // whose real target escapes the workspace (/etc, ~/.ssh, …).
-                    assertRealpathContained(fullPath, workspace, [], String(filePath));
+                try {
+                    if (workspace) {
+                        assertReadablePath(String(filePath), workspace);
+                        // String checks are symlink-blind — reject a workspace
+                        // symlink whose real target escapes the workspace.
+                        assertRealpathContained(fullPath, workspace, [], String(filePath));
+                    }
+                } catch (pathErr) {
+                    const structured = readFileStructuredError(pathErr, displayPath);
+                    if (structured) {
+                        logReadFileError(structured);
+                        return structured;
+                    }
+                    throw pathErr;
                 }
-            } catch (pathErr) {
-                const structured = readFileStructuredError(pathErr, displayPath);
-                if (structured) {
-                    logReadFileError(structured);
-                    return structured;
-                }
-                throw pathErr;
             }
 
             const capLines = Math.min(

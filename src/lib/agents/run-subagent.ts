@@ -28,7 +28,7 @@ import {
 } from "@/lib/context/resolve-model-context-limit";
 import { estimateTokens } from "@/ipc/utils/token_utils";
 import { recordAuxUsage } from "@/lib/usage/turn-usage-aggregator";
-import { totalTokensFromAiUsage } from "@/lib/auth/compass_usage";
+import { totalTokensFromAiUsage } from "@/lib/usage/ai-usage";
 import { ToolRegistry } from "@/lib/tools/registry";
 import { loadSkill } from "../skills/skill-loader";
 import { readSettings } from "../../main/settings";

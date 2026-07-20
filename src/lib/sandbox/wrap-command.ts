@@ -62,16 +62,48 @@ function realIfExists(p: string): string | null {
   }
 }
 
+/**
+ * Standard env vars each toolchain reads to locate its store/cache BEFORE
+ * falling back to a default dir. Honoring these keeps the writable set dynamic —
+ * a user's custom location (custom PNPM_HOME, CARGO_HOME, GOPATH, XDG_*, …) is
+ * covered without hardcoding, and no command name is ever matched. The sandbox
+ * stays a generic write boundary, not a per-command allow-list.
+ */
+const TOOLCHAIN_DIR_ENV_VARS = [
+  "PNPM_HOME", // pnpm
+  "npm_config_cache", // npm
+  "YARN_CACHE_FOLDER", // yarn
+  "BUN_INSTALL", // bun
+  "DENO_DIR", // deno
+  "CARGO_HOME", // cargo
+  "RUSTUP_HOME", // rustup
+  "GRADLE_USER_HOME", // gradle
+  "GOPATH", // go
+  "GOMODCACHE", // go module cache
+  "GOCACHE", // go build cache
+  "GEM_HOME", // ruby gems
+  "XDG_CACHE_HOME", // freedesktop cache root
+  "XDG_DATA_HOME", // freedesktop data root
+  "XDG_STATE_HOME", // freedesktop state root
+  "XDG_CONFIG_HOME", // freedesktop config root
+] as const;
+
 /** Common package-manager / toolchain cache dirs that legitimately need writes. */
 function defaultWritablePaths(workspacePath: string, extra: string[] = []): string[] {
   const home = os.homedir();
   const tmp = os.tmpdir();
+  // Env-configured toolchain dirs first (dynamic); realIfExists dedups + prunes.
+  const envDirs = TOOLCHAIN_DIR_ENV_VARS.map((v) => process.env[v]).filter(
+    (p): p is string => !!p && p.length > 0,
+  );
   const candidates = [
     workspacePath,
     tmp,
     "/tmp",
     "/private/tmp",
     "/var/folders", // macOS per-user temp root
+    ...envDirs,
+    // Default fallbacks for when the matching env var is unset:
     path.join(home, ".npm"),
     path.join(home, ".cache"),
     path.join(home, ".config"),
@@ -88,6 +120,7 @@ function defaultWritablePaths(workspacePath: string, extra: string[] = []): stri
     path.join(home, ".local", "state"),
     path.join(home, "go", "pkg"),
     path.join(home, "Library", "Caches"), // macOS
+    path.join(home, "Library", "pnpm"), // pnpm's default PNPM_HOME on macOS (store lives here)
     ...extra,
   ];
   const seen = new Set<string>();

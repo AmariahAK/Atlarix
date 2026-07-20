@@ -50,7 +50,6 @@ import type {
   ApplyVisualEditingChangesParams,
   AnalyseComponentParams,
   DiscordInviteInfoResult,
-  CompassUsageIpcResult,
   PlanUpdatePayload,
   SkillRegistryIndex,
   InstallSkillParams,
@@ -3436,10 +3435,6 @@ export class IpcClient {
     import("@/lib/atlarix-core-catalog").AtlarixCoreTierPresentation[]
   > {
     return this.ipcRenderer.invoke("compass:get-tier-catalog");
-  }
-
-  public async getCompassUsage(): Promise<CompassUsageIpcResult> {
-    return this.ipcRenderer.invoke("compass:get-usage");
   }
 
   // ── v11 in-app browser (WebContentsView panel) ──────────────────────────

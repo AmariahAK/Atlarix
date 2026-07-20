@@ -20,7 +20,10 @@ import {
   CORE_TIER_ORDER,
   normalizeCoreTierId,
 } from "@/ipc/shared/compass_constants";
-import { setCoreModelOverrides } from "@/ipc/shared/core-model-override-store";
+import {
+  setCoreModelOverrides,
+  setCoreModelWebSearch,
+} from "@/ipc/shared/core-model-override-store";
 
 const logger = log.scope("core-models");
 
@@ -36,6 +39,12 @@ const CORE_TIER_IDS = new Set<string>(CORE_TIER_ORDER as readonly string[]);
 interface CoreModelsPayload {
   version?: number;
   models?: Record<string, unknown>;
+  /**
+   * Optional per-tier web-search capability (`core-N` → boolean). Absent → every
+   * tier defaults to enabled. Set a tier `false` to keep it on the client
+   * `web_search` (SearxNG) tool instead of OpenRouter's metered server tool.
+   */
+  webSearch?: Record<string, unknown>;
 }
 
 let refreshTimer: ReturnType<typeof setInterval> | null = null;
@@ -59,12 +68,17 @@ function broadcastCoreModelsChanged(): void {
 }
 
 /**
- * Apply overrides to the store and, when the resolved map actually changed since
- * the last apply, broadcast so the renderer invalidates its cached model lists
- * (Core display name updates live, without an app restart).
+ * Apply overrides from a raw `core-models.json` payload to the store. Sets both
+ * the tier→model map and the per-tier web-search capability, and — when the
+ * resolved model map actually changed since the last apply — broadcasts so the
+ * renderer invalidates its cached model lists (Core display name updates live,
+ * without an app restart). Web-search-only changes take effect on the next
+ * dispatch and need no broadcast.
  */
-function applyOverridesAndNotify(map: Record<string, string> | null): void {
+function applyOverridesAndNotify(raw: unknown): void {
+  const map = parseCoreModelsPayload(raw);
   setCoreModelOverrides(map);
+  setCoreModelWebSearch(parseCoreWebSearchOverrides(raw));
   const serialized = map
     ? JSON.stringify(Object.entries(map).sort(([a], [b]) => a.localeCompare(b)))
     : null;
@@ -94,10 +108,32 @@ function parseCoreModelsPayload(raw: unknown): Record<string, string> | null {
   return Object.keys(map).length > 0 ? map : null;
 }
 
-async function loadFromCache(): Promise<Record<string, string> | null> {
+/**
+ * Validate the optional `webSearch` block into a clean `core-N` → boolean map.
+ * Only explicit booleans are kept; unknown tiers and non-boolean values are
+ * dropped (those tiers default to enabled). Returns null when nothing usable.
+ */
+function parseCoreWebSearchOverrides(
+  raw: unknown,
+): Record<string, boolean> | null {
+  if (!raw || typeof raw !== "object") return null;
+  const web = (raw as CoreModelsPayload).webSearch;
+  if (!web || typeof web !== "object") return null;
+  const map: Record<string, boolean> = {};
+  for (const [key, value] of Object.entries(web)) {
+    const norm = normalizeCoreTierId(key);
+    if (!CORE_TIER_IDS.has(norm)) continue;
+    if (typeof value !== "boolean") continue;
+    map[norm] = value;
+  }
+  return Object.keys(map).length > 0 ? map : null;
+}
+
+/** Read + JSON-parse the cached raw payload, or null on miss/invalid. */
+async function loadRawFromCache(): Promise<unknown | null> {
   try {
     const content = await fs.readFile(getCachePath(), "utf-8");
-    return parseCoreModelsPayload(JSON.parse(content));
+    return JSON.parse(content);
   } catch {
     return null; // cache miss / invalid — fall back to env
   }
@@ -142,7 +178,7 @@ export async function refreshCoreModelOverrides(): Promise<void> {
     const map = parseCoreModelsPayload(raw);
     if (map) {
       await saveToCache(raw);
-      applyOverridesAndNotify(map);
+      applyOverridesAndNotify(raw);
       logger.info(
         `loaded ${Object.keys(map).length} Core model override(s)`,
         map,
@@ -152,10 +188,10 @@ export async function refreshCoreModelOverrides(): Promise<void> {
     logger.warn("core-models.json had no usable overrides — keeping env fallback");
   } catch (e) {
     logger.warn("core-models fetch failed, trying cache", e);
-    const cached = await loadFromCache();
-    if (cached) {
-      applyOverridesAndNotify(cached);
-      logger.info(`applied ${Object.keys(cached).length} cached Core override(s)`);
+    const cachedRaw = await loadRawFromCache();
+    if (cachedRaw && parseCoreModelsPayload(cachedRaw)) {
+      applyOverridesAndNotify(cachedRaw);
+      logger.info("applied cached Core override(s)");
     }
   }
 }
@@ -168,10 +204,8 @@ export async function refreshCoreModelOverrides(): Promise<void> {
  */
 export function warmCoreModelOverrides(): void {
   try {
-    const map = parseCoreModelsPayload(
-      JSON.parse(readFileSync(getCachePath(), "utf-8")),
-    );
-    if (map) applyOverridesAndNotify(map);
+    const raw = JSON.parse(readFileSync(getCachePath(), "utf-8"));
+    if (parseCoreModelsPayload(raw)) applyOverridesAndNotify(raw);
   } catch {
     // no cache yet — env fallback until the network refresh below completes
   }

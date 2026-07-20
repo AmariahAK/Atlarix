@@ -1,9 +1,10 @@
 /**
  * Atlarix Core — managed provider (OpenRouter-backed, no user API key).
  * Model IDs come from build-time env: ATLARIX_CORE_MODEL_1..4.
- * All four Core models are available on every plan; access is metered strictly
- * by the shared Supabase token pool (`compass_tokens` table + RPCs — the
- * `compass` name is kept at the wire/storage layer for compatibility).
+ * All four Core models are available on every plan; usage is billed via the
+ * pay-as-you-go credit wallet — the proxy meters real cost behind a per-call
+ * reserve gate (the `compass` name is kept at the wire/storage layer for
+ * compatibility).
  */
 
 import type { LanguageModel } from "../ipc_types";

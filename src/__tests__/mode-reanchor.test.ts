@@ -27,7 +27,8 @@ describe("getActiveModeReanchor (#15 mode-transition re-anchor)", () => {
 describe("v14.8.9 BROWSER_NOTE — visual is the way to SEE; screenshot is last resort", () => {
   it("steers 'see the page' to the visual/text text report, not a screenshot", () => {
     expect(BROWSER_NOTE).toMatch(/mode:"visual"/);
-    expect(BROWSER_NOTE).toMatch(/do NOT add a screenshot/i);
+    // visual/text IS the answer (screenshot framed as last resort, not the way to "see")
+    expect(BROWSER_NOTE).toMatch(/these ARE the answer/i);
   });
   it("frames screenshot as a last resort, never for reading/finding/layout", () => {
     expect(BROWSER_NOTE).toMatch(/LAST RESORT/i);

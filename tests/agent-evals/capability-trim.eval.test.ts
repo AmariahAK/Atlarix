@@ -146,7 +146,7 @@ describe("v14.8.8 — per-tool guidance rides the capability-gated tool schema",
     const runCmd = descOf(req, "run_command");
     expect(runCmd).toBeTruthy();
     // The guidance relocated out of AGENTS.md now lives on the tool itself.
-    expect(runCmd).toContain("auto-moved to the background");
+    expect(runCmd).toMatch(/auto-background|background=true/i);
     expect(runCmd).toContain('target:"preview"');
     // Browser guidance is present because browser tools are in build mode.
     expect(descOf(req, "browser_navigate")).toBeTruthy();

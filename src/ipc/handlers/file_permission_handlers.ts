@@ -169,7 +169,17 @@ export function registerFilePermissionHandlers(): void {
       if (!appId || !scopeValue?.trim()) {
         return { success: false, error: "Invalid appId or scope" };
       }
-      upsertWorkspaceFilePermission(appId, scopeType, scopeValue, decision);
+      try {
+        upsertWorkspaceFilePermission(appId, scopeType, scopeValue, decision);
+      } catch (e) {
+        // Degrade instead of throwing raw SqliteError out of IPC (e.g. disk full
+        // → the rollback journal can't be created).
+        logger.warn(
+          `upsert failed app=${appId} type=${scopeType} value=${scopeValue}:`,
+          e,
+        );
+        return { success: false, error: "Couldn't save permission (storage may be full)." };
+      }
       logger.log(
         `upsert app=${appId} type=${scopeType} value=${scopeValue} decision=${decision}`,
       );

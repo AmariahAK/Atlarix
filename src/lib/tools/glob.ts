@@ -20,6 +20,7 @@ import {
 } from "./registry";
 import {
     resolvePathUnderWorkspace,
+    resolveToolTargetPath,
     stripToolPathPrefixes,
 } from "../../ipc/utils/safeWorkspaceRelativePath";
 import { ripgrepIgnoreArgs } from "./ripgrep-ignore";
@@ -44,7 +45,7 @@ ToolRegistry.register({
             pattern: stringParam(
                 "Glob pattern (e.g. '**/*.tsx', 'component*', 'src/**')",
             ),
-            path: stringParam("Folder to search in (default: workspace root)"),
+            path: stringParam("Folder to search in — default workspace root; an ABSOLUTE path searches outside the workspace"),
             limit: numberParam(
                 `Max files returned (default ${DEFAULT_LIMIT}, max ${MAX_LIMIT})`,
                 DEFAULT_LIMIT,
@@ -75,9 +76,13 @@ ToolRegistry.register({
             };
         }
         try {
-            const fullPath = workspace
-                ? resolvePathUnderWorkspace(workspace, searchPath || ".")
-                : path.resolve(stripToolPathPrefixes(searchPath || ".") || ".");
+            // An ABSOLUTE `path` searches that exact location (reads auto-allowed
+            // outside the workspace); a relative `path` stays confined under it.
+            const fullPath = path.isAbsolute(searchPath)
+                ? resolveToolTargetPath(workspace || process.cwd(), searchPath).absPath
+                : workspace
+                  ? resolvePathUnderWorkspace(workspace, searchPath || ".")
+                  : path.resolve(stripToolPathPrefixes(searchPath || ".") || ".");
 
             // ripgrep lists files under cwd (paths relative to it), filtered by
             // .gitignore/.ignore/.atlarixignore. A CATCH-ALL `-g` glob (`*`, `**`,

@@ -26,18 +26,15 @@ import {
   getEffectiveModelForOptions,
   type ModelClient,
 } from "@/ipc/utils/get_model_client";
-import { shouldStopForCompassLimit } from "@/lib/auth/compass_enforcement";
 import {
-  recordCompassUsageTokens,
   reasoningTokensFromAiUsage,
   totalTokensFromAiUsage,
-} from "@/lib/auth/compass_usage";
+} from "@/lib/usage/ai-usage";
 import {
   COMPASS_REACHABILITY_ERROR,
   compassExhaustedUserMessage,
   coreUnavailableUserMessage,
 } from "@/ipc/shared/compass_constants";
-import { getCoreProxyBaseUrl } from "@/ipc/shared/core_proxy";
 import {
   getNativeWebSearchSupport,
   reservedNativeToolNames,
@@ -140,7 +137,6 @@ export interface SimpleStreamTextDeps {
   event: IpcMainInvokeEvent;
   placeholderAssistantMessage: any;
   preflight: PreflightTimer;
-  stopStreamForCompassLimit: (origin: string) => void;
   ttftStartRef: { ms: number | null };
   abortController: AbortController;
 }
@@ -181,7 +177,6 @@ export async function simpleStreamText(
     event,
     placeholderAssistantMessage,
     preflight,
-    stopStreamForCompassLimit,
     ttftStartRef,
     abortController,
   } = deps;
@@ -460,16 +455,13 @@ export async function simpleStreamText(
               maxRetries:
                 tools != null && Object.keys(tools as object).length > 0 ? 0 : 2,
               model: modelClient.model,
-              // Backstop for the abort() in stopStreamForCompassLimit: even if
-              // the abort races a step boundary, the multi-step loop must not
-              // start another step once the token pool is exhausted. The
-              // optional step cap (interactive build only) bounds an in-round
-              // runaway so it returns to the round boundary instead of spinning
-              // unbounded — undefined leaves headless/ask uncapped.
+              // The optional step cap (interactive build only) bounds an
+              // in-round runaway so it returns to the round boundary instead of
+              // spinning unbounded — undefined leaves headless/ask uncapped.
               stopWhen:
                 typeof maxStepsPerRound === "number" && maxStepsPerRound > 0
-                  ? [() => ctx.compassLimitHit, stepCountIs(maxStepsPerRound)]
-                  : [() => ctx.compassLimitHit],
+                  ? [stepCountIs(maxStepsPerRound)]
+                  : [() => false],
               // v12 0.1 close-out: mid-round correction reinject. Repetition
               // corrections are queued inside the SDK's multi-step inner loop
               // (the tool wrappers call record() during execute), where the
@@ -597,11 +589,6 @@ export async function simpleStreamText(
               providerOptions,
               tools: effectiveTools,
               messages: streamMessages,
-              // v11 strict Core enforcement: record + check usage at every step
-              // boundary (the SDK awaits this before the next step), so a turn
-              // stops immediately mid-task when the monthly pool runs out.
-              // This also fixes the old undercount where only the final step's
-              // usage was recorded for multi-step turns.
               onStepFinish: async (step) => {
                 // Capture this step's native messages for stall-resume BEFORE any
                 // provider-specific early return below.
@@ -630,44 +617,6 @@ export async function simpleStreamText(
                   }
                 } catch {
                   /* best-effort live meter — never break the stream */
-                }
-                if (modelClient.builtinProviderId !== "compass") return;
-                const stepTokens = totalTokensFromAiUsage(step.usage) ?? 0;
-                let recordResult = null;
-                if (stepTokens > 0) {
-                  ctx.compassUsedThisTurn += stepTokens;
-                  ctx.compassStreamTokens = (ctx.compassStreamTokens ?? 0) + stepTokens;
-                  // When Core is routed through the proxy, it records usage
-                  // server-side (authoritative, un-bypassable) — recording here too
-                  // would double-count. Only record client-side in the dev-direct
-                  // fallback (no proxy configured).
-                  if (!getCoreProxyBaseUrl()) {
-                    recordResult = await recordCompassUsageTokens(stepTokens);
-                  }
-                }
-                if (
-                  shouldStopForCompassLimit(
-                    {
-                      remainingBudget: ctx.compassRemainingBudget,
-                      usedThisTurn: ctx.compassUsedThisTurn,
-                    },
-                    recordResult,
-                  )
-                ) {
-                  // 3b diagnostics: which guard fired? `rpc-limit_exceeded`
-                  // means the server pool says done while our local tally
-                  // (usedThisTurn vs preflight remaining) may still show room
-                  // — that divergence is the metering-vs-display bug to chase
-                  // server-side (docs/compass-limits.md).
-                  const cause =
-                    recordResult && !recordResult.ok && recordResult.error === "limit_exceeded"
-                      ? "rpc-limit_exceeded"
-                      : "local-tally";
-                  logger.warn(
-                    `[compass] stop cause=${cause} chat ${req.chatId}: usedThisTurn=${ctx.compassUsedThisTurn} ` +
-                      `remaining=${ctx.compassRemainingBudget ?? "unknown"}`,
-                  );
-                  stopStreamForCompassLimit("onStepFinish");
                 }
               },
               // Stall recovery: at abort time the SDK hands back every finished

@@ -18,7 +18,6 @@ import type { SimpleStreamTextDeps } from "@/ipc/handlers/chat_stream/turn-runne
 import type { UserAgent } from "@/lib/agents/user-agents";
 import { shouldAutoApprovePermissions } from "@/lib/agents/agent-runtime";
 import { attachDelegationToolsToSet } from "@/lib/agents/register-delegation-tools";
-import { COMPASS_LIMIT_STREAM_STOP } from "@/lib/auth/compass_enforcement";
 import { ASK_USER_STREAM_STOP, LOOP_REPETITION_STREAM_STOP, FORCE_TEXT_FINISH_STREAM_STOP, abortReasonSentinel, streamStopAbortReason } from "@/lib/stream/stream-stop-sentinels";
 import { createAgenticRepetitionState, buildLoopCorrectionMessage, type AgenticRepetitionOutcome } from "@/lib/streaming/agentic-loop-repetition";
 import { feedTerminalOutput } from "@/lib/streams/StreamManager";
@@ -1561,11 +1560,9 @@ export async function runBuildBranch(
                 if (partialResponse) {
                   try {
                     const stopNote =
-                      stopSentinel === COMPASS_LIMIT_STREAM_STOP
-                        ? "[Stopped — monthly Atlarix Core token limit reached]"
-                        : stopSentinel === LOOP_REPETITION_STREAM_STOP
-                          ? "[Repeated action — task stopped. Review the activity log and send a message to continue.]"
-                          : "[Response cancelled by user]";
+                      stopSentinel === LOOP_REPETITION_STREAM_STOP
+                        ? "[Repeated action — task stopped. Review the activity log and send a message to continue.]"
+                        : "[Response cancelled by user]";
                     const cancelledContent = `${partialResponse}
 
 ${stopNote}`;

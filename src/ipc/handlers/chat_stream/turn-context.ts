@@ -54,13 +54,6 @@ export interface StreamTurnContext {
    * prepareStep reads-and-clears it (shared across those two extracted fns). */
   pendingEmptyOutputNudge: string | null;
 
-  // ── Compass (managed-model) usage state ──────────────────────────────────
-  compassStreamTier: string | undefined;
-  compassStreamTokens: number | undefined;
-  compassRemainingBudget: number | null;
-  compassUsedThisTurn: number;
-  compassLimitHit: boolean;
-
   // ── delegation (sub-agent) bookkeeping ───────────────────────────────────
   delegatedAgentsThisTurn: string[];
   delegationsStartedThisTurn: number;
@@ -88,11 +81,6 @@ export function createStreamTurnContext(): StreamTurnContext {
     stopAgentOrchestrator: undefined,
     lastToolInputPhaseLabel: "",
     pendingEmptyOutputNudge: null,
-    compassStreamTier: undefined,
-    compassStreamTokens: undefined,
-    compassRemainingBudget: null,
-    compassUsedThisTurn: 0,
-    compassLimitHit: false,
     delegatedAgentsThisTurn: [],
     delegationsStartedThisTurn: 0,
     inFlightDelegationKeys: new Set<string>(),

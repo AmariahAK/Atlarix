@@ -3,6 +3,7 @@
  * under the workspace (e.g. workspace/Users/you/.../project/src).
  */
 import * as path from "path";
+import { realpathSync } from "node:fs";
 
 /** First path segments that usually mean the model pasted an absolute path as "relative". */
 const BLOCKED_FIRST_SEGMENTS = new Set(
@@ -89,4 +90,51 @@ export function resolvePathUnderWorkspace(workspaceRoot: string, raw: string): s
     );
   }
   return full;
+}
+
+/** Realpath a path (or its deepest existing ancestor) to defuse symlink escapes. */
+function realpathDeepest(abs: string): string {
+  let p = abs;
+  // Walk up to the first ancestor that exists, realpath it, then re-append.
+  const tail: string[] = [];
+  // Bounded walk (path depth is finite); stops at the filesystem root.
+  for (let i = 0; i < 4096; i++) {
+    try {
+      const real = realpathSync(p);
+      return tail.length ? path.join(real, ...tail.reverse()) : real;
+    } catch {
+      const parent = path.dirname(p);
+      if (parent === p) return abs; // reached root without an existing ancestor
+      tail.push(path.basename(p));
+      p = parent;
+    }
+  }
+  return abs;
+}
+
+/**
+ * Resolve a tool path, allowing an EXPLICIT absolute path to target a location
+ * outside the workspace (the caller decides the policy: reads auto-allow, writes
+ * go through the approval gate). A RELATIVE path stays confined under the
+ * workspace exactly as before (`..` and absolute-looking relative pastes like
+ * `Users/…` are still rejected). Symlinks are realpath'd so an in-workspace
+ * symlink can't smuggle an outside target past `isOutsideWorkspace`.
+ */
+export function resolveToolTargetPath(
+  workspaceRoot: string,
+  raw: string,
+): { absPath: string; isOutsideWorkspace: boolean } {
+  const root = realpathDeepest(path.resolve(workspaceRoot));
+  const trimmed = (raw ?? "").trim();
+
+  if (path.isAbsolute(trimmed)) {
+    const absPath = realpathDeepest(path.resolve(trimmed));
+    const relCheck = path.relative(root, absPath);
+    const isOutsideWorkspace =
+      relCheck !== "" && (relCheck.startsWith("..") || path.isAbsolute(relCheck));
+    return { absPath, isOutsideWorkspace };
+  }
+
+  // Relative → confined under the workspace (unchanged security posture).
+  return { absPath: resolvePathUnderWorkspace(root, trimmed), isOutsideWorkspace: false };
 }

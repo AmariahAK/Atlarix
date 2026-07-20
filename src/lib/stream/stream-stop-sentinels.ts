@@ -1,10 +1,8 @@
-import { COMPASS_LIMIT_STREAM_STOP } from "@/lib/auth/compass_enforcement";
-
 /**
  * v13.3: intentional stream-stop abort reasons.
  *
  * The agent harness ends turns by aborting the in-flight stream with a
- * sentinel reason (ask_user end-turn, loop guard, Compass token limit). Under
+ * sentinel reason (ask_user end-turn, loop guard). Under
  * ai@6 the SDK/undici reject in-flight work with
  * the abort reason VERBATIM, and some of those rejections surface in
  * detached promises after the turn has already finalized — benign by
@@ -51,7 +49,6 @@ export const FORCE_TEXT_FINISH_STREAM_STOP = "force_text_finish";
 const STREAM_STOP_SENTINELS: ReadonlySet<string> = new Set([
   ASK_USER_STREAM_STOP,
   LOOP_REPETITION_STREAM_STOP,
-  COMPASS_LIMIT_STREAM_STOP,
   SUPERSEDED_STREAM_STOP,
   FORCE_TEXT_FINISH_STREAM_STOP,
 ]);

@@ -10,6 +10,7 @@ import log from "electron-log";
 import { showAgentNotification } from "@/main/agent-notification";
 import { createLoggedHandler } from "@/ipc/handlers/safe_handle";
 import { PermissionInterceptor } from "./interceptor";
+import { persistPermissionPreferenceSafely } from "./persist-safe";
 import {
     PermissionRequest,
     PermissionResult,
@@ -285,11 +286,14 @@ const executePermissionHandler = async (
             const key = isDangerousCommand(command)
                 ? dangerLabelKey(command)
                 : getCommandCategory(command);
+            const boundAppId = appId;
             if (key) {
-                upsertWorkspaceCommandPermission(
-                    appId,
-                    key,
-                    "always_allow" as CommandPermissionDecision,
+                persistPermissionPreferenceSafely("command permission", () =>
+                    upsertWorkspaceCommandPermission(
+                        boundAppId,
+                        key,
+                        "always_allow" as CommandPermissionDecision,
+                    ),
                 );
             }
         }
@@ -297,20 +301,23 @@ const executePermissionHandler = async (
         if (appId != null && request && isFileScopeApprovalMode(approvalMode)) {
             const fp = request.preview as FileOperationPreview;
             const rel = fp?.path ? normalizeRelativePath(fp.path) : "";
+            const boundAppId = appId;
             if (rel && !isProtectedRelativePath(rel)) {
-                if (approvalMode === "always_allow_file") {
-                    upsertWorkspaceFilePermission(appId, "file", rel, "always_allow");
-                } else if (approvalMode === "always_allow_directory") {
-                    const dir = getParentDirectory(rel);
-                    if (dir) {
-                        upsertWorkspaceFilePermission(appId, "directory", dir, "always_allow");
+                persistPermissionPreferenceSafely("file permission", () => {
+                    if (approvalMode === "always_allow_file") {
+                        upsertWorkspaceFilePermission(boundAppId, "file", rel, "always_allow");
+                    } else if (approvalMode === "always_allow_directory") {
+                        const dir = getParentDirectory(rel);
+                        if (dir) {
+                            upsertWorkspaceFilePermission(boundAppId, "directory", dir, "always_allow");
+                        }
+                    } else if (approvalMode === "always_allow_extension") {
+                        const ext = getPathExtension(rel);
+                        if (ext) {
+                            upsertWorkspaceFilePermission(boundAppId, "extension", ext, "always_allow");
+                        }
                     }
-                } else if (approvalMode === "always_allow_extension") {
-                    const ext = getPathExtension(rel);
-                    if (ext) {
-                        upsertWorkspaceFilePermission(appId, "extension", ext, "always_allow");
-                    }
-                }
+                });
             }
         }
 

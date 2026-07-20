@@ -1495,8 +1495,6 @@ export function useStreamChat({
               getDefaultStore().set(compassUsageBumpAtom, (n) => n + 1);
               posthog?.capture("compass:turn_completed", {
                 chat_id: response.chatId,
-                tokens: response.compassTokens,
-                tier: response.compassTier,
                 surface: hasChatId ? "workspace_chat" : "floating_chat",
               });
             }

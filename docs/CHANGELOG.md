@@ -3,6 +3,49 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
+## [14.14.0] (2026-07-20) — Core web search, outside-workspace tools, resilience
+
+`npm run check` 0/0, vitest green.
+
+### Added
+
+- **Atlarix Core web search.** Core models now search the web, model-invoked via OpenRouter's agentic
+  `openrouter:web_search` server tool (pay-per-use, not an always-on plugin) — metered through the Core
+  credit wallet at the standard markup, no separate setup. Per-tier opt-out via a `webSearch` map in the
+  hosted `core-models.json` (a tier set `false` keeps the client SearxNG tool). `native_web_search.ts`,
+  `core-model-override(-store).ts`.
+- **Outside-workspace tool access.** The workspace is now a default *scope*, not a wall: `read_file` /
+  `grep` / `glob` accept absolute paths anywhere (reads auto-allowed), and `edit_file` accepts an absolute
+  path outside the workspace but still routes through the diff + approval gate — no more `sed`/`python`
+  shell-edit workarounds for cross-repo/dependency work. New `resolveToolTargetPath`
+  (`safeWorkspaceRelativePath.ts`); relative paths stay confined.
+
+### Fixed
+
+- **Permission writes no longer wedge a turn.** A disk-full / `SQLITE_CANTOPEN` while persisting an
+  "always allow" rule is now best-effort (the command still runs) with a one-time disk-full notice, instead
+  of throwing out of IPC and parking the turn (`permissions/persist-safe.ts`, sibling handlers).
+- **Dead Core metering error removed.** The old monthly-token-limit system (`get_compass_usage_state` —
+  already dropped in Supabase) logged an error on every Core turn; the redundant client preflight/
+  enforcement is deleted (the PAYG wallet is the sole enforcement). Live token helpers relocated to
+  `lib/usage/ai-usage.ts`.
+
+### Changed
+
+- **Sandbox writable roster is env-driven** — resolves each toolchain's store from its standard env var
+  (`PNPM_HOME`, `CARGO_HOME`, `GOPATH`, `XDG_*`, …) then known defaults, so a custom pnpm/cargo/etc. store
+  outside the workspace isn't denied (fixes pnpm installs stalling). `wrap-command.ts`.
+- **Conservative dependency de-deprecation** (build-time only) — removed the vestigial eslint stack, bumped
+  `@electron-forge/*` → 7.11.2 and direct `glob` → 13; deprecation warnings 18 → 15.
+- **Leaner agent prompting** — trimmed ~475 words of redundant/over-steering guidance (`run_command`
+  description 476→~140 words, de-duplicated "verify before you stop", compressed the browser note) without
+  touching the mode gating or the security contract.
+
+### Note
+
+- Web-search **sources are captured but the citation strip does not yet render** — tracked for a fast
+  follow-up (14.14.1). Search results themselves work.
+
 ## [14.13.3] (2026-07-18) — Auto-update fixed on all platforms
 
 `npm run check` 0/0, vitest green.

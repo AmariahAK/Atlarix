@@ -32,17 +32,12 @@ import {
 ToolRegistry.register({
     name: "run_command",
     description:
-        "Execute a shell command in the workspace. Commands run at the workspace (project) root; do not use paths under atlarix-apps. " +
-        "Allowed per current work mode allowlist; read-only git/shell in read-only modes; mutating commands only when the active mode permits. " +
-        "Use the cwd parameter for the working directory instead of 'cd ... && command'. " +
-        "Prefer one command per intent; for scaffolding, use one run_command that creates the project (do not emit multiple create/scaffold commands in the same turn). " +
-        "For project scaffolding (e.g. npm create vite@latest <path>), pass all options so the command is non-interactive: use --template and, for create-vite, --no-interactive to avoid prompts. " +
-        "Limits are optional knobs: pass smaller timeout_ms or max_output_bytes when you expect huge logs. " +
-        "Set background=true for long-running work you don't need to block on (long builds, installs, watch tasks): the call returns immediately with a job_id and the result is delivered to you automatically when the command exits — continue other work, never poll, and you may END YOUR TURN while it runs (you're woken on completion). Any foreground command still running after ~15s is auto-moved to the background the same way. Manage running jobs with background_jobs. " +
-        "For a long-running job whose interesting event is a LINE OF OUTPUT rather than exit (a dev server printing 'compiled successfully', a log tail hitting 'ERROR'), set wake_on to that text — you'll be woken the moment it appears (and still pinged if it goes silent / on exit). For EXTERNAL state (a deploy/CI result, remote logs), background a command that BLOCKS until that state (e.g. `gh run watch`) so its completion is the signal — never poll on a timer. " +
-        "STRONGLY PREFER setting wake_on whenever you background a build, test run, or install — these can be SILENT for minutes while working (a first Gradle build or a cold Docker/npm/pip fetch downloads GBs with no output), so give wake_on their success AND failure markers (e.g. \"BUILD SUCCESSFUL|BUILD FAILED\", \"BUILD SUCCEEDED|error:\", \"Tests: .* passed|FAIL\", \"added .* packages|npm error\") with wake_on_regex:true. That gives you a PRECISE 'done' signal instead of the heuristic silence ping. A quiet background job is almost always still working, NOT stuck: keep waiting (schedule_wakeup to re-check later) — do NOT cancel it and do NOT claim its work is done unless you were woken by a real completion/error signal or the user asked you to stop. " +
-        "When a backgrounded process prints a http://localhost:PORT URL, the preview loads it automatically — then drive it with browser_* target:\"preview\". " +
-        "Never use run_command to find files or search code: use the glob tool to find files by name/path and the grep tool to search contents — both are indexed, relevance-ranked, and permission-free (`ls` for a quick directory listing is fine).",
+        "Run a shell command at the workspace root. Use the cwd parameter, not 'cd … && command'. " +
+        "Mutating commands run only where the active work mode allows; the genuinely dangerous ones ask. " +
+        "Long-running work (builds, installs, watch/dev tasks) auto-backgrounds after ~15s — or set background=true to detach immediately; either way you get a job_id and the exit result is delivered automatically, so continue other work, never poll, and you may end your turn while it runs (manage jobs with background_jobs). " +
+        "For a backgrounded job, set wake_on to a success|failure marker (with wake_on_regex:true) to be woken the instant it appears; a quiet job is usually still working, not stuck — keep waiting rather than cancelling. For external state (CI/deploy), background a command that BLOCKS until done (e.g. `gh run watch`) instead of polling. " +
+        "A printed http://localhost:PORT loads in the preview — drive it with browser_* target:\"preview\". " +
+        "To find files or search code, use the glob and grep tools (not shell). For scaffolding, pass non-interactive flags (e.g. --template, --no-interactive).",
     requiresWorkspace: true,
     isCore: true,
     isReadOnly: false,
@@ -68,7 +63,7 @@ ToolRegistry.register({
                 "Run detached: return immediately; you receive the exit result automatically when it finishes.",
             ),
             wake_on: stringParam(
-                "Optional but STRONGLY recommended for backgrounded builds/tests/installs (which can be silent for minutes): wake you as soon as output contains this text — give it BOTH the success and failure markers (e.g. \"BUILD SUCCESSFUL|BUILD FAILED\", \"compiled successfully\", \"npm error\") with wake_on_regex:true, so you get a precise 'done' signal instead of the silence heuristic. You're still pinged if it goes silent and when it exits. Omit for one-shot commands — their result already arrives on exit.",
+                "Wake you when output matches this text — use a success|failure marker (with wake_on_regex:true) on backgrounded builds/tests/installs. You're still pinged on silence and exit; omit for one-shot commands.",
             ),
             wake_on_regex: booleanParam(
                 "Treat wake_on as a case-insensitive regex instead of a plain substring.",

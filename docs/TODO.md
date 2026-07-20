@@ -1,7 +1,117 @@
 # Atlarix TODO
 
-**Current Version:** v14.13.3 (RELEASED — Latest on atlarix-releases) — cross-platform auto-update fix: bundle app-update.yml (mac/Linux), Squirrel-native update-electron-app (Windows)
-**Last Updated:** 2026-07-18
+**Current Version:** v14.14.0 (releasing — Core web search + outside-workspace tool access + permission-write resilience + dead compass-usage removal + dep de-dep + prompt trim). Fast-follow 14.14.1: web-search citation strip render.
+**Last Updated:** 2026-07-20
+
+## ✅ Shipped in v14.14.0 (2026-07-20) — outside-workspace tool access + prompt/tool-description trim
+
+Removes the friction that forced `sed`/`python` shell edits: the agent needed to read/patch files in a
+tree *outside* the opened workspace (e.g. an upstream dep in `/tmp`), but `read_file`/`grep`/`glob`/
+`edit_file` were all hard-confined to the workspace. `npm run check` 0/0, vitest 240 files / 1628 tests.
+
+- **Workspace is now a default SCOPE, not a wall.** New `resolveToolTargetPath`
+  (`src/ipc/utils/safeWorkspaceRelativePath.ts`): a **relative** path stays confined as before; an
+  **explicit absolute** path targets that exact location (realpath'd, classified `isOutsideWorkspace`).
+  - **Reads auto-allow anywhere** — `read_file` (absolute path → read directly, supersedes the legacy
+    tool-output-spill branch), `grep`/`glob` (absolute `path` → root ripgrep there). No prompt (reads
+    don't mutate; consistent with the reverted read-file secret-block).
+  - **Edits gated anywhere** — `edit_file` accepts an absolute outside path but still returns the
+    `permissionPayload` diff/approval gate (never a silent write); `assertReadableUnlessOutside` skips
+    the confinement only for the intentional outside target. Plan mode still refuses non-`.atlarix` edits.
+  - `run_command` unchanged (sandbox already grants `/tmp`); arbitrary non-`/tmp` outside roots via shell
+    deferred. Optional sensitive-read denylist (`~/.ssh`, `*.pem`) deferred — owner chose full auto-allow.
+- **Prompt/tool-description trim (~475 words, capability-first, no over-steer):** `run_command`
+  description ~476→~140 words (kept capability + background/wake_on/preview + "use glob/grep not shell",
+  cut the repeated hand-holding); merged the triplicated "verify before you stop" in the Build `work_mode`
+  (base `AGENTS.md` keeps the authoritative copy; kept the unique anti-flail); compressed `BROWSER_NOTE`.
+  Left `grep`/`glob`/`read_file`/`edit_file` prose alone (already lean) and did NOT touch the mode
+  CAN/CANNOT gating or the `tool_contract` security block. (CAN/CANNOT de-triplication deferred as
+  higher-risk.) Two eval tests re-pinned to the new wording (same intent).
+
+## ✅ Shipped in v14.14.0 (2026-07-20) — web-search citations render + dead compass-usage removal
+
+Follow-ups from the Core web-search packaged test (search worked, but no citation chips + a dead-RPC log
+error every Core turn). `npm run check` 0/0, vitest 238 files / 1621 tests green.
+
+- **Citation sources render.** Root cause was rendering, not capture — Core replies already persist
+  `<atlarix-sources>[{url,title}]` (confirmed from the real DB row), which `extractInlineSourcesFromContent`
+  already parses; nothing rendered it (the `MessageSources` grid was orphaned; only inline `[^n]` chips were
+  wired, and the model doesn't emit `[^n]`). Fix: mount `MessageSources` at the tail of
+  `AssistantMessageBody.tsx`, fed by the already-computed `citationSources`, gated `!isStreaming` — robust,
+  model-independent. No capture/parser change; nothing deleted. Test added for the Core `<atlarix-sources>`
+  shape.
+- **Removed the dead `compass_usage` (old monthly-token-limit) system.** It logged
+  `get_compass_usage_state ... schema cache` every Core turn — the RPC/table were already dropped in Supabase
+  (`20260714130000_pricing_reframe_teardown.sql`); the current PAYG wallet (proxy `get_credit_balance`/
+  `debit_wallet`) is the sole enforcement. Deleted `compass_usage.ts`, `compass_enforcement.ts`, the orphaned
+  `compass:get-usage` IPC, the preflight/mid-turn recording + `COMPASS_LIMIT_STREAM_STOP` sentinel + ctx
+  fields; relocated the live token-normalization helpers to `src/lib/usage/ai-usage.ts`. Kept
+  `compassExhaustedUserMessage` (still used by the CURRENT wallet `402 insufficient_credit` path). No Supabase
+  change.
+
+## ✅ Shipped in v14.14.0 (2026-07-20) — Atlarix Core web search (metered into the wallet)
+
+All Core users now get web search out of the box — **model-invoked** via OpenRouter's agentic
+`openrouter:web_search` server tool (pay only when the model searches, unlike the always-on plugin),
+billed through the existing Core wallet at the standard **40% markup**, citations rendered, **no
+SearXNG required**. `npm run check` 0/0, vitest 239 files / 1625 tests green.
+
+- **Enablement** (`src/ipc/utils/native_web_search.ts`): new `case "compass"` returns the OpenRouter
+  server tool via the module-level `openrouter.tools.webSearch({ maxResults: 5 })` — mirrors the
+  existing `anthropic.tools.*` pattern and reuses the `kind:"tool"` dispatch/citation path
+  (`simple-stream-text.ts`), so no dispatch-loop or citation changes. Core reuses the same
+  `@openrouter/ai-sdk-provider` (via the proxy), so `url_citation` → `source` → `<atlarix-sources>`
+  flows unchanged.
+- **Cost folds in automatically:** the proxy already meters OpenRouter's real `usage.cost × 1.4` and
+  debits idempotently (`atlarix-proxy/src/server.ts`, `entitlement.ts`) — the ~$0.005/search fee rides
+  inside `usage.cost`, so no wallet/Supabase/margin changes. Uses the **server tool, not `:online`**
+  (the proxy allowlist is exact-match on the clean model id).
+- **Per-model opt-out (no hardcoding):** gated per Core tier via a new optional `webSearch` map in the
+  hosted **`core-models.json`** — e.g. `"webSearch": { "core-3": false }` keeps that tier on the client
+  `web_search` (SearxNG) tool. Default = enabled; parsed by `core-model-overrides.ts` →
+  `core-model-override-store.ts isCoreModelWebSearchEnabled`. Owner-updatable without an app release.
+- **OWNER VERIFY before release:** (1) **A/B cost test** — one Core search-triggering call vs one
+  without; confirm `usage.cost` rises ~$0.005 on search and the wallet debit = `ceil(cost × 1.4)`.
+  If the fee is NOT in `usage.cost`, add a flat surcharge in `atlarix-proxy/src/server.ts`. (2)
+  **Per-model invocation test** — confirm each Core model emits `openrouter:web_search`; set
+  `webSearch:false` in `core-models.json` for any that under-invoke. (3) packaged-app smoke.
+- **Out of scope:** BYOK OpenRouter stays on the always-on plugin (per decision); SearXNG stays as the
+  non-Core / opted-out-model fallback (no reliable keyless replacement exists — Bing API dead, Brave
+  free tier removed, DDG flaky).
+
+## ✅ Shipped in v14.14.0 (2026-07-20) — permission-write resilience + dynamic sandbox roster + dep de-dep
+
+Root-caused Sentry `49d4f2a5` (`execute-permission` → `SqliteError: unable to open database
+file`). Proven from the machine's `main.log`: a large `pnpm install` (vercel/ai monorepo) filled the
+disk → SQLite couldn't create its rollback `-journal` → `SQLITE_CANTOPEN`. `npm run check` 0/0,
+vitest **1620 passed / 1 skipped**.
+
+- **Best-effort permission-preference writes (the fix).** Persisting an "always allow" rule is
+  bookkeeping and must never block the approval. New `persistPermissionPreferenceSafely` /
+  `isStorageCapacityError` (`src/ipc/handlers/permissions/persist-safe.ts`) wrap the command/file
+  upserts in `execute-permission` (`permissions/handlers.ts`); a failed write logs + degrades (command
+  still runs) instead of throwing out of IPC and wedging the turn. Same graceful stance as the
+  `[partial-draft]` path and opencode's `Effect.ignore` bookkeeping writes. Sibling handlers
+  (`command-permissions:upsert`, `file-permissions:set`) now return `{success:false}` instead of
+  throwing. Command-agnostic — pnpm was the trigger, not the target.
+- **Disk-full user notice.** On `SQLITE_CANTOPEN`/`SQLITE_FULL`/`ENOSPC`, a one-time (debounced)
+  `showAgentNotification` fires so a full disk isn't a silent hang.
+- **Dynamic sandbox writable roster.** `wrap-command.ts` now resolves each toolchain's store/cache from
+  its standard env var first (`PNPM_HOME`, `npm_config_cache`, `CARGO_HOME`, `GOPATH`/`GOMODCACHE`,
+  `XDG_*`, …) then falls back to known dirs — fixes pnpm installs stalling on denied writes to its real
+  store (`~/Library/pnpm/store`, previously uncovered). Still zero command-name matching; the sandbox
+  stays a generic write boundary. Confirmed by a harness-wide hardcoding audit (no violations found).
+- **Conservative dep de-deprecation (build-time only).** Removed the vestigial eslint stack (eslint@8 +
+  `@typescript-eslint/*` + `eslint-plugin-import`; lint is oxlint/prettier) — clears eslint@8 +
+  `@humanwhocodes/*`. Bumped `@electron-forge/*` → 7.11.2, direct `glob` → 13 (off the vuln-flagged
+  v11 in our own `codebase.ts`/`workspace-snapshots.ts`). Deprecation warnings **18 → 15**.
+  - **Residual deprecations (upstream-blocked, all dev/build-time transitives — do NOT force-override:
+    glob/rimraf majors switched callback→promise APIs and would break parents):** `glob@7/8/11` &
+    `rimraf@2/3` & `inflight` (electron-forge installer chain + rimraf@6), `boolean` (global-agent/roarr),
+    `@npmcli/move-file` & `gar` (cacache), `@esbuild-kit/*` (drizzle-kit ≤0.31 — only 1.0-beta drops it),
+    `lodash.get`/`lodash.isequal`, `node-domexception`, `whatwg-encoding`. Revisit when upstream ships.
+- **Verify remaining:** packaged-app smoke test (`npm run package` → approve a command with "Always
+  allow") before release — owner-driven.
 
 ## ✅ Shipped in v14.13.3 (2026-07-18)
 

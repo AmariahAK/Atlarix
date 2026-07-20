@@ -20,6 +20,7 @@ import * as fs from "fs";
 import * as path from "path";
 import log from "electron-log";
 import { assertReadablePath } from "@/lib/security/env-secret-paths";
+import { resolveToolTargetPath } from "@/ipc/utils/safeWorkspaceRelativePath";
 import { ToolRegistry } from "./registry";
 import { isAtlarixDocWritePath } from "../project-memory";
 import { findReplacement, reindentReplacement } from "./edit-match";
@@ -56,6 +57,25 @@ function normalizeRelativePath(input: string): string {
   return input.replace(/^\/workspace\//, "").replace(/^workspace\//, "").replace(/^\/+/, "");
 }
 
+/**
+ * Enforce workspace-confinement ONLY for in-workspace targets. An explicit
+ * absolute path that resolves OUTSIDE the workspace is an intentional cross-repo
+ * edit — it still passes through the normal approval + diff gate downstream, so
+ * we don't hard-reject it here (that's what forced sed/python shell edits before).
+ */
+function assertReadableUnlessOutside(
+  normalizedPath: string,
+  fullPath: string,
+  workspaceRoot?: string,
+): void {
+  if (!workspaceRoot) return;
+  const root = path.resolve(workspaceRoot);
+  const rel = path.relative(root, path.resolve(fullPath));
+  const isUnderWorkspace =
+    rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
+  if (isUnderWorkspace) assertReadablePath(normalizedPath, workspaceRoot);
+}
+
 function isAtlarixPlanFile(relPath: string): boolean {
   return isAtlarixDocWritePath(relPath.replace(/\\/g, "/"));
 }
@@ -67,9 +87,7 @@ async function readFileSafe(
   workspaceRoot?: string,
 ) {
   try {
-    if (workspaceRoot) {
-      assertReadablePath(normalizedPath, workspaceRoot);
-    }
+    assertReadableUnlessOutside(normalizedPath, fullPath, workspaceRoot);
     const content = await fs.promises.readFile(fullPath, "utf-8");
     return { ok: true as const, content };
   } catch {
@@ -148,7 +166,7 @@ async function runWrite(
   let oldContent: string | undefined;
   if (workspace) {
     try {
-      assertReadablePath(normalizedPath, workspace);
+      assertReadableUnlessOutside(normalizedPath, fullPath, workspace);
       await fs.promises.access(fullPath);
       fileType = "update";
       oldContent = await fs.promises.readFile(fullPath, "utf-8");
@@ -499,7 +517,16 @@ Use "write" for a new file or a full rewrite. For a change to an existing file p
     if (!filePath) return { error: "Missing required parameter: path", operation: "edit_file" };
     if (!operation) return { error: "Missing required parameter: operation", operation: "edit_file" };
 
-    const normalizedPath = normalizeRelativePath(filePath);
+    // An EXPLICIT absolute path targets that exact location (cross-repo edits);
+    // it's still gated by the approval + diff downstream. A relative path stays
+    // confined under the workspace exactly as before.
+    const absoluteTarget =
+      path.isAbsolute(filePath) && workspace
+        ? resolveToolTargetPath(workspace, filePath)
+        : null;
+    const normalizedPath = absoluteTarget
+      ? absoluteTarget.absPath
+      : normalizeRelativePath(filePath);
 
     if (chatMode === "plan" && !isAtlarixPlanFile(normalizedPath)) {
       return {
@@ -509,10 +536,12 @@ Use "write" for a new file or a full rewrite. For a change to an existing file p
       };
     }
 
-    const fullPath = workspace ? path.join(workspace, normalizedPath) : path.resolve(normalizedPath);
-    if (workspace) {
-      assertReadablePath(normalizedPath, workspace);
-    }
+    const fullPath = absoluteTarget
+      ? absoluteTarget.absPath
+      : workspace
+        ? path.join(workspace, normalizedPath)
+        : path.resolve(normalizedPath);
+    assertReadableUnlessOutside(normalizedPath, fullPath, workspace);
 
     switch (operation) {
       case "write":

@@ -129,11 +129,8 @@ export interface ChatResponseEnd {
   hadToolCallsOrPermissions?: boolean;
   /** True when the turn ended by asking the user (ask_user) rather than finishing — drives the "needs your answer" vs "finished responding" notification. */
   endedWaitingOnUser?: boolean;
-  /** True when the completed turn used the managed Compass provider (for usage refresh). */
+  /** True when the completed turn used the managed Atlarix Core provider (for usage refresh). */
   usedCompass?: boolean;
-  /** Populated when usedCompass — for analytics (PostHog). */
-  compassTokens?: number;
-  compassTier?: string;
   /** v10: auxiliary LLM tokens this turn (sub-agents, compaction) — counted toward usage. */
   auxTokens?: number;
   /** v12 7D: estimated BYOK USD cost of this turn (omitted for Core/unknown-price). */
@@ -203,20 +200,6 @@ export interface ChatTokenUsage {
  * response visible and offers [Reconnect] (replays the same turn) and
  * [Continue] (sends a new prompt asking the model to resume).
  */
-/** Result of `compass:get-usage` — use `reason` so UI does not treat RPC/migration failures as “signed out”. */
-export type CompassUsageIpcResult =
-  | {
-      ok: true;
-      tokensUsedThisMonth: number;
-      monthlyLimit: number;
-      tier: string;
-    }
-  | {
-      ok: false;
-      reason: "not_authenticated" | "rpc_error" | "network_error";
-      message?: string;
-    };
-
 export interface ChatProblemsEvent {
   chatId: number;
   appId: number;

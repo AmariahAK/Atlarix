@@ -14,6 +14,7 @@ import * as path from "node:path";
 import { truncateUtf8ByBytes } from "@/lib/truncate";
 import { ripgrepIgnoreArgs } from "./ripgrep-ignore";
 import { resolveRipgrepPath } from "./resolve-ripgrep";
+import { resolveToolTargetPath } from "@/ipc/utils/safeWorkspaceRelativePath";
 import {
   ToolRegistry,
   createParameters,
@@ -162,7 +163,7 @@ ToolRegistry.register({
   parameters: createParameters(
     {
       pattern: stringParam("Regex (ripgrep syntax) or literal text to find."),
-      path: stringParam("Optional: limit to a folder or file (workspace-relative)."),
+      path: stringParam("Optional: limit to a folder/file (workspace-relative), or an ABSOLUTE path to search outside the workspace."),
       include: stringParam(
         "Optional file glob filter (e.g. '*.ts', 'src/**/*.tsx').",
       ),
@@ -204,12 +205,22 @@ ToolRegistry.register({
     );
     const workspace = params.workspace || process.cwd();
 
+    // An ABSOLUTE `path` roots the search at that exact location (reads are
+    // auto-allowed anywhere); a relative `path` narrows within the workspace as a
+    // glob. `include` always applies as a glob filter on top.
+    const absoluteScope =
+      params.path && path.isAbsolute(params.path)
+        ? resolveToolTargetPath(workspace, params.path).absPath
+        : null;
+    const searchRoot = absoluteScope ?? workspace;
+
     try {
-      const filePattern =
-        params.include?.trim() || pathToRipgrepGlob(params.path);
+      const filePattern = absoluteScope
+        ? params.include?.trim()
+        : params.include?.trim() || pathToRipgrepGlob(params.path);
       const groups = await runRipgrepSearch({
         pattern: params.pattern,
-        workspace,
+        workspace: searchRoot,
         contextLines,
         filePattern,
         caseSensitive: params.case_sensitive === true,
@@ -225,7 +236,7 @@ ToolRegistry.register({
         trimmed.push({
           file: g.file,
           matches: slice,
-          relFile: path.relative(workspace, g.file).replace(/\\/g, "/"),
+          relFile: path.relative(searchRoot, g.file).replace(/\\/g, "/"),
         });
         kept += slice.length;
       }

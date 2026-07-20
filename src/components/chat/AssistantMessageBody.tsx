@@ -16,6 +16,7 @@ import {
   extractSourcesFromMessageParts,
 } from "@/lib/chat/citation-sources";
 import { type SourceItem } from "@/atoms/sourceAtoms";
+import { MessageSources } from "@/components/MessageSources";
 import { frozenThoughtContentForTurn } from "@/lib/chat/frozen-turn-display";
 import {
   extractVisibleAnswerMarkdown,
@@ -548,6 +549,13 @@ export function AssistantMessageBody({
       ) : null}
       {isStreaming && chatId != null ? (
         <InlinePermissionApprovals chatId={chatId} />
+      ) : null}
+      {/* Web-search sources strip: renders the settled turn's citation sources
+          (client web_search tool-results + provider-native `<atlarix-sources>`,
+          incl. Atlarix Core's OpenRouter search) as clickable cards. Independent
+          of whether the model emitted inline `[^n]` markers — the robust path. */}
+      {!isStreaming && citationSources.length > 0 ? (
+        <MessageSources sources={citationSources} />
       ) : null}
     </div>
   );
