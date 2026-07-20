@@ -1,7 +1,21 @@
 # Atlarix TODO
 
-**Current Version:** v14.14.0 (releasing — Core web search + outside-workspace tool access + permission-write resilience + dead compass-usage removal + dep de-dep + prompt trim). Fast-follow 14.14.1: web-search citation strip render.
+**Current Version:** v14.14.0 (RELEASED — Latest on atlarix-releases; auto-update verified live) — Core web search + outside-workspace tool access + permission-write resilience + dead compass-usage removal + dep de-dep + prompt trim.
 **Last Updated:** 2026-07-20
+
+## ⏳ TBD / Next (fast-follow 14.14.1)
+
+- **Web-search citation strip does not render.** Sources ARE captured — the persisted Core reply
+  contains `<atlarix-sources>[{url,title}]` — but `MessageSources` doesn't mount in
+  `src/components/chat/AssistantMessageBody.tsx` despite `citationSources` being populated (verified via
+  the DB + a renderer unit test that passed). It's a RENDER bug, not capture. TBD: diagnose why the
+  mount/`citationSources` short-circuits in the real app path (content-prop stripping? `sourcesForMessage`
+  atom? render branch not reached?) and ship 14.14.1.
+- **Owner-side verification (from the v14.14.0 web-search work):** (1) billing A/B — confirm OpenRouter
+  `usage.cost` includes the ~$0.005 search fee so the wallet debit = `ceil(cost × 1.4)` (else add a proxy
+  surcharge in `atlarix-proxy/src/server.ts`); (2) per-Core-model check that DeepSeek/Qwen/Kimi/MiniMax
+  reliably emit `openrouter:web_search` — set `webSearch:false` in `core-models.json` for any that don't.
+
 
 ## ✅ Shipped in v14.14.0 (2026-07-20) — outside-workspace tool access + prompt/tool-description trim
 
