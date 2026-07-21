@@ -48,6 +48,7 @@ import { execSync } from "node:child_process";
 import os from "node:os";
 import { restoreAuthSessionOnStartup } from "./lib/auth/supabase-client";
 import { SubscriptionManager } from "./lib/SubscriptionManager";
+import { closeActiveBrowserTabIfVisible } from "./ipc/utils/browser_view_manager";
 import { resolveSystemPath } from "./lib/resolve-path";
 import { warmOpenRouterModelCache } from "./lib/routing/tier-context-limits";
 import { warmCoreModelOverrides } from "./lib/routing/core-model-overrides";
@@ -1028,7 +1029,30 @@ function setMainApplicationMenu(): void {
           },
         ]
       : []),
-    { role: "fileMenu" },
+    {
+      // Custom File menu so Cmd/Ctrl+W closes the active BROWSER tab when the
+      // browser panel is visible, else the OS-standard Close Window. Owning the
+      // accelerator here (vs the default fileMenu role) avoids double-firing.
+      label: "File",
+      submenu: [
+        {
+          label: "Close",
+          accelerator: "CmdOrCtrl+W",
+          click: () => {
+            if (
+              !closeActiveBrowserTabIfVisible() &&
+              mainWindow &&
+              !mainWindow.isDestroyed()
+            ) {
+              mainWindow.close();
+            }
+          },
+        },
+        ...(isMac
+          ? []
+          : [{ type: "separator" as const }, { role: "quit" as const }]),
+      ],
+    },
     { role: "editMenu" },
     { role: "viewMenu" },
     { role: "windowMenu" },

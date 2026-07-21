@@ -14,7 +14,7 @@
  * - Backwards compatible (heuristics catch forgotten intents)
  */
 
-import { useAtom, useAtomValue } from 'jotai';
+import { useAtom, useAtomValue, useSetAtom } from 'jotai';
 import { useMemo, useCallback, useState, useEffect } from 'react';
 import {
     type PanelContext,
@@ -34,6 +34,7 @@ import {
     rightPanelWidthAtom,
     rightPanelVisibleAtom,
     workspacePlanPanelAtom,
+    rightPanelOrderedTabsAtom,
 } from '@/atoms/sourceAtoms';
 import { permissionQueueAtom, getOperationsByStatus } from '@/atoms/permissionQueueAtom';
 import { currentAppAtom, selectedAppIdAtom, selectedWorkspaceInfoAtom } from '@/atoms/appAtoms';
@@ -204,6 +205,17 @@ export function useRightPanelContext(): RightPanelContextResult {
             }),
         };
     }, [effectiveType, activeTab, sources, terminalOutput, terminalOutputs, toolTimeline, devServerUrl, browserErrors, aiPanelIntent, currentApp, selectedAppId, selectedWorkspaceInfo, chatAreaHidden, planPanel.planId]);
+
+    // Sync the ordered, VISIBLE tabs + active tab so the global keyboard hub
+    // (Cmd/Ctrl+I ← / Cmd/Ctrl+O →) can move between them without re-deriving the
+    // order. Mirror RightPanel's strip filtering (permission tabs never render).
+    const setOrderedTabs = useSetAtom(rightPanelOrderedTabsAtom);
+    useEffect(() => {
+        const visible = context.tabs.filter(
+            (t) => t !== 'permissions' && t !== 'permission' && t !== 'approve',
+        );
+        setOrderedTabs({ tabs: visible, active: context.activeTab });
+    }, [context.tabs, context.activeTab, setOrderedTabs]);
 
     // Helper to set AI intent
     const setAIIntent = useCallback((intent: AIPanelIntent, context?: AIPanelIntentState['context']) => {

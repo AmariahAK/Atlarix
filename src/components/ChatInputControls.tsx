@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback } from "react";
 import { ContextFilesPicker } from "./ContextFilesPicker";
 import { ModelPickerSheetContent } from "./ModelPickerSheetContent";
 import { ChatConfigDropdown } from "./ChatConfigDropdown";
@@ -12,7 +12,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
-import { useAtomValue } from "jotai";
+import { useAtomValue, useAtom } from "jotai";
 import {
   pendingWorkspaceAppIdAtom,
   selectedAppIdAtom,
@@ -26,7 +26,7 @@ import {
   selectedChatIdAtom,
   liveTurnUsageByChatIdAtom,
 } from "@/atoms/chatAtoms";
-import { rightPanelVisibleAtom } from "@/atoms/sourceAtoms";
+import { rightPanelVisibleAtom, modelSheetOpenAtom } from "@/atoms/sourceAtoms";
 import { NoWorkspaceBanner } from "./chat/NoWorkspaceBanner";
 import { CompactModelSearch } from "./CompactModelSearch";
 import type { WorkMode } from "@/lib/schemas";
@@ -61,7 +61,8 @@ export function ChatInputControls({
     threadMessages?.some((m) => m.role === "user") ?? false;
   const rightPanelVisible = useAtomValue(rightPanelVisibleAtom);
   const { settings } = useSettings();
-  const [modelSheetOpen, setModelSheetOpen] = useState(false);
+  // Lifted to a jotai atom so the global Cmd/Ctrl+J shortcut can open it.
+  const [modelSheetOpen, setModelSheetOpen] = useAtom(modelSheetOpenAtom);
   // PASS8 E3: Shared context-only token count (dedup'd via React Query key).
   const { result: tokenResult } = useContextTokenCount(chatId ?? null);
   // v14.6 (Bug 1): prefer the model-facing dispatched size (Feed B) — the same
@@ -216,7 +217,8 @@ export function ChatInputControls({
           />
         </span>
 
-        {!rightPanelVisible && (
+        {/* Always mounted (not gated on panel visibility) so Cmd/Ctrl+J can open
+            the full model picker in any state. Closed = renders nothing visible. */}
         <Sheet
           open={modelSheetOpen}
           onOpenChange={setModelSheetOpen}
@@ -231,7 +233,6 @@ export function ChatInputControls({
             <ModelPickerSheetContent onClose={() => setModelSheetOpen(false)} />
           </SheetContent>
         </Sheet>
-        )}
 
         <span className="inline-flex" data-tour="tour-ask-build">
           <ChatIntentSelector />

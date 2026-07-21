@@ -1,8 +1,12 @@
 /**
- * Global keyboard shortcuts for panels and work modes.
- * - Cmd+B / Ctrl+B: toggle right panel (everyone).
+ * Global keyboard shortcuts for panels and work modes (cross-platform: Cmd on
+ * mac, Ctrl elsewhere).
+ * - Cmd/Ctrl+B: toggle right panel.
  * - Shift+Tab: cycle work mode Explore → Plan → Build → Debug → Review (workspace chats).
- * - Cmd+O / Ctrl+O: right panel (Pro; shows upgrade toast otherwise).
+ * - Cmd/Ctrl+J: open the model picker (right-side sheet).
+ * - Cmd/Ctrl+T: new browser tab (opens the browser panel).
+ * - Cmd/Ctrl+I ← / Cmd/Ctrl+O → : move between right-panel tabs.
+ * (Cmd/Ctrl+W closes the active browser tab — handled in main via before-input-event.)
  * Panels open at 30% window width; close does not change stored width.
  */
 
@@ -12,11 +16,14 @@ import {
   rightPanelVisibleAtom,
   rightPanelWidthAtom,
   rightPanelSuppressAutoOpenAtom,
+  previewTabAtom,
+  modelSheetOpenAtom,
+  rightPanelOrderedTabsAtom,
 } from "@/atoms/sourceAtoms";
 import { selectedAppIdAtom } from "@/atoms/appAtoms";
-import { useAuth } from "@/lib/auth/useAuth";
-import { triggerUpgrade } from "@/hooks/useUpgrade";
+import { IpcClient } from "@/ipc/ipc_client";
 import { showInfo } from "@/lib/toast";
+import type { PanelTab } from "@/atoms/sourceAtoms";
 import { useSettings } from "@/hooks/useSettings";
 import { labelForWorkMode, settingsPatchForWorkMode } from "@/lib/work-mode";
 import type { WorkMode } from "@/lib/schemas";
@@ -32,27 +39,42 @@ const isInputLike = (el: EventTarget | null): boolean => {
 };
 
 export function usePanelShortcuts() {
-  const { status } = useAuth();
-  const isPro = status?.plan === "pro";
-
   const rightPanelVisible = useAtomValue(rightPanelVisibleAtom);
   const setRightPanelVisible = useSetAtom(rightPanelVisibleAtom);
   const setSuppressRightAutoOpen = useSetAtom(rightPanelSuppressAutoOpenAtom);
   const setRightPanelWidth = useSetAtom(rightPanelWidthAtom);
+  const setPreviewTab = useSetAtom(previewTabAtom);
+  const setModelSheetOpen = useSetAtom(modelSheetOpenAtom);
+  const orderedTabs = useAtomValue(rightPanelOrderedTabsAtom);
 
   const selectedAppId = useAtomValue(selectedAppIdAtom);
   const { settings, updateSettings } = useSettings();
 
   useEffect(() => {
+    const openRightPanel = () => {
+      setSuppressRightAutoOpen(false);
+      const w = Math.max(280, Math.min(700, Math.floor(window.innerWidth * 0.3)));
+      setRightPanelWidth(w);
+      setRightPanelVisible(true);
+    };
     const toggleRightPanel = () => {
       if (rightPanelVisible) {
         setSuppressRightAutoOpen(true);
         setRightPanelVisible(false);
       } else {
-        setSuppressRightAutoOpen(false);
-        const w = Math.max(280, Math.min(700, Math.floor(window.innerWidth * 0.3)));
-        setRightPanelWidth(w);
-        setRightPanelVisible(true);
+        openRightPanel();
+      }
+    };
+    // Move the active right-panel tab by `dir` over the visible, ordered tabs.
+    const movePanelTab = (dir: -1 | 1) => {
+      const { tabs, active } = orderedTabs;
+      if (tabs.length < 2) return;
+      const idx = tabs.indexOf(active as PanelTab);
+      if (idx < 0) return;
+      const next = tabs[Math.max(0, Math.min(tabs.length - 1, idx + dir))];
+      if (next && next !== active) {
+        if (!rightPanelVisible) openRightPanel();
+        setPreviewTab(next);
       }
     };
 
@@ -89,28 +111,50 @@ export function usePanelShortcuts() {
         return;
       }
 
-      if (isInputLike(e.target)) return;
-
-      if (mod && e.key === "o") {
+      // Cmd/Ctrl+J: open the model picker (right-side sheet). Above the guard so
+      // it works while composing.
+      if (mod && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "j") {
         e.preventDefault();
-        if (!isPro) {
-          showInfo("Panel shortcuts are available on Pro. Upgrade to use Cmd+O.");
-          triggerUpgrade();
-          return;
-        }
-        toggleRightPanel();
+        setModelSheetOpen(true);
         return;
       }
+
+      // Cmd/Ctrl+T: new browser tab (browser panel is already multi-tab). Open
+      // the panel on the browser tab, then create the tab; BrowserPanel refreshes
+      // via onBrowserStateChanged.
+      if (mod && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "t") {
+        e.preventDefault();
+        if (!rightPanelVisible) openRightPanel();
+        setPreviewTab("browser");
+        void IpcClient.getInstance().browserCreateTab();
+        return;
+      }
+
+      // Cmd/Ctrl+I ← / Cmd/Ctrl+O → : move between right-panel tabs.
+      if (mod && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "i") {
+        e.preventDefault();
+        movePanelTab(-1);
+        return;
+      }
+      if (mod && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "o") {
+        e.preventDefault();
+        movePanelTab(1);
+        return;
+      }
+
+      if (isInputLike(e.target)) return;
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [
-    isPro,
     rightPanelVisible,
     setRightPanelVisible,
     setRightPanelWidth,
     setSuppressRightAutoOpen,
+    setPreviewTab,
+    setModelSheetOpen,
+    orderedTabs,
     selectedAppId,
     settings?.workModePreference,
     settings?.selectedChatMode,

@@ -177,6 +177,17 @@ export function getActiveTabView(): WebContentsView | null {
   return tabs.get(activeTabId) ?? null;
 }
 
+/**
+ * Cmd/Ctrl+W handler: close the active browser tab only when the browser panel
+ * is actually visible with a tab. Returns true if a tab was closed (the caller
+ * then swallows the key); false lets the OS default (window close) proceed.
+ */
+export function closeActiveBrowserTabIfVisible(): boolean {
+  if (!visible || activeTabId == null || tabs.size === 0) return false;
+  closeTab(activeTabId);
+  return true;
+}
+
 function wireTabEvents(id: number, view: WebContentsView): void {
   const wc = view.webContents;
   for (const evt of [

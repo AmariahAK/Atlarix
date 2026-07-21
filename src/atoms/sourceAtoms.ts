@@ -267,6 +267,21 @@ export const previewTabAtom = atom<PanelTab>('sources');
 /** Pinned panel type (prevents auto-switching) */
 export const pinnedPanelAtom = atom<PanelType | null>(null);
 
+/**
+ * Ordered, VISIBLE right-panel tabs + the active one, synced from
+ * useRightPanelContext (the single source of the assembled/filtered order). Lets
+ * keyboard shortcuts (Cmd/Ctrl+I ← / Cmd/Ctrl+O →) move between tabs without
+ * re-deriving the order. `tabs` matches exactly what the strip renders.
+ */
+export const rightPanelOrderedTabsAtom = atom<{ tabs: PanelTab[]; active: PanelTab }>({
+    tabs: [],
+    active: 'sources',
+});
+
+/** Open state of the Cmd/Ctrl+J model-picker sheet (lifted from ChatInputControls
+ *  so the global shortcut hub can open it). */
+export const modelSheetOpenAtom = atom<boolean>(false);
+
 
 // ═══════════════════════════════════════════════════════════
 // FILE DIFF ATOMS (Code Changes)
