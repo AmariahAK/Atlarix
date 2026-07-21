@@ -6,7 +6,7 @@ import React, { memo, useMemo } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { stripPartialQuestionsBlockForDisplay } from "@/ipc/utils/cleanFullResponse";
-import { sanitizeMarkdownForDisplay } from "@/lib/chat/answer-display";
+import { fenceDelimiter, sanitizeMarkdownForDisplay } from "@/lib/chat/answer-display";
 import { preprocessCitationMarkers } from "@/lib/chat/citation-sources";
 import type { SourceItem } from "@/atoms/sourceAtoms";
 import { CitationSourcesContext } from "./CitationSourcesContext";
@@ -70,33 +70,58 @@ function isBlockContinuationLine(line: string): boolean {
 /**
  * Split a growing markdown string into a stable "frozen" prefix (completed
  * blocks) and the in-progress "tail". Cuts at the LAST newline that is (a) not
- * inside an open ``` fence and (b) not between the lines of a list/table/
+ * inside an open code fence and (b) not between the lines of a list/table/
  * blockquote. During streaming the frozen prefix is byte-identical flush-to-
  * flush, so MarkdownBlock's memo skips re-parsing it — the O(len)×20Hz whole-
  * answer re-parse collapses to O(tail). `sanitizeMarkdownForDisplay` has already
  * collapsed paragraph `\n\n` to single `\n` upstream, so we cut on `\n`. Returns
  * tail-only (empty frozen) when no safe cut exists yet — correctness over perf.
+ *
+ * Fence detection is a real per-line CommonMark tracker (an opening fence of N
+ * `\`` / `~` closes only on a later same-char line of ≥N with no info string):
+ * the old `/\`\`\`/g` substring parity mis-counted a fence delimiter appearing
+ * INSIDE a code block's body (e.g. an agent explaining markdown), flipping
+ * parity for every later block and cutting mid-fence — which spilled the code
+ * body out of its box as plain text.
  */
 export function splitFrozenTail(content: string): { frozen: string; tail: string } {
-  let cut = content.lastIndexOf("\n");
-  while (cut > 0) {
-    const before = content.slice(0, cut);
-    // Balanced ``` fences before the cut ⇒ the cut is not inside a code block.
-    const balanced = ((before.match(/```/g) ?? []).length) % 2 === 0;
-    if (balanced) {
-      const prevLine = before.slice(before.lastIndexOf("\n") + 1);
-      const nextNl = content.indexOf("\n", cut + 1);
-      const nextLine = content.slice(cut + 1, nextNl === -1 ? undefined : nextNl);
-      // Unsafe ONLY when the cut falls BETWEEN two continuation lines (i.e. inside
-      // a list/table/blockquote). Cutting before a construct starts, or after one
-      // ends, leaves the construct whole in a single block — that's fine.
-      const insideConstruct =
-        isBlockContinuationLine(prevLine) && isBlockContinuationLine(nextLine);
-      if (!insideConstruct) {
-        return { frozen: before, tail: content.slice(cut) };
+  const lines = content.split("\n");
+  // closedBeforeLine[i] === true ⇒ no fence is open where line i begins, i.e.
+  // the newline *before* line i is a fence-safe cut boundary.
+  const closedBeforeLine: boolean[] = [];
+  // Offset (in `content`) of the newline that precedes line i, for i ≥ 1.
+  const newlineBeforeLine: number[] = [];
+  let open: { char: string; len: number } | null = null;
+  let offset = 0;
+  for (let i = 0; i < lines.length; i++) {
+    closedBeforeLine.push(open === null);
+    newlineBeforeLine.push(offset - 1); // the '\n' terminating line i-1
+    const d = fenceDelimiter(lines[i] as string);
+    if (d) {
+      if (open === null) {
+        open = { char: d.char, len: d.len };
+      } else if (d.info === "" && d.char === open.char && d.len >= open.len) {
+        open = null;
       }
+      // A fence-looking line inside an open fence (different char, shorter, or
+      // with an info string) is CONTENT — leave the fence open.
     }
-    cut = content.lastIndexOf("\n", cut - 1);
+    offset += (lines[i] as string).length + 1; // +1 for the '\n'
+  }
+
+  for (let i = lines.length - 1; i >= 1; i--) {
+    if (!closedBeforeLine[i]) continue; // fence open at this boundary — unsafe
+    const prevLine = lines[i - 1] as string;
+    const nextLine = lines[i] as string;
+    // Unsafe ONLY when the cut falls BETWEEN two continuation lines (i.e. inside
+    // a list/table/blockquote). Cutting before a construct starts, or after one
+    // ends, leaves the construct whole in a single block — that's fine.
+    if (isBlockContinuationLine(prevLine) && isBlockContinuationLine(nextLine)) {
+      continue;
+    }
+    const cut = newlineBeforeLine[i] as number;
+    if (cut <= 0) break; // no room for a non-empty frozen prefix
+    return { frozen: content.slice(0, cut), tail: content.slice(cut) };
   }
   return { frozen: "", tail: content };
 }
@@ -144,8 +169,10 @@ function AtlarixMarkdownSegmentImpl({
             const { frozen, tail } = splitFrozenTail(piece.content);
             return (
               <React.Fragment key={index}>
-                {frozen ? <MarkdownBlock content={frozen} isStreaming /> : null}
-                <MarkdownBlock content={tail} isStreaming />
+                {frozen ? (
+                  <MarkdownBlock key="frozen" content={frozen} isStreaming />
+                ) : null}
+                <MarkdownBlock key="tail" content={tail} isStreaming />
               </React.Fragment>
             );
           }

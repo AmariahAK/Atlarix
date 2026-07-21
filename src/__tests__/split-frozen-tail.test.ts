@@ -74,4 +74,43 @@ describe("splitFrozenTail", () => {
     expect(tail).toBe("\nAfter the fence still typ");
     roundtrips(s);
   });
+
+  // Regression: a ``` line INSIDE a longer outer fence is content, not a
+  // delimiter. The old /```/g parity count toggled on it, flipping parity for
+  // every later block so a cut landed mid-fence and spilled the code body out.
+  it("does not treat a ``` inside a ```` outer fence as a delimiter", () => {
+    const example = "````md\n```\nsome example\n````";
+    const s = `${example}\nIntro line.\n\`\`\`json\n{ "a": 1 }`;
+    const { frozen, tail } = splitFrozenTail(s);
+    // The open json fence + its body must stay TOGETHER in the tail — never cut
+    // between the opening fence and its body.
+    expect(frozen).toBe(`${example}\nIntro line.`);
+    expect(tail).toBe('\n```json\n{ "a": 1 }');
+    roundtrips(s);
+  });
+
+  it("keeps an open fence's body with its opening fence after an earlier stray fence", () => {
+    // Earlier CLOSED block whose body contains a lone ``` line (odd raw count).
+    const s = [
+      "````md",
+      "```", // content of the ```` block, NOT a delimiter
+      "````",
+      "Now the real block:",
+      "```json",
+      "__inputs: [",
+      '  { "name": "DS_KUBERNETES" }',
+    ].join("\n");
+    const { frozen, tail } = splitFrozenTail(s);
+    // Must freeze up to the prose line and keep the whole open json fence in tail.
+    expect(frozen).toBe("````md\n```\n````\nNow the real block:");
+    expect(tail).toBe('\n```json\n__inputs: [\n  { "name": "DS_KUBERNETES" }');
+    roundtrips(s);
+  });
+
+  it("treats ~~~ fences the same as ``` fences", () => {
+    const s = "Intro.\n~~~py\nx = 1\ny = 2";
+    const { frozen } = splitFrozenTail(s);
+    expect(frozen).toBe("Intro.");
+    roundtrips(s);
+  });
 });

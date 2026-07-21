@@ -185,6 +185,10 @@ export const CodeHighlight = memo(
             language={language}
             theme={isDarkMode ? "github-dark-default" : "github-light-default"}
             delay={150}
+            // We draw our own header (language + Copy) above; react-shiki's
+            // built-in top-right label would double it (the faint "plaintext"
+            // over the Copy button).
+            showLanguage={false}
           >
             {code}
           </ShikiHighlighter>

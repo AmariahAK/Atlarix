@@ -1,3 +1,59 @@
+/**
+ * A fenced-code-block delimiter line (≥3 backticks or ≥3 tildes at the line
+ * start, up to 3 leading spaces per CommonMark), or null. `info` is the text
+ * after the delimiter (an opening fence's language tag). Used to keep display
+ * sanitizers and the stream splitter from treating code the model deliberately
+ * fenced (JSON examples, blank lines) as prose.
+ */
+export function fenceDelimiter(
+  line: string,
+): { char: string; len: number; info: string } | null {
+  const m = /^ {0,3}(`{3,}|~{3,})[ \t]*(.*)$/.exec(line);
+  if (!m || m[1] === undefined) return null;
+  return { char: m[1][0] as string, len: m[1].length, info: (m[2] ?? "").trim() };
+}
+
+/**
+ * Apply `fn` to only the regions of `content` OUTSIDE fenced code blocks,
+ * passing fenced blocks (``` / ~~~) through byte-identical. A closing fence
+ * must match the opening delimiter char, be at least as long, and carry no
+ * info string (CommonMark) — so a fence line *inside* a longer outer fence is
+ * treated as content, not a delimiter. Keeps line/blank-line/JSON strippers
+ * from corrupting code the model wrote on purpose.
+ */
+export function mapOutsideFences(content: string, fn: (s: string) => string): string {
+  if (!content) return "";
+  const lines = content.split("\n");
+  const out: string[] = [];
+  let buf: string[] = [];
+  let open: { char: string; len: number } | null = null;
+  const flush = () => {
+    if (buf.length) {
+      out.push(fn(buf.join("\n")));
+      buf = [];
+    }
+  };
+  for (const line of lines) {
+    const d = fenceDelimiter(line);
+    if (open === null) {
+      if (d) {
+        flush();
+        open = { char: d.char, len: d.len };
+        out.push(line);
+      } else {
+        buf.push(line);
+      }
+    } else {
+      out.push(line);
+      if (d && d.info === "" && d.char === open.char && d.len >= open.len) {
+        open = null;
+      }
+    }
+  }
+  flush();
+  return out.join("\n");
+}
+
 /** Strip hallucinated Atlarix tool XML from a streaming text-delta (no trim). */
 export function stripHallucinatedAtlarixToolTagsFromDelta(text: string): string {
   if (!text) return "";
@@ -29,9 +85,16 @@ export function stripOrphanToolTagFragments(content: string): string {
     /"?,?\s*"(?:message|planId|planStatus|marker|contentPreview)"\s*:\s*"[^"]*"[^{}\n]*\}/gi,
     "",
   );
-  out = stripMultilineToolJsonEnvelopes(out);
-  out = stripToolJsonLinesFromMarkdown(out);
-  out = out.replace(/\n{2,}/g, "\n");
+  // Fence-aware: the brace-region / JSON-line / blank-line strippers below must
+  // NOT touch code the model deliberately fenced (JSON examples, blank lines in
+  // code) — that corruption is exactly what split a code block's body out of its
+  // box. Only transform the regions OUTSIDE fenced code blocks.
+  out = mapOutsideFences(out, (seg) => {
+    let s = stripMultilineToolJsonEnvelopes(seg);
+    s = stripToolJsonLinesFromMarkdown(s);
+    s = s.replace(/\n{2,}/g, "\n");
+    return s;
+  });
   return out.trim();
 }
 
@@ -315,7 +378,8 @@ export function extractVisibleAnswerMarkdown(raw: string): string {
 /** Sanitize markdown segments shown in the chat bubble. */
 export function sanitizeMarkdownForDisplay(content: string): string {
   if (!content) return "";
-  return stripMultilineToolJsonEnvelopes(
-    stripOrphanToolTagFragments(stripTextEmittedToolCallBlocks(content)),
-  ).trim();
+  const cleaned = stripOrphanToolTagFragments(stripTextEmittedToolCallBlocks(content));
+  // Fence-aware envelope strip (mirrors stripOrphanToolTagFragments): a real
+  // `{ "success": true, "result": … }` example inside a code fence must survive.
+  return mapOutsideFences(cleaned, stripMultilineToolJsonEnvelopes).trim();
 }
