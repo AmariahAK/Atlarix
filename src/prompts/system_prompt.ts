@@ -322,12 +322,12 @@ You run inside **Atlarix** ([atlarix.dev](https://atlarix.dev)) — an agent wor
     // Device capability — CORES + TOTAL RAM only (fixed per machine, so this
     // stays in the cache-stable header; freemem() is deliberately omitted, it
     // would churn the prompt-cache prefix every turn like clock time would).
-    // Lets the model size resource-heavy browser/preview test sub-agents to the
-    // actual hardware instead of a hardcoded cap.
+    // Lets the model size parallel/resource-heavy work to the actual hardware
+    // instead of a hardcoded cap.
     const cpuCount = Math.max(1, os.cpus().length);
     const totalMemGb = Math.max(1, Math.round(os.totalmem() / 1024 ** 3));
     const deviceInfo = `# Device
-This machine has **${cpuCount} CPU cores** and **${totalMemGb} GB RAM** total. Browser/preview-driving test sub-agents are resource-heavy (each is a real browser instance) — scale how many you run in parallel to these specs rather than always maxing out.`;
+This machine has **${cpuCount} CPU cores** and **${totalMemGb} GB RAM** total. Parallel work competes for these — running dev servers, driving the browser/preview, and spawning multiple sub-agents at once are all resource-heavy — so scale how much you run concurrently to these specs rather than always maxing out.`;
 
     const stableHeader = [
         base.trim(),
