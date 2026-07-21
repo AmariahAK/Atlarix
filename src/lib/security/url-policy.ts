@@ -34,6 +34,14 @@ function assertNoSecretInUrl(parsed: URL): void {
 export type UrlPolicyOptions = {
   /** Allow private/loopback/link-local when request origin matches one of these (normalized origins). */
   trustedOrigins?: string[];
+  /**
+   * Allow LOOPBACK targets (localhost, 127.0.0.0/8, ::1) — used by the desktop
+   * browser & preview surfaces, whose entire purpose is viewing the user's own
+   * local dev server. Other private/reserved ranges (LAN 10/172.16/192.168,
+   * link-local 169.254, cloud metadata) stay blocked, so this is NOT a general
+   * SSRF bypass — it only unblocks the user's own machine.
+   */
+  allowLoopback?: boolean;
   timeoutMs?: number;
   maxRedirects?: number;
 };
@@ -91,20 +99,45 @@ function isHostnameBlocked(hostname: string): boolean {
   return false;
 }
 
+/** Loopback only (the user's own machine) — a subset of private/reserved. */
+function isLoopbackIp(ip: string): boolean {
+  const version = net.isIP(ip);
+  if (version === 4) return ip.split(".").map(Number)[0] === 127;
+  if (version === 6) {
+    const lower = ip.toLowerCase();
+    if (lower === "::1") return true;
+    if (lower.startsWith("::ffff:")) {
+      const v4 = lower.slice("::ffff:".length);
+      if (net.isIPv4(v4)) return isLoopbackIp(v4);
+    }
+  }
+  return false;
+}
+
+function isLoopbackHost(hostname: string): boolean {
+  const h = hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  if (h === "localhost" || h.endsWith(".localhost")) return true;
+  if (net.isIP(h)) return isLoopbackIp(h);
+  return false;
+}
+
 async function resolveAndCheckHost(
   hostname: string,
   trustedOrigins: Set<string>,
   requestOrigin: string,
+  allowLoopback: boolean,
 ): Promise<void> {
   const allowPrivate = trustedOrigins.has(requestOrigin);
+  const okLoopbackHost = allowLoopback && isLoopbackHost(hostname);
+  const okLoopbackIp = (ip: string) => allowLoopback && isLoopbackIp(ip);
 
   if (isHostnameBlocked(hostname)) {
-    if (allowPrivate) return;
+    if (allowPrivate || okLoopbackHost) return;
     throw new Error(`URL blocked: host "${hostname}" resolves to a private or reserved address`);
   }
 
   if (net.isIP(hostname)) {
-    if (isPrivateOrReservedIp(hostname) && !allowPrivate) {
+    if (isPrivateOrReservedIp(hostname) && !allowPrivate && !okLoopbackIp(hostname)) {
       throw new Error(`URL blocked: IP address "${hostname}" is not allowed`);
     }
     return;
@@ -118,7 +151,7 @@ async function resolveAndCheckHost(
   }
 
   for (const { address } of addresses) {
-    if (isPrivateOrReservedIp(address) && !allowPrivate) {
+    if (isPrivateOrReservedIp(address) && !allowPrivate && !okLoopbackIp(address)) {
       throw new Error(
         `URL blocked: host "${hostname}" resolves to disallowed address ${address}`,
       );
@@ -152,7 +185,7 @@ export async function assertUrlAllowed(
 
   const trusted = normalizeTrustedOrigins(options?.trustedOrigins);
   const origin = normalizeOrigin(parsed.href);
-  await resolveAndCheckHost(parsed.hostname, trusted, origin);
+  await resolveAndCheckHost(parsed.hostname, trusted, origin, options?.allowLoopback === true);
 
   return parsed;
 }

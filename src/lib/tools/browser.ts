@@ -261,11 +261,13 @@ ToolRegistry.register({
         error: `Blocked: only http(s) URLs can be opened in the browser (got "${url}").`,
       };
     }
-    // SSRF policy parity with read_url (H-5): the protocol check above does NOT
-    // block private/loopback/link-local/cloud-metadata hosts. Run the same
-    // assertUrlAllowed the fetch path uses before loading anything.
+    // SSRF policy parity with read_url (H-5), EXCEPT loopback: the browser &
+    // preview surfaces exist to view the user's own local dev server, so
+    // localhost / 127.0.0.0/8 / ::1 are allowed here (a visible, user-driven
+    // desktop browser). LAN (10/172.16/192.168), link-local, and cloud-metadata
+    // targets stay blocked — this is not a general SSRF bypass.
     try {
-      await assertUrlAllowed(url);
+      await assertUrlAllowed(url, { allowLoopback: true });
     } catch (e) {
       return {
         success: false,

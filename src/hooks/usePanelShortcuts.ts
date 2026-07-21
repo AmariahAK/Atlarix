@@ -111,11 +111,11 @@ export function usePanelShortcuts() {
         return;
       }
 
-      // Cmd/Ctrl+J: open the model picker (right-side sheet). Above the guard so
-      // it works while composing.
+      // Cmd/Ctrl+J: toggle the model picker (right-side sheet). Above the guard
+      // so it works while composing.
       if (mod && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "j") {
         e.preventDefault();
-        setModelSheetOpen(true);
+        setModelSheetOpen((v) => !v);
         return;
       }
 

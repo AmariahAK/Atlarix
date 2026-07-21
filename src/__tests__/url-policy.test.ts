@@ -25,6 +25,30 @@ describe("url-policy", () => {
     ).resolves.toBeDefined();
   });
 
+  it("allowLoopback permits localhost/127.x/::1 (desktop preview + browser)", async () => {
+    await expect(
+      assertUrlAllowed("http://localhost:8765/", { allowLoopback: true }),
+    ).resolves.toBeDefined();
+    await expect(
+      assertUrlAllowed("http://127.0.0.1:3000/app", { allowLoopback: true }),
+    ).resolves.toBeDefined();
+    await expect(
+      assertUrlAllowed("http://[::1]:5173/", { allowLoopback: true }),
+    ).resolves.toBeDefined();
+  });
+
+  it("allowLoopback is NOT a general SSRF bypass — LAN + metadata stay blocked", async () => {
+    await expect(
+      assertUrlAllowed("http://10.0.0.1/", { allowLoopback: true }),
+    ).rejects.toThrow(/blocked/);
+    await expect(
+      assertUrlAllowed("http://192.168.1.10:8080/", { allowLoopback: true }),
+    ).rejects.toThrow(/blocked/);
+    await expect(
+      assertUrlAllowed("http://169.254.169.254/latest/meta-data/", { allowLoopback: true }),
+    ).rejects.toThrow(/blocked/);
+  });
+
   it("normalizes SearxNG base URL", () => {
     expect(normalizeSearxngBaseUrl("http://127.0.0.1:8080/")).toBe(
       "http://127.0.0.1:8080",
