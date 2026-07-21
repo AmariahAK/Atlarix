@@ -3,6 +3,33 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
+## [Unreleased] — Universal sandbox write-escalation
+
+`npm run check` 0/0, vitest green.
+
+### Fixed
+
+- **`yarn install` (and any first-run toolchain) no longer fails `EPERM: mkdir '~/.yarn'`.** The
+  sandbox pruned any writable cache dir that didn't exist yet, so the tool's first `mkdir` was denied.
+  Curated caches are now granted even when missing — macOS emits a prospective Seatbelt `(subpath …)`,
+  Linux/Windows create the dir first (Landlock/AppContainer need a real path). `wrap-command.ts`.
+
+### Added
+
+- **Escalation-on-denial for unlisted toolchains.** When a sandboxed command is denied a write to a
+  path outside the writable set, an approval card offers to grant that exact path (persisted per
+  workspace) and the command **re-runs, still sandboxed** — no enumerated cache list can be complete, so
+  this is the universal safety net (the model Codex/Claude Code/Cursor all converge on). The denied path
+  is parsed from the command's stderr (macOS does not log custom `sandbox-exec` denials to the unified
+  log — verified; Linux gets an authoritative ptrace report as a follow-up). Reuses
+  `workspaceFilePermissions` under a `sandbox_path` scope (no migration). `wrap-command.ts`,
+  `interceptor.ts`, `InlinePermissionApprovals.tsx`.
+
+### Changed
+
+- **CI fails loud when a native sandbox helper doesn't compile** instead of silently shipping the OS
+  unsandboxed (override with the `ALLOW_UNSANDBOXED_RELEASE` repo variable). `release.yml`.
+
 ## [14.14.0] (2026-07-20) — Core web search, outside-workspace tools, resilience
 
 `npm run check` 0/0, vitest green.

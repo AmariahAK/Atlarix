@@ -433,15 +433,20 @@ jobs:
 
       - name: Build Linux sandbox helper (Rust)
         run: |
-          # NON-BLOCKING: never block the release on the sandbox crate. If it fails
-          # to build, forge.config.ts skips bundling and wrap-command.ts falls back
-          # to an OS-installed bwrap, then unsandboxed (today's behavior). Fix + re-run.
+          # FAIL-LOUD: a non-compiling helper ships Linux UNSANDBOXED (silent
+          # security regression). Fail the release unless ALLOW_UNSANDBOXED_RELEASE
+          # is explicitly set (emergency escape hatch). Fix the crate + re-run.
           BIN="native/atlarix-sandbox-linux/target/release/atlarix-sandbox-linux"
           if cargo build --release --manifest-path native/atlarix-sandbox-linux/Cargo.toml && [ -f "$BIN" ]; then
             echo "Built $BIN (unsigned — Linux needs no code-signing)."
+          elif [ "${ALLOW_UNSANDBOXED_RELEASE:-}" = "1" ]; then
+            echo "::warning::atlarix-sandbox-linux failed to build, but ALLOW_UNSANDBOXED_RELEASE=1 — shipping WITHOUT the Landlock sandbox (falls back to bwrap / unsandboxed)."
           else
-            echo "::warning::atlarix-sandbox-linux failed to build — shipping WITHOUT the bundled Landlock sandbox (falls back to bwrap / unsandboxed). Release continues."
+            echo "::error::atlarix-sandbox-linux failed to build — refusing to ship Linux unsandboxed. Fix the crate, or set ALLOW_UNSANDBOXED_RELEASE=1 to override."
+            exit 1
           fi
+        env:
+          ALLOW_UNSANDBOXED_RELEASE: ${{ vars.ALLOW_UNSANDBOXED_RELEASE }}
 
       - name: Build for Linux
         run: |
@@ -629,25 +634,28 @@ jobs:
 
       - name: Build Windows sandbox helper (Rust)
         shell: pwsh
+        env:
+          ALLOW_UNSANDBOXED_RELEASE: ${{ vars.ALLOW_UNSANDBOXED_RELEASE }}
         run: |
-          # NON-BLOCKING: a compile failure must never block the release. If the
-          # helper doesn't build, forge.config.ts simply skips bundling it and
-          # run_command falls back to unsandboxed on Windows (today's behavior) —
-          # not a regression. Fix the crate and re-run to enable the sandbox.
+          # FAIL-LOUD: a non-compiling helper ships Windows UNSANDBOXED (silent
+          # security regression). Fail the release unless ALLOW_UNSANDBOXED_RELEASE
+          # is set (emergency escape hatch). Signing stays optional — an unsigned
+          # helper works identically for sandboxing; the cert only affects SmartScreen.
           cargo build --release --manifest-path native/atlarix-sandbox/Cargo.toml
           $exe = "native/atlarix-sandbox/target/release/atlarix-sandbox.exe"
           if (Test-Path $exe) {
-            # Sign with the same cert as the app when available (mirrors MakerSquirrel);
-            # ship unsigned otherwise (matches the app's current Windows posture).
             if ($env:SM_CODE_SIGNING_CERT_SHA1_HASH) {
               & signtool sign /sha1 $env:SM_CODE_SIGNING_CERT_SHA1_HASH /tr http://timestamp.digicert.com /td SHA256 /fd SHA256 $exe
               if ($LASTEXITCODE -ne 0) { Write-Error "signtool failed for sandbox helper"; exit $LASTEXITCODE }
             } else {
-              Write-Host "No SM_CODE_SIGNING_CERT_SHA1_HASH — shipping atlarix-sandbox.exe unsigned."
+              Write-Host "No SM_CODE_SIGNING_CERT_SHA1_HASH — shipping atlarix-sandbox.exe unsigned (sandbox works identically)."
             }
             Write-Host "Built sandbox helper: $exe"
+          } elseif ($env:ALLOW_UNSANDBOXED_RELEASE -eq "1") {
+            Write-Host "::warning::atlarix-sandbox.exe failed to build, but ALLOW_UNSANDBOXED_RELEASE=1 — shipping WITHOUT the Windows sandbox (run_command stays unsandboxed)."
           } else {
-            Write-Host "::warning::atlarix-sandbox.exe failed to build — shipping WITHOUT the bundled Windows sandbox (run_command stays unsandboxed on Windows until fixed). Release continues."
+            Write-Host "::error::atlarix-sandbox.exe failed to build — refusing to ship Windows unsandboxed. Fix the crate, or set ALLOW_UNSANDBOXED_RELEASE=1 to override."
+            exit 1
           }
 
       - name: Build for Windows (package + installers)

@@ -3,6 +3,28 @@
 **Current Version:** v14.14.0 (RELEASED — Latest on atlarix-releases; auto-update verified live) — Core web search + outside-workspace tool access + permission-write resilience + dead compass-usage removal + dep de-dep + prompt trim.
 **Last Updated:** 2026-07-20
 
+## 🚧 In progress — Universal sandbox write-escalation (unreleased)
+
+Fixes the `yarn install` `EPERM: mkdir '~/.yarn'` bug and adds escalation-on-denial for unlisted
+toolchains. `npm run check` 0/0, vitest 242 files / 1649 passed.
+
+- **DONE — existence-prune fix (all 3 OSes).** `wrap-command.ts` `defaultWritablePaths` splits
+  bind-must-exist vs grantable-even-if-missing; missing curated caches are granted anyway (macOS
+  prospective `(subpath …)`; Linux/Windows `mkdir -p` first). Verified end-to-end against real Seatbelt.
+- **DONE — escalation-on-denial (interactive).** `sandbox_escalation` permission op + `SandboxEscalationCard`;
+  `PermissionInterceptor.maybeEscalateSandboxDenial` parses the denied path from stderr, raises a
+  mid-run approval card, persists the grant per-workspace (reuses `workspaceFilePermissions` +
+  `sandbox_path` scope — no migration) and re-runs the command still sandboxed. **Wants packaged-app
+  verification** of the nested mid-turn card + retry.
+- **DONE — CI fail-loud.** `release.yml` fails the release if a native helper doesn't compile (override:
+  `ALLOW_UNSANDBOXED_RELEASE` repo var), instead of silently shipping unsandboxed.
+- **KEY FINDING:** macOS does NOT log custom `sandbox-exec` denials to the unified log, and `(with report)`
+  is rejected on `deny` rules — so stderr-parse is the capture channel on macOS too (same as Windows).
+- **PHASE 2 (TODO) — Linux authoritative capture.** Rework `native/atlarix-sandbox-linux` from `exec` →
+  fork + seccomp `SECCOMP_RET_TRACE` + ptrace supervisor that records the denied path (`--deny-report`
+  file read by `wrap-command.ts`), for tools that swallow the path. New crates: `nix`, `seccompiler`,
+  `libc`. CI + Linux-dev-hardware validated. Windows stays stderr-parse (ETW needs elevation).
+
 ## ⏳ TBD / Next (fast-follow 14.14.1)
 
 - **Web-search citation strip does not render.** Sources ARE captured — the persisted Core reply
