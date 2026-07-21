@@ -81,6 +81,8 @@ function queueEntryFromPermission(
     canAlwaysAllowExtension: preview.canAlwaysAllowExtension as boolean | undefined,
     fileParentDir: preview.fileParentDir as string | undefined,
     fileExtension: preview.fileExtension as string | undefined,
+    sandboxDeniedPath: preview.deniedPath as string | undefined,
+    sandboxGrantPath: preview.grantPath as string | undefined,
     ...(request.operation === "batch_plan" && {
       batchPlanTitle: preview.title as string | undefined,
       batchPlanSummary: preview.summary as string | undefined,
@@ -359,6 +361,62 @@ function CommandPermissionCard({
   );
 }
 
+function SandboxEscalationCard({
+  operation,
+  onAllow,
+  onDeny,
+}: {
+  operation: QueuedOperation;
+  onAllow: (id: string) => void;
+  onDeny: (id: string) => void;
+}) {
+  return (
+    <div className="my-2 rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-2 text-xs">
+      <div className="flex items-start gap-2">
+        <Shield className="h-3.5 w-3.5 shrink-0 mt-0.5 text-muted-foreground" />
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 font-medium text-foreground/90">
+            Sandbox: grant write access
+            <span className="rounded bg-sky-500/20 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-sky-900 dark:text-sky-200">
+              Blocked write
+            </span>
+          </div>
+          <p className="mt-1.5 text-sky-900 dark:text-sky-100/90">
+            The command sandbox blocked a write to{" "}
+            <span className="font-mono break-all">{operation.sandboxDeniedPath}</span>. Allow
+            it write access to{" "}
+            <span className="font-mono break-all">{operation.sandboxGrantPath}</span> for this
+            workspace and retry?
+          </p>
+          {operation.command ? (
+            <div className="mt-1 font-mono text-[11px] text-muted-foreground break-all bg-background/60 rounded px-2 py-1.5">
+              $ {operation.command}
+            </div>
+          ) : null}
+        </div>
+      </div>
+      <div className="mt-2 flex flex-wrap gap-2">
+        <Button type="button" size="sm" className="h-7 text-xs" onClick={() => onAllow(operation.id)}>
+          Allow &amp; retry
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          className="h-7 text-xs"
+          onClick={() => onDeny(operation.id)}
+        >
+          Deny
+        </Button>
+      </div>
+      <p className="mt-1.5 text-[10px] text-muted-foreground/80">
+        “Allow” saves a workspace rule granting the command sandbox write access to this path,
+        then re-runs the command still sandboxed. You can revoke it in Settings.
+      </p>
+    </div>
+  );
+}
+
 /** Inline permission approvals with diffs and workspace terminal categories. */
 export function InlinePermissionApprovals({ chatId }: { chatId: number }) {
   const queue = useAtomValue(permissionQueueAtom);
@@ -437,8 +495,18 @@ export function InlinePermissionApprovals({ chatId }: { chatId: number }) {
     () => pending.filter((op) => op.operation === "run_command"),
     [pending],
   );
+  const escalationPending = useMemo(
+    () => pending.filter((op) => op.operation === "sandbox_escalation"),
+    [pending],
+  );
   const otherPending = useMemo(
-    () => pending.filter((op) => !isFileOperation(op.operation) && op.operation !== "run_command"),
+    () =>
+      pending.filter(
+        (op) =>
+          !isFileOperation(op.operation) &&
+          op.operation !== "run_command" &&
+          op.operation !== "sandbox_escalation",
+      ),
     [pending],
   );
 
@@ -551,6 +619,33 @@ export function InlinePermissionApprovals({ chatId }: { chatId: number }) {
     [chatId, setQueue],
   );
 
+  // Sandbox escalation: "Allow" resolves the approval (approved) — the interceptor
+  // persists the workspace grant and re-runs the command still sandboxed. No appId
+  // needed (the interceptor uses its own workspaceId).
+  const handleEscalationAllow = useCallback(
+    async (id: string) => {
+      setQueue((q) => updateOperationStatus(q, id, { status: "queued" }));
+      await IpcClient.getInstance().executePermission({
+        chatId,
+        operationId: id,
+        approvalMode: "once",
+      });
+    },
+    [chatId, setQueue],
+  );
+
+  const handleEscalationDeny = useCallback(
+    async (id: string) => {
+      setQueue((q) => removeOperation(q, id));
+      await IpcClient.getInstance().executePermission({
+        chatId,
+        operationId: id,
+        approvalMode: "deny",
+      });
+    },
+    [chatId, setQueue],
+  );
+
   const handleApproveAllFiles = useCallback(async () => {
     for (const op of filePending) {
       await handleFileOnce(op.id);
@@ -620,6 +715,14 @@ export function InlinePermissionApprovals({ chatId }: { chatId: number }) {
           onOnce={handleCommandOnce}
           onAlways={handleCommandAlways}
           onDeny={handleCommandDeny}
+        />
+      ))}
+      {escalationPending.map((op) => (
+        <SandboxEscalationCard
+          key={op.id}
+          operation={op}
+          onAllow={handleEscalationAllow}
+          onDeny={handleEscalationDeny}
         />
       ))}
       {otherPending.map((op) => (

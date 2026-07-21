@@ -31,7 +31,11 @@ import {
 } from "../../utils/runShellCommand";
 import type { ChildProcess } from "child_process";
 import { resolvePathUnderWorkspace } from "../../utils/safeWorkspaceRelativePath";
-import { listSandboxWritablePaths } from "@/lib/file-permissions-store";
+import {
+    listSandboxWritablePaths,
+    upsertSandboxWritablePath,
+} from "@/lib/file-permissions-store";
+import { parseSandboxDenialsFromOutput } from "@/lib/sandbox/wrap-command";
 import { captureSnapshot } from "../../../lib/snapshot/snapshot-manager";
 import { appendLedgerFilesWritten } from "../../../lib/tasks/task-ledger";
 import {
@@ -98,6 +102,9 @@ export class PermissionInterceptor extends EventEmitter {
 
     /** Skip redundant full re-seeds when the model writes the same plan twice in quick succession. */
     private static planLedgerRefreshGuard = new Map<string, { hash: string; at: number }>();
+
+    /** Monotonic id suffix for mid-run sandbox-escalation approval requests. */
+    private sandboxEscalationSeq = 0;
 
     /** Workspace path for resolving file paths */
     private workspacePath: string;
@@ -605,6 +612,11 @@ export class PermissionInterceptor extends EventEmitter {
                     break;
                 case "revert_project_snapshot":
                     await this.executeRevertProjectSnapshot(request);
+                    break;
+                case "sandbox_escalation":
+                    // No execution: approving only unblocks waitForApproval so the
+                    // originating command can grant the denied path + retry (see
+                    // maybeEscalateSandboxDenial). resolveApproval(true) fires below.
                     break;
                 default:
                     throw new Error(`Unknown operation: ${request.operation}`);
@@ -1314,6 +1326,123 @@ export class PermissionInterceptor extends EventEmitter {
         };
     }
 
+    /** Run one sandboxed attempt of a command, streaming output to `operationId`. */
+    private runSandboxedOnce(
+        command: string,
+        workingDir: string,
+        sandbox: SandboxRunOptions,
+        operationId: string,
+    ): Promise<CommandResult> {
+        return runShellCommandStreaming(command, workingDir, {
+            sandbox,
+            onOutput: ({ stdout, stderr }) => {
+                this.emit("terminal-output", {
+                    operationId,
+                    command,
+                    output: stdout + (stderr ? `\n${stderr}` : ""),
+                    status: "running" as const,
+                    background: false,
+                });
+            },
+        })
+            .then((r) => r as CommandResult)
+            .catch((err) => ({
+                stdout: "",
+                stderr: err instanceof Error ? err.message : String(err),
+                exitCode: -1,
+                success: false,
+            }));
+    }
+
+    /**
+     * Escalation-on-denial: when a sandboxed command failed on a WRITE the OS
+     * denied to a path outside the writable set (e.g. an unlisted toolchain's
+     * cache), raise an approval card; if the user grants it, persist the path for
+     * this workspace and RE-RUN the command — still sandboxed. Returns the retried
+     * result, or null when there is nothing to escalate / the user declined.
+     * Bounded so a command that keeps hitting new denials can't loop forever.
+     */
+    private async maybeEscalateSandboxDenial(
+        result: CommandResult,
+        ctx: {
+            commandToRun: string;
+            workingDir: string;
+            sandboxOpts: SandboxRunOptions | undefined;
+            operationId: string;
+        },
+    ): Promise<CommandResult | null> {
+        const { commandToRun, workingDir, sandboxOpts, operationId } = ctx;
+        if (!sandboxOpts) return null; // no sandbox applied → nothing to grant
+
+        const granted = new Set(sandboxOpts.extraWritablePaths ?? []);
+        const workspaceReal = this.workspacePath;
+        const isSkippable = (p: string): boolean =>
+            granted.has(p) ||
+            !!(workspaceReal && (p === workspaceReal || p.startsWith(workspaceReal + path.sep)));
+
+        let queue = parseSandboxDenialsFromOutput(
+            `${result.stderr ?? ""}\n${result.stdout ?? ""}`,
+        ).filter((d) => !isSkippable(d.grantPath));
+        if (queue.length === 0) return null;
+
+        let current = sandboxOpts;
+        let retried: CommandResult | null = null;
+        const MAX_ESCALATIONS = 5;
+
+        for (let i = 0; i < MAX_ESCALATIONS && queue.length > 0; i++) {
+            const denial = queue.shift() as { deniedPath: string; grantPath: string };
+            if (isSkippable(denial.grantPath)) continue;
+
+            const escalationId = `${operationId}:sbx:${++this.sandboxEscalationSeq}`;
+            this.bufferOperation(escalationId, {
+                __permission_required: true,
+                operation: "sandbox_escalation",
+                preview: {
+                    command: commandToRun,
+                    deniedPath: denial.deniedPath,
+                    grantPath: denial.grantPath,
+                    description: `The command sandbox blocked a write to ${denial.deniedPath}. Grant it write access to ${denial.grantPath} for this workspace and retry?`,
+                    workingDirectory: workingDir,
+                },
+            });
+
+            let outcome: WaitOutcome;
+            try {
+                outcome = await this.waitForApproval(escalationId);
+            } catch {
+                this.pendingOperations.delete(escalationId);
+                return retried; // turn stopped mid-wait
+            }
+            this.pendingOperations.delete(escalationId);
+            if (outcome !== "approved") return retried; // user declined this path
+
+            if (this.workspaceId != null) {
+                try {
+                    upsertSandboxWritablePath(this.workspaceId, denial.grantPath);
+                } catch (e) {
+                    logger.warn(
+                        `[sandbox-escalation] persist failed: ${e instanceof Error ? e.message : String(e)}`,
+                    );
+                }
+            }
+            granted.add(denial.grantPath);
+            current = {
+                ...current,
+                extraWritablePaths: [...(current.extraWritablePaths ?? []), denial.grantPath],
+            };
+
+            retried = await this.runSandboxedOnce(commandToRun, workingDir, current, operationId);
+            if (retried.success) return retried;
+
+            // Still failing — queue any genuinely NEW denials for the next round.
+            const fresh = parseSandboxDenialsFromOutput(
+                `${retried.stderr ?? ""}\n${retried.stdout ?? ""}`,
+            ).filter((d) => !isSkippable(d.grantPath));
+            queue = fresh;
+        }
+        return retried;
+    }
+
     /**
      * Execute a shell command and store output.
      * Emits 'terminal-output' event for UI updates.
@@ -1512,9 +1641,31 @@ export class PermissionInterceptor extends EventEmitter {
                 this.maybeWirePreviewUrl(accOutput);
             },
         })
-            .then((result) => {
+            .then(async (resultIn) => {
+                let result = resultIn as CommandResult;
+                // Stop the promote timer now so the escalation wait below can't be
+                // mistaken for a long-running command (denials fail fast anyway).
                 finished = true;
                 if (promoteTimer) clearTimeout(promoteTimer);
+                // Escalation-on-denial: a foreground command that failed on a
+                // sandbox WRITE denial may be granted the path + retried (still
+                // sandboxed) with the user's approval. Background/promoted runs
+                // resolve async and are skipped.
+                if (!result.success && !promoted && !explicitBackground) {
+                    try {
+                        const retried = await this.maybeEscalateSandboxDenial(result, {
+                            commandToRun,
+                            workingDir,
+                            sandboxOpts,
+                            operationId,
+                        });
+                        if (retried) result = retried;
+                    } catch (e) {
+                        logger.warn(
+                            `[sandbox-escalation] ${e instanceof Error ? e.message : String(e)}`,
+                        );
+                    }
+                }
                 if (chatIdForBg != null) bg.clearForegroundProc(chatIdForBg, operationId);
                 const duration = Date.now() - startTime;
                 this.emit('terminal-output', {

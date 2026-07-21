@@ -11,9 +11,13 @@ export type OperationStatus = 'pending' | 'queued' | 'running' | 'completed' | '
 
 export interface QueuedOperation {
     id: string;
-    operation: 'run_command' | 'write_file' | 'edit_file' | 'delete_file' | 'rename_file' | 'write_multiple_files' | 'batch_plan' | 'revert_project_snapshot' | 'unknown';
+    operation: 'run_command' | 'write_file' | 'edit_file' | 'delete_file' | 'rename_file' | 'write_multiple_files' | 'batch_plan' | 'revert_project_snapshot' | 'sandbox_escalation' | 'unknown';
     command?: string;
     path?: string;
+    /** sandbox_escalation: the path the OS sandbox denied a write to. */
+    sandboxDeniedPath?: string;
+    /** sandbox_escalation: the path granted sandbox write access on approval. */
+    sandboxGrantPath?: string;
     content?: string;       // File content for write_file
     oldContent?: string;    // Original content for diff view
     description?: string;   // AI-generated change summary

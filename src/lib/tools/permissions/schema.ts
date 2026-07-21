@@ -71,6 +71,26 @@ export const CommandOperationPreviewSchema = z.object({
 
 export type CommandOperationPreview = z.infer<typeof CommandOperationPreviewSchema>;
 
+// ════════════════════════════════════════════════════════════════════════════
+// SANDBOX ESCALATION PREVIEW (escalation-on-denial)
+// ════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Raised mid-run when a sandboxed command was DENIED a write to a path outside
+ * the writable set (e.g. an unlisted toolchain's cache). Approving grants the
+ * command sandbox write access to `grantPath` for this workspace and retries the
+ * command — still sandboxed. See PermissionInterceptor.maybeEscalateSandboxDenial.
+ */
+export const SandboxEscalationPreviewSchema = z.object({
+    command: z.string().describe("The command that was denied a write by the sandbox"),
+    deniedPath: z.string().describe("The exact path the OS sandbox denied a write to"),
+    grantPath: z.string().describe("The path granted sandbox write access on approval"),
+    description: z.string().describe("Human-readable summary of the denial"),
+    workingDirectory: z.string().optional(),
+});
+
+export type SandboxEscalationPreview = z.infer<typeof SandboxEscalationPreviewSchema>;
+
 export const WorkforceActionPreviewSchema = z.object({
     service: z.string().describe("Target connector service (e.g. slack, jira, gitlab)"),
     action: z.string().describe("Action name to execute"),
@@ -104,6 +124,8 @@ export const PermissionOperationType = z.enum([
     "delete_lines",
     // Restore plan from SQLite snapshot (v5.0 project memory)
     "revert_project_snapshot",
+    // Sandbox write-denial escalation (grant a denied path + retry sandboxed)
+    "sandbox_escalation",
 ]);
 
 /** Single operation inside a batch_plan (file or command) */
@@ -129,6 +151,7 @@ export const PermissionRequestSchema = z.object({
         FileOperationPreviewSchema,
         z.array(FileOperationPreviewSchema),
         CommandOperationPreviewSchema,
+        SandboxEscalationPreviewSchema,
         WorkforceActionPreviewSchema,
         BatchPlanPreviewSchema,
         ProjectRevertPreviewSchema,
