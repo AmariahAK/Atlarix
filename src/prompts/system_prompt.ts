@@ -10,6 +10,7 @@
 
 import path from "node:path";
 import fs from "node:fs";
+import os from "node:os";
 import log from "electron-log";
 import {
   loadInstructionLayers,
@@ -318,6 +319,16 @@ You run inside **Atlarix** ([atlarix.dev](https://atlarix.dev)) — an agent wor
 - **App version:** \`${appVersion}\`
 - If asked who built Atlarix, say **NorahLabs** ([norahlabs.com](https://norahlabs.com/)). State the app version exactly as **${appVersion}**. Do not say you have no version or that you were created by an unnamed "development team."`;
 
+    // Device capability — CORES + TOTAL RAM only (fixed per machine, so this
+    // stays in the cache-stable header; freemem() is deliberately omitted, it
+    // would churn the prompt-cache prefix every turn like clock time would).
+    // Lets the model size resource-heavy browser/preview test sub-agents to the
+    // actual hardware instead of a hardcoded cap.
+    const cpuCount = Math.max(1, os.cpus().length);
+    const totalMemGb = Math.max(1, Math.round(os.totalmem() / 1024 ** 3));
+    const deviceInfo = `# Device
+This machine has **${cpuCount} CPU cores** and **${totalMemGb} GB RAM** total. Browser/preview-driving test sub-agents are resource-heavy (each is a real browser instance) — scale how many you run in parallel to these specs rather than always maxing out.`;
+
     const stableHeader = [
         base.trim(),
         toolContract,
@@ -327,6 +338,7 @@ You run inside **Atlarix** ([atlarix.dev](https://atlarix.dev)) — an agent wor
         // research rules (incl. the "enable SearxNG in Settings" UI guidance).
         includeWeb && !headless ? webResearchRules : "",
         runtimeIdentity,
+        deviceInfo,
     ].filter((s) => s.length > 0).join("\n\n");
 
     // Dynamic tail: contents that vary across turns. Date only (no clock time)
