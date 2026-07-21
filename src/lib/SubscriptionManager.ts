@@ -93,8 +93,16 @@ export class SubscriptionManager {
                 this.authCleanup();
                 this.authCleanup = null;
             }
-            this.authCleanup = onAuthStateChange(async (session) => {
+            this.authCleanup = onAuthStateChange(async (session, event) => {
                 if (session) {
+                    // A routine hourly TOKEN_REFRESHED for the SAME already-loaded
+                    // user changes nothing about the plan — skip the users-table
+                    // re-reads it would otherwise trigger (the realtime sub catches
+                    // real plan changes). Only the token rotated, which supabase-js
+                    // manages internally.
+                    if (event === 'TOKEN_REFRESHED' && this.session?.id === session.user.id) {
+                        return;
+                    }
                     await this.updateSession(session);
                 } else {
                     this.session = null;
@@ -159,8 +167,39 @@ export class SubscriptionManager {
     private static realtimeCleanup: (() => void) | null = null;
     private static realtimeSetupPromise: Promise<void> | null = null;
     private static realtimeSubscribedEmail: string | null = null;
+    private static realtimePausedEmail: string | null = null;
     private static lastPlanFingerprint = "";
     private static lastPlanFingerprintAt = 0;
+
+    /**
+     * Idle-pause: close the always-open plan-change realtime channel when the
+     * main window is hidden/blurred so its keepalive stops pinging Supabase. The
+     * subscribed email is remembered for resume. No-op if already closed.
+     */
+    static pauseRealtime(): void {
+        if (this.realtimeCleanup) {
+            this.realtimePausedEmail = this.realtimeSubscribedEmail;
+            this.realtimeCleanup();
+            this.realtimeCleanup = null;
+            this.realtimeSubscribedEmail = null;
+            logger.log('[SubscriptionManager] Realtime paused (window idle)');
+        }
+    }
+
+    /**
+     * Resume on window focus: reopen the channel and drop cached plan state so a
+     * plan change that happened while idle (and thus missed the closed channel) is
+     * picked up on the next read. No-op if not signed in or already open.
+     */
+    static async resumeRealtime(): Promise<void> {
+        const email = this.realtimePausedEmail ?? this.session?.email ?? null;
+        this.realtimePausedEmail = null;
+        if (email && !this.realtimeCleanup) {
+            invalidatePlanCaches();
+            await this.setupRealtimeSubscription(email);
+            logger.log('[SubscriptionManager] Realtime resumed (window focus)');
+        }
+    }
 
     private static async setupRealtimeSubscription(email: string): Promise<void> {
         if (this.realtimeSubscribedEmail === email && this.realtimeCleanup) {

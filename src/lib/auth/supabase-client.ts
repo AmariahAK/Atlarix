@@ -60,6 +60,12 @@ export function getSupabaseClient(): SupabaseClient {
                 autoRefreshToken: true,
                 detectSessionInUrl: false, // We handle deep links manually
             },
+            // Idle-chatter reduction: the always-open plan-change realtime channel
+            // is the dominant background pinger. Halve its keepalive (default 25s →
+            // 60s); it's ALSO closed on window-idle (SubscriptionManager.pauseRealtime).
+            realtime: {
+                heartbeatIntervalMs: 60_000,
+            },
         });
 
         logger.log('[Supabase] Client initialized with secure storage');
@@ -564,7 +570,10 @@ export async function getUserPlan(userId: string): Promise<UserPlanDb> {
  * next access after TTL) — no polling timer is added, which would defeat the
  * purpose.
  */
-const EFFECTIVE_TIER_TTL_MS = 5 * 60 * 1000;
+// 30 min: long enough that the ~hourly auth refresh no longer always misses the
+// cache and re-reads `users`, short enough to bound staleness for a rare missed
+// realtime plan-change (the realtime sub + invalidatePlanCaches handle the common case).
+const EFFECTIVE_TIER_TTL_MS = 30 * 60 * 1000;
 let _tierCache: { userId: string; tier: UserPlanDb; at: number } | null = null;
 let _subDetailCache:
     | { email: string; status: string | null; endsAt: string | null; at: number }
@@ -613,6 +622,14 @@ export async function getEffectiveTier(userId: string, ownPlan?: UserPlanDb): Pr
     const cached = _tierCache;
     if (cached && cached.userId === userId && Date.now() - cached.at < EFFECTIVE_TIER_TTL_MS) {
         return cached.tier;
+    }
+    // The effective tier equals the entitled plan (Team tier removed). When the
+    // caller already fetched + computed it (updateSession passes getUserPlan's
+    // result as ownPlan), trust and cache it — avoids a SECOND read of the same
+    // `users` row per auth event. Callers without ownPlan still fetch below.
+    if (ownPlan) {
+        _tierCache = { userId, tier: ownPlan, at: Date.now() };
+        return ownPlan;
     }
     try {
         const supabase = getSupabaseClient();
@@ -674,11 +691,13 @@ export async function setOnboardingCompleted(userId: string, value: boolean): Pr
 /**
  * Listen for auth state changes
  */
-export function onAuthStateChange(callback: (session: Session | null) => void): () => void {
+export function onAuthStateChange(
+    callback: (session: Session | null, event: string) => void,
+): () => void {
     const supabase = getSupabaseClient();
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-        callback(session);
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+        callback(session, event);
     });
 
     return () => subscription.unsubscribe();

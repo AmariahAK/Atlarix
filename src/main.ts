@@ -1224,6 +1224,47 @@ const createWindow = () => {
   mainWindow.on("enter-full-screen", broadcastFullscreen);
   mainWindow.on("leave-full-screen", broadcastFullscreen);
 
+  // Idle-pause Supabase background activity (realtime keepalive + auth
+  // auto-refresh) when the window is backgrounded for a while, so the app stops
+  // pinging Supabase while the user isn't using it. Debounced (60s) so a quick
+  // alt-tab doesn't churn the connection.
+  let supabaseIdleTimer: ReturnType<typeof setTimeout> | null = null;
+  let supabaseBgPaused = false;
+  const SUPABASE_IDLE_DELAY_MS = 60_000;
+  const setAutoRefresh = (on: boolean) => {
+    void import("./lib/auth/supabase-client")
+      .then(({ getSupabaseClient }) => {
+        try {
+          const auth = getSupabaseClient().auth;
+          if (on) auth.startAutoRefresh();
+          else auth.stopAutoRefresh();
+        } catch {
+          /* not signed in / no creds — nothing to pause */
+        }
+      })
+      .catch(() => {});
+  };
+  mainWindow.on("blur", () => {
+    if (supabaseIdleTimer) clearTimeout(supabaseIdleTimer);
+    supabaseIdleTimer = setTimeout(() => {
+      supabaseIdleTimer = null;
+      if (supabaseBgPaused) return;
+      supabaseBgPaused = true;
+      SubscriptionManager.pauseRealtime();
+      setAutoRefresh(false);
+    }, SUPABASE_IDLE_DELAY_MS);
+  });
+  mainWindow.on("focus", () => {
+    if (supabaseIdleTimer) {
+      clearTimeout(supabaseIdleTimer);
+      supabaseIdleTimer = null;
+    }
+    if (!supabaseBgPaused) return;
+    supabaseBgPaused = false;
+    setAutoRefresh(true);
+    void SubscriptionManager.resumeRealtime();
+  });
+
   mainWindow.webContents.on("render-process-gone", (_event, details) => {
     logger.error("[crash] render-process-gone", details);
     if (SENTRY_DSN) {
