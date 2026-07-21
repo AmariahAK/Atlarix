@@ -20,10 +20,17 @@ toolchains. `npm run check` 0/0, vitest 242 files / 1649 passed.
   `ALLOW_UNSANDBOXED_RELEASE` repo var), instead of silently shipping unsandboxed.
 - **KEY FINDING:** macOS does NOT log custom `sandbox-exec` denials to the unified log, and `(with report)`
   is rejected on `deny` rules — so stderr-parse is the capture channel on macOS too (same as Windows).
-- **PHASE 2 (TODO) — Linux authoritative capture.** Rework `native/atlarix-sandbox-linux` from `exec` →
-  fork + seccomp `SECCOMP_RET_TRACE` + ptrace supervisor that records the denied path (`--deny-report`
-  file read by `wrap-command.ts`), for tools that swallow the path. New crates: `nix`, `seccompiler`,
-  `libc`. CI + Linux-dev-hardware validated. Windows stays stderr-parse (ETW needs elevation).
+- **PHASE 2 — Linux authoritative capture (WRITTEN, compiles; pending dev validation).**
+  `native/atlarix-sandbox-linux` gained a ptrace + seccomp(`SECCOMP_RET_TRACE`) supervisor that records
+  write syscalls to paths outside the writable roots into a `--deny-report` file — for tools that swallow
+  the path. **Feature-gated OFF** (`trace-supervisor`; optional nix/libc/seccompiler deps) + runtime-gated
+  (`ATLARIX_SANDBOX_TRACE=1`) + graceful fallback, so the default build is unchanged and the sandbox can
+  never break. `cargo check --target {x86_64,aarch64}-unknown-linux-gnu` clean with/without the feature.
+  - **REMAINING:** (1) real-Linux dev-hardware runtime validation (does it capture denials, trace forked
+    children, propagate exit codes?) — build `--features trace-supervisor` + `ATLARIX_SANDBOX_TRACE=1`;
+    (2) production report-file threading (`wrap-command.ts` passes `--deny-report` + the interceptor
+    prefers the report over stderr-parse) — land with the validation; (3) flip the feature on in CI once
+    green. Windows stays stderr-parse (ETW needs elevation).
 
 ## ⏳ TBD / Next (fast-follow 14.14.1)
 
