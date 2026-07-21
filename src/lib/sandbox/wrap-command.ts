@@ -14,7 +14,7 @@
  * caller is in `enforce` mode), so the sandbox can never break a user's workflow.
  */
 
-import { existsSync, realpathSync } from "node:fs";
+import { existsSync, mkdirSync, realpathSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import log from "electron-log";
@@ -63,6 +63,51 @@ function realIfExists(p: string): string | null {
 }
 
 /**
+ * Resolve a WRITE-intent candidate (a toolchain cache or an escalation-granted
+ * path) to a canonical absolute path for the sandbox grant — even when it does
+ * not exist yet. This fixes the chicken-and-egg where a cache dir a tool is
+ * about to create (`~/.yarn`) was pruned because it didn't exist, so its grant
+ * was never emitted and the tool's first `mkdir` was denied.
+ *
+ * - Existing path → realpath (symlink-safe, dedups).
+ * - Missing path:
+ *   • `createMissing` (Linux/Windows — Landlock's `path_beneath_rules` opens an
+ *     fd and the Windows helper's `GetNamedSecurityInfoW` both need a real path):
+ *     `mkdir -p` then realpath. Best-effort; returns null if creation fails.
+ *   • otherwise (macOS Seatbelt accepts a *prospective* `(subpath …)`): realpath
+ *     the nearest EXISTING ancestor and re-append the missing tail — no dir is
+ *     created, and symlinks in the existing prefix stay resolved.
+ */
+function resolveWritablePath(p: string, createMissing: boolean): string | null {
+  try {
+    if (existsSync(p)) return realpathSync(p);
+  } catch {
+    /* fall through to the missing-path handling */
+  }
+  if (createMissing) {
+    try {
+      mkdirSync(p, { recursive: true });
+      return realpathSync(p);
+    } catch {
+      return null;
+    }
+  }
+  // Prospective (macOS): realpath the nearest existing ancestor + missing tail.
+  try {
+    let ancestor = path.dirname(p);
+    const tail: string[] = [path.basename(p)];
+    while (ancestor !== path.dirname(ancestor) && !existsSync(ancestor)) {
+      tail.unshift(path.basename(ancestor));
+      ancestor = path.dirname(ancestor);
+    }
+    if (!existsSync(ancestor)) return null;
+    return path.join(realpathSync(ancestor), ...tail);
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Standard env vars each toolchain reads to locate its store/cache BEFORE
  * falling back to a default dir. Honoring these keeps the writable set dynamic —
  * a user's custom location (custom PNPM_HOME, CARGO_HOME, GOPATH, XDG_*, …) is
@@ -88,22 +133,40 @@ const TOOLCHAIN_DIR_ENV_VARS = [
   "XDG_CONFIG_HOME", // freedesktop config root
 ] as const;
 
-/** Common package-manager / toolchain cache dirs that legitimately need writes. */
-function defaultWritablePaths(workspacePath: string, extra: string[] = []): string[] {
+/**
+ * Common package-manager / toolchain cache dirs that legitimately need writes.
+ *
+ * Two classes of candidate:
+ *  - **bind-must-exist** (workspace, temp roots, env-derived dirs): granted only
+ *    when they already exist — never created — matching bwrap's `--bind-try`.
+ *  - **grantable-even-if-missing** (the curated home-cache list + escalation/
+ *    settings `extra` paths): resolved via `resolveWritablePath` so a cache dir a
+ *    tool is about to create is granted anyway. `createMissingCaches` (Linux/
+ *    Windows) `mkdir -p`s them; macOS emits a prospective subpath (see helper).
+ */
+function defaultWritablePaths(
+  workspacePath: string,
+  extra: string[] = [],
+  createMissingCaches = false,
+): string[] {
   const home = os.homedir();
   const tmp = os.tmpdir();
   // Env-configured toolchain dirs first (dynamic); realIfExists dedups + prunes.
   const envDirs = TOOLCHAIN_DIR_ENV_VARS.map((v) => process.env[v]).filter(
     (p): p is string => !!p && p.length > 0,
   );
-  const candidates = [
+  // Granted only if they already exist (existence = intent that they're real).
+  const mustExist = [
     workspacePath,
     tmp,
     "/tmp",
     "/private/tmp",
     "/var/folders", // macOS per-user temp root
     ...envDirs,
-    // Default fallbacks for when the matching env var is unset:
+  ];
+  // Write-intent dirs granted even when missing (curated caches + escalation/
+  // settings extras): a first run must be able to CREATE its own cache dir.
+  const grantable = [
     path.join(home, ".npm"),
     path.join(home, ".cache"),
     path.join(home, ".config"),
@@ -125,13 +188,14 @@ function defaultWritablePaths(workspacePath: string, extra: string[] = []): stri
   ];
   const seen = new Set<string>();
   const out: string[] = [];
-  for (const c of candidates) {
-    const real = realIfExists(c);
-    if (real && !seen.has(real)) {
-      seen.add(real);
-      out.push(real);
+  const add = (resolved: string | null) => {
+    if (resolved && !seen.has(resolved)) {
+      seen.add(resolved);
+      out.push(resolved);
     }
-  }
+  };
+  for (const c of mustExist) add(realIfExists(c));
+  for (const c of grantable) add(resolveWritablePath(c, createMissingCaches));
   return out;
 }
 
@@ -237,12 +301,14 @@ function wrapLinux(req: SandboxRequest, writable: string[]): WrappedSpawn | null
 // ── Windows (AppContainer helper) ────────────────────────────────────────────
 
 /**
- * Resolve the bundled AppContainer helper. Not present in this build — when a
- * future build bundles `atlarix-sandbox.exe` next to the app resources, point
- * this at it. Contract (planned):
+ * Resolve the bundled AppContainer helper (`atlarix-sandbox.exe`, cargo-built +
+ * signed in the Windows CI job, shipped via forge.config.ts `extraResource`).
+ * Resolves at runtime from `process.resourcesPath`; override with
+ * ATLARIX_SANDBOX_HELPER. Contract:
  *   atlarix-sandbox.exe --workspace <dir> [--writable <dir>]... -- <command>
  * The helper creates an AppContainer profile with write-ACLs on the writable
- * set + the `internetClient` capability and runs the command inside it.
+ * set + the `internetClient` capability and runs the command inside it. Falls
+ * back to unsandboxed when absent (e.g. a build where the crate didn't compile).
  */
 function findWindowsHelper(): string | null {
   const fromEnv = process.env.ATLARIX_SANDBOX_HELPER;
@@ -279,11 +345,15 @@ function wrapWindows(req: SandboxRequest, writable: string[]): WrappedSpawn | nu
  */
 export function wrapCommandInSandbox(req: SandboxRequest): WrappedSpawn {
   const workspaceReal = realIfExists(req.workspacePath) ?? req.workspacePath;
+  // macOS Seatbelt grants a prospective (subpath …) for a not-yet-created cache
+  // dir; Landlock (Linux) / AppContainer ACLs (Windows) need the path to exist,
+  // so there we create the curated caches first (see resolveWritablePath).
+  const createMissingCaches = process.platform !== "darwin";
   // Read-only: writable = only toolchain caches + /tmp (+ /dev), NOT the workspace
   // or extra paths. Passing "" as the workspace drops it from the candidate set.
   const writable = req.readOnly
-    ? defaultWritablePaths("", [])
-    : defaultWritablePaths(workspaceReal, req.extraWritablePaths);
+    ? defaultWritablePaths("", [], createMissingCaches)
+    : defaultWritablePaths(workspaceReal, req.extraWritablePaths, createMissingCaches);
 
   let wrapped: WrappedSpawn | null = null;
   let unavailableNote = "";
@@ -316,4 +386,77 @@ export function wrapCommandInSandbox(req: SandboxRequest): WrappedSpawn {
     useShellOption: true,
     note: unavailableNote,
   };
+}
+
+// ── Denial capture (escalation-on-denial) ────────────────────────────────────
+
+export interface SandboxDenial {
+  /** The exact path the OS denied a write to (as the failing tool reported it). */
+  deniedPath: string;
+  /** The directory to grant sandbox write access to so a retry succeeds. */
+  grantPath: string;
+}
+
+/** A broad root we must never grant wholesale (grant the denied leaf instead). */
+function isBroadRoot(dir: string): boolean {
+  const norm = dir.replace(/[/\\]+$/, "");
+  if (!norm) return true;
+  let home = "";
+  try {
+    home = os.homedir().replace(/[/\\]+$/, "");
+  } catch {
+    /* ignore */
+  }
+  if (home && norm === home) return true;
+  // Filesystem root or a direct child of it (/, /Users, /home, /var, C:\, C:\Users).
+  const depth = norm.split(/[/\\]+/).filter(Boolean).length;
+  return depth <= 1;
+}
+
+/**
+ * Path to grant for a denied write: the parent directory, unless that parent is
+ * a broad root (e.g. `$HOME`), in which case grant the denied leaf itself — so a
+ * `mkdir ~/.yarn` denial grants `~/.yarn`, never all of `$HOME`.
+ */
+export function sandboxGrantPath(deniedPath: string): string {
+  const parent = path.dirname(deniedPath);
+  if (!parent || parent === deniedPath || isBroadRoot(parent)) return deniedPath;
+  return parent;
+}
+
+const DENIAL_PATTERNS: RegExp[] = [
+  // Node/libuv: `EACCES: permission denied, open '/path'` / `EPERM: …, mkdir 'C:\path'`
+  /E(?:PERM|ACCES):[^,\n]*,\s*\w+\s+['"]([^'"\n]+)['"]/g,
+  // GNU coreutils: `cannot create directory ‘/path’: Permission denied` (straight
+  // or fancy ‘ ’ quotes — include BOTH U+2018 and U+2019).
+  /cannot (?:create|touch|remove|open)[^'‘’"\n]*['‘’"]([^'‘’"\n]+)['‘’"]:\s*Permission denied/g,
+  // BSD/macOS + generic: `mkdir: /path: Operation not permitted` / `: /path: Permission denied`
+  /:\s*((?:\/|[A-Za-z]:\\)[^:\n]+):\s*(?:Operation not permitted|Permission denied)/g,
+];
+
+/**
+ * Best-effort extraction of sandbox WRITE denials from a failed command's output.
+ * The OS returns EPERM/EACCES to the failing tool, which prints the offending
+ * path — exactly how `yarn`'s `EPERM … mkdir '~/.yarn'` surfaced. Used on
+ * macOS/Windows, and on Linux until the ptrace report lands (Phase 2; macOS does
+ * NOT log custom sandbox-exec denials to the unified log — verified). Returns
+ * distinct denials in first-seen order; `[]` when nothing is parseable.
+ */
+export function parseSandboxDenialsFromOutput(output: string): SandboxDenial[] {
+  if (!output) return [];
+  const seen = new Set<string>();
+  const out: SandboxDenial[] = [];
+  for (const re of DENIAL_PATTERNS) {
+    re.lastIndex = 0;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(output)) !== null) {
+      const deniedPath = (m[1] ?? "").trim();
+      // Absolute paths only (posix `/…`, Windows `C:\…` or UNC `\\…`).
+      if (!deniedPath || seen.has(deniedPath)) continue;
+      if (!/^(?:\/|[A-Za-z]:\\|\\\\)/.test(deniedPath)) continue;
+      seen.add(deniedPath);
+      out.push({ deniedPath, grantPath: sandboxGrantPath(deniedPath) });
+    }
+  }
+  return out;
 }

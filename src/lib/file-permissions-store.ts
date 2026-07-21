@@ -2,12 +2,20 @@
  * Workspace-scoped file path permissions (SQLite).
  */
 
-import { and, eq } from "drizzle-orm";
+import { and, eq, ne } from "drizzle-orm";
 import { db } from "@/db";
 import { workspaceFilePermissions } from "@/db/schema";
 import type { FilePermissionDecision, FileScopeType } from "@/lib/file-permission-scope";
 import { normalizeScopeValue } from "@/lib/file-permission-scope";
 import { resolveCanonicalAppId } from "@/ipc/utils/canonical-app";
+
+/**
+ * Reused scope value for sandbox writable-path grants (escalation-on-denial).
+ * Rows with this scopeType store an ABSOLUTE OS path verbatim (no relative
+ * normalization) and are consumed only by the command sandbox — the file-write
+ * gate filters them out (see `listWorkspaceFilePermissions`).
+ */
+const SANDBOX_PATH_SCOPE = "sandbox_path" as const;
 
 export type WorkspaceFilePermissionRow = {
   id: number;
@@ -22,7 +30,13 @@ export function listWorkspaceFilePermissions(appId: number): WorkspaceFilePermis
   const rows = db
     .select()
     .from(workspaceFilePermissions)
-    .where(eq(workspaceFilePermissions.appId, appId))
+    .where(
+      and(
+        eq(workspaceFilePermissions.appId, appId),
+        // Exclude sandbox_path rows — the file-write gate must never see them.
+        ne(workspaceFilePermissions.scopeType, SANDBOX_PATH_SCOPE),
+      ),
+    )
     .all();
   return rows.map((r) => ({
     id: r.id,
@@ -91,6 +105,74 @@ export function revokeWorkspaceFilePermission(
         eq(workspaceFilePermissions.appId, appId),
         eq(workspaceFilePermissions.scopeType, scopeType),
         eq(workspaceFilePermissions.scopeValue, normalized),
+      ),
+    )
+    .run();
+  return result.changes > 0;
+}
+
+// ── Sandbox writable paths (escalation-on-denial) ────────────────────────────
+// Absolute OS paths the user granted the command sandbox write access to. Stored
+// on the same table under `SANDBOX_PATH_SCOPE`, always `always_allow`, verbatim
+// (NOT run through the workspace-relative `normalizeScopeValue`).
+
+/** All sandbox writable paths granted for this workspace (absolute, verbatim). */
+export function listSandboxWritablePaths(rawAppId: number): string[] {
+  const appId = resolveCanonicalAppId(rawAppId) ?? rawAppId;
+  return db
+    .select()
+    .from(workspaceFilePermissions)
+    .where(
+      and(
+        eq(workspaceFilePermissions.appId, appId),
+        eq(workspaceFilePermissions.scopeType, SANDBOX_PATH_SCOPE),
+      ),
+    )
+    .all()
+    .map((r) => r.scopeValue);
+}
+
+/** Grant the command sandbox write access to `absPath` for this workspace. */
+export function upsertSandboxWritablePath(rawAppId: number, absPath: string): void {
+  const appId = resolveCanonicalAppId(rawAppId) ?? rawAppId;
+  const value = absPath.trim();
+  if (!value) return;
+
+  const existing = db
+    .select()
+    .from(workspaceFilePermissions)
+    .where(
+      and(
+        eq(workspaceFilePermissions.appId, appId),
+        eq(workspaceFilePermissions.scopeType, SANDBOX_PATH_SCOPE),
+        eq(workspaceFilePermissions.scopeValue, value),
+      ),
+    )
+    .get();
+  if (existing) return; // idempotent — already granted
+
+  db.insert(workspaceFilePermissions)
+    .values({
+      appId,
+      scopeType: SANDBOX_PATH_SCOPE,
+      scopeValue: value,
+      decision: "always_allow",
+    })
+    .run();
+}
+
+/** Revoke a previously granted sandbox writable path. */
+export function revokeSandboxWritablePath(rawAppId: number, absPath: string): boolean {
+  const appId = resolveCanonicalAppId(rawAppId) ?? rawAppId;
+  const value = absPath.trim();
+  if (!value) return false;
+  const result = db
+    .delete(workspaceFilePermissions)
+    .where(
+      and(
+        eq(workspaceFilePermissions.appId, appId),
+        eq(workspaceFilePermissions.scopeType, SANDBOX_PATH_SCOPE),
+        eq(workspaceFilePermissions.scopeValue, value),
       ),
     )
     .run();

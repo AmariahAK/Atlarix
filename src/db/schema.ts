@@ -55,7 +55,14 @@ export const workspaceCommandPermissions = sqliteTable(
   ],
 );
 
-/** Per-workspace allow/deny for file paths (file, directory, or extension scope). */
+/**
+ * Per-workspace allow/deny for file paths (file, directory, or extension scope).
+ * Also hosts `sandbox_path` rows: absolute OS paths the user granted the command
+ * sandbox write access to via escalation-on-denial (reused here to avoid a
+ * parallel table; the file-write gate ignores this scope — see
+ * `resolveFilePermissionGate`). No SQL migration: the column is plain TEXT
+ * (drizzle `enum` is TS-only, no CHECK — see drizzle/0057).
+ */
 export const workspaceFilePermissions = sqliteTable(
   "workspace_file_permissions",
   {
@@ -64,7 +71,7 @@ export const workspaceFilePermissions = sqliteTable(
       .notNull()
       .references(() => apps.id, { onDelete: "cascade" }),
     scopeType: text("scope_type", {
-      enum: ["file", "directory", "extension"],
+      enum: ["file", "directory", "extension", "sandbox_path"],
     }).notNull(),
     scopeValue: text("scope_value").notNull(),
     decision: text("decision", {

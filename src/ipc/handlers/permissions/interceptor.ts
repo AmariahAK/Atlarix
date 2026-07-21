@@ -31,6 +31,7 @@ import {
 } from "../../utils/runShellCommand";
 import type { ChildProcess } from "child_process";
 import { resolvePathUnderWorkspace } from "../../utils/safeWorkspaceRelativePath";
+import { listSandboxWritablePaths } from "@/lib/file-permissions-store";
 import { captureSnapshot } from "../../../lib/snapshot/snapshot-manager";
 import { appendLedgerFilesWritten } from "../../../lib/tasks/task-ledger";
 import {
@@ -1297,9 +1298,17 @@ export class PermissionInterceptor extends EventEmitter {
             workModePreference: settings.workModePreference,
             selectedChatMode: settings.selectedChatMode ?? "ask",
         });
+        // Global settings paths + per-workspace paths the user granted via
+        // escalation-on-denial (stored on workspaceFilePermissions/sandbox_path).
+        const workspaceGranted =
+            this.workspaceId != null ? listSandboxWritablePaths(this.workspaceId) : [];
+        const extraWritablePaths = [
+            ...(cfg?.extraWritablePaths ?? []),
+            ...workspaceGranted,
+        ];
         return {
             workspacePath: this.workspacePath,
-            extraWritablePaths: cfg?.extraWritablePaths,
+            extraWritablePaths: extraWritablePaths.length > 0 ? extraWritablePaths : undefined,
             enforce: cfg?.enforce === true,
             readOnly: isReadOnlyWorkMode(workMode),
         };
