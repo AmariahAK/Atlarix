@@ -16,10 +16,10 @@ export const GIT_VIA_TERMINAL_NOTE =
 /** Mode-level browser steer. Agrees with the browser_inspect tool description:
  * a TEXT report is the way to "see" a page; a screenshot is the last resort. */
 export const BROWSER_NOTE = [
-  "Browser & preview (in-app browser, or the app's live preview with target:\"preview\"):",
+  "Browser (the in-app browser — also how you run the app you're building: open its dev-server URL as a tab):",
   "- SEE a page: **browser_inspect** mode:\"visual\" (a ~500-token TEXT report of layout + defects) or mode:\"text\" — these ARE the answer; mode:\"screenshot\" (a PNG, thousands of tokens) is a LAST RESORT, only when the user needs the actual image.",
   "- INTERACT: mode:\"snapshot\" for element refs, then **browser_interact** (click/fill) by ref; re-snapshot after navigation.",
-  "- LIVE PREVIEW: target:\"preview\" drives the running dev server (open routes, fill forms, verify UI); mode:\"console\" reads its runtime errors. To verify a UI change, prefer **preview_test** (one navigate→act→assert pass) — the turn won't finish while the preview throws.",
+  "- RUN & VERIFY THE APP: **browser_navigate** to its dev-server URL (e.g. http://localhost:3000), then drive it (open routes, fill forms). mode:\"console\" reads captured runtime errors (console, uncaught exceptions WITH stack, failed requests). To verify a UI change, prefer **preview_test** (one navigate→act→assert pass) — the turn won't finish while the app throws runtime errors.",
 ].join("\n");
 
 /**
@@ -43,7 +43,7 @@ You are in Explore mode. This is a read-only investigation mode for this chat tu
 You CAN:
 - Read files and search the codebase with glob / grep (grep results are relevance-ranked)
 - Run **non-mutating** commands with **run_command**: reads (ls, cat, git status/log/diff, git checkout/switch to inspect a branch), tests, builds, **dependency installs** (npm/pip install), and network reads (curl/wget GET, ssh). Reads run automatically; network/remote-capable ones (curl, ssh) ask for one-tap approval — they are allowed here, not blocked.
-- RUN AND PREVIEW THE APP: start a dev server with **run_command** (long-running commands auto-move to the background after ~15s, or pass \`background:true\`), then drive the live preview with browser_navigate / browser_inspect / browser_interact using target:"preview" (open routes, click, fill forms). When the server prints a localhost URL the preview loads it automatically.
+- RUN AND VERIFY THE APP: start a dev server with **run_command** (long-running commands auto-move to the background after ~15s, or pass \`background:true\`), then open its localhost URL as a browser tab with **browser_navigate** and drive it with browser_inspect / browser_interact (open routes, click, fill forms). Runtime errors surface via browser_inspect(mode:"console") and the Errors tab.
 - Use web_search (one per topic per turn)
 - Answer questions and use attachments (read_attachment, list_attachments)
 
@@ -146,7 +146,7 @@ function getActiveModeWorkExtras(mode: ModeRegistryKey): string {
       return `<work_mode>
 Discovery: glob to find files by NAME (mtime-sorted); grep to search file CONTENTS (results are relevance-ranked, most relevant files first); then read_file for exact ranges.
 At most 5 task calls per turn when batching independent scopes.
-You may run non-mutating commands (reads, tests, builds, installs, dev servers — long-running ones auto-background after ~15s) and exercise the live preview (browser_* with target:"preview"). Do not use edit_file or run mutating/destructive commands (git add/commit/push/reset, rm/mv/chmod, publish, deploy) — switch to Build/Debug for those.
+You may run non-mutating commands (reads, tests, builds, installs, dev servers — long-running ones auto-background after ~15s) and exercise the app in a browser tab (browser_navigate to its URL, then browser_inspect / browser_interact). Do not use edit_file or run mutating/destructive commands (git add/commit/push/reset, rm/mv/chmod, publish, deploy) — switch to Build/Debug for those.
 </work_mode>`;
     case "plan":
       return `<work_mode>

@@ -1,23 +1,15 @@
 /**
  * CodePreviewPanel
  * ================
- * Right panel for live preview with:
- * - Live preview (Vite/Next dev server, native WebContentsView)
- * - Errors list
- * - Terminal output
+ * Right panel host for the workspace Errors tab (runtime/build errors captured
+ * from the browser tabs) and the Permissions tab. (The former live-preview tab
+ * was removed — the agent runs the app in a Browser tab like any other URL.)
  */
 
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState } from 'react';
 import { useSetAtom, useAtomValue } from 'jotai';
-import { IpcClient } from '@/ipc/ipc_client';
 import { cn } from '@/lib/utils';
 import {
-    RefreshCw,
-    ExternalLink,
-    Smartphone,
-    Tablet,
-    Monitor,
-    Maximize2,
     AlertTriangle,
     Trash2,
     Shield,
@@ -54,27 +46,14 @@ interface CodePreviewPanelProps {
     onSolveAllWithAI?: (errors: ParsedError[], context: string) => void;
 }
 
-type ViewportSize = 'mobile' | 'tablet' | 'desktop' | 'full';
-
-const VIEWPORT_SIZES: Record<ViewportSize, { width: string; label: string }> = {
-    mobile: { width: '375px', label: 'Mobile' },
-    tablet: { width: '768px', label: 'Tablet' },
-    desktop: { width: '1024px', label: 'Desktop' },
-    full: { width: '100%', label: 'Full' },
-};
-
 function CodePreviewPanel({ data, activeTab, onClearErrors, onSolveWithAI, onSolveAllWithAI }: CodePreviewPanelProps) {
     const setBrowserErrors = useSetAtom(browserErrorsAtom);
     const setDismissedSignatures = useSetAtom(dismissedErrorSignaturesAtom);
     const visibleErrors = useAtomValue(visibleBrowserErrorsAtom);
-    const previewUrl = data?.url;
     const errorsData = data?.errors !== undefined ? visibleErrors : (data?.errors || []);
 
     return (
         <div className="flex flex-col h-full">
-            {activeTab === 'preview' && (
-                <PreviewTab url={previewUrl} />
-            )}
             {activeTab === 'terminal' && (
                 <TerminalPanel />
             )}
@@ -93,185 +72,6 @@ function CodePreviewPanel({ data, activeTab, onClearErrors, onSolveWithAI, onSol
             {activeTab === 'permissions' && (
                 <PermissionsTab />
             )}
-        </div>
-    );
-}
-
-/**
- * Preview Tab — the dev server now renders in a native WebContentsView (managed
- * by browser_view_manager) that the agent can drive via the browser tools
- * (target:"preview"). This placeholder div reports its rect via preview:set-bounds;
- * the native view paints OVER it. Runtime errors arrive over preview:error
- * (handled in useBrowserErrorListener) rather than the old iframe postMessage hack.
- */
-function PreviewTab({ url }: { url?: string }) {
-    const [viewport, setViewport] = useState<ViewportSize>('full');
-    const placeholderRef = useRef<HTMLDivElement>(null);
-
-    const reportBounds = useCallback(() => {
-        const el = placeholderRef.current;
-        if (!el) return;
-        const rect = el.getBoundingClientRect();
-        if (rect.width < 10 || rect.height < 10) return;
-        void IpcClient.getInstance().previewSetBounds({
-            x: rect.x,
-            y: rect.y,
-            width: rect.width,
-            height: rect.height,
-        });
-    }, []);
-
-    // Load (or reload) the dev-server URL into the preview WebContentsView.
-    useEffect(() => {
-        if (!url) return;
-        void IpcClient.getInstance().previewLoad(url);
-    }, [url]);
-
-    // Show the native view while the Preview tab is mounted; hide on unmount /
-    // tab switch. Track the placeholder rect (panel resize, viewport changes).
-    useEffect(() => {
-        if (!url) return;
-        const ipc = IpcClient.getInstance();
-        void ipc.previewSetVisible(true).then(reportBounds);
-        const el = placeholderRef.current;
-        const observer = new ResizeObserver(() => reportBounds());
-        if (el) observer.observe(el);
-        window.addEventListener('resize', reportBounds);
-        const settle = setTimeout(reportBounds, 250);
-        return () => {
-            clearTimeout(settle);
-            observer.disconnect();
-            window.removeEventListener('resize', reportBounds);
-            void ipc.previewSetVisible(false);
-        };
-    }, [url, reportBounds]);
-
-    // Re-report after a viewport change (the box resizes synchronously here).
-    useEffect(() => {
-        reportBounds();
-    }, [viewport, reportBounds]);
-
-    const handleRefresh = useCallback(() => {
-        if (url) void IpcClient.getInstance().previewLoad(url);
-    }, [url]);
-
-    const handleOpenExternal = useCallback(() => {
-        if (url) {
-            window.open(url, '_blank');
-        }
-    }, [url]);
-
-    if (!url) {
-        return (
-            <div className="flex flex-col items-center justify-center h-full text-muted-foreground p-4">
-                <Monitor className="w-12 h-12 mb-3 opacity-50" />
-                <p className="text-sm">No preview available</p>
-                <p className="text-xs">Start a dev server to see live preview</p>
-            </div>
-        );
-    }
-
-    return (
-        <div className="flex flex-col h-full">
-            {/* Toolbar */}
-            <div className="flex items-center justify-between px-3 py-2 border-b border-border bg-muted/20">
-                {/* Viewport Buttons */}
-                <div className="flex items-center gap-1">
-                    <button
-                        onClick={() => setViewport('mobile')}
-                        className={cn(
-                            "p-1.5 rounded-md transition-colors",
-                            viewport === 'mobile'
-                                ? "bg-primary/10 text-primary"
-                                : "text-muted-foreground hover:text-foreground hover:bg-muted"
-                        )}
-                        title="Mobile (375px)"
-                    >
-                        <Smartphone className="w-4 h-4" />
-                    </button>
-                    <button
-                        onClick={() => setViewport('tablet')}
-                        className={cn(
-                            "p-1.5 rounded-md transition-colors",
-                            viewport === 'tablet'
-                                ? "bg-primary/10 text-primary"
-                                : "text-muted-foreground hover:text-foreground hover:bg-muted"
-                        )}
-                        title="Tablet (768px)"
-                    >
-                        <Tablet className="w-4 h-4" />
-                    </button>
-                    <button
-                        onClick={() => setViewport('desktop')}
-                        className={cn(
-                            "p-1.5 rounded-md transition-colors",
-                            viewport === 'desktop'
-                                ? "bg-primary/10 text-primary"
-                                : "text-muted-foreground hover:text-foreground hover:bg-muted"
-                        )}
-                        title="Desktop (1024px)"
-                    >
-                        <Monitor className="w-4 h-4" />
-                    </button>
-                    <button
-                        onClick={() => setViewport('full')}
-                        className={cn(
-                            "p-1.5 rounded-md transition-colors",
-                            viewport === 'full'
-                                ? "bg-primary/10 text-primary"
-                                : "text-muted-foreground hover:text-foreground hover:bg-muted"
-                        )}
-                        title="Full Width"
-                    >
-                        <Maximize2 className="w-4 h-4" />
-                    </button>
-                </div>
-
-                {/* URL Display */}
-                <div className="flex-1 mx-4">
-                    <div className="text-xs text-muted-foreground bg-muted/50 px-2 py-1 rounded truncate">
-                        {url}
-                    </div>
-                </div>
-
-                {/* Actions */}
-                <div className="flex items-center gap-1">
-                    <button
-                        onClick={handleRefresh}
-                        className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted"
-                        title="Refresh"
-                    >
-                        <RefreshCw className="w-4 h-4" />
-                    </button>
-                    <button
-                        onClick={handleOpenExternal}
-                        className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted"
-                        title="Open in browser"
-                    >
-                        <ExternalLink className="w-4 h-4" />
-                    </button>
-                </div>
-            </div>
-
-            {/* WebContentsView footprint — the native preview view renders over this rect. */}
-            <div className="flex-1 bg-muted/10 flex items-center justify-center p-4 overflow-hidden">
-                <div
-                    ref={placeholderRef}
-                    className="bg-white rounded-lg shadow-lg overflow-hidden transition-all duration-200"
-                    style={{
-                        width: VIEWPORT_SIZES[viewport].width,
-                        height: viewport === 'full' ? '100%' : 'calc(100% - 2rem)',
-                        maxWidth: '100%'
-                    }}
-                />
-            </div>
-
-            {/* Viewport Label */}
-            <div className="px-3 py-1.5 border-t border-border bg-muted/20">
-                <span className="text-xs text-muted-foreground">
-                    {VIEWPORT_SIZES[viewport].label} — {VIEWPORT_SIZES[viewport].width}
-                </span>
-            </div>
         </div>
     );
 }

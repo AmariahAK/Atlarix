@@ -31,8 +31,8 @@ export const GLOBAL_CHAT_TOOLS = new Set([
  */
 export const BUILD_ONLY_TOOLS = [
   "edit_file",
-  // Headless UI verification of the live preview — Build/Debug only (not on the
-  // read-only ask/plan/review surfaces).
+  // Headless UI verification of the app in a browser tab — Build/Debug only (not
+  // on the read-only ask/plan/review surfaces).
   "preview_test",
 ] as const satisfies readonly string[];
 

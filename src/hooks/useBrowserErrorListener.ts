@@ -415,21 +415,22 @@ export function useBrowserErrorListener() {
         window.addEventListener('message', handleMessage);
         window.addEventListener('error', handleError);
 
-        // Preview surface (workstream 1): the preview pane is now a native
-        // WebContentsView, so runtime errors arrive over the preview:error IPC
-        // instead of an iframe postMessage. Map and feed them through the same
+        // The browser tabs are native WebContentsViews, so runtime errors arrive
+        // over the browser:error IPC (console / uncaught-with-stack / load /
+        // crash / failed-network). Map and feed them through the same
         // dedup/ignore pipeline as every other source.
-        const offPreviewError = IpcClient.getInstance().onPreviewError((entry) => {
+        const offPreviewError = IpcClient.getInstance().onBrowserSurfaceError((entry) => {
             const message = entry?.message || '';
             if (!message || shouldIgnoreError(message, entry?.url || '')) return;
             const error: BrowserError = {
-                id: `preview-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+                id: `browser-${Date.now()}-${Math.random().toString(36).slice(2)}`,
                 type: entry.type === 'load-failed' ? 'build' : 'runtime',
-                severity: 'error',
+                severity: entry.level === 'warning' ? 'warning' : 'error',
                 framework: 'browser',
                 actionable: true,
                 message,
                 file: entry.url,
+                stack: entry.stack,
                 timestamp: entry.timestamp || Date.now(),
             };
             setDismissedSignatures((prev) => {

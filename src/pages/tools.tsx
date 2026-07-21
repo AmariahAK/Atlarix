@@ -18,7 +18,7 @@ type Category =
   | "code"
   | "skills"
   | "mcp"
-  | "preview"
+  | "browser"
   | "models"
   | "integration";
 
@@ -38,7 +38,7 @@ const CATEGORIES: { id: Category; label: string }[] = [
   { id: "code", label: "Code" },
   { id: "skills", label: "Skills" },
   { id: "mcp", label: "MCP" },
-  { id: "preview", label: "Preview" },
+  { id: "browser", label: "Browser" },
   { id: "models", label: "Models" },
   { id: "integration", label: "Connectors" },
 ];
@@ -246,13 +246,13 @@ const FEATURES: ToolFeature[] = [
     link: { label: "Workspace chat", to: "/" },
   },
   {
-    id: "preview",
-    title: "Live preview & dev server",
-    shortDescription: "Embed your local dev server, parse output, and keep preview/errors linked.",
-    category: "preview",
-    steps: ["Start the dev command from Build", "Open Preview tab", "Resize breakpoints and watch hot reload"],
-    howItWorks: "Preview shares state with the Errors tab so UI stack traces line up with code.",
-    link: { label: "Right panel → Preview", to: "/" },
+    id: "agent-browser",
+    title: "Agent browser & dev-server testing",
+    shortDescription: "Open your local dev server (or any site) in a browser tab the agent can drive — navigate, click, fill, and verify.",
+    category: "browser",
+    steps: ["Start the dev command from Build", "Open its URL in a Browser tab", "Let the agent navigate/click/fill and check the Errors tab"],
+    howItWorks: "The browser tabs capture runtime errors (console, uncaught exceptions with stack, failed requests) into the Errors tab, so UI failures line up with code.",
+    link: { label: "Right panel → Browser", to: "/" },
   },
   {
     id: "websearch",

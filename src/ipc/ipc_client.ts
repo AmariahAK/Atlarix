@@ -3501,44 +3501,25 @@ export class IpcClient {
     return typeof off === "function" ? off : () => {};
   }
 
-  // Preview surface (dev-server WebContentsView shown in the Preview pane).
-  public async previewLoad(
-    url: string,
-  ): Promise<{ ok: boolean; error?: string }> {
-    return this.ipcRenderer.invoke("preview:load", url);
-  }
-
-  public async previewSetBounds(rect: {
-    x: number;
-    y: number;
-    width: number;
-    height: number;
-  }): Promise<void> {
-    return this.ipcRenderer.invoke("preview:set-bounds", rect);
-  }
-
-  public async previewSetVisible(visible: boolean): Promise<void> {
-    return this.ipcRenderer.invoke("preview:set-visible", visible);
-  }
-
-  public async previewGetErrors(): Promise<
-    import("@/ipc/utils/browser_view_manager").PreviewErrorEntry[]
+  // Runtime errors captured from the browser tabs (Errors tab).
+  public async browserGetErrors(): Promise<
+    import("@/ipc/utils/browser_view_manager").BrowserSurfaceError[]
   > {
-    return this.ipcRenderer.invoke("preview:get-errors");
+    return this.ipcRenderer.invoke("browser:get-errors");
   }
 
-  public async previewClearErrors(): Promise<void> {
-    return this.ipcRenderer.invoke("preview:clear-errors");
+  public async browserClearErrors(): Promise<void> {
+    return this.ipcRenderer.invoke("browser:clear-errors");
   }
 
-  public onPreviewError(
+  public onBrowserSurfaceError(
     listener: (
-      error: import("@/ipc/utils/browser_view_manager").PreviewErrorEntry,
+      error: import("@/ipc/utils/browser_view_manager").BrowserSurfaceError,
     ) => void,
   ): () => void {
-    const off = this.ipcRenderer.on("preview:error", (error) =>
+    const off = this.ipcRenderer.on("browser:error", (error) =>
       listener(
-        error as import("@/ipc/utils/browser_view_manager").PreviewErrorEntry,
+        error as import("@/ipc/utils/browser_view_manager").BrowserSurfaceError,
       ),
     );
     return typeof off === "function" ? off : () => {};
@@ -3582,16 +3563,6 @@ export class IpcClient {
           live: boolean;
         },
       ),
-    );
-    return typeof off === "function" ? off : () => {};
-  }
-
-  // A background command printed a localhost URL → load it in the preview.
-  public onPreviewDevUrl(
-    listener: (payload: { url: string }) => void,
-  ): () => void {
-    const off = this.ipcRenderer.on("preview:dev-url", (payload) =>
-      listener(payload as { url: string }),
     );
     return typeof off === "function" ? off : () => {};
   }

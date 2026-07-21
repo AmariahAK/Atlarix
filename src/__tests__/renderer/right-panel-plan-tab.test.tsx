@@ -62,7 +62,7 @@ describe("right panel — plan as a coexisting tab", () => {
     expect(captured?.tabs).toContain("plan");
     // The normal workspace tabs remain — no takeover.
     expect(captured?.tabs).toEqual(
-      expect.arrayContaining(["preview", "terminal"]),
+      expect.arrayContaining(["browser", "terminal"]),
     );
   });
 

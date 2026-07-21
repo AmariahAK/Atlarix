@@ -275,13 +275,10 @@ const validInvokeChannels = [
   "browser:reload",
   "browser:set-bounds",
   "browser:set-visible",
-  // Preview surface (dev-server WebContentsView, agent-drivable)
-  "preview:load",
-  "preview:set-bounds",
-  "preview:set-visible",
-  "preview:get-errors",
-  "preview:clear-errors",
-  // Browser/preview session recordings (frame reels)
+  // Runtime errors captured from the browser tabs (Errors tab)
+  "browser:get-errors",
+  "browser:clear-errors",
+  // Browser session recordings (frame reels)
   "media:get-recording",
   // Background jobs (v14)
   "chat:background-jobs-list",
@@ -403,8 +400,7 @@ const validReceiveChannels = [
   "plan:artifact-updated",
   "plan:file-updated",
   "browser:state-changed", // v11 in-app browser: main → renderer tab/nav state
-  "preview:error", // preview surface: main → renderer captured console/load error
-  "preview:dev-url", // main → renderer: a background command printed a localhost URL → load preview
+  "browser:error", // main → renderer: runtime error captured from a browser tab (console/uncaught/load/crash/network)
   "chat:stream:browser-recording", // main → renderer: session reel(s) ready for a turn
   "chat:background-job-update", // main → renderer: background job started/finished/cancelled
   "automation:run-update", // main → renderer: automation run started/finished (triage feed refresh)

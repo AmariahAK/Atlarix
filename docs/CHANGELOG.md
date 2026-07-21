@@ -3,32 +3,67 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
-## [Unreleased] — Universal sandbox write-escalation
+## [14.15.0] (2026-07-21) — Browser-first workflow, richer error capture, universal sandbox write-escalation
 
 `npm run check` 0/0, vitest green.
 
-### Fixed
-
-- **`yarn install` (and any first-run toolchain) no longer fails `EPERM: mkdir '~/.yarn'`.** The
-  sandbox pruned any writable cache dir that didn't exist yet, so the tool's first `mkdir` was denied.
-  Curated caches are now granted even when missing — macOS emits a prospective Seatbelt `(subpath …)`,
-  Linux/Windows create the dir first (Landlock/AppContainer need a real path). `wrap-command.ts`.
+The **Preview tab is gone** — the app you build now runs in a regular Browser tab like any other URL, so there is one surface to learn instead of two. Around that: the Errors tab now shows real **stack traces**, background jobs get a live **wait timer** you (and the agent) can see and adjust, and the sandbox gains a **universal write-escalation** safety net so unlisted toolchains stop failing on first run.
 
 ### Added
 
+- **Per-job live wake timer.** `background_jobs` gains `wake_in` (set a countdown to re-check a job) and
+  `adjust_timer` (change it); `list` shows a live `wake_in_s` remaining per timed job. One timer per job
+  — setting again replaces it, and a job's timer is auto-cancelled when it finishes, so timers never pile
+  up or orphan. `scheduled-wakeups.ts`, `background-commands.ts`, `background-jobs.ts`.
+- **Runtime errors with stack traces in the Errors tab.** An injected page hook captures uncaught
+  exceptions and unhandled promise rejections WITH their stack (relayed via a `[[ATLARIX_ERR]]` console
+  sentinel — browser tabs have no preload), on top of console errors, load failures, and failed 4xx/5xx
+  requests. The agent reads the same buffer via `browser_inspect(mode:"console")`. `error-hook.ts`,
+  `browser_view_manager.ts`, `useBrowserErrorListener.ts`.
+- **Clickable URLs open in a Browser tab.** http(s) links in chat and the terminal — and bare
+  `localhost:PORT` URLs, now highlighted/linkified — open in an in-app Browser tab (⌘/Ctrl-click → system
+  browser); each click stacks a new tab. `open-in-browser-tab.ts`, `localhost-url.ts`,
+  `AtlarixMarkdownParser.tsx`, `XtermView.tsx`.
+- **`allow_stalled` background-job opt-out.** Mark a quiet-by-design job (a dev server / watcher) so the
+  harness stops pinging you about it going silent — it keeps running and still delivers its exit result.
+  `background-commands.ts`, `background-jobs.ts`.
+- **Keyboard shortcuts** for browser tabs, the model picker, and panel-tab navigation (Cmd+T/W/J/I/O);
+  Cmd+J toggles the right panel.
+- **Real-time device-spec injection** (CPU cores + RAM) so the agent sizes parallel work to the machine.
 - **Escalation-on-denial for unlisted toolchains.** When a sandboxed command is denied a write to a
   path outside the writable set, an approval card offers to grant that exact path (persisted per
   workspace) and the command **re-runs, still sandboxed** — no enumerated cache list can be complete, so
   this is the universal safety net (the model Codex/Claude Code/Cursor all converge on). The denied path
   is parsed from the command's stderr (macOS does not log custom `sandbox-exec` denials to the unified
-  log — verified; Linux gets an authoritative ptrace report as a follow-up). Reuses
-  `workspaceFilePermissions` under a `sandbox_path` scope (no migration). `wrap-command.ts`,
-  `interceptor.ts`, `InlinePermissionApprovals.tsx`.
+  log — verified; Linux gets an authoritative ptrace report). Reuses `workspaceFilePermissions` under a
+  `sandbox_path` scope (no migration). `wrap-command.ts`, `interceptor.ts`, `InlinePermissionApprovals.tsx`.
+- **Linux authoritative denied-path supervisor** (feature-gated ptrace/seccomp) as the follow-up to
+  stderr-parse denial detection.
 
 ### Changed
 
+- **Preview tab removed — unified on the in-app Browser.** `browser_navigate/inspect/interact` and
+  `preview_test` drive a Browser tab; the old `target:"preview"` surface and its dev-URL auto-detect are
+  gone; error capture migrated onto browser tabs; the in-app tools catalog and all prompts/docs updated.
+  `browser.ts`, `browser_view_manager.ts`, `RightPanel.tsx`, `useRightPanelContext.ts`, `tools.tsx`,
+  `mode-prompt-bundle.ts`.
+- **Supabase idle background-ping reduction** — realtime heartbeat slowed, paused on window blur,
+  `TOKEN_REFRESHED` short-circuited, and user-read TTL widened, so an idle app stops chattering.
 - **CI fails loud when a native sandbox helper doesn't compile** instead of silently shipping the OS
   unsandboxed (override with the `ALLOW_UNSANDBOXED_RELEASE` repo variable). `release.yml`.
+
+### Fixed
+
+- **`browser_inspect(mode:"screenshot")` returned an empty image** when the panel/tab wasn't visibly
+  open — it now routes through `capturePaintable` (off-screen attach → paint → capture). `browser.ts`.
+- **localhost is allowed in the browser surface** (`allowLoopback`) so the agent can open the user's own
+  dev server; LAN / link-local / cloud-metadata stay blocked.
+- **`yarn install` (and any first-run toolchain) no longer fails `EPERM: mkdir '~/.yarn'`.** The
+  sandbox pruned any writable cache dir that didn't exist yet, so the tool's first `mkdir` was denied.
+  Curated caches are now granted even when missing — macOS emits a prospective Seatbelt `(subpath …)`,
+  Linux/Windows create the dir first (Landlock/AppContainer need a real path). `wrap-command.ts`.
+- **Code blocks no longer spill out of their box** and the double language label is gone (line-level
+  CommonMark fence tracking in the frozen-tail splitter).
 
 ## [14.14.0] (2026-07-20) — Core web search, outside-workspace tools, resilience
 

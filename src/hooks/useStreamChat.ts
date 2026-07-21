@@ -80,7 +80,6 @@ import {
   activityStreamItemsAtom,
   sessionRecordingsByMessageIdAtom,
   backgroundJobsByChatIdAtom,
-  devServerUrlAtom,
   type SourceItem,
   type FileProposal,
   type TerminalOutput,
@@ -448,22 +447,6 @@ export function useStreamChat({
   const streamDispatchCounterRef = useRef(0);
   const latestDispatchByChatRef = useRef<Map<number, number>>(new Map());
 
-  // v14 pt3: a backgrounded command printed a localhost URL → load it in the
-  // preview and surface the preview pane so the user sees the running app.
-  useEffect(() => {
-    const unsub = IpcClient.getInstance().onPreviewDevUrl(({ url }) => {
-      if (!url) return;
-      getDefaultStore().set(devServerUrlAtom, url);
-      maybeAutoOpenRightPanel();
-      setPreviewTab("preview");
-      getDefaultStore().set(aiPanelIntentAtom, {
-        intent: "show-preview",
-        timestamp: Date.now(),
-        source: "system",
-      });
-    });
-    return unsub;
-  }, []);
 
   // v14: background jobs — keep the indicator atom fresh and AUTO-WAKE the agent
   // when a job finishes while the chat is idle. Persistent (mount-level) so it

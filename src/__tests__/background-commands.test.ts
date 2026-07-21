@@ -27,6 +27,8 @@ import { computeWakePendingResults } from "@/lib/agent/collect-results";
 import {
   scheduleWakeup,
   clearScheduledWakeupsForChat,
+  setJobWakeup,
+  getJobWakeupRemainingMs,
 } from "@/lib/agent/scheduled-wakeups";
 
 describe("background-commands (v13 7A / v14 jobs)", () => {
@@ -117,6 +119,36 @@ describe("background-commands (v13 7A / v14 jobs)", () => {
     takePendingBackgroundCommandResults(chatId);
     expect(getFinishedBackgroundResult(chatId, "op-peek")).toBeNull();
     clearBackgroundCommandsForChat(chatId);
+  });
+});
+
+describe("per-job wake timer (Part 2)", () => {
+  it("listBackgroundJobs surfaces wakeInMs, and finishing the job cancels the timer", () => {
+    const chatId = 9401;
+    const jobId = "op-timer";
+    clearBackgroundCommandsForChat(chatId);
+    clearScheduledWakeupsForChat(chatId);
+    recordBackgroundCommandStart(chatId, jobId, "npm run dev", Date.now());
+
+    // No timer yet → no wake_in on the listing.
+    expect(listBackgroundJobs(chatId)[0].wakeInMs).toBeUndefined();
+
+    setJobWakeup(chatId, jobId, 120_000, "check dev server");
+    const withTimer = listBackgroundJobs(chatId)[0];
+    expect(withTimer.wakeInMs).toBeGreaterThan(0);
+    expect(withTimer.wakeInMs).toBeLessThanOrEqual(120_000);
+
+    // Finishing the job removes it AND its timer — no orphan.
+    recordBackgroundCommandResult(chatId, jobId, {
+      command: "npm run dev",
+      exitCode: 0,
+      output: "done",
+      durationMs: 1_000,
+    });
+    expect(getJobWakeupRemainingMs(chatId, jobId)).toBeNull();
+
+    clearBackgroundCommandsForChat(chatId);
+    clearScheduledWakeupsForChat(chatId);
   });
 });
 

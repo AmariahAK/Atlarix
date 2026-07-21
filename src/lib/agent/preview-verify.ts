@@ -1,9 +1,9 @@
 /**
- * Preview runtime-error completion gate (mirrors `mutation-verify.ts`).
+ * App runtime-error completion gate (mirrors `mutation-verify.ts`).
  *
- * A build/debug turn must not end "done" while the live preview is throwing
- * RUNTIME errors — a white-screen, a dead renderer, or API calls returning
- * 4xx/5xx. The agent's prose-only completion gate consults
+ * A build/debug turn must not end "done" while the app (open in a browser tab)
+ * is throwing RUNTIME errors — a white-screen, a dead renderer, or API calls
+ * returning 4xx/5xx. The agent's prose-only completion gate consults
  * `getPreviewRuntimeFeedback(turnId)`; a non-null result blocks the turn end and
  * nudges a fix (bounded by the same nudge budget that protects the loop).
  *
@@ -13,9 +13,9 @@
  * dead renderer, failed network) so the gate can't trap the agent on dev noise.
  */
 import {
-  getPreviewErrors,
-  getPreviewView,
-  type PreviewErrorEntry,
+  getBrowserSurfaceErrors,
+  getActiveTabView,
+  type BrowserSurfaceError,
 } from "@/ipc/utils/browser_view_manager";
 import { detectBlankRender } from "@/lib/browser/visual-lint";
 
@@ -26,9 +26,9 @@ import { detectBlankRender } from "@/lib/browser/visual-lint";
  * the current one.
  */
 export function blockingPreviewErrors(
-  entries: PreviewErrorEntry[],
+  entries: BrowserSurfaceError[],
   sinceTs = 0,
-): PreviewErrorEntry[] {
+): BrowserSurfaceError[] {
   return entries.filter((e) => {
     if (e.timestamp < sinceTs) return false;
     if (e.type === "console-error") return e.level === "error";
@@ -63,7 +63,7 @@ const MAX_GATE_ERRORS_SHOWN = 8;
  */
 export function getPreviewRuntimeFeedback(turnId: string): string | null {
   const baseline = previewBaselineByTurn.get(turnId) ?? 0;
-  const blocking = blockingPreviewErrors(getPreviewErrors(), baseline);
+  const blocking = blockingPreviewErrors(getBrowserSurfaceErrors(), baseline);
   if (blocking.length === 0) return null;
   const lines = blocking
     .slice(0, MAX_GATE_ERRORS_SHOWN)
@@ -73,8 +73,8 @@ export function getPreviewRuntimeFeedback(turnId: string): string | null {
       ? `\n…and ${blocking.length - MAX_GATE_ERRORS_SHOWN} more.`
       : "";
   return (
-    `The live preview is currently throwing ${blocking.length} runtime ` +
-    `error(s) — the app is broken (white-screen / failed request / crash):\n` +
+    `The app (open in a browser tab) is currently throwing ${blocking.length} runtime ` +
+    `error(s) — it's broken (white-screen / failed request / crash):\n` +
     lines.join("\n") +
     more +
     `\nFix the cause and re-verify with preview_test (or browser_inspect ` +
@@ -93,12 +93,12 @@ export function getPreviewRuntimeFeedback(turnId: string): string | null {
 export async function getPreviewVisualFeedback(
   _turnId: string,
 ): Promise<string | null> {
-  const view = getPreviewView();
+  const view = getActiveTabView();
   if (!view) return null;
   const blank = await detectBlankRender(view.webContents);
   if (!blank?.blank) return null;
   return (
-    `The live preview is rendering BLANK (${blank.reason}) — the app compiles but ` +
+    `The app (open in a browser tab) is rendering BLANK (${blank.reason}) — it compiles but ` +
     `shows a white screen. Find why nothing rendered (a crashing root component, an ` +
     `unmounted app, a routing miss) and fix it, then re-check with browser_inspect ` +
     `mode:"visual" before finishing.`

@@ -401,7 +401,7 @@ function PanelContent({
                     </p>
                     <ul className="text-xs mt-3 space-y-1 text-left">
                         <li><strong>Search</strong> - Web search results</li>
-                        <li><strong>Preview</strong> - Live preview</li>
+                        <li><strong>Browser</strong> - Run and inspect your app</li>
                     </ul>
                     <p className="text-xs mt-4 opacity-60">
                         Content will appear here as you chat

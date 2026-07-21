@@ -14,45 +14,20 @@ import { FitAddon } from "@xterm/addon-fit";
 import { SerializeAddon } from "@xterm/addon-serialize";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import "@xterm/xterm/css/xterm.css";
-import { getDefaultStore } from "jotai";
-import {
-  devServerUrlAtom,
-  previewTabAtom,
-  rightPanelVisibleAtom,
-} from "@/atoms/sourceAtoms";
 import { IpcClient } from "@/ipc/ipc_client";
 import { Button } from "@/components/ui/button";
 import { writeTerminalToDataTransfer } from "@/lib/chat/terminal-line-buffer";
-
-/** localhost-ish URLs open in the Preview tab; everything else in the browser. */
-function isLocalDevUrl(uri: string): boolean {
-  try {
-    const { hostname } = new URL(uri);
-    return (
-      hostname === "localhost" ||
-      hostname === "127.0.0.1" ||
-      hostname === "0.0.0.0" ||
-      hostname === "[::1]" ||
-      hostname === "::1" ||
-      hostname.endsWith(".localhost")
-    );
-  } catch {
-    return false;
-  }
-}
+import { openUrlInBrowserTab, isOpenableInBrowserTab } from "@/lib/browser/open-in-browser-tab";
 
 /**
- * Route a clicked terminal link: dev-server URLs → Preview tab (it's the
- * user's own app, iframe-safe); external URLs → system browser. Cmd/Ctrl+click
- * forces the browser for both.
+ * Route a clicked terminal link: plain click on an http(s) URL (including the
+ * user's dev server) → open it as an in-app Browser tab; Cmd/Ctrl+click → the
+ * system browser. Non-http(s) links always go to the system handler.
  */
 function handleTerminalLink(event: MouseEvent, uri: string): void {
-  const forceBrowser = event.metaKey || event.ctrlKey;
-  if (!forceBrowser && isLocalDevUrl(uri)) {
-    const store = getDefaultStore();
-    store.set(devServerUrlAtom, uri);
-    store.set(previewTabAtom, "preview");
-    store.set(rightPanelVisibleAtom, true);
+  const forceExternal = event.metaKey || event.ctrlKey;
+  if (!forceExternal && isOpenableInBrowserTab(uri)) {
+    openUrlInBrowserTab(uri);
     return;
   }
   void IpcClient.getInstance().openExternalUrl(uri);
@@ -125,7 +100,7 @@ function getOrCreateTerm(instanceId: string): CachedTerm {
   term.loadAddon(fit);
   const serialize = new SerializeAddon();
   term.loadAddon(serialize);
-  // Clickable links: localhost → Preview tab, external → browser (Cmd/Ctrl+click forces browser).
+  // Clickable links: http(s) URL → in-app Browser tab; Cmd/Ctrl+click → system browser.
   term.loadAddon(new WebLinksAddon(handleTerminalLink));
 
   const ipc = IpcClient.getInstance();

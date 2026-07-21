@@ -26,6 +26,10 @@ interface ScheduledWakeup {
   note: string;
   firesAt: number;
   timer: ReturnType<typeof setTimeout>;
+  /** Set when this wake-up is tied to a specific background job (Part 2). A
+   * job-tied wake-up is auto-cancelled when the job finishes and its fired
+   * nudge names the job so the model re-checks that exact job. */
+  jobId?: string;
 }
 
 const timersByChat = new Map<number, Map<string, ScheduledWakeup>>();
@@ -58,6 +62,16 @@ export function scheduleWakeup(
   delayMs: number,
   note: string,
 ): { id: string; firesInMs: number } | { error: string } {
+  return scheduleInternal(chatId, delayMs, note, undefined);
+}
+
+/** Shared scheduler for both free-standing self-wakes and job-tied timers. */
+function scheduleInternal(
+  chatId: number,
+  delayMs: number,
+  note: string,
+  jobId: string | undefined,
+): { id: string; firesInMs: number } | { error: string } {
   let chatTimers = timersByChat.get(chatId);
   if (chatTimers && chatTimers.size >= MAX_PENDING_PER_CHAT) {
     return {
@@ -67,10 +81,12 @@ export function scheduleWakeup(
   const clamped = clampWakeupDelayMs(delayMs);
   const id = `wake-${chatId}-${++seq}`;
   const trimmedNote = note?.trim() ? note.trim() : "(no note)";
+  // A job-tied nudge names the job so the model re-checks that exact job.
+  const nudgeText = jobId ? `job "${jobId}": ${trimmedNote}` : trimmedNote;
   const timer = setTimeout(() => {
     timersByChat.get(chatId)?.delete(id);
     const list = nudgesByChat.get(chatId) ?? [];
-    list.push(trimmedNote);
+    list.push(nudgeText);
     nudgesByChat.set(chatId, list.slice(-MAX_PENDING_PER_CHAT));
     notifier?.(chatId, { operationId: id, status: "scheduled" });
   }, clamped);
@@ -80,8 +96,80 @@ export function scheduleWakeup(
     chatTimers = new Map();
     timersByChat.set(chatId, chatTimers);
   }
-  chatTimers.set(id, { id, note: trimmedNote, firesAt: Date.now() + clamped, timer });
+  chatTimers.set(id, { id, note: trimmedNote, firesAt: Date.now() + clamped, timer, jobId });
   return { id, firesInMs: clamped };
+}
+
+// ── Job-tied wake timers (Part 2) ────────────────────────────────────────────
+// A live countdown the model can see + adjust on a specific background job.
+// Backed by the same registry (so `firesAt − now` is the "96s left" value); a
+// finished job cancels its timer (see background-commands.recordBackground
+// CommandResult) so timers can't orphan or pile up.
+
+/** Find the (single) outstanding wake-up tied to a job, if any. */
+function findJobWakeup(chatId: number, jobId: string): ScheduledWakeup | undefined {
+  const chatTimers = timersByChat.get(chatId);
+  if (!chatTimers) return undefined;
+  for (const w of chatTimers.values()) if (w.jobId === jobId) return w;
+  return undefined;
+}
+
+/**
+ * Set (or REPLACE — dedupe) the wake timer for a background job. Any existing
+ * timer for that job is cancelled first so a job never accumulates multiple
+ * timers. Returns the clamped delay actually used, or an error if the chat is
+ * at its wake-up cap.
+ */
+export function setJobWakeup(
+  chatId: number,
+  jobId: string,
+  delayMs: number,
+  note: string,
+): { firesInMs: number } | { error: string } {
+  cancelJobWakeups(chatId, jobId);
+  const res = scheduleInternal(chatId, delayMs, note, jobId);
+  if ("error" in res) return res;
+  return { firesInMs: res.firesInMs };
+}
+
+/**
+ * Adjust a job's existing timer by a delta (positive = later, negative =
+ * sooner), clamped to the 60s–4h window off the CURRENT remaining time.
+ * Returns the new remaining ms, or null if the job has no timer.
+ */
+export function adjustJobWakeup(
+  chatId: number,
+  jobId: string,
+  deltaMs: number,
+): { firesInMs: number } | null {
+  const existing = findJobWakeup(chatId, jobId);
+  if (!existing) return null;
+  const remaining = Math.max(0, existing.firesAt - Date.now());
+  const res = setJobWakeup(chatId, jobId, remaining + deltaMs, existing.note);
+  if ("error" in res) return null;
+  return { firesInMs: res.firesInMs };
+}
+
+/** Live "time left" on a job's timer, or null if it has none. */
+export function getJobWakeupRemainingMs(chatId: number, jobId: string): number | null {
+  const existing = findJobWakeup(chatId, jobId);
+  if (!existing) return null;
+  return Math.max(0, existing.firesAt - Date.now());
+}
+
+/** Cancel every timer tied to a job (on adjust-replace or job finish). */
+export function cancelJobWakeups(chatId: number, jobId: string): number {
+  const chatTimers = timersByChat.get(chatId);
+  if (!chatTimers) return 0;
+  let cancelled = 0;
+  for (const [id, w] of chatTimers) {
+    if (w.jobId === jobId) {
+      clearTimeout(w.timer);
+      chatTimers.delete(id);
+      cancelled++;
+    }
+  }
+  return cancelled;
 }
 
 /**

@@ -20,6 +20,7 @@ import {
   setWakeCondition,
   setAllowStalled,
 } from "@/lib/agent/background-commands";
+import { setJobWakeup, adjustJobWakeup } from "@/lib/agent/scheduled-wakeups";
 
 type WithChat<T> = T & { _chatSessionId?: number };
 
@@ -38,18 +39,21 @@ ToolRegistry.register({
     "operation:\"cancel\" — stop `job_id`. " +
     "operation:\"watch\" — attach a wake condition to a running `job_id`: pass `wake_on` and you'll be woken when its output contains that text (prefer this over polling). " +
     "operation:\"allow_stalled\" — mark a running `job_id` as expected-to-be-quiet (a dev server / watcher / long service): stop the harness pinging you when it goes silent. It still runs and you still get its exit result. " +
-    "Finished jobs are delivered to you automatically — use this only to peek at, watch, allow_stalled, or stop STILL-RUNNING jobs; never poll on a loop.",
+    "operation:\"wake_in\" — set/replace a live countdown timer on a running `job_id`: pass `seconds` and you'll be re-engaged then to re-check THAT job (only ONE timer per job — setting again replaces it, so timers never pile up). Prefer wake_on when the event is observable in output; use this for a timed re-check. " +
+    "operation:\"adjust_timer\" — add/subtract time on a job's existing countdown: pass `delta_seconds` (negative = sooner). " +
+    "\"list\" shows `wake_in_s` (the live seconds left) for any job that has a timer; a job's timer is auto-removed when it finishes. " +
+    "Finished jobs are delivered to you automatically — use this only to peek at, watch, allow_stalled, time, or stop STILL-RUNNING jobs; never poll on a loop.",
   parameters: {
     type: "object",
     properties: {
       operation: {
         type: "string",
-        enum: ["list", "output", "cancel", "watch", "allow_stalled"],
-        description: "What to do: list running jobs, read a job's new output, cancel a job, watch a job for an output condition, or allow_stalled a job (stop being pinged about it going quiet).",
+        enum: ["list", "output", "cancel", "watch", "allow_stalled", "wake_in", "adjust_timer"],
+        description: "What to do: list running jobs, read a job's new output, cancel a job, watch a job for an output condition, allow_stalled a job (stop being pinged about it going quiet), wake_in (set a countdown timer to re-check the job), or adjust_timer (change the job's countdown).",
       },
       job_id: {
         type: "string",
-        description: "The background job id (returned by run_command background:true) — required for \"output\", \"cancel\", and \"watch\".",
+        description: "The background job id (returned by run_command background:true) — required for \"output\", \"cancel\", \"watch\", \"wake_in\", and \"adjust_timer\".",
       },
       wake_on: {
         type: "string",
@@ -58,6 +62,14 @@ ToolRegistry.register({
       wake_on_regex: {
         type: "boolean",
         description: "Treat wake_on as a case-insensitive regex instead of a substring.",
+      },
+      seconds: {
+        type: "number",
+        description: "For operation:\"wake_in\" — how many seconds from now to re-engage you to re-check this job (clamped to 60–14400).",
+      },
+      delta_seconds: {
+        type: "number",
+        description: "For operation:\"adjust_timer\" — seconds to add (positive) or subtract (negative) from the job's existing countdown.",
       },
     },
     required: ["operation"],
@@ -68,6 +80,8 @@ ToolRegistry.register({
       job_id?: string;
       wake_on?: string;
       wake_on_regex?: boolean;
+      seconds?: number;
+      delta_seconds?: number;
     }>,
   ) => {
     const chatId = args._chatSessionId;
@@ -85,6 +99,8 @@ ToolRegistry.register({
           job_id: j.operationId,
           command: j.command,
           elapsed_s: Math.round(j.elapsedMs / 1000),
+          // Live countdown ("96s left") for jobs that have a wake timer.
+          ...(j.wakeInMs != null ? { wake_in_s: Math.round(j.wakeInMs / 1000) } : {}),
         })),
         note: jobs.length === 0 ? "No background jobs are running." : undefined,
       };
@@ -171,9 +187,46 @@ ToolRegistry.register({
         : { success: false, error: `No running job "${jobId}" to allow_stalled.` };
     }
 
+    if (operation === "wake_in") {
+      // Only time a job that's actually running (else the timer would orphan).
+      const running = listBackgroundJobs(chatId).some((j) => j.operationId === jobId);
+      if (!running) {
+        return { success: false, error: `No running job "${jobId}" to time.` };
+      }
+      const seconds = Number(args.seconds);
+      if (!Number.isFinite(seconds) || seconds <= 0) {
+        return { success: false, error: `operation:"wake_in" requires seconds > 0.` };
+      }
+      const res = setJobWakeup(chatId, jobId, seconds * 1000, `re-check background job ${jobId}`);
+      if ("error" in res) return { success: false, error: res.error };
+      return {
+        success: true,
+        job_id: jobId,
+        wake_in_s: Math.round(res.firesInMs / 1000),
+        note: "Countdown set (only one per job — this replaced any prior timer). Keep doing other work; you'll be re-engaged to re-check this job when it fires, and the timer auto-clears when the job finishes.",
+      };
+    }
+
+    if (operation === "adjust_timer") {
+      const delta = Number(args.delta_seconds);
+      if (!Number.isFinite(delta) || delta === 0) {
+        return { success: false, error: `operation:"adjust_timer" requires a non-zero delta_seconds.` };
+      }
+      const res = adjustJobWakeup(chatId, jobId, delta * 1000);
+      if (!res) {
+        return { success: false, error: `No timer on job "${jobId}" to adjust — set one with operation:"wake_in" first.` };
+      }
+      return {
+        success: true,
+        job_id: jobId,
+        wake_in_s: Math.round(res.firesInMs / 1000),
+        note: "Countdown adjusted.",
+      };
+    }
+
     return {
       success: false,
-      error: `Unknown operation "${String(operation)}". Use "list", "output", "cancel", "watch", or "allow_stalled".`,
+      error: `Unknown operation "${String(operation)}". Use "list", "output", "cancel", "watch", "allow_stalled", "wake_in", or "adjust_timer".`,
     };
   },
 });

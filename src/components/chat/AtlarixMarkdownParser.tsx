@@ -15,6 +15,11 @@ import { CustomTagState } from "./stateTypes";
 import { AtlarixOutput } from "./AtlarixOutput";
 import { AtlarixProblemSummary } from "./AtlarixProblemSummary";
 import { IpcClient } from "@/ipc/ipc_client";
+import {
+  openUrlInBrowserTab,
+  isOpenableInBrowserTab,
+} from "@/lib/browser/open-in-browser-tab";
+import { LOCALHOST_URL_RE } from "@/lib/browser/localhost-url";
 import { AtlarixWebSearchResult } from "./AtlarixWebSearchResult";
 import { AtlarixWebSearch } from "./AtlarixWebSearch";
 import { AtlarixWebCrawl } from "./AtlarixWebCrawl";
@@ -67,21 +72,37 @@ const customLink = ({
     {...props}
     onClick={(e) => {
       const url = props.href;
-      if (url) {
-        e.preventDefault();
+      if (!url) return;
+      e.preventDefault();
+      // Plain click on an http(s) URL (incl. the user's localhost app) opens it
+      // as an in-app Browser tab; Cmd/Ctrl+click sends it to the system browser.
+      if (!(e.metaKey || e.ctrlKey) && isOpenableInBrowserTab(url)) {
+        openUrlInBrowserTab(url);
+      } else {
         IpcClient.getInstance().openExternalUrl(url);
       }
     }}
   />
 );
 
+// A bare localhost:PORT URL (LOCALHOST_URL_RE) OR an "@/path:line" mention. The
+// localhost pattern lets the user/agent click a schemeless dev-server URL in
+// prose to open it in an in-app browser tab (remark-gfm only autolinks full
+// http(s):// URLs → those go through customLink).
+const TOKEN_RE = new RegExp(
+  `@\\/[^\\s]+?(?::\\d+(?:-\\d+)?)?|${LOCALHOST_URL_RE.source}`,
+  "g",
+);
+
 function renderTextWithPathMentions(children: React.ReactNode) {
   const raw = typeof children === "string" ? children : String(children ?? "");
-  if (!raw.includes("@/")) return children;
+  if (!raw.includes("@/") && !new RegExp(LOCALHOST_URL_RE.source).test(raw))
+    return children;
 
-  // Render "@/absolute/path:line-range" as inline code without the leading "@".
+  // Render "@/absolute/path:line-range" as inline code (no leading "@"), and
+  // bare localhost:PORT URLs as a highlighted link that opens an in-app browser tab.
   const parts: React.ReactNode[] = [];
-  const re = /@\/[^\s]+?(?::\d+(?:-\d+)?)?/g;
+  const re = new RegExp(TOKEN_RE.source, "g");
   let last = 0;
   let m: RegExpExecArray | null;
   while ((m = re.exec(raw)) !== null) {
@@ -89,11 +110,30 @@ function renderTextWithPathMentions(children: React.ReactNode) {
     const end = start + m[0].length;
     if (start > last) parts.push(raw.slice(last, start));
     const token = m[0];
-    parts.push(
-      <code key={`${start}-${end}`} className="font-mono text-xs bg-muted px-1 py-0.5 rounded">
-        {token.slice(1)}
-      </code>,
-    );
+    if (token.startsWith("@/")) {
+      parts.push(
+        <code key={`${start}-${end}`} className="font-mono text-xs bg-muted px-1 py-0.5 rounded">
+          {token.slice(1)}
+        </code>,
+      );
+    } else {
+      const href = `http://${token}`;
+      parts.push(
+        <a
+          key={`${start}-${end}`}
+          href={href}
+          onClick={(e) => {
+            e.preventDefault();
+            if (!(e.metaKey || e.ctrlKey)) openUrlInBrowserTab(href);
+            else IpcClient.getInstance().openExternalUrl(href);
+          }}
+          className="font-mono text-xs text-primary underline decoration-dotted underline-offset-2 hover:decoration-solid cursor-pointer"
+          title="Open in the in-app browser (⌘/Ctrl+click for system browser)"
+        >
+          {token}
+        </a>,
+      );
+    }
     last = end;
   }
   if (last < raw.length) parts.push(raw.slice(last));

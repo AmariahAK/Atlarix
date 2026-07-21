@@ -15,7 +15,11 @@
  */
 
 import type { ChildProcess } from "node:child_process";
-import { hasActiveScheduledWakeup } from "@/lib/agent/scheduled-wakeups";
+import {
+  hasActiveScheduledWakeup,
+  cancelJobWakeups,
+  getJobWakeupRemainingMs,
+} from "@/lib/agent/scheduled-wakeups";
 
 export type BackgroundJobStatus =
   | "running"
@@ -99,6 +103,8 @@ export interface BackgroundJobInfo {
   stalled?: boolean;
   /** v14.8.10: this job's `wake_on` condition has matched. */
   wakeMatched?: boolean;
+  /** Live "time left" (ms) on a job-tied wake timer, if one is set (Part 2). */
+  wakeInMs?: number;
 }
 
 const OUTPUT_TAIL_CAP = 8_000;
@@ -375,6 +381,8 @@ export function recordBackgroundCommandResult(
 ): void {
   runningJobsByChat.get(chatId)?.delete(operationId);
   stalledNotified.delete(operationId);
+  // No orphan timers: a finished job drops any wake timer tied to it (Part 2).
+  cancelJobWakeups(chatId, operationId);
   stopStallWatchdogIfIdle();
   const wasCancelled = cancelledOps.delete(operationId);
   const list = resultsByChat.get(chatId) ?? [];
@@ -413,6 +421,7 @@ export function listBackgroundJobs(chatId: number): BackgroundJobInfo[] {
     // Surface live status flags so the UI can badge without a separate pull.
     stalled: stalledNotified.has(j.operationId),
     wakeMatched: !!j.wakeMatched,
+    wakeInMs: getJobWakeupRemainingMs(chatId, j.operationId) ?? undefined,
   }));
 }
 

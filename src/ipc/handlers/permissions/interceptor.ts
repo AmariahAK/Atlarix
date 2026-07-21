@@ -1257,32 +1257,6 @@ export class PermissionInterceptor extends EventEmitter {
         }
     }
 
-    /** Set once we've pointed the preview at a detected localhost URL this run. */
-    private previewUrlWired = false;
-
-    /**
-     * Generic preview wiring (no dev-server hardcoding): when a (background)
-     * command prints the first http://localhost:PORT / 127.0.0.1:PORT, point the
-     * preview at it so the preview WebContentsView loads the running app. Works
-     * for ANY server that prints a URL. Set-once per interceptor run.
-     */
-    private maybeWirePreviewUrl(output: string): void {
-        if (this.previewUrlWired) return;
-        // Strip ANSI so the URL regex matches colored dev-server banners.
-        const stripped = output.replace(/\[[0-9;]*m/g, "");
-        const m = stripped.match(
-            /https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?(?:\/[^\s'"]*)?/i,
-        );
-        if (!m) return;
-        this.previewUrlWired = true;
-        try {
-            const win = BrowserWindow.getAllWindows().find((w) => !w.isDestroyed());
-            win?.webContents.send("preview:dev-url", { url: m[0] });
-        } catch {
-            /* best-effort */
-        }
-    }
-
     /**
      * Build the per-OS sandbox options for an agent run_command, or undefined to
      * run unsandboxed. Default ON; disabled by `sandboxRunCommand: false` in
@@ -1640,7 +1614,6 @@ export class PermissionInterceptor extends EventEmitter {
                     status: 'running' as const,
                     background: promoted,
                 });
-                this.maybeWirePreviewUrl(accOutput);
             },
         })
             .then(async (resultIn) => {

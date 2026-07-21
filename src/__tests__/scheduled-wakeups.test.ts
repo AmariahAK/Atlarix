@@ -6,6 +6,10 @@ import {
   hasPendingScheduledWakeupNudges,
   clearScheduledWakeupsForChat,
   setScheduledWakeupNotifier,
+  setJobWakeup,
+  adjustJobWakeup,
+  getJobWakeupRemainingMs,
+  cancelJobWakeups,
 } from "@/lib/agent/scheduled-wakeups";
 
 beforeEach(() => vi.useFakeTimers());
@@ -73,6 +77,81 @@ describe("scheduled-wakeups (R1)", () => {
     vi.advanceTimersByTime(600_000);
     expect(fired).toHaveLength(0);
     expect(hasPendingScheduledWakeupNudges(chatId)).toBe(false);
+  });
+
+  describe("job-tied wake timers (Part 2)", () => {
+    it("setJobWakeup dedupes: a second set replaces the first (one timer per job)", () => {
+      const chatId = 7101;
+      const jobId = "job-a";
+      clearScheduledWakeupsForChat(chatId);
+
+      const first = setJobWakeup(chatId, jobId, 120_000, "check A");
+      expect("firesInMs" in first && first.firesInMs).toBe(120_000);
+      expect(getJobWakeupRemainingMs(chatId, jobId)).toBe(120_000);
+
+      // Advance a bit, then replace — remaining resets to the NEW delay, not additive.
+      vi.advanceTimersByTime(30_000);
+      const second = setJobWakeup(chatId, jobId, 90_000, "check A again");
+      expect("firesInMs" in second && second.firesInMs).toBe(90_000);
+      expect(getJobWakeupRemainingMs(chatId, jobId)).toBe(90_000);
+
+      clearScheduledWakeupsForChat(chatId);
+    });
+
+    it("getJobWakeupRemainingMs counts down and returns null when absent", () => {
+      const chatId = 7102;
+      clearScheduledWakeupsForChat(chatId);
+      expect(getJobWakeupRemainingMs(chatId, "nope")).toBeNull();
+
+      setJobWakeup(chatId, "job-b", 100_000, "b");
+      vi.advanceTimersByTime(40_000);
+      expect(getJobWakeupRemainingMs(chatId, "job-b")).toBe(60_000);
+
+      clearScheduledWakeupsForChat(chatId);
+    });
+
+    it("adjustJobWakeup moves firesAt off the remaining time and clamps", () => {
+      const chatId = 7103;
+      const jobId = "job-c";
+      clearScheduledWakeupsForChat(chatId);
+      expect(adjustJobWakeup(chatId, jobId, 30_000)).toBeNull(); // no timer yet
+
+      setJobWakeup(chatId, jobId, 120_000, "c");
+      vi.advanceTimersByTime(20_000); // 100_000 remaining
+      const later = adjustJobWakeup(chatId, jobId, 30_000);
+      expect(later && later.firesInMs).toBe(130_000);
+
+      // Subtracting below the 60s floor clamps up to 60_000.
+      const sooner = adjustJobWakeup(chatId, jobId, -999_000);
+      expect(sooner && sooner.firesInMs).toBe(60_000);
+
+      clearScheduledWakeupsForChat(chatId);
+    });
+
+    it("cancelJobWakeups clears the job's timer(s) and stops the fire", () => {
+      const chatId = 7104;
+      const jobId = "job-d";
+      clearScheduledWakeupsForChat(chatId);
+      setJobWakeup(chatId, jobId, 120_000, "d");
+      expect(cancelJobWakeups(chatId, jobId)).toBe(1);
+      expect(getJobWakeupRemainingMs(chatId, jobId)).toBeNull();
+
+      vi.advanceTimersByTime(600_000);
+      expect(hasPendingScheduledWakeupNudges(chatId)).toBe(false);
+      clearScheduledWakeupsForChat(chatId);
+    });
+
+    it("a fired job-tied wake-up names the job in its nudge", () => {
+      const chatId = 7105;
+      const jobId = "npm-run-dev";
+      clearScheduledWakeupsForChat(chatId);
+      setJobWakeup(chatId, jobId, 90_000, "is it listening yet?");
+      vi.advanceTimersByTime(90_000);
+      const nudge = takePendingScheduledWakeupNudges(chatId)!;
+      expect(nudge).toContain(`job "${jobId}"`);
+      expect(nudge).toContain("is it listening yet?");
+      clearScheduledWakeupsForChat(chatId);
+    });
   });
 
   it("schedule_wakeup tool is registered, clamps, and needs chat context", async () => {

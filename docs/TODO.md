@@ -1,26 +1,22 @@
 # Atlarix TODO
 
-**Current Version:** v14.14.0 (RELEASED — Latest on atlarix-releases; auto-update verified live) — Core web search + outside-workspace tool access + permission-write resilience + dead compass-usage removal + dep de-dep + prompt trim.
-**Last Updated:** 2026-07-20
+**Current Version:** v14.15.0 (RELEASING 2026-07-21) — Preview tab removed → unified on the in-app Browser (richer error capture with stack traces); per-job live wake timer; screenshot capture fix; universal sandbox write-escalation; Supabase idle-ping reduction; keyboard shortcuts; device-spec injection.
+**Last Updated:** 2026-07-21
 
-## 🚧 In progress — Universal sandbox write-escalation (unreleased)
+## ✅ SHIPPED in v14.15.0
 
-Fixes the `yarn install` `EPERM: mkdir '~/.yarn'` bug and adds escalation-on-denial for unlisted
-toolchains. `npm run check` 0/0, vitest 242 files / 1649 passed.
+- **Preview tab removed; unified on the Browser** — app runs in a Browser tab; error capture migrated onto
+  tabs + injected `[[ATLARIX_ERR]]` stack hook; clickable/linkified URLs (incl. `localhost:PORT`) open tabs.
+- **Per-job live wake timer** — `background_jobs` `wake_in`/`adjust_timer` + `wake_in_s`; auto-cleared on finish.
+- **Screenshot capture fix** — `browser_inspect(screenshot)` via `capturePaintable` works with the panel hidden.
+- **Universal sandbox write-escalation** — existence-prune fix + escalation-on-denial (re-run still sandboxed),
+  reusing `workspaceFilePermissions`/`sandbox_path`; CI fails loud on a non-compiling native helper.
+- **Supabase idle-ping reduction, keyboard shortcuts (Cmd+T/W/J/I/O), device-spec injection, allow_stalled,
+  code-block render fix.**
 
-- **DONE — existence-prune fix (all 3 OSes).** `wrap-command.ts` `defaultWritablePaths` splits
-  bind-must-exist vs grantable-even-if-missing; missing curated caches are granted anyway (macOS
-  prospective `(subpath …)`; Linux/Windows `mkdir -p` first). Verified end-to-end against real Seatbelt.
-- **DONE — escalation-on-denial (interactive).** `sandbox_escalation` permission op + `SandboxEscalationCard`;
-  `PermissionInterceptor.maybeEscalateSandboxDenial` parses the denied path from stderr, raises a
-  mid-run approval card, persists the grant per-workspace (reuses `workspaceFilePermissions` +
-  `sandbox_path` scope — no migration) and re-runs the command still sandboxed. **Wants packaged-app
-  verification** of the nested mid-turn card + retry.
-- **DONE — CI fail-loud.** `release.yml` fails the release if a native helper doesn't compile (override:
-  `ALLOW_UNSANDBOXED_RELEASE` repo var), instead of silently shipping unsandboxed.
-- **KEY FINDING:** macOS does NOT log custom `sandbox-exec` denials to the unified log, and `(with report)`
-  is rejected on `deny` rules — so stderr-parse is the capture channel on macOS too (same as Windows).
-- **PHASE 2 — Linux authoritative capture (WRITTEN, compiles; pending dev validation).**
+## ⏳ Open / deferred
+
+- **Linux authoritative denied-path supervisor — Phase 2 (WRITTEN, compiles, feature-gated OFF; pending dev validation).**
   `native/atlarix-sandbox-linux` gained a ptrace + seccomp(`SECCOMP_RET_TRACE`) supervisor that records
   write syscalls to paths outside the writable roots into a `--deny-report` file — for tools that swallow
   the path. **Feature-gated OFF** (`trace-supervisor`; optional nix/libc/seccompiler deps) + runtime-gated

@@ -1,11 +1,12 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import type { PreviewErrorEntry } from "@/ipc/utils/browser_view_manager";
+import type { BrowserSurfaceError } from "@/ipc/utils/browser_view_manager";
 
-// The gate reads the live preview-error buffer via getPreviewErrors(); mock it so
-// we can drive deterministic states.
-let mockErrors: PreviewErrorEntry[] = [];
+// The gate reads the browser-tab error buffer via getBrowserSurfaceErrors(); mock
+// it so we can drive deterministic states.
+let mockErrors: BrowserSurfaceError[] = [];
 vi.mock("@/ipc/utils/browser_view_manager", () => ({
-  getPreviewErrors: () => mockErrors,
+  getBrowserSurfaceErrors: () => mockErrors,
+  getActiveTabView: () => null,
 }));
 
 import {
@@ -16,10 +17,10 @@ import {
 } from "@/lib/agent/preview-verify";
 
 const err = (
-  type: PreviewErrorEntry["type"],
+  type: BrowserSurfaceError["type"],
   timestamp: number,
   level?: "error" | "warning",
-): PreviewErrorEntry => ({ type, message: `${type}@${timestamp}`, timestamp, level });
+): BrowserSurfaceError => ({ type, message: `${type}@${timestamp}`, timestamp, level });
 
 describe("blockingPreviewErrors", () => {
   it("keeps error-level console but DROPS warnings (React/Next dev noise)", () => {
