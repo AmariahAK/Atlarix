@@ -15,6 +15,7 @@ import {
   hasPendingBackgroundCommandResults,
   getFinishedBackgroundResult,
   setWakeCondition,
+  setAllowStalled,
   killAllBackgroundJobs,
 } from "@/lib/agent/background-commands";
 import {
@@ -179,11 +180,11 @@ describe("background-commands output-idle watchdog (A4)", () => {
     recordBackgroundCommandStart(chatId, "op-idle", "ssh prod tail -f log", Date.now());
     expect(statuses).toEqual(["running"]);
 
-    // 240s of silence — under the 300s threshold, no advisory yet.
-    vi.advanceTimersByTime(240_000);
+    // 120s of silence — under the 180s (3 min) threshold, no advisory yet.
+    vi.advanceTimersByTime(120_000);
     expect(hasPendingStalledAdvisories(chatId)).toBe(false);
 
-    // Cross 300s of silence (next 60s scan tick) — exactly one "stalled" advisory.
+    // Cross 180s of silence (next 60s scan tick) — exactly one "stalled" advisory.
     vi.advanceTimersByTime(120_000);
     expect(statuses.filter((s) => s === "stalled")).toHaveLength(1);
     expect(hasPendingStalledAdvisories(chatId)).toBe(true);
@@ -207,7 +208,7 @@ describe("background-commands output-idle watchdog (A4)", () => {
     expect(statuses.filter((s) => s === "stalled")).toHaveLength(1);
 
     // Output resumes → re-armed; a SECOND silent stretch re-advises. Advance
-    // past 300s of NEW silence AND across a 60s scan tick (the watchdog only
+    // past 180s of NEW silence AND across a 60s scan tick (the watchdog only
     // checks on its interval, so we land on a qualifying tick).
     updateBackgroundOutput(chatId, "op-idle", "some progress\n");
     vi.advanceTimersByTime(360_000);
@@ -265,6 +266,94 @@ describe("background-commands output-idle watchdog (A4)", () => {
     updateBackgroundOutput(chatId, "op-late", "info: ok\nFATAL: boom\n");
     vi.advanceTimersByTime(60_000);
     expect(statuses.filter((s) => s === "condition_met")).toHaveLength(1);
+    clearBackgroundCommandsForChat(chatId);
+  });
+
+  it("allow_stalled at START: a quiet-by-design job never fires a stall advisory", () => {
+    vi.useFakeTimers();
+    const chatId = 9110;
+    const statuses: string[] = [];
+    setBackgroundJobNotifier((cid, ev) => {
+      if (cid === chatId) statuses.push(ev.status);
+    });
+
+    // A dev server flagged allow_stalled at start.
+    recordBackgroundCommandStart(
+      chatId,
+      "op-server",
+      "python3 -m http.server 8765",
+      Date.now(),
+      undefined,
+      true, // allowStalled
+    );
+
+    // Way past the 180s threshold across many scan ticks — NO stall advisory.
+    vi.advanceTimersByTime(900_000);
+    expect(statuses.filter((s) => s === "stalled")).toHaveLength(0);
+    expect(hasPendingStalledAdvisories(chatId)).toBe(false);
+    // Still a normal running job (nothing else changed).
+    expect(hasRunningBackgroundCommands(chatId)).toBe(true);
+
+    clearBackgroundCommandsForChat(chatId);
+  });
+
+  it("allow_stalled STILL delivers wake_on + the exit result (only the nag is muted)", () => {
+    vi.useFakeTimers();
+    const chatId = 9111;
+    const statuses: string[] = [];
+    setBackgroundJobNotifier((cid, ev) => {
+      if (cid === chatId) statuses.push(ev.status);
+    });
+
+    recordBackgroundCommandStart(chatId, "op-svc", "npm run dev", Date.now(), {
+      pattern: "compiled successfully",
+    });
+    expect(setAllowStalled(chatId, "op-svc", true)).toBe(true);
+
+    // Quiet a long time → no stall nag (opted out)...
+    vi.advanceTimersByTime(600_000);
+    expect(statuses.filter((s) => s === "stalled")).toHaveLength(0);
+
+    // ...but wake_on still fires when the pattern appears.
+    updateBackgroundOutput(chatId, "op-svc", "compiled successfully in 1.1s\n");
+    vi.advanceTimersByTime(60_000);
+    expect(statuses.filter((s) => s === "condition_met")).toHaveLength(1);
+
+    // ...and the exit result is still delivered.
+    recordBackgroundCommandResult(chatId, "op-svc", {
+      command: "npm run dev",
+      exitCode: 0,
+      output: "done",
+      durationMs: 1,
+    });
+    const block = takePendingBackgroundCommandResults(chatId)!;
+    expect(block).toContain("npm run dev");
+    expect(block).toContain("succeeded");
+    clearBackgroundCommandsForChat(chatId);
+  });
+
+  it("setAllowStalled MID-RUN silences future stall pings after the first notice", () => {
+    vi.useFakeTimers();
+    const chatId = 9112;
+    const statuses: string[] = [];
+    setBackgroundJobNotifier((cid, ev) => {
+      if (cid === chatId) statuses.push(ev.status);
+    });
+
+    recordBackgroundCommandStart(chatId, "op-mid", "tail -f app.log", Date.now());
+    // First quiet stretch → the ONE pre-opt-out notice fires.
+    vi.advanceTimersByTime(240_000);
+    expect(statuses.filter((s) => s === "stalled")).toHaveLength(1);
+    takePendingStalledAdvisories(chatId);
+
+    // Model reads the logs, decides it's a quiet service → opts out.
+    expect(setAllowStalled(chatId, "op-mid", true)).toBe(true);
+    expect(setAllowStalled(chatId, "nope", true)).toBe(false);
+
+    // Even after output resumes then goes quiet again, NO further stall pings.
+    updateBackgroundOutput(chatId, "op-mid", "keepalive\n");
+    vi.advanceTimersByTime(600_000);
+    expect(statuses.filter((s) => s === "stalled")).toHaveLength(1);
     clearBackgroundCommandsForChat(chatId);
   });
 
@@ -343,7 +432,7 @@ describe("background-commands wait-timer coordination (WS1)", () => {
     });
 
     recordBackgroundCommandStart(chatId, "op-spin", "curl -O big.iso", Date.now());
-    // Cross 300s of silence → exactly one stall advisory.
+    // Cross 180s of silence → exactly one stall advisory.
     vi.advanceTimersByTime(360_000);
     expect(statuses.filter((s) => s === "stalled")).toHaveLength(1);
 

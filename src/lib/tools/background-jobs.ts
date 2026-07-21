@@ -18,6 +18,7 @@ import {
   killBackgroundJob,
   getFinishedBackgroundResult,
   setWakeCondition,
+  setAllowStalled,
 } from "@/lib/agent/background-commands";
 
 type WithChat<T> = T & { _chatSessionId?: number };
@@ -36,14 +37,15 @@ ToolRegistry.register({
     "operation:\"output\" — NEW output since your last check for `job_id` (incremental; running jobs only). " +
     "operation:\"cancel\" — stop `job_id`. " +
     "operation:\"watch\" — attach a wake condition to a running `job_id`: pass `wake_on` and you'll be woken when its output contains that text (prefer this over polling). " +
-    "Finished jobs are delivered to you automatically — use this only to peek at, watch, or stop STILL-RUNNING jobs; never poll on a loop.",
+    "operation:\"allow_stalled\" — mark a running `job_id` as expected-to-be-quiet (a dev server / watcher / long service): stop the harness pinging you when it goes silent. It still runs and you still get its exit result. " +
+    "Finished jobs are delivered to you automatically — use this only to peek at, watch, allow_stalled, or stop STILL-RUNNING jobs; never poll on a loop.",
   parameters: {
     type: "object",
     properties: {
       operation: {
         type: "string",
-        enum: ["list", "output", "cancel", "watch"],
-        description: "What to do: list running jobs, read a job's new output, cancel a job, or watch a job for an output condition.",
+        enum: ["list", "output", "cancel", "watch", "allow_stalled"],
+        description: "What to do: list running jobs, read a job's new output, cancel a job, watch a job for an output condition, or allow_stalled a job (stop being pinged about it going quiet).",
       },
       job_id: {
         type: "string",
@@ -157,9 +159,21 @@ ToolRegistry.register({
         : { success: false, error: `No running job "${jobId}" to watch.` };
     }
 
+    if (operation === "allow_stalled") {
+      const ok = setAllowStalled(chatId, jobId, true);
+      return ok
+        ? {
+            success: true,
+            job_id: jobId,
+            allow_stalled: true,
+            note: "Won't ping you about this job going quiet anymore — it keeps running and you still get its exit result (and any wake_on match). Continue other work.",
+          }
+        : { success: false, error: `No running job "${jobId}" to allow_stalled.` };
+    }
+
     return {
       success: false,
-      error: `Unknown operation "${String(operation)}". Use "list", "output", "cancel", or "watch".`,
+      error: `Unknown operation "${String(operation)}". Use "list", "output", "cancel", "watch", or "allow_stalled".`,
     };
   },
 });

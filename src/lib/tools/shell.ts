@@ -68,6 +68,9 @@ ToolRegistry.register({
             wake_on_regex: booleanParam(
                 "Treat wake_on as a case-insensitive regex instead of a plain substring.",
             ),
+            allow_stalled: booleanParam(
+                "This background job is expected to be quiet (a dev server / file watcher / long-running service that only prints on activity) — don't ping me about it going quiet. It still runs, still delivers its exit result, and wake_on still fires.",
+            ),
         },
         ["command", "description"]
     ),
@@ -80,6 +83,7 @@ ToolRegistry.register({
         background = false,
         wake_on,
         wake_on_regex = false,
+        allow_stalled = false,
     }) => {
         const dangerous = isDangerousCommand(command);
         const dangerExplanation = dangerous ? getDangerExplanation(command) : undefined;
@@ -100,6 +104,7 @@ ToolRegistry.register({
                     wake_on && String(wake_on).trim()
                         ? { pattern: String(wake_on), regex: wake_on_regex === true }
                         : undefined,
+                allow_stalled: allow_stalled === true,
             },
         };
     },

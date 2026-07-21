@@ -64,6 +64,14 @@ interface RunningJob {
   wakeOn?: WakeCondition;
   /** v14.8.10: set once the wake condition has fired (so it fires only once). */
   wakeMatched?: boolean;
+  /**
+   * Opt-out: this background job is EXPECTED to be quiet (dev server / watcher /
+   * long service) — the harness never fires the stall advisory for it. Does NOT
+   * change anything else: it still runs, its exit result is still delivered, and
+   * `wake_on` still fires. Set at start (run_command allow_stalled) or mid-run
+   * (background_jobs allow_stalled), on a new OR existing job.
+   */
+  allowStalled?: boolean;
 }
 
 /**
@@ -102,13 +110,15 @@ const MAX_QUEUED_PER_CHAT = 10;
  * the LLM stream's idle watchdog). Slow-but-progressing jobs reset the clock via
  * updateBackgroundOutput, so a chatty slow job never trips it.
  */
-// 5 min: advisory-only (never kills), so erring long is cheap. First-run Gradle
-// builds, cold Docker pulls, and CI installs routinely go quiet for 3–4 min
-// while downloading multi-GB SDKs/images without being stuck. 3 min was too
-// eager (it woke the agent, which then cancelled a healthy build); 5 min
-// suppresses that false "possibly stuck" noise while still surfacing a genuine
-// hang in reasonable time.
-const OUTPUT_IDLE_THRESHOLD_MS = 300_000;
+// 3 min: advisory-only (never kills). A quiet job is USUALLY still working
+// (first-run Gradle builds / cold Docker pulls / CI installs go silent for
+// minutes while downloading), so the notice fires ONCE, points at the opt-out,
+// and never implies "stuck". 3 min was previously too eager only because the
+// agent's response was destructive (it woke and cancelled a healthy build);
+// `allow_stalled` gives it a non-destructive response, so informing sooner is
+// safe — the model just sets allow_stalled on a quiet-by-design job (dev server
+// / watcher / long service) and is never pinged about it again.
+const OUTPUT_IDLE_THRESHOLD_MS = 180_000;
 /** How often the watchdog scans running jobs (cadence, not the threshold). */
 const STALL_CHECK_INTERVAL_MS = 60_000;
 
@@ -204,6 +214,11 @@ function scanForStalledJobs(): void {
         notify(chatId, job.operationId, "condition_met");
       }
 
+      // Opted out: this background job is allowed to be quiet (dev server /
+      // watcher / long service). Never fire the stall advisory for it — wake_on
+      // (above) and the finish result are unaffected; only the nag is muted.
+      if (job.allowStalled) continue;
+
       // Snooze the idle-stall backstop while the model is deliberately waiting.
       if (wakeupActive) continue;
       const idleMs = now - job.lastOutputAt;
@@ -244,6 +259,7 @@ export function recordBackgroundCommandStart(
   command: string,
   startedAt: number,
   wakeOn?: WakeCondition,
+  allowStalled?: boolean,
 ): void {
   const jobs = runningJobsByChat.get(chatId) ?? new Map<string, RunningJob>();
   jobs.set(operationId, {
@@ -255,6 +271,7 @@ export function recordBackgroundCommandStart(
     readCursor: 0,
     lastOutputAt: startedAt,
     ...(wakeOn ? { wakeOn } : {}),
+    ...(allowStalled ? { allowStalled: true } : {}),
   });
   runningJobsByChat.set(chatId, jobs);
   ensureStallWatchdog();
@@ -275,6 +292,25 @@ export function setWakeCondition(
   if (!job) return false;
   job.wakeOn = wakeOn;
   job.wakeMatched = false;
+  return true;
+}
+
+/**
+ * Allow an already-running background job to go quiet without the harness pinging
+ * about it (the mid-run opt-out; run_command sets it at start). Clears any pending
+ * stall flag for the job. Returns false if no such running job. Only the stall nag
+ * is muted — the job still runs, still delivers its exit result, and `wake_on`
+ * still fires.
+ */
+export function setAllowStalled(
+  chatId: number,
+  operationId: string,
+  value = true,
+): boolean {
+  const job = runningJobsByChat.get(chatId)?.get(operationId);
+  if (!job) return false;
+  job.allowStalled = value;
+  if (value) stalledNotified.delete(operationId);
   return true;
 }
 
@@ -516,13 +552,13 @@ export function takePendingStalledAdvisories(chatId: number): string | null {
           `Background job ${a.operationId} has produced no output for ${Math.round(a.idleMs / 1000)}s but is STILL RUNNING. For builds, installs, downloads, dependency fetches, and long test suites this is NORMAL — a quiet job is usually working, not stuck (a first Gradle build or an npm/pip install can be silent for minutes while it downloads).`,
           `$ ${a.command}`,
           a.outputTail ? "```\n" + a.outputTail + "\n```" : "(no output yet)",
-          `Prefer to KEEP WAITING: call schedule_wakeup to re-check it later so you don't hold the turn open, then continue or end your turn. Only cancel (background_jobs {operation:"cancel", job_id:"${a.operationId}"}) if the USER asked you to stop it, or you have concrete evidence it is genuinely hung (e.g. a deadlock/error in the output). Do NOT cancel just because it is quiet, and do NOT report work as done that this job has not finished.`,
+          `Check its logs above. If this job is quiet BY DESIGN (a dev server, file watcher, or long-running service that only prints on activity), call background_jobs({operation:"allow_stalled", job_id:"${a.operationId}"}) — you'll stop being pinged about it going quiet (it keeps running and you still get its exit result). Otherwise prefer to KEEP WAITING: schedule_wakeup to re-check it later so you don't hold the turn open. Only cancel (background_jobs {operation:"cancel", job_id:"${a.operationId}"}) if the USER asked you to stop it, or you have concrete evidence it is genuinely hung (e.g. a deadlock/error in the output). Do NOT cancel just because it is quiet, and do NOT report work as done that this job has not finished.`,
         ].join("\n"),
   );
   return [
     `[Background job advisory]`,
     blocks.join("\n\n"),
-    `Handle each job above before ending your turn — act on a matched condition; for a quiet-but-running job, prefer waiting (schedule_wakeup) over cancelling.`,
+    `Handle each job above before ending your turn — act on a matched condition; for a quiet-but-running job, set allow_stalled if it's quiet by design, else prefer waiting (schedule_wakeup) over cancelling.`,
   ].join("\n\n");
 }
 

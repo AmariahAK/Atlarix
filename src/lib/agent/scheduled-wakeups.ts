@@ -15,9 +15,9 @@
  * sub-agent registries. Timers are unref'd so they never keep the app alive.
  */
 
-/** Clamp window for a self-wake delay (matches Claude Code's ScheduleWakeup). */
+/** Clamp window for a self-wake delay. */
 const MIN_DELAY_MS = 60_000; // 60s
-const MAX_DELAY_MS = 3_600_000; // 1h
+const MAX_DELAY_MS = 14_400_000; // 4h — long builds/test-suites/deploys can exceed 1h
 /** Cap outstanding timers + queued nudges per chat (anti busy-loop). */
 const MAX_PENDING_PER_CHAT = 8;
 

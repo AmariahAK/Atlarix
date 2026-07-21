@@ -1529,6 +1529,8 @@ export class PermissionInterceptor extends EventEmitter {
         const wakeOn = (
             preview as { wake_on?: { pattern: string; regex?: boolean } }
         ).wake_on;
+        const allowStalled =
+            (preview as { allow_stalled?: boolean }).allow_stalled === true;
 
         logger.log(
             `[executeRunCommand] Running: ${commandToRun} in ${workingDir}` +
@@ -1582,7 +1584,7 @@ export class PermissionInterceptor extends EventEmitter {
             if (promoted || finished) return;
             promoted = true;
             if (chatIdForBg != null) {
-                bg.recordBackgroundCommandStart(chatIdForBg, operationId, commandToRun, startTime, wakeOn);
+                bg.recordBackgroundCommandStart(chatIdForBg, operationId, commandToRun, startTime, wakeOn, allowStalled);
                 if (proc) bg.registerBackgroundProc(chatIdForBg, operationId, proc);
                 // No longer a foreground (cancel-on-turn-stop) child.
                 bg.clearForegroundProc(chatIdForBg, operationId);

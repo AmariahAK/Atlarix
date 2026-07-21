@@ -5,7 +5,7 @@
  * (a deploy, a remote queue, a long job with no completion signal). OPTIONAL and
  * fallback-safe: finished background jobs/sub-agents already wake you
  * automatically, so this is only for when there is no event to wait on. The
- * delay is clamped to 60–3600s; when it fires you get a re-check nudge.
+ * delay is clamped to 60–14400s (up to 4h); when it fires you get a re-check nudge.
  */
 
 import { ToolRegistry } from "./registry";
@@ -21,13 +21,13 @@ ToolRegistry.register({
   allowInAskMode: true,
   description:
     "Schedule the system to re-engage you after a delay to re-check something it can't notify you about on its own — e.g. an external deploy, a remote queue, or a long task with no completion signal. " +
-    "delay_seconds is clamped to 60–3600. OPTIONAL: finished background jobs and sub-agents already wake you automatically, so use this ONLY when there is no event to wait on. If the event IS observable in a job's output, prefer run_command wake_on (or background_jobs watch) over a timed re-check; if it's an external state, background a command that blocks until it (e.g. `gh run watch`). When it fires you'll get a re-check nudge with your note.",
+    "delay_seconds is clamped to 60–14400 (up to 4h). OPTIONAL: finished background jobs and sub-agents already wake you automatically, so use this ONLY when there is no event to wait on. If the event IS observable in a job's output, prefer run_command wake_on (or background_jobs watch) over a timed re-check; if it's an external state, background a command that blocks until it (e.g. `gh run watch`). When it fires you'll get a re-check nudge with your note.",
   parameters: {
     type: "object",
     properties: {
       delay_seconds: {
         type: "number",
-        description: "Seconds to wait before re-engaging (clamped to 60–3600).",
+        description: "Seconds to wait before re-engaging (clamped to 60–14400, up to 4h).",
       },
       note: {
         type: "string",
