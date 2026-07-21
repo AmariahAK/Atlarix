@@ -16,7 +16,25 @@ strip = true
 panic = "abort"
 codegen-units = 1
 
-# Linux-only dependency. The crate body is `#![cfg(target_os = "linux")]`, so on
+# The default build is landlock-only (the shipped security boundary) and pulls
+# nothing new — so CI's `cargo build --release` is unchanged and can't regress.
+#
+# The optional `trace-supervisor` feature adds authoritative denied-path reporting
+# via a fork + seccomp(SECCOMP_RET_TRACE) + ptrace supervisor. It is OFF by default
+# because it can only be compiled/validated on real Linux (not the macOS dev box).
+# Build + test it on a Linux dev machine with:
+#     cargo build --release --features trace-supervisor
+# Once validated on hardware, flip it on in CI. Runtime is additionally gated by
+# ATLARIX_SANDBOX_TRACE=1 so it can be toggled without a rebuild.
+[features]
+default = []
+trace-supervisor = ["dep:nix", "dep:libc", "dep:seccompiler"]
+
+# Linux-only dependencies. The crate body is `#![cfg(target_os = "linux")]`, so on
 # any other host it compiles to an empty binary and never pulls landlock.
 [target.'cfg(target_os = "linux")'.dependencies]
 landlock = "0.4"
+# Only compiled when `trace-supervisor` is enabled (optional = true).
+nix = { version = "0.29", features = ["ptrace", "process", "signal", "fs"], optional = true }
+libc = { version = "0.2", optional = true }
+seccompiler = { version = "0.4", optional = true }
