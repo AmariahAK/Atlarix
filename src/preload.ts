@@ -6,6 +6,7 @@ import { contextBridge, ipcRenderer, webFrame } from "electron";
 // Whitelist of valid channels
 const validInvokeChannels = [
   "voice:transcribe-cloud",
+  "voice:list-transcription-providers",
   "voice:log",
   "analyze-component",
   "apply-visual-editing-changes",

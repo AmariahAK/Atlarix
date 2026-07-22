@@ -10,6 +10,7 @@ import { useSettings } from "@/hooks/useSettings";
 import { useLanguageModelsByProviders } from "@/hooks/useLanguageModelsByProviders";
 import { useLocalModels } from "@/hooks/useLocalModels";
 import { useLocalLMSModels } from "@/hooks/useLMStudioModels";
+import { useTranscriptionProviders } from "@/hooks/useTranscriptionProviders";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -62,12 +63,20 @@ export function ChatConfigDropdown({
   const deepThinking = !!settings?.deepThinking;
   const voiceProvider = settings?.voiceTranscriptionProvider ?? "local";
   const voiceMode = settings?.voiceInputMode ?? "dictate";
-  const VOICE_PROVIDERS = [
-    { id: "local", label: "On-device (free)" },
-    { id: "openai", label: "OpenAI (BYOK)" },
-    { id: "groq", label: "Groq (BYOK)" },
-    { id: "gemini", label: "Gemini (BYOK)" },
-  ] as const;
+  // Derived in main from (providers with a key) ∩ (providers with an
+  // audio-input model), so the menu can't offer something that would fail at
+  // transcription time. The curated list stays as the fallback while the query
+  // is loading/errored — voice must never present an empty picker.
+  const { data: voiceProviders } = useTranscriptionProviders();
+  const VOICE_PROVIDERS =
+    voiceProviders && voiceProviders.length > 0
+      ? voiceProviders
+      : [
+          { id: "local", label: "On-device (free)" },
+          { id: "openai", label: "OpenAI (BYOK)" },
+          { id: "groq", label: "Groq (BYOK)" },
+          { id: "gemini", label: "Gemini (BYOK)" },
+        ];
 
   return (
     <DropdownMenu>

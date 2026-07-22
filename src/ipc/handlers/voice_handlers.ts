@@ -9,6 +9,7 @@
 
 import { ipcMain } from "electron";
 import { getProviderApiKey } from "../shared/provider_api_keys";
+import { CLOUD_PROVIDERS } from "../shared/language_model_constants";
 import log from "electron-log";
 
 const logger = log.scope("voice");
@@ -138,10 +139,75 @@ async function transcribeGemini(
   return (json.candidates?.[0]?.content?.parts?.[0]?.text ?? "").trim();
 }
 
+export type TranscriptionProviderOption = { id: string; label: string };
+
+/** Always first: free, on-device, needs no key. */
+const LOCAL_OPTION: TranscriptionProviderOption = {
+  id: "local",
+  label: "On-device (free)",
+};
+
+/**
+ * Build the composer's transcription list: providers the user has a key for
+ * AND that expose an audio-input model, labelled from the cloud catalog.
+ *
+ * Exported for tests — the IPC wrapper below is a thin shell around it.
+ */
+export async function buildTranscriptionProviderOptions(deps: {
+  configuredProviders: () => Promise<string[]>;
+  audioModelIds: (providerId: string) => Promise<string[]>;
+}): Promise<TranscriptionProviderOption[]> {
+  const configured = await deps.configuredProviders();
+  const seen = new Set<string>();
+  const out: TranscriptionProviderOption[] = [];
+
+  for (const id of configured) {
+    // gemini/google are one provider with one key — collapse so the menu
+    // can't offer the same thing twice under two names.
+    const canonical = GOOGLE_PROVIDER_IDS.has(id) ? "gemini" : id;
+    if (seen.has(canonical)) continue;
+
+    const models = await deps.audioModelIds(canonical);
+    // A fallback entry means we can still transcribe even if the catalog has
+    // no audio row for it (e.g. an OpenAI-compatible endpoint the catalog
+    // describes only for chat).
+    if (models.length === 0 && !FALLBACK_STT_MODEL[canonical]) continue;
+
+    seen.add(canonical);
+    out.push({
+      id: canonical,
+      label: `${CLOUD_PROVIDERS[canonical]?.displayName ?? canonical} (BYOK)`,
+    });
+  }
+
+  out.sort((a, b) => a.label.localeCompare(b.label));
+  return [LOCAL_OPTION, ...out];
+}
+
 export function registerVoiceHandlers() {
   ipcMain.handle("voice:log", (_e, message: unknown) => {
     logger.info(`[diag] ${String(message)}`);
   });
+
+  ipcMain.handle(
+    "voice:list-transcription-providers",
+    async (): Promise<TranscriptionProviderOption[]> => {
+      try {
+        const { getConfiguredProviders } = await import(
+          "../shared/provider_api_keys"
+        );
+        const { getAudioInputModelIds } = await import("@/lib/models_dev");
+        return await buildTranscriptionProviderOptions({
+          configuredProviders: getConfiguredProviders,
+          audioModelIds: getAudioInputModelIds,
+        });
+      } catch (e) {
+        logger.warn("failed to list transcription providers", e);
+        // Never leave the picker empty — on-device always works.
+        return [LOCAL_OPTION];
+      }
+    },
+  );
 
   ipcMain.handle(
     "voice:transcribe-cloud",

@@ -1043,6 +1043,17 @@ export class IpcClient {
     void this.ipcRenderer.invoke("voice:log", message);
   }
 
+  /** Transcription engines offered in the composer: on-device plus every
+   * provider the user has a key for that can accept audio. Main-process only
+   * (the catalog touches fs), hence the IPC. */
+  public async listTranscriptionProviders(): Promise<
+    Array<{ id: string; label: string }>
+  > {
+    return (await this.ipcRenderer.invoke(
+      "voice:list-transcription-providers",
+    )) as Array<{ id: string; label: string }>;
+  }
+
   /** BYOK cloud transcription — main holds the key and resolves the endpoint +
    * STT model from the live catalog, so `provider` is any provider id (not a
    * fixed set). Returns the transcript text; throws on failure. */
