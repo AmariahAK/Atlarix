@@ -22,17 +22,24 @@ export function SubAgentsRoundPanel({
   isHistorical?: boolean;
 }) {
   const sortedAgents = useMemo(() => {
+    // Active first (anything not yet settled), then done, then errors.
     const rank = (s: SubAgentRunEntry["status"]) =>
-      s === "running" ? 0 : s === "done" ? 1 : 2;
+      s === "done" ? 1 : s === "error" ? 2 : 0;
     return [...agents].sort(
       (a, b) => rank(a.status) - rank(b.status) || a.id.localeCompare(b.id),
     );
   }, [agents]);
 
-  const running = agents.filter((a) => a.status === "running").length;
+  // Mirror the card icons: only an explicit "done"/"error" counts as settled.
+  // Counting "not running" as completed made the header claim "N completed"
+  // while agents were still spinning up.
+  const settled = agents.filter(
+    (a) => a.status === "done" || a.status === "error",
+  ).length;
+  const active = agents.length - settled;
   const summary =
-    running > 0
-      ? `Sub-agents · ${running}/${agents.length} running`
+    active > 0
+      ? `Sub-agents · ${active}/${agents.length} running`
       : `Sub-agents · ${agents.length} completed`;
 
   return (

@@ -199,13 +199,20 @@ export function SubAgentRunCard({
       ? latestActivity
       : phase;
 
+  // Completion needs POSITIVE evidence. This used to be an else-branch, so any
+  // status that wasn't exactly "running"/"error" rendered the green check —
+  // which is how a sub-agent that had only just spawned (still on its
+  // "Starting…" preview) showed up as finished. An in-flight state that we
+  // can't identify is far better shown as working than as done.
   const StatusIcon =
-    agent.status === "running"
-      ? () => <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-amber-600 dark:text-amber-500" />
-      : agent.status === "error"
-        ? () => <XCircle className="h-3.5 w-3.5 shrink-0 text-destructive" />
-        : () => (
+    agent.status === "error"
+      ? () => <XCircle className="h-3.5 w-3.5 shrink-0 text-destructive" />
+      : agent.status === "done"
+        ? () => (
             <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-emerald-600 dark:text-emerald-500" />
+          )
+        : () => (
+            <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-amber-600 dark:text-amber-500" />
           );
 
   const openDialog = () => setDialogOpen(true);
