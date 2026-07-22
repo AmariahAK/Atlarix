@@ -21,6 +21,16 @@ const CONTENT =
   "The answer is 42.\n" +
   '<atlarix-sources>[{"url":"https://example.com/answer","title":"Answer Source"}]</atlarix-sources>\n';
 
+// A turn that actually SEARCHED carries a tool-call tag, which flips
+// `isStructured` (AssistantMessageBody) and routes rendering down the
+// interleaved-timeline branch instead of the legacy one. Every real
+// web-search reply looks like this — the plain-prose CONTENT above never
+// exercises that branch.
+const STRUCTURED_CONTENT =
+  "<atlarix-tool-call>{}</atlarix-tool-call>\n" +
+  "<atlarix-tool-result>{}</atlarix-tool-result>\n" +
+  CONTENT;
+
 describe("inline <atlarix-sources> citations", () => {
   it("extracts and normalizes sources from content", () => {
     const sources = extractInlineSourcesFromContent(CONTENT);
@@ -53,6 +63,33 @@ describe("inline <atlarix-sources> citations", () => {
       />,
     );
     // The MessageSources card surfaces the source title — proves the strip mounts.
+    expect(screen.getByText("Answer Source")).toBeInTheDocument();
+  });
+
+  it("renders the sources strip on a turn that used tools (interleaved branch)", () => {
+    renderWithProviders(
+      <AssistantMessageBody
+        content={STRUCTURED_CONTENT}
+        isStreaming={false}
+        chatId={3}
+        assistantMessageId={778}
+      />,
+    );
+    // This is the shape a real Core web-search reply has. The strip must mount
+    // here too, not only on the plain-prose (legacy) path.
+    expect(screen.getByText("Answer Source")).toBeInTheDocument();
+  });
+
+  it("renders the sources strip when the thread is content-driven", () => {
+    renderWithProviders(
+      <AssistantMessageBody
+        content={CONTENT}
+        isStreaming={false}
+        chatId={3}
+        assistantMessageId={779}
+        contentDrivenThread
+      />,
+    );
     expect(screen.getByText("Answer Source")).toBeInTheDocument();
   });
 });

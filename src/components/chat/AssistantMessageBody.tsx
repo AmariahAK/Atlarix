@@ -497,6 +497,14 @@ export function AssistantMessageBody({
         {isStreaming && chatId != null ? (
           <InlinePermissionApprovals chatId={chatId} />
         ) : null}
+        {/* Sources strip — see the note on the legacy branch below. It must be
+            mounted HERE too: any turn that actually ran a search carries a
+            tool-call tag, which makes `isStructured` true and routes rendering
+            through this branch, so a strip only on the legacy path never shows
+            for the very turns that have citations. */}
+        {!isStreaming && citationSources.length > 0 ? (
+          <MessageSources sources={citationSources} />
+        ) : null}
       </div>
     );
   }
