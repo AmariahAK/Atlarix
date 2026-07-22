@@ -27,6 +27,7 @@ import {
   type PlanStepState,
 } from "@/lib/tasks/plan-checklist";
 import { broadcastPlanArtifactUpdated } from "@/ipc/utils/emit_plan_artifact";
+import { markPlanLedgerDirty } from "@/lib/tasks/plan-ledger-refresh";
 import { resolveOrBindWorkspaceSessionForStream } from "@/ipc/handlers/workspace_session_handlers";
 import type { PlanArtifactStatus } from "@/db/schema";
 
@@ -82,7 +83,13 @@ async function resolvePlanId(args: PlanToolArgs): Promise<string | null> {
   if (args.planId) return args.planId;
   const sessionId = await resolveSessionId(args);
   if (!sessionId) return null;
-  const row = await getLatestPlanArtifact(sessionId);
+  // Match loadActivePlanSection's selection EXACTLY (building-first, then
+  // latest). It builds the in-context ledger from the "building" row; if this
+  // resolved to a different row the model would be updating one plan while
+  // reading another's progress — an unwinnable disagreement.
+  const row =
+    (await getLatestPlanArtifact(sessionId, "building")) ??
+    (await getLatestPlanArtifact(sessionId));
   return row?.id ?? null;
 }
 
@@ -124,22 +131,53 @@ async function writePlan(args: PlanToolArgs) {
   if (!args.content?.trim()) {
     return { success: false, error: "Plan content is required for operation 'write'." };
   }
-  const row = args.planId
-    ? await updatePlanArtifactContent(args.planId, args.content)
-    : await createPlanArtifact(sessionId, args.content, args.title);
-  if (!row) {
-    return {
-      success: false,
-      error: args.planId ? "Plan not found." : "Failed to create plan.",
-    };
+  // Rewriting the plan is the documented escape hatch when a step can't be
+  // matched — so it has to actually be safe. Without a planId this used to
+  // INSERT a new artifact, and since weak models routinely drop the id (the
+  // reason planId is optional at all), a mid-work "resync" rewrite forked the
+  // plan: the tool then updated one row while the in-context ledger was built
+  // from another, and the two could never agree again.
+  //
+  // So: target the in-flight plan (the same building-first row the ledger uses)
+  // and update it in place. A new artifact is created only when there's nothing
+  // in flight — no plan yet, or the last one is already `built`, which means
+  // this is a genuinely new task and the finished plan should be kept as history.
+  let targetId = args.planId?.trim() || null;
+  let isNew = false;
+  if (!targetId) {
+    const active =
+      (await getLatestPlanArtifact(sessionId, "building")) ??
+      (await getLatestPlanArtifact(sessionId));
+    targetId = active && active.planStatus !== "built" ? active.id : null;
   }
+  let row = targetId
+    ? await updatePlanArtifactContent(targetId, args.content)
+    : null;
+  if (!row) {
+    row = await createPlanArtifact(sessionId, args.content, args.title);
+    isNew = true;
+  }
+  if (!row) {
+    return { success: false, error: "Failed to create plan." };
+  }
+  broadcastPlanArtifactUpdated({
+    planId: row.id,
+    sessionId: row.sessionId,
+    content: row.content,
+    planStatus: row.planStatus,
+  });
+  // A rewrite changes the counts as much as an update_step does.
+  markPlanLedgerDirty(args.chatId, row.content);
+  const steps = parsePlanChecklist(row.content);
+  const done = steps.filter((s) => s.state === "done").length;
   return {
     success: true,
     planId: row.id,
     planStatus: row.planStatus,
     contentPreview: row.content.slice(0, 400),
     marker: planArtifactMarker(row.id),
-    message: args.planId ? "Plan updated." : "Plan created.",
+    progress: `${done}/${steps.length} steps done`,
+    message: isNew ? "Plan created." : "Plan updated.",
   };
 }
 
@@ -234,11 +272,18 @@ async function updateStep(args: PlanToolArgs) {
     };
   }
   if (!result.changed) {
+    // Report progress here TOO. This branch fires exactly when the model is
+    // re-marking something it already marked — i.e. when it has lost track — so
+    // omitting the counts left it with no way to correct itself, and it would
+    // keep re-marking and rewriting the plan trying to force agreement.
+    const steps = parsePlanChecklist(row.content);
+    const done = steps.filter((s) => s.state === "done").length;
     return {
       success: true,
       planId: row.id,
       step: result.step,
-      message: "Step already in that state.",
+      progress: `${done}/${steps.length} steps done`,
+      message: "Step already in that state — no change needed.",
     };
   }
   const updated = await updatePlanArtifactContent(planId, result.content);
@@ -249,6 +294,9 @@ async function updateStep(args: PlanToolArgs) {
     content: updated.content,
     planStatus: updated.planStatus,
   });
+  // Refresh the in-context ledger for the rest of THIS turn; without it the
+  // step-0 snapshot keeps asserting stale counts for every later step.
+  markPlanLedgerDirty(args.chatId, updated.content);
   const steps = parsePlanChecklist(updated.content);
   const done = steps.filter((s) => s.state === "done").length;
   return {

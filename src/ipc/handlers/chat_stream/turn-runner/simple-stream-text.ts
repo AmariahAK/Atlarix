@@ -57,6 +57,7 @@ import {
   type VersionedFiles,
 } from "@/ipc/utils/versioned_codebase_context";
 import { isNetworkStreamError } from "@/ipc/handlers/chat_stream/network-retry";
+import { takeRefreshedPlanLedger } from "@/lib/tasks/plan-ledger-refresh";
 import {
   isImageContentRejectionError,
   imageUnsupportedUserMessage,
@@ -513,7 +514,15 @@ export async function simpleStreamText(
                 // slot (just before the mode re-anchor) — carries the active goal
                 // (in-progress step) so mode+goal are both freshly re-asserted.
                 const modeReanchor = stepNumber === 0 ? modeReanchorNote : null;
-                const taskLedger = stepNumber === 0 ? taskLedgerBlock : null;
+                // Step 0 carries the turn-start snapshot. On LATER steps a
+                // refreshed block appears only when the plan actually changed
+                // mid-turn (take-once) — otherwise the ledger would keep
+                // asserting turn-start counts for the whole turn while the model
+                // marks steps done, which reads to the model as a broken tracker.
+                const taskLedger =
+                  stepNumber === 0
+                    ? taskLedgerBlock
+                    : takeRefreshedPlanLedger(req.chatId);
                 // #12: targeted empty-output nudge (take-once), set by the retry.
                 const emptyOutputNudge = ctx.pendingEmptyOutputNudge;
                 ctx.pendingEmptyOutputNudge = null;
