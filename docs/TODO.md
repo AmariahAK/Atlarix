@@ -14,7 +14,88 @@
 - **Supabase idle-ping reduction, keyboard shortcuts (Cmd+T/W/J/I/O), device-spec injection, allow_stalled,
   code-block render fix.**
 
+## 🚧 In progress (unreleased) — plan-ledger desync + voice de-hardcoding
+
+- **The agent no longer fights its own plan.** Observed in a real session: the agent marked 25 of 31
+  steps done inside one turn while the injected ledger kept asserting the turn-START counts
+  ("2/31 steps done", all 29 listed as remaining), concluded its own tracker was broken, rewrote the
+  plan and re-marked every step in a loop. Cause: `simple-stream-text.ts` injected the ledger only at
+  `stepNumber === 0`, from a snapshot taken during context assembly — so mid-turn progress could
+  never be reflected. Verified against the live app DB (one plan row; the competing-artifacts theory
+  was wrong) and by running the real parser over the session's plan content (31 steps, only 2 as
+  numbered checkboxes — hence the "2").
+  - New `plan-ledger-refresh.ts`: plan mutations pre-render a fresh ledger keyed by chat, drained
+    take-once on the next step (`prepareStep` is sync, so it can't re-read the DB). Unchanged plan →
+    still injected once, so quiet turns cost nothing.
+  - `plan(update_step)` now returns `progress` on the **no-op** branch too — that branch fires exactly
+    when the model has lost track, and omitting the counts left it nothing to self-correct with.
+  - **`operation:'write'` no longer forks the plan.** Without a `planId` it used to INSERT a new
+    artifact, and weak models routinely drop the id (which is why it's optional) — so the documented
+    "rewrite the whole plan" escape hatch silently created a second row, after which the tool updated
+    one plan while the ledger read another. It now updates the in-flight plan in place, creating a new
+    artifact only when nothing is in flight (no plan, or the last is `built` = a genuinely new task).
+    The escape hatch stays open — deliberately, so a model that can't text-match a step is never
+    cornered — it's just actually safe now.
+  - `resolvePlanId` aligned with `loadActivePlanSection`'s building-first selection so the tool and the
+    ledger can never target different rows.
+- **Voice transcription de-hardcoded.** `voice_handlers.ts` had a closed `"openai" | "groq" | "gemini"`
+  allowlist and pinned model ids (`gemini-2.0-flash` had already aged out) — the same rot the model
+  pickers were just taken off. Now: any provider id, with the STT model and API base URL resolved from
+  the models.dev catalog by **audio-input modality** (71 providers expose one) via new
+  `getAudioInputModelIds` / `getProviderApiBaseUrl`, falling back to the previous ids when the catalog
+  is unavailable. Gemini's key moved from the query string to the `x-goog-api-key` header (matching the
+  Google model fetcher). Settings schema relaxed from an enum to a free-form id so a new provider needs
+  no schema change.
+  - **REMAINING:** the composer's voice picker still offers the curated three
+    (`ChatConfigDropdown.tsx VOICE_PROVIDERS`). The engine accepts any provider now; surfacing the full
+    audio-capable list needs a small IPC (the catalog is main-only). Low risk, not yet done.
+
+## 🚧 In progress (unreleased) — provider model accuracy + citation render + sub-agent status
+
+- **Provider ID map repaired (`src/lib/models_dev.ts`).** `bedrock` → `amazon-bedrock` and
+  `nvidia_nim` → `nvidia` were missing from `PROVIDER_ID_MAP`, and everything routes through
+  `resolveModelsDevProviderId`. Consequences: **AWS Bedrock listed ZERO models** (no native fetcher, so
+  models.dev is its only source — ~109 tool-capable models were invisible), and **NVIDIA NIM lost all
+  limit/cost enrichment**, so its 84 models fell back to the generic 200K context guess with no price.
+  Inverse entries added to `REVERSE_PROVIDER_ID_MAP` — without them the long-tail catalog emits
+  `amazon-bedrock`/`nvidia` as SEPARATE providers that don't de-dup against the built-ins (duplicate
+  rows in the picker).
+- **Shared tool-capability funnel — `annotateToolCapability`.** The models.dev path always gated on
+  `tool_call`; the native fetchers never did, so the "first-class" providers leaked non-tool models
+  (NVIDIA 84→45, OpenRouter 341→270, Groq 15→7, OpenAI 56→46, Google 25→18, xAI 9→5, Cohere 14→9)
+  while the 145-provider long tail stayed clean. One funnel in `fetchModelsFromProvider` covers all 19.
+  **A model the catalog doesn't know is KEPT** — native fetch exists to beat the hourly catalog, and
+  dropping unknown ids would trade an accuracy bug for a freshness bug. Catalog empty/unknown provider
+  → input untouched.
+- **Per-provider fixes.** Anthropic paginates (`limit` defaults to **20**) + now uses its authoritative
+  `max_input_tokens`/`max_tokens`; Google paginates (`pageSize` defaults to **50**) + key moved to the
+  `x-goog-api-key` header; Cohere paginates (`page_size` defaults to **20**) + `endpoint=chat` +
+  skips `is_deprecated`; OpenRouter uses `?supported_parameters=tools` + `top_provider` ceilings;
+  OpenAI's prefix allowlist → substring denylist (it dropped bare `o3`/`o4-mini` while admitting
+  `gpt-image-*`/`gpt-realtime-*`/`*-transcribe`); xAI moved to `/v1/language-models` with a
+  `/v1/models` fallback; Perplexity's hardcoded array → live catalog rows marked
+  `supportsToolChoice: false` (models.dev marks every Sonar model `tool_call: false` — correctly; the
+  old list claimed the opposite and omitted the real 128K/200K limits).
+- **Citation strip renders (the 14.14.1 fast-follow).** Root cause found: `isStructured` is true when
+  content has `<think>` or a tool-call tag, which routes rendering through the interleaved branch of
+  `AssistantMessageBody.tsx` — and the v14.14.0 `MessageSources` mount was in the *legacy* branch, which
+  only plain-prose turns reach. **Every turn that actually searched has a tool-call tag**, so the strip
+  never showed for exactly the turns that had citations. Mounted in both branches; the existing test
+  passed because its fixture was plain prose.
+- **Sub-agent status no longer claims false completion.** `SubAgentRunCard`'s icon and
+  `SubAgentsRoundPanel`'s header both treated "not running" as done via an else-branch, so a sub-agent
+  that had only just spawned rendered with the green completed check. Completion now requires an
+  explicit `done`/`error`; anything unrecognized shows as still working.
+
 ## ⏳ Open / deferred
+
+- **Sub-agent results don't continue in the timeline.** Sub-agent outcomes render as collapsed
+  "Sub-agent finished" rows pinned near the bottom instead of resolving in order where they were
+  spawned. Wanted shape: thoughts → response → agents → **agents' own response** → thoughts →
+  response, i.e. behaving like background tasks. `weaveIpcItemsIntoParts`
+  (`AssistantMessageBody.tsx`) already anchors IPC items at their timestamps and is the mechanism to
+  reuse; the work is routing `postStreamSubagentItems` through it without double-rendering agents that
+  the round panel already shows. (The related false-"done" status icon IS fixed — see below.)
 
 - **Linux authoritative denied-path supervisor — Phase 2 (WRITTEN, compiles, feature-gated OFF; pending dev validation).**
   `native/atlarix-sandbox-linux` gained a ptrace + seccomp(`SECCOMP_RET_TRACE`) supervisor that records
@@ -30,12 +111,6 @@
 
 ## ⏳ TBD / Next (fast-follow 14.14.1)
 
-- **Web-search citation strip does not render.** Sources ARE captured — the persisted Core reply
-  contains `<atlarix-sources>[{url,title}]` — but `MessageSources` doesn't mount in
-  `src/components/chat/AssistantMessageBody.tsx` despite `citationSources` being populated (verified via
-  the DB + a renderer unit test that passed). It's a RENDER bug, not capture. TBD: diagnose why the
-  mount/`citationSources` short-circuits in the real app path (content-prop stripping? `sourcesForMessage`
-  atom? render branch not reached?) and ship 14.14.1.
 - **Owner-side verification (from the v14.14.0 web-search work):** (1) billing A/B — confirm OpenRouter
   `usage.cost` includes the ~$0.005 search fee so the wallet debit = `ceil(cost × 1.4)` (else add a proxy
   surcharge in `atlarix-proxy/src/server.ts`); (2) per-Core-model check that DeepSeek/Qwen/Kimi/MiniMax
@@ -46,7 +121,7 @@
 
 Removes the friction that forced `sed`/`python` shell edits: the agent needed to read/patch files in a
 tree *outside* the opened workspace (e.g. an upstream dep in `/tmp`), but `read_file`/`grep`/`glob`/
-`edit_file` were all hard-confined to the workspace. `npm run check` 0/0, vitest 240 files / 1628 tests.
+`edit_file` were all hard-confined to the workspace.
 
 - **Workspace is now a default SCOPE, not a wall.** New `resolveToolTargetPath`
   (`src/ipc/utils/safeWorkspaceRelativePath.ts`): a **relative** path stays confined as before; an
@@ -70,7 +145,7 @@ tree *outside* the opened workspace (e.g. an upstream dep in `/tmp`), but `read_
 ## ✅ Shipped in v14.14.0 (2026-07-20) — web-search citations render + dead compass-usage removal
 
 Follow-ups from the Core web-search packaged test (search worked, but no citation chips + a dead-RPC log
-error every Core turn). `npm run check` 0/0, vitest 238 files / 1621 tests green.
+error every Core turn).
 
 - **Citation sources render.** Root cause was rendering, not capture — Core replies already persist
   `<atlarix-sources>[{url,title}]` (confirmed from the real DB row), which `extractInlineSourcesFromContent`
@@ -93,7 +168,7 @@ error every Core turn). `npm run check` 0/0, vitest 238 files / 1621 tests green
 All Core users now get web search out of the box — **model-invoked** via OpenRouter's agentic
 `openrouter:web_search` server tool (pay only when the model searches, unlike the always-on plugin),
 billed through the existing Core wallet at the standard **40% markup**, citations rendered, **no
-SearXNG required**. `npm run check` 0/0, vitest 239 files / 1625 tests green.
+SearXNG required**.
 
 - **Enablement** (`src/ipc/utils/native_web_search.ts`): new `case "compass"` returns the OpenRouter
   server tool via the module-level `openrouter.tools.webSearch({ maxResults: 5 })` — mirrors the
@@ -122,8 +197,7 @@ SearXNG required**. `npm run check` 0/0, vitest 239 files / 1625 tests green.
 
 Root-caused Sentry `49d4f2a5` (`execute-permission` → `SqliteError: unable to open database
 file`). Proven from the machine's `main.log`: a large `pnpm install` (vercel/ai monorepo) filled the
-disk → SQLite couldn't create its rollback `-journal` → `SQLITE_CANTOPEN`. `npm run check` 0/0,
-vitest **1620 passed / 1 skipped**.
+disk → SQLite couldn't create its rollback `-journal` → `SQLITE_CANTOPEN`.
 
 - **Best-effort permission-preference writes (the fix).** Persisting an "always allow" rule is
   bookkeeping and must never block the approval. New `persistPermissionPreferenceSafely` /
@@ -154,7 +228,7 @@ vitest **1620 passed / 1 skipped**.
 
 ## ✅ Shipped in v14.13.3 (2026-07-18)
 
-Full detail in [`docs/CHANGELOG.md`](./CHANGELOG.md) `[14.13.3]`. `npm run check` 0/0, vitest green.
+Full detail in [`docs/CHANGELOG.md`](./CHANGELOG.md) `[14.13.3]`.
 
 - **Auto-update fixed (mac + Linux AppImage).** Bundle `build/app-update.yml` via `extraResource` —
   electron-forge never generated it, so electron-updater hit an unhandled ENOENT at download time and
@@ -168,7 +242,7 @@ Full detail in [`docs/CHANGELOG.md`](./CHANGELOG.md) `[14.13.3]`. `npm run check
 
 ## ✅ Shipped in v14.13.2 (2026-07-18)
 
-Full detail in [`docs/CHANGELOG.md`](./CHANGELOG.md) `[14.13.2]`. `npm run check` 0/0, vitest green.
+Full detail in [`docs/CHANGELOG.md`](./CHANGELOG.md) `[14.13.2]`.
 
 - **Core provider page shows real live model names** (Kimi/Qwen/DeepSeek/MiniMax) instead of
   `Core N` — `useAtlarixCoreCatalog` now derives from the working `useLanguageModelsByProviders`
@@ -183,7 +257,7 @@ Full detail in [`docs/CHANGELOG.md`](./CHANGELOG.md) `[14.13.2]`. `npm run check
 
 ## ✅ Shipped in v14.13.1 (2026-07-18)
 
-Full detail in [`docs/CHANGELOG.md`](./CHANGELOG.md) `[14.13.1]`. `npm run check` 0/0, vitest green.
+Full detail in [`docs/CHANGELOG.md`](./CHANGELOG.md) `[14.13.1]`.
 
 - **Markdown structure rule.** `<output_style>` now forbids multi-line code / line-breaking
   template literals inside table cells or inline backticks (GFM can't render them) — fixes
@@ -196,7 +270,7 @@ Full detail in [`docs/CHANGELOG.md`](./CHANGELOG.md) `[14.13.1]`. `npm run check
 
 ## ✅ Shipped in v14.13.0 (2026-07-17)
 
-Full detail in [`docs/CHANGELOG.md`](./CHANGELOG.md) `[14.13.0]`. `npm run check` 0/0, vitest green.
+Full detail in [`docs/CHANGELOG.md`](./CHANGELOG.md) `[14.13.0]`.
 
 - **Co-author, not author.** Commits are authored by the user's own git config; Atlarix is credited via the
   `Co-authored-by:` trailer only. Terminal (`interceptor.ts`) + programmatic (`git_utils.ts`) paths inject the
@@ -212,7 +286,7 @@ Full detail in [`docs/CHANGELOG.md`](./CHANGELOG.md) `[14.13.0]`. `npm run check
 
 ## ✅ Shipped in v14.12.0 (2026-07-16)
 
-Full detail in [`docs/CHANGELOG.md`](./CHANGELOG.md) `[14.12.0]`. `npm run check` 0/0, vitest green.
+Full detail in [`docs/CHANGELOG.md`](./CHANGELOG.md) `[14.12.0]`.
 
 - **Harness batch.** Wait-timer merge (stall snooze under `schedule_wakeup`, `\r` no-rearm, 180→300s,
   advisory reframed toward patience), live token counter (always-mounted composer hook + hold occupancy
@@ -232,7 +306,7 @@ Full detail in [`docs/CHANGELOG.md`](./CHANGELOG.md) `[14.12.0]`. `npm run check
 
 ## ✅ Shipped in v14.11.0 (2026-07-14)
 
-Full detail in [`docs/CHANGELOG.md`](./CHANGELOG.md) `[14.11.0]`. `npm run check` 0/0, vitest **1572** green.
+Full detail in [`docs/CHANGELOG.md`](./CHANGELOG.md) `[14.11.0]`.
 Multi-repo (app + proxy + edge fns + Supabase migrations + launchpad); backend applied/deployed in prod.
 
 - **Pricing reframe — Free + Pro + PAYG credits.** No tier bundles AI; Atlarix Core is pay-as-you-go
@@ -252,16 +326,13 @@ Multi-repo (app + proxy + edge fns + Supabase migrations + launchpad); backend a
 - **Windows code-signing / cert** — C6 auto-update signing + native-sandbox CI remain open (release-infra,
   no cert). OAuth `state` nonce / PKCE stays **not doing** (attempted v14.12.0, broke sign-in, reverted; the
   flow-in-progress gate stays).
-- **Windows grep PCRE2 lookahead** — `grep-pcre-fallback.test.ts`'s lookahead assertion returns "no matches"
-  on the Windows runner (bundled ripgrep path/pcre2 nuance); skipped on win32 to unblock the release.
-  Verify whether real Windows users' lookahead grep patterns work, or if it's only a test-fixture path issue.
 - **Runtime-verify voice mic + DB shutdown-race** on a packaged build (voice confirmed working by owner
   2026-07-14; shutdown-guard committed, not stress-verified).
 
 ## ✅ Shipped in v14.10.0 (2026-07-12)
 
 Full detail in [`docs/CHANGELOG.md`](./CHANGELOG.md) `[14.10.0]`. Net **−362 lines**;
-`npm run check` 0/0, vitest 1566 green, knip clean, packaged self-test 4/4. Owner-smoke-tested.
+Owner-smoke-tested.
 
 - **Command permissions rebuilt on the Codex sandbox + Claude Code ask model.** Deleted the hardcoded
   read/mutate/git command taxonomies that false-blocked valid commands (`git fetch`, `docker build`)
@@ -306,8 +377,6 @@ also closed M1 — cwd `allowedRoots` widening is now gated on interactive appro
   denylist taxonomy is done; the flip needs per-automation design to not break legit builds/tests.
 - **Round-tripped auth `state` nonce** — needs confirming the Supabase redirect-URL
   allowlist permits a query param (current gate = flow-must-be-in-progress).
-- **XSS-gated privileged IPC** (`terminal:run`, `mcp:create-server`, `execute-all-permissions`)
-  + preload arg-validation — safe today (markdown rendering is XSS-free); structural pass.
 - Sandbox **read**-confinement, model-context **secret redaction**, **egress** gating, and the
   remaining Medium items (env-var key inheritance, secret-basename list, cross-workspace file
   scope, plaintext-keychain fallback).
@@ -332,11 +401,11 @@ Full detail in [`docs/CHANGELOG.md`](./CHANGELOG.md) `[14.8.13]`.
   native-git-only (production Sentry `null.slice` fix; `enableNativeGit` deleted); Code tab + Monaco +
   QuickFileOpen deleted; ctags allowlist → auto-detect + 2 MB guard (ctags-only blueprint, no null
   cliff); ast-grep / blast-radius / dead-blueprint-chain pruned (−7851 lines, watcher →
-  `search-index-watcher.ts`). vitest 1578.
+  `search-index-watcher.ts`).
 - **Automations SHIPPED (2026-07-06).** Migration 0066; cron (node-cron) + GitHub-poll + MCP-poll
   triggers (deterministic, no LLM in loops); unattended runs via the headless spine (dangerous always
   denied, 10-min budget, concurrency 1); read-only default + opt-in worktree-write proposals; triage
-  feed tab. vitest 1600.
+  feed tab.
 - **`chat_stream_handlers.ts` decomposition COMPLETE (2026-07-07).** God-file **7984 → 2364 lines
   (−70%)**; `runStream` is now a thin orchestrator over 8 `chat_stream/turn-runner/*.ts` modules
   (simple-stream-text, round-retry, response-chunk-update, context-assembly, ask-branch, build-branch,
@@ -348,10 +417,6 @@ Full detail in [`docs/CHANGELOG.md`](./CHANGELOG.md) `[14.8.13]`.
 
 ## Open follow-ups
 
-- **Optional default `.atlarix/permissions.json` ask-ruleset for outward commands** (from v14.10.0).
-  Build mode now auto-runs plain `git push`/`npm publish`/deploy (Codex workspace-write behavior);
-  force-push/exfil/credential-reads still ask. If auto-run feels too loose, ship a default `ask` ruleset
-  (data, the Claude-Code way) rather than re-hardcoding git.
 - **DB shutdown race — `TypeError: The database connection is not open`** (Sentry, seen on 14.9.1,
   still present in 14.10.0; **benign** — `handled`, fires only during app quit, no in-session impact,
   worst case one dropped pending write). Cause: the SQLite handle is closed (`db/index.ts:65`
