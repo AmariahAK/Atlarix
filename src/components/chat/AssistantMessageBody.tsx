@@ -553,6 +553,19 @@ export function AssistantMessageBody({
         onPlanArtifactBuild={onPlanArtifactBuild}
         planArtifactBuildDisabled={planArtifactBuildDisabled}
       />
+      {/* The interleaved branch renders this between its two woven halves; the
+          legacy branch rendered it nowhere. Post-stream `inlineSubagentRound`
+          is non-null (resolveLiveSubagentRound reads the COMPLETED thread once
+          streaming ends), and that same value excludes the round from the tail
+          — so on a plain-prose message the panel fell through both paths and
+          the whole delegation went invisible. */}
+      {inlineSubagentRound ? (
+        <SubAgentsRoundPanel
+          agents={inlineSubagentRound.agents}
+          status={inlineSubagentRound.status}
+          isStreaming={isStreaming}
+        />
+      ) : null}
       <PaginatedThreadList
         items={postStreamThreadTail}
         keyPrefix="legacy-tail"

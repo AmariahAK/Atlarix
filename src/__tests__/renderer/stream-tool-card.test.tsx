@@ -188,6 +188,29 @@ describe("stream → tool card", () => {
       expect(screen.queryByText("Sub-agent finished")).not.toBeInTheDocument();
     });
 
+    // The legacy (plain-prose) branch renders inlineSubagentRound nowhere, and
+    // post-stream that value is non-null (resolveLiveSubagentRound reads the
+    // COMPLETED thread once the stream ends), which also excludes the round
+    // from the tail — so the panel fell through both paths and the delegation
+    // was invisible. Unreachable via a real delegation, which always emits tool
+    // tags, but a message body should never silently drop a sub-agent run.
+    it("renders the round panel even on a plain-prose message", () => {
+      const { store } = renderWithProviders(
+        <AssistantMessageBody
+          content="All done."
+          isStreaming={false}
+          chatId={CHAT_ID}
+          assistantMessageId={MESSAGE_ID}
+        />,
+      );
+      act(() => {
+        store.set(completedStreamThreadByAssistantMessageIdAtom, {
+          [MESSAGE_ID]: [roundItem],
+        });
+      });
+      expect(screen.getByText(/Scout · traced the save flow/)).toBeInTheDocument();
+    });
+
     it("still renders a delegate row when NO panel represents it", () => {
       const { store } = renderWithProviders(
         <AssistantMessageBody
