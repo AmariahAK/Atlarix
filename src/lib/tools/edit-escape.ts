@@ -56,7 +56,27 @@ export function analyzeEscaping(content: string): EscapeVerdict {
   if (structural === 0) return "ok";
   const realNewlines = count(/\n/g, content);
   if (realNewlines === 0 && structural >= 2) return "repair";
-  if (realNewlines > 0) return "ambiguous";
+  if (realNewlines > 0) {
+    // Over-escaping is a per-ARGUMENT failure: a model that escapes its
+    // newlines escapes all of them, which is why the collapsed case above has
+    // ZERO real newlines. So content already dominated by real line breaks is
+    // by definition not collapsed — whatever `\n` it contains is source, not a
+    // mangled break. `)\n` in a regex literal, `join(',\n')` and `},\n` in a
+    // template all trip STRUCTURAL_LITERAL_NEWLINE while being perfectly valid.
+    //
+    // Blocking those was worse than letting them through: the model's content
+    // was already correct, so no re-send could satisfy the error, and the retry
+    // loop pushed it toward shell heredocs that cascade their own escaping.
+    // A false pass, by contrast, writes a visible literal the model can see in
+    // the diff and fix. Asymmetric — so block only on the true half-escaped
+    // shape: at least HALF the intended line breaks are literals.
+    //
+    // The two populations separate cleanly on this measure. Legitimate source
+    // that merely quotes `\n` runs ~0.2–0.25 (one regex or join in a file of
+    // real lines); genuinely half-escaped content runs ≥ 0.5 by construction.
+    if (structural >= realNewlines) return "ambiguous";
+    return "ok";
+  }
   // Exactly one structural literal newline on a single physical line — not
   // confident enough to rewrite; leave it verbatim.
   return "ok";
