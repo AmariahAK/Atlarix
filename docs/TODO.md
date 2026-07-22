@@ -41,9 +41,20 @@
   collapsed. `ambiguous` now requires ≥ half the intended breaks to be literals; the populations
   separate cleanly (legit source ≈ 0.2–0.25, genuine half-escape ≥ 0.5). Failure modes are
   asymmetric — a false block is unrecoverable, a false pass is visible in the diff.
-- **Flaky-gate fix:** the real-I/O compaction tests got a 30s budget (the slowest runs ~3.3s against
-  the default 5s and tipped over under parallel load), matching the eval project and
-  `subagent-worktree.test.ts`.
+- **Sub-agent panel renders on plain-prose messages too.** A `subagent_round` on a message with no
+  tool/think tags rendered NOWHERE: the legacy branch never rendered `inlineSubagentRound` (only the
+  interleaved one did), and post-stream that value is non-null regardless of branch — because
+  `resolveLiveSubagentRound` reads the COMPLETED thread once streaming ends — which then also
+  excluded the round from the tail. Unreachable via a real delegation (those emit tool tags, forcing
+  the interleaved branch), but a message body must never silently drop a sub-agent run.
+- **Flaky-gate fixes.** (a) The real-I/O compaction tests got a 30s budget (the slowest runs ~3.3s
+  against the default 5s and tipped over under parallel load). (b) The agent-eval turn budget and
+  the eval project's `testTimeout` were BOTH 30s, so they raced — vitest winning replaced the
+  helper's "Recorded channels: …" diagnosis with a bare "test timed out". One named
+  `AGENT_TURN_TIMEOUT_MS` (45s) now drives `waitFor`/`runTurn`, the project timeout moved to 90s so
+  the informative error always wins, and the invariant is documented at both ends. `waitFor` is a
+  hang detector, not a speed limit: these turns drive the real loop against real sqlite (~13.5s idle
+  for the slowest) while three vitest projects compete for CPU.
 
 ## 🚧 In progress (unreleased) — plan-ledger desync + voice de-hardcoding
 
@@ -197,11 +208,7 @@ in extension-only concepts (multiple attached browsers, Chrome shortcuts) that a
   rather than resolving inline where they were spawned. Owner chose the minimal fix for now;
   revisiting means weaving settled `subagent` items via `weaveIpcItemsIntoParts` and collapsing the
   panel once all agents settle, so the same agent isn't rendered twice.
-- **agent-evals flakiness.** `tests/bench/swebench-smoke.test.ts` and
-  `repetition-escalation.eval.test.ts` intermittently fail the FULL suite on `waitFor(...)`/30s
-  timeouts while passing in isolation (the slowest legitimately takes ~13.5s). Same class as the
-  compaction suite fixed via per-test budgets. Worth giving `tests/infra/ipc.ts`'s `waitFor` a
-  load-aware budget, or lowering eval-project concurrency.
+- ~~agent-evals flakiness~~ — **FIXED** (see the in-progress section above).
 
 - **Linux authoritative denied-path supervisor — Phase 2 (WRITTEN, compiles, feature-gated OFF; pending dev validation).**
   `native/atlarix-sandbox-linux` gained a ptrace + seccomp(`SECCOMP_RET_TRACE`) supervisor that records
