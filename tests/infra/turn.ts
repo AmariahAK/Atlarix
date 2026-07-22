@@ -7,7 +7,15 @@ import {
 } from "./workspace";
 import { startFakeLlmServer, type FakeLlmServer } from "./scenario";
 import { writeTestSettings } from "./settings";
-import { makeFakeIpcEvent, type FakeIpcEvent } from "./ipc";
+import {
+  AGENT_TURN_TIMEOUT_MS,
+  makeFakeIpcEvent,
+  type FakeIpcEvent,
+} from "./ipc";
+
+// Re-exported so a test that tunes its turn budget imports it from the same
+// place it imports runTurn, rather than reaching into the ipc fake.
+export { AGENT_TURN_TIMEOUT_MS };
 
 /**
  * Full agent-eval context: real temp workspace + real sqlite DB + in-process
@@ -161,7 +169,7 @@ export async function runTurn(
   const endPromise = fakeIpc.waitFor(
     "chat:response:end",
     (p) => p?.chatId === opts.chatId,
-    opts.timeoutMs ?? 25_000,
+    opts.timeoutMs ?? AGENT_TURN_TIMEOUT_MS,
   );
   const duringPromise = opts.during?.(fakeIpc) ?? Promise.resolve();
   await Promise.all([endPromise, duringPromise]);

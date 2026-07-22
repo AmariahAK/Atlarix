@@ -3,7 +3,12 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { setupEvalContext, runTurn, type EvalContext } from "../infra/turn";
+import {
+  AGENT_TURN_TIMEOUT_MS,
+  setupEvalContext,
+  runTurn,
+  type EvalContext,
+} from "../infra/turn";
 import { scenario } from "../infra/scenario";
 import { autoApproveDuring } from "../infra/auto-approve";
 import { captureModelPatch } from "./swebench-runner";
@@ -59,8 +64,8 @@ describe("swebench runner mechanics (no network)", () => {
       chatId,
       prompt: "sc=swe-smoke The add() function subtracts instead of adding. Fix it.",
       mode: "build",
-      timeoutMs: 30_000,
-      during: autoApproveDuring(chatId, { timeoutMs: 30_000 }),
+      timeoutMs: AGENT_TURN_TIMEOUT_MS,
+      during: autoApproveDuring(chatId, { timeoutMs: AGENT_TURN_TIMEOUT_MS }),
     });
 
     const patch = captureModelPatch(repoDir, baseCommit);

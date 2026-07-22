@@ -7,6 +7,23 @@
  * assertion surface for tool sequences, permission events, phases and
  * stream end.
  */
+/**
+ * Wall-clock budget for a full agent turn to reach `chat:response:end`.
+ *
+ * This is a HANG detector, not a speed limit. The turns it guards drive the
+ * real loop against real sqlite, so a few seconds is normal — the slowest runs
+ * ~13.5s on an idle machine — and the whole suite runs the node, renderer and
+ * agent-eval projects concurrently, so that wall time balloons under CPU
+ * contention even though nothing is stuck. Budgets that were fine solo failed
+ * intermittently in full runs (`swebench-smoke`, `repetition-escalation`).
+ *
+ * INVARIANT: this must stay comfortably BELOW the agent-eval project's
+ * `testTimeout` (vitest.config.ts). They used to both be 30s, so the two raced
+ * — and vitest winning gives a bare "test timed out" instead of this helper's
+ * far more useful "Recorded channels: …" list.
+ */
+export const AGENT_TURN_TIMEOUT_MS = 45_000;
+
 export interface RecordedSend {
   channel: string;
   payload: any;
@@ -62,7 +79,7 @@ export function makeFakeIpcEvent(): FakeIpcEvent {
     event,
     sends,
     sentOn: (channel) => sends.filter((s) => s.channel === channel),
-    waitFor: (channel, pred, timeoutMs = 20_000) => {
+    waitFor: (channel, pred, timeoutMs = AGENT_TURN_TIMEOUT_MS) => {
       const existing = sends.find(
         (s) => s.channel === channel && (!pred || pred(s.payload)),
       );

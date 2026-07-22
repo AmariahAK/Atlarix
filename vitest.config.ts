@@ -108,8 +108,14 @@ export default defineConfig({
                 exclude: sharedExclude,
                 // Real sqlite migrations + streamed fake-LLM turns are slower
                 // than pure unit tests; evals drive full agent turns end-to-end.
-                testTimeout: 30_000,
-                hookTimeout: 30_000,
+                //
+                // Must stay comfortably ABOVE AGENT_TURN_TIMEOUT_MS
+                // (tests/infra/ipc.ts). At 30s it exactly matched the inner
+                // waitFor budget, so the two raced: vitest winning reports a
+                // bare "test timed out" and throws away the helper's far more
+                // useful "Recorded channels: …" diagnosis.
+                testTimeout: 90_000,
+                hookTimeout: 90_000,
                 // Each eval file owns a real DB singleton + temp dirs; keep
                 // files isolated from each other.
                 fileParallelism: false,

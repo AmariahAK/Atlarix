@@ -1,5 +1,10 @@
 import { describe, expect, it, beforeAll, afterAll } from "vitest";
-import { setupEvalContext, runTurn, type EvalContext } from "../infra/turn";
+import {
+  AGENT_TURN_TIMEOUT_MS,
+  setupEvalContext,
+  runTurn,
+  type EvalContext,
+} from "../infra/turn";
 import { scenario } from "../infra/scenario";
 import { expectNoStreamError, expectStreamEnded } from "../infra/assert";
 
@@ -39,7 +44,7 @@ describe("repetition escalation — guide, guide harder, circuit-break", () => {
       chatId,
       prompt: "sc=rep-escalate Inspect the file.",
       mode: "build",
-      timeoutMs: 30_000,
+      timeoutMs: AGENT_TURN_TIMEOUT_MS,
     });
     expectNoStreamError(fakeIpc.sends, chatId);
     expectStreamEnded(fakeIpc.sends, chatId);
