@@ -1,6 +1,13 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { normalizeChatActivityPayload } from "@/lib/chat-activity-normalize";
 
+// These drive the real compaction path (sqlite + a stepped summarize turn), so
+// they run in seconds, not milliseconds — the slowest sits ~3.3s against the
+// default 5s budget and tips over under full-suite parallel load. Same reason
+// the eval project sets testTimeout: 30_000 (vitest.config.ts) and
+// subagent-worktree.test.ts pins GIT_IO_TIMEOUT_MS: real I/O needs real budget.
+const COMPACTION_IO_TIMEOUT_MS = 30_000;
+
 // ── Model-initiated compress_context must (a) persist a durable
 // [COMPACTION MARKER] to the bound workspace session (so reopen stays
 // compacted and the model doesn't re-overflow), (b) replace the live
@@ -60,7 +67,7 @@ describe("executeCompressContext — durable marker persistence", () => {
     sessionHandlers.resolveSpy.mockClear();
   });
 
-  it("persists a [COMPACTION MARKER] using the supplied session id and updates the live transport", async () => {
+  it("persists a [COMPACTION MARKER] using the supplied session id and updates the live transport", { timeout: COMPACTION_IO_TIMEOUT_MS }, async () => {
     const setMessages = vi.fn();
     const outcome = await executeCompressContext(
       { reason: "test" },
@@ -88,7 +95,7 @@ describe("executeCompressContext — durable marker persistence", () => {
     expect(content).toContain("concise running summary");
   });
 
-  it("falls back to resolving the session when none was supplied", async () => {
+  it("falls back to resolving the session when none was supplied", { timeout: COMPACTION_IO_TIMEOUT_MS }, async () => {
     const outcome = await executeCompressContext(
       { reason: "test" },
       {
@@ -107,7 +114,7 @@ describe("executeCompressContext — durable marker persistence", () => {
     );
   });
 
-  it("reports summaryPersisted=false when no session can be resolved (the reload-re-summarize risk)", async () => {
+  it("reports summaryPersisted=false when no session can be resolved (the reload-re-summarize risk)", { timeout: COMPACTION_IO_TIMEOUT_MS }, async () => {
     sessionHandlers.resolveSpy.mockResolvedValueOnce(null as unknown as string);
     const outcome = await executeCompressContext(
       { reason: "test" },
