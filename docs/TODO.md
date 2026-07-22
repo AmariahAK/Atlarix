@@ -201,6 +201,30 @@ reference; a partial landing leaves main half-migrated).
 in extension-only concepts (multiple attached browsers, Chrome shortcuts) that are meaningless for a
 `WebContentsView`.
 
+### 🔀 `AssistantMessageBody` two-branch duplication (own session)
+
+`AssistantMessageBody.tsx` returns from two structurally parallel branches — interleaved
+(`useInterleavedTimeline = contentDrivenThread || isStructured`) and legacy — and features get wired
+into one but not the other. **Two bugs from this class shipped in a single batch:**
+
+- The web-search **citation strip** was mounted only in the legacy branch, so it never rendered for
+  the turns that actually had citations (every search emits a tool tag → interleaved branch).
+- The **sub-agent round panel** was the mirror image: rendered only in the interleaved branch, so a
+  round on a plain-prose message rendered nowhere. Worse, `excludeSubagentRound` — driven by
+  `inlineSubagentRound`, which `resolveLiveSubagentRound` makes non-null post-stream by reading the
+  COMPLETED thread — pulled the round out of the tail too, closing the one indirect route the legacy
+  branch had (via `StreamThreadItemView`'s `case "subagent_round"`). Git history confirms the legacy
+  branch NEVER had its own panel render; it was an omission from the split, not a regression.
+
+Both are fixed, but the shape guarantees recurrence: any future "render X at the tail" lands in one
+branch and silently misses the other, and there's no test that asserts parity.
+
+**Direction:** collapse the two returns into one. The branches differ mainly in how they order
+content (woven timeline vs. parts list + tail); the trailing concerns — citation strip, sub-agent
+panel, permission approvals, trailing answer — are identical and should be emitted once, after the
+branch-specific middle. Failing that, a parity test that renders the same fixture through both
+branches and asserts the same trailing elements appear.
+
 ### Other
 
 - **Sub-agent results still don't *continue* in the timeline.** The duplicate tail rows are fixed
