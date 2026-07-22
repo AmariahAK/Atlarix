@@ -13,13 +13,69 @@ import log from "electron-log";
 
 const logger = log.scope("voice");
 
-type CloudProvider = "openai" | "groq" | "gemini";
+/**
+ * Any provider id may be sent. Google/Gemini needs its own wire format; every
+ * other provider is assumed OpenAI-compatible (`POST {base}/audio/transcriptions`),
+ * which is what the STT ecosystem has standardized on. Deliberately NOT a closed
+ * union — the app ships 20 built-in providers plus the models.dev long tail, and
+ * an allowlist here would silently exclude all of them.
+ */
+type CloudProvider = string;
 
 interface TranscribeParams {
   provider: CloudProvider;
   mimeType: string;
   dataBase64: string;
   language?: string;
+  /** Optional explicit model id; otherwise resolved from the live catalog. */
+  model?: string;
+}
+
+/** Providers whose transcription wire format is Google's, not OpenAI's. */
+const GOOGLE_PROVIDER_IDS = new Set(["gemini", "google"]);
+
+/**
+ * Last-resort STT model per provider, used only when the live catalog can't
+ * name an audio-input model. These are floors, not the source of truth — the
+ * catalog is consulted first so new models are picked up without a release.
+ */
+const FALLBACK_STT_MODEL: Record<string, string> = {
+  openai: "gpt-4o-transcribe",
+  groq: "whisper-large-v3-turbo",
+};
+
+/**
+ * Resolve the transcription model from the models.dev catalog: the newest
+ * audio-input model this provider exposes. Keeps voice off the same hardcoded-id
+ * treadmill the model pickers were just taken off.
+ */
+async function resolveTranscriptionModel(
+  provider: string,
+  explicit?: string,
+): Promise<string | undefined> {
+  if (explicit?.trim()) return explicit.trim();
+  try {
+    const { getAudioInputModelIds } = await import("@/lib/models_dev");
+    const ids = await getAudioInputModelIds(provider);
+    if (ids.length > 0) return ids[0];
+  } catch {
+    // Catalog unavailable — fall through to the floor below.
+  }
+  return FALLBACK_STT_MODEL[provider];
+}
+
+/** Base URL for an OpenAI-compatible provider, from the live catalog. */
+async function resolveTranscriptionBaseUrl(
+  provider: string,
+): Promise<string | undefined> {
+  try {
+    const { getProviderApiBaseUrl } = await import("@/lib/models_dev");
+    const url = await getProviderApiBaseUrl(provider);
+    if (url) return url.replace(/\/$/, "");
+  } catch {
+    // Fall through.
+  }
+  return undefined;
 }
 
 type TranscribeResult = { ok: true; text: string } | { ok: false; error: string };
@@ -52,13 +108,15 @@ async function transcribeOpenAiCompatible(
 async function transcribeGemini(
   apiKey: string,
   audio: { mimeType: string; dataBase64: string },
+  model: string,
 ): Promise<string> {
-  const model = "gemini-2.0-flash";
   const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
     {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      // Key in the header, not the query string — query params land in logs and
+      // proxy traces. Matches the Google model fetcher.
+      headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
       body: JSON.stringify({
         contents: [
           {
@@ -90,11 +148,11 @@ export function registerVoiceHandlers() {
     async (_e, params: TranscribeParams): Promise<TranscribeResult> => {
       try {
         const { provider, mimeType, dataBase64, language } = params;
-        const providerKeyId =
-          provider === "gemini" ? "google" : provider;
+        const isGoogle = GOOGLE_PROVIDER_IDS.has(provider);
+        const providerKeyId = isGoogle ? "google" : provider;
         const apiKey =
           (await getProviderApiKey(providerKeyId)) ??
-          (provider === "gemini" ? await getProviderApiKey("gemini") : undefined);
+          (isGoogle ? await getProviderApiKey("gemini") : undefined);
         if (!apiKey) {
           return {
             ok: false,
@@ -102,20 +160,32 @@ export function registerVoiceHandlers() {
           };
         }
 
-        if (provider === "gemini") {
-          const text = await transcribeGemini(apiKey, { mimeType, dataBase64 });
+        const model = await resolveTranscriptionModel(provider, params.model);
+        if (!model) {
+          return {
+            ok: false,
+            error: `No speech-to-text model found for ${provider}. Pick another transcription provider, or use local transcription.`,
+          };
+        }
+
+        if (isGoogle) {
+          const text = await transcribeGemini(
+            apiKey,
+            { mimeType, dataBase64 },
+            model,
+          );
           return { ok: true, text };
         }
 
+        const baseUrl = await resolveTranscriptionBaseUrl(provider);
+        if (!baseUrl) {
+          return {
+            ok: false,
+            error: `No API endpoint known for ${provider}. Pick another transcription provider, or use local transcription.`,
+          };
+        }
         const bytes = Buffer.from(dataBase64, "base64");
         const audio = new Blob([bytes], { type: mimeType || "audio/webm" });
-        const { baseUrl, model } =
-          provider === "groq"
-            ? {
-                baseUrl: "https://api.groq.com/openai/v1",
-                model: "whisper-large-v3-turbo",
-              }
-            : { baseUrl: "https://api.openai.com/v1", model: "gpt-4o-transcribe" };
         const text = await transcribeOpenAiCompatible(
           baseUrl,
           apiKey,

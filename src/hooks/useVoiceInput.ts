@@ -20,7 +20,12 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { IpcClient } from "@/ipc/ipc_client";
 
 export type VoiceMode = "dictate" | "live";
-export type TranscriptionProvider = "local" | "openai" | "groq" | "gemini";
+/**
+ * "local" = on-device Whisper; any other value is a cloud provider id resolved
+ * against the live catalog by the main-process handler (endpoint + STT model),
+ * so this is intentionally not a closed union.
+ */
+export type TranscriptionProvider = "local" | (string & {});
 
 export interface UseVoiceInputOptions {
   mode?: VoiceMode;

@@ -309,10 +309,11 @@ export const UserSettingsSchema = z.object({
   /** Phase 6: When true, use context bar + auto-summarize instead of fixed turn truncation */
   enableContextAutoSummarize: z.boolean().optional(),
   /** Voice dictation: transcription engine. "local" = free on-device Whisper
-   * (default); the others are BYOK cloud STT using the user's own provider key. */
-  voiceTranscriptionProvider: z
-    .enum(["local", "openai", "groq", "gemini"])
-    .optional(),
+   * (default); anything else is a BYOK cloud provider id, transcribed with that
+   * provider's own key. Deliberately a free-form id rather than an enum — the
+   * handler resolves the endpoint and STT model from the live catalog, so a new
+   * provider needs no schema change. */
+  voiceTranscriptionProvider: z.string().optional(),
   /** Voice dictation mode: "dictate" = transcribe on stop (default, most
    * accurate); "live" = stream words as you speak (local + WebGPU only). */
   voiceInputMode: z.enum(["dictate", "live"]).optional(),

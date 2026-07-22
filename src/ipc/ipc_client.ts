@@ -1043,13 +1043,16 @@ export class IpcClient {
     void this.ipcRenderer.invoke("voice:log", message);
   }
 
-  /** BYOK cloud transcription (OpenAI/Groq/Gemini) — main holds the key. Returns
-   * the transcript text (empty string on failure; check thrown errors). */
+  /** BYOK cloud transcription — main holds the key and resolves the endpoint +
+   * STT model from the live catalog, so `provider` is any provider id (not a
+   * fixed set). Returns the transcript text; throws on failure. */
   public async transcribeAudioCloud(params: {
-    provider: "openai" | "groq" | "gemini";
+    provider: string;
     mimeType: string;
     dataBase64: string;
     language?: string;
+    /** Optional explicit STT model; otherwise catalog-resolved. */
+    model?: string;
   }): Promise<string> {
     const res = (await this.ipcRenderer.invoke("voice:transcribe-cloud", params)) as
       | { ok: true; text: string }
