@@ -14,6 +14,37 @@
 - **Supabase idle-ping reduction, keyboard shortcuts (Cmd+T/W/J/I/O), device-spec injection, allow_stalled,
   code-block render fix.**
 
+## 🚧 In progress (unreleased) — sub-agent duplicates, voice picker, edit_file escaping
+
+- **Delegate rows no longer duplicate under the sub-agent panel.** A settled delegation rendered its
+  round panel AND a separate collapsed "Sub-agent finished" row per agent. Root cause was drift in one
+  predicate: the registered delegate tool is `task` (`spawn-task.ts:187`), but `isDelegateToolName`
+  (`delegate-handoff.ts`) knew only `delegate_to_agent`/`spawn_sub_agent` — so it returned **false for
+  every real delegation**, silently disabling delegate-part filtering, the round panel's split
+  position, and round synthesis at once. (`group-stream-tools.ts` already listed all three, which is
+  what marked it as drift.) Fixing the predicate alone wasn't enough — neither tail builder filtered
+  delegate rows, and a native-FC delegation has no content tag so it always looked "not represented".
+  Both tails now drop delegate rows **only when a round panel exists** to represent them; with no
+  panel the delegate card is the only record and still renders.
+- **Voice picker lists every configured audio-capable provider.** New
+  `voice:list-transcription-providers` builds the menu in main from (providers with a key) ∩
+  (providers exposing an audio-input model), collapsing gemini/google, always leading with on-device,
+  and falling back to the old curated list while loading/errored.
+- **`edit_file` no longer blocks valid files that merely quote a newline.** Writing an ordinary
+  multi-line file was rejected as "partially over-escaped" when it contained a regex literal like
+  `/^---\n([\s\S]*?)\n---/`, a `join(',\n')`, or a template ending a line with `},\n` —
+  `STRUCTURAL_LITERAL_NEWLINE` matches a terminator followed by a literal `\n`. The content was
+  already correct, so **no re-send could satisfy the error**, and the retry loop pushed the model into
+  shell heredocs that cascaded their own escaping into genuinely broken output. Over-escaping is a
+  per-argument failure (a model that escapes newlines escapes all of them — which is why the
+  confident `repair` case requires ZERO real newlines), so content dominated by real breaks is not
+  collapsed. `ambiguous` now requires ≥ half the intended breaks to be literals; the populations
+  separate cleanly (legit source ≈ 0.2–0.25, genuine half-escape ≥ 0.5). Failure modes are
+  asymmetric — a false block is unrecoverable, a false pass is visible in the diff.
+- **Flaky-gate fix:** the real-I/O compaction tests got a 30s budget (the slowest runs ~3.3s against
+  the default 5s and tipped over under parallel load), matching the eval project and
+  `subagent-worktree.test.ts`.
+
 ## 🚧 In progress (unreleased) — plan-ledger desync + voice de-hardcoding
 
 - **The agent no longer fights its own plan.** Observed in a real session: the agent marked 25 of 31
@@ -89,13 +120,88 @@
 
 ## ⏳ Open / deferred
 
-- **Sub-agent results don't continue in the timeline.** Sub-agent outcomes render as collapsed
-  "Sub-agent finished" rows pinned near the bottom instead of resolving in order where they were
-  spawned. Wanted shape: thoughts → response → agents → **agents' own response** → thoughts →
-  response, i.e. behaving like background tasks. `weaveIpcItemsIntoParts`
-  (`AssistantMessageBody.tsx`) already anchors IPC items at their timestamps and is the mechanism to
-  reuse; the work is routing `postStreamSubagentItems` through it without double-rendering agents that
-  the round panel already shows. (The related false-"done" status icon IS fixed — see below.)
+### 🌐 Browser tooling convergence (own session — design settled, not started)
+
+**The gap.** The agent gets ONE tab: `browser_navigate` targets "the active browser tab", so every
+navigation destroys the previous page's state (login, scroll, half-filled form). And the read surface
+is split across `mode:"snapshot"` (refs, interactive-only) vs `mode:"text"` (content), so reading a
+page to act on it costs two calls plus a decision the model regularly gets wrong. Mature
+browser-agent toolkits return content and refs together and hold several tabs open at once.
+
+**Stage 1 — agent tab control. Mostly already built.** `browser_view_manager.ts` implements the whole
+tab lifecycle for the UI and none of it is exposed to the agent: `createTab(url?)` (`:289`),
+`closeTab(id)` (`:314`), `setActiveTab(id)` (`:330`), `navigate(id | null, url)` (`:346` — **already
+takes an id**), `getBrowserPanelState()` (`:154`) → `{tabs, activeTabId, visible}`.
+- Add `getTabViewById(id)` beside `getActiveTabView()` (`:169`).
+- New `browser_tabs` tool: `operation: "list" | "create" | "switch" | "close"`, returning ids/titles/URLs.
+- Thread optional `tab_id` (defaults to active) through `browser_navigate`/`browser_inspect`/
+  `browser_interact`.
+- Register in the same mode sets as the other browser tools (`mode-tool-registry.ts:59-92`).
+
+**Stage 2 — reader rework. MUST land as ONE atomic commit** (it deletes modes that prompts and tests
+reference; a partial landing leaves main half-migrated).
+- Today `a11y-snapshot.ts` returns a **flat list** of interactive-only elements from a fixed selector
+  list, tagging `data-atlarix-ref` (`e1…`) **by walk order on every read**, and on overflow reports
+  only "capped at MAX_ELEMENTS" — the cap, not the true total.
+- **Stable refs are a CORRECTNESS fix, not ergonomics.** Reassigning by walk order means inserting a
+  node near the top silently shifts every later ref — `e7` becomes a different element and a click
+  lands on the wrong thing. Fix: per-tab `WeakMap<Element, ref>` + monotonic counter, so a ref means
+  the same element for the life of the page; reset only on navigation.
+- Tree instead of flat list, with `depth` and `ref` **subtree scoping** (read shallow, spot the
+  region, re-read just that subtree — the main token win).
+- Refs on every meaningful node, not only interactive ones, so content can be scoped and asserted on.
+- `max_chars` with truncation that reports the **real total** ("showing 200 of 1,340") — silent
+  truncation leaves the agent believing it saw the whole page.
+- **Delete `mode:"snapshot"` and `mode:"text"`** — the default read returns content *with* refs, so
+  "take a snapshot" stops existing as a step. Keep `visual`, `design`, `console`, `screenshot`; add
+  **`network`**, fed by the existing `getBrowserSurfaceNetworkFailures()` (`:423`).
+- `browser_find` — natural-language element lookup, 20-match cap with an explicit "more matches
+  exist, narrow the query" notice. Implement **heuristically** (fuzzy rank over role + accessible
+  name + text), NOT via an LLM call: deterministic, free, instant.
+- `browser_interact` — add `scroll`, `scroll_to(ref)`, `hover`, `key`; typed `fill` (boolean for
+  checkboxes, selects by option value **or visible text**, which kills the value-vs-label mismatch
+  class). Keep the existing `__pre`/`urlChanged` post-action diff (`browser.ts:159-172`).
+- `browser_batch` — generalize the `browser_test` executor (`browser.ts:895`) minus assertions:
+  sequential, halt on first error, per-item permission check, **refs only** (no blind coordinates).
+  `browser_test` itself unchanged.
+- Sweep every `mode:"snapshot"` / `mode:"text"` reference in tool descriptions and `src/prompts/` in
+  the same commit.
+
+**Decisions already made — do NOT relitigate:**
+- **Keep the a11y tree.** It *is* the token efficiency; `browser_inspect`'s own description already
+  calls screenshots "a LAST RESORT (thousands of tokens)". "Removing snapshots" means removing the
+  *mode the model must choose*, not the tree. Going screenshot/coordinate-first would cost far more.
+- **No progressive/deferred tool schemas.** Schemas live in the cached prompt prefix, so changing the
+  tool set mid-conversation invalidates the cache and re-writes the whole prefix. With ~22 curated
+  tools and 1M contexts, one break costs far more than the schemas ever save, and it lands precisely
+  in the sessions where the tools are used. `filterToolsForActiveMode` (`mode-tool-registry.ts:194`)
+  is already the cache-safe version of that idea. Prefer `operation`/`mode` discriminators over
+  flat tool proliferation for the same reason.
+- **No CDP (`webContents.debugger`).** Considered as the enabler for network reading, then dropped:
+  `ses.webRequest.onCompleted` (`browser_view_manager.ts:109`, with `statusCode`) plus
+  `getBrowserSurfaceNetworkFailures()` already cover it. Avoids any `capturePaintable` conflict and
+  leaves the `[[ATLARIX_ERR]]` error system untouched. **File upload** (`DOM.setFileInputFiles`) was
+  the only CDP-only capability and is **out of scope**.
+- **Keep what Atlarix does better than the reference toolkits:** `browser_test` (asserted headless
+  UI verification — no analogue elsewhere), the `visual`/`design` lint (answers "how does it look"
+  in text, not a PNG), the post-action state diff, and the untrusted-data envelope on page content.
+
+**Not doing:** replacing the browser tools wholesale. It would delete the four items above and pull
+in extension-only concepts (multiple attached browsers, Chrome shortcuts) that are meaningless for a
+`WebContentsView`.
+
+### Other
+
+- **Sub-agent results still don't *continue* in the timeline.** The duplicate tail rows are fixed
+  (see below), but results still live inside the round-panel cards behind the expand affordance
+  rather than resolving inline where they were spawned. Owner chose the minimal fix for now;
+  revisiting means weaving settled `subagent` items via `weaveIpcItemsIntoParts` and collapsing the
+  panel once all agents settle, so the same agent isn't rendered twice.
+- **agent-evals flakiness.** `tests/bench/swebench-smoke.test.ts` and
+  `repetition-escalation.eval.test.ts` intermittently fail the FULL suite on `waitFor(...)`/30s
+  timeouts while passing in isolation (the slowest legitimately takes ~13.5s). Same class as the
+  compaction suite fixed via per-test budgets. Worth giving `tests/infra/ipc.ts`'s `waitFor` a
+  load-aware budget, or lowering eval-project concurrency.
 
 - **Linux authoritative denied-path supervisor — Phase 2 (WRITTEN, compiles, feature-gated OFF; pending dev validation).**
   `native/atlarix-sandbox-linux` gained a ptrace + seccomp(`SECCOMP_RET_TRACE`) supervisor that records
