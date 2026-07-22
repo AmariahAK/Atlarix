@@ -64,6 +64,13 @@ const PROVIDER_ID_MAP: Record<string, string> = {
   qwen: "alibaba", // international DashScope catalog (dashscope-intl compatible-mode)
   moonshot: "moonshotai",
   // deepseek + minimax already match models.dev ids (identity).
+  // Bedrock has NO native fetcher, so models.dev is its ONLY source — an
+  // unmapped id meant the lookup missed and the provider listed zero models.
+  bedrock: "amazon-bedrock",
+  // NVIDIA NIM does have a native fetcher, so models still appeared, but the
+  // limit/cost enrichment silently missed and every model fell back to the
+  // generic 200K context guess with no price.
+  nvidia_nim: "nvidia",
 };
 
 let cachedData: ModelsDevData | null = null;
@@ -74,6 +81,12 @@ const REVERSE_PROVIDER_ID_MAP: Record<string, string> = {
   togetherai: "together",
   alibaba: "qwen",
   moonshotai: "moonshot",
+  // Keep in sync with PROVIDER_ID_MAP: without these the long-tail catalog
+  // emits `amazon-bedrock`/`nvidia` as SEPARATE providers, which then fail to
+  // de-dupe against the built-in `bedrock`/`nvidia_nim` entries and show up
+  // twice in the picker (getLanguageModelProviders keys de-dup on this id).
+  "amazon-bedrock": "bedrock",
+  nvidia: "nvidia_nim",
 };
 
 /**
@@ -227,6 +240,21 @@ function resolveModelsDevProviderId(atlarixProviderId: string): string {
 }
 
 /**
+ * Look up one catalog row by the provider's own api name. Falls back to the
+ * bare id for OpenRouter-style "vendor/model" names. Single definition so the
+ * limit, cost and tool-capability paths can never drift apart.
+ */
+function findModelsDevRow(
+  providerModels: Record<string, ModelsDevModel>,
+  apiName: string,
+): ModelsDevModel | undefined {
+  return (
+    providerModels[apiName] ??
+    providerModels[apiName.includes("/") ? apiName.split("/").pop()! : apiName]
+  );
+}
+
+/**
  * Convert models.dev model to Atlarix LanguageModel format
  */
 function toLanguageModel(
@@ -260,11 +288,7 @@ export async function getModelsDevLimits(
   const data = await getModelsDevData();
   const provider = data[resolveModelsDevProviderId(atlarixProviderId)];
   if (!provider?.models) return null;
-  const m =
-    provider.models[modelId] ??
-    // OpenRouter-style ids ("vendor/model") vs bare catalog ids.
-    provider.models[modelId.includes("/") ? modelId.split("/").pop()! : modelId];
-  return m?.limit ?? null;
+  return findModelsDevRow(provider.models, modelId)?.limit ?? null;
 }
 
 /**
@@ -285,11 +309,7 @@ export async function enrichModelsWithModelsDevLimits(
     if (!provider?.models) return models;
     return models.map((m) => {
       if (m.contextWindow && m.contextWindow > 0 && m.maxOutputTokens) return m;
-      const row =
-        provider.models[m.apiName] ??
-        provider.models[
-          m.apiName.includes("/") ? m.apiName.split("/").pop()! : m.apiName
-        ];
+      const row = findModelsDevRow(provider.models, m.apiName);
       if (!row?.limit) return m;
       return {
         ...m,
@@ -311,14 +331,77 @@ export async function enrichModelsWithModelsDevLimits(
 }
 
 /**
- * Get models for a cloud provider from models.dev
+ * Drop models that can't drive the tool loop, and mark the rest honestly.
+ *
+ * Atlarix is a native-tool-calling app, so a model without tool support is not
+ * merely degraded — it can't run the agent at all. The models.dev path already
+ * enforced this (`getModelsFromModelsDev` skips `tool_call !== true`), but the
+ * provider-native fetchers didn't, so the "first-class" providers leaked
+ * non-tool models (image/realtime/guard/transcribe) into the picker while the
+ * long tail stayed clean. This is that same gate, applied to the native path —
+ * one funnel for every provider instead of a bespoke filter each.
+ *
+ * A model the catalog does NOT know is KEPT. Native fetch exists precisely to
+ * surface models newer than the hourly catalog, and these vendors ship weekly;
+ * dropping unknown ids would trade an accuracy bug for a freshness bug. Only an
+ * explicit `tool_call: false` removes a model — and every catalog row carries
+ * the field, so `false` is a real signal rather than a missing one.
+ *
+ * Catalog unavailable or provider unknown → input returned untouched.
  */
-export async function getModelsFromModelsDev(
-  atlarixProviderId: string
+export async function annotateToolCapability(
+  atlarixProviderId: string,
+  models: LanguageModel[],
 ): Promise<LanguageModel[]> {
+  if (models.length === 0) return models;
+  try {
+    const data = await getModelsDevData();
+    const provider = data[resolveModelsDevProviderId(atlarixProviderId)];
+    if (!provider?.models) return models;
+
+    const out: LanguageModel[] = [];
+    for (const m of models) {
+      if (m.type !== "cloud") {
+        out.push(m);
+        continue;
+      }
+      // A fetcher that explicitly declared `supportsToolChoice: false` has
+      // already made this call deliberately (Perplexity's Sonar family is
+      // non-tool-calling by design but still worth listing). Respect it rather
+      // than dropping the model out from under the fetcher.
+      if (m.supportsToolChoice === false) {
+        out.push(m);
+        continue;
+      }
+      const row = findModelsDevRow(provider.models, m.apiName);
+      // Unknown to the catalog → keep (newer than the catalog).
+      if (!row) {
+        out.push(m);
+        continue;
+      }
+      if (row.tool_call === false) continue;
+      out.push(m.supportsToolChoice ? m : { ...m, supportsToolChoice: true });
+    }
+    return out;
+  } catch {
+    return models;
+  }
+}
+
+/**
+ * Non-deprecated catalog rows for a provider, WITHOUT the tool-calling gate.
+ *
+ * Almost every caller wants `getModelsFromModelsDev` instead. This exists for
+ * providers whose whole family is legitimately non-tool-calling (Perplexity's
+ * Sonar) and which we still want to list — marked honestly — rather than hide.
+ */
+export async function getModelsDevCatalogRows(
+  atlarixProviderId: string,
+  opts: { requireToolCall?: boolean } = {},
+): Promise<LanguageModel[]> {
+  const { requireToolCall = true } = opts;
   const data = await getModelsDevData();
-  const modelsDevProviderId = resolveModelsDevProviderId(atlarixProviderId);
-  const provider = data[modelsDevProviderId];
+  const provider = data[resolveModelsDevProviderId(atlarixProviderId)];
 
   if (!provider?.models) {
     return [];
@@ -328,7 +411,7 @@ export async function getModelsFromModelsDev(
   for (const [modelId, m] of Object.entries(provider.models)) {
     if (m.status === "deprecated") continue;
     // Atlarix uses native tool calling - only include models that support it
-    if (m.tool_call !== true) continue;
+    if (requireToolCall && m.tool_call !== true) continue;
 
     models.push(toLanguageModel(modelId, m, atlarixProviderId));
   }
@@ -342,6 +425,55 @@ export async function getModelsFromModelsDev(
   });
 
   return models;
+}
+
+/**
+ * Model ids for a provider that accept AUDIO input, newest-catalog-order first.
+ *
+ * Drives voice transcription so speech-to-text model ids aren't hardcoded (the
+ * same rot the model pickers were just taken off — `gemini-2.0-flash` was still
+ * pinned in the voice handler long after it aged out). 71 providers in the
+ * catalog expose audio-input models. Empty array when unknown — callers fall
+ * back rather than break.
+ */
+export async function getAudioInputModelIds(
+  atlarixProviderId: string,
+): Promise<string[]> {
+  try {
+    const data = await getModelsDevData();
+    const provider = data[resolveModelsDevProviderId(atlarixProviderId)];
+    if (!provider?.models) return [];
+    return Object.entries(provider.models)
+      .filter(
+        ([, m]) =>
+          m.status !== "deprecated" &&
+          (m.modalities?.input ?? []).includes("audio"),
+      )
+      .map(([id]) => id);
+  } catch {
+    return [];
+  }
+}
+
+/** A provider's API base URL from the catalog (for OpenAI-compatible calls). */
+export async function getProviderApiBaseUrl(
+  atlarixProviderId: string,
+): Promise<string | undefined> {
+  try {
+    const data = await getModelsDevData();
+    return data[resolveModelsDevProviderId(atlarixProviderId)]?.api;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Get models for a cloud provider from models.dev (tool-capable models only).
+ */
+export async function getModelsFromModelsDev(
+  atlarixProviderId: string
+): Promise<LanguageModel[]> {
+  return getModelsDevCatalogRows(atlarixProviderId);
 }
 
 /**

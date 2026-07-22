@@ -16,6 +16,13 @@ const logger = log.scope("provider_fetchers");
 const CACHE_MS = 5 * 60 * 1000; // 5 min per-provider cache
 const cache = new Map<string, { models: LanguageModel[]; ts: number }>();
 
+/**
+ * Hard stop for every cursor-paginated fetch below. With max page sizes the
+ * real catalogs fit in one or two pages; this only exists so a provider
+ * returning a self-referential cursor can't spin forever.
+ */
+const MAX_PAGES = 10;
+
 function fromCache(providerId: string): LanguageModel[] | null {
   const entry = cache.get(providerId);
   if (!entry || Date.now() - entry.ts > CACHE_MS) return null;
@@ -35,25 +42,44 @@ function sortModels(models: LanguageModel[]) {
   });
 }
 
-/** OpenAI: exclude embeddings, whisper, image gen, tts. Include chat models. */
-const OPENAI_EXCLUDE_PREFIXES = [
-  "text-embedding-",
-  "whisper-",
+/**
+ * OpenAI: `/v1/models` carries no capability metadata, so we classify by id.
+ *
+ * This is a DENYLIST on purpose. The previous allowlist (`gpt-`/`o1-`/`o3-`)
+ * failed in both directions against OpenAI's naming: reasoning models without a
+ * trailing dash (`o3`) or on a newer number (`o4-mini`) were dropped, while
+ * non-chat models that happen to start with `gpt-` (`gpt-image-*`,
+ * `gpt-realtime-*`, `gpt-4o-transcribe`) sailed through and were listed as
+ * tool-capable chat models. Naming a family we can't serve is stable; trying to
+ * enumerate every family we CAN serve is not — new ones ship faster than releases.
+ *
+ * Matched as substrings so variants (`-mini-tts`, `gpt-4o-mini-transcribe`) are
+ * covered without another entry. The shared models.dev tool-capability funnel in
+ * `fetchModelsFromProvider` catches whatever slips past.
+ */
+const OPENAI_NON_CHAT_MARKERS = [
+  "embedding",
+  "whisper",
   "dall-e",
-  "tts-",
-  "tts_",
-  "gpt-4o-audio",
-  "gpt-4.1-audio",
+  "tts",
+  "audio",
+  "realtime",
+  "transcribe",
+  "image",
+  "moderation",
+  "sora",
+  "search-preview",
+  "computer-use",
+  // Legacy base-completion engines — still listed by /v1/models, no chat or
+  // tool support, and too old for the models.dev catalog to vouch for.
+  "davinci",
+  "babbage",
+  "curie",
 ];
 
 function isOpenAIChatModel(id: string): boolean {
-  if (OPENAI_EXCLUDE_PREFIXES.some((p) => id.startsWith(p))) return false;
-  return (
-    id.startsWith("gpt-") ||
-    id.startsWith("o1-") ||
-    id.startsWith("o3-") ||
-    id.startsWith("ft:gpt-")
-  );
+  const lower = id.toLowerCase();
+  return !OPENAI_NON_CHAT_MARKERS.some((marker) => lower.includes(marker));
 }
 
 /** Groq: exclude embeddings, tts. Include chat/completion models */
@@ -105,22 +131,46 @@ export async function fetchModelsFromAnthropic(
   if (cached) return cached;
 
   try {
-    const res = await fetch("https://api.anthropic.com/v1/models", {
-      headers: {
-        "x-api-key": apiKey,
-        "anthropic-version": "2023-06-01",
-      },
-      signal: AbortSignal.timeout(15_000),
-    });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = (await res.json()) as {
-      data?: { id: string; display_name?: string }[];
+    // `limit` defaults to 20 and the endpoint is cursor-paginated, so a single
+    // unparameterized request silently truncates the catalog. Ask for the max
+    // page size and follow `has_more`/`last_id` to the end.
+    type AnthropicModel = {
+      id: string;
+      display_name?: string;
+      max_input_tokens?: number;
+      max_tokens?: number;
     };
-    const items = data.data ?? [];
+    const items: AnthropicModel[] = [];
+    let after: string | undefined;
+    for (let page = 0; page < MAX_PAGES; page++) {
+      const url = new URL("https://api.anthropic.com/v1/models");
+      url.searchParams.set("limit", "1000");
+      if (after) url.searchParams.set("after_id", after);
+      const res = await fetch(url, {
+        headers: {
+          "x-api-key": apiKey,
+          "anthropic-version": "2023-06-01",
+        },
+        signal: AbortSignal.timeout(15_000),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = (await res.json()) as {
+        data?: AnthropicModel[];
+        has_more?: boolean;
+        last_id?: string;
+      };
+      items.push(...(data.data ?? []));
+      if (!data.has_more || !data.last_id) break;
+      after = data.last_id;
+    }
+    // Anthropic reports real per-model limits — authoritative, so prefer them
+    // over the models.dev enrichment that would otherwise fill the gap.
     const models: LanguageModel[] = items.map((m) => ({
       apiName: m.id,
       displayName: m.display_name ?? m.id,
       description: "Claude model with tool support",
+      ...(m.max_input_tokens ? { contextWindow: m.max_input_tokens } : {}),
+      ...(m.max_tokens ? { maxOutputTokens: m.max_tokens } : {}),
       type: "cloud" as const,
       supportsToolChoice: true,
     }));
@@ -141,21 +191,37 @@ export async function fetchModelsFromGoogle(
   if (cached) return cached;
 
   try {
-    const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(apiKey)}`,
-      { signal: AbortSignal.timeout(15_000) }
-    );
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = (await res.json()) as {
-      models?: {
-        name: string;
-        displayName?: string;
-        supportedGenerationMethods?: string[];
-        inputTokenLimit?: number;
-        outputTokenLimit?: number;
-      }[];
+    // `pageSize` defaults to 50 and the list is page-token paginated — Gemini's
+    // catalog is past that, so an unparameterized call drops models. Key moves
+    // to the header: query strings end up in logs and proxy traces.
+    type GoogleModel = {
+      name: string;
+      displayName?: string;
+      supportedGenerationMethods?: string[];
+      inputTokenLimit?: number;
+      outputTokenLimit?: number;
     };
-    const items = data.models ?? [];
+    const items: GoogleModel[] = [];
+    let pageToken: string | undefined;
+    for (let page = 0; page < MAX_PAGES; page++) {
+      const url = new URL(
+        "https://generativelanguage.googleapis.com/v1beta/models",
+      );
+      url.searchParams.set("pageSize", "1000");
+      if (pageToken) url.searchParams.set("pageToken", pageToken);
+      const res = await fetch(url, {
+        headers: { "x-goog-api-key": apiKey },
+        signal: AbortSignal.timeout(15_000),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = (await res.json()) as {
+        models?: GoogleModel[];
+        nextPageToken?: string;
+      };
+      items.push(...(data.models ?? []));
+      if (!data.nextPageToken) break;
+      pageToken = data.nextPageToken;
+    }
     const models: LanguageModel[] = items
       .filter(
         (m) =>
@@ -300,23 +366,51 @@ export async function fetchModelsFromXai(
   if (cached) return cached;
 
   try {
-    const res = await fetch("https://api.x.ai/v1/models", {
+    // `/v1/language-models` carries modalities (so image/video-only Grok models
+    // can be dropped) that plain `/v1/models` doesn't. Fall back to `/v1/models`
+    // on any non-200 so a schema change upstream can't empty the picker.
+    type XaiModel = { id: string; input_modalities?: string[] };
+    let items: XaiModel[] = [];
+    let richEndpoint = true;
+    const res = await fetch("https://api.x.ai/v1/language-models", {
       headers: { Authorization: `Bearer ${apiKey}` },
       signal: AbortSignal.timeout(15_000),
     });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = (await res.json()) as { data?: { id: string }[] };
-    const items = data.data ?? [];
-    const models: LanguageModel[] = items.map((m) => ({
-      apiName: m.id,
-      displayName: m.id.replace(/^grok-/, "Grok "),
-      description: "Grok model with tool support",
-      type: "cloud" as const,
-      supportsToolChoice: true,
-    }));
+    if (res.ok) {
+      const data = (await res.json()) as { models?: XaiModel[]; data?: XaiModel[] };
+      items = data.models ?? data.data ?? [];
+    }
+    if (items.length === 0) {
+      richEndpoint = false;
+      const fallback = await fetch("https://api.x.ai/v1/models", {
+        headers: { Authorization: `Bearer ${apiKey}` },
+        signal: AbortSignal.timeout(15_000),
+      });
+      if (!fallback.ok) throw new Error(`HTTP ${fallback.status}`);
+      const data = (await fallback.json()) as { data?: XaiModel[] };
+      items = data.data ?? [];
+    }
+    const models: LanguageModel[] = items
+      // Text-in models only. When the modality list is absent (fallback
+      // endpoint) keep the model — the shared tool funnel is the backstop.
+      .filter(
+        (m) =>
+          !Array.isArray(m.input_modalities) ||
+          m.input_modalities.length === 0 ||
+          m.input_modalities.includes("text"),
+      )
+      .map((m) => ({
+        apiName: m.id,
+        displayName: m.id.replace(/^grok-/, "Grok "),
+        description: "Grok model with tool support",
+        type: "cloud" as const,
+        supportsToolChoice: true,
+      }));
     sortModels(models);
     toCache("xai", models);
-    logger.info(`[xAI] Fetched ${models.length} models`);
+    logger.info(
+      `[xAI] Fetched ${models.length} models (${richEndpoint ? "language-models" : "models fallback"})`,
+    );
     return models;
   } catch (e) {
     logger.warn("[xAI] Fetch failed", e);
@@ -383,45 +477,37 @@ export async function fetchModelsFromPerplexity(
   const cached = fromCache("perplexity");
   if (cached) return cached;
 
-  // Perplexity's Sonar API documents these model IDs directly.
-  // The generic GET /v1/models endpoint lists Agent API models (including non-Sonar),
-  // so we present the Sonar family as the selectable list for this provider.
+  // Perplexity's generic GET /v1/models lists Agent API models (including
+  // non-Sonar), so it isn't a usable selectable list — the Sonar family is what
+  // this provider offers. That family comes from the models.dev catalog rather
+  // than a hardcoded array so the limits and pricing stay live.
   //
-  // Source: https://docs.perplexity.ai/docs/sonar/models
-  void apiKey; // Key presence is required by the caller; unused here.
-  const models: LanguageModel[] = [
-    {
-      apiName: "sonar",
-      displayName: "Sonar",
-      description: "Fast grounded answers with web search",
-      type: "cloud" as const,
-      supportsToolChoice: true,
-    },
-    {
-      apiName: "sonar-pro",
-      displayName: "Sonar Pro",
-      description: "Higher quality grounded answers with web search",
-      type: "cloud" as const,
-      supportsToolChoice: true,
-    },
-    {
-      apiName: "sonar-reasoning-pro",
-      displayName: "Sonar Reasoning Pro",
-      description: "Reasoning-focused grounded answers with web search",
-      type: "cloud" as const,
-      supportsToolChoice: true,
-    },
-    {
-      apiName: "sonar-deep-research",
-      displayName: "Sonar Deep Research",
-      description: "Deep research answers with web search",
-      type: "cloud" as const,
-      supportsToolChoice: true,
-    },
-  ];
-
-  toCache("perplexity", models);
-  return models;
+  // IMPORTANT: models.dev marks every Sonar model `tool_call: false`, and it is
+  // right — Sonar does its own grounded retrieval and does not drive
+  // user-defined tools. The shared tool funnel would therefore drop all four,
+  // so this fetcher returns them explicitly and marks them honestly:
+  // `supportsToolChoice: false`. They stay selectable for grounded Q&A while
+  // the picker stops advertising agent-loop capability they don't have.
+  void apiKey; // Key presence is required by the caller; not needed to list.
+  try {
+    const { getModelsDevCatalogRows } = await import("./models_dev");
+    const rows = await getModelsDevCatalogRows("perplexity", {
+      requireToolCall: false,
+    });
+    const models: LanguageModel[] = rows.map((m) => ({
+      ...m,
+      supportsToolChoice: false,
+    }));
+    if (models.length > 0) {
+      sortModels(models);
+      toCache("perplexity", models);
+      logger.info(`[Perplexity] Fetched ${models.length} models`);
+      return models;
+    }
+  } catch (e) {
+    logger.warn("[Perplexity] models.dev lookup failed", e);
+  }
+  return [];
 }
 
 export async function fetchModelsFromCerebras(
@@ -441,22 +527,43 @@ export async function fetchModelsFromCohere(
   if (cached) return cached;
 
   try {
-    const res = await fetch("https://api.cohere.com/v1/models", {
-      headers: { Authorization: `Bearer ${apiKey}` },
-      signal: AbortSignal.timeout(15_000),
-    });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = (await res.json()) as {
-      models?: Array<{
-        name: string;
-        endpoints?: string[];
-        context_length?: number;
-        features?: string[];
-      }>;
+    // `page_size` defaults to 20 and the list is token-paginated. `endpoint=chat`
+    // filters server-side; `is_deprecated` rows are still returned and we don't
+    // want them in the picker.
+    type CohereModel = {
+      name: string;
+      endpoints?: string[];
+      context_length?: number;
+      features?: string[];
+      is_deprecated?: boolean;
     };
-    const items = data.models ?? [];
+    const items: CohereModel[] = [];
+    let pageToken: string | undefined;
+    for (let page = 0; page < MAX_PAGES; page++) {
+      const url = new URL("https://api.cohere.com/v1/models");
+      url.searchParams.set("page_size", "1000");
+      url.searchParams.set("endpoint", "chat");
+      if (pageToken) url.searchParams.set("page_token", pageToken);
+      const res = await fetch(url, {
+        headers: { Authorization: `Bearer ${apiKey}` },
+        signal: AbortSignal.timeout(15_000),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = (await res.json()) as {
+        models?: CohereModel[];
+        next_page_token?: string;
+      };
+      items.push(...(data.models ?? []));
+      if (!data.next_page_token) break;
+      pageToken = data.next_page_token;
+    }
     const models: LanguageModel[] = items
-      .filter((m) => Array.isArray(m.endpoints) && m.endpoints.includes("chat"))
+      .filter(
+        (m) =>
+          !m.is_deprecated &&
+          Array.isArray(m.endpoints) &&
+          m.endpoints.includes("chat"),
+      )
       .map((m) => ({
         apiName: m.name,
         displayName: m.name,
@@ -542,13 +649,19 @@ export async function fetchModelsFromOpenRouter(
   if (cached) return cached;
 
   try {
-    const res = await fetch("https://openrouter.ai/api/v1/models", {
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        ...OPENROUTER_APP_HEADERS,
+    // `supported_parameters=tools` filters server-side. Roughly a fifth of
+    // OpenRouter's catalog (image/video/moderation/router models) can't tool-call,
+    // and every one of them used to be listed as agent-capable.
+    const res = await fetch(
+      "https://openrouter.ai/api/v1/models?supported_parameters=tools",
+      {
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          ...OPENROUTER_APP_HEADERS,
+        },
+        signal: AbortSignal.timeout(20_000),
       },
-      signal: AbortSignal.timeout(20_000),
-    });
+    );
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = (await res.json()) as {
       data?: Array<{
@@ -558,6 +671,9 @@ export async function fetchModelsFromOpenRouter(
           modality?: string;
         };
         context_length?: number;
+        // The serving provider's real ceilings — `context_length` at the top
+        // level is the model's, which can exceed what the endpoint allows.
+        top_provider?: { context_length?: number; max_completion_tokens?: number };
         // OpenRouter reports per-TOKEN USD prices as strings ("0.0000003").
         pricing?: { prompt?: string; completion?: string };
       }>;
@@ -590,7 +706,10 @@ export async function fetchModelsFromOpenRouter(
           apiName: m.id,
           displayName: m.name ?? m.id,
           description: "OpenRouter-hosted model",
-          contextWindow: m.context_length,
+          contextWindow: m.top_provider?.context_length ?? m.context_length,
+          ...(m.top_provider?.max_completion_tokens
+            ? { maxOutputTokens: m.top_provider.max_completion_tokens }
+            : {}),
           type: "cloud" as const,
           supportsToolChoice: true,
           ...(cost ? { cost } : {}),
@@ -707,8 +826,13 @@ export async function fetchModelsFromProvider(
   // limits from models.dev so downstream resolution never needs hardcoded
   // guesses. Dynamic import keeps main-only deps out of renderer bundles.
   try {
-    const { enrichModelsWithModelsDevLimits } = await import("./models_dev");
-    return await enrichModelsWithModelsDevLimits(key, models);
+    const { enrichModelsWithModelsDevLimits, annotateToolCapability } =
+      await import("./models_dev");
+    const enriched = await enrichModelsWithModelsDevLimits(key, models);
+    // Same funnel: drop models the catalog says can't tool-call. Provider
+    // endpoints mostly don't report tool support, so without this the native
+    // path listed image/realtime/guard models as agent-capable.
+    return await annotateToolCapability(key, enriched);
   } catch {
     return models;
   }
