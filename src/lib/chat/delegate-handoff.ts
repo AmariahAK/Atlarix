@@ -19,8 +19,19 @@ export type DelegateHandoffMeta = {
   scope?: string;
 };
 
+/**
+ * Tools that hand work to a sub-agent. `task` (src/lib/tools/spawn-task.ts) is
+ * the one registered today; the other two are kept so persisted sessions still
+ * render. Keep in sync with NON_GROUPABLE in group-stream-tools.ts.
+ */
+const DELEGATE_TOOL_NAMES = new Set([
+  "task",
+  "delegate_to_agent",
+  "spawn_sub_agent",
+]);
+
 export function isDelegateToolName(toolName: string): boolean {
-  return toolName === "delegate_to_agent" || toolName === "spawn_sub_agent";
+  return DELEGATE_TOOL_NAMES.has(toolName);
 }
 
 /** Hide per-tool delegate rows when the stream thread already shows a sub-agent round panel. */

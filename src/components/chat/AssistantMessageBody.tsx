@@ -363,8 +363,15 @@ export function AssistantMessageBody({
       liveThread,
       interleavedParts,
       Boolean(inlineSubagentRound),
+      suppressDelegateTools,
     );
-  }, [isStreaming, liveThread, interleavedParts, inlineSubagentRound]);
+  }, [
+    isStreaming,
+    liveThread,
+    interleavedParts,
+    inlineSubagentRound,
+    suppressDelegateTools,
+  ]);
 
   const postStreamThreadTail = useMemo(() => {
     if (isStreaming || displayCompletedThread.length === 0) return [];
@@ -372,12 +379,14 @@ export function AssistantMessageBody({
       displayCompletedThread,
       interleavedParts,
       Boolean(inlineSubagentRound),
+      suppressDelegateTools,
     );
   }, [
     isStreaming,
     displayCompletedThread,
     interleavedParts,
     inlineSubagentRound,
+    suppressDelegateTools,
   ]);
 
   // W7 (v14.8.11): weave IPC-only items (compaction/background/plan cards)
@@ -585,6 +594,7 @@ function ipcTimelineTailItems(
   thread: StreamThreadItem[],
   parts: AssistantMessagePart[],
   excludeSubagentRound = false,
+  suppressDelegateTools = false,
 ): StreamThreadItem[] {
   const inParts = toolNamesInParts(parts);
   return thread
@@ -592,6 +602,13 @@ function ipcTimelineTailItems(
       if (item.kind === "subagent_round") return !excludeSubagentRound;
       if (item.kind === "background" || item.kind === "plan") return true;
       if (item.kind === "tool") {
+        // A native-FC delegation has no content tag, so it always looks
+        // "not represented" and lands here — as a second, redundant
+        // "Sub-agent finished" card under a panel that already lists that
+        // agent. Drop it only when a panel exists to represent it.
+        if (suppressDelegateTools && isDelegateToolName(item.toolName)) {
+          return false;
+        }
         // Show tools not represented in the content parts — including COMPLETED
         // ones. Previously only `running` tools passed, so a permission-
         // interceptor write/edit (which never gets a content-tag part) vanished
@@ -608,6 +625,7 @@ function completedThreadTailItems(
   thread: StreamThreadItem[],
   parts: AssistantMessagePart[],
   excludeSubagentRound = false,
+  suppressDelegateTools = false,
 ): StreamThreadItem[] {
   const partTools = parts.filter(
     (p): p is Extract<AssistantMessagePart, { type: "tool" }> =>
@@ -629,6 +647,11 @@ function completedThreadTailItems(
       if (item.kind === "thought") return !hasThoughtInParts;
       if (item.kind === "background" || item.kind === "plan") return true;
       if (item.kind === "tool") {
+        // See ipcTimelineTailItems: the round panel is the single home for
+        // agents, so a delegate row here is a duplicate of it.
+        if (suppressDelegateTools && isDelegateToolName(item.toolName)) {
+          return false;
+        }
         const part = partForTool(item.toolName);
         if (!part) return true;
         // The inline part renders its own result only when it carries one.

@@ -136,4 +136,75 @@ describe("stream → tool card", () => {
     expect(screen.getByText("Searched the web (3 results)")).toBeInTheDocument();
     expect(screen.getByText("All done.")).toBeInTheDocument();
   });
+
+  // A native-FC delegation has no content tag, so its tool card always looked
+  // "not represented in the parts" and landed in the tail — as a second
+  // "Sub-agent finished" row beneath a panel already listing that agent.
+  describe("delegate rows vs the sub-agent round panel", () => {
+    const delegateRow = toolItem({
+      id: "task-1",
+      toolName: "task",
+      status: "done" as const,
+      summary: "Sub-agent finished",
+      endTs: 5,
+    });
+
+    const roundItem = {
+      kind: "subagent_round" as const,
+      id: "round-1",
+      status: "done" as const,
+      ts: 2,
+      agents: [
+        {
+          id: "agent-1",
+          agentType: "scout",
+          label: "Scout · traced the save flow",
+          status: "done" as const,
+          summary: "Traced it.",
+          nestedItems: [],
+        },
+      ],
+    };
+
+    // Structured content (<think>) forces the interleaved branch — the one a
+    // real delegation turn always takes, since delegating emits tool tags.
+    it("drops the duplicate delegate row when a round panel represents it", () => {
+      const { store } = renderWithProviders(
+        <AssistantMessageBody
+          content="<think>Delegating the trace.</think>All done."
+          isStreaming={false}
+          chatId={CHAT_ID}
+          assistantMessageId={MESSAGE_ID}
+        />,
+      );
+      act(() => {
+        store.set(completedStreamThreadByAssistantMessageIdAtom, {
+          [MESSAGE_ID]: [roundItem, delegateRow],
+        });
+      });
+      // The panel is the single home for agents…
+      expect(screen.getByText(/Scout · traced the save flow/)).toBeInTheDocument();
+      // …and the delegate tool card must not repeat it at the tail.
+      expect(screen.queryByText("Sub-agent finished")).not.toBeInTheDocument();
+    });
+
+    it("still renders a delegate row when NO panel represents it", () => {
+      const { store } = renderWithProviders(
+        <AssistantMessageBody
+          content="<think>Delegating the trace.</think>All done."
+          isStreaming={false}
+          chatId={CHAT_ID}
+          assistantMessageId={MESSAGE_ID}
+        />,
+      );
+      act(() => {
+        store.set(completedStreamThreadByAssistantMessageIdAtom, {
+          [MESSAGE_ID]: [delegateRow],
+        });
+      });
+      // Without a panel the delegate card is the only record of the run —
+      // suppressing it here would lose the delegation entirely.
+      expect(screen.getByText("Sub-agent finished")).toBeInTheDocument();
+    });
+  });
 });
