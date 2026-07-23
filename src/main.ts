@@ -343,12 +343,8 @@ export async function onReady() {
     logger.error("Error initializing backup manager", e);
   }
 
-  try {
-    await restoreAuthSessionOnStartup();
-    await SubscriptionManager.initialize();
-  } catch (e) {
-    logger.warn("Auth session restore or subscription init (non-fatal):", e);
-  }
+  // NOTE: auth/subscription init deliberately does NOT run here — see the
+  // deferred block after createWindow(). Keep it that way.
 
   // If user deferred an update on last session, install it silently once this
   // session's download completes. We only RECORD the intent here — the actual
@@ -363,6 +359,36 @@ export async function onReady() {
   }
 
   createWindow();
+
+  /**
+   * INVARIANT: window creation must NEVER await a network call.
+   *
+   * These two used to run BEFORE createWindow(). Both hit Supabase, neither was
+   * timeboxed, and the surrounding try/catch caught nothing that mattered — a
+   * hang is not an exception. Cleanly offline was survivable (DNS fails fast),
+   * but on a black-hole network (captive portal, hotel wifi, VPN) each request
+   * hung to the OS TCP timeout (~75s on macOS) and the session refresh retries
+   * three times. That is minutes with NO WINDOW AT ALL, which users correctly
+   * reported as "the app doesn't open".
+   *
+   * Deferred, so startup costs the same online and offline. Mirrors
+   * `warmCoreModelOverrides`. The renderer mounts signed-out and is corrected by
+   * `broadcastSessionState()` over the existing `plan-changed` channel once the
+   * session actually resolves.
+   *
+   * The two calls stay sequential relative to EACH OTHER —
+   * `SubscriptionManager.initialize()` documents that it runs after the session
+   * restore. Only their relationship to createWindow() changed.
+   */
+  void (async () => {
+    try {
+      await restoreAuthSessionOnStartup();
+      await SubscriptionManager.initialize();
+      SubscriptionManager.broadcastSessionState();
+    } catch (e) {
+      logger.warn("Deferred auth init (non-fatal):", e);
+    }
+  })();
 
   // One-time removal of orphaned index dirs from the pre-14.9.0 retrieval
   // teardown (~1.4 GB of dead data). Fire-and-forget — never blocks startup.

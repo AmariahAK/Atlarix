@@ -315,6 +315,26 @@ export const UserSettingsSchema = z.object({
   /** Local providers already counted into the activation funnel. They need no
    * API key, so they never hit the key handler that fires `model_connected`. */
   analyticsLocalProvidersSeen: z.array(z.string()).optional(),
+  /**
+   * Last plan the SERVER confirmed, so an offline user isn't silently downgraded.
+   *
+   * `getUserPlan` returns `'free'` on any error and the in-memory tier cache dies
+   * with the process, so before this a Pro user who opened the app without a
+   * network lost Pro for the session. Read ONLY when the server is unreachable —
+   * a reachable server always wins. Honoured until `subscriptionEndsAt` passes;
+   * scoped to `userId` so a different account on the same machine can't inherit
+   * it. Cleared on sign-out.
+   */
+  lastKnownEntitlement: z
+    .object({
+      userId: z.string(),
+      plan: z.enum(["free", "pro"]),
+      effectiveTier: z.enum(["free", "pro"]),
+      /** ISO date. Absent = not honourable (never grant an unbounded entitlement). */
+      subscriptionEndsAt: z.string().nullable().optional(),
+      cachedAt: z.number(),
+    })
+    .optional(),
   enableAtlarixPro: z.boolean().optional(),
   lastShownReleaseNotesVersion: z.string().optional(),
   maxChatTurnsInContext: z.number().optional(),

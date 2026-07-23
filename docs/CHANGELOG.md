@@ -3,6 +3,31 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
+## [Unreleased] — the app opens offline
+
+### Fixed
+
+- **The app no longer hangs at launch without a network.** `restoreAuthSessionOnStartup()` and
+  `SubscriptionManager.initialize()` both ran **before** `createWindow()`, both hit Supabase, and
+  neither was timeboxed — the surrounding `try/catch` caught nothing useful, because *a hang is not an
+  exception*. Cleanly offline was survivable (DNS fails fast), but on a black-hole network (captive
+  portal, hotel wifi, VPN) every request hung to the OS TCP timeout (~75s on macOS) and the session
+  refresh retried three times: **minutes with no window at all**, which reads as "the app won't open".
+  Both now run as background work after the window exists, and the renderer is corrected over the
+  existing `plan-changed` channel once the session resolves. **Startup now costs the same online and
+  offline.**
+- **Every Supabase request has a deadline.** supabase-js sets no default request timeout, so the same
+  hang could hit sign-in, plan refresh, and the hourly token refresh mid-session. An 8s per-request
+  ceiling (composed with any caller signal) makes all the existing `catch → degrade` handling actually
+  reachable. Realtime websockets are untouched.
+- **Offline Pro users are no longer silently downgraded to Free.** `getUserPlan` returned `'free'` on
+  any error and the tier cache was in-memory only, so launching without a network cost a paying user
+  their plan — workspace and automation limits included — for the whole session. The server-confirmed
+  plan is now persisted and honoured **until `subscription_ends_at` passes**, scoped to that user id
+  and cleared on sign-out. A reachable server always wins; this is a fallback, never a cache-first
+  path. A record with no end date is deliberately **not** honoured — absence of a boundary must never
+  grant an unbounded entitlement.
+
 ## [Unreleased] — dictation accuracy, voice settings, analytics correctness
 
 ### Fixed

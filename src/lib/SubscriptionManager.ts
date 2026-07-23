@@ -114,6 +114,11 @@ export class SubscriptionManager {
                     this.realtimeSubscribedEmail = null;
                     this.lastPlanFingerprint = "";
                     this.lastPlanFingerprintAt = 0;
+                    // Drop the offline entitlement too — a signed-out machine must
+                    // not keep honouring the previous account's plan.
+                    void import('../main/settings')
+                        .then((m) => m.writeSettings({ lastKnownEntitlement: undefined }))
+                        .catch(() => { /* non-fatal */ });
                     // Stop attributing events to the signed-out user; fall back
                     // to this install's anonymous id.
                     void import('../main/lib/analytics')
@@ -154,6 +159,11 @@ export class SubscriptionManager {
         this.cachedWorkspaceCount = null; // Clear cache
         logger.log(`[SubscriptionManager] Session updated: ${user.email} (${plan})`, { avatar: !!avatar, name });
 
+        // Remember what the SERVER just confirmed, so a later launch without a
+        // network doesn't silently downgrade a paying user to free. Written only
+        // on this authoritative path; read only when a request fails.
+        await this.persistEntitlement(user.id, plan, effectiveTier, user.email ?? undefined);
+
         // Analytics identity. This MUST run before the tier event so the event
         // is attributed to the user rather than to this install's anonymous id.
         //
@@ -176,6 +186,81 @@ export class SubscriptionManager {
         // Subscribe to realtime plan changes for instant Pro activation
         if (user.email) {
             await this.setupRealtimeSubscription(user.email);
+        }
+    }
+
+    /**
+     * Push the current session's plan to every window over the EXISTING
+     * `plan-changed` channel.
+     *
+     * Needed because auth init now runs AFTER `createWindow()` (so the network
+     * can never delay the window). The renderer therefore mounts signed-out and
+     * has nothing to re-trigger on; this is what corrects it once the session
+     * actually resolves. No-op when signed out — the renderer's initial
+     * signed-out state is already right.
+     */
+    static broadcastSessionState(): void {
+        const s = this.session;
+        if (!s) return;
+        this.broadcastPlanChanged({
+            plan: s.plan,
+            effectiveTier: s.effectiveTier ?? s.plan,
+            previousPlan: undefined,
+            subscriptionStatus: undefined,
+            subscriptionEndsAt: undefined,
+        });
+    }
+
+    /** Single place that emits `plan-changed`, so the payload can't drift. */
+    private static broadcastPlanChanged(payload: {
+        plan: UserPlan;
+        effectiveTier: UserPlan;
+        previousPlan?: UserPlan;
+        subscriptionStatus?: string | null;
+        subscriptionEndsAt?: string | null;
+    }): void {
+        try {
+            const { BrowserWindow } = require("electron");
+            for (const win of BrowserWindow.getAllWindows()) {
+                (win as { webContents: { send: (c: string, p: unknown) => void } })
+                    .webContents.send("plan-changed", payload);
+            }
+        } catch (e) {
+            logger.warn('[SubscriptionManager] plan-changed broadcast failed', e);
+        }
+    }
+
+    /**
+     * Store the server-confirmed entitlement for offline use. The expiry date
+     * comes from the same `users` row the plan does; without one the record is
+     * deliberately un-honourable (see resolveOfflineEntitlement).
+     */
+    private static async persistEntitlement(
+        userId: string,
+        plan: UserPlan,
+        effectiveTier: UserPlan,
+        email?: string,
+    ): Promise<void> {
+        try {
+            const { readSettings, writeSettings } = await import('../main/settings');
+            let subscriptionEndsAt: string | null = null;
+            if (email) {
+                const { getSubscriptionDetails } = await import('./auth/supabase-client');
+                subscriptionEndsAt = (await getSubscriptionDetails(email)).endsAt;
+            }
+            void readSettings; // (read not needed — this key is written wholesale)
+            writeSettings({
+                lastKnownEntitlement: {
+                    userId,
+                    plan,
+                    effectiveTier,
+                    subscriptionEndsAt,
+                    cachedAt: Date.now(),
+                },
+            });
+        } catch (e) {
+            // Bookkeeping must never break sign-in.
+            logger.warn('[SubscriptionManager] persistEntitlement failed (non-fatal)', e);
         }
     }
 
@@ -267,16 +352,12 @@ export class SubscriptionManager {
                         /* non-fatal */
                     }
 
-                    const { BrowserWindow } = require("electron");
-                    const windows = BrowserWindow.getAllWindows();
-                    windows.forEach((win: { webContents: { send: (c: string, p: unknown) => void } }) => {
-                        win.webContents.send("plan-changed", {
-                            plan: newData.plan,
-                            effectiveTier: newData.effectiveTier ?? newData.plan,
-                            previousPlan: oldData.plan,
-                            subscriptionStatus: newData.subscriptionStatus,
-                            subscriptionEndsAt: newData.subscriptionEndsAt,
-                        });
+                    this.broadcastPlanChanged({
+                        plan: newData.plan,
+                        effectiveTier: newData.effectiveTier ?? newData.plan,
+                        previousPlan: oldData.plan,
+                        subscriptionStatus: newData.subscriptionStatus,
+                        subscriptionEndsAt: newData.subscriptionEndsAt,
                     });
                 }
             });

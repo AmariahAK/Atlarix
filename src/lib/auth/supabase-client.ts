@@ -12,6 +12,7 @@ import { createClient, SupabaseClient, Session, User, SupportedStorage } from '@
 import log from 'electron-log';
 import { clipboard, dialog, shell } from 'electron';
 import { createSecureSupabaseStorage, clearSupabaseSecureStorage } from './supabase-secure-storage';
+import { resolveOfflineEntitlement } from './offline-entitlement';
 
 const logger = log.scope('supabase');
 
@@ -30,6 +31,40 @@ export const AUTH_CALLBACK_URL = `${DEEP_LINK_PROTOCOL}://${AUTH_CALLBACK_PATH}`
 
 let supabaseClient: SupabaseClient | null = null;
 let fileStorage: SupportedStorage | null = null;
+
+/**
+ * Per-request ceiling for every Supabase HTTP call.
+ *
+ * Long enough that a slow-but-working connection still succeeds; short enough
+ * that a dead one fails while the user is still looking at the screen. Realtime
+ * websockets are NOT affected — they have their own lifecycle and the tuned
+ * heartbeat below.
+ */
+export const SUPABASE_REQUEST_TIMEOUT_MS = 8_000;
+
+/**
+ * `fetch` with a hard deadline, respecting any caller-supplied AbortSignal.
+ *
+ * Exported for tests: the property that matters is that it REJECTS rather than
+ * hanging, since every caller's error handling is already correct and was simply
+ * unreachable before.
+ */
+export async function fetchWithTimeout(
+    input: RequestInfo | URL,
+    init?: RequestInit,
+    // Injectable so tests don't have to wait the real 8s. `AbortSignal.timeout`
+    // is a platform timer that vitest's fake timers do not drive, so this is the
+    // only way to exercise the deadline quickly.
+    timeoutMs: number = SUPABASE_REQUEST_TIMEOUT_MS,
+): Promise<Response> {
+    const timeout = AbortSignal.timeout(timeoutMs);
+    // Don't discard a caller's own signal (supabase-js passes one for its own
+    // cancellation); whichever aborts first wins.
+    const signal = init?.signal
+        ? AbortSignal.any([init.signal, timeout])
+        : timeout;
+    return fetch(input, { ...init, signal });
+}
 
 /**
  * Get or create Supabase client instance
@@ -59,6 +94,16 @@ export function getSupabaseClient(): SupabaseClient {
                 persistSession: true,
                 autoRefreshToken: true,
                 detectSessionInUrl: false, // We handle deep links manually
+            },
+            global: {
+                // supabase-js sets NO default request timeout, so a black-hole
+                // network (captive portal, VPN, hotel wifi — DNS resolves, TCP
+                // never completes) hangs every call until the OS TCP timeout,
+                // ~75s on macOS. Every caller below is written to degrade on a
+                // FAILURE (`return 'free'`, `return null`), and none of them
+                // degrade on a HANG — so bounding the request is what makes all
+                // that existing error handling actually reachable.
+                fetch: fetchWithTimeout,
             },
             // Idle-chatter reduction: the always-open plan-change realtime channel
             // is the dominant background pinger. Halve its keepalive (default 25s →
@@ -550,14 +595,40 @@ export async function getUserPlan(userId: string): Promise<UserPlanDb> {
 
         if (error) {
             logger.warn('[Supabase] getUserPlan error:', error.message);
-            return 'free';
+            return offlinePlanOr('free', userId);
         }
+        // A reachable server with no row genuinely means no entitlement — do NOT
+        // fall back to the cache here, only when the request itself failed.
         if (!data) return 'free';
         return computeEntitledPlan(data);
     } catch (err) {
         logger.warn('[Supabase] getUserPlan exception:', err);
-        return 'free';
+        return offlinePlanOr('free', userId);
     }
+}
+
+/**
+ * Server unreachable → honour the last plan the server confirmed, if it hasn't
+ * expired. Always the fallback, never the first choice: a reachable server wins.
+ */
+function offlinePlanOr(fallback: UserPlanDb, userId: string): UserPlanDb {
+    try {
+        const { readSettings } = requireSettings();
+        const cached = resolveOfflineEntitlement(readSettings().lastKnownEntitlement, userId);
+        if (cached) {
+            logger.log(`[Supabase] offline — honouring last known plan: ${cached.plan}`);
+            return cached.plan;
+        }
+    } catch {
+        /* settings unavailable (wrong process) — fall through */
+    }
+    return fallback;
+}
+
+/** Lazy require so this module stays importable from the renderer stub path. */
+function requireSettings(): { readSettings: () => import('@/lib/schemas').UserSettings } {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    return require('@/main/settings');
 }
 
 /**
@@ -639,7 +710,7 @@ export async function getEffectiveTier(userId: string, ownPlan?: UserPlanDb): Pr
         return tier;
     } catch (err) {
         logger.warn('[Supabase] getEffectiveTier exception:', err);
-        return ownPlan || 'free';
+        return ownPlan || offlinePlanOr('free', userId);
     }
 }
 

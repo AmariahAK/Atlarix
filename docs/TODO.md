@@ -33,6 +33,44 @@ read the sub-headings as four parallel workstreams still in flight.
 - The remaining items (plan-ledger desync, sub-agent render duplication, `edit_file` escaping) are
   independent agent-loop/rendering fixes and can stay as their own bullets.
 
+### Offline resilience — the app opens without a network
+
+**THE INVARIANT (do not quietly revert):** **window creation must NEVER await a network call.** Adding
+"just one await" before `createWindow()` in `main.ts` reads as harmless and reintroduces the exact
+bug below. The deferred block after `createWindow()` is where startup network work belongs.
+
+- **The reported symptom was "the app doesn't open"; the cause was a HANG, not an error.**
+  `restoreAuthSessionOnStartup()` + `SubscriptionManager.initialize()` both ran before
+  `createWindow()`, both hit Supabase, neither was timeboxed. The `try/catch` around them looked
+  protective and did nothing — **a hang is not an exception.** Behaviour split by *how* you're
+  offline: cleanly offline (DNS fails instantly) was survivable; a **black-hole network** (captive
+  portal, hotel wifi, VPN — DNS resolves, TCP never completes) hung each request to the OS TCP
+  timeout (~75s on macOS), and the refresh retried 3× with `[0,1s,3s]` backoff. Minutes with **no
+  window**. Now deferred past `createWindow()`, mirroring `warmCoreModelOverrides`.
+- **Renderer correction reuses the existing `plan-changed` channel** (broadcast → `preload.ts:346`
+  allowlist → `subscribePlanChanged` → `useAuth`). New `SubscriptionManager.broadcastSessionState()`
+  fires it once the deferred init lands, so the UI flips from signed-out to signed-in. **No new IPC.**
+  The duplicated `BrowserWindow.getAllWindows().forEach` was collapsed into one
+  `broadcastPlanChanged()` so the payload can't drift between the two call sites.
+- **8s per-request deadline on the Supabase client** (`fetchWithTimeout`, composed with any caller
+  signal via `AbortSignal.any`). Stage 1 only protects startup; this protects sign-in, plan refresh
+  and the hourly token refresh too. It's what makes the codebase's existing `catch → return 'free'`
+  handling *reachable* — that code was always correct and simply never ran on a hang. Realtime
+  websockets untouched (their heartbeat tuning is deliberate).
+- **Offline entitlement** (`src/lib/auth/offline-entitlement.ts`). `getUserPlan` returned `'free'` on
+  ANY error and `_tierCache` was in-memory only → an offline Pro user was silently downgraded for the
+  session. Now `lastKnownEntitlement` is persisted on the authoritative path and read **only when a
+  request failed**, honoured until `subscription_ends_at`. Scoped by `userId` (shared machines),
+  cleared on sign-out, and **a record with no end date is NOT honourable** — absence of a boundary
+  must never grant an unbounded entitlement, which is the failure mode you'd find months later and in
+  the direction of giving the product away. A reachable server with no row still means `'free'`; the
+  cache is consulted on failure, never on a successful empty result.
+- **Already offline-capable before this** (so the gap was sequencing, not capability): local Whisper,
+  bundled ripgrep, SQLite, the agent loop, terminal, and the models.dev bundled snapshot.
+- **REMAINING (owner):** black-hole verification — null-route Supabase (`/etc/hosts` → `10.255.255.1`
+  or `pfctl`) and confirm the window still appears instantly; confirm an offline Pro user stays Pro
+  across a restart.
+
 ### Dictation accuracy + voice settings + analytics correctness
 
 Four issues from packaged-build testing. Unrelated in code, same cause: small things left behind that
