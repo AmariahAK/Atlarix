@@ -1,13 +1,16 @@
 /**
- * One-time cleanup of orphaned index directories left behind by the v14.9.0
- * retrieval teardown.
+ * One-time cleanup of userData directories orphaned by feature teardowns.
  *
- * The teardown deleted the FTS5/ctags/blueprint *code* but never removed the
- * on-disk directories those writers had already created. Every user who upgraded
- * from a pre-14.9.0 build therefore carries ~1.4 GB of dead index data in their
- * userData forever (fts5-index ~1.1 GB, ctags-index ~267 MB, plus stale
- * blueprints / diagram-git). No live code references these dirs anymore, so this
- * removal is safe.
+ * When a feature is removed we delete its *code*, but never the data its writers
+ * had already put on disk — so every upgrading user carries it forever. Two
+ * teardowns have done this:
+ *
+ * - **v14.9.0 retrieval teardown** — ~1.4 GB of dead index data (fts5-index
+ *   ~1.1 GB, ctags-index ~267 MB, plus stale blueprints / diagram-git).
+ * - **v14.16.0 session-recording removal** — `media/` held JPEG frames of the
+ *   browser reel (~55 KB per action, up to 150 per turn).
+ *
+ * No live code references any of these directories, so removal is safe.
  *
  * Runs once, guarded by a marker file. Fire-and-forget from onReady — never
  * blocks startup.
@@ -18,18 +21,24 @@ import path from "node:path";
 import log from "electron-log";
 import { getUserDataPath } from "../../paths/paths";
 
-/** Bump the suffix if a future teardown orphans another set of dirs. */
-const MARKER_FILE = ".legacy-index-cleanup-v1";
+/**
+ * Bump the suffix whenever a new teardown orphans another set of dirs — a NEW
+ * marker name is what makes the pass re-run for users who already completed an
+ * earlier one. (Reusing the old name would silently skip every upgrader, which
+ * is most of them; the re-walk of already-deleted dirs is a fast no-op.)
+ */
+const MARKER_FILE = ".orphaned-userdata-cleanup-v2";
 
 /**
- * Orphaned directory names under userData. These were written by the removed
- * FTS5 indexer, ctags indexer, blueprint builder, and diagram-git store.
+ * Orphaned directory names under userData, written by the removed FTS5 indexer,
+ * ctags indexer, blueprint builder, diagram-git store, and browser session reel.
  */
-const LEGACY_INDEX_DIRS = [
+const ORPHANED_DIRS = [
   "fts5-index",
   "ctags-index",
   "blueprints",
   "diagram-git",
+  "media",
 ] as const;
 
 async function dirSizeBytes(dir: string): Promise<number> {
@@ -56,10 +65,10 @@ async function dirSizeBytes(dir: string): Promise<number> {
 }
 
 /**
- * Delete the orphaned legacy index dirs once. Idempotent: after a successful run
- * the marker file short-circuits every subsequent launch.
+ * Delete the orphaned dirs once. Idempotent: after a successful run the marker
+ * file short-circuits every subsequent launch.
  */
-export async function cleanupLegacyIndexDirs(): Promise<void> {
+export async function cleanupOrphanedUserData(): Promise<void> {
   const userData = getUserDataPath();
   const markerPath = path.join(userData, MARKER_FILE);
 
@@ -72,7 +81,7 @@ export async function cleanupLegacyIndexDirs(): Promise<void> {
 
   let reclaimed = 0;
   const removed: string[] = [];
-  for (const name of LEGACY_INDEX_DIRS) {
+  for (const name of ORPHANED_DIRS) {
     const dir = path.join(userData, name);
     try {
       const size = await dirSizeBytes(dir);
@@ -85,7 +94,7 @@ export async function cleanupLegacyIndexDirs(): Promise<void> {
       reclaimed += size;
       removed.push(`${name} (${(size / 1e6).toFixed(0)} MB)`);
     } catch (err) {
-      log.warn(`[legacy-index-cleanup] failed to remove ${name}:`, err);
+      log.warn(`[orphaned-userdata-cleanup] failed to remove ${name}:`, err);
     }
   }
 
@@ -94,12 +103,12 @@ export async function cleanupLegacyIndexDirs(): Promise<void> {
   } catch (err) {
     // If the marker can't be written we'd re-run next launch — harmless (the
     // dirs are already gone, so it's a fast no-op walk). Just log.
-    log.warn("[legacy-index-cleanup] could not write marker:", err);
+    log.warn("[orphaned-userdata-cleanup] could not write marker:", err);
   }
 
   if (removed.length > 0) {
     log.info(
-      `[legacy-index-cleanup] reclaimed ${(reclaimed / 1e6).toFixed(0)} MB: ${removed.join(", ")}`,
+      `[orphaned-userdata-cleanup] reclaimed ${(reclaimed / 1e6).toFixed(0)} MB: ${removed.join(", ")}`,
     );
   }
 }

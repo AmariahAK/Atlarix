@@ -64,7 +64,7 @@ import {
   parseDirectoryArgFromArgv,
 } from "./main/open_workspace_from_cli";
 import { registerWorkspaceWindowIpc } from "./main/workspace_window_ipc";
-import { cleanupLegacyIndexDirs } from "./main/startup/cleanup-legacy-index-dirs";
+import { cleanupOrphanedUserData } from "./main/startup/cleanup-orphaned-userdata";
 import { registerIpcHandlers } from "./ipc/ipc_host";
 import { killAllPtys } from "./lib/pty/pty-session-manager";
 import { __setDevCoreKeyProvider } from "./ipc/shared/compass_constants";
@@ -390,10 +390,11 @@ export async function onReady() {
     }
   })();
 
-  // One-time removal of orphaned index dirs from the pre-14.9.0 retrieval
-  // teardown (~1.4 GB of dead data). Fire-and-forget — never blocks startup.
-  void cleanupLegacyIndexDirs().catch((err) => {
-    logger.warn("legacy-index cleanup failed (non-fatal):", err);
+  // One-time removal of userData dirs orphaned by feature teardowns: the
+  // pre-14.9.0 retrieval indexes (~1.4 GB) and the v14.16.0 browser session
+  // recordings. Fire-and-forget — never blocks startup.
+  void cleanupOrphanedUserData().catch((err) => {
+    logger.warn("orphaned-userdata cleanup failed (non-fatal):", err);
   });
 
   try {
