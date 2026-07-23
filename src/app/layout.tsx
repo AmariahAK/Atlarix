@@ -51,6 +51,7 @@ import { preloadSounds, setSoundPreferences } from "@/lib/sounds";
 import { FirstRunWizard } from "@/components/welcome/FirstRunWizard";
 import { TourManager } from "@/components/tour/TourManager";
 import { CommunityDialog } from "@/components/CommunityDialog";
+import { CommunityPrompts } from "@/components/community/CommunityPrompts";
 import { useRightPanelUserPreference } from "@/hooks/useRightPanelUserPreference";
 import type { FileAttachment } from "@/ipc/ipc_types";
 import { startNewWorkspaceConversation } from "@/lib/open-workspace-session";
@@ -475,6 +476,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
           <FirstRunWizard />
           <TourManager />
           <CommunityDialog />
+          <CommunityPrompts />
           <div>
           <SidebarProvider>
             <TitleBar />

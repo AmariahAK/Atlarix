@@ -27,6 +27,7 @@ import { useLanguageModelProviders } from "@/hooks/useLanguageModelProviders";
 import { WorkspaceTerminalPermissions } from "@/components/settings/WorkspaceTerminalPermissions";
 import { WorkspaceFilePermissions } from "@/components/settings/WorkspaceFilePermissions";
 import { GitHubIntegration } from "@/components/GitHubIntegration";
+import { CommunitySettingsSection } from "@/components/community/CommunitySettingsSection";
 import { useSetAtom, getDefaultStore } from "jotai";
 import {
   activeSettingsSectionAtom,
@@ -164,6 +165,9 @@ export default function SettingsPage() {
                 GitHub sign-in is saved on this Mac until you disconnect. Use disconnect to connect a different GitHub account.
               </p>
           </div>
+
+          {/* Community — below Integrations, above the Danger Zone. */}
+          <CommunitySettingsSection />
 
           {/* Danger Zone */}
           <div
@@ -363,7 +367,7 @@ export function GeneralSettings({ appVersion }: { appVersion: string | null }) {
             Restart onboarding guide
           </Button>
           <p className="text-xs text-muted-foreground mt-2">
-            Show the welcome guide again (Code to Canvas, Blueprint, Ask vs Build, API key).
+            Show the welcome guide again (workspaces, work modes, models, the right panel).
           </p>
         </div>
       </div>

@@ -311,6 +311,10 @@ const validInvokeChannels = [
   "tour:set-state",
   // Community (Discord)
   "discord:get-invite-info",
+  // Community asks: "where did you hear about Atlarix?" + the PeerPush prompt.
+  // Both write the local gate AND the PostHog person property in main.
+  "community:record-acquisition-source",
+  "community:peerpush-prompt",
   // Auto-updater
   "update:defer",        // write defer flag to userData; install on next cold start
   "update:install-now",  // quit and install downloaded update immediately

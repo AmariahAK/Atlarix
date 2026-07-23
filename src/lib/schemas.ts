@@ -312,9 +312,42 @@ export const UserSettingsSchema = z.object({
    * event presence, which made it move when instrumentation changed rather than
    * when behaviour did. */
   lastActiveDay: z.string().optional(),
+  /** How many distinct calendar days this install has been active. `lastActiveDay`
+   * alone can't answer "is this their Nth day", which the PeerPush prompt needs. */
+  activeDayCount: z.number().optional(),
   /** Local providers already counted into the activation funnel. They need no
    * API key, so they never hit the key handler that fires `model_connected`. */
   analyticsLocalProvidersSeen: z.array(z.string()).optional(),
+  /**
+   * Answer to "where did you hear about Atlarix?" — the one attribution question
+   * analytics structurally cannot answer, because the referrer chain dies at the
+   * installer download. Scoped to `userId` (like `lastKnownEntitlement`) so a
+   * second account on the same machine is still asked, and stored locally only
+   * as the "don't ask again" gate — the durable record is a PostHog person
+   * property set with `$set_once`.
+   */
+  acquisitionSource: z
+    .object({
+      userId: z.string(),
+      /** One of ACQUISITION_SOURCES, or "other". */
+      source: z.string(),
+      /** Free text, only when source === "other". */
+      detail: z.string().optional(),
+      answeredAt: z.number(),
+    })
+    .optional(),
+  /**
+   * PeerPush review prompt. `asked` and `clickedThrough` are deliberately
+   * SEPARATE: we can see that someone opened the review page, never that they
+   * actually reviewed. Conflating them would overstate the conversion.
+   */
+  peerPushPrompt: z
+    .object({
+      askedAt: z.number().optional(),
+      clickedThroughAt: z.number().optional(),
+      dismissedAt: z.number().optional(),
+    })
+    .optional(),
   /**
    * Last plan the SERVER confirmed, so an offline user isn't silently downgraded.
    *

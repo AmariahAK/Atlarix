@@ -120,6 +120,15 @@ export function identifyUser(
   }
 }
 
+/**
+ * The signed-in user id, or null. Exposed so product features (not just
+ * telemetry) can scope per-account state — the acquisition answer is stored
+ * against a user id so a second account on the same machine is still asked.
+ */
+export function getSignedInUserId(): string | null {
+  return signedInUserId;
+}
+
 /** Sign-out: fall back to the anonymous id rather than keep attributing to a user. */
 export function clearIdentifiedUser(): void {
   signedInUserId = null;
@@ -202,15 +211,62 @@ function localDayKey(now = new Date()): string {
  */
 export function trackActiveDay(): void {
   try {
-    if (!isOptedIn()) return;
     const today = localDayKey();
     const settings = readSettings();
     if (settings.lastActiveDay === today) return;
-    writeSettings({ lastActiveDay: today });
+    // The COUNT is written even when analytics are opted out: it drives the
+    // in-app PeerPush prompt, which is a product decision, not telemetry. Only
+    // the event itself is gated.
+    const count = (settings.activeDayCount ?? 0) + 1;
+    writeSettings({ lastActiveDay: today, activeDayCount: count });
+    if (!isOptedIn()) return;
     captureSafe("active_day", { date: today });
   } catch {
     /* analytics must never break startup */
   }
+}
+
+/**
+ * Record the answer to "where did you hear about Atlarix?".
+ *
+ * Sent as a **person property via `$set_once`**, not just an event. A person
+ * property attaches permanently, so every existing funnel can be broken down by
+ * acquisition source — "do GitHub-sourced users retain better than
+ * VibeCodingList ones" becomes a filter rather than a manual join. `$set_once`
+ * means a reinstall or a second machine cannot overwrite the original answer,
+ * which matters now that `alias()` merges those identities together.
+ *
+ * The accompanying event is kept so the answer also has a timestamp.
+ */
+export function trackAcquisitionSource(source: string, detail?: string): void {
+  try {
+    if (!isOptedIn()) return;
+    const posthog = getPostHog();
+    if (!posthog) return;
+    posthog.capture({
+      distinctId: resolveDistinctId(),
+      event: "acquisition_source_selected",
+      properties: {
+        source,
+        ...(detail ? { source_detail: detail } : {}),
+        $set_once: {
+          acquisition_source: source,
+          ...(detail ? { acquisition_source_detail: detail } : {}),
+        },
+      },
+    });
+  } catch {
+    /* analytics must never break the UI */
+  }
+}
+
+/**
+ * PeerPush review prompt. `shown` and `clicked` are separate events on purpose:
+ * we can observe that someone opened the review page, never that they actually
+ * reviewed. Reporting a click as a review would overstate the conversion.
+ */
+export function trackPeerPushPrompt(action: "shown" | "clicked" | "dismissed"): void {
+  captureSafe("peerpush_prompt", { action });
 }
 
 /** The first real agent turn in a workspace started (fires once). */
