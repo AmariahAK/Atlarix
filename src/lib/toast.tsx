@@ -143,12 +143,16 @@ export const showExtraFilesToast = ({
   error?: string;
   posthog: PostHog;
 }) => {
+  // NEVER send `files` — these are absolute paths, which leak the project's
+  // structure and usually the OS username (/Users/<name>/…). The user consented
+  // to usage analytics, explicitly "no code, no prompts, no personal info"; a
+  // path list is all three by implication. The count is what the event is for.
   if (error) {
     showError(
       `Error committing files ${files.join(", ")} changed outside of Atlarix: ${error}`,
     );
-    posthog.capture("extra-files:error", {
-      files: files,
+    posthog.capture("extra_files_error", {
+      file_count: files.length,
       error,
     });
   } else {
@@ -156,8 +160,8 @@ export const showExtraFilesToast = ({
       `Files changed outside of Atlarix have automatically been committed:
     \n\n${files.join("\n")}`,
     );
-    posthog.capture("extra-files:warning", {
-      files: files,
+    posthog.capture("extra_files_warning", {
+      file_count: files.length,
     });
   }
 };

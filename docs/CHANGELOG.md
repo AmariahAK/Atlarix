@@ -3,6 +3,48 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
+## [Unreleased] — dictation accuracy, voice settings, analytics correctness
+
+### Fixed
+
+- **Dictation is materially more accurate.** Four compounding causes, all fixed:
+  the on-device model was `whisper-base` (74M — "roughly the right words" is its signature) and is now
+  `whisper-small`; mic capture ran with the browser's call-tuned DSP (`noiseSuppression` and
+  `autoGainControl` default to ON under `{ audio: true }`, and both hurt ASR) and now requests them
+  off at mono 16 kHz; the spoken language was **never passed**, so Whisper re-ran language *detection*
+  on every clip, and it now resolves from a new setting or the OS locale; decoding was greedy and now
+  uses 4-way beam search. First on-device use downloads ~409 MB instead of ~206 MB, cached permanently.
+- **Voice settings are findable.** The transcription engine, spoken language, and dictate/live mode now
+  appear under **Settings → AI**; previously the engine could only be changed from the composer's
+  config dropdown, so BYOK voice was effectively hidden. Both surfaces share one setting.
+- **Settings → Team removed** — a dead sidebar entry left behind by the pricing reframe. It matched no
+  section, so clicking it did nothing.
+- **PII no longer sent to analytics.** The extra-files events transmitted an array of **absolute file
+  paths**, leaking project structure and usually the OS username. They now send a count.
+
+### Changed — analytics (breaking for existing PostHog insights)
+
+- **Analytics identity is now the account, not the install.** A per-install anonymous UUID was never
+  linked to the Supabase user, so one person on two machines was two people and a reinstall minted a
+  third — inflating every per-user number, retention worst of all. Sign-in now sends `alias`
+  (anonymous → user id, once per install) and attributes everything after to the user id, in both
+  main and renderer. Person properties carry plan/tier only — never email, name, or avatar.
+- **`persistence` changed from `memory` to `localStorage+cookie`** so `$session_id` survives a restart;
+  session-scoped metrics were previously meaningless. Consent gating is unchanged.
+- **Events renamed to one convention** (three coexisted): `compass:turn_completed`/`_failed` →
+  `core_turn_completed`/`core_turn_failed`, `app:initial-load` → `app_ui_ready`,
+  `auth:chat_stream_blocked` → `auth_chat_stream_blocked`, `action:*` → `action_*`, `extra-files:*` →
+  `extra_files_*`. **Insights built on the old names stop populating and must be rebuilt.**
+- **`app_launched` removed** — a duplicate of `app_opened` fired six lines later, double-counting every
+  launch. `arch` folded into `app_opened`.
+- **Added** `active_day` (once per calendar day — retention was previously only inferable from
+  incidental event presence) and a `duration_bucket` on `task_completed`. `workspace_opened` gained
+  `exists`/`is_git_repo`; `model_connected` now also fires for local runtimes (`type: "local"`), which
+  need no API key and so never entered the activation funnel at all.
+- Consent copy updated to state the account link, and to name file names/contents explicitly as
+  never-sent.
+- **Pre-alias person counts are not comparable to post-alias ones.**
+
 ## [Unreleased] — models.dev catalog as the floor for every provider
 
 Model lists stop going missing. The models.dev catalog is now the base list every cloud provider

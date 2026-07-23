@@ -631,7 +631,15 @@ export function registerAppHandlers() {
       void bootstrapAtlarixWorkspaceFolder(appPath);
     }
 
-    analyticsCapture("workspace_opened", { appId });
+    // `appId` is a local DB row id — never the path or folder name. The extra
+    // properties describe the workspace's SHAPE, which is what makes "is this
+    // person actually working in here" answerable; `{ appId }` alone couldn't
+    // distinguish a real project from an empty folder opened once.
+    analyticsCapture("workspace_opened", {
+      appId,
+      exists: pathExists,
+      is_git_repo: pathExists && fs.existsSync(path.join(appPath, ".git")),
+    });
     perfMark(`workspace-open:${appId}`);
     const status = pathExists ? ("active" as const) : ("missing" as const);
     return {

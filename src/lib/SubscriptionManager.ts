@@ -114,6 +114,11 @@ export class SubscriptionManager {
                     this.realtimeSubscribedEmail = null;
                     this.lastPlanFingerprint = "";
                     this.lastPlanFingerprintAt = 0;
+                    // Stop attributing events to the signed-out user; fall back
+                    // to this install's anonymous id.
+                    void import('../main/lib/analytics')
+                        .then((m) => m.clearIdentifiedUser())
+                        .catch(() => { /* non-fatal */ });
                     logger.log('[SubscriptionManager] User signed out');
                 }
             });
@@ -149,9 +154,22 @@ export class SubscriptionManager {
         this.cachedWorkspaceCount = null; // Clear cache
         logger.log(`[SubscriptionManager] Session updated: ${user.email} (${plan})`, { avatar: !!avatar, name });
 
-        // v4.0: PostHog tier event (no PII)
+        // Analytics identity. This MUST run before the tier event so the event
+        // is attributed to the user rather than to this install's anonymous id.
+        //
+        // `user.id` (not the email) stays the identity KEY — emails change, and
+        // keying on one would fork the person on every address change. Email and
+        // name ride along as person PROPERTIES so accounts are recognisable in
+        // the PostHog UI, and so internal accounts can be filtered there by
+        // email rather than hardcoding addresses into a shipped binary.
         try {
-            const { capture } = await import('../main/lib/analytics');
+            const { identifyUser, capture } = await import('../main/lib/analytics');
+            identifyUser(user.id, {
+                email: user.email,
+                name,
+                tier: effectiveTier,
+                plan,
+            });
             capture('tier_identified', { tier: effectiveTier });
         } catch { /* non-fatal */ }
 

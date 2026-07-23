@@ -33,6 +33,50 @@ read the sub-headings as four parallel workstreams still in flight.
 - The remaining items (plan-ledger desync, sub-agent render duplication, `edit_file` escaping) are
   independent agent-loop/rendering fixes and can stay as their own bullets.
 
+### Dictation accuracy + voice settings + analytics correctness
+
+Four issues from packaged-build testing. Unrelated in code, same cause: small things left behind that
+quietly produce a wrong result.
+
+- **Dictation accuracy — four compounding causes, not one.** The model (`whisper-base` → `whisper-small`,
+  `whisper-worker.ts`) was the headline, but three capture-side defects mattered nearly as much and cost
+  nothing: (a) `getUserMedia({ audio: true })` accepted the browser's **call-tuned** DSP — `noiseSuppression`
+  and `autoGainControl` default ON and both hurt ASR by reshaping the spectrum Whisper trained on; now
+  explicitly off at mono 16 kHz. (b) **`language` was never passed** by `VoiceInputButton`, so Whisper re-ran
+  language DETECTION on every clip — unreliable on short dictation, and a wrong guess wrecks the whole
+  utterance. New `resolveVoiceLanguage` (`src/lib/voice/language.ts`) resolves setting → OS locale →
+  detection; **not** a hardcoded `"en"`. (c) greedy decoding → `num_beams: 4`.
+  Also fixed a latent bug: `transcribe` resolved `DEFAULT_MODEL` rather than the model `load` asked for
+  (harmless only because the pipeline promise is memoized).
+  **Cost: ~206 MB → ~409 MB one-time model download.** Owner chose the pinned bump over a model picker.
+- **Voice settings surfaced** (`VoiceInputSettings.tsx` → Settings → AI). Engine/language/mode, reusing
+  `useTranscriptionProviders` — the composer dropdown and Settings read the same setting, so one source
+  of truth, two doors.
+- **Dead `team` nav entry deleted** (`SettingsList.tsx`). Comment added: every id must match a real
+  `<div id="…">` in `settings.tsx`, since the sidebar scrolls by id and an orphan is a silent no-op.
+- **Analytics: the reported bug was false, the real one was worse.** "The two SDKs may not share a
+  distinct ID" — they always did (`getOrCreateAnonymousId` feeds both). The actual defect was **no
+  `alias()` anywhere**: a per-install UUID never linked to the Supabase user, so one human on two
+  machines was two people and a reinstall minted a third. Every per-user number was inflated in a way
+  no dashboard filter could repair. Now `identifyUser` (`analytics.ts`) aliases once per install at
+  sign-in via `SubscriptionManager.updateSession`, `resolveDistinctId` attributes everything after to
+  the user id, and the renderer follows via `PostHogIdentityBridge` (uses the existing `useAuth` hook —
+  no new IPC needed, unlike the plan assumed).
+  - **PII leak fixed:** `extra-files:*` sent an array of **absolute paths** (project structure + OS
+    username), directly contradicting the consent copy. Now a count.
+  - **`app_launched` deleted** — duplicate of `app_opened` six lines later; every launch double-counted.
+  - **`action:*` and `extra-files:*` RENAMED, not deleted.** I had them down as dead leftovers; they are
+    live (`AtlarixMarkdownParser.tsx:685`, `useStreamChat.ts:1467`). Deleting would have destroyed real
+    instrumentation — a second opinion caught this.
+  - **Local providers never entered the funnel** — Ollama/LM Studio need no API key, so they never hit
+    the handler that fires `model_connected`. Now fire `{ type: "local" }` once per provider.
+  - Added `active_day`; `persistence` `memory` → `localStorage+cookie`.
+  - **NOT done:** provider class (`core`/`byok`/`local`) on `task_completed` — `TurnRuntime` carries no
+    provider id and threading one through was out of proportion to the value, since `model_connected`
+    already answers Core-vs-BYOK. Revisit if per-turn segmentation is actually needed.
+- **REMAINING (owner):** packaged-app verification — dictation A/B; sign-in alias merge confirmed in the
+  PostHog UI (not a second profile); opted-out still sends zero requests.
+
 ### models.dev catalog as the floor
 
 **THE INVARIANT (do not quietly revert):** the models.dev catalog is the BASE list for every cloud

@@ -210,9 +210,27 @@ export function useVoiceInput({
     setError(null);
     cancelledRef.current = false;
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      // `{ audio: true }` accepts the browser's call-tuned DSP defaults, and
+      // noiseSuppression + autoGainControl are ON by default. Both are built for
+      // voice CALLS and measurably hurt ASR: they reshape the spectrum in ways
+      // Whisper wasn't trained on, which shows up as approximately-right words.
+      // Echo cancellation has nothing to cancel here (no far-end in dictation).
+      // Whisper wants mono 16 kHz, so ask the capture graph for it directly
+      // rather than resampling down from 48 kHz afterwards.
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: false,
+          noiseSuppression: false,
+          autoGainControl: false,
+          channelCount: 1,
+          sampleRate: 16000,
+        },
+      });
       streamRef.current = stream;
-      const recorder = new MediaRecorder(stream);
+      // Default recorder bitrate is tuned for size, not fidelity. Matters most
+      // for BYOK cloud, where this encoded blob is uploaded verbatim (local
+      // decodes back to PCM, so it only pays the codec loss once).
+      const recorder = new MediaRecorder(stream, { audioBitsPerSecond: 128_000 });
       recorderRef.current = recorder;
       chunksRef.current = [];
       recorder.ondataavailable = (e) => {

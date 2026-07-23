@@ -303,6 +303,18 @@ export const UserSettingsSchema = z.object({
   // started / completed, so first_task_* events each fire exactly once.
   firstTaskStartedAt: z.number().optional(),
   firstTaskCompletedAt: z.number().optional(),
+  /** Supabase user ids this install has already sent a PostHog `alias` for.
+   * The merge is permanent on PostHog's side, so re-sending is noise; a list
+   * (not a boolean) because two accounts can share one machine. */
+  analyticsAliasedUserIds: z.array(z.string()).optional(),
+  /** Local YYYY-MM-DD of the last `active_day` event, so it fires at most once
+   * per calendar day. Retention was previously only inferable from incidental
+   * event presence, which made it move when instrumentation changed rather than
+   * when behaviour did. */
+  lastActiveDay: z.string().optional(),
+  /** Local providers already counted into the activation funnel. They need no
+   * API key, so they never hit the key handler that fires `model_connected`. */
+  analyticsLocalProvidersSeen: z.array(z.string()).optional(),
   enableAtlarixPro: z.boolean().optional(),
   lastShownReleaseNotesVersion: z.string().optional(),
   maxChatTurnsInContext: z.number().optional(),
@@ -317,6 +329,15 @@ export const UserSettingsSchema = z.object({
   /** Voice dictation mode: "dictate" = transcribe on stop (default, most
    * accurate); "live" = stream words as you speak (local + WebGPU only). */
   voiceInputMode: z.enum(["dictate", "live"]).optional(),
+  /** Spoken language as an ISO-639-1 code ("en", "sw", …), or "auto" to let
+   * Whisper detect it per clip. Unset = derive from the OS locale.
+   *
+   * Detection is the accuracy problem this exists to avoid: Whisper re-runs it
+   * on every clip, it is unreliable on short dictation, and a wrong guess
+   * mis-transcribes the whole utterance. Free-form rather than an enum so a new
+   * language never needs a schema change (same reasoning as
+   * `voiceTranscriptionProvider`). */
+  voiceLanguage: z.string().optional(),
   /** @deprecated superseded by the binary `deepThinking` toggle (v14.8.5). */
   thinkingBudget: z.enum(["low", "medium", "high"]).optional(),
   /**

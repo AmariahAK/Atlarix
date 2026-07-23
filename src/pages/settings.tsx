@@ -21,6 +21,7 @@ import {
 import { SettingsWorkspaceNav } from "@/components/settings/SettingsWorkspaceNav";
 import { useTheme } from "@/contexts/ThemeContext";
 import { SearchSettings } from "@/components/settings/SearchSettings";
+import { VoiceInputSettings } from "@/components/settings/VoiceInputSettings";
 import { UpdateDiagnostics } from "@/components/settings/UpdateDiagnostics";
 import { useLanguageModelProviders } from "@/hooks/useLanguageModelProviders";
 import { WorkspaceTerminalPermissions } from "@/components/settings/WorkspaceTerminalPermissions";
@@ -315,8 +316,11 @@ export function GeneralSettings({ appVersion }: { appVersion: string | null }) {
               Help improve Atlarix
             </label>
             <p className="text-xs text-muted-foreground">
-              Share anonymous usage data (no code, no prompts, no personal info)
-              to help us understand which features matter most.
+              Share usage data — which features get used, and whether things
+              work — to help us understand what matters most. Never your code,
+              prompts, file names, or file contents. Anonymous when signed out.
+              When signed in, it's linked to your account and includes your
+              email and name, so your usage counts once across your devices.
             </p>
           </div>
           <Switch
@@ -546,6 +550,8 @@ export function AISettings() {
           verification is the project's own checks/tests via run_command. */}
 
       {/* Pass 7: Blueprint context tier selector removed with the Blueprint subsystem. */}
+
+      <VoiceInputSettings />
 
       <div className="mt-6 space-y-4 border-t border-border pt-6">
         <h3 className="text-sm font-medium text-foreground">Build and automation</h3>

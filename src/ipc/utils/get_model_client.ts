@@ -48,6 +48,7 @@ import { getCoreProxyBaseUrl } from "../shared/core_proxy";
 import { getSession } from "../../lib/auth/supabase-client";
 import { LM_STUDIO_BASE_URL } from "./lm_studio_utils";
 import { createOllamaProvider } from "./ollama_provider";
+import { trackLocalModelConnected } from "@/main/lib/analytics";
 import { getOllamaApiUrl } from "../handlers/local_model_ollama_handler";
 import { hasNativeDeepThinkingSupport } from "../../lib/routing/reasoning-detector";
 
@@ -462,6 +463,10 @@ async function getRegularModelClient(
       };
     }
     case "ollama": {
+      // Local runtimes need no API key, so they never reach the provider-key
+      // handler that fires `model_connected` — without this a local-only user
+      // never enters the activation funnel at all. Fires once per install.
+      trackLocalModelConnected(providerId);
       const provider = createOllamaProvider({ baseURL: getOllamaApiUrl() });
       return {
         modelClient: {
@@ -472,6 +477,7 @@ async function getRegularModelClient(
       };
     }
     case "lmstudio": {
+      trackLocalModelConnected(providerId);
       // LM Studio uses OpenAI compatible API
       const baseURL = providerConfig.apiBaseUrl || LM_STUDIO_BASE_URL + "/v1";
       const provider = createOpenAICompatible({

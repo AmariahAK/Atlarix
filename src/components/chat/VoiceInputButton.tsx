@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/tooltip";
 import { useSettings } from "@/hooks/useSettings";
 import { useVoiceInput } from "@/hooks/useVoiceInput";
+import { resolveVoiceLanguage } from "@/lib/voice/language";
 
 interface VoiceInputButtonProps {
   disabled?: boolean;
@@ -27,6 +28,9 @@ export function VoiceInputButton({ disabled, onInsertText }: VoiceInputButtonPro
   const { settings } = useSettings();
   const provider = settings?.voiceTranscriptionProvider ?? "local";
   const mode = settings?.voiceInputMode ?? "dictate";
+  // Without this the engine got `undefined` and detected the language on every
+  // clip — unreliable on short dictation and a silent source of bad transcripts.
+  const language = resolveVoiceLanguage(settings?.voiceLanguage);
   const errorShownRef = useRef<string | null>(null);
 
   const {
@@ -40,6 +44,7 @@ export function VoiceInputButton({ disabled, onInsertText }: VoiceInputButtonPro
   } = useVoiceInput({
     provider,
     mode,
+    language,
     onTranscript: onInsertText,
   });
 

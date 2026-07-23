@@ -19,6 +19,7 @@ import { DevServerProvider } from "./components/DevServerProvider";
 import { AppLoadingScreen } from "./components/AppLoadingScreen";
 import { PerfDevOverlayHost } from "./components/dev/PerfDevOverlay";
 import { useDbReady } from "./hooks/useDbReady";
+import { useAuth } from "./lib/auth/useAuth";
 import * as Sentry from "@sentry/electron/renderer";
 import { sentryBeforeSendDropExpected } from "./lib/sentry-before-send";
 import { SENTRY_IGNORE_ERROR_PATTERNS } from "./lib/sentry-ignore-patterns";
@@ -129,7 +130,12 @@ let posthogClient: ReturnType<typeof posthog.init> | null = null;
 function initPostHogFromConfig(apiKey: string, analyticsId: string): void {
   posthogClient = posthog.init(apiKey, {
     api_host: "https://eu.i.posthog.com",
-    persistence: "memory",
+    // Was "memory": every launch started with a fresh client state, so
+    // `$session_id` was new each time and every session-scoped metric
+    // (session count, session duration, sessions-per-user) was meaningless.
+    // Safe to persist — `before_send` below still drops everything when the
+    // user hasn't opted in, so nothing is written for a non-consenting user.
+    persistence: "localStorage+cookie",
     autocapture: false,
     capture_pageview: false,
     disable_session_recording: true,
@@ -146,6 +152,25 @@ function initPostHogFromConfig(apiKey: string, analyticsId: string): void {
     },
   });
   posthog.identify(analyticsId);
+}
+
+/**
+ * Re-identify the renderer client once the user signs in, so renderer events
+ * land on the same person as main's (which switches to the Supabase user id via
+ * `identifyUser`). Without this the two processes would attribute the same
+ * human to two different ids — the very split the alias exists to remove.
+ *
+ * Main owns the `alias` call; this only follows it. `useAuth` already surfaces
+ * the signed-in user to the renderer, so no new IPC is needed.
+ */
+function PostHogIdentityBridge() {
+  const { user } = useAuth();
+  useEffect(() => {
+    if (!posthogClient || !user?.id) return;
+    if (posthog.get_distinct_id() === user.id) return;
+    posthog.identify(user.id);
+  }, [user?.id]);
+  return null;
 }
 
 /** Shows loading screen until main process has initialized the database, then renders children. */
@@ -271,6 +296,7 @@ async function bootstrap() {
       <SentryErrorBoundary fallback={<SentryFallback />}>
         <QueryClientProvider client={queryClient}>
           <PostHogProvider client={posthogClient ?? posthog}>
+            <PostHogIdentityBridge />
             <DevServerProvider>
               <DbReadyGate>
                 <App />

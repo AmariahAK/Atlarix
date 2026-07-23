@@ -28,7 +28,17 @@ import {
 // fetch. allowLocalModels=false skips a pointless local-path probe per load.
 env.allowLocalModels = false;
 
-const DEFAULT_MODEL = "onnx-community/whisper-base";
+/**
+ * `whisper-small` (244M) rather than `base` (74M). Base transcribes roughly the
+ * right words and gets technical vocabulary wrong often enough to need editing,
+ * which defeats the point of dictating. Small is a large accuracy step for a
+ * one-time ~409 MB fetch (vs ~206 MB) that is cached permanently and works
+ * offline afterwards.
+ */
+const DEFAULT_MODEL = "onnx-community/whisper-small";
+
+/** Model actually loaded, so `transcribe` can't silently resolve a different one. */
+let loadedModel: string = DEFAULT_MODEL;
 
 type LoadMessage = { type: "load"; model?: string };
 type TranscribeMessage = {
@@ -102,12 +112,16 @@ self.onmessage = async (event: MessageEvent<InboundMessage>) => {
   const msg = event.data;
   try {
     if (msg.type === "load") {
-      await getTranscriber(msg.model ?? DEFAULT_MODEL);
+      loadedModel = msg.model ?? DEFAULT_MODEL;
+      await getTranscriber(loadedModel);
       self.postMessage({ type: "ready", device: loadedDevice });
       return;
     }
     if (msg.type === "transcribe") {
-      const transcriber = await getTranscriber(DEFAULT_MODEL);
+      // `loadedModel`, not DEFAULT_MODEL: a transcribe arriving before any load
+      // must not pin a different model than the one `load` asked for. Harmless
+      // today only because the pipeline promise is memoized.
+      const transcriber = await getTranscriber(loadedModel);
       const seconds = msg.audio.length / 16000;
       // Whisper handles ≤30s in a single pass. Only enable the long-form
       // chunk+stride algorithm for genuinely long clips — running it on a short
@@ -115,10 +129,18 @@ self.onmessage = async (event: MessageEvent<InboundMessage>) => {
       // hallucinates as a repeated phrase ("I'm I'm I'm…"). no_repeat_ngram_size
       // additionally breaks any residual degenerate repetition loop.
       const options: Record<string, unknown> = {
+        // Explicit language skips Whisper's per-clip language DETECTION, which is
+        // unreliable on short dictation and silently mis-transcribes when it
+        // guesses wrong. Caller resolves it (navigator.language / setting);
+        // undefined still falls back to auto-detect rather than forcing English.
         language: msg.language,
         return_timestamps: false,
         no_repeat_ngram_size: 3,
         temperature: 0,
+        // Beam search over greedy. Greedy (num_beams=1) is the fastest and least
+        // accurate setting; 4 beams is the standard accuracy/latency trade and
+        // the cost is hidden inside dictation's existing transcribe pause.
+        num_beams: 4,
       };
       if (seconds > 30) {
         options.chunk_length_s = 30;

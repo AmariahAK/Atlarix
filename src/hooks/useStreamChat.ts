@@ -1476,7 +1476,7 @@ export function useStreamChat({
 
             if (response.usedCompass) {
               getDefaultStore().set(compassUsageBumpAtom, (n) => n + 1);
-              posthog?.capture("compass:turn_completed", {
+              posthog?.capture("core_turn_completed", {
                 chat_id: response.chatId,
                 surface: hasChatId ? "workspace_chat" : "floating_chat",
               });
@@ -1943,9 +1943,9 @@ export function useStreamChat({
             }
             console.error(`[CHAT] Stream error for ${chatId}:`, errorMessage);
             if (errorMessage.includes(ATLARIX_AUTH_REQUIRED_PREFIX)) {
-              posthog?.capture("auth:chat_stream_blocked", { chat_id: chatId });
+              posthog?.capture("auth_chat_stream_blocked", { chat_id: chatId });
             } else if (/compass/i.test(errorMessage)) {
-              posthog?.capture("compass:turn_failed", {
+              posthog?.capture("core_turn_failed", {
                 chat_id: chatId,
                 error_snippet: errorMessage.slice(0, 240),
               });

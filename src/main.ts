@@ -38,7 +38,11 @@ import {
 import { scheduleCleanupJobs } from "./db/cleanup_jobs";
 import { registerCleanupHandlers } from "./db/workspace_cleanup";
 import { startModelsDevRefresh } from "./lib/models_dev";
-import { capture as analyticsCapture, shutdown as analyticsShutdown } from "./main/lib/analytics";
+import {
+  capture as analyticsCapture,
+  shutdown as analyticsShutdown,
+  trackActiveDay,
+} from "./main/lib/analytics";
 import { SENTRY_DSN } from "./main/sentry-config";
 import * as Sentry from "@sentry/electron/main";
 import { sentryBeforeSendDropExpected } from "./lib/sentry-before-send";
@@ -484,16 +488,17 @@ export async function onReady() {
   logger.info("Models.dev refresh started");
 
   await onFirstRunMaybe(settings);
-  analyticsCapture("app_launched", {
+  // Activation-funnel entry point (top of funnel). This used to fire alongside
+  // a near-identical `app_launched`, so every launch was counted twice — one
+  // event, one launch. `arch` folded in from the removed duplicate.
+  analyticsCapture("app_opened", {
     version: app.getVersion(),
     platform: process.platform,
     arch: os.arch(),
   });
-  // Activation-funnel entry point (top of funnel).
-  analyticsCapture("app_opened", {
-    version: app.getVersion(),
-    platform: process.platform,
-  });
+  // Retention signal: at most one per calendar day, so "did they come back"
+  // stops depending on which other events happen to be instrumented.
+  trackActiveDay();
 
   logger.info("Auto-update enabled=", settings.enableAutoUpdate);
   // Status IPC is registered regardless of the toggle so the Settings panel and

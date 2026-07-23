@@ -119,7 +119,7 @@ function RebuildButton() {
   const onClick = useCallback(async () => {
     if (!selectedAppId) return;
 
-    posthog.capture("action:rebuild");
+    posthog.capture("action_rebuild");
     await restartApp({ removeNodeModules: true });
   }, [selectedAppId, posthog, restartApp]);
 
@@ -138,7 +138,7 @@ function RestartButton() {
   const onClick = useCallback(async () => {
     if (!selectedAppId) return;
 
-    posthog.capture("action:restart");
+    posthog.capture("action_restart");
     await restartApp();
   }, [selectedAppId, posthog, restartApp]);
 
@@ -157,7 +157,7 @@ function RefreshButton() {
   const posthog = usePostHog();
 
   const onClick = useCallback(() => {
-    posthog.capture("action:refresh");
+    posthog.capture("action_refresh");
     refreshAppIframe();
   }, [posthog, refreshAppIframe]);
 

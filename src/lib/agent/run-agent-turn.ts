@@ -183,6 +183,16 @@ export interface AgentTurnResult {
   forcedTextFinish: boolean;
 }
 
+/** Coarse duration buckets for the turn-completed analytics event. */
+function durationBucket(ms: number): string {
+  const s = ms / 1000;
+  if (s < 10) return "<10s";
+  if (s < 30) return "10-30s";
+  if (s < 120) return "30s-2m";
+  if (s < 600) return "2-10m";
+  return ">10m";
+}
+
 /** Normalize an AbortController reason into an Error for throw/propagation. */
 function abortReasonError(reason: unknown): Error {
   if (reason instanceof Error) return reason;
@@ -881,6 +891,10 @@ export async function runAgentTurn(
     mode: profile.mode,
     iterations: agenticIteration,
     toolExecutions: totalToolExecutions,
+    // Bucketed, not raw: engagement is the question ("was this a quick edit or
+    // a long build"), and a raw duration on a low-volume event is closer to a
+    // fingerprint than a metric.
+    duration_bucket: durationBucket(Date.now() - loopStartTime),
   });
   clearPreviewBaseline(rt.streamTurnId);
 
