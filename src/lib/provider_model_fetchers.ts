@@ -1,9 +1,25 @@
 /**
  * Provider-native model fetchers
  * ==============================
- * Fetches models directly from each provider's API (when API key is configured).
- * Filters for tool-calling support so Atlarix only shows models that work with
- * native tool calling (commands, file edits, etc.).
+ * A best-effort OVERLAY on the models.dev catalog, not a replacement for it.
+ * `getLanguageModels` (src/ipc/shared/language_model_helpers.ts) unions the
+ * catalog with whatever these return — see `mergeByApiName` there for the
+ * invariant and the bug history behind it.
+ *
+ * A fetcher earns its place here only by knowing something the hourly catalog
+ * cannot:
+ *   - day-one model launches (openai, anthropic, google, and the open-weight
+ *     four, which ship every few days)
+ *   - live per-model economics (openrouter's pricing + `top_provider` ceilings)
+ *   - a source the catalog doesn't cover AT ALL (elastic lists Kibana agents
+ *     from a user's self-hosted instance)
+ *
+ * Everything else was deleted in the catalog-as-floor pass: cohere, mistral,
+ * xai, together and groq each reimplemented bespoke pagination or id-munging to
+ * produce a strict SUBSET of catalog rows with worse display names, and were
+ * the source of every recent "models missing from the picker" bug. Adding a
+ * fetcher back needs a reason from the list above — "the provider has a
+ * /models endpoint" is not one.
  */
 
 import log from "electron-log";
@@ -82,17 +98,8 @@ function isOpenAIChatModel(id: string): boolean {
   return !OPENAI_NON_CHAT_MARKERS.some((marker) => lower.includes(marker));
 }
 
-/** Groq: exclude embeddings, tts. Include chat/completion models */
-const GROQ_EXCLUDE_PREFIXES = ["embed", "whisper", "tts"];
-
-function isGroqChatModel(id: string): boolean {
-  const lower = id.toLowerCase();
-  if (GROQ_EXCLUDE_PREFIXES.some((p) => lower.includes(p))) return false;
-  return true; // Groq's models endpoint is mostly chat models
-}
-
 export async function fetchModelsFromOpenAI(
-  apiKey: string
+  apiKey: string,
 ): Promise<LanguageModel[]> {
   const cached = fromCache("openai");
   if (cached) return cached;
@@ -109,7 +116,10 @@ export async function fetchModelsFromOpenAI(
       .filter((m) => isOpenAIChatModel(m.id))
       .map((m) => ({
         apiName: m.id,
-        displayName: m.id.replace(/^gpt-/, "GPT-").replace(/^o1-/, "O1-").replace(/^o3-/, "O3-"),
+        displayName: m.id
+          .replace(/^gpt-/, "GPT-")
+          .replace(/^o1-/, "O1-")
+          .replace(/^o3-/, "O3-"),
         description: "Chat model with tool support",
         type: "cloud" as const,
         supportsToolChoice: true,
@@ -125,7 +135,7 @@ export async function fetchModelsFromOpenAI(
 }
 
 export async function fetchModelsFromAnthropic(
-  apiKey: string
+  apiKey: string,
 ): Promise<LanguageModel[]> {
   const cached = fromCache("anthropic");
   if (cached) return cached;
@@ -185,7 +195,7 @@ export async function fetchModelsFromAnthropic(
 }
 
 export async function fetchModelsFromGoogle(
-  apiKey: string
+  apiKey: string,
 ): Promise<LanguageModel[]> {
   const cached = fromCache("google");
   if (cached) return cached;
@@ -226,7 +236,7 @@ export async function fetchModelsFromGoogle(
       .filter(
         (m) =>
           m.supportedGenerationMethods?.includes("generateContent") ||
-          m.supportedGenerationMethods?.includes("generateMessage")
+          m.supportedGenerationMethods?.includes("generateMessage"),
       )
       .map((m) => {
         const id = m.name.replace("models/", "");
@@ -246,174 +256,6 @@ export async function fetchModelsFromGoogle(
     return models;
   } catch (e) {
     logger.warn("[Google] Fetch failed", e);
-    return [];
-  }
-}
-
-export async function fetchModelsFromGroq(
-  apiKey: string
-): Promise<LanguageModel[]> {
-  const cached = fromCache("groq");
-  if (cached) return cached;
-
-  try {
-    const res = await fetch("https://api.groq.com/openai/v1/models", {
-      headers: { Authorization: `Bearer ${apiKey}` },
-      signal: AbortSignal.timeout(15_000),
-    });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = (await res.json()) as { data?: { id: string }[] };
-    const items = data.data ?? [];
-    const models: LanguageModel[] = items
-      .filter((m) => isGroqChatModel(m.id))
-      .map((m) => ({
-        apiName: m.id,
-        displayName: m.id,
-        description: "Chat model with tool support",
-        type: "cloud" as const,
-        supportsToolChoice: true,
-      }));
-    sortModels(models);
-    toCache("groq", models);
-    logger.info(`[Groq] Fetched ${models.length} models`);
-    return models;
-  } catch (e) {
-    logger.warn("[Groq] Fetch failed", e);
-    return [];
-  }
-}
-
-export async function fetchModelsFromTogether(
-  apiKey: string
-): Promise<LanguageModel[]> {
-  const cached = fromCache("together");
-  if (cached) return cached;
-
-  try {
-    const res = await fetch("https://api.together.xyz/v1/models", {
-      headers: { Authorization: `Bearer ${apiKey}` },
-      signal: AbortSignal.timeout(15_000),
-    });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = (await res.json()) as {
-      data?: { id: string; type?: string; display_name?: string; context_length?: number }[];
-    };
-    const items = Array.isArray(data) ? data : data.data ?? [];
-    const models: LanguageModel[] = items
-      .filter((m) => m.type === "chat" || m.type === "code")
-      .map((m) => ({
-        apiName: m.id,
-        displayName: m.display_name ?? m.id,
-        description: "Chat/code model with tool support",
-        contextWindow: m.context_length,
-        type: "cloud" as const,
-        supportsToolChoice: true,
-      }));
-    sortModels(models);
-    toCache("together", models);
-    logger.info(`[Together] Fetched ${models.length} tool-capable models`);
-    return models;
-  } catch (e) {
-    logger.warn("[Together] Fetch failed", e);
-    return [];
-  }
-}
-
-export async function fetchModelsFromMistral(
-  apiKey: string
-): Promise<LanguageModel[]> {
-  const cached = fromCache("mistral");
-  if (cached) return cached;
-
-  try {
-    const res = await fetch("https://api.mistral.ai/v1/models", {
-      headers: { Authorization: `Bearer ${apiKey}` },
-      signal: AbortSignal.timeout(15_000),
-    });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = (await res.json()) as {
-      data?: {
-        id: string;
-        capabilities?: { function_calling?: boolean };
-        max_context_length?: number;
-      }[];
-    };
-    const items = data.data ?? [];
-    const models: LanguageModel[] = items
-      .filter((m) => m.capabilities?.function_calling === true)
-      .map((m) => ({
-        apiName: m.id,
-        displayName: m.id,
-        description: "Mistral model with function calling",
-        contextWindow: m.max_context_length,
-        type: "cloud" as const,
-        supportsToolChoice: true,
-      }));
-    sortModels(models);
-    toCache("mistral", models);
-    logger.info(`[Mistral] Fetched ${models.length} tool-capable models`);
-    return models;
-  } catch (e) {
-    logger.warn("[Mistral] Fetch failed", e);
-    return [];
-  }
-}
-
-export async function fetchModelsFromXai(
-  apiKey: string
-): Promise<LanguageModel[]> {
-  const cached = fromCache("xai");
-  if (cached) return cached;
-
-  try {
-    // `/v1/language-models` carries modalities (so image/video-only Grok models
-    // can be dropped) that plain `/v1/models` doesn't. Fall back to `/v1/models`
-    // on any non-200 so a schema change upstream can't empty the picker.
-    type XaiModel = { id: string; input_modalities?: string[] };
-    let items: XaiModel[] = [];
-    let richEndpoint = true;
-    const res = await fetch("https://api.x.ai/v1/language-models", {
-      headers: { Authorization: `Bearer ${apiKey}` },
-      signal: AbortSignal.timeout(15_000),
-    });
-    if (res.ok) {
-      const data = (await res.json()) as { models?: XaiModel[]; data?: XaiModel[] };
-      items = data.models ?? data.data ?? [];
-    }
-    if (items.length === 0) {
-      richEndpoint = false;
-      const fallback = await fetch("https://api.x.ai/v1/models", {
-        headers: { Authorization: `Bearer ${apiKey}` },
-        signal: AbortSignal.timeout(15_000),
-      });
-      if (!fallback.ok) throw new Error(`HTTP ${fallback.status}`);
-      const data = (await fallback.json()) as { data?: XaiModel[] };
-      items = data.data ?? [];
-    }
-    const models: LanguageModel[] = items
-      // Text-in models only. When the modality list is absent (fallback
-      // endpoint) keep the model — the shared tool funnel is the backstop.
-      .filter(
-        (m) =>
-          !Array.isArray(m.input_modalities) ||
-          m.input_modalities.length === 0 ||
-          m.input_modalities.includes("text"),
-      )
-      .map((m) => ({
-        apiName: m.id,
-        displayName: m.id.replace(/^grok-/, "Grok "),
-        description: "Grok model with tool support",
-        type: "cloud" as const,
-        supportsToolChoice: true,
-      }));
-    sortModels(models);
-    toCache("xai", models);
-    logger.info(
-      `[xAI] Fetched ${models.length} models (${richEndpoint ? "language-models" : "models fallback"})`,
-    );
-    return models;
-  } catch (e) {
-    logger.warn("[xAI] Fetch failed", e);
     return [];
   }
 }
@@ -451,28 +293,8 @@ async function fetchOpenAICompatibleModels(params: {
   }
 }
 
-export async function fetchModelsFromNvidiaNim(
-  apiKey: string
-): Promise<LanguageModel[]> {
-  return fetchOpenAICompatibleModels({
-    providerId: "nvidia_nim",
-    url: "https://integrate.api.nvidia.com/v1/models",
-    apiKey,
-  });
-}
-
-export async function fetchModelsFromHuggingFace(
-  apiKey: string
-): Promise<LanguageModel[]> {
-  return fetchOpenAICompatibleModels({
-    providerId: "huggingface",
-    url: "https://router.huggingface.co/v1/models",
-    apiKey,
-  });
-}
-
 export async function fetchModelsFromPerplexity(
-  apiKey: string
+  apiKey: string,
 ): Promise<LanguageModel[]> {
   const cached = fromCache("perplexity");
   if (cached) return cached;
@@ -510,81 +332,9 @@ export async function fetchModelsFromPerplexity(
   return [];
 }
 
-export async function fetchModelsFromCerebras(
-  apiKey: string
-): Promise<LanguageModel[]> {
-  return fetchOpenAICompatibleModels({
-    providerId: "cerebras",
-    url: "https://api.cerebras.ai/v1/models",
-    apiKey,
-  });
-}
-
-export async function fetchModelsFromCohere(
-  apiKey: string
-): Promise<LanguageModel[]> {
-  const cached = fromCache("cohere");
-  if (cached) return cached;
-
-  try {
-    // `page_size` defaults to 20 and the list is token-paginated. `endpoint=chat`
-    // filters server-side; `is_deprecated` rows are still returned and we don't
-    // want them in the picker.
-    type CohereModel = {
-      name: string;
-      endpoints?: string[];
-      context_length?: number;
-      features?: string[];
-      is_deprecated?: boolean;
-    };
-    const items: CohereModel[] = [];
-    let pageToken: string | undefined;
-    for (let page = 0; page < MAX_PAGES; page++) {
-      const url = new URL("https://api.cohere.com/v1/models");
-      url.searchParams.set("page_size", "1000");
-      url.searchParams.set("endpoint", "chat");
-      if (pageToken) url.searchParams.set("page_token", pageToken);
-      const res = await fetch(url, {
-        headers: { Authorization: `Bearer ${apiKey}` },
-        signal: AbortSignal.timeout(15_000),
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = (await res.json()) as {
-        models?: CohereModel[];
-        next_page_token?: string;
-      };
-      items.push(...(data.models ?? []));
-      if (!data.next_page_token) break;
-      pageToken = data.next_page_token;
-    }
-    const models: LanguageModel[] = items
-      .filter(
-        (m) =>
-          !m.is_deprecated &&
-          Array.isArray(m.endpoints) &&
-          m.endpoints.includes("chat"),
-      )
-      .map((m) => ({
-        apiName: m.name,
-        displayName: m.name,
-        description: "Chat model with tool support",
-        contextWindow: m.context_length,
-        type: "cloud" as const,
-        supportsToolChoice: true,
-      }));
-    sortModels(models);
-    toCache("cohere", models);
-    logger.info(`[Cohere] Fetched ${models.length} models`);
-    return models;
-  } catch (e) {
-    logger.warn("[Cohere] Fetch failed", e);
-    return [];
-  }
-}
-
 /** Elastic Agent Builder: list agents from Kibana. Uses baseUrl from settings or ELASTIC_AGENT_BUILDER_KIBANA_URL. */
 export async function fetchModelsFromElastic(
-  apiKey: string
+  apiKey: string,
 ): Promise<LanguageModel[]> {
   const cached = fromCache("elastic");
   if (cached) return cached;
@@ -593,7 +343,9 @@ export async function fetchModelsFromElastic(
   try {
     const { readSettings } = await import("@/main/settings");
     baseUrl = (
-      readSettings()?.providerSettings?.elastic as { baseUrl?: string } | undefined
+      readSettings()?.providerSettings?.elastic as
+        | { baseUrl?: string }
+        | undefined
     )?.baseUrl?.trim();
   } catch {
     // Renderer bundle — settings live in main; Elastic URL must be set there.
@@ -607,7 +359,9 @@ export async function fetchModelsFromElastic(
     }
   }
   if (!baseUrl) {
-    logger.warn("[Elastic] Kibana URL not set in Settings or ELASTIC_AGENT_BUILDER_KIBANA_URL; cannot list agents");
+    logger.warn(
+      "[Elastic] Kibana URL not set in Settings or ELASTIC_AGENT_BUILDER_KIBANA_URL; cannot list agents",
+    );
     return [];
   }
 
@@ -643,7 +397,7 @@ export async function fetchModelsFromElastic(
 }
 
 export async function fetchModelsFromOpenRouter(
-  apiKey: string
+  apiKey: string,
 ): Promise<LanguageModel[]> {
   const cached = fromCache("openrouter");
   if (cached) return cached;
@@ -673,7 +427,10 @@ export async function fetchModelsFromOpenRouter(
         context_length?: number;
         // The serving provider's real ceilings — `context_length` at the top
         // level is the model's, which can exceed what the endpoint allows.
-        top_provider?: { context_length?: number; max_completion_tokens?: number };
+        top_provider?: {
+          context_length?: number;
+          max_completion_tokens?: number;
+        };
         // OpenRouter reports per-TOKEN USD prices as strings ("0.0000003").
         pricing?: { prompt?: string; completion?: string };
       }>;
@@ -689,7 +446,12 @@ export async function fetchModelsFromOpenRouter(
         const id = (m.id ?? "").toLowerCase();
         if (!id || id.includes("embed")) return false;
         const mod = (m.architecture?.modality ?? "").toLowerCase();
-        if (mod && mod !== "text" && mod !== "multimodal" && !mod.includes("text")) {
+        if (
+          mod &&
+          mod !== "text" &&
+          mod !== "multimodal" &&
+          !mod.includes("text")
+        ) {
           return false;
         }
         return true;
@@ -789,25 +551,13 @@ export async function fetchModelsFromMoonshot(
   return fetchOpenWeightModels("moonshot", apiKey);
 }
 
-const FETCHERS: Record<
-  string,
-  (apiKey: string) => Promise<LanguageModel[]>
-> = {
+const FETCHERS: Record<string, (apiKey: string) => Promise<LanguageModel[]>> = {
   openai: fetchModelsFromOpenAI,
   anthropic: fetchModelsFromAnthropic,
   google: fetchModelsFromGoogle,
-  groq: fetchModelsFromGroq,
-  together: fetchModelsFromTogether,
-  togetherai: fetchModelsFromTogether,
-  mistral: fetchModelsFromMistral,
-  xai: fetchModelsFromXai,
   elastic: fetchModelsFromElastic,
-  nvidia_nim: fetchModelsFromNvidiaNim,
-  cohere: fetchModelsFromCohere,
   perplexity: fetchModelsFromPerplexity,
-  cerebras: fetchModelsFromCerebras,
   openrouter: fetchModelsFromOpenRouter,
-  huggingface: fetchModelsFromHuggingFace,
   deepseek: fetchModelsFromDeepSeek,
   qwen: fetchModelsFromQwen,
   minimax: fetchModelsFromMiniMax,
@@ -816,7 +566,7 @@ const FETCHERS: Record<
 
 export async function fetchModelsFromProvider(
   providerId: string,
-  apiKey: string
+  apiKey: string,
 ): Promise<LanguageModel[]> {
   const key = providerId === "together" ? "togetherai" : providerId;
   const fetcher = FETCHERS[key];

@@ -7,8 +7,9 @@
 
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
+import { gunzipSync } from "node:zlib";
 import log from "electron-log";
-import { BrowserWindow } from "electron";
+import { app, BrowserWindow } from "electron";
 import * as Sentry from "@sentry/electron/main";
 import { getUserDataPath } from "@/paths/paths";
 import type { LanguageModel } from "@/ipc/ipc_types";
@@ -23,7 +24,10 @@ function broadcastModelsDevStatus(message: string, timedOut?: boolean): void {
   try {
     for (const win of BrowserWindow.getAllWindows()) {
       if (!win.isDestroyed()) {
-        win.webContents.send("models-dev:status", { message, timedOut: !!timedOut });
+        win.webContents.send("models-dev:status", {
+          message,
+          timedOut: !!timedOut,
+        });
       }
     }
   } catch (e) {
@@ -33,6 +37,15 @@ function broadcastModelsDevStatus(message: string, timedOut?: boolean): void {
 
 const MODELS_DEV_URL = process.env.ATLARIX_MODELS_URL ?? "https://models.dev";
 const REFRESH_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
+
+/**
+ * Skip the boot fetch when the disk cache is younger than this. Launch-quit-launch
+ * otherwise re-fetches the full catalog every time for no new information.
+ */
+const CACHE_FRESH_MS = 5 * 60 * 1000; // 5 min
+
+/** Transient-failure retries for the catalog fetch (attempts = 1 + this). */
+const FETCH_RETRIES = 2;
 
 interface ModelsDevModel {
   id?: string;
@@ -98,16 +111,23 @@ const REVERSE_PROVIDER_ID_MAP: Record<string, string> = {
  */
 function publishVisionModalities(data: ModelsDevData): void {
   try {
-    const entries: Array<{ providerId: string; modelId: string; acceptsImages: boolean }> = [];
+    const entries: Array<{
+      providerId: string;
+      modelId: string;
+      acceptsImages: boolean;
+    }> = [];
     for (const [providerId, provider] of Object.entries(data)) {
       if (!provider?.models) continue;
       const atlarixId = REVERSE_PROVIDER_ID_MAP[providerId];
       for (const [modelId, m] of Object.entries(provider.models)) {
         const acceptsImages = Array.isArray(m.modalities?.input)
-          ? m.modalities.input.some((mod) => String(mod).toLowerCase() === "image")
+          ? m.modalities.input.some(
+              (mod) => String(mod).toLowerCase() === "image",
+            )
           : false;
         entries.push({ providerId, modelId, acceptsImages });
-        if (atlarixId) entries.push({ providerId: atlarixId, modelId, acceptsImages });
+        if (atlarixId)
+          entries.push({ providerId: atlarixId, modelId, acceptsImages });
       }
     }
     registerModelsDevVision(entries);
@@ -132,7 +152,11 @@ async function loadFromCache(): Promise<ModelsDevData | null> {
     const cachePath = getCachePath();
     const content = await fs.readFile(cachePath, "utf-8");
     const parsed = JSON.parse(content) as ModelsDevData;
-    if (parsed && typeof parsed === "object" && Object.keys(parsed).length > 0) {
+    if (
+      parsed &&
+      typeof parsed === "object" &&
+      Object.keys(parsed).length > 0
+    ) {
       return parsed;
     }
   } catch {
@@ -141,15 +165,129 @@ async function loadFromCache(): Promise<ModelsDevData | null> {
   return null;
 }
 
-async function saveToCache(data: ModelsDevData): Promise<void> {
+/**
+ * Age of the disk cache, or null when there isn't one.
+ * Drives the boot-fetch skip in `startModelsDevRefresh`.
+ */
+async function getCacheAgeMs(): Promise<number | null> {
   try {
-    const cachePath = getCachePath();
-    const dir = path.dirname(cachePath);
-    await fs.mkdir(dir, { recursive: true });
-    await fs.writeFile(cachePath, JSON.stringify(data), "utf-8");
+    const stat = await fs.stat(getCachePath());
+    return Date.now() - stat.mtimeMs;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Write the cache ATOMICALLY: temp file + rename.
+ *
+ * A direct `writeFile` over the live cache truncates it if the process dies or
+ * the disk fills mid-write — and a full disk is not hypothetical here (Sentry
+ * `49d4f2a5`: a large install filled the disk and SQLite couldn't create its
+ * rollback journal). A half-written `models.json` fails `JSON.parse` on the next
+ * boot, silently losing the whole catalog. `rename` within one directory is
+ * atomic, so a reader sees either the old file or the new one, never a partial.
+ */
+async function saveToCache(data: ModelsDevData): Promise<void> {
+  const cachePath = getCachePath();
+  const tempPath = `${cachePath}.${process.pid}.tmp`;
+  try {
+    await fs.mkdir(path.dirname(cachePath), { recursive: true });
+    await fs.writeFile(tempPath, JSON.stringify(data), "utf-8");
+    await fs.rename(tempPath, cachePath);
   } catch (e) {
     logger.warn("Failed to save models.dev cache", e);
+    // Never leave a partial temp file behind to accumulate.
+    await fs.rm(tempPath, { force: true }).catch(() => {});
   }
+}
+
+/**
+ * Build-time catalog snapshot shipped with the app (`build/models-snapshot.json.gz`,
+ * copied to `resources/` by `forge.config.ts` `extraResource`).
+ *
+ * This is the floor beneath the disk cache: on a first run with no network there
+ * is no cache either, and the app would otherwise show an empty provider list and
+ * an empty model picker. Staleness is self-healing — the hourly refresh replaces
+ * it the moment a fetch succeeds — so an old snapshot degrades to "a few model
+ * launches missing", never to "no models".
+ *
+ * Regenerate with `npm run models:snapshot` (see `scripts/fetch-models-snapshot.mjs`).
+ */
+function resolveSnapshotPath(): string {
+  try {
+    if (app.isPackaged) {
+      // extraResource copies by basename → resources/models-snapshot.json.gz
+      return path.join(process.resourcesPath, "models-snapshot.json.gz");
+    }
+    return path.join(app.getAppPath(), "build", "models-snapshot.json.gz");
+  } catch {
+    // Not in Electron (tests, scripts) or app not ready.
+    return path.join(process.cwd(), "build", "models-snapshot.json.gz");
+  }
+}
+
+async function loadBundledSnapshot(): Promise<ModelsDevData | null> {
+  try {
+    const gz = await fs.readFile(resolveSnapshotPath());
+    const parsed = JSON.parse(
+      gunzipSync(gz).toString("utf-8"),
+    ) as ModelsDevData;
+    if (
+      parsed &&
+      typeof parsed === "object" &&
+      Object.keys(parsed).length > 0
+    ) {
+      logger.info(
+        `[models.dev] Using bundled snapshot (${Object.keys(parsed).length} providers)`,
+      );
+      return parsed;
+    }
+  } catch {
+    // No snapshot shipped, or unreadable — callers fall through to the network.
+  }
+  return null;
+}
+
+/**
+ * One catalog GET with bounded retries.
+ *
+ * A single shot turns a momentary DNS hiccup or 502 into an hour of stale data
+ * (or, on a cold first run, an empty picture until the next interval). Retries
+ * are exponential + jittered so a fleet of clients doesn't re-converge on the
+ * same instant. An abort (the 30s timeout) is NOT retried — the caller's own
+ * budget is already spent, and the cache/snapshot fallback is the right answer.
+ */
+async function fetchCatalogWithRetry(): Promise<ModelsDevData> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt <= FETCH_RETRIES; attempt++) {
+    if (attempt > 0) {
+      const backoff = 200 * 2 ** (attempt - 1);
+      await new Promise((r) =>
+        setTimeout(r, backoff + Math.random() * backoff),
+      );
+    }
+    const controller = new AbortController();
+    const timeout = setTimeout(
+      () => controller.abort(),
+      MODELS_DEV_FETCH_TIMEOUT_MS,
+    );
+    try {
+      const res = await fetch(`${MODELS_DEV_URL}/api.json`, {
+        headers: { "User-Agent": "Atlarix/1.0" },
+        signal: controller.signal,
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return (await res.json()) as ModelsDevData;
+    } catch (e) {
+      lastError = e;
+      // Timed out: don't burn another 30s window on the same call.
+      if (e instanceof Error && e.name === "AbortError") throw e;
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error(String(lastError));
 }
 
 export type RefreshModelsDevOptions = {
@@ -160,26 +298,15 @@ export type RefreshModelsDevOptions = {
 /**
  * Fetch models from models.dev API
  */
-export async function refreshModelsDev(opts?: RefreshModelsDevOptions): Promise<ModelsDevData> {
+export async function refreshModelsDev(
+  opts?: RefreshModelsDevOptions,
+): Promise<ModelsDevData> {
   const notify = opts?.notify !== false;
   if (notify) {
     broadcastModelsDevStatus("Updating model catalog in background…");
   }
   try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), MODELS_DEV_FETCH_TIMEOUT_MS);
-
-    const res = await fetch(`${MODELS_DEV_URL}/api.json`, {
-      headers: { "User-Agent": "Atlarix/1.0" },
-      signal: controller.signal,
-    });
-    clearTimeout(timeout);
-
-    if (!res.ok) {
-      throw new Error(`HTTP ${res.status}`);
-    }
-
-    const data = (await res.json()) as ModelsDevData;
+    const data = await fetchCatalogWithRetry();
     if (data && typeof data === "object") {
       await saveToCache(data);
       setCachedData(data);
@@ -196,7 +323,10 @@ export async function refreshModelsDev(opts?: RefreshModelsDevOptions): Promise<
         tags: { feature: "models_dev" },
       });
       if (notify) {
-        broadcastModelsDevStatus("Model catalog update timed out; using cached list.", true);
+        broadcastModelsDevStatus(
+          "Model catalog update timed out; using cached list.",
+          true,
+        );
       }
     } else {
       logger.warn("[models.dev] Fetch failed, using cache", e);
@@ -209,6 +339,14 @@ export async function refreshModelsDev(opts?: RefreshModelsDevOptions): Promise<
   if (cached) {
     setCachedData(cached);
     return cached;
+  }
+
+  // No network AND no cache — the cold first-run case. Fall back to the snapshot
+  // shipped with the app rather than to an empty picker.
+  const snapshot = await loadBundledSnapshot();
+  if (snapshot) {
+    setCachedData(snapshot);
+    return snapshot;
   }
 
   cachedData = {};
@@ -227,6 +365,15 @@ export async function getModelsDevData(): Promise<ModelsDevData> {
   if (cached) {
     setCachedData(cached);
     return cached;
+  }
+
+  // Before paying for a network round-trip, serve the bundled snapshot: callers
+  // here are synchronous UI paths (pickers, limit lookups) and a usable catalog
+  // now beats a perfect one in 30s. `startModelsDevRefresh` replaces it shortly.
+  const snapshot = await loadBundledSnapshot();
+  if (snapshot) {
+    setCachedData(snapshot);
+    return snapshot;
   }
 
   return refreshModelsDev({ notify: false });
@@ -260,7 +407,7 @@ function findModelsDevRow(
 function toLanguageModel(
   modelId: string,
   m: ModelsDevModel,
-  _providerId: string
+  _providerId: string,
 ): LanguageModel {
   return {
     apiName: modelId,
@@ -471,7 +618,7 @@ export async function getProviderApiBaseUrl(
  * Get models for a cloud provider from models.dev (tool-capable models only).
  */
 export async function getModelsFromModelsDev(
-  atlarixProviderId: string
+  atlarixProviderId: string,
 ): Promise<LanguageModel[]> {
   return getModelsDevCatalogRows(atlarixProviderId);
 }
@@ -517,7 +664,19 @@ export async function getModelsDevProviderCatalog(): Promise<
 export function startModelsDevRefresh(): void {
   if (refreshTimer) return;
 
-  refreshModelsDev({ notify: true }).catch(() => {});
+  // Skip the boot fetch when the cache is still fresh — a launch-quit-launch
+  // cycle otherwise re-downloads the whole catalog for no new information.
+  void (async () => {
+    const age = await getCacheAgeMs();
+    if (age !== null && age < CACHE_FRESH_MS) {
+      logger.info(
+        `[models.dev] Cache is ${Math.round(age / 1000)}s old; skipping boot fetch`,
+      );
+      await getModelsDevData();
+      return;
+    }
+    await refreshModelsDev({ notify: true }).catch(() => {});
+  })();
 
   refreshTimer = setInterval(() => {
     refreshModelsDev({ notify: false }).catch(() => {});

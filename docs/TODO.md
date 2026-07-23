@@ -1,7 +1,7 @@
 # Atlarix TODO
 
 **Current Version:** v14.15.0 (RELEASING 2026-07-21) — Preview tab removed → unified on the in-app Browser (richer error capture with stack traces); per-job live wake timer; screenshot capture fix; universal sandbox write-escalation; Supabase idle-ping reduction; keyboard shortcuts; device-spec injection.
-**Last Updated:** 2026-07-21
+**Last Updated:** 2026-07-23
 
 ## ✅ SHIPPED in v14.15.0
 
@@ -14,7 +14,154 @@
 - **Supabase idle-ping reduction, keyboard shortcuts (Cmd+T/W/J/I/O), device-spec injection, allow_stalled,
   code-block render fix.**
 
-## 🚧 In progress (unreleased) — sub-agent duplicates, voice picker, edit_file escaping
+## 🚧 Unreleased — code-complete, awaiting the next version bump + tag
+
+Everything in this section is **written, tested and green**. It sits between ✅ SHIPPED (already
+tagged) and ⏳ Open / deferred (not started): *unreleased* means **untagged, not unfinished**. Do not
+read the sub-headings as four parallel workstreams still in flight.
+
+**The only genuinely open item** is owner-side packaged-app verification of the catalog work — see
+"REMAINING" under *models.dev catalog as the floor*. Nothing is blocked on it.
+
+**When bumping the version, these are ONE release narrative, not four.** Specifically:
+- *models.dev catalog as the floor* and *provider model accuracy* are the same bug, twice: the
+  accuracy pass fixed each pagination/mapping defect individually, then the catalog-as-floor union
+  removed the mechanism that produced them. Ship them as one story — the second **supersedes** the
+  first, it doesn't sit beside it.
+- *Voice transcription de-hardcoded* is the same de-hardcoding arc applied to STT model resolution;
+  it belongs with the catalog work, not on its own.
+- The remaining items (plan-ledger desync, sub-agent render duplication, `edit_file` escaping) are
+  independent agent-loop/rendering fixes and can stay as their own bullets.
+
+### models.dev catalog as the floor
+
+**THE INVARIANT (do not quietly revert):** the models.dev catalog is the BASE list for every cloud
+provider. A provider's own `/models` response is a best-effort OVERLAY that may only **add** models or
+**refine** fields. It must never be able to shrink the list. Enforced by `mergeByApiName`
+(`src/lib/models/merge-provider-models.ts`), locked down by `provider-catalog-merge.test.ts`.
+
+- **The bug class this closes.** `language_model_helpers.ts` used to be exclusive — native fetch wins,
+  catalog consulted ONLY if native *threw*. Every recent bug was a fetcher that **succeeded with a
+  wrong list**: Anthropic's `limit` defaults to 20, Google's `pageSize` to 50, Cohere's `page_size` to
+  20. All returned truncated lists at HTTP 200, so nothing threw, the fallback never fired, and the
+  picker lost models while the correct answer sat in memory. Bedrock listed zero because it was absent
+  from `FETCHERS` *and* from `PROVIDER_ID_MAP`. Fixing each pagination bug individually left the
+  mechanism intact; the union removes it.
+- **Catalog made load-bearing first** (`src/lib/models_dev.ts`) — it can't be the floor if it can
+  vanish. (a) Bundled snapshot tier: memory → disk cache → **bundled snapshot** → network. Cold
+  offline start used to resolve to `{}` (empty provider list AND empty picker). `build/models-snapshot.json.gz`
+  (~300 KB gzipped, ~170 providers) ships via `extraResource`; regenerate with `npm run models:snapshot`
+  — **committed deliberately, not fetched at build time**, so packaging never depends on models.dev
+  being reachable. (b) **Atomic cache write** (temp + `rename`): the direct `writeFile` truncated the
+  live cache under the disk-full condition behind Sentry `49d4f2a5`, losing all 169 providers on the
+  next boot. (c) 2 retries with jittered backoff; aborts are NOT retried (budget already spent).
+  (d) Boot fetch skipped when the cache is < 5 min old.
+- **Fetchers pruned to those that know something the catalog can't.** Deleted `cohere`, `mistral`,
+  `xai`, `together`, `groq` and the `nvidia_nim`/`cerebras`/`huggingface` wrappers — each produced a
+  strict SUBSET of catalog rows with worse display names. Kept `openai`/`anthropic`/`google` (day-one
+  launches), `openrouter` (live pricing + `top_provider` ceilings), the open-weight four (Core tiers,
+  ship weekly), and **`elastic` — which has NO catalog rows at all** (it lists Kibana agents from a
+  user's self-hosted instance, so native is its only source and the empty floor is correct; asserted
+  by test so a future "every provider has a floor" refactor can't break it). Adding a fetcher back
+  needs one of those reasons — "the provider has a `/models` endpoint" is not one.
+- **Accepted trade-off:** an entitlement-scoped provider (OpenAI gates some models by org tier) may
+  list a model the key can't call, which 403s at call time. A visible error beats a silently missing
+  model, and it matches how the ~145 catalog-only providers already behaved.
+- **Launchpad de-enumerated.** The hand-typed provider lists ("…Groq, Mistral, xAI, Hugging Face,
+  Azure, Bedrock") in `Docs.tsx`, `helpDocs.ts`, `FeatureStrip.tsx` and `ProviderFreedom.tsx` were a
+  standing staleness source. Replaced with live figures (145+ providers, 4,400+ tool-capable models —
+  rounded DOWN from the measured 145/4,480 so the claim survives catalog drift). Voice copy still
+  names OpenAI/Groq/Gemini as examples — accurate, since those remain the common BYOK STT keys even
+  though the picker itself is now catalog-driven (see *Voice transcription de-hardcoded* below).
+- **REMAINING:** owner packaged-app verification — offline cold start populates from the snapshot;
+  Anthropic/Google/Cohere list their full families; a pruned provider (Groq or Mistral) still runs a
+  real tool-calling turn.
+
+### Provider model accuracy + citation render + sub-agent status (partly SUPERSEDED — see above)
+
+> **Read this second.** The provider-listing half of this section was the *first* attempt at the bug
+> that *models.dev catalog as the floor* later solved structurally. The `PROVIDER_ID_MAP` repair and
+> the `annotateToolCapability` funnel **still stand** — they're load-bearing under the union. The
+> per-provider pagination fixes below are **dead code for five providers** (cohere, mistral, xai,
+> together, groq: fetchers deleted) and defensive-only for the rest, since a truncated response can no
+> longer shrink the list. Kept as the record of why the union exists; do not present it as a separate
+> shipped feature.
+
+- **Provider ID map repaired (`src/lib/models_dev.ts`).** `bedrock` → `amazon-bedrock` and
+  `nvidia_nim` → `nvidia` were missing from `PROVIDER_ID_MAP`, and everything routes through
+  `resolveModelsDevProviderId`. Consequences: **AWS Bedrock listed ZERO models** (no native fetcher, so
+  models.dev is its only source — ~109 tool-capable models were invisible), and **NVIDIA NIM lost all
+  limit/cost enrichment**, so its 84 models fell back to the generic 200K context guess with no price.
+  Inverse entries added to `REVERSE_PROVIDER_ID_MAP` — without them the long-tail catalog emits
+  `amazon-bedrock`/`nvidia` as SEPARATE providers that don't de-dup against the built-ins (duplicate
+  rows in the picker).
+- **Shared tool-capability funnel — `annotateToolCapability`.** The models.dev path always gated on
+  `tool_call`; the native fetchers never did, so the "first-class" providers leaked non-tool models
+  (NVIDIA 84→45, OpenRouter 341→270, Groq 15→7, OpenAI 56→46, Google 25→18, xAI 9→5, Cohere 14→9)
+  while the 145-provider long tail stayed clean. One funnel in `fetchModelsFromProvider` covers all 19.
+  **A model the catalog doesn't know is KEPT** — native fetch exists to beat the hourly catalog, and
+  dropping unknown ids would trade an accuracy bug for a freshness bug. Catalog empty/unknown provider
+  → input untouched.
+- **Per-provider fixes.** Anthropic paginates (`limit` defaults to **20**) + now uses its authoritative
+  `max_input_tokens`/`max_tokens`; Google paginates (`pageSize` defaults to **50**) + key moved to the
+  `x-goog-api-key` header; Cohere paginates (`page_size` defaults to **20**) + `endpoint=chat` +
+  skips `is_deprecated`; OpenRouter uses `?supported_parameters=tools` + `top_provider` ceilings;
+  OpenAI's prefix allowlist → substring denylist (it dropped bare `o3`/`o4-mini` while admitting
+  `gpt-image-*`/`gpt-realtime-*`/`*-transcribe`); xAI moved to `/v1/language-models` with a
+  `/v1/models` fallback; Perplexity's hardcoded array → live catalog rows marked
+  `supportsToolChoice: false` (models.dev marks every Sonar model `tool_call: false` — correctly; the
+  old list claimed the opposite and omitted the real 128K/200K limits).
+- **Citation strip renders (the 14.14.1 fast-follow).** Root cause found: `isStructured` is true when
+  content has `<think>` or a tool-call tag, which routes rendering through the interleaved branch of
+  `AssistantMessageBody.tsx` — and the v14.14.0 `MessageSources` mount was in the *legacy* branch, which
+  only plain-prose turns reach. **Every turn that actually searched has a tool-call tag**, so the strip
+  never showed for exactly the turns that had citations. Mounted in both branches; the existing test
+  passed because its fixture was plain prose.
+- **Sub-agent status no longer claims false completion.** `SubAgentRunCard`'s icon and
+  `SubAgentsRoundPanel`'s header both treated "not running" as done via an else-branch, so a sub-agent
+  that had only just spawned rendered with the green completed check. Completion now requires an
+  explicit `done`/`error`; anything unrecognized shows as still working.
+
+### Plan-ledger desync + voice de-hardcoding
+
+- **The agent no longer fights its own plan.** Observed in a real session: the agent marked 25 of 31
+  steps done inside one turn while the injected ledger kept asserting the turn-START counts
+  ("2/31 steps done", all 29 listed as remaining), concluded its own tracker was broken, rewrote the
+  plan and re-marked every step in a loop. Cause: `simple-stream-text.ts` injected the ledger only at
+  `stepNumber === 0`, from a snapshot taken during context assembly — so mid-turn progress could
+  never be reflected. Verified against the live app DB (one plan row; the competing-artifacts theory
+  was wrong) and by running the real parser over the session's plan content (31 steps, only 2 as
+  numbered checkboxes — hence the "2").
+  - New `plan-ledger-refresh.ts`: plan mutations pre-render a fresh ledger keyed by chat, drained
+    take-once on the next step (`prepareStep` is sync, so it can't re-read the DB). Unchanged plan →
+    still injected once, so quiet turns cost nothing.
+  - `plan(update_step)` now returns `progress` on the **no-op** branch too — that branch fires exactly
+    when the model has lost track, and omitting the counts left it nothing to self-correct with.
+  - **`operation:'write'` no longer forks the plan.** Without a `planId` it used to INSERT a new
+    artifact, and weak models routinely drop the id (which is why it's optional) — so the documented
+    "rewrite the whole plan" escape hatch silently created a second row, after which the tool updated
+    one plan while the ledger read another. It now updates the in-flight plan in place, creating a new
+    artifact only when nothing is in flight (no plan, or the last is `built` = a genuinely new task).
+    The escape hatch stays open — deliberately, so a model that can't text-match a step is never
+    cornered — it's just actually safe now.
+  - `resolvePlanId` aligned with `loadActivePlanSection`'s building-first selection so the tool and the
+    ledger can never target different rows.
+- **Voice transcription de-hardcoded.** `voice_handlers.ts` had a closed `"openai" | "groq" | "gemini"`
+  allowlist and pinned model ids (`gemini-2.0-flash` had already aged out) — the same rot the model
+  pickers were just taken off. Now: any provider id, with the STT model and API base URL resolved from
+  the models.dev catalog by **audio-input modality** (71 providers expose one) via new
+  `getAudioInputModelIds` / `getProviderApiBaseUrl`, falling back to the previous ids when the catalog
+  is unavailable. Gemini's key moved from the query string to the `x-goog-api-key` header (matching the
+  Google model fetcher). Settings schema relaxed from an enum to a free-form id so a new provider needs
+  no schema change.
+  - **The composer picker is de-hardcoded too — DONE** (commit `c2311b2d`). New
+    `voice:list-transcription-providers` IPC builds the menu in main from (providers with a key) ∩
+    (providers exposing an audio-input model), collapsing gemini/google and always leading with
+    on-device; `useTranscriptionProviders` feeds `ChatConfigDropdown`. The curated four still in
+    `ChatConfigDropdown.tsx:71` is **only the loading/error fallback**, not the live list — voice must
+    never present an empty picker. Covered by `transcription-providers.test.ts`.
+
+### Sub-agent duplicates, voice picker, edit_file escaping
 
 - **Delegate rows no longer duplicate under the sub-agent panel.** A settled delegation rendered its
   round panel AND a separate collapsed "Sub-agent finished" row per agent. Root cause was drift in one
@@ -55,79 +202,6 @@
   the informative error always wins, and the invariant is documented at both ends. `waitFor` is a
   hang detector, not a speed limit: these turns drive the real loop against real sqlite (~13.5s idle
   for the slowest) while three vitest projects compete for CPU.
-
-## 🚧 In progress (unreleased) — plan-ledger desync + voice de-hardcoding
-
-- **The agent no longer fights its own plan.** Observed in a real session: the agent marked 25 of 31
-  steps done inside one turn while the injected ledger kept asserting the turn-START counts
-  ("2/31 steps done", all 29 listed as remaining), concluded its own tracker was broken, rewrote the
-  plan and re-marked every step in a loop. Cause: `simple-stream-text.ts` injected the ledger only at
-  `stepNumber === 0`, from a snapshot taken during context assembly — so mid-turn progress could
-  never be reflected. Verified against the live app DB (one plan row; the competing-artifacts theory
-  was wrong) and by running the real parser over the session's plan content (31 steps, only 2 as
-  numbered checkboxes — hence the "2").
-  - New `plan-ledger-refresh.ts`: plan mutations pre-render a fresh ledger keyed by chat, drained
-    take-once on the next step (`prepareStep` is sync, so it can't re-read the DB). Unchanged plan →
-    still injected once, so quiet turns cost nothing.
-  - `plan(update_step)` now returns `progress` on the **no-op** branch too — that branch fires exactly
-    when the model has lost track, and omitting the counts left it nothing to self-correct with.
-  - **`operation:'write'` no longer forks the plan.** Without a `planId` it used to INSERT a new
-    artifact, and weak models routinely drop the id (which is why it's optional) — so the documented
-    "rewrite the whole plan" escape hatch silently created a second row, after which the tool updated
-    one plan while the ledger read another. It now updates the in-flight plan in place, creating a new
-    artifact only when nothing is in flight (no plan, or the last is `built` = a genuinely new task).
-    The escape hatch stays open — deliberately, so a model that can't text-match a step is never
-    cornered — it's just actually safe now.
-  - `resolvePlanId` aligned with `loadActivePlanSection`'s building-first selection so the tool and the
-    ledger can never target different rows.
-- **Voice transcription de-hardcoded.** `voice_handlers.ts` had a closed `"openai" | "groq" | "gemini"`
-  allowlist and pinned model ids (`gemini-2.0-flash` had already aged out) — the same rot the model
-  pickers were just taken off. Now: any provider id, with the STT model and API base URL resolved from
-  the models.dev catalog by **audio-input modality** (71 providers expose one) via new
-  `getAudioInputModelIds` / `getProviderApiBaseUrl`, falling back to the previous ids when the catalog
-  is unavailable. Gemini's key moved from the query string to the `x-goog-api-key` header (matching the
-  Google model fetcher). Settings schema relaxed from an enum to a free-form id so a new provider needs
-  no schema change.
-  - **REMAINING:** the composer's voice picker still offers the curated three
-    (`ChatConfigDropdown.tsx VOICE_PROVIDERS`). The engine accepts any provider now; surfacing the full
-    audio-capable list needs a small IPC (the catalog is main-only). Low risk, not yet done.
-
-## 🚧 In progress (unreleased) — provider model accuracy + citation render + sub-agent status
-
-- **Provider ID map repaired (`src/lib/models_dev.ts`).** `bedrock` → `amazon-bedrock` and
-  `nvidia_nim` → `nvidia` were missing from `PROVIDER_ID_MAP`, and everything routes through
-  `resolveModelsDevProviderId`. Consequences: **AWS Bedrock listed ZERO models** (no native fetcher, so
-  models.dev is its only source — ~109 tool-capable models were invisible), and **NVIDIA NIM lost all
-  limit/cost enrichment**, so its 84 models fell back to the generic 200K context guess with no price.
-  Inverse entries added to `REVERSE_PROVIDER_ID_MAP` — without them the long-tail catalog emits
-  `amazon-bedrock`/`nvidia` as SEPARATE providers that don't de-dup against the built-ins (duplicate
-  rows in the picker).
-- **Shared tool-capability funnel — `annotateToolCapability`.** The models.dev path always gated on
-  `tool_call`; the native fetchers never did, so the "first-class" providers leaked non-tool models
-  (NVIDIA 84→45, OpenRouter 341→270, Groq 15→7, OpenAI 56→46, Google 25→18, xAI 9→5, Cohere 14→9)
-  while the 145-provider long tail stayed clean. One funnel in `fetchModelsFromProvider` covers all 19.
-  **A model the catalog doesn't know is KEPT** — native fetch exists to beat the hourly catalog, and
-  dropping unknown ids would trade an accuracy bug for a freshness bug. Catalog empty/unknown provider
-  → input untouched.
-- **Per-provider fixes.** Anthropic paginates (`limit` defaults to **20**) + now uses its authoritative
-  `max_input_tokens`/`max_tokens`; Google paginates (`pageSize` defaults to **50**) + key moved to the
-  `x-goog-api-key` header; Cohere paginates (`page_size` defaults to **20**) + `endpoint=chat` +
-  skips `is_deprecated`; OpenRouter uses `?supported_parameters=tools` + `top_provider` ceilings;
-  OpenAI's prefix allowlist → substring denylist (it dropped bare `o3`/`o4-mini` while admitting
-  `gpt-image-*`/`gpt-realtime-*`/`*-transcribe`); xAI moved to `/v1/language-models` with a
-  `/v1/models` fallback; Perplexity's hardcoded array → live catalog rows marked
-  `supportsToolChoice: false` (models.dev marks every Sonar model `tool_call: false` — correctly; the
-  old list claimed the opposite and omitted the real 128K/200K limits).
-- **Citation strip renders (the 14.14.1 fast-follow).** Root cause found: `isStructured` is true when
-  content has `<think>` or a tool-call tag, which routes rendering through the interleaved branch of
-  `AssistantMessageBody.tsx` — and the v14.14.0 `MessageSources` mount was in the *legacy* branch, which
-  only plain-prose turns reach. **Every turn that actually searched has a tool-call tag**, so the strip
-  never showed for exactly the turns that had citations. Mounted in both branches; the existing test
-  passed because its fixture was plain prose.
-- **Sub-agent status no longer claims false completion.** `SubAgentRunCard`'s icon and
-  `SubAgentsRoundPanel`'s header both treated "not running" as done via an else-branch, so a sub-agent
-  that had only just spawned rendered with the green completed check. Completion now requires an
-  explicit `done`/`error`; anything unrecognized shows as still working.
 
 ## ⏳ Open / deferred
 

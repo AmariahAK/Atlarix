@@ -3,6 +3,47 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
+## [Unreleased] — models.dev catalog as the floor for every provider
+
+Model lists stop going missing. The models.dev catalog is now the base list every cloud provider
+stands on, and a provider's own `/models` endpoint is a best-effort overlay that can only **add**
+models or refine fields — never remove them.
+
+### Fixed
+
+- **Truncated provider responses can no longer empty the picker.** Anthropic's `/models` paginates at
+  20, Google's at 50, Cohere's at 20 — each returned a partial list at HTTP 200, and because the old
+  code only consulted the catalog when native fetch *threw*, the fallback never fired and models
+  silently vanished while the correct list sat in memory. Bedrock listed zero for the mirror reason.
+  New `mergeByApiName` (`src/lib/models/merge-provider-models.ts`) unions catalog + native, so the
+  worst case is now "a new model shows up an hour late" instead of "models are invisible".
+  `src/ipc/shared/language_model_helpers.ts`.
+- **Offline first run no longer shows an empty provider list.** With no disk cache and no network the
+  catalog resolved to `{}`. A build-time snapshot (`build/models-snapshot.json.gz`, ~300 KB gzipped,
+  shipped via `extraResource`) is now the last tier: memory → disk cache → bundled snapshot → network.
+  Regenerate with `npm run models:snapshot`.
+- **Catalog cache writes are atomic.** `saveToCache` wrote directly over the live file, so the
+  disk-full failure behind Sentry `49d4f2a5` truncated it and the next boot lost all 169 providers.
+  Now temp file + `rename`, with temp cleanup on failure.
+- **Transient fetch failures retry.** 2 retries with exponential backoff + jitter; an abort (the 30s
+  timeout) is deliberately not retried. The boot fetch is skipped when the cache is under 5 minutes
+  old, so launch-quit-launch stops re-downloading the catalog.
+
+### Removed
+
+- **Five bespoke native fetchers** — `cohere`, `mistral`, `xai`, `together`, `groq` — plus the
+  `nvidia_nim` / `cerebras` / `huggingface` wrappers. Each produced a strict subset of catalog rows
+  with worse display names, and between them accounted for every recent "models missing" bug. All
+  eight providers still list in full from the catalog. Kept: `openai`, `anthropic`, `google`,
+  `openrouter` (live pricing + `top_provider` ceilings), the open-weight four (Core tiers, ship
+  weekly), and `elastic` (lists Kibana agents — genuinely absent from models.dev).
+
+### Changed
+
+- A provider whose `/models` is entitlement-scoped (OpenAI gates some models by org tier) may now list
+  a model the key can't call, which 403s at call time. Deliberate: a visible error beats a silently
+  missing model, and it matches how the ~145 catalog-only providers already behaved.
+
 ## [14.15.0] (2026-07-21) — Browser-first workflow, richer error capture, universal sandbox write-escalation
 
 `npm run check` 0/0, vitest green.

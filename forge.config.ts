@@ -269,6 +269,16 @@ const config: ForgeConfig = {
       // matches autoUpdater.setFeedURL(...) in src/main.ts. Copied in before code
       // signing, so it's covered by the bundle signature.
       path.join(__dirname, "build/app-update.yml"),
+      // models.dev catalog snapshot — the floor beneath the disk cache in
+      // src/lib/models_dev.ts. On a first run with no network there is no cache
+      // either, so without this the provider list and model picker come up EMPTY.
+      // Committed and regenerated via `npm run models:snapshot` (release runbook),
+      // deliberately not fetched at build time so packaging never depends on
+      // models.dev being reachable. Guarded: a missing snapshot must not break a
+      // build — the app just falls back to the network as it did before.
+      ...(fs.existsSync(path.join(__dirname, "build/models-snapshot.json.gz"))
+        ? [path.join(__dirname, "build/models-snapshot.json.gz")]
+        : []),
       // Windows AppContainer sandbox helper (cargo-built + signed in CI before
       // packaging). Resolves at runtime via process.resourcesPath/atlarix-sandbox.exe
       // (see src/lib/sandbox/wrap-command.ts). Guarded so non-Windows / un-built

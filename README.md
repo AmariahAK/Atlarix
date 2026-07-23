@@ -16,7 +16,7 @@ has a workspace. You have control.
 
 **Search** — Atlarix gives the agent fast, **bundled-ripgrep** search over your workspace — `grep` and `glob` with no index to build, no background file-watcher, and constant low memory at any repo size. Like **Claude Code** and **opencode**, retrieval stays purely lexical: the agent reasons over ranked search results rather than a vector index or a structural map. Nothing is scanned until the agent searches.
 
-**Connect** — Wire in any LLM: local **Ollama / LM Studio**, OpenAI, Anthropic, Google Gemini, OpenRouter, Groq, Mistral, xAI, **Hugging Face**, Azure, Bedrock, or **Atlarix Core** (managed models with real catalog names, not raw tier ids — the Core tiers are configured remotely, so the underlying models stay current without an app update).
+**Connect** — Wire in any LLM: local **Ollama / LM Studio**, **145+ cloud providers and 4,400+ tool-capable models** read live from the [models.dev](https://models.dev) catalog (OpenAI, Anthropic, Google Gemini, OpenRouter and every OpenAI-compatible endpoint), or **Atlarix Core** (managed models with real catalog names, not raw tier ids — the Core tiers are configured remotely, so the underlying models stay current without an app update). The catalog refreshes hourly and ships with an offline snapshot, so new models appear without an app update and the picker is never empty.
 
 **Execute** — The agent plans, reads, writes, runs commands (inside a per-OS write-confining sandbox — workspace writes only, network on), and searches the web. You approve every destructive action.
 
@@ -118,12 +118,13 @@ _MiniMax-M3 (fp8) · **single attempt (k=1)** · native function-calling · matc
 Releases are built from **this repository** via GitHub Actions ([**Atlarix CI**](.github/workflows/release.yml)). Pushes to **`main`** and pull requests run typecheck, lint, and tests; pushing a **version tag** (`v9.1.0`, etc.) runs those checks first, then the full macOS/Linux/Windows build and publish to [atlarix-releases](https://github.com/AmariahAK/atlarix-releases).
 
 1. Bump **`package.json` `version`** and add a section to [`docs/CHANGELOG.md`](docs/CHANGELOG.md) (9.0+). Archive older sections to [`docs/CHANGELOG_PREVIOUS.md`](docs/CHANGELOG_PREVIOUS.md) when the main file grows too long.
-2. Commit, tag, and push:
+2. Refresh the bundled model catalog: `npm run models:snapshot` (writes `build/models-snapshot.json.gz`) and commit it. This is the offline floor for the model picker — a stale snapshot self-heals on first successful refresh, so this is a nice-to-have, not a blocker.
+3. Commit, tag, and push:
    ```bash
    git tag v9.1.0
    git push origin v9.1.0
    ```
-3. **Actions → Release** builds macOS/Linux/Windows assets and publishes when green.
+4. **Actions → Release** builds macOS/Linux/Windows assets and publishes when green.
 
 See [`.github/workflows/release.yml`](.github/workflows/release.yml) and [docs/CREDENTIALS_SETUP.md](docs/CREDENTIALS_SETUP.md) for secrets and migration bundling (`npm run db:bundle-sql` after Drizzle changes).
 

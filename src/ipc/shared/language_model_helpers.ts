@@ -14,13 +14,14 @@ import {
   getModelsFromModelsDev,
   getModelsDevProviderCatalog,
 } from "@/lib/models_dev";
-import {
-  fetchModelsFromProvider,
-  supportsProviderNativeFetch,
-} from "@/lib/provider_model_fetchers";
+import { fetchModelsFromProvider } from "@/lib/provider_model_fetchers";
+import { mergeByApiName } from "@/lib/models/merge-provider-models";
 import { getProviderApiKey } from "./provider_api_keys";
 import { getEnvVar } from "../utils/read_env";
-import { COMPASS_PROVIDER_ID, getCompassSyntheticModels } from "./compass_constants";
+import {
+  COMPASS_PROVIDER_ID,
+  getCompassSyntheticModels,
+} from "./compass_constants";
 
 /**
  * Fetches language model providers from both the database (custom) and hardcoded constants (cloud),
@@ -129,35 +130,6 @@ export async function getLanguageModelProviders(): Promise<
 }
 
 /**
- * Native `/models` endpoints that don't return pricing (e.g. DeepSeek) leave the
- * picker showing "Free". Backfill each model's `cost` from the models.dev catalog
- * by `apiName`. Best-effort — native models still work if models.dev is
- * unavailable, and models already carrying cost (e.g. OpenRouter, which reports
- * its own pricing) are left untouched.
- */
-async function backfillCostFromModelsDev(
-  providerId: string,
-  models: LanguageModel[],
-): Promise<LanguageModel[]> {
-  if (!models.some((m) => m.type === "cloud" && !m.cost)) return models;
-  try {
-    const catalog = await getModelsFromModelsDev(providerId);
-    const costById = new Map<string, { input: number; output: number }>();
-    for (const m of catalog) {
-      if (m.type === "cloud" && m.cost) costById.set(m.apiName, m.cost);
-    }
-    if (costById.size === 0) return models;
-    return models.map((m) =>
-      m.type === "cloud" && !m.cost && costById.has(m.apiName)
-        ? { ...m, cost: costById.get(m.apiName) }
-        : m,
-    );
-  } catch {
-    return models;
-  }
-}
-
-/**
  * Fetches language models for a specific provider.
  * @param obj An object containing the providerId.
  * @returns A promise that resolves to an array of LanguageModel objects.
@@ -236,35 +208,31 @@ export async function getLanguageModels({
     if (!apiKey) {
       // No API key: return 0 models (like OpenRouter). Do not show hardcoded models.
       cloudModels = [];
-    } else if (supportsProviderNativeFetch(providerId)) {
-      try {
-        cloudModels = await fetchModelsFromProvider(providerId, apiKey);
-        cloudModels = await backfillCostFromModelsDev(providerId, cloudModels);
-      } catch (error) {
-        console.warn(
-          `[${providerId}] Native fetch failed, falling back to models.dev:`,
-          error,
-        );
-        // Fallback to models.dev only when we have a key but native fetch failed
-        try {
-          cloudModels = await getModelsFromModelsDev(providerId);
-        } catch (devError) {
+    } else {
+      // ONE path for every cloud provider — see `mergeByApiName` for why the
+      // catalog is the floor rather than a fallback. Both sources are
+      // independently best-effort, so neither can empty the list on its own.
+      const [catalog, native] = await Promise.all([
+        getModelsFromModelsDev(providerId).catch((error) => {
           console.warn(
             `[models.dev] Failed to fetch models for "${providerId}":`,
-            devError,
+            error,
           );
-        }
-      }
-    } else {
-      // Has key but no native fetch - use models.dev
-      try {
-        cloudModels = await getModelsFromModelsDev(providerId);
-      } catch (error) {
-        console.warn(
-          `[models.dev] Failed to fetch models for "${providerId}":`,
-          error,
-        );
-      }
+          return [] as LanguageModel[];
+        }),
+        // Providers with no native fetcher resolve to [] without a request.
+        // `elastic` is the inverse case: it has NO catalog rows (it lists
+        // Kibana agents from a self-hosted instance, not models), so native is
+        // its only source and the empty floor is correct.
+        fetchModelsFromProvider(providerId, apiKey).catch((error) => {
+          console.warn(
+            `[${providerId}] Native fetch failed, using catalog:`,
+            error,
+          );
+          return [] as LanguageModel[];
+        }),
+      ]);
+      cloudModels = mergeByApiName(catalog, native);
     }
   }
 
