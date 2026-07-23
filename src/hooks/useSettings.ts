@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useAtom } from "jotai";
+import { useQueryClient } from "@tanstack/react-query";
 import { userSettingsAtom, envVarsAtom } from "@/atoms/appAtoms";
 import { IpcClient } from "@/ipc/ipc_client";
 import { type UserSettings } from "@/lib/schemas";
@@ -22,6 +23,7 @@ let isInitialLoad = false;
 
 export function useSettings() {
   const posthog = usePostHog();
+  const queryClient = useQueryClient();
   const [settings, setSettingsAtom] = useAtom(userSettingsAtom);
   const [envVars, setEnvVarsAtom] = useAtom(envVarsAtom);
   const [loading, setLoading] = useState(true);
@@ -67,6 +69,20 @@ export function useSettings() {
       const updatedSettings = await ipcClient.setUserSettings(newSettings);
       setSettingsAtom(updatedSettings);
       processSettingsForTelemetry(updatedSettings);
+
+      // Adding or removing a provider API key changes which models exist, but
+      // the model lists are cached with a 5-minute staleTime and are only
+      // invalidated by explicit events. Saving a key wasn't one of them — so a
+      // provider you'd just configured stayed missing from the picker (and a
+      // deleted one lingered) until the cache expired or something unrelated
+      // refetched. Invalidate here, in the ONE place every provider form goes
+      // through, rather than in each of them.
+      if (newSettings.providerSettings !== undefined) {
+        await Promise.all([
+          queryClient.invalidateQueries({ queryKey: ["language-models-by-providers"] }),
+          queryClient.invalidateQueries({ queryKey: ["languageModelProviders"] }),
+        ]);
+      }
 
       setError(null);
       return updatedSettings;
