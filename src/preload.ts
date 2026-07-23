@@ -279,8 +279,6 @@ const validInvokeChannels = [
   // Runtime errors captured from the browser tabs (Errors tab)
   "browser:get-errors",
   "browser:clear-errors",
-  // Browser session recordings (frame reels)
-  "media:get-recording",
   // Background jobs (v14)
   "chat:background-jobs-list",
   "chat:background-job-cancel",
@@ -402,7 +400,7 @@ const validReceiveChannels = [
   "plan:file-updated",
   "browser:state-changed", // v11 in-app browser: main → renderer tab/nav state
   "browser:error", // main → renderer: runtime error captured from a browser tab (console/uncaught/load/crash/network)
-  "chat:stream:browser-recording", // main → renderer: session reel(s) ready for a turn
+  "browser:request-panel", // main → renderer: the agent needs the Browser panel open (mirrors the plan-artifact auto-open)
   "chat:background-job-update", // main → renderer: background job started/finished/cancelled
   "automation:run-update", // main → renderer: automation run started/finished (triage feed refresh)
   "automations:focus-feed", // main → renderer: OS-notification click → open the automations tab

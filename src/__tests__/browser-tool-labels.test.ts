@@ -14,9 +14,43 @@ describe("browserToolLabel", () => {
   it("never produces the broken 'Runned' fallback", () => {
     // Regression: with no label-map entry the old fallback made "Runned …".
     expect(getToolDoneLabel("browser_inspect")).not.toMatch(/runned/i);
-    expect(getToolDoneLabel("browser_inspect")).toBe("Inspected page");
+    expect(getToolDoneLabel("browser_inspect")).toBe("Read page");
     expect(getToolDoneLabel("browser_navigate")).toBe("Opened page");
     expect(getToolDoneLabel("browser_interact")).toBe("Acted on page");
+    expect(getToolDoneLabel("browser_find")).not.toMatch(/runned/i);
+    expect(getToolDoneLabel("browser_tabs")).not.toMatch(/runned/i);
+    expect(getToolDoneLabel("browser_batch")).not.toMatch(/runned/i);
+  });
+
+  it("labels the tab, find and batch tools concretely", () => {
+    expect(getToolDoneLabel("browser_find", { query: "login button" })).toBe(
+      'Found "login button"',
+    );
+    expect(getToolDoneLabel("browser_tabs", { operation: "create" })).toBe("Opened a new tab");
+    expect(getToolDoneLabel("browser_tabs", { operation: "switch" })).toBe("Switched tab");
+    expect(getToolDoneLabel("browser_batch", { steps: [{}, {}] })).toBe(
+      "Ran 2 steps in the browser",
+    );
+  });
+
+  it("labels the new interact verbs", () => {
+    expect(getToolDoneLabel("browser_interact", { action: "key", text: "Enter" })).toBe(
+      "Pressed Enter",
+    );
+    expect(getToolDoneLabel("browser_interact", { action: "hover", ref: "e3" })).toBe(
+      "Hovered e3",
+    );
+    expect(getToolDoneLabel("browser_interact", { action: "scroll", direction: "down" })).toBe(
+      "Scrolled down",
+    );
+  });
+
+  it("labels each browser_inspect mode, defaulting to the combined read", () => {
+    expect(getToolDoneLabel("browser_inspect", { mode: "visual" })).toBe("Checked page layout");
+    expect(getToolDoneLabel("browser_inspect", { mode: "network" })).toBe(
+      "Read page network errors",
+    );
+    expect(getToolDoneLabel("browser_inspect", { mode: "snapshot" })).toBe("Inspected page");
   });
 
   it("interact fill reads as 'Filled \"…\"' with preview suffix", () => {

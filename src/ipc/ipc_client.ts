@@ -3515,6 +3515,17 @@ export class IpcClient {
     return typeof off === "function" ? off : () => {};
   }
 
+  /**
+   * The agent needs the Browser panel on screen. Mirrors the plan-artifact
+   * auto-open: the renderer opens the right panel on its Browser tab so the
+   * view gets its real chrome (tab strip + URL bar) and reports real bounds —
+   * rather than the main process attaching a bare view over the window.
+   */
+  public onBrowserPanelRequested(listener: () => void): () => void {
+    const off = this.ipcRenderer.on("browser:request-panel", () => listener());
+    return typeof off === "function" ? off : () => {};
+  }
+
   // Runtime errors captured from the browser tabs (Errors tab).
   public async browserGetErrors(): Promise<
     import("@/ipc/utils/browser_view_manager").BrowserSurfaceError[]
@@ -3539,47 +3550,6 @@ export class IpcClient {
     return typeof off === "function" ? off : () => {};
   }
 
-  // Browser/preview session recordings (frame reels).
-  public async mediaGetRecording(
-    chatId: number,
-    recordingId: string,
-  ): Promise<{
-    recordingId: string;
-    surface: "browser" | "preview";
-    width: number;
-    height: number;
-    frames: { caption: string; type: string; ts: number; dataUrl: string }[];
-  } | null> {
-    return this.ipcRenderer.invoke("media:get-recording", { chatId, recordingId });
-  }
-
-  public onBrowserRecording(
-    listener: (payload: {
-      chatId: number;
-      messageId: string;
-      recordingId: string;
-      surface: "browser" | "preview";
-      frameCount: number;
-      firstFrame: string;
-      /** false = final (renderer stops live-polling). */
-      live: boolean;
-    }) => void,
-  ): () => void {
-    const off = this.ipcRenderer.on("chat:stream:browser-recording", (payload) =>
-      listener(
-        payload as {
-          chatId: number;
-          messageId: string;
-          recordingId: string;
-          surface: "browser" | "preview";
-          frameCount: number;
-          firstFrame: string;
-          live: boolean;
-        },
-      ),
-    );
-    return typeof off === "function" ? off : () => {};
-  }
 
   // Background jobs (v14).
   public async backgroundJobsList(

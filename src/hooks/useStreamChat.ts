@@ -78,7 +78,6 @@ import {
   aiPanelIntentAtom,
   terminalOutputsAtom,
   activityStreamItemsAtom,
-  sessionRecordingsByMessageIdAtom,
   backgroundJobsByChatIdAtom,
   type SourceItem,
   type FileProposal,
@@ -1194,22 +1193,6 @@ export function useStreamChat({
           },
         );
 
-        // Browser/preview session recordings: attach the reel(s) to the turn's
-        // assistant message so a playable card renders under it.
-        const unsubscribeBrowserRecording = IpcClient.getInstance().onBrowserRecording(
-          ({ chatId: evChatId, messageId, recordingId, surface, frameCount, firstFrame, live }) => {
-            if (evChatId !== chatId) return;
-            getDefaultStore().set(sessionRecordingsByMessageIdAtom, (prev) => {
-              const list = prev[messageId] ?? [];
-              const next = { recordingId, chatId: evChatId, surface, frameCount, firstFrame, live };
-              const idx = list.findIndex((r) => r.recordingId === recordingId);
-              const updated =
-                idx >= 0 ? list.map((r, i) => (i === idx ? next : r)) : [...list, next];
-              return { ...prev, [messageId]: updated };
-            });
-          },
-        );
-
         cleanupStreamListeners = () => {
           if (toolLiveFlushTimer) {
             clearTimeout(toolLiveFlushTimer);
@@ -1229,7 +1212,6 @@ export function useStreamChat({
           unsubscribeTerminal?.();
           unsubscribeOperationStatus?.();
           unsubscribeChatActivity?.();
-          unsubscribeBrowserRecording?.();
           unsubPlanArtifact?.();
           unsubscribeToolIndicator?.();
           // Drop any leftover streaming preview for this chat.

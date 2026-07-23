@@ -29,8 +29,11 @@ const LABELS: Record<string, string> = {
   deep_research: "Deep research…",
   read_url: "Reading URL…",
   browser_navigate: "Opening page…",
-  browser_inspect: "Inspecting page…",
+  browser_inspect: "Reading page…",
   browser_interact: "Acting on page…",
+  browser_find: "Finding on page…",
+  browser_tabs: "Managing tabs…",
+  browser_batch: "Running browser steps…",
   background_jobs: "Checking background jobs…",
   diagnose_issue: "Diagnosing issue…",
   record_debug_hypothesis: "Recording debug hypothesis…",
@@ -121,6 +124,9 @@ const BROWSER_TOOLS = new Set([
   "browser_navigate",
   "browser_inspect",
   "browser_interact",
+  "browser_find",
+  "browser_tabs",
+  "browser_batch",
 ]);
 
 function shortText(s: string, max = 28): string {
@@ -167,15 +173,42 @@ export function browserToolLabel(
   }
 
   if (toolName === "browser_inspect") {
-    const mode = str(a.mode) || "snapshot";
+    const mode = str(a.mode) || "read";
     const map: Record<string, [string, string]> = {
+      read: [`Reading ${noun}`, `Read ${noun}`],
       snapshot: [`Inspecting ${noun}`, `Inspected ${noun}`],
       text: [`Reading ${noun} text`, `Read ${noun} text`],
+      visual: [`Checking ${noun} layout`, `Checked ${noun} layout`],
+      design: [`Reading ${noun} design`, `Read ${noun} design`],
       screenshot: [`Capturing ${noun} screenshot`, `Captured ${noun} screenshot`],
       console: [`Reading ${noun} console`, `Read ${noun} console`],
+      network: [`Reading ${noun} network errors`, `Read ${noun} network errors`],
     };
-    const [run, done] = map[mode] ?? map.snapshot;
+    const [run, done] = map[mode] ?? map.read;
     return tense === "running" ? `${run}…` : done;
+  }
+
+  if (toolName === "browser_find") {
+    const q = str(a.query) ? ` "${shortText(str(a.query), 28)}"` : "";
+    return tense === "running" ? `Finding${q}…` : `Found${q}`;
+  }
+
+  if (toolName === "browser_tabs") {
+    const op = str(a.operation);
+    const map: Record<string, [string, string]> = {
+      list: ["Listing browser tabs", "Listed browser tabs"],
+      create: ["Opening a new tab", "Opened a new tab"],
+      switch: ["Switching tab", "Switched tab"],
+      close: ["Closing tab", "Closed tab"],
+    };
+    const [run, done] = map[op] ?? ["Managing tabs", "Managed tabs"];
+    return tense === "running" ? `${run}…` : done;
+  }
+
+  if (toolName === "browser_batch") {
+    const n = Array.isArray(a.steps) ? a.steps.length : 0;
+    const what = n ? ` ${n} step${n === 1 ? "" : "s"}` : "";
+    return tense === "running" ? `Running${what} in the browser…` : `Ran${what} in the browser`;
   }
 
   if (toolName === "browser_interact") {
@@ -188,6 +221,19 @@ export function browserToolLabel(
       const label = str(a.ref) || str(a.selector);
       const what = label ? ` ${shortText(label, 24)}` : " element";
       return (tense === "running" ? `Clicking${what}` : `Clicked${what}`) + suffix;
+    }
+    if (action === "key") {
+      const key = str(a.text) ? ` ${shortText(str(a.text), 16)}` : " a key";
+      return (tense === "running" ? `Pressing${key}` : `Pressed${key}`) + suffix;
+    }
+    if (action === "hover") {
+      const label = str(a.ref) || str(a.selector);
+      const what = label ? ` ${shortText(label, 24)}` : " element";
+      return (tense === "running" ? `Hovering${what}` : `Hovered${what}`) + suffix;
+    }
+    if (action === "scroll") {
+      const dir = str(a.ref) || str(a.selector) ? " into view" : ` ${str(a.direction) || "down"}`;
+      return (tense === "running" ? `Scrolling${dir}` : `Scrolled${dir}`) + suffix;
     }
     return (tense === "running" ? "Acting on page" : "Acted on page") + suffix;
   }
@@ -250,8 +296,11 @@ const DONE_LABELS: Record<string, string> = {
   deep_research: "Completed deep research",
   read_url: "Read URL",
   browser_navigate: "Opened page",
-  browser_inspect: "Inspected page",
+  browser_inspect: "Read page",
   browser_interact: "Acted on page",
+  browser_find: "Found on page",
+  browser_tabs: "Managed tabs",
+  browser_batch: "Ran browser steps",
   background_jobs: "Checked background jobs",
   diagnose_issue: "Diagnosed issue",
   record_debug_hypothesis: "Recorded hypothesis",

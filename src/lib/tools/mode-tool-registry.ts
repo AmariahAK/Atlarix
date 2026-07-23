@@ -56,9 +56,12 @@ function withEveryModeTools(list: readonly string[]): readonly string[] {
 
 const ASK_TOOLS = [
   "background_jobs",
+  "browser_batch",
+  "browser_find",
   "browser_inspect",
   "browser_interact",
   "browser_navigate",
+  "browser_tabs",
   "glob",
   "grep",
   "list_available_mcps",
@@ -73,9 +76,12 @@ const ASK_TOOLS = [
 // .atlarix docs) / destructive run_command stay excluded from the advertised
 // list and the execute-gate (incl. the text-tool fallback path).
 const PLAN_TOOLS = [
+  "browser_batch",
+  "browser_find",
   "browser_inspect",
   "browser_interact",
   "browser_navigate",
+  "browser_tabs",
   "glob",
   "grep",
   "list_available_mcps",
@@ -87,9 +93,12 @@ const PLAN_TOOLS = [
 
 const REVIEW_TOOLS = [
   "background_jobs",
+  "browser_batch",
+  "browser_find",
   "browser_inspect",
   "browser_interact",
   "browser_navigate",
+  "browser_tabs",
   "glob",
   "grep",
   "list_available_mcps",

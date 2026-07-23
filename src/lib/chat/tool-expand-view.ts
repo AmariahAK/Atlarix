@@ -52,6 +52,9 @@ const BROWSER_TEXT_TOOLS = new Set([
   "browser_navigate",
   "browser_inspect",
   "browser_interact",
+  "browser_find",
+  "browser_tabs",
+  "browser_batch",
   // Legacy tool names (pre-v13.8) kept so persisted sessions still render.
   "browser_read_page",
   "browser_snapshot",

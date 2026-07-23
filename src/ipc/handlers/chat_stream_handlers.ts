@@ -19,7 +19,6 @@ import {
   isNativeHistoryEnvelope,
   regateNativeMediaForProvider,
 } from "@/lib/ai/native-history";
-import { finalizeReels, setReelTurnContext } from "../utils/browser-reel";
 import { PreflightTimer } from "@/lib/agent/preflight-timing";
 import { buildAttachmentRecord } from "@/lib/attachment-upload";
 import { resolveAppPath } from "../../paths/paths";
@@ -962,9 +961,6 @@ ${componentSnippet}
 
       let streamTurnId = String(placeholderAssistantMessage.id);
       snapshotTurnIdForTerminal = streamTurnId; // v12 2.3
-      // Tie any browser/preview session reels captured this turn to this
-      // assistant message so the renderer attaches the inline artifact to it.
-      setReelTurnContext(req.chatId, String(placeholderAssistantMessage.id));
       // v11.1: set when the model asked the user question(s) — the turn ends
       // gracefully (persist + response:end) WITHOUT task-complete side effects
       // (no build verification, no self-review).
@@ -2099,9 +2095,6 @@ ${componentSnippet}
       } finally {
         // Finalize any browser/preview session recordings captured this turn and
         // hand the renderer a reference to play them back (proof of work).
-        // Finalize browser/preview session reels (emits the final, live:false
-        // event per reel itself — see browser-reel.finalizeReels).
-        void finalizeReels(req.chatId).catch(() => {});
         ctx.stopAgentOrchestrator?.();
         unregisterLedgerPlanUiNotifier(req.chatId);
         clearActiveModelDisplayName();

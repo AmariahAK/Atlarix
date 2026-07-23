@@ -362,26 +362,6 @@ export const rightPanelWidthAtom = atom<number>(400);
 /** Dev server URL for live preview (Lovable-style) */
 export const devServerUrlAtom = atom<string | null>(null);
 
-/** A captured browser/preview session recording (frame reel) ready to play. */
-export interface SessionReelRef {
-  recordingId: string;
-  chatId: number;
-  surface: "browser" | "preview";
-  frameCount: number;
-  firstFrame: string;
-  /** True while the turn is still capturing frames (poll for more); false when final. */
-  live?: boolean;
-}
-
-/**
- * Session recordings keyed by the assistant messageId of the turn that produced
- * them. Populated from the chat:stream:browser-recording IPC event; rendered as
- * a playable reel card under the assistant message (proof of work).
- */
-export const sessionRecordingsByMessageIdAtom = atom<
-  Record<string, SessionReelRef[]>
->({});
-
 /** A running background command (for the "jobs running" indicator + cancel). */
 export interface BackgroundJobView {
   operationId: string;

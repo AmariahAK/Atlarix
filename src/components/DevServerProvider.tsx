@@ -16,6 +16,7 @@ import {
 } from '@/atoms/sourceAtoms';
 import { IpcClient } from '@/ipc/ipc_client';
 import { useBrowserErrorListener } from '@/hooks/useBrowserErrorListener';
+import { useBrowserPanelRequest } from '@/hooks/useBrowserPanelRequest';
 import { deduplicateErrors, type ParsedError } from '@/lib/devServerErrorParser';
 import { TerminalIntelligence } from '@/lib/terminal-intelligence';
 
@@ -26,6 +27,9 @@ export function DevServerProvider({ children }: { children: React.ReactNode }) {
     const setBrowserErrors = useSetAtom(browserErrorsAtom);
 
     useBrowserErrorListener();
+    // Agent asks for the Browser panel (see useBrowserPanelRequest) — must be
+    // mounted here, not in BrowserPanel, since it fires while that panel is shut.
+    useBrowserPanelRequest();
 
     useEffect(() => {
         if (!workspaceId) {

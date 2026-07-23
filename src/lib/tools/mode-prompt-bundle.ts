@@ -17,9 +17,11 @@ export const GIT_VIA_TERMINAL_NOTE =
  * a TEXT report is the way to "see" a page; a screenshot is the last resort. */
 export const BROWSER_NOTE = [
   "Browser (the in-app browser — also how you run the app you're building: open its dev-server URL as a tab):",
-  "- SEE a page: **browser_inspect** mode:\"visual\" (a ~500-token TEXT report of layout + defects) or mode:\"text\" — these ARE the answer; mode:\"screenshot\" (a PNG, thousands of tokens) is a LAST RESORT, only when the user needs the actual image.",
-  "- INTERACT: mode:\"snapshot\" for element refs, then **browser_interact** (click/fill) by ref; re-snapshot after navigation.",
-  "- RUN & VERIFY THE APP: **browser_navigate** to its dev-server URL (e.g. http://localhost:3000), then drive it (open routes, fill forms). mode:\"console\" reads captured runtime errors (console, uncaught exceptions WITH stack, failed requests). To verify a UI change, prefer **preview_test** (one navigate→act→assert pass) — the turn won't finish while the app throws runtime errors.",
+  "- READ a page: **browser_inspect** with no mode returns page content AND interactive refs in ONE call. Looking for one element? **browser_find** (\"login button\") is cheaper than reading the page.",
+  "- SEE how it LOOKS: mode:\"visual\" (a ~500-token TEXT report of layout + defects) or mode:\"design\" — these ARE the answer, and they cover the whole document; mode:\"screenshot\" (a PNG, thousands of tokens, one viewport only) is a LAST RESORT, for when a literal image is required (a design comp, an image's actual content, a canvas).",
+  "- INTERACT by ref with **browser_interact**: click, fill (booleans toggle checkboxes; selects match option value OR visible text), key (\"Enter\" to submit, \"Escape\" to close), hover (opens :hover menus), scroll (reach lazy-loaded content). Chain predictable steps with **browser_batch**.",
+  "- SEVERAL PAGES: **browser_tabs** (list/create/switch/close). Use create — not navigate — whenever the current page still matters (a signed-in session, a filled form). With more than one tab open, pass tab_id. If a site needs a login you don't have, list the tabs first — the user may have signed in themselves, and all tabs share one session, so their login carries over to yours.",
+  "- RUN & VERIFY THE APP: **browser_navigate** to its dev-server URL (e.g. http://localhost:3000), then drive it. mode:\"console\" reads runtime errors (WITH stack), mode:\"network\" failed requests. To verify a UI change, prefer **preview_test** (one navigate→act→assert pass) — the turn won't finish while the app throws runtime errors.",
 ].join("\n");
 
 /**

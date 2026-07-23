@@ -67,6 +67,25 @@ let visible = false;
 let lastBounds: Rect | null = null;
 let attachedWindow: BrowserWindow | null = null;
 
+/**
+ * Bounds to attach with before the renderer's ResizeObserver has reported real
+ * ones (`browser:set-bounds`). Without this, the first agent navigation with
+ * the panel never opened attaches the view with NO bounds — and a view whose
+ * rect doesn't intersect the window gets a 0x0 layout viewport, so the document
+ * lays out at zero width and every geometry answer is plausible but wrong.
+ * Derived from the host window so it's a realistic reading width, never 0.
+ */
+function fallbackBounds(win: BrowserWindow): Rect {
+  const { width, height } = win.getContentBounds();
+  const w = Math.max(480, Math.round(width / 2));
+  return { x: Math.max(0, width - w), y: 0, width: w, height: Math.max(360, height) };
+}
+
+/** Real bounds if the renderer has reported them, else a sane default. */
+function boundsFor(win: BrowserWindow): Rect {
+  return lastBounds ?? fallbackBounds(win);
+}
+
 export function isAllowedBrowserUrl(rawUrl: string): boolean {
   try {
     const parsed = new URL(rawUrl);
@@ -145,7 +164,7 @@ function broadcastState(): void {
 }
 
 /** Send an event to the renderer (host window). Used by sibling main-process
- *  modules (e.g. browser-reel, background jobs) that don't track the window. */
+ *  modules (e.g. background jobs) that don't track the window. */
 export function broadcastToRenderer(channel: string, payload: unknown): void {
   const win = hostWindow();
   if (win) safeSend(win.webContents, channel, payload);
@@ -169,6 +188,31 @@ export function getBrowserPanelState(): BrowserPanelState {
 export function getActiveTabView(): WebContentsView | null {
   if (activeTabId == null) return null;
   return tabs.get(activeTabId) ?? null;
+}
+
+/** Look up a specific tab's view by id (agent `tab_id` targeting). */
+export function getTabViewById(id: number): WebContentsView | null {
+  return tabs.get(id) ?? null;
+}
+
+export function getActiveTabId(): number | null {
+  return activeTabId;
+}
+
+/** How many tabs are open — drives the agent's `tab_id` ambiguity check. */
+export function getTabCount(): number {
+  return tabs.size;
+}
+
+/**
+ * The id of the tab a view belongs to (results echo which tab was acted on, so
+ * a wrong-tab action is visible instead of silent).
+ */
+export function getTabIdForView(view: WebContentsView): number | null {
+  for (const [id, v] of tabs) {
+    if (v === view) return id;
+  }
+  return null;
 }
 
 /**
@@ -338,7 +382,7 @@ export function setActiveTab(id: number): void {
   activeTabId = id;
   if (visible) {
     win.contentView.addChildView(view);
-    if (lastBounds) view.setBounds(lastBounds);
+    view.setBounds(boundsFor(win));
   }
   broadcastState();
 }
@@ -373,11 +417,56 @@ export function setBounds(rect: Rect): void {
   lastBounds = rect;
   const view = getActiveTabView();
   if (view && visible) view.setBounds(rect);
+  // Wake anything waiting for the panel to actually be on screen.
+  const waiters = panelWaiters;
+  panelWaiters = [];
+  for (const w of waiters) w();
 }
+
+let panelWaiters: Array<() => void> = [];
+
+/**
+ * The agent needs the browser on screen — ask the RENDERER to open the right
+ * panel on its Browser tab, exactly like a plan artifact does, and wait briefly
+ * for it to report bounds.
+ *
+ * Why not just `setVisible(true)`: that attaches the raw `WebContentsView` over
+ * the window with no tab strip and no URL bar, because the React chrome isn't
+ * mounted. With the right panel closed that renders as a bare browser slab
+ * covering half the app — which is what a user actually sees, and it looks
+ * broken. `setVisible` stays the RENDERER's call (panel mount/unmount); agent
+ * code asks for the panel and lets the UI drive visibility.
+ */
+export async function requestBrowserPanel(timeoutMs = 1200): Promise<void> {
+  if (visible) return; // panel already mounted — nothing to ask for
+  broadcastToRenderer("browser:request-panel", {});
+  // If the user has closed the panel (or suppressed auto-open) the renderer
+  // won't open it, and blocking the full timeout on every later call would tax
+  // a deliberate choice. Ask once, then stop waiting — the browser tools work
+  // fine with the panel shut, and `visible` flips the moment they reopen it.
+  if (panelRequestDeclined) return;
+  await new Promise<void>((resolve) => {
+    const timer = setTimeout(() => {
+      panelWaiters = panelWaiters.filter((w) => w !== wake);
+      panelRequestDeclined = true;
+      resolve();
+    }, timeoutMs);
+    const wake = () => {
+      clearTimeout(timer);
+      resolve();
+    };
+    panelWaiters.push(wake);
+  });
+}
+
+/** True once a panel request went unanswered — the user wants it closed. */
+let panelRequestDeclined = false;
 
 export function setVisible(nextVisible: boolean): void {
   const win = hostWindow();
   visible = nextVisible;
+  // Reopening the panel clears the "user wants it closed" memory.
+  if (nextVisible) panelRequestDeclined = false;
   if (!win) return;
   const view = getActiveTabView();
   if (!view) {
@@ -386,7 +475,7 @@ export function setVisible(nextVisible: boolean): void {
   }
   if (nextVisible) {
     win.contentView.addChildView(view);
-    if (lastBounds) view.setBounds(lastBounds);
+    view.setBounds(boundsFor(win));
   } else {
     win.contentView.removeChildView(view);
   }
@@ -442,43 +531,99 @@ function nowTs(): number {
 }
 
 
-// ── Paintable capture (session reels) ────────────────────────────────────────
+// ── Paintable capture (browser_inspect screenshots) ─────────────────────────
 // capturePage() returns an EMPTY image for a WebContentsView that isn't attached
-// to the window (no compositor surface). Session reels must record the
-// agent-driven browser surface even when the user isn't looking at that
-// right-panel tab — so if the view isn't currently attached, temporarily attach
+// to the window (no compositor surface). A screenshot must still work when the
+// user has the Browser panel closed or is on another tab — so if the view isn't currently attached, temporarily attach
 // it OFF-SCREEN, let it paint, capture, then detach. Best-effort; never throws.
-const OFFSCREEN_RECT: Rect = { x: -20000, y: 0, width: 1024, height: 768 };
+/**
+ * A hidden window used purely as a paint surface for tabs that aren't currently
+ * on screen (background tabs, or any tab while the user has the Browser panel
+ * closed). Created lazily and reused.
+ *
+ * This replaces parking the view at `{x:-20000}` inside the main window, which
+ * NEVER worked: measured on Electron 38.2.2, a WebContentsView whose rect does
+ * not intersect its window gets a 0x0 viewport and produces an EMPTY capture —
+ * at any offset, ordering or settle time. That path only appeared to work
+ * because a previously-visible tab still holds its last painted frame.
+ */
+let paintHost: BrowserWindow | null = null;
+
+/** How long the borrowed host needs to paint a CURRENT frame (measured). */
+const PAINT_SETTLE_MS = 250;
+
+function getPaintHost(): BrowserWindow | null {
+  if (paintHost && !paintHost.isDestroyed()) return paintHost;
+  try {
+    paintHost = new BrowserWindow({
+      show: false,
+      width: 1280,
+      height: 800,
+      // Never focusable/visible — it exists only to give detached views a
+      // compositor surface.
+      skipTaskbar: true,
+    });
+    return paintHost;
+  } catch (e) {
+    logger.warn(`[browser] could not create paint host: ${String(e)}`);
+    return null;
+  }
+}
+
+export function destroyPaintHost(): void {
+  try {
+    if (paintHost && !paintHost.isDestroyed()) paintHost.destroy();
+  } catch {
+    /* shutdown best-effort */
+  }
+  paintHost = null;
+}
 
 export async function capturePaintable(
   view: WebContentsView,
 ): Promise<import("electron").NativeImage | null> {
   const win = hostWindow();
   if (!win || view.webContents.isDestroyed()) return null;
-  const alreadyAttached = win.contentView.children.includes(view);
-  if (alreadyAttached) {
+  if (win.contentView.children.includes(view)) {
     try {
       return await view.webContents.capturePage();
     } catch {
       return null;
     }
   }
+  // Not on screen: borrow the hidden host so the compositor produces a CURRENT
+  // frame. Keep the size identical to the panel's so the page doesn't reflow
+  // (and then reflow back) just because we took a picture.
+  const host = getPaintHost();
+  if (host) {
+    const size = lastBounds ?? { x: 0, y: 0, width: 1024, height: 768 };
+    try {
+      host.contentView.addChildView(view);
+      view.setBounds({ x: 0, y: 0, width: size.width, height: size.height });
+      // The hidden host DOES composite, but it needs long enough to produce a
+      // fresh frame — measured: at 80ms `capturePage` still returns the frame
+      // retained from when the tab was last on screen, which would put stale
+      // pictures in the session recording. ~250ms yields a current one.
+      await new Promise((r) => setTimeout(r, PAINT_SETTLE_MS));
+      const image = await view.webContents.capturePage();
+      if (!image.isEmpty()) return image;
+    } catch {
+      /* fall through to the retained-frame attempt */
+    } finally {
+      try {
+        host.contentView.removeChildView(view);
+        if (visible && activeTabId != null) setActiveTab(activeTabId);
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+  // Last resort: a tab that has been on screen before still holds its last
+  // painted frame, which beats no frame at all in the session recording.
   try {
-    win.contentView.addChildView(view);
-    view.setBounds(OFFSCREEN_RECT);
-    // Give the compositor a beat to paint a frame before capturing.
-    await new Promise((r) => setTimeout(r, 60));
-    return await view.webContents.capturePage();
+    const retained = await view.webContents.capturePage();
+    return retained.isEmpty() ? null : retained;
   } catch {
     return null;
-  } finally {
-    try {
-      win.contentView.removeChildView(view);
-      // Restore the active browser tab if the panel is meant to be visible to
-      // the user (this off-screen capture must not steal the visible surface).
-      if (visible && activeTabId != null) setActiveTab(activeTabId);
-    } catch {
-      /* ignore */
-    }
   }
 }

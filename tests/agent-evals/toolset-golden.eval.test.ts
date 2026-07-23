@@ -42,22 +42,27 @@ function offeredToolNames(scenarioId: string): string[] {
 // v13.7: get_blueprint removed (Blueprint is now the silent grep substrate).
 // v13.8: browser tools consolidated 6→3 (browser_inspect/browser_interact/
 // browser_navigate); write_file merged into edit_file (operation:"write").
+// v14.16: browser_tabs / browser_find / browser_batch added (multi-tab, find by
+// description, batched actions) — the ergonomic gaps vs reference toolkits.
 const GOLDEN = {
   ask: [
-    "ask_user", "background_jobs", "browser_inspect", "browser_interact",
-    "browser_navigate", "compress_context", "glob", "grep", "list_attachments",
+    "ask_user", "background_jobs", "browser_batch", "browser_find",
+    "browser_inspect", "browser_interact",
+    "browser_navigate", "browser_tabs", "compress_context", "glob", "grep", "list_attachments",
     "list_available_mcps", "mcp_call", "read_attachment", "read_file",
     "read_url", "run_command", "schedule_wakeup", "task", "web_search",
   ],
   plan: [
-    "ask_user", "browser_inspect", "browser_interact", "browser_navigate",
+    "ask_user", "browser_batch", "browser_find", "browser_inspect",
+    "browser_interact", "browser_navigate", "browser_tabs",
     "compress_context", "glob", "grep", "list_attachments",
     "list_available_mcps", "mcp_call", "plan", "read_attachment", "read_file",
     "read_url", "schedule_wakeup", "task", "web_search",
   ],
   build: [
-    "ask_user", "background_jobs", "browser_inspect", "browser_interact",
-    "browser_navigate", "compress_context", "edit_file",
+    "ask_user", "background_jobs", "browser_batch", "browser_find",
+    "browser_inspect", "browser_interact",
+    "browser_navigate", "browser_tabs", "compress_context", "edit_file",
     "glob", "grep", "list_attachments", "list_available_mcps",
     "mcp_call", "plan", "preview_test", "read_attachment", "read_file",
     "read_url", "run_command", "schedule_wakeup", "task", "web_search",
