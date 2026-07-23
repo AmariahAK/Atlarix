@@ -1,7 +1,40 @@
 # Atlarix TODO
 
-**Current Version:** v14.16.0 (RELEASING 2026-07-23) — Multi-tab browser agent (find-by-description, key/hover/scroll, one-call read, visible AI cursor); the app opens offline; models.dev catalog as the floor under every provider; dictation + analytics correctness.
+**Current Version:** v14.16.1 (RELEASING 2026-07-23) — Patch: sign-in survives a restart again (v14.16.0 regression), a provider's models show the moment its key is saved (long-standing), Discord sign-in, Settings → Community.
 **Last Updated:** 2026-07-23
+
+## ✅ SHIPPED in v14.16.1
+
+- **Sign-in survives a restart (v14.16.0 regression).** Deferring the session restore past
+  `createWindow()` was right; the renderer's `plan-changed` handler ended `: prev`, so it could only
+  UPDATE an existing status and never ESTABLISH one — the correction was dropped and the user was
+  asked to sign in again with a valid session in main. Now re-reads via `checkSession()` (the payload
+  carries plan fields only, no identity). Same-effect second fault: `updateSession` resolved
+  plan/tier BEFORE assigning `this.session`, so an offline throw left it null and
+  `broadcastSessionState()` early-returned.
+- **A provider's models appear as soon as its key is saved (pre-existing).**
+  `useLanguageModelsByProviders` has a 5-minute `staleTime` invalidated only by the core-models
+  event, the manual refresh button and provider CRUD — saving a key was not one of them. Fixed in
+  `useSettings.updateSettings` (the one choke point every provider form goes through) rather than in
+  `ProviderSettingsPage`, so it covers every provider and any added later. No keys were lost; only
+  the display was stale.
+- **Discord sign-in** + an unverified-email guard: identity is email-keyed across the users table,
+  plan lookups, the realtime channel and billing, so a session with no email is refused with an
+  explanation instead of creating a half-account that fails later, far from the cause.
+- **Settings → Community** — Discord, PeerPush review, and the acquisition question. Answer stored as
+  a PostHog **`$set_once` person property** (so every funnel breaks down by source, and a reinstall
+  can't overwrite it) plus a local gate scoped to the **user id**, so a second account on the same
+  machine is still asked exactly once.
+  - **The PeerPush prompt is DORMANT by design:** `activeDayCount` starts at this build, so nobody
+    reaches a second active day for 24h+. Silence is correct — do not debug it as broken.
+  - The active-day COUNT is written even when analytics are opted out (it drives an in-app prompt, a
+    product decision); only the event is gated.
+- **GOTCHA (cost me a silent failure):** `preload.ts` has a `validInvokeChannels` allowlist — a new
+  `ipcRenderer.invoke` channel throws `Invalid channel` until it's added. The receive allowlist is a
+  separate list.
+- **GOTCHA:** `npx tsc --noEmit` at the repo root is a **NO-OP** (solution-style `tsconfig.json` with
+  `files: []` + project references). Use `npm run check:ts` or the three `-p tsconfig.*.json`
+  configs — the root command exits 0 having checked nothing, and it hid two real type errors.
 
 ## ✅ SHIPPED in v14.16.0
 

@@ -3,6 +3,38 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
+## [14.16.1] (2026-07-23) — Staying signed in, and seeing your models straight away
+
+### Fixed
+
+- **You stay signed in across restarts.** v14.16.0 moved the startup session restore to *after* the
+  window appears — the change that stopped the app hanging for minutes on a bad network. The
+  renderer therefore starts signed-out and is corrected once the session lands, but the handler
+  receiving that correction could only ever *update* an existing signed-in state, never establish
+  one. So the correction was dropped and you were asked to sign in again, with a perfectly valid
+  session sitting in the app the whole time. It now re-reads the session from the main process
+  rather than trusting the notification, which carries plan details but no identity. A second fault
+  with the same effect is fixed too: the user's identity was only recorded *after* their plan had
+  been looked up, so a failed lookup — exactly what happens offline — discarded the session.
+- **A provider's models appear the moment you save its API key.** Model lists are cached for five
+  minutes and were only refreshed by a few specific events; saving a key wasn't one of them. Add a
+  key and the model picker kept showing the list from before it existed, so a provider you'd just
+  set up looked missing — and deleting a key left its models behind. Fixed at the single point every
+  provider form writes through, so it holds for every provider and any added later. **No keys were
+  ever lost — only the display was stale.**
+- **Onboarding text** no longer refers to Blueprint and Code-to-Canvas, both removed some releases ago.
+
+### Added
+
+- **Sign in with Discord**, alongside Google and GitHub. If an account doesn't share a verified
+  email address, sign-in now stops with an explanation instead of creating a half-account that can't
+  be plan-checked or billed.
+- **Settings → Community** — join the Discord, review Atlarix on PeerPush, and a one-time
+  "where did you hear about Atlarix?" question. The download of an installer carries no trace of the
+  post, video or person that sent you here, so it's the one thing analytics genuinely cannot answer.
+  Asked at most once per account, skippable, and always available in Settings if you'd rather answer
+  later. It respects the analytics opt-out.
+
 ## [14.16.0] (2026-07-23) — Multi-tab browser agent, the app opens offline, model lists that can't shrink
 
 Four strands that all come down to the same thing: the app should keep working when the world
