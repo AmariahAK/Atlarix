@@ -3,9 +3,87 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
-## [Unreleased] — the app opens offline
+## [14.16.0] (2026-07-23) — Multi-tab browser agent, the app opens offline, model lists that can't shrink
+
+Four strands that all come down to the same thing: the app should keep working when the world
+around it doesn't cooperate — no network, a background tab, a provider returning a truncated list.
+
+- **The browser agent grew the ergonomics it was missing** — several tabs at once, find-an-element
+  by description, and the ability to press a key, hover, or scroll. It could not previously press
+  Enter.
+- **The app opens without a network**, in the time it takes to draw a window.
+- **The models.dev catalog is now the floor** under every provider, so a truncated `/models`
+  response can no longer make models disappear from the picker.
+- **Dictation, voice settings and analytics identity** corrected.
+
+
+### Added
+
+- **The browser agent can keep several pages open.** New `browser_tabs`
+  (`list`/`create`/`switch`/`close`) exposes the tab lifecycle that already existed for the UI.
+  Previously every navigation reused the one tab, so opening a second page destroyed the first
+  one's state — a signed-in session, a scroll position, a half-filled form. `tab_id` threads
+  through the other browser tools; the panel follows the agent, like a real browser.
+- **`browser_find`** — locate an element by describing it ("login button", "search box") instead of
+  reading the whole page first. Ranked heuristically **in the page** on role, accessible name and
+  text: no model call, so it's deterministic, free and instant. Capped at 20 matches, and it says
+  when there are more rather than truncating silently.
+- **`browser_interact` gained `key`, `hover` and `scroll`**, plus typed `fill`. The agent could not
+  previously **press Enter** — no submitting a search box, no Escape to close a modal, no Tab between
+  fields — and could not open a `:hover` menu or reach lazy-loaded content. `fill` now takes a boolean
+  for checkboxes and matches a `<select>` option by value **or visible text**, which removes the
+  value-vs-label mismatch that used to make a fill silently no-op.
+- **`browser_batch`** — run several predictable steps in one call (fill, fill, press Enter). Sequential,
+  halts on the first failure, refs only. `preview_test` keeps its own asserted pass/fail path.
+- **One-call page read.** `browser_inspect` with no mode now returns page content *and* interactive
+  refs together, so reading a page in order to act on it is one call rather than two plus a choice the
+  model regularly got wrong. `filter:"interactive"` narrows to controls. Nothing was removed —
+  `snapshot`, `text`, `visual`, `design`, `console` and `screenshot` all still work.
+- **`browser_inspect` mode `"network"`** surfaces the failed (4xx/5xx) requests the page made.
+
+### Changed
+
+- **The agent's cursor is visible while it works.** A pointer now glides to each target and stays on
+  screen between actions, with a ring on the target and a chip naming what it did ("click", "type",
+  "Enter", "hover", "scroll down"). Previously only clicks and fills drew anything, and only for
+  600ms — so pressing a key, hovering a menu or scrolling was completely invisible.
+- **The Browser panel opens the way the Plan panel does.** When the agent needs the browser it asks
+  the UI to open the right panel on its Browser tab, honouring your auto-open preference — instead
+  of the main process making the page visible on its own, which drew a bare browser over half the
+  window with no tab strip or URL bar. Only navigating and opening a tab ask; switching tabs and
+  reading never do, so a panel you deliberately closed stays closed and the tools keep working.
+
+### Removed
+
+- **Browser session recordings (the frame-by-frame replay).** It wrote ~55 KB JPEG per action (up to
+  150 per turn) into `userData/media`, and it was the only reason the fragile off-screen capture
+  path existed. Watching the agent live is now better served by the visible cursor and the panel
+  following along, and the **ordered text record of what it did is kept** — that one is written at
+  the moment of each action, so unlike a screenshot it can never show a stale page. Screenshots on
+  demand (`browser_inspect(mode:"screenshot")`) are unaffected.
 
 ### Fixed
+
+- **Screenshots work with the Browser panel closed.** Detached tabs are captured via a hidden paint
+  surface. The old path parked the view at `x:-20000`, which never produced a frame: a view whose
+  rect doesn't intersect its window has no compositor surface. It appeared to work only because a
+  tab that had been on screen still held its last painted frame.
+- **Element refs no longer shift under the agent.** Refs were reassigned by DOM walk order on *every*
+  read, so a node inserted near the top of the page silently renumbered everything after it — `e7`
+  became a different element and a click landed on the wrong thing. Refs are now held in a `WeakMap`
+  in the page realm, keyed on the element itself, so a ref means the same element for the life of the
+  document and resets on navigation. Verified against a live page: a button kept its ref across an
+  insertion that previously would have moved it.
+- **A read could be answered from a zero-width layout.** A `WebContentsView` whose bounds don't
+  intersect the window gets a 0×0 viewport — the document still lays out, at zero width, so
+  `visual`/`design` results were plausible and wrong rather than obviously broken. Reachable because
+  the first agent navigation attached the tab before the renderer had reported panel bounds. Tabs now
+  attach with a sane fallback size, and a zero-width read is refused instead of answered.
+- **Reads disclose the viewport they were measured at.** The browser panel is resizable, so the agent
+  was judging pages at whatever width the panel happened to be — a page read in a narrow panel is the
+  mobile layout, with nothing in the result saying so.
+- **Truncated reads report the real total.** "capped at 200" told the model the cap, not that it was
+  missing 1,140 elements, so a truncated read looked complete. It now says "showing 200 of 1,340".
 
 - **The app no longer hangs at launch without a network.** `restoreAuthSessionOnStartup()` and
   `SubscriptionManager.initialize()` both ran **before** `createWindow()`, both hit Supabase, and
@@ -28,9 +106,9 @@
   path. A record with no end date is deliberately **not** honoured — absence of a boundary must never
   grant an unbounded entitlement.
 
-## [Unreleased] — dictation accuracy, voice settings, analytics correctness
+### Dictation accuracy, voice settings, analytics correctness
 
-### Fixed
+#### Fixed
 
 - **Dictation is materially more accurate.** Four compounding causes, all fixed:
   the on-device model was `whisper-base` (74M — "roughly the right words" is its signature) and is now
@@ -47,7 +125,7 @@
 - **PII no longer sent to analytics.** The extra-files events transmitted an array of **absolute file
   paths**, leaking project structure and usually the OS username. They now send a count.
 
-### Changed — analytics (breaking for existing PostHog insights)
+#### Changed — analytics (breaking for existing PostHog insights)
 
 - **Analytics identity is now the account, not the install.** A per-install anonymous UUID was never
   linked to the Supabase user, so one person on two machines was two people and a reinstall minted a
@@ -70,13 +148,13 @@
   never-sent.
 - **Pre-alias person counts are not comparable to post-alias ones.**
 
-## [Unreleased] — models.dev catalog as the floor for every provider
+### models.dev catalog as the floor for every provider
 
 Model lists stop going missing. The models.dev catalog is now the base list every cloud provider
 stands on, and a provider's own `/models` endpoint is a best-effort overlay that can only **add**
 models or refine fields — never remove them.
 
-### Fixed
+#### Fixed
 
 - **Truncated provider responses can no longer empty the picker.** Anthropic's `/models` paginates at
   20, Google's at 50, Cohere's at 20 — each returned a partial list at HTTP 200, and because the old
@@ -96,7 +174,7 @@ models or refine fields — never remove them.
   timeout) is deliberately not retried. The boot fetch is skipped when the cache is under 5 minutes
   old, so launch-quit-launch stops re-downloading the catalog.
 
-### Removed
+#### Removed
 
 - **Five bespoke native fetchers** — `cohere`, `mistral`, `xai`, `together`, `groq` — plus the
   `nvidia_nim` / `cerebras` / `huggingface` wrappers. Each produced a strict subset of catalog rows
@@ -105,7 +183,7 @@ models or refine fields — never remove them.
   `openrouter` (live pricing + `top_provider` ceilings), the open-weight four (Core tiers, ship
   weekly), and `elastic` (lists Kibana agents — genuinely absent from models.dev).
 
-### Changed
+#### Changed
 
 - A provider whose `/models` is entitlement-scoped (OpenAI gates some models by org tier) may now list
   a model the key can't call, which 403s at call time. Deliberate: a visible error beats a silently

@@ -1,29 +1,17 @@
 # Atlarix TODO
 
-**Current Version:** v14.15.0 (RELEASING 2026-07-21) — Preview tab removed → unified on the in-app Browser (richer error capture with stack traces); per-job live wake timer; screenshot capture fix; universal sandbox write-escalation; Supabase idle-ping reduction; keyboard shortcuts; device-spec injection.
+**Current Version:** v14.16.0 (RELEASING 2026-07-23) — Multi-tab browser agent (find-by-description, key/hover/scroll, one-call read, visible AI cursor); the app opens offline; models.dev catalog as the floor under every provider; dictation + analytics correctness.
 **Last Updated:** 2026-07-23
 
-## ✅ SHIPPED in v14.15.0
+## ✅ SHIPPED in v14.16.0
 
-- **Preview tab removed; unified on the Browser** — app runs in a Browser tab; error capture migrated onto
-  tabs + injected `[[ATLARIX_ERR]]` stack hook; clickable/linkified URLs (incl. `localhost:PORT`) open tabs.
-- **Per-job live wake timer** — `background_jobs` `wake_in`/`adjust_timer` + `wake_in_s`; auto-cleared on finish.
-- **Screenshot capture fix** — `browser_inspect(screenshot)` via `capturePaintable` works with the panel hidden.
-- **Universal sandbox write-escalation** — existence-prune fix + escalation-on-denial (re-run still sandboxed),
-  reusing `workspaceFilePermissions`/`sandbox_path`; CI fails loud on a non-compiling native helper.
-- **Supabase idle-ping reduction, keyboard shortcuts (Cmd+T/W/J/I/O), device-spec injection, allow_stalled,
-  code-block render fix.**
-
-## 🚧 Unreleased — code-complete, awaiting the next version bump + tag
-
-Everything in this section is **written, tested and green**. It sits between ✅ SHIPPED (already
-tagged) and ⏳ Open / deferred (not started): *unreleased* means **untagged, not unfinished**. Do not
-read the sub-headings as four parallel workstreams still in flight.
+Everything in this section shipped in v14.16.0. Do not read the sub-headings as four parallel
+workstreams — they are **one release narrative**, see the note below.
 
 **The only genuinely open item** is owner-side packaged-app verification of the catalog work — see
 "REMAINING" under *models.dev catalog as the floor*. Nothing is blocked on it.
 
-**When bumping the version, these are ONE release narrative, not four.** Specifically:
+**These shipped as ONE release narrative, not four.** Specifically:
 - *models.dev catalog as the floor* and *provider model accuracy* are the same bug, twice: the
   accuracy pass fixed each pagination/mapping defect individually, then the catalog-as-floor union
   removed the mechanism that produced them. Ship them as one story — the second **supersedes** the
@@ -32,6 +20,75 @@ read the sub-headings as four parallel workstreams still in flight.
   it belongs with the catalog work, not on its own.
 - The remaining items (plan-ledger desync, sub-agent render duplication, `edit_file` escaping) are
   independent agent-loop/rendering fixes and can stay as their own bullets.
+
+### 🌐 Browser tooling — ergonomic gap close (SHIPPED v14.16.0)
+
+**Supersedes the old "Browser tooling convergence" plan.** That plan's Stage 2 reader rework
+(deleting `mode:"snapshot"`/`mode:"text"`, tree-with-depth, subtree scoping, `max_chars`) and the
+`preview_test` → `browser_test` rename were **dropped** — the combined read default below gets the
+same practical win with none of the migration risk, and the rename cost two eval suites for nothing.
+
+**The finding that reframed it.** A live packaged-app run (v14.15.0, Hacker News) showed the browser
+tools working exactly as intended: the agent chose `mode:"visual"`, got real axe results (812
+elements, 242 contrast nodes, CLS 0.000) and answered well. Atlarix is *aligned* with the market
+(a11y-tree first, screenshots as fallback — same as Playwright MCP / browser-use), and its
+`visual`/`design` lint is ahead of them. So the remaining gaps are **ergonomic, not perceptual**:
+the agent reaches for a screenshot when it can't FIND or REACH something, not when it can't see.
+
+- **Multi-tab.** New `browser_tabs` (`list`/`create`/`switch`/`close`) exposing the lifecycle that
+  already existed in `browser_view_manager.ts` for the UI. `tab_id` threads through navigate /
+  inspect / interact / find / batch. **The panel follows the agent** (create + switch make the tab
+  active and visible, like a real browser) — which is also what keeps every tab's viewport correct,
+  so no paint-host machinery was needed.
+- **Ambiguity is a hard, self-correcting error.** `tab_id` is schema-optional (no tax on the common
+  single-tab turn) but the handler refuses when it's omitted with >1 tab open, listing the tabs so
+  the model fixes it in one retry. Every result echoes `tab: {id, url}` — a wrong-tab action is
+  visible, never silent.
+- **`browser_find`** — element lookup by description, ranked **heuristically in the page** (role +
+  accessible name + text). No LLM call: deterministic, free, instant. 20-match cap that says so.
+- **`browser_interact` gained `key`, `hover`, `scroll`** and typed `fill` (boolean toggles a
+  checkbox; a `<select>` matches by option value **or visible text**). **`key`/`hover` MUST use
+  `webContents.sendInputEvent`** — Enter-to-submit and CSS `:hover` only respond to TRUSTED events,
+  so a dispatched `KeyboardEvent`/`MouseEvent` looks right in code and silently does nothing.
+- **`browser_batch`** — several predictable steps in one call, sequential, halts on first failure,
+  refs only. `preview_test` keeps its own assertion path unchanged.
+- **Combined read default** — `browser_inspect` with no mode returns page content AND refs in one
+  call; `filter:"interactive"` narrows to controls. **Nothing was deleted**: `snapshot`, `text`,
+  `visual`, `design`, `console`, `screenshot` all still work, so no prompt sweep or eval re-pinning.
+- **`mode:"network"`** — exposes the already-captured failed (4xx/5xx) requests. A full request log
+  is deferred; `webRequest.onCompleted` records only failures by design.
+
+**Two silent correctness bugs fixed on the way (both pre-existing):**
+
+- **Refs were reassigned by DOM walk order on EVERY read**, so inserting a node near the top shifted
+  every later ref — `e7` became a different element and a click landed on the wrong thing. Now a
+  `WeakMap` in the **page realm** (`window.__atlarixRefs`, mirroring `window.__atlarixCLS`); it has
+  to live there because a WeakMap keyed on DOM nodes can't be held in main, which also means it
+  resets naturally on navigation. Truncation now reports the REAL total ("showing 200 of 1,340")
+  instead of the cap, which had made a truncated read look complete.
+- **A view whose rect doesn't intersect the window gets a 0×0 layout viewport** — the document still
+  lays out, at zero width, so geometry answers are plausible and WRONG. Reachable because the first
+  agent navigation attached the tab before the renderer's `ResizeObserver` had reported bounds
+  (`lastBounds` null → `setBounds` skipped). Fixed with a `fallbackBounds()` derived from the host
+  window, plus `setVisible` before `ensureTab`, plus a guard that refuses a 0-width read instead of
+  answering from it. **`capturePaintable`'s `OFFSCREEN_RECT = {x:-20000}` never worked** for this
+  reason — measured across four Electron 38.2.2 probes; it appears to work only because a
+  previously-visible tab retains its last painted frame.
+- **Every geometry-bearing read now reports its viewport.** The live HN capture was 798×1338 physical
+  = a ~399 CSS-px viewport: the agent judged the page at whatever width the user had dragged the
+  panel to, with nothing in the output disclosing it.
+
+**REMAINING (owner) — packaged-app verification:** multi-tab state preservation (log in on tab 1,
+open tab 2, switch back, still logged in); `key`+`"Enter"` submits a form; `hover` opens a CSS
+`:hover` menu; `browser_find` returns a usable ref without a full read first; a `tab_id`-less call
+with two tabs open returns the listing error rather than guessing.
+
+**The real success measure:** watch whether screenshot usage drops in real turns. That — not
+speculation — is what should decide whether any further *perception* work (exact colours, contrast
+ratios, occlusion, responsive multi-width diffing) is worth doing. Deliberately out of scope here;
+the honest argument for it is that computed style cannot be derived from the repo (unlike the
+blueprint tool, which restated what was already on disk), but the argument for *building it now* is
+not yet evidenced.
 
 ### Offline resilience — the app opens without a network
 
@@ -285,77 +342,18 @@ provider. A provider's own `/models` response is a best-effort OVERLAY that may 
   hang detector, not a speed limit: these turns drive the real loop against real sqlite (~13.5s idle
   for the slowest) while three vitest projects compete for CPU.
 
+## ✅ Shipped in v14.15.0
+
+- **Preview tab removed; unified on the Browser** — app runs in a Browser tab; error capture migrated onto
+  tabs + injected `[[ATLARIX_ERR]]` stack hook; clickable/linkified URLs (incl. `localhost:PORT`) open tabs.
+- **Per-job live wake timer** — `background_jobs` `wake_in`/`adjust_timer` + `wake_in_s`; auto-cleared on finish.
+- **Screenshot capture fix** — `browser_inspect(screenshot)` via `capturePaintable` works with the panel hidden.
+- **Universal sandbox write-escalation** — existence-prune fix + escalation-on-denial (re-run still sandboxed),
+  reusing `workspaceFilePermissions`/`sandbox_path`; CI fails loud on a non-compiling native helper.
+- **Supabase idle-ping reduction, keyboard shortcuts (Cmd+T/W/J/I/O), device-spec injection, allow_stalled,
+  code-block render fix.**
+
 ## ⏳ Open / deferred
-
-### 🌐 Browser tooling convergence (own session — design settled, not started)
-
-**The gap.** The agent gets ONE tab: `browser_navigate` targets "the active browser tab", so every
-navigation destroys the previous page's state (login, scroll, half-filled form). And the read surface
-is split across `mode:"snapshot"` (refs, interactive-only) vs `mode:"text"` (content), so reading a
-page to act on it costs two calls plus a decision the model regularly gets wrong. Mature
-browser-agent toolkits return content and refs together and hold several tabs open at once.
-
-**Stage 1 — agent tab control. Mostly already built.** `browser_view_manager.ts` implements the whole
-tab lifecycle for the UI and none of it is exposed to the agent: `createTab(url?)` (`:289`),
-`closeTab(id)` (`:314`), `setActiveTab(id)` (`:330`), `navigate(id | null, url)` (`:346` — **already
-takes an id**), `getBrowserPanelState()` (`:154`) → `{tabs, activeTabId, visible}`.
-- Add `getTabViewById(id)` beside `getActiveTabView()` (`:169`).
-- New `browser_tabs` tool: `operation: "list" | "create" | "switch" | "close"`, returning ids/titles/URLs.
-- Thread optional `tab_id` (defaults to active) through `browser_navigate`/`browser_inspect`/
-  `browser_interact`.
-- Register in the same mode sets as the other browser tools (`mode-tool-registry.ts:59-92`).
-
-**Stage 2 — reader rework. MUST land as ONE atomic commit** (it deletes modes that prompts and tests
-reference; a partial landing leaves main half-migrated).
-- Today `a11y-snapshot.ts` returns a **flat list** of interactive-only elements from a fixed selector
-  list, tagging `data-atlarix-ref` (`e1…`) **by walk order on every read**, and on overflow reports
-  only "capped at MAX_ELEMENTS" — the cap, not the true total.
-- **Stable refs are a CORRECTNESS fix, not ergonomics.** Reassigning by walk order means inserting a
-  node near the top silently shifts every later ref — `e7` becomes a different element and a click
-  lands on the wrong thing. Fix: per-tab `WeakMap<Element, ref>` + monotonic counter, so a ref means
-  the same element for the life of the page; reset only on navigation.
-- Tree instead of flat list, with `depth` and `ref` **subtree scoping** (read shallow, spot the
-  region, re-read just that subtree — the main token win).
-- Refs on every meaningful node, not only interactive ones, so content can be scoped and asserted on.
-- `max_chars` with truncation that reports the **real total** ("showing 200 of 1,340") — silent
-  truncation leaves the agent believing it saw the whole page.
-- **Delete `mode:"snapshot"` and `mode:"text"`** — the default read returns content *with* refs, so
-  "take a snapshot" stops existing as a step. Keep `visual`, `design`, `console`, `screenshot`; add
-  **`network`**, fed by the existing `getBrowserSurfaceNetworkFailures()` (`:423`).
-- `browser_find` — natural-language element lookup, 20-match cap with an explicit "more matches
-  exist, narrow the query" notice. Implement **heuristically** (fuzzy rank over role + accessible
-  name + text), NOT via an LLM call: deterministic, free, instant.
-- `browser_interact` — add `scroll`, `scroll_to(ref)`, `hover`, `key`; typed `fill` (boolean for
-  checkboxes, selects by option value **or visible text**, which kills the value-vs-label mismatch
-  class). Keep the existing `__pre`/`urlChanged` post-action diff (`browser.ts:159-172`).
-- `browser_batch` — generalize the `browser_test` executor (`browser.ts:895`) minus assertions:
-  sequential, halt on first error, per-item permission check, **refs only** (no blind coordinates).
-  `browser_test` itself unchanged.
-- Sweep every `mode:"snapshot"` / `mode:"text"` reference in tool descriptions and `src/prompts/` in
-  the same commit.
-
-**Decisions already made — do NOT relitigate:**
-- **Keep the a11y tree.** It *is* the token efficiency; `browser_inspect`'s own description already
-  calls screenshots "a LAST RESORT (thousands of tokens)". "Removing snapshots" means removing the
-  *mode the model must choose*, not the tree. Going screenshot/coordinate-first would cost far more.
-- **No progressive/deferred tool schemas.** Schemas live in the cached prompt prefix, so changing the
-  tool set mid-conversation invalidates the cache and re-writes the whole prefix. With ~22 curated
-  tools and 1M contexts, one break costs far more than the schemas ever save, and it lands precisely
-  in the sessions where the tools are used. `filterToolsForActiveMode` (`mode-tool-registry.ts:194`)
-  is already the cache-safe version of that idea. Prefer `operation`/`mode` discriminators over
-  flat tool proliferation for the same reason.
-- **No CDP (`webContents.debugger`).** Considered as the enabler for network reading, then dropped:
-  `ses.webRequest.onCompleted` (`browser_view_manager.ts:109`, with `statusCode`) plus
-  `getBrowserSurfaceNetworkFailures()` already cover it. Avoids any `capturePaintable` conflict and
-  leaves the `[[ATLARIX_ERR]]` error system untouched. **File upload** (`DOM.setFileInputFiles`) was
-  the only CDP-only capability and is **out of scope**.
-- **Keep what Atlarix does better than the reference toolkits:** `browser_test` (asserted headless
-  UI verification — no analogue elsewhere), the `visual`/`design` lint (answers "how does it look"
-  in text, not a PNG), the post-action state diff, and the untrusted-data envelope on page content.
-
-**Not doing:** replacing the browser tools wholesale. It would delete the four items above and pull
-in extension-only concepts (multiple attached browsers, Chrome shortcuts) that are meaningless for a
-`WebContentsView`.
 
 ### 🔀 `AssistantMessageBody` two-branch duplication (own session)
 
