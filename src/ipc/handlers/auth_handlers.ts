@@ -19,7 +19,7 @@ export function registerAuthHandlers() {
     // SubscriptionManager.initialize() runs from main after app.ready (see main.ts onReady)
 
     // Sign in with OAuth provider
-    ipcMain.handle("auth:sign-in", async (_, { provider }: { provider: "google" | "github" }) => {
+    ipcMain.handle("auth:sign-in", async (_, { provider }: { provider: "google" | "github" | "discord" }) => {
         logger.log(`[AuthHandlers] Sign in requested with ${provider}`);
 
         try {

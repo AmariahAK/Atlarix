@@ -160,7 +160,7 @@ export function cancelPendingOAuthTimeout(): void {
     }
 }
 
-export type OAuthProvider = 'google' | 'github';
+export type OAuthProvider = 'google' | 'github' | 'discord';
 
 /**
  * Start OAuth flow - opens browser for authentication
@@ -320,12 +320,32 @@ export async function handleAuthCallback(url: string): Promise<{
             return { session: null, user: null, error };
         }
 
-        logger.log(`[Supabase] Session set successfully for ${data.user?.email}`);
+        // An account is keyed on its email — the users table, plan lookups, the
+        // realtime plan channel and every billing path assume one. Discord only
+        // releases an email when the account has VERIFIED one, so a provider can
+        // hand back a session with no email at all. Letting that through creates
+        // a half-account that signs in but can't be billed or plan-checked, and
+        // fails later somewhere far from the cause. Refuse it here, and say why.
+        if (!data.user?.email) {
+            logger.warn('[Supabase] Provider returned no email — refusing the session.');
+            try {
+                await supabase.auth.signOut();
+            } catch {
+                /* best-effort: don't leave a half-session behind */
+            }
+            return {
+                session: null,
+                user: null,
+                error: new Error(
+                    "Your account didn't share an email address with Atlarix. On Discord this usually means the email isn't verified — verify it in Discord's settings, or sign in with Google or GitHub instead.",
+                ),
+            };
+        }
+
+        logger.log(`[Supabase] Session set successfully for ${data.user.email}`);
 
         // Ensure user exists in our users table
-        if (data.user) {
-            await ensureUserExists(data.user);
-        }
+        await ensureUserExists(data.user);
 
         return {
             session: data.session,
