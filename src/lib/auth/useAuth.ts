@@ -5,7 +5,7 @@
  * Uses IPC to communicate with main process
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { subscribeOAuthSuccess, subscribePlanChanged } from './auth-ipc-bridge';
 
 export interface AuthUser {
@@ -13,7 +13,7 @@ export interface AuthUser {
     email: string;
     name: string;
     avatar?: string;
-    provider?: 'google' | 'github';
+    provider?: 'google' | 'github' | 'discord';
 }
 
 export interface UserStatus {
@@ -32,9 +32,21 @@ export function useAuth() {
     const [loading, setLoading] = useState(true);
     const [status, setStatus] = useState<UserStatus | null>(null);
 
+    /**
+     * Latest `checkSession` + whether a session is established yet, for the
+     * `plan-changed` listener below. The listener is registered once (`[]` deps)
+     * but must act on the CURRENT state, and a ref is the only way to read that
+     * without re-subscribing on every render.
+     */
+    const checkSessionRef = useRef<(() => Promise<void>) | null>(null);
+    const hasSessionRef = useRef(false);
+    useEffect(() => {
+        hasSessionRef.current = !!status?.isLoggedIn;
+    }, [status?.isLoggedIn]);
+
     /** True after Sign in until `oauth-callback-success` or IPC error */
     const [oauthPending, setOauthPending] = useState(false);
-    const [oauthProvider, setOauthProvider] = useState<'google' | 'github' | null>(null);
+    const [oauthProvider, setOauthProvider] = useState<'google' | 'github' | 'discord' | null>(null);
     const [oauthStatusLabel, setOauthStatusLabel] = useState('');
 
     useEffect(() => {
@@ -46,9 +58,8 @@ export function useAuth() {
         const tick = () => {
             const elapsed = Date.now() - started;
             if (elapsed < 2000) {
-                setOauthStatusLabel(
-                    oauthProvider === 'google' ? 'Connecting to Google...' : 'Connecting to GitHub...',
-                );
+                const label = { google: 'Google', github: 'GitHub', discord: 'Discord' }[oauthProvider];
+                setOauthStatusLabel(`Connecting to ${label}...`);
             } else if (elapsed < 5000) {
                 setOauthStatusLabel('Verifying your account...');
             } else {
@@ -62,6 +73,9 @@ export function useAuth() {
 
     // Check for existing session on mount
     useEffect(() => {
+        // Keep the ref pointing at the live implementation so the `plan-changed`
+        // listener below (registered once) can re-establish a session later.
+        checkSessionRef.current = checkSession;
         checkSession();
 
         // Listen for OAuth callback success
@@ -127,6 +141,20 @@ export function useAuth() {
             subscriptionEndsAt?: string | null;
         }) => {
             const nextPlan = (data.effectiveTier ?? data.plan) as UserStatus['plan'];
+
+            // No session established yet → this event is ESTABLISHING one, not
+            // updating one. Startup restores the Supabase session AFTER the
+            // window exists (window creation must never await the network), so
+            // the renderer mounts signed-out and `broadcastSessionState()` fires
+            // this once the session lands. Dropping it here — which the old
+            // `: prev` branch did — left the user staring at a sign-in screen
+            // with a perfectly valid session sitting in main, i.e. "it forgets
+            // my login every restart". Re-read from main rather than trusting
+            // this payload: it carries plan fields only, no user identity.
+            if (!hasSessionRef.current) {
+                void checkSessionRef.current?.();
+                return;
+            }
 
             // Update status with all new fields
             setStatus((prev) => prev ? {
@@ -254,7 +282,13 @@ export function useAuth() {
         }
     }, []);
 
-    const signInWithGoogle = useCallback(async () => {
+    /**
+     * Start an OAuth flow. One implementation for every provider — the three
+     * wrappers below differed only in a string, and a third copy for Discord
+     * would have made that drift-prone for no benefit. The flow continues in the
+     * user's browser; the callback is handled in main.
+     */
+    const startOAuth = useCallback(async (provider: 'google' | 'github' | 'discord') => {
         try {
             const ipcRenderer = window.electron?.ipcRenderer;
             if (!ipcRenderer?.invoke) {
@@ -263,52 +297,27 @@ export function useAuth() {
             }
 
             setOauthPending(true);
-            setOauthProvider('google');
+            setOauthProvider(provider);
 
-            const result = (await ipcRenderer.invoke('auth:sign-in', { provider: 'google' })) as
+            const result = (await ipcRenderer.invoke('auth:sign-in', { provider })) as
                 | { error?: string; success?: boolean }
                 | undefined;
 
             if (result?.error) {
-                console.error('Google sign in failed', result.error);
+                console.error(`${provider} sign in failed`, result.error);
                 setOauthPending(false);
                 setOauthProvider(null);
             }
-            // OAuth flow will continue in browser, callback handled by main process
         } catch (error) {
-            console.error('Google sign in error:', error);
+            console.error(`${provider} sign in error:`, error);
             setOauthPending(false);
             setOauthProvider(null);
         }
     }, []);
 
-    const signInWithGitHub = useCallback(async () => {
-        try {
-            const ipcRenderer = window.electron?.ipcRenderer;
-            if (!ipcRenderer?.invoke) {
-                console.error('IPC not available');
-                return;
-            }
-
-            setOauthPending(true);
-            setOauthProvider('github');
-
-            const result = (await ipcRenderer.invoke('auth:sign-in', { provider: 'github' })) as
-                | { error?: string; success?: boolean }
-                | undefined;
-
-            if (result?.error) {
-                console.error('GitHub sign in failed', result.error);
-                setOauthPending(false);
-                setOauthProvider(null);
-            }
-            // OAuth flow will continue in browser, callback handled by main process
-        } catch (error) {
-            console.error('GitHub sign in error:', error);
-            setOauthPending(false);
-            setOauthProvider(null);
-        }
-    }, []);
+    const signInWithGoogle = useCallback(() => startOAuth('google'), [startOAuth]);
+    const signInWithGitHub = useCallback(() => startOAuth('github'), [startOAuth]);
+    const signInWithDiscord = useCallback(() => startOAuth('discord'), [startOAuth]);
 
     const signOut = useCallback(async () => {
         try {
@@ -374,6 +383,7 @@ export function useAuth() {
         oauthStatusLabel,
         signInWithGoogle,
         signInWithGitHub,
+        signInWithDiscord,
         signOut,
         refreshStatus: fetchPlanInfo,
         refreshPlan,

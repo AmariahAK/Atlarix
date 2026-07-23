@@ -138,14 +138,30 @@ export class SubscriptionManager {
      */
     private static async updateSession(supabaseSession: Session): Promise<void> {
         const user = supabaseSession.user;
-        const plan = await getUserPlan(user.id);
 
         // Extract avatar from user_metadata (Google provides it as avatar_url or picture)
         const userMeta = user.user_metadata || {};
         const avatar = userMeta.avatar_url || userMeta.picture || undefined;
         const name = userMeta.full_name || userMeta.name || user.email?.split('@')[0] || 'User';
 
-        const effectiveTier = await getEffectiveTier(user.id, plan);
+        // WHO the user is must not depend on resolving WHAT they're entitled to.
+        // These two lookups sat above the `this.session` assignment, so a throw
+        // from either (offline, a transient Supabase error) left the session null
+        // — and `broadcastSessionState()` early-returns on a null session, so the
+        // renderer never learned it was signed in. `getUserPlan` already degrades
+        // to 'free'/last-known-entitlement internally rather than throwing; this
+        // guard covers the rest so identity always survives.
+        let plan: UserPlan = 'free';
+        let effectiveTier: UserPlan = 'free';
+        try {
+            plan = await getUserPlan(user.id);
+            effectiveTier = await getEffectiveTier(user.id, plan);
+        } catch (err) {
+            logger.warn(
+                '[SubscriptionManager] Plan lookup failed — keeping the session, defaulting to free:',
+                err instanceof Error ? err.message : err,
+            );
+        }
 
         this.session = {
             id: user.id,
