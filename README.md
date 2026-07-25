@@ -16,7 +16,7 @@ has a workspace. You have control.
 
 **Search** — Atlarix gives the agent fast, **bundled-ripgrep** search over your workspace — `grep` and `glob` with no index to build, no background file-watcher, and constant low memory at any repo size. Retrieval stays purely lexical: the agent reasons over ranked search results rather than a vector index or a structural map. Nothing is scanned until the agent searches.
 
-**Connect** — Wire in any LLM: local **Ollama / LM Studio**, **145+ cloud providers and 4,400+ tool-capable models** read live from the [models.dev](https://models.dev) catalog (OpenAI, Anthropic, Google Gemini, OpenRouter and every OpenAI-compatible endpoint), or **Atlarix Core** (managed models with real catalog names, not raw tier ids — the Core tiers are configured remotely, so the underlying models stay current without an app update). The catalog refreshes hourly and ships with an offline snapshot, so new models appear without an app update and the picker is never empty.
+**Connect** — Wire in any LLM: local **Ollama / LM Studio**, **145+ cloud providers and 4,400+ tool-capable models** read live from the [models.dev](https://models.dev) catalog (OpenAI, Anthropic, Google Gemini, and every OpenAI-compatible endpoint), or **Atlarix Core** (managed models with real catalog names, not raw tier ids — the Core tiers are configured remotely, so the underlying models stay current without an app update). The catalog refreshes hourly and ships with an offline snapshot, so new models appear without an app update and the picker is never empty.
 
 **Execute** — The agent plans, reads, writes, runs commands (inside a per-OS write-confining sandbox — workspace writes only, network on), and searches the web. You approve every destructive action.
 
@@ -52,11 +52,11 @@ Release notes: **[docs/CHANGELOG.md](docs/CHANGELOG.md)** (current: 14.0+). Olde
 - **Voice-to-text:** Dictate to the composer — free on-device **Whisper** by default (private, no key), or use your own cloud key (OpenAI / Groq / Gemini — never billed to Atlarix Core).
 - **Automations:** Schedule unattended runs on a cron, GitHub event, or MCP trigger from the Automations tab, with a triage feed of past runs — **2 per workspace on Free, 10 on Pro**.
 - **Interactive questions:** The agent can ask you **up to 5 questions in one inline card** (options + free text) and the stream genuinely pauses until you answer — no invented answers, no missed prompts.
-- **Native web search:** On providers with built-in search (Anthropic, OpenAI, Gemini 2+, OpenRouter) the provider's own search tool runs at dispatch with **inline citations that survive reload**; everywhere else a built-in search chain provides a universal fallback, with optional local private search via Docker.
+- **Native web search:** On providers with built-in search (Anthropic, OpenAI, Gemini 2+) the provider's own search tool runs at dispatch with **inline citations that survive reload**; everywhere else a built-in search chain provides a universal fallback, with optional local private search via Docker.
 - **Prompt caching:** Dispatches are cache-friendly out of the box — Anthropic API key turns place `cache_control` breakpoints over the stable system header and conversation history, cutting repeat-turn input cost and latency.
 - **Real terminal:** User terminal tabs are full interactive shells (xterm.js + PTY) — Tab completion, arrows, colors, vim/top. Tabs and scrollback **persist across app restarts**, and tab labels track the shell's live cwd. Agent commands run separately with captured output and approvals.
 
-**Providers:** **Atlarix Core** (managed open-weight models, Core 1–4) plus your own API keys across 145+ providers (OpenAI, Anthropic, Gemini, OpenRouter, and more) and local models (Ollama, LM Studio).
+**Providers:** **Atlarix Core** (managed open-weight models, Core 1–4) plus your own API keys across 145+ providers (OpenAI, Anthropic, Gemini, and more) and local models (Ollama, LM Studio).
 
 ---
 
@@ -92,7 +92,7 @@ Retrieval is **purely lexical — no index, no embeddings, no map tool, no backg
 
 ### Multi-Provider AI
 
-Cloud providers with native model fetch and tool calling: **OpenAI**, **Anthropic**, **Google Gemini**, **OpenRouter**, **Groq**, **Together AI**, **Mistral**, **xAI**. Plus **Ollama** and **LM Studio** for local / offline models.
+Cloud providers with native model fetch and tool calling: **OpenAI**, **Anthropic**, **Google Gemini**, **Groq**, **Together AI**, **Mistral**, **xAI**. Plus **Ollama** and **LM Studio** for local / offline models.
 
 ---
 
