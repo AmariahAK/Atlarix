@@ -1,9 +1,9 @@
 # Atlarix
 ## The Open-Weight Frontier Harness
 
-Atlarix is the agent workstation built for the open-weight frontier labs —
-**DeepSeek, Qwen, Kimi, MiniMax** — with any-model BYOK and local-first
-execution, without replacing your editor.
+Atlarix is the agent workstation built for the open-weight frontier —
+managed cloud models via Atlarix Core, your own API keys across 145+ providers,
+and local models — all without replacing your editor.
 
 Atlarix Core ships the frontier open-weight labs; everything runs through your
 approval, on your machine, over your files. Your team writes code in VS Code,
@@ -14,7 +14,7 @@ has a workspace. You have control.
 
 ## How it works
 
-**Search** — Atlarix gives the agent fast, **bundled-ripgrep** search over your workspace — `grep` and `glob` with no index to build, no background file-watcher, and constant low memory at any repo size. Like **Claude Code** and **opencode**, retrieval stays purely lexical: the agent reasons over ranked search results rather than a vector index or a structural map. Nothing is scanned until the agent searches.
+**Search** — Atlarix gives the agent fast, **bundled-ripgrep** search over your workspace — `grep` and `glob` with no index to build, no background file-watcher, and constant low memory at any repo size. Retrieval stays purely lexical: the agent reasons over ranked search results rather than a vector index or a structural map. Nothing is scanned until the agent searches.
 
 **Connect** — Wire in any LLM: local **Ollama / LM Studio**, **145+ cloud providers and 4,400+ tool-capable models** read live from the [models.dev](https://models.dev) catalog (OpenAI, Anthropic, Google Gemini, OpenRouter and every OpenAI-compatible endpoint), or **Atlarix Core** (managed models with real catalog names, not raw tier ids — the Core tiers are configured remotely, so the underlying models stay current without an app update). The catalog refreshes hourly and ships with an offline snapshot, so new models appear without an app update and the picker is never empty.
 
@@ -36,27 +36,27 @@ Release notes: **[docs/CHANGELOG.md](docs/CHANGELOG.md)** (current: 14.0+). Olde
 
 ## What makes Atlarix different
 
-- **Fast search, no index:** The agent searches your repo with **bundled ripgrep** (`grep` + `glob`) — no structural index to build, no background file-watcher, constant low memory at any size. Like **Claude Code** and **opencode**, retrieval stays lexical; the agent reasons over ranked results rather than a vector index or a structural map.
+- **Fast search, no index:** The agent searches your repo with **bundled ripgrep** (`grep` + `glob`) — no structural index to build, no background file-watcher, constant low memory at any size. Retrieval stays lexical; the agent reasons over ranked results rather than a vector index or a structural map.
 - **Workspace-first:** Open a folder from the welcome screen. Chat, sessions, MCP, and Skills belong to that workspace—no global chat without a project.
 - **Work modes:** **Explore** (read-only), **Plan**, **Build**, **Debug**, **Review**.
 - **No whole-repo scan:** Opening a workspace doesn't index or scan the repo. The agent discovers files on demand with `glob` and `grep` (ripgrep); the sidebar stays focused on sessions.
 - **Attachments:** Paste text, terminal output, and files into chat. After send they appear as chips with preview; content persists across session reload.
 - **`@` file & folder mentions:** Type `@` in the composer to point the agent at part of the current workspace. Mentioning a **file** injects its contents (capped); mentioning a **folder** injects just its file listing, so the agent then `grep`s/reads within that scope instead of dumping a whole tree — precise context, low token cost.
 - **Agent Behaviors & workspace memory:** Project instructions in `.atlarix/atlarix.md` and behaviors under `.atlarix/skills/` shape the agent without repeating yourself every turn.
-- **Parallel sub-agents:** The `task` tool spawns scoped sub-agents — read-only **explorer** and **architect** (recon, planning, web search) plus writer **implementer** agents that edit inside a throwaway git worktree and hand back a reviewable diff — up to five run **concurrently** per turn, with their live thinking, narration, and tool activity streaming into per-agent cards.
+- **Parallel workers:** The `task` tool spawns scoped workers — read-only **explorer** and **architect** (recon, planning, web search) plus writer **implementer** agents that edit inside a throwaway git worktree and hand back a reviewable diff — up to five run **concurrently** per turn, with their live thinking, narration, and tool activity streaming into per-worker cards.
 - **Background commands:** A foreground command still running after **~15s auto-promotes to the background** (kept alive, not killed) so the agent keeps working; the exit result is delivered back automatically. The agent can also detach explicitly (`run_command background:true`), and a still-foreground command surfaces a **"Waiting on command"** state where you can queue a message that sends when the turn resumes.
 - **User-defined agents & portable config:** `.atlarix/agents/<name>.md` (system prompt + tools + model) shows up in the picker; `.atlarix/permissions.json` deny/ask rules and `.atlarix/hooks/` (blocking pre-tool, advisory post-tool, stop gate) are committable and enforced at the single tool-execution funnel — plus a global `~/.atlarix/` layer.
 - **Verified edits:** In **Build** and **Debug** the agent discovers and runs the project's *own* checks (package.json scripts, `tsc`/`eslint`, `ruff`/`mypy`/`pytest`) through the terminal — every command run inside the per-OS sandbox — and writes tests for non-trivial logic. It is held to not declaring a task complete while those checks report errors. Verification uses the project's real tooling, so it works on any machine with the language runtime installed.
 - **Native tool history:** Tool calls/results ride as provider-native blocks (not flattened text) — weak and local models perform notably better, and multi-step prompt caching holds.
-- **Approvals & command sandbox:** File writes wait for explicit approval with a diff preview — accept or reject **individual hunks**, not just whole files, all **inline in chat** (no separate panel). Shell commands run inside a per-OS write-confining sandbox and only the genuinely dangerous ones ask; Explore/Plan/Review are read-only. Allow-once / always-allow decisions are **scoped to the workspace** — approvals saved in one project never carry to another. The same stance as Codex and Claude Code.
-- **Voice-to-text:** Dictate to the composer — free on-device **Whisper** by default (private, no key), or **BYOK cloud** (OpenAI / Groq / Gemini with your own key, never billed to Atlarix Core).
+- **Approvals & command sandbox:** File writes wait for explicit approval with a diff preview — accept or reject **individual hunks**, not just whole files, all **inline in chat** (no separate panel). Shell commands run inside a per-OS write-confining sandbox and only the genuinely dangerous ones ask; Explore/Plan/Review are read-only. Allow-once / always-allow decisions are **scoped to the workspace** — approvals saved in one project never carry to another.
+- **Voice-to-text:** Dictate to the composer — free on-device **Whisper** by default (private, no key), or use your own cloud key (OpenAI / Groq / Gemini — never billed to Atlarix Core).
 - **Automations:** Schedule unattended runs on a cron, GitHub event, or MCP trigger from the Automations tab, with a triage feed of past runs — **2 per workspace on Free, 10 on Pro**.
 - **Interactive questions:** The agent can ask you **up to 5 questions in one inline card** (options + free text) and the stream genuinely pauses until you answer — no invented answers, no missed prompts.
-- **Native web search:** On providers with built-in search (Anthropic, OpenAI, Gemini 2+, OpenRouter BYOK) the provider's own search tool runs at dispatch with **inline citations that survive reload**; everywhere else the client chain (SearxNG → public SearxNG → DuckDuckGo) is the universal fallback.
-- **Prompt caching:** Dispatches are cache-friendly out of the box — Anthropic BYOK turns place `cache_control` breakpoints over the stable system header and conversation history, cutting repeat-turn input cost and latency.
+- **Native web search:** On providers with built-in search (Anthropic, OpenAI, Gemini 2+, OpenRouter) the provider's own search tool runs at dispatch with **inline citations that survive reload**; everywhere else a built-in search chain provides a universal fallback, with optional local private search via Docker.
+- **Prompt caching:** Dispatches are cache-friendly out of the box — Anthropic API key turns place `cache_control` breakpoints over the stable system header and conversation history, cutting repeat-turn input cost and latency.
 - **Real terminal:** User terminal tabs are full interactive shells (xterm.js + PTY) — Tab completion, arrows, colors, vim/top. Tabs and scrollback **persist across app restarts**, and tab labels track the shell's live cwd. Agent commands run separately with captured output and approvals.
 
-**Providers:** **Atlarix Core** (managed open-weight models, Core 1–4) and broad **BYOK** support (OpenAI, Anthropic, Gemini, OpenRouter, Ollama, LM Studio, and more).
+**Providers:** **Atlarix Core** (managed open-weight models, Core 1–4) plus your own API keys across 145+ providers (OpenAI, Anthropic, Gemini, OpenRouter, and more) and local models (Ollama, LM Studio).
 
 ---
 
@@ -64,23 +64,23 @@ Release notes: **[docs/CHANGELOG.md](docs/CHANGELOG.md)** (current: 14.0+). Olde
 
 ### Search (ripgrep)
 
-Retrieval is **purely lexical — no index, no embeddings, no map tool, no background watcher.** `grep` and `glob` run on **bundled ripgrep** (`@vscode/ripgrep`, shipped inside the app so search works even where `rg` isn't on `PATH`), honoring `.gitignore` and `.atlarixignore`. Like **Claude Code** and **opencode**, the agent reasons over ranked search results rather than a vector index or a structural map — which keeps memory flat and startup instant at any repo size. There's nothing to build on workspace open and nothing running in the background between searches.
+Retrieval is **purely lexical — no index, no embeddings, no map tool, no background watcher.** `grep` and `glob` run on **bundled ripgrep** (`@vscode/ripgrep`, shipped inside the app so search works even where `rg` isn't on `PATH`), honoring `.gitignore` and `.atlarixignore`. The agent reasons over ranked search results rather than a vector index or a structural map — which keeps memory flat and startup instant at any repo size. There's nothing to build on workspace open and nothing running in the background between searches.
 
 ### AI Agents & Modes
 
 - **Work modes:** Explore, Plan, Build, Debug, Review.
-- **Atlarix Core:** Four managed open-weight models — **Core 1** (fastest) through **Core 4** (most capable). Every plan gets all four; Core is **pay-as-you-go** from a prepaid credit balance (top up from $10), the same on Free and Pro.
+- **Atlarix Core:** Four managed cloud models — **Core 1** (fastest) through **Core 4** (most capable). Every plan gets all four; Core is **pay-as-you-go** from a prepaid credit balance (top up from $10), the same on Free and Pro.
 
 ### Workspace Tools & Extensions
 
-- **Core tools:** A deliberately minimal tool surface — `read_file`, a single `edit_file` (one tool for create/overwrite via `operation:"write"` plus surgical `operation:"replace"` with self-healing match), **`glob`** + **`grep`** (bundled ripgrep), `run_command` (incl. `git` CLI and background commands), web search/read, `task` sub-agents, `plan`, MCP, attachments, and three in-app browser tools (`browser_navigate`/`browser_inspect`/`browser_interact`). Explore/Plan/Review run a read-only sandbox profile.
+- **Core tools:** A deliberately minimal tool surface — `read_file`, a single `edit_file` (one tool for create/overwrite via `operation:"write"` plus surgical `operation:"replace"` with self-healing match), **`glob`** + **`grep`** (bundled ripgrep), `run_command` (incl. `git` CLI and background commands), web search/read, `task` parallel workers, `plan`, MCP, attachments, and three in-app browser tools (`browser_navigate`/`browser_inspect`/`browser_interact`). Explore/Plan/Review run a read-only sandbox profile.
 - **MCP:** MCP servers are configured **per workspace** — **Free** connects **1** (manual config); **Pro** gets the marketplace plus up to **10** per workspace (one-click OAuth connect from the marketplace). On-demand **`list_available_mcps`** / **`mcp_call`** in workspace chat.
 - **Agent Behaviors:** Install from [atlarix-skills](https://github.com/AmariahAK/atlarix-skills). Optional **`.atlarix/skills/`** in the repo.
 
 ### Diagnostics & panels
 
 - **Shiki-highlighted code in chat:** code blocks, write proposals, and diffs render with full syntax highlighting — Atlarix works beside your IDE rather than replacing it, so file editing stays in your editor of choice.
-- **Right panel:** Preview, Browser, Terminal (interactive PTY), Plan (when a session plan is active), Automations (scheduled unattended runs), and Errors (dev-server/runtime). Diffs and approvals render inline in chat.
+- **Right panel:** Browser (multi-tab, with visible cursor, element finding, and full keyboard/hover/scroll control), Terminal (interactive PTY), Plan (when a session plan is active), Automations (scheduled unattended runs), and Errors (dev-server/runtime). Diffs and approvals render inline in chat.
 - **Streaming status:** A small inline compass under the **current** response shows a human-readable one-liner of what the agent is doing ("Writing src/auth.ts…"), settling into the Atlarix "A" when the turn completes.
 
 ### Context & Session Management
@@ -115,14 +115,14 @@ _MiniMax-M3 (fp8) · **single attempt (k=1)** · native function-calling · matc
 
 ## Deployment & CI/CD
 
-Releases are built from **this repository** via GitHub Actions ([**Atlarix CI**](.github/workflows/release.yml)). Pushes to **`main`** and pull requests run typecheck, lint, and tests; pushing a **version tag** (`v9.1.0`, etc.) runs those checks first, then the full macOS/Linux/Windows build and publish to [atlarix-releases](https://github.com/AmariahAK/atlarix-releases).
+Releases are built from **this repository** via GitHub Actions ([**Atlarix CI**](.github/workflows/release.yml)). Pushes to **`main`** and pull requests run typecheck, lint, and tests; pushing a **version tag** (`vX.Y.Z`) runs those checks first, then the full macOS/Linux/Windows build and publish to [atlarix-releases](https://github.com/AmariahAK/atlarix-releases).
 
 1. Bump **`package.json` `version`** and add a section to [`docs/CHANGELOG.md`](docs/CHANGELOG.md) (9.0+). Archive older sections to [`docs/CHANGELOG_PREVIOUS.md`](docs/CHANGELOG_PREVIOUS.md) when the main file grows too long.
 2. Refresh the bundled model catalog: `npm run models:snapshot` (writes `build/models-snapshot.json.gz`) and commit it. This is the offline floor for the model picker — a stale snapshot self-heals on first successful refresh, so this is a nice-to-have, not a blocker.
 3. Commit, tag, and push:
    ```bash
-   git tag v9.1.0
-   git push origin v9.1.0
+   git tag vX.Y.Z
+   git push origin vX.Y.Z
    ```
 4. **Actions → Release** builds macOS/Linux/Windows assets and publishes when green.
 
@@ -177,10 +177,10 @@ After `npm install`, **`postinstall`** runs `patch-package` and the Electron ins
 
 | Tier      | Price   | Workspaces | Highlights |
 |-----------|---------|------------|------------|
-| **Free**  | $0      | 1          | All four Core models (pay-as-you-go credits); BYOK / local free; core tools; **1** MCP server per workspace (manual config); **2** automations per workspace |
+| **Free**  | $0      | 1          | All four Core models (pay-as-you-go credits); your own API keys and local models free; core tools; **1** MCP server per workspace (manual config); **2** automations per workspace |
 | **Pro**   | $19/mo  | Unlimited  | Everything in Free + Agent Behaviors + MCP marketplace + one-click OAuth connectors; **10** MCP servers and **10** automations per workspace |
 
-No plan bundles AI. **Atlarix Core is pay-as-you-go on every plan** — top up a prepaid credit balance (from **$10**) and it's metered as you go (each new account gets a one-time **$1** trial credit); **BYOK and local models are free on every plan**. Only the harness features differ by tier. See [docs/compass-limits.md](docs/compass-limits.md).
+No plan bundles AI. **Atlarix Core is pay-as-you-go on every plan** — top up a prepaid credit balance (from **$10**) and it's metered as you go (each new account gets a one-time **$1** trial credit); **your own API keys and local models are free on every plan**. Only the harness features differ by tier. See [docs/compass-limits.md](docs/compass-limits.md).
 
 ---
 
