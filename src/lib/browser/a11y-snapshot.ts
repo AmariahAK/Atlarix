@@ -52,6 +52,10 @@ export interface A11ySnapshot {
   total?: number;
   /** Layout viewport the page was measured at, e.g. "1280x800". */
   viewport?: string;
+  /** Current vertical scroll offset in pixels. */
+  scrollY?: number;
+  /** Maximum scrollable distance (scrollHeight − viewportHeight). ≤0 means the page fits in one screen. */
+  scrollMax?: number;
   filter?: A11yFilter;
 }
 
@@ -169,6 +173,8 @@ function snapshotScript(filter: A11yFilter): string {
     truncated,
     elements: out,
     viewport: window.innerWidth + 'x' + window.innerHeight,
+    scrollY: Math.round(window.scrollY),
+    scrollMax: Math.round(document.documentElement.scrollHeight - window.innerHeight),
     filter: ${JSON.stringify(filter)},
   };
 })()`;
@@ -206,15 +212,25 @@ export function formatA11ySnapshot(snap: A11ySnapshot): string {
   const total = snap.total ?? snap.count;
   // Report the REAL total when capped — "capped at 200" told the model the cap,
   // not how much it was missing.
+  const hasScroll = (snap.scrollMax ?? 0) > 0;
   const truncNote = snap.truncated
-    ? ` (showing ${snap.count} of ${total} — narrow with a selector or use browser_find)`
+    ? ` (showing ${snap.count} of ${total} — narrow with a selector or use browser_find${hasScroll ? " or scroll down to trigger lazy-loaded content" : ""})`
     : "";
   const what = combined
     ? `${snap.count} element(s): page content + interactive controls`
     : `${snap.count} interactive element(s)`;
   const viewportNote = snap.viewport ? ` Rendered at ${snap.viewport}.` : "";
+  let scrollNote = "";
+  if (hasScroll) {
+    const y = snap.scrollY ?? 0;
+    const max = snap.scrollMax!;
+    const atEnd = y >= max - 2;
+    if (y <= 2) scrollNote = ` Scroll: top of page (0 of ${max}px — scroll down for more).`;
+    else if (atEnd) scrollNote = ` Scroll: bottom reached (${y} of ${max}px).`;
+    else scrollNote = ` Scroll: ${y} of ${max}px (midway — content above and below).`;
+  }
   const header =
-    `Page read — ${what}${truncNote}.${viewportNote}` +
+    `Page read — ${what}${truncNote}.${viewportNote}${scrollNote}` +
     ` Act on any ref with browser_interact (e.g. ref:"e3"). Refs are stable for this page.`;
   return `${header}\n${lines.join("\n")}`;
 }

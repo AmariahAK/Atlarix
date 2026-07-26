@@ -175,6 +175,25 @@ async function readViewport(view: ActiveTabView): Promise<string | undefined> {
   }
 }
 
+async function readScrollPosition(view: ActiveTabView): Promise<{ scrollY: number; scrollMax: number } | undefined> {
+  try {
+    return (await view.webContents.executeJavaScript(
+      "({ scrollY: Math.round(window.scrollY), scrollMax: Math.round(document.documentElement.scrollHeight - window.innerHeight) })",
+      true,
+    )) as { scrollY: number; scrollMax: number };
+  } catch {
+    return undefined;
+  }
+}
+
+function formatScrollNote(pos: { scrollY: number; scrollMax: number } | undefined): string {
+  if (!pos || pos.scrollMax <= 0) return "";
+  const atEnd = pos.scrollY >= pos.scrollMax - 2;
+  if (pos.scrollY <= 2) return ` Scroll: top of page (0 of ${pos.scrollMax}px — scroll down for more).`;
+  if (atEnd) return ` Scroll: bottom reached (${pos.scrollY} of ${pos.scrollMax}px).`;
+  return ` Scroll: ${pos.scrollY} of ${pos.scrollMax}px (midway — content above and below).`;
+}
+
 /** Open (or reload) a URL in the active browser tab and wait for it to settle. */
 async function loadUrlInBrowserTab(url: string): Promise<ActiveTabView | null> {
   await requestBrowserPanel();
@@ -379,13 +398,17 @@ async function inspectText(view: ActiveTabView, selector: string) {
   const clipped = raw.length > PAGE_TEXT_MAX_CHARS;
   const text = clipped ? raw.slice(0, PAGE_TEXT_MAX_CHARS) : raw;
   const origin = viewOrigin(view);
+  const scrollPos = await readScrollPosition(view);
+  const scrollNote = formatScrollNote(scrollPos);
   return {
     success: true,
     url: view.webContents.getURL(),
     title: view.webContents.getTitle(),
     origin,
     clipped,
+    ...(scrollPos && scrollPos.scrollMax > 0 ? { scrollY: scrollPos.scrollY, scrollMax: scrollPos.scrollMax } : {}),
     content: untrustedPageEnvelope(origin, text),
+    ...(scrollNote ? { note: `Page text extracted.${scrollNote}` } : {}),
   };
 }
 
@@ -512,18 +535,22 @@ async function inspectScreenshot(view: ActiveTabView, chatSessionId?: number) {
     ...(s.url ? { url: s.url } : {}),
   }));
   const viewport = await readViewport(view);
+  const scrollPos = await readScrollPosition(view);
+  const scrollNote = formatScrollNote(scrollPos);
   return {
     success: true,
     url: shotUrl,
     title: view.webContents.getTitle(),
     origin,
     viewport,
+    ...(scrollPos && scrollPos.scrollMax > 0 ? { scrollY: scrollPos.scrollY, scrollMax: scrollPos.scrollMax } : {}),
     tab: tabInfo(view),
     mimeType: "image/png",
     data: resized.toPNG().toString("base64"),
     note:
       `Screenshot of untrusted page content from ${origin}` +
-      `${viewport ? `, captured at viewport ${viewport}` : ""}.`,
+      `${viewport ? `, captured at viewport ${viewport}` : ""}` +
+      ` (viewport only — not the full page).${scrollNote}`,
     ...(walkthrough ? { sessionWalkthrough: walkthrough } : {}),
     ...(sessionSteps.length ? { sessionSteps } : {}),
   };
