@@ -44,6 +44,7 @@ import { PastedTextAttachmentChip } from "./PastedTextAttachmentChip";
 import { BackgroundJobAttachmentChip } from "./BackgroundJobAttachmentChip";
 import { TerminalOutputAttachmentChip } from "./TerminalOutputAttachmentChip";
 import { findAttachmentTagsInContent } from "@/lib/chat/attachment-tag-parse";
+import { normalizeThinkingTags } from "@/lib/thinking/normalize-thinking-tags";
 
 
 type CustomTagInfo = {
@@ -275,9 +276,7 @@ function preprocessUnclosedTags(content: string): {
 
   // Normalize provider-emitted variants to a single tag name so mismatched
   // open/close tags don't leak into the visible markdown stream.
-  let processedContent = content
-    .replace(/<thinking(\s[^>]*)?>/gi, (_m, attrs = "") => `<redacted_thinking${attrs}>`)
-    .replace(/<\/thinking>/gi, "</think>");
+  let processedContent = normalizeThinkingTags(content);
   // Map to track which tags are in progress and their positions
   const inProgressTags = new Map<string, Set<number>>();
 

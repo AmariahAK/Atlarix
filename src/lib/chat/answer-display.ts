@@ -1,3 +1,5 @@
+import { normalizeThinkingTags } from "@/lib/thinking/normalize-thinking-tags";
+
 /**
  * A fenced-code-block delimiter line (≥3 backticks or ≥3 tildes at the line
  * start, up to 3 leading spaces per CommonMark), or null. `info` is the text
@@ -364,9 +366,7 @@ function stripTagBlocks(
  */
 export function extractVisibleAnswerMarkdown(raw: string): string {
   if (!raw || typeof raw !== "string") return "";
-  let out = raw
-    .replace(/<thinking(\s[^>]*)?>/gi, (_m, attrs = "") => `<redacted_thinking${attrs}>`)
-    .replace(/<\/thinking>/gi, "</think>");
+  let out = normalizeThinkingTags(raw);
   for (const tag of STRIP_TAG_NAMES) {
     out = stripTagBlocks(out, tag, "drop-through-eof");
   }

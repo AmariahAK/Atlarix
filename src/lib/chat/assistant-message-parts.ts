@@ -10,6 +10,7 @@ import {
   parseToolResultEnvelope,
 } from "@/lib/chat/answer-display";
 import { inferToolNameFromEnvelopeRaw } from "@/lib/chat/infer-tool-from-envelope";
+import { normalizeThinkingTags } from "@/lib/thinking/normalize-thinking-tags";
 import {
   isDelegateToolName,
   delegateDisplayMetaFromToolPart,
@@ -82,9 +83,7 @@ function preprocessForParse(content: string): string {
     "atlarix-mcp-tool-call",
     "atlarix-mcp-tool-result",
   ];
-  let out = content
-    .replace(/<thinking(\s[^>]*)?>/gi, (_m, attrs = "") => `<redacted_thinking${attrs}>`)
-    .replace(/<\/thinking>/gi, "</think>");
+  let out = normalizeThinkingTags(content);
   for (const tagName of tagNames) {
     const openTagPattern = new RegExp(`<${tagName}(?:\\s[^>]*)?>`, "g");
     const closeTagPattern = new RegExp(`</${tagName}>`, "g");

@@ -1,4 +1,5 @@
 import type { AgentBusExchange } from "@/atoms/sourceAtoms";
+import { normalizeThinkingTags } from "@/lib/thinking/normalize-thinking-tags";
 
 /** v10.1: moved here from the deleted dead ThinkingSection component. */
 export interface ToolCallInfo {
@@ -34,11 +35,7 @@ function preprocessUnclosedTags(content: string): string {
     "atlarix-tool-call",
     "atlarix-tool-result",
   ];
-  let processed = content
-    .replace(/<thinking(\s[^>]*)?>/gi, (_m, attrs = "") => `<redacted_thinking${attrs}>`)
-    .replace(/<\/thinking>/gi, "</think>")
-    .replace(/<think(\s[^>]*)?>/gi, (_m, attrs = "") => `<redacted_thinking${attrs}>`)
-    .replace(/<\/think>/gi, "</think>");
+  let processed = normalizeThinkingTags(content);
 
   for (const tagName of customTagNames) {
     const openTagPattern = new RegExp(`<${tagName}(?:\\s[^>]*)?>`, "g");
