@@ -79,7 +79,12 @@ async function verifyReleaseAssets() {
       }
     };
 
-    // Define expected assets with platform-specific version handling
+    // Define expected assets with platform-specific version handling.
+    //
+    // Names are compared case-INSENSITIVELY below. Forge emits the Squirrel and
+    // darwin-zip artifacts capitalised ("Atlarix-…"), so an exact match reported
+    // three assets missing on every release even though all were uploaded — the
+    // gate failed 100% of the time and therefore checked nothing.
     const expectedAssets = [
       `atlarix-${normalizeVersionForPlatform(version, "rpm")}-1.x86_64.rpm`,
       `atlarix-${normalizeVersionForPlatform(version, "nupkg")}-full.nupkg`,
@@ -88,6 +93,14 @@ async function verifyReleaseAssets() {
       `atlarix-darwin-x64-${version}.zip`,
       `atlarix_${normalizeVersionForPlatform(version, "deb")}_amd64.deb`,
       "RELEASES",
+      // The installers people actually download. Omitting them meant a release
+      // missing, say, the Intel DMG would have passed verification.
+      `atlarix-${version}-arm64.dmg`,
+      `atlarix-${version}-x64.dmg`,
+      `atlarix-${version}-x64.AppImage`,
+      // electron-updater feeds — absent these, auto-update cannot see the release.
+      "latest-mac.yml",
+      "latest-linux.yml",
     ];
 
     console.log("📋 Expected assets:");
@@ -101,9 +114,13 @@ async function verifyReleaseAssets() {
     actualAssets.forEach((asset) => console.log(`  - ${asset}`));
     console.log("");
 
+    // Asset names are unique regardless of case, so fold both sides rather than
+    // trying to predict each maker's capitalisation.
+    const actualByLower = new Map(actualAssets.map((n) => [n.toLowerCase(), n]));
+
     // Check for missing assets
     const missingAssets = expectedAssets.filter(
-      (expected) => !actualAssets.includes(expected),
+      (expected) => !actualByLower.has(expected.toLowerCase()),
     );
 
     if (missingAssets.length > 0) {
@@ -118,8 +135,9 @@ async function verifyReleaseAssets() {
     }
 
     // Check for unexpected assets (optional warning)
+    const expectedLower = new Set(expectedAssets.map((a) => a.toLowerCase()));
     const unexpectedAssets = actualAssets.filter(
-      (actual) => !expectedAssets.includes(actual),
+      (actual) => !expectedLower.has(actual.toLowerCase()),
     );
 
     if (unexpectedAssets.length > 0) {
