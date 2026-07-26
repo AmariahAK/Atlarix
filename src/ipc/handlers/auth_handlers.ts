@@ -13,6 +13,41 @@ import { apps } from "@/db/schema";
 
 const logger = log.scope("auth-handlers");
 
+/**
+ * Collapse concurrent identical reads into ONE upstream call.
+ *
+ * `useAuth` is a plain hook with no shared state, so every component that calls it
+ * runs its own `checkSession()` on mount — and there are ~20 of them. Each one fired
+ * `auth:get-current-user`, `auth:claim-signup-credit` and `auth:get-plan-info`
+ * independently, so a single app start hit Supabase several times over for answers
+ * that are identical by construction. The project's API logs showed four
+ * `claim_signup_credit` calls inside the same second.
+ *
+ * Coalescing here rather than in the hook fixes it for all consumers at once without
+ * touching any of them. Only calls that OVERLAP are shared — nothing is cached past
+ * settlement, so a later read is still fresh (a balance right after a top-up, say).
+ */
+const inFlight = new Map<string, Promise<unknown>>();
+
+/**
+ * Remembered signup-credit result, so the one-time grant is asked for once rather than
+ * on every session check. Cleared on sign-out — a different account signing in must be
+ * able to claim its own credit.
+ */
+let claimedSignupCredit:
+    | { ok: boolean; balanceCents: number; granted: boolean }
+    | null = null;
+
+function coalesce<T>(key: string, run: () => Promise<T>): Promise<T> {
+    const existing = inFlight.get(key) as Promise<T> | undefined;
+    if (existing) return existing;
+    const p = run().finally(() => {
+        inFlight.delete(key);
+    });
+    inFlight.set(key, p);
+    return p;
+}
+
 export function registerAuthHandlers() {
     logger.log("[AuthHandlers] Registering auth IPC handlers");
 
@@ -45,6 +80,8 @@ export function registerAuthHandlers() {
     // Sign out - also clears all workspaces for fresh start
     ipcMain.handle("auth:sign-out", async () => {
         logger.log("[AuthHandlers] Sign out requested");
+        // The next account to sign in must be able to claim its own signup credit.
+        claimedSignupCredit = null;
 
         try {
             // Delete ALL workspaces on logout (fresh start)
@@ -192,7 +229,11 @@ export function registerAuthHandlers() {
     });
 
     // Get workspace limit info
-    ipcMain.handle("auth:get-plan-info", async () => {
+    // Coalesced: the subscription lookup inside is TTL-cached, but a cold cache with
+    // ~20 consumers calling at once means every one of them misses and hits Supabase
+    // before the first result lands to populate it.
+    ipcMain.handle("auth:get-plan-info", async () =>
+        coalesce("get-plan-info", async () => {
         try {
             const user = SubscriptionManager.getCurrentUser();
             const canCreate = await SubscriptionManager.canCreateWorkspace();
@@ -230,7 +271,8 @@ export function registerAuthHandlers() {
                 error: error instanceof Error ? error.message : "Unknown error"
             };
         }
-    });
+        }),
+    );
 
     // Open upgrade checkout (requires OAuth sign-in)
     ipcMain.handle("auth:upgrade", async () => {
@@ -269,31 +311,52 @@ export function registerAuthHandlers() {
     });
 
     // PAYG: read the user's Atlarix Core credit balance (integer cents).
-    ipcMain.handle("auth:get-credit-balance", async () => {
-        try {
-            const { getSupabaseClient } = await import("../../lib/auth/supabase-client");
-            const supabase = getSupabaseClient();
-            const { data, error } = await supabase.rpc("get_credit_balance");
-            if (error) return { ok: false, error: error.message, balanceCents: 0 };
-            const row = data as { ok?: boolean; balance_cents?: number } | null;
-            return { ok: row?.ok !== false, balanceCents: Number(row?.balance_cents ?? 0) };
-        } catch (error) {
-            return { ok: false, error: error instanceof Error ? error.message : "Unknown error", balanceCents: 0 };
-        }
-    });
+    ipcMain.handle("auth:get-credit-balance", async () =>
+        // Several cards read the balance at once (usage card, low-balance nudge, error
+        // box). Overlapping reads share one RPC; a later read still goes to Supabase,
+        // so a top-up shows up immediately.
+        coalesce("get-credit-balance", async () => {
+            try {
+                const { getSupabaseClient } = await import("../../lib/auth/supabase-client");
+                const supabase = getSupabaseClient();
+                const { data, error } = await supabase.rpc("get_credit_balance");
+                if (error) return { ok: false, error: error.message, balanceCents: 0 };
+                const row = data as { ok?: boolean; balance_cents?: number } | null;
+                return { ok: row?.ok !== false, balanceCents: Number(row?.balance_cents ?? 0) };
+            } catch (error) {
+                return { ok: false, error: error instanceof Error ? error.message : "Unknown error", balanceCents: 0 };
+            }
+        }),
+    );
 
     // PAYG: claim the one-time $1 signup trial credit (idempotent server-side).
+    //
+    // `checkSession()` fires this on EVERY session check, and every `useAuth` consumer
+    // runs its own check — so a grant that can only ever happen once was being asked
+    // for repeatedly, as a write RPC, for the entire life of the account. Once it has
+    // answered successfully in this process there is nothing left to claim, so the
+    // result is remembered and replayed. A failed attempt is NOT remembered, so a
+    // genuine claim is never lost to a transient error.
     ipcMain.handle("auth:claim-signup-credit", async () => {
-        try {
-            const { getSupabaseClient } = await import("../../lib/auth/supabase-client");
-            const supabase = getSupabaseClient();
-            const { data, error } = await supabase.rpc("claim_signup_credit");
-            if (error) return { ok: false, error: error.message };
-            const row = data as { ok?: boolean; balance_cents?: number; granted?: boolean } | null;
-            return { ok: row?.ok !== false, balanceCents: Number(row?.balance_cents ?? 0), granted: row?.granted === true };
-        } catch (error) {
-            return { ok: false, error: error instanceof Error ? error.message : "Unknown error" };
-        }
+        if (claimedSignupCredit) return claimedSignupCredit;
+        return coalesce("claim-signup-credit", async () => {
+            try {
+                const { getSupabaseClient } = await import("../../lib/auth/supabase-client");
+                const supabase = getSupabaseClient();
+                const { data, error } = await supabase.rpc("claim_signup_credit");
+                if (error) return { ok: false, error: error.message };
+                const row = data as { ok?: boolean; balance_cents?: number; granted?: boolean } | null;
+                const result = {
+                    ok: row?.ok !== false,
+                    balanceCents: Number(row?.balance_cents ?? 0),
+                    granted: row?.granted === true,
+                };
+                if (result.ok) claimedSignupCredit = result;
+                return result;
+            } catch (error) {
+                return { ok: false, error: error instanceof Error ? error.message : "Unknown error" };
+            }
+        });
     });
 
     // Refresh plan from Supabase (call after payment)
