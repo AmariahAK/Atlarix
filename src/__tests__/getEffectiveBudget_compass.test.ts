@@ -26,6 +26,18 @@ vi.mock("@/lib/context/token-counter", () => ({
   exactTokenCount: () => 0,
 }));
 
+// Core now resolves its pre-TTFT window from models.dev (it used to read the OpenRouter
+// catalog, which knows nothing about a vendor-native model id). That makes this suite
+// sensitive to BOTH the catalog and the configured lineup, so mock the catalog and clear
+// the lineup per-test — otherwise the result depends on ambient env, which is exactly how
+// these cases passed locally and failed on CI, where ATLARIX_CORE_MODEL_* are real secrets.
+const modelsDev = vi.hoisted(() => ({
+  getModelsDevLimits: vi.fn(async () => null as { context?: number; output?: number } | null),
+  getModelsDevReasoningProfile: vi.fn(async () => null),
+  getModelsDevTemperatureSupport: vi.fn(async () => null),
+}));
+vi.mock("@/lib/models_dev", () => modelsDev);
+
 import {
   getEffectiveBudget,
   setCompassContextWindow,
@@ -33,6 +45,19 @@ import {
 } from "../ipc/utils/token_utils";
 import { readSettings } from "@/main/settings";
 import { findLanguageModel } from "../ipc/utils/findLanguageModel";
+import {
+  setCoreModelOverrides,
+  setCoreModelRouting,
+  __resetCoreModelOverridesForTests,
+} from "@/ipc/shared/core-model-override-store";
+
+const CORE_ENV_KEYS = [
+  "ATLARIX_CORE_MODEL_1",
+  "ATLARIX_CORE_MODEL_2",
+  "ATLARIX_CORE_MODEL_3",
+  "ATLARIX_CORE_MODEL_4",
+] as const;
+let savedCoreEnv: Record<string, string | undefined> = {};
 
 const mockReadSettings = vi.mocked(readSettings);
 const mockFindLanguageModel = vi.mocked(findLanguageModel);
@@ -43,6 +68,11 @@ describe("getEffectiveBudget — Compass awareness", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     clearCompassContextWindow(TEST_CHAT_ID);
+    // No configured Core lineup and no catalog row unless a test opts in.
+    savedCoreEnv = Object.fromEntries(CORE_ENV_KEYS.map((k) => [k, process.env[k]]));
+    for (const k of CORE_ENV_KEYS) delete process.env[k];
+    __resetCoreModelOverridesForTests();
+    modelsDev.getModelsDevLimits.mockResolvedValue(null);
     mockReadSettings.mockReturnValue({
       selectedModel: { name: "compass-fast", provider: "compass" },
       tokenBudgetOverrides: {},
@@ -58,12 +88,35 @@ describe("getEffectiveBudget — Compass awareness", () => {
 
   afterEach(() => {
     clearCompassContextWindow(TEST_CHAT_ID);
+    for (const [k, v] of Object.entries(savedCoreEnv)) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+    __resetCoreModelOverridesForTests();
   });
 
-  it("returns the compass-fallback (200_000) when no TTFT has been observed for the chat", async () => {
+  it("returns the compass-fallback (200_000) when no TTFT and no resolvable Core model", async () => {
     const { budget, source } = await getEffectiveBudget("compass", TEST_CHAT_ID);
     expect(budget).toBe(200_000);
     expect(source).toBe("model");
+  });
+
+  it("prefers the tier's REAL models.dev window over the 200K fallback", async () => {
+    // The pre-TTFT path used to hand back a blanket 200K, which over-pruned the first turn
+    // of a 1M-context model. With a configured tier the true window is used instead.
+    setCoreModelOverrides({ "core-1": "deepseek/deepseek-v4-pro" });
+    setCoreModelRouting({
+      "core-1": { provider: "deepseek", apiModelId: "deepseek-v4-pro" },
+    });
+    modelsDev.getModelsDevLimits.mockResolvedValue({ context: 1_000_000, output: 384_000 });
+    mockReadSettings.mockReturnValue({
+      selectedModel: { name: "core-1", provider: "compass" },
+      tokenBudgetOverrides: {},
+    } as any);
+
+    const { budget } = await getEffectiveBudget("compass", TEST_CHAT_ID);
+    expect(budget).toBe(1_000_000);
+    expect(modelsDev.getModelsDevLimits).toHaveBeenCalledWith("deepseek", "deepseek-v4-pro");
   });
 
   it("returns the live per-chat value captured at TTFT (e.g. 1M) instead of the catalog limit", async () => {
