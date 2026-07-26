@@ -133,6 +133,16 @@ export interface ChatResponseEnd {
   usedCompass?: boolean;
   /** v10: auxiliary LLM tokens this turn (sub-agents, compaction) — counted toward usage. */
   auxTokens?: number;
+  /**
+   * Per-source split of `auxTokens`, largest first. Sub-agents are work the user
+   * asked for; compaction is the app spending on their behalf — a single lumped
+   * figure hid that distinction.
+   */
+  auxBySource?: Array<{
+    source: "subagents" | "compaction" | "other";
+    tokens: number;
+    calls: number;
+  }>;
   /** v12 7D: estimated BYOK USD cost of this turn (omitted for Core/unknown-price). */
   turnCostUsd?: number;
   /** Fix 6: this turn's billed tokens (input+output) — summed into the

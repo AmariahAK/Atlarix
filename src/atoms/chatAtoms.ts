@@ -55,6 +55,18 @@ export const lastReasoningTokensByChatIdAtom = atom<Record<number, number>>({});
 /** v10: per-chat auxiliary LLM tokens (sub-agents, compaction) from the last completed turn. */
 export const lastAuxTokensByChatIdAtom = atom<Record<number, number>>({});
 
+/**
+ * Per-chat split of the last turn's auxiliary tokens by source. Sub-agents are work
+ * the user asked for; compaction is the app spending on their behalf — the single
+ * `lastAuxTokens` figure showed both under a "Sub-agents" label.
+ */
+export const lastAuxBySourceByChatIdAtom = atom<
+  Record<
+    number,
+    Array<{ source: "subagents" | "compaction" | "other"; tokens: number; calls: number }>
+  >
+>({});
+
 /** v12 7D: per-chat estimated BYOK USD cost of the last completed turn. */
 export const lastTurnCostUsdByChatIdAtom = atom<Record<number, number>>({});
 

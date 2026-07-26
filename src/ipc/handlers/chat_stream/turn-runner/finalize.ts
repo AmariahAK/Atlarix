@@ -38,7 +38,10 @@ import { ChatPromptSafetyError } from "@/lib/security/chat-prompt-gate";
 import { sanitizeAssistantOutput } from "@/lib/security/profanity-filter";
 import { ASK_USER_STREAM_STOP, abortReasonSentinel } from "@/lib/stream/stream-stop-sentinels";
 import { markLedgerStreamComplete, notifyPlanUiForTurnIfPresent } from "@/lib/tasks/task-ledger";
-import { takeAuxUsage } from "@/lib/usage/turn-usage-aggregator";
+import {
+  takeAuxUsage,
+  summarizeAuxBySource,
+} from "@/lib/usage/turn-usage-aggregator";
 import { readSettings } from "@/main/settings";
 import { AI_STREAM_EMPTY_RESPONSE_FALLBACK, AI_STREAMING_ERROR_MESSAGE_PREFIX, SAFETY_FILTER_BLOCKED_MESSAGE, modelFailureUserMessage } from "@/shared/texts";
 import log from "electron-log";
@@ -259,12 +262,13 @@ export async function finalizeTurn(
             // v10 token accuracy: fold sub-agent + compaction usage into this
             // turn's totals so the usage meter is exact.
             const auxUsage = takeAuxUsage(req.chatId);
+            const auxBySource = summarizeAuxBySource(auxUsage);
             if (auxUsage) {
               logger.log(
                 `[usage] auxiliary LLM tokens this turn: ${auxUsage.totalTokens} across ${auxUsage.calls} call(s) — ${Object.entries(
                   auxUsage.byLabel,
                 )
-                  .map(([k, v]) => `${k}=${v}`)
+                  .map(([k, v]) => `${k}=${v.tokens}(${v.calls} call${v.calls === 1 ? "" : "s"})`)
                   .join(", ")}`,
               );
             }
@@ -278,6 +282,10 @@ export async function finalizeTurn(
               endedWaitingOnUser: ctx.askUserEndedTurn === true,
               usedCompass: usedCompassThisStream,
               ...(auxUsage ? { auxTokens: auxUsage.totalTokens } : {}),
+              // Per-source split so the UI can separate work the user asked for
+              // (sub-agents) from work the app did on their behalf (compaction).
+              // The old single figure lumped both under a "Sub-agents" label.
+              ...(auxBySource.length > 0 ? { auxBySource } : {}),
               ...(ctx.maxReasoningTokensUsed != null && ctx.maxReasoningTokensUsed > 0
                 ? { reasoningTokens: ctx.maxReasoningTokensUsed }
                 : {}),

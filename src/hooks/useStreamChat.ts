@@ -19,6 +19,7 @@ import {
   lastTurnHadToolCallsByChatIdAtom,
   lastReasoningTokensByChatIdAtom,
   lastAuxTokensByChatIdAtom,
+  lastAuxBySourceByChatIdAtom,
   lastTurnCostUsdByChatIdAtom,
   sessionCostUsdByChatIdAtom,
   sessionTokensByChatIdAtom,
@@ -1479,6 +1480,14 @@ export function useStreamChat({
               getDefaultStore().set(lastAuxTokensByChatIdAtom, (prev) => ({
                 ...prev,
                 [response.chatId]: response.auxTokens!,
+              }));
+            }
+
+            // Per-source split of those tokens, so the meter can name what spent them.
+            if (Array.isArray(response.auxBySource) && response.auxBySource.length > 0) {
+              getDefaultStore().set(lastAuxBySourceByChatIdAtom, (prev) => ({
+                ...prev,
+                [response.chatId]: response.auxBySource!,
               }));
             }
 

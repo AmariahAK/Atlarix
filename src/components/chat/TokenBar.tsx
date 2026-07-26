@@ -17,6 +17,7 @@ import {
 import {
   chatInputValueAtom,
   lastAuxTokensByChatIdAtom,
+  lastAuxBySourceByChatIdAtom,
   lastTurnCostUsdByChatIdAtom,
   sessionCostUsdByChatIdAtom,
   sessionTokensByChatIdAtom,
@@ -46,6 +47,8 @@ export function TokenBar({ chatId }: TokenBarProps) {
   const contextReport = useContextReport(chatId ?? null);
   const auxTokensByChat = useAtomValue(lastAuxTokensByChatIdAtom);
   const lastAuxTokens = chatId != null ? auxTokensByChat[chatId] : undefined;
+  const auxBySourceByChat = useAtomValue(lastAuxBySourceByChatIdAtom);
+  const lastAuxBySource = chatId != null ? auxBySourceByChat[chatId] : undefined;
   const turnCostByChat = useAtomValue(lastTurnCostUsdByChatIdAtom);
   const lastTurnCostUsd = chatId != null ? turnCostByChat[chatId] : undefined;
   // Fix 6: cumulative session spend/tokens (running total across all turns).
@@ -249,10 +252,31 @@ export function TokenBar({ chatId }: TokenBarProps) {
                   </div>
                 </div>
                 {lastAuxTokens != null && lastAuxTokens > 0 ? (
-                  <div className="pt-1 border-t border-border grid grid-cols-[20px_1fr_auto] gap-x-2 items-center">
-                    <BotIcon size={12} className="text-cyan-500" />
-                    <span>Sub-agents (last turn)</span>
-                    <span>{lastAuxTokens.toLocaleString()}</span>
+                  <div className="pt-1 border-t border-border">
+                    <div className="grid grid-cols-[20px_1fr_auto] gap-x-2 items-center">
+                      <BotIcon size={12} className="text-cyan-500" />
+                      <span>Background work (last turn)</span>
+                      <span>{lastAuxTokens.toLocaleString()}</span>
+                    </div>
+                    {/* Named per source: this line previously read "Sub-agents" while
+                        also counting compaction, so app-initiated spend looked like
+                        work the user had asked for. */}
+                    {(lastAuxBySource ?? []).map(({ source, tokens, calls }) => (
+                      <div
+                        key={source}
+                        className="grid grid-cols-[20px_1fr_auto] gap-x-2 items-center text-muted-foreground"
+                      >
+                        <span />
+                        <span className="pl-1">
+                          {source === "subagents"
+                            ? `Sub-agents (${calls} call${calls === 1 ? "" : "s"})`
+                            : source === "compaction"
+                              ? "Context compaction"
+                              : "Other"}
+                        </span>
+                        <span>{tokens.toLocaleString()}</span>
+                      </div>
+                    ))}
                   </div>
                 ) : null}
                 {lastTurnCostUsd != null && lastTurnCostUsd > 0 ? (
