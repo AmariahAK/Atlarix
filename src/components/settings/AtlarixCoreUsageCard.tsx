@@ -64,7 +64,15 @@ export function AtlarixCoreUsageCard({
       setTopUpError("Enter a dollar amount to add.");
       return;
     }
-    addToTally(Math.round(dollars * 100));
+    // Enforce the floor at ENTRY, not just at confirm. A custom amount under the
+    // minimum used to be accepted into the tally and only rejected later, which reads
+    // as the amount having been added when it can never be purchased on its own.
+    const cents = Math.round(dollars * 100);
+    if (cents < MIN_TOPUP_CENTS) {
+      setTopUpError(`Custom amounts start at $${MIN_TOPUP_CENTS / 100}.`);
+      return;
+    }
+    addToTally(cents);
     setCustomDollars("");
   };
 
@@ -179,7 +187,7 @@ export function AtlarixCoreUsageCard({
             <Input
               type="number"
               inputMode="decimal"
-              min={1}
+              min={MIN_TOPUP_CENTS / 100}
               step={1}
               placeholder="Custom"
               value={customDollars}
