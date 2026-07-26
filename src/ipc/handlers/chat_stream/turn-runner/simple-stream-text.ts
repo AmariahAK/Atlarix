@@ -87,6 +87,7 @@ import {
   buildReasoningProviderOptions,
   detectReasoningCapability,
   resolveReasoningCatalogModelId,
+  resolveCapabilityProviderId,
   deriveReasoningCeiling,
 } from "@/lib/routing/reasoning-detector";
 import { systemReminder } from "@/lib/streaming/system-reminder";
@@ -221,11 +222,19 @@ export async function simpleStreamText(
                 dyadFiles: versionedFiles ? undefined : files,
                 dyadVersionedFiles: versionedFiles,
               },
+              // Capability resolution keys off the VENDOR, not the synthetic
+              // `compass`: Core has no catalog row of its own, and reasoning
+              // behaviour belongs to whoever actually serves the request.
               "dyad-gateway": getExtraProviderOptions(
-                modelClient.builtinProviderId,
+                effectiveModel
+                  ? resolveCapabilityProviderId(effectiveModel)
+                  : modelClient.builtinProviderId,
                 settings,
                 thinkingTier,
                 maxOutputTokens,
+                effectiveModel
+                  ? resolveReasoningCatalogModelId(effectiveModel)
+                  : undefined,
               ),
             };
 

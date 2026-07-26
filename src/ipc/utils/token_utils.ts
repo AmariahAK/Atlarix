@@ -6,6 +6,7 @@ import { findLanguageModel } from "./findLanguageModel";
 import { exactTokenCountText } from "@/lib/context/token-counter";
 import { getCoreModelsDevTargetForTier } from "@/ipc/shared/compass_constants";
 import { getModelsDevLimits } from "@/lib/models_dev";
+import { supportsTemperatureParam } from "@/lib/routing/model-reasoning-profile";
 
 /**
  * Token count using exact tokenizer.
@@ -199,9 +200,29 @@ export async function getMaxTokensWithFloor(
     : MAX_OUTPUT_TOKENS_FLOOR;
 }
 
+/**
+ * Temperature to send, or undefined to OMIT the parameter entirely.
+ *
+ * Undefined is the meaningful case: some models reject `temperature` outright, and
+ * kimi-k3 — a Core tier — is one of them (`temperature: false` in models.dev). Every
+ * request has always carried `temperature: 0`, so those models were being sent a
+ * parameter they don't accept.
+ *
+ * Models that DO accept it still get 0, unchanged, so this narrows behaviour to
+ * exactly the models that need it rather than altering output everywhere.
+ */
 export async function getTemperature(
   model: LargeLanguageModel,
-): Promise<number> {
+): Promise<number | undefined> {
+  const providerId =
+    model.provider === "compass"
+      ? (getCoreModelsDevTargetForTier(model.name)?.providerId ?? model.provider)
+      : model.provider;
+  const modelId =
+    model.provider === "compass"
+      ? (getCoreModelsDevTargetForTier(model.name)?.modelId ?? model.name)
+      : model.name;
+  if (!supportsTemperatureParam(providerId, modelId ?? "")) return undefined;
   const modelOption = await findLanguageModel(model);
   return modelOption?.temperature ?? 0;
 }

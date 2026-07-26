@@ -14,6 +14,10 @@ import {
   getCoreModelsDevTargetForTier,
 } from "@/ipc/shared/compass_constants";
 import { PROVIDERS_THAT_SUPPORT_THINKING } from "@/ipc/shared/language_model_constants";
+import {
+  catalogSaysReasons,
+  hasMeaningfulReasoningControl,
+} from "@/lib/routing/model-reasoning-profile";
 import type { LargeLanguageModel, UserSettings } from "@/lib/schemas";
 import {
   getExtraProviderOptions,
@@ -145,11 +149,21 @@ export function isReasoningCapableModel(
 ): boolean {
   if (!model) return false;
   const provider = model.provider ?? "";
+
+  // Per-model catalog answer wins where we have one: a provider allowlist showed the
+  // toggle for every model of a "thinking" provider, including ones that don't reason
+  // (deepseek-chat) or that expose no control to toggle (MiniMax-M2.7).
+  const capabilityProvider = resolveCapabilityProviderId(model);
+  const catalogModelId = resolveReasoningCatalogModelId(model);
+  const saysReasons = catalogSaysReasons(capabilityProvider, catalogModelId);
+  if (saysReasons === false) return false;
+  if (saysReasons === true) {
+    return hasMeaningfulReasoningControl(capabilityProvider, catalogModelId);
+  }
+
+  // Catalog miss → legacy behaviour, so a newly released model isn't hidden.
   if (PROVIDERS_THAT_SUPPORT_THINKING.includes(provider)) return true;
-  const cap = detectReasoningCapability(
-    resolveReasoningCatalogModelId(model),
-    provider,
-  );
+  const cap = detectReasoningCapability(catalogModelId, provider);
   return (
     cap.useOpenRouterReasoning ||
     cap.useGoogleThoughts ||

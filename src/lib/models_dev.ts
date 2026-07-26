@@ -14,6 +14,7 @@ import * as Sentry from "@sentry/electron/main";
 import { getUserDataPath } from "@/paths/paths";
 import type { LanguageModel } from "@/ipc/ipc_types";
 import { registerModelsDevVision } from "@/lib/routing/model-capability-profile";
+import { registerModelsDevReasoning } from "@/lib/routing/model-reasoning-profile";
 
 const logger = log.scope("models_dev");
 
@@ -158,11 +159,52 @@ function publishVisionModalities(data: ModelsDevData): void {
   }
 }
 
-/** Single assignment point for the in-memory catalog — keeps the vision
- * registry in lockstep with whatever data the process is actually using. */
+/**
+ * Push per-model reasoning + temperature capability into the sync registry.
+ *
+ * Sync rather than async-on-demand because the Deep-thinking toggle is gated from the
+ * renderer, which cannot await a catalog fetch — same reason `publishVisionModalities`
+ * exists. Running on every catalog load means a refresh takes effect without a
+ * restart.
+ */
+function publishReasoningProfiles(data: ModelsDevData): void {
+  try {
+    const entries: Array<{
+      providerId: string;
+      modelId: string;
+      profile: { reasoning: boolean; options: ModelsDevReasoningOption[] };
+      supportsTemperature: boolean;
+    }> = [];
+    for (const [providerId, provider] of Object.entries(data)) {
+      if (!provider?.models) continue;
+      const atlarixId = REVERSE_PROVIDER_ID_MAP[providerId];
+      for (const [modelId, m] of Object.entries(provider.models)) {
+        const profile = {
+          reasoning: m.reasoning === true,
+          options: Array.isArray(m.reasoning_options) ? m.reasoning_options : [],
+        };
+        // Only an explicit false is a refusal; the field is absent on many rows.
+        const supportsTemperature = m.temperature !== false;
+        entries.push({ providerId, modelId, profile, supportsTemperature });
+        // Register under Atlarix's own provider id too (qwen/moonshot/…), since
+        // dispatch keys off that rather than models.dev's spelling.
+        if (atlarixId) {
+          entries.push({ providerId: atlarixId, modelId, profile, supportsTemperature });
+        }
+      }
+    }
+    registerModelsDevReasoning(entries);
+  } catch (e) {
+    logger.warn("[models.dev] reasoning-profile publish failed", e);
+  }
+}
+
+/** Single assignment point for the in-memory catalog — keeps the capability
+ * registries in lockstep with whatever data the process is actually using. */
 function setCachedData(data: ModelsDevData): void {
   cachedData = data;
   publishVisionModalities(data);
+  publishReasoningProfiles(data);
 }
 
 function getCachePath(): string {

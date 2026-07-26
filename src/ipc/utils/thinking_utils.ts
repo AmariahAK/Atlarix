@@ -1,4 +1,5 @@
 import { PROVIDERS_THAT_SUPPORT_THINKING } from "../shared/language_model_constants";
+import { resolveReasoningRequest } from "../../lib/routing/model-reasoning-profile";
 import type { UserSettings } from "../../lib/schemas";
 
 /**
@@ -55,6 +56,16 @@ export function reasoningBudgetTokens(
   return Math.min(ceil, Math.max(1024, Math.round(max * frac)));
 }
 
+/**
+ * Reasoning parameters for a dispatch.
+ *
+ * `modelId` drives a models.dev lookup so the KIND of control matches what the model
+ * declares. The old behaviour keyed only off `providerId` and sent every model of a
+ * listed provider the same Anthropic/Google-shaped `thinking.budget_tokens` block —
+ * which MiniMax-M3 (a toggle-only model) has no use for, so its reasoning was never
+ * really being controlled. A catalog miss falls back to that legacy behaviour rather
+ * than dropping reasoning for a model newer than the last refresh.
+ */
 export function getExtraProviderOptions(
   providerId: string | undefined,
   settings: UserSettings,
@@ -62,6 +73,8 @@ export function getExtraProviderOptions(
   includeExtendedThinking = false,
   /** The resolved max output tokens for this model (for budget scaling). */
   maxOutputTokens?: number,
+  /** The model's own api id — enables the per-model catalog resolution. */
+  modelId?: string,
 ): Record<string, any> {
   if (!providerId) {
     return {};
@@ -69,26 +82,56 @@ export function getExtraProviderOptions(
   if (!includeExtendedThinking) {
     return {};
   }
-  // Ceiling for the channels THIS function handles: OpenAI is effort-only
-  // ("high"); the thinking-budget providers are budget-capable ("max").
-  const effort = getReasoningEffort(settings, reasoningCeiling(providerId));
+
   if (providerId === "openai") {
-    // OpenAI's reasoning API is effort-only — "max" (never produced here, since
-    // openai ceiling is "high") would clamp to "high".
-    return {
-      reasoning_effort: effort === "max" ? "high" : effort,
-    };
+    // OpenAI's reasoning API is effort-only.
+    const effort = getReasoningEffort(settings, "high");
+    return { reasoning_effort: effort === "max" ? "high" : effort };
   }
+
+  const deepThinking = !!settings?.deepThinking;
+  const resolved = modelId
+    ? resolveReasoningRequest({ providerId, modelId, deepThinking })
+    : ({ kind: "unknown" } as const);
+
+  switch (resolved.kind) {
+    case "none":
+      // Declares no control, or does not reason. Sending a parameter can only hurt.
+      return {};
+    case "toggle":
+      // Two-state only — never a level. This is the MiniMax-M3 case.
+      return { thinking: { type: resolved.enabled ? "enabled" : "disabled" } };
+    case "effort":
+      // Guaranteed to be a value the model listed.
+      return { reasoning_effort: resolved.effort };
+    case "budget":
+      return {
+        thinking: {
+          type: "enabled",
+          include_thoughts: true,
+          budget_tokens: reasoningBudgetTokens(
+            resolved.effortHint,
+            maxOutputTokens ?? REASONING_MAXTOKENS_FALLBACK,
+          ),
+        },
+      };
+    case "unknown":
+    default:
+      break;
+  }
+
+  // Catalog miss → legacy provider-level behaviour, so a brand-new model is not
+  // silently downgraded to non-reasoning.
   if (PROVIDERS_THAT_SUPPORT_THINKING.includes(providerId)) {
-    const budgetTokens = reasoningBudgetTokens(
-      effort,
-      maxOutputTokens ?? REASONING_MAXTOKENS_FALLBACK,
-    );
+    const effort = getReasoningEffort(settings, reasoningCeiling(providerId));
     return {
       thinking: {
         type: "enabled",
         include_thoughts: true,
-        budget_tokens: budgetTokens,
+        budget_tokens: reasoningBudgetTokens(
+          effort,
+          maxOutputTokens ?? REASONING_MAXTOKENS_FALLBACK,
+        ),
       },
     };
   }
