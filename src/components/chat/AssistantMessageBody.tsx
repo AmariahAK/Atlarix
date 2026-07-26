@@ -33,6 +33,7 @@ import {
   isDelegateToolName,
 } from "@/lib/chat/delegate-handoff";
 import type { PlanCardData } from "@/lib/plan-cards/plan-card-renderer";
+import { useSmoothStreamedContent } from "@/hooks/useSmoothStreamedContent";
 import { AtlarixMarkdownSegment } from "./AtlarixMarkdownSegment";
 import { InlineThoughtBlock } from "./InlineThoughtBlock";
 import { InlinePlanArtifactSlot } from "./InlinePlanArtifactSlot";
@@ -108,14 +109,30 @@ export function AssistantMessageBody({
     interleavedDisplayContentForMessageAtom(msgId),
   );
 
+  // Even out the reveal rate so a very fast provider streams rather than appearing all
+  // at once. No-op for providers already at a comfortable pace, and for anything not
+  // actively growing. Display only — `content` itself is untouched.
+  const pacedContent = useSmoothStreamedContent(content, isStreaming);
+
   // Persisted `content` is `<think>`-stripped (for model re-ingestion), which
   // collapses thought order on reload. When an ordered display copy exists for
   // a completed message, render from THAT so the frozen view interleaves like
   // streaming. During streaming, `content` already carries the live tags.
   const effectiveContent = useMemo(() => {
-    if (isStreaming || assistantMessageId == null) return content;
+    if (isStreaming || assistantMessageId == null) return pacedContent;
+    // `isStreaming` flips false the moment the last chunk lands, but the paced reveal
+    // may still be a few hundred ms behind. Switching to the full text here would snap
+    // that remainder into place — the end-of-answer jump this pacing exists to remove —
+    // so keep draining until it has caught up, THEN adopt the frozen display copy.
+    if (pacedContent.length < content.length) return pacedContent;
     return interleavedDisplayContentForMessage ?? content;
-  }, [isStreaming, assistantMessageId, interleavedDisplayContentForMessage, content]);
+  }, [
+    isStreaming,
+    assistantMessageId,
+    interleavedDisplayContentForMessage,
+    content,
+    pacedContent,
+  ]);
 
   const parts = useMemo(
     () => parseAssistantMessageParts(effectiveContent, isStreaming),
