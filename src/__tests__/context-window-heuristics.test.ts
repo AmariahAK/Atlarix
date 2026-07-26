@@ -20,6 +20,10 @@ import {
   getCachedOpenRouterModelRow,
 } from "@/lib/routing/tier-context-limits";
 import { findLanguageModel } from "@/ipc/utils/findLanguageModel";
+import {
+  setCoreModelRouting,
+  __resetCoreModelOverridesForTests,
+} from "@/ipc/shared/core-model-override-store";
 
 const model = (provider: string, name: string): LargeLanguageModel =>
   ({ provider, name }) as LargeLanguageModel;
@@ -54,6 +58,9 @@ describe("resolveModelContextLimit — provider-uniform resolution (W12)", () =>
     vi.mocked(findLanguageModel).mockReset();
     modelsDev.getModelsDevLimits.mockReset();
     modelsDev.getModelsDevLimits.mockResolvedValue(null);
+    // Core routing is module-level state; leaking it across cases would make the
+    // non-Core assertions depend on test order.
+    __resetCoreModelOverridesForTests();
   });
 
   it("user override wins over every source (incl. compaction denominator)", async () => {
@@ -91,6 +98,43 @@ describe("resolveModelContextLimit — provider-uniform resolution (W12)", () =>
     );
     expect(res.rawContextLength).toBe(1_048_576);
     expect(res.tierLimit).toBe(Math.floor(1_048_576 * 0.8));
+  });
+
+  /**
+   * THE CORE CONTEXT FIX. Core resolved its window through the OpenRouter catalog,
+   * keyed by a `vendor/model` wire id. A directly-routed tier matches nothing there,
+   * so Core fell through to the 128K generic fallback — compacting a 1M-token model
+   * at about an eighth of its real window. models.dev is now consulted FIRST for
+   * `compass`, keyed by the tier's provider + vendor model id.
+   */
+  it("Core resolves its real ~1M window from models.dev, not the 128K fallback", async () => {
+    vi.stubGlobal("fetch", vi.fn(() => Promise.reject(new Error("offline"))));
+    // No OpenRouter row and no per-model row: exactly the post-cutover situation.
+    vi.mocked(findLanguageModel).mockResolvedValue(undefined as never);
+    modelsDev.getModelsDevLimits.mockResolvedValue({ context: 1_000_000, output: 384_000 });
+    setCoreModelRouting({
+      "core-3": { provider: "deepseek", apiModelId: "deepseek-v4-pro" },
+    });
+
+    const res = await resolveModelContextLimit(model("compass", "core-3"), noSettings);
+
+    expect(res.rawContextLength).toBe(1_000_000);
+    // Budget = 0.8 safety factor; compaction fires at 0.75 of that (~600K).
+    expect(res.tierLimit).toBe(800_000);
+    expect(res.tierLimit).toBeGreaterThan(GENERIC_CONTEXT_FALLBACK * 6);
+    // Keyed by the VENDOR id, never the synthetic `compass`.
+    expect(modelsDev.getModelsDevLimits).toHaveBeenCalledWith("deepseek", "deepseek-v4-pro");
+  });
+
+  it("Core falls back gracefully when models.dev has no row for the tier", async () => {
+    vi.stubGlobal("fetch", vi.fn(() => Promise.reject(new Error("offline"))));
+    vi.mocked(findLanguageModel).mockResolvedValue(undefined as never);
+    modelsDev.getModelsDevLimits.mockResolvedValue(null);
+    setCoreModelRouting({
+      "core-3": { provider: "deepseek", apiModelId: "deepseek-v4-pro" },
+    });
+    const res = await resolveModelContextLimit(model("compass", "core-3"), noSettings);
+    expect(res.rawContextLength).toBe(GENERIC_CONTEXT_FALLBACK);
   });
 
   it("falls back to the single generic constant when every source misses", async () => {

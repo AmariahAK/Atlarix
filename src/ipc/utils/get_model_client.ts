@@ -42,7 +42,7 @@ import { LanguageModelProvider } from "../ipc_types";
 import { createAtlarixEngine } from "./llm_engine_provider";
 import {
   getCompassMasterApiKey,
-  getOpenRouterModelIdForCoreTier,
+  getCoreModelIdForCoreTier,
 } from "../shared/compass_constants";
 import { getCoreProxyBaseUrl } from "../shared/core_proxy";
 import { getSession } from "../../lib/auth/supabase-client";
@@ -327,8 +327,8 @@ async function getRegularModelClient(
       };
     }
     case "compass": {
-      const openRouterModelId = getOpenRouterModelIdForCoreTier(model.name);
-      if (!openRouterModelId) {
+      const coreModelId = getCoreModelIdForCoreTier(model.name);
+      if (!coreModelId) {
         throw new Error(
           `Atlarix Core model "${model.name}" is not configured for this build. Choose another Core model or add BYOK keys in Settings.`,
         );
@@ -337,7 +337,7 @@ async function getRegularModelClient(
       // Production path: route through the Atlarix Core proxy so the managed
       // provider key never ships in the client. We authenticate as the user with
       // their Supabase JWT; the proxy verifies entitlement, meters usage, and
-      // forwards on the master key (held server-side only).
+      // forwards on the provider key (held server-side only).
       const proxyBaseUrl = getCoreProxyBaseUrl();
       if (proxyBaseUrl) {
         const session = await getSession();
@@ -347,24 +347,34 @@ async function getRegularModelClient(
             "Sign in to use Atlarix Core. (Core requests are authorized with your Atlarix account.)",
           );
         }
-        const or = createOpenRouter({
-          apiKey: accessToken,
+        // Plain OpenAI-compatible, matching the BYOK open-weight providers below.
+        // Core forwards to DeepSeek/Qwen/Moonshot/MiniMax directly now, and the
+        // OpenRouter SDK would serialize OpenRouter-only body fields (plugins,
+        // its own `reasoning` object) that those vendors don't accept.
+        //
+        // The WIRE id stays `vendor/model`: the proxy's allowlist keys on it and
+        // rewrites it to the vendor's native id, which is what lets already-
+        // installed clients keep working through the cutover.
+        const core = createOpenAICompatible({
+          name: COMPASS_PROVIDER_ID,
           baseURL: proxyBaseUrl,
-          headers: { ...OPENROUTER_APP_HEADERS },
+          apiKey: accessToken,
         });
         return {
           modelClient: {
-            model: or(openRouterModelId),
+            model: core(coreModelId),
             builtinProviderId: "compass",
           },
           backupModelClients: [],
         };
       }
 
-      // Dev-only fallback: no proxy configured (local dev). Use a LOCAL dev key
-      // and call OpenRouter directly. This path is never reachable in a packaged
-      // release — the embedded master key was removed and the dev key provider is
-      // a no-op there — so production always goes through the proxy above.
+      // Dev-only fallback: no proxy configured (local dev). Use a LOCAL dev key and
+      // call OpenRouter directly — still the OpenRouter SDK, because without the
+      // proxy there is nothing to rewrite the `vendor/model` id to a native one.
+      // Never reachable in a packaged release (the embedded master key was removed
+      // and the dev key provider is a no-op there), so production always goes
+      // through the proxy above.
       const devKey = getCompassMasterApiKey();
       if (!devKey) {
         throw new Error(
@@ -377,7 +387,7 @@ async function getRegularModelClient(
       });
       return {
         modelClient: {
-          model: or(openRouterModelId),
+          model: or(coreModelId),
           builtinProviderId: "compass",
         },
         backupModelClients: [],

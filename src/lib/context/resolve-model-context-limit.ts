@@ -5,7 +5,7 @@
 
 import type { LargeLanguageModel, UserSettings } from "@/lib/schemas";
 import { warmOpenRouterModelCache, getCachedOpenRouterModelRow } from "@/lib/routing/tier-context-limits";
-import { getOpenRouterModelIdForCoreTier } from "@/ipc/shared/compass_constants";
+import { getCoreModelsDevTargetForTier } from "@/ipc/shared/compass_constants";
 import { findLanguageModel } from "@/ipc/utils/findLanguageModel";
 import log from "electron-log";
 
@@ -127,15 +127,18 @@ function overflowClampFor(model: LargeLanguageModel): number {
 }
 
 /**
- * Map synthetic / internal model selection to an OpenRouter-style id for catalog lookup.
+ * Map a model selection to an OpenRouter-style id for catalog lookup.
+ *
+ * `compass` is deliberately EXCLUDED. Core resolves its window from models.dev
+ * instead (see `compassContextLength`): once a tier routes to a provider directly,
+ * its id no longer matches any row in the OpenRouter catalog, so this lookup
+ * returned nothing and Core fell through to the 128K generic fallback — compacting a
+ * 1M-token model at roughly an eighth of its real window.
  */
 function openRouterCatalogId(model: LargeLanguageModel): string | null {
   const provider = model.provider?.trim() ?? "";
   const name = model.name?.trim() ?? "";
   if (!name) return null;
-  if (provider === "compass") {
-    return getOpenRouterModelIdForCoreTier(name) ?? null;
-  }
   if (provider === "openrouter") {
     return name;
   }
@@ -143,6 +146,25 @@ function openRouterCatalogId(model: LargeLanguageModel): string | null {
     return name.includes("/") ? name : null;
   }
   return null;
+}
+
+/**
+ * Core's real context window, from the same models.dev catalog the client already
+ * caches — keyed by the tier's provider + vendor model id rather than an
+ * OpenRouter-style slug.
+ */
+async function compassContextLength(
+  model: LargeLanguageModel,
+): Promise<number | null> {
+  const target = getCoreModelsDevTargetForTier(model.name ?? "");
+  if (!target) return null;
+  try {
+    const { getModelsDevLimits } = await import("@/lib/models_dev");
+    const limits = await getModelsDevLimits(target.providerId, target.modelId);
+    return limits?.context && limits.context > 0 ? limits.context : null;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -192,9 +214,18 @@ export async function resolveModelContextLimit(
     return { tierLimit: override, rawContextLength: override };
   }
 
-  await warmOpenRouterModelCache();
-
   const clamp = overflowClampFor(model);
+
+  // Core first, off models.dev — its window is the compaction denominator, and
+  // getting it wrong by 8x is the difference between compacting at 600K and at 100K.
+  if ((model.provider ?? "") === "compass") {
+    const raw = await compassContextLength(model);
+    if (raw != null) {
+      return { tierLimit: floorSafe(raw * clamp), rawContextLength: raw };
+    }
+  }
+
+  await warmOpenRouterModelCache();
 
   const catalogId = openRouterCatalogId(model);
   if (catalogId) {

@@ -4,11 +4,8 @@ import { Message } from "../ipc_types";
 
 import { findLanguageModel } from "./findLanguageModel";
 import { exactTokenCountText } from "@/lib/context/token-counter";
-import {
-  getOpenRouterModelIdForCoreTier,
-  normalizeCoreTierId,
-} from "@/ipc/shared/compass_constants";
-import { getCachedOpenRouterModelRow } from "@/lib/routing/tier-context-limits";
+import { getCoreModelsDevTargetForTier } from "@/ipc/shared/compass_constants";
+import { getModelsDevLimits } from "@/lib/models_dev";
 
 /**
  * Token count using exact tokenizer.
@@ -104,18 +101,16 @@ export async function getContextWindowDetailed(
       const live = getCompassContextWindow(chatId);
       if (live) return { contextWindow: live, source: "compass-live" };
     }
-    // Before this chat's first TTFT capture, prefer the underlying tier
-    // model's REAL context from the warmed OpenRouter catalog (e.g. core-3 =
-    // 1M) over a blanket 200K — otherwise the first turn over-prunes context.
-    const coreModelId = getOpenRouterModelIdForCoreTier(
-      normalizeCoreTierId(target.name),
-    );
-    if (coreModelId) {
-      const row = getCachedOpenRouterModelRow(coreModelId);
-      const catalogCtx =
-        row?.context_length ?? row?.top_provider?.context_length;
-      if (typeof catalogCtx === "number" && catalogCtx > 0) {
-        return { contextWindow: catalogCtx, source: "compass-fallback" };
+    // Before this chat's first TTFT capture, prefer the underlying tier model's
+    // REAL context from models.dev (e.g. core-3 = 1M) over a blanket 200K —
+    // otherwise the first turn over-prunes context. Keyed by the tier's provider +
+    // vendor model id: the OpenRouter catalog this used to read knows nothing about
+    // a vendor-native id, so a directly-routed tier silently got the 200K floor.
+    const coreTarget = getCoreModelsDevTargetForTier(target.name);
+    if (coreTarget) {
+      const limits = await getModelsDevLimits(coreTarget.providerId, coreTarget.modelId);
+      if (limits?.context && limits.context > 0) {
+        return { contextWindow: limits.context, source: "compass-fallback" };
       }
     }
     return { contextWindow: 200_000, source: "compass-fallback" };

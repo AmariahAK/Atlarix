@@ -9,7 +9,10 @@ import {
   getCachedOpenRouterModelRow,
   type OpenRouterModelRowExtended,
 } from "./tier-context-limits";
-import { getOpenRouterModelIdForCoreTier } from "@/ipc/shared/compass_constants";
+import {
+  getCoreModelIdForCoreTier,
+  getCoreModelsDevTargetForTier,
+} from "@/ipc/shared/compass_constants";
 import { PROVIDERS_THAT_SUPPORT_THINKING } from "@/ipc/shared/language_model_constants";
 import type { LargeLanguageModel, UserSettings } from "@/lib/schemas";
 import {
@@ -48,14 +51,42 @@ function openRouterPrefixSuggestsReasoning(modelIdLower: string): boolean {
 }
 
 /**
- * Resolve the OpenRouter-style model id used for catalog lookup (Core tiers map to env model ids).
+ * Resolve the model id used for capability lookups.
+ *
+ * For Core this returns the VENDOR's own model id (e.g. `deepseek-v4-pro`), not the
+ * `vendor/model` wire id. That matters beyond reasoning: this function also supplies
+ * `modelApiId` to `buildToolModelOutput` (`ask-branch.ts`, `build-branch.ts`), which
+ * feeds the vision / tool-media gates — and those resolve through a models.dev-backed
+ * registry that keys on the bare id. Returning the slashed wire id left Core invisible
+ * to all of them.
  */
 export function resolveReasoningCatalogModelId(effectiveModel: LargeLanguageModel): string {
   const name = (effectiveModel.name ?? "").trim();
   if (effectiveModel.provider === "compass") {
-    return getOpenRouterModelIdForCoreTier(name) ?? name;
+    return (
+      getCoreModelsDevTargetForTier(name)?.modelId ??
+      getCoreModelIdForCoreTier(name) ??
+      name
+    );
   }
   return name;
+}
+
+/**
+ * The Atlarix provider id actually backing a model — for Core, the vendor its tier
+ * routes to (`deepseek`, `minimax`, …) rather than the synthetic `compass`.
+ *
+ * Capability lookups must key off the vendor: `compass` has no models.dev row, and
+ * per-provider reasoning behaviour belongs to whoever serves the request.
+ */
+export function resolveCapabilityProviderId(
+  effectiveModel: LargeLanguageModel,
+): string {
+  const provider = (effectiveModel.provider ?? "").trim();
+  if (provider !== "compass") return provider;
+  return (
+    getCoreModelsDevTargetForTier(effectiveModel.name ?? "")?.providerId ?? provider
+  );
 }
 
 /**
