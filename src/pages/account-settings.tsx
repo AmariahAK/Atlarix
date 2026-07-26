@@ -110,7 +110,7 @@ export function AccountSettings() {
                 <h3 className="text-xl font-semibold">{user.name}</h3>
                 <p className="text-muted-foreground">{user.email}</p>
                 <Badge variant="secondary" className="mt-2">
-                  {user.provider === 'google' ? 'Google' : 'GitHub'}
+                  {user.provider === 'google' ? 'Google' : user.provider === 'discord' ? 'Discord' : 'GitHub'}
                 </Badge>
               </div>
             </div>
