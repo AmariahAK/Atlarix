@@ -46,8 +46,11 @@ export function CompassProviderSettings() {
 
       <AtlarixCoreUsageCard />
 
+      {/* The provider is now per-model and shown in each row's label (resolved from
+          the hosted catalog), so a single hardcoded gateway name would be wrong the
+          moment a tier is re-pointed — and it named a gateway Core no longer uses. */}
       <p className="text-xs text-muted-foreground text-center pt-2">
-        Powered by OpenRouter
+        Billed per use from your prepaid balance. No API key needed.
       </p>
     </div>
   );

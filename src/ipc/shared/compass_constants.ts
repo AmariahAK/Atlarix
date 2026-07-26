@@ -232,5 +232,5 @@ export function compassExhaustedUserMessage(_tier?: string): string {
  * separately by the proxy.
  */
 export function coreUnavailableUserMessage(): string {
-  return "Atlarix Core is currently overloaded — we apologize for any inconvenience. Please retry shortly or switch to another provider in Settings.";
+  return "This Atlarix Core model is temporarily unavailable. Atlarix has been informed and is working on it — we apologise for the inconvenience. In the meantime, pick another Core model above, or add your own API key in Settings.";
 }

@@ -99,6 +99,9 @@ const PROVIDER_ID_MAP: Record<string, string> = {
   // Open-weight providers whose models.dev id differs from ours.
   qwen: "alibaba", // international DashScope catalog (dashscope-intl compatible-mode)
   moonshot: "moonshotai",
+  // OpenRouter spells Z.ai `z-ai`; models.dev's own provider id is `zai`. Needed so a
+  // `z-ai/glm-*` wire id still resolves its price and context window.
+  "z-ai": "zai",
   // deepseek + minimax already match models.dev ids (identity).
   // Bedrock has NO native fetcher, so models.dev is its ONLY source — an
   // unmapped id meant the lookup missed and the provider listed zero models.
