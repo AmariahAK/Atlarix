@@ -7,16 +7,17 @@
  *
  * Chain: provider-native → client `web_search` (SearxNG → public SearxNG →
  * DDG) → search MCPs. The client tool stays the universal fallback for
- * providers without native search (Ollama, LM Studio, Groq, …).
+ * providers without native search (Ollama, LM Studio, Groq, … and now Core).
+ *
+ * Atlarix Core is deliberately NOT in the native list any more: it routes to the
+ * four provider clouds directly, and none of them offers agentic search over a
+ * plain OpenAI-compatible chat endpoint. See the `compass` case.
  */
 
 import { anthropic } from "@ai-sdk/anthropic";
 import { openai } from "@ai-sdk/openai";
 import { google } from "@ai-sdk/google";
-import { openrouter } from "@openrouter/ai-sdk-provider";
 import type { Tool } from "ai";
-import { normalizeCoreTierId } from "@/ipc/shared/compass_constants";
-import { isCoreModelWebSearchEnabled } from "@/ipc/shared/core-model-override-store";
 
 export type NativeWebSearchSupport =
   | {
@@ -73,22 +74,20 @@ export function getNativeWebSearchSupport(
       // BYOK OpenRouter: the always-on `web` plugin adds search results
       // server-side (billed per request against the user's own key).
       return { kind: "openrouter-plugin" };
-    case "compass": {
-      // Atlarix Core routes through the same OpenRouter provider (via the proxy),
-      // so it uses the AGENTIC `openrouter:web_search` server tool: the MODEL
-      // decides when to search (0–N times/turn — pay-per-use, unlike the always-on
-      // plugin), and the proxy meters the real per-search cost through the wallet
-      // at the standard markup. Gated per Core tier via the hosted catalog — a tier
-      // that under-invokes the tool is set `false` and drops to the client
-      // `web_search` (SearxNG) fallback (returns null here).
-      const tier = normalizeCoreTierId(modelName ?? "");
-      if (!isCoreModelWebSearchEnabled(tier)) return null;
-      return {
-        kind: "tool",
-        key: "web_search",
-        tool: openrouter.tools.webSearch({ maxResults: 5 }) as Tool,
-      };
-    }
+    case "compass":
+      // Core no longer routes through OpenRouter, so OpenRouter's agentic
+      // `web_search` server tool is not available to it — and none of the four
+      // direct providers exposes an equivalent through a plain OpenAI-compatible
+      // chat endpoint (DeepSeek's is Anthropic-protocol only, Qwen's needs
+      // DashScope-native calls, Moonshot's is explicitly not production-ready,
+      // MiniMax has none).
+      //
+      // Returning null drops Core to the client `web_search` tool (SearxNG → DDG)
+      // plus the in-app browser, the same chain every provider without native
+      // search already uses. A proxy-side paid search API is the planned
+      // replacement; until then this is a deliberate quality trade, not an
+      // oversight.
+      return null;
     default:
       return null;
   }

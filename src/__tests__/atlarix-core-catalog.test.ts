@@ -22,11 +22,11 @@ describe("atlarix-core-catalog", () => {
     const catalog = buildAtlarixCoreTierCatalog();
     expect(catalog).toHaveLength(4);
     const core2 = catalog.find((e) => e.internalTierId === "core-2");
-    expect(core2?.openRouterModelId).toBe("deepseek/deepseek-v4-pro");
+    expect(core2?.coreModelId).toBe("deepseek/deepseek-v4-pro");
     expect(core2?.labelWithProvider).toMatch(/\(deepseek\)/);
     expect(core2?.providerSlug).toBe("deepseek");
     const core4 = catalog.find((e) => e.internalTierId === "core-4");
-    expect(core4?.openRouterModelId).toBe("anthropic/claude-opus-4");
+    expect(core4?.coreModelId).toBe("anthropic/claude-opus-4");
   });
 
   it("coreTierPresentationFromModel parses a synthetic Core model into a presentation", () => {

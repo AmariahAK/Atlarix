@@ -85,31 +85,43 @@ describe("dispatch dedup leaves no duplicate web_search", () => {
   });
 });
 
-describe("Atlarix Core (compass) web search — agentic server tool, per-tier gated", () => {
+describe("Atlarix Core (compass) web search — client tool, no native path", () => {
   afterEach(() => __resetCoreModelOverridesForTests());
 
-  it("defaults ON: a Core tier gets the OpenRouter web_search server tool", () => {
-    const support = getNativeWebSearchSupport("compass", "core-1");
-    expect(support?.kind).toBe("tool");
-    expect(support && support.kind === "tool" && support.key).toBe("web_search");
-    // it supersedes the client web_search (same key → deduped to one entry)
-    expect(reservedNativeToolNames(support)).toContain("web_search");
-    expect(new Set(reservedNativeToolNames(support))).toEqual(new Set(["web_search"]));
+  /**
+   * Core used to return OpenRouter's agentic `web_search` server tool. It no longer
+   * routes through OpenRouter, and none of the four direct providers exposes agentic
+   * search over a plain OpenAI-compatible chat endpoint — so Core drops to the client
+   * SearxNG tool plus the in-app browser. A deliberate trade pending a proxy-side
+   * paid search API.
+   */
+  it("returns null for every Core tier, so the client web_search tool is used", () => {
+    for (const tier of ["core-1", "core-2", "core-3", "core-4"]) {
+      expect(getNativeWebSearchSupport("compass", tier)).toBeNull();
+    }
   });
 
-  it("a tier explicitly disabled in the catalog falls back to null (client SearxNG tool)", () => {
+  it("reserves NO tool name, so the client web_search is not stripped", () => {
+    // The bug this guards: if Core reserved `web_search` while providing no native
+    // tool, the client tool would be removed and Core would have no search at all.
+    const support = getNativeWebSearchSupport("compass", "core-1");
+    expect(reservedNativeToolNames(support)).toEqual([]);
+  });
+
+  it("ignores the legacy per-tier webSearch flag either way", () => {
+    // The hosted flag is now inert for dispatch; it stays parsed for the follow-up
+    // paid-search work, but must not resurrect a native path.
+    setCoreModelWebSearch({ "core-1": true });
+    expect(getNativeWebSearchSupport("compass", "core-1")).toBeNull();
     setCoreModelWebSearch({ "core-1": false });
     expect(getNativeWebSearchSupport("compass", "core-1")).toBeNull();
-    // other tiers stay on the server tool
-    expect(getNativeWebSearchSupport("compass", "core-2")?.kind).toBe("tool");
   });
 
-  it("legacy tier alias normalizes before the gate check", () => {
-    setCoreModelWebSearch({ "core-1": false }); // compass-fast → core-1
+  it("handles legacy tier aliases without throwing", () => {
     expect(getNativeWebSearchSupport("compass", "compass-fast")).toBeNull();
   });
 
-  it("isCoreModelWebSearchEnabled defaults true, false only when set", () => {
+  it("keeps the store helper working for the paid-search follow-up", () => {
     expect(isCoreModelWebSearchEnabled("core-3")).toBe(true);
     setCoreModelWebSearch({ "core-3": false });
     expect(isCoreModelWebSearchEnabled("core-3")).toBe(false);

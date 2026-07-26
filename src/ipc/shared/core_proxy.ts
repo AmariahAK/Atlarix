@@ -2,7 +2,7 @@
  * Atlarix Core proxy endpoint (the `atlarix-proxy` service on Railway).
  *
  * This is the ONLY thing the client needs to talk to Core — and it is NOT a
- * secret (it's a public URL). The managed OpenRouter key lives on the proxy, not
+ * secret (it's a public URL). The managed PROVIDER keys live on the proxy, not
  * in this bundle. Set at build time via Vite `define` (`ATLARIX_CORE_PROXY_URL`)
  * or a local shell var for dev.
  *

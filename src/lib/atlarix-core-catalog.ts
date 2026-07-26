@@ -1,10 +1,11 @@
 /**
- * Atlarix Core (internal provider `compass`): env-backed OpenRouter models per Core slot.
+ * Atlarix Core (internal provider `compass`): the configured model per Core slot.
+ * The id is `vendor/model`; the vendor segment drives the display slug.
  */
 
 import {
   CORE_TIER_ORDER,
-  getOpenRouterModelIdForCoreTier,
+  getCoreModelIdForCoreTier,
   normalizeCoreTierId,
 } from "@/ipc/shared/compass_constants";
 import {
@@ -15,15 +16,17 @@ import {
 export type AtlarixCoreTierPresentation = {
   /** Canonical Core model id (`core-1`..`core-4`). */
   internalTierId: string;
-  openRouterModelId: string;
+  /** The configured wire id for this tier (`vendor/model`). */
+  coreModelId: string;
   modelDisplayName: string;
   providerSlug: string;
-  /** Full user-facing line: `deepseek v4 pro (openrouter)` */
+  /** Full user-facing line: `deepseek v4 pro (deepseek)` */
   labelWithProvider: string;
 };
 
-function providerSlugFromOpenRouterId(openRouterModelId: string): string {
-  const trimmed = openRouterModelId.trim();
+/** Display slug from the wire id's vendor segment. */
+function providerSlugFromCoreModelId(coreModelId: string): string {
+  const trimmed = coreModelId.trim();
   if (!trimmed.includes("/")) return "openrouter";
   return trimmed.split("/")[0]?.toLowerCase() || "openrouter";
 }
@@ -31,15 +34,14 @@ function providerSlugFromOpenRouterId(openRouterModelId: string): string {
 function presentationForInternalTier(
   internalTierId: string,
 ): AtlarixCoreTierPresentation {
-  const openRouterModelId =
-    getOpenRouterModelIdForCoreTier(internalTierId)?.trim() ?? "";
-  const modelDisplayName = openRouterModelId
-    ? formatModelApiNameForDisplay(openRouterModelId)
+  const coreModelId = getCoreModelIdForCoreTier(internalTierId)?.trim() ?? "";
+  const modelDisplayName = coreModelId
+    ? formatModelApiNameForDisplay(coreModelId)
     : formatModelApiNameForDisplay(internalTierId.replace(/^(compass|core)-/, "Core "));
-  const providerSlug = providerSlugFromOpenRouterId(openRouterModelId);
+  const providerSlug = providerSlugFromCoreModelId(coreModelId);
   return {
     internalTierId,
-    openRouterModelId,
+    coreModelId,
     modelDisplayName,
     providerSlug,
     labelWithProvider: formatModelWithProvider(modelDisplayName, providerSlug),
@@ -132,7 +134,7 @@ export function coreTierPresentationFromModel(model: {
   const providerSlug = (match?.[2] ?? "openrouter").trim().toLowerCase();
   return {
     internalTierId: model.apiName,
-    openRouterModelId: "",
+    coreModelId: "",
     modelDisplayName,
     providerSlug,
     labelWithProvider: model.displayName,

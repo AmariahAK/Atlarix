@@ -1,5 +1,6 @@
 /**
- * Atlarix Core — managed provider (OpenRouter-backed, no user API key).
+ * Atlarix Core — managed provider (no user API key). Requests go to the Core proxy,
+ * which forwards to the provider clouds directly on keys held server-side.
  * Model IDs come from build-time env: ATLARIX_CORE_MODEL_1..4.
  * All four Core models are available on every plan; usage is billed via the
  * pay-as-you-go credit wallet — the proxy meters real cost behind a per-call
@@ -224,7 +225,7 @@ export function compassExhaustedUserMessage(_tier?: string): string {
 
 /**
  * Shown when Atlarix Core fails on OUR side (the proxy returns 503 core_unavailable
- * because the managed OpenRouter key is out of credit / rate-limited / down). Neutral
+ * because a managed provider key is out of credit / rate-limited / down). Neutral
  * by design — the user is never told "we ran out of money"; the owner is alerted
  * separately by the proxy.
  */
