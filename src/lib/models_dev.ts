@@ -47,6 +47,19 @@ const CACHE_FRESH_MS = 5 * 60 * 1000; // 5 min
 /** Transient-failure retries for the catalog fetch (attempts = 1 + this). */
 const FETCH_RETRIES = 2;
 
+/**
+ * How a model exposes its reasoning control. Providers differ in kind, not just in
+ * degree — `toggle` is on/off with no level, `effort` takes one of `values`, and
+ * `budget_tokens` takes a token allowance. Sending the wrong KIND is why a model can
+ * appear to ignore the thinking setting entirely.
+ */
+export type ModelsDevReasoningOption = { type: string; values?: string[] };
+
+export type ModelsDevReasoningProfile = {
+  reasoning: boolean;
+  options: ModelsDevReasoningOption[];
+};
+
 interface ModelsDevModel {
   id?: string;
   name: string;
@@ -56,6 +69,15 @@ interface ModelsDevModel {
   limit?: { context?: number; output?: number };
   modalities?: { input?: string[]; output?: string[] };
   status?: string;
+  /** Whether the model reasons at all. */
+  reasoning?: boolean;
+  /** The reasoning control(s) it accepts. Absent/empty = reasons with no parameter. */
+  reasoning_options?: ModelsDevReasoningOption[] | null;
+  /**
+   * Whether a `temperature` parameter is accepted. `false` for e.g. kimi-k3, which
+   * rejects it — so this is a real gate, not metadata.
+   */
+  temperature?: boolean;
 }
 
 interface ModelsDevProvider {
@@ -436,6 +458,51 @@ export async function getModelsDevLimits(
   const provider = data[resolveModelsDevProviderId(atlarixProviderId)];
   if (!provider?.models) return null;
   return findModelsDevRow(provider.models, modelId)?.limit ?? null;
+}
+
+/**
+ * A model's reasoning capability + the control it accepts, or null when the catalog
+ * has no row.
+ *
+ * Null means "unknown", NOT "cannot reason" — the caller falls back to its provider
+ * heuristic, matching the "unknown → keep permissive" convention used by
+ * `annotateToolCapability`. Treating a catalog miss as no-reasoning would silently
+ * downgrade every model newer than the last catalog refresh.
+ */
+export async function getModelsDevReasoningProfile(
+  atlarixProviderId: string,
+  modelId: string,
+): Promise<ModelsDevReasoningProfile | null> {
+  if (!atlarixProviderId || !modelId) return null;
+  const data = await getModelsDevData();
+  const provider = data[resolveModelsDevProviderId(atlarixProviderId)];
+  if (!provider?.models) return null;
+  const row = findModelsDevRow(provider.models, modelId);
+  if (!row) return null;
+  return {
+    reasoning: row.reasoning === true,
+    options: Array.isArray(row.reasoning_options) ? row.reasoning_options : [],
+  };
+}
+
+/**
+ * Whether a model accepts a `temperature` parameter. Null when unknown.
+ *
+ * Only an explicit `false` is a refusal; the field is absent on plenty of rows, and
+ * defaulting those to "unsupported" would strip temperature from models that accept
+ * it fine.
+ */
+export async function getModelsDevTemperatureSupport(
+  atlarixProviderId: string,
+  modelId: string,
+): Promise<boolean | null> {
+  if (!atlarixProviderId || !modelId) return null;
+  const data = await getModelsDevData();
+  const provider = data[resolveModelsDevProviderId(atlarixProviderId)];
+  if (!provider?.models) return null;
+  const row = findModelsDevRow(provider.models, modelId);
+  if (!row) return null;
+  return row.temperature === false ? false : true;
 }
 
 /**

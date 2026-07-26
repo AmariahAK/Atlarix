@@ -21,6 +21,21 @@ let CORE_MODEL_OVERRIDES: Record<string, string> | null = null;
  */
 let CORE_MODEL_WEB_SEARCH: Record<string, boolean> | null = null;
 
+/**
+ * Per-tier direct-provider routing from the same hosted `core-models.json`.
+ *
+ * `apiModelId` is the vendor's OWN model id, carried explicitly rather than derived
+ * by splitting the wire id — the two differ in case (`minimax/minimax-m3` vs the
+ * catalog's `MiniMax-M3`), and models.dev lookups are case-sensitive, so deriving it
+ * would silently lose that model's price and context window.
+ *
+ * Absent → the tier has no direct routing and resolves through OpenRouter, which is
+ * both the pre-migration shape and the per-tier rollback lever.
+ */
+export type CoreTierRouting = { provider: string; apiModelId: string };
+
+let CORE_MODEL_ROUTING: Record<string, CoreTierRouting> | null = null;
+
 /** Replace the active override map (validated, normalized `core-N` keys) or clear it. */
 export function setCoreModelOverrides(
   map: Record<string, string> | null,
@@ -53,8 +68,30 @@ export function isCoreModelWebSearchEnabled(normalizedTierId: string): boolean {
   return CORE_MODEL_WEB_SEARCH?.[normalizedTierId] !== false;
 }
 
+/** Replace the per-tier routing map (normalized `core-N` keys) or clear it. */
+export function setCoreModelRouting(
+  map: Record<string, CoreTierRouting> | null,
+): void {
+  CORE_MODEL_ROUTING =
+    map && Object.keys(map).length > 0 ? { ...map } : null;
+}
+
+/**
+ * Direct-provider routing for an already-normalized `core-N` tier, or undefined.
+ *
+ * Callers use this to reach models.dev for the tier's real context window, price and
+ * capabilities — Core used to resolve those through the OpenRouter catalog, which
+ * knows nothing about a vendor-native model id.
+ */
+export function getCoreTierRouting(
+  normalizedTierId: string,
+): CoreTierRouting | undefined {
+  return CORE_MODEL_ROUTING?.[normalizedTierId];
+}
+
 /** Test-only: clear the store between cases. */
 export function __resetCoreModelOverridesForTests(): void {
   CORE_MODEL_OVERRIDES = null;
   CORE_MODEL_WEB_SEARCH = null;
+  CORE_MODEL_ROUTING = null;
 }

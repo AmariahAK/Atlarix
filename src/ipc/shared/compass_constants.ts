@@ -13,7 +13,10 @@ import {
   formatModelWithProvider,
 } from "@/lib/format-openrouter-model-label";
 import { CORE_TIER_ROWS } from "../../shared/compass_product_copy";
-import { getCoreModelOverrideId } from "./core-model-override-store";
+import {
+  getCoreModelOverrideId,
+  getCoreTierRouting,
+} from "./core-model-override-store";
 import { getCoreProxyBaseUrl } from "./core_proxy";
 
 export const COMPASS_PROVIDER_ID = "compass";
@@ -135,7 +138,7 @@ export function getCompassMasterApiKey(): string | undefined {
   return local ?? devCoreKeyProvider.apiKey();
 }
 
-export function getOpenRouterModelIdForCoreTier(
+export function getCoreModelIdForCoreTier(
   internalTierId: string,
 ): string | undefined {
   const norm = normalizeCoreTierId(internalTierId);
@@ -162,6 +165,45 @@ export function getOpenRouterModelIdForCoreTier(
       })()
     : undefined;
   return embedded ?? devCoreKeyProvider.modelId(norm);
+}
+
+/**
+ * @deprecated Use `getCoreModelIdForCoreTier`. Kept because the name appears across
+ * tests and call sites, and because the id it returns is no longer OpenRouter's —
+ * it is the wire id the Core proxy resolves, whichever provider ends up serving it.
+ */
+export const getOpenRouterModelIdForCoreTier = getCoreModelIdForCoreTier;
+
+/**
+ * models.dev coordinates for a Core tier: the Atlarix provider id backing it and the
+ * vendor's own model id.
+ *
+ * This is how Core reaches its real context window, price and capabilities. It used
+ * to resolve them through the OpenRouter catalog keyed by a `vendor/model` wire id —
+ * which stops matching anything once a tier routes direct, silently collapsing a 1M
+ * window to a generic fallback.
+ *
+ * Prefers the hosted `routing` block (authoritative, and carries the vendor's exact
+ * casing). Falls back to splitting the wire id, which is right for the OpenRouter-era
+ * shape where the prefix IS the provider — but note that fallback is case-sensitive
+ * against models.dev, so `routing` is what makes e.g. `MiniMax-M3` resolve.
+ */
+export function getCoreModelsDevTargetForTier(
+  internalTierId: string,
+): { providerId: string; modelId: string } | undefined {
+  const norm = normalizeCoreTierId(internalTierId);
+  const routing = getCoreTierRouting(norm);
+  if (routing) {
+    return { providerId: routing.provider, modelId: routing.apiModelId };
+  }
+  const wireId = getCoreModelIdForCoreTier(norm)?.trim();
+  if (!wireId) return undefined;
+  const slash = wireId.indexOf("/");
+  if (slash <= 0 || slash === wireId.length - 1) return undefined;
+  return {
+    providerId: wireId.slice(0, slash).toLowerCase(),
+    modelId: wireId.slice(slash + 1),
+  };
 }
 
 /**

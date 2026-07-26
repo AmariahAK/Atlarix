@@ -23,6 +23,8 @@ import {
 import {
   setCoreModelOverrides,
   setCoreModelWebSearch,
+  setCoreModelRouting,
+  type CoreTierRouting,
 } from "@/ipc/shared/core-model-override-store";
 
 const logger = log.scope("core-models");
@@ -45,6 +47,12 @@ interface CoreModelsPayload {
    * `web_search` (SearxNG) tool instead of OpenRouter's metered server tool.
    */
   webSearch?: Record<string, unknown>;
+  /**
+   * Optional per-tier direct-provider routing (`core-N` → {provider, apiModelId}).
+   * Absent → that tier resolves through OpenRouter (pre-migration shape, and the
+   * per-tier rollback lever).
+   */
+  routing?: Record<string, unknown>;
 }
 
 let refreshTimer: ReturnType<typeof setInterval> | null = null;
@@ -79,6 +87,7 @@ function applyOverridesAndNotify(raw: unknown): void {
   const map = parseCoreModelsPayload(raw);
   setCoreModelOverrides(map);
   setCoreModelWebSearch(parseCoreWebSearchOverrides(raw));
+  setCoreModelRouting(parseCoreRouting(raw));
   const serialized = map
     ? JSON.stringify(Object.entries(map).sort(([a], [b]) => a.localeCompare(b)))
     : null;
@@ -125,6 +134,33 @@ function parseCoreWebSearchOverrides(
     if (!CORE_TIER_IDS.has(norm)) continue;
     if (typeof value !== "boolean") continue;
     map[norm] = value;
+  }
+  return Object.keys(map).length > 0 ? map : null;
+}
+
+/**
+ * Validate the optional `routing` block into a clean `core-N` → {provider, apiModelId}
+ * map. Both fields are required — a half-specified entry would resolve to a vendor we
+ * can't name a model for, so it is dropped and that tier falls back to OpenRouter.
+ */
+function parseCoreRouting(
+  raw: unknown,
+): Record<string, CoreTierRouting> | null {
+  if (!raw || typeof raw !== "object") return null;
+  const routing = (raw as CoreModelsPayload).routing;
+  if (!routing || typeof routing !== "object") return null;
+  const map: Record<string, CoreTierRouting> = {};
+  for (const [key, value] of Object.entries(routing)) {
+    const norm = normalizeCoreTierId(key);
+    if (!CORE_TIER_IDS.has(norm)) continue;
+    if (!value || typeof value !== "object") continue;
+    const entry = value as Record<string, unknown>;
+    const provider =
+      typeof entry.provider === "string" ? entry.provider.trim() : "";
+    const apiModelId =
+      typeof entry.apiModelId === "string" ? entry.apiModelId.trim() : "";
+    if (!provider || !apiModelId) continue;
+    map[norm] = { provider, apiModelId };
   }
   return Object.keys(map).length > 0 ? map : null;
 }
