@@ -66,15 +66,17 @@ function compassProviderSlug(openRouterModelId: string): string {
  * pick up a `core-models.json` change without an app restart.
  */
 export function getCompassSyntheticModels(): LanguageModel[] {
-  return CORE_TIER_ROWS.map((row) => {
+  return CORE_TIER_ROWS.flatMap((row) => {
     const openRouterModelId =
       getOpenRouterModelIdForCoreTier(row.id)?.trim() ?? "";
-    const modelDisplayName = openRouterModelId
-      ? formatModelApiNameForDisplay(openRouterModelId)
-      : row.id;
-    const slug = openRouterModelId
-      ? compassProviderSlug(openRouterModelId)
-      : "openrouter";
+    // A slot with no configured model is NOT shown. There are four slots but the
+    // lineup is whatever `core-models.json` maps — running three (or two) models
+    // otherwise surfaced a raw "core-4" placeholder in the picker that resolves to
+    // nothing and throws at dispatch. This makes the tier COUNT config-driven, so
+    // adding or dropping a Core model never needs a code change.
+    if (!openRouterModelId) return [];
+    const modelDisplayName = formatModelApiNameForDisplay(openRouterModelId);
+    const slug = compassProviderSlug(openRouterModelId);
     return {
       apiName: row.id,
       displayName: formatModelWithProvider(modelDisplayName, slug),

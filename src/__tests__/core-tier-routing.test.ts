@@ -40,7 +40,9 @@ import {
   getCoreModelIdForCoreTier,
   getOpenRouterModelIdForCoreTier,
   getCoreModelsDevTargetForTier,
+  getCompassSyntheticModels,
 } from "@/ipc/shared/compass_constants";
+import { buildAtlarixCoreTierCatalog } from "@/lib/atlarix-core-catalog";
 
 const ENV_KEYS = [
   "ATLARIX_CORE_MODEL_1",
@@ -218,6 +220,52 @@ describe("getCoreModelsDevTargetForTier", () => {
       providerId: "moonshot",
       modelId: "kimi-k3",
     });
+  });
+});
+
+describe("lineup size is config-driven", () => {
+  /**
+   * There are four SLOTS but the lineup is whatever core-models.json maps. Running
+   * three models used to leave a raw "core-4" entry in the picker that resolved to
+   * nothing and threw at dispatch, so the tier count was effectively hardcoded.
+   */
+  it("lists only the configured tiers — a 3-model lineup shows 3", () => {
+    setCoreModelOverrides({
+      "core-1": "moonshotai/kimi-k3",
+      "core-2": "zai/glm-5.2",
+      "core-3": "deepseek/deepseek-v4-pro",
+    });
+    const catalog = buildAtlarixCoreTierCatalog();
+    expect(catalog).toHaveLength(3);
+    expect(catalog.map((e) => e.internalTierId)).toEqual(["core-1", "core-2", "core-3"]);
+
+    const models = getCompassSyntheticModels();
+    expect(models).toHaveLength(3);
+    // No placeholder leaked through as a display name.
+    for (const m of models) {
+      expect(m.displayName).not.toMatch(/^core-\d$/);
+    }
+  });
+
+  it("derives the provider slug from the vendor segment, incl. zai", () => {
+    setCoreModelOverrides({ "core-2": "zai/glm-5.2" });
+    expect(buildAtlarixCoreTierCatalog()[0]!.providerSlug).toBe("zai");
+  });
+
+  it("supports a 2-model lineup with no code change", () => {
+    setCoreModelOverrides({
+      "core-1": "moonshotai/kimi-k3",
+      "core-3": "deepseek/deepseek-v4-pro",
+    });
+    expect(buildAtlarixCoreTierCatalog()).toHaveLength(2);
+    expect(getCompassSyntheticModels()).toHaveLength(2);
+  });
+
+  it("omits a slot whose id is blank rather than showing an empty row", () => {
+    setCoreModelOverrides({ "core-1": "moonshotai/kimi-k3" });
+    const catalog = buildAtlarixCoreTierCatalog();
+    expect(catalog).toHaveLength(1);
+    expect(catalog[0]!.coreModelId).toBe("moonshotai/kimi-k3");
   });
 });
 

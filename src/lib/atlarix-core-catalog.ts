@@ -48,11 +48,17 @@ function presentationForInternalTier(
   };
 }
 
-/** Build catalog of the four Core models. Resolves current ids (override or env). */
+/**
+ * Catalog of the CONFIGURED Core models, in slot order.
+ *
+ * Slots with no mapped model are omitted — the lineup is whatever
+ * `core-models.json` maps, not a fixed four. Keeping an unconfigured slot produced a
+ * "Core 4" entry that resolved to nothing and threw at dispatch.
+ */
 export function buildAtlarixCoreTierCatalog(): AtlarixCoreTierPresentation[] {
   return CORE_TIER_ORDER.map((internalTierId) =>
     presentationForInternalTier(internalTierId),
-  );
+  ).filter((entry) => entry.coreModelId !== "");
 }
 
 export function findCatalogEntryByInternalTierId(
