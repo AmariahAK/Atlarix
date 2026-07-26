@@ -18,6 +18,7 @@ import { BrowserWindow } from "electron";
 import { getUserDataPath } from "@/paths/paths";
 import {
   CORE_TIER_ORDER,
+  emptySlotAware,
   normalizeCoreTierId,
 } from "@/ipc/shared/compass_constants";
 import {
@@ -110,9 +111,10 @@ function parseCoreModelsPayload(raw: unknown): Record<string, string> | null {
   for (const [key, value] of Object.entries(models)) {
     const norm = normalizeCoreTierId(key);
     if (!CORE_TIER_IDS.has(norm)) continue;
-    if (typeof value !== "string") continue;
-    const trimmed = value.trim();
-    if (trimmed) map[norm] = trimmed;
+    // A slot parked as "TBA" reads as EMPTY, same as the env path — otherwise the
+    // placeholder would be dispatched to the provider as a model id.
+    const resolved = emptySlotAware(value);
+    if (resolved) map[norm] = resolved;
   }
   return Object.keys(map).length > 0 ? map : null;
 }

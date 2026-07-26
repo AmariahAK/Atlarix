@@ -271,6 +271,55 @@ describe("lineup size is config-driven", () => {
   });
 });
 
+describe("empty and parked slots", () => {
+  /**
+   * A slot with no model cannot be an empty string: GitHub Actions secrets refuse empty
+   * values. So an unused slot carries a placeholder, and every layer has to read that as
+   * EMPTY — otherwise "TBA" is dispatched to a provider as a model id.
+   */
+  it.each(["TBA", "tba", "TBD", "none", "N/A", "-", "null"])(
+    "treats a hosted slot of %s as empty",
+    async (placeholder) => {
+      vi.stubGlobal(
+        "fetch",
+        fetchOk({
+          models: { "core-1": placeholder, "core-2": "deepseek/deepseek-v4-pro" },
+        }),
+      );
+      await refreshCoreModelOverrides();
+      expect(getCoreModelIdForCoreTier("core-1")).toBeUndefined();
+      expect(getCoreModelIdForCoreTier("core-2")).toBe("deepseek/deepseek-v4-pro");
+      // And the parked slot must not reach the picker.
+      expect(getCompassSyntheticModels().map((m) => m.apiName)).toEqual(["core-2"]);
+    },
+  );
+
+  it("treats a parked ENV slot as empty too", () => {
+    process.env.ATLARIX_CORE_MODEL_1 = "TBA";
+    process.env.ATLARIX_CORE_MODEL_2 = "deepseek/deepseek-v4-pro";
+    expect(getCoreModelIdForCoreTier("core-1")).toBeUndefined();
+    expect(getCoreModelIdForCoreTier("core-2")).toBe("deepseek/deepseek-v4-pro");
+  });
+
+  it("supports ZERO configured models without inventing rows", () => {
+    // A lineup being rebuilt is a real state. Nothing should render, and callers get a
+    // clear "nothing configured" answer rather than a broken row.
+    expect(getCompassSyntheticModels()).toEqual([]);
+    expect(buildAtlarixCoreTierCatalog()).toEqual([]);
+    expect(getFirstConfiguredCoreTier()).toBeUndefined();
+    expect(resolveConfiguredCoreTier("core-1")).toBeUndefined();
+  });
+
+  it("is empty when every hosted slot is parked", async () => {
+    vi.stubGlobal(
+      "fetch",
+      fetchOk({ models: { "core-1": "TBA", "core-2": "TBA", "core-3": "TBA" } }),
+    );
+    await refreshCoreModelOverrides();
+    expect(getCompassSyntheticModels()).toEqual([]);
+  });
+});
+
 describe("resolving a tier that is not in the lineup", () => {
   /**
    * Dropping a model from the lineup must not break users. Two paths assumed core-1

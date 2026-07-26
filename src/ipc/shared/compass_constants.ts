@@ -94,8 +94,40 @@ export function getCompassSyntheticModels(): LanguageModel[] {
 }
 
 /** Main-process only; renderer has no `process.env`. */
+/**
+ * Placeholders that mean "this slot is intentionally empty".
+ *
+ * GitHub Actions secrets cannot hold an empty value — an empty secret is treated as
+ * unset in some paths and as the literal empty string in others — so a slot with no
+ * model has to carry a placeholder. Without this, `TBA` would be taken as a model id
+ * and dispatched to the provider verbatim.
+ *
+ * Matched case-insensitively after trimming, so `TBA`, `tba`, `n/a` and `none` all work.
+ */
+const EMPTY_SLOT_SENTINELS = new Set(["tba", "tbd", "none", "n/a", "na", "-", "null", "undefined"]);
+
+/**
+ * Trim an env value, treating blanks AND empty-slot placeholders as absent.
+ *
+ * Used for the Core model slots specifically: `ATLARIX_CORE_MODEL_3=TBA` must read as
+ * "no model in slot 3", exactly like an unset variable.
+ */
 function trimEnv(value: string | undefined): string | undefined {
-  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+  return emptySlotAware(value);
+}
+
+/**
+ * Normalize a Core model slot value, or undefined when the slot is empty.
+ *
+ * Exported because the hosted `core-models.json` needs the same rule: a slot parked as
+ * `"TBA"` in that file must read as empty too, not be dispatched as a model id.
+ */
+export function emptySlotAware(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  if (EMPTY_SLOT_SENTINELS.has(trimmed.toLowerCase())) return undefined;
+  return trimmed;
 }
 
 /**
