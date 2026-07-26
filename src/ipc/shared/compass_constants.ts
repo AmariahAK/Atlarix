@@ -178,6 +178,36 @@ export function getCoreModelIdForCoreTier(
 export const getOpenRouterModelIdForCoreTier = getCoreModelIdForCoreTier;
 
 /**
+ * The first Core slot that actually has a model mapped, or undefined if none do.
+ *
+ * Needed because the lineup size is config-driven: there are four slots but
+ * `core-models.json` may map any subset. Anything that needs "a Core model" must ask
+ * for one rather than assume `core-1` exists — dropping the tier-1 model otherwise
+ * broke the BYOK-fallback path and any persisted selection pointing at it.
+ */
+export function getFirstConfiguredCoreTier(): string | undefined {
+  return CORE_TIER_ORDER.find((tier) => !!getCoreModelIdForCoreTier(tier)?.trim());
+}
+
+/**
+ * Resolve a requested Core tier to one that is actually configured.
+ *
+ * Returns the tier unchanged when it has a model. When it does not — a slot removed
+ * from the lineup, or a selection persisted before the lineup changed — this falls
+ * forward to the first configured tier instead of failing the turn. Changing the
+ * lineup would otherwise break every user whose saved selection pointed at the
+ * removed slot, on their very next message.
+ */
+export function resolveConfiguredCoreTier(
+  internalTierId: string,
+): { tier: string; substituted: boolean } | undefined {
+  const norm = normalizeCoreTierId(internalTierId);
+  if (getCoreModelIdForCoreTier(norm)?.trim()) return { tier: norm, substituted: false };
+  const fallback = getFirstConfiguredCoreTier();
+  return fallback ? { tier: fallback, substituted: true } : undefined;
+}
+
+/**
  * models.dev coordinates for a Core tier: the Atlarix provider id backing it and the
  * vendor's own model id.
  *

@@ -9,7 +9,6 @@ import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import { OPENROUTER_APP_HEADERS } from "../shared/openrouter_app_headers";
 import {
   COMPASS_PROVIDER_ID,
-  CORE_TIER_1,
   isCompassBuildConfigured,
 } from "../shared/compass_constants";
 import { OPENWEIGHT_PROVIDER_BASE_URLS } from "../shared/language_model_constants";
@@ -43,6 +42,8 @@ import { createAtlarixEngine } from "./llm_engine_provider";
 import {
   getCompassMasterApiKey,
   getCoreModelIdForCoreTier,
+  getFirstConfiguredCoreTier,
+  resolveConfiguredCoreTier,
 } from "../shared/compass_constants";
 import { getCoreProxyBaseUrl } from "../shared/core_proxy";
 import { getSession } from "../../lib/auth/supabase-client";
@@ -144,13 +145,23 @@ export async function getModelClient(
     isCompassBuildConfigured() &&
     !(await hasUsableProviderKey(model.provider, settings, providerConfig))
   ) {
-    logger.info(
-      `No usable API key for ${model.provider} — falling back to Atlarix Core (${CORE_TIER_1}).`,
-    );
-    model = { name: CORE_TIER_1, provider: COMPASS_PROVIDER_ID };
-    const coreConfig = allProviders.find((p) => p.id === COMPASS_PROVIDER_ID);
-    if (coreConfig) providerConfig = coreConfig;
-    fellBackToCore = true;
+    // Ask for the first CONFIGURED tier rather than assuming core-1 exists. The
+    // lineup size is config-driven, so hardcoding core-1 meant that dropping the
+    // tier-1 model turned this rescue path into a hard failure.
+    const coreTier = getFirstConfiguredCoreTier();
+    if (coreTier) {
+      logger.info(
+        `No usable API key for ${model.provider} — falling back to Atlarix Core (${coreTier}).`,
+      );
+      model = { name: coreTier, provider: COMPASS_PROVIDER_ID };
+      const coreConfig = allProviders.find((p) => p.id === COMPASS_PROVIDER_ID);
+      if (coreConfig) providerConfig = coreConfig;
+      fellBackToCore = true;
+    } else {
+      logger.warn(
+        `No usable API key for ${model.provider} and no Core model is configured — cannot fall back.`,
+      );
+    }
   }
 
   // Handle Atlarix Pro override (Compass uses its own managed key, never the engine proxy)
@@ -327,7 +338,24 @@ async function getRegularModelClient(
       };
     }
     case "compass": {
-      const coreModelId = getCoreModelIdForCoreTier(model.name);
+      // A selection can point at a slot the lineup no longer maps — persisted before
+      // a lineup change, or a tier removed from core-models.json. Fall FORWARD to a
+      // configured tier instead of failing the turn: otherwise changing the lineup
+      // breaks every user whose saved selection pointed at the removed slot, on their
+      // next message, with nothing they did wrong.
+      const resolvedTier = resolveConfiguredCoreTier(model.name);
+      if (!resolvedTier) {
+        throw new Error(
+          `No Atlarix Core model is configured for this build. Add your own API keys in Settings, or use a release build.`,
+        );
+      }
+      if (resolvedTier.substituted) {
+        logger.info(
+          `Core tier "${model.name}" is not in the current lineup — using ${resolvedTier.tier}.`,
+        );
+        model = { ...model, name: resolvedTier.tier };
+      }
+      const coreModelId = getCoreModelIdForCoreTier(resolvedTier.tier);
       if (!coreModelId) {
         throw new Error(
           `Atlarix Core model "${model.name}" is not configured for this build. Choose another Core model or add BYOK keys in Settings.`,

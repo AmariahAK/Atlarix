@@ -41,6 +41,8 @@ import {
   getOpenRouterModelIdForCoreTier,
   getCoreModelsDevTargetForTier,
   getCompassSyntheticModels,
+  getFirstConfiguredCoreTier,
+  resolveConfiguredCoreTier,
 } from "@/ipc/shared/compass_constants";
 import { buildAtlarixCoreTierCatalog } from "@/lib/atlarix-core-catalog";
 
@@ -266,6 +268,58 @@ describe("lineup size is config-driven", () => {
     const catalog = buildAtlarixCoreTierCatalog();
     expect(catalog).toHaveLength(1);
     expect(catalog[0]!.coreModelId).toBe("moonshotai/kimi-k3");
+  });
+});
+
+describe("resolving a tier that is not in the lineup", () => {
+  /**
+   * Dropping a model from the lineup must not break users. Two paths assumed core-1
+   * always existed: the BYOK-no-key rescue hardcoded it, and a selection persisted
+   * before the lineup changed still names it. Both would have hard-failed the turn.
+   */
+  it("finds the first configured tier even when core-1 is absent", () => {
+    setCoreModelOverrides({
+      "core-2": "z-ai/glm-5.2",
+      "core-3": "deepseek/deepseek-v4-pro",
+    });
+    expect(getFirstConfiguredCoreTier()).toBe("core-2");
+  });
+
+  it("is undefined when nothing is configured, so callers can say so plainly", () => {
+    expect(getFirstConfiguredCoreTier()).toBeUndefined();
+  });
+
+  it("passes a configured tier through untouched", () => {
+    setCoreModelOverrides({ "core-3": "deepseek/deepseek-v4-pro" });
+    expect(resolveConfiguredCoreTier("core-3")).toEqual({
+      tier: "core-3",
+      substituted: false,
+    });
+  });
+
+  it("substitutes forward for a tier dropped from the lineup", () => {
+    // A user who had Core 1 selected before Kimi was removed keeps working.
+    setCoreModelOverrides({
+      "core-2": "z-ai/glm-5.2",
+      "core-3": "deepseek/deepseek-v4-pro",
+    });
+    expect(resolveConfiguredCoreTier("core-1")).toEqual({
+      tier: "core-2",
+      substituted: true,
+    });
+  });
+
+  it("normalizes a legacy alias before substituting", () => {
+    setCoreModelOverrides({ "core-3": "deepseek/deepseek-v4-pro" });
+    // compass-fast -> core-1, which is unconfigured, so it falls forward to core-3.
+    expect(resolveConfiguredCoreTier("compass-fast")).toEqual({
+      tier: "core-3",
+      substituted: true,
+    });
+  });
+
+  it("returns undefined when there is nothing to substitute to", () => {
+    expect(resolveConfiguredCoreTier("core-1")).toBeUndefined();
   });
 });
 
