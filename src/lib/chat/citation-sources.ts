@@ -12,6 +12,48 @@ const WEB_SOURCE_TOOLS = new Set([
   "google_search",
 ]);
 
+/**
+ * File extensions that mean "this URL is a source file", not a page worth citing.
+ *
+ * Web search legitimately turns up raw code on GitHub/GitLab — `packages/core/src/
+ * tools/ls.ts`, `app/agent/ls_tool.py` — and those crowd out the actual articles and
+ * docs that answered the question. Note the app never cites files it read locally;
+ * citations only ever come from WEB_SOURCE_TOOLS. This is web results pointing AT
+ * code.
+ *
+ * Documentation extensions (.md, .mdx, .rst, .txt) are deliberately NOT here: a
+ * README or a docs page is frequently the real answer, so dropping them would lose
+ * genuine sources.
+ */
+const CODE_FILE_EXTENSIONS = new Set([
+  "ts", "tsx", "js", "jsx", "mjs", "cjs",
+  "py", "rb", "go", "rs", "java", "kt", "swift", "scala",
+  "c", "h", "cc", "cpp", "hpp", "cs", "php", "pl", "lua", "dart",
+  "sh", "bash", "zsh", "fish", "ps1",
+  "json", "yml", "yaml", "toml", "ini", "cfg", "lock",
+  "css", "scss", "less", "sql", "graphql", "proto",
+]);
+
+/**
+ * True when a URL points at a raw source file rather than a readable page.
+ *
+ * Extension-based rather than host-based on purpose: github.com also hosts issues,
+ * discussions and docs that are perfectly good citations, so excluding the whole
+ * domain would throw away real sources.
+ */
+export function isCodeFileSourceUrl(url: string): boolean {
+  let pathname: string;
+  try {
+    pathname = new URL(url).pathname;
+  } catch {
+    return false;
+  }
+  const last = pathname.split("/").filter(Boolean).pop();
+  if (!last || !last.includes(".")) return false;
+  const ext = last.split(".").pop()?.toLowerCase();
+  return !!ext && CODE_FILE_EXTENSIONS.has(ext);
+}
+
 function tryParseJson(str: string): unknown {
   try {
     return JSON.parse(str);
@@ -48,6 +90,9 @@ export function citationLabelForSource(source: SourceItem): string {
 function normalizeSource(raw: Record<string, unknown>, index: number): SourceItem | null {
   const url = typeof raw.url === "string" ? raw.url.trim() : "";
   if (!url) return null;
+  // Filtered at the single point every citation path funnels through, so the strip,
+  // the "+N more" dialog and the inline markers can't disagree about the set.
+  if (isCodeFileSourceUrl(url)) return null;
   return {
     id: typeof raw.id === "string" ? raw.id : `src-${index}-${url}`,
     title: typeof raw.title === "string" ? raw.title : "Untitled",

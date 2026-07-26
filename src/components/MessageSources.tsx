@@ -8,7 +8,7 @@
 
 import { useState } from "react";
 import { extractDomain as getDomain } from "@/lib/format-url";
-import { File, ExternalLink } from "lucide-react";
+import { File, ExternalLink, Globe } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
     Dialog,
@@ -16,11 +16,27 @@ import {
     DialogHeader,
     DialogTitle,
 } from "@/components/ui/dialog";
+import { IpcClient } from "@/ipc/ipc_client";
+
+/**
+ * Open a cited page in Atlarix's own browser tab — an isolated WebContentsView,
+ * which is where untrusted third-party pages belong. Falls back to the OS browser if
+ * the panel can't be opened, so the action never silently does nothing.
+ */
+async function openInAppBrowser(url: string): Promise<void> {
+    try {
+        await IpcClient.getInstance().browserCreateTab(url);
+    } catch {
+        window.open(url, "_blank");
+    }
+}
 
 export interface Source {
     title: string;
     url: string;
     content?: string;
+    /** Search-result excerpt. Callers pass SourceItem, which names it `snippet`. */
+    snippet?: string;
     favicon?: string;
 }
 
@@ -226,13 +242,45 @@ export function MessageSources({ sources }: MessageSourcesProps) {
                                     </Button>
                                 </div>
                             </DialogHeader>
-                            <div className="overflow-y-auto h-full">
-                                <iframe
-                                    src={selectedSource.url}
-                                    className="w-full h-[calc(90vh-80px)] border-0"
-                                    title={selectedSource.title}
-                                    sandbox="allow-scripts allow-same-origin"
-                                />
+                            {/* No iframe here on purpose. The packaged CSP is
+                                `frame-src 'self' blob: data:`, so an external URL
+                                never loaded — the panel was permanently blank. Even
+                                widening it wouldn't help: most doc hosts send
+                                X-Frame-Options: DENY, and embedding untrusted pages in
+                                the app renderer is a real security regression. The
+                                search snippet we already have is a genuine preview,
+                                and the in-app browser (an isolated WebContentsView) is
+                                the right place to open the page itself. */}
+                            <div className="overflow-y-auto max-h-[70vh] p-4 space-y-4">
+                                {(selectedSource.snippet ?? selectedSource.content)?.trim() ? (
+                                    <p className="text-sm leading-relaxed whitespace-pre-wrap">
+                                        {(selectedSource.snippet ?? selectedSource.content)!.trim()}
+                                    </p>
+                                ) : (
+                                    <p className="text-sm text-muted-foreground italic">
+                                        No excerpt was returned for this result.
+                                    </p>
+                                )}
+                                <div className="flex flex-wrap gap-2 pt-2 border-t border-border">
+                                    <Button
+                                        size="sm"
+                                        onClick={() => {
+                                            void openInAppBrowser(selectedSource.url);
+                                            setIsPreviewOpen(false);
+                                        }}
+                                    >
+                                        <Globe size={14} className="mr-1.5" />
+                                        Open in browser tab
+                                    </Button>
+                                    <Button
+                                        size="sm"
+                                        variant="outline"
+                                        onClick={() => window.open(selectedSource.url, "_blank")}
+                                    >
+                                        <ExternalLink size={14} className="mr-1.5" />
+                                        Open externally
+                                    </Button>
+                                </div>
                             </div>
                         </>
                     )}
