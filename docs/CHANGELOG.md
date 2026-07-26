@@ -3,6 +3,25 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
+## [14.17.1] (2026-07-26) — Answers that stream instead of arriving all at once
+
+### Fixed
+
+- **A fast model now streams its answer instead of just appearing.** Some providers reply
+  quickly enough that the whole answer landed in one step — the text never streamed, and the
+  view jumped to the bottom in a single jolt. Replies are now revealed at a steady rate, so
+  reading one feels the same whichever model you picked. Models that were already comfortable
+  to read are untouched: the limit only applies to output arriving faster than that, so
+  nothing has been slowed down to achieve it. If you have reduced motion enabled, text
+  appears immediately as before.
+- **A custom credit top-up below the $10 minimum is now refused as you enter it**, with the
+  reason, instead of being added to your running total and then rejected at checkout.
+- **The app is much quieter on the network while idle.** A one-time account setup step was
+  being re-requested on every session check, once for each part of the app that asks who you
+  are — dozens of identical requests for something that can only happen once. Requests that
+  overlap are now answered together. Nothing about your balance or plan is cached, so a
+  top-up still shows up straight away.
+
 ## [14.17.0] (2026-07-26) — Atlarix Core talks to the model makers directly
 
 Core used to reach every managed model through OpenRouter. It now calls the provider APIs

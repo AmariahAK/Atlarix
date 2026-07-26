@@ -1,9 +1,45 @@
 # Atlarix TODO
 
-**Current Version:** v14.17.0 (RELEASING 2026-07-26) — Atlarix Core moves off OpenRouter onto the
-provider APIs directly (GLM 5.2 + DeepSeek V4 Pro, both ~1M context), billing computed from
-models.dev prices, plus the think-tag fix that was folding answers into the Thoughts card.
+**Current Version:** v14.17.1 (RELEASING 2026-07-26) — streamed answers reveal at a bounded rate so
+a fast provider streams rather than appearing all at once, the $10 top-up floor is enforced at
+entry, and the idle Supabase request storm is gone.
 **Last Updated:** 2026-07-26
+
+## ✅ SHIPPED in v14.17.1
+
+Fast-follow to 14.17.0, all three verified in the packaged build.
+
+- **Streamed answers are paced.** The renderer flushes the whole accumulated answer every ~50ms,
+  so perceived smoothness tracked the provider's total time, not chunk size — GLM on direct Z.ai
+  finished fast enough to land a reply in one or two flushes, which read as the answer appearing
+  and the viewport snapping. Reveal rate is now `min(MAX, BASE + backlog / CATCHUP)`, so a
+  provider at or under BASE never builds a backlog and is unchanged (DeepSeek), while faster
+  output is bounded to under a second of lag. `MAX` is a safety valve only — set below a
+  sustainable provider rate it would make the lag grow without bound. Display-only: the store
+  keeps full text, so persistence, model re-ingestion and copy are unaffected.
+- **Custom top-up floor enforced at entry**, not just at confirm, where the amount read as
+  accepted before being refused.
+- **`claim_signup_credit` was a write RPC fired ~22x concurrently, forever.** `useAuth` is a plain
+  hook with no shared store and ~22 consumers, each running its own `checkSession()`, which fires
+  the one-time claim unconditionally. Fixed at the IPC boundary rather than the hook so it holds
+  for every consumer without touching 22 call sites. A FAILED claim is deliberately not
+  remembered, and sign-out clears it. See [[atlarix-useauth-unshared-hook-hazard]] — anything
+  added to `checkSession` runs ~22 times.
+- **`verify-release` worked for the first time.** It compared asset names case-sensitively while
+  Forge capitalises the Squirrel installer and darwin zips, so the gate had failed on every
+  release; it also never checked the DMGs, the AppImage or the updater feeds. Dev tooling, so
+  it's absent from the user-facing changelog.
+
+### Still open (owner-side)
+
+- Reconcile proxy debits against the DeepSeek and Z.ai dashboards over ~a day — the acceptance
+  gate for the 14.17.0 billing path. Watch for `actual … EXCEEDED reserve` and `no price row for`.
+- Add Kimi back when its billing works: one `models` + one `routing` entry in
+  `core-models.json`, `MOONSHOT_API_KEY` on Railway, and **remove `moonshotai/kimi-k3` from
+  `RETIRED_CORE_MODEL_IDS`** in the proxy (`server.ts:57`) or it 503s regardless of config.
+- `latest-mac.yml` is uploaded by the arm64 job only (`if: matrix.arch == 'arm64'`), so the mac
+  auto-update feed lists no x64 files and Intel auto-update has nothing to resolve to, even
+  though the x64 DMG and zip are published. Pre-existing and deliberate; worth revisiting.
 
 ## ✅ SHIPPED in v14.17.0
 
