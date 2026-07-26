@@ -3,6 +3,57 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
+## [14.17.0] (2026-07-26) — Atlarix Core talks to the model makers directly
+
+Core used to reach every managed model through OpenRouter. It now calls the provider APIs
+directly, which is why the model list is shorter and sharper: **GLM 5.2** and **DeepSeek V4
+Pro**, both with a one-million-token context. One prepaid balance still covers all of them —
+you are billed what a reply actually costs on the model you used, so switching mid-conversation
+is fine.
+
+### Fixed
+
+- **Your answer no longer ends up inside the "Thoughts" card.** Every model that wraps its
+  reasoning in `<think>` tags — DeepSeek included — was having the visible reply captured as
+  part of its thinking, so reasoning and answer appeared mixed together. A reply that *opened*
+  with reasoning could vanish entirely. Four separate places normalised those tags the same
+  wrong way; they now share one implementation, so they cannot drift apart again.
+- **A stray `</think>` no longer appears in the middle of a reply.** Some models send the
+  closing tag on its own; it had nothing to match against and was rendered as text.
+- **Atlarix Core now knows how big its models really are.** Core was reading its context window
+  from the wrong catalog and falling back to 128K — so a million-token model was being compacted
+  at roughly an eighth of its real capacity, throwing away context that never needed to go.
+  DeepSeek on Core now resolves its true ~1M window.
+- **Thinking settings reach the model in the shape it actually accepts.** Reasoning options were
+  picked per *provider*, so every model from a given provider got the same request — which is why
+  MiniMax M3's thinking behaved oddly while its sibling looked fine. Each model's own declared
+  capability is now used, and a model is never sent an effort level it does not support.
+- **Models that reject a `temperature` setting are no longer sent one** (Kimi K3 among them).
+- **Citations link to pages, not to raw source files.** Web search kept surfacing code files,
+  which crowded out the articles and docs that answered the question. The citation preview also
+  showed a blank panel; it now shows the search excerpt, with buttons to open the page in
+  Atlarix's own browser tab or externally.
+- **Discord profile pictures load**, and the account badge says Discord instead of GitHub.
+
+### Added
+
+- **The token meter names what background work spent your tokens.** Sub-agents and context
+  compaction were shown as a single figure labelled "Sub-agents", so work the app did on your
+  behalf looked like work you had asked for. Each source is now listed separately with its call
+  count.
+- **The agent knows where it is on a page.** Reading a page now reports scroll position, so it
+  scrolls to find content that only loads further down instead of concluding it is absent.
+- **The Core model list follows the catalog.** Atlarix can run two, three or four Core models and
+  the picker shows exactly what is configured — no placeholder rows for slots that are empty.
+
+### Changed
+
+- **Core web search now uses the built-in search tool and the in-app browser.** OpenRouter's
+  server-side search is not available to Core any more, and none of the direct providers offers an
+  equivalent over a plain chat endpoint. A dedicated search integration is planned.
+- **A Core model that is temporarily unavailable says so plainly** and points you at the other
+  Core models or your own API key, rather than implying all of Core is down.
+
 ## [14.16.1] (2026-07-23) — Staying signed in, and seeing your models straight away
 
 ### Fixed

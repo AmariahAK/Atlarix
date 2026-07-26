@@ -1,7 +1,60 @@
 # Atlarix TODO
 
-**Current Version:** v14.16.1 (RELEASING 2026-07-23) — Patch: sign-in survives a restart again (v14.16.0 regression), a provider's models show the moment its key is saved (long-standing), Discord sign-in, Settings → Community.
-**Last Updated:** 2026-07-23
+**Current Version:** v14.17.0 (RELEASING 2026-07-26) — Atlarix Core moves off OpenRouter onto the
+provider APIs directly (GLM 5.2 + DeepSeek V4 Pro, both ~1M context), billing computed from
+models.dev prices, plus the think-tag fix that was folding answers into the Thoughts card.
+**Last Updated:** 2026-07-26
+
+## ✅ SHIPPED in v14.17.0
+
+**Core no longer uses OpenRouter at all.** The only OpenRouter left in the product is a user's own
+BYOK key. Core calls DeepSeek and Z.ai directly, and the proxy computes cost from token counts x
+models.dev prices x 1.4 instead of reading a dollar figure back from a gateway.
+
+- **The billing model changed shape.** models.dev is the single price source — it already carries
+  `cache_read`, `cache_write` and context `tiers`, which the source briefs wrongly claimed it
+  lacked, so the planned hand-maintained price overlay was never built. One wallet still covers
+  every model; each call is priced from its own model's row.
+- **Config, not code, decides the lineup.** `core-models.json` gained `routing` + `providers`
+  blocks. The `apiModelId` is CARRIED rather than derived, because the wire id and the catalog key
+  differ in case (`minimax/minimax-m3` vs `MiniMax-M3`) and the lookup is case-sensitive — deriving
+  it silently lost that model's price and context window. Slots parked as `TBA` read as empty, and
+  2/3/4-model lineups all work with no release.
+- **Per-model reasoning replaced a provider allowlist.** Providers differ in the KIND of control
+  (toggle vs effort-list vs budget_tokens), not just the amount. Deep ON asks for a model's true
+  max; OFF sits one step below **in that model's own declared values**, so Kimi K3 never receives
+  the `medium` it does not list.
+- Core context now resolves from models.dev: DeepSeek 128K -> ~1M (compaction ~600K, not ~100K).
+- Client dispatches Core via `createOpenAICompatible`; the wire id stays `vendor/model` so
+  already-installed clients keep working and the proxy owns the rewrite to the vendor's id.
+
+**Bugs found that the briefs did not mention:**
+- The Thoughts card was capturing the visible ANSWER for every `<think>`-emitting model, DeepSeek
+  included. Four files normalised the tags the same wrong way. Not latent — live.
+- `teeUsageStream` never settled on client-abort or upstream-error (a TransformStream's `flush`
+  runs on neither), so a disconnect mid-generation meant the provider billed us and the user was
+  charged **nothing**.
+- Missing usage was a free generation. Now charges the reserve.
+- The OpenRouter path billed a **flat 10c regardless of tokens** — a severe under-charge on large
+  generations, and it applied to all traffic while any tier was unrouted. Now bills from
+  OpenRouter's own reported cost on that path only.
+- The proxy had no models.dev provider-alias map (`qwen`->`alibaba`, `moonshot`->`moonshotai`), so
+  the price lookup missed for two tiers and silently billed at the reserve.
+- The JWT verifier pinned RS256; this Supabase project issues **ES256**, so it would have rejected
+  every token and locked out every user.
+- `temperature: 0` was sent to every model always (nothing ever writes the field); Kimi K3 does not
+  accept the parameter.
+
+**Also shipped:** citation preview + code-file filtering, per-source background-token breakdown,
+browser scroll reporting, Discord avatars/badge, launchpad 404 rebuild.
+
+**REMAINING (owner-side):** reconcile proxy debits against the DeepSeek and Z.ai dashboards over
+~a day — that is the acceptance gate and cannot be self-certified. Add Kimi back once its billing
+works (one `models` + one `routing` entry). Delete the proxy's temporary retired-model list once
+adoption of the new lineup is high.
+
+**GOTCHA:** `atlarix-releases` merging to `main` IS the Core cutover — it is read live by every
+installed client. Never merge it before the proxy is deployed.
 
 ## ✅ SHIPPED in v14.16.1
 
