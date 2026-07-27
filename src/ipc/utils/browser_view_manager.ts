@@ -60,12 +60,98 @@ const NOISY_PREVIEW_RESOURCE_TYPES: ReadonlySet<string> = new Set([
   "webSocket",
 ]);
 
+/**
+ * Everything the browser panel owns, PER WINDOW.
+ *
+ * All of this used to be module-level, so every window shared one tab set, one
+ * panel, one page-error buffer — window 1's browsing genuinely was window 2's.
+ * `hostWindow()` compounded it by falling back to `getAllWindows().find(...)`,
+ * i.e. the FIRST window, so the view could attach to a window that never asked
+ * for it. `lastBounds` was the quiet one: two windows of different sizes shared
+ * a single panel geometry, so the view laid out at the wrong width in whichever
+ * window had not reported last.
+ *
+ * Deliberately NOT per window: the `persist:atlarix-browser` session (one cookie
+ * jar, so a login the user performed themselves works everywhere — what
+ * browser_tabs already promises the model) and `paintHost` (a compositor
+ * surface, not state).
+ */
+export type BrowserScope = {
+  /** The window this panel belongs to. */
+  window: BrowserWindow;
+  tabs: Map<number, WebContentsView>;
+  activeTabId: number | null;
+  visible: boolean;
+  lastBounds: Rect | null;
+  surfaceErrors: BrowserSurfaceError[];
+  panelWaiters: Array<() => void>;
+  /** True once a panel request went unanswered — the user wants it closed. */
+  panelRequestDeclined: boolean;
+};
+
+/** Tab ids stay globally unique so an id can never mean two things at once. */
 let nextTabId = 1;
-const tabs = new Map<number, WebContentsView>();
-let activeTabId: number | null = null;
-let visible = false;
-let lastBounds: Rect | null = null;
-let attachedWindow: BrowserWindow | null = null;
+
+const scopes = new Map<number, BrowserScope>();
+
+/** The scope for a window, created on first use. */
+export function browserScopeForWindow(win: BrowserWindow): BrowserScope {
+  const existing = scopes.get(win.id);
+  // Identity, not just liveness: the map is keyed by window id, and an id can
+  // outlive the window it belonged to (a stale entry whose `closed` never fired,
+  // or a reused id). Matching on `isDestroyed()` alone would hand a brand-new
+  // window another window's tabs — the exact leak this whole change removes.
+  if (existing && existing.window === win && !win.isDestroyed()) return existing;
+  const scope: BrowserScope = {
+    window: win,
+    tabs: new Map(),
+    activeTabId: null,
+    visible: false,
+    lastBounds: null,
+    surfaceErrors: [],
+    panelWaiters: [],
+    panelRequestDeclined: false,
+  };
+  scopes.set(win.id, scope);
+  win.once("closed", () => {
+    // Tear the views down explicitly; a WebContentsView outliving its window
+    // keeps a live renderer process around.
+    for (const view of scope.tabs.values()) {
+      try {
+        if (!view.webContents.isDestroyed()) view.webContents.close();
+      } catch {
+        /* shutdown best-effort */
+      }
+    }
+    scopes.delete(win.id);
+  });
+  return scope;
+}
+
+/**
+ * Resolve the scope for a caller.
+ *
+ * `windowId` comes from `_ownerWindowId`, injected once in `runToolExecute` from
+ * the requesting window's `sender`. When absent — automations, headless, or a
+ * main-process caller with no window in hand — fall back to the focused window
+ * and then to the only window, which is exactly the previous single-window
+ * behaviour. Returns null only when there is genuinely no window.
+ */
+export function resolveBrowserScope(windowId?: number | null): BrowserScope | null {
+  if (typeof windowId === "number") {
+    const win = BrowserWindow.fromId(windowId);
+    if (win && !win.isDestroyed()) return browserScopeForWindow(win);
+  }
+  const focused = BrowserWindow.getFocusedWindow();
+  if (focused && !focused.isDestroyed()) return browserScopeForWindow(focused);
+  const only = BrowserWindow.getAllWindows().find((w) => !w.isDestroyed());
+  return only ? browserScopeForWindow(only) : null;
+}
+
+/** Every live scope — for session-wide handlers that must search all windows. */
+function allScopes(): BrowserScope[] {
+  return [...scopes.values()].filter((s) => !s.window.isDestroyed());
+}
 
 /**
  * Bounds to attach with before the renderer's ResizeObserver has reported real
@@ -81,9 +167,9 @@ function fallbackBounds(win: BrowserWindow): Rect {
   return { x: Math.max(0, width - w), y: 0, width: w, height: Math.max(360, height) };
 }
 
-/** Real bounds if the renderer has reported them, else a sane default. */
-function boundsFor(win: BrowserWindow): Rect {
-  return lastBounds ?? fallbackBounds(win);
+/** Real bounds if THIS window's renderer has reported them, else a sane default. */
+function boundsFor(scope: BrowserScope): Rect {
+  return scope.lastBounds ?? fallbackBounds(scope.window);
 }
 
 export function isAllowedBrowserUrl(rawUrl: string): boolean {
@@ -129,13 +215,17 @@ function browserSession(): Session {
       try {
         const status = details.statusCode ?? 0;
         if (status < 400) return;
-        if (!isBrowserTabWebContents(details.webContentsId)) return;
+        // The session is shared by every window, so find which scope this tab
+        // belongs to — the failure is that window's, and only that window's
+        // completion gate should see it.
+        const owner = scopeForWebContentsId(details.webContentsId);
+        if (!owner) return;
         // Keep document/script/data requests; drop static-asset noise so a
         // missing favicon/image/font can't trip the gate. (Electron resourceType
         // literals vary by version, so we EXCLUDE the noisy set rather than match
         // an allowlist of names that may not exist.)
         if (NOISY_PREVIEW_RESOURCE_TYPES.has(details.resourceType)) return;
-        pushBrowserSurfaceError({
+        pushBrowserSurfaceError(owner, {
           type: "network-failed",
           message: `HTTP ${status} ${details.method ?? "GET"} ${details.url}`,
           url: details.url,
@@ -150,29 +240,36 @@ function browserSession(): Session {
   return ses;
 }
 
-function hostWindow(): BrowserWindow | null {
-  if (attachedWindow && !attachedWindow.isDestroyed()) return attachedWindow;
-  attachedWindow =
-    BrowserWindow.getAllWindows().find((w) => !w.isDestroyed()) ?? null;
-  return attachedWindow;
+function broadcastState(scope: BrowserScope): void {
+  if (scope.window.isDestroyed()) return;
+  safeSend(
+    scope.window.webContents,
+    "browser:state-changed",
+    getBrowserPanelState(scope),
+  );
 }
 
-function broadcastState(): void {
-  const win = hostWindow();
-  if (!win) return;
-  safeSend(win.webContents, "browser:state-changed", getBrowserPanelState());
+/**
+ * Send an event to one window's renderer.
+ *
+ * NOTE for callers outside the browser panel: this delivers to the window that
+ * owns the given browser scope, which is NOT necessarily the window whose work
+ * produced the event. Background-job and automation updates should route by
+ * WORKSPACE (`sendToWorkspaceWindowQuiet`) instead — see workspace-window-manager.
+ */
+export function broadcastToRenderer(
+  scope: BrowserScope,
+  channel: string,
+  payload: unknown,
+): void {
+  if (!scope.window.isDestroyed()) {
+    safeSend(scope.window.webContents, channel, payload);
+  }
 }
 
-/** Send an event to the renderer (host window). Used by sibling main-process
- *  modules (e.g. background jobs) that don't track the window. */
-export function broadcastToRenderer(channel: string, payload: unknown): void {
-  const win = hostWindow();
-  if (win) safeSend(win.webContents, channel, payload);
-}
-
-export function getBrowserPanelState(): BrowserPanelState {
+export function getBrowserPanelState(scope: BrowserScope): BrowserPanelState {
   return {
-    tabs: [...tabs.entries()].map(([id, view]) => ({
+    tabs: [...scope.tabs.entries()].map(([id, view]) => ({
       id,
       url: view.webContents.getURL(),
       title: view.webContents.getTitle(),
@@ -180,28 +277,31 @@ export function getBrowserPanelState(): BrowserPanelState {
       canGoBack: view.webContents.navigationHistory.canGoBack(),
       canGoForward: view.webContents.navigationHistory.canGoForward(),
     })),
-    activeTabId,
-    visible,
+    activeTabId: scope.activeTabId,
+    visible: scope.visible,
   };
 }
 
-export function getActiveTabView(): WebContentsView | null {
-  if (activeTabId == null) return null;
-  return tabs.get(activeTabId) ?? null;
+export function getActiveTabView(scope: BrowserScope): WebContentsView | null {
+  if (scope.activeTabId == null) return null;
+  return scope.tabs.get(scope.activeTabId) ?? null;
 }
 
 /** Look up a specific tab's view by id (agent `tab_id` targeting). */
-export function getTabViewById(id: number): WebContentsView | null {
-  return tabs.get(id) ?? null;
+export function getTabViewById(
+  scope: BrowserScope,
+  id: number,
+): WebContentsView | null {
+  return scope.tabs.get(id) ?? null;
 }
 
-export function getActiveTabId(): number | null {
-  return activeTabId;
+export function getActiveTabId(scope: BrowserScope): number | null {
+  return scope.activeTabId;
 }
 
 /** How many tabs are open — drives the agent's `tab_id` ambiguity check. */
-export function getTabCount(): number {
-  return tabs.size;
+export function getTabCount(scope: BrowserScope): number {
+  return scope.tabs.size;
 }
 
 /**
@@ -209,8 +309,23 @@ export function getTabCount(): number {
  * a wrong-tab action is visible instead of silent).
  */
 export function getTabIdForView(view: WebContentsView): number | null {
-  for (const [id, v] of tabs) {
-    if (v === view) return id;
+  // Derived rather than passed: a view belongs to exactly one window, so asking
+  // every caller to also supply the scope would be threading they cannot get
+  // wrong but can forget.
+  for (const scope of allScopes()) {
+    for (const [id, v] of scope.tabs) {
+      if (v === view) return id;
+    }
+  }
+  return null;
+}
+
+/** The scope that owns a view — for helpers that only receive the view. */
+export function scopeForView(view: WebContentsView): BrowserScope | null {
+  for (const scope of allScopes()) {
+    for (const v of scope.tabs.values()) {
+      if (v === view) return scope;
+    }
   }
   return null;
 }
@@ -220,13 +335,19 @@ export function getTabIdForView(view: WebContentsView): number | null {
  * is actually visible with a tab. Returns true if a tab was closed (the caller
  * then swallows the key); false lets the OS default (window close) proceed.
  */
-export function closeActiveBrowserTabIfVisible(): boolean {
-  if (!visible || activeTabId == null || tabs.size === 0) return false;
-  closeTab(activeTabId);
+export function closeActiveBrowserTabIfVisible(scope: BrowserScope): boolean {
+  if (!scope.visible || scope.activeTabId == null || scope.tabs.size === 0) {
+    return false;
+  }
+  closeTab(scope, scope.activeTabId);
   return true;
 }
 
-function wireTabEvents(id: number, view: WebContentsView): void {
+function wireTabEvents(
+  scope: BrowserScope,
+  id: number,
+  view: WebContentsView,
+): void {
   const wc = view.webContents;
   for (const evt of [
     "did-navigate",
@@ -235,7 +356,7 @@ function wireTabEvents(id: number, view: WebContentsView): void {
     "did-start-loading",
     "did-stop-loading",
   ] as const) {
-    wc.on(evt as never, () => broadcastState());
+    wc.on(evt as never, () => broadcastState(scope));
   }
   // ── Runtime error capture (the Errors tab + the agent's completion gate) ──
   // console.error / warn (and our injected [[ATLARIX_ERR]] sentinel carrying a
@@ -260,13 +381,13 @@ function wireTabEvents(id: number, view: WebContentsView): void {
     // it isn't ALSO recorded as a plain console-error (no double-capture).
     const rich = tryParseErrorSentinel(message);
     if (rich) {
-      pushBrowserSurfaceError({ ...rich, url: rich.url ?? sourceUrl, timestamp: nowTs() });
+      pushBrowserSurfaceError(scope, { ...rich, url: rich.url ?? sourceUrl, timestamp: nowTs() });
       return;
     }
     const isError = level === "error" || level === 2;
     const isWarn = level === "warning" || level === 3;
     if ((!isError && !isWarn) || !message) return;
-    pushBrowserSurfaceError({
+    pushBrowserSurfaceError(scope, {
       type: "console-error",
       message: message.slice(0, 4000),
       url: sourceUrl,
@@ -276,20 +397,20 @@ function wireTabEvents(id: number, view: WebContentsView): void {
   });
   wc.on("did-fail-load", (_e, code, desc, url) => {
     if (code === -3 /* aborted (redirects/SPAs) */) {
-      broadcastState();
+      broadcastState(scope);
       return;
     }
     logger.warn(`[browser] load failed (${code}) ${desc} ${url}`);
-    pushBrowserSurfaceError({
+    pushBrowserSurfaceError(scope, {
       type: "load-failed",
       message: `${desc} (${code})`,
       url,
       timestamp: nowTs(),
     });
-    broadcastState();
+    broadcastState(scope);
   });
   wc.on("render-process-gone", (_e, details) => {
-    pushBrowserSurfaceError({
+    pushBrowserSurfaceError(scope, {
       type: "render-gone",
       message: `Browser tab renderer gone: ${details?.reason ?? "unknown"}`,
       timestamp: nowTs(),
@@ -321,19 +442,24 @@ function wireTabEvents(id: number, view: WebContentsView): void {
   });
 }
 
-/** True if a webContents id belongs to one of our browser tabs. */
-function isBrowserTabWebContents(id: number | undefined): boolean {
-  if (id == null) return false;
-  for (const v of tabs.values()) {
-    if (!v.webContents.isDestroyed() && v.webContents.id === id) return true;
+/**
+ * Which window's browser owns this webContents, if any.
+ *
+ * The `persist:atlarix-browser` session is shared by every window, so a
+ * session-level handler sees every window's tabs and must attribute the event to
+ * the right one before recording it.
+ */
+function scopeForWebContentsId(id: number | undefined): BrowserScope | null {
+  if (id == null) return null;
+  for (const scope of allScopes()) {
+    for (const v of scope.tabs.values()) {
+      if (!v.webContents.isDestroyed() && v.webContents.id === id) return scope;
+    }
   }
-  return false;
+  return null;
 }
 
-export function createTab(url?: string): BrowserPanelState {
-  const win = hostWindow();
-  if (!win) throw new Error("No application window available");
-
+export function createTab(scope: BrowserScope, url?: string): BrowserPanelState {
   const view = new WebContentsView({
     webPreferences: {
       session: browserSession(),
@@ -344,86 +470,86 @@ export function createTab(url?: string): BrowserPanelState {
     },
   });
   const id = nextTabId++;
-  tabs.set(id, view);
+  scope.tabs.set(id, view);
   (view.webContents as Electron.WebContents & { __atlarixTabId?: number }).__atlarixTabId = id;
-  wireTabEvents(id, view);
+  wireTabEvents(scope, id, view);
 
-  setActiveTab(id);
+  setActiveTab(scope, id);
   const target = url && isAllowedBrowserUrl(url) ? url : "https://www.google.com";
   void view.webContents.loadURL(target);
-  broadcastState();
-  return getBrowserPanelState();
+  broadcastState(scope);
+  return getBrowserPanelState(scope);
 }
 
-export function closeTab(id: number): BrowserPanelState {
-  const view = tabs.get(id);
+export function closeTab(scope: BrowserScope, id: number): BrowserPanelState {
+  const view = scope.tabs.get(id);
   if (view) {
-    const win = hostWindow();
-    if (win) win.contentView.removeChildView(view);
+    if (!scope.window.isDestroyed()) scope.window.contentView.removeChildView(view);
     view.webContents.close();
-    tabs.delete(id);
+    scope.tabs.delete(id);
   }
-  if (activeTabId === id) {
-    activeTabId = tabs.size > 0 ? [...tabs.keys()].pop()! : null;
-    if (activeTabId != null) setActiveTab(activeTabId);
+  if (scope.activeTabId === id) {
+    scope.activeTabId = scope.tabs.size > 0 ? [...scope.tabs.keys()].pop()! : null;
+    if (scope.activeTabId != null) setActiveTab(scope, scope.activeTabId);
   }
-  broadcastState();
-  return getBrowserPanelState();
+  broadcastState(scope);
+  return getBrowserPanelState(scope);
 }
 
-export function setActiveTab(id: number): void {
-  const view = tabs.get(id);
-  const win = hostWindow();
-  if (!view || !win) return;
+export function setActiveTab(scope: BrowserScope, id: number): void {
+  const view = scope.tabs.get(id);
+  if (!view || scope.window.isDestroyed()) return;
   // Detach all, then attach the active one (single visible surface).
-  for (const [, v] of tabs) {
-    win.contentView.removeChildView(v);
+  for (const [, v] of scope.tabs) {
+    scope.window.contentView.removeChildView(v);
   }
-  activeTabId = id;
-  if (visible) {
-    win.contentView.addChildView(view);
-    view.setBounds(boundsFor(win));
+  scope.activeTabId = id;
+  if (scope.visible) {
+    scope.window.contentView.addChildView(view);
+    view.setBounds(boundsFor(scope));
   }
-  broadcastState();
+  broadcastState(scope);
 }
 
-export function navigate(id: number | null, url: string): boolean {
-  const view = id == null ? getActiveTabView() : (tabs.get(id) ?? null);
+export function navigate(
+  scope: BrowserScope,
+  id: number | null,
+  url: string,
+): boolean {
+  const view = id == null ? getActiveTabView(scope) : (scope.tabs.get(id) ?? null);
   if (!view) return false;
   if (!isAllowedBrowserUrl(url)) return false;
   void view.webContents.loadURL(url);
   return true;
 }
 
-export function goBack(): void {
-  const view = getActiveTabView();
+export function goBack(scope: BrowserScope): void {
+  const view = getActiveTabView(scope);
   if (view?.webContents.navigationHistory.canGoBack()) {
     view.webContents.navigationHistory.goBack();
   }
 }
 
-export function goForward(): void {
-  const view = getActiveTabView();
+export function goForward(scope: BrowserScope): void {
+  const view = getActiveTabView(scope);
   if (view?.webContents.navigationHistory.canGoForward()) {
     view.webContents.navigationHistory.goForward();
   }
 }
 
-export function reload(): void {
-  getActiveTabView()?.webContents.reload();
+export function reload(scope: BrowserScope): void {
+  getActiveTabView(scope)?.webContents.reload();
 }
 
-export function setBounds(rect: Rect): void {
-  lastBounds = rect;
-  const view = getActiveTabView();
-  if (view && visible) view.setBounds(rect);
+export function setBounds(scope: BrowserScope, rect: Rect): void {
+  scope.lastBounds = rect;
+  const view = getActiveTabView(scope);
+  if (view && scope.visible) view.setBounds(rect);
   // Wake anything waiting for the panel to actually be on screen.
-  const waiters = panelWaiters;
-  panelWaiters = [];
+  const waiters = scope.panelWaiters;
+  scope.panelWaiters = [];
   for (const w of waiters) w();
 }
-
-let panelWaiters: Array<() => void> = [];
 
 /**
  * The agent needs the browser on screen — ask the RENDERER to open the right
@@ -437,57 +563,56 @@ let panelWaiters: Array<() => void> = [];
  * broken. `setVisible` stays the RENDERER's call (panel mount/unmount); agent
  * code asks for the panel and lets the UI drive visibility.
  */
-export async function requestBrowserPanel(timeoutMs = 1200): Promise<void> {
-  if (visible) return; // panel already mounted — nothing to ask for
-  broadcastToRenderer("browser:request-panel", {});
+export async function requestBrowserPanel(
+  scope: BrowserScope,
+  timeoutMs = 1200,
+): Promise<void> {
+  if (scope.visible) return; // panel already mounted — nothing to ask for
+  broadcastToRenderer(scope, "browser:request-panel", {});
   // If the user has closed the panel (or suppressed auto-open) the renderer
   // won't open it, and blocking the full timeout on every later call would tax
   // a deliberate choice. Ask once, then stop waiting — the browser tools work
   // fine with the panel shut, and `visible` flips the moment they reopen it.
-  if (panelRequestDeclined) return;
+  if (scope.panelRequestDeclined) return;
   await new Promise<void>((resolve) => {
     const timer = setTimeout(() => {
-      panelWaiters = panelWaiters.filter((w) => w !== wake);
-      panelRequestDeclined = true;
+      scope.panelWaiters = scope.panelWaiters.filter((w) => w !== wake);
+      scope.panelRequestDeclined = true;
       resolve();
     }, timeoutMs);
     const wake = () => {
       clearTimeout(timer);
       resolve();
     };
-    panelWaiters.push(wake);
+    scope.panelWaiters.push(wake);
   });
 }
 
-/** True once a panel request went unanswered — the user wants it closed. */
-let panelRequestDeclined = false;
-
-export function setVisible(nextVisible: boolean): void {
-  const win = hostWindow();
-  visible = nextVisible;
+export function setVisible(scope: BrowserScope, nextVisible: boolean): void {
+  scope.visible = nextVisible;
   // Reopening the panel clears the "user wants it closed" memory.
-  if (nextVisible) panelRequestDeclined = false;
-  if (!win) return;
-  const view = getActiveTabView();
+  if (nextVisible) scope.panelRequestDeclined = false;
+  if (scope.window.isDestroyed()) return;
+  const view = getActiveTabView(scope);
   if (!view) {
-    if (nextVisible) createTab();
+    if (nextVisible) createTab(scope);
     return;
   }
   if (nextVisible) {
-    win.contentView.addChildView(view);
-    view.setBounds(boundsFor(win));
+    scope.window.contentView.addChildView(view);
+    view.setBounds(boundsFor(scope));
   } else {
-    win.contentView.removeChildView(view);
+    scope.window.contentView.removeChildView(view);
   }
-  broadcastState();
+  broadcastState(scope);
 }
 
 /** Ensure a tab exists (agent navigation may run before the panel was opened). */
-export function ensureTab(): WebContentsView {
-  const existing = getActiveTabView();
+export function ensureTab(scope: BrowserScope): WebContentsView {
+  const existing = getActiveTabView(scope);
   if (existing) return existing;
-  createTab();
-  const created = getActiveTabView();
+  createTab(scope);
+  const created = getActiveTabView(scope);
   if (!created) throw new Error("Failed to create browser tab");
   return created;
 }
@@ -502,28 +627,34 @@ export function ensureTab(): WebContentsView {
 
 const BROWSER_ERROR_BUFFER_MAX = 50;
 
-let browserSurfaceErrors: BrowserSurfaceError[] = [];
-
-export function getBrowserSurfaceErrors(): BrowserSurfaceError[] {
-  return [...browserSurfaceErrors];
+export function getBrowserSurfaceErrors(
+  scope: BrowserScope,
+): BrowserSurfaceError[] {
+  return [...scope.surfaceErrors];
 }
 
 /** Just the captured failed (4xx/5xx) network responses. */
-export function getBrowserSurfaceNetworkFailures(): BrowserSurfaceError[] {
-  return browserSurfaceErrors.filter((e) => e.type === "network-failed");
+export function getBrowserSurfaceNetworkFailures(
+  scope: BrowserScope,
+): BrowserSurfaceError[] {
+  return scope.surfaceErrors.filter((e) => e.type === "network-failed");
 }
 
-export function clearBrowserSurfaceErrors(): void {
-  browserSurfaceErrors = [];
+export function clearBrowserSurfaceErrors(scope: BrowserScope): void {
+  scope.surfaceErrors = [];
 }
 
-function pushBrowserSurfaceError(entry: BrowserSurfaceError): void {
-  browserSurfaceErrors.push(entry);
-  if (browserSurfaceErrors.length > BROWSER_ERROR_BUFFER_MAX) {
-    browserSurfaceErrors = browserSurfaceErrors.slice(-BROWSER_ERROR_BUFFER_MAX);
+function pushBrowserSurfaceError(
+  scope: BrowserScope,
+  entry: BrowserSurfaceError,
+): void {
+  scope.surfaceErrors.push(entry);
+  if (scope.surfaceErrors.length > BROWSER_ERROR_BUFFER_MAX) {
+    scope.surfaceErrors = scope.surfaceErrors.slice(-BROWSER_ERROR_BUFFER_MAX);
   }
-  const win = hostWindow();
-  if (win) safeSend(win.webContents, "browser:error", entry);
+  if (!scope.window.isDestroyed()) {
+    safeSend(scope.window.webContents, "browser:error", entry);
+  }
 }
 
 function nowTs(): number {
@@ -580,11 +711,11 @@ export function destroyPaintHost(): void {
 }
 
 export async function capturePaintable(
+  scope: BrowserScope,
   view: WebContentsView,
 ): Promise<import("electron").NativeImage | null> {
-  const win = hostWindow();
-  if (!win || view.webContents.isDestroyed()) return null;
-  if (win.contentView.children.includes(view)) {
+  if (scope.window.isDestroyed() || view.webContents.isDestroyed()) return null;
+  if (scope.window.contentView.children.includes(view)) {
     try {
       return await view.webContents.capturePage();
     } catch {
@@ -596,7 +727,7 @@ export async function capturePaintable(
   // (and then reflow back) just because we took a picture.
   const host = getPaintHost();
   if (host) {
-    const size = lastBounds ?? { x: 0, y: 0, width: 1024, height: 768 };
+    const size = scope.lastBounds ?? { x: 0, y: 0, width: 1024, height: 768 };
     try {
       host.contentView.addChildView(view);
       view.setBounds({ x: 0, y: 0, width: size.width, height: size.height });
@@ -612,7 +743,9 @@ export async function capturePaintable(
     } finally {
       try {
         host.contentView.removeChildView(view);
-        if (visible && activeTabId != null) setActiveTab(activeTabId);
+        if (scope.visible && scope.activeTabId != null) {
+          setActiveTab(scope, scope.activeTabId);
+        }
       } catch {
         /* ignore */
       }

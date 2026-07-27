@@ -6,7 +6,7 @@
  */
 
 import log from "electron-log";
-import type { IpcMainInvokeEvent } from "electron";
+import { BrowserWindow, type IpcMainInvokeEvent } from "electron";
 import {
   evaluateRuleset,
   loadEffectiveRuleset,
@@ -36,6 +36,23 @@ export async function runToolExecute(
   },
 ): Promise<unknown> {
   // No per-turn call cap or duplicate-call dedup: every tool call executes.
+
+  // Which WINDOW asked. `sender` is the requesting window's webContents, so this
+  // is the one place that can answer it for every tool — the native and
+  // text-tool paths both funnel through here. Window-scoped tools (the browser)
+  // resolve their state from it; everything else ignores it.
+  //
+  // Injected here rather than at the branch call sites that add `_chatSessionId`,
+  // so it cannot be forgotten on one path.
+  try {
+    const ownerWindow = BrowserWindow.fromWebContents(sender);
+    if (ownerWindow && !ownerWindow.isDestroyed()) {
+      executeArgs._ownerWindowId = ownerWindow.id;
+    }
+  } catch {
+    // Synthetic/destroyed sender (background agents) — the tools fall back to
+    // the focused window, which is the pre-existing behaviour.
+  }
 
   // v12 2.2: unified permission ruleset + blocking pre_tool_use hooks at the
   // SINGLE execution funnel — covers ask+build, native AND text-tool paths

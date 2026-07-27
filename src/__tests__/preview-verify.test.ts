@@ -5,6 +5,10 @@ import type { BrowserSurfaceError } from "@/ipc/utils/browser_view_manager";
 // it so we can drive deterministic states.
 let mockErrors: BrowserSurfaceError[] = [];
 vi.mock("@/ipc/utils/browser_view_manager", () => ({
+  // The browser is per-window now, so the gate resolves a scope before reading
+  // errors. A truthy stand-in is enough — these tests exercise the baseline
+  // filtering, not scope resolution.
+  resolveBrowserScope: () => ({ window: {}, tabs: new Map() }),
   getBrowserSurfaceErrors: () => mockErrors,
   getActiveTabView: () => null,
 }));

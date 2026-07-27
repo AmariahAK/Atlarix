@@ -8,7 +8,7 @@ import log from "electron-log";
 import { eq } from "drizzle-orm";
 import { db } from "@/db";
 import { automationRuns, automations } from "@/db/schema";
-import { broadcastToRenderer } from "@/ipc/utils/browser_view_manager";
+import { broadcastToAllWindows } from "@/ipc/utils/broadcast_all_windows";
 import type { AutomationRunView } from "./types";
 
 const logger = log.scope("automations");
@@ -45,7 +45,9 @@ export async function getAutomationRunView(
 export async function broadcastAutomationRunUpdate(runId: string): Promise<void> {
   const view = await getAutomationRunView(runId);
   if (!view) return;
-  broadcastToRenderer("automation:run-update", view);
+  // Every window: the run view carries its own identity, and the previous
+  // single-target send went to whichever window the browser was attached to.
+  broadcastToAllWindows("automation:run-update", view);
 }
 
 export async function notifyRunFinished(runId: string): Promise<void> {

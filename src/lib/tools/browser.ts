@@ -28,6 +28,8 @@ import {
   isAllowedBrowserUrl,
   requestBrowserPanel,
   capturePaintable,
+  resolveBrowserScope,
+  type BrowserScope,
   type BrowserSurfaceError,
 } from "@/ipc/utils/browser_view_manager";
 import { blockingPreviewErrors } from "@/lib/agent/preview-verify";
@@ -58,20 +60,40 @@ import {
   AI_CURSOR_WAIT_MS,
 } from "@/lib/browser/ai-cursor";
 
-/** ToolRegistry.execute injects the chat id into every tool's args. */
-type WithChat<T> = T & { _chatSessionId?: number };
+/**
+ * ToolRegistry.execute injects the chat id into every tool's args; runToolExecute
+ * injects the id of the WINDOW that asked, which is how a browser tool finds the
+ * right window's tabs instead of a process-wide set shared by all of them.
+ */
+type WithChat<T> = T & { _chatSessionId?: number; _ownerWindowId?: number };
 
 type ActiveTabView = NonNullable<ReturnType<typeof getActiveTabView>>;
 
+/**
+ * The calling window's browser, or an error the model can act on.
+ *
+ * Falls back to the focused/only window when `_ownerWindowId` is absent
+ * (automations, headless) — the previous single-window behaviour.
+ */
+function scopeFor(args: { _ownerWindowId?: number }):
+  | { scope: BrowserScope; error?: undefined }
+  | { scope: null; error: string } {
+  const scope = resolveBrowserScope(args?._ownerWindowId);
+  if (!scope) {
+    return { scope: null, error: "No application window is open." };
+  }
+  return { scope };
+}
+
 /** Compact listing of open tabs — used by browser_tabs and by error messages. */
-function listTabs(): Array<{
+function listTabs(scope: BrowserScope): Array<{
   id: number;
   url: string;
   title: string;
   active: boolean;
   loading: boolean;
 }> {
-  const state = getBrowserPanelState();
+  const state = getBrowserPanelState(scope);
   return state.tabs.map((t) => ({
     id: t.id,
     url: t.url,
@@ -96,40 +118,43 @@ function tabInfo(view: ActiveTabView): { id: number | null; url: string } {
  * tab switches to it — the panel follows the agent, which also guarantees the
  * tab is attached and therefore has a real layout viewport.
  */
-function resolveTargetView(tabId?: number): {
+function resolveTargetView(
+  scope: BrowserScope,
+  tabId?: number,
+): {
   view: ReturnType<typeof getActiveTabView>;
   error?: string;
 } {
   if (typeof tabId === "number" && Number.isFinite(tabId)) {
-    const view = getTabViewById(tabId);
+    const view = getTabViewById(scope, tabId);
     if (!view) {
       return {
         view: null,
         error:
           `No browser tab with id ${tabId}. Open tabs: ` +
-          `${JSON.stringify(listTabs())}. Use browser_tabs({operation:"list"}) to refresh.`,
+          `${JSON.stringify(listTabs(scope))}. Use browser_tabs({operation:"list"}) to refresh.`,
       };
     }
-    if (getActiveTabId() !== tabId) {
+    if (getActiveTabId(scope) !== tabId) {
       // Switch the active tab, but do NOT ask for the panel here: reads and
       // switches happen constantly, and re-opening a panel the user just closed
       // would fight them. Everything below works with the panel shut.
-      setActiveTab(tabId);
+      setActiveTab(scope, tabId);
       // Most tab switching happens HERE (the agent passes tab_id rather than
       // calling browser_tabs), so without a frame the session recording sits on
       // whichever tab was last acted on and looks stuck on one page.
     }
     return { view };
   }
-  if (getTabCount() > 1) {
+  if (getTabCount(scope) > 1) {
     return {
       view: null,
       error:
         `More than one browser tab is open — pass tab_id to say which one. ` +
-        `Open tabs: ${JSON.stringify(listTabs())}.`,
+        `Open tabs: ${JSON.stringify(listTabs(scope))}.`,
     };
   }
-  const view = getActiveTabView();
+  const view = getActiveTabView(scope);
   if (!view) {
     return {
       view: null,
@@ -195,14 +220,17 @@ function formatScrollNote(pos: { scrollY: number; scrollMax: number } | undefine
 }
 
 /** Open (or reload) a URL in the active browser tab and wait for it to settle. */
-async function loadUrlInBrowserTab(url: string): Promise<ActiveTabView | null> {
-  await requestBrowserPanel();
-  const view = ensureTab();
+async function loadUrlInBrowserTab(
+  scope: BrowserScope,
+  url: string,
+): Promise<ActiveTabView | null> {
+  await requestBrowserPanel(scope);
+  const view = ensureTab(scope);
   await view.webContents.loadURL(url).catch((err: Error) => {
     if (!/ERR_ABORTED/.test(String(err))) throw err;
   });
   await waitForLoad(view.webContents);
-  return getActiveTabView();
+  return getActiveTabView(scope);
 }
 
 
@@ -329,6 +357,9 @@ ToolRegistry.register({
     required: ["url"],
   },
   handler: async (args: WithChat<{ url: string; tab_id?: number }>) => {
+    // Which window's browser this call belongs to (injected by runToolExecute).
+    const { scope, error: scopeError } = scopeFor(args);
+    if (!scope) return { success: false, error: scopeError };
     const url = String(args.url ?? "").trim();
     if (!isAllowedBrowserUrl(url)) {
       return {
@@ -352,11 +383,11 @@ ToolRegistry.register({
     let view: ActiveTabView;
     // Ask the UI to open the Browser panel first, so the tab is created and
     // attached inside real, chrome-framed bounds rather than as a bare view.
-    await requestBrowserPanel();
-    if (getTabCount() === 0) {
-      view = ensureTab();
+    await requestBrowserPanel(scope);
+    if (getTabCount(scope) === 0) {
+      view = ensureTab(scope);
     } else {
-      const target = resolveTargetView(args.tab_id);
+      const target = resolveTargetView(scope, args.tab_id);
       if (!target.view) return { success: false, error: target.error };
       view = target.view;
     }
@@ -503,14 +534,18 @@ async function inspectDesign(view: ActiveTabView, chatSessionId?: number) {
   };
 }
 
-async function inspectScreenshot(view: ActiveTabView, chatSessionId?: number) {
+async function inspectScreenshot(
+  scope: BrowserScope,
+  view: ActiveTabView,
+  chatSessionId?: number,
+) {
   await waitForLoad(view.webContents);
   // capturePage() returns an EMPTY image when the view isn't attached to the
   // window (the right-panel tab is hidden / zero-size). capturePaintable
   // off-screen-attaches, paints, captures, then detaches — so screenshots work
   // whether or not the user is looking at the panel. Fall back to a direct
   // capture only if the paintable path returns null.
-  const image = (await capturePaintable(view)) ?? (await view.webContents.capturePage());
+  const image = (await capturePaintable(scope, view)) ?? (await view.webContents.capturePage());
   if (image.isEmpty()) {
     return {
       success: false,
@@ -604,14 +639,17 @@ ToolRegistry.register({
   handler: async (
     args: WithChat<{ mode?: string; filter?: string; selector?: string; tab_id?: number }>,
   ) => {
+    // Which window's browser this call belongs to (injected by runToolExecute).
+    const { scope, error: scopeError } = scopeFor(args);
+    if (!scope) return { success: false, error: scopeError };
     const mode = typeof args.mode === "string" && args.mode ? args.mode : "read";
     if (mode === "console") {
-      return inspectConsole();
+      return inspectConsole(scope);
     }
     if (mode === "network") {
-      return inspectNetwork();
+      return inspectNetwork(scope);
     }
-    const { view, error } = resolveTargetView(args.tab_id);
+    const { view, error } = resolveTargetView(scope, args.tab_id);
     if (!view) return { success: false, error };
     switch (mode) {
       case "text":
@@ -621,7 +659,7 @@ ToolRegistry.register({
       case "design":
         return inspectDesign(view, args._chatSessionId);
       case "screenshot":
-        return inspectScreenshot(view, args._chatSessionId);
+        return inspectScreenshot(scope, view, args._chatSessionId);
       case "snapshot":
         return inspectSnapshot(view, args._chatSessionId, "interactive");
       case "read":
@@ -644,8 +682,8 @@ ToolRegistry.register({
  * (console.error/warn, uncaught exceptions + promise rejections WITH stack,
  * load failures, failed 4xx/5xx requests).
  */
-function inspectConsole() {
-  const errors = getBrowserSurfaceErrors();
+function inspectConsole(scope: BrowserScope) {
+  const errors = getBrowserSurfaceErrors(scope);
   if (errors.length === 0) {
     return { success: true, count: 0, content: "No runtime errors captured from the browser." };
   }
@@ -668,8 +706,8 @@ function inspectConsole() {
  * `webRequest.onCompleted` — a page that renders but whose API calls 500 is
  * still broken, and that's invisible to every other read mode.
  */
-function inspectNetwork() {
-  const failures = getBrowserSurfaceNetworkFailures();
+function inspectNetwork(scope: BrowserScope) {
+  const failures = getBrowserSurfaceNetworkFailures(scope);
   if (failures.length === 0) {
     return {
       success: true,
@@ -1177,7 +1215,10 @@ ToolRegistry.register({
       tab_id?: number;
     }>,
   ) => {
-    const { view, error } = resolveTargetView(args.tab_id);
+    // Which window's browser this call belongs to (injected by runToolExecute).
+    const { scope, error: scopeError } = scopeFor(args);
+    if (!scope) return { success: false, error: scopeError };
+    const { view, error } = resolveTargetView(scope, args.tab_id);
     if (!view) {
       return { success: false, error };
     }
@@ -1240,15 +1281,18 @@ ToolRegistry.register({
     required: ["operation"],
   },
   handler: async (args: WithChat<{ operation?: string; url?: string; tab_id?: number }>) => {
+    // Which window's browser this call belongs to (injected by runToolExecute).
+    const { scope, error: scopeError } = scopeFor(args);
+    if (!scope) return { success: false, error: scopeError };
     const op = String(args.operation ?? "");
     switch (op) {
       case "list":
         return {
           success: true,
-          tabs: listTabs(),
-          activeTabId: getActiveTabId(),
+          tabs: listTabs(scope),
+          activeTabId: getActiveTabId(scope),
           note:
-            getTabCount() > 1
+            getTabCount(scope) > 1
               ? "Several tabs are open — pass tab_id to the other browser tools."
               : "One tab open; tab_id is optional.",
         };
@@ -1272,11 +1316,11 @@ ToolRegistry.register({
         }
         // Open the panel first so the new tab is attached inside real bounds
         // (a view whose rect doesn't intersect the window lays out at 0px wide).
-        await requestBrowserPanel();
-        createTab(url || undefined);
-        const view = getActiveTabView();
+        await requestBrowserPanel(scope);
+        createTab(scope, url || undefined);
+        const view = getActiveTabView(scope);
         if (view && url) await waitForLoad(view.webContents);
-        const id = getActiveTabId();
+        const id = getActiveTabId(scope);
         recordBrowserAction(args._chatSessionId, "navigate", `new tab ${url || ""}`, url);
         // Without a frame here the session recording stays on the PREVIOUS
         // tab's last capture, so the reel looks stuck on one page while the
@@ -1286,20 +1330,20 @@ ToolRegistry.register({
         return {
           success: true,
           created: id,
-          tabs: listTabs(),
+          tabs: listTabs(scope),
           activeTabId: id,
           note: `Opened tab ${id}${url ? ` at ${url}` : ""}. Previous tabs keep their state. Pass tab_id from now on.`,
         };
       }
       case "switch": {
         if (typeof args.tab_id !== "number") {
-          return { success: false, error: 'operation:"switch" needs tab_id. Tabs: ' + JSON.stringify(listTabs()) };
+          return { success: false, error: 'operation:"switch" needs tab_id. Tabs: ' + JSON.stringify(listTabs(scope)) };
         }
-        if (!getTabViewById(args.tab_id)) {
-          return { success: false, error: `No browser tab with id ${args.tab_id}. Tabs: ${JSON.stringify(listTabs())}` };
+        if (!getTabViewById(scope, args.tab_id)) {
+          return { success: false, error: `No browser tab with id ${args.tab_id}. Tabs: ${JSON.stringify(listTabs(scope))}` };
         }
-        setActiveTab(args.tab_id);
-        const switched = getActiveTabView();
+        setActiveTab(scope, args.tab_id);
+        const switched = getActiveTabView(scope);
         if (switched) {
           recordBrowserAction(
             args._chatSessionId,
@@ -1310,24 +1354,24 @@ ToolRegistry.register({
         }
         return {
           success: true,
-          activeTabId: getActiveTabId(),
-          tabs: listTabs(),
+          activeTabId: getActiveTabId(scope),
+          tabs: listTabs(scope),
           note: `Switched to tab ${args.tab_id}.`,
         };
       }
       case "close": {
         if (typeof args.tab_id !== "number") {
-          return { success: false, error: 'operation:"close" needs tab_id. Tabs: ' + JSON.stringify(listTabs()) };
+          return { success: false, error: 'operation:"close" needs tab_id. Tabs: ' + JSON.stringify(listTabs(scope)) };
         }
-        if (!getTabViewById(args.tab_id)) {
-          return { success: false, error: `No browser tab with id ${args.tab_id}. Tabs: ${JSON.stringify(listTabs())}` };
+        if (!getTabViewById(scope, args.tab_id)) {
+          return { success: false, error: `No browser tab with id ${args.tab_id}. Tabs: ${JSON.stringify(listTabs(scope))}` };
         }
-        closeTab(args.tab_id);
+        closeTab(scope, args.tab_id);
         return {
           success: true,
           closed: args.tab_id,
-          tabs: listTabs(),
-          activeTabId: getActiveTabId(),
+          tabs: listTabs(scope),
+          activeTabId: getActiveTabId(scope),
           note: `Closed tab ${args.tab_id}.`,
         };
       }
@@ -1372,11 +1416,14 @@ ToolRegistry.register({
     required: ["query"],
   },
   handler: async (args: WithChat<{ query?: string; tab_id?: number }>) => {
+    // Which window's browser this call belongs to (injected by runToolExecute).
+    const { scope, error: scopeError } = scopeFor(args);
+    if (!scope) return { success: false, error: scopeError };
     const query = String(args.query ?? "").trim();
     if (!query) {
       return { success: false, error: "browser_find needs a `query` describing the element." };
     }
-    const { view, error } = resolveTargetView(args.tab_id);
+    const { view, error } = resolveTargetView(scope, args.tab_id);
     if (!view) return { success: false, error };
     await waitForLoad(view.webContents);
     const res = await findA11yElements(view.webContents, query);
@@ -1462,17 +1509,20 @@ ToolRegistry.register({
     required: ["steps"],
   },
   handler: async (args: WithChat<{ steps?: unknown; tab_id?: number }>) => {
+    // Which window's browser this call belongs to (injected by runToolExecute).
+    const { scope, error: scopeError } = scopeFor(args);
+    if (!scope) return { success: false, error: scopeError };
     const steps = Array.isArray(args.steps) ? (args.steps as BatchStep[]) : [];
     if (steps.length === 0) {
       return { success: false, error: "browser_batch needs a non-empty `steps` array." };
     }
-    const { view, error } = resolveTargetView(args.tab_id);
+    const { view, error } = resolveTargetView(scope, args.tab_id);
     if (!view) return { success: false, error };
     const results: Array<{ step: number; action: string; ok: boolean; detail: string }> = [];
     let allOk = true;
     for (let i = 0; i < steps.length; i++) {
       const step = steps[i] ?? {};
-      const r = await runBatchStep(view, step, args._chatSessionId);
+      const r = await runBatchStep(scope, view, step, args._chatSessionId);
       results.push({ step: i, action: String(step.action ?? "unknown"), ok: r.ok, detail: r.detail });
       if (!r.ok) {
         allOk = false;
@@ -1495,6 +1545,7 @@ ToolRegistry.register({
 
 /** One batch step, reusing the same handlers the individual tools call. */
 async function runBatchStep(
+  scope: BrowserScope,
   view: ActiveTabView,
   step: BatchStep,
   chatId: number | undefined,
@@ -1518,7 +1569,7 @@ async function runBatchStep(
           detail: `navigate: blocked by URL policy — ${e instanceof Error ? e.message : String(e)}`,
         };
       }
-      if (!(await loadUrlInBrowserTab(url))) {
+      if (!(await loadUrlInBrowserTab(scope, url))) {
         return { ok: false, detail: `navigate: could not load "${url}"` };
       }
       await waitForLoad(wc);
@@ -1706,6 +1757,7 @@ async function runPreviewAssert(
 }
 
 async function runPreviewStep(
+  scope: BrowserScope,
   view: ActiveTabView,
   step: PreviewTestStep,
   chatId: number | undefined,
@@ -1725,7 +1777,7 @@ async function runPreviewStep(
           detail: `navigate: blocked by URL policy — ${e instanceof Error ? e.message : String(e)}`,
         };
       }
-      if (!(await loadUrlInBrowserTab(url))) {
+      if (!(await loadUrlInBrowserTab(scope, url))) {
         return { ok: false, detail: `navigate: could not load "${url}"` };
       }
       await waitForLoad(wc);
@@ -1870,10 +1922,13 @@ ToolRegistry.register({
       failOnConsoleError?: boolean;
     }>,
   ) => {
-    let view = getActiveTabView();
+    // Which window's browser this call belongs to (injected by runToolExecute).
+    const { scope, error: scopeError } = scopeFor(args);
+    if (!scope) return { success: false, error: scopeError };
+    let view = getActiveTabView(scope);
     const initialUrl = typeof args.url === "string" ? args.url.trim() : "";
     if (!view && initialUrl && isAllowedBrowserUrl(initialUrl)) {
-      view = await loadUrlInBrowserTab(initialUrl);
+      view = await loadUrlInBrowserTab(scope, initialUrl);
     }
     if (!view) {
       return {
@@ -1898,6 +1953,7 @@ ToolRegistry.register({
 
     if (initialUrl) {
       const r = await runPreviewStep(
+        scope,
         view,
         { action: "navigate", url: initialUrl },
         args._chatSessionId,
@@ -1908,7 +1964,7 @@ ToolRegistry.register({
     if (passed) {
       for (let i = 0; i < steps.length; i++) {
         const step = steps[i];
-        const r = await runPreviewStep(view, step, args._chatSessionId);
+        const r = await runPreviewStep(scope, view, step, args._chatSessionId);
         results.push({
           step: results.length,
           action: String(step?.action ?? "unknown"),
@@ -1922,11 +1978,11 @@ ToolRegistry.register({
       }
     }
 
-    const runtimeErrors = blockingPreviewErrors(getBrowserSurfaceErrors(), baselineTs);
+    const runtimeErrors = blockingPreviewErrors(getBrowserSurfaceErrors(scope), baselineTs);
     const consoleErrors = runtimeErrors
       .filter((e) => e.type !== "network-failed")
       .map(formatPreviewError);
-    const networkFailures = getBrowserSurfaceNetworkFailures()
+    const networkFailures = getBrowserSurfaceNetworkFailures(scope)
       .filter((e) => e.timestamp >= baselineTs)
       .map(formatPreviewError);
     const hadRuntimeErrors = runtimeErrors.length > 0;

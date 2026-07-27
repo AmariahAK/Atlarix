@@ -20,7 +20,7 @@ import {
   hasPendingSubagentResults,
 } from "@/lib/agents/subagent-results";
 import { setScheduledWakeupNotifier } from "@/lib/agent/scheduled-wakeups";
-import { broadcastToRenderer } from "../utils/browser_view_manager";
+import { broadcastToAllWindows } from "../utils/broadcast_all_windows";
 
 const logger = log.scope("background_ipc");
 
@@ -29,15 +29,20 @@ export function registerBackgroundHandlers(): void {
   // COMMANDS and sub-agent TASKS share the one `chat:background-job-update`
   // channel, discriminated by `source`, so the renderer's single wake closure
   // (and its bgWakeInFlightRef guard) handles both without duplication.
+  // Delivered to every window; each payload carries `chatId`, and a window only
+  // acts on chats it owns. This used to go through the BROWSER panel's
+  // `broadcastToRenderer`, which targets whichever window the browser view
+  // happens to be attached to — so a background job started in window 1 could
+  // announce itself in window 2, and window 1 would never hear about it.
   setBackgroundJobNotifier((chatId, ev) => {
-    broadcastToRenderer("chat:background-job-update", {
+    broadcastToAllWindows("chat:background-job-update", {
       chatId,
       source: "command",
       ...ev,
     });
   });
   setSubagentNotifier((chatId, ev) => {
-    broadcastToRenderer("chat:background-job-update", {
+    broadcastToAllWindows("chat:background-job-update", {
       chatId,
       source: "subagent",
       ...ev,
@@ -45,7 +50,7 @@ export function registerBackgroundHandlers(): void {
   });
   // R1: a fired self-wake rides the SAME auto-wake channel (source:"scheduled").
   setScheduledWakeupNotifier((chatId, ev) => {
-    broadcastToRenderer("chat:background-job-update", {
+    broadcastToAllWindows("chat:background-job-update", {
       chatId,
       source: "scheduled",
       ...ev,

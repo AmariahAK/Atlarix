@@ -52,7 +52,10 @@ import { execSync } from "node:child_process";
 import os from "node:os";
 import { restoreAuthSessionOnStartup } from "./lib/auth/supabase-client";
 import { SubscriptionManager } from "./lib/SubscriptionManager";
-import { closeActiveBrowserTabIfVisible } from "./ipc/utils/browser_view_manager";
+import {
+  closeActiveBrowserTabIfVisible,
+  resolveBrowserScope,
+} from "./ipc/utils/browser_view_manager";
 import { resolveSystemPath } from "./lib/resolve-path";
 import { warmOpenRouterModelCache } from "./lib/routing/tier-context-limits";
 import { warmCoreModelOverrides } from "./lib/routing/core-model-overrides";
@@ -1071,8 +1074,11 @@ function setMainApplicationMenu(): void {
           label: "Close",
           accelerator: "CmdOrCtrl+W",
           click: () => {
+            // Cmd+W acts on the FOCUSED window's browser — closing another
+            // window's tab because it happened to be first would be baffling.
+            const focusedScope = resolveBrowserScope();
             if (
-              !closeActiveBrowserTabIfVisible() &&
+              !(focusedScope && closeActiveBrowserTabIfVisible(focusedScope)) &&
               mainWindow &&
               !mainWindow.isDestroyed()
             ) {

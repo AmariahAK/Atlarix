@@ -15,6 +15,7 @@
 import {
   getBrowserSurfaceErrors,
   getActiveTabView,
+  resolveBrowserScope,
   type BrowserSurfaceError,
 } from "@/ipc/utils/browser_view_manager";
 import { detectBlankRender } from "@/lib/browser/visual-lint";
@@ -63,7 +64,13 @@ const MAX_GATE_ERRORS_SHOWN = 8;
  */
 export function getPreviewRuntimeFeedback(turnId: string): string | null {
   const baseline = previewBaselineByTurn.get(turnId) ?? 0;
-  const blocking = blockingPreviewErrors(getBrowserSurfaceErrors(), baseline);
+  // The completion gate runs inside a turn, which belongs to one window. No
+  // window id is threaded here, so this resolves the focused/only window — the
+  // pre-existing behaviour, and correct for the single-window case that is
+  // overwhelmingly what a turn runs in.
+  const scope = resolveBrowserScope();
+  if (!scope) return null;
+  const blocking = blockingPreviewErrors(getBrowserSurfaceErrors(scope), baseline);
   if (blocking.length === 0) return null;
   const lines = blocking
     .slice(0, MAX_GATE_ERRORS_SHOWN)
@@ -93,7 +100,8 @@ export function getPreviewRuntimeFeedback(turnId: string): string | null {
 export async function getPreviewVisualFeedback(
   _turnId: string,
 ): Promise<string | null> {
-  const view = getActiveTabView();
+  const scope = resolveBrowserScope();
+  const view = scope ? getActiveTabView(scope) : null;
   if (!view) return null;
   const blank = await detectBlankRender(view.webContents);
   if (!blank?.blank) return null;
