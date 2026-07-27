@@ -26,29 +26,43 @@ permissions:
   contents: write
 
 # Env block for jobs that run npm run make (build-macos, build-linux). No Google/GitHub OAuth — Supabase handles auth.
+# Only values the CLIENT BUILD embeds belong here — this block is the environment
+# of `npm run make`, so anything listed is readable by every build script and
+# dependency postinstall that runs during packaging.
+#
+# REMOVED (v14.18.0) because the build never read them, yet they were exposed to
+# it on every release: LEMONSQUEEZY_API_KEY, LEMONSQUEEZY_WEBHOOK_SECRET,
+# RESEND_API_KEY. All three are server-side only and live where they are used —
+# the Supabase edge functions (create-checkout, cancel-subscription, the webhook
+# verifier, send-email). `vite.main.config.mts` has always excluded them from the
+# embed allowlist; this closes the remaining exposure.
 env:
-  LEMONSQUEEZY_API_KEY: ${{ secrets.LEMONSQUEEZY_API_KEY }}
   LEMONSQUEEZY_STORE_ID: ${{ secrets.LEMONSQUEEZY_STORE_ID }}
   LEMONSQUEEZY_VARIANT_ID: ${{ secrets.LEMONSQUEEZY_VARIANT_ID }}
   LEMONSQUEEZY_CREDIT_VARIANT_ID: ${{ secrets.LEMONSQUEEZY_CREDIT_VARIANT_ID }}
   LEMONSQUEEZY_WORKFORCE_VARIANT_ID: ${{ secrets.LEMONSQUEEZY_WORKFORCE_VARIANT_ID }}
   LEMONSQUEEZY_EXTRA_SEAT_VARIANT_ID: ${{ secrets.LEMONSQUEEZY_EXTRA_SEAT_VARIANT_ID }}
-  LEMONSQUEEZY_WEBHOOK_SECRET: ${{ secrets.LEMONSQUEEZY_WEBHOOK_SECRET }}
   NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
   NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY }}
-  RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
   EMAIL_SOURCE: ${{ secrets.EMAIL_SOURCE }}
   SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
   POSTHOG_API_KEY: ${{ secrets.POSTHOG_API_KEY }}
   # Atlarix Core routes through atlarix-proxy — the client embeds only the PUBLIC
-  # proxy URL (never the OpenRouter key, which was removed and now lives on the
-  # proxy). This must be in the build env or a release ships with no Core endpoint.
-  ATLARIX_CORE_PROXY_URL: ${{ secrets.ATLARIX_CORE_PROXY_URL }}
-  # v11 Core slots (the four Atlarix Core model ids).
-  ATLARIX_CORE_MODEL_1: ${{ secrets.ATLARIX_CORE_MODEL_1 }}
-  ATLARIX_CORE_MODEL_2: ${{ secrets.ATLARIX_CORE_MODEL_2 }}
-  ATLARIX_CORE_MODEL_3: ${{ secrets.ATLARIX_CORE_MODEL_3 }}
-  ATLARIX_CORE_MODEL_4: ${{ secrets.ATLARIX_CORE_MODEL_4 }}
+  # proxy URL (never a provider key; those live on the proxy). This must be in the
+  # build env or a release ships with no Core endpoint.
+  #
+  # NOT SECRETS. The Core model ids are published in the public
+  # `atlarix-releases/core-models.json` and read live by every installed client,
+  # and the proxy URL is in every packaged app. They stayed GitHub secrets out of
+  # caution, which cost real debugging time: masking them makes CI logs unreadable
+  # and breaks env-dependent tests that pass locally. `vars.` keeps them
+  # configurable without pretending they are confidential; the `secrets.` fallback
+  # lets this work before the repository variables are created.
+  ATLARIX_CORE_PROXY_URL: ${{ vars.ATLARIX_CORE_PROXY_URL || secrets.ATLARIX_CORE_PROXY_URL }}
+  ATLARIX_CORE_MODEL_1: ${{ vars.ATLARIX_CORE_MODEL_1 || secrets.ATLARIX_CORE_MODEL_1 }}
+  ATLARIX_CORE_MODEL_2: ${{ vars.ATLARIX_CORE_MODEL_2 || secrets.ATLARIX_CORE_MODEL_2 }}
+  ATLARIX_CORE_MODEL_3: ${{ vars.ATLARIX_CORE_MODEL_3 || secrets.ATLARIX_CORE_MODEL_3 }}
+  ATLARIX_CORE_MODEL_4: ${{ vars.ATLARIX_CORE_MODEL_4 || secrets.ATLARIX_CORE_MODEL_4 }}
   OAUTH_CLIENT_ID: ${{ secrets.OAUTH_CLIENT_ID }}
   # Opt in to Node 24 action runtime now rather than waiting for the forced migration (June 2026).
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true

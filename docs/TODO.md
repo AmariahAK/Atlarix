@@ -1,9 +1,122 @@
 # Atlarix TODO
 
-**Current Version:** v14.17.1 (RELEASING 2026-07-26) — streamed answers reveal at a bounded rate so
-a fast provider streams rather than appearing all at once, the $10 top-up floor is enforced at
-entry, and the idle Supabase request storm is gone.
-**Last Updated:** 2026-07-26
+**Current Version:** v14.18.0 (IN PROGRESS 2026-07-27) — two production bugs confirmed from logs and
+fixed: background-resume turns dying on Core, and half the conversation being silently deleted
+mid-session. Plus prompt accuracy, workflow secret hygiene, and the start of real window isolation.
+**Last Updated:** 2026-07-27
+
+## 🚧 IN PROGRESS — v14.18.0
+
+### Fixed (both root causes confirmed from `~/Library/Logs/Atlarix/main.log`, not inferred)
+
+- **Background-resume turns died with "Core has an issue".** DeepSeek returned
+  `400 Thinking mode does not support this tool_choice` (10 occurrences, all `compass/core-2`).
+  The wake turn forces `tool_choice: collect_results`; the guard meant to prevent that read
+  `enableNativeReasoning` — the USER's Deep-thinking toggle — while deepseek-v4-pro reasons by
+  DEFAULT and rejects a forced choice regardless. Now gated on the model's own declared nature
+  (`catalogSaysReasons`, unknown → don't force), with a sticky fallback that retries once without
+  the forced choice on ANY provider's rejection, delivering via the `prepareStep` injection instead.
+- **Core errors were a catch-all.** Only 402/503 were classified; everything else — including that
+  400 — rendered as "trouble reaching Atlarix Core", advice that could not work. Now 401/403
+  (session expired) and 400/422 (surfaces the provider's own message) are distinct, and every Core
+  failure logs status + body regardless of branch.
+- **Half the conversation was deleted mid-session.** `124,907 → 57,832` tokens across one turn
+  boundary at 8.9% fill on a 1M window, because the conversation crossed 11 turns. Not compaction —
+  outright deletion, no card, and no signal to the model, which kept answering as if it remembered.
+  **The count cap is gone entirely**, along with `maxChatTurnsInContext` and
+  `enableContextAutoSummarize`: that setting never gated the cap (so the "fallback" was the primary
+  path for everyone), and switching it off ALSO disabled compaction, so neither position was safe.
+  Compaction is now unconditional and tokens are the only thing that bounds context.
+- **The model is told its context window** (`# Context budget` in the cache-stable header) and told
+  not to call `compress_context` on a hunch — it was summarising a 1M-window session at 100K
+  because nothing ever stated the window.
+- **The prompt states the platform.** `process.platform` appeared nowhere in prompt assembly, on a
+  product that ships a Windows build. OS and shell now come from live values (`os.type()`, and
+  `getAcceptableShell()` — the same resolver `runShellCommand` spawns with), not a lookup table.
+- **Dead `target:"preview"` removed** from `run_command`'s description and from the browser
+  error-recovery hints (removed with the Preview pane in v14.15.0, and the recovery-hint one was
+  actively steering a stuck model into a second invalid call).
+- **Prompt: one attempt budget** (change approach at 2, stop at 3) replacing three conflicting
+  rules; explicit batch-independent-tool-calls guidance; plan lifecycle de-duplicated; the
+  prescribed `glob` opening move dropped; `AGENTS.md` now carries a header saying it IS the shipped
+  system prompt, not contributor docs.
+- **Core JWT is no longer frozen** into the provider client at construction (Supabase tokens last
+  ~1h; a long or parked turn outlived them). A custom fetch reads a fresh token per request.
+- **Proxy sends SSE keepalives** (`: keepalive` every 15s) while upstream is silent. OpenRouter used
+  to do this for us; direct providers do not, which leaves the socket idle long enough for undici's
+  300s body timeout to kill it — the likely source of the Sentry `TypeError: terminated`.
+- **Workflow secrets:** `LEMONSQUEEZY_API_KEY`, `LEMONSQUEEZY_WEBHOOK_SECRET` and `RESEND_API_KEY`
+  removed from `release.yml`'s env block — unused by the build yet exposed to every `npm run make`.
+  `ATLARIX_CORE_MODEL_*` / `ATLARIX_CORE_PROXY_URL` demoted to `vars.` (the model ids are published
+  in the public `core-models.json`; masking them broke env-dependent CI tests for no benefit).
+- **Windows are bound to their workspace.** New `workspace:bind-window` IPC — main previously had no
+  way to know which window showed which project (only the CLI path ever registered one), which is
+  why per-window state had to be broadcast everywhere. Windows are now **named after their
+  workspace** too.
+
+### Still open — carried to v14.19.0
+
+- **Per-window browser isolation (the big one).** `browser_view_manager.ts` holds `tabs`,
+  `activeTabId` and `attachedWindow` as MODULE-LEVEL singletons, and `hostWindow()` falls back to
+  `getAllWindows().find(...)` — the first window. So every window shares one tab set: window 1's
+  browser activity genuinely appears in window 2. There is no cheap fix (resolving the host from the
+  requester just makes window 2 steal window 1's browser); it needs the 26 exported functions and
+  the ~1,900-line `tools/browser.ts` threaded with a window scope. Now unblocked by the binding
+  above. **Verify with two windows in the packaged app** — unit tests cannot cover this.
+- **Route the remaining per-window emits** through `sendToWorkspaceWindowQuiet` (added, unused so
+  far) with a broadcast fallback: permission prompts (`permissions/handlers.ts`,
+  `interceptor.ts:289`) are the worst — an approval for window 1's work prompts in every window —
+  then terminal events and plan-artifact emits.
+- **Session re-title on first-prompt edit.** `workspace_session_handlers.ts:756` and
+  `workspace-session-title.ts:47` both gate generation on the title still being a default, so an
+  edited first prompt can never re-title. Needs a `titleSource: 'auto' | 'user'` column so an
+  auto-generated title regenerates while a hand-typed one is never clobbered.
+- **Agent terminal targeting.** `run_command` has no terminal parameter, so work scatters across the
+  3 agent terminals (`MAX_AGENT_TERMINALS_PER_SCOPE`). Add an optional `terminal` (id or
+  create-or-reuse label) threaded through the existing `agentOpMap`, plus `terminal_list` /
+  `terminal_focus` mirroring `browser_tabs`, and mark the agent's active terminal in the UI. Lets a
+  dev server hold one tab while tests run in another.
+- **Client-side undici body timeout.** The proxy keepalive covers Core; a BYOK model streaming
+  direct from the client still has Node's 300s silence limit. Fixing it needs an undici `Agent` with
+  `bodyTimeout: 0`, and `undici` is currently only a TRANSITIVE dependency — adding it as a direct
+  one right before a release, for a failure never reproduced in a log, was not worth it. Revisit if
+  `TypeError: terminated` persists after the keepalive ships.
+- **Stall-resume duplication** (the "it restreamed and overtook itself" report).
+  `round-retry.ts:143-168` keeps `fullResponse` on a stall-resume, and `run-agent-turn.ts:458-491`
+  then appends only the completed STEP messages plus a prose nudge — the assistant text already
+  streamed is absent from native history, so the model rewrites it and the two versions concatenate.
+  Fix: fold the streamed text into history as a real assistant message.
+- **Full security audit** in the style of the July pass (5 agents, coverage table, Crit→Low). The
+  v14.18.0 work covered secret PLACEMENT only.
+
+### Owner-side (cannot be self-certified)
+
+- Delete `NEXT_PUBLIC_SUPABASE_SECRET_KEY` from the **Atlarix** repo secrets — no workflow reads it
+  — and rename it to `SUPABASE_SECRET_KEY` in launchpad. A service-role key with a `NEXT_PUBLIC_`
+  prefix in a Next.js repo is one careless import from being inlined into client JS.
+- Delete unused repo secrets: `CORE_ALERT_WEBHOOK_URL` (belongs on Railway only), `APPLE_IDENTITY`.
+- Create repository **variables** for `ATLARIX_CORE_MODEL_1..4` and `ATLARIX_CORE_PROXY_URL` (the
+  workflow falls back to the existing secrets until you do), then delete the secrets.
+- Review `TEMPLATE_TOKEN`, still in the client embed allowlist (`vite.main.config.mts` MAIN_KEYS).
+- Still outstanding from 14.17.0: reconcile proxy debits against the DeepSeek and Z.ai dashboards.
+
+## 🔭 v14.19+ — Mobile emulator toolset
+
+**`mobile_*` tools, mirroring the browser family** — a device `target`, and **a11y-tree-first** so
+it stays token-cheap (screenshots a last resort, exactly as in `BROWSER_NOTE`). Gives Atlarix real
+end-to-end mobile UI testing.
+
+- **Android — raw `adb`**, no dependency beyond the user's own SDK. `emulator -list-avds` /
+  `emulator -avd <name>` to boot; `adb shell input tap|swipe|text|keyevent` to interact;
+  **`adb exec-out uiautomator dump`** for the a11y tree with resource-ids and bounds (the direct
+  analogue of `browser_inspect`, and what keeps this cheap); `adb exec-out screencap -p`,
+  `adb install`, `adb logcat`, deep links via `adb shell am start -a android.intent.action.VIEW -d`.
+- **iOS (macOS only) — `xcrun simctl` + `idb`.** simctl covers lifecycle (list/boot/install/launch/
+  `io booted screenshot`/openurl) but has **no touch input**; `idb ui tap|swipe|text|describe-all`
+  supplies taps and the a11y tree. **Verify idb's maintenance status before committing to it** —
+  Appium + WebDriverAgent is the fallback if it has gone stale (heavier: Node server + WDA signing).
+- Considered and set aside: Maestro (single binary, both platforms, but less low-level control) and
+  Appium as the primary driver (one driver for both, at a much heavier install cost for users).
 
 ## ✅ SHIPPED in v14.17.1
 
