@@ -41,6 +41,8 @@ export type ChatSessionRow = {
   id: string;
   workspaceId: number;
   title: string;
+  /** "auto" = generated and may be regenerated; "user" = typed, never touched. */
+  titleSource: "auto" | "user";
   createdAt: Date;
   updatedAt: Date;
 };
@@ -77,6 +79,7 @@ function mapSession(row: typeof chatSessions.$inferSelect): ChatSessionRow {
     id: row.id,
     workspaceId: row.workspaceId,
     title: row.title,
+    titleSource: (row.titleSource ?? "auto") as "auto" | "user",
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
@@ -602,7 +605,8 @@ export function registerWorkspaceSessionHandlers(): void {
       }
       const [row] = await db
         .update(chatSessions)
-        .set({ title: trimmed, updatedAt: new Date() })
+        // A hand-typed name is the user's and must never be regenerated over.
+        .set({ title: trimmed, titleSource: "user", updatedAt: new Date() })
         .where(eq(chatSessions.id, sessionId))
         .returning();
       if (!row) throw new Error("Session not found");
@@ -700,7 +704,10 @@ export function registerWorkspaceSessionHandlers(): void {
     if (!session) throw new Error("Session not found");
 
     const currentTitle = session.title.trim();
-    if (!DEFAULT_SESSION_TITLES.has(currentTitle)) {
+    // Gate on OWNERSHIP, not on the title still reading "Untitled". The old
+    // check meant that once a session had any name — including one generated
+    // from its first exchange — editing that first prompt could never update it.
+    if (session.titleSource === "user") {
       return { title: currentTitle };
     }
 
@@ -754,13 +761,13 @@ export function registerWorkspaceSessionHandlers(): void {
     const finalTitle = newTitle.trim();
     if (
       finalTitle &&
-      DEFAULT_SESSION_TITLES.has(currentTitle) &&
+      finalTitle !== currentTitle &&
       !DEFAULT_SESSION_TITLES.has(finalTitle) &&
       !isLowQualityGeneratedTitle(finalTitle)
     ) {
       await db
         .update(chatSessions)
-        .set({ title: finalTitle, updatedAt: new Date() })
+        .set({ title: finalTitle, titleSource: "auto", updatedAt: new Date() })
         .where(eq(chatSessions.id, sessionId));
       return { title: finalTitle };
     }

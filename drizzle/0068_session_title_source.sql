@@ -1,0 +1,12 @@
+-- Track whether a session's title was generated for it or typed by the user.
+--
+-- Re-titling was gated on the title still being a DEFAULT ("Untitled" / "New
+-- chat"), so once a session had any name — including one we generated from its
+-- first exchange — editing that first prompt could never update it. With this
+-- column an "auto" title follows the prompt it came from, while a hand-typed one
+-- is never overwritten.
+--
+-- Existing rows default to "auto". That is deliberate: a title we generated is
+-- by far the common case, and the cost of being wrong is a re-titled session
+-- rather than a lost name, which the user can always rename back.
+ALTER TABLE `chat_sessions` ADD COLUMN `title_source` text DEFAULT 'auto' NOT NULL;

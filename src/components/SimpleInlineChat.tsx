@@ -246,7 +246,20 @@ export function SimpleInlineChat({
             // so stop the in-flight turn first (instant, stops spending tokens
             // and drops its chunks) before editing + resending the edited msg.
             IpcClient.getInstance().cancelChatStream(chatId);
+            // Was this the FIRST user message? The session title is derived from
+            // the first exchange, so editing it makes the title stale — every
+            // other chat app re-titles here. Checked BEFORE the edit, while the
+            // pre-edit ordering is still intact. A hand-typed title is still
+            // protected downstream (titleSource === "user").
+            const isFirstUserMessage =
+                messagesForChat.find((m) => m.role === "user")?.id === messageId;
             await IpcClient.getInstance().editMessage(chatId, messageId, newContent);
+            if (isFirstUserMessage) {
+                const { allowRetitleAfterFirstPromptEdit } = await import(
+                    "@/lib/workspace-session-title"
+                );
+                allowRetitleAfterFirstPromptEdit(chatId);
+            }
             const chat = await IpcClient.getInstance().getChat(chatId);
             setChatAppId(chat.appId ?? null);
             setMessagesById((prev) => {
@@ -286,7 +299,15 @@ export function SimpleInlineChat({
                 workModeOverride,
             });
         },
-        [chatId, setMessagesById, setSnapshotByMessageId, streamMessage],
+        // `messagesForChat` is read to identify the first user message; without
+        // it here the closure would test against a stale message list.
+        [
+            chatId,
+            messagesForChat,
+            setMessagesById,
+            setSnapshotByMessageId,
+            streamMessage,
+        ],
     );
 
     const handleEditUserMessage = useCallback(

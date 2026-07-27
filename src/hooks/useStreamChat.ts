@@ -97,7 +97,11 @@ import { invalidateAppQuery } from "./useLoadApp";
 import { selectedAppIdAtom } from "@/atoms/appAtoms";
 import { resolveStreamAppId } from "@/lib/chat-workspace-binding";
 import { ensureWorkspaceSessionForChat } from "@/lib/ensure-workspace-session";
-import { applyAIWorkspaceSessionTitle } from "@/lib/workspace-session-title";
+import {
+  applyAIWorkspaceSessionTitle,
+  markTitleGenerated,
+  needsGeneratedTitle,
+} from "@/lib/workspace-session-title";
 import { collectPasteAttachmentsFromFileAttachments } from "@/lib/chat/paste-attachment-meta";
 import { buildPromptWithTextPastes } from "@/lib/chat/text-paste-attachment";
 import {
@@ -367,7 +371,6 @@ export function useStreamChat({
 
   // PASS6: throttle setMessagesById during streaming (max ~20/s) to avoid renderer OOM.
   /** AI workspace session title runs once per chat after the first assistant turn is persisted. */
-  const sessionTitleGeneratedRef = useRef(new Set<number>());
 
   const messageStreamThrottleRef = useRef<{
     timer: ReturnType<typeof setInterval> | null;
@@ -1847,8 +1850,10 @@ export function useStreamChat({
                   snapshotJson ?? undefined,
                   Object.keys(persistExtras).length > 0 ? persistExtras : undefined,
                 );
-                if (!sessionTitleGeneratedRef.current.has(response.chatId)) {
-                  sessionTitleGeneratedRef.current.add(response.chatId);
+                // Shared module state, not a component ref: editing the first
+                // prompt must be able to reopen this from the composer.
+                if (needsGeneratedTitle(response.chatId)) {
+                  markTitleGenerated(response.chatId);
                   await applyAIWorkspaceSessionTitle(sessionIdForPersist);
                 }
                 const activeSessionId = getDefaultStore().get(

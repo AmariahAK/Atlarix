@@ -98,6 +98,21 @@ export const chatSessions = sqliteTable("chat_sessions", {
     .notNull()
     .references(() => apps.id, { onDelete: "cascade" }),
   title: text("title").notNull().default("Untitled"),
+  /**
+   * Who named this session.
+   *
+   * "auto" — generated from the first exchange, so it should FOLLOW that
+   * exchange: editing the first prompt regenerates it, the way every other
+   * chat app behaves. "user" — typed by hand, and never overwritten.
+   *
+   * Re-titling used to be gated on the title still being a DEFAULT ("Untitled" /
+   * "New chat"), which meant that once a session had any name at all — including
+   * one we generated ourselves — editing the prompt it came from could never
+   * update it.
+   */
+  titleSource: text("title_source", { enum: ["auto", "user"] })
+    .notNull()
+    .default("auto"),
   /** In-memory stream transport id (negative); survives app restart mapping. */
   streamChatId: integer("stream_chat_id"),
   /** v12 2.3: "background" for detached agent sessions, else "normal". */

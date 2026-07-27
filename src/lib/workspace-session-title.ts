@@ -37,12 +37,46 @@ function setSessionTitleGenerating(sessionId: string, generating: boolean): void
   });
 }
 
+/**
+ * Chats whose title has already been generated this run.
+ *
+ * Module-level rather than a component ref because two places need it: the
+ * stream hook (which generates after the first exchange) and the composer
+ * (which must ALLOW a regeneration when the first prompt is edited). A ref in
+ * one component is unreachable from the other.
+ */
+const titleGeneratedChats = new Set<number>();
+
+/** True when this chat still needs a generated title. */
+export function needsGeneratedTitle(chatId: number): boolean {
+  return !titleGeneratedChats.has(chatId);
+}
+
+export function markTitleGenerated(chatId: number): void {
+  titleGeneratedChats.add(chatId);
+}
+
+/**
+ * The first prompt changed, so the title derived from it is stale — let the next
+ * completed turn regenerate it.
+ *
+ * Only the FIRST exchange feeds the title, so only an edit to it should reopen
+ * this; editing a later message leaves the title alone. A title the user typed
+ * by hand is still protected downstream by `titleSource === "user"`.
+ */
+export function allowRetitleAfterFirstPromptEdit(chatId: number): void {
+  titleGeneratedChats.delete(chatId);
+}
+
 /** Async AI title from first user + assistant messages after the first turn completes. */
 export async function applyAIWorkspaceSessionTitle(sessionId: string): Promise<void> {
   setSessionTitleGenerating(sessionId, true);
   try {
     const { session } = await IpcClient.getInstance().getWorkspaceSession(sessionId);
-    if (!isDefaultSessionTitle(session.title)) return;
+    // Ownership, not "is it still Untitled". Re-deriving a title the USER typed
+    // would be worse than never re-titling; re-deriving one we generated is the
+    // whole point when the prompt it came from has changed.
+    if (session.titleSource === "user") return;
 
     const { title } = await IpcClient.getInstance().generateWorkspaceSessionTitle(sessionId);
     if (
