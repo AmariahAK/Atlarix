@@ -1,11 +1,46 @@
 # Atlarix TODO
 
-**Current Version:** v14.18.0 (IN PROGRESS 2026-07-27) — two production bugs confirmed from logs and
+**Current Version:** v14.19.0 (IN PROGRESS 2026-07-27) — two production bugs confirmed from logs and
 fixed: background-resume turns dying on Core, and half the conversation being silently deleted
 mid-session. Plus prompt accuracy, workflow secret hygiene, and the start of real window isolation.
 **Last Updated:** 2026-07-27
 
-## 🚧 IN PROGRESS — v14.18.0
+## 🚧 IN PROGRESS — v14.19.0 — window isolation, terminal ownership, session re-title
+
+- **Each window has its own browser.** `browser_view_manager` kept `tabs`, `activeTabId`,
+  `visible`, `lastBounds`, `attachedWindow` and the page-error buffer at MODULE level, and
+  `hostWindow()` fell back to the FIRST window — so window 1's browsing genuinely was window 2's,
+  and the view could attach to a window that never asked. Now a `BrowserScope` per window, resolved
+  from `event.sender` in the IPC handlers and from `_ownerWindowId` (injected once in
+  `runToolExecute`) in the agent tools. The cookie-jar session and the paint host stay shared on
+  purpose. **Two-window packaged verification is the real gate — unit tests cannot cover it.**
+- **The agent stopped spawning a terminal per command.** The shared-foreground rule
+  (`AGENT_FG_KEY`) existed only in the renderer, so main ran its own policy and created one instance
+  per command — then silently failed at three, with the caller discarding the error. Main now owns
+  the rule; the cap is gone.
+- **Terminal targeting:** `run_command({terminal:"e2e"})`, plus `terminal_list` and `terminal_read`
+  (read a still-running dev server without re-running it). `terminal_read` replaced the planned
+  `terminal_focus` — focus is a UI affordance with no agent value.
+- **Background-job / automation updates** went through the BROWSER panel's `broadcastToRenderer`,
+  i.e. whichever window the browser was attached to — a job started in window 1 could announce
+  itself in window 2. Now broadcast, filtered by the ids each payload already carries.
+- **Plan artifacts** reached every window, and the panel's guard only rejects a payload when it
+  ALREADY holds a different plan — so an empty panel in window 2 adopted window 1's plan. Now sent
+  to the owning window.
+- **Sessions re-title when the first prompt is edited** (`title_source` column, migration 0068); a
+  hand-typed name is never regenerated over.
+
+### Audited and NOT changed — these were on the plan as leaks and are not
+
+Worth recording so they are not "fixed" again. Each is already correctly filtered:
+`permission-request` routes by `chatId` (`permissionHandlers.get(chatId)`, and chat ids are unique
+per session process-wide); `operation-status` carries an operationId no other window knows;
+`terminal-output` DOES include `chatId` (terminal_handlers.ts:47); `terminal-instances:cleared`
+broadcasting is correct because clear-all wipes every scope process-wide; `plan:file-updated` has no
+subscribers at all. Terminal scope keys also do NOT collide across windows —
+`createStreamTransport` mints ids from a process-wide counter.
+
+## ✅ SHIPPED in v14.18.0
 
 ### Fixed (both root causes confirmed from `~/Library/Logs/Atlarix/main.log`, not inferred)
 
@@ -56,26 +91,6 @@ mid-session. Plus prompt accuracy, workflow secret hygiene, and the start of rea
 
 ### Still open — carried to v14.19.0
 
-- **Per-window browser isolation (the big one).** `browser_view_manager.ts` holds `tabs`,
-  `activeTabId` and `attachedWindow` as MODULE-LEVEL singletons, and `hostWindow()` falls back to
-  `getAllWindows().find(...)` — the first window. So every window shares one tab set: window 1's
-  browser activity genuinely appears in window 2. There is no cheap fix (resolving the host from the
-  requester just makes window 2 steal window 1's browser); it needs the 26 exported functions and
-  the ~1,900-line `tools/browser.ts` threaded with a window scope. Now unblocked by the binding
-  above. **Verify with two windows in the packaged app** — unit tests cannot cover this.
-- **Route the remaining per-window emits** through `sendToWorkspaceWindowQuiet` (added, unused so
-  far) with a broadcast fallback: permission prompts (`permissions/handlers.ts`,
-  `interceptor.ts:289`) are the worst — an approval for window 1's work prompts in every window —
-  then terminal events and plan-artifact emits.
-- **Session re-title on first-prompt edit.** `workspace_session_handlers.ts:756` and
-  `workspace-session-title.ts:47` both gate generation on the title still being a default, so an
-  edited first prompt can never re-title. Needs a `titleSource: 'auto' | 'user'` column so an
-  auto-generated title regenerates while a hand-typed one is never clobbered.
-- **Agent terminal targeting.** `run_command` has no terminal parameter, so work scatters across the
-  3 agent terminals (`MAX_AGENT_TERMINALS_PER_SCOPE`). Add an optional `terminal` (id or
-  create-or-reuse label) threaded through the existing `agentOpMap`, plus `terminal_list` /
-  `terminal_focus` mirroring `browser_tabs`, and mark the agent's active terminal in the UI. Lets a
-  dev server hold one tab while tests run in another.
 - **Client-side undici body timeout.** The proxy keepalive covers Core; a BYOK model streaming
   direct from the client still has Node's 300s silence limit. Fixing it needs an undici `Agent` with
   `bodyTimeout: 0`, and `undici` is currently only a TRANSITIVE dependency — adding it as a direct
