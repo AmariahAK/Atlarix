@@ -9,8 +9,17 @@
  *   ~1.1 GB, ctags-index ~267 MB, plus stale blueprints / diagram-git).
  * - **v14.16.0 session-recording removal** — `media/` held JPEG frames of the
  *   browser reel (~55 KB per action, up to 150 per turn).
+ * - **v14.21.0 sub-agent worktree removal** — `subagent-worktrees/` held a full
+ *   checkout per writer sub-agent run. These were normally torn down at the end
+ *   of a run, so what remains is the crash/kill residue — but a checkout each,
+ *   so it adds up.
  *
  * No live code references any of these directories, so removal is safe.
+ *
+ * A deleted worktree also leaves a registry entry in the user's own repo
+ * (`.git/worktrees/<name>`). We deliberately don't chase those: they are tiny,
+ * we'd have to enumerate every workspace to find them, and git's own automatic
+ * gc runs `worktree prune`, which clears an entry whose directory is gone.
  *
  * Runs once, guarded by a marker file. Fire-and-forget from onReady — never
  * blocks startup.
@@ -27,11 +36,12 @@ import { getUserDataPath } from "../../paths/paths";
  * earlier one. (Reusing the old name would silently skip every upgrader, which
  * is most of them; the re-walk of already-deleted dirs is a fast no-op.)
  */
-const MARKER_FILE = ".orphaned-userdata-cleanup-v2";
+const MARKER_FILE = ".orphaned-userdata-cleanup-v3";
 
 /**
  * Orphaned directory names under userData, written by the removed FTS5 indexer,
- * ctags indexer, blueprint builder, diagram-git store, and browser session reel.
+ * ctags indexer, blueprint builder, diagram-git store, browser session reel, and
+ * writer sub-agent worktrees.
  */
 const ORPHANED_DIRS = [
   "fts5-index",
@@ -39,6 +49,7 @@ const ORPHANED_DIRS = [
   "blueprints",
   "diagram-git",
   "media",
+  "subagent-worktrees",
 ] as const;
 
 async function dirSizeBytes(dir: string): Promise<number> {

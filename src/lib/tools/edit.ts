@@ -32,6 +32,7 @@ import {
   OVER_ESCAPE_REPAIR_NOTICE,
   OVER_ESCAPE_AMBIGUOUS_ERROR,
 } from "./edit-escape";
+import { overlayContent } from "@/lib/agents/subagent-proposals";
 
 const logger = log.scope("edit-tools");
 
@@ -51,6 +52,13 @@ interface EditFileArgs {
   agentMode?: string;
   _chatSessionId?: number;
   workspaceId?: number;
+  /**
+   * Writer sub-agents only. Their edits are recorded as proposals rather than
+   * written, so subsequent reads must see the proposed body — otherwise a
+   * second edit to the same file matches against stale disk content and fails.
+   * Threaded in by run-subagent at the tool funnel; absent for the main agent.
+   */
+  _proposalSetId?: string;
 }
 
 function normalizeRelativePath(input: string): string {
@@ -85,9 +93,15 @@ async function readFileSafe(
   normalizedPath: string,
   operation: string,
   workspaceRoot?: string,
+  proposalSetId?: string,
 ) {
   try {
     assertReadableUnlessOutside(normalizedPath, fullPath, workspaceRoot);
+    // A writer sub-agent's own earlier edits are proposals, not bytes on disk.
+    // Serve them here or its second edit to a file would match against content
+    // its first edit already replaced.
+    const proposed = overlayContent(proposalSetId, fullPath);
+    if (proposed !== null) return { ok: true as const, content: proposed };
     const content = await fs.promises.readFile(fullPath, "utf-8");
     return { ok: true as const, content };
   } catch {
@@ -167,9 +181,21 @@ async function runWrite(
   if (workspace) {
     try {
       assertReadableUnlessOutside(normalizedPath, fullPath, workspace);
-      await fs.promises.access(fullPath);
-      fileType = "update";
-      oldContent = await fs.promises.readFile(fullPath, "utf-8");
+      // Same overlay rule as readFileSafe: a file this sub-agent already
+      // proposed counts as existing, and its proposed body is the "old" side —
+      // otherwise a second write to it reads as a fresh create.
+      const proposed = overlayContent(args._proposalSetId, fullPath);
+      if (proposed !== null) {
+        oldContent = proposed;
+        // create-vs-update still tracks DISK, not the overlay: a file this
+        // sub-agent invented is a create no matter how many times it rewrites
+        // its own proposal.
+        fileType = fs.existsSync(fullPath) ? "update" : "create";
+      } else {
+        await fs.promises.access(fullPath);
+        fileType = "update";
+        oldContent = await fs.promises.readFile(fullPath, "utf-8");
+      }
     } catch {
       fileType = "create";
     }
@@ -330,7 +356,7 @@ async function runReplace(
     }
   }
 
-  const r = await readFileSafe(fullPath, normalizedPath, "edit_file", workspace);
+  const r = await readFileSafe(fullPath, normalizedPath, "edit_file", workspace, args._proposalSetId);
   if (!r.ok) return r.error;
 
   let content = r.content;
@@ -400,7 +426,7 @@ async function runMerge(
   const effective = escapeVerdict === "repair" ? repairOverEscaped(content) : content;
   const escapeNotice = escapeVerdict === "repair" ? OVER_ESCAPE_REPAIR_NOTICE : undefined;
 
-  const r = await readFileSafe(fullPath, normalizedPath, "edit_file", workspace);
+  const r = await readFileSafe(fullPath, normalizedPath, "edit_file", workspace, args._proposalSetId);
   if (!r.ok) return r.error;
 
   const merged = mergeElision(r.content, effective);

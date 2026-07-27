@@ -55,11 +55,7 @@ export type AutomationTrigger = z.infer<typeof AutomationTriggerSchema>;
  * whether to present it to the model ("Send to chat"). The agent-run modes
  * are explicit per-automation opt-ins; nothing spends tokens unless chosen.
  */
-export const AutomationRunModeSchema = z.enum([
-  "notify-only",
-  "read-only",
-  "worktree-write",
-]);
+export const AutomationRunModeSchema = z.enum(["notify-only", "read-only"]);
 export type AutomationRunMode = z.infer<typeof AutomationRunModeSchema>;
 
 /** IPC create/update payload (id/workspaceId handled by the handler). */
@@ -103,9 +99,6 @@ export interface AutomationRunView {
   archived: boolean;
   /** Fired-trigger context (notify-only runs) — fuels the "Send to chat" chip. */
   triggerContext: string | null;
-  hasProposal: boolean;
-  proposalFiles: string[];
-  proposalApplied: boolean;
   startedAt: number;
   finishedAt: number | null;
 }

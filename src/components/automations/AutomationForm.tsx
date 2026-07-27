@@ -50,7 +50,6 @@ interface McpServerOption {
 export function AutomationForm({
   workspaceId,
   existing,
-  isGitRepo,
   mcpServers,
   defaultRepo,
   open,
@@ -59,7 +58,6 @@ export function AutomationForm({
 }: {
   workspaceId: number;
   existing: AutomationListItem | null;
-  isGitRepo: boolean;
   mcpServers: McpServerOption[];
   defaultRepo: string | null;
   open: boolean;
@@ -93,8 +91,8 @@ export function AutomationForm({
       : "{}",
   );
   const [prompt, setPrompt] = useState(existing?.prompt ?? "");
-  const [runMode, setRunMode] = useState<"notify-only" | "read-only" | "worktree-write">(
-    (existing?.runMode as "notify-only" | "read-only" | "worktree-write") ?? "notify-only",
+  const [runMode, setRunMode] = useState<"notify-only" | "read-only">(
+    (existing?.runMode as "notify-only" | "read-only") ?? "notify-only",
   );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -132,8 +130,7 @@ export function AutomationForm({
     };
   }, [kind, cron, repo, events, interval, mcpServerId, mcpTool, mcpArgs]);
 
-  const effectiveRunMode =
-    runMode === "worktree-write" && !isGitRepo ? "read-only" : runMode;
+  const effectiveRunMode = runMode;
   const valid = Boolean(
     name.trim() && trigger && (effectiveRunMode === "notify-only" || prompt.trim()),
   );
@@ -334,14 +331,6 @@ export function AutomationForm({
                     detail:
                       "Runs an unattended agent turn with read-only tools and reports a summary. Costs one model turn per fire.",
                     disabled: false,
-                  },
-                  {
-                    key: "worktree-write" as const,
-                    title: "Run agent (worktree writes)",
-                    detail: isGitRepo
-                      ? "Agent runs in an isolated git worktree; changes surface as a reviewable proposal."
-                      : "Requires a git workspace — this workspace is not a git repository.",
-                    disabled: !isGitRepo,
                   },
                 ]
               ).map((opt) => (

@@ -31,7 +31,7 @@ const resultsByChat = new Map<number, SubagentResult[]>();
 const runningByChat = new Map<number, Set<string>>();
 
 /** Status a sub-agent can transition through (mirrors background-commands). */
-export type SubagentNotifyStatus = "running" | "finished";
+export type SubagentNotifyStatus = "running" | "finished" | "stalled";
 
 /**
  * main-process notifier (set by the IPC host) → renderer indicator + auto-wake.
@@ -60,6 +60,19 @@ function notify(
   status: SubagentNotifyStatus,
 ): void {
   notifier?.(chatId, { taskId, status, running: runningSubagentCount(chatId) });
+}
+
+/**
+ * A background sub-agent has produced no activity for a long time.
+ *
+ * This rides the SAME channel a finished sub-agent uses, and the renderer's
+ * wake closure already treats "stalled" as a wake reason — so a genuinely stuck
+ * sub-agent re-engages the main agent instead of silently holding the turn
+ * open. It is only a nudge: the task keeps running, and its 10-minute timeout
+ * is still the hard backstop.
+ */
+export function notifySubagentStalled(chatId: number, taskId: string): void {
+  notify(chatId, taskId, "stalled");
 }
 
 export function recordSubagentStart(chatId: number, taskId: string): void {

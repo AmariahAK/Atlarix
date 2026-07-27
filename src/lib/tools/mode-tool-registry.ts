@@ -44,6 +44,11 @@ export const EVERY_MODE_TOOLS = [
   "web_search",
   // R1: opt-in self-wake — available in every mode (build/debug get it via "*").
   "schedule_wakeup",
+  // v14.21: managing sub-agents belongs wherever delegating them does — which
+  // is every mode. (background_jobs is withheld from Plan because Plan can't
+  // run commands; Plan CAN delegate read-only recon and web research, so it
+  // must be able to list, read, and cancel what it delegated.)
+  "subagents",
 ] as const;
 
 function withEveryModeTools(list: readonly string[]): readonly string[] {

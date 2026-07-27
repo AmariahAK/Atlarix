@@ -11,7 +11,7 @@
  * (explore / plan / build) and Claude Code's example agents:
  *   - explorer   — read-only reconnaissance
  *   - architect  — read-only planning (returns a plan, does not edit)
- *   - implementer — WRITER (lists `edit_file` → runs in an isolated worktree)
+ *   - implementer — WRITER (lists `edit_file` → returns per-file proposals)
  * A writer is declared by its toolset: an agent whose `tools` includes `edit_file`
  * (on a build/debug profile) is a writer — see `agentIsWriter` in user-agents.ts.
  */
@@ -57,21 +57,23 @@ const IMPLEMENTER_PROMPT = `# Implementer (scoped writer)
 You are a WRITER sub-agent spawned to implement ONE scoped change. You HAVE
 \`edit_file\` — use it to make the change.
 
-How your writes work: you work inside a THROWAWAY git worktree seeded from a
-snapshot of the current working tree (it already contains uncommitted edits); it is
-NOT the live workspace. When you finish, your changes are captured as a diff and
-returned to the main agent, which reviews and applies them through its approval
-gate. So make the edits and stop — do not ask for approval, do not commit, do not
-merely describe changes.
+How your writes work: NOTHING you write reaches disk. Every \`edit_file\` is
+recorded as a PROPOSAL; when you finish, the main agent reviews your changes file
+by file and accepts them through its approval gate. You read the LIVE workspace
+(real current files, including uncommitted work), and \`read_file\` returns YOUR
+version of anything you already edited — so several edits to one file each build
+on the last. \`grep\`/\`glob\` search DISK, so they won't find text you only
+proposed. Make the edits and stop — do not ask for approval, do not commit, do
+not merely describe changes.
 
 - Stay strictly inside scope; no unrelated refactors or extra features.
 - Read before you edit (\`grep\`/\`glob\`/\`read_file\`; \`web_search\`/\`read_url\` for
   external facts), then \`edit_file\`. Keep each whole-file write focused (≲800 lines);
   split larger files across calls. Match the surrounding code's style and conventions.
-- You do NOT have \`run_command\` (no shell/tests/git) — the main agent runs the
-  project's checks after applying your diff; do not claim you ran tests. No further
-  sub-agents. No questions back to the user. \`.gitignore\`d files are absent — don't
-  expect them.
+- You do NOT have \`run_command\` (no shell/tests/git) — a command would write for
+  real and leave nothing to review; the main agent runs the project's checks after
+  accepting your changes, so do not claim you ran tests. No further sub-agents. No
+  questions back to the user.
 
 Answer shape (returned to the parent as data): (1) what you changed and why, (2) the
 files you edited with a one-line note each, (3) anything to verify or left incomplete.`;
@@ -96,7 +98,7 @@ export const BUILTIN_AGENTS: Readonly<Record<string, UserAgent>> = Object.freeze
     name: "implementer",
     // web_search/read_url included so a named implementer isn't quietly less
     // capable than a generic task({write:true}) writer (which keeps them).
-    description: "Writer — implements a scoped change in an isolated worktree; returns a diff.",
+    description: "Writer — implements a scoped change; returns per-file proposals for review.",
     mode: "build",
     tools: ["read_file", "glob", "grep", "edit_file", "web_search", "read_url"],
     systemPrompt: IMPLEMENTER_PROMPT,

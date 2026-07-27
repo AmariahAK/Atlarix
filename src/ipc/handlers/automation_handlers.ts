@@ -16,7 +16,6 @@ import {
   type AutomationInput,
 } from "@/lib/automations/types";
 import { getAutomationRunView } from "@/lib/automations/notify";
-import { resolveAppPath } from "../../paths/paths";
 import { SubscriptionManager } from "../../lib/SubscriptionManager";
 
 const logger = log.scope("automation_handlers");
@@ -219,55 +218,4 @@ export function registerAutomationHandlers(): void {
     return { ok: true };
   });
 
-  handle("automations:proposal-diff", async (_event, runId: string) => {
-    const run = await db.query.automationRuns.findFirst({
-      where: eq(automationRuns.id, runId),
-    });
-    return run?.proposalDiff ?? null;
-  });
-
-  handle("automations:apply-proposal", async (_event, runId: string) => {
-    const run = await db.query.automationRuns.findFirst({
-      where: eq(automationRuns.id, runId),
-    });
-    if (!run?.proposalDiff) throw new Error("Run has no proposal to apply");
-    if (run.proposalAppliedAt) return { applied: true, alreadyApplied: true };
-    const automation = await db.query.automations.findFirst({
-      where: eq(automations.id, run.automationId),
-    });
-    if (!automation?.workspaceId) throw new Error("Automation workspace missing");
-    const app = await db.query.apps.findFirst({
-      where: eq(apps.id, automation.workspaceId),
-    });
-    if (!app) throw new Error("Workspace not found");
-    const workspacePath = resolveAppPath(app.path);
-
-    // Deterministic apply: git apply --3way against the live workspace.
-    const os = await import("node:os");
-    const path = await import("node:path");
-    const fs = await import("node:fs/promises");
-    const { exec } = await import("../utils/system_git_exec");
-    const patchPath = path.join(
-      os.tmpdir(),
-      `atlarix-automation-${runId.slice(0, 8)}.patch`,
-    );
-    await fs.writeFile(patchPath, run.proposalDiff, "utf-8");
-    try {
-      const result = await exec(["apply", "--3way", patchPath], workspacePath);
-      if (result.exitCode !== 0) {
-        return {
-          applied: false,
-          conflict: true,
-          message: result.stderr.trim() || result.stdout.trim() || "git apply failed",
-        };
-      }
-    } finally {
-      await fs.unlink(patchPath).catch(() => {});
-    }
-    await db
-      .update(automationRuns)
-      .set({ proposalAppliedAt: new Date(), unread: false })
-      .where(eq(automationRuns.id, runId));
-    return { applied: true };
-  });
 }

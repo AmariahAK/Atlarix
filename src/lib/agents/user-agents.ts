@@ -208,7 +208,7 @@ export function loadUserAgent(
  * run on a write-capable profile (build/debug — the modes that offer `edit_file`)
  * AND either declare `edit_file` in its `tools` allowlist or omit the allowlist
  * (inheriting the full writer toolset). Mirrors the intersection run-subagent
- * applies, so this is the single source of truth for the worktree decision.
+ * applies, so this is the single source of truth for the writer decision.
  */
 export function agentIsWriter(agent: UserAgent): boolean {
   if (agent.mode !== "build" && agent.mode !== "debug") return false;
@@ -216,7 +216,7 @@ export function agentIsWriter(agent: UserAgent): boolean {
 }
 
 /**
- * Whether a `task({...})` spawn will run as a writer (→ isolated worktree). A
+ * Whether a `task({...})` spawn will run as a writer (→ proposal set). A
  * named writer agent implies write without `write:true`; otherwise the explicit
  * `write` flag decides.
  */

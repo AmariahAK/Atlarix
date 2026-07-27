@@ -62,13 +62,11 @@ export interface ChatStreamParams {
   agentOverride?: string;
   /**
    * Set when this turn IS an automation run (unattended, no human responder).
-   * unattended drops human-handoff tools; workspacePathOverride points the turn
-   * at the run's isolated worktree for worktree-write automations.
+   * `unattended` drops the human-handoff tools.
    */
   automation?: {
     runId: string;
     unattended: true;
-    workspacePathOverride?: string;
   };
 }
 

@@ -81,6 +81,7 @@ import {
   terminalOutputsAtom,
   activityStreamItemsAtom,
   backgroundJobsByChatIdAtom,
+  subagentJobsByChatIdAtom,
   type SourceItem,
   type FileProposal,
   type TerminalOutput,
@@ -471,8 +472,23 @@ export function useStreamChat({
     const ipc = IpcClient.getInstance();
     const unsub = ipc.onBackgroundJobUpdate(({ chatId: evChatId, status, source }) => {
       // Indicator refresh is source-specific: the background-jobs list is for
-      // COMMANDS only. Sub-agent events skip it (no bg-job list).
-      if (source !== "subagent") {
+      // COMMANDS, and sub-agents have their own list (v14.21 — before that,
+      // sub-agent events refreshed nothing, so a running sub-agent was
+      // invisible and uncancellable from the UI).
+      if (source === "subagent") {
+        void ipc.subagentJobsList(evChatId).then((subs) => {
+          getDefaultStore().set(subagentJobsByChatIdAtom, (prev) => ({
+            ...prev,
+            [evChatId]: subs.map((s) => ({
+              taskId: s.taskId,
+              description: s.description,
+              elapsedMs: s.elapsedMs,
+              lastOutput: s.lastOutput,
+              stalled: s.stalled,
+            })),
+          }));
+        });
+      } else {
         void ipc.backgroundJobsList(evChatId).then((jobs) => {
           getDefaultStore().set(backgroundJobsByChatIdAtom, (prev) => ({
             ...prev,

@@ -34,6 +34,11 @@ export const BUILD_ONLY_TOOLS = [
   // Headless UI verification of the app in a browser tab — Build/Debug only (not
   // on the read-only ask/plan/review surfaces).
   "preview_test",
+  // Reviewing a writer sub-agent's proposals ends in a real workspace write, so
+  // it belongs exactly where edit_file does. (`subagents` — listing, reading and
+  // cancelling them — IS every-mode: Plan delegates read-only recon and must be
+  // able to manage it.)
+  "proposals",
 ] as const satisfies readonly string[];
 
 const BUILD_ONLY_SET = new Set<string>(BUILD_ONLY_TOOLS);

@@ -1688,7 +1688,7 @@ export class IpcClient {
       enabled: boolean;
       trigger: unknown;
       prompt: string;
-      runMode: "read-only" | "worktree-write";
+      runMode: "notify-only" | "read-only";
       model: { provider: string; name: string } | null;
       lastRunAt: number | null;
       createdAt: number;
@@ -1731,16 +1731,6 @@ export class IpcClient {
 
   public async archiveAutomationRun(runId: string): Promise<{ ok: boolean }> {
     return this.ipcRenderer.invoke("automations:archive", runId);
-  }
-
-  public async getAutomationProposalDiff(runId: string): Promise<string | null> {
-    return this.ipcRenderer.invoke("automations:proposal-diff", runId);
-  }
-
-  public async applyAutomationProposal(
-    runId: string,
-  ): Promise<{ applied: boolean; alreadyApplied?: boolean; conflict?: boolean; message?: string }> {
-    return this.ipcRenderer.invoke("automations:apply-proposal", runId);
   }
 
   /** Subscribe to live automation run updates (triage feed). Returns unsubscribe. */
@@ -3662,6 +3652,34 @@ export class IpcClient {
       chatId,
       jobId,
     });
+  }
+
+  /** v14.21: running sub-agents for the indicator (mirrors backgroundJobsList). */
+  public async subagentJobsList(chatId: number): Promise<
+    {
+      taskId: string;
+      description: string;
+      elapsedMs: number;
+      lastOutput: string;
+      stalled: boolean;
+    }[]
+  > {
+    return this.ipcRenderer.invoke("chat:subagent-jobs-list", chatId);
+  }
+
+  public async subagentJobCancel(
+    chatId: number,
+    taskId: string,
+  ): Promise<{ ok: boolean; reason?: string }> {
+    return this.ipcRenderer.invoke("chat:subagent-job-cancel", { chatId, taskId });
+  }
+
+  /** Non-destructive TAIL of a sub-agent's narration (never moves the model's cursor). */
+  public async subagentJobOutput(
+    chatId: number,
+    taskId: string,
+  ): Promise<{ text: string; elapsedMs: number; state: string } | null> {
+    return this.ipcRenderer.invoke("chat:subagent-job-output", { chatId, taskId });
   }
 
   public onBackgroundJobUpdate(

@@ -383,6 +383,26 @@ export const backgroundJobsByChatIdAtom = atom<Record<number, BackgroundJobView[
   {},
 );
 
+/** A running sub-agent (v14.21) — the `task` equivalent of BackgroundJobView. */
+export interface SubagentJobView {
+  taskId: string;
+  description: string;
+  elapsedMs: number;
+  lastOutput: string;
+  /** No activity for a long while — it may be genuinely wedged. */
+  stalled?: boolean;
+}
+
+/**
+ * Running sub-agents per chatId. Fed by the SAME chat:background-job-update
+ * event as commands (discriminated by `source:"subagent"`) — sub-agents were
+ * previously skipped by that refresh entirely, which is why there was no way to
+ * see or stop one from the UI.
+ */
+export const subagentJobsByChatIdAtom = atom<Record<number, SubagentJobView[]>>(
+  {},
+);
+
 // ═══════════════════════════════════════════════════════════
 // BROWSER ERRORS (Live Preview Console Errors)
 // ═══════════════════════════════════════════════════════════

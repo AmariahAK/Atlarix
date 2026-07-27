@@ -25,7 +25,7 @@ export const TOOL_RECOVERY_HINTS: Record<string, string> = {
   run_command:
     "If it timed out, pass a larger timeout_ms or split the command. If it needs interaction, add non-interactive flags (e.g. --yes, CI=true).",
   task:
-    "Check the sub-agent task description and retry; at most 5 task calls per turn. Sub-agents are read-only (glob/grep/read_file/web_search/read_url).",
+    "Check the sub-agent task description and retry; at most 5 task calls per turn. Sub-agents read and search by default (glob/grep/read_file/web_search/read_url); write:true adds edit_file, whose changes come back as per-file proposals for you to review — never run_command. Manage running ones with the subagents tool.",
   plan:
     "Use the planId from the active session plan in context, or plan({operation:\"read\"}) to find it. Valid operations: write, read, set_status, update_step, append_step.",
   mcp_call:

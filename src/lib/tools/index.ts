@@ -21,6 +21,8 @@ import "./background-jobs"; // v14 list/output/cancel for background commands
 import "./schedule-wakeup"; // R1 model-scheduled self-wake
 import "./web";
 import "./spawn-task";
+import "./proposals"; // v14.21 review writer sub-agent edit proposals
+import "./subagents"; // v14.21 list/output/cancel for running sub-agents
 import "./workspace";
 import "./plan";
 import "./browser"; // v11 in-app browser agent tools

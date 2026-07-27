@@ -1086,11 +1086,7 @@ ${componentSnippet}
           if (boundApp) effectiveApp = boundApp;
         }
         const hasWorkspace = !!effectiveApp;
-        // Worktree-write automation runs execute in an isolated worktree, not
-        // the live workspace checkout.
-        let appPath =
-          req.automation?.workspacePathOverride ??
-          (effectiveApp?.path ? resolveAppPath(effectiveApp.path) : "");
+        let appPath = effectiveApp?.path ? resolveAppPath(effectiveApp.path) : "";
         const effectiveAppId = effectiveApp?.id;
         if (process.env.ATLARIX_DIAG_146 === "1") {
           logger.info(

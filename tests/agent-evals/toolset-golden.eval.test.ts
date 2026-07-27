@@ -44,28 +44,31 @@ function offeredToolNames(scenarioId: string): string[] {
 // browser_navigate); write_file merged into edit_file (operation:"write").
 // v14.16: browser_tabs / browser_find / browser_batch added (multi-tab, find by
 // description, batched actions) — the ergonomic gaps vs reference toolkits.
+// v14.21: `subagents` is EVERY mode (Plan delegates read-only recon, so it must
+// be able to list/read/cancel it); `proposals` is build/debug only, because
+// accepting one ends in a real workspace write.
 const GOLDEN = {
   ask: [
     "ask_user", "background_jobs", "browser_batch", "browser_find",
     "browser_inspect", "browser_interact",
     "browser_navigate", "browser_tabs", "compress_context", "glob", "grep", "list_attachments",
     "list_available_mcps", "mcp_call", "read_attachment", "read_file",
-    "read_url", "run_command", "schedule_wakeup", "task", "web_search",
+    "read_url", "run_command", "schedule_wakeup", "subagents", "task", "web_search",
   ],
   plan: [
     "ask_user", "browser_batch", "browser_find", "browser_inspect",
     "browser_interact", "browser_navigate", "browser_tabs",
     "compress_context", "glob", "grep", "list_attachments",
     "list_available_mcps", "mcp_call", "plan", "read_attachment", "read_file",
-    "read_url", "schedule_wakeup", "task", "web_search",
+    "read_url", "schedule_wakeup", "subagents", "task", "web_search",
   ],
   build: [
     "ask_user", "background_jobs", "browser_batch", "browser_find",
     "browser_inspect", "browser_interact",
     "browser_navigate", "browser_tabs", "compress_context", "edit_file",
     "glob", "grep", "list_attachments", "list_available_mcps",
-    "mcp_call", "plan", "preview_test", "read_attachment", "read_file",
-    "read_url", "run_command", "schedule_wakeup", "task", "web_search",
+    "mcp_call", "plan", "preview_test", "proposals", "read_attachment", "read_file",
+    "read_url", "run_command", "schedule_wakeup", "subagents", "task", "web_search",
   ],
 } as const;
 

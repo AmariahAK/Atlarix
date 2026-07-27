@@ -31,7 +31,7 @@ describe("resolveToolsetForSession unattended", () => {
     const names = resolve("build", true);
     expect(names).not.toContain("ask_user");
     expect(names.some((n) => n.startsWith("browser_"))).toBe(false);
-    expect(names).toContain("edit_file"); // writes still available (worktree runs)
+    expect(names).toContain("edit_file"); // writes still available (proposal runs)
   });
 
   it("keeps app-infra tools that headless drops, but drops read_url (exfil channel)", () => {

@@ -19,6 +19,11 @@ import {
   setSubagentNotifier,
   hasPendingSubagentResults,
 } from "@/lib/agents/subagent-results";
+import {
+  cancelSubagentTask,
+  listRunningSubagentTasks,
+  readSubagentOutput,
+} from "@/lib/tools/spawn-task";
 import { setScheduledWakeupNotifier } from "@/lib/agent/scheduled-wakeups";
 import { broadcastToAllWindows } from "../utils/broadcast_all_windows";
 
@@ -79,6 +84,31 @@ export function registerBackgroundHandlers(): void {
     "chat:background-job-output",
     (_e, arg: { chatId: number; jobId: string }) =>
       getBackgroundJobOutput(Number(arg?.chatId), String(arg?.jobId ?? "")),
+  );
+
+  // v14.21: sub-agents get the same list/cancel/output surface as background
+  // commands. The notifier above already broadcasts them over the shared
+  // chat:background-job-update channel with source:"subagent" — these are what
+  // let the renderer actually SHOW and control one.
+  ipcMain.handle("chat:subagent-jobs-list", (_e, chatId: number) =>
+    listRunningSubagentTasks(Number(chatId)),
+  );
+
+  ipcMain.handle(
+    "chat:subagent-job-cancel",
+    (_e, arg: { chatId: number; taskId: string }) =>
+      cancelSubagentTask(Number(arg?.chatId), String(arg?.taskId ?? "")),
+  );
+
+  ipcMain.handle(
+    "chat:subagent-job-output",
+    (_e, arg: { chatId: number; taskId: string }) => {
+      // Always a TAIL for the UI: a human watching a panel wants current state,
+      // and the model's incremental cursor must not be consumed by the user
+      // happening to open a disclosure triangle.
+      const r = readSubagentOutput(String(arg?.taskId ?? ""), "tail", 8_000);
+      return r.found ? r : null;
+    },
   );
 
   logger.log("[background] handlers registered");

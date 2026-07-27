@@ -37,6 +37,7 @@ import {
     type ReadFileStructuredError,
 } from "./file-read-errors";
 import { suggestClosestPath } from "./workspace-file-hints";
+import { overlayContent } from "@/lib/agents/subagent-proposals";
 
 const READ_FILE_DEFAULT_MAX_LINES = 2000;
 const READ_FILE_MAX_LINES_CAP = 10_000;
@@ -211,6 +212,7 @@ ToolRegistry.register({
         offset,
         limit,
         workspace,
+        _proposalSetId,
     }) => {
         // opencode-style pagination: offset/limit map onto start/end lines.
         if (offset !== undefined && start_line === undefined) {
@@ -300,19 +302,28 @@ ToolRegistry.register({
                 Math.max(1024, Number(max_bytes) || READ_FILE_DEFAULT_MAX_BYTES),
             );
 
-            const stat = await fs.promises.stat(fullPath);
-            if (stat.isDirectory()) {
-                const structured = readFileStructuredError(
-                    new Error(`Path "${displayPath}" is a directory, not a file.`),
-                    displayPath,
-                );
-                if (structured) {
-                    logReadFileError(structured);
-                    return structured;
+            // A writer sub-agent's edits are recorded as proposals, not written.
+            // Serve its own proposed body back so it can re-read what it just
+            // changed — and note a file it CREATED has nothing on disk to stat,
+            // so this has to come before the stat, not after it.
+            const proposedBody = overlayContent(_proposalSetId, fullPath);
+
+            if (proposedBody === null) {
+                const stat = await fs.promises.stat(fullPath);
+                if (stat.isDirectory()) {
+                    const structured = readFileStructuredError(
+                        new Error(`Path "${displayPath}" is a directory, not a file.`),
+                        displayPath,
+                    );
+                    if (structured) {
+                        logReadFileError(structured);
+                        return structured;
+                    }
                 }
             }
 
-            const content = await fs.promises.readFile(fullPath, "utf-8");
+            const content =
+                proposedBody ?? (await fs.promises.readFile(fullPath, "utf-8"));
             const lines = content.split("\n");
 
             if (start_line !== undefined && end_line !== undefined) {

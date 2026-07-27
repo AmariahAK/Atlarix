@@ -819,11 +819,12 @@ export const automations = sqliteTable("automations", {
   prompt: text("prompt").notNull(),
   /**
    * notify-only (default at the zod layer): fired triggers post to the feed
-   * with no model turn; agent-run modes are explicit opt-ins. worktree-write
-   * runs execute in an isolated git worktree and surface a proposal diff.
+   * with no model turn; read-only spends tokens on an ask-mode turn. The old
+   * "worktree-write" mode was removed in v14.21.0 with the sub-agent worktree;
+   * migration 0070 downgrades any surviving row to read-only.
    * (Enum is drizzle-type-level only — the 0066 column has no CHECK.)
    */
-  runMode: text("run_mode", { enum: ["notify-only", "read-only", "worktree-write"] })
+  runMode: text("run_mode", { enum: ["notify-only", "read-only"] })
     .notNull()
     .default("read-only"),
   /** JSON {provider,name} model override; null → settings.selectedModel. */
@@ -857,9 +858,13 @@ export const automationRuns = sqliteTable("automation_runs", {
   archived: integer("archived", { mode: "boolean" }).notNull().default(false),
   /** The fired trigger's context (notify-only runs) — fuels "Send to chat". */
   triggerContext: text("trigger_context"),
-  /** Unified diff captured from a worktree-write run (user applies from the feed). */
+  /**
+   * DEPRECATED (v14.21.0) — the worktree-write run mode that populated these is
+   * gone; nothing reads or writes them. Kept rather than dropped because a
+   * failed DROP COLUMN on a user's database is a boot failure, and three unused
+   * columns cost nothing. Remove only alongside a table rebuild.
+   */
   proposalDiff: text("proposal_diff"),
-  /** JSON string[] of files touched by the proposal. */
   proposalFiles: text("proposal_files"),
   proposalAppliedAt: integer("proposal_applied_at", { mode: "timestamp" }),
   startedAt: integer("started_at", { mode: "timestamp" })

@@ -46,7 +46,7 @@ import {
   SMALL_REPO_FILE_THRESHOLD,
 } from "@/lib/tools/workspace-file-hints";
 import { loadUserAgent, renderUserAgentSystemBlock } from "./user-agents";
-import { applyEditProposalToWorktree } from "./subagent-worktree";
+import { recordEditProposal } from "./subagent-proposals";
 
 const logger = log.scope("run-subagent");
 
@@ -104,16 +104,15 @@ const SUBAGENT_TOOL_NAMES = [
 
 /**
  * Writer sub-agents (`task({ write: true })`) additionally get the scoped FILE
- * mutation tool. They run with `workspace` pointed at an isolated git worktree;
- * `edit_file` resolves every path under that worktree
- * (`resolvePathUnderWorkspace`), so writes are provably confined to the
- * throwaway tree and the real workspace is never touched until the main agent
- * applies the captured diff.
+ * mutation tool. Nothing they do reaches disk: `edit_file` returns a
+ * `__permission_required` envelope, and with no interceptor in this path we
+ * record it into the run's proposal set instead (see subagent-proposals.ts).
+ * The real workspace is untouched until the MAIN agent accepts a file, which
+ * lands it through the ordinary approval gate.
  *
- * `run_command` is deliberately NOT exposed here: its write confinement depends
- * on the OS sandbox, which sub-agent tool execution can bypass — an absolute
- * path could escape the worktree and dodge the review gate. Commands/tests run
- * on the MAIN agent after the reviewed diff is applied.
+ * `run_command` is deliberately NOT exposed here: a command writes for real,
+ * and there is no proposal to review afterwards. Commands and tests run on the
+ * MAIN agent, after the reviewed changes are applied.
  */
 const WRITER_SUBAGENT_TOOL_NAMES = [
   ...SUBAGENT_TOOL_NAMES,
@@ -144,12 +143,12 @@ export type RunSubagentArgs = {
   subagentType?: string;
   workspace?: string;
   /**
-   * "implement" exposes scoped write tools and runs them against `worktreePath`
-   * (an isolated git worktree). Default "scout" = read-only. The caller owns the
-   * worktree lifecycle (create → run → capture diff → remove).
+   * "implement" exposes the scoped write tool and records its edits into
+   * `proposalSetId` rather than writing them. Default "scout" = read-only.
+   * The caller owns the proposal-set lifecycle (create → run → close → review).
    */
   mode?: "scout" | "implement";
-  worktreePath?: string;
+  proposalSetId?: string;
   workspaceId?: number;
   chatId?: number;
   turnId?: string;
@@ -256,11 +255,14 @@ export async function runSubagent(
   const delegationId = args.delegationId?.trim() || `task-${Date.now()}`;
   const emit = args.emit;
 
-  // Writer mode: tools execute against the isolated worktree (not the real
-  // workspace) in build mode. Prompt/agent loading still uses the real
-  // workspace so `.atlarix/agents` and the file inventory resolve correctly.
-  const isImplement = args.mode === "implement" && !!args.worktreePath?.trim();
-  const execWorkspace = isImplement ? args.worktreePath!.trim() : workspace;
+  // Writer mode runs in build mode against the REAL workspace — it reads the
+  // user's actual files, and its edits never reach disk because every one is
+  // captured into the proposal set below. (This used to point at an isolated
+  // git worktree, which is why writers needed a git repo and could not see
+  // .gitignored files; neither limit applies now.)
+  const proposalSetId = args.proposalSetId?.trim() || "";
+  const isImplement = args.mode === "implement" && !!proposalSetId;
+  const execWorkspace = workspace;
   const execChatMode = isImplement ? "build" : delegationChatMode;
 
   try {
@@ -283,8 +285,8 @@ export async function runSubagent(
     }
     if (!systemPrompt.trim()) {
       // Writer sub-agents get a prompt that tells them they CAN write, that they
-      // work on a throwaway worktree snapshot, and that their diff is reviewed by
-      // the main agent — the scout prompt (subagent.md) says "READ-ONLY".
+      // their edits are recorded as proposals the main agent reviews — the
+      // scout prompt (subagent.md) says "READ-ONLY".
       const genericSkill = isImplement
         ? "subagents/subagent-writer"
         : "subagents/subagent";
@@ -357,11 +359,15 @@ export async function runSubagent(
           try {
             result = await ToolRegistry.execute(t.name, {
               ...toolArgs,
-              // Writer mode confines every tool to the isolated worktree.
               workspace: execWorkspace || undefined,
               workspaceId: args.workspaceId,
               chatMode: execChatMode,
               _chatSessionId: args.chatId,
+              // Writer mode: read_file / edit_file consult this run's proposal
+              // overlay so the sub-agent sees its own uncommitted edits. An ID,
+              // not the set itself — tool args are echoed into chat:activity
+              // payloads and a live Map must not leak into the renderer.
+              ...(proposalSetId ? { _proposalSetId: proposalSetId } : {}),
             });
           } catch (err) {
             const errMsg = String(err).slice(0, 200);
@@ -379,31 +385,29 @@ export async function runSubagent(
 
           // Writer sub-agents: edit_file only produces a `__permission_required`
           // preview — nothing writes it (the main-chat approval interceptor that
-          // normally lands writes isn't in this path). Apply it directly to the
-          // isolated worktree so the change actually exists; the captured diff is
-          // the review surface the main agent re-approves. Without this the
-          // worktree stays empty while the model believes it edited.
-          if (isImplement && t.name === "edit_file" && execWorkspace) {
+          // normally lands writes isn't in this path). Record it as a proposal
+          // instead. The proposal set is both the sub-agent's own read overlay
+          // (so its next edit to this file sees this one) and the review surface
+          // the main agent accepts file by file. Without this the model believes
+          // it edited and nothing anywhere changed.
+          if (isImplement && t.name === "edit_file" && proposalSetId) {
             try {
-              const applied = await applyEditProposalToWorktree(
-                execWorkspace,
-                result,
-              );
-              if (applied) {
+              const recorded = recordEditProposal(proposalSetId, result);
+              if (recorded) {
                 result = {
                   success: true,
                   operation: "edit_file",
-                  path: applied.path,
-                  type: applied.type,
-                  lines: applied.lines,
-                  message: `${applied.type === "update" ? "Modified" : "Created"} ${applied.path} (${applied.lines} lines) in the worktree. The diff is reviewed and applied by the main agent.`,
+                  path: recorded.relPath,
+                  type: recorded.type,
+                  lines: recorded.lines,
+                  message: `Recorded a proposed ${recorded.type === "update" ? "change to" : "new file"} ${recorded.relPath} (${recorded.lines} lines). The main agent reviews it — keep going, don't ask for approval.`,
                 };
               }
             } catch (applyErr) {
               result = {
                 success: false,
                 operation: "edit_file",
-                error: `Failed to apply edit to worktree: ${String(applyErr).slice(0, 200)}`,
+                error: `Could not record the proposed edit: ${String(applyErr).slice(0, 300)}`,
               };
             }
           }

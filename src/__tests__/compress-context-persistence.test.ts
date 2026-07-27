@@ -5,7 +5,7 @@ import { normalizeChatActivityPayload } from "@/lib/chat-activity-normalize";
 // they run in seconds, not milliseconds — the slowest sits ~3.3s against the
 // default 5s budget and tips over under full-suite parallel load. Same reason
 // the eval project sets testTimeout: 30_000 (vitest.config.ts) and
-// subagent-worktree.test.ts pins GIT_IO_TIMEOUT_MS: real I/O needs real budget.
+// Real git I/O needs a real budget — the default 5s test timeout flakes here.
 const COMPACTION_IO_TIMEOUT_MS = 30_000;
 
 // ── Model-initiated compress_context must (a) persist a durable

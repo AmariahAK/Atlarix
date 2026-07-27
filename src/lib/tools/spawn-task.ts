@@ -2,9 +2,9 @@
  * `task` — the ONE sub-agent tool (v13).
  *
  * Spawns a scoped sub-agent (runSubagent): read-only by default, or a WRITER
- * (`write: true`, or a writer `subagent_type`) that implements inside a throwaway
- * git worktree seeded from the current working tree and hands back a reviewable
- * diff. Issue MULTIPLE task calls in one response for independent scopes — they
+ * (`write: true`, or a writer `subagent_type`) whose edits are captured as
+ * PROPOSALS (never written) and handed back per file for the main agent to
+ * review and accept. Issue MULTIPLE task calls in one response for independent scopes — they
  * run concurrently (up to 5 per turn). `background: true` returns immediately with
  * a task id to resume via `task_id`. `subagent_type` may name a built-in
  * (explorer / architect / implementer) or a user-defined `.atlarix/agents/` agent.
@@ -22,19 +22,18 @@ import {
   type SubagentActivityEmit,
 } from "../agents/run-subagent";
 import {
+  notifySubagentStalled,
   recordSubagentStart,
   recordSubagentResult,
 } from "../agents/subagent-results";
 import {
-  createSubagentWorktree,
-  captureWorktreeDiff,
-  removeSubagentWorktree,
-  type SubagentWorktree,
-} from "../agents/subagent-worktree";
+  closeProposalSet,
+  createProposalSet,
+  deleteProposalSet,
+  dropProposalSetsForChat,
+} from "../agents/subagent-proposals";
+import { buildProposalFileViews } from "../agents/subagent-proposal-review";
 import { subagentWillWrite } from "../agents/user-agents";
-
-/** Cap the proposed-diff size folded into the task result to protect context. */
-const MAX_DIFF_CHARS = 20_000;
 
 /**
  * Wall-clock cap for a background sub-agent so a hung one can't stall the turn.
@@ -45,6 +44,19 @@ const MAX_DIFF_CHARS = 20_000;
  * ATLARIX_SUBAGENT_TIMEOUT_MS.
  */
 const DEFAULT_BACKGROUND_TIMEOUT_MS = 10 * 60_000;
+
+/**
+ * A FOREGROUND sub-agent still running at this point is moved to the
+ * background, exactly as `run_command` does at its own PROMOTE_AFTER_MS
+ * (interceptor.ts). Longer than the command's 15s because a sub-agent's first
+ * model round alone can take that long, and a quick recon returning inline is
+ * worth more than shaving a few seconds off a slow one.
+ */
+const SUBAGENT_PROMOTE_AFTER_MS = 30_000;
+
+/** No activity for this long → one "stalled" nudge to the main agent. */
+const SUBAGENT_STALL_AFTER_MS = 120_000;
+const SUBAGENT_STALL_CHECK_MS = 15_000;
 function backgroundTimeoutMs(): number {
   const fromEnv = Number(process.env.ATLARIX_SUBAGENT_TIMEOUT_MS);
   return Number.isFinite(fromEnv) && fromEnv > 0
@@ -73,6 +85,10 @@ type TaskRecord = {
   output?: string;
   /** R3: last time the buffer grew — liveness for the progress view. */
   lastActivityAt?: number;
+  /** Writer runs: the proposal set awaiting the main agent's review. */
+  proposalSetId?: string;
+  /** Cursor into `output` for incremental (mode:"new") reads. */
+  readOffset?: number;
 };
 
 const taskStore = new Map<string, TaskRecord>();
@@ -99,16 +115,23 @@ function subagentOutputTail(rec: TaskRecord, maxLen: number): string {
   return out.length > maxLen ? "…" + out.slice(-maxLen) : out;
 }
 
-/** Running background sub-agents for a chat (for `task({ list: true })`). */
+/** Running background sub-agents for a chat (for `subagents({operation:"list"})`). */
 export function listRunningSubagentTasks(
   chatId: number | undefined,
-): Array<{ taskId: string; description: string; elapsedMs: number; lastOutput: string }> {
+): Array<{
+  taskId: string;
+  description: string;
+  elapsedMs: number;
+  lastOutput: string;
+  stalled: boolean;
+}> {
   const now = Date.now();
   const out: Array<{
     taskId: string;
     description: string;
     elapsedMs: number;
     lastOutput: string;
+    stalled: boolean;
   }> = [];
   for (const rec of taskStore.values()) {
     if (rec.state !== "running") continue;
@@ -118,9 +141,102 @@ export function listRunningSubagentTasks(
       description: rec.description ?? rec.subagentType ?? "(task)",
       elapsedMs: now - rec.startedAt,
       lastOutput: subagentOutputTail(rec, 160).replace(/\s+/g, " ").trim(),
+      stalled:
+        now - (rec.lastActivityAt ?? rec.startedAt) >= SUBAGENT_STALL_AFTER_MS,
     });
   }
   return out;
+}
+
+/**
+ * Address a sub-agent by id, by the NAME the model gave it, or by a distinctive
+ * part of that name — the same resolution `background_jobs` does for `job`
+ * (exact id → substring → an ambiguity error that lists the candidates). A
+ * generated uuid is a string the model has to carry perfectly across turns; a
+ * name it chose itself is far harder to get wrong.
+ *
+ * Unlike the jobs resolver this also matches FINISHED tasks, so reading the
+ * output of one that just completed isn't a dead end.
+ */
+export function resolveSubagentTaskId(
+  chatId: number | undefined,
+  wanted: string,
+): { id: string } | { error: string } {
+  const mine = [...taskStore.values()].filter(
+    (r) => chatId == null || r.chatId === chatId,
+  );
+  const exact = mine.find((r) => r.id === wanted);
+  if (exact) return { id: exact.id };
+
+  const needle = wanted.toLowerCase();
+  const named = mine.filter(
+    (r) => (r.description ?? "").toLowerCase() === needle,
+  );
+  if (named.length === 1) return { id: named[0].id };
+
+  const partial = mine.filter((r) =>
+    (r.description ?? "").toLowerCase().includes(needle),
+  );
+  if (partial.length === 1) return { id: partial[0].id };
+  if (partial.length > 1) {
+    return {
+      error:
+        `"${wanted}" matches ${partial.length} sub-agents: ` +
+        `${JSON.stringify(partial.map((r) => ({ task_id: r.id, name: r.description, state: r.state })))}. ` +
+        "Use the task_id of the one you mean.",
+    };
+  }
+  return {
+    error:
+      `No sub-agent matches "${wanted}". In this session: ` +
+      `${JSON.stringify(mine.map((r) => ({ task_id: r.id, name: r.description, state: r.state })))}.`,
+  };
+}
+
+/**
+ * Read a sub-agent's buffered narration. "new" returns what appeared since the
+ * last read (and moves the cursor); "tail" returns the most recent output and
+ * leaves the cursor alone, so asking "what is it doing NOW" never costs the
+ * next incremental read.
+ */
+export function readSubagentOutput(
+  taskId: string,
+  mode: "new" | "tail",
+  maxChars: number,
+): {
+  found: boolean;
+  state?: TaskRecord["state"];
+  text?: string;
+  elapsedMs?: number;
+  stalled?: boolean;
+} {
+  const rec = taskStore.get(taskId);
+  if (!rec) return { found: false };
+  const buf = rec.output ?? "";
+  const now = Date.now();
+  const common = {
+    found: true as const,
+    state: rec.state,
+    elapsedMs: (rec.finishedAt ?? now) - rec.startedAt,
+    stalled:
+      rec.state === "running" &&
+      now - (rec.lastActivityAt ?? rec.startedAt) >= SUBAGENT_STALL_AFTER_MS,
+  };
+  if (mode === "tail") {
+    return {
+      ...common,
+      text: buf.length > maxChars ? "…" + buf.slice(-maxChars) : buf,
+    };
+  }
+  // The buffer is a capped TAIL, so a stored cursor can outrun it after
+  // truncation — clamp rather than return garbage.
+  const from = Math.min(rec.readOffset ?? 0, buf.length);
+  rec.readOffset = buf.length;
+  const slice = buf.slice(from);
+  return {
+    ...common,
+    text: slice.length > maxChars ? "…" + slice.slice(-maxChars) : slice,
+  };
 }
 
 /**
@@ -154,6 +270,9 @@ export function cancelSubagentTask(
  * turn so scout tasks stop spending tokens (Fix 4). Returns the count cancelled.
  */
 export function cancelAllSubagentTasksForChat(chatId: number): number {
+  // The turn is over, so no one is going to review a pending proposal set —
+  // holding those file bodies in the main process would just be a leak.
+  dropProposalSetsForChat(chatId);
   let n = 0;
   for (const rec of taskStore.values()) {
     if (rec.chatId !== chatId || rec.state !== "running") continue;
@@ -189,17 +308,20 @@ ToolRegistry.register({
     "Spawn a scoped sub-agent for an independent piece of work (exploring a folder, researching a question, mapping a subsystem, or — with write=true — implementing a change). " +
     "WHEN to use it: delegate work that is INDEPENDENT of your current thread or that you'd otherwise run in PARALLEL (several unrelated questions, a broad codebase/web sweep). For a small or single-step scope, just do it inline — spawning a sub-agent adds latency and its own context. " +
     "For independent scopes, issue MULTIPLE task calls in ONE response — they run concurrently (up to 5 per turn). " +
-    "By default a sub-agent is READ-ONLY. Set write=true to let it implement changes inside an ISOLATED git worktree (seeded from your current working tree, so it sees uncommitted work); its proposed diff comes back for you to review and apply with your own write tools (the workspace is never touched directly). " +
+    "By default a sub-agent is READ-ONLY. Set write=true to let it implement a change: it writes NOTHING to disk — every edit comes back as a per-file PROPOSAL you review and accept with the `proposals` tool, which writes its exact bytes through the normal approval gate. Review each diff before accepting; to fix a mostly-right change, accept it then edit_file on top. Works in any workspace, git or not. " +
     "Optional subagent_type names a built-in agent (explorer = read-only recon, architect = planning, implementer = writer) or a user-defined .atlarix/agents/ agent; a writer agent implies write mode without write=true. " +
-    "Set background=true to return immediately with a task id; pass task_id later to collect the result. " +
+    "Give every task a short, distinctive `description` — that is the NAME you address it by later, and a name you chose is far easier to get right than a generated id. " +
+    "Set background=true to return immediately with a task id; pass task_id later to collect the result. A foreground task still running after 30s is moved to the background automatically, so it never blocks your turn. " +
     "PREFER background=true for ANY long-running delegation — read-only recon/research sweeps AND writer/implementer tasks alike: you can continue other work or end your turn, and each result is delivered to you automatically the moment it finishes (you are auto-woken if your turn ended). Do not idle or poll while waiting. " +
-    "Manage running background sub-agents like background jobs: list=true to see them, or task_id + cancel=true to hard-stop one that's stuck or no longer needed.",
+    "To see, read, or stop running sub-agents, use the `subagents` tool.",
   requiresWorkspace: false,
   isCore: false,
   isReadOnly: false,
   parameters: createParameters(
     {
-      description: stringParam("Short (3-5 word) description of the task"),
+      description: stringParam(
+        "Short (3-5 word) description — also the NAME you address this sub-agent by in the `subagents` tool, so make it distinctive.",
+      ),
       prompt: stringParam("Full task prompt for the sub-agent"),
       subagent_type: stringParam(
         "Optional built-in (explorer=read-only recon, architect=planning, implementer=WRITER) or a .atlarix/agents/ name; omit for the generic read-only scout. Note: a writer type (e.g. implementer) turns on write mode by itself — no write=true needed.",
@@ -211,13 +333,7 @@ ToolRegistry.register({
         "When true, run async and return immediately with task id",
       ),
       write: booleanParam(
-        "When true, the sub-agent may implement changes inside an isolated git worktree; its proposed diff is returned for you to review and apply (requires a git workspace).",
-      ),
-      cancel: booleanParam(
-        "With task_id: hard-cancel that running background sub-agent (stops its token spend).",
-      ),
-      list: booleanParam(
-        "List your still-running background sub-agents (ids, labels, elapsed time).",
+        "When true, the sub-agent may use edit_file. Its changes are NOT written — they return as per-file proposals for you to review and accept with the `proposals` tool. No git repository required.",
       ),
     },
     // description/prompt are validated in-handler (a NEW task needs them; the
@@ -244,25 +360,16 @@ ToolRegistry.register({
   }) => {
     const resumeId = args.task_id?.trim();
 
-    // View: list this chat's still-running background sub-agents.
-    if (args.list) {
-      const running = listRunningSubagentTasks(args.chatId);
-      if (!running.length) {
-        return "<tasks>No background sub-agents are running.</tasks>";
-      }
-      const rows = running.map(
-        (t) =>
-          `<task id="${t.taskId}" elapsed="${Math.round(t.elapsedMs / 1000)}s">${t.description}${t.lastOutput ? ` — ${t.lastOutput}` : ""}</task>`,
+    // list/cancel moved to the `subagents` tool in v14.21.0 so that spawning and
+    // managing aren't the same overloaded surface (task : subagents ::
+    // run_command : background_jobs). Redirect rather than fail blind — a
+    // dead-end here costs the model a whole step.
+    if (args.list || args.cancel) {
+      return taskEnvelope(
+        resumeId || "n/a",
+        "error",
+        `<task_error>Managing sub-agents moved to the \`subagents\` tool: subagents({operation:"list"}), subagents({operation:"output", agent:"<name>"}), or subagents({operation:"cancel", agent:"<name>"}). You can address one by the name you gave it, not just its id.</task_error>`,
       );
-      return `<tasks>\n${rows.join("\n")}\n</tasks>`;
-    }
-
-    // Cancel: hard-abort a running background sub-agent (stops its token spend).
-    if (resumeId && args.cancel) {
-      const res = cancelSubagentTask(args.chatId, resumeId);
-      return res.ok
-        ? `<task id="${resumeId}" state="cancelled"><task_result>Cancelled background sub-agent ${resumeId}; its work was stopped.</task_result></task>`
-        : taskEnvelope(resumeId, "error", `<task_error>${res.reason}</task_error>`);
     }
 
     if (resumeId) {
@@ -311,8 +418,7 @@ ToolRegistry.register({
     const subagentType = args.subagent_type?.trim() || "";
     // v14.8.7 §C: every sub-agent (foreground scouts included, not just
     // background) gets an abort controller so a user cancel can hard-stop its
-    // model stream AND its git worktree children — foreground scouts were
-    // previously uncancelable, so their git ops kept burning CPU after cancel.
+    // model stream — foreground scouts were previously uncancelable.
     const taskAbort = new AbortController();
 
     // R3: tee live activity into the task's progress buffer (so `task({task_id})`
@@ -344,24 +450,27 @@ ToolRegistry.register({
       });
 
     const run = async () => {
-      // Writer mode: isolate the sub-agent's writes in a throwaway git worktree.
-      let worktree: SubagentWorktree | null = null;
-      let modeNote = "";
-      if (willWrite) {
-        worktree = await createSubagentWorktree(args.workspace!, taskId, taskAbort.signal);
-        if (!worktree) {
-          modeNote =
-            "\n\n(Note: workspace is not a git repository — ran read-only; could not isolate writes.)";
-        }
-      }
+      // Writer mode: every edit_file the sub-agent makes is recorded here
+      // instead of being written. The set is also its read overlay, so it sees
+      // its own edits; nothing reaches the real workspace until the main agent
+      // accepts a file through the ordinary approval gate.
+      const proposalSetId = willWrite
+        ? createProposalSet({
+            chatId: args.chatId ?? -1,
+            taskId,
+            agentName: args.description?.trim() || subagentType || taskId,
+            workspace: args.workspace!.trim(),
+          })
+        : "";
 
+      let keepProposals = false;
       try {
         const outcome = await runSubagent({
           prompt: args.prompt,
           subagentType: subagentType || undefined,
           workspace: args.workspace,
-          mode: worktree ? "implement" : "scout",
-          worktreePath: worktree?.worktreePath,
+          mode: proposalSetId ? "implement" : "scout",
+          proposalSetId: proposalSetId || undefined,
           workspaceId: args.workspaceId,
           chatId: args.chatId,
           turnId: args.turnId,
@@ -371,31 +480,35 @@ ToolRegistry.register({
           abortSignal: taskAbort.signal,
         });
 
-        // Capture the proposed diff before teardown so the main agent can review
-        // and apply it through its own (approval-gated) write tools.
-        let diffBlock = "";
-        if (worktree) {
-          try {
-            const diff = await captureWorktreeDiff(worktree, taskAbort.signal);
-            if (diff.changedFiles.length > 0) {
-              const body =
-                diff.unifiedDiff.length > MAX_DIFF_CHARS
-                  ? diff.unifiedDiff.slice(0, MAX_DIFF_CHARS) + "\n…[diff truncated]"
-                  : diff.unifiedDiff;
-              diffBlock =
-                `\n\n## Proposed changes (isolated worktree — review, then apply with your write tools)\n` +
-                `Changed files: ${diff.changedFiles.join(", ")}\n\n` +
-                "```diff\n" + body + "\n```";
-            } else {
-              // A writer that actually edited produces a diff here (edits land in
-              // the worktree). An empty diff is a factual signal to the main agent:
-              // no files were written — treat any "I edited X" narration as
-              // unconfirmed rather than applying phantom changes.
-              diffBlock =
-                "\n\n(The writer sub-agent completed without writing any files — no diff to apply. Disregard any claim of edits above.)";
-            }
-          } catch {
-            diffBlock = "\n\n(Could not capture the worktree diff.)";
+        // Hand the main agent real per-file diffs rather than one truncated
+        // markdown blob. Each file is capped separately, so a large first file
+        // can no longer starve the rest of the set.
+        let proposalBlock = "";
+        if (proposalSetId) {
+          const set = closeProposalSet(proposalSetId);
+          const views = set ? buildProposalFileViews(set) : [];
+          if (views.length > 0) {
+            keepProposals = true;
+            const header =
+              `\n\n<subagent_proposals id="${proposalSetId}" files="${views.length}">\n` +
+              `${views.length} proposed file change(s). NOTHING has been written. Review each, then ` +
+              `proposals({operation:"accept", proposal:"${proposalSetId}", file:"<path>"}) to land it ` +
+              `byte-for-byte, or proposals({operation:"reject", ...}) with a reason.\n`;
+            const body = views
+              .map(
+                (v) =>
+                  `\n## ${v.relPath} (${v.type}, +${v.added} \u2212${v.removed})\n` +
+                  "```diff\n" +
+                  v.diff +
+                  "\n```",
+              )
+              .join("\n");
+            proposalBlock = header + body + "\n</subagent_proposals>";
+          } else {
+            // A writer that actually edited leaves proposals here. None is a
+            // factual signal: treat any "I edited X" narration as unconfirmed.
+            proposalBlock =
+              "\n\n(The writer sub-agent finished without proposing any file changes. Disregard any claim of edits above.)";
           }
         }
 
@@ -403,16 +516,17 @@ ToolRegistry.register({
         if (!rec) return;
         if (outcome.success) {
           rec.state = "completed";
-          rec.resultText = (outcome.summary ?? "") + modeNote + diffBlock;
+          rec.resultText = (outcome.summary ?? "") + proposalBlock;
+          rec.proposalSetId = keepProposals ? proposalSetId : undefined;
         } else {
           rec.state = "error";
-          rec.error = (outcome.error ?? "Sub-agent run failed") + modeNote;
+          rec.error = outcome.error ?? "Sub-agent run failed";
         }
         rec.finishedAt = Date.now();
       } finally {
-        if (worktree && args.workspace) {
-          await removeSubagentWorktree(args.workspace, worktree);
-        }
+        // A set with nothing to review (or a failed run) is dropped now; one
+        // awaiting review is owned by the `proposals` tool from here.
+        if (proposalSetId && !keepProposals) deleteProposalSet(proposalSetId);
       }
     };
 
@@ -427,8 +541,19 @@ ToolRegistry.register({
       abort: taskAbort,
     });
 
-    if (args.background) {
-      const chatId = args.chatId;
+    // Start the run either way. A foreground call races it against the
+    // promotion timer below; a background call just attaches bookkeeping.
+    const runPromise = run();
+    const chatId = args.chatId;
+
+    /**
+     * Everything a background sub-agent needs: the running registration that
+     * drives the auto-wake, the result hand-back, the stall nudge, and the hard
+     * timeout. Called for an explicit background:true AND for a foreground task
+     * promoted at SUBAGENT_PROMOTE_AFTER_MS — they are the same thing after the
+     * decision point, so they must not be two code paths that drift.
+     */
+    const attachBackgroundBookkeeping = () => {
       if (chatId != null) recordSubagentStart(chatId, taskId);
 
       // Record the result into the per-chat store exactly once (on completion,
@@ -455,6 +580,23 @@ ToolRegistry.register({
         });
       };
 
+      // Stall nudge. `lastActivityAt` was recorded from the very first version
+      // of this file and never read — so a sub-agent that wedged just held the
+      // turn open in silence. The renderer's wake closure already treats
+      // "stalled" as a wake reason, so surfacing it here is the whole fix.
+      // Fires ONCE: a nudge, not a nag. The timeout below is the hard backstop.
+      let stallNotified = false;
+      const stallWatch = setInterval(() => {
+        const rec = taskStore.get(taskId);
+        if (!rec || rec.state !== "running") return;
+        if (stallNotified || chatId == null) return;
+        const quietFor = Date.now() - (rec.lastActivityAt ?? rec.startedAt);
+        if (quietFor >= SUBAGENT_STALL_AFTER_MS) {
+          stallNotified = true;
+          notifySubagentStalled(chatId, taskId);
+        }
+      }, SUBAGENT_STALL_CHECK_MS);
+
       const timeoutMs = backgroundTimeoutMs();
       const timeout = setTimeout(() => {
         const rec = taskStore.get(taskId);
@@ -463,7 +605,7 @@ ToolRegistry.register({
           rec.error = `Sub-agent timed out after ${Math.round(timeoutMs / 1000)}s`;
           rec.finishedAt = Date.now();
         }
-        // Abort the model stream so run()'s finally tears down the worktree
+        // Abort the model stream so run()'s finally releases the proposal set
         // promptly (and token spend stops) instead of lingering until the
         // stream ends on its own.
         taskAbort?.abort();
@@ -473,7 +615,7 @@ ToolRegistry.register({
         );
       }, timeoutMs);
 
-      void run()
+      void runPromise
         .catch((err) => {
           const rec = taskStore.get(taskId);
           if (!rec) return;
@@ -486,11 +628,15 @@ ToolRegistry.register({
         })
         .finally(() => {
           clearTimeout(timeout);
+          clearInterval(stallWatch);
           const rec = taskStore.get(taskId);
           const state = rec?.state === "completed" ? "completed" : "error";
           finalize(state, rec?.resultText ?? rec?.error ?? "");
         });
+    };
 
+    if (args.background) {
+      attachBackgroundBookkeeping();
       return taskEnvelope(
         taskId,
         "running",
@@ -503,7 +649,45 @@ ToolRegistry.register({
       );
     }
 
-    await run();
+    // Auto-promotion, mirroring run_command's PROMOTE_AFTER_MS. A foreground
+    // task() previously had NO timeout of any kind — it blocked the turn for as
+    // long as the sub-agent took, which is what "the sub-agent looks stuck"
+    // actually was. Now it hands back a task id and the turn keeps moving; the
+    // result still arrives automatically.
+    let promoteTimer: NodeJS.Timeout | undefined;
+    const promoted = await Promise.race([
+      // Settled either way means it finished in time — the catch is handled
+      // below off taskStore, exactly as before.
+      runPromise.then(
+        () => false,
+        () => false,
+      ),
+      new Promise<boolean>((resolve) => {
+        promoteTimer = setTimeout(() => resolve(true), SUBAGENT_PROMOTE_AFTER_MS);
+      }),
+    ]);
+    if (promoteTimer) clearTimeout(promoteTimer);
+
+    if (promoted) {
+      attachBackgroundBookkeeping();
+      return taskEnvelope(
+        taskId,
+        "running",
+        [
+          `<summary>${args.description}</summary>`,
+          "<task_result>",
+          `Still running after ${Math.round(SUBAGENT_PROMOTE_AFTER_MS / 1000)}s — moved to the background (task_id: ${taskId}).`,
+          "You'll receive its result automatically when it finishes — continue other work, don't poll, and you may end your turn while it runs.",
+          `Check or stop it with subagents({operation:"output"|"cancel", agent:"${args.description}"}).`,
+          "</task_result>",
+        ].join("\n"),
+      );
+    }
+
+    // Already started above and awaited by the race — awaiting the same promise
+    // is what surfaces its rejection here; calling run() again would execute the
+    // whole sub-agent a SECOND time.
+    await runPromise;
     const done = taskStore.get(taskId)!;
     const tag = done.state === "completed" ? "task_result" : "task_error";
     const body = done.resultText ?? done.error ?? "";

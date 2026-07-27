@@ -34,9 +34,6 @@ export async function getAutomationRunView(
     unread: run.unread,
     archived: run.archived,
     triggerContext: run.triggerContext,
-    hasProposal: Boolean(run.proposalDiff),
-    proposalFiles: run.proposalFiles ? (JSON.parse(run.proposalFiles) as string[]) : [],
-    proposalApplied: run.proposalAppliedAt != null,
     startedAt: run.startedAt.getTime(),
     finishedAt: run.finishedAt?.getTime() ?? null,
   };
@@ -67,8 +64,7 @@ export async function notifyRunFinished(runId: string): Promise<void> {
     const body =
       view.status === "error"
         ? `Run failed: ${view.error ?? "unknown error"}`
-        : (view.summary ?? "Finished with findings") +
-          (view.hasProposal ? " — proposal ready to review" : "");
+        : (view.summary ?? "Finished with findings");
     const n = new Notification({ title: view.automationName, body, silent: false });
     n.on("click", () => {
       const win = BrowserWindow.getAllWindows()[0];

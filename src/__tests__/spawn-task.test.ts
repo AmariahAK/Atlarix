@@ -8,6 +8,12 @@ vi.mock("@/lib/agents/run-subagent", () => ({
   })),
 }));
 
+/** Registry lookup after the side-effect import that populates it. */
+async function tool() {
+  const { ToolRegistry } = await import("@/lib/tools/registry");
+  return ToolRegistry.get("task");
+}
+
 describe("task tool", () => {
   it("registers task and returns a completed envelope from runSubagent", async () => {
     await import("@/lib/tools/index");
@@ -71,18 +77,18 @@ describe("task tool", () => {
     expect(String(out)).toContain("Unknown task_id");
   });
 
-  it("lists running background sub-agents and hard-cancels one (abort honored, no auto-wake)", async () => {
+  it("cancelling a background sub-agent aborts it and suppresses the auto-wake", async () => {
     await import("@/lib/tools/index");
     const { ToolRegistry } = await import("@/lib/tools/registry");
     const { runSubagent } = await import("@/lib/agents/run-subagent");
     const store = await import("@/lib/agents/subagent-results");
     const chatId = 8888;
 
-    // This sub-agent runs until its model stream is aborted — proving the
-    // abortSignal is actually threaded into runSubagent.
+    // Runs until its model stream is aborted — proving abortSignal is actually
+    // threaded into runSubagent.
     let aborted = false;
     vi.mocked(runSubagent).mockImplementationOnce(
-      (a: { abortSignal?: AbortSignal }) =>
+      (a: Parameters<typeof runSubagent>[0]) =>
         new Promise((_resolve, reject) => {
           a.abortSignal?.addEventListener("abort", () => {
             aborted = true;
@@ -91,9 +97,8 @@ describe("task tool", () => {
         }),
     );
 
-    const tool = ToolRegistry.get("task");
     const started = String(
-      await tool!.handler({
+      await (await tool())!.handler({
         description: "long scout",
         prompt: "Map the whole repo slowly",
         background: true,
@@ -103,29 +108,28 @@ describe("task tool", () => {
     const taskId = started.match(/<task id="([^"]+)"/)?.[1];
     expect(taskId).toBeTruthy();
 
-    // list shows it running, scoped to this chat.
-    const listed = String(await tool!.handler({ list: true, chatId }));
-    expect(listed).toContain(taskId!);
-    expect(listed).toContain("long scout");
+    // Listing and cancelling live on `subagents` as of v14.21.
+    const listed = (await ToolRegistry.execute("subagents", {
+      operation: "list",
+      _chatSessionId: chatId,
+    })) as { result?: { subagents?: Array<{ name: string; task_id: string }> } };
+    expect(listed.result?.subagents?.[0]?.name).toBe("long scout");
+    expect(listed.result?.subagents?.[0]?.task_id).toBe(taskId);
 
-    // cancel hard-aborts it.
-    const cancelled = String(
-      await tool!.handler({ task_id: taskId!, cancel: true, chatId }),
-    );
-    expect(cancelled).toContain('state="cancelled"');
+    await ToolRegistry.execute("subagents", {
+      operation: "cancel",
+      agent: "long scout",
+      _chatSessionId: chatId,
+    });
     expect(aborted).toBe(true);
 
-    // No result is folded back (the caller already got the cancel confirmation),
-    // and it no longer appears as running.
+    // No result is folded back (the caller already got the cancel confirmation).
     await new Promise((r) => setTimeout(r, 20));
     expect(store.hasPendingSubagentResults(chatId)).toBe(false);
-    expect(String(await tool!.handler({ list: true, chatId }))).toContain(
-      "No background sub-agents are running",
-    );
     store.clearSubagentsForChat(chatId);
   });
 
-  it("buffers a running sub-agent's live progress for task({task_id}) and task({list})", async () => {
+  it("buffers a running sub-agent's live progress for task({task_id}) and subagents", async () => {
     await import("@/lib/tools/index");
     const { ToolRegistry } = await import("@/lib/tools/registry");
     const { runSubagent } = await import("@/lib/agents/run-subagent");
@@ -179,12 +183,21 @@ describe("task tool", () => {
     expect(peek).toContain("done grep");
     expect(peek).not.toContain("noisy private reasoning");
 
-    // list surfaces the same tail inline.
-    const listed = String(await tool!.handler({ list: true, chatId }));
-    expect(listed).toContain("Scanning packages/api");
+    // `subagents` surfaces the same tail.
+    const listed = (await ToolRegistry.execute("subagents", {
+      operation: "list",
+      _chatSessionId: chatId,
+    })) as { result?: { subagents?: Array<{ last_output?: string }> } };
+    expect(listed.result?.subagents?.[0]?.last_output).toContain(
+      "Scanning packages/api",
+    );
 
     const { clearSubagentsForChat } = await import("@/lib/agents/subagent-results");
-    await tool!.handler({ task_id: taskId!, cancel: true, chatId });
+    await ToolRegistry.execute("subagents", {
+      operation: "cancel",
+      agent: "scout api",
+      _chatSessionId: chatId,
+    });
     clearSubagentsForChat(chatId);
   });
 
@@ -197,27 +210,82 @@ describe("task tool", () => {
     expect(out).toContain("requires both");
   });
 
-  it("write=true on a non-git workspace falls back to read-only with a note", async () => {
-    const { mkdtemp, rm } = await import("node:fs/promises");
+  it("write=true works on a NON-git workspace and proposes files", async () => {
+    // Before v14.21.0 this silently downgraded to read-only, because writer
+    // isolation was a git worktree. Proposals need no git at all.
+    const { mkdtemp, rm, writeFile } = await import("node:fs/promises");
     const { tmpdir } = await import("node:os");
     const nodePath = await import("node:path");
     const nonGit = await mkdtemp(nodePath.join(tmpdir(), "atlarix-ngws-"));
     try {
+      await writeFile(nodePath.join(nonGit, "a.ts"), "before\n", "utf-8");
       await import("@/lib/tools/index");
-      const { ToolRegistry } = await import("@/lib/tools/registry");
-      const tool = ToolRegistry.get("task");
+      const { runSubagent } = await import("@/lib/agents/run-subagent");
+      const { recordEditProposal } = await import("@/lib/agents/subagent-proposals");
+
+      // Stand in for the sub-agent: record one edit against its proposal set,
+      // exactly as run-subagent's tool funnel does.
+      vi.mocked(runSubagent).mockImplementationOnce(
+        async (a: { proposalSetId?: string }) => {
+          recordEditProposal(a.proposalSetId, {
+            __permission_required: true,
+            operation: "edit_file",
+            preview: {
+              path: "a.ts",
+              content: "after\n",
+              oldContent: "before\n",
+              type: "update",
+            },
+          });
+          return { success: true, summary: "Added the helper", stepsUsed: 1 };
+        },
+      );
+
       const out = String(
-        await tool!.handler({
+        await (await tool())!.handler({
           description: "implement",
           prompt: "Add a helper",
           write: true,
           workspace: nonGit,
         }),
       );
-      expect(out).toContain('state="completed"'); // still runs (as a scout)
-      expect(out).toContain("not a git repository");
+      expect(out).toContain('state="completed"');
+      expect(out).not.toContain("not a git repository");
+      // The main agent gets a reviewable per-file diff, not applied changes.
+      expect(out).toContain("<subagent_proposals");
+      expect(out).toContain("## a.ts");
+      expect(out).toContain("-before");
+      expect(out).toContain("+after");
     } finally {
       await rm(nonGit, { recursive: true, force: true });
+    }
+  });
+
+  it("a writer that proposes nothing says so, so phantom edits aren't trusted", async () => {
+    await import("@/lib/tools/index");
+    const { runSubagent } = await import("@/lib/agents/run-subagent");
+    vi.mocked(runSubagent).mockImplementationOnce(async () => ({
+      success: true,
+      summary: "I edited three files.",
+      stepsUsed: 1,
+    }));
+    const { mkdtemp, rm } = await import("node:fs/promises");
+    const { tmpdir } = await import("node:os");
+    const nodePath = await import("node:path");
+    const ws = await mkdtemp(nodePath.join(tmpdir(), "atlarix-empty-"));
+    try {
+      const out = String(
+        await (await tool())!.handler({
+          description: "implement",
+          prompt: "Add a helper",
+          write: true,
+          workspace: ws,
+        }),
+      );
+      expect(out).toContain("without proposing any file changes");
+      expect(out).toContain("Disregard any claim of edits");
+    } finally {
+      await rm(ws, { recursive: true, force: true });
     }
   });
 });

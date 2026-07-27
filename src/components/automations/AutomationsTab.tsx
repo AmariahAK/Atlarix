@@ -2,7 +2,7 @@
  * Automations tab (right panel): definition list + triage feed.
  * Codex-app model — unread runs badge, expand-to-read (marks read),
  * auto-archived nothing-to-report runs behind a filter, transcript peek,
- * and proposal apply for worktree-write runs.
+ * runs.
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -14,7 +14,6 @@ import {
   ChevronDown,
   ChevronRight,
   CircleAlert,
-  FileDiff,
   MessageSquarePlus,
   Pencil,
   Play,
@@ -74,13 +73,6 @@ function statusBadge(run: AutomationRunView) {
       </span>
     );
   }
-  if (run.hasProposal) {
-    return (
-      <span className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium bg-amber-500/10 text-amber-600 dark:text-amber-500">
-        <FileDiff className="h-3 w-3" /> proposal
-      </span>
-    );
-  }
   return (
     <span className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium bg-emerald-500/10 text-emerald-600 dark:text-emerald-500">
       <CheckCircle2 className="h-3 w-3" /> ok
@@ -107,13 +99,11 @@ export function AutomationsTab({ appId }: { appId: number | null }) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<AutomationListItem | null>(null);
-  const [isGitRepo, setIsGitRepo] = useState(false);
   const [mcpServers, setMcpServers] = useState<Array<{ id: number; name: string }>>([]);
   const [transcript, setTranscript] = useState<{
     title: string;
     messages: Array<{ role: string; content: string }>;
   } | null>(null);
-  const [proposalView, setProposalView] = useState<AutomationRunView | null>(null);
   const setComposerAttachments = useSetAtom(attachmentsAtom);
 
   // Present a fired event to the model on the user's terms: attach its context
@@ -159,13 +149,9 @@ export function AutomationsTab({ appId }: { appId: number | null }) {
     void refresh();
   }, [refresh]);
 
-  // Environment probes for the form (git → worktree-write availability; MCP servers).
+  // Environment probe for the form (MCP servers).
   useEffect(() => {
     if (appId == null) return;
-    IpcClient.getInstance()
-      .getCurrentBranch(appId)
-      .then(() => setIsGitRepo(true))
-      .catch(() => setIsGitRepo(false));
     IpcClient.getInstance()
       .listMcpServers()
       .then((servers: Array<{ id: number; name: string }>) =>
@@ -243,21 +229,6 @@ export function AutomationsTab({ appId }: { appId: number | null }) {
     }
   };
 
-  const applyProposal = async (run: AutomationRunView) => {
-    try {
-      const result = await IpcClient.getInstance().applyAutomationProposal(run.id);
-      if (result.applied) {
-        toast.success("Proposal applied to the workspace");
-        setProposalView(null);
-        void refresh();
-      } else if (result.conflict) {
-        toast.error(`Could not apply cleanly: ${result.message ?? "conflict"}`);
-      }
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : String(e));
-    }
-  };
-
   if (appId == null) {
     return (
       <div className="flex h-full flex-col items-center justify-center p-4 text-muted-foreground">
@@ -302,11 +273,6 @@ export function AutomationsTab({ appId }: { appId: number | null }) {
                 <div className="min-w-0">
                   <p className={cn("truncate text-sm font-medium", !a.enabled && "opacity-50")}>
                     {a.name}
-                    {a.runMode === "worktree-write" && (
-                      <span className="ml-1.5 text-[10px] text-amber-600 dark:text-amber-500">
-                        writes
-                      </span>
-                    )}
                   </p>
                   <p className="truncate text-[11px] text-muted-foreground">
                     {triggerLabel(a.trigger)}
@@ -442,18 +408,6 @@ export function AutomationsTab({ appId }: { appId: number | null }) {
                             <ScrollText className="mr-1 h-3 w-3" /> Transcript
                           </Button>
                         )}
-                        {run.hasProposal && (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="h-6 px-2 text-[11px]"
-                            disabled={run.proposalApplied}
-                            onClick={() => setProposalView(run)}
-                          >
-                            <FileDiff className="mr-1 h-3 w-3" />
-                            {run.proposalApplied ? "Applied" : "Review proposal"}
-                          </Button>
-                        )}
                         {!run.archived && (
                           <Button
                             size="sm"
@@ -485,7 +439,6 @@ export function AutomationsTab({ appId }: { appId: number | null }) {
         <AutomationForm
           workspaceId={appId}
           existing={editing}
-          isGitRepo={isGitRepo}
           mcpServers={mcpServers}
           defaultRepo={null}
           open={formOpen}
@@ -515,52 +468,7 @@ export function AutomationsTab({ appId }: { appId: number | null }) {
         </DialogContent>
       </Dialog>
 
-      {/* Proposal review + apply */}
-      <Dialog open={proposalView != null} onOpenChange={(v) => !v && setProposalView(null)}>
-        <DialogContent className="max-h-[80vh] max-w-2xl overflow-auto">
-          <DialogHeader>
-            <DialogTitle>
-              Proposal — {proposalView?.automationName} ({proposalView?.proposalFiles.length}{" "}
-              file{proposalView?.proposalFiles.length === 1 ? "" : "s"})
-            </DialogTitle>
-          </DialogHeader>
-          <ProposalDiff runId={proposalView?.id ?? null} />
-          <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={() => setProposalView(null)}>
-              Close
-            </Button>
-            <Button onClick={() => proposalView && void applyProposal(proposalView)}>
-              Apply to workspace
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }
 
-/** Lazy diff body — the diff can be large, fetch it only when the dialog opens. */
-function ProposalDiff({ runId }: { runId: string | null }) {
-  const [diff, setDiff] = useState<string | null>(null);
-  useEffect(() => {
-    setDiff(null);
-    if (!runId) return;
-    // The runs list intentionally omits diff bodies; fetch the full run row's
-    // diff via the archived-inclusive list (single-run fetch would be a new
-    // channel for one consumer — the 100-row cap keeps this cheap).
-    void (async () => {
-      try {
-        const view = await IpcClient.getInstance().getAutomationProposalDiff(runId);
-        setDiff(view ?? "(empty diff)");
-      } catch {
-        setDiff("(could not load diff)");
-      }
-    })();
-  }, [runId]);
-  if (!runId) return null;
-  return (
-    <pre className="max-h-[50vh] overflow-auto whitespace-pre-wrap break-words rounded-md bg-muted/40 p-2 font-mono text-xs">
-      {diff ?? "Loading…"}
-    </pre>
-  );
-}

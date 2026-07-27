@@ -10,7 +10,6 @@ import log from "electron-log";
 import { eq } from "drizzle-orm";
 import { db } from "@/db";
 import { apps, automationRuns, automations, chatSessions } from "@/db/schema";
-import { resolveAppPath } from "@/paths/paths";
 import {
   createStreamTransport,
   deleteStreamTransport,
@@ -140,7 +139,6 @@ export async function executeAutomationRun(
     logger.warn(`automation ${automationId}: workspace ${automation.workspaceId} missing`);
     return null;
   }
-  const workspacePath = resolveAppPath(app.path);
 
   // notify-only (the default): the fired trigger IS the payload — write the
   // feed row + notification with ZERO model involvement. The user presents it
@@ -207,25 +205,6 @@ export async function executeAutomationRun(
     .where(eq(automations.id, automationId));
   await broadcastRunUpdate(runId);
 
-  let worktree: import("@/lib/agents/subagent-worktree").SubagentWorktree | null = null;
-  let effectiveRunMode = automation.runMode;
-  let downgradeNote: string | null = null;
-  if (automation.runMode === "worktree-write") {
-    try {
-      const { createSubagentWorktree } = await import(
-        "@/lib/agents/subagent-worktree"
-      );
-      worktree = await createSubagentWorktree(workspacePath, `automation-${runId.slice(0, 8)}`);
-      if (!worktree) {
-        effectiveRunMode = "read-only";
-        downgradeNote = "workspace is not a git repository — ran read-only instead of worktree-write";
-      }
-    } catch (e) {
-      effectiveRunMode = "read-only";
-      downgradeNote = `worktree creation failed (${e instanceof Error ? e.message : String(e)}) — ran read-only`;
-    }
-  }
-
   const chatId = createStreamTransport(automation.workspaceId);
   await db
     .update(chatSessions)
@@ -248,8 +227,6 @@ export async function executeAutomationRun(
   let status: AutomationRunStatus = "error";
   let summary: string | null = null;
   let runError: string | null = null;
-  let proposalDiff: string | null = null;
-  let proposalFiles: string[] = [];
 
   let timedOut = false;
   const timeoutTimer = setTimeout(() => {
@@ -269,12 +246,14 @@ export async function executeAutomationRun(
       prompt,
       workspaceSessionId: sessionId,
       ...(model ? { modelOverride: model } : {}),
-      streamChatModeOverride: effectiveRunMode === "worktree-write" ? "build" : "ask",
-      workModeOverride: (effectiveRunMode === "worktree-write" ? "build" : "ask") as ChatStreamParams["workModeOverride"],
+      // Every surviving run mode is read-only: notify-only never reaches here
+      // with a prompt to run, and read-only is exactly that. (worktree-write
+      // was removed in v14.21.0 along with the sub-agent worktree.)
+      streamChatModeOverride: "ask",
+      workModeOverride: "ask" as ChatStreamParams["workModeOverride"],
       automation: {
         runId,
         unattended: true,
-        ...(worktree ? { workspacePathOverride: worktree.worktreePath } : {}),
       },
     };
     const dispatch = await resolvedDeps.chatStream(sender.event, req);
@@ -302,28 +281,9 @@ export async function executeAutomationRun(
     clearTimeout(timeoutTimer);
   }
 
-  if (worktree) {
-    try {
-      const { captureWorktreeDiff, removeSubagentWorktree } = await import(
-        "@/lib/agents/subagent-worktree"
-      );
-      const diff = await captureWorktreeDiff(worktree);
-      if (diff.unifiedDiff.trim()) {
-        proposalDiff = diff.unifiedDiff;
-        proposalFiles = diff.changedFiles;
-      }
-      await removeSubagentWorktree(workspacePath, worktree);
-    } catch (e) {
-      logger.warn(`automation ${runId}: worktree capture/cleanup failed:`, e);
-    }
-  }
-
   if (runError) {
     status = "error";
     summary = summary ?? null;
-  }
-  if (downgradeNote) {
-    summary = summary ? `${summary} (${downgradeNote})` : downgradeNote;
   }
 
   const finished = new Date();
@@ -336,8 +296,6 @@ export async function executeAutomationRun(
       error: runError,
       unread: !nothing,
       archived: nothing,
-      proposalDiff,
-      proposalFiles: proposalFiles.length ? JSON.stringify(proposalFiles) : null,
       finishedAt: finished,
     })
     .where(eq(automationRuns.id, runId));
