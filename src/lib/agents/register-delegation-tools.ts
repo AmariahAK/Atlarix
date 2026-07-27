@@ -70,7 +70,7 @@ function delegationChatModeFromWorkMode(
 export function extractDelegationDisplaySummary(
   result: unknown,
   resultStr: string,
-): { summary: string; isError: boolean } {
+): { summary: string; isError: boolean; isRunning: boolean } {
   const unwrapped =
     result &&
     typeof result === "object" &&
@@ -78,9 +78,12 @@ export function extractDelegationDisplaySummary(
       ? (result as { result: string }).result
       : resultStr;
   const isError = /state="error"/.test(unwrapped);
+  // A backgrounded (or auto-promoted) task RETURNS while its sub-agent is still
+  // running — the envelope says so. Callers must not treat that as completion.
+  const isRunning = /state="running"/.test(unwrapped);
   const taskResult = /<task_result>([\s\S]*?)<\/task_result>/.exec(unwrapped);
   if (taskResult?.[1]?.trim()) {
-    return { summary: taskResult[1].trim(), isError };
+    return { summary: taskResult[1].trim(), isError, isRunning };
   }
   return {
     summary: unwrapped
@@ -88,6 +91,7 @@ export function extractDelegationDisplaySummary(
       .replace(/<\/?summary>/g, "")
       .trim(),
     isError,
+    isRunning,
   };
 }
 
@@ -264,6 +268,30 @@ export function attachDelegationToolsToSet(
           turnId: ctx.turnId,
           parentDelegationId: id,
           emitSubagentActivity,
+          // Settles the card for a BACKGROUNDED run, which returns long before
+          // its sub-agent finishes. This closure outlives the tool call — the
+          // same way background narration already reaches the UI — so the card
+          // resolves the moment the run really ends, not on the next turn.
+          onBackgroundSettled: (settled: {
+            summary: string;
+            isError: boolean;
+            durationMs: number;
+          }) => {
+            ctx.safeSend(
+              ctx.sender,
+              "chat:activity",
+              buildSubagentCompletePayload({
+                id,
+                chatId: ctx.chatId,
+                agentId,
+                summary: settled.summary.slice(0, 4_000),
+                duration: settled.durationMs,
+                isError: settled.isError,
+                scope: undefined,
+                roundId: ctx.turnId,
+              }),
+            );
+          },
         });
         ctx.onDelegated?.(agentId);
 
@@ -276,25 +304,31 @@ export function attachDelegationToolsToSet(
         // {"success":true,"result":"<task …"} verbatim at its bottom. Unwrap
         // the envelope + <task>/<summary>/<task_result> markup; the model-
         // facing return (resultStr, below) is untouched.
-        const { summary: innerResult, isError } = extractDelegationDisplaySummary(
-          result,
-          resultStr,
-        );
+        const { summary: innerResult, isError, isRunning } =
+          extractDelegationDisplaySummary(result, resultStr);
 
-        ctx.safeSend(
-          ctx.sender,
-          "chat:activity",
-          buildSubagentCompletePayload({
-            id,
-            chatId: ctx.chatId,
-            agentId,
-            summary: innerResult.slice(0, 4_000),
-            duration,
-            isError,
-            scope: undefined,
-            roundId: ctx.turnId,
-          }),
-        );
+        // A backgrounded or auto-promoted task RETURNS while its sub-agent is
+        // still working. Settling the card here marked it "completed" the
+        // instant it started — the header said "1 completed" while the main
+        // agent's own narration said the sub-agent was still going. The real
+        // completion is emitted by the settle callback wired above, when the
+        // run actually finishes.
+        if (!isRunning) {
+          ctx.safeSend(
+            ctx.sender,
+            "chat:activity",
+            buildSubagentCompletePayload({
+              id,
+              chatId: ctx.chatId,
+              agentId,
+              summary: innerResult.slice(0, 4_000),
+              duration,
+              isError,
+              scope: undefined,
+              roundId: ctx.turnId,
+            }),
+          );
+        }
 
         return resultStr;
       } finally {

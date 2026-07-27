@@ -9,6 +9,8 @@ const LABELS: Record<string, string> = {
   grep: "Searching code…",
   plan: "Updating plan…",
   task: "Running sub-agent…",
+  subagents: "Checking sub-agents…",
+  proposals: "Reviewing proposed changes…",
   read_file: "Reading files…",
   write_file: "Writing code…",
   write_multiple_files: "Writing files…",
@@ -276,6 +278,8 @@ const DONE_LABELS: Record<string, string> = {
   grep: "Searched code",
   plan: "Plan updated",
   task: "Sub-agent finished",
+  subagents: "Checked sub-agents",
+  proposals: "Reviewed proposed changes",
   read_file: "Read files",
   write_file: "Wrote file",
   write_multiple_files: "Wrote files",
@@ -350,6 +354,13 @@ export function getToolDoneLabel(
   if (DONE_LABELS[toolName]) return DONE_LABELS[toolName];
   if (toolName === "unknown" || toolName === "tool") return "Completed tool";
   const running = getToolActivityLabel(toolName).replace(/…$/u, "");
+  // Conjugating only makes sense for a HAND-WRITTEN label ("Searching code" →
+  // "Searched code"). The generic template is `Running <tool>`, whose first
+  // /ing\b/ sits inside "Runn·ing" — so conjugating it produced "Runned
+  // subagents" for any tool missing from the maps above. Give the generic case
+  // a generic past tense instead of mangling the verb.
+  const spaced = toolName.replace(/_/g, " ");
+  if (running === `Running ${spaced}`) return `Completed ${spaced}`;
   if (/ing\b/i.test(running)) {
     return running.replace(/ing\b/i, "ed");
   }

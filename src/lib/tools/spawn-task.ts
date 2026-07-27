@@ -357,6 +357,15 @@ ToolRegistry.register({
     /** Stream wrapper context (register-delegation-tools). */
     parentDelegationId?: string;
     emitSubagentActivity?: (payload: SubagentActivityEmit) => void;
+    /**
+     * Called when a BACKGROUNDED run really finishes, so the caller can settle
+     * its UI card. The tool itself returned as soon as the run was backgrounded.
+     */
+    onBackgroundSettled?: (settled: {
+      summary: string;
+      isError: boolean;
+      durationMs: number;
+    }) => void;
   }) => {
     const resumeId = args.task_id?.trim();
 
@@ -433,7 +442,16 @@ ToolRegistry.register({
       ) {
         appendSubagentOutput(taskId, payload.content);
       } else if (payload.type === "tool_use" && payload.status === "done") {
-        const d = payload.detail ? `: ${payload.detail.slice(0, 200)}` : "";
+        // `label` is the FORMATTED preview (run-subagent runs the tool result
+        // through formatToolResultPreview for it); `detail` is the raw
+        // JSON.stringify of the result, doubly wrapped by the registry's own
+        // {success,result} envelope. Using detail here put things like
+        //   [done grep: {"success":true,"result":{"success":true,"result":"5 match(es) …\n\n…
+        // in front of both the model and the user, escapes and all, cut
+        // mid-token by the 200-char slice. Prefer the label; fall back only
+        // when there isn't one.
+        const preview = payload.label ?? payload.detail;
+        const d = preview ? `: ${preview.slice(0, 200)}` : "";
         appendSubagentOutput(taskId, `\n[done ${payload.toolName}${d}]\n`);
       }
       args.emitSubagentActivity?.(payload);
@@ -631,7 +649,18 @@ ToolRegistry.register({
           clearInterval(stallWatch);
           const rec = taskStore.get(taskId);
           const state = rec?.state === "completed" ? "completed" : "error";
-          finalize(state, rec?.resultText ?? rec?.error ?? "");
+          const body = rec?.resultText ?? rec?.error ?? "";
+          finalize(state, body);
+          // Settle the UI card. A backgrounded task returned long ago, so the
+          // caller already emitted its "started" state and is waiting to be
+          // told how it actually ended — WITHOUT this the card sat on
+          // "completed" from the moment it was spawned. Cancelled runs settle
+          // too (as an error): the card must not spin forever either.
+          args.onBackgroundSettled?.({
+            summary: body,
+            isError: state !== "completed",
+            durationMs: Date.now() - (rec?.startedAt ?? Date.now()),
+          });
         });
     };
 

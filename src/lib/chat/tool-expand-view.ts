@@ -39,6 +39,18 @@ const WEB_SEARCH_TOOLS = new Set(["web_search", "deep_research"]);
 
 const RUN_COMMAND_TOOLS = new Set(["run_command", "run_shell_command"]);
 
+/**
+ * Tools that hand back a LOG TAIL in `output` — a background job's stdout or a
+ * sub-agent's narration. Structurally identical to command output, so they get
+ * the same scrollable card.
+ *
+ * Without this they fell through to the generic tail, where
+ * `formatToolResultPreview` -> `extractShortField` picks `output` and
+ * `capPreview` slices it at 300 chars — so the card showed a log cut
+ * mid-token and offered no way to see the rest.
+ */
+const AGENT_LOG_TOOLS = new Set(["subagents", "background_jobs"]);
+
 const MCP_LIST_TOOLS = new Set(["list_available_mcps"]);
 
 const MCP_CALL_TOOLS = new Set(["mcp_call"]);
@@ -882,6 +894,11 @@ export function buildToolExpandView(
 
   const payload = envelope.payload;
   const plain = envelope.plainText;
+
+  if (AGENT_LOG_TOOLS.has(toolName)) {
+    const log = buildCommandOutputView(payload, plain);
+    if (log) return log;
+  }
 
   if (EXPLORE_LIST_TOOLS.has(toolName)) {
     const fileList = buildFileListView(payload);

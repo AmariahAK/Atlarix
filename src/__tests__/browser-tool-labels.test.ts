@@ -103,6 +103,33 @@ describe("browserToolLabel", () => {
   });
 });
 
+describe("the 'Runned' fallback is dead for EVERY tool, not just browser ones", () => {
+  /**
+   * The old fallback took the generic running label "Running <tool>" and
+   * conjugated the first /ing\b/ — which lives inside "Runn·ing" — so any tool
+   * missing from the label maps rendered as "Runned <tool>". v14.21's
+   * `subagents` tool shipped without an entry and hit exactly that in the
+   * packaged app.
+   */
+  it("gives an unmapped tool a generic past tense instead of mangling the verb", () => {
+    expect(getToolDoneLabel("some_new_tool")).toBe("Completed some new tool");
+    expect(getToolDoneLabel("some_new_tool")).not.toMatch(/runned/i);
+  });
+
+  it("labels the v14.21 sub-agent tools concretely", () => {
+    expect(getToolDoneLabel("subagents")).toBe("Checked sub-agents");
+    expect(getToolDoneLabel("proposals")).toBe("Reviewed proposed changes");
+    expect(getToolDoneLabel("subagents")).not.toMatch(/runned/i);
+    expect(getToolDoneLabel("proposals")).not.toMatch(/runned/i);
+  });
+
+  it("still conjugates a hand-written label correctly", () => {
+    // The fix must not flatten the mapped labels into "Completed grep".
+    expect(getToolDoneLabel("grep", {})).toBe("Searched code");
+    expect(getToolDoneLabel("task")).toBe("Sub-agent finished");
+  });
+});
+
 describe("grep/glob search labels surface the pattern", () => {
   it("grep running + done include the pattern", () => {
     expect(getToolActivityLabelWithArgs("grep", { pattern: "handleLogin" })).toBe(
