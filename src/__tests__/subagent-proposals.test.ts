@@ -29,7 +29,11 @@ import {
   rebaseOntoCurrent,
 } from "@/lib/agents/subagent-proposal-review";
 
-const WS = "/tmp/atlarix-proposal-ws";
+// path.resolve(), not a bare POSIX literal: the store keys its overlay by
+// path.resolve(workspace, rel), and on Windows that prepends a drive letter
+// ("D:\\tmp\\…") which a plain path.join() lookup does not — so the map missed and
+// every file came back undefined. macOS/Linux hid it because the two agree there.
+const WS = path.resolve("/tmp/atlarix-proposal-ws");
 
 function envelope(rel: string, content: string, oldContent?: string) {
   return {
@@ -55,19 +59,19 @@ describe("the overlay", () => {
       workspace: WS,
     });
     recordEditProposal(id, envelope("a.ts", "v2\n", "v1\n"));
-    expect(overlayContent(id, path.join(WS, "a.ts"))).toBe("v2\n");
+    expect(overlayContent(id, path.resolve(WS, "a.ts"))).toBe("v2\n");
   });
 
   it("does not leak between sub-agents", () => {
     const a = createProposalSet({ chatId: 1, taskId: "ta", agentName: "a", workspace: WS });
     const b = createProposalSet({ chatId: 1, taskId: "tb", agentName: "b", workspace: WS });
     recordEditProposal(a, envelope("a.ts", "from-a\n", "v1\n"));
-    expect(overlayContent(b, path.join(WS, "a.ts"))).toBeNull();
+    expect(overlayContent(b, path.resolve(WS, "a.ts"))).toBeNull();
   });
 
   it("returns null for an untouched file so the caller reads disk", () => {
     const id = createProposalSet({ chatId: 1, taskId: "t1", agentName: "w", workspace: WS });
-    expect(overlayContent(id, path.join(WS, "never-touched.ts"))).toBeNull();
+    expect(overlayContent(id, path.resolve(WS, "never-touched.ts"))).toBeNull();
   });
 });
 
@@ -79,7 +83,7 @@ describe("capture", () => {
     // as the base would lose "v1" and defeat the staleness check at accept time.
     recordEditProposal(id, envelope("a.ts", "v3\n", "v2\n"));
 
-    const file = getProposalSet(id)!.files.get(path.join(WS, "a.ts"))!;
+    const file = getProposalSet(id)!.files.get(path.resolve(WS, "a.ts"))!;
     expect(file.baseContent).toBe("v1\n");
     expect(file.content).toBe("v3\n");
     expect(file.edits).toBe(2);
@@ -89,7 +93,7 @@ describe("capture", () => {
     const id = createProposalSet({ chatId: 1, taskId: "t1", agentName: "w", workspace: WS });
     recordEditProposal(id, envelope("new.ts", "first\n"));
     recordEditProposal(id, envelope("new.ts", "second\n", "first\n"));
-    const file = getProposalSet(id)!.files.get(path.join(WS, "new.ts"))!;
+    const file = getProposalSet(id)!.files.get(path.resolve(WS, "new.ts"))!;
     expect(file.type).toBe("create");
     expect(file.baseContent).toBeNull();
   });
@@ -298,7 +302,7 @@ describe("accepting through the proposals tool", () => {
   it("rejecting drops the file and writes nothing", async () => {
     await import("@/lib/tools/index");
     const { ToolRegistry } = await import("@/lib/tools/registry");
-    const target = path.join(ws, "a.ts");
+    const target = path.resolve(ws, "a.ts");
     fs.writeFileSync(target, "before\n");
 
     const id = createProposalSet({
@@ -328,7 +332,7 @@ describe("accepting through the proposals tool", () => {
   it("refuses a stale file and says nothing was written", async () => {
     await import("@/lib/tools/index");
     const { ToolRegistry } = await import("@/lib/tools/registry");
-    const target = path.join(ws, "a.ts");
+    const target = path.resolve(ws, "a.ts");
     const base = ["a", "b", "c", "d", "e"].join("\n");
     fs.writeFileSync(target, base);
 
@@ -382,7 +386,7 @@ describe("sequential edits through the real edit_file tool", () => {
 
   it("lets a sub-agent edit the same file three times", async () => {
     await import("@/lib/tools/index");
-    const target = path.join(ws, "a.ts");
+    const target = path.resolve(ws, "a.ts");
     fs.writeFileSync(target, "one\ntwo\nthree\n");
 
     const id = createProposalSet({
@@ -443,7 +447,7 @@ describe("sequential edits through the real edit_file tool", () => {
       new_content: "a = 2",
     });
 
-    const file = getProposalSet(id)!.files.get(path.join(ws, "new.ts"))!;
+    const file = getProposalSet(id)!.files.get(path.resolve(ws, "new.ts"))!;
     expect(file.content).toBe("export const a = 2;\n");
     expect(file.type).toBe("create");
     expect(fs.existsSync(path.join(ws, "new.ts"))).toBe(false);
