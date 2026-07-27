@@ -1,5 +1,20 @@
 import type { TerminalInstance } from "@/atoms/terminalInstancesAtoms";
 
+/**
+ * Reserved `agentOpMap` key pointing at the ONE terminal that foreground agent
+ * commands share.
+ *
+ * Shared between the renderer (which pre-creates the tab so it is visible before
+ * the first command) and the main process (which decides where each command's
+ * output goes). It previously lived only in TerminalPanel.tsx, so main had no way
+ * to honour it — and main therefore created a fresh instance per command,
+ * producing one tab per command on top of the renderer's shared one.
+ */
+export const AGENT_FG_KEY = "__agent_fg__";
+
+/** Label for that shared tab — it is a session, not a single command. */
+export const AGENT_FG_LABEL = "Agent";
+
 export function defaultUserInstanceLabel(instances: TerminalInstance[]): string {
   const n = instances.filter((i) => i.owner === "user").length + 1;
   return `Shell ${n}`;

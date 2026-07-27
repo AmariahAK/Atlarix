@@ -20,6 +20,8 @@ import {
   type TerminalLine,
 } from "@/atoms/terminalInstancesAtoms";
 import {
+  AGENT_FG_KEY,
+  AGENT_FG_LABEL,
   agentTabStripLabel,
   defaultAgentInstanceLabel,
   defaultUserInstanceLabel,
@@ -47,12 +49,10 @@ function mergeLines(prev: TerminalLine[], add: TerminalLine[]): TerminalLine[] {
 }
 
 /**
- * Reserved per-scope key pointing at the shared foreground "Agent" tab. All
- * foreground agent commands append to this one instance (shell-session style);
- * background processes get their own command-labelled tab.
+ * AGENT_FG_KEY / AGENT_FG_LABEL now live in @/lib/terminal-instances so the MAIN
+ * process shares them. They were defined here only, which is why main could not
+ * honour the shared-tab rule and created an instance per command instead.
  */
-const AGENT_FG_KEY = "__agent_fg__";
-const AGENT_FG_LABEL = "Agent";
 /**
  * A background agent command gets its own tab while it runs; once it EXITS
  * SUCCESSFULLY we auto-close that tab after a short grace so completed one-shots
@@ -432,6 +432,7 @@ export function TerminalPanel() {
             owner: "agent",
             commandHint: AGENT_FG_LABEL,
             operationId,
+            background: false,
           })
           .catch(() => {});
         return newFgId;
@@ -454,6 +455,9 @@ export function TerminalPanel() {
           owner: "agent",
           commandHint: command,
           operationId,
+          // Must match the local decision above, or main reuses the shared tab
+          // while the panel routes this job's output to its own.
+          background: true,
         })
         .catch(() => {});
       return instanceId;

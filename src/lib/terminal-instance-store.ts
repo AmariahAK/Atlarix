@@ -9,6 +9,8 @@ import { BrowserWindow } from "electron";
 import type { TerminalInstance } from "@/atoms/terminalInstancesAtoms";
 import { terminalScopeKey } from "@/atoms/terminalInstancesAtoms";
 import {
+  AGENT_FG_KEY,
+  AGENT_FG_LABEL,
   defaultAgentInstanceLabel,
   defaultUserInstanceLabel,
 } from "@/lib/terminal-instances";
@@ -16,7 +18,13 @@ import { capTerminalLines } from "@/lib/chat/terminal-line-buffer";
 import { linesToModelText } from "@/lib/chat/terminal-line-format";
 import { getUserDataPath } from "@/paths/paths";
 
-export const MAX_AGENT_TERMINALS_PER_SCOPE = 3;
+// MAX_AGENT_TERMINALS_PER_SCOPE (was 3) REMOVED. It existed to bound a sprawl
+// that only happened because main created one instance per command; with
+// foreground commands sharing a tab and background jobs earning their own, the
+// count now tracks concurrent background work, which is exactly what should be
+// visible. Its only remaining effect was a silent failure: the fourth agent
+// terminal returned an error that the caller (interceptor.executeRunCommand)
+// discarded, so the command ran with nowhere to show its output.
 
 export type TerminalScopeState = {
   instances: TerminalInstance[];
@@ -182,6 +190,12 @@ export function openTerminalInstance(
     label?: string;
     commandHint?: string;
     operationId?: string;
+    /**
+     * Detached job (dev server, watcher, long build). Background work earns its
+     * OWN tab so it can keep printing without interleaving into the session the
+     * agent is reading; foreground commands share one tab.
+     */
+    background?: boolean;
   },
 ) {
   const scope = getScope(scopeKey);
@@ -195,22 +209,40 @@ export function openTerminalInstance(
     }
   }
 
-  if (opts.owner === "agent") {
-    const agentCount = scope.instances.filter((i) => i.owner === "agent").length;
-    if (agentCount >= MAX_AGENT_TERMINALS_PER_SCOPE) {
-      return {
-        success: false as const,
-        error: `Maximum ${MAX_AGENT_TERMINALS_PER_SCOPE} agent terminals per scope. Close one with close_terminal_instance first.`,
-      };
+  // FOREGROUND AGENT COMMANDS SHARE ONE TAB.
+  //
+  // This rule already existed in TerminalPanel (AGENT_FG_KEY) but only there, so
+  // main ran its own policy at the same time: a fresh `operationId` per command
+  // meant the reuse branch above could never hit, and main created a new
+  // instance for EVERY command. Those extras flowed back into the panel through
+  // the bidirectional scope sync — the pile of tabs. Past three, main returned
+  // an error the caller discarded, so it then failed silently instead.
+  //
+  // The renderer syncs its `agentOpMap` here, so when a panel is open this
+  // resolves to the tab the user is already looking at and main adds nothing.
+  // With no panel (headless, automations) main creates it once and reuses it.
+  if (opts.owner === "agent" && !opts.background) {
+    const fgId = scope.agentOpMap[AGENT_FG_KEY];
+    if (fgId && scope.instances.some((i) => i.id === fgId)) {
+      if (opts.operationId) scope.agentOpMap[opts.operationId] = fgId;
+      scope.activeInstanceId = fgId;
+      schedulePersist();
+      broadcastScope(scopeKey);
+      return { success: true as const, instanceId: fgId, created: false };
     }
   }
 
   const id = `${opts.owner}-${Date.now()}-${randomUUID().slice(0, 8)}`;
+  const isSharedForeground = opts.owner === "agent" && !opts.background;
   const label =
     opts.label?.trim() ||
     (opts.owner === "user"
       ? defaultUserInstanceLabel(scope.instances)
-      : defaultAgentInstanceLabel(opts.commandHint ?? "", scope.instances));
+      : isSharedForeground
+        // Named for the session, not the command that happened to open it —
+        // every later foreground command lands in this same tab.
+        ? AGENT_FG_LABEL
+        : defaultAgentInstanceLabel(opts.commandHint ?? "", scope.instances));
 
   const inst: TerminalInstance = {
     id,
@@ -222,6 +254,11 @@ export function openTerminalInstance(
   scope.instances.push(inst);
   if (opts.operationId) {
     scope.agentOpMap[opts.operationId] = id;
+  }
+  // Register the shared tab so every later foreground command finds it — the
+  // pointer is what makes reuse work across operationIds.
+  if (isSharedForeground) {
+    scope.agentOpMap[AGENT_FG_KEY] = id;
   }
   scope.activeInstanceId = id;
   schedulePersist();

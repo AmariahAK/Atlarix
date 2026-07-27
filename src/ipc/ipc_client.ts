@@ -2588,6 +2588,10 @@ export class IpcClient {
     label?: string;
     commandHint?: string;
     operationId?: string;
+    /** Detached job — earns its own tab instead of the shared agent one. Must
+     * match what the panel decided locally, or the two disagree about which
+     * instance a background command's output belongs to. */
+    background?: boolean;
   }): Promise<
     | { success: true; instanceId: string; created: boolean; label?: string }
     | { success: false; error: string }
@@ -2598,6 +2602,7 @@ export class IpcClient {
       owner: params.owner ?? "agent",
       label: params.label,
       commandHint: params.commandHint,
+      background: params.background === true,
       operationId: params.operationId,
     });
   }

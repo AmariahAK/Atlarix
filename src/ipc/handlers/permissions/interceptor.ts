@@ -1512,10 +1512,18 @@ export class PermissionInterceptor extends EventEmitter {
         );
 
         const scopeKey = resolveScopeKey(this.activeChatId, this.workspaceId);
+        // Foreground commands share one tab; a detached job gets its own so its
+        // output doesn't interleave into the session the agent is reading.
+        //
+        // No longer returns a failure: dropping the 3-agent-terminal cap removed
+        // the only way this could refuse. That cap used to reject the fourth
+        // terminal and the rejection was discarded here, so the command ran with
+        // nowhere to show its output.
         openTerminalInstance(scopeKey, {
           owner: "agent",
           operationId,
           commandHint: commandToRun,
+          background: explicitBackground,
         });
 
         // Audit log for dangerous commands (rm -rf, sudo, etc.)

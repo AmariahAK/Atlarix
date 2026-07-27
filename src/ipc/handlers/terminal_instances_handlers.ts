@@ -60,6 +60,8 @@ export function registerTerminalInstancesHandlers(): void {
         label?: string;
         commandHint?: string;
         operationId?: string;
+        /** Detached job — earns its own tab instead of the shared agent one. */
+        background?: boolean;
       },
     ) => {
       const scopeKey = scopeFromParams(params);
@@ -68,6 +70,7 @@ export function registerTerminalInstancesHandlers(): void {
         label: params.label,
         commandHint: params.commandHint,
         operationId: params.operationId,
+        background: params.background === true,
       });
     },
   );
