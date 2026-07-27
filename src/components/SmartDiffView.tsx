@@ -97,6 +97,21 @@ export interface SmartDiffViewProps {
      */
     selectable?: boolean;
     onHunkSelectionChange?: (selected: number[], totalHunks: number) => void;
+    /**
+     * Hunks computed in MAIN, where both file bodies already are.
+     *
+     * `computeDiffHunks` runs `structuredPatch` — a Myers diff over the whole
+     * file — and it used to run here, synchronously inside a `useMemo`, on the
+     * UI thread. A ~1000-line write froze the app for about five seconds, and
+     * it scales worse than linearly. Main holds `oldContent` and `newContent`
+     * when it sends the preview, so it can do this once, off the UI thread,
+     * and hand over the result.
+     *
+     * Optional: paths that don't supply it (other approval surfaces, tests)
+     * fall back to computing locally, so behaviour is unchanged where it isn't
+     * wired up.
+     */
+    precomputedHunks?: DiffHunk[];
 }
 
 export function SmartDiffView({
@@ -108,6 +123,7 @@ export function SmartDiffView({
     maxHeight = "max-h-64",
     selectable = false,
     onHunkSelectionChange,
+    precomputedHunks,
 }: SmartDiffViewProps) {
     const [expandAll, setExpandAll] = useState(false);
     const [deselected, setDeselected] = useState<Set<number>>(new Set());
@@ -120,12 +136,17 @@ export function SmartDiffView({
     const hunks: DiffHunk[] = useMemo(() => {
         if (operation === "create") return [wholeFileHunk(newContent, "add")];
         if (operation === "delete") return [wholeFileHunk(oldContent, "remove")];
+        // Precomputed hunks cover the DEFAULT context only. Expanding asks for a
+        // different diff, and it is a deliberate user action on a diff they chose
+        // to read — so paying for it then is fine, where paying on every render
+        // was not.
+        if (precomputedHunks && !expandAll) return precomputedHunks;
         return computeDiffHunks(
             oldContent,
             newContent,
             expandAll ? EXPAND_ALL_CONTEXT : CONTEXT_LINES,
         );
-    }, [oldContent, newContent, operation, expandAll]);
+    }, [oldContent, newContent, operation, expandAll, precomputedHunks]);
 
     // Selection applies only to update diffs with at least 2 hunks.
     const hunkSelectable = selectable && operation === "update" && hunks.length > 1;

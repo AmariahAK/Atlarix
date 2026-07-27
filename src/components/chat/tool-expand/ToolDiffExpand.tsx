@@ -53,6 +53,9 @@ export function ToolDiffExpand({
         newContent={view.newContent}
         operation={view.operation}
         maxHeight="max-h-48"
+        // Computed in main; without it this card re-ran a whole-file Myers diff
+        // on the UI thread every render.
+        precomputedHunks={view.precomputedHunks}
       />
     </div>
   );

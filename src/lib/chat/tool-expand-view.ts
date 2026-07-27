@@ -3,6 +3,7 @@ import {
   parseToolResultEnvelope,
 } from "@/lib/chat/stream-tool-display";
 import type { StreamThreadToolStatus } from "@/lib/chat/stream-thread";
+import type { DiffHunk } from "@/lib/diff/compose-hunks";
 import { stripUntrustedDataEnvelope } from "@/lib/streaming/untrusted-data";
 
 const WRITE_TOOLS = new Set([
@@ -122,6 +123,12 @@ export type ToolExpandView =
       newContent: string;
       addedCount?: number;
       removedCount?: number;
+      /**
+       * Hunks computed in MAIN (see permission-ui.ts). Passing them through
+       * keeps a Myers diff off the UI thread; absent, SmartDiffView computes
+       * locally exactly as before.
+       */
+      precomputedHunks?: DiffHunk[];
       snippetFallback?: string;
     }
   | { kind: "text"; body: string; isError?: boolean }
@@ -560,6 +567,12 @@ function buildDiffView(
             ? plainText
             : "");
 
+  // Hunks main already computed, threaded through the tool args by
+  // mergeWritePreviewIntoThread.
+  const precomputedHunks = Array.isArray(a.precomputed_hunks)
+    ? (a.precomputed_hunks as DiffHunk[])
+    : undefined;
+
   const operationRaw = payload.operation ?? payload.type ?? a.operation;
   const operation: "create" | "update" | "delete" =
     operationRaw === "create" || operationRaw === "delete"
@@ -586,6 +599,7 @@ function buildDiffView(
         payloadAdded ?? Math.max(0, newLines - (operation === "create" ? 0 : oldLines)),
       removedCount:
         payloadRemoved ?? (operation === "delete" ? oldLines : Math.max(0, oldLines - newLines)),
+      ...(precomputedHunks ? { precomputedHunks } : {}),
     };
   }
 

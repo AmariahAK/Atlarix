@@ -351,6 +351,10 @@ export class IpcClient {
       operation: string;
       oldContent: string;
       content: string;
+      /** Hunks computed in main — keeps the Myers diff off the UI thread. */
+      hunks?: unknown[];
+      addedCount?: number;
+      removedCount?: number;
     }) => void
   > = new Set();
   private modelsDevStatusHandlers: Set<
@@ -580,6 +584,12 @@ export class IpcClient {
           operation: string;
           oldContent: string;
           content: string;
+          // Computed in main so the renderer never runs a Myers diff on the UI
+          // thread; absent on paths that don't supply it, and the card falls
+          // back to computing locally.
+          hunks?: unknown[];
+          addedCount?: number;
+          removedCount?: number;
         };
         this.streamWritePreviewHandlers.forEach((h) => h(p));
       }
@@ -1272,6 +1282,10 @@ export class IpcClient {
       operation: string;
       oldContent: string;
       content: string;
+      /** Hunks computed in main — keeps the Myers diff off the UI thread. */
+      hunks?: unknown[];
+      addedCount?: number;
+      removedCount?: number;
     }) => void,
   ): () => void {
     this.streamWritePreviewHandlers.add(handler);

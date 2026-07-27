@@ -226,6 +226,11 @@ export function mergeWritePreviewIntoThread(
   operation: string,
   oldContent: string | null,
   content: string | null,
+  /**
+   * Hunks already computed in MAIN. Carried through so the card can render
+   * without re-running a Myers diff on the UI thread — see permission-ui.ts.
+   */
+  diff?: { hunks: unknown[]; addedCount: number; removedCount: number },
 ): void {
   if (oldContent == null && content == null) return;
   getDefaultStore().set(streamThreadByChatIdAtom, (prevMap) => {
@@ -259,6 +264,13 @@ export function mergeWritePreviewIntoThread(
       operation,
       ...(oldContent != null ? { old_content: oldContent } : {}),
       ...(content != null ? { content } : {}),
+      ...(diff
+        ? {
+            precomputed_hunks: diff.hunks,
+            added_count: diff.addedCount,
+            removed_count: diff.removedCount,
+          }
+        : {}),
     };
     const next = [...cur];
     next[idx] = { ...item, toolArgs: mergedArgs };
@@ -1193,8 +1205,26 @@ export function useStreamChat({
         // the same way the manual-approval preview does. Accurate overwrite diff
         // at ZERO model tokens (the snapshot is never sent to the model).
         const unsubscribeWritePreview = IpcClient.getInstance().onStreamWritePreview(
-          ({ chatId: evChatId, path, operation, oldContent, content }) => {
-            mergeWritePreviewIntoThread(evChatId, path, operation, oldContent, content);
+          ({
+            chatId: evChatId,
+            path,
+            operation,
+            oldContent,
+            content,
+            hunks,
+            addedCount,
+            removedCount,
+          }) => {
+            mergeWritePreviewIntoThread(
+              evChatId,
+              path,
+              operation,
+              oldContent,
+              content,
+              hunks && addedCount != null && removedCount != null
+                ? { hunks, addedCount, removedCount }
+                : undefined,
+            );
           },
         );
 

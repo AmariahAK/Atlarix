@@ -9,6 +9,7 @@ import log from "electron-log";
 import type { WorkMode } from "@/lib/schemas";
 import { WorkModeSchema } from "@/lib/schemas";
 import { safeSend } from "@/ipc/utils/safe_sender";
+import { computeDiffHunks, type DiffHunk } from "@/lib/diff/compose-hunks";
 import { enrichFilePermissionRequest } from "../file_permission_preflight";
 import { runCommandCategoryPreflight } from "../command_permission_handlers";
 import {
@@ -119,12 +120,47 @@ export function emitAutoApprovedWritePreview(
   if (typeof execResult.newContent !== "string" && typeof execResult.oldContent !== "string") {
     return;
   }
+  const oldContent = execResult.oldContent ?? "";
+  const newContent = execResult.newContent ?? "";
+
+  // Diff HERE, not in the renderer.
+  //
+  // `computeDiffHunks` runs a Myers diff over the whole file. It used to run
+  // inside a `useMemo` in SmartDiffView — synchronously, during React render,
+  // on the UI thread — so a ~1000-line write froze the app for about five
+  // seconds, and worse than linearly beyond that. Main already holds both
+  // bodies right here, so it can pay that cost once, off the UI thread.
+  //
+  // The counts matter as much as the hunks: with them the COLLAPSED view needs
+  // no diff work in the renderer at all, which is what makes collapsing large
+  // diffs by default free.
+  //
+  // The bodies still ship. `composeContentFromHunks` rebuilds a
+  // partially-accepted file in the renderer and needs them; moving that to main
+  // would let us drop them, but it changes a contract carrying user approval
+  // intent and the CPU win doesn't depend on it.
+  let hunks: DiffHunk[] = [];
+  let addedCount = 0;
+  let removedCount = 0;
+  try {
+    hunks = computeDiffHunks(oldContent, newContent);
+    for (const h of hunks) {
+      addedCount += h.addedCount;
+      removedCount += h.removedCount;
+    }
+  } catch {
+    // Display-only: a diff we can't compute must never break the write itself.
+    // The renderer falls back to computing locally when `hunks` is absent.
+    hunks = [];
+  }
+
   safeSend(sender, "chat:stream:write-preview", {
     chatId,
     path: execResult.path,
     operation: execResult.operation ?? "update",
-    oldContent: execResult.oldContent ?? "",
-    content: execResult.newContent ?? "",
+    oldContent,
+    content: newContent,
+    ...(hunks.length > 0 ? { hunks, addedCount, removedCount } : {}),
   });
 }
 
