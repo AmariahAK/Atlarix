@@ -64,6 +64,7 @@ function sessionMessagesToUiMessages(
     modelContent?: string | null;
     pasteAttachments?: PasteAttachmentMeta[] | null;
     fileAttachments?: StoredFileAttachment[] | null;
+    maxTokensUsed?: number | null;
   }[],
 ): Message[] {
   return messages
@@ -79,6 +80,9 @@ function sessionMessagesToUiMessages(
       ...(m.status === "interrupted" ? { interrupted: true } : {}),
       ...(m.status === "waiting" ? { waiting: true } : {}),
       ...(m.modelContent ? { modelContent: m.modelContent } : {}),
+      // The provider's real token total for this turn — the meter prefers it
+      // over its own estimate, so it has to survive the round trip.
+      ...(m.maxTokensUsed != null ? { maxTokensUsed: m.maxTokensUsed } : {}),
       ...(m.pasteAttachments?.length
         ? { pasteAttachments: m.pasteAttachments }
         : {}),
@@ -240,6 +244,10 @@ export function WorkspaceSessionList({
           pasteAttachments: m.pasteAttachments ?? undefined,
           fileAttachments: m.fileAttachments ?? undefined,
           attachments: m.attachments ?? undefined,
+          // Carry the provider's real token total back into the transport, or
+          // the meter loses its ground truth on reload and falls back to an
+          // estimate that reads about half.
+          maxTokensUsed: m.maxTokensUsed ?? undefined,
         })),
       );
       setMessagesById((prev) => {

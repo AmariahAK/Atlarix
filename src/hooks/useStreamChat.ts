@@ -19,6 +19,7 @@ import {
   lastTurnHadToolCallsByChatIdAtom,
   lastReasoningTokensByChatIdAtom,
   lastAuxTokensByChatIdAtom,
+  liveTurnUsageByChatIdAtom,
   lastAuxBySourceByChatIdAtom,
   lastTurnCostUsdByChatIdAtom,
   sessionCostUsdByChatIdAtom,
@@ -1836,12 +1837,26 @@ export function useStreamChat({
                 const persistExtras: {
                   modelContent?: string | null;
                   snapshotTurnId?: string | null;
+                  maxTokensUsed?: number | null;
                 } = {};
                 if (response.assistantModelContent) {
                   persistExtras.modelContent = response.assistantModelContent;
                 }
                 if (response.snapshotTurnId) {
                   persistExtras.snapshotTurnId = response.snapshotTurnId;
+                }
+                // Persist the PROVIDER's real total for this turn. Without it the
+                // meter loses its ground truth on restart and silently falls back
+                // to the client-side estimate, which counts only flat persisted
+                // messages — no system prompt, no native tool history — and so
+                // reads roughly half. Reopening the app looked like the context
+                // had been summarised away when nothing had happened at all.
+                {
+                  const live = getDefaultStore().get(liveTurnUsageByChatIdAtom)[
+                    response.chatId
+                  ];
+                  const total = live ? (live.input ?? 0) + live.output : 0;
+                  if (total > 0) persistExtras.maxTokensUsed = total;
                 }
                 await IpcClient.getInstance().addSessionMessage(
                   sessionIdForPersist,

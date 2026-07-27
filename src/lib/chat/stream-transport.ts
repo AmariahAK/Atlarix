@@ -220,6 +220,10 @@ export function hydrateStreamTransport(
     pasteAttachments?: import("@/ipc/ipc_types").PasteAttachmentMeta[] | null;
     fileAttachments?: import("@/ipc/ipc_types").StoredFileAttachment[] | null;
     attachments?: import("@/ipc/ipc_types").AttachmentInfo[] | null;
+    /** Provider's real token total for an assistant turn — the meter's ground
+     * truth. Dropped here previously, so a reload silently downgraded the meter
+     * to a client-side estimate that reads about half. */
+    maxTokensUsed?: number | null;
   }[],
 ): void {
   const chat = ephemeralChats.get(chatId);
@@ -245,6 +249,7 @@ export function hydrateStreamTransport(
         : {}),
       ...(m.attachments?.length ? { attachments: m.attachments } : {}),
       ...(m.displaySnapshot ? { displaySnapshot: m.displaySnapshot } : {}),
+      ...(m.maxTokensUsed != null ? { maxTokensUsed: m.maxTokensUsed } : {}),
     }));
   ephemeralChats.set(chatId, chat);
 }

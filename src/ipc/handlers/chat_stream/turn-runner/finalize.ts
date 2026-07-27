@@ -212,6 +212,10 @@ export async function finalizeTurn(
                   setPlanArtifactStatus,
                   updatePlanArtifactContent,
                 } = await import("@/lib/plans/plan-artifacts");
+                // Genuinely "building" only. `status` is a real filter now, so
+                // this no longer falls back to the newest plan of any status —
+                // which is how a plan the model had just written, and not
+                // started, got every step ticked and marked built.
                 const buildingPlan = await getLatestPlanArtifact(req.workspaceSessionId, "building");
                 if (buildingPlan) {
                   // v10: close out any checklist steps the model left open.

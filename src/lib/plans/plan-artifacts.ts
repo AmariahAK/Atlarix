@@ -110,13 +110,31 @@ export async function listPlanArtifactsForSession(
   return rows.map(mapRow);
 }
 
+/**
+ * The newest plan for a session, optionally restricted to one status.
+ *
+ * `status` is a REAL FILTER: no match returns null.
+ *
+ * It used to end `?? rows[0] ?? null`, so passing a status only expressed a
+ * preference — every caller got the newest plan regardless. Three call sites
+ * already wrote `?? getLatestPlanArtifact(sessionId)` after it, which is only
+ * meaningful if the first call can return null; their authors clearly believed
+ * it filtered, and for them nothing changes.
+ *
+ * The site that was silently relying on the fallback is the turn-end safety net
+ * (`chat_stream/turn-runner/finalize.ts`). It asks for the plan that is
+ * *building*, and used to get the newest plan whatever its status — then ticked
+ * every step and marked it `built`. A plan the model had just written and not
+ * started could be stamped 100% complete, which is how a fabricated "18/18"
+ * reaches the card.
+ */
 export async function getLatestPlanArtifact(
   sessionId: string,
   status?: PlanArtifactStatus,
 ): Promise<PlanArtifactRow | null> {
   const rows = await listPlanArtifactsForSession(sessionId);
   if (status) {
-    return rows.find((r) => r.planStatus === status) ?? rows[0] ?? null;
+    return rows.find((r) => r.planStatus === status) ?? null;
   }
   return rows[0] ?? null;
 }

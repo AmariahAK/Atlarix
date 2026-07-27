@@ -45,6 +45,7 @@ export function registerChatHandlers() {
           pasteAttachments?: import("../ipc_types").PasteAttachmentMeta[] | null;
           fileAttachments?: import("../ipc_types").StoredFileAttachment[] | null;
           attachments?: import("../ipc_types").AttachmentInfo[] | null;
+          maxTokensUsed?: number | null;
         }[];
       },
     ) => {

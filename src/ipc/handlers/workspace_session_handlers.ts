@@ -65,6 +65,11 @@ export type SessionMessageRow = {
   fileAttachments?: StoredFileAttachment[] | null;
   /** Shadow-git revert checkpoint id; lets revert-turn survive a restart. */
   snapshotTurnId?: string | null;
+  /**
+   * Provider's real total token usage for this assistant turn. The meter prefers
+   * it over its own estimate; without it a restart halves the displayed context.
+   */
+  maxTokensUsed?: number | null;
 };
 
 export type SessionMessageExtras = {
@@ -72,6 +77,8 @@ export type SessionMessageExtras = {
   pasteAttachments?: PasteAttachmentMeta[] | null;
   fileAttachments?: StoredFileAttachment[] | null;
   snapshotTurnId?: string | null;
+  /** Provider's real total token usage for this assistant turn (meter truth). */
+  maxTokensUsed?: number | null;
 };
 
 function mapSession(row: typeof chatSessions.$inferSelect): ChatSessionRow {
@@ -99,6 +106,7 @@ function mapMessage(row: typeof sessionMessages.$inferSelect): SessionMessageRow
     pasteAttachments: row.pasteAttachments ?? null,
     fileAttachments: row.fileAttachments ?? null,
     snapshotTurnId: row.snapshotTurnId ?? null,
+    maxTokensUsed: row.maxTokensUsed ?? null,
   };
 }
 
@@ -201,6 +209,7 @@ export async function addSessionMessageDirect(
       pasteAttachments: extras?.pasteAttachments ?? null,
       fileAttachments: extras?.fileAttachments ?? null,
       snapshotTurnId: extras?.snapshotTurnId ?? null,
+      maxTokensUsed: extras?.maxTokensUsed ?? null,
       createdAt: now,
     })
     .returning();

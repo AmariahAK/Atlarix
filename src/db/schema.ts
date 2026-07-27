@@ -178,6 +178,19 @@ export const sessionMessages = sqliteTable("session_messages", {
    * already live on disk; this couples them to the message history).
    */
   snapshotTurnId: text("snapshot_turn_id"),
+  /**
+   * The provider's REAL total token usage for this assistant turn.
+   *
+   * The token meter prefers this over its own estimate, and the in-memory
+   * stream transport already carried it — but it was never persisted here, so a
+   * restart lost it and the meter silently fell back to the client-side
+   * estimate. That estimate counts only the flat persisted messages: no system
+   * prompt, and none of the native tool history that dominates an agentic
+   * session. Measured on one session, the two disagreed by ~2× the whole way
+   * (417k reported vs 211k estimated), so reopening the app appeared to halve
+   * the context. Nothing had been summarised; the ruler changed.
+   */
+  maxTokensUsed: integer("max_tokens_used"),
   createdAt: integer("created_at", { mode: "timestamp" })
     .notNull()
     .default(sql`(unixepoch())`),

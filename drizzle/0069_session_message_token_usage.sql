@@ -1,0 +1,13 @@
+-- Persist the provider's real token total for an assistant turn.
+--
+-- The token meter prefers this over its own estimate, and the in-memory stream
+-- transport already carried it — but with nowhere to store it, a restart lost it
+-- and the meter fell back to the client-side estimate. That estimate counts only
+-- the flat persisted messages, with no system prompt and none of the native tool
+-- history that dominates an agentic session, so it under-reports by roughly half:
+-- one measured session read 417k while streaming and 211k after reopening.
+-- Nothing had been summarised — the meter had simply switched rulers.
+--
+-- Existing rows stay NULL, which the meter already handles by falling back to the
+-- estimate exactly as it does today. New turns record the real figure.
+ALTER TABLE `session_messages` ADD COLUMN `max_tokens_used` integer;

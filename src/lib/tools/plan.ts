@@ -26,10 +26,13 @@ import {
   type PlanChecklistStep,
   type PlanStepState,
 } from "@/lib/tasks/plan-checklist";
+import log from "electron-log";
 import { broadcastPlanArtifactUpdated } from "@/ipc/utils/emit_plan_artifact";
 import { markPlanLedgerDirty } from "@/lib/tasks/plan-ledger-refresh";
 import { resolveOrBindWorkspaceSessionForStream } from "@/ipc/handlers/workspace_session_handlers";
 import type { PlanArtifactStatus } from "@/db/schema";
+
+const logger = log.scope("plan-tool");
 
 type PlanToolArgs = {
   operation: "read" | "write" | "set_status" | "update_step" | "append_step";
@@ -114,6 +117,21 @@ async function readPlan(args: PlanToolArgs) {
   const filter = args.status as PlanArtifactStatus | undefined;
   const row = await getLatestPlanArtifact(sessionId, filter);
   if (!row) {
+    // `status` is a real filter now, so a miss means "none with that status" —
+    // which is NOT the same as "no plan". Saying the latter would hand the model
+    // a contradiction (a plan is on screen, the tool denies it exists), and
+    // reacting to exactly that contradiction is what made a model rewrite a
+    // finished plan and destroy its history.
+    if (filter) {
+      const latest = await getLatestPlanArtifact(sessionId);
+      if (latest) {
+        return {
+          success: true,
+          content: null,
+          message: `No plan with status "${filter}" — this session's plan is "${latest.planStatus}" (planId: ${latest.id}). Call plan({operation:"read"}) without a status to read it.`,
+        };
+      }
+    }
     return { success: true, content: null, message: "No plan in this session yet." };
   }
   return {
@@ -264,6 +282,24 @@ async function updateStep(args: PlanToolArgs) {
   );
   if (!result.step) {
     const steps = parsePlanChecklist(row.content);
+    // A miss used to return success:false into silence, and nothing anywhere
+    // counted it — which is why diagnosing one took reading three DB rows.
+    //
+    // It matters because of what happens NEXT: the completion gate holds the
+    // turn open on the unticked step, and the error below (correctly) offers
+    // "rewrite the whole plan" as the way out. The model takes it, and the
+    // record of what was actually done is gone. So the miss is the first domino
+    // and it has to be visible.
+    //
+    // Matching is `text.includes(needle)`, one direction, no normalisation — so
+    // a paraphrase, a longer description, or a character the model can't
+    // reproduce byte-exactly (backticks, ×, µ, emoji) all miss. Log the needle
+    // to learn WHICH of those it is before choosing a fix.
+    logger.warn(
+      `[plan] update_step found no match in plan ${planId} — ` +
+        `step_index=${args.step_index ?? "none"} step_text=${JSON.stringify(args.step_text ?? null)} ` +
+        `(${steps.length} step(s) in plan)`,
+    );
     return {
       success: false,
       error:

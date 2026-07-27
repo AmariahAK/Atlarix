@@ -274,6 +274,16 @@ export interface Message {
   createdAt?: Date | string;
   requestId?: string | null;
   totalTokens?: number | null;
+  /**
+   * The PROVIDER's real total token usage for this assistant turn.
+   *
+   * The token meter prefers this over its own estimate. It is persisted on the
+   * session row and threaded back through hydration, because without it a
+   * restart drops the meter to a client-side estimate that counts only the flat
+   * persisted messages — no system prompt, no native tool history — and so reads
+   * roughly half. Reopening the app looked like the session had been summarised.
+   */
+  maxTokensUsed?: number | null;
   toolCalls?: Array<{ id: string; name: string; arguments?: string }>;
   sources?: Array<{
     title: string;

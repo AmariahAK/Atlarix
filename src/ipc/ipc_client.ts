@@ -1645,6 +1645,9 @@ export class IpcClient {
       id?: number;
       /** v12 0.4-C2: session DB row UUID (direct edit targeting). */
       sessionRowId?: string;
+      /** Provider's real token total for an assistant turn (the meter's truth). */
+      maxTokensUsed?: number | null;
+      [k: string]: unknown;
     }[],
   ): Promise<void> {
     await this.ipcRenderer.invoke("chat:hydrate-ephemeral-messages", {
