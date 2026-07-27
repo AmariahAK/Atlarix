@@ -36,6 +36,8 @@ type PlanToolArgs = {
   workspaceSessionId?: string;
   /** Injected by the tool funnel; used to auto-rebind a lost session. */
   chatId?: number;
+  /** Injected by the tool funnel — which window should see this plan. */
+  _ownerWindowId?: number;
   workspaceAppId?: number;
   planId?: string;
   /** write */
@@ -165,7 +167,7 @@ async function writePlan(args: PlanToolArgs) {
     sessionId: row.sessionId,
     content: row.content,
     planStatus: row.planStatus,
-  });
+  }, args._ownerWindowId);
   // A rewrite changes the counts as much as an update_step does.
   markPlanLedgerDirty(args.chatId, row.content);
   const steps = parsePlanChecklist(row.content);
@@ -198,7 +200,7 @@ async function setStatus(args: PlanToolArgs) {
     sessionId: row.sessionId,
     content: row.content,
     planStatus: row.planStatus,
-  });
+  }, args._ownerWindowId);
   return {
     success: true,
     planId: row.id,
@@ -293,7 +295,7 @@ async function updateStep(args: PlanToolArgs) {
     sessionId: updated.sessionId,
     content: updated.content,
     planStatus: updated.planStatus,
-  });
+  }, args._ownerWindowId);
   // Refresh the in-context ledger for the rest of THIS turn; without it the
   // step-0 snapshot keeps asserting stale counts for every later step.
   markPlanLedgerDirty(args.chatId, updated.content);
@@ -322,7 +324,7 @@ async function appendStep(args: PlanToolArgs) {
     sessionId: row.sessionId,
     content: row.content,
     planStatus: row.planStatus,
-  });
+  }, args._ownerWindowId);
   const steps = parsePlanChecklist(row.content);
   return {
     success: true,
