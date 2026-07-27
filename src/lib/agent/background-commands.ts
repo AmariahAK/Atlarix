@@ -459,6 +459,30 @@ export function readBackgroundOutput(
 }
 
 /**
+ * Trailing output for a running job WITHOUT advancing the incremental cursor.
+ *
+ * The incremental read answers "what changed since I last looked", which is the
+ * right default because it can't re-feed the model text it has already read.
+ * But after several checks it can no longer answer "what does this look like
+ * NOW" — a dev server's current state is in the last few lines, not in the
+ * delta. Leaving the cursor alone means a `tail` never costs the caller a
+ * subsequent incremental read.
+ */
+export function readBackgroundOutputTail(
+  chatId: number,
+  operationId: string,
+  maxChars = 8000,
+): { found: boolean; tail: string; running: boolean } {
+  const job = runningJobsByChat.get(chatId)?.get(operationId);
+  if (!job) return { found: false, tail: "", running: false };
+  return {
+    found: true,
+    tail: job.output.slice(-Math.max(1, maxChars)),
+    running: true,
+  };
+}
+
+/**
  * Cancel a running background job: SIGTERM the process and mark it cancelled so
  * its natural exit is recorded (once) as a cancelled result. Returns false if
  * no such running job.
