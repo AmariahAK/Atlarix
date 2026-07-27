@@ -279,8 +279,9 @@ ToolRegistry.register({
     isCore: true,
     description:
         "Summarize and compress older turns of this conversation into a session summary to free context. " +
-        "Use on long threads, after substantial tool output, or when context is filling up—especially before more heavy tools. " +
-        "The app may compact automatically when usage is very high; you can still call this to reclaim space earlier.",
+        "Compaction is automatic — you are told explicitly when the session is near full, and your context window is stated in the system prompt. " +
+        "Do NOT call this because the thread feels long: a long conversation is not a full one, and summarizing early destroys detail you still had room for. " +
+        "Call it only after a fill warning, or immediately before deliberately adding something very large.",
     parameters: {
         type: "object",
         properties: {

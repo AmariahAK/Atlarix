@@ -296,3 +296,40 @@ export function compassExhaustedUserMessage(_tier?: string): string {
 export function coreUnavailableUserMessage(): string {
   return "This Atlarix Core model is temporarily unavailable. Atlarix has been informed and is working on it — we apologise for the inconvenience. In the meantime, pick another Core model above, or add your own API key in Settings.";
 }
+
+/**
+ * The proxy rejected our bearer token (401/403). Core authenticates as the user with
+ * their Supabase JWT, so this is an expired or invalidated session — not an outage.
+ *
+ * Split out of the reachability catch-all because the two need OPPOSITE actions:
+ * "retry or switch provider" is advice that cannot work here, and a user following
+ * it just retries into the same wall.
+ */
+export function compassAuthExpiredUserMessage(): string {
+  return "Your Atlarix session has expired, so Core couldn't authorize this request. Sign in again from Settings and resend — your BYOK models are unaffected.";
+}
+
+/**
+ * A request-level rejection the proxy passed through untouched (400/422): context
+ * length exceeded, an unsupported parameter, a malformed tool schema.
+ *
+ * These used to render as "trouble reaching Atlarix Core", which hid the one piece
+ * of information that makes them fixable. The provider's own text is included —
+ * truncated, since some vendors echo a large chunk of the request back.
+ */
+export function compassBadRequestUserMessage(detail?: string): string {
+  const trimmed = (detail ?? "").trim();
+  // Prefer the vendor's `error.message` when the body is the usual JSON envelope;
+  // the raw envelope is noise to a user.
+  let reason = trimmed;
+  if (trimmed.startsWith("{")) {
+    try {
+      const parsed = JSON.parse(trimmed) as { error?: { message?: unknown } };
+      if (typeof parsed?.error?.message === "string") reason = parsed.error.message;
+    } catch {
+      /* not JSON after all — fall back to the raw text */
+    }
+  }
+  const suffix = reason ? ` The model reported: "${reason.slice(0, 300)}"` : "";
+  return `Atlarix Core rejected this request.${suffix} This is usually a problem with the request itself rather than an outage — try again, and if it repeats, switch Core model or use your own API key in Settings.`;
+}

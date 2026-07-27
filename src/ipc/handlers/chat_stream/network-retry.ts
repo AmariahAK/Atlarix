@@ -1,6 +1,6 @@
 /**
- * Mid-stream network-error classification + silent-retry primitives extracted
- * from chat_stream_handlers.ts. Pure leaves, no module state. (Satellite: never
+ * Mid-stream error classification + silent-retry primitives extracted from
+ * chat_stream_handlers.ts. Pure leaves, no module state. (Satellite: never
  * imports the parent handler.)
  */
 
@@ -32,6 +32,34 @@ export function isNetworkStreamError(err: unknown): boolean {
   const msg = String((err as { message?: unknown })?.message ?? err);
   return /terminated|fetch failed|ECONNRESET|ETIMEDOUT|socket hang up|premature close|connection (?:reset|refused|closed)|network/i.test(
     msg,
+  );
+}
+
+/**
+ * A provider refusing the forced `tool_choice` we sent — recoverable by dropping
+ * the forced choice and retrying, NOT by backing off.
+ *
+ * Deliberately provider-agnostic: the wording differs per vendor (Z.ai/DeepSeek
+ * "Thinking mode does not support this tool_choice"; Alibaba "tool_choice ... not
+ * supported ... in thinking mode"; Anthropic "tool_choice ... not supported when
+ * thinking is enabled"), so we key on the parameter name appearing in a
+ * deterministic 4xx rather than on any one vendor's phrasing. Retrying the same
+ * request would fail identically — the caller must change the request.
+ */
+export function isForcedToolChoiceRejection(err: unknown): boolean {
+  if (!err) return false;
+  const code = errorStatusCode(err);
+  // A 5xx mentioning tool_choice is an upstream fault, not a request we can fix.
+  if (code != null && (code < 400 || code >= 500)) return false;
+  const parts = [
+    (err as { message?: unknown })?.message,
+    (err as { responseBody?: unknown })?.responseBody,
+    (err as { error?: { message?: unknown; responseBody?: unknown } })?.error?.message,
+    (err as { error?: { message?: unknown; responseBody?: unknown } })?.error
+      ?.responseBody,
+  ];
+  return parts.some(
+    (p) => typeof p === "string" && /tool[_\s-]?choice/i.test(p),
   );
 }
 

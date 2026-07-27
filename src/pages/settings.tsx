@@ -3,7 +3,6 @@ import posthog from "posthog-js";
 import ConfirmationDialog from "@/components/ConfirmationDialog";
 import { IpcClient } from "@/ipc/ipc_client";
 import { showSuccess, showError } from "@/lib/toast";
-import { MaxChatTurnsSelector } from "@/components/MaxChatTurnsSelector";
 // Hidden: ThinkingBudgetSelector, ReleaseChannelSelector, RuntimeModeSelector, NodePathSelector
 import { useSettings } from "@/hooks/useSettings";
 import { useAppVersion } from "@/hooks/useAppVersion";
@@ -546,9 +545,12 @@ export function AISettings() {
 
       {/* Hidden for cleaner UI: ThinkingBudgetSelector */}
 
-      <div className="mt-4">
-        <MaxChatTurnsSelector />
-      </div>
+      {/* v14.18.0: MaxChatTurnsSelector removed. It exposed a fixed turn cap and an
+          auto-summarize toggle, but the cap ran regardless of the toggle and
+          deleted history outright, while switching the toggle off ALSO disabled
+          compaction — so neither position was safe. Compaction is now always on
+          and context is bounded purely by the token budget; there is nothing left
+          to configure. */}
 
       {/* v13.1: the "Auto-fix from LSP" switch was removed with the LSP feature —
           verification is the project's own checks/tests via run_command. */}

@@ -24,7 +24,6 @@ import {
   type PromptBundle,
   type PromptBundleDeps,
 } from "@/ipc/handlers/chat_stream/turn-runner/prompt-bundle";
-import { MAX_CHAT_TURNS_IN_CONTEXT } from "@/constants/settings_constants";
 import { ContextBudgetTracker } from "@/lib/context/context-budget-tracker";
 import {
   enforceContextBudget,
@@ -57,7 +56,6 @@ export interface ContextAssemblyDeps {
   req: ChatStreamParams;
   updatedChat: any;
   event: IpcMainInvokeEvent;
-  isDeepContextEnabled: boolean | undefined;
   modelContextResolved: { tierLimit: number };
   promptBundleDeps: PromptBundleDeps;
   contextSummaryForSystem: string | null;
@@ -77,7 +75,6 @@ export async function runContextAssembly(
     req,
     updatedChat,
     event,
-    isDeepContextEnabled,
     modelContextResolved,
     promptBundleDeps,
     contextSummaryForSystem,
@@ -189,25 +186,8 @@ export async function runContextAssembly(
                   }
                   return { ...baseMessage, ...commitFields };
                 });
-                const maxChatTurnsR = isDeepContextEnabled
-                  ? 201
-                  : (settings.maxChatTurnsInContext || MAX_CHAT_TURNS_IN_CONTEXT) + 1;
-                if (limitedMessageHistory.length > maxChatTurnsR * 2) {
-                  let recentMessagesR = limitedMessageHistory
-                    .filter((msg: EphemeralMsgR) => msg.role !== "system")
-                    .slice(-maxChatTurnsR * 2);
-                  if (recentMessagesR.length > 0 && recentMessagesR[0].role !== "user") {
-                    const firstUserIndexR = recentMessagesR.findIndex(
-                      (msg: EphemeralMsgR) => msg.role === "user",
-                    );
-                    if (firstUserIndexR > 0) {
-                      recentMessagesR = recentMessagesR.slice(firstUserIndexR);
-                    } else if (firstUserIndexR === -1) {
-                      recentMessagesR = [];
-                    }
-                  }
-                  limitedMessageHistory = [...recentMessagesR];
-                }
+                // No count-based cap here either — the token budget below is the
+                // only thing permitted to shrink history.
               }
               contextSections = contextSections.filter((s) => s.name !== "contextSummary");
               if (contextSummaryForSystem) {
@@ -256,11 +236,11 @@ export async function runContextAssembly(
               };
             };
 
+            // Always on. This used to be opt-out, and opting out did not mean
+            // "keep everything" — it meant the old count cap deleted turns
+            // outright instead. Summarizing is unconditionally better than that.
             const fillRatioBefore = dispatchEstimate / contextWindowTokens;
-            if (
-              fillRatioBefore >= 0.75 &&
-              settings.enableContextAutoSummarize !== false
-            ) {
+            if (fillRatioBefore >= 0.75) {
               {
                 const reason = "proactive-fill-75%";
                 logCompactionLine(dispatchEstimate, "auto", 75);
@@ -309,10 +289,7 @@ export async function runContextAssembly(
               }
             }
             const fillAfter75 = dispatchEstimate / contextWindowTokens;
-            if (
-              fillAfter75 >= 0.9 &&
-              settings.enableContextAutoSummarize !== false
-            ) {
+            if (fillAfter75 >= 0.9) {
               {
                 logCompactionLine(dispatchEstimate, "forced", 90);
                 const forcedBase = `forced-compact-${req.chatId}-${Date.now()}`;

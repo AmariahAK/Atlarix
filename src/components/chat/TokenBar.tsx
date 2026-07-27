@@ -169,13 +169,11 @@ export function TokenBar({ chatId }: TokenBarProps) {
               : "bg-amber-500/15 text-amber-600 dark:text-amber-400"
           }`}
         >
+          {/* Auto-summarize is always on now, so there is no "you're on your
+              own" branch left to warn about. */}
           {isCritical
-            ? settings?.enableContextAutoSummarize !== false
-              ? "Context nearly full — auto-summarize will run on next message"
-              : "Token limit nearly reached — consider starting a new chat"
-            : settings?.enableContextAutoSummarize !== false
-              ? "Approaching limit — session will auto-summarize when full"
-              : "Approaching token limit"}
+            ? "Context nearly full — auto-summarize will run on next message"
+            : "Approaching limit — session will auto-summarize when full"}
         </div>
       )}
       <TooltipProvider>

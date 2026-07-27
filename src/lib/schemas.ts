@@ -370,9 +370,15 @@ export const UserSettingsSchema = z.object({
     .optional(),
   enableAtlarixPro: z.boolean().optional(),
   lastShownReleaseNotesVersion: z.string().optional(),
-  maxChatTurnsInContext: z.number().optional(),
-  /** Phase 6: When true, use context bar + auto-summarize instead of fixed turn truncation */
-  enableContextAutoSummarize: z.boolean().optional(),
+  // `maxChatTurnsInContext` + `enableContextAutoSummarize` REMOVED (v14.18.0).
+  // They configured a fixed 11-turn history cap that deleted older messages
+  // outright — no summary, no marker, and no signal to the model, which then
+  // confabulated over the gap. It ran regardless of the setting that claimed to
+  // gate it, and turning that setting off ALSO disabled compaction, so the only
+  // way to "opt out" was to get blunt deletion with no summarization at all.
+  // Context is now bounded solely by the token budget + compaction, which is
+  // always on. Both keys are simply stripped from an existing settings.json
+  // (this schema is non-strict), so no migration is needed.
   /** Voice dictation: transcription engine. "local" = free on-device Whisper
    * (default); anything else is a BYOK cloud provider id, transcribed with that
    * provider's own key. Deliberately a free-form id rather than an enum — the

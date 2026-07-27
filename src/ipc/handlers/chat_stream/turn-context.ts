@@ -53,6 +53,18 @@ export interface StreamTurnContext {
   /** Take-once empty-output nudge: the retry wrapper sets it, simpleStreamText's
    * prepareStep reads-and-clears it (shared across those two extracted fns). */
   pendingEmptyOutputNudge: string | null;
+  /**
+   * Sticky for the rest of the turn once a provider rejects a forced tool_choice
+   * (same set/read split as `pendingEmptyOutputNudge`: round-retry sets it,
+   * simpleStreamText reads it).
+   *
+   * The capability gate on `forceCollectOnWake` should keep us off that path, but
+   * it depends on a catalog row being present and correct. This is the backstop:
+   * a provider we have not met rejecting the forced choice must cost one retry,
+   * not the turn. Sticky rather than per-attempt because the rejection is a fact
+   * about this model, not a transient.
+   */
+  forcedToolChoiceRejected: boolean;
 
   // ── delegation (sub-agent) bookkeeping ───────────────────────────────────
   delegatedAgentsThisTurn: string[];
@@ -81,6 +93,7 @@ export function createStreamTurnContext(): StreamTurnContext {
     stopAgentOrchestrator: undefined,
     lastToolInputPhaseLabel: "",
     pendingEmptyOutputNudge: null,
+    forcedToolChoiceRejected: false,
     delegatedAgentsThisTurn: [],
     delegationsStartedThisTurn: 0,
     inFlightDelegationKeys: new Set<string>(),

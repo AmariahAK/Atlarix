@@ -877,7 +877,6 @@ export async function runAskBranch(
                 },
                 {
                   chatId: req.chatId,
-                  settings,
                   abortController,
                   continuationTurnId: String(placeholderAssistantMessage.id),
                   streamTurnId,

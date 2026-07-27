@@ -75,7 +75,8 @@ const DEFAULT_FORCE_FINISH_PROMPT =
  */
 export interface TurnRuntime {
   readonly chatId: number;
-  readonly settings: { enableContextAutoSummarize?: boolean };
+  // `settings` REMOVED (v14.18.0): its only reader was the compaction opt-out,
+  // and compaction is now unconditional.
   readonly abortController: AbortController;
   /** placeholderAssistantMessage.id — continuation prompt turn id. */
   readonly continuationTurnId: string;
@@ -850,7 +851,8 @@ export async function runAgentTurn(
         systemPromptEstimate: estimateTokens(roundSystemPromptEstimateText),
         tierLimit: rt.tierLimit,
         contextWindowTokens: rt.contextWindowTokens,
-        enabled: rt.settings.enableContextAutoSummarize !== false,
+        // Always on — compaction is no longer user-disableable (v14.18.0).
+        enabled: true,
         chatId: rt.chatId,
         loopLabel: profile.compactionLabel,
         emitActivity: rt.emitCompactionActivity,

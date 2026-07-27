@@ -1,5 +1,8 @@
-/** Default chat turns (user+assistant pairs) sent to AI. Raised from 3 for better context (Phase 5). */
-export const MAX_CHAT_TURNS_IN_CONTEXT = 10;
+// MAX_CHAT_TURNS_IN_CONTEXT REMOVED (v14.18.0). A count-based history cap has no
+// relationship to a model's context window: it deleted half a 124,907-token
+// session on a 1,000,000-token model at 8.9% fill, because the conversation
+// crossed eleven turns. Tokens are the only meaningful unit here, and the token
+// budget + compaction now own the decision entirely.
 
 /**
  * Wall-clock cap for long-running multi-round workspace tool streams.

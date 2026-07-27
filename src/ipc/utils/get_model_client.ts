@@ -383,10 +383,33 @@ async function getRegularModelClient(
         // The WIRE id stays `vendor/model`: the proxy's allowlist keys on it and
         // rewrites it to the vendor's native id, which is what lets already-
         // installed clients keep working through the cutover.
+        //
+        // `apiKey` alone would FREEZE this token into the client for its whole
+        // lifetime. Supabase access tokens last ~1 hour, while a turn can run far
+        // longer — an agentic loop, or one parked on a background job — so a
+        // long turn eventually sends an expired token and the proxy 401s. The
+        // custom fetch re-reads the session per request instead; `getSession()`
+        // refreshes when needed (autoRefreshToken is on), so this is the ONE
+        // place that has to be right for every Core call. The static apiKey is
+        // kept as the construction-time default and as the fallback if a session
+        // read fails mid-turn — never worse than today's behaviour.
         const core = createOpenAICompatible({
           name: COMPASS_PROVIDER_ID,
           baseURL: proxyBaseUrl,
           apiKey: accessToken,
+          fetch: async (input, init) => {
+            let bearer = accessToken;
+            try {
+              const fresh = (await getSession())?.access_token;
+              if (fresh) bearer = fresh;
+            } catch {
+              /* keep the construction-time token — a refused request is better
+                 than a request we never send */
+            }
+            const headers = new Headers(init?.headers as HeadersInit | undefined);
+            headers.set("Authorization", `Bearer ${bearer}`);
+            return fetch(input as RequestInfo, { ...init, headers });
+          },
         });
         return {
           modelClient: {

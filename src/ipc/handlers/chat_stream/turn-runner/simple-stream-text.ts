@@ -32,6 +32,8 @@ import {
 } from "@/lib/usage/ai-usage";
 import {
   COMPASS_REACHABILITY_ERROR,
+  compassAuthExpiredUserMessage,
+  compassBadRequestUserMessage,
   compassExhaustedUserMessage,
   coreUnavailableUserMessage,
 } from "@/ipc/shared/compass_constants";
@@ -56,7 +58,10 @@ import {
   processChatMessagesWithVersionedFiles as getVersionedFiles,
   type VersionedFiles,
 } from "@/ipc/utils/versioned_codebase_context";
-import { isNetworkStreamError } from "@/ipc/handlers/chat_stream/network-retry";
+import {
+  isNetworkStreamError,
+  isForcedToolChoiceRejection,
+} from "@/ipc/handlers/chat_stream/network-retry";
 import { takeRefreshedPlanLedger } from "@/lib/tasks/plan-ledger-refresh";
 import {
   isImageContentRejectionError,
@@ -73,6 +78,7 @@ import {
 } from "@/lib/agent/background-commands";
 import { collectPendingBackgroundResultsBody } from "@/lib/agent/collect-results";
 import { takePendingScheduledWakeupNudges } from "@/lib/agent/scheduled-wakeups";
+import { takePendingDroppedHistoryNotice } from "@/lib/context/dropped-history-notice";
 import { takePendingSubagentResults } from "@/lib/agents/subagent-results";
 import {
   advanceCacheBreakpointsForStep,
@@ -170,7 +176,6 @@ export async function simpleStreamText(
     isEngineEnabled,
     isDeepContextEnabled,
     enableNativeReasoning,
-    forceCollectOnWake,
     proactiveContextReminderForStream,
     modeReanchorNote,
     taskLedgerBlock,
@@ -182,6 +187,14 @@ export async function simpleStreamText(
     ttftStartRef,
     abortController,
   } = deps;
+            // Sticky fallback: once a provider has refused the forced tool_choice
+            // this turn, deliver pending results through the prepareStep injection
+            // instead. Shadows the deps value so the tool registration below and
+            // every drain guard in prepareStep agree on ONE decision — they must,
+            // or collect_results is forced while the results have already been
+            // drained (or vice versa, leaving them undelivered).
+            const forceCollectOnWake =
+              deps.forceCollectOnWake && !ctx.forcedToolChoiceRejected;
             if (isEngineEnabled) {
               logger.log(
                 "sending AI request to engine with request id:",
@@ -516,6 +529,10 @@ export async function simpleStreamText(
                 // R1: a fired self-wake delivers a soft "re-check now" nudge here
                 // (guidance by nature — NOT a forced tool-result like R2's results).
                 const scheduledNudge = takePendingScheduledWakeupNudges(req.chatId);
+                // History was trimmed under the model this dispatch. Telling it is
+                // the whole point: silent loss is what makes a model confabulate
+                // over the gap instead of re-reading.
+                const droppedHistory = takePendingDroppedHistoryNotice(req.chatId);
                 // #15: re-anchor the active mode at the START of the turn (step 0)
                 // so it's the last thing before the model acts. Ephemeral /
                 // step-input-only like the other nudges — never persisted.
@@ -552,6 +569,7 @@ export async function simpleStreamText(
                 }
                 const injected = [
                   reminder,
+                  droppedHistory,
                   bgResults,
                   subagentResults,
                   stalledAdvisories,
@@ -767,6 +785,16 @@ export async function simpleStreamText(
                   );
                   return;
                 }
+                // The provider refused our forced tool_choice. The round wrapper
+                // retries once without it, so this must not paint an error box the
+                // user then watches get contradicted by a successful answer.
+                if (isForcedToolChoiceRejection(error)) {
+                  logger.warn(
+                    "[stream] onError: provider rejected the forced tool_choice (retrying without it)",
+                    error,
+                  );
+                  return;
+                }
                 let errorMessage = (error as any)?.error?.message;
                 const responseBody = error?.error?.responseBody;
                 if (errorMessage && responseBody) {
@@ -789,12 +817,32 @@ export async function simpleStreamText(
                     (error as any)?.responseBody ?? (error as any)?.error?.responseBody ?? "";
                   const bodyStr =
                     typeof rawBody === "string" ? rawBody : JSON.stringify(rawBody ?? "");
+                  // Every Core failure gets its status + body logged BEFORE
+                  // classification. Previously only 402/503 were recognised and
+                  // everything else collapsed to "trouble reaching Core", so a
+                  // precise upstream error (the DeepSeek tool_choice rejection that
+                  // killed background-resume turns) was unreadable from the outside.
+                  logger.error(
+                    `[compass] upstream failure status=${statusCode ?? "none"} body=${bodyStr.slice(0, 800)}`,
+                  );
                   if (statusCode === 402 || /insufficient_credit/.test(bodyStr)) {
                     // The user's own credit is used up (proxy pre-flight reserve gate).
                     message = compassExhaustedUserMessage();
                   } else if (statusCode === 503 || /core_unavailable/.test(bodyStr)) {
                     // Core is down on OUR side; the proxy already alerted the owner.
                     message = coreUnavailableUserMessage();
+                    isCompassInfraError = true;
+                  } else if (statusCode === 401 || statusCode === 403) {
+                    // The proxy rejected our bearer token. Retrying cannot help and
+                    // "we can't reach Core" sends the user to the wrong place — the
+                    // fix is a fresh session, not a retry.
+                    message = compassAuthExpiredUserMessage();
+                  } else if (statusCode === 400 || statusCode === 422) {
+                    // A genuine request-level problem the proxy passed through
+                    // (context length, an unsupported parameter, a bad tool schema).
+                    // Surface what the provider actually said — it is the only thing
+                    // that makes this diagnosable.
+                    message = compassBadRequestUserMessage(bodyStr);
                     isCompassInfraError = true;
                   } else {
                     message = COMPASS_REACHABILITY_ERROR;

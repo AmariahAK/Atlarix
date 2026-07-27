@@ -1480,7 +1480,6 @@ export async function runBuildBranch(
                   },
                   {
                     chatId: req.chatId,
-                    settings,
                     abortController,
                     continuationTurnId: String(placeholderAssistantMessage.id),
                     streamTurnId,

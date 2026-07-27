@@ -21,6 +21,7 @@ import {
 import {
   RECONNECT_DELAYS_MS,
   isNetworkStreamError,
+  isForcedToolChoiceRejection,
   retryAfterMs,
   NetworkStreamDisconnectedError,
 } from "@/ipc/handlers/chat_stream/network-retry";
@@ -202,6 +203,31 @@ export async function runStreamRoundWithEmptyOutputRetry(
                 // User abort always wins over any retry path.
                 if (params.abortController.signal.aborted) {
                   throw err;
+                }
+
+                // The provider refused the forced tool_choice (the wake turn's
+                // `collect_results`). Deterministic — retrying the same request
+                // fails identically — so change the request instead: clear the
+                // forced choice and let the prepareStep injection deliver the same
+                // results. Costs no backoff and no attempt budget, and the flag is
+                // sticky so a later round in this turn never re-forces it.
+                if (
+                  isForcedToolChoiceRejection(err) &&
+                  !ctx.forcedToolChoiceRejected
+                ) {
+                  ctx.forcedToolChoiceRejected = true;
+                  logger.warn(
+                    `[stream] Provider rejected the forced tool_choice — retrying with injected delivery: ${
+                      err instanceof Error ? err.message : String(err)
+                    }`,
+                  );
+                  sentryAddBreadcrumbSafe({
+                    category: "stream_retry",
+                    message: "forced_tool_choice_rejected → injection fallback",
+                    level: "warning",
+                  });
+                  fullResponse = initialFullResponse;
+                  continue;
                 }
 
                 // Empty-output retry (pre-existing behavior).

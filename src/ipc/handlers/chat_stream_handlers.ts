@@ -44,7 +44,6 @@ import * as path from "path";
 import * as os from "os";
 import * as crypto from "crypto";
 import { readFile, writeFile, unlink } from "fs/promises";
-import { MAX_CHAT_TURNS_IN_CONTEXT } from "@/constants/settings_constants";
 
 
 import { safeSend } from "../utils/safe_sender";
@@ -101,8 +100,10 @@ import {
 } from "../../lib/security/chat-prompt-gate";
 import {
   resolveReasoningCatalogModelId,
+  resolveCapabilityProviderId,
   hasNativeDeepThinkingSupport,
 } from "@/lib/routing/reasoning-detector";
+import { catalogSaysReasons } from "@/lib/routing/model-reasoning-profile";
 import { enforceContextBudget } from "@/lib/routing/tier_context_budget";
 import { AttachmentStore } from "../../lib/attachment-store";
 import {
@@ -1249,41 +1250,15 @@ ${componentSnippet}
             `[stream:${req.chatId}] Prepared message history (len=${messageHistory.length})`,
           );
 
-          // Turn-based history cap. The legacy positive-id "auto-summarize"
-          // gate was constant-false (W9) and is gone: mid-turn pressure is
-          // handled by `compactAgenticMessagesIfNeeded` inside the SMART
-          // AGENTIC TOOL LOOP; `compress_context` remains the model-triggered
-          // escape hatch; durable summaries flow through [COMPACTION MARKER]
-          // message slices; token-percent compaction (55% / 75% / 90%) runs
-          // later against `resolveModelContextLimit` + the full dispatch
-          // estimate.
+          // NO count-based history cap. Context is bounded by TOKENS only:
+          // `enforceContextBudget` below, mid-turn `compactAgenticMessagesIfNeeded`
+          // inside the SMART AGENTIC TOOL LOOP, and `compress_context` as the
+          // model-triggered escape hatch; durable summaries flow through
+          // [COMPACTION MARKER] message slices. The old 11-turn cap deleted half a
+          // 124,907-token session on a 1M-token model at 8.9% fill — see
+          // dropped-history-notice.ts.
           let limitedMessageHistory = messageHistory;
           const contextSummaryForSystem: string | null = null;
-
-          {
-            const maxChatTurns = isDeepContextEnabled
-              ? 201
-              : (settings.maxChatTurnsInContext || MAX_CHAT_TURNS_IN_CONTEXT) + 1;
-
-            if (messageHistory.length > maxChatTurns * 2) {
-              let recentMessages = messageHistory
-                .filter((msg: Msg) => msg.role !== "system")
-                .slice(-maxChatTurns * 2);
-
-              if (recentMessages.length > 0 && recentMessages[0].role !== "user") {
-                const firstUserIndex = recentMessages.findIndex((msg: Msg) => msg.role === "user");
-                if (firstUserIndex > 0) {
-                  recentMessages = recentMessages.slice(firstUserIndex);
-                } else if (firstUserIndex === -1) {
-                  recentMessages = [];
-                }
-              }
-              limitedMessageHistory = [...recentMessages];
-              logger.log(
-                `Limiting chat history from ${messageHistory.length} to ${limitedMessageHistory.length} messages (max ${maxChatTurns} turns)`,
-              );
-            }
-          }
 
           const contextSize = await getContextWindow(effectiveModel, req.chatId);
           // v12 0.1: legacy "agent" is coerced to "build" upstream (readSettings
@@ -1418,7 +1393,24 @@ ${componentSnippet}
           // auto/none while thinking). So when reasoning is active we do NOT force
           // the tool — we deliver the same results via the prepareStep injection
           // (the mid-turn path). Thinking-capable models reliably consume that.
-          const forceCollectOnWake = wakeHasPendingResults && !enableNativeReasoning;
+          //
+          // The signal must be the MODEL's nature, not the user's Deep-thinking
+          // toggle. `enableNativeReasoning` says only "we ASKED for reasoning";
+          // deepseek-v4-pro thinks by DEFAULT and rejected the forced tool_choice
+          // with Deep OFF, killing every background-resume turn on Core. Ask the
+          // catalog whether the model reasons at all, keyed on the vendor actually
+          // serving the request (Core has no models.dev row of its own).
+          // Unknown → assume it reasons and don't force, matching the
+          // catalog-miss convention in model-reasoning-profile.ts. The forced path
+          // is a belt-and-braces guarantee for weak models; skipping it costs
+          // nothing but a channel, while getting it wrong costs the whole turn.
+          const modelReasonsNatively =
+            catalogSaysReasons(
+              resolveCapabilityProviderId(effectiveModel),
+              resolveReasoningCatalogModelId(effectiveModel),
+            ) ?? true;
+          const forceCollectOnWake =
+            wakeHasPendingResults && !enableNativeReasoning && !modelReasonsNatively;
 
           // v13 7A: background command results that finished AFTER the
           // previous turn ended — drain them into this turn's context.
@@ -1678,7 +1670,6 @@ ${componentSnippet}
               req,
               updatedChat,
               event,
-              isDeepContextEnabled,
               modelContextResolved,
               promptBundleDeps,
               contextSummaryForSystem,
