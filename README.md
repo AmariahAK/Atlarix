@@ -24,7 +24,7 @@ has a workspace. You have control.
 
 **Created by [NorahLabs](https://norahlabs.com)** (Nairobi, Kenya)  
 **Website:** [atlarix.dev](https://atlarix.dev)  
-**Current release:** **v14.17.1**
+**Current release:** **v14.21.0**
 
 **Downloads:** Installers for **macOS**, **Linux**, and **Windows** are on [atlarix.dev](https://atlarix.dev). *(Windows builds are currently unsigned; code signing is coming soon.)*
 
@@ -43,7 +43,7 @@ Release notes: **[docs/CHANGELOG.md](docs/CHANGELOG.md)** (current: 14.0+). Olde
 - **Attachments:** Paste text, terminal output, and files into chat. After send they appear as chips with preview; content persists across session reload.
 - **`@` file & folder mentions:** Type `@` in the composer to point the agent at part of the current workspace. Mentioning a **file** injects its contents (capped); mentioning a **folder** injects just its file listing, so the agent then `grep`s/reads within that scope instead of dumping a whole tree — precise context, low token cost.
 - **Agent Behaviors & workspace memory:** Project instructions in `.atlarix/atlarix.md` and behaviors under `.atlarix/skills/` shape the agent without repeating yourself every turn.
-- **Parallel workers:** The `task` tool spawns scoped workers — read-only **explorer** and **architect** (recon, planning, web search) plus writer **implementer** agents that edit inside a throwaway git worktree and hand back a reviewable diff — up to five run **concurrently** per turn, with their live thinking, narration, and tool activity streaming into per-worker cards.
+- **Parallel workers:** The `task` tool spawns scoped workers — read-only **explorer** and **architect** (recon, planning, web search) plus writer **implementer** agents whose edits never touch disk and come back as per-file **proposals** the main agent reviews and accepts — up to five run **concurrently** per turn, with their live thinking, narration, and tool activity streaming into per-worker cards. Long-running workers move to the background automatically and can be listed, watched, or cancelled.
 - **Background commands:** A foreground command still running after **~15s auto-promotes to the background** (kept alive, not killed) so the agent keeps working; the exit result is delivered back automatically. The agent can also detach explicitly (`run_command background:true`), and a still-foreground command surfaces a **"Waiting on command"** state where you can queue a message that sends when the turn resumes.
 - **User-defined agents & portable config:** `.atlarix/agents/<name>.md` (system prompt + tools + model) shows up in the picker; `.atlarix/permissions.json` deny/ask rules and `.atlarix/hooks/` (blocking pre-tool, advisory post-tool, stop gate) are committable and enforced at the single tool-execution funnel — plus a global `~/.atlarix/` layer.
 - **Verified edits:** In **Build** and **Debug** the agent discovers and runs the project's *own* checks (package.json scripts, `tsc`/`eslint`, `ruff`/`mypy`/`pytest`) through the terminal — every command run inside the per-OS sandbox — and writes tests for non-trivial logic. It is held to not declaring a task complete while those checks report errors. Verification uses the project's real tooling, so it works on any machine with the language runtime installed.

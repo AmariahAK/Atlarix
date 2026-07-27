@@ -3,6 +3,74 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
+## [14.21.0] (2026-07-27) — Sub-agents you can see, and changes you review before they land
+
+This release covers four versions of work (14.18 through 14.21) that hadn't shipped yet.
+
+The headline is how delegated work now behaves. When the agent hands a coding job to a
+sub-agent, that sub-agent no longer writes anything: its edits come back as a proposal per
+file, and the main agent reads each diff and decides. Accepting writes the sub-agent's exact
+work — nothing is retyped along the way — and a file that isn't already on your allow-list
+still asks you, exactly as it would for any other edit.
+
+Sub-agents are also visible now. A long one moves to the background on its own instead of
+holding the turn, and the running-tasks chip lists them alongside background commands, so you
+can watch progress or stop one without waiting.
+
+### Added
+
+- **Delegated code changes are reviewed before they land.** Previously a sub-agent worked in a
+  hidden copy of your project and handed back one big diff, truncated if it was long. Now each
+  file arrives separately with its own diff. If two sub-agents changed different parts of the
+  same file, both can be accepted; if they changed the *same* lines, that is flagged as a
+  conflict rather than silently resolved.
+- **If a file changes while a proposal is waiting**, the change is re-fitted onto your newer
+  version when it still fits, and refused with an explanation when it doesn't — it will not
+  overwrite work you did in the meantime.
+- **Sub-agents appear in the running-tasks chip**, with elapsed time, live progress you can
+  expand, and a stop button. They were previously invisible there and could only be stopped
+  from inside the agent's own turn.
+- **A sub-agent taking more than 30 seconds moves to the background automatically**, so the
+  turn keeps going. A foreground sub-agent previously had no time limit at all, which is why
+  one occasionally looked stuck. One that goes quiet for a long time now nudges the agent
+  instead of stalling silently.
+- **Sub-agents can be referred to by name**, not just an id — the same as background jobs.
+- **Delegated work in Plan mode** can now fan out across subsystems and web research instead
+  of being limited to a single helper.
+- **Each window is its own workspace.** Windows are named after the project they have open,
+  and a window's browser tabs, terminal tabs, and plan cards belong to that window alone —
+  they no longer leak into another one.
+- **The agent can send a command to a named terminal tab** and read one back, instead of
+  opening a new tab each time.
+
+### Changed
+
+- **Writer sub-agents no longer need a git repository.** In a project that isn't tracked by
+  git they previously ran read-only without saying so clearly. They also see files git
+  ignores, which they could not before.
+- **Fewer, clearer tools.** `terminal_read`/`terminal_list` folded back into background jobs;
+  listing and stopping sub-agents moved to its own tool.
+- **Automations lost the "worktree writes" mode.** Existing automations set to it become
+  read-only runs. Nothing else about automations changes.
+- **The disk space a removed feature left behind is reclaimed on first launch.**
+
+### Fixed
+
+- **Background work no longer dies with "Core has an issue."** Resuming a turn after a
+  background task finished could fail outright on some models.
+- **Older messages are no longer silently deleted from a long conversation.** The turn history
+  was being trimmed without telling you or the model; now it isn't trimmed, and the model is
+  told its actual context size rather than guessing.
+- **A long session no longer breaks partway through** because the sign-in token used for
+  Atlarix Core had gone stale mid-stream.
+- **A 1,000-line edit no longer freezes the app for several seconds.** The diff is now
+  computed before it reaches the screen, and a very large one starts collapsed with a summary.
+- **The token counter survives a restart** and updates when you switch work mode.
+- **A plan step that fails to tick is now recorded**, and a plan can no longer be marked
+  complete when it never started — the cause of a spurious "18/18".
+- **Renaming a session by editing your first message now works**; a name you typed yourself is
+  still never overwritten.
+
 ## [14.17.1] (2026-07-26) — Answers that stream instead of arriving all at once
 
 ### Fixed

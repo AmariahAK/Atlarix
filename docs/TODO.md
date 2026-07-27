@@ -1,11 +1,44 @@
 # Atlarix TODO
 
-**Current Version:** v14.19.0 (IN PROGRESS 2026-07-27) — two production bugs confirmed from logs and
-fixed: background-resume turns dying on Core, and half the conversation being silently deleted
-mid-session. Plus prompt accuracy, workflow secret hygiene, and the start of real window isolation.
+**Current Version:** v14.21.0 (2026-07-27) — the sub-agent worktree is deleted. Writer sub-agents
+now record edits as per-file PROPOSALS the main agent reviews and accepts; sub-agents became
+first-class background jobs with a management tool and UI. Bundles v14.18–v14.20.
 **Last Updated:** 2026-07-27
 
-## 🚧 IN PROGRESS — v14.19.0 — window isolation, terminal ownership, session re-title
+## ✅ SHIPPED in v14.21.0 — proposals replace the worktree; sub-agents become visible
+
+- **`edit_file` never writes** — it returns a `__permission_required` envelope and the main-chat
+  interceptor lands it. The worktree existed ONLY because sub-agents run without that interceptor,
+  so their proposals evaporated. Replaced with an in-memory overlay (`subagent-proposals.ts`): the
+  sub-agent sees its own edits on re-read (`grep`/`glob` still hit disk, and the prompt says so),
+  and the set is the review surface. `subagent-worktree.ts` deleted (333 lines).
+- **`proposals` tool** (build/debug only — accepting ends in a real write, so it sits beside
+  `edit_file` in `BUILD_ONLY_TOOLS`). `accept` returns an `edit_file` envelope: the interceptor
+  routes on `operation`, not on which tool produced it, so an accepted proposal takes the identical
+  path a main-agent edit takes — including the human gate. The main agent never retypes bytes.
+- **Rebase on accept.** Disk unchanged → byte-exact. Disk moved but every hunk's context still
+  matches → rebase. Any hunk lost → refuse that file with the failing hunks. Never a silent merge.
+- **Writers work without git** and see `.gitignore`d files — both were worktree limitations.
+- **Auto-promotion at 30s** (`SUBAGENT_PROMOTE_AFTER_MS`), mirroring `run_command`'s 15s. A
+  foreground `task()` previously had NO timeout — that was "the sub-agent looks stuck". Found and
+  fixed a double-run bug here via test: the original `await run()` was left in place.
+- **Stall nudge** — `lastActivityAt` was recorded since v14.8 and never read. The renderer's wake
+  closure already treated `"stalled"` as a wake reason, so wiring the status through was the fix.
+- **`subagents` tool** (list/output/cancel, name-or-id, new/tail) in EVERY mode incl. Plan; `task`
+  keeps spawn/resume and redirects `list`/`cancel`. **UI**: sub-agents now appear in the
+  background-jobs chip — `useStreamChat` was skipping their events entirely, so one could not be
+  seen or stopped from the UI at all.
+- **Plan-mode delegation opened up** — it may now fan out recon and web-research sub-agents; the
+  constraint kept is that the main agent still writes the plan itself.
+- **Automations `worktree-write` deleted** (migration 0070 downgrades rows). The three
+  `proposal_*` columns are deliberately NOT dropped: a failed `DROP COLUMN` on a user's DB is a
+  boot failure across an auto-updating install base.
+
+**OUTSTANDING (owner):** packaged verification — a 3-file delegated change reviewed and accepted
+per file; a file NOT on the allow-list still prompting; two sub-agents on one file (disjoint =
+both land, overlapping = flagged); the 30s promotion; Plan-mode fan-out.
+
+## ✅ SHIPPED in v14.19.0 — window isolation, terminal ownership, session re-title
 
 - **Each window has its own browser.** `browser_view_manager` kept `tabs`, `activeTabId`,
   `visible`, `lastBounds`, `attachedWindow` and the page-error buffer at MODULE level, and
