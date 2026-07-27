@@ -27,6 +27,7 @@ const validInvokeChannels = [
   "chat:abort",  // User can stop AI to save tokens
   "chat:submit-user-question-answer", // ask_user tool: submit answer from UI
   "workspace:open-in-new-window",
+  "workspace:bind-window", // tells main which workspace THIS window is showing
   "window:open-blank",
   "workspace:consume-pending-cli",
   "chat:edit-message",             // v3.9: edit user message and truncate after

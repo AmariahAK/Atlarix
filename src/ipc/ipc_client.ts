@@ -3316,6 +3316,20 @@ export class IpcClient {
     return this.ipcRenderer.invoke("workspace:open-in-new-window", folderPath);
   }
 
+  /**
+   * Tell main which workspace this window is showing.
+   *
+   * Main has no other way to know — a window opened from the UI never announced
+   * its workspace — so without this every per-window event has to be broadcast to
+   * all windows and one project's activity shows up in another's. Also what names
+   * the window after its project. Idempotent; safe to call on every open.
+   */
+  public async bindWindowToWorkspace(
+    folderPath: string,
+  ): Promise<{ ok: boolean }> {
+    return this.ipcRenderer.invoke("workspace:bind-window", folderPath);
+  }
+
   /** Fresh window with no workspace bound — lands on the workspace chooser. */
   public async openBlankWindow(): Promise<{ ok: boolean }> {
     return this.ipcRenderer.invoke("window:open-blank");

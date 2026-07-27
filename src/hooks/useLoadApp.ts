@@ -50,6 +50,22 @@ export function useLoadApp(appId: number | null) {
       loadedAppIdRef.current = appId;
 
       setApp(appData);
+
+      // Tell main which workspace THIS window is showing. Main has no other way
+      // to know — a window opened from the UI never announced its workspace, so
+      // the workspace→window registry was empty and per-window events had to be
+      // broadcast to every window. Also what names the window after its project.
+      //
+      // Done here because this is the single choke point every workspace load
+      // goes through (same reasoning as the v14.16.1 provider-refresh fix); the
+      // guard above means it fires once per workspace, not per render.
+      if (appData.path) {
+        void IpcClient.getInstance()
+          .bindWindowToWorkspace(appData.path)
+          .catch(() => {
+            /* cosmetic + routing hint only — never block loading a workspace */
+          });
+      }
     }
   }, [appId, appData, setApp]);
 
