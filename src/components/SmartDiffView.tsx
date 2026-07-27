@@ -18,6 +18,18 @@ import { Checkbox } from "@/components/ui/checkbox";
 const CONTEXT_LINES = 3;
 const EXPAND_ALL_CONTEXT = 100000;
 
+/**
+ * Rendered rows past which a COMPLETED diff card starts collapsed.
+ *
+ * Every row is a flex div with five children, so a 1000-line generated file is
+ * ~5000 nodes laid out for a card nobody reads line-by-line. Collapsed, the card
+ * shows its counts — which main already computed — and mounts nothing.
+ *
+ * Approval diffs are exempt (see `canCollapse`): hiding a change behind a click
+ * at the moment you're being asked to approve it is worse than the cost.
+ */
+const COLLAPSE_ROW_THRESHOLD = 200;
+
 type DiffLineType = {
     type: "context" | "add" | "remove";
     content: string;
@@ -127,6 +139,8 @@ export function SmartDiffView({
 }: SmartDiffViewProps) {
     const [expandAll, setExpandAll] = useState(false);
     const [deselected, setDeselected] = useState<Set<number>>(new Set());
+    /** null = follow the size heuristic; true/false = the user decided. */
+    const [bodyOpenOverride, setBodyOpenOverride] = useState<boolean | null>(null);
 
     // Hunk geometry depends on context size — reset selection when it changes.
     useEffect(() => {
@@ -177,6 +191,11 @@ export function SmartDiffView({
     const addedCount = hunks.reduce((acc, h) => acc + h.addedCount, 0);
     const removedCount = hunks.reduce((acc, h) => acc + h.removedCount, 0);
     const totalLines = hunks.reduce((acc, h) => acc + h.lines.length, 0);
+
+    // Never auto-collapse something the user is being asked to approve, or a
+    // diff with per-hunk checkboxes they need to see to use.
+    const canCollapse = !selectable && totalLines > COLLAPSE_ROW_THRESHOLD;
+    const bodyOpen = bodyOpenOverride ?? !canCollapse;
     const headerLabel =
         operation === "create"
             ? `+++ ${path} (new file)`
@@ -215,7 +234,17 @@ export function SmartDiffView({
                 <div className="flex items-center gap-2 shrink-0 text-[10px]">
                     {addedCount > 0 && <span style={{ color: "var(--diff-add-text)" }}>+{addedCount}</span>}
                     {removedCount > 0 && <span style={{ color: "var(--diff-remove-text)" }}>-{removedCount}</span>}
-                    {operation === "update" && totalLines > 20 && (
+                    {canCollapse && (
+                        <button
+                            type="button"
+                            onClick={() => setBodyOpenOverride(!bodyOpen)}
+                            className="flex items-center gap-1 px-1.5 py-0.5 rounded border border-border bg-background hover:bg-muted text-xs"
+                        >
+                            {bodyOpen ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                            {bodyOpen ? "Hide diff" : `Show diff · ${hunks.length} hunk${hunks.length === 1 ? "" : "s"}`}
+                        </button>
+                    )}
+                    {bodyOpen && operation === "update" && totalLines > 20 && (
                         <button
                             type="button"
                             onClick={() => setExpandAll((e) => !e)}
@@ -227,6 +256,14 @@ export function SmartDiffView({
                     )}
                 </div>
             </div>
+            {!bodyOpen ? (
+                // Collapsed: the counts above already say what changed, and they
+                // came from main — so this mounts no rows at all.
+                <div className="px-3 py-2 text-xs text-muted-foreground">
+                    {totalLines.toLocaleString()} lines across {hunks.length} hunk
+                    {hunks.length === 1 ? "" : "s"} — hidden to keep the chat responsive.
+                </div>
+            ) : (
             <div className="flex-1 overflow-auto font-mono text-xs">
                 <div className="flex bg-muted/50 border-b border-border">
                     <span className="w-5 shrink-0" />
@@ -282,6 +319,7 @@ export function SmartDiffView({
                     </div>
                 ) : null}
             </div>
+            )}
         </div>
     );
 }
