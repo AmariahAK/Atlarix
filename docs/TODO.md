@@ -34,7 +34,38 @@ first-class background jobs with a management tool and UI. Bundles v14.18–v14.
   `proposal_*` columns are deliberately NOT dropped: a failed `DROP COLUMN` on a user's DB is a
   boot failure across an auto-updating install base.
 
-**OUTSTANDING (owner):** packaged verification — a 3-file delegated change reviewed and accepted
+### Secret-exposure audit (2026-07-28) — closed, no action
+
+Traced whether any published release ever shipped a live key in the bundle.
+`vite.main.config.mts` `define`-substitutes `process.env.X` for everything in
+`MAIN_KEYS`, so a key leaks only if it is BOTH allowlisted AND supplied by CI.
+
+- `COMPASS_OPENROUTER_API_KEY` is in `MAIN_KEYS` on all 16 published tags
+  (v14.8.16 → v14.17.1) but the workflow never supplied it → compiled in as `""`.
+- `LEMONSQUEEZY_API_KEY` / `LEMONSQUEEZY_WEBHOOK_SECRET` / `RESEND_API_KEY` left
+  `MAIN_KEYS` at v14.8.15 (631041e8) and never returned. CI kept supplying them
+  until f90148f3, but an env var outside the allowlist is never substituted.
+- Genuinely leaky builds were **≤ v14.8.14**, and the oldest published release is
+  v14.8.16 — they are already gone.
+- Current bundle scanned empirically: no `sk-or-`, `re_<key>` or JWT material.
+
+**Owner decisions:** keep all 16 published releases (deleting clean ones removes
+the rollback path and closes nothing). **Rotation SKIPPED by owner.** The
+OpenRouter key is genuinely moot — Core went direct-to-provider in v14.17.0 and
+CI never supplied it anyway. For LemonSqueezy/Resend the accepted residual risk
+is that someone who downloaded a pre-v14.8.15 installer (≈Mar–Jul 2026) still
+holds the keys; note an old binary does not need to RUN for `strings` to read
+them, so what actually decides the risk is whether those keys are still live in
+the provider dashboards. Revisit if billing or mail abuse is ever observed.
+
+Also removed: `LEMONSQUEEZY_WORKFORCE_VARIANT_ID` / `LEMONSQUEEZY_EXTRA_SEAT_VARIANT_ID`
+from `MAIN_KEYS` + the workflow — Team/workforce was killed in the pricing reframe,
+the secrets do not exist, and nothing in `src/` reads them.
+**Note:** `ATLARIX_REVIEW_API_KEY` is referenced by `atlarix-review.yml` but does
+not exist as a secret, so the `@atlarix review` bot cannot be working. Repo
+variables are empty, so `vars.ATLARIX_CORE_*` all fall through to `secrets.`.
+
+**OUTSTANDING (owner):** delete the 7 unreferenced repo secrets; packaged verification — a 3-file delegated change reviewed and accepted
 per file; a file NOT on the allow-list still prompting; two sub-agents on one file (disjoint =
 both land, overlapping = flagged); the 30s promotion; Plan-mode fan-out.
 
