@@ -36,7 +36,7 @@ ToolRegistry.register({
         "Mutating commands run only where the active work mode allows; the genuinely dangerous ones ask. " +
         "Long-running work (builds, installs, watch/dev tasks) auto-backgrounds after ~15s — or set background=true to detach immediately; either way you get a job_id and the exit result is delivered automatically, so continue other work, never poll, and you may end your turn while it runs (manage jobs with background_jobs). " +
         "For a backgrounded job, set wake_on to a success|failure marker (with wake_on_regex:true) to be woken the instant it appears; a quiet job is usually still working, not stuck — keep waiting rather than cancelling. For external state (CI/deploy), background a command that BLOCKS until done (e.g. `gh run watch`) instead of polling. " +
-        "A printed http://localhost:PORT loads in the preview — drive it with browser_* target:\"preview\". " +
+        "A printed http://localhost:PORT can be opened as a browser tab (browser_navigate) and driven with the browser_* tools. " +
         "To find files or search code, use the glob and grep tools (not shell). For scaffolding, pass non-interactive flags (e.g. --template, --no-interactive).",
     requiresWorkspace: true,
     isCore: true,

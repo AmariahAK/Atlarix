@@ -38,12 +38,16 @@ export const TOOL_RECOVERY_HINTS: Record<string, string> = {
     "Check the URL is complete (https://…). For paywalled/JS-heavy pages, try web_search for the same content instead.",
   read_attachment:
     "Call list_attachments to see valid attachment ids for this chat.",
+  // `target:"preview"` was REMOVED with the Preview pane in v14.15.0 — the app you
+  // are building now runs in an ordinary browser tab. These strings are recovery
+  // advice shown AFTER a call already failed, so naming a parameter that no longer
+  // exists sent a stuck model straight into a second invalid call.
   browser_navigate:
-    "Only http(s) URLs are allowed. To drive the app you are building, pass target:\"preview\" to load the running dev server.",
+    "Only http(s) URLs are allowed. To drive the app you are building, navigate to its dev-server URL (e.g. http://localhost:3000) like any other page.",
   browser_inspect:
-    "Open a page first (browser_navigate), or pass target:\"preview\" to inspect the live app preview. mode:\"snapshot\" lists interactive refs; mode:\"console\" (preview only) shows runtime errors.",
+    "Open a page first with browser_navigate. mode:\"snapshot\" lists interactive refs; mode:\"console\" shows runtime errors with stacks.",
   browser_interact:
-    "Get a fresh ref from browser_inspect(mode:\"snapshot\") and act by ref. Use the same target (\"browser\" default, or \"preview\") you inspected.",
+    "Get a fresh ref from browser_inspect(mode:\"snapshot\") and act by ref. With more than one tab open, pass the same tab_id you inspected.",
 };
 
 const ACTION_PATTERN =
