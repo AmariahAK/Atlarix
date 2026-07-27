@@ -71,6 +71,9 @@ ToolRegistry.register({
             allow_stalled: booleanParam(
                 "This background job is expected to be quiet (a dev server / file watcher / long-running service that only prints on activity) — don't ping me about it going quiet. It still runs, still delivers its exit result, and wake_on still fires.",
             ),
+            terminal: stringParam(
+                "Run in a specific terminal tab, by name (e.g. \"e2e\") or id. The name is created once and reused, so repeated calls share that tab. Omit for the default: foreground commands share one Agent tab and backgrounded ones get their own. Use this only when you genuinely need a separate stream — see terminal_list.",
+            ),
         },
         ["command", "description"]
     ),
@@ -84,6 +87,7 @@ ToolRegistry.register({
         wake_on,
         wake_on_regex = false,
         allow_stalled = false,
+        terminal,
     }) => {
         const dangerous = isDangerousCommand(command);
         const dangerExplanation = dangerous ? getDangerExplanation(command) : undefined;
@@ -105,7 +109,99 @@ ToolRegistry.register({
                         ? { pattern: String(wake_on), regex: wake_on_regex === true }
                         : undefined,
                 allow_stalled: allow_stalled === true,
+                terminal:
+                    typeof terminal === "string" && terminal.trim()
+                        ? terminal.trim()
+                        : undefined,
             },
         };
+    },
+});
+
+// ═══════════════════════════════════════════════════════════
+// TERMINAL TABS
+// ═══════════════════════════════════════════════════════════
+// Mirrors browser_tabs: the agent can see which streams exist and read one
+// without re-running anything. Both are read-only, so they need no approval and
+// are safe in every mode.
+
+type WithChat<T> = T & { _chatSessionId?: number };
+
+ToolRegistry.register({
+    name: "terminal_list",
+    description:
+        "List the terminal tabs in this session — the shared Agent tab, any named tabs you created with run_command({terminal}), and background jobs each holding their own. " +
+        "Shows id, name, owner and line count. Use before targeting a terminal, or to check what a long-running process is doing without re-running it.",
+    requiresWorkspace: true,
+    isCore: false,
+    isReadOnly: true,
+    allowInAskMode: true,
+    parameters: createParameters({}, []),
+    handler: async (args: WithChat<Record<string, never>>) => {
+        const chatId = args._chatSessionId;
+        if (typeof chatId !== "number") {
+            return { success: false, error: "No active chat session." };
+        }
+        const { listTerminalInstances, resolveScopeKey } = await import(
+            "@/lib/terminal-instance-store"
+        );
+        return {
+            success: true,
+            terminals: listTerminalInstances(resolveScopeKey(chatId, null)),
+        };
+    },
+});
+
+ToolRegistry.register({
+    name: "terminal_read",
+    description:
+        "Read recent output from one terminal tab (by id or name from terminal_list). " +
+        "The way to check on a dev server or watcher that is still running — it prints what the tab has shown so far without touching the process.",
+    requiresWorkspace: true,
+    isCore: false,
+    isReadOnly: true,
+    allowInAskMode: true,
+    parameters: createParameters(
+        {
+            terminal: stringParam("Terminal id or name (see terminal_list)."),
+            max_lines: numberParam(
+                "How many trailing lines to return (default 200, max 2000).",
+                200,
+                1,
+                2000,
+            ),
+        },
+        ["terminal"],
+    ),
+    handler: async (
+        args: WithChat<{ terminal: string; max_lines?: number }>,
+    ) => {
+        const chatId = args._chatSessionId;
+        if (typeof chatId !== "number") {
+            return { success: false, error: "No active chat session." };
+        }
+        const { listTerminalInstances, readTerminalInstance, resolveScopeKey } =
+            await import("@/lib/terminal-instance-store");
+        const scopeKey = resolveScopeKey(chatId, null);
+        const wanted = String(args.terminal ?? "").trim();
+        const open = listTerminalInstances(scopeKey);
+        // Accept a name as well as an id — the agent chose the name, so making it
+        // re-look-up the generated id would be busywork.
+        const match =
+            open.find((t) => t.id === wanted) ??
+            open.find((t) => t.label.toLowerCase() === wanted.toLowerCase());
+        if (!match) {
+            return {
+                success: false,
+                error: `No terminal "${wanted}". Open terminals: ${JSON.stringify(
+                    open.map((t) => t.label),
+                )}.`,
+            };
+        }
+        return readTerminalInstance(
+            scopeKey,
+            match.id,
+            Math.min(2000, Math.max(1, Number(args.max_lines) || 200)),
+        );
     },
 });

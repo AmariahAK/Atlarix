@@ -185,6 +185,75 @@ describe("agent terminal reuse", () => {
     ).toHaveLength(1);
   });
 
+  it("an explicit terminal name gets its own tab, reused across calls", () => {
+    // The point of targeting: a dev server holds one stream while tests run in
+    // another, without a tab per command.
+    const scope = freshScope();
+    const a = openTerminalInstance(scope, {
+      owner: "agent",
+      operationId: "op_a",
+      commandHint: "playwright test",
+      terminal: "e2e",
+    });
+    const b = openTerminalInstance(scope, {
+      owner: "agent",
+      operationId: "op_b",
+      commandHint: "playwright test --grep smoke",
+      terminal: "e2e",
+    });
+    expect(a.success && b.success && a.instanceId === b.instanceId).toBe(true);
+    const agents = getTerminalScopeState(scope).instances.filter(
+      (i) => i.owner === "agent",
+    );
+    expect(agents).toHaveLength(1);
+    expect(agents[0]?.label).toBe("e2e");
+  });
+
+  it("a named terminal is separate from the shared foreground tab", () => {
+    const scope = freshScope();
+    const shared = runCommand(scope, "npm test");
+    const named = openTerminalInstance(scope, {
+      owner: "agent",
+      operationId: "op_named",
+      commandHint: "npm run e2e",
+      terminal: "e2e",
+    });
+    expect(shared.success && named.success && shared.instanceId !== named.instanceId).toBe(
+      true,
+    );
+    // …and a later plain command still lands in the shared one, not the named.
+    const back = runCommand(scope, "git status");
+    expect(back.success && shared.success && back.instanceId === shared.instanceId).toBe(
+      true,
+    );
+  });
+
+  it("matches a target by id as well as by name", () => {
+    const scope = freshScope();
+    const made = openTerminalInstance(scope, {
+      owner: "agent",
+      operationId: "op_1",
+      terminal: "build",
+    });
+    const byId = openTerminalInstance(scope, {
+      owner: "agent",
+      operationId: "op_2",
+      terminal: made.success ? made.instanceId : "",
+    });
+    expect(byId.success && made.success && byId.instanceId === made.instanceId).toBe(true);
+  });
+
+  it("creates an unknown target rather than failing the command", () => {
+    // A typo should cost a tab, not the command.
+    const scope = freshScope();
+    const r = openTerminalInstance(scope, {
+      owner: "agent",
+      operationId: "op_typo",
+      terminal: "tyops",
+    });
+    expect(r.success).toBe(true);
+  });
+
   it("user shells are unaffected", () => {
     const scope = freshScope();
     openTerminalInstance(scope, { owner: "user" });

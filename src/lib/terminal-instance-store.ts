@@ -196,9 +196,43 @@ export function openTerminalInstance(
      * agent is reading; foreground commands share one tab.
      */
     background?: boolean;
+    /**
+     * Explicit target: an existing instance id, or a LABEL that is created once
+     * and reused thereafter (`terminal: "e2e"`). Lets the agent keep separate
+     * streams — a dev server in one, tests in another — without a tab per
+     * command. Wins over the shared-foreground rule.
+     */
+    terminal?: string;
   },
 ) {
   const scope = getScope(scopeKey);
+
+  // An explicit target beats every default. Matched on id first, then label, so
+  // "run this in the e2e terminal" reuses the one it made last time instead of
+  // stacking up tabs with the same name.
+  if (opts.owner === "agent" && opts.terminal?.trim()) {
+    const wanted = opts.terminal.trim();
+    const existing =
+      scope.instances.find((i) => i.id === wanted) ??
+      scope.instances.find(
+        (i) => i.owner === "agent" && i.label.toLowerCase() === wanted.toLowerCase(),
+      );
+    if (existing) {
+      if (opts.operationId) scope.agentOpMap[opts.operationId] = existing.id;
+      scope.activeInstanceId = existing.id;
+      schedulePersist();
+      broadcastScope(scopeKey);
+      return { success: true as const, instanceId: existing.id, created: false };
+    }
+    // Unknown target — create it under that name rather than failing. A typo
+    // costs a tab, whereas rejecting would cost the command.
+    return createInstanceInScope(scopeKey, scope, {
+      owner: "agent",
+      label: wanted,
+      operationId: opts.operationId,
+      registerAsSharedForeground: false,
+    });
+  }
 
   if (opts.owner === "agent" && opts.operationId) {
     const existingId = scope.agentOpMap[opts.operationId];
@@ -232,21 +266,39 @@ export function openTerminalInstance(
     }
   }
 
-  const id = `${opts.owner}-${Date.now()}-${randomUUID().slice(0, 8)}`;
   const isSharedForeground = opts.owner === "agent" && !opts.background;
-  const label =
-    opts.label?.trim() ||
-    (opts.owner === "user"
-      ? defaultUserInstanceLabel(scope.instances)
-      : isSharedForeground
-        // Named for the session, not the command that happened to open it —
-        // every later foreground command lands in this same tab.
-        ? AGENT_FG_LABEL
-        : defaultAgentInstanceLabel(opts.commandHint ?? "", scope.instances));
+  return createInstanceInScope(scopeKey, scope, {
+    owner: opts.owner,
+    label:
+      opts.label?.trim() ||
+      (opts.owner === "user"
+        ? defaultUserInstanceLabel(scope.instances)
+        : isSharedForeground
+          // Named for the session, not the command that happened to open it —
+          // every later foreground command lands in this same tab.
+          ? AGENT_FG_LABEL
+          : defaultAgentInstanceLabel(opts.commandHint ?? "", scope.instances)),
+    operationId: opts.operationId,
+    registerAsSharedForeground: isSharedForeground,
+  });
+}
 
+/** Append a new instance to an already-resolved scope. */
+function createInstanceInScope(
+  scopeKey: string,
+  scope: TerminalScopeState,
+  opts: {
+    owner: "user" | "agent";
+    label: string;
+    operationId?: string;
+    /** Point AGENT_FG_KEY at this instance so later foreground commands find it. */
+    registerAsSharedForeground: boolean;
+  },
+) {
+  const id = `${opts.owner}-${Date.now()}-${randomUUID().slice(0, 8)}`;
   const inst: TerminalInstance = {
     id,
-    label,
+    label: opts.label,
     owner: opts.owner,
     lines: [],
     createdAt: Date.now(),
@@ -255,15 +307,14 @@ export function openTerminalInstance(
   if (opts.operationId) {
     scope.agentOpMap[opts.operationId] = id;
   }
-  // Register the shared tab so every later foreground command finds it — the
-  // pointer is what makes reuse work across operationIds.
-  if (isSharedForeground) {
+  // The pointer is what makes reuse work across operationIds.
+  if (opts.registerAsSharedForeground) {
     scope.agentOpMap[AGENT_FG_KEY] = id;
   }
   scope.activeInstanceId = id;
   schedulePersist();
   broadcastScope(scopeKey);
-  return { success: true as const, instanceId: id, created: true, label };
+  return { success: true as const, instanceId: id, created: true, label: opts.label };
 }
 
 export function closeTerminalInstance(scopeKey: string, instanceId: string) {

@@ -69,6 +69,10 @@ const ASK_TOOLS = [
   "read_file",
   "run_command",
   "task",
+  // Read-only views over terminal tabs — safe wherever run_command is, and
+  // useful without it (checking on a dev server someone else started).
+  "terminal_list",
+  "terminal_read",
 ] as const;
 
 // Plan mode is filesystem-read-only: it authors its PLAN via the `plan` tool
@@ -89,6 +93,8 @@ const PLAN_TOOLS = [
   "plan",
   "read_file",
   "task",
+  "terminal_list",
+  "terminal_read",
 ] as const;
 
 const REVIEW_TOOLS = [
@@ -106,6 +112,8 @@ const REVIEW_TOOLS = [
   "read_file",
   "run_command",
   "task",
+  "terminal_list",
+  "terminal_read",
 ] as const;
 
 /** Full per-mode allowlists (mode-specific tools ∪ every-mode tools). */
