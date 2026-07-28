@@ -33,7 +33,7 @@ import { stripThinkBlocks } from "@/ipc/utils/thinking_tags";
 import { estimateTokens } from "@/ipc/utils/token_utils";
 import { appendAutonomousOp, autonomousOpFromPermissionExec } from "@/ipc/handlers/autonomous-session-state";
 import { emitCompactionMirroredActivity, emitModelCompactionActivity } from "@/ipc/handlers/chat_stream/compaction-activity";
-import { runCommandGateResult, emitFilePermissionActivity, enrichPermissionRequestForUi, emitAutoApprovedWritePreview, runCommandCategoryGateToolResult, shouldSkipPermissionWaitForRunCommand } from "@/ipc/handlers/chat_stream/permission-ui";
+import { runCommandGateResult, emitFilePermissionActivity, enrichPermissionRequestForUi, emitAutoApprovedWritePreview, runCommandCategoryGateToolResult, shouldSkipPermissionWaitForRunCommand, requiresHumanReviewDespiteAutoApprove } from "@/ipc/handlers/chat_stream/permission-ui";
 import { isSystemScopeCommand } from "@/lib/system-scope-commands";
 import { resolveAskUserToolResult, flushInterruptedDraft } from "@/ipc/handlers/chat_stream/stream-lifecycle";
 import { partialResponses } from "@/ipc/handlers/chat_stream/stream-state";
@@ -563,17 +563,18 @@ export async function runBuildBranch(
                           ? ((permRequest.preview as { command?: string }).command ?? "")
                           : "";
                       const skipPermissionWait =
-                        filePref.skipPermissionWait ||
-                        (permRequest.operation === "run_command" &&
-                          shouldSkipPermissionWaitForRunCommand(
-                            buildRunCmd,
-                            effectiveAppId,
-                            req.chatId,
-                            event.sender,
-                            workspacePath,
-                          )) ||
-                        shouldAutoApprovePermissions(settings.agentMode, req.chatId) ||
-                        permissionInterceptor.shouldAlwaysAutoApprove(permRequest);
+                        !requiresHumanReviewDespiteAutoApprove(permRequest) &&
+                        (filePref.skipPermissionWait ||
+                          (permRequest.operation === "run_command" &&
+                            shouldSkipPermissionWaitForRunCommand(
+                              buildRunCmd,
+                              effectiveAppId,
+                              req.chatId,
+                              event.sender,
+                              workspacePath,
+                            )) ||
+                          shouldAutoApprovePermissions(settings.agentMode, req.chatId) ||
+                          permissionInterceptor.shouldAlwaysAutoApprove(permRequest));
                       // System-scope marker — set true ONLY when a human will approve
                       // (attended). Lets the interceptor run an approved on-device
                       // install / outside-workspace write unsandboxed; unattended runs
@@ -690,9 +691,28 @@ export async function runBuildBranch(
                             ...displayFields,
                           });
                         }
+                        // A non-zero exit is NOT a success, and must not be
+                        // described as one. The failure was already reachable —
+                        // `exitCode` rides in displayFields, tool-execute.ts
+                        // attaches per-exit-code `guidance`, and the completion
+                        // gate refuses to finish on it — but the message still
+                        // read "Successfully executed" in the same payload as
+                        // `exitCode: 1`. Mixed signals in one result are how a
+                        // model ends up reporting a failed command as done.
+                        const failedExit =
+                          typeof execResult.exitCode === "number" && execResult.exitCode !== 0;
+                        const verb =
+                          permRequest.operation === "write_file" ||
+                          permRequest.operation === "edit_file"
+                            ? "wrote"
+                            : "executed";
+                        const target =
+                          (permRequest.preview as { path?: string }).path || "operation";
                         return JSON.stringify({
                           success: true,
-                          message: `Successfully ${(permRequest.operation === "write_file" || permRequest.operation === "edit_file") ? "wrote" : "executed"} ${(permRequest.preview as { path?: string }).path || "operation"}`,
+                          message: failedExit
+                            ? `Ran ${target} — it FAILED with exit code ${execResult.exitCode}. Read the output and fix the cause before continuing.`
+                            : `Successfully ${verb} ${target}`,
                           path: execResult.path,
                           output: execResult.output,
                           ...displayFields,
@@ -1254,17 +1274,18 @@ export async function runBuildBranch(
                             ? ((permRequest.preview as { command?: string }).command ?? "")
                             : "";
                         const skipPermissionWait =
-                          filePref.skipPermissionWait ||
-                          (permRequest.operation === "run_command" &&
-                            shouldSkipPermissionWaitForRunCommand(
-                              agenticRunCmd,
-                              effectiveAppId,
-                              req.chatId,
-                              event.sender,
-                              workspacePath,
-                            )) ||
-                          shouldAutoApprovePermissions(settings.agentMode, req.chatId) ||
-                          permissionInterceptor.shouldAlwaysAutoApprove(permRequest);
+                          !requiresHumanReviewDespiteAutoApprove(permRequest) &&
+                          (filePref.skipPermissionWait ||
+                            (permRequest.operation === "run_command" &&
+                              shouldSkipPermissionWaitForRunCommand(
+                                agenticRunCmd,
+                                effectiveAppId,
+                                req.chatId,
+                                event.sender,
+                                workspacePath,
+                              )) ||
+                            shouldAutoApprovePermissions(settings.agentMode, req.chatId) ||
+                            permissionInterceptor.shouldAlwaysAutoApprove(permRequest));
                         // System-scope marker (see the native-FC site above) — attended-only.
                         if (permRequest.operation === "run_command") {
                           (permRequest.preview as { systemScopeInteractive?: boolean }).systemScopeInteractive =

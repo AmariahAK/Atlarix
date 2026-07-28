@@ -3,6 +3,100 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
+## [14.22.0] (2026-07-28) — Edits that don't corrupt files, and a harness that tells you the truth
+
+This release started with one bad edit. A model sent `old_content` and `new_content` carrying
+backslash-escaped quotes; the match cascade un-escaped the *find* side to locate the code, then
+wrote the *replacement* through verbatim — putting literal `\"` inside Go raw-string literals,
+which cannot contain escapes. The file stopped compiling. The agent was then told the match had
+succeeded "with indent/EOL tolerance", which was the wrong explanation, so it spent the next
+twenty-five turns looking at whitespace and encoding while the real cause sat in plain sight.
+
+Both halves of that are fixed, and the audit that followed found the same shape elsewhere: a
+signal that outlives the thing it describes, or describes it wrongly. A background job's
+countdown pinging after the job finished. A workspace stuck on "Folder not found" after the
+folder came back. A run that reported "Successfully executed" beside a non-zero exit code.
+
+The prompt got the same treatment. Guidance that belonged on a tool moved onto the tool, where
+it costs nothing on turns that don't use it, and mode rules that were being restated four times
+per turn are now stated twice. The Build-mode header is 28.9% smaller with no rule removed.
+
+### Fixed
+
+- **`edit_file` no longer writes escapes into your files.** Whatever normalization let the
+  match succeed is now applied to the replacement too, so an escape-normalized match
+  un-escapes both sides (`src/lib/tools/edit.ts`). This is the corruption described above.
+- **Edit notices name the strategy that actually matched** — "escape-normalized", "block-anchor",
+  "indentation" — instead of always claiming indent/EOL tolerance. The strategy was already
+  known and was being discarded (`src/lib/tools/edit-match.ts` → `src/lib/tools/edit.ts`).
+- **A guessed match faces a human.** A fuzzy (non-exact) `edit_file` match no longer
+  auto-executes, whatever the auto-approve setting says
+  (`src/ipc/handlers/chat_stream/permission-ui.ts`). Headless runs are unaffected — their
+  approver resolves it.
+- **Plan results no longer leak JSON into replies.** `update_step` and `set_status` returned a
+  shape the reply sanitizer didn't recognise, and a truncated echo was emitted verbatim, so
+  fragments like `","progress":"0/5 steps don` reached the chat
+  (`src/lib/chat/answer-display.ts`, `src/lib/tools/plan.ts`).
+- **A session started by pasting gets a name.** When the first message was nothing but an
+  attachment it stripped to an empty string, which was both the title model's input and what
+  the fallback was gated on — so both starved and the session stayed "Untitled" forever
+  (`src/ipc/handlers/workspace_session_handlers.ts`).
+- **A workspace whose folder comes back is usable again without restarting.** Only the positive
+  existence check is cached now, so a re-cloned repo recovers on its own; the macOS
+  folder-access prompt is still asked at most once per existing workspace
+  (`src/ipc/utils/workspace_path_status_broadcast.ts`).
+- **A finished background job stops asking to be re-checked.** A countdown that had already
+  fired left a queued nudge with no job association, so nothing could remove it when the job
+  completed (`src/lib/agent/scheduled-wakeups.ts`).
+- **`run_command` no longer reports "Successfully executed" next to a non-zero exit code**
+  (`src/ipc/handlers/chat_stream/turn-runner/build-branch.ts`).
+- **`BrowserWindow.getFocusedWindow` is stubbed for non-Electron runs.** `getPrimaryWindow()`
+  calls it on the chat-stream path, so a headless run reaching that path threw
+  (`src/headless/electron-stub.ts`, `vitest.setup.ts`).
+
+### Changed
+
+- **Parameter aliases are absorbed instead of prompted against.** `file_path`, `filePath`,
+  `filename` and `file` are accepted wherever a schema declares `path`, canonicalised before
+  validation (`src/lib/tools/guard.ts`). The standing prompt clause telling the model our name
+  is `path` is gone — it cost tokens every turn and still missed.
+- **Tool guidance moved onto the tools.** The browser block (1,872 chars, rendered in four of
+  five modes) now lives on the seven browser tools; git *policy* lives on `run_command`; web
+  research rules live on `web_search` / `read_url`. Tool descriptions are conditional, so a
+  turn that doesn't use a tool no longer pays for its guidance.
+- **Mode rules are stated twice, not four times.** `<work_mode>` is gone for Explore, Build,
+  Fix and Review — their limits are enforced by the toolset and sandbox — and survives for
+  Plan, the one mode that is a workflow rather than a permission set
+  (`src/lib/tools/mode-prompt-bundle.ts`).
+- **Six prompt/harness contradictions fixed.** Plan mode advertised `run_command` and
+  `edit_file`, neither of which it has; browser guidance was suppressed for Plan although it
+  has all six browser tools; `preview_test` was recommended to read-only modes; and the debug
+  mode's label read "Fix" in the UI and "Debug" in the prompt *in the same render*. Mode labels
+  now derive from the registry so they cannot diverge again.
+- **`edit_file`'s description carries the contract and preconditions only.** The failure
+  taxonomy is delivered by the result channel, which already reports the actual near-miss with
+  line numbers and the exact range to re-read.
+- **Sub-agents are addressed by name first**, with the task id as the fallback, and the
+  ambiguity error now suggests a longer name rather than an id (`src/lib/tools/subagents.ts`).
+
+### Added
+
+- **A standing test that no mode's prompt names a tool that mode cannot call**
+  (`src/__tests__/mode_system_consistency.test.ts`). This is what caught three of the six
+  contradictions above, and it prevents the class recurring.
+- **A `plan` card** — title, status, `N/M steps done`, and the checklist, with an honest count
+  of steps the preview cut off. `plan` previously had no card at all and rendered worse than
+  any other tool despite having the best structured data (`src/lib/chat/tool-expand-view.ts`).
+
+### Notes
+
+- The suite was red before this work for reasons unrelated to it: 36 tests across 23 eval files
+  failed on a missing `BrowserWindow.getFocusedWindow`, and one assertion still expected
+  `target:"preview"` from the Preview tab deleted in v14.15.0. Both fixed; 2043 tests pass.
+- `npm run package` currently needs `npm_config_registry=https://registry.npmjs.org/` on a
+  machine with a custom global registry — `packageAfterPrune` spawns npm outside the project,
+  where the project `.npmrc` does not apply. The one-line `forge.config.ts` fix is deferred.
+
 ## [14.21.0] (2026-07-27) — Sub-agents you can see, and changes you review before they land
 
 This release covers four versions of work (14.18 through 14.21) that hadn't shipped yet.

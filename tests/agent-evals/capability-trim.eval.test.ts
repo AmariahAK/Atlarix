@@ -147,7 +147,10 @@ describe("v14.8.8 — per-tool guidance rides the capability-gated tool schema",
     expect(runCmd).toBeTruthy();
     // The guidance relocated out of AGENTS.md now lives on the tool itself.
     expect(runCmd).toMatch(/auto-background|background=true/i);
-    expect(runCmd).toContain('target:"preview"');
+    // v14.15.0 removed the Preview tab — a dev server's localhost URL is now
+    // opened as a BROWSER tab, so the guidance names browser_navigate rather
+    // than the old target:"preview". This assertion tracked the deleted feature.
+    expect(runCmd).toContain("browser_navigate");
     // Browser guidance is present because browser tools are in build mode.
     expect(descOf(req, "browser_navigate")).toBeTruthy();
     // v14.8.9: browser_inspect steers "what do you see" → visual, screenshot is

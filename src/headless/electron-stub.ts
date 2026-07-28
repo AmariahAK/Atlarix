@@ -50,7 +50,14 @@ export const app = {
   commandLine: { appendSwitch: noop },
 };
 
-export const BrowserWindow = { getAllWindows: () => [] as unknown[] };
+// `getFocusedWindow` is required as well as `getAllWindows`: `getPrimaryWindow()`
+// (main/workspace-window-manager.ts) calls it on the chat-stream path, and a
+// missing function throws rather than degrading — which is how it reached the
+// model as "This model failed (...)" instead of a window warning.
+export const BrowserWindow = {
+  getAllWindows: () => [] as unknown[],
+  getFocusedWindow: () => null,
+};
 
 export const safeStorage = {
   isEncryptionAvailable: () => false,

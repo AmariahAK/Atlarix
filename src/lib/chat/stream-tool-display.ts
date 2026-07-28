@@ -61,6 +61,28 @@ function capActivityDetail(text: string): string {
   return capPreview(text, ACTIVITY_DETAIL_MAX);
 }
 
+/**
+ * Is this string raw JSON rather than something worth showing a user?
+ *
+ * The generic fallback used to reject only strings STARTING with `{`, which let
+ * any mid-object FRAGMENT through — and `capPreview` then cut it at 300 chars,
+ * mid-token. That is the shape documented at tool-expand-view.ts:44-51 for
+ * `subagents`/`background_jobs`, and it recurs for every tool that has no
+ * dedicated branch. Catching the fragment too closes the class rather than one
+ * instance.
+ *
+ * Detects a whole object/array, or the `","key":"` / `"key":` punctuation that
+ * only appears when a serialised object has been sliced open. Ordinary prose
+ * that merely quotes a word never matches, because the colon-after-quote pair
+ * is required.
+ */
+export function looksLikeRawJson(text: string): boolean {
+  const t = text.trim();
+  if (!t) return false;
+  if (t.startsWith("{") || t.startsWith("[")) return true;
+  return /(^|,)\s*"[A-Za-z_$][\w$]*"\s*:/.test(t);
+}
+
 function resultToRawString(result: unknown): string {
   if (result == null) return "";
   if (typeof result === "string") return result;
@@ -497,7 +519,7 @@ export function formatToolResultPreview(
   }
 
   const fallback = plain ?? extractShortField(payload);
-  if (fallback && !fallback.trim().startsWith("{")) {
+  if (fallback && !looksLikeRawJson(fallback)) {
     return capPreview(fallback);
   }
 

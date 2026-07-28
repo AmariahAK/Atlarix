@@ -179,17 +179,21 @@ export function resolveSubagentTaskId(
   );
   if (partial.length === 1) return { id: partial[0].id };
   if (partial.length > 1) {
+    // Steer the retry back to a NAME. Telling the model to "use the task_id"
+    // pushed it onto the opaque handle for every subsequent call, when a longer
+    // slice of the name it chose itself disambiguates just as well and stays
+    // readable in the transcript.
     return {
       error:
         `"${wanted}" matches ${partial.length} sub-agents: ` +
-        `${JSON.stringify(partial.map((r) => ({ task_id: r.id, name: r.description, state: r.state })))}. ` +
-        "Use the task_id of the one you mean.",
+        `${JSON.stringify(partial.map((r) => ({ name: r.description, state: r.state, task_id: r.id })))}. ` +
+        "Retry with more of the name you want (or its task_id if the names are identical).",
     };
   }
   return {
     error:
       `No sub-agent matches "${wanted}". In this session: ` +
-      `${JSON.stringify(mine.map((r) => ({ task_id: r.id, name: r.description, state: r.state })))}.`,
+      `${JSON.stringify(mine.map((r) => ({ name: r.description, state: r.state, task_id: r.id })))}.`,
   };
 }
 

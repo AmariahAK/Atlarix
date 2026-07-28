@@ -31,7 +31,11 @@ ToolRegistry.register({
   name: "subagents",
   description:
     "Inspect and control the sub-agents you started with `task` — the sub-agent equivalent of background_jobs. " +
-    "Identify one with `agent`: the name you gave it in `task({description})`, a distinctive part of that name, or its task id. " +
+    // Name FIRST, id demoted to a fallback. Listing them as equal options meant a
+    // model holding a task id from a prior result just used the id, which is
+    // opaque in the transcript and easy to mismatch across turns; the name it
+    // chose in task({description}) is self-describing and it already knows it.
+    "Identify one with `agent`: PREFER the name you gave it in `task({description})` — a distinctive part of the name is enough. Fall back to its task id only when the name is ambiguous or you don't have it. " +
     'operation:"list" — sub-agents still running in this session (name, task id, elapsed, and whether one has gone quiet). ' +
     'operation:"output" — its live narration. Default mode:"new" returns what appeared since your last check; mode:"tail" returns the most recent output regardless, which is what you want to see what it is doing right now. Works on a finished sub-agent too. ' +
     'operation:"cancel" — hard-stop one that is stuck or no longer needed; this stops its token spend. ' +
@@ -49,7 +53,7 @@ ToolRegistry.register({
           "What to do: list running sub-agents, read one's output, or cancel one.",
       },
       agent: stringParam(
-        "Which sub-agent: the name from task({description}), part of that name, or its task id. Required for output/cancel.",
+        "Which sub-agent — prefer the name from task({description}) (part of it is enough); its task id also works. Required for output/cancel.",
       ),
       mode: {
         type: "string",
@@ -106,7 +110,7 @@ ToolRegistry.register({
     if (!wanted) {
       return {
         success: false,
-        error: `operation:"${operation}" requires \`agent\` (the name you gave it in task({description}), part of that name, or its task id).`,
+        error: `operation:"${operation}" requires \`agent\` — the name you gave it in task({description}) (part of it is enough), or its task id.`,
       };
     }
     const resolved = resolveSubagentTaskId(chatId, wanted);

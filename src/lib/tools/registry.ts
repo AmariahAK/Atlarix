@@ -263,7 +263,10 @@ export class ToolRegistry {
             toolName: name,
             args,
             parametersSchema: tool.parameters,
-            runner: async () => {
+            // `runWith` receives the alias-canonicalised args (guard.ts), so a
+            // model that sent `file_path` instead of `path` still reaches the
+            // handler with the canonical key filled in.
+            runWith: async (args: unknown) => {
                 let raw: unknown;
                 try {
                     raw = await tool.handler(args);

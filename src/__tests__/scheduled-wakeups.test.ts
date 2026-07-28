@@ -141,6 +141,49 @@ describe("scheduled-wakeups (R1)", () => {
       clearScheduledWakeupsForChat(chatId);
     });
 
+    it("a job finishing AFTER its timer fired purges the queued nudge", () => {
+      // The reported bug: the countdown elapses, queueing a re-check nudge; the
+      // job then delivers its result; the nudge is still drained on the next turn
+      // and the model re-checks a job that is already done.
+      //
+      // The timer removes itself from the registry when it fires, so cancelling
+      // "the job's timers" found nothing to cancel — the queued nudge has to be
+      // purged too.
+      const chatId = 7106;
+      const jobId = "npm-test";
+      clearScheduledWakeupsForChat(chatId);
+
+      setJobWakeup(chatId, jobId, 90_000, "did the suite pass?");
+      vi.advanceTimersByTime(90_000);
+      expect(hasPendingScheduledWakeupNudges(chatId)).toBe(true);
+
+      // Job finishes — this is what recordBackgroundCommandResult calls.
+      expect(cancelJobWakeups(chatId, jobId)).toBe(1);
+
+      expect(hasPendingScheduledWakeupNudges(chatId)).toBe(false);
+      expect(takePendingScheduledWakeupNudges(chatId)).toBeNull();
+      clearScheduledWakeupsForChat(chatId);
+    });
+
+    it("purging one job's nudge leaves other jobs' and free-standing nudges alone", () => {
+      const chatId = 7107;
+      clearScheduledWakeupsForChat(chatId);
+
+      setJobWakeup(chatId, "job-x", 90_000, "check x");
+      setJobWakeup(chatId, "job-y", 90_000, "check y");
+      scheduleWakeup(chatId, 90_000, "unrelated self-wake");
+      vi.advanceTimersByTime(90_000);
+
+      // Only job-x finished.
+      expect(cancelJobWakeups(chatId, "job-x")).toBe(1);
+
+      const nudge = takePendingScheduledWakeupNudges(chatId)!;
+      expect(nudge).not.toContain("check x");
+      expect(nudge).toContain("check y");
+      expect(nudge).toContain("unrelated self-wake");
+      clearScheduledWakeupsForChat(chatId);
+    });
+
     it("a fired job-tied wake-up names the job in its nudge", () => {
       const chatId = 7105;
       const jobId = "npm-run-dev";

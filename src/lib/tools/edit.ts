@@ -22,8 +22,7 @@ import log from "electron-log";
 import { assertReadablePath } from "@/lib/security/env-secret-paths";
 import { resolveToolTargetPath } from "@/ipc/utils/safeWorkspaceRelativePath";
 import { ToolRegistry } from "./registry";
-import { isAtlarixDocWritePath } from "../project-memory";
-import { findReplacement, reindentReplacement } from "./edit-match";
+import { findReplacement, reindentReplacement, unescapeString } from "./edit-match";
 import { mergeElision } from "./edit-merge";
 import { suggestClosestPath } from "./workspace-file-hints";
 import {
@@ -40,6 +39,15 @@ type EditOperation = "write" | "replace" | "merge";
 
 interface EditFileArgs {
   path: string;
+  /**
+   * Undeclared aliases for `path`, accepted but not advertised in the schema.
+   * Models emit these from training prior (`file_path` in Claude Code,
+   * `filePath` in opencode); `resolvePathArg` canonicalises them.
+   */
+  file_path?: string;
+  filePath?: string;
+  filename?: string;
+  file?: string;
   operation: EditOperation;
   description?: string;
   content?: string;
@@ -65,6 +73,26 @@ function normalizeRelativePath(input: string): string {
   return input.replace(/^\/workspace\//, "").replace(/^workspace\//, "").replace(/^\/+/, "");
 }
 
+/** Parameter names models actually emit for the target file, in precedence order. */
+const PATH_ARG_ALIASES = ["path", "file_path", "filePath", "filename", "file"] as const;
+
+/**
+ * Canonicalise the target-file argument.
+ *
+ * `path` is our schema's name, but the rest of the ecosystem uses `file_path`
+ * (Claude Code) or `filePath` (opencode), and models emit those from training
+ * prior. Accepting them here is strictly better than a system-prompt clause
+ * forbidding them: the prompt costs tokens every turn, still fails sometimes,
+ * and produces a "missing required parameter" dead-end when it does.
+ */
+function resolvePathArg(rawArgs: EditFileArgs): string | undefined {
+  for (const key of PATH_ARG_ALIASES) {
+    const v = rawArgs[key];
+    if (typeof v === "string" && v.trim()) return v;
+  }
+  return undefined;
+}
+
 /**
  * Enforce workspace-confinement ONLY for in-workspace targets. An explicit
  * absolute path that resolves OUTSIDE the workspace is an intentional cross-repo
@@ -82,10 +110,6 @@ function assertReadableUnlessOutside(
   const isUnderWorkspace =
     rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
   if (isUnderWorkspace) assertReadablePath(normalizedPath, workspaceRoot);
-}
-
-function isAtlarixPlanFile(relPath: string): boolean {
-  return isAtlarixDocWritePath(relPath.replace(/\\/g, "/"));
 }
 
 async function readFileSafe(
@@ -219,6 +243,40 @@ async function runWrite(
   };
 }
 
+/**
+ * Human-readable name for the match strategy that actually succeeded.
+ *
+ * The audit notice used to hardcode "indent/EOL tolerance" for EVERY fuzzy
+ * strategy. That did not merely under-inform — it actively misled: an
+ * escape-normalized match was reported as an indentation problem, which sent
+ * the model hunting encoding and whitespace for ~25 turns while the real cause
+ * (backslash escapes written into a Go raw string) sat in plain sight. Naming
+ * the strategy is the whole fix on the signalling side; `match.strategy` was
+ * already returned by `findReplacement` and thrown away here.
+ */
+function describeMatchStrategy(strategy: string): string {
+  switch (strategy) {
+    case "line-trimmed":
+      return "line-trimmed matching (leading/trailing whitespace ignored)";
+    case "block-anchor":
+      return "block-anchor matching (first and last line anchored)";
+    case "whitespace":
+      return "whitespace-normalized matching";
+    case "indentation":
+      return "indentation-tolerant matching";
+    case "escape":
+      return "escape-normalized matching — your old_content contained backslash escapes the file does not";
+    case "unicode-punctuation":
+      return "unicode-punctuation-normalized matching — the file uses typographic quotes/dashes where you sent ASCII";
+    case "trimmed-boundary":
+      return "boundary-trimmed matching";
+    case "context-aware":
+      return "context-aware matching (first/last line anchored, interior only partially matched)";
+    default:
+      return `${strategy} matching`;
+  }
+}
+
 /** Result of applying ONE replace to an in-memory content string. */
 type ApplyReplaceResult =
   | { ok: false; error: Record<string, unknown> }
@@ -298,19 +356,63 @@ function applyOneReplace(
   }
 
   // §1.4: fuzzy drift is not silent — re-anchor to the file's ACTUAL indentation
-  // and surface a notice so indentation-sensitive files get re-verified.
+  // and surface a notice so the edited range gets re-verified.
+  //
+  // SYMMETRY RULE: whichever normalization let the match succeed must ALSO be
+  // applied to the replacement. The cascade is lenient on the find side, so
+  // splicing new_content verbatim writes back whatever malformation permitted
+  // the match in the first place. `reindentReplacement` is this rule for the
+  // whitespace replacers; `escape` needed it too and did not have it — observed
+  // live writing a model's `\"` into a Go raw string literal (which cannot
+  // contain escapes) and breaking the build, because reindentReplacement
+  // deliberately short-circuits on escape fuzz (edit-match.ts:505-514) so
+  // nothing touched the backslashes.
+  //
+  // `unicode-punctuation` is deliberately NOT transformed: re-curling quotes
+  // cannot be done safely (opening vs closing is unrecoverable), so it carries
+  // a caveat instead of a repair.
   let fuzzyNotice: string | undefined;
   let effectiveReplacement = effectiveNew;
   if (match.fuzzy) {
     const matchLine = content.slice(0, match.index).split("\n").length;
     const matchedText = content.slice(match.index, match.index + match.matchLength);
-    const reindented = reindentReplacement(matchedText, oldRaw, effectiveNew);
-    if (reindented.changed) effectiveReplacement = reindented.text;
-    fuzzyNotice = reindented.changed
-      ? `Applied with indent/EOL tolerance at line ${matchLine} — old_content did not match exactly; new_content was re-anchored to the file's actual indentation. Re-read the edited range to verify.`
-      : `Applied with indent/EOL tolerance at line ${matchLine} — old_content did not match exactly. Re-read the edited range to verify indentation.`;
+    const notes: string[] = [];
+
+    // The find side was un-escaped to locate the region, so un-escape the write
+    // side by the same rule. old_content is un-escaped too, so the re-indent
+    // pass below compares like with like rather than escaped-vs-unescaped text.
+    let oldForIndent = oldRaw;
+    if (match.strategy === "escape") {
+      const unescaped = unescapeString(effectiveReplacement);
+      if (unescaped !== effectiveReplacement) {
+        effectiveReplacement = unescaped;
+        notes.push(
+          "new_content was un-escaped the same way old_content was, so the file did not receive literal backslash escapes",
+        );
+      }
+      oldForIndent = unescapeString(oldRaw);
+    }
+
+    if (match.strategy === "unicode-punctuation") {
+      notes.push(
+        "new_content is written exactly as you sent it, so the replaced span now uses your ASCII punctuation where the rest of the file uses typographic characters",
+      );
+    }
+
+    const reindented = reindentReplacement(matchedText, oldForIndent, effectiveReplacement);
+    if (reindented.changed) {
+      effectiveReplacement = reindented.text;
+      notes.push("new_content was re-anchored to the file's actual indentation");
+    }
+
+    fuzzyNotice =
+      `Applied via ${describeMatchStrategy(match.strategy)}, at line ${matchLine}` +
+      (notes.length ? ` — ${notes.join("; ")}` : "") +
+      `. Re-read the edited range to verify.`;
     logger.warn(
-      `[edit_file] fuzzy match (indent/EOL tolerated${reindented.changed ? ", new_content re-indented" : ""}) for ${normalizedPath} at line ${matchLine}`,
+      `[edit_file] fuzzy match strategy=${match.strategy}${
+        notes.length ? ` notes=${notes.length}` : ""
+      } for ${normalizedPath} at line ${matchLine}`,
     );
   }
 
@@ -482,12 +584,18 @@ async function runMerge(
 
 ToolRegistry.register({
   name: "edit_file",
-  description: `Create, overwrite, or surgically edit a file — the single tool for all file changes. Operations:
-- write: create a NEW file, or fully overwrite an existing one, with \`content\` (the complete file body)
-- replace: find \`old_content\` in the file and swap it for \`new_content\` (or pass an \`edits\` array to make SEVERAL replaces in one atomic call)
-- merge: give the file's new form in \`content\` but collapse UNCHANGED spans to a \`// ... existing code ...\` marker — you don't reproduce the parts you aren't changing
+  // CONTRACT + PRECONDITIONS ONLY. The failure taxonomy that used to live here is
+  // delivered by the result channel instead — `applyOneReplace` returns the actual
+  // near-miss with its line numbers, the exact read_file(start_line, end_line) to
+  // retry from, and a structured `retry` reason. Preconditions are prospective and
+  // must arrive before the call; failures are retrospective and are better told
+  // with the real file in hand.
+  description: `Create, overwrite, or surgically edit a file — the single tool for all file changes.
+- replace: find \`old_content\` and swap it for \`new_content\`. Pass an \`edits\` array to make SEVERAL replaces in ONE atomic call. This is the default choice for an existing file.
+- write: create a NEW file, or fully overwrite one, with \`content\`. Keep a single write to ≲800 lines — split a larger file across calls, or the write is truncated.
+- merge: give the file's new shape in \`content\` with \`// ... existing code ...\` where spans are unchanged, keeping the lines either side of each marker verbatim. Use it when reproducing the surrounding text exactly would be error-prone.
 
-Use "write" for a new file or a full rewrite. For a change to an existing file prefer "replace" (surgical, unique context; minor whitespace/indent drift tolerated; ambiguous/missing matches reported so you re-read and retry) — and use its \`edits\` array to batch multiple changes. Use "merge" for a larger edit where reproducing exact surrounding text is error-prone: write the changed code and put \`// ... existing code ...\` where spans are untouched, keeping the lines right before/after each marker copied verbatim from the file. Put REAL newlines in content/new_content — never the two characters backslash-n. Never describe an edit instead of making it.`,
+Read the file first — \`replace\` matches its current bytes, and you'll be told exactly what didn't match and where. Use real newlines and real quotes in content/new_content, never backslash-escaped ones. Never describe an edit instead of making it.`,
   requiresWorkspace: true,
   isCore: true,
   isReadOnly: false,
@@ -496,7 +604,8 @@ Use "write" for a new file or a full rewrite. For a change to an existing file p
     properties: {
       path: {
         type: "string",
-        description: "File path relative to workspace root.",
+        description:
+          "File to edit. A relative path resolves against the workspace root; an absolute path targets that exact location, including outside the workspace.",
       },
       operation: {
         type: "string",
@@ -534,10 +643,34 @@ Use "write" for a new file or a full rewrite. For a change to an existing file p
     required: ["path", "operation"],
   },
   handler: async (rawArgs: EditFileArgs) => {
-    const { path: filePath, operation, workspace, chatMode } = rawArgs;
+    const { operation, workspace, chatMode } = rawArgs;
+    // Absorb the mistake instead of prompting against it. Every other agent
+    // harness names this parameter `file_path` (Claude Code's Read/Edit/Write,
+    // opencode's read/write), so models reach for it by training prior and the
+    // call failed as a missing required parameter. A prompt clause forbidding it
+    // cost tokens on every turn and still missed; an alias never misses.
+    const filePath = resolvePathArg(rawArgs);
 
     if (chatMode === "ask") {
       return { error: "Edit operations not allowed in Ask mode. Switch to Build mode.", operation: "edit_file", denied: true };
+    }
+
+    // Plan mode cannot edit files AT ALL. `edit_file` is absent from
+    // PLAN_ALLOWLIST, so native function calling can never reach here — but the
+    // text-tool fallback (build-branch.ts) dispatches by NAME through
+    // ToolRegistry with no allowlist check, which is the path this backstop
+    // exists for (see mode-tool-registry.ts:79-82).
+    //
+    // The former `.atlarix`-docs carve-out is gone: it advertised a capability
+    // the allowlist never granted, so the two prompt claims describing it were
+    // simply false. Plan authors its artifact through the `plan` tool.
+    if (chatMode === "plan") {
+      return {
+        error:
+          "Edit operations not allowed in Plan mode. Use the plan tool for the session plan; switch to Build or Debug to change files.",
+        operation: "edit_file",
+        denied: true,
+      };
     }
 
     if (!filePath) return { error: "Missing required parameter: path", operation: "edit_file" };
@@ -553,14 +686,6 @@ Use "write" for a new file or a full rewrite. For a change to an existing file p
     const normalizedPath = absoluteTarget
       ? absoluteTarget.absPath
       : normalizeRelativePath(filePath);
-
-    if (chatMode === "plan" && !isAtlarixPlanFile(normalizedPath)) {
-      return {
-        error: "Plan mode may only edit .atlarix/atlarix.md or .atlarix/memory.md. Use the plan tool for session plans. Switch to Build for application code.",
-        operation: "edit_file",
-        denied: true,
-      };
-    }
 
     const fullPath = absoluteTarget
       ? absoluteTarget.absPath

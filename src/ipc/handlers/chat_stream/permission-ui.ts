@@ -214,6 +214,34 @@ export function shouldSkipPermissionWaitForRunCommand(
   return false;
 }
 
+/**
+ * A guessed edit always faces a human.
+ *
+ * `edit_file` carries a `preview.notice` when its match cascade landed the
+ * region via a NON-exact strategy — indentation tolerance, escape
+ * normalization, block anchoring. That notice is the tool stating it guessed,
+ * and a guess is exactly what should not be committed unattended: on
+ * 2026-07-28 an escape-normalized match auto-executed and wrote literal `\"`
+ * into Go raw strings, with its only warning consumed by nobody.
+ *
+ * Returns true when the operation must NOT bypass the approval wait, whatever
+ * the auto-approve settings say. Exact matches (no notice) are unaffected, so
+ * the common path keeps queueing writes without prompting.
+ *
+ * Safe unattended: headless turns don't stall on this. `src/headless/auto-approve.ts`
+ * polls buffered `permission-request` events and resolves them through the real
+ * `execute-permission` handler, so a fuzzy edit is approved there rather than
+ * waiting on a human who doesn't exist.
+ */
+export function requiresHumanReviewDespiteAutoApprove(permRequest: {
+  operation: string;
+  preview: unknown;
+}): boolean {
+  if (permRequest.operation !== "edit_file") return false;
+  const notice = (permRequest.preview as { notice?: unknown } | null)?.notice;
+  return typeof notice === "string" && notice.trim().length > 0;
+}
+
 export function enrichRunCommandPermissionRequest<T extends { operation: string; preview: unknown }>(
   permRequest: T,
   appId: number | null | undefined,

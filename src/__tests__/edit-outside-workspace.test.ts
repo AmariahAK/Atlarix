@@ -52,7 +52,12 @@ describe("edit_file outside the workspace (gated, not silent)", () => {
     expect(fs.readFileSync(outsideFile, "utf-8")).toContain('const Version = "1"');
   });
 
-  it("plan mode still refuses an outside edit (only .atlarix docs allowed)", async () => {
+  // Plan mode refuses EVERY edit, inside or outside the workspace. `edit_file`
+  // is absent from PLAN_ALLOWLIST, so this backstop only fires for the
+  // text-tool fallback path, which dispatches by name without an allowlist
+  // check. The former `.atlarix`-docs carve-out was removed: it advertised a
+  // capability the allowlist never granted.
+  it("plan mode refuses an outside edit (edit_file is unavailable in Plan)", async () => {
     const res = await edit({
       path: outsideFile,
       operation: "replace",

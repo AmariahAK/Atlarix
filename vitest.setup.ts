@@ -18,6 +18,14 @@ vi.mock("electron", () => {
     app,
     BrowserWindow: {
       getAllWindows: vi.fn(() => []),
+      // `getPrimaryWindow()` (main/workspace-window-manager.ts) calls this on the
+      // stream path, so omitting it threw
+      // "BrowserWindow.getFocusedWindow is not a function" out of chat_stream
+      // and surfaced to every agent-eval as "This model failed (...)" — 36 tests
+      // across 23 eval files, none of them actually about windows.
+      // Null is the honest answer with no windows open; the caller null-checks
+      // and falls back to getAllWindows().
+      getFocusedWindow: vi.fn(() => null),
     },
     ipcMain,
     safeStorage: {

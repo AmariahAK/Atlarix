@@ -1155,7 +1155,7 @@ ToolRegistry.register({
     "\"click\" an element; \"fill\" a form field with `value` (include `value` in the SAME call — a boolean toggles a checkbox, and a select matches an option by value OR visible text); " +
     "\"key\" presses a real key — `text:\"Enter\"` to submit a form, \"Escape\" to close a modal, \"Tab\" to move on, or a combo like \"cmd+a\"; " +
     "\"hover\" moves the pointer onto an element (opens :hover menus and tooltips); " +
-    "\"scroll\" scrolls the page (`direction`, optional `amount`) to reach lazy-loaded content, or pass a `ref` to scroll that element into view. " +
+    "\"scroll\" scrolls the page (`direction`, optional `amount`) to reach lazy-loaded content, or pass a `ref` to scroll that element into view — a page read reports your scroll position, so if you are not at the bottom, scroll and re-read to reach content that only appears after scrolling. " +
     "PREFER `ref` (a stable id from browser_inspect or browser_find, e.g. \"e3\") over `selector` (CSS) — refs are robust. " +
     "Use it to TEST the app you are building. " +
     "Returns a light delta (did the URL change, elements/content change) so you usually DON'T need a follow-up browser_inspect — only re-read on a material change.",
@@ -1260,7 +1260,8 @@ ToolRegistry.register({
     "operation:\"list\" shows every open tab (id, url, title) — do this when you need a tab_id; " +
     "\"create\" opens a new tab (optionally at `url`) WITHOUT disturbing the current page — use this instead of browser_navigate whenever the existing page still matters (a signed-in session, a filled form, search results you'll come back to); " +
     "\"switch\" makes a tab active; \"close\" closes one. " +
-    "Once more than one tab is open, the other browser tools REQUIRE tab_id so you can't act on the wrong page by accident.",
+    "Once more than one tab is open, the other browser tools REQUIRE tab_id so you can't act on the wrong page by accident. " +
+    "If a site needs a login you don't have, LIST the tabs first — the user may already be signed in, and every tab shares one browser session, so their login carries over to yours.",
   parameters: {
     type: "object",
     properties: {
@@ -1474,7 +1475,7 @@ ToolRegistry.register({
     "Run several browser actions in ONE call when you can predict the next few steps — e.g. fill a field, fill another, press Enter. " +
     "Steps run in order and STOP at the first failure (later steps depend on earlier state), and you get one result listing what happened at each. " +
     "Steps: {action:\"navigate\",url}, {action:\"click\",ref}, {action:\"fill\",ref,value}, {action:\"key\",text}, {action:\"hover\",ref}, {action:\"scroll\",direction|ref}, {action:\"waitFor\",selector|text,timeoutMs}. " +
-    "Use refs from browser_inspect / browser_find — no coordinates. For an asserted pass/fail verification of your app, use preview_test instead.",
+    "Use refs from browser_inspect / browser_find — no coordinates. For an asserted pass/fail verification of your app, use preview_test instead (available in Build and Debug).",
   parameters: {
     type: "object",
     properties: {
@@ -1868,7 +1869,8 @@ ToolRegistry.register({
     "Run a NON-INTERACTIVE, asserted UI test against your running app in a browser tab (headless — no human clicking) and get a single structured pass/fail. " +
     "Use this to VERIFY a web app you built/changed before finishing: it runs a sequence of steps and reports `passed` plus any runtime console errors and failed (4xx/5xx) network requests. " +
     "Steps: {action:\"navigate\",url}, {action:\"click\",ref|selector}, {action:\"fill\",ref|selector,value}, {action:\"waitFor\",selector|text,timeoutMs}, {action:\"assert\",kind:\"visible\"|\"text\"|\"url\"|\"count\",selector,expect}. " +
-    "Prefer `ref` (from browser_inspect snapshot) over CSS `selector`. Start the dev server (run_command) and pass its URL (e.g. http://localhost:3000) as `url` so the test opens it in a browser tab. Language/framework agnostic — it drives the rendered DOM.",
+    "Prefer `ref` (from browser_inspect snapshot) over CSS `selector`. Start the dev server (run_command) and pass its URL (e.g. http://localhost:3000) as `url` so the test opens it in a browser tab. Language/framework agnostic — it drives the rendered DOM. " +
+    "Your turn will not finish while the app is throwing runtime errors, so run this before you report a UI change as done.",
   parameters: {
     type: "object",
     properties: {

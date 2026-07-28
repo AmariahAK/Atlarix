@@ -190,6 +190,28 @@ export function parseToolResultEnvelope(
   }
 }
 
+/**
+ * Does this `{`-span OPEN like a tool-result envelope?
+ *
+ * Used for spans that `parseToolResultEnvelope` cannot vouch for — either
+ * unterminated (the model's echo was cut off) or structurally valid but not
+ * matching `isToolResultEnvelopeObject`. Both used to leak into the visible
+ * reply: a truncated echo emitted the whole remainder verbatim, and an
+ * unrecognised one emitted `{` then fell through, rendering the interior as
+ * prose. That is how a plan-tool result reached the user as
+ * `Fix: … (Issue #23474)\n","progress":"0/5 steps don`.
+ *
+ * Deliberately narrow — it must fire on machine-emitted tool JSON and never on
+ * prose or an object literal the model is discussing. The caller only applies
+ * this OUTSIDE fenced code blocks (see `mapOutsideFences`), so genuine JSON
+ * examples the model fenced are untouched either way.
+ */
+function opensLikeToolResultJson(span: string): boolean {
+  return /^\{\s*"(success|__permission_required|operation|planId|toolName)"\s*:/.test(
+    span,
+  );
+}
+
 /** Remove multi-line `{ "success": true, "result": ... }` blobs from markdown. */
 export function stripMultilineToolJsonEnvelopes(content: string): string {
   if (!content) return "";
@@ -204,12 +226,23 @@ export function stripMultilineToolJsonEnvelopes(content: string): string {
     out += content.slice(i, brace);
     const end = findJsonObjectEnd(content, brace);
     if (end == null) {
-      out += content.slice(brace);
+      // Unterminated. If it opens like tool JSON the model echoed a result and
+      // got cut off — drop the remainder rather than rendering a mid-JSON
+      // fragment. Otherwise it's ordinary prose containing a brace: keep it.
+      if (!opensLikeToolResultJson(content.slice(brace))) out += content.slice(brace);
       break;
     }
     const slice = content.slice(brace, end);
     const parsed = parseToolResultEnvelope(slice);
     if (parsed) {
+      i = end;
+      continue;
+    }
+    // Complete object, but not a recognised envelope. Drop it whole when it
+    // opens like tool JSON (e.g. a plan `update_step` result, which carries no
+    // message/result/error/cost); otherwise preserve the brace and carry on so
+    // real prose is never mangled.
+    if (opensLikeToolResultJson(slice)) {
       i = end;
       continue;
     }

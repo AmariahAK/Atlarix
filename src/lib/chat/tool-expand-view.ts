@@ -1,10 +1,12 @@
 import {
   formatToolResultPreview,
+  looksLikeRawJson,
   parseToolResultEnvelope,
 } from "@/lib/chat/stream-tool-display";
 import type { StreamThreadToolStatus } from "@/lib/chat/stream-thread";
 import type { DiffHunk } from "@/lib/diff/compose-hunks";
 import { stripUntrustedDataEnvelope } from "@/lib/streaming/untrusted-data";
+import { parsePlanChecklist } from "@/lib/tasks/plan-checklist";
 
 const WRITE_TOOLS = new Set([
   "write_file",
@@ -50,6 +52,55 @@ const RUN_COMMAND_TOOLS = new Set(["run_command", "run_shell_command"]);
  * mid-token and offered no way to see the rest.
  */
 const AGENT_LOG_TOOLS = new Set(["subagents", "background_jobs"]);
+
+const PLAN_TOOLS = new Set(["plan"]);
+
+/**
+ * Plan card: status, progress, and the checklist itself.
+ *
+ * `plan` had no branch at all, so every call fell to the generic tail and showed
+ * one line ("Plan updated.") or, before its results carried a `message`, a bare
+ * "Done" — the worst-rendered tool in the app despite having the best structured
+ * data. Reuses `parsePlanChecklist` (pure, renderer-safe) and the existing
+ * `text` kind, so no new view type or renderer work is needed.
+ */
+function buildPlanView(payload: Record<string, unknown>): ToolExpandView | null {
+  const message = typeof payload.message === "string" ? payload.message.trim() : "";
+  const progress = typeof payload.progress === "string" ? payload.progress.trim() : "";
+  const planStatus = typeof payload.planStatus === "string" ? payload.planStatus.trim() : "";
+  const content =
+    typeof payload.contentPreview === "string"
+      ? payload.contentPreview
+      : typeof payload.content === "string"
+        ? payload.content
+        : "";
+
+  const header = [message || undefined, planStatus || undefined, progress || undefined]
+    .filter(Boolean)
+    .join(" · ");
+  if (!header && !content) return null;
+
+  const steps = content ? parsePlanChecklist(content) : [];
+  if (steps.length === 0) return header ? { kind: "text", body: header } : null;
+
+  // ASCII markers, per the output-style rule that the UI supplies its own icons.
+  const marks: Record<string, string> = {
+    done: "[x]",
+    in_progress: "[~]",
+    blocked: "[!]",
+    todo: "[ ]",
+  };
+  const lines = steps.map((s) => `${marks[s.state] ?? "[ ]"} ${s.text}`);
+
+  // contentPreview is capped at 400 chars upstream, so the checklist can be cut
+  // mid-way. Say so rather than implying the plan is shorter than it is.
+  const total = Number.parseInt(progress.split("/")[1] ?? "", 10);
+  if (Number.isFinite(total) && total > steps.length) {
+    lines.push(`… ${total - steps.length} more`);
+  }
+
+  return { kind: "text", body: [header, "", ...lines].filter((l) => l !== undefined).join("\n") };
+}
 
 const MCP_LIST_TOOLS = new Set(["list_available_mcps"]);
 
@@ -925,6 +976,11 @@ export function buildToolExpandView(
     if (search) return search;
   }
 
+  if (PLAN_TOOLS.has(toolName)) {
+    const plan = buildPlanView(payload);
+    if (plan) return plan;
+  }
+
   if (MCP_LIST_TOOLS.has(toolName)) {
     if (typeof payload.error === "string" && payload.error.trim()) {
       return { kind: "text", body: payload.error.trim(), isError: true };
@@ -1050,15 +1106,18 @@ export function buildToolExpandView(
     }
   }
 
+  // Same class bug as the preview fallback: a `startsWith("{")` test passes any
+  // mid-object FRAGMENT, which then gets sliced again for display. `looksLikeRawJson`
+  // catches the fragment as well as the whole object.
   const preview = formatToolResultPreview(toolName, resultText, streamStatus);
-  if (preview && !preview.trim().startsWith("{")) {
+  if (preview && !looksLikeRawJson(preview)) {
     return { kind: "text", body: preview };
   }
 
   const short =
     typeof payload.message === "string"
       ? payload.message
-      : plain && !plain.trim().startsWith("{")
+      : plain && !looksLikeRawJson(plain)
         ? plain.slice(0, 2000)
         : undefined;
   if (short?.trim()) {

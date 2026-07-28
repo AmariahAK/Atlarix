@@ -22,13 +22,24 @@ export interface GuardOptions<T> {
   toolName: string;
   args: unknown;
   /**
+   * Invoked with the alias-canonicalised args (see `canonicalizeParamAliases`).
+   * Prefer this over closing over the raw `args`, or a model that sent
+   * `file_path` reaches the handler without a `path`.
+   */
+  runWith?: (args: unknown) => Promise<T>;
+  /**
    * JSON Schema for the tool's parameters (the same shape `createParameters`
    * in `registry.ts` produces). Pass `undefined` for MCP / external tools
    * whose schema is not exposed to the registry — the TOOL_ERROR trap still
    * applies, only the required-field check is skipped.
    */
   parametersSchema?: unknown;
-  runner: () => Promise<T>;
+  /**
+   * Legacy form that closes over the caller's own args. Kept for callers that
+   * don't take parameters (or don't need canonicalisation); `runWith` is
+   * preferred. Exactly one of `runWith` / `runner` must be supplied.
+   */
+  runner?: () => Promise<T>;
 }
 
 export interface GuardError {
@@ -38,6 +49,50 @@ export interface GuardError {
   tool: string;
   /** INVALID_PARAMS only: keys the caller did provide, for the model to diff against. */
   received?: string[];
+}
+
+/**
+ * Parameter synonyms models emit instead of a schema's canonical name.
+ *
+ * Every other agent harness names the file parameter `file_path` (Claude Code's
+ * Read/Edit/Write) or `filePath` (opencode), so models reach for those from
+ * training prior and the call died as a missing required parameter. The system
+ * prompt used to carry a standing clause telling the model our name is `path`:
+ * that cost tokens on every turn and still missed sometimes.
+ *
+ * Absorbing it here is strictly better, and general — `read_file` had already
+ * hand-declared `file_path` in its own schema (file.ts), which fixed exactly one
+ * synonym for exactly one tool.
+ *
+ * Canonicalisation is conservative: it only fills a key the schema actually
+ * declares, only when that key is absent, and never overwrites a value the
+ * model got right. A tool with no `path` property is untouched.
+ */
+const PARAM_ALIASES: Readonly<Record<string, readonly string[]>> = {
+  path: ["file_path", "filePath", "filename", "file"],
+};
+
+export function canonicalizeParamAliases(schema: unknown, args: unknown): unknown {
+  if (!args || typeof args !== "object" || Array.isArray(args)) return args;
+  const props = (schema as { properties?: Record<string, unknown> } | null)?.properties;
+  if (!props || typeof props !== "object") return args;
+
+  const a = args as Record<string, unknown>;
+  let out: Record<string, unknown> | null = null;
+
+  for (const [canonical, aliases] of Object.entries(PARAM_ALIASES)) {
+    if (!(canonical in props)) continue;
+    if (a[canonical] !== undefined && a[canonical] !== null) continue;
+    for (const alias of aliases) {
+      const v = a[alias];
+      if (typeof v === "string" && v.trim()) {
+        out ??= { ...a };
+        out[canonical] = v;
+        break;
+      }
+    }
+  }
+  return out ?? args;
 }
 
 /**
@@ -70,7 +125,12 @@ export function getMissingRequiredParams(
 export async function guardToolCall<T>(
   opts: GuardOptions<T>,
 ): Promise<T | GuardError> {
-  const { toolName, args, parametersSchema, runner } = opts;
+  const { toolName, args: rawArgs, parametersSchema, runner, runWith } = opts;
+
+  // Fill canonical parameter names from the synonyms models actually emit,
+  // BEFORE the required-field check — otherwise a `file_path` call is rejected
+  // as missing `path` and the alias never reaches the handler.
+  const args = canonicalizeParamAliases(parametersSchema, rawArgs);
 
   const missing = getMissingRequiredParams(parametersSchema, args);
   if (missing.length > 0) {
@@ -96,7 +156,10 @@ export async function guardToolCall<T>(
     .catch(() => {});
 
   try {
-    const result = await runner();
+    if (!runWith && !runner) {
+      throw new Error("guardToolCall requires either runWith or runner");
+    }
+    const result = runWith ? await runWith(args) : await runner!();
     const ms = Date.now() - t0;
     recordToolDuration(toolName, ms);
     void import("@sentry/electron/main")

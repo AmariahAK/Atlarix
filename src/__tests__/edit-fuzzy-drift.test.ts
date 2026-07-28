@@ -7,10 +7,15 @@ import { ToolRegistry } from "@/lib/tools";
 /**
  * v12 TODO 1.4: fuzzy edit drift is surfaced, not silent.
  *
- * When edit_file's old_content only matches with indent/EOL tolerance, the
- * permission payload must carry a `notice` (→ model tool result `output` via
- * the interceptor) and the card `description` must include it, with the
- * matched line number.
+ * When edit_file's old_content only matches via a non-exact strategy, the
+ * permission payload carries a `notice` that reaches the model as the tool
+ * result's `output` (interceptor.ts:829-831 → build-branch.ts), and the card
+ * `description` includes it, with the matched line number.
+ *
+ * The notice must name the strategy that actually matched. Reporting every
+ * fuzzy strategy as "indent/EOL tolerance" was worse than saying nothing: an
+ * escape-normalized match read as an indentation problem and sent the model
+ * hunting the wrong cause for ~25 turns.
  */
 
 let ws: string;
@@ -29,7 +34,7 @@ afterAll(() => {
 });
 
 describe("edit_file fuzzy drift signal", () => {
-  it("surfaces an indent-tolerance notice with the matched line", async () => {
+  it("names the strategy that matched, with the matched line", async () => {
     const result: any = await ToolRegistry.execute("edit_file", {
       path: "src/config.py",
       operation: "replace",
@@ -43,8 +48,12 @@ describe("edit_file fuzzy drift signal", () => {
     });
 
     expect(result.__permission_required).toBe(true);
-    expect(result.preview.notice).toContain("indent/EOL tolerance at line 5");
-    expect(result.preview.description).toContain("indent/EOL tolerance");
+    // The notice must name the strategy that ACTUALLY matched. It used to say
+    // "indent/EOL tolerance" for every fuzzy strategy, which misreported an
+    // escape-normalized match as an indentation problem.
+    expect(result.preview.notice).toContain("line-trimmed matching");
+    expect(result.preview.notice).toContain("at line 5");
+    expect(result.preview.description).toContain("line-trimmed matching");
     // new_content already carries the file's real 4-space indent, so the
     // re-anchor pass is a no-op and the replacement applies as provided.
     expect(result.preview.content).toContain("    value = 2");

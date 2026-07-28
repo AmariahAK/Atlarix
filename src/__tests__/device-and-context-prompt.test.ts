@@ -19,6 +19,8 @@
 import { describe, expect, it } from "vitest";
 import { constructSystemPromptParts } from "@/prompts/system_prompt";
 import { TOOL_RECOVERY_HINTS } from "@/lib/tools/tool-error-patterns";
+import { ToolRegistry } from "@/lib/tools/registry";
+import "@/lib/tools";
 
 function build(contextSize?: number) {
   return constructSystemPromptParts({
@@ -64,10 +66,22 @@ describe("context budget block", () => {
   });
 
   it("tells the model NOT to compact on a hunch", () => {
-    // The precise failure: a long thread read as a full one.
+    // The precise failure: a long thread read as a full one. The prompt keeps the
+    // one fact the model cannot know (its window size) plus this correction; the
+    // full when-to-call rule lives on compress_context itself — see below.
     const { stableHeader } = build(1_000_000);
-    expect(stableHeader).toMatch(/not call `?compress_context`? on a hunch/i);
     expect(stableHeader).toMatch(/long thread is not a full one/i);
+  });
+
+  it("leaves the when-to-call rule on compress_context, not in the prompt", () => {
+    // Was stated in BOTH places, word for word. The tool description is the
+    // conditional one, so the prompt keeps only the window size + the correction.
+    const d = String(ToolRegistry.get("compress_context")!.description);
+    expect(d).toMatch(/Do NOT call this because the thread feels long/i);
+    expect(d).toMatch(/only after a fill warning/i);
+    expect(build(1_000_000).stableHeader).not.toMatch(
+      /not call `?compress_context`? on a hunch/i,
+    );
   });
 });
 

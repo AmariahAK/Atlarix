@@ -28,7 +28,10 @@ import { promises as fsPromises } from "node:fs";
 
 // Import our utility modules
 import { withLock } from "../utils/lock_utils";
-import { workspacePathExists } from "../utils/workspace_path_status_broadcast";
+import {
+  workspacePathExists,
+  invalidateWorkspacePathStatus,
+} from "../utils/workspace_path_status_broadcast";
 import { bootstrapAtlarixWorkspaceFolder } from "@/lib/atlarix/workspace-bootstrap";
 import {
   runningApps,
@@ -691,6 +694,12 @@ export function registerAppHandlers() {
       event: Electron.IpcMainInvokeEvent,
       { appId }: { appId: number },
     ): Promise<void> => {
+      // Running a workspace is the moment the user expects us to touch its
+      // folder, so re-verify it here instead of on window focus (which is what
+      // made the macOS folder-access prompt recur). This keeps the app-list chip
+      // honest in the direction the existence cache can't self-correct: a folder
+      // that was present at first stat and has since been deleted or moved.
+      invalidateWorkspacePathStatus(appId);
       return withLock(appId, async () => {
         // Check if app is already running
         if (runningApps.has(appId)) {

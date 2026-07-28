@@ -726,8 +726,21 @@ export function registerWorkspaceSessionHandlers(): void {
       .where(eq(sessionMessages.sessionId, sessionId))
       .orderBy(asc(sessionMessages.createdAt));
 
-    const firstUser = rows.find((m) => m.role === "user");
     const firstAssistant = rows.find((m) => m.role === "assistant");
+
+    // Pick the first user message that still says something ONCE STRIPPED, not
+    // simply the first one.
+    //
+    // Live bug: a session opened by pasting text — first message is nothing but
+    // `<atlarix-text-attachment … />` — stripped to "" (chat_naming.ts removes all
+    // tags). That empty string was fed to the title model AND was what the
+    // simple-name fallback below is gated on, so both paths starved and the
+    // session stayed "Untitled" forever. Looking past a message that carries only
+    // attachments fixes the input and the fallback together.
+    const firstUser = rows.find(
+      (m) =>
+        m.role === "user" && stripContentForTitleSource(m.content ?? "", "user").trim(),
+    );
     if (!firstUser?.content?.trim() || !firstAssistant?.content?.trim()) {
       return { title: currentTitle };
     }
@@ -759,12 +772,15 @@ export function registerWorkspaceSessionHandlers(): void {
       }
     }
 
+    // Last resort: derive a name from whatever text we DO have. Prefer the user's
+    // words; fall back to the assistant's visible answer, so a session where the
+    // user only ever pasted attachments still gets a name instead of "Untitled".
     const trimmed = newTitle.trim();
-    if (
-      isLowQualityGeneratedTitle(trimmed) &&
-      conversationMessages[0]?.content?.trim()
-    ) {
-      newTitle = generateSimpleChatName(conversationMessages[0].content);
+    if (isLowQualityGeneratedTitle(trimmed)) {
+      const source =
+        conversationMessages[0]?.content?.trim() ||
+        conversationMessages[1]?.content?.trim();
+      if (source) newTitle = generateSimpleChatName(source);
     }
 
     const finalTitle = newTitle.trim();

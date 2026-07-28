@@ -32,8 +32,23 @@ interface ScheduledWakeup {
   jobId?: string;
 }
 
+/**
+ * A nudge that has already FIRED and is waiting to be drained.
+ *
+ * Keeps `jobId` because a fired nudge outlives its timer: the timer removes
+ * itself from `timersByChat` when it fires, so `cancelJobWakeups` — which only
+ * walks that map — could not reach an already-queued nudge. A job that finished
+ * after its timer fired therefore still got re-checked, which is the exact
+ * "it pings even though the task was done" symptom. Carrying the id lets a
+ * finishing job purge its own queued nudges.
+ */
+interface QueuedNudge {
+  text: string;
+  jobId?: string;
+}
+
 const timersByChat = new Map<number, Map<string, ScheduledWakeup>>();
-const nudgesByChat = new Map<number, string[]>();
+const nudgesByChat = new Map<number, QueuedNudge[]>();
 /** Monotonic counter for ids (avoids Math.random). */
 let seq = 0;
 
@@ -86,7 +101,7 @@ function scheduleInternal(
   const timer = setTimeout(() => {
     timersByChat.get(chatId)?.delete(id);
     const list = nudgesByChat.get(chatId) ?? [];
-    list.push(nudgeText);
+    list.push({ text: nudgeText, ...(jobId ? { jobId } : {}) });
     nudgesByChat.set(chatId, list.slice(-MAX_PENDING_PER_CHAT));
     notifier?.(chatId, { operationId: id, status: "scheduled" });
   }, clamped);
@@ -157,18 +172,38 @@ export function getJobWakeupRemainingMs(chatId: number, jobId: string): number |
   return Math.max(0, existing.firesAt - Date.now());
 }
 
-/** Cancel every timer tied to a job (on adjust-replace or job finish). */
+/**
+ * Cancel everything tied to a job — pending timers AND already-fired nudges.
+ *
+ * Both halves matter. Clearing only the timers left a fired-but-undrained nudge
+ * in the queue, so a job that finished after its countdown elapsed still asked
+ * the model to "re-check" a job whose result had already been delivered.
+ *
+ * Called on adjust-replace (where only the timer half can exist) and on job
+ * finish (`recordBackgroundCommandResult`), where either half can.
+ */
 export function cancelJobWakeups(chatId: number, jobId: string): number {
-  const chatTimers = timersByChat.get(chatId);
-  if (!chatTimers) return 0;
   let cancelled = 0;
-  for (const [id, w] of chatTimers) {
-    if (w.jobId === jobId) {
-      clearTimeout(w.timer);
-      chatTimers.delete(id);
-      cancelled++;
+
+  const chatTimers = timersByChat.get(chatId);
+  if (chatTimers) {
+    for (const [id, w] of chatTimers) {
+      if (w.jobId === jobId) {
+        clearTimeout(w.timer);
+        chatTimers.delete(id);
+        cancelled++;
+      }
     }
   }
+
+  const queued = nudgesByChat.get(chatId);
+  if (queued?.length) {
+    const kept = queued.filter((n) => n.jobId !== jobId);
+    cancelled += queued.length - kept.length;
+    if (kept.length) nudgesByChat.set(chatId, kept);
+    else nudgesByChat.delete(chatId);
+  }
+
   return cancelled;
 }
 
@@ -185,7 +220,7 @@ export function takePendingScheduledWakeupNudges(chatId: number): string | null 
   return [
     `[Scheduled re-check]`,
     `A wake-up you scheduled has fired. Re-check the relevant state now and continue — if it's still not ready, schedule another check or stop waiting.`,
-    list.map((n) => `- ${n}`).join("\n"),
+    list.map((n) => `- ${n.text}`).join("\n"),
   ].join("\n\n");
 }
 

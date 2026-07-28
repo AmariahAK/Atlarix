@@ -224,6 +224,9 @@ async function setStatus(args: PlanToolArgs) {
     planId: row.id,
     planStatus: row.planStatus,
     marker: planArtifactMarker(row.id),
+    // See the note in updateStep: `success` alone is not a recognisable tool
+    // result, so an echoed copy of this leaked into the visible reply as raw JSON.
+    message: `Plan status set to "${row.planStatus}".`,
   };
 }
 
@@ -342,6 +345,16 @@ async function updateStep(args: PlanToolArgs) {
     planId: updated.id,
     step: result.step,
     progress: `${done}/${steps.length} steps done`,
+    // `message` is REQUIRED, not decoration: isToolResultEnvelopeObject
+    // (answer-display.ts:164) only recognises a tool result when `success` is
+    // accompanied by one of result/error/message/cost. Without it this shape was
+    // unrecognised, so a model that echoed it into its visible reply had the raw
+    // JSON rendered to the user verbatim instead of stripped. It also gives the
+    // tool card something to say beyond "Done".
+    message: `Step ${result.step?.index ?? ""} → ${result.step?.state ?? "updated"} (${done}/${steps.length} steps done).`.replace(
+      "  ",
+      " ",
+    ),
   };
 }
 

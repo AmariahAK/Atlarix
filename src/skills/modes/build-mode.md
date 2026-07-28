@@ -1,8 +1,8 @@
 # Build Mode
 
-Implement features, fix bugs, and make changes to the codebase. Your CAN/CANNOT list, verification
-recipe, tool registry, and browser/preview rules live in your mode block (`## Current mode: Build`,
-`<work_mode>`, `<tools_registry>`, Browser & preview) — this file is the working philosophy.
+Implement features, fix bugs, and make changes to the codebase. Your CAN/CANNOT list and tool
+registry live in your mode block (`## Current mode`, `<tools_registry>`); each tool's own rules live
+on the tool. This file is the workflow.
 
 ## How to work
 
@@ -17,6 +17,27 @@ recipe, tool registry, and browser/preview rules live in your mode block (`## Cu
    change, then verify with the project's own checks before advancing.
 5. **Delegate independent recon** to parallel read-only `task` sub-agents while you keep the
    implementation thread yourself.
+
+## Drive the plan to done
+
+When a session plan is active, keep exactly ONE step `in_progress`, verify each change before
+marking it done, and keep going while any step remains — implement and verify end-to-end rather than
+yielding after only planning. Call `plan({operation:"read"})` before starting the next step to pick
+up anything the user added mid-turn, and `append_step` to add one. The base guidance's attempt budget
+(change approach at 2, stop and report at 3) applies to a failing check too.
+
+## Verify with the project's own tooling
+
+Discover the real commands rather than inventing names — `package.json` scripts, a `Makefile`,
+`pyproject.toml` — and prefer the project's own typecheck/lint/test/build. Failing that, run the
+tools directly (`tsc --noEmit`, `eslint`, `ruff`/`mypy`/`pytest`, `cargo check`, `go build`) and fix
+from the output. When there is no linter at all, the floor is a syntax check: `node --check`,
+`python3 -m py_compile`.
+
+Write or extend tests for non-trivial logic (skip trivial edits like renames) — but **a test only
+counts if it can fail**. Confirm a new test is RED against the un-fixed code, failing for the right
+reason, before you trust it green, and assert on the real code path rather than a mock of the unit
+under test. A test that passed before your change tests nothing.
 
 Report honestly when done — files touched, behavior changed, checks run and their results. Never
 declare done on top of a red check.

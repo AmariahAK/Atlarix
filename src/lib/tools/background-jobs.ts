@@ -92,7 +92,7 @@ ToolRegistry.register({
     "operation:\"allow_stalled\" — mark a running `job_id` as expected-to-be-quiet (a dev server / watcher / long service): stop the harness pinging you when it goes silent. It still runs and you still get its exit result. " +
     "operation:\"wake_in\" — set/replace a live countdown timer on a running `job_id`: pass `seconds` and you'll be re-engaged then to re-check THAT job (only ONE timer per job — setting again replaces it, so timers never pile up). Prefer wake_on when the event is observable in output; use this for a timed re-check. " +
     "operation:\"adjust_timer\" — add/subtract time on a job's existing countdown: pass `delta_seconds` (negative = sooner). " +
-    "\"list\" shows `wake_in_s` (the live seconds left) for any job that has a timer; a job's timer is auto-removed when it finishes. " +
+    "\"list\" shows `wake_in_s` (the live seconds left) for any job that has a timer; a finished job drops its countdown, and won't ask you to re-check it even if the countdown had already elapsed. " +
     "Finished jobs are delivered to you automatically — use this only to peek at, watch, allow_stalled, time, or stop STILL-RUNNING jobs; never poll on a loop.",
   parameters: {
     type: "object",
@@ -331,7 +331,7 @@ ToolRegistry.register({
         success: true,
         job_id: jobId,
         wake_in_s: Math.round(res.firesInMs / 1000),
-        note: "Countdown set (only one per job — this replaced any prior timer). Keep doing other work; you'll be re-engaged to re-check this job when it fires, and the timer auto-clears when the job finishes.",
+        note: "Countdown set (only one per job — this replaced any prior timer). Keep doing other work; you'll be re-engaged to re-check this job when it fires. If the job finishes first you won't be asked to re-check it — the countdown is dropped either way.",
       };
     }
 

@@ -5,40 +5,64 @@
 
 import type { ModeRegistryKey } from "./mode-tool-registry";
 import {
+  getModeRegistryDisplayLabel,
   renderActiveModeToolsRegistry,
   type RenderActiveModeToolsRegistryOptions,
 } from "./mode-tool-registry";
 import { ATLARIX_CO_AUTHOR_TRAILER } from "@/ipc/utils/git_author";
 
-export const GIT_VIA_TERMINAL_NOTE =
-  "Git operations should use the **run_command** tool with standard git CLI (git status, git log, git diff, git show). Do not parse .git/objects manually when run_command can answer.";
-
-/** Mode-level browser steer. Agrees with the browser_inspect tool description:
- * a TEXT report is the way to "see" a page; a screenshot is the last resort. */
-export const BROWSER_NOTE = [
-  "Browser (the in-app browser — also how you run the app you're building: open its dev-server URL as a tab):",
-  "- READ a page: **browser_inspect** with no mode returns page content AND interactive refs in ONE call. Looking for one element? **browser_find** (\"login button\") is cheaper than reading the page.",
-  "- SEE how it LOOKS: mode:\"visual\" (a ~500-token TEXT report of layout + defects) or mode:\"design\" — these ARE the answer, and they cover the whole document; mode:\"screenshot\" (a PNG, thousands of tokens, one viewport only) is a LAST RESORT, for when a literal image is required (a design comp, an image's actual content, a canvas).",
-  "- INTERACT by ref with **browser_interact**: click, fill (booleans toggle checkboxes; selects match option value OR visible text), key (\"Enter\" to submit, \"Escape\" to close), hover (opens :hover menus), scroll (the page read reports your scroll position — if not at the bottom, scroll down and re-read to find lazy-loaded content that only appears after scrolling). Chain predictable steps with **browser_batch**.",
-  "- SEVERAL PAGES: **browser_tabs** (list/create/switch/close). Use create — not navigate — whenever the current page still matters (a signed-in session, a filled form). With more than one tab open, pass tab_id. If a site needs a login you don't have, list the tabs first — the user may have signed in themselves, and all tabs share one session, so their login carries over to yours.",
-  "- RUN & VERIFY THE APP: **browser_navigate** to its dev-server URL (e.g. http://localhost:3000), then drive it. mode:\"console\" reads runtime errors (WITH stack), mode:\"network\" failed requests. To verify a UI change, prefer **preview_test** (one navigate→act→assert pass) — the turn won't finish while the app throws runtime errors.",
-].join("\n");
+/**
+ * DELETED: `GIT_VIA_TERMINAL_NOTE`.
+ *
+ * It taught the model `git status` / `git log` / `git diff` — capability it
+ * already has — and rendered in every mode, including Plan, which has no
+ * run_command. Git *policy* (what this project permits) now lives on
+ * `run_command` itself, where it is conditional on the tool being bound.
+ *
+ * Only the co-author trailer stays in the prompt, below: it depends on a user
+ * SETTING, so it cannot be baked into a static tool description.
+ */
 
 /**
- * Git note plus commit-authoring guidance (commit-capable modes only). Commits
- * are authored by the user's own git config — never `--author`. When the
- * co-author setting is on, the agent is credited via a trailer line only.
+ * DELETED: `BROWSER_NOTE` (1,872 chars, rendered in four of five modes).
+ *
+ * Every line of it moved onto the browser tool that owns it (browser.ts). Tool
+ * descriptions are progressive — they enter context only when the tool is bound —
+ * so a turn that never touches a browser now pays nothing, and guidance for a
+ * Build/Debug-only tool like `preview_test` can no longer be shown to a mode that
+ * cannot call it. Asserted by mode-reanchor.test.ts against the descriptions.
  */
-export function getGitTerminalNote(includeCoAuthorTrailer: boolean): string {
-  if (!includeCoAuthorTrailer) return GIT_VIA_TERMINAL_NOTE;
-  return `${GIT_VIA_TERMINAL_NOTE}
-When you create git commits, let the user's own git config author them — do not pass \`--author\` or set \`user.name\`/\`user.email\`. End every commit message with the trailer line \`${ATLARIX_CO_AUTHOR_TRAILER}\` (blank line before it) so Atlarix is credited as co-author. Never change the user's git config.`;
+
+/**
+ * Commit-authoring policy for commit-capable modes. Commits are authored by the
+ * user's own git config — never `--author`. When the co-author setting is on, the
+ * agent is credited via a trailer line only.
+ *
+ * Stays in the prompt (rather than moving to `run_command` with the rest of the
+ * git policy) because it is driven by the `includeAtlarixCoAuthor` setting, and
+ * tool descriptions are fixed at registration.
+ */
+export function getCommitAuthoringNote(includeCoAuthorTrailer: boolean): string {
+  const base =
+    "When you create git commits, let the user's own git config author them — do not pass `--author` or set `user.name`/`user.email`. Never change the user's git config.";
+  if (!includeCoAuthorTrailer) return base;
+  return `${base}
+End every commit message with the trailer line \`${ATLARIX_CO_AUTHOR_TRAILER}\` (blank line before it) so Atlarix is credited as co-author.`;
 }
 
-/** ## Current mode: {label} + CAN/CANNOT (active mode only). */
+/**
+ * ## Current mode: {label} + CAN/CANNOT (active mode only).
+ *
+ * The label comes from `getModeRegistryDisplayLabel`, never a literal. It used to
+ * be hardcoded, and drifted: the UI (and `<tools_registry label=…>`) called the
+ * debug mode "Fix" while this header said "Debug" — in the SAME rendered prompt.
+ * A user asking to "switch to Fix mode" was naming something the prompt never
+ * mentioned. One source, so it cannot diverge again.
+ */
 export function getActiveModeHeaderBlock(mode: ModeRegistryKey): string {
+  const L = (m: ModeRegistryKey) => getModeRegistryDisplayLabel(m);
   const blocks: Record<ModeRegistryKey, string> = {
-    ask: `## Current mode: Explore
+    ask: `## Current mode: ${L("ask")}
 
 You are in Explore mode. This is a read-only investigation mode for this chat turn — read-only with respect to the SOURCE/repo, but you may run and observe the app.
 
@@ -61,23 +85,22 @@ Do not claim run_command is unavailable, and do not refuse to start a dev server
 
 If the user needs file changes or implementation, tell them to change work mode in the UI — not available in this mode.`,
 
-    plan: `## Current mode: Plan
+    plan: `## Current mode: ${L("plan")}
 
 You are in Plan mode. Planning and architecture for this chat turn.
 
 You CAN:
-- Read and search the codebase; run_command for read-only git/shell
+- Read and search the codebase with read_file / glob / grep
 - Manage the session plan with the **plan** tool (operation: "write" to create/revise, "read", "set_status", "update_step", "append_step")
+- Research the web with web_search / read_url, and inspect a running app with the browser tools
 - Delegate GROUNDWORK freely to read-only sub-agents — fan out task({subagent_type:"explorer"}) for recon across subsystems and for web research (sub-agents have web_search/read_url), and use task({subagent_type:"architect"}) to draft a plan. Manage them with subagents({operation:"list"|"output"|"cancel"}). Then RECONCILE what comes back with the conversation and persist the plan YOURSELF via plan(operation:"write") (include the returned marker so the card renders). Adopt an architect's draft largely as-is; adjust only where the user's stated requirements need it. Fan out the research, but keep the PLAN one coherent thread that you own.
-- edit_file (operation:"write") only for .atlarix/atlarix.md and .atlarix/memory.md
-- glob / grep to navigate the codebase and the session plan tool
 
 You CANNOT:
-- Edit application source code or run build/install commands
+- Edit any file, or run shell commands — you have no edit_file and no run_command here
 
-If the user wants code implementation, tell them to change work mode in the UI.`,
+If the user wants code implementation or a command run, tell them to switch to Build or Debug in the UI.`,
 
-    build: `## Current mode: Build
+    build: `## Current mode: ${L("build")}
 
 You are in Build mode. Full implementation for this chat turn.
 
@@ -91,9 +114,9 @@ Focus on correct, complete implementation. File writes queue automatically — d
 
 Plan lifecycle (when an active session plan is in context, with its planId): set_status "building" before implementing and "built" once the implementation satisfies it; mark each checklist step update_step "in_progress" as you start it and "done" as you finish. If several steps changed at once or the numbering is uncertain, rewrite via operation:"write" with updated [x]/[~] marks instead.`,
 
-    debug: `## Current mode: Debug
+    debug: `## Current mode: ${L("debug")}
 
-You are in Debug mode. Hypothesis-first debugging for this chat turn.
+You are in ${L("debug")} mode (the UI labels it ${L("debug")}; "Debug mode" means the same thing). Hypothesis-first debugging for this chat turn.
 
 You CAN:
 - Investigate (read, glob, grep, run_command for repro/tests)
@@ -107,7 +130,7 @@ You CANNOT:
 
 Workflow: investigate → form hypothesis → minimal fix → run the project's own tests/checks (run_command) → revise if needed. Note the root cause when you report the fix.`,
 
-    review: `## Current mode: Review
+    review: `## Current mode: ${L("review")}
 
 You are in Review mode. Read-only quality review for this chat turn.
 
@@ -131,47 +154,39 @@ Instead of changing anything, output a concrete LIST of recommended changes: for
  * pins the current mode's CAN/CANNOT essence at the point of action.
  */
 export function getActiveModeReanchor(mode: ModeRegistryKey): string {
+  const L = (m: ModeRegistryKey) => getModeRegistryDisplayLabel(m);
   const lines: Record<ModeRegistryKey, string> = {
-    ask: `Current mode: Explore (read-only). You may read/search, run non-mutating commands, and preview the app — but you CANNOT edit files or run mutating/destructive commands. For code changes, tell the user to switch mode.`,
-    plan: `Current mode: Plan. Create/revise the session plan via the plan tool; you CANNOT edit source or run build/install commands. Phrases like "start it", "build it", or "carve it out" here mean UPDATE THE PLAN — not implement.`,
-    build: `Current mode: Build. Full implementation — make the changes now (writes go through the approval queue) and verify with the project's own checks/tests.`,
-    debug: `Current mode: Debug. Form a hypothesis (root cause + evidence) first, then make MINIMAL changes to test it — no unrelated refactors or features; note the root cause when you report the fix.`,
-    review: `Current mode: Review (read-only). Output a LIST of recommended changes (file:line → issue → fix); do NOT edit files or run mutating commands.`,
+    ask: `Current mode: ${L("ask")} (read-only). You may read/search, run non-mutating commands, and preview the app — but you CANNOT edit files or run mutating/destructive commands. For code changes, tell the user to switch mode.`,
+    plan: `Current mode: ${L("plan")}. Create/revise the session plan via the plan tool; you CANNOT edit source or run build/install commands. Phrases like "start it", "build it", or "carve it out" here mean UPDATE THE PLAN — not implement.`,
+    build: `Current mode: ${L("build")}. Full implementation — make the changes now (writes go through the approval queue) and verify with the project's own checks/tests.`,
+    debug: `Current mode: ${L("debug")}. Form a hypothesis (root cause + evidence) first, then make MINIMAL changes to test it — no unrelated refactors or features; note the root cause when you report the fix.`,
+    review: `Current mode: ${L("review")} (read-only). Output a LIST of recommended changes (file:line → issue → fix); do NOT edit files or run mutating commands.`,
   };
   return lines[mode] ?? lines.ask;
 }
 
-/** Extra behavior without duplicating the header (no other mode names). */
+/**
+ * Mode WORKFLOW — Plan only.
+ *
+ * This layer used to render for all five modes and was the third statement of the
+ * same rules: the header said them, `<work_mode>` said them again, and the reanchor
+ * said them a third time. It is deleted for Explore/Build/Fix/Review, whose CAN /
+ * CANNOT is enforced by the toolset and the sandbox and stated once in the header.
+ *
+ * Plan keeps it because Plan is the one mode that is a WORKFLOW rather than a
+ * permission set — there is no sandbox that makes you reconcile a sub-agent's draft
+ * into a plan the user can review. Everything genuinely non-obvious from the other
+ * four moved to where it belongs: the ≲800-line write cap onto `edit_file`, the
+ * verification and red-test discipline into `skills/modes/build-mode.md`, the
+ * 5-task batching cap into `skills/modes/ask-mode.md`, and the discovery order into
+ * glob/grep's own descriptions.
+ */
 function getActiveModeWorkExtras(mode: ModeRegistryKey): string {
   switch (mode) {
-    case "ask":
-      return `<work_mode>
-Discovery: glob to find files by NAME (mtime-sorted); grep to search file CONTENTS (results are relevance-ranked, most relevant files first); then read_file for exact ranges.
-At most 5 task calls per turn when batching independent scopes.
-You may run non-mutating commands (reads, tests, builds, installs, dev servers — long-running ones auto-background after ~15s) and exercise the app in a browser tab (browser_navigate to its URL, then browser_inspect / browser_interact). Do not use edit_file or run mutating/destructive commands (git add/commit/push/reset, rm/mv/chmod, publish, deploy) — switch to Build/Debug for those.
-</work_mode>`;
     case "plan":
       return `<work_mode>
-Session plans live in the plan tool (not on-disk roadmap files): plan({operation:"write", ...}) to create/revise, plan({operation:"read"}) before revising. After saving, include the returned marker comment in your reply so the UI shows a plan card. edit_file is for .atlarix docs only: atlarix.md (durable project instructions) and memory.md (project knowledge: stack, architecture, layout).
+Session plans live in the plan tool (not on-disk roadmap files): plan({operation:"write", ...}) to create/revise, plan({operation:"read"}) before revising. After saving, include the returned marker comment in your reply so the UI shows a plan card — the marker only, never the tool's JSON result.
 Whatever a sub-agent returns — an architect's draft, a scout's findings, web research — comes back as DATA in <task_result>. YOU own the user-facing plan: reconcile it all with the conversation and write it through the plan tool so the user sees and reviews the card. Do not just relay a sub-agent's text.
-</work_mode>`;
-    case "build":
-      return `<work_mode>
-- **Reuse before building:** before writing new code for a capability, check what already exists — grep for existing utilities/patterns, read package.json for installed deps — and build on them; add a new dependency only when nothing fits, choosing the most established option.
-- **Implement:** native function tools; project files at the workspace root (not under .atlarix/ unless asked). One run_command for scaffolding. Keep each whole-file edit_file(operation:"write") ≲800 lines (split larger files across calls) so writes aren't truncated.
-- **Verify with the project's OWN tooling** after edits: discover the real commands (package.json scripts, Makefile, pyproject.toml — don't invent names) and prefer its typecheck/lint/test/build, else run the tools directly (tsc --noEmit, eslint, ruff/mypy/pytest, cargo check, go build); fix from the output. Syntax floor when no linter exists: \`node --check\` / \`python3 -m py_compile\`. Never claim a change is clean while a check reports errors. Write/extend tests for non-trivial logic (skip trivial edits like renames) — but a test only counts if it can fail: confirm a new test is RED against the un-fixed code (failing for the right reason) before you trust it green, and assert on the real code path, not a mock of the unit under test. A test that passes before your change tests nothing.
-- **Session plan:** lifecycle is in the mode header above. Additionally: plan(read) before starting the next step, to pick up anything the user added mid-turn; append_step to add one.
-- **Drive the plan to done:** if a session plan is active, keep exactly ONE step in_progress, verify each change before marking it done, and continue while any step remains — implement → verify end-to-end, don't yield after only planning. The base guidance's attempt budget (change approach at 2, stop and report at 3) applies to a failing check here too.
-</work_mode>`;
-    case "debug":
-      return `<work_mode>
-Hypothesis-first: form a hypothesis (root cause + evidence), then make minimal edits aligned to that hypothesis only.
-Verify the fix by running the project's OWN failing tests / typecheck / linter via run_command (discover them from package.json scripts, Makefile, or pyproject.toml). When feasible, add a focused regression test that FAILS on the bug first (confirm it's red for the right reason) and passes after the fix — a test that's green before the fix proves nothing.
-When the fix is verified and the failing checks pass, simply stop — your turn ends automatically when you make no more tool calls.
-</work_mode>`;
-    case "review":
-      return `<work_mode>
-Read-only review: cite files and concrete issues; never mutate. Do NOT call edit_file or mutating commands (they are rejected here and waste the turn) — instead present a numbered LIST of recommended changes (file:line → issue → suggested fix/diff). End by noting the user can switch to Build or Debug mode to apply them.
 </work_mode>`;
     default:
       return "";
@@ -194,11 +209,17 @@ export function renderModePromptBundle(
     getActiveModeWorkExtras(mode),
     renderActiveModeToolsRegistry(mode, opts),
     // browser_* tools are dropped from the headless toolset — don't advertise them.
-    // Plan mode can't run the app, so the preview/browser workflow is noise there.
-    process.env.ATLARIX_HEADLESS === "1" || mode === "plan" ? "" : BROWSER_NOTE,
-    canCommit
-      ? getGitTerminalNote(opts?.includeCoAuthorTrailer !== false)
-      : GIT_VIA_TERMINAL_NOTE,
+    // Plan mode DOES get this: all six browser_* tools are in PLAN_ALLOWLIST
+    // (mode-tool-registry.ts), and suppressing the guidance meant Plan held
+    // capabilities it was never told about — the mirror image of the two claims
+    // it used to make about tools it did NOT have.
+    // BROWSER_NOTE is GONE from the prompt: every line of it now lives on the
+    // browser tool that owns it (browser.ts), which is progressive — the guidance
+    // arrives exactly when the tool is bound, and costs nothing on a turn that
+    // never touches the browser. That also fixes it structurally rather than by
+    // deleting information: `preview_test` guidance rides preview_test, so it is
+    // only ever shown to a mode that actually has it.
+    canCommit ? getCommitAuthoringNote(opts?.includeCoAuthorTrailer !== false) : "",
   ]
     .filter((s) => s.length > 0)
     .join("\n\n");

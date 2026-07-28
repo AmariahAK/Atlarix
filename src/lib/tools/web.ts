@@ -302,7 +302,10 @@ function setGlobalWebSearchCached(cacheKey: string, results: SearchResult[]): vo
 
 ToolRegistry.register({
     name: "web_search",
-    description: "Search the web. Set `deep: true` for multi-source synthesis — fetches full content from top results and combines them with citations. Use for broad or comparative topics; plain web_search for a quick fact.",
+    description: // Absorbs the `webResearchRules` block that used to sit in the system prompt for
+// every web-capable mode. Conditional here, and next to the call.
+        "Search the web — facts, version checks, error strings, single-query lookups. Set `deep: true` for multi-source synthesis: it fetches full content from the top results and combines them with citations. Use that for broad or comparative topics; plain web_search for a quick fact. " +
+        "If this returns nothing or errors, the user can enable **SearxNG** (Settings → Search, Docker) or a **search MCP** — tell them, because Atlarix cannot enable either automatically.",
     requiresWorkspace: false,
     isCore: true,
     isReadOnly: true,
@@ -627,7 +630,7 @@ async function runDeepSearch(query: string, maxSources: number = 3) {
 ToolRegistry.register({
     name: "read_url",
     description:
-        "Fetch and read content from a URL. Extracts main content and provides a clean, readable summary. Prefer this (and web_search) over opening browser_navigate for plain content/reading — reserve the browser for interactive pages.",
+        "Fetch and read content from a URL — use it when the user gives you a specific URL, or to confirm a primary source. Extracts main content and provides a clean, readable summary. Prefer this (and web_search) over opening browser_navigate for plain content/reading — reserve the browser for interactive pages.",
     requiresWorkspace: false,
     isCore: true,
     isReadOnly: true, // Safe for Ask mode - only reads URL content

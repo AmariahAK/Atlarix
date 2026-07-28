@@ -15,7 +15,12 @@ import {
 import { ToolRegistry } from "../lib/tools/registry";
 import "../lib/tools";
 
-const ALL_MODE_LABELS = ["Explore", "Plan", "Build", "Debug", "Review"] as const;
+const ALL_MODES = ["ask", "plan", "build", "debug", "review"] as const;
+
+// Derived, never hardcoded. A literal list here diverged from MODE_LABELS: this
+// file said "Debug" while the registry (and the UI) said "Fix", which is how the
+// same rendered prompt ended up carrying both.
+const ALL_MODE_LABELS = ALL_MODES.map(getModeRegistryDisplayLabel);
 
 function sortNames(names: readonly string[]): string[] {
   return [...names].sort((a, b) => a.localeCompare(b));
@@ -26,6 +31,46 @@ function otherModeHeaders(activeLabel: string): string[] {
     (l) => `## Current mode: ${l}`,
   );
 }
+
+/**
+ * THE standing guard: a mode's prompt must never name a tool that mode cannot call.
+ *
+ * Three real contradictions shipped before this existed — Plan mode's prompt
+ * advertised `run_command` and `edit_file`, neither of which is in PLAN_ALLOWLIST,
+ * so any turn that believed the prompt burned a step. The allowlist is ground
+ * truth; the prompt describes it and never contradicts it.
+ */
+describe("no mode's prompt names a tool it cannot call", () => {
+  // Tools whose names appear in prose for reasons other than "you may call this":
+  // pointing the user at another mode, or naming a tool to forbid it.
+  const MENTION_IS_NOT_A_CLAIM = /you have no |you CANNOT|switch to|not available in this mode|are BLOCKED/i;
+
+  for (const mode of ALL_MODES) {
+    it(`${mode} prompt only names callable tools`, () => {
+      const { stableHeader } = constructSystemPromptParts({
+        chatMode: mode === "build" || mode === "debug" ? "build" : "ask",
+        effectiveWorkMode: mode,
+        hasWorkspace: true,
+      });
+      // Strip the <tools_registry> block: it lists the allowlist verbatim by design.
+      const prose = stableHeader.replace(/<tools_registry[\s\S]*?<\/tools_registry>/g, "");
+
+      const offenders: string[] = [];
+      for (const tool of ToolRegistry.getAll().map((t) => t.name)) {
+        if (isToolAllowedInMode(tool, mode)) continue;
+        // Word-boundary match so `plan` doesn't match "planning".
+        const re = new RegExp(`\\b${tool.replace(/_/g, "_")}\\b`);
+        for (const line of prose.split("\n")) {
+          if (!re.test(line)) continue;
+          if (MENTION_IS_NOT_A_CLAIM.test(line)) continue;
+          offenders.push(`${tool} in: ${line.trim().slice(0, 120)}`);
+          break;
+        }
+      }
+      expect(offenders).toEqual([]);
+    });
+  }
+});
 
 describe("mode system consistency", () => {
   for (const mode of ["ask", "plan", "review"] as const) {
@@ -65,9 +110,25 @@ describe("mode system consistency", () => {
     for (const h of otherModeHeaders("Explore")) {
       expect(stableHeader).not.toContain(h);
     }
-    expect(stableHeader).toContain("<work_mode>");
     expect(stableHeader).not.toMatch(/switch to \*\*Plan\*\*/i);
     expect(stableHeader).not.toMatch(/switch to \*\*Build\*\*/i);
+  });
+
+  it("only Plan renders a <work_mode> block", () => {
+    // The mode rules were stated THREE times in the same prompt — header,
+    // <work_mode>, reanchor. This layer is gone for the four modes whose CAN/CANNOT
+    // the toolset and sandbox already enforce. Plan keeps it because Plan is a
+    // workflow, not a permission set: nothing enforces "reconcile the sub-agent's
+    // draft into a plan the user reviews".
+    for (const mode of ALL_MODES) {
+      const { stableHeader } = constructSystemPromptParts({
+        chatMode: mode === "build" || mode === "debug" ? "build" : "ask",
+        effectiveWorkMode: mode,
+        hasWorkspace: true,
+      });
+      if (mode === "plan") expect(stableHeader).toContain("<work_mode>");
+      else expect(stableHeader).not.toContain("<work_mode>");
+    }
   });
 
   it("registeredToolNames appear in tools_registry when provided", () => {
@@ -98,9 +159,10 @@ describe("mode system consistency", () => {
 
   for (const mode of ["ask", "plan", "build", "debug", "review"] as const) {
     it(`${mode} prompt shows ONLY its own mode header (no leakage)`, () => {
-      const label = getModeRegistryDisplayLabel(mode);
-      const headerLabel =
-        mode === "ask" ? "Explore" : mode === "debug" ? "Debug" : label;
+      // The header now derives its label from the registry, so no per-mode
+      // special-casing. This used to read `mode === "debug" ? "Debug" : label`
+      // — encoding the very drift it should have caught.
+      const headerLabel = getModeRegistryDisplayLabel(mode);
       const { stableHeader } = constructSystemPromptParts({
         chatMode: mode === "build" ? "build" : "ask",
         effectiveWorkMode: mode,
