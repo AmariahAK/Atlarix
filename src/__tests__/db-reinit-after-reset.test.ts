@@ -17,6 +17,22 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+// Imported statically, NOT with `await import()` inside the test: this module pulls in
+// better-sqlite3 (native) plus the 71 bundled migrations, and paying that inside a test
+// body counts against the node project's 5s `testTimeout` — which is what made this the
+// one job that failed on Windows in v14.23.0 (that runner's collect phase alone took
+// 107s). Safe to hoist because `getUserDataPath()` reads ATLARIX_USER_DATA_DIR lazily on
+// every call, so `beforeAll` still wins; nothing here opens the db at import time.
+import {
+  db,
+  getDatabasePath,
+  initializeDatabase,
+  isDbInitialized,
+  reinitializeDatabaseAfterReset,
+} from "@/db/index";
+
+/** 71 migrations against a cold temp filesystem is slow on CI, not hung. */
+const SLOW_DB_TIMEOUT_MS = 60_000;
 
 let tempDir: string;
 
@@ -27,19 +43,23 @@ beforeAll(() => {
 
 afterAll(() => {
   delete process.env.ATLARIX_USER_DATA_DIR;
-  fs.rmSync(tempDir, { recursive: true, force: true });
+  // Windows refuses to remove a directory that still has an open handle inside it, and
+  // these tests deliberately leave the REINITIALIZED db open. Close it first, then treat
+  // cleanup as best-effort: a stray temp dir is harmless, a failed teardown fails the run.
+  try {
+    db.$client.close();
+  } catch {
+    // already closed, or never opened because the suite failed earlier
+  }
+  try {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  } catch {
+    // Windows can hold the handle briefly after close(); the OS reaps temp dirs anyway
+  }
 });
 
 describe("reinitializeDatabaseAfterReset", () => {
-  it("leaves the db usable after the file is closed and deleted", async () => {
-    const {
-      db,
-      getDatabasePath,
-      initializeDatabase,
-      isDbInitialized,
-      reinitializeDatabaseAfterReset,
-    } = await import("@/db/index");
-
+  it("leaves the db usable after the file is closed and deleted", () => {
     initializeDatabase();
     expect(isDbInitialized()).toBe(true);
 
@@ -62,14 +82,11 @@ describe("reinitializeDatabaseAfterReset", () => {
     // Reading through the `db` proxy is the point: that is the handle every caller
     // uses, and it is what pointed at the dead connection before.
     expect(() => db.$client.prepare("SELECT 1").get()).not.toThrow();
-  });
+  }, SLOW_DB_TIMEOUT_MS);
 
-  it("is idempotent — a second call does not close the live handle", async () => {
-    const { db, isDbInitialized, reinitializeDatabaseAfterReset } = await import(
-      "@/db/index"
-    );
+  it("is idempotent — a second call does not close the live handle", () => {
     reinitializeDatabaseAfterReset();
     expect(isDbInitialized()).toBe(true);
     expect(() => db.$client.prepare("SELECT 1").get()).not.toThrow();
-  });
+  }, SLOW_DB_TIMEOUT_MS);
 });
