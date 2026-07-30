@@ -72,32 +72,75 @@ export function stripOrphanToolTagFragments(content: string): string {
   let out = content;
   out = out.replace(/<\/?atlarix-(?:tool|mcp)-[\w-]*[^>]*>/gi, "");
   out = out.replace(/<\/?atlarix-mcp-tool-[\w-]*[^>]*>/gi, "");
-  out = out.replace(
-    /[,\s]*"message"\s*:\s*"[^"]*"\s*\}\s*,\s*"cost"\s*:\s*\d+[^<]*$/gi,
-    "",
-  );
-  out = out.replace(/[,\s]*"_truncatedOutput"\s*:\s*(?:true|false)\s*\}?/gi, "");
+  // XML-anchored debris is safe to strip anywhere: tool tags are never legitimate
+  // content, fenced or not.
   out = out.replace(/\}\s*<\/atlarix-tool-result>\s*/gi, "");
-  out = out.replace(/\{[^{}]*"message"\s*:\s*"[^"]*"[^{}]*\}/gi, "");
-  // v14.8.10 Fix L: orphan result TAILS without a leading `{` — a model echoing
-  // a fragment of a tool result (observed: `","message":"Plan created."}` next
-  // to the plan card). Anchored to known result keys + a closing `}` so real
-  // prose mentioning the word "message" is untouched.
-  out = out.replace(
-    /"?,?\s*"(?:message|planId|planStatus|marker|contentPreview)"\s*:\s*"[^"]*"[^{}\n]*\}/gi,
-    "",
-  );
-  // Fence-aware: the brace-region / JSON-line / blank-line strippers below must
-  // NOT touch code the model deliberately fenced (JSON examples, blank lines in
-  // code) — that corruption is exactly what split a code block's body out of its
-  // box. Only transform the regions OUTSIDE fenced code blocks.
+  // Fence-aware: every JSON-SHAPED stripper must NOT touch code the model deliberately
+  // fenced (JSON examples, blank lines in code) — that corruption is exactly what split a
+  // code block's body out of its box. Only transform the regions OUTSIDE fenced blocks.
+  //
+  // v14.23.0 moved three more strippers in here. They ran over the whole content, so a
+  // fenced `{"success":true,"message":"…"}` example had its body deleted — surfaced by a
+  // test asserting such a fence survives. Pre-existing, and not limited to the key added
+  // this release.
   out = mapOutsideFences(out, (seg) => {
-    let s = stripMultilineToolJsonEnvelopes(seg);
+    let s = seg.replace(
+      /[,\s]*"message"\s*:\s*"[^"]*"\s*\}\s*,\s*"cost"\s*:\s*\d+[^<]*$/gi,
+      "",
+    );
+    s = s.replace(/[,\s]*"_truncatedOutput"\s*:\s*(?:true|false)\s*\}?/gi, "");
+    s = s.replace(/\{[^{}]*"message"\s*:\s*"[^"]*"[^{}]*\}/gi, "");
+    s = stripOrphanToolResultTail(s);
+    s = stripTruncatedToolResultTail(s);
+    s = stripMultilineToolJsonEnvelopes(s);
     s = stripToolJsonLinesFromMarkdown(s);
     s = s.replace(/\n{2,}/g, "\n");
     return s;
   });
   return out.trim();
+}
+
+/** The plan/registry result keys an orphan tail is allowed to start with. */
+const ORPHAN_TAIL_KEYS =
+  "message|planId|planStatus|marker|contentPreview|progress|stepCount";
+
+/**
+ * Orphan result tail that DOES close its brace — e.g. `","message":"Plan created."}`.
+ *
+ * v14.8.10 Fix L. Moved inside `mapOutsideFences` in v14.23.0: it used to run over the whole
+ * content, so a legitimate ```json fence containing one of these keys had its body eaten —
+ * caught by a test asserting a fenced `{"progress":"0/14 steps done"}` survives. That was a
+ * live bug for `message`/`planId` too, not just the key added this release.
+ */
+export function stripOrphanToolResultTail(content: string): string {
+  if (!content) return "";
+  return content.replace(
+    new RegExp(`"?,?\\s*"(?:${ORPHAN_TAIL_KEYS})"\\s*:\\s*"[^"]*"[^{}\\n]*\\}`, "gi"),
+    "",
+  );
+}
+
+/**
+ * Orphan result tail with NO closing brace — the fragment case.
+ *
+ * Observed live: `","progress":"0/14 steps done` rendered as chat text between the plan
+ * card and the next Thoughts block. Every other stripper needs a complete object
+ * (`isToolJsonLine` wants `{`…`}`, `parseToolResultEnvelope` wants a balanced end) and the
+ * `}`-anchored tail strip above needs the closing brace, so a truncated echo matched
+ * nothing and rendered verbatim. `progress` also wasn't a known key until v14.23.0 added it
+ * to the plan result — a new field silently became a new leak.
+ *
+ * Deliberately narrow: it requires a LEADING COMMA plus one of the plan tool's own result
+ * keys. `,"progress":"` does not occur in prose, whereas a bare `"key":` test would eat a
+ * sentence containing a colon — and silently deleting the user's text is worse than the leak
+ * it fixes. Runs inside `mapOutsideFences`, so a real ```json example is never touched.
+ */
+export function stripTruncatedToolResultTail(content: string): string {
+  if (!content) return "";
+  return content.replace(
+    new RegExp(`"?,\\s*"(?:${ORPHAN_TAIL_KEYS})"\\s*:\\s*"[^\\n]*$`, "gim"),
+    "",
+  );
 }
 
 /** True if a single line looks like tool args or tool result JSON. */

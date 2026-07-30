@@ -22,16 +22,26 @@ export type FilePermissionGate =
       canAlwaysAllowExtension: boolean;
     };
 
-const PROTECTED_EXACT = new Set([
-  "package.json",
-  "package-lock.json",
-  "yarn.lock",
-  "pnpm-lock.yaml",
-  "drizzle.config.ts",
-  "src/db/schema.ts",
-]);
-
-const PROTECTED_SUFFIXES = [".pem", ".key", ".cert", ".p12"];
+/**
+ * There is deliberately NO hardcoded protected-path list (removed v14.23.0).
+ *
+ * It used to name `package.json`, lockfiles, `.env*`, `.pem`/`.key`/`.cert`/`.p12`,
+ * `.github/workflows/**` — plus `drizzle.config.ts`, `src/db/schema.ts` and `drizzle/**`,
+ * which are ATLARIX'S OWN layout hardcoded into every user's workspace. Any match forced a
+ * prompt on EVERY edit and offered no always-allow at all, so a workflow file was a dead end
+ * by construction.
+ *
+ * It also contradicted this codebase's own stated position for file READS
+ * (`lib/security/env-secret-paths.ts`): "We do NOT block files by name (`.env`, keys,
+ * credential JSON): like opencode / Claude Code, the agent reads files inside the workspace
+ * freely — a project's own config is fair game." The write side is now consistent with that.
+ *
+ * Nothing was traded away. Every write still passes the approval queue with its inline diff;
+ * workspace containment and symlink escapes are still refused; a credential read via shell
+ * still hits the `run_command` danger gate. Projects that DO want a path to always ask say so
+ * in `.atlarix/permissions.json` (see `lib/tools/permissions/ruleset.ts`) — configurable,
+ * rather than a constant in the product.
+ */
 
 export const FILE_OPS_WITH_SCOPE = new Set([
   "write_file",
@@ -70,17 +80,13 @@ export function getParentDirectory(relativePath: string): string {
   return dir.endsWith("/") ? dir.slice(0, -1) : dir;
 }
 
+/**
+ * Only an EMPTY path is refused — that is a malformed request, not a policy.
+ * Kept as a function (rather than deleted) because two call sites and the approval UI read
+ * it; it now answers "is this path even usable?" instead of "is this file special?".
+ */
 export function isProtectedRelativePath(relativePath: string): boolean {
-  const rel = normalizeRelativePath(relativePath);
-  if (!rel) return true;
-  if (PROTECTED_EXACT.has(rel)) return true;
-  const base = path.posix.basename(rel);
-  if (base === ".env" || base.startsWith(".env.")) return true;
-  const lower = rel.toLowerCase();
-  if (PROTECTED_SUFFIXES.some((s) => lower.endsWith(s))) return true;
-  if (rel === "drizzle" || rel.startsWith("drizzle/")) return true;
-  if (rel === ".github/workflows" || rel.startsWith(".github/workflows/")) return true;
-  return false;
+  return !normalizeRelativePath(relativePath);
 }
 
 export type ListedFilePermission = {

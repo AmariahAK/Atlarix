@@ -56,7 +56,7 @@ describe("browser_inspect — visual is the way to SEE; screenshot is last resor
     expect(String(ToolRegistry.get("browser_interact")!.description)).toMatch(
       /scroll position/i,
     );
-    expect(String(ToolRegistry.get("preview_test")!.description)).toMatch(
+    expect(String(ToolRegistry.get("browser_test")!.description)).toMatch(
       /turn will not finish while the app is throwing runtime errors/i,
     );
   });

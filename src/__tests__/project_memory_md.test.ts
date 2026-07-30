@@ -16,6 +16,7 @@ import {
   isAtlarixDocWritePath,
   getAtlarixMdPath,
   readProjectInstructions,
+  extractHeadings,
 } from "@/lib/project-memory";
 
 let workspace: string;
@@ -89,21 +90,13 @@ describe("statMemoryMd", () => {
 });
 
 describe("buildProjectDocsPromptHint", () => {
-  it("never injects the memory.md body (hint-only)", async () => {
+  it("never injects a file body", async () => {
     await writeMemoryFile(
       "# Project memory\n\nSECRET-MARKER-CONTENT payments use Stripe.\n",
     );
     const hint = await buildProjectDocsPromptHint(workspace, { canWrite: true });
-    expect(hint).toContain(".atlarix/memory.md");
     expect(hint).toContain("read_file");
     expect(hint).not.toContain("SECRET-MARKER-CONTENT");
-  });
-
-  it("suggests creating the file only in write-capable modes", async () => {
-    const writable = await buildProjectDocsPromptHint(workspace, { canWrite: true });
-    expect(writable).toContain("you may create it");
-    const readOnly = await buildProjectDocsPromptHint(workspace, { canWrite: false });
-    expect(readOnly).not.toContain("you may create it");
   });
 
   it("always states the atlarix.md follow-when-non-empty rule", async () => {
@@ -112,10 +105,29 @@ describe("buildProjectDocsPromptHint", () => {
     expect(hint).toContain("absent or empty");
   });
 
-  it("mentions updating on durable changes when the file exists", async () => {
+  /**
+   * v14.23.0: the `.atlarix/memory.md` paragraph is gone. That file is superseded by the
+   * per-note store (`lib/agent-memory.ts`), whose index is surfaced by
+   * `loadMemoryMdSection`. Still describing it here would point the model at a path that
+   * is no longer the store — and, in a write-capable mode, invite it to WRITE there.
+   */
+  it("no longer advertises .atlarix/memory.md as the knowledge store", async () => {
     await writeMemoryFile("# Project memory\n\nstack notes\n");
     const hint = await buildProjectDocsPromptHint(workspace, { canWrite: true });
-    expect(hint).toContain("durable facts change");
+    expect(hint).not.toContain("memory.md");
+    expect(hint).not.toContain("you may create it");
+    expect(hint).not.toContain("durable facts change");
+  });
+
+  it("is identical whether or not the mode can write — nothing to create any more", async () => {
+    const writable = await buildProjectDocsPromptHint(workspace, { canWrite: true });
+    const readOnly = await buildProjectDocsPromptHint(workspace, { canWrite: false });
+    expect(writable).toBe(readOnly);
+  });
+
+  it("stays short — it is a rule statement, not a document", async () => {
+    const hint = await buildProjectDocsPromptHint(workspace, { canWrite: true });
+    expect(hint.length).toBeLessThan(400);
   });
 });
 
@@ -180,17 +192,53 @@ describe("readProjectInstructions (v13.1 AGENTS.md/CLAUDE.md interop)", () => {
     expect(await readProjectInstructions(workspace)).toBeNull();
   });
 
-  it("caps AGENTS.md to the inject budget and never copies it into .atlarix", async () => {
-    await fs.writeFile(path.join(workspace, "AGENTS.md"), "x".repeat(5000), "utf8");
+  /**
+   * v14.23.0 INVERTED this. It used to assert the 3000-char clamp; the clamp WAS the
+   * bug — a longer instructions file had its tail silently dropped, so the user's later
+   * rules never reached the model and nothing said so. Instructions are now pointed at
+   * (see `loadAtlarixMdSection`) and read in full with `read_file`, so the reader must
+   * return the file intact.
+   */
+  it("returns AGENTS.md in full — never truncated — and never copies it into .atlarix", async () => {
+    const body = "x".repeat(5000);
+    await fs.writeFile(path.join(workspace, "AGENTS.md"), body, "utf8");
     const res = await readProjectInstructions(workspace);
-    expect(res?.content).toContain("...(truncated)");
-    expect(res!.content.length).toBeLessThan(5000);
+    expect(res?.content).toBe(body);
+    expect(res?.content).not.toContain("...(truncated)");
     // Read-only fallback — atlarix.md is not created from AGENTS.md.
     const copied = await fs
       .access(getAtlarixMdPath(workspace))
       .then(() => true)
       .catch(() => false);
     expect(copied).toBe(false);
+  });
+});
+
+describe("extractHeadings (the project-instructions pointer)", () => {
+  it("pulls h1–h3 titles so a weak model can tell whether the rules apply", () => {
+    const md = [
+      "# Project rules",
+      "some prose",
+      "## Testing",
+      "### Naming",
+      "#### Too deep",
+      "- not a heading",
+    ].join("\n");
+    expect(extractHeadings(md)).toEqual(["Project rules", "Testing", "Naming"]);
+  });
+
+  it("strips markdown emphasis from headings", () => {
+    expect(extractHeadings("## **Build** `rules`")).toEqual(["Build rules"]);
+  });
+
+  it("caps the list — a file of headings must not re-bloat the prompt", () => {
+    const md = Array.from({ length: 40 }, (_, i) => `## H${i}`).join("\n");
+    expect(extractHeadings(md)).toHaveLength(12);
+    expect(extractHeadings(md, 3)).toHaveLength(3);
+  });
+
+  it("returns nothing for a file with no headings", () => {
+    expect(extractHeadings("just prose\nand more prose")).toEqual([]);
   });
 });
 

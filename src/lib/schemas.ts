@@ -51,33 +51,19 @@ export type AppSearchResult = z.infer<typeof AppSearchResultSchema>;
 
 export const AppSearchResultsSchema = z.array(AppSearchResultSchema);
 
-const providers = [
-  "openai",
-  "anthropic",
-  "google",
-  "vertex",
-  "auto",
-  "compass",
-  "openrouter",
-  "ollama",
-  "lmstudio",
-  "azure",
-  "xai",
-  "bedrock",
-  "groq",
-  "together",
-  "mistral",
-  "elastic",
-  "nvidia_nim",
-  "cohere",
-  "perplexity",
-  "cerebras",
-  "huggingface",
-] as const;
-
-export const cloudProviders = providers.filter(
-  (provider) => provider !== "ollama" && provider !== "lmstudio",
-);
+/**
+ * The closed 21-entry provider tuple that used to live here is GONE (v14.23.0).
+ *
+ * It was a second, staler registry: providers are enumerated at runtime by
+ * `getLanguageModelProviders()` (the models.dev catalog + the presentation overlay),
+ * so a hardcoded list could only ever disagree with it. Its one consumer — the
+ * "is any provider configured?" check in `useLanguageModelProviders` — now filters
+ * the live list, which also fixes the case where a user's only key belonged to a
+ * catalog-only provider and the app claimed nothing was configured.
+ *
+ * `LargeLanguageModelSchema.provider` was already `z.string()`, so nothing typed
+ * against the tuple.
+ */
 
 /**
  * Zod schema for large language model configuration

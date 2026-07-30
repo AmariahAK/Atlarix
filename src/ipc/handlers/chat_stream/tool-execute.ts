@@ -105,6 +105,19 @@ export async function runToolExecute(
     }
   }
 
+  // Read-before-edit scope (`lib/tools/file-read-log.ts`): `read_file` records what it
+  // served and `edit_file` refuses to work from a stale view. Both need the SAME scope key
+  // or the record is written under one identity and looked up under another — which is
+  // exactly how the previous attempt at this failed silently: it read a chat id that was
+  // only ever injected for the two attachment tools above, so it was permanently
+  // undefined here and the check never fired.
+  if (toolName === "read_file" || toolName === "edit_file") {
+    executeArgs._scopeChatId = chatId;
+    if (streamOpts?.workspaceSessionId) {
+      executeArgs._scopeSessionId = streamOpts.workspaceSessionId;
+    }
+  }
+
   // MCP consent/auth. mcp_call produces no permission payload, so this context
   // IS the gate. Attended: auth-and-retry (user present to authenticate).
   // Unattended (automation): no human — a prompt-injected run must not drive

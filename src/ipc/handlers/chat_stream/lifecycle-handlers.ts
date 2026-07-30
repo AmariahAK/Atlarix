@@ -18,6 +18,7 @@ import { cancelAllSubagentTasksForChat } from "@/lib/tools/spawn-task";
 import {
   activeStreams,
   lastStreamRequest,
+  streamTurnIdByChatId,
   type ChatStreamHandlerFn,
 } from "./stream-state";
 
@@ -52,11 +53,29 @@ export function registerLifecycleHandlers(
       );
     }
 
-    // Send the end event to the renderer
+    // Send the end event to the renderer.
+    //
+    // `userCancelled` is what stops this end from re-launching the work. The renderer
+    // auto-wakes a fresh turn whenever a background command or sub-agent still has a
+    // pending result, and we only killed FOREGROUND commands above — so that condition
+    // is routinely true here. Any pending results are deliberately KEPT: background work
+    // finishes quietly and `takePendingBackgroundCommandResults` /
+    // `takePendingSubagentResults` drain it into the user's NEXT turn, which is
+    // wake-independent. So nothing is lost by not waking.
     safeSend(event.sender, "chat:response:end", {
       chatId,
       updatedFiles: false,
       hadToolCallsOrPermissions: false,
+      userCancelled: true,
+      // Report the stopped turn's snapshot id so Revert is OFFERED. The writes it
+      // already made are on disk (the interceptor captures pre-write bytes at write
+      // time); only the renderer's knowledge of the id was missing, and without it the
+      // affordance is hidden on precisely the turn the user stopped for making a bad
+      // edit. `updatedFiles: false` above is about the *file-tree refresh*, not about
+      // whether anything was written.
+      ...(streamTurnIdByChatId.get(chatId)
+        ? { snapshotTurnId: streamTurnIdByChatId.get(chatId) }
+        : {}),
     } satisfies ChatResponseEnd);
 
     // Clean up uploads state for this chat

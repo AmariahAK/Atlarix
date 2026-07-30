@@ -1,5 +1,12 @@
 import { useMemo } from "react";
-import { AlertTriangle, CheckCircle2, Circle, Hammer, Loader2 } from "lucide-react";
+import {
+  AlertTriangle,
+  CheckCircle2,
+  Circle,
+  Hammer,
+  Loader2,
+  UserRound,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { PlanArtifactStatus } from "@/db/schema";
 import { Button } from "@/components/ui/button";
@@ -71,6 +78,10 @@ function StepIcon({ state }: { state: PlanChecklistStep["state"] }) {
       return <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-primary" aria-hidden />;
     case "blocked":
       return <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-600 dark:text-amber-500" aria-hidden />;
+    // Handed back to the user — a person, not a warning. Distinct icon AND colour
+    // from `blocked`, because the two mean different things to whoever is reading.
+    case "external":
+      return <UserRound className="h-3.5 w-3.5 shrink-0 text-sky-600 dark:text-sky-400" aria-hidden />;
     default:
       return <Circle className="h-3.5 w-3.5 shrink-0 text-muted-foreground/50" aria-hidden />;
   }
@@ -87,19 +98,26 @@ export function PlanChecklistProgress({
   const steps = useMemo(() => parsePlanChecklist(content), [content]);
   if (steps.length === 0) return null;
   const done = steps.filter((s) => s.state === "done").length;
+  // Counted and shown separately: "3/4 done" alone reads as unfinished work when the
+  // 4th step is the user's, which is exactly the wrong impression.
+  const external = steps.filter((s) => s.state === "external").length;
   const started = steps.some((s) => s.state !== "todo") || planStatus !== "plan";
   if (!started) return null;
+
+  const externalLabel = external > 0 ? ` · ${external} needs you` : "";
 
   return (
     <div
       className="rounded-md border border-border/40 bg-muted/20 px-2.5 py-2"
       role="status"
-      aria-label={`Plan steps: ${done} of ${steps.length} done`}
+      aria-label={`Plan steps: ${done} of ${steps.length} done${
+        external > 0 ? `, ${external} needs you` : ""
+      }`}
     >
       <div className="mb-1.5 flex items-center justify-between text-[11px] font-medium text-muted-foreground">
         <span>Steps</span>
         <span>
-          {done}/{steps.length} done
+          {done}/{steps.length} done{externalLabel}
         </span>
       </div>
       <ul className="space-y-1">
@@ -114,6 +132,7 @@ export function PlanChecklistProgress({
                 step.state === "done" && "text-muted-foreground line-through decoration-muted-foreground/40",
                 step.state === "in_progress" && "text-foreground font-medium",
                 step.state === "blocked" && "text-amber-700 dark:text-amber-400",
+                step.state === "external" && "text-sky-700 dark:text-sky-300",
                 step.state === "todo" && "text-muted-foreground",
               )}
             >

@@ -5,6 +5,7 @@
 import React, { useMemo, useState } from "react";
 import { ChevronDown, ChevronUp, CheckCircle2, AlertTriangle } from "lucide-react";
 import { CodeHighlight } from "./CodeHighlight";
+import { AtlarixMarkdownSegment } from "./AtlarixMarkdownSegment";
 export type HandoffAgentRole =
   | "research"
   | "explore"
@@ -119,8 +120,10 @@ export const HandoffResultCard: React.FC<HandoffResultCardProps> = ({
         <div className="px-3 pb-3 pt-1 border-t border-zinc-800/50 space-y-2">
           <div>
             <div className="text-[10px] uppercase tracking-wide text-zinc-500 mb-1">Summary</div>
-            <div className="bg-zinc-950/50 rounded p-2 text-xs max-h-40 overflow-y-auto whitespace-pre-wrap text-zinc-300">
-              {summary}
+            {/* Markdown, not machine output — see the note in SubAgentRunCard. The
+                structured payload below stays a JSON code block, which it is. */}
+            <div className="bg-zinc-950/50 rounded p-2 text-xs max-h-40 overflow-y-auto text-zinc-300 max-w-none">
+              <AtlarixMarkdownSegment content={summary} isStreaming={false} />
             </div>
           </div>
           {payloadJson && (

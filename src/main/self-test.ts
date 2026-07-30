@@ -118,13 +118,32 @@ const DEFAULT_PROBES: SelfTestProbe[] = [
     // Shipped externals resolve their peer deps at runtime — @ai-sdk/* require
     // zod/v4, which a bad prune drops ("Cannot find module 'zod/v4'"). Load a
     // real model-provider factory to force that transitive resolution.
+    //
+    // v14.23.0: load the FACTORY MODULE rather than one SDK. Provider dispatch now
+    // resolves through `provider-sdk-factories.ts`, which imports five SDKs at module
+    // scope (openai, anthropic, google, xai, openai-compatible). Probing only
+    // `@ai-sdk/google` would pass while a prune had dropped `@ai-sdk/xai` — and provider
+    // dispatch fails SILENTLY (a request goes somewhere that answers, or throws deep in
+    // a turn), so a packaged-only miss here is exactly the class worth catching at boot.
     name: "ai-sdk-deps",
     run: async () => {
-      const mod = await import("@ai-sdk/google");
-      if (typeof mod.createGoogleGenerativeAI !== "function") {
-        throw new Error("@ai-sdk/google loaded but factory missing");
+      const mod = await import("@/ipc/shared/provider-sdk-factories");
+      const names = Object.keys(mod.PROVIDER_SDK_FACTORIES);
+      if (names.length === 0) {
+        throw new Error("provider-sdk-factories loaded but the factory map is empty");
       }
-      return "@ai-sdk/google + zod/v4 resolvable";
+      // Constructing one proves the SDK actually initialises, not merely that the
+      // import resolved.
+      const openaiCompatible = mod.PROVIDER_SDK_FACTORIES[mod.OPENAI_COMPATIBLE_NPM];
+      if (typeof openaiCompatible !== "function") {
+        throw new Error("openai-compatible factory missing");
+      }
+      openaiCompatible({
+        providerId: "self-test",
+        modelId: "probe",
+        baseURL: "https://example.invalid/v1",
+      });
+      return `${names.length} provider SDK factories + zod/v4 resolvable`;
     },
   },
 ];

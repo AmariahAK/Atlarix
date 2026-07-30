@@ -385,7 +385,20 @@ export async function onReady() {
    */
   void (async () => {
     try {
-      await restoreAuthSessionOnStartup();
+      await restoreAuthSessionOnStartup({
+        // Resolve and broadcast the account the moment the STORED session is read,
+        // instead of after the token refresh. The refresh can spend seconds on
+        // network backoff, and it only rotates a token — it never decides whether
+        // the user is signed in, so making the UI wait for it was pure delay.
+        onStoredSession: async () => {
+          await SubscriptionManager.initialize();
+          SubscriptionManager.broadcastSessionState();
+        },
+      });
+      // Covers the paths the callback can't: no stored session at all, and the
+      // post-refresh state. `initialize()` is memoized on `initPromise`, so when the
+      // callback already ran this is a no-op — and the re-broadcast is what corrects
+      // the UI if the refresh changed the plan.
       await SubscriptionManager.initialize();
       SubscriptionManager.broadcastSessionState();
     } catch (e) {

@@ -687,6 +687,34 @@ export function isDbInitialized(): boolean {
   return _db !== null;
 }
 
+/**
+ * Re-open the database after `reset-all` deleted the file.
+ *
+ * `reset-all` closes the SQLite handle and unlinks the file, then RETURNS while the
+ * app keeps running. Without this, `_db` still pointed at the closed handle and every
+ * later query threw better-sqlite3's opaque "The database connection is not open" —
+ * the same symptom as the shutdown race, but on a session the user expects to keep
+ * using.
+ *
+ * Deliberately NOT `beginDatabaseClosing()`: that flag is one-way and would brick the
+ * session permanently. This is the opposite operation — drop the dead handle and build
+ * a fresh one (schema + migrations run again on the new file).
+ *
+ * Clearing `_db` lives here rather than being an exported setter, so the only way to
+ * replace the handle is this one named, documented path.
+ */
+export function reinitializeDatabaseAfterReset(): void {
+  const previous = _db;
+  _db = null;
+  if (previous) {
+    // The caller normally closed it already; closing twice is harmless and closing a
+    // still-open handle here prevents leaking it if they didn't.
+    closeSqliteSilently(previous.$client as Database.Database);
+  }
+  initializeDatabase();
+  logger.log("[DB] Re-initialized after reset-all");
+}
+
 /** Named error thrown when the DB is accessed after shutdown began — lets
  * straggler writes be swallowed quietly instead of surfacing better-sqlite3's
  * opaque "The database connection is not open" as a handled Sentry error. */

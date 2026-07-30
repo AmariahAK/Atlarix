@@ -21,6 +21,7 @@ import {
   planArtifactMarker,
 } from "@/lib/plans/plan-artifacts";
 import {
+  isActionableStepState,
   parsePlanChecklist,
   setStepStateInPlanMarkdown,
   type PlanChecklistStep,
@@ -54,6 +55,8 @@ type PlanToolArgs = {
   state?: string;
   step_index?: number;
   step_text?: string;
+  /** update_step + state:"external" — required; what the USER has to do. */
+  reason?: string;
 };
 
 /**
@@ -236,11 +239,12 @@ async function setStatus(args: PlanToolArgs) {
  * round-trip, which only strong models think to do). Capped for token safety.
  */
 function formatStepsForError(steps: PlanChecklistStep[]): string {
-  const MARK: Record<string, string> = {
+  const MARK: Record<PlanStepState, string> = {
     todo: " ",
     in_progress: "~",
     done: "x",
     blocked: "!",
+    external: "@",
   };
   const shown = steps
     .slice(0, 20)
@@ -250,17 +254,37 @@ function formatStepsForError(steps: PlanChecklistStep[]): string {
 }
 
 async function updateStep(args: PlanToolArgs) {
-  const allowed: PlanStepState[] = ["todo", "in_progress", "done", "blocked"];
+  const allowed: PlanStepState[] = [
+    "todo",
+    "in_progress",
+    "done",
+    "blocked",
+    "external",
+  ];
   if (!allowed.includes(args.state as PlanStepState)) {
     return {
       success: false,
-      error: "state must be one of: in_progress, done, todo, blocked.",
+      error:
+        "state must be one of: in_progress, done, todo, blocked, external.",
     };
   }
   if (args.step_index == null && !args.step_text?.trim()) {
     return {
       success: false,
       error: "Provide step_index (1-based) or step_text to identify the step.",
+    };
+  }
+  // `external` ends the turn's obligation for this step, so it must not be free.
+  // Without a required reason it is a silent escape hatch — and the user is left
+  // with a step marked "yours" and no idea what to do. The reason is also the only
+  // thing that makes abuse visible in the logs.
+  const externalReason = args.reason?.trim();
+  if (args.state === "external" && !externalReason) {
+    return {
+      success: false,
+      error:
+        "state 'external' requires `reason` — one line on what the USER has to do (e.g. \"rotate the signing key in the dashboard; no cert on this machine\"). " +
+        "If you're stuck rather than handing it over, use state 'blocked' instead.",
     };
   }
   const planId = await resolvePlanId(args);
@@ -282,6 +306,7 @@ async function updateStep(args: PlanToolArgs) {
     row.content,
     { stepIndex: args.step_index ?? undefined, stepText: args.step_text ?? undefined },
     args.state as PlanStepState,
+    externalReason,
   );
   if (!result.step) {
     const steps = parsePlanChecklist(row.content);
@@ -340,21 +365,41 @@ async function updateStep(args: PlanToolArgs) {
   markPlanLedgerDirty(args.chatId, updated.content);
   const steps = parsePlanChecklist(updated.content);
   const done = steps.filter((s) => s.state === "done").length;
+  const actionable = steps.filter((s) => isActionableStepState(s.state)).length;
+  if (args.state === "external") {
+    // Logged for the same reason the update_step MISS is logged below: `external`
+    // releases the completion gate, so if a model starts using it to dodge work
+    // this line is the only place that shows it.
+    logger.info(
+      `[plan] step ${result.step?.index ?? "?"} marked EXTERNAL in plan ${planId} — ` +
+        `reason=${JSON.stringify(externalReason ?? null)} ` +
+        `(${actionable} actionable step(s) left)`,
+    );
+  }
+  const progress =
+    `${done}/${steps.length} steps done` +
+    (actionable === 0 ? ", none left for you" : `, ${actionable} left for you`);
   return {
     success: true,
     planId: updated.id,
     step: result.step,
-    progress: `${done}/${steps.length} steps done`,
+    progress,
     // `message` is REQUIRED, not decoration: isToolResultEnvelopeObject
     // (answer-display.ts:164) only recognises a tool result when `success` is
     // accompanied by one of result/error/message/cost. Without it this shape was
     // unrecognised, so a model that echoed it into its visible reply had the raw
     // JSON rendered to the user verbatim instead of stripped. It also gives the
     // tool card something to say beyond "Done".
-    message: `Step ${result.step?.index ?? ""} → ${result.step?.state ?? "updated"} (${done}/${steps.length} steps done).`.replace(
-      "  ",
-      " ",
-    ),
+    message:
+      `Step ${result.step?.index ?? ""} → ${result.step?.state ?? "updated"} (${progress}).`.replace(
+        "  ",
+        " ",
+      ) +
+      // Say it explicitly at the moment it becomes true. The gate no longer nudges
+      // here, so this result is where the model learns it may stop.
+      (actionable === 0
+        ? " Nothing actionable remains — verify what you did, tell the user what's theirs, and end your turn."
+        : ""),
   };
 }
 
@@ -390,7 +435,10 @@ ToolRegistry.register({
     "'write' (create OR update the plan markdown — the CANONICAL way to update progress when several steps changed or you're unsure of numbering: re-emit the full plan with updated [x]/[~]/[!] marks, which is always safe and cannot miss. Include the returned marker comment in your reply so the card renders; pass planId to update a specific plan), " +
     "'read' (latest plan, or by planId / status filter — re-read before continuing if the user may have edited the plan), " +
     "'set_status' (plan_status: plan → building → built), " +
-    "'update_step' (convenience for marking ONE step: state in_progress|done|todo|blocked + step_text (preferred — a unique substring of the step) or step_index), " +
+    "'update_step' (convenience for marking ONE step: state in_progress|done|todo|blocked|external + step_text (preferred — a unique substring of the step) or step_index. " +
+    "Use 'external' for a step only the USER can do — a dashboard action, a purchase, hardware you don't have, a manual check — with a required `reason` saying what they must do; you are then DONE with that step and must not re-attempt it. " +
+    "Use 'blocked' when you tried and are stuck, with the reason in your reply. Neither state holds the turn open, so once no step is todo/in_progress you should verify your work, say what's left for the user, and finish. " +
+    "(Use ask_user instead when you need an answer to CONTINUE right now; 'external' is for handing a step over and moving on.)), " +
     "'append_step' (step_text — add a new checklist item).",
   requiresWorkspace: true,
   isCore: false,
@@ -433,7 +481,14 @@ ToolRegistry.register({
       },
       state: {
         type: "string",
-        description: "update_step: one of in_progress, done, todo, blocked",
+        description:
+          "update_step: one of in_progress, done, todo, blocked, external (external = only the user can do it; requires reason)",
+        required: false,
+      },
+      reason: {
+        type: "string",
+        description:
+          "update_step + state:'external' (REQUIRED there): one line on what the user has to do",
         required: false,
       },
       step_index: {

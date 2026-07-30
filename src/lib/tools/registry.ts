@@ -127,6 +127,16 @@ export interface ToolMetadata {
     isReadOnly?: boolean; // True if tool only reads data (safe for Ask mode)
     /** When false isReadOnly: still offer in Ask mode (e.g. plan file writes with approval). */
     allowInAskMode?: boolean;
+    /**
+     * Former names this tool still answers to. Resolved by `get()` but NEVER
+     * advertised: they don't appear in `getAll()`, any toolset, or any prompt.
+     *
+     * Renaming a tool otherwise breaks two things at once — persisted sessions whose
+     * history contains the old name, and any model that learned it. Absorbing the old
+     * name in the resolver fixes both without spending prompt budget telling the model
+     * about a name it shouldn't use.
+     */
+    aliases?: string[];
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -135,19 +145,36 @@ export interface ToolMetadata {
 
 export class ToolRegistry {
     private static tools: Map<string, ToolMetadata> = new Map();
+    /**
+     * Retired name → current name. Deliberately a SEPARATE map from `tools`: putting
+     * aliases in there would make `getAll()` return the same tool twice, which every
+     * toolset, the golden-toolset eval, and the registry audit read.
+     */
+    private static aliases: Map<string, string> = new Map();
 
     /**
      * Register a tool
      */
     static register(metadata: ToolMetadata): void {
         this.tools.set(metadata.name, metadata);
+        for (const alias of metadata.aliases ?? []) {
+            this.aliases.set(alias, metadata.name);
+        }
     }
 
     /**
-     * Get a tool by name
+     * Get a tool by name, resolving a retired name to its current tool.
      */
     static get(name: string): ToolMetadata | undefined {
-        return this.tools.get(name);
+        const direct = this.tools.get(name);
+        if (direct) return direct;
+        const canonical = this.aliases.get(name);
+        return canonical ? this.tools.get(canonical) : undefined;
+    }
+
+    /** The current name for a possibly-retired one (identity when not an alias). */
+    static resolveName(name: string): string {
+        return this.tools.has(name) ? name : (this.aliases.get(name) ?? name);
     }
 
     /**

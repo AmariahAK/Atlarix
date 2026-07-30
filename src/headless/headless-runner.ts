@@ -80,6 +80,11 @@ export async function runHeadlessAgent(
   // Benchmark integrity: force native function-calling (no text/XML tool shim)
   // regardless of provider wiring, so the comparison is apples-to-apples.
   process.env.ATLARIX_DISABLE_TEXT_TOOLS = "1";
+  // Benchmark integrity, part two: no agent-memory surface. Memory would otherwise
+  // let one task's notes influence a later task in the same suite — a confound that
+  // silently inflates scores — and it spends prompt budget the comparison harness
+  // never granted. Overridable, so a memory-specific benchmark can opt back in.
+  if (!process.env.ATLARIX_MEMORY) process.env.ATLARIX_MEMORY = "off";
   const userDataDir = process.env.ATLARIX_USER_DATA_DIR;
   fs.mkdirSync(userDataDir, { recursive: true });
 

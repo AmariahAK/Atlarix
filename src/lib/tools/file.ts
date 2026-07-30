@@ -9,6 +9,7 @@
  */
 
 import * as fs from "fs";
+import { recordFileRead, resolveReadScope } from "./file-read-log";
 import { truncateUtf8ByBytes } from "@/lib/truncate";
 import * as path from "path";
 
@@ -213,6 +214,10 @@ ToolRegistry.register({
         limit,
         workspace,
         _proposalSetId,
+        // Scope for the read-before-edit record (see `file-read-log.ts`).
+        _scopeSessionId,
+        _scopeChatId,
+        _chatSessionId,
     }) => {
         // opencode-style pagination: offset/limit map onto start/end lines.
         if (offset !== undefined && start_line === undefined) {
@@ -324,6 +329,23 @@ ToolRegistry.register({
 
             const content =
                 proposedBody ?? (await fs.promises.readFile(fullPath, "utf-8"));
+            // Remember what this read SERVED, so `edit_file` can refuse to work from a
+            // stale view. The full file is hashed even for a paged/ranged read: the gate
+            // asks "has the file changed since you looked?", not "did you see the region
+            // you're editing" — a slice read followed by an edit elsewhere is fine as
+            // long as nothing moved underneath. `proposedBody` is why the hash is of the
+            // bytes returned rather than of disk: a writer sub-agent reads its own
+            // overlay, and hashing disk would call every one of its edits stale.
+            recordFileRead(
+                resolveReadScope({
+                    _proposalSetId,
+                    _scopeSessionId,
+                    _scopeChatId,
+                    _chatSessionId,
+                }),
+                displayPath,
+                content,
+            );
             const lines = content.split("\n");
 
             if (start_line !== undefined && end_line !== undefined) {

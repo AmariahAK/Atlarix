@@ -63,11 +63,13 @@ const GOLDEN = {
     "read_url", "schedule_wakeup", "subagents", "task", "web_search",
   ],
   build: [
+    // Sorted. `browser_test` sits with the rest of the browser_* family now — it was
+    // `preview_test` (renamed v14.23.0), which sorted after `plan`.
     "ask_user", "background_jobs", "browser_batch", "browser_find",
     "browser_inspect", "browser_interact",
-    "browser_navigate", "browser_tabs", "compress_context", "edit_file",
+    "browser_navigate", "browser_tabs", "browser_test", "compress_context", "edit_file",
     "glob", "grep", "list_attachments", "list_available_mcps",
-    "mcp_call", "plan", "preview_test", "proposals", "read_attachment", "read_file",
+    "mcp_call", "plan", "proposals", "read_attachment", "read_file",
     "read_url", "run_command", "schedule_wakeup", "subagents", "task", "web_search",
   ],
 } as const;

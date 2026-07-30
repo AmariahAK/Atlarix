@@ -127,6 +127,17 @@ export interface ChatResponseEnd {
   hadToolCallsOrPermissions?: boolean;
   /** True when the turn ended by asking the user (ask_user) rather than finishing — drives the "needs your answer" vs "finished responding" notification. */
   endedWaitingOnUser?: boolean;
+  /**
+   * True when this end came from the user pressing Stop, not from the turn finishing.
+   *
+   * Load-bearing: the renderer auto-wakes a FRESH turn on `response:end` whenever a
+   * background command or sub-agent still has a pending result. Cancel kills only
+   * foreground commands, so that condition is routinely true right after a stop — and
+   * without this flag the wake fired, a new turn started with no knowledge of the stop,
+   * re-read the file it had just edited, mistook its own change for the user's, and
+   * carried on (observed: it went as far as `git push`).
+   */
+  userCancelled?: boolean;
   /** True when the completed turn used the managed Atlarix Core provider (for usage refresh). */
   usedCompass?: boolean;
   /** v10: auxiliary LLM tokens this turn (sub-agents, compaction) — counted toward usage. */
@@ -435,8 +446,21 @@ export interface LanguageModelProvider {
   websiteUrl?: string;
   gatewayPrefix?: string;
   secondary?: boolean;
+  /** Primary env var — `envVarNames[0]`. Kept for the many existing consumers. */
   envVarName?: string;
+  /**
+   * EVERY env var name that carries this provider's key, best first (curated
+   * preference, then models.dev's published order). A provider commonly documents
+   * several — Google publishes three — and the user has whichever their other
+   * tooling set, so key lookup tries each rather than one.
+   */
+  envVarNames?: string[];
   apiBaseUrl?: string;
+  /**
+   * models.dev's `npm` value (or an overlay pin): which AI-SDK / wire format this
+   * provider speaks. The dispatch key in `provider-sdk-factories.ts`.
+   */
+  npm?: string;
   type: "custom" | "local" | "cloud";
 }
 

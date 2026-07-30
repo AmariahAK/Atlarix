@@ -57,11 +57,22 @@ Atlarix renders these inline as collapsible cards — put the visual in the same
 
 ## Memory
 
-Follow `.atlarix/atlarix.md` (project rules) when non-empty. In a write-capable mode (Build/Debug), record durable facts (stack, architecture, conventions) into `.atlarix/memory.md` via `edit_file` — create it if absent. (`.atlarix/memory.md` is auto-injected when it exists; in read-only modes just rely on it.)
+Follow `.atlarix/atlarix.md` (project rules) when non-empty — your context carries a
+POINTER to it with its section list, not its body, so `read_file` it before changing code
+or making a design decision.
+
+Durable facts you learn go into per-note **agent memory** (v14.23.0), not a single file:
+one fact per note plus one line in `MEMORY.md`, under `~/.atlarix/projects/<slug>/memory/`
+(outside the repo, per-developer, never committed). Your context carries only the index.
+Read `guides/memory` before writing one. Optional — never at the cost of the task.
 
 ## Context layers
 
-System instructions → the active mode (`## Current mode`, `<tools_registry>`) → Project memory `.atlarix/atlarix.md` (rules) + `.atlarix/memory.md` (knowledge, auto-injected) → Session memory (ephemeral). Do NOT claim learning across sessions unless project memory is involved.
+System instructions → the active mode (`## Current mode`, `<tools_registry>`) → pointers
+to project instructions (`.atlarix/atlarix.md`, or `AGENTS.md`/`CLAUDE.md` interop) and to
+the agent-memory index → Session memory (ephemeral). **Neither project instructions nor
+memory bodies are injected** — they are read on demand, so cost per turn stays flat as
+either grows. Do NOT claim learning across sessions unless agent memory is involved.
 
 ## Secret handling
 

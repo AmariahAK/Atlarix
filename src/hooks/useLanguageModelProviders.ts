@@ -4,11 +4,7 @@ import { IpcClient } from "@/ipc/ipc_client";
 import type { LanguageModelProvider } from "@/ipc/ipc_types";
 import { useConfiguredProviders } from "./useConfiguredProviders";
 import { useSettings } from "./useSettings";
-import {
-  cloudProviders,
-  VertexProviderSetting,
-  AzureProviderSetting,
-} from "@/lib/schemas";
+import { VertexProviderSetting, AzureProviderSetting } from "@/lib/schemas";
 
 export function useLanguageModelProviders() {
   const ipcClient = IpcClient.getInstance();
@@ -98,8 +94,15 @@ export function useLanguageModelProviders() {
       return true;
     }
 
-    // Check hardcoded cloud providers (includes compass when build has master key)
-    if (cloudProviders.some((provider) => isProviderSetup(provider))) {
+    // Check EVERY cloud provider the app knows about — overlaid first-class ones and
+    // the models.dev long tail alike. This used to read a closed 21-entry tuple in
+    // `schemas.ts`, so a user whose only key was for a catalog-only provider read as
+    // "no provider configured" and got sent back to the setup wizard.
+    if (
+      queryResult.data?.some(
+        (provider) => provider.type === "cloud" && isProviderSetup(provider.id),
+      )
+    ) {
       return true;
     }
 

@@ -498,13 +498,17 @@ export async function fetchModelsFromOpenRouter(
 // ---------------------------------------------------------------------------
 
 async function fetchOpenWeightModels(
-  providerId: "deepseek" | "qwen" | "minimax" | "moonshot",
+  providerId: string,
   apiKey: string,
+  /** Resolved base URL; falls back to the open-weight pin map for the built-ins. */
+  baseUrl?: string,
 ): Promise<LanguageModel[]> {
+  const resolvedBaseUrl = baseUrl ?? OPENWEIGHT_PROVIDER_BASE_URLS[providerId];
+  if (!resolvedBaseUrl) return [];
   // 1. Live provider /models — reflects newest models and the user's access.
   const live = await fetchOpenAICompatibleModels({
     providerId,
-    url: `${OPENWEIGHT_PROVIDER_BASE_URLS[providerId]}/models`,
+    url: `${resolvedBaseUrl}/models`,
     apiKey,
   });
   if (live.length > 0) return live;
@@ -567,11 +571,23 @@ const FETCHERS: Record<string, (apiKey: string) => Promise<LanguageModel[]>> = {
 export async function fetchModelsFromProvider(
   providerId: string,
   apiKey: string,
+  /**
+   * Resolved base URL. When a provider has no bespoke fetcher but IS
+   * OpenAI-compatible, this lets it serve its own live `/models` — so the long tail
+   * surfaces models newer than the hourly catalog, exactly like the built-ins do.
+   * Omitted → catalog-only, which is the previous behaviour.
+   */
+  apiBaseUrl?: string,
 ): Promise<LanguageModel[]> {
   const key = providerId === "together" ? "togetherai" : providerId;
   const fetcher = FETCHERS[key];
-  if (!fetcher) return [];
-  const models = await fetcher(apiKey);
+  // No bespoke fetcher: try the generic OpenAI-compatible `/models` when we know
+  // where to ask. Falls back to [] (catalog-only) exactly as before when we don't.
+  const models = fetcher
+    ? await fetcher(apiKey)
+    : apiBaseUrl
+      ? await fetchOpenWeightModels(key, apiKey, apiBaseUrl)
+      : [];
   // W12 (v14.8.11): one funnel, every provider — fill missing context/output
   // limits from models.dev so downstream resolution never needs hardcoded
   // guesses. Dynamic import keeps main-only deps out of renderer bundles.

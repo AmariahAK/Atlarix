@@ -12,6 +12,7 @@ import { ToolBrowserScreenshotExpand } from "./ToolBrowserScreenshotExpand";
 import { ToolBrowserRecordingExpand } from "./ToolBrowserRecordingExpand";
 import { ToolCommandExpand } from "./ToolCommandExpand";
 import { ToolScrollableBody } from "./ToolScrollableBody";
+import { AtlarixMarkdownSegment } from "../AtlarixMarkdownSegment";
 import { cn } from "@/lib/utils";
 
 export function ToolExpandPanel({
@@ -43,7 +44,20 @@ export function ToolExpandPanel({
         <ToolBrowserRecordingExpand view={view} />
       ) : null}
       {view.kind === "command" ? <ToolCommandExpand view={view} /> : null}
-      {view.kind === "text" ? (
+      {view.kind === "text" && view.markdown ? (
+        // Authored prose (e.g. a sub-agent's report) — headings, lists and fences
+        // must render, and `max-w-none` stops the prose container from re-wrapping
+        // inside the already-narrow card.
+        <div
+          className={cn(
+            "max-h-96 overflow-y-auto text-xs max-w-none",
+            view.isError && "text-destructive",
+          )}
+        >
+          <AtlarixMarkdownSegment content={view.body} isStreaming={false} />
+        </div>
+      ) : null}
+      {view.kind === "text" && !view.markdown ? (
         <ToolScrollableBody
           text={view.body}
           mono={false}

@@ -1449,9 +1449,9 @@ ToolRegistry.register({
 });
 
 // ── browser_batch: several actions in one call ───────────────────────────────
-// Generalizes the preview_test step executor minus assertions: sequential, halts
+// Generalizes the browser_test step executor minus assertions: sequential, halts
 // on the first failure (later steps depend on earlier state), refs only — never
-// blind coordinates. preview_test keeps its own assertion path unchanged.
+// blind coordinates. browser_test keeps its own assertion path unchanged.
 
 type BatchStep = {
   action?: string;
@@ -1475,7 +1475,7 @@ ToolRegistry.register({
     "Run several browser actions in ONE call when you can predict the next few steps — e.g. fill a field, fill another, press Enter. " +
     "Steps run in order and STOP at the first failure (later steps depend on earlier state), and you get one result listing what happened at each. " +
     "Steps: {action:\"navigate\",url}, {action:\"click\",ref}, {action:\"fill\",ref,value}, {action:\"key\",text}, {action:\"hover\",ref}, {action:\"scroll\",direction|ref}, {action:\"waitFor\",selector|text,timeoutMs}. " +
-    "Use refs from browser_inspect / browser_find — no coordinates. For an asserted pass/fail verification of your app, use preview_test instead (available in Build and Debug).",
+    "Use refs from browser_inspect / browser_find — no coordinates. For an asserted pass/fail verification of your app, use browser_test instead (available in Build and Debug).",
   parameters: {
     type: "object",
     properties: {
@@ -1648,7 +1648,7 @@ async function runBatchStep(
   }
 }
 
-// ── preview_test: headless, asserted, repeatable UI test of the app ───────────
+// ── browser_test: headless, asserted, repeatable UI test of the app ───────────
 // Drives the app in a browser tab (Playwright is stripped from the packaged app,
 // and `executeJavaScript` drives the page without a human clicking). Runs a
 // scripted navigate→interact→waitFor→assert sequence and returns a STRUCTURED
@@ -1858,7 +1858,13 @@ function formatPreviewError(e: BrowserSurfaceError): string {
 }
 
 ToolRegistry.register({
-  name: "preview_test",
+  // Renamed from `preview_test` in v14.23.0: it drives a BROWSER TAB, and "preview"
+  // referred to the Preview pane deleted in v14.15.0 — which is why the old name read
+  // as a tool that shouldn't exist. The old name still resolves (see `aliases`) so
+  // persisted sessions and models that learned it keep working, and it is advertised
+  // nowhere.
+  name: "browser_test",
+  aliases: ["preview_test"],
   requiresWorkspace: false,
   isCore: false,
   // Drives + asserts the running app (not the workspace). Build/Debug only —
@@ -1936,7 +1942,7 @@ ToolRegistry.register({
       return {
         success: false,
         error:
-          "No page is open — start the app's dev server (run_command) and pass its URL (e.g. http://localhost:3000) as `url`, or browser_navigate to it first, then call preview_test.",
+          "No page is open — start the app's dev server (run_command) and pass its URL (e.g. http://localhost:3000) as `url`, or browser_navigate to it first, then call browser_test.",
       };
     }
     const steps = Array.isArray(args.steps)

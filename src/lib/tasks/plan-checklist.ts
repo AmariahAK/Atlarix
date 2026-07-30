@@ -4,7 +4,55 @@
  * markdown (session plan artifacts included).
  */
 
-export type PlanStepState = "todo" | "in_progress" | "done" | "blocked";
+/**
+ * `blocked` and `external` are both non-actionable, but they are NOT the same and
+ * must not be merged. `blocked` = the model tried and is stuck (a red check, a bug
+ * it can't find) — it does not license a success claim. `external` = the step is
+ * the USER's by nature (rotate a key on a dashboard, sign a cert, verify on
+ * hardware) — the model is right to hand it back and finish.
+ *
+ * Conflating them is what the completion gate used to do (`state !== "done"`), and
+ * it forced the model to re-attempt work it could never complete.
+ */
+export type PlanStepState =
+  | "todo"
+  | "in_progress"
+  | "done"
+  | "blocked"
+  | "external";
+
+/**
+ * States the model can still act on. The completion gate nudges on these and ONLY
+ * these — see `plan-completion-gate.ts`.
+ */
+export function isActionableStepState(state: PlanStepState): boolean {
+  return state === "todo" || state === "in_progress";
+}
+
+/**
+ * Prefix for the reason carried by an `external` step.
+ *
+ * The reason has to live in the markdown to survive a reload (the ledger and the
+ * plan card both re-parse the body; there is no column for it), so it is appended
+ * to the step text. ONE constant so the append, the idempotency guard, and the
+ * strip can never drift apart.
+ */
+export const EXTERNAL_REASON_PREFIX = "— needs you:";
+
+const RE_EXTERNAL_REASON = /\s*—\s*needs you:\s*[^\n]*$/i;
+
+/** Drop any trailing `— needs you: …` clause from a step's text. */
+export function stripExternalReason(text: string): string {
+  return text.replace(RE_EXTERNAL_REASON, "").trimEnd();
+}
+
+/** The reason on an `external` step, or undefined when it carries none. */
+export function extractExternalReason(text: string): string | undefined {
+  const m = RE_EXTERNAL_REASON.exec(text);
+  if (!m) return undefined;
+  const reason = m[0].replace(/\s*—\s*needs you:\s*/i, "").trim();
+  return reason || undefined;
+}
 
 export interface PlanChecklistStep {
   /** 1-based position within the checklist (not the markdown line number). */
@@ -20,6 +68,10 @@ const MARK_BY_STATE: Record<PlanStepState, string> = {
   in_progress: "~",
   done: "x",
   blocked: "!",
+  // "@" reads as "assigned to someone else". A build older than this one parses
+  // `[@]` via RE_NUMBERED_PLAIN instead, so the step shows as todo with a literal
+  // "[@]" in its text — downgrade-only (plans are local SQLite), never a crash.
+  external: "@",
 };
 
 const STATE_BY_MARK: Record<string, PlanStepState> = {
@@ -28,11 +80,12 @@ const STATE_BY_MARK: Record<string, PlanStepState> = {
   "~": "in_progress",
   x: "done",
   "!": "blocked",
+  "@": "external",
 };
 
-const RE_NUMBERED_CHECKBOX = /^(\s*\d+[.)]\s+)\[( |x|~|!)?\]\s*(.+)$/i;
+const RE_NUMBERED_CHECKBOX = /^(\s*\d+[.)]\s+)\[( |x|~|!|@)?\]\s*(.+)$/i;
 const RE_NUMBERED_PLAIN = /^(\s*\d+[.)]\s+)(.+)$/;
-const RE_BULLET_CHECKBOX = /^(\s*[-*+]\s+)\[( |x|~|!)?\]\s*(.+)$/i;
+const RE_BULLET_CHECKBOX = /^(\s*[-*+]\s+)\[( |x|~|!|@)?\]\s*(.+)$/i;
 
 /** Parse every checklist step (numbered w/ or w/o checkbox, bullet checkboxes) with its state. */
 export function parsePlanChecklist(content: string): PlanChecklistStep[] {
@@ -63,14 +116,39 @@ export function parsePlanChecklist(content: string): PlanChecklistStep[] {
   return steps;
 }
 
-function rewriteStepLine(line: string, state: PlanStepState): string {
+/**
+ * Rewrite one step's text for the target state.
+ *
+ * `external` carries its reason inline (see `EXTERNAL_REASON_PREFIX`). Always strip
+ * first, then re-append: that makes re-marking IDEMPOTENT (no doubled suffix when a
+ * model marks the same step twice, which it does) and makes moving off `external`
+ * drop the clause rather than leaving a stale "needs you" on an active step.
+ */
+function rewriteStepText(
+  text: string,
+  state: PlanStepState,
+  reason?: string,
+): string {
+  const base = stripExternalReason(text);
+  if (state !== "external") return base;
+  const trimmed = reason?.trim();
+  if (!trimmed) return base;
+  return `${base} ${EXTERNAL_REASON_PREFIX} ${trimmed}`;
+}
+
+function rewriteStepLine(
+  line: string,
+  state: PlanStepState,
+  reason?: string,
+): string {
   const mark = MARK_BY_STATE[state];
+  const text = (t: string) => rewriteStepText(t, state, reason);
   const numbered = line.match(RE_NUMBERED_CHECKBOX);
-  if (numbered) return `${numbered[1]}[${mark}] ${numbered[3]}`;
+  if (numbered) return `${numbered[1]}[${mark}] ${text(numbered[3]!)}`;
   const bullet = line.match(RE_BULLET_CHECKBOX);
-  if (bullet) return `${bullet[1]}[${mark}] ${bullet[3]}`;
+  if (bullet) return `${bullet[1]}[${mark}] ${text(bullet[3]!)}`;
   const plain = line.match(RE_NUMBERED_PLAIN);
-  if (plain) return `${plain[1]}[${mark}] ${plain[2]}`;
+  if (plain) return `${plain[1]}[${mark}] ${text(plain[2]!)}`;
   return line;
 }
 
@@ -89,6 +167,8 @@ export function setStepStateInPlanMarkdown(
   content: string,
   target: { stepIndex?: number; stepText?: string },
   state: PlanStepState,
+  /** `external` only — appended inline so it survives a reload. */
+  reason?: string,
 ): SetStepStateResult {
   const steps = parsePlanChecklist(content);
   let step: PlanChecklistStep | undefined;
@@ -112,13 +192,15 @@ export function setStepStateInPlanMarkdown(
 
   const lines = content.split(/\r?\n/);
   const before = lines[step.line]!;
-  const after = rewriteStepLine(before, state);
+  const after = rewriteStepLine(before, state, reason);
   if (before === after) return { content, changed: false, step };
   lines[step.line] = after;
   return {
     content: lines.join("\n"),
     changed: true,
-    step: { ...step, state },
+    // Carry the REWRITTEN text: callers echo this back to the model, and the old
+    // text would still show a stripped-off (or missing) "needs you" clause.
+    step: { ...step, state, text: rewriteStepText(step.text, state, reason) },
   };
 }
 
@@ -137,11 +219,15 @@ export function formatPlanChecklistForPrompt(
   const done = steps.filter((s) => s.state === "done").length;
   const inProgress = steps.find((s) => s.state === "in_progress");
   const blocked = steps.filter((s) => s.state === "blocked");
+  const external = steps.filter((s) => s.state === "external");
   const pending = steps.filter((s) => s.state === "todo");
 
   const lines: string[] = [];
   const head = title?.trim() ? `${title.trim()} — ` : "";
-  lines.push(`[Session plan] ${head}${done}/${steps.length} steps done.`);
+  const externalNote = external.length ? ` · ${external.length} needs the user` : "";
+  lines.push(
+    `[Session plan] ${head}${done}/${steps.length} steps done${externalNote}.`,
+  );
   if (inProgress) lines.push(`In progress: ${inProgress.index}. ${inProgress.text}`);
   if (pending.length) {
     lines.push(`Remaining: ${pending.map((s) => `${s.index}. ${s.text}`).join("; ")}`);
@@ -149,8 +235,22 @@ export function formatPlanChecklistForPrompt(
   if (blocked.length) {
     lines.push(`Blocked: ${blocked.map((s) => `${s.index}. ${s.text}`).join("; ")}`);
   }
-  if (done === steps.length) {
-    lines.push("All steps are marked done — verify the work, then finish.");
+  if (external.length) {
+    lines.push(
+      `Needs the user (NOT yours to do — do not re-attempt): ${external
+        .map((s) => `${s.index}. ${s.text}`)
+        .join("; ")}`,
+    );
+  }
+  // Fires when nothing ACTIONABLE is left, not when everything is `done`. The old
+  // `done === steps.length` test meant a plan ending on a blocked/external step got
+  // no permission-to-finish signal at all, so the model kept looking for work.
+  if (!steps.some((s) => isActionableStepState(s.state))) {
+    lines.push(
+      external.length || blocked.length
+        ? "No step is left for you — verify what you did, report what the user still needs to do, then finish."
+        : "All steps are marked done — verify the work, then finish.",
+    );
   }
   // C4: terse trailing steer (was a long sentence repeated every turn).
   lines.push(
@@ -168,7 +268,16 @@ export function extractPlanChecklistTitle(content: string): string | undefined {
   return undefined;
 }
 
-/** Safety net: when a plan flips to built, close out any remaining open steps. */
+/**
+ * Safety net: when a plan flips to built, close out steps the model left OPEN.
+ *
+ * "Open" means actionable — `todo`/`in_progress`. It must NOT touch `blocked` or
+ * `external`, because those are decisions the model already made: flipping them to
+ * `done` deletes the reason, tells the user their step is finished when nobody did
+ * it, and makes the card read 4/4. (This was already wrong for `blocked` before
+ * `external` existed — the net silently converted "I'm stuck on this" into "done"
+ * on any Build turn that wrote a file.)
+ */
 export function markAllChecklistStepsDone(content: string): {
   content: string;
   changed: boolean;
@@ -176,7 +285,7 @@ export function markAllChecklistStepsDone(content: string): {
   let out = content;
   let changed = false;
   for (const step of parsePlanChecklist(content)) {
-    if (step.state === "done") continue;
+    if (!isActionableStepState(step.state)) continue;
     const res = setStepStateInPlanMarkdown(out, { stepIndex: step.index }, "done");
     if (res.changed) {
       out = res.content;

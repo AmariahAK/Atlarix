@@ -18,6 +18,7 @@ import {
   VertexProviderSetting,
 } from "@/lib/schemas";
 
+import { COMPASS_PROVIDER_ID } from "@/ipc/shared/compass_constants";
 import { ProviderSettingsHeader } from "./ProviderSettingsHeader";
 import { ApiKeyConfiguration } from "./ApiKeyConfiguration";
 import { CompassProviderSettings } from "./CompassProviderSettings";
@@ -25,12 +26,21 @@ import { ModelsSection } from "./ModelsSection";
 import { TokenBudgetInput } from "./TokenBudgetInput";
 import { LocalProviderModelSelector } from "./LocalProviderModelSelector";
 
-const PROVIDERS_WITH_TOKEN_BUDGET = [
-  "openai", "anthropic", "google",
-  "groq", "togetherai", "mistral", "xai", "bedrock", "elastic",
-  "nvidia_nim", "cohere", "perplexity", "cerebras", "openrouter",
-  "huggingface", "deepseek", "qwen", "minimax", "moonshot",
-];
+/**
+ * A token budget applies to any BYOK cloud provider — the user pays per token, so
+ * capping spend is meaningful. This was a 19-entry allowlist, which meant every
+ * catalog provider silently lacked the control; it's now derived from the provider's
+ * own type. Core (`compass`) is excluded because its spend is metered by the wallet,
+ * and local runtimes because their tokens are free.
+ */
+function supportsTokenBudget(
+  providerId: string,
+  providerData: { type?: string } | undefined,
+  isAtlarix: boolean,
+): boolean {
+  if (isAtlarix || providerId === COMPASS_PROVIDER_ID) return false;
+  return providerData?.type === "cloud";
+}
 
 interface ProviderSettingsPageProps {
   provider: string;
@@ -384,7 +394,7 @@ export function ProviderSettingsPage({ provider }: ProviderSettingsPageProps) {
                   isAtlarix={isAtlarix}
                   updateSettings={updateSettings}
                 />
-                {PROVIDERS_WITH_TOKEN_BUDGET.includes(provider) && (
+                {supportsTokenBudget(provider, providerData, isAtlarix) && (
                   <TokenBudgetInput providerId={provider} />
                 )}
               </>

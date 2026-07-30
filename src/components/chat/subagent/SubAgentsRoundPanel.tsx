@@ -1,5 +1,5 @@
-import { useMemo } from "react";
-import { Users } from "lucide-react";
+import { useMemo, useState } from "react";
+import { ChevronDown, ChevronUp, Users } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { SubAgentRunEntry, StreamThreadToolStatus } from "@/lib/chat/stream-thread";
 import { SubAgentRunCard } from "./SubAgentRunCard";
@@ -37,14 +37,43 @@ export function SubAgentsRoundPanel({
     (a) => a.status === "done" || a.status === "error",
   ).length;
   const active = agents.length - settled;
+  const allSettled = agents.length > 0 && active === 0;
   const summary =
     active > 0
       ? `Sub-agents · ${active}/${agents.length} running`
       : `Sub-agents · ${agents.length} completed`;
 
+  /**
+   * Collapse once every agent has settled.
+   *
+   * A sub-agent's report is written for the PARENT AGENT, not for the reader — it's
+   * data passed between models. While the round is live, the open list is the point:
+   * it's how you see what's happening. Once it's finished, keeping every report
+   * expanded buries the actual answer under machine-to-machine output, so the panel
+   * folds back to its one-line summary and the cards stay one click away.
+   *
+   * Live rounds are never auto-collapsed, and a user who opens a settled round keeps
+   * it open (`userToggled`) — re-collapsing under someone reading it would be worse
+   * than never collapsing at all.
+   *
+   * `!isStreaming` is load-bearing, not belt-and-braces. `allSettled` flips the moment
+   * the LAST sub-agent finishes, which is usually mid-turn — the agent keeps working
+   * afterwards. Collapsing on that alone unmounted a body up to `min-h-[14rem]` tall
+   * while the stream was still appending, so the document height dropped and everything
+   * below jumped under the auto-scroll. That is the "scratchy" rendering. Waiting for
+   * the turn to end reaches the same collapsed state with no reflow mid-stream.
+   */
+  const [userToggled, setUserToggled] = useState<boolean | null>(null);
+  const expanded = userToggled ?? !(allSettled && !isStreaming);
+
   return (
     <div className={cn(streamToolCardShell, "rounded-lg border my-1.5 overflow-hidden")}>
-      <div className={streamToolCardButton}>
+      <button
+        type="button"
+        className={cn(streamToolCardButton, "w-full cursor-pointer text-left")}
+        onClick={() => setUserToggled(!expanded)}
+        aria-expanded={expanded}
+      >
         <span className="w-3.5 shrink-0" aria-hidden />
         <Users className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
         <span className={streamToolCardSummary}>{summary}</span>
@@ -53,23 +82,30 @@ export function SubAgentsRoundPanel({
             Active
           </span>
         ) : null}
-      </div>
-      <div
-        className={cn(
-          streamCardScrollBody,
-          "flex flex-col gap-2 px-2 pb-2",
-          agents.length > 3 && "min-h-[14rem]",
+        {expanded ? (
+          <ChevronUp className={cn("h-3.5 w-3.5 shrink-0 text-muted-foreground", status !== "running" && "ml-auto")} />
+        ) : (
+          <ChevronDown className={cn("h-3.5 w-3.5 shrink-0 text-muted-foreground", status !== "running" && "ml-auto")} />
         )}
-      >
-        {sortedAgents.map((agent) => (
-          <SubAgentRunCard
-            key={agent.id}
-            agent={agent}
-            isStreaming={isStreaming}
-            isHistorical={isHistorical}
-          />
-        ))}
-      </div>
+      </button>
+      {expanded ? (
+        <div
+          className={cn(
+            streamCardScrollBody,
+            "flex flex-col gap-2 px-2 pb-2",
+            agents.length > 3 && "min-h-[14rem]",
+          )}
+        >
+          {sortedAgents.map((agent) => (
+            <SubAgentRunCard
+              key={agent.id}
+              agent={agent}
+              isStreaming={isStreaming}
+              isHistorical={isHistorical}
+            />
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }

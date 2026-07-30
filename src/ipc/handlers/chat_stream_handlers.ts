@@ -146,6 +146,7 @@ import {
   nextStreamId,
   lastStreamRequest,
   streamSessionByChatId,
+  streamTurnIdByChatId,
   lastTurnModeByChat,
   pendingAskUserArtifactByChatId,
   getLastSkillCacheAppId,
@@ -962,6 +963,10 @@ ${componentSnippet}
 
       let streamTurnId = String(placeholderAssistantMessage.id);
       snapshotTurnIdForTerminal = streamTurnId; // v12 2.3
+      // Publish it so `chat:cancel` — which cannot see this scope — can report the
+      // same id on a user-stopped end. Without it the Revert affordance never appears
+      // for the one turn you most want to revert. Cleared on terminal below.
+      streamTurnIdByChatId.set(req.chatId, streamTurnId);
       // v11.1: set when the model asked the user question(s) — the turn ends
       // gracefully (persist + response:end) WITHOUT task-complete side effects
       // (no build verification, no self-review).

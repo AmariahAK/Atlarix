@@ -6,10 +6,17 @@ import { expectNoStreamError, expectStreamEnded } from "../infra/assert";
 /**
  * v14.8.9 continue-until-done: a Build turn drives an active session plan to
  * completion instead of stopping at a phase boundary. When the model yields
- * (prose-only round) with plan steps still pending, the plan-completeness gate
- * nudges it to continue (bounded by PLAN_YIELD_MAX_NUDGES); when the plan is all
- * done, the turn ends cleanly.
+ * (prose-only round) with plan steps still ACTIONABLE, the plan-completeness gate
+ * nudges it to continue (bounded by PLAN_YIELD_MAX_NUDGES).
+ *
+ * v14.23.0: "actionable" means `todo`/`in_progress` only. A step marked `external`
+ * (the user's to do) or `blocked` (tried, stuck) is an ANSWER, and the gate must
+ * accept it — re-asking was the harness overriding a correct decision and forcing
+ * the model to re-attempt work it could never finish.
  */
+
+/** Stable substring of the gate nudge — the wording around it may be tuned. */
+const NUDGE = "you haven't accounted for";
 
 let ctx: EvalContext;
 
@@ -22,7 +29,7 @@ afterAll(async () => {
 });
 
 describe("continue-until-done — plan-completeness gate", () => {
-  it("nudges the model to continue when plan steps remain, then bounds out", async () => {
+  it("nudges the model to continue when actionable steps remain, then bounds out", async () => {
     ctx.server.register(
       scenario("cud-pending")
         // Create a plan with pending steps (a productive round → resets streak).
@@ -50,10 +57,14 @@ describe("continue-until-done — plan-completeness gate", () => {
 
     const blob = JSON.stringify(ctx.server.requestsFor("cud-pending"));
     // The plan-completion nudge was injected (turn continued past the yield).
-    expect(blob).toContain("session plan is not finished");
-    // v14.8.10 wording: mark-don't-redo — a completed-in-reality plan must be
-    // marked done and the turn ended, never re-executed.
-    expect(blob).toContain("NEVER redo or restart work");
+    expect(blob).toContain(NUDGE);
+    // Mark-don't-redo: a completed-in-reality plan must be marked done and the
+    // turn ended, never re-executed.
+    expect(blob).toContain("never redo work that succeeded");
+    // The nudge must offer the two non-actionable dispositions, or the model has
+    // no way to express "this isn't mine" and the fight starts again.
+    expect(blob).toContain("external");
+    expect(blob).toContain("blocked");
   });
 
   it("does not nudge in plan work mode — the plan itself is the deliverable", async () => {
@@ -85,7 +96,7 @@ describe("continue-until-done — plan-completeness gate", () => {
     // Pending steps exist, but plan mode must not be nudged to "continue" —
     // that reads as "proceed without the user" (observed live: the model
     // started implementing right after presenting the plan).
-    expect(blob).not.toContain("session plan is not finished");
+    expect(blob).not.toContain(NUDGE);
   });
 
   it("bounds total nudges per turn even when productive rounds reset the streak", async () => {
@@ -122,7 +133,7 @@ describe("continue-until-done — plan-completeness gate", () => {
     // carries every nudge injected this turn — count must respect the cap.
     const requests = ctx.server.requestsFor("cud-total-cap");
     const last = JSON.stringify(requests[requests.length - 1]);
-    const nudgeCount = last.split("session plan is not finished").length - 1;
+    const nudgeCount = last.split(NUDGE).length - 1;
     expect(nudgeCount).toBeGreaterThan(0);
     expect(nudgeCount).toBeLessThanOrEqual(12);
   });
@@ -151,6 +162,126 @@ describe("continue-until-done — plan-completeness gate", () => {
 
     const blob = JSON.stringify(ctx.server.requestsFor("cud-done"));
     // All steps done → the gate returns null → no continuation nudge.
-    expect(blob).not.toContain("session plan is not finished");
+    expect(blob).not.toContain(NUDGE);
+  });
+
+  /**
+   * The regression this release exists for. Before v14.23.0 the gate counted any
+   * step that wasn't `done` as remaining, so a step the model correctly handed to
+   * the user kept the turn open and the nudge told it to carry on with that very
+   * step — up to 12 times.
+   */
+  it("a step marked external ends the turn — the user's work is not the model's", async () => {
+    ctx.server.register(
+      scenario("cud-external")
+        .toolCall("plan", {
+          operation: "write",
+          title: "Ship it",
+          content: "1. [ ] Wire the sign step\n2. [ ] Rotate the signing key\n",
+        })
+        .toolCall("plan", {
+          operation: "update_step",
+          step_text: "Wire the sign step",
+          state: "done",
+        })
+        .toolCall("plan", {
+          operation: "update_step",
+          step_text: "Rotate the signing key",
+          state: "external",
+          reason: "no signing cert on this machine — do it in the dashboard",
+        })
+        .text("Sign step is wired. Rotating the key is yours — see the plan.")
+        .repeatLast()
+        .build(),
+    );
+
+    const chatId = await ctx.newChat();
+    const { fakeIpc } = await runTurn(ctx, {
+      chatId,
+      prompt: "sc=cud-external Ship the build.",
+      mode: "build",
+      timeoutMs: 25_000,
+    });
+    expectNoStreamError(fakeIpc.sends, chatId);
+    expectStreamEnded(fakeIpc.sends, chatId);
+
+    const blob = JSON.stringify(ctx.server.requestsFor("cud-external"));
+    // Nothing actionable is left → the gate must stay silent.
+    expect(blob).not.toContain(NUDGE);
+    // And the tool result must tell the model it may stop.
+    expect(blob).toContain("Nothing actionable remains");
+  });
+
+  it("a step marked blocked also ends the turn", async () => {
+    ctx.server.register(
+      scenario("cud-blocked")
+        .toolCall("plan", {
+          operation: "write",
+          title: "Fix it",
+          content: "1. [ ] Patch the parser\n2. [ ] Make the flaky test pass\n",
+        })
+        .toolCall("plan", {
+          operation: "update_step",
+          step_text: "Patch the parser",
+          state: "done",
+        })
+        .toolCall("plan", {
+          operation: "update_step",
+          step_text: "Make the flaky test pass",
+          state: "blocked",
+        })
+        .text("Parser patched. The flaky test still fails; here's what I tried.")
+        .repeatLast()
+        .build(),
+    );
+
+    const chatId = await ctx.newChat();
+    const { fakeIpc } = await runTurn(ctx, {
+      chatId,
+      prompt: "sc=cud-blocked Fix the parser.",
+      mode: "build",
+      timeoutMs: 25_000,
+    });
+    expectNoStreamError(fakeIpc.sends, chatId);
+    expectStreamEnded(fakeIpc.sends, chatId);
+
+    expect(JSON.stringify(ctx.server.requestsFor("cud-blocked"))).not.toContain(
+      NUDGE,
+    );
+  });
+
+  it("external without a reason is rejected, so it can't be a silent escape hatch", async () => {
+    ctx.server.register(
+      scenario("cud-external-noreason")
+        .toolCall("plan", {
+          operation: "write",
+          title: "Ship it",
+          content: "1. [ ] Rotate the signing key\n",
+        })
+        .toolCall("plan", {
+          operation: "update_step",
+          step_text: "Rotate the signing key",
+          state: "external",
+        })
+        .text("Handed over.")
+        .repeatLast()
+        .build(),
+    );
+
+    const chatId = await ctx.newChat();
+    const { fakeIpc } = await runTurn(ctx, {
+      chatId,
+      prompt: "sc=cud-external-noreason Ship the build.",
+      mode: "build",
+      timeoutMs: 30_000,
+    });
+    expectNoStreamError(fakeIpc.sends, chatId);
+    expectStreamEnded(fakeIpc.sends, chatId);
+
+    const blob = JSON.stringify(ctx.server.requestsFor("cud-external-noreason"));
+    // The tool refuses and says how to fix it...
+    expect(blob).toContain("requires `reason`");
+    // ...and because the step stayed actionable, the gate still asks for it.
+    expect(blob).toContain(NUDGE);
   });
 });

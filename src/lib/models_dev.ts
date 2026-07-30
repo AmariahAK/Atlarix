@@ -13,6 +13,8 @@ import { app, BrowserWindow } from "electron";
 import * as Sentry from "@sentry/electron/main";
 import { getUserDataPath } from "@/paths/paths";
 import type { LanguageModel } from "@/ipc/ipc_types";
+import { resolveProviderBaseUrl } from "@/ipc/shared/language_model_constants";
+import { hasProviderSdkFactory } from "@/ipc/shared/provider-sdk-factories";
 import { registerModelsDevVision } from "@/lib/routing/model-capability-profile";
 import { registerModelsDevReasoning } from "@/lib/routing/model-reasoning-profile";
 
@@ -746,25 +748,49 @@ export async function getModelsFromModelsDev(
  * hourly-refreshed with last-good fallback, so it never blocks or throws.
  */
 export async function getModelsDevProviderCatalog(): Promise<
-  Array<{ id: string; name: string; apiBaseUrl: string; envVarName?: string }>
+  Array<{
+    id: string;
+    name: string;
+    /**
+     * Optional: 24 catalog providers have NO `api` — the ones whose SDK bakes its
+     * host in (openai, anthropic, google, groq, mistral, …). Those are dispatchable
+     * only when a bundled factory or an overlay pin supplies the endpoint, which is
+     * why this is no longer a skip condition.
+     */
+    apiBaseUrl?: string;
+    /** Ordered, as published. Callers try each in turn — never just `[0]`. */
+    envVarNames: string[];
+    /** Which SDK / wire format the provider speaks — the dispatch key. */
+    npm?: string;
+  }>
 > {
   const data = await getModelsDevData();
   const out: Array<{
     id: string;
     name: string;
-    apiBaseUrl: string;
-    envVarName?: string;
+    apiBaseUrl?: string;
+    envVarNames: string[];
+    npm?: string;
   }> = [];
   for (const [modelsDevId, provider] of Object.entries(data)) {
-    // No base URL → can't instantiate via OpenAI-compatible; skip.
-    if (!provider?.api) continue;
-    if (!provider.models || Object.keys(provider.models).length === 0) continue;
+    if (!provider?.models || Object.keys(provider.models).length === 0) continue;
+    // A provider is connectable if we know WHERE to send the request (its own `api`,
+    // or a pin) or WHICH bundled SDK knows the host. Requiring `api` alone dropped
+    // every first-party vendor endpoint from the catalog path.
+    const hasEndpoint = Boolean(
+      resolveProviderBaseUrl(
+        REVERSE_PROVIDER_ID_MAP[modelsDevId] ?? modelsDevId,
+        provider.api,
+      ),
+    );
+    if (!hasEndpoint && !hasProviderSdkFactory(provider.npm)) continue;
     const atlarixId = REVERSE_PROVIDER_ID_MAP[modelsDevId] ?? modelsDevId;
     out.push({
       id: atlarixId,
       name: provider.name || atlarixId,
       apiBaseUrl: provider.api,
-      envVarName: provider.env?.[0],
+      envVarNames: Array.isArray(provider.env) ? provider.env : [],
+      npm: provider.npm,
     });
   }
   return out;

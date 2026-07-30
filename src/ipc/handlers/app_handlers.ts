@@ -1,6 +1,10 @@
 import { ipcMain, app } from "electron";
 import { perfMark } from "@/lib/perf-marks";
-import { db, getDatabasePath } from "../../db";
+import {
+  db,
+  getDatabasePath,
+  reinitializeDatabaseAfterReset,
+} from "../../db";
 import {
   apps,
   chatSessions,
@@ -1201,9 +1205,18 @@ export function registerAppHandlers() {
       if (db.$client) {
         db.$client.close();
       }
-      await fsPromises.unlink(dbPath);
+      // WAL/SHM siblings too: deleting only the main file leaves a stale -wal that
+      // SQLite may replay into the fresh database, resurrecting rows the user just
+      // asked us to destroy.
+      for (const suffix of ["", "-wal", "-shm"]) {
+        await fsPromises.rm(`${dbPath}${suffix}`, { force: true });
+      }
       logger.log(`Database file deleted: ${dbPath}`);
     }
+    // Re-open immediately. This handler RETURNS and the app keeps running, so without
+    // this every later query hits the closed handle and throws better-sqlite3's opaque
+    // "The database connection is not open".
+    reinitializeDatabaseAfterReset();
     logger.log("database deleted.");
     logger.log("deleting settings...");
     // 2. Remove settings

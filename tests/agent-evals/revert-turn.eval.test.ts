@@ -30,6 +30,8 @@ describe("revert turn file changes (v13.1)", () => {
   it("restores the file and does NOT flag the conversation as reverted", async () => {
     ctx.server.register(
       scenario("revert-turn")
+        // Overwriting an existing file requires a prior read (v14.23.0).
+        .toolCall("read_file", { path: "src/keep.ts" })
         .toolCall("edit_file", {
           operation: "write",
           path: "src/keep.ts",

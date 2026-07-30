@@ -456,6 +456,22 @@ export function useStreamChat({
   >(null);
   /** Chats with an in-flight background-completion wake (avoid double-starting). */
   const bgWakeInFlightRef = useRef<Set<number>>(new Set());
+  /**
+   * Chats the user has STOPPED, until they send something new.
+   *
+   * There are two wake sites (the `response:end` race-closer and the background
+   * job/task status listener), and both start a fresh turn when work reports in while
+   * the chat is idle. Right after a Stop that is the normal state — cancel kills only
+   * foreground commands — so both would resurrect the turn the user had just stopped.
+   * The revived turn knew nothing about the stop: it re-read the file it had edited,
+   * mistook its own change for the user's, and kept going (observed: to `git push`).
+   *
+   * A latch rather than a time window: it is set by the `userCancelled` end and cleared
+   * only when the user actually sends a message, so there is no interval to tune and no
+   * race to lose. Results are not dropped — they stay pending and drain into that next
+   * turn's context.
+   */
+  const userStoppedChatsRef = useRef<Set<number>>(new Set());
 
   // Bug A (renderer side): each streamMessage dispatch gets a unique id; only the
   // LATEST dispatch per chat may act on terminal callbacks. A superseded leg's
@@ -516,7 +532,13 @@ export function useStreamChat({
       )
         return;
       const streaming = getDefaultStore().get(isStreamingByIdAtom).get(evChatId) === true;
-      if (streaming || bgWakeInFlightRef.current.has(evChatId)) return;
+      if (
+        streaming ||
+        bgWakeInFlightRef.current.has(evChatId) ||
+        // The user stopped this chat — a job reporting in must not restart the agent.
+        userStoppedChatsRef.current.has(evChatId)
+      )
+        return;
       bgWakeInFlightRef.current.add(evChatId);
       void Promise.resolve(
         streamMessageRef.current?.({
@@ -601,6 +623,12 @@ export function useStreamChat({
         next.set(chatId, true);
         return next;
       });
+      // Release the stop latch only for a turn the USER started. A wake dispatches with
+      // an empty prompt, so keying on real content means a queued background result can
+      // never clear its own suppression — the user has to ask for something first.
+      if (prompt.trim().length > 0) {
+        userStoppedChatsRef.current.delete(chatId);
+      }
       // A3: a new turn is starting (a user message OR the auto-resume) — clear
       // the parked chip; the turn is live again.
       getDefaultStore().set(parkedWaitingByChatIdAtom, (prev) => {
@@ -1626,7 +1654,22 @@ export function useStreamChat({
             // prepareStep drained it) and the user has nothing queued, wake a
             // fresh turn to deliver the result instead of letting it sit until
             // the next user message. One combined check → one guarded wake.
-            if (!flushedQueuedMessage) {
+            //
+            // NEVER after the user pressed Stop. Cancel kills only foreground
+            // commands, so a pending background result is normal at that moment —
+            // and waking here started a brand-new turn that had no idea it had been
+            // stopped. It re-read the file it had just edited, read its own change as
+            // the user's, and kept going (observed: as far as `git push`). Stop has to
+            // mean the agent stops deciding things. The result is not lost: it stays
+            // pending and drains into the user's next turn.
+            if (response.userCancelled) {
+              userStoppedChatsRef.current.add(chatId);
+            }
+            if (
+              !flushedQueuedMessage &&
+              !response.userCancelled &&
+              !userStoppedChatsRef.current.has(chatId)
+            ) {
               const ipc = IpcClient.getInstance();
               void Promise.all([
                 ipc.backgroundHasPendingResults(response.chatId),
@@ -1690,6 +1733,34 @@ export function useStreamChat({
               messageStreamThrottleRef.current.lastAssistantRawByChatId.get(
                 response.chatId,
               );
+            // v13.1: if this turn captured a shadow-git snapshot, remember its turn id
+            // (= the assistant message id) so SimpleMessage can offer "revert this
+            // turn's file changes".
+            //
+            // Hoisted out of the `rawFromRef` branch below (v14.23.0). That branch is
+            // the THINKING-snapshot rebuild and only runs when streamed text was
+            // buffered for this chat — a dependency this has no reason to inherit. On a
+            // user-stopped turn the id could go unrecorded, and Revert is gated on
+            // having it, so the affordance vanished for exactly the turn the user
+            // stopped because it made a bad edit.
+            {
+              const lastAssistantForSnapshot = [...msgs]
+                .reverse()
+                .find((m) => m.role === "assistant");
+              const snapshotTurnId = response.snapshotTurnId;
+              if (
+                lastAssistantForSnapshot &&
+                snapshotTurnId &&
+                Number.isFinite(Number(snapshotTurnId)) &&
+                Number(snapshotTurnId) === lastAssistantForSnapshot.id
+              ) {
+                getDefaultStore().set(turnSnapshotTurnIdByMessageIdAtom, (prev) => {
+                  const n = new Map(prev);
+                  n.set(lastAssistantForSnapshot.id, snapshotTurnId);
+                  return n;
+                });
+              }
+            }
             if (rawFromRef) {
               const lastAssistant = [...msgs].reverse().find((m) => m.role === "assistant");
               if (lastAssistant) {
@@ -1737,24 +1808,7 @@ export function useStreamChat({
                   [lastAssistant.id]: timeline,
                 }));
               }
-              // v13.1: if this turn captured a shadow-git snapshot, remember
-              // its turn id (= the assistant message id) so SimpleMessage can
-              // offer "revert this turn's file changes". Session-lifetime only.
-              const snapshotTurnId = response.snapshotTurnId;
-              if (
-                snapshotTurnId &&
-                Number.isFinite(Number(snapshotTurnId)) &&
-                Number(snapshotTurnId) === lastAssistant.id
-              ) {
-                getDefaultStore().set(
-                  turnSnapshotTurnIdByMessageIdAtom,
-                  (prev) => {
-                    const n = new Map(prev);
-                    n.set(lastAssistant.id, snapshotTurnId);
-                    return n;
-                  },
-                );
-              }
+              // (snapshot turn id is recorded above, outside this branch)
             }
             getDefaultStore().set(activeTurnScopeAtom, null);
 

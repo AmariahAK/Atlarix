@@ -19,6 +19,12 @@ import { expectNoStreamError, expectStreamEnded } from "../infra/assert";
 let ctx: EvalContext;
 
 const MEMORY_CANARY = "ATLX-S18-MEMORY-CANARY: this repo prefers tabs.";
+/**
+ * v14.23.0: project instructions are POINTED AT, not pasted. The canaries above are now
+ * NEGATIVE assertions — finding one in the system prompt means the body leaked back in.
+ * This heading is the positive marker that the section rendered at all.
+ */
+const INSTRUCTIONS_POINTER = "## Project instructions —";
 
 beforeAll(async () => {
   ctx = await setupEvalContext({
@@ -62,10 +68,13 @@ describe("context assembly under concurrent pre-flight (S18)", () => {
     const sys = firstRequestSystemBlob("s18-assembly-1");
     // The two sections every workspace build turn must carry.
     const skillIdx = sys.indexOf("Active Skill");
-    const memoryIdx = sys.indexOf(MEMORY_CANARY);
+    const memoryIdx = sys.indexOf(INSTRUCTIONS_POINTER);
     expect(skillIdx).toBeGreaterThanOrEqual(0); // mode skill loaded
-    expect(memoryIdx).toBeGreaterThanOrEqual(0); // atlarix.md loaded
-    expect(sys).toContain("Project memory (.atlarix/atlarix.md)");
+    expect(memoryIdx).toBeGreaterThanOrEqual(0); // atlarix.md located
+    // v14.23.0: a POINTER, not the body. The body used to be pasted here every turn
+    // AND clamped to 3000 chars, silently dropping the tail of a longer file.
+    expect(sys).not.toContain(MEMORY_CANARY);
+    expect(sys).toContain("read_file");
     // Priority order survives the Promise.all: activeSkill (-1) renders
     // before projectMemory (4).
     expect(skillIdx).toBeLessThan(memoryIdx);
@@ -85,7 +94,7 @@ describe("context assembly under concurrent pre-flight (S18)", () => {
 
     const sys1 = firstRequestSystemBlob("s18-assembly-1");
     const sys2 = firstRequestSystemBlob("s18-assembly-2");
-    const markers = ["Active Skill", "Project memory (.atlarix/atlarix.md)"];
+    const markers = ["Active Skill", INSTRUCTIONS_POINTER];
     const order = (s: string) =>
       markers
         .map((m) => [m, s.indexOf(m)] as const)
@@ -125,7 +134,7 @@ describe("project-instruction interop (v13.1) — AGENTS.md fallback", () => {
     }
   });
 
-  it("injects AGENTS.md as project instructions when atlarix.md is absent", async () => {
+  it("points at AGENTS.md as project instructions when atlarix.md is absent", async () => {
     ctx.server.register(
       scenario("agents-fallback").text("ok").build(),
     );
@@ -139,8 +148,11 @@ describe("project-instruction interop (v13.1) — AGENTS.md fallback", () => {
     expectStreamEnded(fakeIpc.sends, chatId);
 
     const sys = firstRequestSystemBlob("agents-fallback");
-    expect(sys).toContain("Project instructions (AGENTS.md)");
-    expect(sys).toContain(AGENTS_CANARY);
+    // The interop still works — AGENTS.md is found and named…
+    expect(sys).toContain("AGENTS.md");
+    expect(sys).toContain(INSTRUCTIONS_POINTER);
+    // …but neither file's BODY is pasted into the prompt any more.
+    expect(sys).not.toContain(AGENTS_CANARY);
     expect(sys).not.toContain(MEMORY_CANARY);
   }, 30_000);
 });

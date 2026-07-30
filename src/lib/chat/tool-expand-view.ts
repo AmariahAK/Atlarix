@@ -6,7 +6,15 @@ import {
 import type { StreamThreadToolStatus } from "@/lib/chat/stream-thread";
 import type { DiffHunk } from "@/lib/diff/compose-hunks";
 import { stripUntrustedDataEnvelope } from "@/lib/streaming/untrusted-data";
-import { parsePlanChecklist } from "@/lib/tasks/plan-checklist";
+import {
+  parsePlanChecklist,
+  type PlanStepState,
+} from "@/lib/tasks/plan-checklist";
+import {
+  extractDelegationDisplaySummary,
+  extractDelegationError,
+  extractDelegationScope,
+} from "@/lib/chat/subagent-summary";
 
 const WRITE_TOOLS = new Set([
   "write_file",
@@ -53,6 +61,9 @@ const RUN_COMMAND_TOOLS = new Set(["run_command", "run_shell_command"]);
  */
 const AGENT_LOG_TOOLS = new Set(["subagents", "background_jobs"]);
 
+/** Sub-agent delegation — its result is a markdown report, not machine output. */
+const DELEGATION_TOOLS = new Set(["task"]);
+
 const PLAN_TOOLS = new Set(["plan"]);
 
 /**
@@ -64,6 +75,51 @@ const PLAN_TOOLS = new Set(["plan"]);
  * data. Reuses `parsePlanChecklist` (pure, renderer-safe) and the existing
  * `text` kind, so no new view type or renderer work is needed.
  */
+/**
+ * `task` (sub-agent delegation).
+ *
+ * `task` had NO branch, so it fell past every tool family to the generic tail and
+ * was shown as a ~300-char preview slice of the raw envelope — the sub-agent's whole
+ * report, reduced to a cut-off fragment of `{"success":true,"result":"<task …`.
+ *
+ * The body is the sub-agent's markdown report, so it renders as markdown. A still-
+ * running (backgrounded / auto-promoted) task keeps its status line: the envelope
+ * says `state="running"`, and presenting that as a finished report would be a lie.
+ */
+function buildDelegationView(
+  payload: Record<string, unknown>,
+  plain: string | undefined,
+): ToolExpandView | null {
+  const raw =
+    typeof payload.result === "string" && payload.result.trim()
+      ? payload.result
+      : (plain ?? "");
+  if (!raw.trim()) return null;
+
+  const { summary, isError, isRunning } = extractDelegationDisplaySummary(
+    payload,
+    raw,
+  );
+  const err = extractDelegationError(raw);
+  const body = (err ?? summary).trim();
+  if (!body) return null;
+
+  const scope = extractDelegationScope(raw);
+  const header = [
+    scope,
+    isRunning ? "still running — result arrives automatically" : undefined,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
+  return {
+    kind: "text",
+    body: header ? `**${header}**\n\n${body}` : body,
+    isError: isError || Boolean(err),
+    markdown: true,
+  };
+}
+
 function buildPlanView(payload: Record<string, unknown>): ToolExpandView | null {
   const message = typeof payload.message === "string" ? payload.message.trim() : "";
   const progress = typeof payload.progress === "string" ? payload.progress.trim() : "";
@@ -84,10 +140,11 @@ function buildPlanView(payload: Record<string, unknown>): ToolExpandView | null 
   if (steps.length === 0) return header ? { kind: "text", body: header } : null;
 
   // ASCII markers, per the output-style rule that the UI supplies its own icons.
-  const marks: Record<string, string> = {
+  const marks: Record<PlanStepState, string> = {
     done: "[x]",
     in_progress: "[~]",
     blocked: "[!]",
+    external: "[@]",
     todo: "[ ]",
   };
   const lines = steps.map((s) => `${marks[s.state] ?? "[ ]"} ${s.text}`);
@@ -194,7 +251,14 @@ export type ToolExpandView =
       precomputedHunks?: DiffHunk[];
       snippetFallback?: string;
     }
-  | { kind: "text"; body: string; isError?: boolean }
+  /**
+   * `markdown: true` renders the body through the chat markdown renderer instead of
+   * as preformatted text. Set it whenever the body is authored PROSE rather than
+   * machine output — a sub-agent's summary is markdown (headings, bullets, fences)
+   * and rendered raw it read as an unstyled blob. A flag on the existing kind rather
+   * than a new kind, so every text-shaped tool can opt in.
+   */
+  | { kind: "text"; body: string; isError?: boolean; markdown?: boolean }
   | {
       /** run_command result: command line + exit code + captured output. */
       kind: "command";
@@ -932,6 +996,13 @@ export function buildToolExpandView(
   if (RUN_COMMAND_TOOLS.has(toolName)) {
     const cmd = buildCommandOutputView(envelope.payload, envelope.plainText);
     if (cmd) return cmd;
+  }
+
+  // Before the generic error return, for the same reason run_command is: a failed
+  // delegation should still show the sub-agent's own report rather than "Tool failed".
+  if (DELEGATION_TOOLS.has(toolName)) {
+    const delegation = buildDelegationView(envelope.payload, envelope.plainText);
+    if (delegation) return delegation;
   }
 
   if (streamStatus === "error" || envelope.error) {

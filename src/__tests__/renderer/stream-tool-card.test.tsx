@@ -6,7 +6,7 @@
 
 import React from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { act, screen } from "@testing-library/react";
+import { act, fireEvent, screen } from "@testing-library/react";
 import {
   activeChatIdAtom,
   completedStreamThreadByAssistantMessageIdAtom,
@@ -182,7 +182,13 @@ describe("stream → tool card", () => {
           [MESSAGE_ID]: [roundItem, delegateRow],
         });
       });
-      // The panel is the single home for agents…
+      // The panel is the single home for agents. A SETTLED round now renders
+      // collapsed (v14.23.0 — sub-agent reports are LLM-to-LLM output and shouldn't
+      // bury the answer), so the header is what proves it mounted…
+      const header = screen.getByRole("button", { name: /1 completed/i });
+      expect(header).toBeInTheDocument();
+      // …the agents are one click away…
+      fireEvent.click(header);
       expect(screen.getByText(/Scout · traced the save flow/)).toBeInTheDocument();
       // …and the delegate tool card must not repeat it at the tail.
       expect(screen.queryByText("Sub-agent finished")).not.toBeInTheDocument();
@@ -208,6 +214,10 @@ describe("stream → tool card", () => {
           [MESSAGE_ID]: [roundItem],
         });
       });
+      // Settled → collapsed, so assert on the header and then expand. The property
+      // under test is "the panel renders at all on this branch", which still holds.
+      const header = screen.getByRole("button", { name: /1 completed/i });
+      fireEvent.click(header);
       expect(screen.getByText(/Scout · traced the save flow/)).toBeInTheDocument();
     });
 

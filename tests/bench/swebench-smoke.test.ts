@@ -49,6 +49,10 @@ describe("swebench runner mechanics (no network)", () => {
   it("auto-approves the edit and captures a non-empty patch", async () => {
     ctx.server.register(
       scenario("swe-smoke")
+        // Read-before-edit (v14.23.0): overwriting an EXISTING file is refused without a
+        // read. This mirrors what a real agent must now do on this benchmark, so the
+        // smoke test exercises the same sequence rather than a shortcut the app rejects.
+        .toolCall("read_file", { path: "buggy.py" })
         .toolCall("edit_file", {
           path: "buggy.py",
           content: "def add(a, b):\n    return a + b\n",

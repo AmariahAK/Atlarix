@@ -3,6 +3,135 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
+## [14.23.0] (2026-07-30) — Providers off the hardcode, and a plan that stops arguing with you
+
+Three things in this release share a shape: the app knew something, and then overrode it.
+
+The plan checklist has always had a `blocked` state. It was parsed, it had its own line in the
+agent's progress ledger, and the `plan` tool offered it. But the gate that keeps a Build turn going
+until the plan is finished counted *anything not `done`* as unfinished work — so when the agent
+correctly marked a step as blocked, the harness told it to carry on with that step, and kept telling
+it, up to twelve times in a turn. If a step needed **you** — rotate a key in a dashboard, test on
+hardware the agent doesn't have — there was no way to say so and be believed.
+
+Now there is. A step can be marked `external` with a reason, which appears on the step itself so it
+survives a reload, and the gate asks only about steps the agent can actually act on. `blocked` also
+ends the turn, but it never counts as success: "I'm stuck" and "this one's yours" are different
+answers, and collapsing them would let a failing test be reported as done. While fixing this we found
+the end-of-turn safety net had been quietly flipping `blocked` steps to `done` on any turn that wrote
+a file — turning "I couldn't do this" into "done" without anyone asking.
+
+The second was providers. Twenty were hardcoded, eleven of them as the identical three lines with a
+different URL, while models.dev already publishes 172 providers *and* which SDK each one speaks.
+Dispatch now reads that field, so adding a provider no longer needs a release. The hand-written table
+that remains holds only what a catalog cannot know — the console link where you actually create a
+key, and a handful of deliberate pins where the catalog and shipped behaviour disagree.
+
+The third was sub-agent reports rendering as an unstyled wall of text, because the tool that produces
+the richest output in the app had no display branch at all.
+
+### Fixed
+
+- **A plan step that needs you no longer forces the agent to retry it.** New `external` step state
+  with a required reason, shown on the step and in the plan card as "N needs you". The completion gate
+  now fires only on steps that are `todo` or `in_progress` (`src/lib/tasks/plan-completion-gate.ts`).
+- **`blocked` steps are no longer silently marked done.** The end-of-turn safety net closed every step
+  that wasn't already `done`, including ones the agent had reported as blocked — so a turn that wrote
+  a file converted its own failure into a success. It now closes actionable steps only.
+- **Sub-agent results render as markdown** — headings, lists and code, in the card, the dialog and the
+  tool result. Previously all four display paths rendered raw preformatted text.
+- **Sub-agent reports are no longer truncated to a fragment of internal markup.** The `task` tool had
+  no display branch, so its result fell through to a generic ~300-character preview of the raw
+  envelope. It now has a real card, with the sub-agent's own error shown on failure instead of
+  "Tool failed".
+- **Citation footnotes resolve on every reply.** Replies rendered through the non-timeline path were
+  built without their citation sources, so inline `[^n]` markers never linked. The same path was also
+  missing settled sub-agent rows.
+- **A user whose only API key is for a less-common provider is no longer told nothing is configured.**
+  The "is any provider set up?" check read a hardcoded list of 21 provider ids instead of the
+  providers the app actually offers.
+- **Per-provider token budgets appear for every BYOK cloud provider**, not just the 19 that happened
+  to be on an allowlist.
+- **Stop now actually stops.** Pressing Stop mid-task could restart the agent: the app wakes a new
+  turn when detached work reports in, and a stop left that condition true. The revived agent had no
+  memory of being stopped — in one report it re-read the file it had just edited, decided *you* had
+  made the change, and pushed to git. Detached work still finishes in the background and its results
+  reach you on your next message; the agent just no longer resumes on its own.
+- **Revert stays available on a turn you stopped.** The file changes were always saved, but the
+  Revert button was hidden unless the turn ended normally — so the turn you most wanted to undo was
+  the one you couldn't. (Sub-agent changes revert through the same mechanism.)
+- **The agent no longer mistakes its own edit for yours.** After a failed match it was told "the file
+  likely changed since you read it" even when it had edited that file seconds earlier, which is how it
+  came to believe a fix was already made and act on it. It now says plainly that the content didn't
+  match, and shows what's actually there.
+- **A whole-file overwrite requires having read the file first.** Replacing a file wholesale discards
+  everything in it, and nothing else catches an overwrite based on a stale copy. Surgical edits are
+  unaffected — those already fail safely when your copy is out of date. Creating a new file is unaffected.
+- **Project instructions in `.atlarix/atlarix.md` no longer stop applying past 3000 characters.**
+  The file was pasted into every request and clamped there, so on a longer file the rules in the tail
+  were silently dropped — with nothing shown to you or to the model. Instructions are now referenced
+  (with their section list) and read in full when they matter.
+- **Atlarix Core credits are no longer given away by a misconfigured model.** A Core tier whose price
+  entry resolved to zero billed nothing at all, silently, on every call. It now charges and names the
+  tier that needs fixing.
+- **Your account appears as soon as the window does.** Signed-in state was rendered only after a
+  token refresh that can spend seconds retrying, so a signed-in user saw a signed-out app first.
+- **"Reset everything" leaves the app usable.** It closed the database and deleted the file but kept
+  running, so everything afterwards failed until you restarted. It also left the write-ahead log
+  behind, which could restore rows you had just deleted.
+- The Tools page no longer advertises four Core models when fewer are configured, a Permissions panel
+  that approvals moved out of in 14.15.0, or two features that were removed.
+- **"Always allow" now works on every file.** Certain paths — workflows, `package.json`, lockfiles,
+  `.env` — were hardcoded to ask again on every single edit with no way to opt out, so editing a
+  GitHub workflow meant approving it forever. Every write still shows you the diff first, and a
+  "never allow" choice is still respected; you can just make the decision once now.
+- **Stray text like `","progress":"0/14 steps done` no longer appears in replies.** A fragment of the
+  plan tool's internal result could render as chat text.
+- **Code blocks containing JSON are no longer mangled.** A fenced `json` example that mentioned certain
+  internal field names could have its contents silently deleted.
+- **Sub-agent panels no longer make the page jump.** The panel folded up the instant the last sub-agent
+  finished — often while the reply was still being written — which shifted everything below it. It now
+  folds once the turn is done.
+
+### Changed
+
+- **Providers are read from the models.dev catalog rather than hardcoded.** Dispatch keys on the
+  catalog's `npm` field via `src/ipc/shared/provider-sdk-factories.ts`; `get_model_client.ts` drops
+  from 24 provider cases to 13. Providers needing more than a URL and a key — Core, Vertex, Azure,
+  Bedrock, Cohere, Elastic, OpenRouter and the local runtimes — stay explicit.
+- **API keys are found under any of a provider's documented env vars**, in preference order, instead
+  of one name per provider. (Google publishes three; the catalog's first is not the one its SDK
+  reads.)
+- **`preview_test` is now `browser_test`** — it drives a browser tab, and "preview" referred to a pane
+  removed in 14.15.0. The old name still works and needs no action from you.
+- Providers with a dedicated `/models` endpoint now list live models even without a bespoke fetcher,
+  so newly released models appear ahead of the hourly catalog refresh.
+- **Project memory is now one file per fact, kept outside your repo.** A single `.atlarix/memory.md`
+  was added to every request in full, so the more the agent learned the more each unrelated message
+  cost — on Core models that is paid every turn. Notes now live in `~/.atlarix/projects/<project>/`
+  and only a one-line index is carried, so twenty notes cost about as much as one. They're
+  per-developer and never committed, and an existing `.atlarix/memory.md` is migrated on first use
+  (the original is left alone).
+- Saving a note is **suggested, never required**, and never interrupts what you asked for. Set
+  `ATLARIX_MEMORY=off` to disable it entirely; benchmark runs disable it automatically.
+- **Sub-agent results fold away when they finish.** A completed round collapses to one line with the
+  reports a click away — during the run nothing changes. Their summaries are written for the agent,
+  not for you, and shouldn't sit between you and the answer.
+
+### Internal
+
+- `AssistantMessageBody`'s two render branches now share one trailing component, with a parity test
+  across all three branch configurations — this class of bug had shipped four times.
+- Registry tools can declare `aliases`, so a rename keeps working for saved sessions without spending
+  prompt budget on the old name.
+- Report-only prompt-surface audit in `docs/PROMPT_SURFACE_AUDIT_v14.23.0.md`. Finding: sub-agents
+  spawned by name get a much shorter system prompt than un-named ones, and the guidance steers callers
+  toward the named form.
+- Project instructions had **two** injection sites (the context section and the base prompt's
+  instruction layers), so the file was added to every request twice. Both are now the one pointer.
+- Memory isolation between projects is structural rather than filtered: the directory name is the
+  workspace path plus a hash, because slugifying alone collapses `/a/b-c` and `/a/b/c` into one name.
+
 ## [14.22.0] (2026-07-28) — Edits that don't corrupt files, and a harness that tells you the truth
 
 This release started with one bad edit. A model sent `old_content` and `new_content` carrying

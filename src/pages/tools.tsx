@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { useAtlarixCoreCatalog } from "@/hooks/useAtlarixCoreCatalog";
 import { cn } from "@/lib/utils";
 
 type Category =
@@ -62,13 +63,19 @@ const FEATURES: ToolFeature[] = [
   {
     id: "atlarix-core",
     title: "Atlarix Core",
+    // Copy carries NO model count and no fast→capable ordering. Both were wrong:
+    // the lineup is config-driven (`core-models.json`, slots omitted when unmapped)
+    // so "all four" over-promised, and the fast/balanced/thinking framing was
+    // deliberately dropped — CORE_TIER_ROWS ships empty descriptions for that reason.
+    // The live lineup is rendered from `useAtlarixCoreCatalog()` instead, so this
+    // cannot go stale again.
     shortDescription:
-      "Atlarix Core is the managed provider (no API key) with real model names in the picker. Every plan gets all four Core models — Core 1 (fastest) through Core 4 (most capable). Atlarix Core is pay-as-you-go: top up credit and it's metered per use.",
+      "Atlarix Core is the managed provider (no API key) — Core models appear in the picker under their real model names. Pay-as-you-go: top up credit and it's metered per use.",
     category: "models",
     steps: [
       "Sign in for Atlarix Core, or add BYOK keys under Settings → Model Providers",
-      "Pick Core 1–4 in the model picker — Core 1 is fastest, Core 4 is the most capable",
-      "Watch the context bar for long threads — Core 3/4 use tier-aware context windows",
+      "Pick a Core model in the model picker — each row shows the real model and provider",
+      "Watch the context bar on long threads; each Core model uses its own context window",
     ],
     howItWorks:
       "Atlarix Core is billed against your prepaid credit balance (metered per use). BYOK (OpenRouter, OpenAI, Anthropic, Gemini, local Ollama, etc.) can run alongside Core—pick the active model per chat.",
@@ -180,9 +187,13 @@ const FEATURES: ToolFeature[] = [
     title: "Edits & codegen",
     shortDescription: "Natural-language edits land as diffs you approve before they hit disk.",
     category: "code",
-    steps: ["Build mode", "Describe the change", "Approve in Permissions", "Iterate from Errors if tests fail"],
-    howItWorks: "File writes and shell commands queue in the right panel with previews.",
-    link: { label: "Right panel → Permissions", to: "/" },
+    steps: ["Build mode", "Describe the change", "Accept or reject the diff in chat", "Iterate from Errors if tests fail"],
+    // Approvals moved INLINE into chat in v14.15.0 when the Preview pane was removed;
+    // there is no right-panel Permissions tab to send anyone to (the right panel is
+    // Browser / Terminal / Plan / Automations / Errors).
+    howItWorks:
+      "File writes and shell commands wait for approval inline in chat with a diff preview — you can accept or reject individual hunks, not just whole files.",
+    link: { label: "Home → Chat", to: "/" },
   },
   {
     id: "tests-env",
@@ -287,6 +298,10 @@ export default function ToolsPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [category, setCategory] = useState<Category>("all");
   const [page, setPage] = useState(0);
+  // Same source the model picker reads, so the page can't claim a lineup that isn't
+  // configured. Empty while loading or when this build has no Core — the card just
+  // omits the line rather than guessing.
+  const { data: coreModels } = useAtlarixCoreCatalog();
 
   const filtered = useMemo(() => {
     let list = FEATURES;
@@ -321,16 +336,31 @@ export default function ToolsPage() {
         <div className="text-center space-y-2">
           <h1 className="text-3xl font-bold text-foreground">Tools</h1>
           <p className="text-muted-foreground text-sm">
-            What the desktop app can do today—modes, attachments, section-scoped Blueprint, Skills, MCP, and team features.
+            {/* "section-scoped Blueprint" named a tool removed in 2026-06, and "team
+                features" named the Team tier that was killed in the pricing reframe.
+                Both were advertised here after they stopped existing. */}
+            What the desktop app can do today — modes, attachments, search, Agent
+            Behaviors, MCP, the browser, and automations.
           </p>
         </div>
 
         <div className="rounded-lg border border-border bg-muted/30 p-4 text-sm">
-          <p className="font-medium text-foreground mb-1">Models & tiers</p>
+          <p className="font-medium text-foreground mb-1">Models</p>
           <p className="text-muted-foreground mb-2">
-            Free and Pro both run all four Atlarix Core models plus BYOK/local. Atlarix Core is pay-as-you-go — top up credit, metered per use.
-            Pro adds unlimited workspaces, the Skills &amp; MCP marketplaces, one-click connectors, and higher MCP &amp; automation capacity.
+            Free and Pro both run every Atlarix Core model plus BYOK and local. Atlarix Core is pay-as-you-go — top up credit, metered per use.
+            Pro adds unlimited workspaces, the Agent Behaviors &amp; MCP marketplaces, one-click connectors, and higher MCP &amp; automation capacity.
           </p>
+          {/* The live lineup, so this card states what is ACTUALLY configured rather
+              than a hardcoded count. `useAtlarixCoreCatalog` omits unmapped slots, so
+              the list length follows `core-models.json` on its own. */}
+          {coreModels.length > 0 ? (
+            <p className="text-muted-foreground mb-2">
+              Available now:{" "}
+              <span className="text-foreground">
+                {coreModels.map((m) => m.labelWithProvider).join(", ")}
+              </span>
+            </p>
+          ) : null}
           <Button variant="outline" size="sm" onClick={() => goTo("/settings")}>
             Open Settings
           </Button>

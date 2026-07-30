@@ -4,6 +4,7 @@ import { cn } from "@/lib/utils";
 import { streamToolCardShell } from "@/components/chat/stream-item-styles";
 import type { HandoffAgentRole } from "@/components/chat/HandoffResultCard";
 import { HandoffResultCard } from "@/components/chat/HandoffResultCard";
+import { AtlarixMarkdownSegment } from "@/components/chat/AtlarixMarkdownSegment";
 
 export function SubAgentCard({
   agentType,
@@ -90,9 +91,10 @@ export function SubAgentCard({
         ) : null}
       </button>
       {expanded && summary ? (
-        <pre className="mt-2 max-h-48 overflow-auto text-[10px] whitespace-pre-wrap break-words text-muted-foreground border-t border-border/40 pt-2">
-          {summary}
-        </pre>
+        // Markdown, not machine output — see the note in SubAgentRunCard.
+        <div className="mt-2 max-h-48 overflow-auto text-[11px] max-w-none border-t border-border/40 pt-2">
+          <AtlarixMarkdownSegment content={summary} isStreaming={false} />
+        </div>
       ) : null}
     </div>
   );

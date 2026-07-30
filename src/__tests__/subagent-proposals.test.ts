@@ -369,6 +369,22 @@ describe("sequential edits through the real edit_file tool", () => {
   });
 
   /** What run-subagent's tool funnel does: execute, then capture the envelope. */
+  /**
+   * Read-before-edit applies to sub-agents too (v14.23.0): editing an existing file it
+   * has not read is refused, same as for the main agent. Reading through the SAME
+   * `_proposalSetId` is what a real writer sub-agent does — its reads see its own
+   * overlay.
+   */
+  async function subagentRead(setId: string, rel: string): Promise<void> {
+    const { ToolRegistry } = await import("@/lib/tools/registry");
+    await ToolRegistry.execute("read_file", {
+      path: rel,
+      workspace: ws,
+      chatMode: "build",
+      _proposalSetId: setId,
+    });
+  }
+
   async function subagentEdit(
     setId: string,
     args: Record<string, unknown>,
@@ -464,6 +480,9 @@ describe("sequential edits through the real edit_file tool", () => {
       agentName: "w",
       workspace: ws,
     });
+    // An OVERWRITE of an existing file is gated too — it discards everything already
+    // there, so it is the operation that most needs the agent to have seen it.
+    await subagentRead(id, "a.ts");
     await subagentEdit(id, {
       path: "a.ts",
       operation: "write",

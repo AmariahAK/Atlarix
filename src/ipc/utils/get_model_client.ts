@@ -11,7 +11,10 @@ import {
   COMPASS_PROVIDER_ID,
   isCompassBuildConfigured,
 } from "../shared/compass_constants";
-import { OPENWEIGHT_PROVIDER_BASE_URLS } from "../shared/language_model_constants";
+import {
+  createModelFromCatalog,
+  hasProviderSdkFactory,
+} from "../shared/provider-sdk-factories";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { createAmazonBedrock } from "@ai-sdk/amazon-bedrock";
 import { createElasticAgentBuilderModel } from "./elastic_agent_builder_adapter";
@@ -569,122 +572,6 @@ async function getRegularModelClient(
         backupModelClients: [],
       };
     }
-    case "togetherai": {
-      const provider = createOpenAICompatible({
-        name: "togetherai",
-        baseURL: "https://api.together.xyz/v1",
-        apiKey,
-      });
-      return {
-        modelClient: {
-          model: provider(model.name),
-          builtinProviderId: providerId,
-        },
-        backupModelClients: [],
-      };
-    }
-    case "groq": {
-      const provider = createOpenAICompatible({
-        name: "groq",
-        baseURL: "https://api.groq.com/openai/v1",
-        apiKey,
-      });
-      return {
-        modelClient: {
-          model: provider(model.name),
-          builtinProviderId: providerId,
-        },
-        backupModelClients: [],
-      };
-    }
-    case "huggingface": {
-      const provider = createOpenAICompatible({
-        name: "huggingface",
-        baseURL: "https://router.huggingface.co/v1",
-        apiKey,
-      });
-      return {
-        modelClient: {
-          model: provider(model.name),
-          builtinProviderId: providerId,
-        },
-        backupModelClients: [],
-      };
-    }
-    case "mistral": {
-      const provider = createOpenAICompatible({
-        name: "mistral",
-        baseURL: "https://api.mistral.ai/v1",
-        apiKey,
-      });
-      return {
-        modelClient: {
-          model: provider(model.name),
-          builtinProviderId: providerId,
-        },
-        backupModelClients: [],
-      };
-    }
-    case "nvidia_nim": {
-      const provider = createOpenAICompatible({
-        name: "nvidia_nim",
-        baseURL: "https://integrate.api.nvidia.com/v1",
-        apiKey,
-      });
-      return {
-        modelClient: {
-          model: provider(model.name),
-          builtinProviderId: providerId,
-        },
-        backupModelClients: [],
-      };
-    }
-    case "perplexity": {
-      const provider = createOpenAICompatible({
-        name: "perplexity",
-        baseURL: "https://api.perplexity.ai",
-        apiKey,
-      });
-      return {
-        modelClient: {
-          model: provider(model.name),
-          builtinProviderId: providerId,
-        },
-        backupModelClients: [],
-      };
-    }
-    case "cerebras": {
-      const provider = createOpenAICompatible({
-        name: "cerebras",
-        baseURL: "https://api.cerebras.ai/v1",
-        apiKey,
-      });
-      return {
-        modelClient: {
-          model: provider(model.name),
-          builtinProviderId: providerId,
-        },
-        backupModelClients: [],
-      };
-    }
-    // Open-weight providers — all OpenAI-compatible, baseURL from the shared map.
-    case "deepseek":
-    case "qwen":
-    case "minimax":
-    case "moonshot": {
-      const provider = createOpenAICompatible({
-        name: providerId,
-        baseURL: OPENWEIGHT_PROVIDER_BASE_URLS[providerId],
-        apiKey,
-      });
-      return {
-        modelClient: {
-          model: provider(model.name),
-          builtinProviderId: providerId,
-        },
-        backupModelClients: [],
-      };
-    }
     case "cohere": {
       if (!apiKey) {
         throw new Error(
@@ -731,19 +618,28 @@ async function getRegularModelClient(
       };
     }
     default: {
-      // Any provider carrying a base URL is treated as OpenAI-compatible and
-      // instantiated from that URL + key: this covers user-defined custom (DB)
-      // providers AND the full models.dev catalog (opencode parity — the long
-      // tail of providers that share the OpenAI wire format, no per-provider SDK).
-      if (providerConfig.apiBaseUrl) {
-        const provider = createOpenAICompatible({
-          name: providerConfig.id,
-          baseURL: providerConfig.apiBaseUrl,
-          apiKey,
-        });
+      // EVERY remaining provider — the models.dev catalog (172 and counting), the
+      // former boilerplate cases (Groq, Mistral, Together, Perplexity, Cerebras,
+      // Hugging Face, NVIDIA, DeepSeek, Qwen, MiniMax, Moonshot), and user-defined
+      // custom DB providers — resolves through ONE path: pick the SDK from the
+      // provider's `npm` (models.dev's own field, or an overlay pin) and point it at
+      // the resolved base URL. Adding a provider no longer needs a case here, or a
+      // release.
+      //
+      // The cases ABOVE are only the providers that need more than a URL and a key:
+      // Core (JWT refresh), Vertex (service account), Azure (resourceName), Bedrock
+      // (region), Cohere/Elastic (non-OpenAI adapters), OpenRouter (routing +
+      // plugins), and the local runtimes.
+      if (providerConfig.apiBaseUrl || hasProviderSdkFactory(providerConfig.npm)) {
         return {
           modelClient: {
-            model: provider(model.name),
+            model: createModelFromCatalog({
+              providerId: providerConfig.id,
+              modelId: model.name,
+              apiKey,
+              baseURL: providerConfig.apiBaseUrl,
+              npm: providerConfig.npm,
+            }),
             builtinProviderId: providerConfig.id,
           },
           backupModelClients: [],
@@ -754,8 +650,11 @@ async function getRegularModelClient(
           `Custom provider ${model.provider} is missing the API Base URL.`,
         );
       }
-      // Not a known ID, no base URL to fall back on → unsupported.
-      throw new Error(`Unsupported model provider: ${model.provider}`);
+      // Nothing tells us where to send the request or which SDK speaks its format.
+      throw new Error(
+        `Provider "${model.provider}" has no API base URL and no known SDK — ` +
+          `add a Base URL for it in Settings.`,
+      );
     }
   }
 }

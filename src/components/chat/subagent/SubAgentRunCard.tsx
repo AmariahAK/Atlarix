@@ -14,6 +14,7 @@ import {
   compareThreadItems,
 } from "@/lib/chat/stream-thread";
 import { subagentPhaseLabel } from "@/lib/chat/subagent-phase-label";
+import { AtlarixMarkdownSegment } from "../AtlarixMarkdownSegment";
 import { InlineThoughtBlock } from "../InlineThoughtBlock";
 import { StreamToolCallCard } from "../StreamToolCallCard";
 import {
@@ -256,9 +257,14 @@ export function SubAgentRunCard({
               autoScroll
             />
             {agent.summary?.trim() ? (
-              <p className="mt-3 text-xs text-muted-foreground whitespace-pre-wrap border-t border-border/40 pt-3">
-                {agent.summary.trim()}
-              </p>
+              // A sub-agent's report is markdown. Rendered as preformatted text it
+              // arrived as one unstyled blob — headings, bullets and fences all flat.
+              <div className="mt-3 text-xs max-w-none border-t border-border/40 pt-3">
+                <AtlarixMarkdownSegment
+                  content={agent.summary.trim()}
+                  isStreaming={false}
+                />
+              </div>
             ) : null}
           </div>
         </DialogContent>

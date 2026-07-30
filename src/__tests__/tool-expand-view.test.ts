@@ -359,3 +359,80 @@ describe("buildToolExpandView", () => {
     }
   });
 });
+
+/**
+ * `task` had no branch at all, so a sub-agent's whole report fell to the generic
+ * tail and rendered as a ~300-char slice of the raw envelope.
+ */
+describe("buildToolExpandView — task (sub-agent delegation)", () => {
+  const REPORT =
+    "## Findings\n\n- `src/a.ts:12` leaks a handle\n- `src/b.ts:40` double-frees\n\n```ts\nconst x = 1;\n```";
+
+  const envelope = (state: string, inner: string) =>
+    JSON.stringify({
+      success: true,
+      result: [`<task id="t1" state="${state}">`, inner, "</task>"].join("\n"),
+    });
+
+  it("renders the sub-agent report as markdown, not a raw envelope slice", () => {
+    const raw = envelope(
+      "completed",
+      `<summary>Audit the parser</summary><task_result>${REPORT}</task_result>`,
+    );
+    const view = buildToolExpandView("task", { description: "Audit" }, raw, "done");
+    expect(view.kind).toBe("text");
+    if (view.kind === "text") {
+      expect(view.markdown).toBe(true);
+      expect(view.body).toContain("## Findings");
+      expect(view.body).toContain("double-frees");
+      // The heading comes from <summary>, and no envelope markup survives.
+      expect(view.body).toContain("Audit the parser");
+      expect(view.body).not.toContain("<task");
+      expect(view.body).not.toContain("task_result");
+      expect(view.isError).toBeFalsy();
+    }
+  });
+
+  it("says so when the task is still running instead of implying a final report", () => {
+    const raw = envelope(
+      "running",
+      "<summary>Audit the parser</summary><task_result>Still running after 30s — moved to the background.</task_result>",
+    );
+    const view = buildToolExpandView("task", {}, raw, "done");
+    expect(view.kind).toBe("text");
+    if (view.kind === "text") {
+      expect(view.body).toContain("still running");
+      expect(view.body).toContain("moved to the background");
+    }
+  });
+
+  it("shows the sub-agent's own error rather than a generic 'Tool failed'", () => {
+    const raw = envelope(
+      "error",
+      "<summary>Audit the parser</summary><task_error>Sub-agent hit the step cap.</task_error>",
+    );
+    const view = buildToolExpandView("task", {}, raw, "error");
+    expect(view.kind).toBe("text");
+    if (view.kind === "text") {
+      expect(view.isError).toBe(true);
+      expect(view.body).toContain("Sub-agent hit the step cap.");
+      expect(view.body).not.toBe("Tool failed");
+    }
+  });
+
+  it("declines an empty result instead of rendering an empty markdown card", () => {
+    const view = buildToolExpandView(
+      "task",
+      {},
+      JSON.stringify({ success: true, result: "" }),
+      "done",
+    );
+    // The delegation branch returns null and the generic tail takes over ("Done").
+    // What matters is that it does NOT claim to be markdown with nothing in it.
+    expect(view.kind).toBe("text");
+    if (view.kind === "text") {
+      expect(view.markdown).toBeFalsy();
+      expect(view.body.trim()).not.toBe("");
+    }
+  });
+});

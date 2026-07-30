@@ -21,9 +21,12 @@ on the tool. This file is the workflow.
 ## Drive the plan to done
 
 When a session plan is active, keep exactly ONE step `in_progress`, verify each change before
-marking it done, and keep going while any step remains — implement and verify end-to-end rather than
-yielding after only planning. Call `plan({operation:"read"})` before starting the next step to pick
-up anything the user added mid-turn, and `append_step` to add one. The base guidance's attempt budget
+marking it done, and keep going while any step is still yours — implement and verify end-to-end
+rather than yielding after only planning. A step that isn't yours gets marked and left alone:
+`external` (with a reason) when only the user can do it, `blocked` when you tried and are stuck.
+Once no step is `todo` or `in_progress`, you are done — verify your work, tell the user what's
+theirs, and finish. Call `plan({operation:"read"})` before starting the next step to pick up
+anything the user added mid-turn, and `append_step` to add one. The base guidance's attempt budget
 (change approach at 2, stop and report at 3) applies to a failing check too.
 
 ## Verify with the project's own tooling

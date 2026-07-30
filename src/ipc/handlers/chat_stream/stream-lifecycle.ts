@@ -32,6 +32,7 @@ import {
   partialDraftRowByChatId,
   partialDraftLastFlushAtByChatId,
   streamSessionByChatId,
+  streamTurnIdByChatId,
   PARTIAL_DRAFT_FLUSH_INTERVAL_MS,
 } from "./stream-state";
 
@@ -139,6 +140,10 @@ export function clearChatStreamStateForChat(chatId: number): void {
   partialDraftRowByChatId.delete(chatId);
   partialDraftLastFlushAtByChatId.delete(chatId);
   streamSessionByChatId.delete(chatId);
+  // Deleted HERE (session delete) and nowhere else: `chat:cancel` reads this to report
+  // the turn id on a stopped end, so clearing it on turn teardown would race the very
+  // path it exists for. Overwritten each turn, so it holds one string per live chat.
+  streamTurnIdByChatId.delete(chatId);
   // v13 7B: clear any pending waiting-on-command timers + chips.
   clearWaitTrackersForChat(chatId);
   // R1: cancel any outstanding self-wake timers for this chat.

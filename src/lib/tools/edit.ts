@@ -32,6 +32,7 @@ import {
   OVER_ESCAPE_AMBIGUOUS_ERROR,
 } from "./edit-escape";
 import { overlayContent } from "@/lib/agents/subagent-proposals";
+import { checkFreshness, resolveReadScope } from "./file-read-log";
 
 const logger = log.scope("edit-tools");
 
@@ -58,6 +59,12 @@ interface EditFileArgs {
   workspace?: string;
   chatMode?: string;
   agentMode?: string;
+  /**
+   * Scope for the read-before-edit record (`file-read-log.ts`). Injected by the tool
+   * funnel; sub-agents supply `_chatSessionId` + `_proposalSetId` instead.
+   */
+  _scopeSessionId?: string;
+  _scopeChatId?: number;
   _chatSessionId?: number;
   workspaceId?: number;
   /**
@@ -225,6 +232,15 @@ async function runWrite(
     }
   }
 
+  // Read-before-edit applies to an OVERWRITE, and only to an overwrite. A full write is
+  // the most destructive operation there is — it discards everything currently in the
+  // file — so it is the one that most needs the agent to have seen what it is discarding.
+  // Creating a NEW file is exempt by construction: there is nothing to have read.
+  if (fileType === "update" && oldContent !== undefined) {
+    const staleness = freshnessError(args, normalizedPath, oldContent, "overwrite");
+    if (staleness) return staleness;
+  }
+
   return {
     __permission_required: true,
     operation: "edit_file",
@@ -288,6 +304,43 @@ type ApplyReplaceResult =
  * or a structured error; the caller decides whether to write (so a multi-edit
  * set stays atomic: nothing is written if any edit fails).
  */
+/**
+ * Refuse an edit that would work from a view the agent doesn't actually hold.
+ *
+ * Returns a structured tool error, or null when the edit may proceed. Both messages name
+ * the exact next action — a gate that only says "no" costs a turn and teaches nothing.
+ *
+ * `retry.reason` lets the harness distinguish these from a genuine content mismatch, and
+ * `fail_open` (no scope resolvable) is deliberate: see `checkFreshness`.
+ */
+function freshnessError(
+  args: EditFileArgs,
+  normalizedPath: string,
+  currentContent: string,
+  kind: "edit" | "overwrite" = "edit",
+): { error: string; operation: "edit_file"; retry: { reason: string; guidance: string } } | null {
+  const scope = resolveReadScope(args);
+  const verdict = checkFreshness(scope, normalizedPath, currentContent);
+  if (verdict.ok) return null;
+  const action = kind === "overwrite" ? "overwriting" : "editing";
+  if (verdict.reason === "never_read") {
+    return {
+      error:
+        `Read ${normalizedPath} before ${action} it — call read_file first, then retry this edit. ` +
+        `Editing a file you have not read is how the wrong region gets changed.`,
+      operation: "edit_file",
+      retry: { reason: "not_read", guidance: `read_file ${normalizedPath}, then retry` },
+    };
+  }
+  return {
+    error:
+      `${normalizedPath} has changed since you last read it, so your view of it is out of date. ` +
+      `Re-read it with read_file and retry against the current content.`,
+    operation: "edit_file",
+    retry: { reason: "stale_read", guidance: `re-read ${normalizedPath}, then retry` },
+  };
+}
+
 function applyOneReplace(
   content: string,
   oldRaw: string,
@@ -317,10 +370,16 @@ function applyOneReplace(
       const from = Math.max(0, similarLine - 2);
       const to = Math.min(lines.length, similarLine + 3);
       nearMiss = { line: similarLine + 1, preview: lines.slice(from, to).join("\n") };
-      hint = `\n\nClosest candidate at line ${similarLine + 1}:\n---\n${nearMiss.preview}\n---\nThe file likely changed since you read it. Re-read with read_file (start_line=${from + 1}, end_line=${to}) and retry with the EXACT current content as old_content.`;
+      // No "the file changed since you read it" claim here any more. The read-before-edit
+      // gate above has already established that the agent's view IS current, so reaching
+      // this point means `old_content` simply doesn't match what is really in the file —
+      // saying anything about the file having changed would be the wrong explanation, and
+      // acting on the wrong explanation is what made a model conclude the user had
+      // already applied its fix.
+      hint = `\n\nClosest candidate at line ${similarLine + 1}:\n---\n${nearMiss.preview}\n---\nYour old_content does not match the file. Compare it against the candidate above and retry with the EXACT current content (read_file start_line=${from + 1}, end_line=${to} to see more).`;
     } else {
       hint =
-        "\n\nNo similar content found — the file may have changed substantially since you read it, or this may be the wrong file. Re-read the file (or search for the function) before retrying.";
+        "\n\nNo similar content found anywhere in the file — old_content may belong to a different file, or the symbol may have been renamed. Search for it (grep) before retrying.";
     }
     return {
       ok: false,

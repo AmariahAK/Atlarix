@@ -93,3 +93,61 @@ describe("mapOutsideFences", () => {
     expect(mapOutsideFences(s, (x) => x)).toBe(s);
   });
 });
+
+/**
+ * The reported leak: `","progress":"0/14 steps done` rendered as chat text between the plan
+ * card and the next Thoughts block.
+ *
+ * Two gaps produced it. Every other stripper needs a COMPLETE object, and the `}`-anchored
+ * tail strip needs its closing brace — a truncated echo matched nothing. And `progress`
+ * wasn't a known result key until v14.23.0 added it to the plan result, so a new field
+ * silently became a new leak.
+ */
+describe("orphan tool-result tails", () => {
+  it("strips the reported truncated plan fragment", () => {
+    const out = sanitizeMarkdownForDisplay(
+      'Plan: Wisdom-Drop Restructure + Polish\n","progress":"0/14 steps done\n',
+    );
+    expect(out).toBe("Plan: Wisdom-Drop Restructure + Polish");
+    expect(out).not.toContain("progress");
+  });
+
+  it("strips a brace-closed tail too", () => {
+    const out = sanitizeMarkdownForDisplay('Done.\n","message":"Plan created."}\n');
+    expect(out).toBe("Done.");
+  });
+
+  it.each(["planId", "planStatus", "marker", "contentPreview", "stepCount", "progress"])(
+    "covers the %s key",
+    (key) => {
+      const out = sanitizeMarkdownForDisplay(`Text.\n","${key}":"whatever\n`);
+      expect(out).toBe("Text.");
+    },
+  );
+
+  /**
+   * The assertion that matters most. Over-stripping silently deletes the user's own words,
+   * which is worse than the leak — and moving the brace-closed strip inside `mapOutsideFences`
+   * was driven by this case failing.
+   */
+  it("never touches a real fenced JSON example", () => {
+    const src = 'Here:\n```json\n{"progress":"0/14 steps done"}\n```';
+    expect(sanitizeMarkdownForDisplay(src)).toBe(src);
+  });
+
+  it("never touches a fenced example containing message/planId", () => {
+    const src = 'Example:\n```json\n{"success":true,"message":"Plan created.","planId":"p1"}\n```';
+    expect(sanitizeMarkdownForDisplay(src)).toBe(src);
+  });
+
+  it("leaves ordinary prose containing those words and a colon alone", () => {
+    const src = "Note: the progress here was good, and message: fine.";
+    expect(sanitizeMarkdownForDisplay(src)).toBe(src);
+  });
+
+  it("requires the JSON-tail shape, not merely a quoted key", () => {
+    // No leading comma → not a tail. A sentence that happens to quote a key survives.
+    const src = 'The "progress": field is documented above.';
+    expect(sanitizeMarkdownForDisplay(src)).toBe(src);
+  });
+});

@@ -20,10 +20,10 @@ function resolve(branch: "ask" | "build", unattended: boolean) {
 }
 
 describe("resolveToolsetForSession unattended", () => {
-  it("drops ask_user, preview_test, and browser_* in ask branch", () => {
+  it("drops ask_user, browser_test, and browser_* in ask branch", () => {
     const names = resolve("ask", true);
     expect(names).not.toContain("ask_user");
-    expect(names).not.toContain("preview_test");
+    expect(names).not.toContain("browser_test");
     expect(names.some((n) => n.startsWith("browser_"))).toBe(false);
   });
 

@@ -117,6 +117,17 @@ export const partialDraftRowByChatId = new Map<number, string>();
 export const partialDraftLastFlushAtByChatId = new Map<number, number>();
 /** chatId → workspace sessionId, so shutdown flush can resolve the session without a req. */
 export const streamSessionByChatId = new Map<number, string>();
+/**
+ * chatId → the live turn's snapshot/ledger turn id.
+ *
+ * The stream's own terminal payload carries this (`snapshotTurnIdForTerminal`), but
+ * `chat:cancel` lives in a different handler with no view of the running turn, so its
+ * `response:end` omitted it — and the renderer's Revert affordance is gated on having
+ * received it. Net effect: you stop a turn because it made a bad edit, the snapshot is
+ * sitting on disk, and the UI offers no way to use it. This map is what lets cancel
+ * report the id too.
+ */
+export const streamTurnIdByChatId = new Map<number, string>();
 /** #15: chatId → the work mode of that chat's PREVIOUS turn, to detect a switch
  * and fire a "mode changed" re-anchor. In-memory per chat (a restart just skips
  * the "changed" note on the first turn — the plain re-anchor still fires). */

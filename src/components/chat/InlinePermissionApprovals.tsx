@@ -119,6 +119,11 @@ function FilePermissionCard({
     operation.path?.trim() ||
     operation.operation.replace(/_/g, " ");
 
+  // `isProtectedFile` now only ever means "the path was empty/malformed" — the hardcoded
+  // protected-path list was removed in v14.23.0 (it made `.github/workflows/*.yml` a dead
+  // end: prompt forever, no always-allow offered). Still honoured for the degenerate case,
+  // but there is no longer a "Protected path" notice to render, because no ordinary file is
+  // protected any more.
   const isProtected = Boolean(operation.isProtectedFile);
   const isDeleteOrRename =
     Boolean(operation.isDeleteOrRename) ||
@@ -144,11 +149,6 @@ function FilePermissionCard({
         <p className="px-3 py-2 text-[11px] text-amber-900 dark:text-amber-100/90">
           This change removes or renames a file. Directory and extension rules never auto-approve
           deletes — use Allow once to proceed.
-        </p>
-      ) : null}
-      {isProtected ? (
-        <p className="px-3 py-1.5 text-[11px] text-muted-foreground">
-          Protected path — only Allow once or Deny.
         </p>
       ) : null}
       <div className="px-2 pb-2">

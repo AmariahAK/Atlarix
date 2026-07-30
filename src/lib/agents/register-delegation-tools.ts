@@ -12,6 +12,7 @@ import type { WebContents } from "electron";
 import { ToolRegistry } from "@/lib/tools/registry";
 import { normalizeToolInputSchemaForAiSdk } from "@/lib/ai/normalize-tool-schema";
 import { getToolActivityLabel } from "@/lib/tool-activity-labels";
+import { extractDelegationDisplaySummary } from "@/lib/chat/subagent-summary";
 import {
   buildSubagentCompletePayload,
   buildSubagentStartPayload,
@@ -59,41 +60,14 @@ function delegationChatModeFromWorkMode(
 }
 
 /**
- * v14.8.11: the sub-agent popup's bottom section renders this DISPLAY
- * summary — it must be the sub-agent's final answer, not the stringified
- * registry envelope ({"success":true,"result":"<task …"} used to render
- * verbatim). Unwraps the envelope + <task>/<summary>/<task_result> markup;
- * the model-facing result string is untouched by this. Also fixes the error
- * detection: inside the stringified envelope the quotes were escaped
- * (state=\"error\"), so the old regex never matched.
+ * v14.8.11: the sub-agent popup's bottom section renders this DISPLAY summary — it
+ * must be the sub-agent's final answer, not the stringified registry envelope.
+ *
+ * The implementation moved to `@/lib/chat/subagent-summary` so the RENDERER can use
+ * it too (this module imports the tool registry and Electron). Re-exported here
+ * because the main-process call sites and their tests import it from this path.
  */
-export function extractDelegationDisplaySummary(
-  result: unknown,
-  resultStr: string,
-): { summary: string; isError: boolean; isRunning: boolean } {
-  const unwrapped =
-    result &&
-    typeof result === "object" &&
-    typeof (result as { result?: unknown }).result === "string"
-      ? (result as { result: string }).result
-      : resultStr;
-  const isError = /state="error"/.test(unwrapped);
-  // A backgrounded (or auto-promoted) task RETURNS while its sub-agent is still
-  // running — the envelope says so. Callers must not treat that as completion.
-  const isRunning = /state="running"/.test(unwrapped);
-  const taskResult = /<task_result>([\s\S]*?)<\/task_result>/.exec(unwrapped);
-  if (taskResult?.[1]?.trim()) {
-    return { summary: taskResult[1].trim(), isError, isRunning };
-  }
-  return {
-    summary: unwrapped
-      .replace(/<\/?task[^>]*>/g, "")
-      .replace(/<\/?summary>/g, "")
-      .trim(),
-    isError,
-    isRunning,
-  };
-}
+export { extractDelegationDisplaySummary };
 
 export function attachDelegationToolsToSet(
   tools: ToolSet,

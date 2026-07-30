@@ -87,9 +87,28 @@ export async function loadInstructionLayers(params: {
   ];
 }
 
-export function buildInstructionsFromLayers(layers: InstructionLayer[]): string {
+/**
+ * Layers whose bodies are POINTED AT rather than pasted into the prompt (v14.23.0).
+ *
+ * `global` (`~/.atlarix/atlarix.md`) and `project` (`<workspace>/.atlarix/atlarix.md`) are
+ * USER-authored files of unbounded size. Concatenating them here meant the project file
+ * was injected TWICE per turn — once by this function and once by
+ * `loadAtlarixMdSection` — and the global one had no bound at all. Both are now reached
+ * via the pointer that section emits, so cost per turn no longer grows with them.
+ *
+ * `bundle` and `workspace` stay inline: the bundle is Atlarix's own size-tiered AGENTS.md
+ * and `workspace` is short generated text, neither of which the user can grow.
+ */
+const POINTED_AT_LAYER_KEYS = new Set<InstructionLayer["key"]>(["global", "project"]);
+
+export function buildInstructionsFromLayers(
+  layers: InstructionLayer[],
+  /** Escape hatch for the settings UI, which legitimately shows full bodies. */
+  opts?: { includeAll?: boolean },
+): string {
   const parts: string[] = [];
   for (const layer of layers) {
+    if (!opts?.includeAll && POINTED_AT_LAYER_KEYS.has(layer.key)) continue;
     if (layer.content.trim()) {
       parts.push(layer.content.trim());
     }

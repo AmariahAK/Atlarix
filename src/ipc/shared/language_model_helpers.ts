@@ -8,7 +8,9 @@ import { eq } from "drizzle-orm";
 import {
   LOCAL_PROVIDERS,
   CLOUD_PROVIDERS,
-  PROVIDER_TO_ENV_VAR,
+  resolveProviderBaseUrl,
+  resolveProviderEnvVarNames,
+  resolveProviderNpm,
 } from "./language_model_constants";
 import {
   getModelsFromModelsDev,
@@ -49,7 +51,20 @@ export async function getLanguageModelProviders(): Promise<
     });
   }
 
-  // Get hardcoded cloud providers
+  // The overlaid (first-class) cloud providers. The catalog supplies the endpoint,
+  // the wire format and the env-var list; this table supplies the curated name, the
+  // key-console link, Atlarix routing fields, and any deliberate pin. Fetched once
+  // and indexed so the merge below is a lookup rather than a scan per provider.
+  const catalogById = new Map<
+    string,
+    Awaited<ReturnType<typeof getModelsDevProviderCatalog>>[number]
+  >();
+  try {
+    for (const c of await getModelsDevProviderCatalog()) catalogById.set(c.id, c);
+  } catch {
+    /* models.dev unavailable — the overlay's own pins still resolve below. */
+  }
+
   const hardcodedProviders: LanguageModelProvider[] = [];
   for (const providerKey in CLOUD_PROVIDERS) {
     if (Object.prototype.hasOwnProperty.call(CLOUD_PROVIDERS, providerKey)) {
@@ -57,7 +72,8 @@ export async function getLanguageModelProviders(): Promise<
       const key = providerKey as keyof typeof CLOUD_PROVIDERS;
       const providerDetails = CLOUD_PROVIDERS[key];
       if (providerDetails) {
-        // Ensure providerDetails is not undefined
+        const catalog = catalogById.get(key);
+        const envVarNames = resolveProviderEnvVarNames(key, catalog?.envVarNames);
         hardcodedProviders.push({
           id: key,
           name: providerDetails.displayName,
@@ -65,9 +81,13 @@ export async function getLanguageModelProviders(): Promise<
           websiteUrl: providerDetails.websiteUrl,
           gatewayPrefix: providerDetails.gatewayPrefix,
           secondary: providerDetails.secondary,
-          envVarName: PROVIDER_TO_ENV_VAR[key] ?? undefined,
+          // `envVarName` stays the PRIMARY name for existing consumers; the full
+          // ordered list rides alongside so key lookup can try each in turn.
+          envVarName: envVarNames[0],
+          envVarNames,
+          apiBaseUrl: resolveProviderBaseUrl(key, catalog?.apiBaseUrl),
+          npm: resolveProviderNpm(key, catalog?.npm),
           type: "cloud",
-          // apiBaseUrl is not directly in PROVIDERS
         });
       }
     }
@@ -105,22 +125,21 @@ export async function getLanguageModelProviders(): Promise<
     ...customProvidersMap.keys(),
   ]);
   const modelsDevProviders: LanguageModelProvider[] = [];
-  try {
-    for (const c of await getModelsDevProviderCatalog()) {
-      if (existingIds.has(c.id)) continue;
-      existingIds.add(c.id);
-      modelsDevProviders.push({
-        id: c.id,
-        name: c.name,
-        apiBaseUrl: c.apiBaseUrl,
-        envVarName: c.envVarName,
-        type: "cloud",
-      });
-    }
-    modelsDevProviders.sort((a, b) => a.name.localeCompare(b.name));
-  } catch {
-    /* models.dev unavailable — hardcoded + custom still work */
+  for (const c of catalogById.values()) {
+    if (existingIds.has(c.id)) continue;
+    existingIds.add(c.id);
+    const envVarNames = resolveProviderEnvVarNames(c.id, c.envVarNames);
+    modelsDevProviders.push({
+      id: c.id,
+      name: c.name,
+      apiBaseUrl: resolveProviderBaseUrl(c.id, c.apiBaseUrl),
+      envVarName: envVarNames[0],
+      envVarNames,
+      npm: c.npm,
+      type: "cloud",
+    });
   }
+  modelsDevProviders.sort((a, b) => a.name.localeCompare(b.name));
 
   return [
     ...hardcodedProviders,
@@ -224,7 +243,7 @@ export async function getLanguageModels({
         // `elastic` is the inverse case: it has NO catalog rows (it lists
         // Kibana agents from a self-hosted instance, not models), so native is
         // its only source and the empty floor is correct.
-        fetchModelsFromProvider(providerId, apiKey).catch((error) => {
+        fetchModelsFromProvider(providerId, apiKey, provider.apiBaseUrl).catch((error) => {
           console.warn(
             `[${providerId}] Native fetch failed, using catalog:`,
             error,

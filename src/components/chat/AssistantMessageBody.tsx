@@ -495,42 +495,19 @@ export function AssistantMessageBody({
           onPlanArtifactBuild={onPlanArtifactBuild}
           planArtifactBuildDisabled={planArtifactBuildDisabled}
         />
-        <PaginatedThreadList
-          items={woven.tail}
-          keyPrefix={isStreaming ? "tail" : "completed-tail"}
+        <MessageTrailing
+          tailItems={woven.tail}
+          tailKeyPrefix={isStreaming ? "tail" : "completed-tail"}
+          tailIsStreaming={isStreaming}
+          postStreamSubagentItems={postStreamSubagentItems}
+          showTrailingAnswer={showTrailingAnswer}
+          trailingAnswer={trailingAnswer}
           isStreaming={isStreaming}
+          citationSources={citationSources}
           chatId={chatId}
           onPlanArtifactBuild={onPlanArtifactBuild}
           planArtifactBuildDisabled={planArtifactBuildDisabled}
         />
-        {postStreamSubagentItems.map((item) => (
-          <StreamThreadItemView
-            key={`subagent-${threadItemKey(item)}`}
-            item={item}
-            isStreaming={false}
-            chatId={chatId}
-            onPlanArtifactBuild={onPlanArtifactBuild}
-            planArtifactBuildDisabled={planArtifactBuildDisabled}
-          />
-        ))}
-        {showTrailingAnswer ? (
-          <AtlarixMarkdownSegment
-            content={trailingAnswer}
-            isStreaming={isStreaming}
-            citationSources={citationSources}
-          />
-        ) : null}
-        {isStreaming && chatId != null ? (
-          <InlinePermissionApprovals chatId={chatId} />
-        ) : null}
-        {/* Sources strip — see the note on the legacy branch below. It must be
-            mounted HERE too: any turn that actually ran a search carries a
-            tool-call tag, which makes `isStructured` true and routes rendering
-            through this branch, so a strip only on the legacy path never shows
-            for the very turns that have citations. */}
-        {!isStreaming && citationSources.length > 0 ? (
-          <MessageSources sources={citationSources} />
-        ) : null}
       </div>
     );
   }
@@ -583,16 +560,94 @@ export function AssistantMessageBody({
           isStreaming={isStreaming}
         />
       ) : null}
-      <PaginatedThreadList
-        items={postStreamThreadTail}
-        keyPrefix="legacy-tail"
-        isStreaming={false}
+      <MessageTrailing
+        tailItems={postStreamThreadTail}
+        tailKeyPrefix="legacy-tail"
+        tailIsStreaming={false}
+        postStreamSubagentItems={postStreamSubagentItems}
+        showTrailingAnswer={showTrailingAnswer}
+        trailingAnswer={trailingAnswer}
+        isStreaming={isStreaming}
+        citationSources={citationSources}
         chatId={chatId}
         onPlanArtifactBuild={onPlanArtifactBuild}
         planArtifactBuildDisabled={planArtifactBuildDisabled}
       />
+    </div>
+  );
+}
+
+/**
+ * Everything that renders AFTER a message's branch-specific middle.
+ *
+ * `AssistantMessageBody` returns from two structurally parallel branches
+ * (interleaved timeline vs. parts list). They differ only in how they ORDER the
+ * middle; these five trailing concerns are identical — and being written twice is
+ * why features kept landing in one and silently missing the other. Three instances
+ * of that bug are folded in here:
+ *
+ *  - the citation strip was interleaved-only (shipped broken for every turn that
+ *    actually searched),
+ *  - the sub-agent round panel was the mirror image,
+ *  - `postStreamSubagentItems` was interleaved-only, and the legacy branch's
+ *    trailing answer was built WITHOUT `citationSources`, so inline `[^n]` markers
+ *    never resolved there.
+ *
+ * One definition, rendered by both. The round PANEL stays in each middle because
+ * its position is genuinely branch-specific (woven mid-timeline vs. after the
+ * parts) — `assistant-message-trailing-parity` asserts both mount it.
+ */
+function MessageTrailing({
+  tailItems,
+  tailKeyPrefix,
+  tailIsStreaming,
+  postStreamSubagentItems,
+  showTrailingAnswer,
+  trailingAnswer,
+  isStreaming,
+  citationSources,
+  chatId,
+  onPlanArtifactBuild,
+  planArtifactBuildDisabled,
+}: {
+  tailItems: StreamThreadItem[];
+  tailKeyPrefix: string;
+  tailIsStreaming: boolean;
+  postStreamSubagentItems: StreamThreadItem[];
+  showTrailingAnswer: boolean;
+  trailingAnswer: string;
+  isStreaming: boolean;
+  citationSources: SourceItem[];
+  chatId?: number | null;
+  onPlanArtifactBuild?: (planId: string) => void;
+  planArtifactBuildDisabled?: boolean;
+}) {
+  return (
+    <>
+      <PaginatedThreadList
+        items={tailItems}
+        keyPrefix={tailKeyPrefix}
+        isStreaming={tailIsStreaming}
+        chatId={chatId}
+        onPlanArtifactBuild={onPlanArtifactBuild}
+        planArtifactBuildDisabled={planArtifactBuildDisabled}
+      />
+      {postStreamSubagentItems.map((item) => (
+        <StreamThreadItemView
+          key={`subagent-${threadItemKey(item)}`}
+          item={item}
+          isStreaming={false}
+          chatId={chatId}
+          onPlanArtifactBuild={onPlanArtifactBuild}
+          planArtifactBuildDisabled={planArtifactBuildDisabled}
+        />
+      ))}
       {showTrailingAnswer ? (
-        <AtlarixMarkdownSegment content={trailingAnswer} isStreaming={isStreaming} />
+        <AtlarixMarkdownSegment
+          content={trailingAnswer}
+          isStreaming={isStreaming}
+          citationSources={citationSources}
+        />
       ) : null}
       {isStreaming && chatId != null ? (
         <InlinePermissionApprovals chatId={chatId} />
@@ -604,7 +659,7 @@ export function AssistantMessageBody({
       {!isStreaming && citationSources.length > 0 ? (
         <MessageSources sources={citationSources} />
       ) : null}
-    </div>
+    </>
   );
 }
 

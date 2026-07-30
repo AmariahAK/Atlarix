@@ -25,6 +25,7 @@
  */
 
 import * as fs from "fs";
+import { recordFileWrite, resolveReadScope } from "@/lib/tools/file-read-log";
 import * as path from "path";
 import log from "electron-log";
 
@@ -179,6 +180,12 @@ export interface RecordedProposal {
   relPath: string;
   type: "create" | "update";
   lines: number;
+  /**
+   * The proposed body. Exposed so the caller can refresh the read-before-edit record —
+   * this IS the sub-agent's new view of the file (the overlay serves it on the next
+   * read), so without it the sub-agent's own second edit reads as stale.
+   */
+  content: string;
 }
 
 /**
@@ -188,6 +195,22 @@ export interface RecordedProposal {
  * different tool) so the caller can pass it through untouched. Throws only on a
  * cap breach, which the caller turns into a tool error the sub-agent can read.
  */
+/**
+ * A recorded proposal IS this sub-agent's new view of the file — `overlayContent` serves
+ * it on the next read. Refresh the read-before-edit record to match, or the sub-agent's
+ * OWN second edit reads as stale: the overlay returns the proposed body while the record
+ * still holds the pre-edit hash. Lives here rather than at the call site because this is
+ * the choke point every proposal path goes through.
+ */
+function refreshProposalReadRecord(
+  setId: string | undefined | null,
+  relPath: string,
+  content: string,
+): void {
+  if (!setId) return;
+  recordFileWrite(resolveReadScope({ _proposalSetId: setId }), relPath, content);
+}
+
 export function recordEditProposal(
   setId: string | undefined | null,
   result: unknown,
@@ -236,10 +259,12 @@ export function recordEditProposal(
     }
     existing.content = content;
     existing.edits += 1;
+    refreshProposalReadRecord(setId, existing.relPath, content);
     return {
       relPath: existing.relPath,
       type: existing.type,
       lines: content.split("\n").length,
+      content,
     };
   }
 
@@ -269,7 +294,8 @@ export function recordEditProposal(
     `[proposals] ${set.agentName}: recorded ${type} for ${rel} (${content.split("\n").length} lines)`,
   );
 
-  return { relPath: rel, type, lines: content.split("\n").length };
+  refreshProposalReadRecord(setId, rel, content);
+  return { relPath: rel, type, lines: content.split("\n").length, content };
 }
 
 /**

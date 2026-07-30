@@ -19,7 +19,7 @@ import {
   loadPrioritySkillsForWorkspace,
   formatPrioritySkillsForPrompt,
 } from "@/lib/skills/priority-skill-loader";
-import { readProjectInstructions } from "@/lib/project-memory";
+import { extractHeadings, readProjectInstructions } from "@/lib/project-memory";
 import {
   parsePlanChecklist,
   formatPlanChecklistForPrompt,
@@ -197,45 +197,97 @@ export async function loadAtlarixMdSection(
       readProjectInstructions(appPath),
     );
     if (!instructions) return null;
-    const heading =
+
+    const file =
       instructions.source === "atlarix"
-        ? "## Project memory (.atlarix/atlarix.md)"
+        ? ".atlarix/atlarix.md"
         : instructions.source === "agents"
-          ? "## Project instructions (AGENTS.md)"
-          : "## Project instructions (CLAUDE.md)";
-    logger.info(`Injected project instructions (${instructions.source})`);
-    return {
-      name: "projectMemory",
-      priority: 4,
-      content: `${heading}\n${instructions.content}`,
-    };
+          ? "AGENTS.md"
+          : "CLAUDE.md";
+    const sizeKb = Math.max(1, Math.round(instructions.content.length / 1024));
+    const headings = extractHeadings(instructions.content);
+
+    /**
+     * A POINTER, not the body (v14.23.0).
+     *
+     * The whole file used to be pasted here every single turn — and clamped to 3000
+     * chars, so on a longer file the user's later rules were silently dropped and
+     * never applied at all. Pointing at it costs a couple of lines per turn and the
+     * agent reads the WHOLE thing when it matters.
+     *
+     * Deliberately worded stronger than the memory pointer below: this is the user's
+     * standing ruleset, not agent notes, so it says it is authoritative and says WHEN
+     * to read it. The heading list is what makes that reliable rather than hopeful —
+     * a weak model can see whether the rules bear on the task instead of deciding
+     * blind.
+     */
+    const content = [
+      `## Project instructions — ${file} (${sizeKb} KB)`,
+      `These are the user's standing rules for this project and they OVERRIDE your defaults.`,
+      `Read them with read_file before you change code or make a design decision, and follow them.`,
+      headings.length ? `Sections: ${headings.join(" · ")}` : "",
+    ]
+      .filter(Boolean)
+      .join("\n");
+
+    logger.info(
+      `Project instructions pointer (${instructions.source}, ${sizeKb}KB, ${headings.length} headings)`,
+    );
+    return { name: "projectMemory", priority: 4, content };
   } catch (memErr) {
     logger.warn("Failed to read project instructions:", memErr);
     return null;
   }
 }
 
-// v13: .atlarix/memory.md (agent-maintained project knowledge) is
-// auto-injected — the memory tool family was removed; the model
-// updates the file via edit_file.
+/**
+ * Agent memory — the INDEX only.
+ *
+ * v13 auto-injected the whole of `.atlarix/memory.md` on every request, so the cost of
+ * memory grew with how much the agent had learned (and was then truncated at 3000
+ * chars, losing the tail). The store is now per-note under
+ * `~/.atlarix/projects/<slug>/memory/`, and only its one-line-per-note index reaches
+ * the prompt: cost scales with the NUMBER of notes, not their size.
+ *
+ * Framed as optional. A note is background that may save a re-scan — it is not an
+ * instruction, and chasing one must never displace the user's actual task. Writing is
+ * likewise recommended, never required, and `ATLARIX_MEMORY=off` removes this section
+ * entirely so benchmark runs carry no memory surface at all.
+ */
 export async function loadMemoryMdSection(
   p: ContextSectionParams,
 ): Promise<ContextSection | null> {
   const { preflight, hasWorkspace, appPath } = p;
   if (!(hasWorkspace && appPath)) return null;
   try {
-    const { readMemoryMd } = await import("@/lib/project-memory");
-    const memoryMd = await preflight.time("memory-md", () =>
-      readMemoryMd(appPath),
-    );
-    if (!memoryMd) return null;
-    return {
-      name: "projectKnowledge",
-      priority: 3.9,
-      content: `## Project knowledge (.atlarix/memory.md — update via edit_file when you learn durable facts)\n${memoryMd}`,
-    };
+    const {
+      isAgentMemoryDisabled,
+      readMemoryIndex,
+      migrateLegacyMemoryMd,
+      memoryIndexPathFor,
+    } = await import("@/lib/agent-memory");
+    if (isAgentMemoryDisabled()) return null;
+
+    const memory = await preflight.time("memory-index", async () => {
+      // Carry a pre-v14.23.0 single file into the new store on first sight. Idempotent
+      // and non-destructive (the original stays put), so it can run on every turn.
+      const { readMemoryMd } = await import("@/lib/project-memory");
+      const legacy = await readMemoryMd(appPath);
+      if (legacy) await migrateLegacyMemoryMd(appPath, legacy);
+      return readMemoryIndex(appPath);
+    });
+    if (!memory) return null;
+
+    const indexPath = memoryIndexPathFor(appPath);
+    const content = [
+      `## Project memory — ${memory.noteCount} note(s), indexed at ${indexPath}`,
+      memory.index || "(index empty — list the directory to see the notes)",
+      `Optional: read a note with read_file when its line looks relevant to this task. When you learn something durable that the code does NOT already record, you may add a note (one fact per file, plus one index line) — never interrupt the user's task to do it. The full convention is in the \`guides/memory\` skill; read it only when writing one.`,
+    ].join("\n");
+
+    return { name: "projectKnowledge", priority: 3.9, content };
   } catch (memErr) {
-    logger.warn("Failed to read memory.md:", memErr);
+    logger.warn("Failed to read agent memory index:", memErr);
     return null;
   }
 }

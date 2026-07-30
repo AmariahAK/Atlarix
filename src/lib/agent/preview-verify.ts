@@ -60,7 +60,7 @@ const MAX_GATE_ERRORS_SHOWN = 8;
 /**
  * Gate feedback: non-null when the live preview currently has blocking runtime
  * errors newer than the turn's baseline; null when clean. Reads the same buffer
- * `browser_inspect(mode:"console")` and `preview_test` read — no extra wiring.
+ * `browser_inspect(mode:"console")` and `browser_test` read — no extra wiring.
  */
 export function getPreviewRuntimeFeedback(turnId: string): string | null {
   const baseline = previewBaselineByTurn.get(turnId) ?? 0;
@@ -84,7 +84,7 @@ export function getPreviewRuntimeFeedback(turnId: string): string | null {
     `error(s) — it's broken (white-screen / failed request / crash):\n` +
     lines.join("\n") +
     more +
-    `\nFix the cause and re-verify with preview_test (or browser_inspect ` +
+    `\nFix the cause and re-verify with browser_test (or browser_inspect ` +
     `mode:"console") before finishing.`
   );
 }

@@ -9,6 +9,7 @@
  */
 
 import type { IpcMainInvokeEvent } from "electron";
+import { recordFileWrite, resolveReadScope } from "@/lib/tools/file-read-log";
 import type { ModelMessage } from "ai";
 import type { WorkMode, UserSettings, LargeLanguageModel } from "@/lib/schemas";
 import type { ChatStreamParams } from "@/ipc/ipc_types";
@@ -587,11 +588,25 @@ export async function runBuildBranch(
 
                       const pushWrittenPaths = () => {
                         if (!permRequest) return;
-                        const preview = permRequest.preview as { path?: string; paths?: string[] };
+                        const preview = permRequest.preview as { path?: string; paths?: string[]; content?: string };
                         if (permRequest.operation === "write_multiple_files" && preview.paths?.length) {
                           ctx.filesWrittenInThisExchange.push(...preview.paths);
                         } else if (preview.path) {
                           ctx.filesWrittenInThisExchange.push(preview.path);
+                          // The write LANDED, so the agent's view of this file is current
+                          // again — refresh the read record. Without this, every edit in a
+                          // multi-step change would demand a re-read of a file the agent
+                          // itself had just authored.
+                          if (typeof preview.content === "string") {
+                            recordFileWrite(
+                              resolveReadScope({
+                                _scopeSessionId: req.workspaceSessionId ?? undefined,
+                                _scopeChatId: req.chatId,
+                              }),
+                              preview.path,
+                              preview.content,
+                            );
+                          }
                         }
                       };
 

@@ -22,8 +22,6 @@ const LEGACY_DOT_ATLARIX_MD = "ATLARIX.md";
 const LEGACY_SPEC_FILE = "spec.md";
 const ROOT_LEGACY_ATLARIX_MD = "atlarix.md";
 
-/** Max chars to inject into system prompt (avoid context bloat) */
-const MAX_INJECT_CHARS = 3000;
 
 export function getAtlarixDirPath(workspacePath: string): string {
   return path.join(workspacePath, ATLARIX_DIR);
@@ -108,27 +106,48 @@ export async function migrateLegacyAtlarixFiles(workspacePath: string): Promise<
   await safeRenameToOld(legacySpecPath);
 }
 
-/** Clamp injected content to the prompt budget (shared by all readers). */
-function capInject(content: string): string {
-  if (content.length > MAX_INJECT_CHARS) {
-    return content.slice(0, MAX_INJECT_CHARS) + "\n\n...(truncated)";
-  }
-  return content;
-}
-
+/**
+ * `capInject` is GONE (v14.23.0).
+ *
+ * It clamped both files to 3000 chars and appended "...(truncated)". Nothing about
+ * that was visible to the user, so a project-instructions file longer than the cap had
+ * its tail silently dropped and the rules in it simply never applied. Instructions are
+ * now POINTED AT rather than pasted, and the agent reads the whole file with
+ * `read_file` — which is strictly more correct than a truncated copy, as well as
+ * cheaper on every turn that doesn't need it.
+ *
+ * These readers now return the file verbatim. The only caller that puts content in the
+ * prompt is the pointer builder, which uses headings and a byte count, not the body.
+ */
 export async function readAtlarixMd(workspacePath: string): Promise<string | null> {
   if (!workspacePath) return null;
   await migrateLegacyAtlarixFiles(workspacePath);
-
-  const content = await safeRead(getAtlarixMdPath(workspacePath));
-  return content ? capInject(content) : null;
+  return (await safeRead(getAtlarixMdPath(workspacePath))) || null;
 }
 
-/** v13: memory.md is auto-injected (the `memory` tool family was removed). */
+/** Legacy single-file memory. Read only to MIGRATE it into the per-note store. */
 export async function readMemoryMd(workspacePath: string): Promise<string | null> {
   if (!workspacePath) return null;
-  const content = await safeRead(getMemoryMdPath(workspacePath));
-  return content ? capInject(content) : null;
+  return (await safeRead(getMemoryMdPath(workspacePath))) || null;
+}
+
+/**
+ * The markdown headings of a project-instructions file, for the pointer.
+ *
+ * A bare "instructions exist, go read them" is a coin flip on a weak model. Listing
+ * the headings costs ~100–200 chars and tells the model WHAT the rules cover, so it
+ * can decide whether they bear on the current task instead of guessing. Capped so a
+ * file with a hundred headings can't reintroduce the problem this replaced.
+ */
+export function extractHeadings(content: string, max = 12): string[] {
+  const out: string[] = [];
+  for (const line of content.split(/\r?\n/)) {
+    const m = line.match(/^#{1,3}\s+(.+?)\s*$/);
+    const heading = m?.[1]?.replace(/[*_`]/g, "").trim();
+    if (heading) out.push(heading);
+    if (out.length >= max) break;
+  }
+  return out;
 }
 
 /** Where the project instructions came from (drives the injected heading). */
@@ -150,10 +169,10 @@ export async function readProjectInstructions(
   if (atlarix) return { content: atlarix, source: "atlarix" };
 
   const agents = await safeRead(path.join(workspacePath, "AGENTS.md"));
-  if (agents) return { content: capInject(agents), source: "agents" };
+  if (agents) return { content: agents, source: "agents" };
 
   const claude = await safeRead(path.join(workspacePath, "CLAUDE.md"));
-  if (claude) return { content: capInject(claude), source: "claude" };
+  if (claude) return { content: claude, source: "claude" };
 
   return null;
 }
@@ -182,32 +201,28 @@ export async function statMemoryMd(workspacePath: string): Promise<MemoryMdStat 
 }
 
 /**
- * One-line(ish) project-docs hint for the system prompt. Informs the model that
- * `.atlarix/memory.md` can be read on demand (never injects its body) and
- * states the atlarix.md follow-when-non-empty rule.
+ * Project-docs hint for the system prompt: the atlarix.md follow-when-non-empty rule.
+ *
+ * The `.atlarix/memory.md` paragraph is GONE (v14.23.0). That file is superseded by the
+ * per-note store in `lib/agent-memory.ts`, whose index is surfaced by
+ * `loadMemoryMdSection` — describing a knowledge file that no longer exists would send
+ * the model reading (or worse, WRITING) the wrong path.
+ *
+ * This stays deliberately short and stays here rather than moving into the context
+ * section: it applies even with no workspace-side section loaded, and it is the one place
+ * that states the rule's CONDITION (non-empty ⇒ applies).
  */
 export async function buildProjectDocsPromptHint(
   workspacePath: string,
   opts?: { canWrite?: boolean },
 ): Promise<string> {
   if (!workspacePath) return "";
-  const canWrite = opts?.canWrite ?? false;
-  const stat = await statMemoryMd(workspacePath);
-  const lines: string[] = ["<project_docs>"];
-  lines.push(
-    "Rules in `.atlarix/atlarix.md` apply when the file is non-empty; if absent or empty, proceed without it.",
-  );
-  if (stat) {
-    lines.push(
-      `A project knowledge file exists at \`.atlarix/memory.md\` (${stat.sizeKb} KB, updated ${stat.modified}). Reading it with read_file is optional but usually saves a full project re-scan — it records the tech stack, architecture, and layout.${canWrite ? " Keep it current: when durable facts change (e.g. payments PayPal → Stripe, auth Supabase → Clerk), update it with edit_file." : ""}`,
-    );
-  } else if (canWrite) {
-    lines.push(
-      "No `.atlarix/memory.md` yet. After substantial exploration, you may create it (edit_file with operation:\"write\") with the project's tech stack, architecture, and layout so future sessions can skip a full re-scan. Optional — do not interrupt the user's task for it.",
-    );
-  }
-  lines.push("</project_docs>");
-  return lines.join("\n");
+  void opts;
+  return [
+    "<project_docs>",
+    "Rules in `.atlarix/atlarix.md` apply when the file is non-empty; if absent or empty, proceed without it. Your context carries a pointer to it with its section list — read the file itself with read_file before changing code or making a design decision.",
+    "</project_docs>",
+  ].join("\n");
 }
 
 /** Workspace-relative path for plan-mode write checks. */

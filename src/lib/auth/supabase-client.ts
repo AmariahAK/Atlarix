@@ -421,7 +421,24 @@ export async function signOut(): Promise<void> {
  */
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
-export async function restoreAuthSessionOnStartup(): Promise<void> {
+export interface RestoreAuthSessionOptions {
+    /**
+     * Fired the moment a stored session is in hand — BEFORE the expiry check and the
+     * refresh backoff below.
+     *
+     * The account used to surface only after this whole function resolved, which meant
+     * a signed-in user stared at a logged-out UI for up to ~4.4s on a cold launch
+     * (400ms empty-read retry + `[0, 1000, 3000]` of refresh backoff + three network
+     * round-trips). The stored session is already authoritative enough to render an
+     * account; the refresh only rotates the token. Awaited, so the caller can finish
+     * its own setup before the refresh starts competing for the network.
+     */
+    onStoredSession?: (session: Session) => void | Promise<void>;
+}
+
+export async function restoreAuthSessionOnStartup(
+    opts?: RestoreAuthSessionOptions,
+): Promise<void> {
     try {
         const supabase = getSupabaseClient();
 
@@ -435,6 +452,17 @@ export async function restoreAuthSessionOnStartup(): Promise<void> {
         if (!session) {
             logger.log('[Supabase] No stored session on startup');
             return;
+        }
+
+        // Surface the account before spending anything on the network. A throw here
+        // must not cost us the refresh below, so it's caught separately.
+        try {
+            await opts?.onStoredSession?.(session);
+        } catch (cbErr) {
+            logger.warn(
+                '[Supabase] onStoredSession callback failed (non-fatal):',
+                cbErr instanceof Error ? cbErr.message : cbErr,
+            );
         }
 
         const exp = session.expires_at;
