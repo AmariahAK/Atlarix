@@ -3415,6 +3415,15 @@ export class IpcClient {
     return this.ipcRenderer.invoke("github:clone-repo-from-url", params);
   }
 
+  /** Validate a hand-typed destination folder (clone dialog). */
+  public async validateParentDir(
+    dirPath: string,
+  ): Promise<{ ok: boolean; path?: string; willCreate?: boolean; error?: string }> {
+    return this.ipcRenderer.invoke("workspace:validate-parent-dir", {
+      path: dirPath,
+    });
+  }
+
   // --- Remote SSH ---
   public async listSshHosts(): Promise<
     Array<{ hostAlias: string; hostName?: string; user?: string; port?: number }>

@@ -23,12 +23,8 @@ import { useLoadApps } from "@/hooks/useLoadApps";
 import { useGithubCloneFlow } from "@/hooks/useGithubCloneFlow";
 import { CloneDestinationFields } from "@/components/welcome/CloneDestinationFields";
 import { CloneProgressOverlay } from "@/components/welcome/CloneProgressOverlay";
+import { repoNameFromUrl } from "@/shared/git_remote_url";
 import { cn } from "@/lib/utils";
-
-function extractRepoNameFromUrl(url: string): string | null {
-  const match = url.match(/github\.com[:/]([^/]+)\/([^/]+?)(?:\.git)?\/?$/);
-  return match ? match[2] : null;
-}
 
 export function WelcomeCloneDialog({
   open,
@@ -46,8 +42,13 @@ export function WelcomeCloneDialog({
   const [loadingRepos, setLoadingRepos] = useState(false);
   const [url, setUrl] = useState("");
   const [appName, setAppName] = useState("");
+  const [selectedRepo, setSelectedRepo] = useState<GithubRepository | null>(null);
 
   const {
+    parentDirInput,
+    setParentDirInput,
+    parentDirError,
+    validatingParentDir,
     targetParentDir,
     cloning,
     cloneProgress,
@@ -55,13 +56,28 @@ export function WelcomeCloneDialog({
     activeRepo,
     resolveTargetPath,
     chooseFolder,
-    ensureFolder,
     cancelClone,
     runClone,
   } = useGithubCloneFlow();
 
-  const workspaceNameForUrl = appName.trim() || extractRepoNameFromUrl(url.trim()) || "repo";
-  const destinationPreview = resolveTargetPath(workspaceNameForUrl);
+  const workspaceNameForUrl =
+    appName.trim() || repoNameFromUrl(url) || "repo";
+  const workspaceNameForRepo =
+    appName.trim() || selectedRepo?.name || "repo";
+
+  const destination = (
+    <CloneDestinationFields
+      value={parentDirInput}
+      onValueChange={setParentDirInput}
+      error={parentDirError}
+      validating={validatingParentDir}
+      destinationPreview={resolveTargetPath(
+        activeTab === "url" ? workspaceNameForUrl : workspaceNameForRepo,
+      )}
+      onChooseFolder={() => void chooseFolder()}
+      disabled={cloning}
+    />
+  );
 
   const loadGithubRepos = async () => {
     setLoadingRepos(true);
@@ -93,8 +109,6 @@ export function WelcomeCloneDialog({
     name: string,
     repoLabel?: string,
   ) => {
-    if (!(await ensureFolder())) return;
-
     const result = await runClone({
       url: cloneUrl,
       appName: name,
@@ -115,16 +129,15 @@ export function WelcomeCloneDialog({
   const handleUrlClone = async () => {
     const trimmed = url.trim();
     if (!trimmed) return;
-    const name = workspaceNameForUrl;
-    await finishClone(trimmed, name);
+    await finishClone(trimmed, workspaceNameForUrl);
   };
 
-  const handleRepoClick = async (repo: GithubRepository) => {
-    const name = appName.trim() || repo.name;
+  const handleRepoClone = async () => {
+    if (!selectedRepo) return;
     await finishClone(
-      `https://github.com/${repo.full_name}.git`,
-      name,
-      repo.full_name,
+      `https://github.com/${selectedRepo.full_name}.git`,
+      workspaceNameForRepo,
+      selectedRepo.full_name,
     );
   };
 
@@ -145,7 +158,25 @@ export function WelcomeCloneDialog({
     onOpenChange(false);
   };
 
-  const canCloneUrl = !!url.trim() && !!targetParentDir && !cloning;
+  /**
+   * Why Clone is unavailable, in the user's words. A disabled primary action with no
+   * stated reason is what made this dialog read as "GitHub sign-in required" — the
+   * destination folder was the only thing missing.
+   */
+  const urlBlockedReason = !url.trim()
+    ? "Paste a repository URL to continue."
+    : !targetParentDir
+      ? validatingParentDir
+        ? "Checking that folder…"
+        : "Choose where to save this repository to continue."
+      : null;
+  const repoBlockedReason = !selectedRepo
+    ? "Select a repository above to continue."
+    : !targetParentDir
+      ? validatingParentDir
+        ? "Checking that folder…"
+        : "Choose where to save this repository to continue."
+      : null;
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
@@ -153,7 +184,8 @@ export function WelcomeCloneDialog({
         <DialogHeader>
           <DialogTitle>Clone repository</DialogTitle>
           <DialogDescription>
-            HTTPS or git@ SSH URL. Choose where to save the project on disk, then clone.
+            Any git host over HTTPS, or a git@ SSH URL. Choose where to save the project
+            on disk, then clone.
           </DialogDescription>
         </DialogHeader>
         <div className="relative space-y-3">
@@ -163,13 +195,6 @@ export function WelcomeCloneDialog({
             progress={cloneProgress}
             activeRepo={activeRepo}
             onCancel={cancelClone}
-          />
-
-          <CloneDestinationFields
-            targetParentDir={targetParentDir}
-            destinationPreview={destinationPreview}
-            onChooseFolder={() => void chooseFolder()}
-            disabled={cloning}
           />
 
           <Tabs
@@ -197,9 +222,10 @@ export function WelcomeCloneDialog({
                 onChange={(e) => setAppName(e.target.value)}
                 disabled={cloning}
               />
+              {destination}
               <Button
                 className="w-full"
-                disabled={!canCloneUrl}
+                disabled={!!urlBlockedReason || cloning}
                 onClick={() => void handleUrlClone()}
               >
                 {cloning ? (
@@ -211,6 +237,11 @@ export function WelcomeCloneDialog({
                   "Clone"
                 )}
               </Button>
+              {urlBlockedReason && !cloning ? (
+                <p className="text-xs text-muted-foreground text-center">
+                  {urlBlockedReason}
+                </p>
+              ) : null}
             </TabsContent>
             <TabsContent value="github" className="pt-2 space-y-3">
               {!isAuthenticated ? (
@@ -233,23 +264,19 @@ export function WelcomeCloneDialog({
               ) : (
                 <>
                   <GitHubIntegration />
-                  <Input
-                    placeholder="Workspace name (optional)"
-                    value={appName}
-                    onChange={(e) => setAppName(e.target.value)}
-                    disabled={cloning}
-                  />
                   <ul className="max-h-48 overflow-y-auto space-y-1 border rounded-md p-2">
                     {repos.map((repo) => (
                       <li key={repo.full_name}>
                         <button
                           type="button"
+                          aria-pressed={selectedRepo?.full_name === repo.full_name}
                           className={cn(
                             "w-full text-left text-sm px-2 py-1.5 rounded hover:bg-accent",
-                            activeRepo === repo.full_name && "bg-accent",
+                            (selectedRepo?.full_name === repo.full_name ||
+                              activeRepo === repo.full_name) && "bg-accent",
                           )}
-                          disabled={cloning || !targetParentDir}
-                          onClick={() => void handleRepoClick(repo)}
+                          disabled={cloning}
+                          onClick={() => setSelectedRepo(repo)}
                         >
                           {repo.full_name}
                           {repo.private ? (
@@ -261,9 +288,30 @@ export function WelcomeCloneDialog({
                       </li>
                     ))}
                   </ul>
-                  {!targetParentDir ? (
-                    <p className="text-xs text-muted-foreground">
-                      Choose a save folder above before selecting a repository.
+                  <Input
+                    placeholder="Workspace name (optional)"
+                    value={appName}
+                    onChange={(e) => setAppName(e.target.value)}
+                    disabled={cloning}
+                  />
+                  {destination}
+                  <Button
+                    className="w-full"
+                    disabled={!!repoBlockedReason || cloning}
+                    onClick={() => void handleRepoClone()}
+                  >
+                    {cloning ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                        Cloning…
+                      </>
+                    ) : (
+                      "Clone"
+                    )}
+                  </Button>
+                  {repoBlockedReason && !cloning ? (
+                    <p className="text-xs text-muted-foreground text-center">
+                      {repoBlockedReason}
                     </p>
                   ) : null}
                 </>

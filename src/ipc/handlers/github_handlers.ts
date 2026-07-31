@@ -1,7 +1,18 @@
 import { ipcMain, BrowserWindow, IpcMainInvokeEvent } from "electron";
 // Native global fetch (Node 18+/Electron) — node-fetch removed in v10.1
 import { writeSettings, readSettings } from "../../main/settings";
-import { gitSetRemoteUrl, gitPush, gitClone } from "../utils/git_utils";
+import {
+  gitSetRemoteUrl,
+  gitPush,
+  gitClone,
+  gitCurrentBranch,
+} from "../utils/git_utils";
+import {
+  isGithubHost,
+  parseGitRemoteUrl,
+  redactGitUrlCredentials,
+} from "@/shared/git_remote_url";
+import { GIT_NOT_INSTALLED_MESSAGE } from "../utils/system_git_exec";
 import * as schema from "../../db/schema";
 import fs from "node:fs";
 import { promises as fsPromises } from "node:fs";
@@ -692,7 +703,60 @@ async function removePartialCloneDir(dirPath: string): Promise<void> {
   }
 }
 
-async function handleCloneRepoFromUrl(
+/**
+ * Turn a failed clone into something the user can act on.
+ *
+ * Every branch runs through `redactGitUrlCredentials` — an authenticated clone URL
+ * carries the user's OAuth token and git echoes URLs back in stderr, so the raw text is
+ * not safe to show in a toast or write to a log file.
+ */
+function describeCloneFailure(
+  rawMessage: string,
+  context: { isGithub: boolean; isSsh: boolean },
+): string {
+  const message = redactGitUrlCredentials(rawMessage).trim();
+
+  if (/GIT_NOT_INSTALLED|not installed \(or not on PATH\)/i.test(message)) {
+    return GIT_NOT_INSTALLED_MESSAGE;
+  }
+  if (/Permission denied \(publickey\)|Host key verification failed/i.test(message)) {
+    return `The git host refused your SSH key. Check that the key is loaded in your SSH agent and authorized for this repository.\n\n${message}`;
+  }
+  if (
+    /could not read Username|Authentication failed|terminal prompts disabled|\b403\b/i.test(
+      message,
+    )
+  ) {
+    // Advice has to match the host: there is no stored credential for non-GitHub
+    // hosts, so "connect your account" would send the user nowhere.
+    const advice = context.isGithub
+      ? "Connect a GitHub account (or use a URL you have access to) and try again."
+      : "Atlarix clones non-GitHub hosts anonymously — for a private repository, use its SSH (git@…) URL so your own key authenticates it.";
+    return `That repository is private or the URL is wrong. ${advice}\n\n${message}`;
+  }
+  if (/Could not resolve host|Could not resolve proxy|network is unreachable/i.test(message)) {
+    return `Couldn't reach the git host — check your internet connection or proxy settings.\n\n${message}`;
+  }
+  if (/not found|does not exist|Repository not found/i.test(message)) {
+    return `Repository not found. Check the URL.\n\n${message}`;
+  }
+
+  // Unknown failure: show git's own words rather than a generic sentence — the last
+  // few lines are the ones that say what actually went wrong.
+  const tail = message
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+    .slice(-5)
+    .join("\n")
+    .slice(0, 600);
+  return tail
+    ? `Failed to clone repository.\n\n${tail}`
+    : "Failed to clone repository. Please check the URL and try again.";
+}
+
+/** Exported for tests; registered on `github:clone-repo-from-url` below. */
+export async function handleCloneRepoFromUrl(
   event: IpcMainInvokeEvent,
   params: CloneRepoParams,
 ): Promise<CloneRepoReturnType> {
@@ -707,30 +771,50 @@ async function handleCloneRepoFromUrl(
     sendProgress({ step: "validating", message: "Validating repository…", progress: 5 });
 
     const settings = readSettings();
-    const accessToken = settings.githubAccessToken?.value;
-    const urlPattern = /github\.com[:/]([^/]+)\/([^/]+?)(?:\.git)?\/?$/;
-    const match = url.match(urlPattern);
-    if (!match) {
-      return {
-        error:
-          "Invalid GitHub URL. Expected format: https://github.com/owner/repo.git",
-      };
+    const parsed = parseGitRemoteUrl(url);
+    if (!parsed.ok) {
+      return { error: parsed.error };
     }
-    const [, owner, repoName] = match;
-    if (accessToken) {
-      const repoResponse = await fetch(
-        `${GITHUB_API_BASE}/repos/${owner}/${repoName}`,
-        {
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-            Accept: "application/vnd.github+json",
+    const { host, owner, repo: repoName, isSsh } = parsed;
+    const isGithub = isGithubHost(host);
+    // Only GitHub gets the stored token; other hosts clone anonymously or over SSH.
+    const accessToken = isGithub ? settings.githubAccessToken?.value : undefined;
+
+    if (isGithub && accessToken && !isSsh) {
+      // A courtesy pre-check, not a gate: only a definitive 404/403 from GitHub stops
+      // the clone. If the API is unreachable (offline, proxy, rate limit) we let git
+      // run and report the real problem — claiming "not found" for a network failure
+      // sent users hunting for a typo that wasn't there.
+      try {
+        const repoResponse = await fetch(
+          `${GITHUB_API_BASE}/repos/${owner}/${repoName}`,
+          {
+            headers: {
+              Authorization: `Bearer ${accessToken}`,
+              Accept: "application/vnd.github+json",
+            },
           },
-        },
-      );
-      if (!repoResponse.ok) {
-        return {
-          error: "Repository not found or you do not have access to it.",
-        };
+        );
+        if (repoResponse.status === 404) {
+          return {
+            error: `Repository ${owner}/${repoName} not found on GitHub — check the URL, or confirm your connected account can see it.`,
+          };
+        }
+        if (repoResponse.status === 403) {
+          return {
+            error: `Your connected GitHub account does not have access to ${owner}/${repoName}.`,
+          };
+        }
+        if (!repoResponse.ok) {
+          logger.warn(
+            `[GitHub Handler] Repo pre-check returned ${repoResponse.status}; continuing with clone.`,
+          );
+        }
+      } catch (precheckErr) {
+        logger.warn(
+          "[GitHub Handler] Repo pre-check failed (continuing with clone):",
+          precheckErr instanceof Error ? precheckErr.message : precheckErr,
+        );
       }
     }
     const finalAppName = appName && appName.trim() ? appName.trim() : repoName;
@@ -739,7 +823,9 @@ async function handleCloneRepoFromUrl(
     });
 
     if (existingApp) {
-      return { error: `An app named "${finalAppName}" already exists.` };
+      return {
+        error: `A workspace named "${finalAppName}" already exists — choose a different workspace name.`,
+      };
     }
 
     if (!targetPath || !path.isAbsolute(targetPath)) {
@@ -748,17 +834,23 @@ async function handleCloneRepoFromUrl(
     const fullAppPath = path.resolve(targetPath);
 
     if (fs.existsSync(fullAppPath)) {
-      return { error: `Folder already exists: ${fullAppPath}` };
+      return {
+        error: `That folder already exists: ${fullAppPath}. Choose a different workspace name or save location.`,
+      };
     }
 
     fs.mkdirSync(path.dirname(fullAppPath), { recursive: true });
 
-    // Use authenticated URL if token exists, otherwise use public HTTPS URL
-    const cloneUrl = accessToken
-      ? IS_TEST_BUILD
-        ? `${GITHUB_GIT_BASE}/${owner}/${repoName}.git`
-        : `https://${accessToken}:x-oauth-basic@github.com/${owner}/${repoName}.git`
-      : `https://github.com/${owner}/${repoName}.git`;
+    // SSH URLs go to git untouched (the user's own keys authenticate them). For GitHub
+    // over HTTPS with a stored token, embed it; every other host clones anonymously.
+    const cloneUrl =
+      isSsh || !isGithub
+        ? parsed.url
+        : accessToken
+          ? IS_TEST_BUILD
+            ? `${GITHUB_GIT_BASE}/${owner}/${repoName}.git`
+            : `https://${accessToken}:x-oauth-basic@github.com/${owner}/${repoName}.git`
+          : `https://github.com/${owner}/${repoName}.git`;
 
     sendProgress({ step: "cloning", message: "Cloning repository…", progress: 15 });
 
@@ -769,6 +861,19 @@ async function handleCloneRepoFromUrl(
         accessToken,
         singleBranch: false,
         signal: abort.signal,
+        onProgress: ({ phase, percent }) => {
+          // Map git's own phases onto the 15-85 band so the bar moves during the
+          // long part of a clone instead of parking at 15%.
+          const scaled =
+            typeof percent === "number"
+              ? 15 + Math.round((Math.min(100, Math.max(0, percent)) / 100) * 70)
+              : 15;
+          sendProgress({
+            step: "cloning",
+            message: typeof percent === "number" ? `${phase}: ${percent}%` : phase,
+            progress: scaled,
+          });
+        },
       });
     } catch (cloneErr: unknown) {
       await removePartialCloneDir(fullAppPath);
@@ -778,11 +883,14 @@ async function handleCloneRepoFromUrl(
       ) {
         return { error: "Clone cancelled." };
       }
-      logger.error("[GitHub Handler] Clone failed:", cloneErr);
-      return {
-        error:
-          "Failed to clone repository. Please check the URL and try again.",
-      };
+      const rawMessage =
+        cloneErr instanceof Error ? cloneErr.message : String(cloneErr);
+      // Redact before logging too — electron-log writes to a file on disk.
+      logger.error(
+        "[GitHub Handler] Clone failed:",
+        redactGitUrlCredentials(rawMessage),
+      );
+      return { error: describeCloneFailure(rawMessage, { isGithub, isSsh }) };
     }
 
     if (abort.signal.aborted) {
@@ -796,6 +904,15 @@ async function handleCloneRepoFromUrl(
       progress: 90,
     });
 
+    // The real default branch — "main" was hardcoded here, which made a later push
+    // target a branch the repo may not have.
+    let clonedBranch: string | null = null;
+    try {
+      clonedBranch = await gitCurrentBranch({ path: fullAppPath });
+    } catch (branchErr) {
+      logger.warn("[GitHub Handler] Could not read cloned branch:", branchErr);
+    }
+
     const now = new Date();
     const [newApp] = await db
       .insert(schema.apps)
@@ -805,9 +922,12 @@ async function handleCloneRepoFromUrl(
         createdAt: now,
         updatedAt: now,
         lastOpenedAt: now,
-        githubOrg: owner,
-        githubRepo: repoName,
-        githubBranch: "main",
+        // githubOrg/githubRepo mean "this workspace is linked to a GitHub repo" — they
+        // drive the push URL and the connector UI. Setting them for a GitLab or
+        // self-hosted clone would make Push target github.com/owner/repo.
+        githubOrg: isGithub ? owner : null,
+        githubRepo: isGithub ? repoName : null,
+        githubBranch: clonedBranch,
         installCommand: installCommand || null,
         startCommand: startCommand || null,
       })
@@ -815,7 +935,9 @@ async function handleCloneRepoFromUrl(
     const { chatId } = await startWorkspaceSession(newApp.id);
 
     sendProgress({ step: "complete", message: "Complete!", progress: 100 });
-    logger.log(`Successfully cloned repo ${owner}/${repoName} to ${fullAppPath}`);
+    logger.log(
+      `Successfully cloned ${host}/${owner}/${repoName} to ${fullAppPath}`,
+    );
     return {
       app: {
         ...newApp,
@@ -827,15 +949,18 @@ async function handleCloneRepoFromUrl(
       chatId,
     };
   } catch (err: unknown) {
-    logger.error("[GitHub Handler] Unexpected error in clone flow:", err);
+    const rawMessage = err instanceof Error ? err.message : String(err);
+    logger.error(
+      "[GitHub Handler] Unexpected error in clone flow:",
+      redactGitUrlCredentials(rawMessage),
+    );
     if (err instanceof Error && err.name === "AbortError") {
       return { error: "Clone cancelled." };
     }
     return {
-      error:
-        err instanceof Error
-          ? err.message
-          : "An unexpected error occurred during cloning.",
+      error: rawMessage
+        ? redactGitUrlCredentials(rawMessage)
+        : "An unexpected error occurred during cloning.",
     };
   } finally {
     if (activeCloneAbort === abort) {

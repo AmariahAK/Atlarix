@@ -1,8 +1,68 @@
 # Atlarix TODO
 
-**Current Version:** v14.23.0 (2026-07-30) — providers come off the hardcode, the plan
-gate stops fighting the model, and sub-agent results render like the rest of chat.
-**Last Updated:** 2026-07-30
+**Current Version:** v14.24.0 (2026-07-31) — the clone dialog actually clones, from any git
+host, and tells you what went wrong when it doesn't.
+**Last Updated:** 2026-07-31
+
+## ✅ SHIPPED in v14.24.0 — the clone dialog actually clones
+
+A VCL reviewer (fresh Linux VM, 2026-07-31) pasted a public GitHub URL into **Clone
+repo**, named the workspace, and the **Clone button was disabled with no explanation**.
+They read it as "GitHub sign-in required", declined, and abandoned the rest of the
+onboarding review. `canCloneUrl` required `targetParentDir`, which started `null` with no
+default and could ONLY be set by completing a native directory picker — and
+`chooseFolder` swallowed both cancel and failure, so a picker that never opens left the
+user with a dead button and no error.
+
+- **A destination is always the user's explicit choice — and always reachable.** The
+  "Save to" field is now a typeable path input next to the picker, moved BELOW the
+  URL/name fields so it sits directly above the button it gates. Nothing is prefilled and
+  nothing is remembered between clones (owner's call: never guess a location). Typed
+  paths are validated in main via the new `workspace:validate-parent-dir` (tilde
+  expansion, absolute, existing-or-creatable, `W_OK`), since the renderer has no `path`.
+  A picker that *fails* now toasts; a picker the user *cancels* stays silent.
+- **The disabled button states its reason** ("Paste a repository URL to continue" /
+  "Choose where to save this repository to continue"). The GitHub tab had such a hint;
+  the URL tab — the default tab — had none, which is the whole bug.
+- **GitHub tab is select-then-clone.** Clicking a repo used to clone immediately, so the
+  destination had to live above the tabs; rows were disabled with no destination. Now it
+  selects, and the tab carries the same destination + Clone button as the URL tab.
+- **Any git host.** One shared parser (`src/shared/git_remote_url.ts`) replaces the two
+  GitHub-only regexes, so GitLab/Bitbucket/self-hosted URLs clone instead of being
+  refused as "Invalid GitHub URL". **Hard transport allowlist** (https/http/ssh/git):
+  `ext::` is rejected outright — `ext::sh -c "…"` is arbitrary command execution through
+  git's remote helper — along with `file://` and any argument starting with `-`.
+- **SSH URLs are no longer rewritten to HTTPS.** `git@host:owner/repo.git` reaches git
+  verbatim so the user's agent/keys authenticate it (`GIT_SSH_COMMAND=ssh -o
+  BatchMode=yes`, `GIT_TERMINAL_PROMPT=0` so nothing blocks on a prompt). With no git
+  binary, SSH fails with an explicit message — isomorphic-git speaks HTTPS only.
+- **Real errors, redacted.** The clone path returned a fixed "Failed to clone repository.
+  Please check the URL and try again." for every failure. It now maps auth / DNS /
+  not-found / missing-git and otherwise shows git's own last lines. **All of it passes
+  through `redactGitUrlCredentials`, including the `logger.error`** — the authenticated
+  clone URL embeds the OAuth token and git echoes URLs in stderr, so surfacing stderr
+  without redaction would have leaked tokens into toasts and log files.
+- **The GitHub pre-check is a courtesy, not a gate.** It turned ANY `fetch` failure into
+  "Repository not found or you do not have access to it." Now only a definitive 404/403
+  stops the clone; offline/proxy/rate-limit falls through and lets git report the truth.
+- **Real progress.** New `execStreaming` (spawn-based, same never-reject/exit-127
+  contract as `exec`) parses `git clone --progress` stderr; `gitClone` gained
+  `onProgress`, mapped into a 15–85 band. Verified live: 14 events, 7% → 100%. Before,
+  a clone sat at 15% until it finished and looked hung.
+- **Correct DB rows.** `githubOrg`/`githubRepo` are only set for github.com hosts — they
+  mean "linked to GitHub" and build the push URL, so a GitLab clone with them set would
+  have pushed to github.com. `githubBranch` comes from `gitCurrentBranch` instead of a
+  hardcoded `"main"`.
+- Tests: `clone-url-parse` (19), `clone-error-surface` (8), `clone-destination-validation`
+  (7), `renderer/clone-dialog` (8). Full suite 250 files / 2211 tests green; tsc (app,
+  main, tests) and oxlint clean.
+- **Deleted:** `e2e-tests/github-import.spec.ts` drove an "Import App" modal with Local
+  Folder / Your GitHub Repos / GitHub URL tabs — a UI that no longer exists anywhere in
+  `src`. Dyad-era, already stale before this work.
+- **Still open:** no e2e spec reaches the welcome launcher at all (`po.setUp()` navigates
+  the older settings/apps shell), so the clone dialog is covered by jsdom renderer tests
+  rather than Playwright. Worth a harness path for the launcher if welcome-screen
+  regressions ever recur.
 
 ## ✅ SHIPPED in v14.23.0 — providers off the hardcode, a plan gate that stops fighting
 

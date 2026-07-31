@@ -4,7 +4,12 @@ import {
 } from "./git_author";
 
 export { ATLARIX_CO_AUTHOR_TRAILER } from "./git_author";
-import { exec, isGitAvailable, isGitMissingResult } from "./system_git_exec";
+import {
+  exec,
+  execStreaming,
+  isGitAvailable,
+  isGitMissingResult,
+} from "./system_git_exec";
 import fs from "node:fs";
 import pathModule from "node:path";
 import { readSettings } from "../../main/settings";
@@ -354,6 +359,9 @@ export async function gitRenameBranch({
   }
 }
 
+/** `Receiving objects:  42% (…)` / `Resolving deltas: 100% (…)` from `git clone --progress`. */
+const GIT_PROGRESS_LINE = /^([A-Za-z][A-Za-z ]+):\s+(\d{1,3})%/;
+
 export async function gitClone({
   path,
   url,
@@ -361,27 +369,46 @@ export async function gitClone({
   singleBranch = true,
   depth,
   signal,
+  onProgress,
 }: GitCloneParams): Promise<void> {
   if (signal?.aborted) {
     const err = new Error("Clone cancelled");
     err.name = "AbortError";
     throw err;
   }
+  // SSH URLs (ssh:// or scp-like git@host:owner/repo) authenticate with the user's own
+  // keys/agent — never rewrite them to HTTPS or attach a token.
+  const isSshUrl = /^ssh:\/\//i.test(url) || /^[^/]+@[^/:]+:/.test(url);
   if (await isGitAvailable()) {
     // Build authenticated URL if accessToken is provided and URL doesn't already have auth
     const finalUrl =
-      accessToken && !url.includes("@")
+      accessToken && !isSshUrl && !url.includes("@")
         ? url.replace("https://", `https://${accessToken}:x-oauth-basic@`)
         : url;
-    const args = ["clone"];
+    const args = ["clone", "--progress"];
     if (depth && depth > 0) {
       args.push("--depth", String(depth));
     }
     if (singleBranch) {
       args.push("--single-branch");
     }
-    args.push(finalUrl, path);
-    const result = await exec(args, ".", { signal });
+    // `--` so a URL that somehow starts with a dash can't be read as a flag.
+    args.push("--", finalUrl, path);
+    const result = await execStreaming(args, ".", {
+      signal,
+      env: isSshUrl
+        ? // Never let git/ssh block on an interactive prompt inside the app.
+          { GIT_TERMINAL_PROMPT: "0", GIT_SSH_COMMAND: "ssh -o BatchMode=yes" }
+        : { GIT_TERMINAL_PROMPT: "0" },
+      onStderrLine: onProgress
+        ? (line) => {
+            const match = line.match(GIT_PROGRESS_LINE);
+            if (match) {
+              onProgress({ phase: match[1].trim(), percent: Number(match[2]) });
+            }
+          }
+        : undefined,
+    });
 
     if (signal?.aborted) {
       const err = new Error("Clone cancelled");
@@ -392,6 +419,11 @@ export async function gitClone({
       throw new Error(result.stderr.toString());
     }
   } else {
+    if (isSshUrl) {
+      throw new Error(
+        "SSH clones need Git installed (Atlarix's built-in fallback speaks HTTPS only). Install Git, or use the repository's https:// URL.",
+      );
+    }
     logger.warn("gitClone: no git binary — using isomorphic-git fallback");
     const { default: git } = await import("isomorphic-git");
     const { default: http } = await import("isomorphic-git/http/node");
@@ -407,6 +439,17 @@ export async function gitClone({
             username: accessToken,
             password: "x-oauth-basic",
           })
+        : undefined,
+      onProgress: onProgress
+        ? (event) => {
+            onProgress({
+              phase: event.phase,
+              percent:
+                event.total && event.total > 0
+                  ? Math.round((event.loaded / event.total) * 100)
+                  : undefined,
+            });
+          }
         : undefined,
       singleBranch,
       depth: depth ?? undefined,

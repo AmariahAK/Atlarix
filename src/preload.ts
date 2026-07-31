@@ -212,6 +212,8 @@ const validInvokeChannels = [
   "plans:set-status",
   // Dialog
   "dialog:openDirectory",
+  // Typed destination folder validation (clone dialog)
+  "workspace:validate-parent-dir",
   // SearxNG
   "searxng:health-check",
   "searxng:validate-url",

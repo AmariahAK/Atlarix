@@ -11,7 +11,7 @@
  * message instead of throwing ENOENT.
  */
 
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import path from "node:path";
 
 export interface IGitResult {
@@ -70,6 +70,83 @@ function resolveGitBinary(): { gitPath: string; extraEnv: Record<string, string>
     };
   }
   return { gitPath: "git", extraEnv: {} };
+}
+
+/**
+ * Streaming variant of `exec` for long-running commands whose stderr carries progress
+ * (`git clone --progress`). Same contract as `exec`: never rejects, resolves exit 127
+ * with `GIT_NOT_INSTALLED_MESSAGE` when no git binary exists.
+ *
+ * `onStderrLine` is called per line AND per `\r`-delimited chunk, because git rewrites
+ * its progress counters with carriage returns rather than newlines.
+ */
+export function execStreaming(
+  args: string[],
+  cwd: string,
+  options?: IGitExecutionOptions & { onStderrLine?: (line: string) => void },
+): Promise<IGitResult> {
+  const { gitPath, extraEnv } = resolveGitBinary();
+  return new Promise((resolve) => {
+    let child: ReturnType<typeof spawn>;
+    try {
+      child = spawn(gitPath, args, {
+        cwd,
+        env: { ...process.env, ...extraEnv, ...options?.env } as NodeJS.ProcessEnv,
+        signal: options?.signal,
+        windowsHide: true,
+      });
+    } catch {
+      resolve({ exitCode: 127, stdout: "", stderr: GIT_NOT_INSTALLED_MESSAGE });
+      return;
+    }
+
+    let stdout = "";
+    let stderr = "";
+    let pending = "";
+    let settled = false;
+    const settle = (result: IGitResult) => {
+      if (settled) return;
+      settled = true;
+      resolve(result);
+    };
+
+    child.stdout?.setEncoding("utf8");
+    child.stdout?.on("data", (chunk: string) => {
+      stdout += chunk;
+    });
+    child.stderr?.setEncoding("utf8");
+    child.stderr?.on("data", (chunk: string) => {
+      stderr += chunk;
+      if (!options?.onStderrLine) return;
+      pending += chunk;
+      const parts = pending.split(/\r\n|\r|\n/);
+      pending = parts.pop() ?? "";
+      for (const part of parts) {
+        const line = part.trim();
+        if (line) options.onStderrLine(line);
+      }
+    });
+
+    child.on("error", (error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT") {
+        settle({ exitCode: 127, stdout: "", stderr: GIT_NOT_INSTALLED_MESSAGE });
+        return;
+      }
+      // Aborted via signal, or spawn failure: surface a code, never reject.
+      settle({ exitCode: 1, stdout, stderr: stderr || error.message });
+    });
+
+    child.on("close", (code, signal) => {
+      if (options?.onStderrLine && pending.trim()) {
+        options.onStderrLine(pending.trim());
+      }
+      settle({
+        exitCode: code ?? (signal ? 1 : 0),
+        stdout,
+        stderr,
+      });
+    });
+  });
 }
 
 export function exec(

@@ -27,6 +27,13 @@ export interface GitBranchRenameParams extends GitBaseParams {
   oldBranch: string;
   newBranch: string;
 }
+export interface GitCloneProgress {
+  /** e.g. "Receiving objects", "Resolving deltas" */
+  phase: string;
+  /** 0-100 when git reports a percentage, otherwise undefined. */
+  percent?: number;
+}
+
 export interface GitCloneParams {
   path: string; // destination
   url: string;
@@ -34,6 +41,8 @@ export interface GitCloneParams {
   singleBranch?: boolean;
   accessToken?: string;
   signal?: AbortSignal;
+  /** Progress from `git clone --progress` stderr (or isomorphic-git's onProgress). */
+  onProgress?: (progress: GitCloneProgress) => void;
 }
 export interface GitLogParams extends GitBaseParams {
   depth?: number;

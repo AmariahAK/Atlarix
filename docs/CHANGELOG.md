@@ -3,6 +3,83 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
+## [14.24.0] (2026-07-31) — Clone works, and says so when it can't
+
+A reviewer installed Atlarix on a fresh Linux VM, opened **Clone repo**, pasted a public GitHub
+URL, typed a workspace name — and the Clone button was disabled with nothing telling them why.
+They read it as "this needs a GitHub account", declined to connect one, and stopped testing there.
+
+The button was waiting for a save folder. That folder had no default, and the only way to set one
+was to complete a native directory picker; when the picker doesn't open — which happens on some
+Linux desktops — nothing happened at all, because a cancelled picker and a broken picker were
+handled identically and silently. The URL tab, which is the tab that opens by default, was the one
+place in the dialog that never explained itself; the GitHub tab beside it did.
+
+Fixing that meant walking the rest of the clone path, which turned out to be full of the same
+class of problem: the code knew what went wrong and said something else. Every failure — private
+repo, wrong URL, no network, no git — came back as "Failed to clone repository. Please check the
+URL and try again." A GitLab URL was rejected as "Invalid GitHub URL". An SSH URL was quietly
+rewritten to HTTPS, discarding the keys that would have authenticated it. And the progress bar sat
+at 15% for the entire clone.
+
+The destination is still always your choice — nothing is guessed, nothing is remembered between
+clones. It is just no longer possible to get stuck reaching it.
+
+### Fixed
+
+- **The Clone button says why it is unavailable** — "Paste a repository URL to continue" or
+  "Choose where to save this repository to continue". Previously the URL tab showed nothing, which
+  is what made a missing folder read as a missing GitHub account
+  (`src/components/welcome/WelcomeCloneDialog.tsx`).
+- **The destination can be typed, not only picked.** "Save to" is now a text field beside the
+  picker, validated in the main process (`workspace:validate-parent-dir` — tilde expansion,
+  absolute, existing-or-creatable, writable) so a folder that can't be used says why. The flow no
+  longer depends on a native dialog that may never open
+  (`src/components/welcome/CloneDestinationFields.tsx`, `src/ipc/handlers/atlarix_handlers.ts`).
+- **A folder picker that fails to open reports it.** Cancel stays silent, as it should; a failure
+  now toasts instead of looking like a no-op (`src/hooks/useGithubCloneFlow.ts`).
+- **Clone failures show what git actually said**, mapped to something actionable for the common
+  cases — private-or-wrong-URL, SSH key refused, host unreachable, repository missing, git not
+  installed — instead of one sentence for all of them. Every path is redacted first: the
+  authenticated clone URL embeds the OAuth token and git echoes URLs back in stderr, so the same
+  redaction covers the IPC reply *and* the log file (`src/ipc/handlers/github_handlers.ts`,
+  `src/shared/git_remote_url.ts`).
+- **A GitHub API hiccup no longer masquerades as a missing repository.** The pre-flight repo check
+  turned *any* `fetch` failure — offline, proxy, rate limit — into "Repository not found or you do
+  not have access to it." Only a definitive 404/403 stops the clone now; anything else falls
+  through and lets git report the truth.
+- **The advice matches the host.** An authentication failure on a non-GitHub remote no longer tells
+  you to connect a GitHub account, and an SSH key rejection points at your agent rather than at
+  sign-in.
+- **A non-GitHub clone is no longer recorded as GitHub-linked.** `githubOrg`/`githubRepo` mean "this
+  workspace is linked to a GitHub repo" and build the push URL, so a GitLab clone with them set
+  would have pushed to github.com. They are now set for github.com hosts only.
+- **The recorded branch is the branch you cloned.** It was hardcoded to `main`, so a repository
+  whose default branch is anything else would later push to a branch that may not exist. It now
+  comes from `gitCurrentBranch`.
+- **Clone progress is real.** The bar reported 5 → 15 → 90 with nothing in between, so a large
+  repository looked hung for minutes. `git clone --progress` output is now parsed and mapped across
+  the band (`src/ipc/utils/system_git_exec.ts`, `src/ipc/utils/git_utils.ts`).
+
+### Added
+
+- **Clone from any git host.** One shared parser replaces the two GitHub-only regexes, so GitLab,
+  Bitbucket and self-hosted URLs clone instead of being refused (`src/shared/git_remote_url.ts`).
+- **A transport allowlist on the URL field.** Only `https`, `http`, `ssh` and `git` are accepted.
+  `ext::` is refused outright — `git clone 'ext::sh -c "…"'` executes the command, so a URL box
+  without a positive allowlist is a command-execution surface — along with `file://` and anything
+  starting with `-`, which git would read as a flag.
+- **SSH URLs reach git verbatim**, so your own keys authenticate them, with terminal prompts and
+  interactive SSH disabled so a clone can never hang waiting for input. Where no git binary exists
+  the built-in fallback speaks HTTPS only, and now says so instead of failing obscurely.
+- Tests: `clone-url-parse`, `clone-error-surface`, `clone-destination-validation`,
+  `renderer/clone-dialog` (44 cases).
+
+### Removed
+
+- `e2e-tests/github-import.spec.ts` — it drove an "Import App" modal with Local Folder / Your
+  GitHub Repos / GitHub URL tabs, a UI that no longer exists anywhere in the app.
+
 ## [14.23.0] (2026-07-30) — Providers off the hardcode, and a plan that stops arguing with you
 
 Three things in this release share a shape: the app knew something, and then overrode it.
