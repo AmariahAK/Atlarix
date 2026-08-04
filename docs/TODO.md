@@ -1,8 +1,53 @@
 # Atlarix TODO
 
-**Current Version:** v14.24.0 (2026-07-31) — the clone dialog actually clones, from any git
-host, and tells you what went wrong when it doesn't.
-**Last Updated:** 2026-07-31
+**Current Version:** v14.25.0 (2026-08-04) — the context meter counts what the model actually
+holds, skills are read on demand instead of pasted every turn, and work reaches beyond one folder.
+**Last Updated:** 2026-08-04
+
+## ✅ SHIPPED in v14.25.0 — honest context accounting, skills on demand, one grant list
+
+**The meter counted the wrong thing.** `token_count_handlers` scored each message's display
+prose and never `modelContent`, where the native tool history lives — so it undercounted by
+every file body, grep hit and command output, which in a coding session is most of the context.
+Two of its five rows were hardcoded `0`. Seven attributed rows now PARTITION the total (tool
+buckets carved OUT of history, never added on top), pushed live from `onStepFinish` because
+mid-turn the results exist only in main. Traps found: the delta cache froze the newest row (its
+`modelContent` lands at finalize, so the id never moves); `activeSkill (truncated)` compared
+trimmed against untrimmed text and fired on EVERY turn; `ContextAssembler`'s budget is
+`Infinity`, so its trimReport is always empty and the "pruned" panel was dead.
+
+**Skills → index** (`src/lib/skills/skill-index.ts`). Bodies were pasted every turn AND clipped
+(`cap()` mid-file, skill 11 gone, names list cut at 10). Cost now scales with the NUMBER of
+skills. GOTCHA: the frontmatter parser took only JSON-quoted arrays, so `compatibleModes: [Debug]`
+fell through to scalar and silently meant EVERY mode.
+
+**One grant list, both lanes.** Commands read `sandbox_path` DB rows; edits read an in-memory Set
+nothing ever seeded — so a folder granted to a command was still refused to `edit_file`, which
+threw AFTER the user approved the diff. Unified, re-read per write so a revoke bites immediately,
+with Add-folder + revoke UI in Settings → Workflow.
+
+**`cd` grants nothing.** A regex pulled `^cd <abs>` out of the MODEL's own command string and
+added it to writable roots, unsandboxed. Checked against Claude Code, opencode, Codex and Cursor
+— none infer scope from text the model wrote. Removed; the sandbox is now widened rather than
+disabled for outside-path commands (installers still bypass, since their writes can't be
+enumerated).
+
+**Eight defects nobody was looking for:** `.atlarix/hooks/` blanket auto-approve (live in every
+prior version — the agent could write a file handed to `/bin/sh -c` every tool call, no card);
+eleven dead renderer IPC listeners (preload forwards only the payload; the bridge type now makes
+the mistake a compile error); one outside path aborting the whole `git add` and discarding
+in-workspace snapshots; extension rules matching outside the workspace; agent memory un-writable
+then silently auto-approved; the prompt calling Debug mode "Fix"; grep silently matching nothing
+for `../`; and a launch that rendered signed-out for seconds before flipping.
+
+- Mid-task compaction CONFIRMED at 90% of the REAL context window, non-fatal on summarizer
+  failure. Threshold extracted to `src/lib/context/mid-loop-threshold.ts` — one source, and
+  testable without dragging in the summarizer/provider/keychain chain.
+- Deleted: `providers/base-provider.ts` (dead StackSense port), `installed-skills.ts`, the
+  orphaned `skills:get-active-for-session` IPC, the unreachable repo-skill `priority` branch.
+- Tests: 297 files / 2405 green; tsc (app, main, tests) + oxlint clean; packaged self-test 4/4.
+- **Still open:** `useAuth` fan-out — ~22 consumers each run their own session check, so
+  "Enforcing workspace limit" fires 5× on sign-in. Wasteful, not broken; needs its own pass.
 
 ## ✅ SHIPPED in v14.24.0 — the clone dialog actually clones
 
