@@ -16,8 +16,11 @@ export interface QueuedOperation {
     path?: string;
     /** sandbox_escalation: the path the OS sandbox denied a write to. */
     sandboxDeniedPath?: string;
-    /** sandbox_escalation: the path granted sandbox write access on approval. */
+    /** sandbox_escalation: the folder granted write access on approval. */
     sandboxGrantPath?: string;
+    /** sandbox_escalation: which lane asked — a blocked command, or a file edit
+     * targeting a folder outside the workspace. Same grant either way. */
+    sandboxGrantKind?: 'command' | 'file';
     content?: string;       // File content for write_file
     oldContent?: string;    // Original content for diff view
     description?: string;   // AI-generated change summary

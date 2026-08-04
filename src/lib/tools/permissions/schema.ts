@@ -82,11 +82,19 @@ export type CommandOperationPreview = z.infer<typeof CommandOperationPreviewSche
  * command — still sandboxed. See PermissionInterceptor.maybeEscalateSandboxDenial.
  */
 export const SandboxEscalationPreviewSchema = z.object({
-    command: z.string().describe("The command that was denied a write by the sandbox"),
-    deniedPath: z.string().describe("The exact path the OS sandbox denied a write to"),
-    grantPath: z.string().describe("The path granted sandbox write access on approval"),
+    /**
+     * Which lane asked. Both grant the SAME folder record — a directory the user
+     * allows Atlarix to write in for this workspace — so the two lanes can never
+     * disagree again; only the card's wording differs.
+     */
+    kind: z.enum(["command", "file"]).optional().default("command"),
+    command: z.string().optional().describe("The command that was denied a write by the sandbox"),
+    deniedPath: z.string().describe("The exact path a write was denied to"),
+    grantPath: z.string().describe("The folder granted write access on approval"),
     description: z.string().describe("Human-readable summary of the denial"),
     workingDirectory: z.string().optional(),
+    /** Set for file grants so unattended runs hard-deny (see auto-approve paths). */
+    systemScope: z.boolean().optional(),
 });
 
 export type SandboxEscalationPreview = z.infer<typeof SandboxEscalationPreviewSchema>;

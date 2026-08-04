@@ -9,10 +9,12 @@ import {
 import { useCountTokens } from "@/hooks/useCountTokens";
 import {
   MessageSquare,
-  Code,
+  FileText,
+  Search,
+  Terminal,
+  Sparkles,
   Bot,
   AlignLeft,
-  ExternalLink,
 } from "lucide-react";
 import {
   chatInputValueAtom,
@@ -22,6 +24,7 @@ import {
   sessionCostUsdByChatIdAtom,
   sessionTokensByChatIdAtom,
   liveTurnUsageByChatIdAtom,
+  liveTurnToolBucketsByChatIdAtom,
   isStreamingForChatAtom,
 } from "@/atoms/chatAtoms";
 import { useAtom, useAtomValue } from "jotai";
@@ -35,6 +38,25 @@ import { useCreditBalance } from "@/hooks/useCreditBalance";
 
 interface TokenBarProps {
   chatId?: number;
+}
+
+/**
+ * Internal context-section names are implementation detail. The footnote used to
+ * print them raw — "activeSkill (truncated)" tells a user nothing they can act on.
+ */
+const SECTION_LABELS: Record<string, string> = {
+  activeSkill: "Active skill",
+  skillsIndex: "Skills index",
+  workspaceCapabilities: "Workspace integrations",
+  activePlan: "Session plan",
+  projectMemory: "Project instructions",
+  projectKnowledge: "Project memory",
+  contextSummary: "Session summary",
+  taskProgress: "Background results",
+};
+
+function sectionLabel(name: string): string {
+  return SECTION_LABELS[name] ?? name;
 }
 
 export function TokenBar({ chatId }: TokenBarProps) {
@@ -65,6 +87,9 @@ export function TokenBar({ chatId }: TokenBarProps) {
   // whether or not this popover is open.
   const liveUsageByChat = useAtomValue(liveTurnUsageByChatIdAtom);
   const liveUsage = chatId != null ? liveUsageByChat[chatId] : undefined;
+  // Per-tool attribution for the turn in flight (see the breakdown below).
+  const liveBucketsByChat = useAtomValue(liveTurnToolBucketsByChatIdAtom);
+  const liveBuckets = chatId != null ? liveBucketsByChat[chatId] : undefined;
   const isStreaming = useAtomValue(
     useMemo(() => isStreamingForChatAtom(chatId ?? -1), [chatId]),
   );
@@ -106,9 +131,10 @@ export function TokenBar({ chatId }: TokenBarProps) {
 
   const {
     estimatedTotalTokens,
-    messageHistoryTokens,
-    codebaseTokens,
-    mentionedAppsTokens,
+    conversationTokens,
+    filesReadTokens,
+    searchResultTokens,
+    otherToolOutputTokens,
     systemPromptTokens,
     inputTokens,
     contextWindow,
@@ -116,6 +142,47 @@ export function TokenBar({ chatId }: TokenBarProps) {
     budgetSource,
     actualMaxTokens,
   } = result;
+
+  // Skills, project instructions, memory index, plan, workspace capabilities —
+  // everything ContextAssembler injects. Real post-dispatch numbers; before the
+  // first dispatch there is no report and the row is genuinely 0.
+  const contextSectionTokens = (contextReport?.sections ?? [])
+    .filter((s) => s.included)
+    .reduce((sum, s) => sum + s.tokens, 0);
+
+  // Live attribution counts ONLY while a turn is in flight.
+  //
+  // Mid-turn the settled count-tokens numbers cannot see this turn's tool results
+  // — they only land on the assistant row at finalize — so the meter adds main's
+  // running attribution on top of the settled baseline. The moment the turn ends
+  // that stops being true: `invalidateTokenCount()` refetches and the settled
+  // numbers now include everything this turn read, while the live buckets still
+  // hold the same turn's totals until the NEXT turn's rising edge clears them.
+  // Adding both double-counted every file for the whole gap between turns —
+  // 104,862 "Files read" against 46,725 of real context — and survived a revert,
+  // because a revert only rewrites history (which settled re-reads) and never
+  // touches this atom. Gating on `isStreaming` makes at-rest purely settled, so
+  // the card is correct between turns and after a revert by construction.
+  const live = isStreaming
+    ? (liveBuckets ?? { filesRead: 0, searchResults: 0, otherToolOutput: 0 })
+    : { filesRead: 0, searchResults: 0, otherToolOutput: 0 };
+  const filesReadRow = filesReadTokens + live.filesRead;
+  const searchResultRow = searchResultTokens + live.searchResults;
+  const otherToolOutputRow = otherToolOutputTokens + live.otherToolOutput;
+
+  // The breakdown's own total. It is the SUM OF THE ROWS by construction — the
+  // card used to print the provider-reported figure here while the rows came
+  // from the client estimate, so a user reading it saw seven numbers that did
+  // not add up to the eighth (41,492 vs 48,107 in the wild). The provider's
+  // number is a different measurement and gets its own labelled line below.
+  const breakdownTotal =
+    conversationTokens +
+    filesReadRow +
+    searchResultRow +
+    otherToolOutputRow +
+    contextSectionTokens +
+    systemPromptTokens +
+    inputTokens;
 
   // Headline = the MODEL-FACING context. After a dispatch the backend reports
   // the actual dispatched size (post compaction/slice); show that + the current
@@ -142,6 +209,15 @@ export function TokenBar({ chatId }: TokenBarProps) {
         : dispatchedTokens != null
           ? dispatchedTokens + inputTokens
           : estimatedTotalTokens;
+
+  // Provider truth, when the provider has actually told us something this
+  // session. Drives the ring/headline; shown in the card only as its own line.
+  const providerReportedTokens =
+    liveUsage != null
+      ? liveBaseline + liveUsage.output
+      : actualMaxTokens != null
+        ? actualMaxTokens
+        : null;
 
   const budget = contextReport?.contextWindow ?? effectiveBudget ?? contextWindow;
   const percentUsed = Math.min((totalTokens / budget) * 100, 100);
@@ -224,30 +300,51 @@ export function TokenBar({ chatId }: TokenBarProps) {
                 <div className="font-medium">Token usage</div>
                 <div className="grid grid-cols-[20px_1fr_auto] gap-x-2 items-center">
                   <MessageSquare size={12} className="text-blue-500" />
-                  <span>Message History</span>
-                  <span>{messageHistoryTokens.toLocaleString()}</span>
+                  <span>Conversation</span>
+                  <span>{conversationTokens.toLocaleString()}</span>
 
-                  <Code size={12} className="text-green-500" />
-                  <span>Codebase</span>
-                  <span>{codebaseTokens.toLocaleString()}</span>
+                  <FileText size={12} className="text-green-500" />
+                  <span>Files read</span>
+                  <span>{filesReadRow.toLocaleString()}</span>
 
-                  <ExternalLink size={12} className="text-orange-500" />
-                  <span>Mentioned files</span>
-                  <span>{mentionedAppsTokens.toLocaleString()}</span>
+                  <Search size={12} className="text-orange-500" />
+                  <span>Search results</span>
+                  <span>{searchResultRow.toLocaleString()}</span>
+
+                  <Terminal size={12} className="text-sky-500" />
+                  <span>Other tool output</span>
+                  <span>{otherToolOutputRow.toLocaleString()}</span>
+
+                  <Sparkles size={12} className="text-fuchsia-500" />
+                  <span>Skills &amp; instructions</span>
+                  <span>{contextSectionTokens.toLocaleString()}</span>
 
                   <Bot size={12} className="text-purple-500" />
-                  <span>System Prompt</span>
+                  <span>System prompt</span>
                   <span>{systemPromptTokens.toLocaleString()}</span>
 
                   <AlignLeft size={12} className="text-yellow-500" />
-                  <span>Current Input</span>
+                  <span>Current input</span>
                   <span>{inputTokens.toLocaleString()}</span>
                 </div>
                 <div className="pt-1 border-t border-border">
                   <div className="flex justify-between font-medium">
                     <span>Total</span>
-                    <span>{totalTokens.toLocaleString()}</span>
+                    <span>{breakdownTotal.toLocaleString()}</span>
                   </div>
+                  {/* The provider counts with its own tokenizer and includes
+                      cache/reasoning tokens the breakdown can't attribute, so it
+                      rarely matches to the token. Showing it as its own line —
+                      rather than as "Total" over rows that sum to something else
+                      — is the difference between two honest measurements and one
+                      card that contradicts itself. */}
+                  {providerReportedTokens != null &&
+                  providerReportedTokens !== breakdownTotal ? (
+                    <div className="flex justify-between text-[10px] text-muted-foreground/80">
+                      <span>Provider-reported</span>
+                      <span>{providerReportedTokens.toLocaleString()}</span>
+                    </div>
+                  ) : null}
                 </div>
                 {lastAuxTokens != null && lastAuxTokens > 0 ? (
                   <div className="pt-1 border-t border-border">
@@ -311,7 +408,10 @@ export function TokenBar({ chatId }: TokenBarProps) {
                   <div className="text-[10px] text-muted-foreground/80">
                     {contextReport.sections
                       .filter((s) => !s.included || s.truncated)
-                      .map((s) => `${s.name}${s.truncated ? " (truncated)" : " (dropped)"}`)
+                      .map(
+                        (s) =>
+                          `${sectionLabel(s.name)}${s.truncated ? " (truncated)" : " (dropped)"}`,
+                      )
                       .join(", ")}
                   </div>
                 ) : null}

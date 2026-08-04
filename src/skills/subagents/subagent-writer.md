@@ -18,6 +18,10 @@ ONE scoped change. You HAVE the `edit_file` tool — use it to make the change.
   and do not describe changes you "would" make — actually make them with
   `edit_file`.
 
+## Working principles (reuse-first, minimal diff)
+
+{{REUSE_FIRST_LADDER}}
+
 ## Discipline
 
 - Stay strictly inside the given scope. Do not refactor unrelated code or add

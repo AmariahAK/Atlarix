@@ -30,6 +30,7 @@ import { readSettings } from "@/main/settings";
 import { type ChatContextReport } from "@/ipc/ipc_types";
 import { getEffectiveModelForOptions } from "@/ipc/utils/get_model_client";
 import { safeSend } from "@/ipc/utils/safe_sender";
+import { cwdNoteForCommand } from "@/lib/commands/cwd-note";
 import { stripThinkBlocks } from "@/ipc/utils/thinking_tags";
 import { estimateTokens } from "@/ipc/utils/token_utils";
 import { appendAutonomousOp, autonomousOpFromPermissionExec } from "@/ipc/handlers/autonomous-session-state";
@@ -687,6 +688,21 @@ export async function runBuildBranch(
                             ? {
                                 ...(execResult.command ? { command: execResult.command } : {}),
                                 ...(execResult.exitCode !== undefined ? { exitCode: execResult.exitCode } : {}),
+                                // A `cd` inside a command lasts exactly as long as
+                                // that shell. Without saying so, a model that
+                                // prefixed `cd /somewhere &&` believes it moved,
+                                // and every relative path it uses afterwards
+                                // silently resolves somewhere else — which is
+                                // precisely how one run ended up hunting for a
+                                // workspace file inside the installed app bundle.
+                                // Claude Code hit the same failure and fixed it
+                                // the same way: state the working directory did
+                                // not change.
+                                ...cwdNoteForCommand(
+                                  String(execResult.command ?? ""),
+                                  (permRequest.preview as { workingDirectory?: string } | undefined)
+                                    ?.workingDirectory,
+                                ),
                               }
                             : {};
                         const hasCompilationErrors =

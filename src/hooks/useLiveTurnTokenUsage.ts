@@ -3,6 +3,7 @@ import { useAtomValue, useSetAtom } from "jotai";
 import { IpcClient } from "@/ipc/ipc_client";
 import {
   liveTurnUsageByChatIdAtom,
+  liveTurnToolBucketsByChatIdAtom,
   isStreamingForChatAtom,
 } from "@/atoms/chatAtoms";
 import {
@@ -31,6 +32,7 @@ import {
  */
 export function useLiveTurnTokenUsage(chatId: number | null | undefined): void {
   const setLiveUsage = useSetAtom(liveTurnUsageByChatIdAtom);
+  const setLiveBuckets = useSetAtom(liveTurnToolBucketsByChatIdAtom);
   const isStreaming = useAtomValue(
     useMemo(() => isStreamingForChatAtom(chatId ?? -1), [chatId]),
   );
@@ -43,6 +45,12 @@ export function useLiveTurnTokenUsage(chatId: number | null | undefined): void {
   useEffect(() => {
     const unsub = IpcClient.getInstance().onTokenUsage((p) => {
       if (chatId == null || p.chatId !== chatId) return;
+      // Per-tool attribution rides the same emit. It's a running turn total, so
+      // assign rather than accumulate — a dropped emit then self-heals on the
+      // next step instead of permanently losing that step's work from the meter.
+      if (p.toolBuckets) {
+        setLiveBuckets((prev) => ({ ...prev, [chatId]: p.toolBuckets }));
+      }
       // Real per-step checkpoint: snap to provider truth + anchor the next
       // step's estimate delta to the current cumulative estimate.
       if (p.inputTokens != null) {
@@ -69,7 +77,7 @@ export function useLiveTurnTokenUsage(chatId: number | null | undefined): void {
       });
     });
     return unsub;
-  }, [chatId, setLiveUsage]);
+  }, [chatId, setLiveUsage, setLiveBuckets]);
 
   // New stream (rising edge of streaming) → start a fresh per-turn output
   // accumulation, but DON'T drop the meter to the lower client estimate between
@@ -81,6 +89,17 @@ export function useLiveTurnTokenUsage(chatId: number | null | undefined): void {
     if (isStreaming && !prevStreamingRef.current && chatId != null) {
       lastEstOutputRef.current.delete(chatId);
       checkpointRef.current.delete(chatId);
+      // Buckets DO reset — unlike the occupancy meter above, which collapses the
+      // previous turn into a baseline so it never dips. These count only what
+      // THIS turn read; last turn's are already folded into the settled
+      // count-tokens numbers the meter falls back to at rest, so carrying them
+      // would double-count every file for the rest of the session.
+      setLiveBuckets((prev) => {
+        if (!prev[chatId]) return prev;
+        const next = { ...prev };
+        delete next[chatId];
+        return next;
+      });
       setLiveUsage((prev) => {
         const cur = prev[chatId];
         if (!cur) return prev;
@@ -89,5 +108,5 @@ export function useLiveTurnTokenUsage(chatId: number | null | undefined): void {
       });
     }
     prevStreamingRef.current = isStreaming;
-  }, [isStreaming, chatId, setLiveUsage]);
+  }, [isStreaming, chatId, setLiveUsage, setLiveBuckets]);
 }

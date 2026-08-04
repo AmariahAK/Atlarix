@@ -55,7 +55,6 @@ import type {
   InstallSkillParams,
   UninstallSkillParams,
   InstalledSkillRow,
-  ActiveSkillContent,
   ListRepoSkillsResult,
   ChatTokenUsage,
 } from "./ipc_types";
@@ -220,9 +219,25 @@ async function encodeFileAttachmentForStream(attachment: FileAttachment): Promis
  */
 interface PreloadIpcRenderer {
   invoke(channel: string, ...args: any[]): Promise<any>;
-  on(channel: string, listener: (...args: any[]) => void): (() => void) | void;
+  /**
+   * ONE parameter, deliberately.
+   *
+   * The preload `on` strips the Electron event and forwards only the payload, so
+   * a listener must be `(payload) => …`. This was typed `(...args: any[])`, which
+   * accepts anything — and nine handlers had been written Electron-style as
+   * `(_e, payload)`, so `_e` silently received the payload, `payload` was
+   * `undefined`, and every `"chatId" in payload` guard failed. Nine features were
+   * dead in the shipped app with no error anywhere: stream phase/status, stream
+   * pulse, tool-input progress, write preview, reset-partial, models.dev status,
+   * fullscreen changes, plan file-updated, autonomous session-complete.
+   *
+   * TypeScript rejects a two-parameter function against a one-parameter
+   * signature, so this typing turns that mistake into a compile error instead of
+   * a silent no-op.
+   */
+  on(channel: string, listener: (payload: any) => void): (() => void) | void;
   send(channel: string, ...args: any[]): void;
-  removeListener(channel: string, listener: (...args: any[]) => void): void;
+  removeListener(channel: string, listener: (payload: any) => void): void;
   removeAllListeners(channel: string): void;
 }
 
@@ -506,7 +521,7 @@ export class IpcClient {
       }
     });
 
-    this.ipcRenderer.on("chat:stream:phase", (_e, payload: unknown) => {
+    this.ipcRenderer.on("chat:stream:phase", (payload: unknown) => {
       if (
         payload &&
         typeof payload === "object" &&
@@ -534,7 +549,7 @@ export class IpcClient {
       }
     });
 
-    this.ipcRenderer.on("chat:stream:pulse", (_e, payload: unknown) => {
+    this.ipcRenderer.on("chat:stream:pulse", (payload: unknown) => {
       if (
         payload &&
         typeof payload === "object" &&
@@ -548,14 +563,14 @@ export class IpcClient {
 
     // Emitted by the backend ONLY when it actually retries a dropped/stalled
     // round (genuine reconnect). Drives the honest "Reconnecting…" indicator.
-    this.ipcRenderer.on("chat:stream:reset-partial", (_e, payload: unknown) => {
+    this.ipcRenderer.on("chat:stream:reset-partial", (payload: unknown) => {
       if (payload && typeof payload === "object" && "chatId" in payload) {
         const p = payload as { chatId: number };
         this.streamResetPartialHandlers.forEach((h) => h(p));
       }
     });
 
-    this.ipcRenderer.on("chat:stream:tool-input", (_e, payload: unknown) => {
+    this.ipcRenderer.on("chat:stream:tool-input", (payload: unknown) => {
       if (
         payload &&
         typeof payload === "object" &&
@@ -571,7 +586,7 @@ export class IpcClient {
         this.streamToolInputHandlers.forEach((h) => h(p));
       }
     });
-    this.ipcRenderer.on("chat:stream:write-preview", (_e, payload: unknown) => {
+    this.ipcRenderer.on("chat:stream:write-preview", (payload: unknown) => {
       if (
         payload &&
         typeof payload === "object" &&
@@ -595,7 +610,7 @@ export class IpcClient {
       }
     });
 
-    this.ipcRenderer.on("models-dev:status", (_e, payload: unknown) => {
+    this.ipcRenderer.on("models-dev:status", (payload: unknown) => {
       if (payload && typeof payload === "object" && "message" in payload) {
         const p = payload as { message: string; timedOut?: boolean };
         this.modelsDevStatusHandlers.forEach((h) => h(p));
@@ -606,7 +621,7 @@ export class IpcClient {
       this.coreModelsChangedHandlers.forEach((h) => h());
     });
 
-    this.ipcRenderer.on("window:fullscreen-changed", (_e, payload: unknown) => {
+    this.ipcRenderer.on("window:fullscreen-changed", (payload: unknown) => {
       if (payload && typeof payload === "object" && "fullscreen" in payload) {
         const fs = Boolean((payload as { fullscreen: boolean }).fullscreen);
         document.documentElement.dataset.fullscreen = fs ? "true" : "false";
@@ -814,7 +829,7 @@ export class IpcClient {
       });
     });
 
-    this.ipcRenderer.on("plan:file-updated", (_e, payload: unknown) => {
+    this.ipcRenderer.on("plan:file-updated", (payload: unknown) => {
       if (!payload || typeof payload !== "object" || !("workspacePath" in payload)) return;
       const p = payload as { workspacePath: string; mtime: number | null };
       this.planFileUpdatedHandlers.forEach((h) => {
@@ -873,7 +888,7 @@ export class IpcClient {
       }
     });
 
-    this.ipcRenderer.on("autonomous:session-complete", (_e, payload: unknown) => {
+    this.ipcRenderer.on("autonomous:session-complete", (payload: unknown) => {
       if (
         payload &&
         typeof payload === "object" &&
@@ -2433,10 +2448,6 @@ export class IpcClient {
     return this.ipcRenderer.invoke("skills:list-orphaned");
   }
 
-  public async skillsGetActiveForSession(params?: { workspacePath?: string }): Promise<ActiveSkillContent[]> {
-    return this.ipcRenderer.invoke("skills:get-active-for-session", params);
-  }
-
   /**
    * Workforce Feature 1: list repo-scoped priority skills from `.atlarix/skills/`.
    * Available on all tiers; the `priority` flag in each skill itself reflects
@@ -2666,8 +2677,7 @@ export class IpcClient {
   public onTerminalInstancesUpdated(
     handler: (payload: { scopeKey: string }) => void,
   ): () => void {
-    const listener = (_event: unknown, payload: { scopeKey: string }) =>
-      handler(payload);
+    const listener = (payload: { scopeKey: string }) => handler(payload);
     this.ipcRenderer.on("terminal-instances:updated", listener);
     return () => {
       this.ipcRenderer.removeListener("terminal-instances:updated", listener);
@@ -2717,7 +2727,7 @@ export class IpcClient {
       name: string;
     }) => void,
   ): () => void {
-    const listener = (_event: unknown, data: {
+    const listener = (data: {
       appId: number;
       chatId: number;
       path: string;
@@ -2787,6 +2797,31 @@ export class IpcClient {
     scopeValue: string;
   }) {
     return this.ipcRenderer.invoke("file-permissions:revoke", params);
+  }
+
+  /**
+   * Folders outside the workspace this project may write in. One list serves
+   * both lanes — the command sandbox and `edit_file` — so granting once covers
+   * both, and revoking takes effect on the next write rather than next session.
+   */
+  public async listGrantedFolders(
+    appId: number,
+  ): Promise<Array<{ path: string; exists: boolean }>> {
+    return this.ipcRenderer.invoke("file-permissions:list-granted-folders", { appId });
+  }
+
+  public async grantFolder(params: {
+    appId: number;
+    path: string;
+  }): Promise<{ success: boolean; path?: string; error?: string }> {
+    return this.ipcRenderer.invoke("file-permissions:grant-folder", params);
+  }
+
+  public async revokeGrantedFolder(params: {
+    appId: number;
+    path: string;
+  }): Promise<{ success: boolean }> {
+    return this.ipcRenderer.invoke("file-permissions:revoke-granted-folder", params);
   }
 
   public async listCommandPermissions(appId: number) {

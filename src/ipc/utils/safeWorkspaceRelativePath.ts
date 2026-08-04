@@ -135,6 +135,29 @@ export function resolveToolTargetPath(
     return { absPath, isOutsideWorkspace };
   }
 
-  // Relative → confined under the workspace (unchanged security posture).
+  // An explicitly relative `../` path resolves like the shell would.
+  //
+  // Rejecting `../telios` while ALLOWING the byte-identical absolute path was
+  // arbitrary — and expensive: an agent asked to look at a sibling project got a
+  // tool error, then had to spend `pwd`, `ls ..`, and a `find` just to rediscover
+  // a path it was permitted to read the whole time. The rule was never "you may
+  // not leave the workspace" (reads have always been allowed anywhere, and writes
+  // are gated by the folder-grant flow at the interceptor); it was only "you may
+  // not leave it by writing `..`", which is a spelling rule, not a boundary.
+  //
+  // `isOutsideWorkspace` is returned honestly so callers keep gating on WHERE the
+  // path lands rather than on how it was typed. Everything else about relative
+  // resolution is unchanged — in particular `safeRelativePathUnderWorkspace`
+  // still rejects a pasted absolute path that lost its leading slash
+  // (`Users/me/x`), which is a mistake to catch, not a location to allow.
+  if (/^\.\.[\\/]/.test(trimmed) || trimmed === "..") {
+    const absPath = realpathDeepest(path.resolve(root, trimmed));
+    const relCheck = path.relative(root, absPath);
+    const isOutsideWorkspace =
+      relCheck !== "" && (relCheck.startsWith("..") || path.isAbsolute(relCheck));
+    return { absPath, isOutsideWorkspace };
+  }
+
+  // Everything else → confined under the workspace (unchanged security posture).
   return { absPath: resolvePathUnderWorkspace(root, trimmed), isOutsideWorkspace: false };
 }

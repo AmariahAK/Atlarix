@@ -9,6 +9,12 @@ import log from "electron-log";
 import { TokenCountParams } from "../ipc_types";
 import { TokenCountResult } from "../ipc_types";
 import { estimateTokens, getContextWindow, getEffectiveBudget } from "../utils/token_utils";
+import {
+  bucketNativeTokensByTool,
+  isNativeHistoryEnvelope,
+  parseNativeHistory,
+  type NativeToolTokenBuckets,
+} from "@/lib/ai/native-history";
 import { createLoggedHandler } from "./safe_handle";
 import { readSettings } from "@/main/settings";
 import { isTurboEditsV2Enabled } from "@/lib/schemas";
@@ -23,9 +29,66 @@ type TokenCountMessageRow = {
   id?: number;
   content: string;
   role: string;
+  /**
+   * The assistant row's native-history envelope, when it has one. This is what
+   * the model ACTUALLY receives for that row (chat_stream_handlers expands it
+   * into N ModelMessages and drops `content`), so counting `content` alone
+   * undercounts by the entire tool history — every file body, grep hit, and
+   * command output. Which, in a coding session, is most of the context.
+   */
+  modelContent?: string | null;
   maxTokensUsed?: number | null;
   createdAt?: Date;
 };
+
+/** Per-row model-facing token estimate, split into meter buckets. */
+type RowTokens = NativeToolTokenBuckets & { total: number };
+
+const EMPTY_BUCKETS: NativeToolTokenBuckets = {
+  filesRead: 0,
+  searchResults: 0,
+  otherToolOutput: 0,
+  nonTool: 0,
+};
+
+/**
+ * Score ONE history row the way the dispatch sees it: the native envelope when
+ * present (per-tool attributed), otherwise the plain display string.
+ */
+function scoreRow(m: TokenCountMessageRow): RowTokens {
+  const envelope = isNativeHistoryEnvelope(m.modelContent)
+    ? parseNativeHistory(m.modelContent)
+    : null;
+  if (!envelope) {
+    const total = estimateTokens(m.content);
+    return { ...EMPTY_BUCKETS, nonTool: total, total };
+  }
+  const buckets = bucketNativeTokensByTool(envelope.messages);
+  return {
+    ...buckets,
+    total:
+      buckets.filesRead +
+      buckets.searchResults +
+      buckets.otherToolOutput +
+      buckets.nonTool,
+  };
+}
+
+function sumRows(rows: TokenCountMessageRow[]): RowTokens {
+  return rows.reduce<RowTokens>(
+    (acc, m) => {
+      const t = scoreRow(m);
+      return {
+        filesRead: acc.filesRead + t.filesRead,
+        searchResults: acc.searchResults + t.searchResults,
+        otherToolOutput: acc.otherToolOutput + t.otherToolOutput,
+        nonTool: acc.nonTool + t.nonTool,
+        total: acc.total + t.total,
+      };
+    },
+    { ...EMPTY_BUCKETS, total: 0 },
+  );
+}
 
 // ═══════════════════════════════════════════════════════════════════
 // PASS8 E1: System-prompt token estimate cache.
@@ -106,43 +169,75 @@ function getOrComputeSystemPromptTokens(args: {
 //        backward (e.g. message deletion / chat reset).
 
 type MessageDeltaCacheEntry = {
-  /** Highest message id we have already counted. */
+  /**
+   * Highest message id folded into `runningTokens` — always STRICTLY BELOW the
+   * newest row (see below).
+   */
   lastMessageId: number;
-  /** Running running-total token estimate for messages up to and including lastMessageId. */
-  runningTokens: number;
+  /** Running per-bucket totals for messages up to and including lastMessageId. */
+  runningTokens: RowTokens;
 };
 const MESSAGE_DELTA_CACHE = new Map<number, MessageDeltaCacheEntry>();
 
+/**
+ * The newest row is NEVER cached.
+ *
+ * An assistant row is pushed to the transport when the turn starts and mutated
+ * as it goes: its `content` grows while streaming, and its `modelContent`
+ * envelope — the entire tool history — is only stamped on at finalize
+ * (turn-runner/finalize.ts). Caching by "highest id already seen" therefore
+ * froze that row at whatever it looked like on the first mid-stream count, and
+ * the post-stream `invalidateTokenCount()` refetch returned the same stale
+ * number because the id had not moved. The history row only ever caught up when
+ * the NEXT message arrived, which is exactly the "it doesn't update" symptom.
+ *
+ * Re-scoring one row per call is cheap; re-scoring the whole thread is what the
+ * cache exists to avoid.
+ */
 function computeDeltaTailTokens(
   chatId: number,
   ordered: TokenCountMessageRow[],
-): number {
+): RowTokens {
   if (ordered.length === 0) {
     MESSAGE_DELTA_CACHE.delete(chatId);
-    return 0;
+    return { ...EMPTY_BUCKETS, total: 0 };
   }
   // Messages without ids (ephemeral / chat-only) fall back to full join — cheap, small.
   if (ordered.some((m) => m.id == null)) {
-    return ordered.reduce((acc, m) => acc + estimateTokens(m.content), 0);
+    return sumRows(ordered);
   }
   const sorted = [...ordered].sort((a, b) => (a.id ?? 0) - (b.id ?? 0));
-  const highest = sorted[sorted.length - 1].id ?? 0;
+  const newest = sorted[sorted.length - 1];
+  const settled = sorted.slice(0, -1);
+  const settledHighest = settled.length ? (settled[settled.length - 1].id ?? 0) : -1;
+
+  const add = (a: RowTokens, b: RowTokens): RowTokens => ({
+    filesRead: a.filesRead + b.filesRead,
+    searchResults: a.searchResults + b.searchResults,
+    otherToolOutput: a.otherToolOutput + b.otherToolOutput,
+    nonTool: a.nonTool + b.nonTool,
+    total: a.total + b.total,
+  });
+
   const cached = MESSAGE_DELTA_CACHE.get(chatId);
-  if (!cached || cached.lastMessageId > highest) {
+  let settledTokens: RowTokens;
+  if (!cached || cached.lastMessageId > settledHighest) {
     // Cold cache, or messages were removed (id moved backward) — recount fully.
-    const total = sorted.reduce((acc, m) => acc + estimateTokens(m.content), 0);
-    MESSAGE_DELTA_CACHE.set(chatId, { lastMessageId: highest, runningTokens: total });
-    return total;
+    settledTokens = sumRows(settled);
+  } else if (cached.lastMessageId === settledHighest) {
+    settledTokens = cached.runningTokens;
+  } else {
+    // Warm cache — only score rows that settled since the last call.
+    const newOnes = settled.filter((m) => (m.id ?? 0) > cached.lastMessageId);
+    settledTokens = add(cached.runningTokens, sumRows(newOnes));
   }
-  if (cached.lastMessageId === highest) {
-    return cached.runningTokens;
+  if (settled.length) {
+    MESSAGE_DELTA_CACHE.set(chatId, {
+      lastMessageId: settledHighest,
+      runningTokens: settledTokens,
+    });
   }
-  // Warm cache — only score newly-arrived messages.
-  const newOnes = sorted.filter((m) => (m.id ?? 0) > cached.lastMessageId);
-  const delta = newOnes.reduce((acc, m) => acc + estimateTokens(m.content), 0);
-  const next = { lastMessageId: highest, runningTokens: cached.runningTokens + delta };
-  MESSAGE_DELTA_CACHE.set(chatId, next);
-  return next.runningTokens;
+  return add(settledTokens, scoreRow(newest));
 }
 
 async function computeTokenCountResult(
@@ -163,12 +258,13 @@ async function computeTokenCountResult(
   // delta cache keys on message id, so for the compacted case sum the small
   // slice directly rather than feeding it through the cache.
   const modelFacing = sliceFromLastCompactionSummary(ordered);
-  const messageHistoryTokens =
+  const history =
     modelFacing.length === ordered.length
       ? computeDeltaTailTokens(req.chatId, ordered)
-      : modelFacing.reduce((acc, m) => acc + estimateTokens(m.content), 0);
+      : sumRows(modelFacing);
+  const messageHistoryTokens = history.total;
   logger.log(
-    `[token_count] workspace stream: tokens=${messageHistoryTokens} (chatId=${req.chatId}, messages=${ordered.length}, modelFacing=${modelFacing.length})`,
+    `[token_count] workspace stream: tokens=${messageHistoryTokens} (chatId=${req.chatId}, messages=${ordered.length}, modelFacing=${modelFacing.length}, files=${history.filesRead}, search=${history.searchResults}, otherTools=${history.otherToolOutput})`,
   );
 
   const inputTokens = estimateTokens(req.input);
@@ -202,21 +298,10 @@ async function computeTokenCountResult(
     turboEditsV2: isTurboEditsV2Enabled(settings),
   });
 
-  // PASS8 I: codebase tokens stay 0 — diagrams are model-driven only
-  // (no auto-injection on workspace open).
-  const codebaseTokens = 0;
-
-  // @-mention (file/folder) context is injected at dispatch; we don't read those
-  // files on every keystroke for the live estimate. Its real cost shows up in the
-  // [budget]/[TTFT] logs and is handled by compaction.
-  const mentionedAppsTokens = 0;
-
-  const totalTokens =
-    messageHistoryTokens +
-    inputTokens +
-    systemPromptTokens +
-    codebaseTokens +
-    mentionedAppsTokens;
+  // The tool buckets are carved OUT of message history, never added on top:
+  // tool results ARE history (they ride as native parts on the assistant rows),
+  // so counting them separately would double the total.
+  const totalTokens = messageHistoryTokens + inputTokens + systemPromptTokens;
 
   const lastAssistantMessage = [...ordered]
     .reverse()
@@ -231,8 +316,10 @@ async function computeTokenCountResult(
     estimatedTotalTokens: totalTokens,
     actualMaxTokens,
     messageHistoryTokens,
-    codebaseTokens,
-    mentionedAppsTokens,
+    conversationTokens: history.nonTool,
+    filesReadTokens: history.filesRead,
+    searchResultTokens: history.searchResults,
+    otherToolOutputTokens: history.otherToolOutput,
     inputTokens,
     systemPromptTokens,
     contextWindow,
@@ -256,8 +343,16 @@ export function registerTokenCountHandlers() {
           return computeTokenCountResult(req, []);
         }
         const rows: TokenCountMessageRow[] = (ephemeral.messages ?? []).map((m) => ({
+          id: typeof m.id === "number" ? m.id : undefined,
           content: typeof m.content === "string" ? m.content : "",
           role: m.role,
+          // The assistant's native tool history. Without this the meter counts
+          // the visible prose and misses every file body, grep hit and command
+          // output the model is actually carrying.
+          modelContent:
+            "modelContent" in m && typeof m.modelContent === "string"
+              ? (m as { modelContent: string }).modelContent
+              : null,
           maxTokensUsed:
             "maxTokensUsed" in m && m.maxTokensUsed != null
               ? (m as { maxTokensUsed: number | null }).maxTokensUsed

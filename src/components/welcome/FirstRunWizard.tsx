@@ -31,11 +31,13 @@ import {
   Check,
   Compass,
   FolderOpen,
+  GitBranch,
   KeyRound,
   Rocket,
   Settings as SettingsIcon,
   Sparkles,
 } from "lucide-react";
+import { WelcomeCloneDialog } from "@/components/welcome/WelcomeCloneDialog";
 
 const TOTAL_STEPS = 4;
 
@@ -127,6 +129,8 @@ export function FirstRunWizard() {
     };
   }, [settings, decided, checkLegacyMarker, updateSettings]);
 
+  const [cloneOpen, setCloneOpen] = useState(false);
+
   const detectedProviders = useMemo(() => {
     const ps = settings?.providerSettings ?? {};
     return KNOWN_PROVIDERS.filter((p) => {
@@ -167,7 +171,17 @@ export function FirstRunWizard() {
     }
   }, [finish, navigate, refreshApps]);
 
-  if (!open) return null;
+  const handleCloneRepo = useCallback(async () => {
+    // Close the wizard first (same as Open folder…) so the clone dialog isn't
+    // stacked on top of it, then hand over. The clone dialog navigates into the
+    // new workspace itself once the clone succeeds.
+    await finish();
+    setCloneOpen(true);
+  }, [finish]);
+
+  // Stay mounted while the clone dialog is up — `finish()` clears `open`, and an
+  // early return here would unmount the dialog the moment it was asked for.
+  if (!open && !cloneOpen) return null;
 
   const stepDots = (
     <div className="flex items-center gap-1.5" aria-label={`Step ${step + 1} of ${TOTAL_STEPS}`}>
@@ -185,6 +199,7 @@ export function FirstRunWizard() {
   );
 
   return (
+    <>
     <Dialog open={open} onOpenChange={(o) => !o && void finish()}>
       <DialogContent className="max-w-md" data-testid="first-run-wizard">
         {step === 0 ? (
@@ -195,7 +210,7 @@ export function FirstRunWizard() {
                 Welcome to Atlarix
               </DialogTitle>
               <DialogDescription>
-                The open-weight frontier harness.
+                The private AI workstation — your code stays on your machine.
               </DialogDescription>
             </DialogHeader>
             <ul className="space-y-2 text-sm text-muted-foreground">
@@ -209,7 +224,8 @@ export function FirstRunWizard() {
               </li>
               <li className="flex gap-2">
                 <Check className="h-4 w-4 shrink-0 text-primary mt-0.5" />
-                Every file write and command waits for your approval — inline in chat, with diffs.
+                Every file write waits for your approval, inline in chat with diffs. Commands run
+                inside a per-OS sandbox; only genuinely dangerous ones stop to ask.
               </li>
             </ul>
           </>
@@ -323,13 +339,29 @@ export function FirstRunWizard() {
                 Open your first workspace
               </DialogTitle>
               <DialogDescription>
-                Atlarix is workspace-first — point it at a project folder or clone a repo from the welcome screen.
+                Atlarix is workspace-first — chat, sessions, tools and memory all
+                belong to one project folder. Open one you already have, or clone
+                a repository from any git host.
               </DialogDescription>
             </DialogHeader>
-            <Button type="button" className="gap-2" onClick={() => void handleOpenFolder()}>
-              <FolderOpen className="h-4 w-4" />
-              Open folder…
-            </Button>
+            {/* Both entry points live HERE. Telling a new user to "clone from the
+                welcome screen" meant finishing setup before they could start —
+                the exact dead end that lost an onboarding review in v14.24.0. */}
+            <div className="flex flex-wrap gap-2">
+              <Button type="button" className="gap-2" onClick={() => void handleOpenFolder()}>
+                <FolderOpen className="h-4 w-4" />
+                Open folder…
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                className="gap-2"
+                onClick={() => void handleCloneRepo()}
+              >
+                <GitBranch className="h-4 w-4" />
+                Clone repo…
+              </Button>
+            </div>
           </>
         ) : null}
 
@@ -362,5 +394,7 @@ export function FirstRunWizard() {
         </DialogFooter>
       </DialogContent>
     </Dialog>
+    <WelcomeCloneDialog open={cloneOpen} onOpenChange={setCloneOpen} />
+    </>
   );
 }

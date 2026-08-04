@@ -5,10 +5,11 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { app } from "electron";
+import { applySharedPromptFragments } from "@/lib/prompts/shared-fragments";
 
 const skillCache = new Map<string, string>();
 
-function resolveBuiltinSkillsRoot(): string {
+export function resolveBuiltinSkillsRoot(): string {
   try {
     if (app.isPackaged) {
       // packagerConfig.extraResource copies `src/skills` → resources/skills (basename)
@@ -44,7 +45,7 @@ export async function loadSkill(
     const overrideMd = `${overridePath}.md`;
     try {
       const content = await fs.readFile(overrideMd, "utf8");
-      return content;
+      return applySharedPromptFragments(content);
     } catch {
       // no override
     }
@@ -55,7 +56,10 @@ export async function loadSkill(
   if (cached !== undefined) return cached;
 
   const builtInPath = path.join(resolveBuiltinSkillsRoot(), ...safeName.split("/")) + ".md";
-  const content = await fs.readFile(builtInPath, "utf8");
+  // Shared fragments ({{REUSE_FIRST_LADDER}}) resolve here, so the writer
+  // sub-agent's reuse-first discipline is the SAME text the main agent gets
+  // rather than a second copy that can drift.
+  const content = applySharedPromptFragments(await fs.readFile(builtInPath, "utf8"));
   skillCache.set(cacheKey, content);
   return content;
 }

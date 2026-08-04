@@ -46,6 +46,7 @@ import {
   isNoUsableModelOutputError,
 } from "@/ipc/utils/no_usable_model_output";
 import { safeSend } from "@/ipc/utils/safe_sender";
+import { bucketNativeTokensByTool } from "@/lib/ai/native-history";
 import {
   getExtraProviderOptions,
   getReasoningEffort,
@@ -459,6 +460,12 @@ export async function simpleStreamText(
             ) => {
               if (msgs && msgs.length) completedStepMessages.push(...msgs);
             };
+            /** Running per-tool token attribution for THIS turn's live meter. */
+            const turnBuckets = {
+              filesRead: 0,
+              searchResults: 0,
+              otherToolOutput: 0,
+            };
             const streamResult = streamText({
               headers: isAnthropic
                 ? {
@@ -639,6 +646,29 @@ export async function simpleStreamText(
                 // latest step's input already includes full history + prior
                 // tool results, so input+output ≈ current occupancy.
                 try {
+                  // Per-tool attribution for the context-meter breakdown.
+                  //
+                  // Mid-turn this is the ONLY place the buckets can come from:
+                  // tool results live in the turn's native messages and are not
+                  // serialized onto the assistant row's `modelContent` until
+                  // finalize, so the count-tokens IPC literally cannot see them
+                  // while the turn is running — re-querying it would return the
+                  // same frozen numbers every tick. Accumulated across steps and
+                  // sent as a running total, so a dropped emit self-heals on the
+                  // next step instead of losing a delta forever.
+                  const stepMessages = step.response?.messages as
+                    | ModelMessage[]
+                    | undefined;
+                  if (stepMessages?.length) {
+                    const b = bucketNativeTokensByTool(stepMessages);
+                    turnBuckets.filesRead += b.filesRead;
+                    turnBuckets.searchResults += b.searchResults;
+                    turnBuckets.otherToolOutput += b.otherToolOutput;
+                  }
+                } catch {
+                  /* attribution is cosmetic — never break the stream */
+                }
+                try {
                   const split = inputOutputTokensFromUsage(step.usage);
                   const total = totalTokensFromAiUsage(step.usage);
                   if (split || total != null) {
@@ -649,6 +679,7 @@ export async function simpleStreamText(
                       totalTokens:
                         total ??
                         (split?.inputTokens ?? 0) + (split?.outputTokens ?? 0),
+                      toolBuckets: { ...turnBuckets },
                     });
                   }
                 } catch {

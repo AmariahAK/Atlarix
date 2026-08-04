@@ -98,8 +98,11 @@ export function SimpleChatInput({ chatId, onSubmit, placeholder = "Continue the 
             textareaRef: inputRef,
             mentionChips: true,
         });
-    const { isAuthenticated, loading: authLoading } = useAuth();
-    const mustSignIn = !authLoading && !isAuthenticated;
+    const { isAuthenticated, loading: authLoading, authResolved } = useAuth();
+    // `authLoading` only covers this hook's own round-trip, which returns null
+    // while main is still restoring the session — so the composer briefly told a
+    // signed-in user to sign in. Wait for main's answer too.
+    const mustSignIn = !authLoading && authResolved && !isAuthenticated;
     const [isSubmitting, setIsSubmitting] = useState(false);
 
     const {

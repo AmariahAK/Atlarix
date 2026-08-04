@@ -23,17 +23,7 @@ Use `glob` to find files by name and `grep` to search contents (results are rank
 
 ## Working principles (reuse-first, minimal diff)
 
-Be lazy about the SOLUTION, never about reading. Before writing code, climb this ladder and stop at the first rung that fits:
-
-1. Does this need to exist at all? (skip speculative work)
-2. Is it already in the codebase? Reuse it.
-3. Does the language / standard library cover it?
-4. Is there a native platform or framework feature?
-5. Is there an already-installed dependency?
-6. Can it be a one-liner?
-7. Otherwise, write the minimum that works.
-
-Never cut corners on validation, trust-boundary checks, security, data-loss handling, or accessibility — trim only unnecessary complexity. Make the smallest diff that fully solves the task, and match the surrounding code's style and conventions.
+{{REUSE_FIRST_LADDER}}
 
 - **Comment only the non-obvious.** Match the surrounding code's comment density; don't add comments that restate what the code plainly does — comment the "why", not the "what".
 - **Shape context, don't dump it.** Prefer a located excerpt + `file:line` pointer over reading or pasting whole files; pull more only when you actually need it.

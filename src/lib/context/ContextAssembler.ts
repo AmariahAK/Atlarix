@@ -6,8 +6,11 @@ import { getContextAssemblyCache, setContextAssemblyCache } from "./context-asse
 
 export type ContextSectionName =
   | "activeSkill"
-  | "repoSkills"
-  | "installedSkills"
+  // v14.25.0: one index of every available skill (repo + marketplace + bundled
+  // guides). Replaces "repoSkills" and "installedSkills", which pasted whole
+  // skill bodies into every dispatch — both names are gone so neither can come
+  // back by accident.
+  | "skillsIndex"
   | "taskProgress"
   | "fileSystemTruth"
   | "workModeHint"
@@ -55,7 +58,16 @@ export function assembleContextSections(input: ContextAssemblerInput): ContextAs
   const otherSections = normalizedSections.filter((s) => s.name !== "activeSkill");
 
   let activeSkillAddition = activeSkillSections.map((s) => s.content.trim()).join("\n\n");
-  if (activeSkillAddition && estimateTokens(activeSkillAddition) > ACTIVE_SKILL_TOKEN_CEILING) {
+  // Whether the CEILING actually fired — decided once, on the joined text, before
+  // truncating. The per-section flag below used to be derived by comparing the
+  // TRIMMED addition against the UNTRIMMED section content, so any trailing
+  // newline made it true: every mode-skill file ends with one, so the meter
+  // reported "activeSkill (truncated)" on literally every turn while a 1.7–3.2 KB
+  // skill sat nowhere near the 8,000-token cap.
+  const activeSkillTruncated =
+    !!activeSkillAddition &&
+    estimateTokens(activeSkillAddition) > ACTIVE_SKILL_TOKEN_CEILING;
+  if (activeSkillTruncated) {
     activeSkillAddition = truncateToTokensShared(activeSkillAddition, ACTIVE_SKILL_TOKEN_CEILING, "\n\n...(trimmed to fit context cap)");
   }
 
@@ -87,13 +99,15 @@ export function assembleContextSections(input: ContextAssemblerInput): ContextAs
   const includedBlocks: string[] = [];
 
   for (const section of activeSkillSections) {
-    const sectionTokens = estimateTokens(section.content);
+    // Score the SAME text that is actually emitted (trimmed, as joined above),
+    // so `tokens` matches what the model receives rather than the raw file.
+    const sectionTokens = estimateTokens(section.content.trim());
     tokenUsageBySection[section.name] = sectionTokens;
     assembledPromptSections.push({
       ...section,
       tokens: sectionTokens,
       included: true,
-      truncated: estimateTokens(activeSkillAddition) < sectionTokens,
+      truncated: activeSkillTruncated,
     });
   }
 

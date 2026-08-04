@@ -30,6 +30,16 @@ export interface UserStatus {
 export function useAuth() {
     const [user, setUser] = useState<AuthUser | null>(null);
     const [loading, setLoading] = useState(true);
+    /**
+     * Has MAIN finished its deferred startup session restore?
+     *
+     * `loading` only covers THIS hook's own round-trip, which resolves quickly
+     * with `user: null` while main is still restoring — so consumers that keyed
+     * on `!user` rendered a sign-in button on launch and flipped to the account
+     * seconds later. This is the difference between "signed out" and "not known
+     * yet". Starts false and is only ever set true.
+     */
+    const [authResolved, setAuthResolved] = useState(false);
     const [status, setStatus] = useState<UserStatus | null>(null);
 
     /**
@@ -211,8 +221,14 @@ export function useAuth() {
                     effectiveTier?: 'free' | 'pro';
                 };
                 isPro?: boolean;
+                authResolved?: boolean;
             };
             const result = (await ipcRenderer.invoke('auth:get-current-user')) as GetUserResult | undefined;
+
+            // A user in hand is itself proof the restore settled; otherwise trust
+            // main's flag. Older handlers omit it — treat that as resolved so a
+            // version skew can never leave the account slot blank forever.
+            if (result?.user || result?.authResolved !== false) setAuthResolved(true);
 
             if (result?.user) {
                 setUser({
@@ -378,6 +394,12 @@ export function useAuth() {
         status,
         loading,
         isAuthenticated: !!user,
+        /**
+         * True only once main's startup restore has settled. Render a neutral
+         * placeholder rather than a sign-in affordance while this is false —
+         * `!isAuthenticated` alone does not mean signed out during launch.
+         */
+        authResolved,
         oauthPending,
         oauthProvider,
         oauthStatusLabel,

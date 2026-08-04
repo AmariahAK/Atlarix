@@ -146,6 +146,16 @@ export function isAlwaysAutoApproveAtlarixRelativePath(relPosix: string): boolea
   if (underAtlarix && (base === "atlarix.md" || base === "permissions.json")) {
     return false;
   }
+  // `.atlarix/hooks/**` is the same escalation as the two above, only worse:
+  // hooks.json is not instructions the model must persuade a future turn to
+  // follow, it is a command string this app hands to `/bin/sh -c` on EVERY
+  // pre/post tool call (lib/hooks/file-hooks.ts). Silently auto-approving a
+  // write to it means the agent can grant itself arbitrary shell with no card
+  // in front of the user. The carve-out above reasoned exactly this way about
+  // standing authority and simply missed the directory that executes.
+  if (underAtlarix && norm.split("/").includes("hooks")) {
+    return false;
+  }
   if (norm === ".atlarix/.atlarixignore" || norm.endsWith("/.atlarix/.atlarixignore")) return true;
   if (norm === ".atlarixignore" || norm.endsWith("/.atlarixignore")) return true;
   if (norm === ".atlarix" || norm.startsWith(".atlarix/")) return true;

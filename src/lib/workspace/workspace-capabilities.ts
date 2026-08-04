@@ -4,7 +4,10 @@ import { installedSkills, mcpServers } from "@/db/schema";
 import { oauthConnectedFromRow } from "@/lib/mcp/oauth-token-utils";
 import { normalizeSkillWorkspacePath } from "@/paths/paths";
 
-const MAX_SKILLS_IN_SUMMARY = 10;
+// No cap. This is a NAMES list — a truncated one told the model that skills 11+
+// simply did not exist, which is the worst possible failure for a summary whose
+// entire job is to say what is available. (The bodies were the expensive part
+// and they no longer travel in the prompt at all; see skill-index.ts.)
 
 export type WorkspaceCapabilitiesSummary = {
   skillNames: string[];
@@ -60,8 +63,7 @@ export async function loadWorkspaceCapabilitiesSummary(opts: {
         (r.workspacePath != null &&
           normalizeSkillWorkspacePath(r.workspacePath) === normalizedWs),
     )
-    .map((r) => r.name)
-    .slice(0, MAX_SKILLS_IN_SUMMARY);
+    .map((r) => r.name);
 
   return {
     skillNames,

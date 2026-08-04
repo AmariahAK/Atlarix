@@ -1,16 +1,21 @@
 # Atlarix
-## The Open-Weight Frontier Harness
+## The Private AI Workstation
 
-Atlarix is the agent workstation built for the open-weight frontier —
-managed cloud models via Atlarix Core, your own API keys across 145+ providers,
-and local models — all without replacing your editor.
+Atlarix is the agent workstation for engineering teams — managed cloud models
+via Atlarix Core, your own API keys across 145+ providers, and local models —
+all without replacing your editor.
 
-Atlarix Core ships the frontier open-weight labs; everything runs through your
-approval, on your machine, over your files. Your team writes code in VS Code,
-IntelliJ, or Vim. Atlarix gives the agent fast search over your codebase, a
-terminal, file operations, web search, and external integrations — no index to
-build, no background watcher, constant low memory at any repo size. The agent
-has a workspace. You have control.
+**What "private" means here:** your code stays on your machine. Nothing indexes
+your repo, no embeddings are built, no file contents are sent as telemetry, and
+nothing changes on disk without your approval. Local models and your own API
+keys talk only to the endpoint you chose. **Atlarix Core** routes your request
+through our authenticated proxy — we don't log or retain it — to the model
+provider that serves it, under their data policy.
+
+Your team writes code in VS Code, IntelliJ, or Vim. Atlarix gives the agent fast
+search over your codebase, a terminal, file operations, web search, and external
+integrations — no index to build, no background watcher, constant low memory at
+any repo size. The agent has a workspace. You have control.
 
 ## How it works
 
@@ -20,11 +25,11 @@ has a workspace. You have control.
 
 **Execute** — The agent plans, reads, writes, runs commands (inside a per-OS write-confining sandbox — workspace writes only, network on), and searches the web. You approve every destructive action.
 
-**Remember** — Workspace sessions, attachments, task progress, and project context persist across reloads. The agent maintains `.atlarix/memory.md` (stack, architecture, layout) so new sessions start with project context instead of re-deriving it.
+**Remember** — Workspace sessions, attachments, task progress, and project context persist across reloads. The agent keeps per-note project memory under `~/.atlarix/projects/<slug>/memory/` (outside your repo, never committed) and carries only its one-line index into context, so new sessions start with project context instead of re-deriving it — and the cost stays flat as it learns more.
 
 **Created by [NorahLabs](https://norahlabs.com)** (Nairobi, Kenya)  
 **Website:** [atlarix.dev](https://atlarix.dev)  
-**Current release:** **v14.24.0**
+**Current release:** **v14.25.0**
 
 **Downloads:** Installers for **macOS**, **Linux**, and **Windows** are on [atlarix.dev](https://atlarix.dev). *(Windows builds are currently unsigned; code signing is coming soon.)*
 
@@ -42,7 +47,7 @@ Release notes: **[docs/CHANGELOG.md](docs/CHANGELOG.md)** (current: 14.0+). Olde
 - **No whole-repo scan:** Opening a workspace doesn't index or scan the repo. The agent discovers files on demand with `glob` and `grep` (ripgrep); the sidebar stays focused on sessions.
 - **Attachments:** Paste text, terminal output, and files into chat. After send they appear as chips with preview; content persists across session reload.
 - **`@` file & folder mentions:** Type `@` in the composer to point the agent at part of the current workspace. Mentioning a **file** injects its contents (capped); mentioning a **folder** injects just its file listing, so the agent then `grep`s/reads within that scope instead of dumping a whole tree — precise context, low token cost.
-- **Agent Behaviors & workspace memory:** Project instructions in `.atlarix/atlarix.md` and behaviors under `.atlarix/skills/` shape the agent without repeating yourself every turn.
+- **Agent Behaviors & workspace memory:** Project instructions in `.atlarix/atlarix.md` and behaviors under `.atlarix/skills/` shape the agent without repeating yourself every turn. Both are **pointers, not payloads** — the agent sees a one-line index of what exists and reads the full file when it applies, so adding a tenth behavior costs a line rather than a page.
 - **Parallel workers:** The `task` tool spawns scoped workers — read-only **explorer** and **architect** (recon, planning, web search) plus writer **implementer** agents whose edits never touch disk and come back as per-file **proposals** the main agent reviews and accepts — up to five run **concurrently** per turn, with their live thinking, narration, and tool activity streaming into per-worker cards. Long-running workers move to the background automatically and can be listed, watched, or cancelled.
 - **Background commands:** A foreground command still running after **~15s auto-promotes to the background** (kept alive, not killed) so the agent keeps working; the exit result is delivered back automatically. The agent can also detach explicitly (`run_command background:true`), and a still-foreground command surfaces a **"Waiting on command"** state where you can queue a message that sends when the turn resumes.
 - **User-defined agents & portable config:** `.atlarix/agents/<name>.md` (system prompt + tools + model) shows up in the picker; `.atlarix/permissions.json` deny/ask rules and `.atlarix/hooks/` (blocking pre-tool, advisory post-tool, stop gate) are committable and enforced at the single tool-execution funnel — plus a global `~/.atlarix/` layer.
@@ -180,7 +185,7 @@ After `npm install`, **`postinstall`** runs `patch-package` and the Electron ins
 | **Free**  | $0      | 1          | All four Core models (pay-as-you-go credits); your own API keys and local models free; core tools; **1** MCP server per workspace (manual config); **2** automations per workspace |
 | **Pro**   | $19/mo  | Unlimited  | Everything in Free + Agent Behaviors + MCP marketplace + one-click OAuth connectors; **10** MCP servers and **10** automations per workspace |
 
-No plan bundles AI. **Atlarix Core is pay-as-you-go on every plan** — top up a prepaid credit balance (from **$10**) and it's metered as you go (each new account gets a one-time **$1** trial credit); **your own API keys and local models are free on every plan**. Only the harness features differ by tier. See [docs/compass-limits.md](docs/compass-limits.md).
+No plan bundles AI. **Atlarix Core is pay-as-you-go on every plan** — top up a prepaid credit balance (from **$10**) and it's metered as you go (each new account gets a one-time **$1** trial credit); **your own API keys and local models are free on every plan**. Only the workstation features differ by tier. See [docs/compass-limits.md](docs/compass-limits.md).
 
 ---
 

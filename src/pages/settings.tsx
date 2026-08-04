@@ -24,7 +24,10 @@ import { VoiceInputSettings } from "@/components/settings/VoiceInputSettings";
 import { UpdateDiagnostics } from "@/components/settings/UpdateDiagnostics";
 import { useLanguageModelProviders } from "@/hooks/useLanguageModelProviders";
 import { WorkspaceTerminalPermissions } from "@/components/settings/WorkspaceTerminalPermissions";
-import { WorkspaceFilePermissions } from "@/components/settings/WorkspaceFilePermissions";
+import {
+  WorkspaceFilePermissions,
+  WorkspaceGrantedFolders,
+} from "@/components/settings/WorkspaceFilePermissions";
 import { GitHubIntegration } from "@/components/GitHubIntegration";
 import { CommunitySettingsSection } from "@/components/community/CommunitySettingsSection";
 import { useSetAtom, getDefaultStore } from "jotai";
@@ -486,6 +489,7 @@ export function WorkflowSettings() {
 
       <WorkspaceTerminalPermissions />
       <WorkspaceFilePermissions />
+      <WorkspaceGrantedFolders />
     </div>
   );
 }

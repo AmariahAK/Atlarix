@@ -40,14 +40,19 @@ export function AnalyticsConsentModal() {
         >
           Help improve Atlarix
         </h2>
+        {/* Must match Settings → "Help improve Atlarix" exactly. This modal used
+            to promise "no personal info… anonymous" flat out, while Settings
+            correctly said signed-in telemetry carries your email and name — two
+            different answers to the same question, both shipped. */}
         <p className="mt-2 text-sm text-muted-foreground">
-          Share anonymous usage data (no code, no prompts, no personal info) to
-          help us understand which features matter most.
+          Share usage data — which features get used, and whether things work —
+          to help us understand what matters most.
         </p>
         <p className="mt-3 text-sm text-foreground">
-          Can we collect anonymous usage stats? No code, prompts, or personal
-          data — just which features you use. You can change this anytime in
-          Settings.
+          Never your code, prompts, file names, or file contents. Anonymous when
+          signed out. When signed in, it&apos;s linked to your account and
+          includes your email and name, so your usage counts once across your
+          devices. You can change this anytime in Settings.
         </p>
         <div className="mt-6 flex gap-3 justify-end">
           <Button variant="secondary" onClick={handleNo}>

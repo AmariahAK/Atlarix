@@ -94,6 +94,24 @@ export const liveTurnUsageByChatIdAtom = atom<
   Record<number, { input: number | null; output: number } | undefined>
 >({});
 
+/**
+ * Per-tool token attribution for the CURRENT turn, so the context-meter
+ * breakdown climbs live instead of freezing until the turn ends.
+ *
+ * Deliberately a sibling of `liveTurnUsageByChatIdAtom` rather than a field on
+ * it: that atom carries delicate reconciliation (real checkpoints vs throttled
+ * estimates, and a rising-edge collapse of input+output so the meter never dips
+ * between turns). These are a plain running total that resets at turn start and
+ * is superseded by the settled count at turn end — mixing the two would tangle
+ * both. Values are cumulative for the turn, NOT deltas.
+ */
+export const liveTurnToolBucketsByChatIdAtom = atom<
+  Record<
+    number,
+    { filesRead: number; searchResults: number; otherToolOutput: number } | undefined
+  >
+>({});
+
 /** Autonomous mode: post-turn review payload from main (cleared on accept or dismiss). */
 export const autonomousSessionReviewAtom = atom<AutonomousSessionCompletePayload | null>(null);
 

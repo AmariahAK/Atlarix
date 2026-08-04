@@ -27,6 +27,8 @@ const logger = log.scope("auth-handlers");
  * touching any of them. Only calls that OVERLAP are shared — nothing is cached past
  * settlement, so a later read is still fresh (a balance right after a top-up, say).
  */
+import { isStartupAuthResolved } from "@/lib/auth/startup-auth-state";
+
 const inFlight = new Map<string, Promise<unknown>>();
 
 /**
@@ -127,6 +129,12 @@ export function registerAuthHandlers() {
                 user,
                 isLoggedIn: SubscriptionManager.isLoggedIn(),
                 isPro: SubscriptionManager.isPro(),
+                // False while the deferred startup restore is still running. A
+                // null `user` means "signed out" ONLY once this is true —
+                // otherwise it just means "not known yet", and rendering a
+                // sign-in button on it is what made the app look like it logged
+                // you out and back in on every launch.
+                authResolved: isStartupAuthResolved(),
             };
         } catch (error) {
             logger.error(`[AuthHandlers] Get current user error:`, error);

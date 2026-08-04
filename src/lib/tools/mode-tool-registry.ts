@@ -20,6 +20,7 @@
  */
 
 import type { WorkMode } from "@/lib/schemas";
+import { labelForWorkMode } from "@/lib/work-mode";
 import {
   isWorkspaceIntegrationTool,
   WORKSPACE_INTEGRATION_TOOL_NAMES,
@@ -128,12 +129,25 @@ export const MODE_SYSTEM_TOOL_LISTS = {
   review: REVIEW_ALLOWLIST,
 } as const;
 
+/**
+ * Display labels come from `labelForWorkMode` — the SAME function the mode
+ * picker renders — so the prompt can never name a mode something the user
+ * cannot find in the UI.
+ *
+ * This map used to be a second copy, and it had drifted: it said "Fix" for
+ * `debug` while the picker said "Debug". Since the mode header interpolates it
+ * ("You are in Fix mode (the UI labels it Fix…)"), the prompt was actively
+ * telling the model the wrong name for a mode the user selects by name. That is
+ * the exact failure the header's own comment claims to have solved by unifying
+ * on one source — it unified on the wrong one, because a second source still
+ * existed here.
+ */
 const MODE_LABELS: Record<ModeRegistryKey, string> = {
-  ask: "Explore",
-  plan: "Plan",
-  build: "Build",
-  debug: "Fix",
-  review: "Review",
+  ask: labelForWorkMode("ask"),
+  plan: labelForWorkMode("plan"),
+  build: labelForWorkMode("build"),
+  debug: labelForWorkMode("debug"),
+  review: labelForWorkMode("review"),
 };
 
 const ALLOWLIST_BY_MODE: Record<
@@ -245,7 +259,7 @@ export function renderActiveModeToolsRegistry(
     );
     lines.push(WORKSPACE_INTEGRATION_TOOL_NAMES.join(", "));
     lines.push(
-      "Call list_available_mcps first, then mcp_call as needed. Installed skills are injected into your context automatically.",
+      "Call list_available_mcps first, then mcp_call as needed. Skills are listed one line each under \"Skills available\" — read a skill's file with read_file when its line applies to the task; the bodies are not in your context.",
     );
   }
 

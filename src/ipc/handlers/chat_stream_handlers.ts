@@ -117,10 +117,14 @@ import {
 } from "@/lib/tasks/task-ledger";
 import { type ContextSection } from "@/lib/context/ContextAssembler";
 import { ContextBudgetTracker } from "@/lib/context/context-budget-tracker";
-import { pruneContextSectionsForBudget } from "@/lib/context/context-budget-pruning";
+import {
+  describeBudgetPruning,
+  pruneContextSectionsForBudget,
+} from "@/lib/context/context-budget-pruning";
 import { resolveModelContextLimit } from "@/lib/context/resolve-model-context-limit";
 import { estimateDispatchTokens } from "@/lib/routing/tier_context_budget";
-// Installed skills are auto-injected into context (no get_active_skills tool).
+// Skills reach the model as an INDEX (skill-index.ts) — names, descriptions and
+// paths. Bodies are read on demand with read_file; nothing is auto-injected.
 import {
   requireAuthSession,
   formatAuthRequiredIpcError,
@@ -186,12 +190,11 @@ import {
 } from "./chat_stream/turn-runner/finalize";
 import {
   loadModeSkillSection,
-  loadRepoSkillsSection,
+  loadSkillsIndexSection,
   loadWorkspaceCapsSection,
   loadActivePlanSection,
   loadAtlarixMdSection,
   loadMemoryMdSection,
-  loadInstalledSkillsSection,
 } from "./chat_stream/context-sections";
 export {
   resolveModeChange,
@@ -1449,31 +1452,28 @@ ${componentSnippet}
           };
           const [
             modeSkillSection,
-            repoSkillsSection,
+            skillsIndexSection,
             workspaceCapsSection,
             activePlanResult,
             atlarixMdSection,
             memoryMdSection,
-            installedSkillsSection,
           ] = await Promise.all([
             loadModeSkillSection(contextSectionParams),
-            loadRepoSkillsSection(contextSectionParams),
+            loadSkillsIndexSection(contextSectionParams),
             loadWorkspaceCapsSection(contextSectionParams),
             loadActivePlanSection(contextSectionParams),
             loadAtlarixMdSection(contextSectionParams),
             loadMemoryMdSection(contextSectionParams),
-            loadInstalledSkillsSection(contextSectionParams),
           ]);
           // loadActivePlanSection is the sole writer of taskLedgerBlock.
           taskLedgerBlock = activePlanResult.taskLedgerBlock;
           const loadedSections = [
             modeSkillSection,
-            repoSkillsSection,
+            skillsIndexSection,
             workspaceCapsSection,
             activePlanResult.section,
             atlarixMdSection,
             memoryMdSection,
-            installedSkillsSection,
             loadBackgroundResultsSection(),
             loadSubagentResultsSection(),
           ];
@@ -1587,6 +1587,7 @@ ${componentSnippet}
           );
           let contextBudgetPruningApplied = false;
           let workingSections = [...contextSections];
+          let pruningNotes: string[] = [];
           for (let br = 0; br < 3; br++) {
             if (
               budgetTracker.isHealthy() ||
@@ -1595,11 +1596,22 @@ ${componentSnippet}
               break;
             }
             contextBudgetPruningApplied = true;
+            const beforePrune = workingSections;
             workingSections = pruneContextSectionsForBudget(
               workingSections,
               budgetTracker.getBudgetTier(),
             );
-            promptBundle = await buildPromptBundle(workingSections, promptBundleDeps);
+            // Report what the pruner dropped/trimmed — otherwise it happens
+            // silently and the context meter shows a smaller number with no
+            // explanation.
+            pruningNotes = [
+              ...pruningNotes,
+              ...describeBudgetPruning(beforePrune, workingSections),
+            ];
+            promptBundle = await buildPromptBundle(workingSections, {
+              ...promptBundleDeps,
+              extraTrimNotes: pruningNotes,
+            });
             ({
               systemPrompt,
               contextAssemblerBlob,

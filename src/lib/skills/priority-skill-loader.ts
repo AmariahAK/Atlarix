@@ -108,18 +108,23 @@ function parseFrontmatter(raw: string): ParsedFrontmatter {
       continue;
     }
 
-    // Inline JSON array: `key: ["a", "b"]`
-    if (rest.trim().startsWith('[')) {
-      try {
-        const arr = JSON.parse(rest.trim().replace(/'/g, '"'));
-        if (Array.isArray(arr)) {
-          data[key] = arr.map((v) => String(v));
-          i++;
-          continue;
-        }
-      } catch {
-        // Fall through to scalar handling.
-      }
+    // Inline flow sequence: `key: ["a", "b"]`, `key: ['a']`, or — valid YAML and
+    // what people actually write — `key: [Build, Review]` with bare scalars.
+    //
+    // This used to be JSON.parse only, so an unquoted `compatibleModes: [Debug]`
+    // threw, fell through to scalar, and left `modes` unset — which the loader
+    // reads as "applies in EVERY mode". The skill's own restriction silently
+    // inverted into the opposite of what its author wrote.
+    const inline = rest.trim();
+    if (inline.startsWith("[") && inline.endsWith("]")) {
+      const items = inline
+        .slice(1, -1)
+        .split(",")
+        .map((v) => stripQuotes(v.trim()))
+        .filter((v) => v.length > 0);
+      data[key] = items;
+      i++;
+      continue;
     }
 
     // Booleans
@@ -229,49 +234,23 @@ export async function loadPrioritySkillsForWorkspace(
 }
 
 /**
- * Format priority skills for system-prompt injection. Two sections:
- *   ## Repo Skills (Priority — always apply these first)
- *   ## Repo Skills (Local)
+ * Which of these skills apply in `currentMode` (frontmatter `modes` /
+ * `compatibleModes`, or every mode when absent).
  *
- * Only skills whose `modes` include `currentMode` (or `*`) are emitted.
+ * DELETED alongside this: `formatPrioritySkillsForPrompt`, which emitted every
+ * matching skill's FULL BODY into the prompt on every turn with no cap. Repo
+ * skills are now index lines (`skill-index.ts`) and the model reads a body with
+ * `read_file` when a line is relevant.
  */
-export function formatPrioritySkillsForPrompt(
+export function filterSkillsForMode(
   skills: PrioritySkill[],
   currentMode: string,
-): string {
-  if (!skills.length) return "";
-
+): PrioritySkill[] {
   const wanted = normalizeMode(currentMode);
-  const applicable = skills.filter(
+  return skills.filter(
     (s) =>
       s.modes.includes("*") ||
       s.modes.some((m) => normalizeMode(m) === wanted),
   );
-  if (!applicable.length) return "";
-
-  const priorityOnes = applicable.filter((s) => s.priority);
-  const localOnes = applicable.filter((s) => !s.priority);
-
-  const parts: string[] = [];
-
-  if (priorityOnes.length > 0) {
-    parts.push("## Repo Skills (Priority — always apply these first)\n");
-    for (const s of priorityOnes) {
-      parts.push(`### ${s.name}`);
-      if (s.content) parts.push(s.content);
-      parts.push("");
-    }
-  }
-
-  if (localOnes.length > 0) {
-    parts.push("## Repo Skills (Local)\n");
-    for (const s of localOnes) {
-      parts.push(`### ${s.name}`);
-      if (s.content) parts.push(s.content);
-      parts.push("");
-    }
-  }
-
-  return parts.join("\n").trim();
 }
 

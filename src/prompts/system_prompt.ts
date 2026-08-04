@@ -31,6 +31,7 @@ import { getAppVersion } from "../lib/app-version";
 import { getAcceptableShell } from "../lib/shell/resolve-shell";
 import { readSettings } from "../main/settings";
 import { buildProjectDocsPromptHint } from "../lib/project-memory";
+import { applySharedPromptFragments } from "../lib/prompts/shared-fragments";
 
 /** Modes whose write tools may create/update the .atlarix doc files. */
 function canWriteProjectDocs(mode?: ModeSystemKey): boolean {
@@ -93,7 +94,10 @@ const loadAgentsFile = (filename: string): string => {
     for (const p of paths) {
         try {
             if (fs.existsSync(p)) {
-                const content = fs.readFileSync(p, "utf-8");
+                const raw = fs.readFileSync(p, "utf-8");
+                // {{REUSE_FIRST_LADDER}} and friends — one source, shared with the
+                // sub-agent prompts (src/lib/prompts/shared-fragments.ts).
+                const content = applySharedPromptFragments(raw);
                 logger.info(`Loaded ${filename} from ${p} (${content.length} bytes)`);
                 return content;
             }
@@ -283,8 +287,9 @@ In user-visible text, tool summaries, and markdown replies, prefer short ASCII m
 
     // Visual-artifacts guidance now lives as a compact fence-schema section in
     // AGENTS.md (base, every interactive mode) — no separate always-on guide
-    // block or per-mode gate. The old ~1k-token injected guide + get_active_skills
-    // mention (a deleted tool) are gone.
+    // block or per-mode gate, and the old ~1k-token injected guide is gone. The
+    // full version is still reachable: `guides/data-visualization` is an entry in
+    // the skills index, so the model can read it when a chart actually comes up.
 
     const identity =
         activeModel != null

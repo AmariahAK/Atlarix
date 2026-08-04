@@ -47,16 +47,21 @@ export async function autoApprove(opts: {
       const operationId = s.payload?.operationId as string | undefined;
       if (!operationId || seen.has(operationId)) continue;
       seen.add(operationId);
-      const isDangerous = Boolean(
-        (
-          s.payload?.request as
-            | { preview?: { isDangerous?: boolean } }
-            | undefined
-        )?.preview?.isDangerous,
-      );
-      // No human to consent: deny dangerous ops unless the operator opted in.
+      const preview = (
+        s.payload?.request as
+          | { preview?: { isDangerous?: boolean; systemScope?: boolean } }
+          | undefined
+      )?.preview;
+      const isDangerous = Boolean(preview?.isDangerous);
+      // `systemScope` marks something that outlives this run and reaches beyond
+      // the workspace — granting a folder write access is the case that matters
+      // here. `--dangerously-*` opts into destructive ACTIONS inside the task, not
+      // into permanently widening what the app may touch afterwards, so this is
+      // denied even then. Matches the automations path, which denies on the same
+      // flag, and keeps headless behaving exactly as it did before grants existed.
+      const isSystemScope = Boolean(preview?.systemScope);
       const approvalMode: "once" | "deny" =
-        isDangerous && !dangerAllowed ? "deny" : "once";
+        isSystemScope || (isDangerous && !dangerAllowed) ? "deny" : "once";
       try {
         await executePermission(sender.event, { chatId, operationId, approvalMode });
       } catch {

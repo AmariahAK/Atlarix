@@ -163,7 +163,7 @@ ToolRegistry.register({
   parameters: createParameters(
     {
       pattern: stringParam("Regex (ripgrep syntax) or literal text to find."),
-      path: stringParam("Optional: limit to a folder/file (workspace-relative), or an ABSOLUTE path to search outside the workspace."),
+      path: stringParam("Optional: limit to a folder or file. Workspace-relative by default; an absolute path, or a relative one with `../`, searches outside the workspace."),
       include: stringParam(
         "Optional file glob filter (e.g. '*.ts', 'src/**/*.tsx').",
       ),
@@ -205,12 +205,20 @@ ToolRegistry.register({
     );
     const workspace = params.workspace || process.cwd();
 
-    // An ABSOLUTE `path` roots the search at that exact location (reads are
-    // auto-allowed anywhere); a relative `path` narrows within the workspace as a
-    // glob. `include` always applies as a glob filter on top.
+    // A path that lands OUTSIDE the workspace roots the search at that exact
+    // location (reads are auto-allowed anywhere); an inside relative path narrows
+    // within the workspace as a glob. `include` always applies on top.
+    //
+    // `../sibling` counts as outside: it was previously treated as a workspace
+    // glob, which quietly matched nothing instead of searching where the caller
+    // asked — a silent wrong answer, worse than the error it replaced.
+    const scope =
+      params.path?.trim()
+        ? resolveToolTargetPath(workspace, params.path)
+        : null;
     const absoluteScope =
-      params.path && path.isAbsolute(params.path)
-        ? resolveToolTargetPath(workspace, params.path).absPath
+      scope && (path.isAbsolute(params.path!.trim()) || scope.isOutsideWorkspace)
+        ? scope.absPath
         : null;
     const searchRoot = absoluteScope ?? workspace;
 

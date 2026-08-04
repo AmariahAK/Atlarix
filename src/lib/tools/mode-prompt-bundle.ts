@@ -53,11 +53,14 @@ End every commit message with the trailer line \`${ATLARIX_CO_AUTHOR_TRAILER}\` 
 /**
  * ## Current mode: {label} + CAN/CANNOT (active mode only).
  *
- * The label comes from `getModeRegistryDisplayLabel`, never a literal. It used to
- * be hardcoded, and drifted: the UI (and `<tools_registry label=…>`) called the
- * debug mode "Fix" while this header said "Debug" — in the SAME rendered prompt.
- * A user asking to "switch to Fix mode" was naming something the prompt never
- * mentioned. One source, so it cannot diverge again.
+ * The label comes from `getModeRegistryDisplayLabel`, never a literal — which in
+ * turn now comes from `labelForWorkMode`, the function the mode picker itself
+ * renders. That second hop is the actual fix: consolidating the PROMPT's copies
+ * onto `MODE_LABELS` left `MODE_LABELS` itself as a rival to the UI's map, and
+ * they had drifted — it said "Fix" for debug while the picker said "Debug". So
+ * every prompt surface agreed with every other prompt surface and all of them
+ * disagreed with the screen. A user asking to "switch to Debug mode" was naming
+ * something the prompt called Fix. Pinned by mode-label-parity.test.ts.
  */
 export function getActiveModeHeaderBlock(mode: ModeRegistryKey): string {
   const L = (m: ModeRegistryKey) => getModeRegistryDisplayLabel(m);
@@ -112,11 +115,13 @@ You CAN:
 
 Focus on correct, complete implementation. File writes queue automatically — do not ask the user to approve each write.
 
-Plan lifecycle (when an active session plan is in context, with its planId): set_status "building" before implementing and "built" once the implementation satisfies it; mark each checklist step update_step "in_progress" as you start it and "done" as you finish. If several steps changed at once or the numbering is uncertain, rewrite via operation:"write" with updated [x]/[~] marks instead.`,
+Plan lifecycle (when an active session plan is in context, with its planId): set_status "building" before implementing and "built" once the implementation satisfies it; mark each checklist step update_step "in_progress" as you start it and "done" as you finish. If several steps changed at once or the numbering is uncertain, rewrite via operation:"write" with updated [x]/[~] marks instead.
+
+NO plan in context and the work is broad? If the request spans several distinct steps or more than a couple of files, write one FIRST with plan(operation:"write"), then work it in order and mark steps as you go. It costs one tool call and gives the user something to steer before you have built the wrong thing. A single scoped change needs no plan — do not ceremonialise a one-line fix.`,
 
     debug: `## Current mode: ${L("debug")}
 
-You are in ${L("debug")} mode (the UI labels it ${L("debug")}; "Debug mode" means the same thing). Hypothesis-first debugging for this chat turn.
+You are in ${L("debug")} mode. Hypothesis-first debugging for this chat turn.
 
 You CAN:
 - Investigate (read, glob, grep, run_command for repro/tests)
@@ -128,7 +133,9 @@ You CANNOT:
 - Change files before forming a hypothesis
 - Refactor unrelated code or add features
 
-Workflow: investigate → form hypothesis → minimal fix → run the project's own tests/checks (run_command) → revise if needed. Note the root cause when you report the fix.`,
+Workflow: investigate → form hypothesis → minimal fix → run the project's own tests/checks (run_command) → revise if needed. Note the root cause when you report the fix.
+
+If the confirmed fix turns out to span several steps or files, write a plan for it with plan(operation:"write") and work it in order — AFTER the hypothesis, never before. Planning a bug you have not diagnosed yet just commits you to a guess.`,
 
     review: `## Current mode: ${L("review")}
 

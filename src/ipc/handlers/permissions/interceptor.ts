@@ -8,6 +8,7 @@
  */
 
 import * as fs from "fs/promises";
+import * as fsSync from "node:fs";
 import * as path from "path";
 import { assertRealpathContained as assertRealpathContainedShared } from "@/lib/security/realpath-contain";
 import { createHash } from "crypto";
@@ -35,7 +36,10 @@ import {
     listSandboxWritablePaths,
     upsertSandboxWritablePath,
 } from "@/lib/file-permissions-store";
-import { parseSandboxDenialsFromOutput } from "@/lib/sandbox/wrap-command";
+import {
+    parseSandboxDenialsFromOutput,
+    sandboxGrantPath,
+} from "@/lib/sandbox/wrap-command";
 import { captureSnapshot } from "../../../lib/snapshot/snapshot-manager";
 import { appendLedgerFilesWritten } from "../../../lib/tasks/task-ledger";
 import {
@@ -50,6 +54,8 @@ import {
   openTerminalInstance,
   resolveScopeKey,
 } from "../../../lib/terminal-instance-store";
+import { isAgentMemoryDisabled, memoryDirFor } from "@/lib/agent-memory";
+import { isOutsidePathOnlySystemScope } from "@/lib/system-scope-commands";
 import { injectAgentGitIdentity } from "../../utils/git_author";
 import { hasConfiguredGitIdentity } from "../../utils/git_utils";
 
@@ -140,6 +146,38 @@ export class PermissionInterceptor extends EventEmitter {
         if (snapshotTurnId !== undefined && snapshotTurnId !== null) {
             this.snapshotTurnId = String(snapshotTurnId);
         }
+        // This project's agent-memory directory is writable.
+        //
+        // It lives OUTSIDE the repo by design (~/.atlarix/projects/<slug>/memory/)
+        // so notes are per-developer and never committed — but that put it on the
+        // wrong side of the outside-workspace check below, so every note the agent
+        // tried to write threw "Path is outside workspace". The prompt handed it an
+        // absolute path and told it to write there, and the harness hard-refused:
+        // memory was readable and un-writable, which is exactly the kind of thing
+        // the harness must not do silently.
+        //
+        // Scoped to THIS workspace's slug, so a turn cannot reach another project's
+        // notes, and the ordinary approval gate fires — the user sees the diff like
+        // any other write. (That last part was NOT true when this was first written:
+        // the memory path's relative form contains `/.atlarix/`, which the blanket
+        // `.atlarix/**` allowance in shouldAlwaysAutoApprove matched, so notes were
+        // landing silently. Fixed there by refusing to auto-approve anything whose
+        // relative path leaves the workspace.)
+        try {
+            if (workspacePath && !isAgentMemoryDisabled()) {
+                const memDir = path.resolve(memoryDirFor(workspacePath));
+                // Created up front because the containment check below realpaths
+                // the target, and realpath cannot resolve a directory that does
+                // not exist yet — so without this the FIRST note (the only one
+                // that matters for a new project) would still be refused. An
+                // empty directory costs nothing and makes the path the prompt
+                // advertises a real one.
+                fsSync.mkdirSync(memDir, { recursive: true });
+                this.allowedRoots.add(fsSync.realpathSync(memDir));
+            }
+        } catch {
+            // Memory is optional; never block a turn on it.
+        }
         // snapshotTurnId left null → disk snapshots disabled for this interceptor instance (e.g. Ask + ephemeral).
         logger.log(`[PermissionInterceptor] Initialized for workspace: ${workspacePath} (id: ${workspaceId}, turn: ${this.snapshotTurnId ?? "none"}, chat: ${this.activeChatId})`);
     }
@@ -156,6 +194,20 @@ export class PermissionInterceptor extends EventEmitter {
         const checkPath = (filePath: string): boolean => {
             try {
                 const rel = this.toWorkspaceRelativePosix(filePath);
+                // NOTHING outside the workspace is ever blanket auto-approved,
+                // whatever it is named.
+                //
+                // The `.atlarix/**` allowance below is scoped to THIS project's
+                // own agent files, but it matched on the substring `/.atlarix/`
+                // — and a path outside the workspace renders as `../…`, so
+                // `../other-repo/.atlarix/hooks/hooks.json` matched too. A
+                // granted directory would therefore have carried silent write
+                // access to ANOTHER project's agent config. The same bug already
+                // applied to the agent-memory directory, whose relative form is
+                // `../../../../.atlarix/projects/<slug>/memory/…`: those writes
+                // were landing with no approval card at all, contradicting the
+                // interceptor's own claim that the ordinary gate still fires.
+                if (rel.startsWith("../") || rel === "..") return false;
                 return isAlwaysAutoApproveAtlarixRelativePath(rel);
             } catch {
                 return false;
@@ -582,6 +634,19 @@ export class PermissionInterceptor extends EventEmitter {
 
             // Emit running status for queue UI
             this.emitStatus(operationId, 'running');
+
+            // Cross-workspace writes: ask ONCE for the folder, then proceed.
+            //
+            // This used to throw here — after the user had already read and
+            // approved the diff — telling them to re-import the folder as the
+            // project. Commands have had escalate-and-grant since v14.15.0; file
+            // edits just never got it, so `edit_file`'s own description promising
+            // absolute paths "including outside the workspace" was a claim the
+            // harness refused to honour.
+            await this.ensureOutsideTargetsGranted(
+                operationId,
+                this.targetPathsForOperation(request),
+            );
 
             switch (request.operation) {
                 case "write_file":
@@ -1040,6 +1105,141 @@ export class PermissionInterceptor extends EventEmitter {
     // FILE OPERATIONS
     // ════════════════════════════════════════════════════════════════════════════
 
+    /** Absolute targets a file operation is about to touch (empty for non-file ops). */
+    private targetPathsForOperation(request: PermissionRequest): string[] {
+        const out: string[] = [];
+        const push = (p: unknown) => {
+            if (typeof p === "string" && p.trim()) out.push(p);
+        };
+        if (Array.isArray(request.preview)) {
+            for (const p of request.preview as FileOperationPreview[]) push(p?.path);
+            return out;
+        }
+        const preview = request.preview as FileOperationPreview | undefined;
+        switch (request.operation) {
+            case "write_file":
+            case "edit_file":
+            case "replace_code":
+            case "insert_code":
+            case "delete_lines":
+            case "delete_file":
+                push(preview?.path);
+                break;
+            case "rename_file":
+                // BOTH endpoints — a rename can carry a file across the boundary
+                // in either direction, and each is resolved independently.
+                push(preview?.fromPath);
+                push(preview?.toPath);
+                break;
+            case "batch_plan": {
+                // batch_plan re-dispatches to the file executors per sub-operation,
+                // so its children hit the same containment check. Collect them here
+                // or a batch would ask for nothing and then throw mid-way through,
+                // having already applied the earlier items.
+                const items =
+                    (request.preview as { operations?: unknown[] } | undefined)?.operations ?? [];
+                for (const item of items) {
+                    const op = item as FileOperationPreview | undefined;
+                    push(op?.path);
+                    push(op?.fromPath);
+                    push(op?.toPath);
+                }
+                break;
+            }
+            default:
+                break;
+        }
+        return out;
+    }
+
+    /**
+     * For every target outside the workspace, ask the user once for its PARENT
+     * DIRECTORY and persist the grant. Throws if they decline.
+     *
+     * Directory granularity (not per file) is the whole point — it is what every
+     * comparable harness does, and per-file prompting was the actual complaint.
+     * The grant lands in the same store the command sandbox reads, so one answer
+     * covers both lanes.
+     */
+    private async ensureOutsideTargetsGranted(
+        operationId: string,
+        targets: readonly string[],
+    ): Promise<void> {
+        if (targets.length === 0) return;
+
+        const workspaceReal = path.resolve(this.workspacePath);
+        const isOutside = (abs: string): boolean => {
+            const rel = path.relative(workspaceReal, abs);
+            return rel !== "" && (rel.startsWith("..") || path.isAbsolute(rel));
+        };
+        const alreadyGranted = (abs: string): boolean =>
+            this.writableRoots().some((root) => {
+                const rel = path.relative(root, abs);
+                return !rel.startsWith("..") && !path.isAbsolute(rel);
+            });
+
+        // De-duplicate by grant directory so a 12-file batch in one folder asks once.
+        const needed = new Map<string, string>();
+        for (const raw of targets) {
+            if (!path.isAbsolute(raw)) continue;
+            const abs = path.resolve(raw);
+            if (!isOutside(abs) || alreadyGranted(abs)) continue;
+            // A DIRECTORY target (a command's cwd) is granted as itself; a FILE
+            // target is granted via its parent so sibling files in the same folder
+            // do not each raise their own prompt. `sandboxGrantPath` handles the
+            // broad-root case, narrowing to the exact path rather than handing
+            // over all of `$HOME`.
+            let isDir = false;
+            try {
+                isDir = fsSync.statSync(abs).isDirectory();
+            } catch {
+                // Doesn't exist yet — a file about to be created. Parent it is.
+            }
+            const grantPath = isDir ? abs : sandboxGrantPath(abs);
+            if (!needed.has(grantPath)) needed.set(grantPath, abs);
+        }
+        if (needed.size === 0) return;
+
+        for (const [grantPath, example] of needed) {
+            const escalationId = `${operationId}:dir:${++this.sandboxEscalationSeq}`;
+            this.bufferOperation(escalationId, {
+                __permission_required: true,
+                operation: "sandbox_escalation",
+                preview: {
+                    kind: "file",
+                    deniedPath: example,
+                    grantPath,
+                    description: `Give Atlarix write access to ${grantPath} for this workspace?`,
+                    // Automations already hard-deny on systemScope, naming
+                    // "outside-workspace write" as the reason — so an unattended
+                    // run can never grant itself a new folder.
+                    systemScope: true,
+                },
+            } as unknown as PermissionRequest);
+
+            let outcome: WaitOutcome;
+            try {
+                outcome = await this.waitForApproval(escalationId);
+            } catch {
+                this.pendingOperations.delete(escalationId);
+                throw new Error(`Write to ${example} cancelled.`);
+            }
+            this.pendingOperations.delete(escalationId);
+            if (outcome !== "approved") {
+                throw new Error(
+                    `Write to ${example} declined — ${grantPath} is outside this workspace and was not granted.`,
+                );
+            }
+            if (this.workspaceId != null) {
+                upsertSandboxWritablePath(this.workspaceId, grantPath);
+            } else {
+                // No workspace row to persist against (ephemeral/headless): keep
+                // the grant for this session only rather than dropping it.
+                this.allowedRoots.add(grantPath);
+            }
+        }
+    }
+
     /**
      * Resolve a file path so it is under this.workspacePath or under an allowed root (from run_command absolute cwd).
      * - Relative paths: joined with workspacePath (current behavior).
@@ -1055,13 +1255,13 @@ export class PermissionInterceptor extends EventEmitter {
             const relativeToWorkspace = path.relative(normalizedWorkspace, resolved);
             const inWorkspace =
                 !relativeToWorkspace.startsWith("..") && !path.isAbsolute(relativeToWorkspace);
-            const inAllowedRoot = [...this.allowedRoots].some((root) => {
+            const inAllowedRoot = this.writableRoots().some((root) => {
                 const relativeToRoot = path.relative(root, resolved);
                 return !relativeToRoot.startsWith("..") && !path.isAbsolute(relativeToRoot);
             });
             if (!inWorkspace && !inAllowedRoot) {
                 throw new Error(
-                    `Path is outside workspace: ${filePath}. Import this folder as the project or use "Create app" with a target folder so files and commands use the same location.`
+                    `Path is outside workspace: ${filePath}. Grant this folder from Settings → Workflow, or the agent can ask for it when it needs one.`
                 );
             }
         }
@@ -1082,7 +1282,37 @@ export class PermissionInterceptor extends EventEmitter {
         normalizedWorkspace: string,
         original: string,
     ): void {
-        assertRealpathContainedShared(resolved, normalizedWorkspace, [...this.allowedRoots], original);
+        assertRealpathContainedShared(resolved, normalizedWorkspace, this.writableRoots(), original);
+    }
+
+    /**
+     * Every root this workspace may write outside itself: session-scoped roots
+     * (agent memory, an approved system-scope `cd`) UNION the user's persisted
+     * folder grants.
+     *
+     * Read from the DB on each call rather than cached at construction, so a
+     * revoke in Settings takes effect on the very next write instead of the next
+     * session. Only reached when a path already failed the in-workspace check, so
+     * the query does not run on ordinary edits.
+     *
+     * This is also what makes commands and file edits agree: `buildRunCommandSandbox`
+     * already feeds the same rows into `extraWritablePaths`. Before this, the two
+     * lanes kept disjoint lists — a folder granted to a command was still refused
+     * to `edit_file`, and vice versa.
+     */
+    private writableRoots(): string[] {
+        const roots = [...this.allowedRoots];
+        if (this.workspaceId == null) return roots;
+        try {
+            for (const p of listSandboxWritablePaths(this.workspaceId)) {
+                if (p) roots.push(path.resolve(p));
+            }
+        } catch (e) {
+            logger.warn(
+                `[writable-roots] could not read granted folders: ${e instanceof Error ? e.message : String(e)}`,
+            );
+        }
+        return roots;
     }
 
     private toWorkspaceRelativePosix(filePath: string): string {
@@ -1098,7 +1328,18 @@ export class PermissionInterceptor extends EventEmitter {
      */
     private async maybeCaptureWorkspaceSnapshot(relativePaths: string[]): Promise<void> {
         if (!this.snapshotTurnId || !this.workspacePath) return;
-        const paths = relativePaths.map((p) => p.split(path.sep).join("/")).filter(Boolean);
+        const paths = relativePaths
+            .map((p) => p.split(path.sep).join("/"))
+            .filter(Boolean)
+            // Outside-workspace paths are NOT snapshottable and must never reach
+            // captureSnapshot. It stages the whole batch in one `git add -f --`
+            // with cwd = workspace, and git aborts the ENTIRE invocation on a path
+            // outside the repo — staging nothing, warning only to the log, then
+            // committing the tree anyway. So one granted-folder file in a
+            // multi-file write silently destroyed the pre-write snapshot of every
+            // IN-workspace file beside it, and Revert then reported success having
+            // restored fewer files than it claimed.
+            .filter((p) => !p.startsWith("../"));
         if (paths.length === 0) return;
         try {
             await captureSnapshot({
@@ -1266,12 +1507,28 @@ export class PermissionInterceptor extends EventEmitter {
      */
     private buildRunCommandSandbox(preview?: CommandOperationPreview): SandboxRunOptions | undefined {
         if (process.env.ATLARIX_DISABLE_SANDBOX === "1") return undefined;
-        // A system-scope command that a HUMAN interactively approved (on-device
-        // install, outside-workspace write) runs UNSANDBOXED for this one call —
-        // the user consented to changing their system, and we can't enumerate what
-        // e.g. `brew install` writes. Unattended runs never set this flag, so they
-        // stay sandboxed (a system install can't happen silently).
-        if (preview?.systemScopeInteractive === true) return undefined;
+        // A human-approved system-scope command runs UNSANDBOXED — but only when
+        // it is system-scope for a reason the sandbox cannot express.
+        //
+        // An installer (`brew install`, `npm -g`, `sudo …`) writes places nobody
+        // can enumerate up front, so the boundary genuinely has to come off. A
+        // command that is system-scope ONLY because it touches a path outside the
+        // workspace is a different thing entirely: that path is known, the user
+        // now grants it explicitly per directory, and it reaches the sandbox via
+        // `extraWritablePaths` below. Dropping the sandbox for that case handed an
+        // approved outside-path command unrestricted write access to the whole
+        // disk — far more than the card asked for. Codex widens `writable_roots`
+        // rather than disabling its sandbox; this is the same move.
+        if (
+            preview?.systemScopeInteractive === true &&
+            !(
+                preview.command &&
+                this.workspacePath &&
+                isOutsidePathOnlySystemScope(preview.command, this.workspacePath)
+            )
+        ) {
+            return undefined;
+        }
         const settings = readSettings();
         if (settings.sandboxRunCommand === false) return undefined;
         if (!this.workspacePath) return undefined;
@@ -1435,26 +1692,39 @@ export class PermissionInterceptor extends EventEmitter {
                 : path.join(this.workspacePath, preview.workingDirectory)
             : this.workspacePath;
 
-        // Widen writable scope to an outside-workspace cwd/`cd` ONLY when a human
-        // interactively approved this as a system-scope command (M1 fix — this used
-        // to widen silently for any absolute cwd). Unattended / non-system-scope
-        // runs never widen, so the sandbox boundary holds.
+        // DELETED: inferring write scope from a `cd` prefix or an absolute cwd.
+        //
+        // This regex-matched `^cd <abs>` in the model's own command string and
+        // added that directory to `allowedRoots` — an implicit, invisible,
+        // permanent-for-the-session grant derived from text the MODEL wrote. No
+        // comparable harness does this. Claude Code changes the working directory
+        // only through the user's `/cd`, grants roots only through `/add-dir`, and
+        // explicitly tells the model a `cd` did not take effect. opencode parses
+        // the command and raises its `external_directory` permission for any
+        // outside path a `cd`/`rm`/`cp`/… touches. Codex lets the OS sandbox hold
+        // the line wherever the command chdir's to. Cursor uses configured
+        // workspace roots. In every one of them, a `cd` grants nothing.
+        //
+        // It is also redundant here twice over: writes are confined by the OS
+        // sandbox, and folders outside the workspace now have an explicit,
+        // per-directory, revocable grant (Settings → Workflow) that both file
+        // edits and commands read. Scope comes from the user, never from a string
+        // the model emitted.
         const normalizedWorkspace = path.resolve(this.workspacePath);
         const normalizedWorking = path.resolve(workingDir);
-        if (preview.systemScopeInteractive === true) {
-            if (path.isAbsolute(preview.workingDirectory || "") && normalizedWorking !== normalizedWorkspace) {
-                const rel = path.relative(normalizedWorkspace, normalizedWorking);
-                if (rel.startsWith("..") || path.isAbsolute(rel)) {
-                    this.allowedRoots.add(normalizedWorking);
-                }
-            }
-            const cdMatch = preview.command.match(/^cd\s+([^\s;&|]+)/);
-            if (cdMatch && path.isAbsolute(cdMatch[1])) {
-                const cdRoot = path.resolve(workingDir, cdMatch[1]);
-                const relCd = path.relative(normalizedWorkspace, cdRoot);
-                if (relCd.startsWith("..") || path.isAbsolute(relCd)) {
-                    this.allowedRoots.add(cdRoot);
-                }
+
+        // An explicit cwd OUTSIDE the workspace goes through the same
+        // per-directory grant a cross-repo `edit_file` does: asked once, stored
+        // once, revocable in one place. Same answer as opencode's
+        // `external_directory` ask and Claude Code's `/add-dir`, reached through
+        // the machinery already here rather than a second private path.
+        {
+            const rel = path.relative(normalizedWorkspace, normalizedWorking);
+            if (rel !== "" && (rel.startsWith("..") || path.isAbsolute(rel))) {
+                await this.ensureOutsideTargetsGranted(operationId, [normalizedWorking]);
+                // Grant recorded (or the user declined and this threw) — the
+                // command still runs sandboxed; the granted dir reaches the
+                // sandbox through extraWritablePaths in buildRunCommandSandbox.
             }
         }
 

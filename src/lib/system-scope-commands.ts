@@ -196,6 +196,26 @@ export function isSystemScopeCommand(command: string, workspaceRoot: string): bo
   return getSystemScopeMatchIds(command, workspaceRoot).length > 0;
 }
 
+/**
+ * True when the ONLY reason this command is system-scope is that it targets a
+ * path outside the workspace.
+ *
+ * That distinction decides whether the OS sandbox may stay on. An installer
+ * (`brew install`, `npm -g`, `sudo …`) writes places nobody can enumerate ahead
+ * of time, so an approved one has to run unsandboxed. A command that merely
+ * writes to another folder does NOT — that folder is a known path, the user
+ * grants it explicitly, and it reaches the sandbox through `extraWritablePaths`.
+ * Dropping the boundary for that case gave an approved `cd` unrestricted write
+ * access to the whole disk, which is strictly more than the user agreed to.
+ */
+export function isOutsidePathOnlySystemScope(
+  command: string,
+  workspaceRoot: string,
+): boolean {
+  const ids = getSystemScopeMatchIds(command, workspaceRoot);
+  return ids.length > 0 && ids.every((id) => id === "outside-workspace-path");
+}
+
 /** Plain-English "why this touches your system" for the approval card. */
 export function getSystemScopeExplanation(command: string, workspaceRoot: string): string {
   const trimmed = (command || "").trim();

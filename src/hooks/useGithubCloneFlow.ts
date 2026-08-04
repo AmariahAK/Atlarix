@@ -1,14 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { IpcClient } from "@/ipc/ipc_client";
+import { chooseFolder as pickFolder } from "@/lib/choose-folder";
 import { showError } from "@/lib/toast";
 
-declare const window: Window & {
-  electron?: {
-    ipcRenderer: {
-      invoke: (channel: string, ...args: unknown[]) => Promise<unknown>;
-    };
-  };
-};
+// (The local `window.electron` declaration moved out with the folder picker —
+// `lib/choose-folder.ts` owns the bridge access now.)
 
 /**
  * Windows paths need a backslash separator in the destination PREVIEW; the actual
@@ -82,31 +78,11 @@ export function useGithubCloneFlow() {
    * Clone button and no explanation. Typing a path always remains available.
    */
   const chooseFolder = useCallback(async (): Promise<string | null> => {
-    const bridge = window.electron?.ipcRenderer;
-    if (!bridge) {
-      showError("Couldn't open the folder picker — type the folder path instead.");
-      return null;
-    }
-    try {
-      const result = (await bridge.invoke("dialog:openDirectory")) as
-        | { canceled?: boolean; filePaths?: string[] }
-        | undefined;
-      if (result?.canceled) return null;
-      const picked = result?.filePaths?.[0];
-      if (!picked) {
-        showError("Couldn't open the folder picker — type the folder path instead.");
-        return null;
-      }
-      setParentDirInput(picked);
-      return picked;
-    } catch (e) {
-      showError(
-        `Couldn't open the folder picker — type the folder path instead. (${
-          e instanceof Error ? e.message : String(e)
-        })`,
-      );
-      return null;
-    }
+    // Picker behaviour (silent on cancel, explicit on failure) lives in the
+    // shared helper; this wrapper only mirrors the pick into the input field.
+    const picked = await pickFolder();
+    if (picked) setParentDirInput(picked);
+    return picked;
   }, []);
 
   const cancelClone = useCallback(() => {

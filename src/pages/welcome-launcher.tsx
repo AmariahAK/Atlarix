@@ -24,7 +24,7 @@ const RECENT_PREVIEW = 8;
 
 export default function WelcomeLauncher() {
   const navigate = useNavigate();
-  const { user, status, isAuthenticated, signOut } = useAuth();
+  const { user, status, isAuthenticated, authResolved, signOut } = useAuth();
   const { apps, refreshApps } = useLoadApps();
   const [cloneOpen, setCloneOpen] = useState(false);
   const [showAllRecents, setShowAllRecents] = useState(false);
@@ -55,6 +55,21 @@ export default function WelcomeLauncher() {
   const visibleRecents = showAllRecents
     ? recentApps
     : recentApps.slice(0, RECENT_PREVIEW);
+
+  // Auth not known yet — main's session restore is deferred so the window can
+  // open instantly even on a network that would otherwise hang it for minutes.
+  // Until it settles, `!isAuthenticated` means "no answer", not "signed out";
+  // showing the sign-in screen here is what made a signed-in user watch their
+  // app log them out and then back in on every launch.
+  if (!authResolved && !isAuthenticated) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[60vh] px-6 text-center gap-4">
+        <LocalDateTimeClock variant="welcome" className="mb-2" />
+        <AtlarixAnimation size="sm" phase="thinking" minimalChrome theme="auto" className="shadow-sm" />
+        <p className="text-muted-foreground">Restoring your session…</p>
+      </div>
+    );
+  }
 
   if (!isAuthenticated) {
     return (

@@ -16,8 +16,11 @@
 import type { ModelMessage } from "ai";
 import {
   compactAgenticMessagesIfNeeded,
-  midLoopCompactionWouldTrigger,
 } from "@/lib/routing/tier_context_budget";
+import {
+  MID_LOOP_COMPACTION_THRESHOLD,
+  midLoopCompactionWouldTrigger,
+} from "@/lib/context/mid-loop-threshold";
 
 export interface MidLoopCompactionActivityPayload {
   id: string;
@@ -77,8 +80,9 @@ export async function runMidLoopCompaction(
     emitActivity,
     onInfo,
     onWarn,
-    // Stage 3a: overflow-only (0.9) — keep in sync with compactAgenticMessagesIfNeeded.
-    threshold = 0.9,
+    // Overflow-only. One source for the number so the wrapper, the predicate
+    // and the compactor cannot drift apart.
+    threshold = MID_LOOP_COMPACTION_THRESHOLD,
   } = params;
 
   if (!enabled) {

@@ -16,9 +16,9 @@ import type { ContextSection } from "@/lib/context/ContextAssembler";
 import { getSkillNameForMode } from "@/lib/skills/skill-registry";
 import { loadSkill } from "@/lib/skills/skill-loader";
 import {
-  loadPrioritySkillsForWorkspace,
-  formatPrioritySkillsForPrompt,
-} from "@/lib/skills/priority-skill-loader";
+  buildSkillIndex,
+  formatSkillIndexForPrompt,
+} from "@/lib/skills/skill-index";
 import { extractHeadings, readProjectInstructions } from "@/lib/project-memory";
 import {
   parsePlanChecklist,
@@ -62,38 +62,35 @@ export async function loadModeSkillSection(
   }
 }
 
-// WORKFORCE Feature 1: repo-scoped priority skills from .atlarix/skills/.
-// Injected ahead of the active mode skill (priority -2). The `priority: true`
-// frontmatter flag only takes effect for Workforce accounts; Free/Pro still
-// load files in the folder as regular local skills.
-export async function loadRepoSkillsSection(
+/**
+ * The skills INDEX — one line per skill, no bodies (v14.25.0).
+ *
+ * Replaces the two sections that used to paste skill BODIES into every dispatch:
+ * `repoSkills` (every matching `.atlarix/skills/*.md`, uncapped) and
+ * `installedSkills` (marketplace SKILL.md files, capped at 10 / 6 KB / 24 KB and
+ * therefore silently clipped). Both cost the same tokens on every turn whether
+ * or not the turn touched them, and both dropped content without saying so.
+ *
+ * Same trade the agent-memory index makes: cost scales with the NUMBER of
+ * skills, the model reads a body on demand with `read_file`, and nothing is ever
+ * truncated.
+ */
+export async function loadSkillsIndexSection(
   p: ContextSectionParams,
 ): Promise<ContextSection | null> {
   const { effectiveWorkMode, preflight, hasWorkspace, appPath } = p;
-  if (!(hasWorkspace && appPath)) return null;
   try {
-    // Repo skill priority was a Team-only feature; Team was removed, so it's off.
-    const prioritySkills = await preflight.time(
-      "priority-skills",
-      () => loadPrioritySkillsForWorkspace(appPath, false),
+    const entries = await preflight.time("skills-index", () =>
+      buildSkillIndex(hasWorkspace ? appPath : null, effectiveWorkMode),
     );
-    if (prioritySkills.length === 0) return null;
-    const block = formatPrioritySkillsForPrompt(
-      prioritySkills,
-      effectiveWorkMode,
-    );
+    const block = formatSkillIndexForPrompt(entries);
     if (!block.trim()) return null;
-    const priorityCount = prioritySkills.filter((s) => s.priority).length;
-    const localCount = prioritySkills.length - priorityCount;
     logger.info(
-      `[priority-skills] Injected ${priorityCount} priority + ${localCount} local skill(s) for mode "${effectiveWorkMode}"`,
+      `[skills-index] ${entries.length} skill(s) indexed for mode "${effectiveWorkMode}" (${block.length} chars, bodies read on demand)`,
     );
-    return { name: "repoSkills", priority: -2, content: block };
-  } catch (repoSkillErr) {
-    logger.warn(
-      "[priority-skills] Failed to load repo skills:",
-      repoSkillErr,
-    );
+    return { name: "skillsIndex", priority: -2, content: block };
+  } catch (skillIndexErr) {
+    logger.warn("[skills-index] Failed to build skill index:", skillIndexErr);
     return null;
   }
 }
@@ -282,7 +279,7 @@ export async function loadMemoryMdSection(
     const content = [
       `## Project memory — ${memory.noteCount} note(s), indexed at ${indexPath}`,
       memory.index || "(index empty — list the directory to see the notes)",
-      `Optional: read a note with read_file when its line looks relevant to this task. When you learn something durable that the code does NOT already record, you may add a note (one fact per file, plus one index line) — never interrupt the user's task to do it. The full convention is in the \`guides/memory\` skill; read it only when writing one.`,
+      `Optional: read a note with read_file when its line looks relevant to this task. When you learn something durable that the code does NOT already record, you may add a note (one fact per file, plus one index line) — never interrupt the user's task to do it. The full convention is the \`guides/memory\` entry under "Skills available"; read that file only when writing a note.`,
     ].join("\n");
 
     return { name: "projectKnowledge", priority: 3.9, content };
@@ -292,36 +289,6 @@ export async function loadMemoryMdSection(
   }
 }
 
-// v13: installed (marketplace/global) skills are auto-injected —
-// the get_active_skills / list_installed_skills tools were removed.
-// Repo skills (.atlarix/skills/) are already injected above.
-export async function loadInstalledSkillsSection(
-  p: ContextSectionParams,
-): Promise<ContextSection | null> {
-  const { preflight, appPath } = p;
-  try {
-    const { loadInstalledSkillsForSession } = await import(
-      "@/lib/skills/installed-skills"
-    );
-    const skills = await preflight.time("installed-skills", () =>
-      loadInstalledSkillsForSession({
-        workspacePath: appPath ?? null,
-        maxTotalSkills: 10,
-        maxCharsPerSkill: 6_000,
-        maxTotalChars: 24_000,
-      }),
-    );
-    if (!skills.length) return null;
-    const body = skills
-      .map((s) => `### Skill: ${s.name} (${s.scope})\n${s.content}`)
-      .join("\n\n");
-    return {
-      name: "installedSkills",
-      priority: 3.8,
-      content: `## Installed skills\n${body}`,
-    };
-  } catch (skillErr) {
-    logger.warn("Failed to load installed skills:", skillErr);
-    return null;
-  }
-}
+// Marketplace skills are indexed by loadSkillsIndexSection above, alongside repo
+// skills and the bundled guides — one section, one line per skill, bodies read
+// on demand. Nothing here injects a skill body any more.

@@ -31,6 +31,13 @@ export interface PromptBundleDeps {
   baseSystemPrompt: string;
   isSummarizeIntent: boolean;
   otherAppsCodebaseInfo: string | undefined;
+  /**
+   * Notes from budget pruning that happened BEFORE this rebuild
+   * (describeBudgetPruning). The assembler's own trimReport is always empty —
+   * its budget is unbounded — so without these the meter's "Pruned at last
+   * dispatch" panel never has anything to say.
+   */
+  extraTrimNotes?: readonly string[];
 }
 
 export interface PromptBundle {
@@ -55,6 +62,7 @@ export async function buildPromptBundle(
     baseSystemPrompt,
     isSummarizeIntent,
     otherAppsCodebaseInfo,
+    extraTrimNotes,
   } = deps;
 
   const assembledContext = assembleContextSections({
@@ -76,8 +84,9 @@ export async function buildPromptBundle(
   logger.info(
     `[ContextAssembler] mode=${effectiveWorkMode} cacheHit=${assembledContext.cache.hit} sections=${assembledContext.assembledPromptSections.filter((s) => s.included).length}/${assembledContext.assembledPromptSections.length}`,
   );
-  if (assembledContext.trimReport.length > 0) {
-    logger.info(`[ContextAssembler] trims: ${assembledContext.trimReport.join(" | ")}`);
+  const trimReport = [...(extraTrimNotes ?? []), ...assembledContext.trimReport];
+  if (trimReport.length > 0) {
+    logger.info(`[ContextAssembler] trims: ${trimReport.join(" | ")}`);
   }
   // v10 context meter: surface per-section sizes + trims to the renderer.
   safeSend(event.sender, "chat:context-report", {
@@ -88,7 +97,7 @@ export async function buildPromptBundle(
       included: s.included,
       truncated: s.truncated,
     })),
-    trimReport: assembledContext.trimReport,
+    trimReport,
   } satisfies ChatContextReport);
   const hasInjectedArchitectureContext =
     assembledContext.assembledPromptSections.some(

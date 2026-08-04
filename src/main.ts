@@ -51,6 +51,7 @@ import fs from "fs";
 import { execSync } from "node:child_process";
 import os from "node:os";
 import { restoreAuthSessionOnStartup } from "./lib/auth/supabase-client";
+import { markStartupAuthResolved } from "./lib/auth/startup-auth-state";
 import { SubscriptionManager } from "./lib/SubscriptionManager";
 import {
   closeActiveBrowserTabIfVisible,
@@ -403,6 +404,14 @@ export async function onReady() {
       SubscriptionManager.broadcastSessionState();
     } catch (e) {
       logger.warn("Deferred auth init (non-fatal):", e);
+    } finally {
+      // Settled either way. Until this point the renderer cannot distinguish
+      // "signed out" from "not known yet", so it holds a neutral account slot
+      // instead of showing Sign in and then flipping to the account a few
+      // seconds later. `finally`, because a failed restore is still an answer —
+      // leaving the UI in limbo forever would be worse than showing signed out.
+      markStartupAuthResolved();
+      SubscriptionManager.broadcastSessionState();
     }
   })();
 

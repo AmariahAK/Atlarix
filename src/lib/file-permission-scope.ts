@@ -138,6 +138,29 @@ export function resolveFilePermissionGate(
     };
   }
 
+  // A path OUTSIDE the workspace always prompts — every scope in this store is
+  // workspace-relative and none of them can mean anything about another folder.
+  //
+  // File and directory scopes simply fail to match a `../…` path, so they were
+  // already safe. EXTENSION scopes were not: `matchesExtension` looks only at
+  // `path.posix.extname`, so an "always allow .ts" granted for this project
+  // silently auto-approved a write to `../any-other-repo/foo.ts` — no card, no
+  // diff, because auto_allow skips the approval wait entirely. Granting a folder
+  // must not retroactively widen what an old extension rule authorises.
+  if (rel.startsWith("../") || rel === "..") {
+    return {
+      action: "prompt",
+      relativePath: rel,
+      isProtected: false,
+      isDeleteOrRename,
+      parentDir,
+      extension,
+      canAlwaysAllowFile: false,
+      canAlwaysAllowDirectory: false,
+      canAlwaysAllowExtension: false,
+    };
+  }
+
   const findDecision = (
     scopeType: FileScopeType,
     matches: (row: ListedFilePermission) => boolean,

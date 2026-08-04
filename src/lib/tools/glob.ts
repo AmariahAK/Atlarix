@@ -45,7 +45,7 @@ ToolRegistry.register({
             pattern: stringParam(
                 "Glob pattern (e.g. '**/*.tsx', 'component*', 'src/**')",
             ),
-            path: stringParam("Folder to search in — default workspace root; an ABSOLUTE path searches outside the workspace"),
+            path: stringParam("Folder to search in — defaults to the workspace root. An absolute path, or a relative one with `../`, searches outside the workspace."),
             limit: numberParam(
                 `Max files returned (default ${DEFAULT_LIMIT}, max ${MAX_LIMIT})`,
                 DEFAULT_LIMIT,
@@ -76,13 +76,22 @@ ToolRegistry.register({
             };
         }
         try {
-            // An ABSOLUTE `path` searches that exact location (reads auto-allowed
-            // outside the workspace); a relative `path` stays confined under it.
-            const fullPath = path.isAbsolute(searchPath)
-                ? resolveToolTargetPath(workspace || process.cwd(), searchPath).absPath
-                : workspace
-                  ? resolvePathUnderWorkspace(workspace, searchPath || ".")
-                  : path.resolve(stripToolPathPrefixes(searchPath || ".") || ".");
+            // An absolute `path` — or a relative one written with `../` — searches
+            // that exact location; reads are auto-allowed outside the workspace.
+            // Everything else stays confined under the workspace.
+            //
+            // `../sibling` used to fail outright here, which is what sent an agent
+            // asked to look at a neighbouring project through `pwd`, `ls ..` and a
+            // `find` to rediscover a path it was always permitted to read. The
+            // boundary is where the path lands, not how it was spelled.
+            const usesParentTraversal =
+                /^\.\.[\\/]/.test(searchPath) || searchPath === "..";
+            const fullPath =
+                path.isAbsolute(searchPath) || usesParentTraversal
+                    ? resolveToolTargetPath(workspace || process.cwd(), searchPath).absPath
+                    : workspace
+                      ? resolvePathUnderWorkspace(workspace, searchPath || ".")
+                      : path.resolve(stripToolPathPrefixes(searchPath || ".") || ".");
 
             // ripgrep lists files under cwd (paths relative to it), filtered by
             // .gitignore/.ignore/.atlarixignore. A CATCH-ALL `-g` glob (`*`, `**`,

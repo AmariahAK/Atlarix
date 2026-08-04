@@ -83,6 +83,7 @@ function queueEntryFromPermission(
     fileExtension: preview.fileExtension as string | undefined,
     sandboxDeniedPath: preview.deniedPath as string | undefined,
     sandboxGrantPath: preview.grantPath as string | undefined,
+    sandboxGrantKind: preview.kind as 'command' | 'file' | undefined,
     ...(request.operation === "batch_plan" && {
       batchPlanTitle: preview.title as string | undefined,
       batchPlanSummary: preview.summary as string | undefined,
@@ -370,23 +371,38 @@ function SandboxEscalationCard({
   onAllow: (id: string) => void;
   onDeny: (id: string) => void;
 }) {
+  // Both lanes grant the SAME record — a folder this workspace may write in — so
+  // only the wording differs. A command was blocked by the sandbox; a file edit
+  // targeted somewhere outside the project.
+  const isFileGrant = operation.sandboxGrantKind === "file";
   return (
     <div className="my-2 rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-2 text-xs">
       <div className="flex items-start gap-2">
         <Shield className="h-3.5 w-3.5 shrink-0 mt-0.5 text-muted-foreground" />
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 font-medium text-foreground/90">
-            Sandbox: grant write access
+            {isFileGrant ? "Grant write access to a folder" : "Sandbox: grant write access"}
             <span className="rounded bg-sky-500/20 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-sky-900 dark:text-sky-200">
-              Blocked write
+              {isFileGrant ? "Outside workspace" : "Blocked write"}
             </span>
           </div>
           <p className="mt-1.5 text-sky-900 dark:text-sky-100/90">
-            The command sandbox blocked a write to{" "}
-            <span className="font-mono break-all">{operation.sandboxDeniedPath}</span>. Allow
-            it write access to{" "}
-            <span className="font-mono break-all">{operation.sandboxGrantPath}</span> for this
-            workspace and retry?
+            {isFileGrant ? (
+              <>
+                <span className="font-mono break-all">{operation.sandboxDeniedPath}</span> is
+                outside this workspace. Allow Atlarix to write in{" "}
+                <span className="font-mono break-all">{operation.sandboxGrantPath}</span> for this
+                workspace?
+              </>
+            ) : (
+              <>
+                The command sandbox blocked a write to{" "}
+                <span className="font-mono break-all">{operation.sandboxDeniedPath}</span>. Allow
+                it write access to{" "}
+                <span className="font-mono break-all">{operation.sandboxGrantPath}</span> for this
+                workspace and retry?
+              </>
+            )}
           </p>
           {operation.command ? (
             <div className="mt-1 font-mono text-[11px] text-muted-foreground break-all bg-background/60 rounded px-2 py-1.5">
@@ -397,7 +413,7 @@ function SandboxEscalationCard({
       </div>
       <div className="mt-2 flex flex-wrap gap-2">
         <Button type="button" size="sm" className="h-7 text-xs" onClick={() => onAllow(operation.id)}>
-          Allow &amp; retry
+          {isFileGrant ? "Allow folder" : "Allow & retry"}
         </Button>
         <Button
           type="button"
@@ -410,8 +426,9 @@ function SandboxEscalationCard({
         </Button>
       </div>
       <p className="mt-1.5 text-[10px] text-muted-foreground/80">
-        “Allow” saves a workspace rule granting the command sandbox write access to this path,
-        then re-runs the command still sandboxed. You can revoke it in Settings.
+        “Allow” saves a workspace rule letting Atlarix write in this folder — both file edits and
+        sandboxed commands{isFileGrant ? "" : ", and re-runs the command still sandboxed"}. Every
+        individual change still asks. Revoke it any time in Settings → Workflow.
       </p>
     </div>
   );

@@ -12,6 +12,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
+import { FolderPlus } from "lucide-react";
+import { chooseFolder } from "@/lib/choose-folder";
 
 type FilePermissionRow = {
   id: number;
@@ -205,6 +207,124 @@ export function WorkspaceFilePermissions() {
           <PermissionTable title="Directories" rows={byType.directory} onRevoke={handleRevoke} />
           <PermissionTable title="Extensions" rows={byType.extension} onRevoke={handleRevoke} />
         </>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Folders OUTSIDE this workspace that Atlarix may write in.
+ *
+ * A separate table from the rules above because these are absolute OS paths
+ * rather than workspace-relative scopes — `listWorkspaceFilePermissions`
+ * deliberately excludes them for exactly that reason.
+ *
+ * One list serves both lanes: sandboxed commands and `edit_file`. Before this,
+ * a folder granted to a blocked command was still refused to the editor, and
+ * the escalation card promised a Settings page to revoke from that did not
+ * exist.
+ */
+export function WorkspaceGrantedFolders() {
+  const appId = useAtomValue(selectedAppIdAtom);
+  const [folders, setFolders] = useState<Array<{ path: string; exists: boolean }>>([]);
+  const [loading, setLoading] = useState(false);
+
+  const reload = useCallback(async () => {
+    if (appId == null) {
+      setFolders([]);
+      return;
+    }
+    setLoading(true);
+    try {
+      const list = await IpcClient.getInstance().listGrantedFolders(appId);
+      setFolders(Array.isArray(list) ? list : []);
+    } catch {
+      setFolders([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [appId]);
+
+  useEffect(() => {
+    void reload();
+  }, [reload]);
+
+  if (appId == null) return null;
+
+  const handleAdd = async () => {
+    const picked = await chooseFolder();
+    if (!picked) return; // cancelled, or the picker already explained itself
+    const result = await IpcClient.getInstance().grantFolder({ appId, path: picked });
+    if (!result?.success) {
+      toast.error(result?.error ?? "Couldn't grant that folder.");
+      return;
+    }
+    toast.success(`Atlarix can now write in ${result.path ?? picked}`);
+    void reload();
+  };
+
+  const handleRevoke = async (folderPath: string) => {
+    await IpcClient.getInstance().revokeGrantedFolder({ appId, path: folderPath });
+    void reload();
+  };
+
+  return (
+    <div className="bg-card rounded-xl shadow-sm p-6 border border-border mt-6">
+      <h2 className="text-lg font-medium text-foreground mb-1">Folders outside this workspace</h2>
+      <p className="text-sm text-muted-foreground mb-4">
+        By default Atlarix only writes inside the project folder you opened. Grant another folder
+        here to work across repositories — it applies to both file edits and sandboxed commands.
+        Every individual change still asks for approval; a grant only removes the outer wall.
+      </p>
+
+      <div className="flex flex-wrap gap-2 mb-4">
+        <Button type="button" size="sm" onClick={() => void handleAdd()}>
+          <FolderPlus className="h-4 w-4 mr-1.5" />
+          Add folder…
+        </Button>
+      </div>
+
+      {loading ? (
+        <p className="text-sm text-muted-foreground">Loading…</p>
+      ) : folders.length === 0 ? (
+        <p className="text-sm text-muted-foreground">
+          No folders granted. Atlarix can only write inside this workspace.
+        </p>
+      ) : (
+        <div className="border border-border rounded-lg overflow-hidden">
+          <table className="w-full text-sm">
+            <thead className="bg-muted/20">
+              <tr>
+                <th className="text-left px-3 py-2 font-medium">Folder</th>
+                <th className="text-right px-3 py-2 font-medium"> </th>
+              </tr>
+            </thead>
+            <tbody>
+              {folders.map((f) => (
+                <tr key={f.path} className="border-t border-border">
+                  <td className="px-3 py-2 font-mono text-xs break-all">
+                    {f.path}
+                    {!f.exists ? (
+                      <span className="ml-2 font-sans text-[11px] text-muted-foreground">
+                        (folder no longer exists)
+                      </span>
+                    ) : null}
+                  </td>
+                  <td className="px-3 py-2 text-right">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => void handleRevoke(f.path)}
+                    >
+                      Revoke
+                    </Button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
     </div>
   );

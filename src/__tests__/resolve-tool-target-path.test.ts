@@ -52,8 +52,37 @@ describe("resolveToolTargetPath", () => {
     expect(r.absPath).toBe(target);
   });
 
-  it("relative escapes stay confined (throw, as before)", () => {
-    expect(() => resolveToolTargetPath(WS, "../escape.txt")).toThrow();
-    expect(() => resolveToolTargetPath(WS, "Users/me/x")).toThrow(); // absolute-looking relative paste
+  // A `../` path resolves the way the shell would, and is REPORTED as outside.
+  // It used to throw — while the byte-identical absolute path was allowed — so
+  // an agent asked to look at a sibling project hit a tool error and then spent
+  // `pwd`, `ls ..` and a `find` rediscovering a path it could have read all
+  // along. The boundary is WHERE a path lands, never how it was spelled.
+  it("resolves an explicit ../ path and flags it as outside", () => {
+    const r = resolveToolTargetPath(WS, "../sibling/file.ts");
+    expect(r.isOutsideWorkspace).toBe(true);
+    expect(r.absPath).toBe(path.join(path.dirname(WS), "sibling", "file.ts"));
+  });
+
+  it("a ../ that lands back INSIDE is not flagged as outside", () => {
+    const r = resolveToolTargetPath(WS, `../${path.basename(WS)}/src/a.ts`);
+    expect(r.isOutsideWorkspace).toBe(false);
+    expect(r.absPath).toBe(path.join(WS, "src", "a.ts"));
+  });
+
+  it("bare `..` resolves to the parent", () => {
+    expect(resolveToolTargetPath(WS, "..").absPath).toBe(path.dirname(WS));
+  });
+
+  // Still a mistake to catch, not a location to allow: an absolute path that
+  // lost its leading slash is a paste error, and resolving it under the
+  // workspace would silently target the wrong file.
+  it("still rejects an absolute-looking relative paste", () => {
+    expect(() => resolveToolTargetPath(WS, "Users/me/x")).toThrow();
+  });
+
+  it("ordinary relative paths stay confined", () => {
+    const r = resolveToolTargetPath(WS, "src/a.ts");
+    expect(r.isOutsideWorkspace).toBe(false);
+    expect(r.absPath).toBe(path.join(WS, "src", "a.ts"));
   });
 });

@@ -4,7 +4,6 @@
  * Central registry for all available tools
  */
 
-import type { Tool } from "../providers/base-provider";
 import { isMainProcessNode } from "../runtime/is-main-node";
 import { guardToolCall } from "./guard";
 import { resolveRecoverySuggestion } from "./tool-error-patterns";
@@ -16,6 +15,27 @@ import { extractImageMedia } from "@/lib/ai/tool-model-output";
 // module-top, AND guarded by `isMainProcessNode()` (not just `process.versions.node`,
 // since Electron's renderer exposes that too). Otherwise Vite's browser bundle blows
 // up with "Module 'node:crypto' has been externalized for browser compatibility".
+
+/**
+ * OpenAI-style function-tool schema, as emitted by `toAISDKFormat`.
+ *
+ * Moved here from `providers/base-provider.ts` when that file was deleted: it
+ * was a dead port of a pre-Atlarix Python agent (`StackSense base_agent.py`) —
+ * an abstract class nobody extended, plus a system prompt nobody sent — and this
+ * type was the only thing left alive in it.
+ */
+export interface Tool {
+    type: "function";
+    function: {
+        name: string;
+        description: string;
+        parameters: {
+            type: "object";
+            properties: Record<string, unknown>;
+            required?: string[];
+        };
+    };
+}
 
 // Token budgets: outputs whose ESTIMATED tokens exceed the budget (or whose raw
 // size exceeds the byte ceiling) are truncated IN-BAND to a head+tail preview —

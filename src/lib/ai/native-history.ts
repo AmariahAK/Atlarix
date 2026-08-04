@@ -135,6 +135,96 @@ export function estimateModelMessagesTokens(messages: ModelMessage[]): number {
   return messages.reduce((sum, m) => sum + estimateModelMessageTokens(m), 0);
 }
 
+// ─── Per-tool attribution (context meter) ───────────────────────────────────
+
+/**
+ * Which display bucket a tool's traffic belongs to.
+ *
+ * Anything unlisted falls into `otherToolOutput` — that is deliberate. A new
+ * tool must never silently vanish from the meter, and "other" is the honest
+ * answer until someone decides it deserves its own row.
+ */
+const TOOL_BUCKETS: Record<string, "filesRead" | "searchResults"> = {
+  read_file: "filesRead",
+  read_attachment: "filesRead",
+  list_attachments: "filesRead",
+  grep: "searchResults",
+  glob: "searchResults",
+};
+
+export interface NativeToolTokenBuckets {
+  /** `read_file` and friends — bounded, intentional reads. */
+  filesRead: number;
+  /** `grep` / `glob` — ranked results, the bucket that balloons on a big repo. */
+  searchResults: number;
+  /** Commands, web, MCP, browser, sub-agents — everything else. */
+  otherToolOutput: number;
+  /** Assistant prose, reasoning and media: everything that is NOT tool traffic. */
+  nonTool: number;
+}
+
+/**
+ * Split a turn's native messages into per-bucket token estimates.
+ *
+ * The four buckets sum to `estimateModelMessagesTokens(messages)` by
+ * construction — every part is scored exactly once, with the SAME estimator the
+ * dispatch path uses. That invariant is what lets the context meter carve tool
+ * traffic OUT of message history instead of adding it on top (tool results ARE
+ * history — counting them in both places would double-count).
+ */
+export function bucketNativeTokensByTool(
+  messages: ModelMessage[],
+): NativeToolTokenBuckets {
+  const buckets: NativeToolTokenBuckets = {
+    filesRead: 0,
+    searchResults: 0,
+    otherToolOutput: 0,
+    nonTool: 0,
+  };
+
+  const add = (toolName: unknown, tokens: number) => {
+    const key = TOOL_BUCKETS[String(toolName ?? "")] ?? "otherToolOutput";
+    buckets[key] += tokens;
+  };
+
+  for (const m of messages) {
+    if (typeof m.content === "string") {
+      buckets.nonTool += estimateTokens(m.content);
+      continue;
+    }
+    for (const part of contentParts(m)) {
+      switch (part?.type) {
+        case "tool-call":
+          add(
+            part.toolName,
+            estimateTokens(
+              `${String(part.toolName ?? "")}${safeJson(part.input ?? part.args)}`,
+            ),
+          );
+          break;
+        case "tool-result":
+          add(
+            part.toolName,
+            estimateOutputTokens((part as { output?: unknown }).output),
+          );
+          break;
+        case "text":
+          buckets.nonTool += estimateTokens(String(part.text ?? ""));
+          break;
+        case "media":
+        case "image":
+        case "file":
+          buckets.nonTool += MEDIA_PART_TOKEN_ESTIMATE;
+          break;
+        default:
+          buckets.nonTool += estimateTokens(safeJson(part));
+      }
+    }
+  }
+
+  return buckets;
+}
+
 function estimateOutputTokens(output: unknown): number {
   if (output == null) return 0;
   if (typeof output === "string") return estimateTokens(output);

@@ -362,39 +362,10 @@ export function registerSkillsHandlers() {
     },
   );
 
-  handle(
-    "skills:get-active-for-session",
-    async (_event: IpcMainInvokeEvent, params?: { workspacePath?: string }) => {
-      requirePaidSkills();
-      const workspacePath = params?.workspacePath?.trim();
-      await migrateSkillWorkspacePathRows();
-      const allWorkspaceRows = workspacePath
-        ? await db
-            .select()
-            .from(installedSkills)
-            .where(eq(installedSkills.scope, "workspace"))
-        : [];
-
-      const workspaceRows = workspacePath
-        ? filterSkillsByWorkspacePath(allWorkspaceRows, workspacePath)
-        : [];
-
-      const merged = workspaceRows.slice(0, SKILLS_WORKSPACE_MAX);
-      const out: Array<{ id: string; name: string; content: string }> = [];
-      for (const s of merged) {
-        const cachedFiles = safeParseJson(s.cachedFiles, [] as Array<{ name: string; localPath: string }>);
-        const skillMd = cachedFiles.find((f) => f.name.toLowerCase() === "skill.md") ?? cachedFiles.find((f) => f.name.toLowerCase().endsWith("skill.md"));
-        if (!skillMd?.localPath) continue;
-        try {
-          const content = await fs.readFile(skillMd.localPath, "utf8");
-          out.push({ id: s.id, name: s.name, content });
-        } catch (e) {
-          logger.warn(`Missing cached SKILL.md for ${s.id} (${s.scope})`, e);
-        }
-      }
-      return out;
-    },
-  );
+  // DELETED: `skills:get-active-for-session`. It was the body of the v13-era
+  // `get_active_skills` tool — read every cached SKILL.md and return the lot —
+  // and it outlived that tool with no renderer caller at all. Skills reach the
+  // model as an index now (skill-index.ts) and their bodies via read_file.
 }
 
 function safeParseJsonArray(raw: string | null | undefined): string[] {

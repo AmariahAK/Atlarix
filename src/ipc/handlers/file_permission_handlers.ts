@@ -13,10 +13,15 @@ import {
   type FileScopeType,
 } from "@/lib/file-permission-scope";
 import {
+  listSandboxWritablePaths,
   listWorkspaceFilePermissions as listFilePermsFromDb,
+  revokeSandboxWritablePath,
   revokeWorkspaceFilePermission,
+  upsertSandboxWritablePath,
   upsertWorkspaceFilePermission,
 } from "@/lib/file-permissions-store";
+import * as fsSync from "node:fs";
+import * as nodePath from "node:path";
 
 const logger = log.scope("file-permissions");
 
@@ -201,6 +206,77 @@ export function registerFilePermissionHandlers(): void {
         return { success: false };
       }
       const removed = revokeWorkspaceFilePermission(appId, scopeType, scopeValue);
+      return { success: removed };
+    },
+  );
+
+  // ── Granted folders (writable directories outside the workspace) ───────────
+  //
+  // Stored on the same table under the `sandbox_path` scope, which
+  // `listWorkspaceFilePermissions` deliberately excludes — these are absolute OS
+  // paths, not workspace-relative scopes, so they get their own channels rather
+  // than being mixed into the file/directory/extension table.
+  //
+  // ONE list serves both lanes: the command sandbox reads it for
+  // `extraWritablePaths`, and the permission interceptor reads it to allow
+  // `edit_file` outside the workspace. Granting once covers both.
+
+  ipcMain.handle(
+    "file-permissions:list-granted-folders",
+    (_event: IpcMainInvokeEvent, { appId }: { appId: number }) => {
+      if (!appId) return [];
+      try {
+        return listSandboxWritablePaths(appId).map((p) => ({
+          path: p,
+          // Surfaced so the UI can flag a grant whose folder has since been
+          // moved or deleted, instead of showing a dead row with no explanation.
+          exists: fsSync.existsSync(p),
+        }));
+      } catch (e) {
+        logger.warn(`list granted folders failed app=${appId}:`, e);
+        return [];
+      }
+    },
+  );
+
+  ipcMain.handle(
+    "file-permissions:grant-folder",
+    (_event: IpcMainInvokeEvent, { appId, path: rawPath }: { appId: number; path: string }) => {
+      const target = rawPath?.trim();
+      if (!appId || !target) return { success: false, error: "Invalid workspace or folder." };
+      if (!nodePath.isAbsolute(target)) {
+        return { success: false, error: "Choose a folder using its full path." };
+      }
+      let resolved: string;
+      try {
+        // realpath so the stored grant matches what the containment checks
+        // compare against (macOS /var → /private/var would otherwise never hit).
+        resolved = fsSync.realpathSync(target);
+        if (!fsSync.statSync(resolved).isDirectory()) {
+          return { success: false, error: "That path is not a folder." };
+        }
+      } catch {
+        return { success: false, error: "That folder doesn't exist." };
+      }
+      try {
+        upsertSandboxWritablePath(appId, resolved);
+      } catch (e) {
+        logger.warn(`grant folder failed app=${appId} path=${resolved}:`, e);
+        return { success: false, error: "Couldn't save the grant (storage may be full)." };
+      }
+      logger.log(`granted folder app=${appId} path=${resolved}`);
+      return { success: true, path: resolved };
+    },
+  );
+
+  ipcMain.handle(
+    "file-permissions:revoke-granted-folder",
+    (_event: IpcMainInvokeEvent, { appId, path: target }: { appId: number; path: string }) => {
+      if (!appId || !target?.trim()) return { success: false };
+      // Takes effect immediately: the interceptor re-reads this list per
+      // outside-path write rather than caching it per session.
+      const removed = revokeSandboxWritablePath(appId, target.trim());
+      logger.log(`revoked folder app=${appId} path=${target} removed=${removed}`);
       return { success: removed };
     },
   );

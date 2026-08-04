@@ -3,6 +3,14 @@ import type { LargeLanguageModel, UserSettings } from "../schemas";
 import { summarizeMessagesWithCompactionPrompt } from "../context/compaction";
 import { estimateTokens } from "../../ipc/utils/token_utils";
 import { resolveModelContextLimit } from "../context/resolve-model-context-limit";
+import {
+  MID_LOOP_COMPACTION_THRESHOLD,
+  midLoopCompactionWouldTrigger,
+  modelMessageText,
+} from "../context/mid-loop-threshold";
+
+// Re-exported so existing callers keep importing from here.
+export { midLoopCompactionWouldTrigger, MID_LOOP_COMPACTION_THRESHOLD };
 
 export interface BudgetHistoryMessage {
   role: string;
@@ -288,26 +296,6 @@ export async function enforceContextBudget(
 // ════════════════════════════════════════════════════════════════════════════
 
 /** Extract the text portion of a ModelMessage's content for estimation/summary. */
-function modelMessageText(content: unknown): string {
-  if (typeof content === "string") return content;
-  if (Array.isArray(content)) {
-    return content
-      .map((part) => {
-        if (!part || typeof part !== "object") return "";
-        const p = part as { type?: string; text?: string; output?: unknown; result?: unknown };
-        if (p.type === "text" && typeof p.text === "string") return p.text;
-        if (p.type === "tool-result") {
-          const v = p.output ?? p.result;
-          return typeof v === "string" ? v : v == null ? "" : JSON.stringify(v);
-        }
-        return "";
-      })
-      .filter(Boolean)
-      .join("\n");
-  }
-  return "";
-}
-
 export interface MidLoopCompactionParams {
   /** Mutable list of agentic-loop messages (ModelMessage shape; we only require role + content). */
   messages: ModelMessage[];
@@ -359,32 +347,13 @@ export interface MidLoopCompactionResult {
  * whether compaction will run BEFORE emitting any "summarizing" UI — avoids showing a
  * summarize card on every loop iteration when we're nowhere near the threshold.
  */
-export function midLoopCompactionWouldTrigger(params: {
-  messages: ModelMessage[];
-  systemPromptEstimate: number;
-  tierLimit: number;
-  contextWindowTokens?: number;
-  threshold?: number;
-}): { willTrigger: boolean; beforeTokens: number } {
-  // Stage 3a: overflow-only default (0.9) — keep in sync with the wrapper and
-  // compactAgenticMessagesIfNeeded.
-  const threshold = params.threshold ?? 0.9;
-  const limitDenom = params.contextWindowTokens ?? params.tierLimit;
-  const beforeTokens =
-    params.messages.reduce(
-      (acc, m) => acc + estimateTokens(modelMessageText(m.content)),
-      0,
-    ) + params.systemPromptEstimate;
-  return { willTrigger: beforeTokens >= threshold * limitDenom, beforeTokens };
-}
-
 export async function compactAgenticMessagesIfNeeded(
   params: MidLoopCompactionParams,
 ): Promise<MidLoopCompactionResult> {
   // Stage 3a: overflow-only (0.9, was 0.75) — mirrors opencode's "compact only
   // near the usable limit". Fires far less often; combined with native-tail
   // preservation below, mid-loop compaction is no longer a coherence hazard.
-  const threshold = params.threshold ?? 0.9;
+  const threshold = params.threshold ?? MID_LOOP_COMPACTION_THRESHOLD;
   const protect = params.protectExchanges ?? 3;
   const limitDenom = params.contextWindowTokens ?? params.tierLimit;
 

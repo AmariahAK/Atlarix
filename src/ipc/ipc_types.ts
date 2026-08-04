@@ -211,6 +211,19 @@ export interface ChatTokenUsage {
   outputTokens: number;
   /** Provider total when known (input+output+cache+reasoning). */
   totalTokens?: number;
+  /**
+   * Running per-tool token attribution for THIS turn, so the context-meter
+   * breakdown climbs live instead of freezing until the turn ends.
+   *
+   * A RUNNING TOTAL, not a delta — a dropped emit then self-heals on the next
+   * step rather than losing that work from the meter permanently. Present only
+   * on real per-step emits; the throttled text estimate omits it.
+   */
+  toolBuckets?: {
+    filesRead: number;
+    searchResults: number;
+    otherToolOutput: number;
+  };
 }
 
 /**
@@ -421,9 +434,17 @@ export interface TokenCountParams {
 export interface TokenCountResult {
   estimatedTotalTokens: number;
   actualMaxTokens: number | null;
+  /** Whole model-facing history: conversation + every tool bucket below. */
   messageHistoryTokens: number;
-  codebaseTokens: number;
-  mentionedAppsTokens: number;
+  /**
+   * The four buckets below PARTITION `messageHistoryTokens` — they are carved
+   * out of it, not additional to it. Tool results ride as native parts on the
+   * assistant rows, so adding them on top would double-count.
+   */
+  conversationTokens: number;
+  filesReadTokens: number;
+  searchResultTokens: number;
+  otherToolOutputTokens: number;
   inputTokens: number;
   systemPromptTokens: number;
   contextWindow: number;
@@ -771,12 +792,6 @@ export interface InstalledSkillRow {
   scope: "global" | "workspace";
   workspacePath: string | null;
   cachedFiles: Array<{ name: string; localPath: string }>;
-}
-
-export interface ActiveSkillContent {
-  id: string;
-  name: string;
-  content: string;
 }
 
 export interface CloneRepoParams {

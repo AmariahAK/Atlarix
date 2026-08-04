@@ -76,6 +76,7 @@ export function AppSidebar() {
   const {
     user,
     isAuthenticated,
+    authResolved,
     signOut,
     status,
     refreshStatus,
@@ -159,7 +160,24 @@ export function AppSidebar() {
         <SidebarMenu>
           {/* OAuth Login/Account Button - Above Help */}
           <SidebarMenuItem>
-            {isAuthenticated && user ? (
+            {!authResolved && !isAuthenticated ? (
+              // Auth not known yet. The window no longer waits for the session
+              // restore (that fixed multi-minute launches on captive-portal
+              // networks), so on a signed-in machine this slot briefly has no
+              // answer. Showing "Login" here is what made the app look like it
+              // logged you out and then logged you back in a few seconds later.
+              // Hold the space instead, and commit to signed-out only once main
+              // says the restore actually settled.
+              <SidebarMenuButton
+                size="sm"
+                disabled
+                aria-label="Checking sign-in status"
+                className="font-medium w-14 flex flex-col items-center gap-1 h-14 mb-2 rounded-2xl opacity-60"
+              >
+                <div className="h-5 w-5 rounded-full bg-muted animate-pulse" />
+                <span className="text-xs text-muted-foreground">…</span>
+              </SidebarMenuButton>
+            ) : isAuthenticated && user ? (
               // Logged in - show user avatar/name
               <div className="relative">
                 <SidebarMenuButton

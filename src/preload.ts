@@ -168,7 +168,6 @@ const validInvokeChannels = [
   "skills:uninstall",
   "skills:list",
   "skills:list-orphaned",
-  "skills:get-active-for-session",
   "skills:list-repo-skills",
   // MCP consent response from renderer to main
   "mcp:tool-consent-response",
@@ -241,6 +240,9 @@ const validInvokeChannels = [
   "file-permissions:list",
   "file-permissions:upsert",
   "file-permissions:revoke",
+  "file-permissions:list-granted-folders",
+  "file-permissions:grant-folder",
+  "file-permissions:revoke-granted-folder",
   "command-permissions:list",
   "command-permissions:defaults",
   "command-permissions:upsert",
