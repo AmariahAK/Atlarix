@@ -1,5 +1,8 @@
 /**
- * v12 2.2 — permission ruleset compile + evaluate (deny/ask glob matching).
+ * Permission ruleset compile + evaluate (deny glob matching).
+ *
+ * There is no `ask` list — removed v14.26.0 after the audit found it compiled,
+ * matched, and then only logged. The cases that covered it are gone with it.
  */
 
 import { describe, expect, it } from "vitest";
@@ -10,11 +13,10 @@ import {
   ruleMatchTarget,
 } from "@/lib/tools/permissions/ruleset";
 
-function compiled(deny: string[] = [], ask: string[] = []) {
+function compiled(deny: string[] = []) {
   // evaluateRuleset takes the compiled shape — build it via the same helpers.
   return {
     deny: deny.map(compileRule).filter((r): r is NonNullable<typeof r> => !!r),
-    ask: ask.map(compileRule).filter((r): r is NonNullable<typeof r> => !!r),
   };
 }
 
@@ -69,20 +71,7 @@ describe("evaluateRuleset", () => {
     expect(evaluateRuleset(rs, "read_file", {})).toBeNull();
   });
 
-  it("deny takes precedence over ask", () => {
-    const rs = compiled(["run_command(git push*)"], ["run_command(git *)"]);
-    expect(
-      evaluateRuleset(rs, "run_command", { command: "git push origin main" })
-        ?.kind,
-    ).toBe("deny");
-  });
 
-  it("ask matches when no deny rule does", () => {
-    const rs = compiled([], ["run_command(git push*)"]);
-    expect(
-      evaluateRuleset(rs, "run_command", { command: "git push origin main" }),
-    ).toEqual({ kind: "ask", rule: "run_command(git push*)" });
-  });
 
   it("empty ruleset = no decision (pre-2.2 behavior)", () => {
     expect(
@@ -98,32 +87,25 @@ describe("evaluateRuleset", () => {
 });
 
 describe("mergeRulesets (global ~/.atlarix layer, S16)", () => {
-  it("unions deny and ask lists from both sides", () => {
+  it("unions deny lists from both sides", () => {
     const merged = mergeRulesets(
-      compiled(["run_command(curl *)"], ["run_command(git push*)"]),
-      compiled(["write_file(*.env*)"], ["run_command(npm publish*)"]),
+      compiled(["run_command(curl *)"]),
+      compiled(["write_file(*.env*)"]),
     );
     expect(merged.deny.map((r) => r.raw)).toEqual([
       "run_command(curl *)",
       "write_file(*.env*)",
     ]);
-    expect(merged.ask.map((r) => r.raw)).toEqual([
-      "run_command(git push*)",
-      "run_command(npm publish*)",
-    ]);
   });
 
-  it("a global deny still wins over a workspace ask (deny > ask)", () => {
-    const merged = mergeRulesets(
-      compiled(["run_command(git push*)"]),
-      compiled([], ["run_command(git *)"]),
-    );
+  it("a global deny applies to a workspace with no rules of its own", () => {
+    const merged = mergeRulesets(compiled(["run_command(git push*)"]), compiled());
     expect(
-      evaluateRuleset(merged, "run_command", {
-        command: "git push origin main",
-      })?.kind,
+      evaluateRuleset(merged, "run_command", { command: "git push origin main" })
+        ?.kind,
     ).toBe("deny");
   });
+
 
   it("returns the other side as-is when one is empty (no-allocation fast path)", () => {
     const ws = compiled(["run_command(rm *)"]);

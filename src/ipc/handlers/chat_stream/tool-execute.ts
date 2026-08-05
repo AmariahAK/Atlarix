@@ -75,12 +75,6 @@ export async function runToolExecute(
         error: `Blocked by permission rule \`${decision.rule}\` (.atlarix/permissions.json — workspace or global ~/.atlarix). Do not retry this exact call; choose a different approach or ask the user to adjust the rule.`,
       });
     }
-    if (decision?.kind === "ask") {
-      // v1: mutating tools already prompt via the permission interceptor;
-      // log the match so rule authors can see it firing.
-      logger.log(`[ruleset] ask-rule matched for ${toolName}: ${decision.rule}`);
-    }
-
     const hookDenial = await runPreToolUseHooks(
       gateWorkspace,
       toolName,

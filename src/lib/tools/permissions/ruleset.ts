@@ -1,33 +1,33 @@
 /**
- * v12 2.2 — portable workspace permission ruleset (`.atlarix/permissions.json`).
+ * Portable workspace permission ruleset (`.atlarix/permissions.json`).
  *
  * Claude-Code-style patterns, evaluated at the SINGLE tool-execution funnel
  * (`runToolExecute`) so ask+build, native AND text-tool paths are all
  * covered uniformly:
  *
- *   { "deny": ["run_command(rm *)", "write_file(.env*)", "browser_*"],
- *     "ask":  ["run_command(git push*)"] }
+ *   { "deny": ["run_command(rm *)", "write_file(.env*)", "browser_*"] }
  *
  * Pattern syntax: `tool_name(glob-over-target)` or a bare tool-name glob.
  * The match target is the command string for run_command/run_tests, the
  * path for file tools, else empty (name-only matching).
  *
  * A global `~/.atlarix/permissions.json` (same shape) merges BENEATH the
- * workspace file — deny/ask lists union; deny > ask precedence is unchanged.
+ * workspace file — the deny lists union.
  *
- * Semantics (v1, conscious scope):
- * - `deny` is ENFORCED here — a structured tool error the model sees.
- * - `ask` is parsed/validated and logged when matched; the prompt machinery
- *   already lives in the permission interceptor for mutating tools, and
- *   AUTO-ALLOW already exists as the per-workspace command/file permission
- *   stores (WorkspaceTerminalPermissions / WorkspaceFilePermissions UI) —
- *   this file does not duplicate them. Forcing prompts on read-only tools
- *   is a documented follow-up.
- * - Dangerous commands are NOT a hard floor anymore. They flow through the same
- *   permission gate as everything else (see resolveRunCommandPermissionGate):
- *   a dangerous command always prompts until the user sets an explicit
- *   always-allow keyed by its `danger:<id>` pattern (revocable in Settings), and
- *   is never silently auto-approved before then — even in autonomous mode.
+ * THERE IS NO `ask` LIST (removed v14.26.0). It shipped from v12 2.2 as a key
+ * that was compiled, matched, returned as a decision — and then written to a log
+ * line and dropped on the floor. Its scope note reasoned that mutating tools
+ * already prompt via the interceptor, which is true, and that therefore `ask`
+ * was only ever a no-op or a duplicate of a prompt the user was getting anyway.
+ * A config key that silently does nothing is worse than an absent one: the rule
+ * author believes a gate exists. An `ask` key found in a file is now WARNED
+ * about at load, so the mistake surfaces instead of hiding.
+ *
+ * Dangerous commands are NOT a hard floor. They flow through the same permission
+ * gate as everything else (see resolveRunCommandPermissionGate): a dangerous
+ * command always prompts until the user sets an explicit always-allow keyed by
+ * its `danger:<id>` pattern (revocable in Settings), and is never silently
+ * auto-approved before then — even in autonomous mode.
  */
 
 import fs from "node:fs";
@@ -39,7 +39,6 @@ const logger = log.scope("permission-ruleset");
 
 export interface PermissionRuleset {
   deny: string[];
-  ask: string[];
 }
 
 interface CompiledRule {
@@ -50,10 +49,9 @@ interface CompiledRule {
 
 interface CompiledRuleset {
   deny: CompiledRule[];
-  ask: CompiledRule[];
 }
 
-const EMPTY: CompiledRuleset = { deny: [], ask: [] };
+const EMPTY: CompiledRuleset = { deny: [] };
 
 function globToRegExp(glob: string): RegExp {
   const escaped = glob
@@ -86,7 +84,7 @@ function compileRuleset(rules: Partial<PermissionRuleset>): CompiledRuleset {
           .map(compileRule)
           .filter((r): r is CompiledRule => r !== null)
       : [];
-  return { deny: compile(rules.deny), ask: compile(rules.ask) };
+  return { deny: compile(rules.deny) };
 }
 
 /** What part of the args a rule's `(glob)` matches, per tool family. */
@@ -111,10 +109,7 @@ function ruleMatches(
   return rule.targetGlob.test(target);
 }
 
-export type RulesetDecision =
-  | { kind: "deny"; rule: string }
-  | { kind: "ask"; rule: string }
-  | null;
+export type RulesetDecision = { kind: "deny"; rule: string } | null;
 
 export function evaluateRuleset(
   ruleset: CompiledRuleset,
@@ -125,10 +120,6 @@ export function evaluateRuleset(
   for (const rule of ruleset.deny) {
     if (ruleMatches(rule, toolName, target))
       return { kind: "deny", rule: rule.raw };
-  }
-  for (const rule of ruleset.ask) {
-    if (ruleMatches(rule, toolName, target))
-      return { kind: "ask", rule: rule.raw };
   }
   return null;
 }
@@ -166,11 +157,17 @@ function loadRulesetFile(file: string): CompiledRuleset {
     const parsed = JSON.parse(
       fs.readFileSync(file, "utf8"),
     ) as Partial<PermissionRuleset>;
+    if (Array.isArray((parsed as { ask?: unknown }).ask)) {
+      // Say so rather than ignoring it: the whole reason `ask` was removed is
+      // that a silently-inert key reads as a gate that is not there.
+      logger.warn(
+        `${file} contains an "ask" list — that key is NOT supported and is ignored. ` +
+          `Use "deny" to block a call outright; mutating tools already prompt for approval.`,
+      );
+    }
     const compiled = compileRuleset(parsed);
     cache.set(file, { mtimeMs, compiled });
-    logger.log(
-      `Loaded ${compiled.deny.length} deny / ${compiled.ask.length} ask rule(s) from ${file}`,
-    );
+    logger.log(`Loaded ${compiled.deny.length} deny rule(s) from ${file}`);
     return compiled;
   } catch (e) {
     logger.warn(`Failed to parse ${file}: ${String(e)} — treating as empty`);
@@ -184,18 +181,17 @@ export function loadWorkspaceRuleset(workspacePath: string): CompiledRuleset {
 }
 
 /**
- * Union of two compiled rulesets. deny/ask keep their existing semantics
- * (deny > ask is enforced by evaluation order, so within-list order is
- * immaterial). When one side is empty the other is returned as-is so the
+ * Union of two compiled rulesets. Within-list order is immaterial — a match
+ * anywhere denies. When one side is empty the other is returned as-is so the
  * common no-rules case stays allocation-free.
  */
 export function mergeRulesets(
   a: CompiledRuleset,
   b: CompiledRuleset,
 ): CompiledRuleset {
-  if (a.deny.length === 0 && a.ask.length === 0) return b;
-  if (b.deny.length === 0 && b.ask.length === 0) return a;
-  return { deny: [...a.deny, ...b.deny], ask: [...a.ask, ...b.ask] };
+  if (a.deny.length === 0) return b;
+  if (b.deny.length === 0) return a;
+  return { deny: [...a.deny, ...b.deny] };
 }
 
 /**
