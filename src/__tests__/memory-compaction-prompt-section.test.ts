@@ -11,10 +11,16 @@
  * Below the threshold the section must stay exactly as it was — this is a section that
  * is paid for on every request, on Core with no prompt caching.
  */
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+
+// Same reason as agent-memory-compaction-gate: these cross the real 25 MB threshold, so
+// each writes ~26 MB. The `node` project inherits vitest's 5 s default timeout, which is a
+// thin margin on a Windows runner scanning a fresh large write — the class of gap that
+// caused a Windows-only failure in v14.23.0.
+vi.setConfig({ testTimeout: 30_000 });
 import { loadMemoryMdSection } from "@/ipc/handlers/chat_stream/context-sections";
 import {
   MEMORY_COMPACT_BYTES,

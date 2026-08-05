@@ -14,11 +14,19 @@
  * carries the same directive every turn, so it also lands on turns where the agent isn't
  * writing a note at all.)
  */
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { realpathSync } from "node:fs";
+
+// These tests cross the REAL 25 MB threshold, so each one writes ~26 MB to disk. The
+// `node` vitest project sets no explicit timeout, so it inherits vitest's 5 s default —
+// ample here on a local SSD (whole file: ~0.5 s) but not a margin worth trusting on a
+// Windows runner, where a fresh 26 MB write is scanned as it lands. That exact gap
+// produced a Windows-ONLY failure in v14.23.0 (`await import()` charging native load +
+// migrations inside a test body). Raise it rather than rediscover it in CI.
+vi.setConfig({ testTimeout: 30_000 });
 import { ToolRegistry } from "@/lib/tools/registry";
 import {
   MEMORY_COMPACT_BYTES,
