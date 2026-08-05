@@ -600,25 +600,67 @@ fixture containing `.gitignore` (`.env`, `cdk.out/`), `.env`, `cdk.out/a.js`, `r
 - **includes `.git/**`** (19 files) → **exactly one exclusion is still needed**, and it is
   derived from an observed need rather than an ecosystem list.
 
-**The change.**
-1. Point `project-files.ts` at `resolveRipgrepPath()` (bundled, always available).
-2. Strategy 2 then always succeeds → **delete strategy 1 (`fd` + `--no-ignore-vcs`) and strategy
-   3 (the legacy walk)**, and with them `ALWAYS_EXCLUDE`, `isExcludedDiscoveryRelPath` and
-   `CDK_ASSET_HEX_SEGMENT` entirely. `.gitignore` does the work, same engine as `grep`/`glob`.
-3. Keep one `--glob '!.git/**'` (or drop `--hidden`), per the measurement above.
-4. `file_handlers.ts:108` says `@`-mention is "gitignore-aware via getProjectFiles" — **false
-   today** on the `fd` path; it becomes true after step 1.
-5. `isExcludedDir` (`file_utils.ts`) has a DIFFERENT live consumer: `utils/codebase.ts` →
-   `extractCodebaseCached` → the `context-paths` IPC (reachable from the renderer; preload +
-   ipc_client both reference it), which does its own recursive walk. So it cannot be deleted
-   with the above — decide separately whether that walk also moves to bundled ripgrep (then
-   `isExcludedDir` goes too) or keeps a minimal set with the CDK/hex rules dropped.
-6. Note while there: `glob.ts`'s "in-workspace files (incl. `.env`) are enumerable" means "we
-   apply no secret denylist of our own" — a *gitignored* `.env` is still not listed. True as
-   written, easy to misread.
+**Why the bundle does not already cover this** (it was raised, and it is the crux): the bundled
+`@vscode/ripgrep` DOES cover `grep`/`glob` — they resolve it via `resolveRipgrepPath()`.
+`project-files.ts` opts out by probing `rg --version` on PATH instead, so it is the one file
+discovery path the bundle never reaches. The bundling is right; this file just declines it.
 
-Net effect: less code, one engine for all file discovery, identical behaviour for every user,
-and no ecosystem names in the product.
+**`@`-mention should become a LIVE ripgrep query, not a pre-built list** (owner's proposal,
+measured and adopted). Today `workspace:list-paths` builds up to `MENTION_PATHS_LIMIT = 4000`
+paths, caches them 5 minutes, ships them to the renderer, and the composer filters client-side.
+- **It already truncates on Atlarix's own repo:** 5,505 files vs a 4,000 cap, so ~1,500 files
+  cannot be `@`-mentioned here *today*. That is a live bug, not a hypothetical.
+- **Live query latency, bundled rg, measured on this repo (5,505 files), including process
+  spawn:** `@app` 45 ms / `@test` 48 ms / `@index` 47 ms / `@workspace` 46 ms / `@a` 63 ms. With
+  a ~100 ms debounce that is imperceptible, and it is *fresher* than a 5-minute cache.
+- **No behaviour to preserve:** `ComposerAutocomplete` filters with plain
+  `.toLowerCase().includes(q)` — substring, not fuzzy — so `--iglob "*q*"` is an exact
+  equivalent. (`--iglob`, not `--glob`, to keep the case-insensitivity.)
+- Payload shrinks from 4,000 paths to just the matches.
+
+**The change.**
+1. `@`-mention (`workspace:list-paths`) becomes a live `resolveRipgrepPath()` query, debounced,
+   cancelling in-flight requests. Drop `MENTION_PATHS_LIMIT` as a correctness cap (keep a
+   display cap on results).
+2. Do the same for the other two `getProjectFiles` consumers —
+   `lib/tools/workspace-file-hints.ts` (the "did you mean this path" suggestion after a failed
+   read/edit) and `ipc/utils/mention_apps.ts` (scoped `@` dirs) — via one shared helper.
+3. **`getProjectFiles` then has no consumers: delete `project-files.ts` entirely**, and with it
+   the `fd` strategy (and its `--no-ignore-vcs`), the legacy synchronous walk, `ALWAYS_EXCLUDE`,
+   `isExcludedDiscoveryRelPath` and `CDK_ASSET_HEX_SEGMENT`. `.gitignore` does the excluding,
+   one engine for every file lookup in the product.
+4. Keep one `--glob '!.git/**'` (or drop `--hidden`), per the measurement above — the only
+   exclusion that survives, and it is derived from an observed need.
+5. `file_handlers.ts:108` calls `@`-mention "gitignore-aware via getProjectFiles" — **false
+   today** on the `fd` path. The comment goes with the file.
+
+**`isExcludedDir` + the whole codebase-extractor chain is DEAD — delete it.** Correcting the
+earlier note in this doc, which said it "has a different live consumer" and needed its own
+decision. Traced properly, nothing reaches it:
+- `ContextFilesPicker` renders only behind `showContextFilesPicker`, which defaults to `false`
+  and **is never passed anywhere** (`<ChatInputControls chatId={chatId} />` is the only call
+  site) → `useContextPaths` never runs → `get-context-paths` / `set-context-paths` are never
+  invoked.
+- The other `extractCodebaseCached` caller is `debug_handlers`' `get-chat-logs`, which has an
+  `ipc_client` method (`getChatLogs`) and **no UI consumer at all**.
+- Only the TYPE `CodebaseFile` is still used (type-only imports in `simple-stream-text.ts` and
+  `versioned_codebase_context.ts`), which keeps no runtime alive.
+- So `extractCodebaseCached` is unreachable, `isExcludedDir` has **zero live consumers**, and the
+  deletable set is: `ContextFilesPicker.tsx`, `useContextPaths.ts`, the `showContextFilesPicker`
+  prop, `context_paths_handlers.ts` + its two preload channels + two `ipc_client` methods, the
+  `extractCodebaseCached` runtime in `utils/codebase.ts` (keep the `CodebaseFile` type), and
+  `isExcludedDir` + its exclusion list in `file_utils.ts`. Vestiges of the deleted Code tab and
+  the retrieval teardown — the owner's read ("we don't have a code tab, that's dead logic").
+- Check `file_utils_excluded_dirs.test.ts` goes with it, and re-check `get-chat-logs` /
+  `get-system-debug-info` while there: if neither has a consumer, `debug_handlers` may be
+  deletable too, which is a separate call.
+
+**One note to leave alone:** `glob.ts`'s "in-workspace files (incl. `.env`) are enumerable" means
+"we apply no secret denylist of our own" — a *gitignored* `.env` is still not listed. True as
+written, easy to misread.
+
+Net effect: one engine for every file lookup, a truncation bug fixed, identical behaviour for
+every user regardless of what they have installed, and several hundred lines deleted.
 
 **Checked and CORRECT as-is — do not "fix" these.** None needs work next session; the
 distinguishing test in every case is *what happens when the list is incomplete*:
