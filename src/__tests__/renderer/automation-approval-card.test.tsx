@@ -40,6 +40,7 @@ const base: QueuedOperation = {
   id: "op-1",
   operation: "automation_write",
   status: "pending",
+  timestamp: 0,
   automationAction: "create",
   automationName: "CI failures on main",
   automationTrigger: "on ci-failed in acme/app, polled every 15 min",

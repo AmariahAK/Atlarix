@@ -33,6 +33,7 @@ import { HelpDialog } from "./HelpDialog"; // Import the new dialog
 import { SettingsList } from "./SettingsList";
 import { triggerUpgrade } from "@/hooks/useUpgrade";
 import { useCreditBalance } from "@/hooks/useCreditBalance";
+import { SignOutDialog } from "@/components/auth/SignOutDialog";
 
 // Menu items.
 const items = [
@@ -77,10 +78,10 @@ export function AppSidebar() {
     user,
     isAuthenticated,
     authResolved,
-    signOut,
     status,
     refreshStatus,
   } = useAuth();
+  const [signOutOpen, setSignOutOpen] = useState(false);
 
   useEffect(() => {
     if (showAuthMenu && isAuthenticated) {
@@ -306,8 +307,8 @@ export function AppSidebar() {
                     {/* Sign out button */}
                     <button
                       onClick={() => {
-                        signOut();
                         setShowAuthMenu(false);
+                        setSignOutOpen(true);
                       }}
                       className="w-full flex items-center gap-2 px-2 py-1.5 text-sm text-destructive hover:bg-destructive/10 rounded transition-colors"
                     >
@@ -362,6 +363,7 @@ export function AppSidebar() {
       </SidebarFooter>
 
       <SidebarRail />
+      <SignOutDialog open={signOutOpen} onOpenChange={setSignOutOpen} />
     </Sidebar>
   );
 }

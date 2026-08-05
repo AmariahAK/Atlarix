@@ -5,6 +5,8 @@
  */
 
 import { useAuth } from '@/lib/auth/useAuth';
+import { useState } from "react";
+import { SignOutDialog } from "@/components/auth/SignOutDialog";
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -22,7 +24,8 @@ function getInvoke(): ((channel: string, ...args: unknown[]) => Promise<unknown>
 }
 
 export function AccountSettings() {
-  const { user, status, loading, signOut, refreshStatus } = useAuth();
+  const { user, status, loading, refreshStatus } = useAuth();
+  const [signOutOpen, setSignOutOpen] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -115,7 +118,12 @@ export function AccountSettings() {
               </div>
             </div>
             <div className="pt-4 border-t flex justify-end">
-              <Button onClick={signOut} variant="outline" size="sm" className="gap-2">
+              <Button
+                onClick={() => setSignOutOpen(true)}
+                variant="outline"
+                size="sm"
+                className="gap-2"
+              >
                 <LogOut className="h-4 w-4" />
                 Sign Out
               </Button>
@@ -244,6 +252,7 @@ export function AccountSettings() {
           <p className="mt-2">© 2025-2026 NorahLabs. All Rights Reserved.</p>
         </div>
       </div>
+      <SignOutDialog open={signOutOpen} onOpenChange={setSignOutOpen} />
     </div>
   );
 }

@@ -299,7 +299,6 @@ const validInvokeChannels = [
   "auth:get-current-user",
   "auth:can-create-workspace",
   "auth:check-workspace-limit",  // Workspace limit check for Free tier
-  "auth:enforce-workspace-limit", // Enforce workspace limit on login
   "auth:get-plan-info",
   "auth:upgrade",
   "auth:add-credit",          // PAYG: open a credit top-up checkout

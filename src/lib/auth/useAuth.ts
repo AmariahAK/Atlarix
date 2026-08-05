@@ -106,19 +106,10 @@ export function useAuth() {
 
                 // Show success notification - inform user to close the browser tab
                 if (typeof window !== 'undefined' && document?.body) {
-                    // Enforce workspace limit for Free tier users
-                    // This removes any excess workspaces (keeps only oldest)
-                    const ipcRenderer = window.electron?.ipcRenderer;
-                    if (ipcRenderer?.invoke) {
-                        try {
-                            const result = (await ipcRenderer.invoke('auth:enforce-workspace-limit')) as { removed?: number } | undefined;
-                            if (result?.removed && result.removed > 0) {
-                                console.log(`[useAuth] Removed ${result.removed} excess workspaces to meet Free tier limit`);
-                            }
-                        } catch (e) {
-                            console.warn('[useAuth] Could not enforce workspace limit:', e);
-                        }
-                    }
+                    // v14.27.0: signing in no longer deletes workspaces to make a
+                    // Free plan fit. The cap is enforced when a workspace is
+                    // CREATED (ipc/utils/workspace-quota.ts), like every other
+                    // Free limit in the product.
 
                     // Use a timeout to ensure the UI has updated first
                     setTimeout(() => {
@@ -335,12 +326,17 @@ export function useAuth() {
     const signInWithGitHub = useCallback(() => startOAuth('github'), [startOAuth]);
     const signInWithDiscord = useCallback(() => startOAuth('discord'), [startOAuth]);
 
-    const signOut = useCallback(async () => {
+    /**
+     * @param removeLocalData Also delete this machine's workspaces and chat
+     * history. Defaults to false — signing out clears credentials, and nothing
+     * else. The caller (the sign-out dialog) offers it as an unchecked box.
+     */
+    const signOut = useCallback(async (removeLocalData = false) => {
         try {
             const ipcRenderer = window.electron?.ipcRenderer;
             if (!ipcRenderer?.invoke) return;
 
-            await ipcRenderer.invoke('auth:sign-out');
+            await ipcRenderer.invoke('auth:sign-out', { removeLocalData });
             setUser(null);
             setStatus(null);
         } catch (error) {

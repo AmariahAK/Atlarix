@@ -40,28 +40,6 @@ let claimedSignupCredit:
     | { ok: boolean; balanceCents: number; granted: boolean }
     | null = null;
 
-/**
- * Remembered workspace-limit enforcement for the signed-in session.
- *
- * `useAuth` is an UNSHARED hook: ~24 files import it, each running its own effect, and its
- * OAuth-success handler invokes this channel. One sign-in therefore fired it repeatedly —
- * observed as five "Enforcing workspace limit" lines per sign-in.
- *
- * That was never merely wasteful. This handler DELETES workspaces (Free tier keeps the
- * oldest), so N concurrent copies each read the workspace list and delete everything after
- * the first row. It survived only because better-sqlite3 is synchronous, so the later
- * copies happened to observe the post-delete state and no-op — a destructive operation
- * racing itself and getting away with it.
- *
- * Coalescing overlapping calls plus remembering the settled result fixes every consumer at
- * once without touching any of them. Guarding in the HOOK would have to be repeated in 24
- * places and re-derived by the 25th; the invariant belongs to the handler.
- *
- * Cleared on sign-out — a different account must be enforced on its own terms.
- */
-let enforcedWorkspaceLimit:
-    | { success: boolean; removed: number; keptWorkspace?: string }
-    | null = null;
 
 function coalesce<T>(key: string, run: () => Promise<T>): Promise<T> {
     const existing = inFlight.get(key) as Promise<T> | undefined;
@@ -102,48 +80,76 @@ export function registerAuthHandlers() {
         }
     });
 
-    // Sign out - also clears all workspaces for fresh start
-    ipcMain.handle("auth:sign-out", async () => {
-        logger.log("[AuthHandlers] Sign out requested");
-        // The next account to sign in must be able to claim its own signup credit, and be
-        // enforced against its own plan.
-        claimedSignupCredit = null;
-        enforcedWorkspaceLimit = null;
+    /**
+     * Sign out — clears CREDENTIALS, not the user's work.
+     *
+     * This used to run `db.delete(apps).run()` unconditionally, with the comment
+     * "fresh start". An `apps` row cascades to chat sessions, MCP servers, daily
+     * logs, workflow templates, pivot containers/beacons AND automations, so one
+     * click on Sign Out destroyed every trace of every project — the folders on
+     * disk survived, everything Atlarix knew about them did not.
+     *
+     * No comparable tool does this. Claude Code's documented behaviour is that
+     * sign-out clears tokens; its per-project state under `~/.claude/projects/`
+     * survives. For Claude Code, Codex and Cursor a project is a directory, so
+     * signing out *cannot* delete it. Atlarix differs only because a workspace is
+     * a DB row — which is a reason to be careful with the row, not a licence to
+     * drop it.
+     *
+     * The shared-machine worry it was presumably guarding against is already
+     * handled by the OS: all of this lives under the OS user's own userData
+     * directory. Someone who genuinely wants the data gone asks for it —
+     * `removeLocalData`, unchecked by default in the sign-out dialog.
+     */
+    ipcMain.handle(
+        "auth:sign-out",
+        async (_event, params?: { removeLocalData?: boolean }) => {
+            logger.log(
+                `[AuthHandlers] Sign out requested${params?.removeLocalData ? " (with local data removal)" : ""}`,
+            );
+            // The next account to sign in must be able to claim its own signup credit.
+            claimedSignupCredit = null;
 
-        try {
-            // Delete ALL workspaces on logout (fresh start)
-            // wrap in try check to ensure sign out continues even if db fails
             try {
-                const allWorkspaces = db.select().from(apps).all();
-                logger.log(`[AuthHandlers] Deleting ${allWorkspaces.length} workspaces on logout`);
-
-                // Manually delete dependent records to avoid FK constraints issues
-                // (Prompts specifically might not have cascade set up correctly in all DBs)
-                const { chatSessions } = await import("@/db/schema");
-                const { inArray } = await import("drizzle-orm");
-
-                if (allWorkspaces.length > 0) {
-                    const workspaceIds = allWorkspaces.map(a => a.id);
-                    logger.log(`[AuthHandlers] Cleaning up dependent records for workspaces: ${workspaceIds.join(',')}`);
-                    try { db.delete(chatSessions).where(inArray(chatSessions.workspaceId, workspaceIds)).run(); } catch (e) { console.error('Error deleting sessions:', e); }
-
-                    // Finally delete apps
-                    db.delete(apps).run();
+                if (params?.removeLocalData) {
+                    // Explicitly asked for. Never a side effect of signing out.
+                    try {
+                        const allWorkspaces = db.select().from(apps).all();
+                        logger.log(
+                            `[AuthHandlers] Removing ${allWorkspaces.length} workspace(s) at the user's request`,
+                        );
+                        if (allWorkspaces.length > 0) {
+                            const { chatSessions } = await import("@/db/schema");
+                            const { inArray } = await import("drizzle-orm");
+                            const workspaceIds = allWorkspaces.map((a) => a.id);
+                            try {
+                                db.delete(chatSessions)
+                                    .where(inArray(chatSessions.workspaceId, workspaceIds))
+                                    .run();
+                            } catch (e) {
+                                logger.error("Error deleting sessions:", e);
+                            }
+                            db.delete(apps).run();
+                        }
+                    } catch (dbError) {
+                        logger.error(
+                            "[AuthHandlers] Failed to remove local data (proceeding with sign out anyway):",
+                            dbError,
+                        );
+                    }
                 }
-            } catch (dbError) {
-                logger.error("[AuthHandlers] Failed to clear workspaces on logout (proceeding with sign out anyway):", dbError);
-            }
 
-            await SubscriptionManager.signOut();
-            return { success: true };
-        } catch (error) {
-            logger.error(`[AuthHandlers] Sign out error:`, error);
-            return {
-                success: false,
-                error: error instanceof Error ? error.message : "Unknown error"
-            };
-        }
-    });
+                await SubscriptionManager.signOut();
+                return { success: true };
+            } catch (error) {
+                logger.error(`[AuthHandlers] Sign out error:`, error);
+                return {
+                    success: false,
+                    error: error instanceof Error ? error.message : "Unknown error",
+                };
+            }
+        },
+    );
 
     // Get current user
     ipcMain.handle("auth:get-current-user", async () => {
@@ -210,74 +216,57 @@ export function registerAuthHandlers() {
         }
     });
 
-    // Enforce workspace limit for Free tier users
-    // Called on login - removes newer workspaces if Free tier user has more than 1
-    ipcMain.handle("auth:enforce-workspace-limit", async () => {
-        // Settled already this session → return that answer. See `enforcedWorkspaceLimit`.
-        if (enforcedWorkspaceLimit) return enforcedWorkspaceLimit;
-        // Overlapping calls (the common case: every useAuth consumer in one event tick)
-        // share one execution rather than each deleting workspaces.
-        return coalesce("enforce-workspace-limit", async () => {
-            if (enforcedWorkspaceLimit) return enforcedWorkspaceLimit;
-            const result = await enforceWorkspaceLimit();
-            if (result.success) enforcedWorkspaceLimit = result;
-            return result;
-        });
-    });
+    /*
+     * `auth:enforce-workspace-limit` lived here until v14.27.0.
+     *
+     * It ran on sign-in and, for a Free user, DELETED every workspace but the
+     * oldest — cascading through chat sessions, MCP servers, daily logs, workflow
+     * templates and automations. It also needed coalescing and a remembered
+     * result, because ~22 `useAuth` consumers each invoked it in one tick and a
+     * destructive operation was racing itself.
+     *
+     * None of that is needed once the cap is enforced where a workspace is
+     * CREATED (`ipc/utils/workspace-quota.ts`), which is how this product already
+     * enforced its MCP and automation caps. Nothing is deleted, so nothing has to
+     * be serialised against itself, and a user who is already over the cap keeps
+     * what they have.
+     */
 
-    async function enforceWorkspaceLimit(): Promise<{
-        success: boolean;
-        removed: number;
-        keptWorkspace?: string;
-    }> {
-        logger.log("[AuthHandlers] Enforcing workspace limit");
-
+    // Check workspace limit (alias for frontend use)
+    ipcMain.handle("auth:check-workspace-limit", async () => {
         try {
-            const isPro = SubscriptionManager.isPro();
-
-            // Pro users have no limit
-            if (isPro) {
-                return { success: true, removed: 0 };
-            }
-
-            // Free tier: only 1 workspace allowed
-            const allWorkspaces = db.select().from(apps).all();
-
-            if (allWorkspaces.length <= 1) {
-                return { success: true, removed: 0 };
-            }
-
-            // Sort by createdAt ascending (oldest first) - keep only the OLDEST one
-            const sorted = [...allWorkspaces].sort((a, b) => {
-                const aTime = a.createdAt instanceof Date ? a.createdAt.getTime() : 0;
-                const bTime = b.createdAt instanceof Date ? b.createdAt.getTime() : 0;
-                return aTime - bTime;
-            });
-
-            // Keep oldest, delete the rest
-            const toKeep = sorted[0];
-            const toDelete = sorted.slice(1);
-
-            for (const workspace of toDelete) {
-                if (workspace.id) {
-                    logger.log(`[AuthHandlers] Deleting excess workspace: ${workspace.name} (id: ${workspace.id})`);
-                    const { eq } = await import("drizzle-orm");
-                    db.delete(apps).where(eq(apps.id, workspace.id)).run();
-                }
-            }
-
-            logger.log(`[AuthHandlers] Removed ${toDelete.length} excess workspaces, kept: ${toKeep.name}`);
+            const result = await SubscriptionManager.canCreateWorkspace();
             return {
-                success: true,
-                removed: toDelete.length,
-                keptWorkspace: toKeep.name
+                allowed: result.allowed,
+                reason: result.reason,
+                currentCount: result.currentCount,
+                maxAllowed: result.maxAllowed,
             };
         } catch (error) {
-            logger.error(`[AuthHandlers] Enforce workspace limit error:`, error);
-            // NOT remembered — a failed enforcement must be retryable.
-            return { success: false, removed: 0 };
+            logger.error(`[AuthHandlers] Check workspace limit error:`, error);
+            // A16/L-1: fail CLOSED (was `allowed: true`).
+            return {
+                allowed: false,
+                reason: "Couldn't verify your plan limit — please try again.",
+            };
         }
-    }
+    });
+
+    /*
+     * `auth:enforce-workspace-limit` lived here until v14.27.0.
+     *
+     * It ran on sign-in and, for a Free user, DELETED every workspace but the
+     * OLDEST — cascading through chat sessions, MCP servers, daily logs, workflow
+     * templates and automations. It also needed request coalescing and a
+     * remembered result, because ~22 `useAuth` consumers each invoked it in one
+     * tick and a destructive operation was racing itself.
+     *
+     * None of that is needed once the cap is enforced where a workspace is
+     * CREATED (`ipc/utils/workspace-quota.ts`) — which is how this product
+     * already enforced its MCP and automation caps. Nothing is deleted, so
+     * nothing has to be serialised against itself, and a user already over the
+     * cap keeps what they have instead of losing all but the oldest.
+     */
 
     // Get workspace limit info
     // Coalesced: the subscription lookup inside is TTL-cached, but a cold cache with

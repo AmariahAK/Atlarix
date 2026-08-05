@@ -7,7 +7,7 @@ import { apps } from "@/db/schema";
 import { db } from "@/db";
 import { eq } from "drizzle-orm";
 import { parseRemoteUri } from "@/lib/workspace-fs";
-import { PlanLimitError } from "@/lib/plan-limit-error";
+import { assertWorkspaceQuota, noteWorkspaceCreated } from "@/ipc/utils/workspace-quota";
 import { startWorkspaceSession } from "./workspace_session_handlers";
 import { normalizeAppPath } from "@/lib/canonical-app-path";
 
@@ -26,14 +26,6 @@ export async function importWorkspaceFromPath({
   const workspaceKind = remote ? "remote-ssh" : "local";
   if (!remote) {
     await fs.access(sourcePath);
-  }
-
-  const { SubscriptionManager } = await import("../../lib/SubscriptionManager");
-  const limitCheck = await SubscriptionManager.canCreateWorkspace();
-  if (!limitCheck.allowed) {
-    throw new PlanLimitError(
-      limitCheck.reason || "Workspace limit reached. Upgrade to Pro for unlimited workspaces.",
-    );
   }
 
   // Bug 5: dedupe by NORMALIZED path (not exact string) for local workspaces so
@@ -68,6 +60,15 @@ export async function importWorkspaceFromPath({
     throw new Error("An app with this name already exists");
   }
 
+  // The plan cap applies to a genuinely NEW workspace, and only here.
+  //
+  // It used to run at the TOP of this function, BEFORE the two lookups above —
+  // so a Free user sitting at their 1-workspace cap could not re-open the very
+  // workspace they already had: the check threw before the dedupe could return
+  // the existing row. Re-opening your own folder does not increase the count and
+  // must never be refused by a limit it cannot exceed.
+  await assertWorkspaceQuota();
+
   const now = new Date();
   const [app] = await db
     .insert(apps)
@@ -86,6 +87,10 @@ export async function importWorkspaceFromPath({
       lastOpenedAt: now,
     })
     .returning();
+
+  // getWorkspaceCount() memoises and was only invalidated on DELETE, so without
+  // this the next check reads a count one too low.
+  noteWorkspaceCreated();
 
   const { sessionId, chatId } = await startWorkspaceSession(app.id);
 
