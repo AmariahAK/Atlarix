@@ -21,12 +21,12 @@ vi.mock("@/paths/paths", () => ({
 }));
 
 import {
-  getTerminalScopeState,
   listTerminalInstances,
   openTerminalInstance,
   readTerminalInstance,
   resolveScopeKey,
   setTerminalScopeState,
+  appendAgentCommandOutput,
 } from "@/lib/terminal-instance-store";
 import { AGENT_FG_LABEL } from "@/lib/terminal-instances";
 
@@ -98,13 +98,16 @@ describe("finished-job output falls back to the terminal tab", () => {
       terminal: "tests",
     });
     const id = opened.success ? opened.instanceId : "";
-    const state = getTerminalScopeState(scope);
-    const inst = state.instances.find((i) => i.id === id)!;
-    inst.lines = [
-      { text: "PASS a.test.ts", stream: "stdout" },
-      { text: "PASS b.test.ts", stream: "stdout" },
-    ] as never;
-    setTerminalScopeState(scope, state);
+    // Output arrives the way it does in production — main records it as the
+    // command runs. (This used to poke `lines` in through
+    // `setTerminalScopeState`, which no longer accepts agent state: the
+    // renderer must not be able to overwrite main's buffer.)
+    appendAgentCommandOutput(scope, {
+      operationId: "op3",
+      command: "npm test",
+      output: "PASS a.test.ts\nPASS b.test.ts",
+      status: "completed",
+    });
 
     const read = readTerminalInstance(scope, id, 200);
     expect(read.success).toBe(true);
@@ -129,13 +132,12 @@ describe("finished-job output falls back to the terminal tab", () => {
       terminal: "noisy",
     });
     const id = opened.success ? opened.instanceId : "";
-    const state = getTerminalScopeState(scope);
-    const inst = state.instances.find((i) => i.id === id)!;
-    inst.lines = Array.from({ length: 900 }, (_, i) => ({
-      text: `line ${i}`,
-      stream: "stdout",
-    })) as never;
-    setTerminalScopeState(scope, state);
+    appendAgentCommandOutput(scope, {
+      operationId: "op5",
+      command: "noisy",
+      output: Array.from({ length: 900 }, (_, i) => `line ${i}`).join("\n"),
+      status: "running",
+    });
 
     const read = readTerminalInstance(scope, id, 50);
     expect(read.success).toBe(true);

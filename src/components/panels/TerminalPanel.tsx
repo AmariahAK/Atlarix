@@ -4,7 +4,6 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
-import { terminalOutputsAtom, type TerminalOutput } from "@/atoms/sourceAtoms";
 import { attachmentsAtom, selectedChatIdAtom } from "@/atoms/chatAtoms";
 import {
   currentAppAtom,
@@ -16,13 +15,8 @@ import {
   terminalAgentOpMapByScopeAtom,
   terminalInstancesByScopeAtom,
   terminalScopeKey,
-  type TerminalInstance,
-  type TerminalLine,
-} from "@/atoms/terminalInstancesAtoms";
+  type TerminalInstance,} from "@/atoms/terminalInstancesAtoms";
 import {
-  AGENT_FG_KEY,
-  AGENT_FG_LABEL,
-  agentTabStripLabel,
   defaultAgentInstanceLabel,
   defaultUserInstanceLabel,
   userTabLabelFromInstance,
@@ -33,9 +27,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import {
   buildTerminalPasteAttachment,
-  buildTerminalPasteFromSelection,
-  capTerminalLines,
-  commandBlockRangeAt,
+  buildTerminalPasteFromSelection,  commandBlockRangeAt,
   commandBlockRanges,
   upsertTerminalAttachment,
   writeTerminalToDataTransfer,
@@ -44,76 +36,7 @@ import { toast } from "sonner";
 import { XtermView, disposeXtermInstance } from "./XtermView";
 import { useSettings } from "@/hooks/useSettings";
 
-function mergeLines(prev: TerminalLine[], add: TerminalLine[]): TerminalLine[] {
-  return capTerminalLines([...prev, ...add]);
-}
-
-/**
- * AGENT_FG_KEY / AGENT_FG_LABEL now live in @/lib/terminal-instances so the MAIN
- * process shares them. They were defined here only, which is why main could not
- * honour the shared-tab rule and created an instance per command instead.
- */
-/**
- * A background agent command gets its own tab while it runs; once it EXITS
- * SUCCESSFULLY we auto-close that tab after a short grace so completed one-shots
- * (builds, installs) don't pile up. Long-running servers never "complete", so
- * they stay; FAILED commands stay too, so a failure is always inspectable. The
- * result already reached the agent + chat, and the shared "Agent" tab keeps the
- * running history of foreground commands.
- */
-const AGENT_BG_AUTOCLOSE_MS = 6000;
-
-function upsertAgentOutputLines(
-  instances: TerminalInstance[],
-  instanceId: string,
-  operationId: string,
-  command: string,
-  output: string,
-  status: TerminalOutput["status"],
-): TerminalInstance[] {
-  return instances.map((inst) => {
-    if (inst.id !== instanceId) return inst;
-    const withoutDup = inst.lines.filter(
-      (l) => !l.id.startsWith(`${operationId}-out-`),
-    );
-    const hasPrompt = inst.lines.some((l) => l.id === `${operationId}-cmd`);
-    let lines = withoutDup;
-    if (!hasPrompt) {
-      lines = mergeLines(lines, [
-        {
-          id: `${operationId}-cmd`,
-          prefix: "[Agent]",
-          text: `$ ${command}`,
-          kind: "prompt",
-        },
-      ]);
-    }
-    if (output.trim()) {
-      lines = mergeLines(lines, [
-        {
-          id: `${operationId}-out-${output.length}`,
-          prefix: "[Agent]",
-          text: output,
-          kind: "output",
-        },
-      ]);
-    }
-    if (status === "completed" || status === "error") {
-      lines = mergeLines(lines, [
-        {
-          id: `${operationId}-st`,
-          prefix: "[Agent]",
-          text: status === "completed" ? "exit 0" : "failed",
-          kind: "status",
-        },
-      ]);
-    }
-    return { ...inst, lines: capTerminalLines(lines) };
-  });
-}
-
 export function TerminalPanel() {
-  const terminalOutputs = useAtomValue(terminalOutputsAtom);
   const chatId = useAtomValue(selectedChatIdAtom);
   const workspace = useAtomValue(selectedWorkspaceInfoAtom);
   const currentApp = useAtomValue(currentAppAtom);
@@ -133,7 +56,18 @@ export function TerminalPanel() {
   );
   const setAttachments = useSetAtom(attachmentsAtom);
 
-  const instances = instancesByScope[scopeKey] ?? [];
+  /**
+   * USER TABS ONLY.
+   *
+   * Agent instances still exist in main (that is where a background job's output
+   * is buffered for `background_jobs` to read) and can still arrive here through
+   * the scope sync or a session persisted before v14.27.0 — they are simply not
+   * a thing this panel shows. Filtering at the single derivation point means no
+   * render path further down has to remember.
+   */
+  const instances = (instancesByScope[scopeKey] ?? []).filter(
+    (i) => i.owner === "user",
+  );
   const activeId = activeByScope[scopeKey];
   const activeInstance =
     instances.find((i) => i.id === activeId) ?? instances[0];
@@ -144,11 +78,8 @@ export function TerminalPanel() {
   const ptyEnabled = settings?.enablePtyTerminal !== false;
   // Live cwd per instance from shell OSC sequences (tab labels).
   const [cwdByInstance, setCwdByInstance] = useState<Record<string, string>>({});
-  const seenOps = useRef<Set<string>>(new Set());
   const scrollRef = useRef<HTMLDivElement>(null);
   const skipSyncRef = useRef(false);
-  /** Pending auto-close timers for finished background agent tabs, by instance id. */
-  const bgCloseTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
 
   const workspacePath = useMemo(() => {
     if (workspace?.path) return workspace.path;
@@ -170,11 +101,6 @@ export function TerminalPanel() {
     });
     return unsub;
   }, []);
-
-  const agentInstances = useMemo(
-    () => instances.filter((i) => i.owner === "agent"),
-    [instances],
-  );
 
   const applyScopeFromMain = useCallback(
     (state: {
@@ -282,7 +208,6 @@ export function TerminalPanel() {
   const ensureDefaultInstance = useCallback(() => {
     if ((instancesByScope[scopeKey]?.length ?? 0) > 0) return;
     const userId = `user-${Date.now()}`;
-    const agentId = `agent-${Date.now()}-fg`;
     const shell: TerminalInstance = {
       id: userId,
       label: "Shell 1",
@@ -290,32 +215,9 @@ export function TerminalPanel() {
       lines: [],
       createdAt: Date.now(),
     };
-    // Pre-create the shared "Agent" tab so the agent terminal is visible from
-    // the start (not only after the first command), and so foreground commands
-    // append to it (see getOrCreateAgentInstance).
-    const agent: TerminalInstance = {
-      id: agentId,
-      label: AGENT_FG_LABEL,
-      owner: "agent",
-      lines: [],
-      createdAt: Date.now(),
-    };
-    setInstancesByScope((prev) => ({
-      ...prev,
-      [scopeKey]: [shell, agent],
-    }));
+    setInstancesByScope((prev) => ({ ...prev, [scopeKey]: [shell] }));
     setActiveByScope((prev) => ({ ...prev, [scopeKey]: userId }));
-    setAgentOpMapByScope((prev) => ({
-      ...prev,
-      [scopeKey]: { ...prev[scopeKey], [AGENT_FG_KEY]: agentId },
-    }));
-  }, [
-    scopeKey,
-    instancesByScope,
-    setInstancesByScope,
-    setActiveByScope,
-    setAgentOpMapByScope,
-  ]);
+  }, [scopeKey, instancesByScope, setInstancesByScope, setActiveByScope]);
 
   useEffect(() => {
     ensureDefaultInstance();
@@ -394,177 +296,35 @@ export function TerminalPanel() {
     ],
   );
 
-  const getOrCreateAgentInstance = useCallback(
-    (operationId: string, command: string, background?: boolean) => {
-      const map = agentOpMapByScope[scopeKey] ?? {};
-      const list = instancesByScope[scopeKey] ?? [];
+  /**
+   * The agent used to get tabs here.
+   *
+   * `getOrCreateAgentInstance` routed each command to a tab, an `onTerminalOutput`
+   * subscription accumulated its lines, and a timer auto-closed background tabs
+   * six seconds after a successful exit — with carve-outs so long-running servers
+   * and failed commands stayed. Four special-case rules existed only to stop the
+   * surface from being annoying, which was the argument for not having it: the
+   * chat already shows every command and its output, so the tab was a second copy
+   * of something the user was already reading.
+   *
+   * Output is recorded in MAIN now (`appendAgentCommandOutput`), so
+   * `background_jobs` can still read a finished job — and can do it whether or not
+   * this panel was ever open, which was not true before.
+   */
 
-      // Already routed (e.g. a later output event for the same command).
-      const mapped = map[operationId];
-      if (mapped && list.some((i) => i.id === mapped)) return mapped;
 
-      // Foreground commands (ls, git status, curl…) share ONE persistent "Agent"
-      // tab and read like a shell session — only background processes (servers)
-      // get their own tab. AGENT_FG_KEY is a reserved per-scope pointer to the
-      // shared foreground instance.
-      if (!background) {
-        const fgId = map[AGENT_FG_KEY];
-        if (fgId && list.some((i) => i.id === fgId)) {
-          setAgentOpMapByScope((prev) => ({
-            ...prev,
-            [scopeKey]: { ...prev[scopeKey], [operationId]: fgId },
-          }));
-          return fgId;
-        }
-        const newFgId = createInstance("agent", AGENT_FG_LABEL);
-        setAgentOpMapByScope((prev) => ({
-          ...prev,
-          [scopeKey]: {
-            ...prev[scopeKey],
-            [AGENT_FG_KEY]: newFgId,
-            [operationId]: newFgId,
-          },
-        }));
-        void IpcClient.getInstance()
-          .openTerminalInstance({
-            chatId,
-            appId,
-            owner: "agent",
-            commandHint: AGENT_FG_LABEL,
-            operationId,
-            background: false,
-          })
-          .catch(() => {});
-        return newFgId;
-      }
-
-      // Background → a dedicated tab labelled by the command.
-      const instanceId = createInstance(
-        "agent",
-        defaultAgentInstanceLabel(command, list),
-        command,
-      );
-      setAgentOpMapByScope((prev) => ({
-        ...prev,
-        [scopeKey]: { ...prev[scopeKey], [operationId]: instanceId },
-      }));
-      void IpcClient.getInstance()
-        .openTerminalInstance({
-          chatId,
-          appId,
-          owner: "agent",
-          commandHint: command,
-          operationId,
-          // Must match the local decision above, or main reuses the shared tab
-          // while the panel routes this job's output to its own.
-          background: true,
-        })
-        .catch(() => {});
-      return instanceId;
-    },
-    [
-      agentOpMapByScope,
-      scopeKey,
-      createInstance,
-      instancesByScope,
-      setAgentOpMapByScope,
-      chatId,
-      appId,
-    ],
-  );
-
-  useEffect(() => {
-    if (chatId == null) return;
-    const ipc = IpcClient.getInstance();
-    const unsubscribe = ipc.onTerminalOutput(chatId, (payload) => {
-      if (payload.commandId.startsWith("user-")) return;
-      const instanceId = getOrCreateAgentInstance(
-        payload.commandId,
-        payload.command,
-        payload.background,
-      );
-      setInstances((prev) =>
-        upsertAgentOutputLines(
-          prev,
-          instanceId,
-          payload.commandId,
-          payload.command,
-          payload.output ?? "",
-          payload.status,
-        ),
-      );
-    });
-    return unsubscribe;
-  }, [chatId, getOrCreateAgentInstance, setInstances]);
-
-  useEffect(() => {
-    const outputs = Array.from(terminalOutputs.values()).sort(
-      (a, b) => a.startTime - b.startTime,
-    );
-    for (const out of outputs) {
-      const key = `${out.operationId}:${out.status}:${out.output?.length ?? 0}`;
-      if (seenOps.current.has(key)) continue;
-      if (out.operationId.startsWith("user-")) continue;
-      seenOps.current.add(key);
-      if (out.status === "running" && !out.output?.trim()) continue;
-      const instanceId = getOrCreateAgentInstance(
-        out.operationId,
-        out.command,
-        out.background,
-      );
-      setInstances((prev) =>
-        upsertAgentOutputLines(
-          prev,
-          instanceId,
-          out.operationId,
-          out.command,
-          out.output ?? "",
-          out.status,
-        ),
-      );
-      // A finished background one-shot: auto-close its dedicated tab after a grace
-      // so completed builds/installs don't accumulate. Success only — failures and
-      // still-running servers stay visible. (Never the shared "Agent"/user tabs.)
-      if (
-        out.background &&
-        out.status === "completed" &&
-        !bgCloseTimers.current.has(instanceId)
-      ) {
-        const timer = setTimeout(() => {
-          bgCloseTimers.current.delete(instanceId);
-          deleteInstance(instanceId);
-        }, AGENT_BG_AUTOCLOSE_MS);
-        bgCloseTimers.current.set(instanceId, timer);
-      }
-    }
-  }, [terminalOutputs, getOrCreateAgentInstance, setInstances, deleteInstance]);
-
-  // Clear any pending auto-close timers on unmount.
-  useEffect(() => {
-    const timers = bgCloseTimers.current;
-    return () => {
-      for (const t of timers.values()) clearTimeout(t);
-      timers.clear();
-    };
-  }, []);
 
   useEffect(() => {
     const el = scrollRef.current;
     if (el) el.scrollTop = el.scrollHeight;
   }, [activeInstance?.lines]);
 
-  const tabLabel = (inst: TerminalInstance) => {
-    if (inst.owner === "agent") {
-      return agentTabStripLabel(inst, agentInstances);
-    }
-    // v10.1: live cwd from the shell wins; falls back to workspace path.
-    return userTabLabelFromInstance(inst, cwdByInstance[inst.id] ?? workspacePath);
-  };
+  // Every tab here is a user tab (see the `instances` filter above), so the
+  // label is always the live cwd, falling back to the workspace path.
+  const tabLabel = (inst: TerminalInstance) =>
+    userTabLabelFromInstance(inst, cwdByInstance[inst.id] ?? workspacePath);
 
-  const tabTitle = (inst: TerminalInstance) =>
-    inst.owner === "agent"
-      ? inst.label
-      : userTabLabelFromInstance(inst, cwdByInstance[inst.id] ?? workspacePath);
+  const tabTitle = tabLabel;
 
   const noWorkspace = !workspacePath;
   const logLines = activeInstance?.lines ?? [];

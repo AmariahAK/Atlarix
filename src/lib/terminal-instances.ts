@@ -59,11 +59,9 @@ export function userTabLabelFromInstance(
   return inst.label;
 }
 
-/** Agent tabs show a single letter in the strip; full label goes in title. */
-export function agentTabStripLabel(
-  inst: TerminalInstance,
-  agentInstances: TerminalInstance[],
-): string {
-  const index = agentInstances.findIndex((i) => i.id === inst.id);
-  return index <= 0 ? "A" : `A${index + 1}`;
-}
+/*
+ * `agentTabStripLabel` lived here — it rendered the "A" / "A2" chips for agent
+ * tabs in the strip. The agent has no tabs in the UI as of v14.27.0, so the
+ * label has nothing to label. Agent instances still exist in MAIN, where they
+ * buffer command output for `background_jobs`; they are simply never rendered.
+ */

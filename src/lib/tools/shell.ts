@@ -108,9 +108,6 @@ ToolRegistry.register({
             allow_stalled: booleanParam(
                 "This background job is expected to be quiet (a dev server / file watcher / long-running service that only prints on activity) — don't ping me about it going quiet. It still runs, still delivers its exit result, and wake_on still fires.",
             ),
-            terminal: stringParam(
-                "Run in a specific terminal tab, by name (e.g. \"e2e\") or id. The name is created once and reused, so repeated calls share that tab. Omit for the default: foreground commands share one Agent tab and backgrounded ones get their own. Use this only when you genuinely need a separate stream (a dev server in one tab, tests in another); background_jobs({operation:\"list\"}) shows the tabs that exist.",
-            ),
         },
         ["command", "description"]
     ),
@@ -124,7 +121,6 @@ ToolRegistry.register({
         wake_on,
         wake_on_regex = false,
         allow_stalled = false,
-        terminal,
     }) => {
         const dangerous = isDangerousCommand(command);
         const dangerExplanation = dangerous ? getDangerExplanation(command) : undefined;
@@ -146,10 +142,6 @@ ToolRegistry.register({
                         ? { pattern: String(wake_on), regex: wake_on_regex === true }
                         : undefined,
                 allow_stalled: allow_stalled === true,
-                terminal:
-                    typeof terminal === "string" && terminal.trim()
-                        ? terminal.trim()
-                        : undefined,
             },
         };
     },

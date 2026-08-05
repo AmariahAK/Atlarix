@@ -126,19 +126,42 @@ export function getTerminalScopeState(scopeKey: string): TerminalScopeState {
   return state ? cloneScope(state) : emptyScope();
 }
 
+/**
+ * Apply the RENDERER's view of a scope — user tabs only.
+ *
+ * The two sides own different halves and must not overwrite each other's:
+ * the renderer owns user tabs (it has the PTYs and the live cwd), main owns
+ * agent instances and the `agentOpMap` (it runs the commands and buffers their
+ * output for `background_jobs`).
+ *
+ * This used to replace the whole scope wholesale, which was survivable only
+ * while the panel also created agent instances and mirrored them back. Since
+ * v14.27.0 it does neither — the agent has no tabs in the UI — so a wholesale
+ * replace would delete main's agent instances and its `agentOpMap` on the first
+ * sync, and `appendAgentCommandOutput` would then silently find no instance to
+ * append to. Agent state is preserved here regardless of what the renderer
+ * sends.
+ */
 export function setTerminalScopeState(
   scopeKey: string,
   state: TerminalScopeState,
 ): void {
   ensureLoadedFromDisk();
-  const capped: TerminalScopeState = {
-    ...state,
-    instances: state.instances.map((i) => ({
-      ...i,
-      lines: capTerminalLines(i.lines),
-    })),
+  const existing = scopes.get(scopeKey);
+  const agentInstances = (existing?.instances ?? []).filter(
+    (i) => i.owner === "agent",
+  );
+  const userInstances = state.instances
+    .filter((i) => i.owner === "user")
+    .map((i) => ({ ...i, lines: capTerminalLines(i.lines) }));
+
+  const merged: TerminalScopeState = {
+    instances: [...userInstances, ...agentInstances],
+    activeInstanceId: state.activeInstanceId,
+    // Main's map, never the renderer's — it no longer keeps one.
+    agentOpMap: existing?.agentOpMap ?? {},
   };
-  scopes.set(scopeKey, cloneScope(capped));
+  scopes.set(scopeKey, cloneScope(merged));
   schedulePersist();
 }
 
@@ -214,11 +237,22 @@ export function appendAgentCommandOutput(
     });
   }
   if (args.output.trim()) {
-    lines.push({
-      id: `${args.operationId}-out-${args.output.length}`,
-      prefix: "[Agent]",
-      text: args.output,
-      kind: "output",
+    // One entry PER LINE, not one entry per chunk.
+    //
+    // `readTerminalInstance(maxLines)` and `capTerminalLines` both slice by
+    // entry, so a chunk carrying 900 newlines in a single entry defeated both:
+    // asking for 50 lines returned 900. That matters because this is what
+    // `background_jobs({operation:"read"})` puts in the context window — an
+    // unbounded dev-server log would land there whole. Ids stay keyed on the
+    // accumulated length so a re-emitted chunk still supersedes its predecessor.
+    const chunk = args.output.replace(/\n+$/, "").split("\n");
+    chunk.forEach((text, i) => {
+      lines.push({
+        id: `${args.operationId}-out-${args.output.length}-${i}`,
+        prefix: "[Agent]",
+        text,
+        kind: "output",
+      });
     });
   }
   if (args.status === "completed" || args.status === "error") {

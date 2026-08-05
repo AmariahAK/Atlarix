@@ -2,7 +2,7 @@
  * background_jobs (v14) — inspect & control commands started with
  * run_command({ background: true }).
  *
- *   list   — running background jobs + this session's terminal tabs
+ *   list   — running background jobs + commands with retained output
  *   output — new-since-last-check (default) or a tail; running OR finished
  *   cancel — stop a running job_id (SIGTERM)
  *
@@ -44,7 +44,7 @@ function lastLines(text: string, n: number): string {
 /**
  * Resolve what the model called the job into a running job id.
  *
- * Accepts an exact id, a terminal tab name, or a distinctive substring of the
+ * Accepts an exact id, or a distinctive substring of the
  * command. Ids are generated strings the model has to carry accurately across
  * turns, and one wrong character doesn't degrade — it fails and burns a step. A
  * name it chose itself is far harder to get wrong.
@@ -83,9 +83,9 @@ ToolRegistry.register({
   isReadOnly: false,
   allowInAskMode: true,
   description:
-    "Inspect and control background commands you started with run_command(background:true), and read any terminal tab. " +
-    "Identify a job with `job`: its id, its terminal tab name (e.g. \"e2e\" from run_command({terminal})), or a distinctive part of its command — whichever you have. " +
-    "operation:\"list\" — running jobs (job_id, command, elapsed) plus the terminal tabs in this session. " +
+    "Inspect and control background commands you started with run_command(background:true). " +
+    "Identify a job with `job`: its id, or a distinctive part of its command — whichever you have. " +
+    "operation:\"list\" — running jobs (job_id, command, elapsed). " +
     "operation:\"output\" — by default the NEW output since your last check (incremental). Pass mode:\"tail\" for the most recent output instead, which is what you want to see a still-running server's CURRENT state; tail never consumes your incremental position. Works on finished jobs too. " +
     "operation:\"cancel\" — stop `job_id`. " +
     "operation:\"watch\" — attach a wake condition to a running `job_id`: pass `wake_on` and you'll be woken when its output contains that text (prefer this over polling). " +
@@ -104,7 +104,7 @@ ToolRegistry.register({
       },
       job: {
         type: "string",
-        description: "Which job/terminal to act on: a job id, a terminal tab name, or a distinctive substring of the command. Preferred over job_id — a name you chose is far harder to get wrong than a generated id.",
+        description: "Which job to act on: a job id, or a distinctive substring of its command (e.g. \"npm run dev\"). Preferred over job_id — the command you ran is easier to get right than a generated id.",
       },
       job_id: {
         type: "string",
@@ -169,22 +169,21 @@ ToolRegistry.register({
           // Live countdown ("96s left") for jobs that have a wake timer.
           ...(j.wakeInMs != null ? { wake_in_s: Math.round(j.wakeInMs / 1000) } : {}),
         })),
-        // Terminal tabs too: the shared "Agent" tab, any tab named via
-        // run_command({terminal}), and background jobs' own tabs. Folding them
-        // in here is why a separate terminal_list tool isn't needed.
-        terminals: listTerminalInstances(resolveScopeKey(chatId, null)).map((t) => ({
-          name: t.label,
-          owner: t.owner,
-          lines: t.lineCount,
-          active: t.active,
-        })),
+        // Commands whose output is still retained — including ones that have
+        // already FINISHED, which is how a job that exited before you looked is
+        // still readable. Labelled by the command that produced it; the agent
+        // no longer names these (run_command's `terminal` param was removed in
+        // v14.27.0 along with the agent tabs in the UI).
+        retained_output: listTerminalInstances(resolveScopeKey(chatId, null))
+          .filter((t) => t.owner === "agent")
+          .map((t) => ({ command: t.label, lines: t.lineCount })),
         note: jobs.length === 0 ? "No background jobs are running." : undefined,
       };
     }
 
     const wanted = String(args.job ?? args.job_id ?? "").trim();
     if (!wanted) {
-      return { success: false, error: `operation:"${operation}" requires \`job\` (an id, terminal name, or part of the command).` };
+      return { success: false, error: `operation:"${operation}" requires \`job\` (an id, or part of the command).` };
     }
     const resolved = resolveRunningJobId(chatId, wanted);
     if (resolved && "error" in resolved) {
@@ -257,7 +256,7 @@ ToolRegistry.register({
               terminal: read.label,
               mode: "tail",
               output: read.text || "(no output)",
-              note: "This job has finished and its result was already delivered — this is the terminal tab's retained output. Act on it; do not re-run the work.",
+              note: "This job has finished and its result was already delivered — this is its retained output. Act on it; do not re-run the work.",
             };
           }
         }

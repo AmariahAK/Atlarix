@@ -1712,9 +1712,6 @@ export class PermissionInterceptor extends EventEmitter {
           operationId,
           commandHint: commandToRun,
           background: explicitBackground,
-          // Explicit target from run_command({terminal:"…"}) — created once under
-          // that name, reused on every later call.
-          terminal: (preview as { terminal?: string }).terminal,
         });
 
         // Audit log for dangerous commands (rm -rf, sudo, etc.)

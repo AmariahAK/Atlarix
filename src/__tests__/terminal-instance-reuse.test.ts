@@ -160,29 +160,40 @@ describe("agent terminal reuse", () => {
     );
   });
 
-  it("honours a shared tab the RENDERER created and synced to main", () => {
-    // The panel pre-creates the Agent tab so it is visible before the first
-    // command. Main must adopt it rather than adding a second one.
+  it("a renderer sync cannot delete main's agent instances or its op map", () => {
+    // Replaces "honours a shared tab the RENDERER created and synced to main",
+    // which asserted the opposite arrangement: the panel pre-created the Agent
+    // tab and main adopted it. Since v14.27.0 the agent has no tabs in the UI,
+    // so the renderer sends only user tabs — and if that sync still replaced the
+    // whole scope it would wipe the agent instance and the `agentOpMap` that
+    // `appendAgentCommandOutput` resolves through, leaving `background_jobs`
+    // reading an empty buffer for a job that is still printing.
     const scope = freshScope();
+    const agent = runCommand(scope, "npm run dev");
+    expect(agent.success).toBe(true);
+
     setTerminalScopeState(scope, {
       instances: [
         {
-          id: "agent-from-renderer",
-          label: AGENT_FG_LABEL,
-          owner: "agent",
+          id: "user-1",
+          label: "Shell 1",
+          owner: "user",
           lines: [],
           createdAt: Date.now(),
         },
       ],
-      activeInstanceId: "agent-from-renderer",
-      agentOpMap: { [AGENT_FG_KEY]: "agent-from-renderer" },
+      activeInstanceId: "user-1",
+      agentOpMap: {},
     });
 
-    const r = runCommand(scope, "npm test");
-    expect(r.success && r.instanceId).toBe("agent-from-renderer");
-    expect(
-      getTerminalScopeState(scope).instances.filter((i) => i.owner === "agent"),
-    ).toHaveLength(1);
+    const state = getTerminalScopeState(scope);
+    expect(state.instances.filter((i) => i.owner === "user")).toHaveLength(1);
+    expect(state.instances.filter((i) => i.owner === "agent")).toHaveLength(1);
+    // The op map survived, so a later command still routes to the same tab.
+    const again = runCommand(scope, "npm run dev");
+    expect(again.success && agent.success && again.instanceId === agent.instanceId).toBe(
+      true,
+    );
   });
 
   it("an explicit terminal name gets its own tab, reused across calls", () => {
