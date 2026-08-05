@@ -554,6 +554,56 @@ only, for the right reason — when the shared trailing is removed.
   - Git history keeps the supervisor if a real report ever shows tools swallowing paths — at which point
     we will know *which* tools, and the scraper may just need another pattern.
 
+## 🔍 Hardcoding sweep (2026-08-05) — findings
+
+Audit of every uppercase constant list in `src/lib` + `src/ipc` after two hardcoded lists were
+deleted this batch. **The test that matters is what happens when the list is INCOMPLETE.**
+
+**Fixed:**
+- **4 of 26 live tools had no activity label** (`compress_context`, `list_attachments`,
+  `read_attachment`, `schedule_wakeup`) and fell through to the generic `Running <tool>…`
+  template — the documented "Runned &lt;tool&gt;" trap. Labels added, and
+  `tool-activity-labels-coverage.test.ts` now fails with the offending tool's name so the
+  requirement lives in the suite instead of a note. Expand views were already fine (`text`).
+
+**Open, needs a decision — CDK-shaped exclusions in file discovery:**
+`isExcludedDiscoveryRelPath` (`ipc/utils/project-files.ts`) and `isExcludedDir`
+(`ipc/utils/file_utils.ts`) — TWO implementations of the same rules, itself a drift risk —
+hardcode `cdk.out`, `.cdk-out-deploy`, `.cdk-staging`, `.aws-sam`, plus `asset.*` and **any
+64-hex-character directory segment**. Added in v8.2.0, presumably while working on aws-cdk (a
+registered workspace here), which is the [[atlarix-no-hardcoding-telios]] pattern.
+- **Blast radius is low** and not a correctness boundary: over-excluding only means a path is
+  missing from `@`-mention autocomplete and the 4000-path discovery cap; the agent can still
+  read it by path. That is why it was not changed unilaterally.
+- **The bare 64-hex rule is the genuinely wrong one.** It matches a SHAPE, not a name, so any
+  sha256-named directory in any project silently loses its files — and CDK's own asset dirs
+  live under `cdk.out`/`.cdk-staging`, which are already excluded by name, making it largely
+  redundant as well as over-broad.
+- **Root cause is upstream:** the `fd` strategy passes `--no-ignore-vcs`, deliberately throwing
+  away `.gitignore` (which already lists `cdk.out` in every CDK project), and then
+  hand-maintains a replacement. Honouring `.gitignore` instead is the derivation — but that is
+  a behaviour change with its own trade-off (ignored-but-wanted files), so it is a decision,
+  not a sweep.
+
+**Checked and CORRECT as-is — do not "fix" these:**
+- **`defaultWritablePaths`** (`lib/sandbox/wrap-command.ts`) — a curated ~18-entry home-cache
+  list beside a dynamic env-var half. It is a *write* allowlist: an incomplete entry fails
+  CLOSED (a denial the escalation flow then offers to grant). Making it dynamic — probing
+  `$HOME` for dot-dirs — would WIDEN the sandbox. Curated is the correct posture.
+- **`DANGEROUS_PATTERNS`** / **`SYSTEM_SCOPE_PATTERNS`** — UX gates, not boundaries.
+  system-scope says so outright: "best-effort — the sandbox catches anything not listed here."
+- **`DENIAL_PATTERNS`** — extracts a path from tool prose (a positive capability); a miss now
+  degrades into `sandbox-failure-context.ts` rather than into silence.
+- **Browser error capture** (`lib/browser/error-hook.ts`) — filters on the browser's own
+  console `level` and HTTP status ≥ 400, never on curated message strings. Already derived.
+- **`file-permission-scope.ts`** — the v14.23.0 protected-path deletion has NOT crept back; what
+  remains is a set of Atlarix's own operation names, which we control.
+- **`models_dev.ts` / provider dispatch** — de-hardcoded in v14.23.0; only the documented
+  deliberate pins remain.
+- **`ALWAYS_EXCLUDE`'s non-CDK entries** (`node_modules`, `dist`, `target`, `vendor`, `.venv`…)
+  and the browser `KEY_ALIASES`/`MODIFIER_TOKENS` — closed sets from conventions and the DOM
+  spec, not ecosystems that grow.
+
 ## 🔜 Blocked on the owner — NOT active work
 
 Kept for the record; none of these can be picked up in a coding session.

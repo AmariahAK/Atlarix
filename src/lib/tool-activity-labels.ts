@@ -4,6 +4,13 @@
  */
 
 const LABELS: Record<string, string> = {
+  // Four tools shipped without entries here and fell through to the generic
+  // `Running <tool name>…` template — the documented "Runned <tool>" trap, caught by
+  // `tool-activity-labels-coverage.test.ts` rather than by the next person to notice.
+  compress_context: "Compacting context…",
+  list_attachments: "Listing attachments…",
+  schedule_wakeup: "Setting a timer…",
+  read_attachment: "Reading attachment…",
   // v13 surface (legacy names below are kept for persisted sessions)
   glob: "Finding files…",
   grep: "Searching code…",
@@ -274,6 +281,10 @@ export function getToolActivityLabelWithArgs(
 }
 
 const DONE_LABELS: Record<string, string> = {
+  compress_context: "Context compacted",
+  list_attachments: "Listed attachments",
+  read_attachment: "Read attachment",
+  schedule_wakeup: "Timer set",
   // v13 surface (legacy names below are kept for persisted sessions)
   glob: "Found files",
   grep: "Searched code",
