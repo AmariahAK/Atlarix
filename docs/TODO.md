@@ -566,26 +566,62 @@ deleted this batch. **The test that matters is what happens when the list is INC
   `tool-activity-labels-coverage.test.ts` now fails with the offending tool's name so the
   requirement lives in the suite instead of a note. Expand views were already fine (`text`).
 
-**Open, needs a decision — CDK-shaped exclusions in file discovery:**
-`isExcludedDiscoveryRelPath` (`ipc/utils/project-files.ts`) and `isExcludedDir`
-(`ipc/utils/file_utils.ts`) — TWO implementations of the same rules, itself a drift risk —
-hardcode `cdk.out`, `.cdk-out-deploy`, `.cdk-staging`, `.aws-sam`, plus `asset.*` and **any
-64-hex-character directory segment**. Added in v8.2.0, presumably while working on aws-cdk (a
-registered workspace here), which is the [[atlarix-no-hardcoding-telios]] pattern.
-- **Blast radius is low** and not a correctness boundary: over-excluding only means a path is
-  missing from `@`-mention autocomplete and the 4000-path discovery cap; the agent can still
-  read it by path. That is why it was not changed unilaterally.
-- **The bare 64-hex rule is the genuinely wrong one.** It matches a SHAPE, not a name, so any
-  sha256-named directory in any project silently loses its files — and CDK's own asset dirs
-  live under `cdk.out`/`.cdk-staging`, which are already excluded by name, making it largely
-  redundant as well as over-broad.
-- **Root cause is upstream:** the `fd` strategy passes `--no-ignore-vcs`, deliberately throwing
-  away `.gitignore` (which already lists `cdk.out` in every CDK project), and then
-  hand-maintains a replacement. Honouring `.gitignore` instead is the derivation — but that is
-  a behaviour change with its own trade-off (ignored-but-wanted files), so it is a decision,
-  not a sweep.
+### 🎯 NEXT SESSION — delete the file-discovery exclusion apparatus (owner-directed)
 
-**Checked and CORRECT as-is — do not "fix" these:**
+The **only** one of the swept findings that needs active work. Deep-dived 2026-08-05; the
+owner's read was right, and the mechanism is more specific than first written up.
+
+**The finding.** `isExcludedDiscoveryRelPath` + `ALWAYS_EXCLUDE` (`ipc/utils/project-files.ts`)
+and `isExcludedDir` (`ipc/utils/file_utils.ts`) are TWO parallel implementations of one
+exclusion set, hardcoding `cdk.out`, `.cdk-out-deploy`, `.cdk-staging`, `.aws-sam`, `asset.*`
+and **any 64-hex-character directory segment**. Added v8.2.0, presumably while working on
+aws-cdk (a registered workspace here) — [[atlarix-no-hardcoding-telios]] exactly.
+
+**Why it exists, and why that reason is obsolete.** `getProjectFiles` has three strategies: `fd`
+(with `--no-ignore-vcs`, i.e. deliberately discarding `.gitignore`), `rg`, and a legacy
+**synchronous recursive walk**. The exclusion list is scaffolding for the two strategies that
+do not honour `.gitignore`.
+- **`project-files.ts` probes `rg --version` on PATH and shells out to `"rg …"` — it does NOT
+  use the bundled `@vscode/ripgrep` that `grep`/`glob` resolve via `resolveRipgrepPath()`.**
+  That single line is the whole problem: on a machine with neither `fd` nor a system `rg`
+  installed (the common case), discovery lands on the legacy walk, which is why the hand-
+  maintained excludes are needed at all.
+- It also means `@`-mention behaviour currently **differs between users** depending on whether
+  they happen to have `fd` installed — the `fd` path offers gitignored files, the `rg` path
+  does not. That inconsistency is worth killing on its own.
+
+**Measured, so the trade-off is known rather than assumed.** The bundled ripgrep with the exact
+flags `grep`/`glob` use (`--files --hidden --no-ignore-parent --no-ignore-global`) against a
+fixture containing `.gitignore` (`.env`, `cdk.out/`), `.env`, `cdk.out/a.js`, `real.ts`:
+- **excludes `cdk.out/a.js`** → every CDK name AND the 64-hex rule are redundant, since any real
+  project gitignores its build output;
+- **excludes `.env`** (gitignored) → matches what most users already get today, since the `fd`
+  path is the outlier;
+- **includes `.git/**`** (19 files) → **exactly one exclusion is still needed**, and it is
+  derived from an observed need rather than an ecosystem list.
+
+**The change.**
+1. Point `project-files.ts` at `resolveRipgrepPath()` (bundled, always available).
+2. Strategy 2 then always succeeds → **delete strategy 1 (`fd` + `--no-ignore-vcs`) and strategy
+   3 (the legacy walk)**, and with them `ALWAYS_EXCLUDE`, `isExcludedDiscoveryRelPath` and
+   `CDK_ASSET_HEX_SEGMENT` entirely. `.gitignore` does the work, same engine as `grep`/`glob`.
+3. Keep one `--glob '!.git/**'` (or drop `--hidden`), per the measurement above.
+4. `file_handlers.ts:108` says `@`-mention is "gitignore-aware via getProjectFiles" — **false
+   today** on the `fd` path; it becomes true after step 1.
+5. `isExcludedDir` (`file_utils.ts`) has a DIFFERENT live consumer: `utils/codebase.ts` →
+   `extractCodebaseCached` → the `context-paths` IPC (reachable from the renderer; preload +
+   ipc_client both reference it), which does its own recursive walk. So it cannot be deleted
+   with the above — decide separately whether that walk also moves to bundled ripgrep (then
+   `isExcludedDir` goes too) or keeps a minimal set with the CDK/hex rules dropped.
+6. Note while there: `glob.ts`'s "in-workspace files (incl. `.env`) are enumerable" means "we
+   apply no secret denylist of our own" — a *gitignored* `.env` is still not listed. True as
+   written, easy to misread.
+
+Net effect: less code, one engine for all file discovery, identical behaviour for every user,
+and no ecosystem names in the product.
+
+**Checked and CORRECT as-is — do not "fix" these.** None needs work next session; the
+distinguishing test in every case is *what happens when the list is incomplete*:
 - **`defaultWritablePaths`** (`lib/sandbox/wrap-command.ts`) — a curated ~18-entry home-cache
   list beside a dynamic env-var half. It is a *write* allowlist: an incomplete entry fails
   CLOSED (a denial the escalation flow then offers to grant). Making it dynamic — probing
@@ -600,9 +636,13 @@ registered workspace here), which is the [[atlarix-no-hardcoding-telios]] patter
   remains is a set of Atlarix's own operation names, which we control.
 - **`models_dev.ts` / provider dispatch** — de-hardcoded in v14.23.0; only the documented
   deliberate pins remain.
-- **`ALWAYS_EXCLUDE`'s non-CDK entries** (`node_modules`, `dist`, `target`, `vendor`, `.venv`…)
-  and the browser `KEY_ALIASES`/`MODIFIER_TOKENS` — closed sets from conventions and the DOM
-  spec, not ecosystems that grow.
+- Browser `KEY_ALIASES` / `MODIFIER_TOKENS` — a closed set from the DOM spec, not an ecosystem
+  that grows.
+- ~~`ALWAYS_EXCLUDE`'s non-CDK entries (`node_modules`, `dist`, `target`, `vendor`, `.venv`…)~~
+  — **withdrawn.** First written up as a defensible "common build-output names" list. The
+  measurement above supersedes that: `.gitignore` already excludes all of them, so the whole
+  list goes with the fallback strategies. Only `.git` survives, and only because `--hidden`
+  makes ripgrep list it.
 
 ## 🔜 Blocked on the owner — NOT active work
 
