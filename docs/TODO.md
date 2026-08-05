@@ -1,8 +1,59 @@
 # Atlarix TODO
 
-**Current Version:** v14.26.0 (2026-08-05) — one engine for every file lookup, and a permission
-surface that was measured before anything was cut.
+**Current Version:** v14.27.0 (2026-08-05) — your credentials and your workspaces stop
+disappearing, and the agent can finally see the automations it should be recommending.
 **Last Updated:** 2026-08-05
+
+## ✅ SHIPPED in v14.27.0 — stop losing credentials, stop deleting workspaces, let the agent see automations
+
+**One root cause was silently destroying credentials.** Reported as two symptoms — "I didn't
+sign out so why does the app log me out when I close it" and "I keep losing all my api keys" —
+and they were the same mistake in two places: **a transient `safeStorage` unavailability was
+read as "there is no data", and the emptiness was then written over the real data.**
+- `readBlobFromDisk` SKIPPED an existing `supabase-auth.enc` when encryption was momentarily
+  unavailable and returned `{}`, indistinguishable from never having signed in. That `{}` was
+  then **cached**, which silently defeated the v13.9 hardening: `restoreAuthSessionOnStartup`
+  retries `getSession()` after 400 ms for exactly this condition, but the retry re-read a cache
+  instead of the disk, so the documented fix could never fire. The next `setItem`/`removeItem`
+  persisted `{}` over the file. A session obtained while unavailable was never written at all —
+  the literal "close the app and you're signed out".
+- Same shape for API keys: `readSettings` DELETED any secret it could not decrypt, and
+  `writeSettings` was built on `readSettings`, so any later write of an unrelated setting
+  (theme, zoom, model) persisted the stripped object and erased the keys. `writeSettings` no
+  longer depends on being able to read: it encrypts what the caller supplied and round-trips
+  untouched ciphertext for everything else. The warning that said "re-enter API keys" — advice
+  that made the loss permanent — is gone.
+- **Verified by reverting**: 4 of 7 session tests and 3 of 5 settings tests fail without the fix.
+  Assertions are on the BYTES ON DISK, because a read returning nothing while the keystore is
+  busy is acceptable and only the file distinguishes that from loss.
+
+**Signing out no longer deletes your work.** It ran `db.delete(apps).run()` unconditionally
+("fresh start"), cascading through chat sessions, MCP servers, daily logs, workflow templates
+and automations. The Free cap now gates CREATION — the same way `mcp_handlers` and
+`automations/service` already enforced theirs — instead of deleting all but the OLDEST
+workspace on sign-in. Three bugs surfaced doing it: the creation check already existed but ran
+BEFORE the dedupe lookups (so a Free user at the cap could not re-open their own only
+workspace); the duplicate path had no check at all; and the workspace count was memoised with
+invalidation only on delete. Cleanup is now an unchecked box in a sign-out dialog.
+
+**The agent can see automations.** `grep -rn "automation"` across every prompt and skill
+returned zero hits while the feature had tables, three trigger kinds, a runner, pollers and a
+feed. One mode-parameterised `automations` tool in every mode; `list` free, mutations through
+the approval gate. **`notifyAgent` is required with no default** (owner's design): it decides
+whether a finished run reaches the agent, so `false` means the automation can never cost
+tokens however often it fires. Toggleable either way afterwards.
+
+**The agent has no terminal tabs.** The auto-close machinery — four special-case rules and a
+6-second timer, to stop a surface being annoying — is gone, along with the `terminal` param and
+tab-name addressing. Two real bugs fell out: `background_jobs` read returned NOTHING unless the
+Terminal tab happened to be open (the renderer owned the buffer), and `maxLines` capped entries
+rather than lines, so asking for 50 returned 900 straight into the context window.
+
+**Tests stop eating the evidence.** The suite wrote to `~/Library/Logs/Atlarix/main.log` — the
+packaged app's own log — and had rotated the real history away inside three minutes, destroying
+the diagnostic record of the credential bug while it was being investigated. Same class as the
+435 empty `~/.atlarix/projects` directories fixed in v14.25.0, with a worse failure mode: that
+one created junk, this one deleted evidence.
 
 ## ✅ SHIPPED in v14.26.0 — one engine for every file lookup, one answer per permission question
 
@@ -44,7 +95,7 @@ file.
 - **Accessibility statement** at `atlarix.dev/accessibility`, covering both the site and the
   app, claiming **no** conformance level (nothing has been audited) and naming its gaps.
 
-## 🚧 ALSO IN v14.26.0 — one path rule, memory that compacts, cross-repo revert
+## ✅ ALSO IN v14.26.0 — one path rule, memory that compacts, cross-repo revert
 
 **One spelling for reaching another project.** The four file tools disagreed: `glob`/`grep` took
 `../sibling` and absolute, `read_file`/`edit_file` took absolute only and threw on `../`, and `glob`
@@ -137,8 +188,11 @@ for `../`; and a launch that rendered signed-out for seconds before flipping.
 - Deleted: `providers/base-provider.ts` (dead StackSense port), `installed-skills.ts`, the
   orphaned `skills:get-active-for-session` IPC, the unreachable repo-skill `priority` branch.
 - Tests: 297 files / 2405 green; tsc (app, main, tests) + oxlint clean; packaged self-test 4/4.
-- **Still open:** `useAuth` fan-out — ~22 consumers each run their own session check, so
-  "Enforcing workspace limit" fires 5× on sign-in. Wasteful, not broken; needs its own pass.
+- ~~**Still open:** `useAuth` fan-out — "Enforcing workspace limit" fires 5× on sign-in.~~ —
+  **MOOT in v14.27.0.** The fan-out is unchanged (~22 consumers still each run their own session
+  check), but the thing they were all invoking is gone: `auth:enforce-workspace-limit` DELETED
+  workspaces, which is why a self-racing burst mattered. The cap gates creation now, so there is
+  no destructive operation to serialise. What remains is ordinary duplicate reads.
 
 ## ✅ SHIPPED in v14.24.0 — the clone dialog actually clones
 
@@ -423,64 +477,18 @@ for that turn. Three separate causes:
 - **New standing guard:** no mode's prompt may name a tool that mode cannot call — it caught three
   of the six contradictions above.
 
-## 🔜 NEXT SESSION — Agent-visible automations
+## ~~🔜 NEXT SESSION — Agent-visible automations~~ — **SHIPPED v14.27.0**
 
-**Automations are fully built and completely invisible to the agent.** `grep -rn "automation"` across
-`src/prompts/system_prompt.ts`, `chat_stream/context-sections.ts`, `AGENTS.md` and every skill returns
-**nothing** — no tool, no prompt line, no notification. Meanwhile the feature is substantial: the
-`automations` + `automation_runs` tables, three trigger kinds (`schedule` cron, `github`
-new-pr/review-requested/ci-failed, `mcp` tool poll), a runner, pollers, auto-approve, notify, and a run
-feed the human drives entirely by hand in `AutomationsTab`. The actor best placed to notice "you have
-checked CI by hand three times today" cannot see that automations exist.
+Built to the owner-approved shape, with two decisions taken during the work: **all modes** may
+create/update/delete (the approval gate is the control, so a read-only mode listing and
+recommending is the point), and **`notifyAgent` is required with no default** — the owner's
+design, and better than this entry's original "default to surfacing runs on request plus
+per-automation opt-in for push", because a default makes the spend decision silently on behalf
+of whoever set the automation up.
 
-**Shape (owner-approved, 2026-08-05):** think of an automation as a background task that persists —
-same lifecycle affordances, but for logs, CI and MCP polls.
-
-- **Notify only. Atlarix informs; the AGENT acts.** No write-capable automations: `runMode` stays
-  `notify-only | read-only`. (`worktree-write` was removed in v14.21.0 with the sub-agent worktree and
-  is deliberately not returning — an unattended agent making changes on a timer is a different product,
-  and the unattended read-only allowlist below is still unsolved.)
-- **Nothing is ever killed, and there is no lifetime cap.** Both guarantees already hold and must be
-  preserved rather than built: a background job is **"NEVER auto-killed"**
-  (`background-commands.ts:115`) — the 3-minute stall threshold is advisory-only, fires once, and
-  `killBackgroundJob` runs only on an explicit agent/user cancel (plus `killAllBackgroundJobs` at
-  shutdown). Automations have no kill path at all; they are polled. An automation or job may run as long
-  as it likes.
-- **Wake-ups: 4 h per call, re-armable indefinitely.** Also already true — `MAX_DELAY_MS = 14_400_000`
-  in `lib/agent/scheduled-wakeups.ts:20`, clamped **per call**, so the agent can arm another 4 h when one
-  fires and keep going. The only limit is `MAX_PENDING_PER_CHAT = 8` *concurrent* pending wake-ups,
-  which does not restrict sequential re-arming. Nothing to change; automations just need to participate.
-- **Leave `MIN_POLL_INTERVAL_MINUTES` (5) alone.** An earlier draft of this entry said "raise the poll
-  floor 5 min → 1 hour to match background tasks" — that conflated two unrelated things and is
-  **withdrawn**. It is a *rate limit* on how often we hit GitHub / an MCP server, protecting API quota;
-  it has nothing to do with killing anything, and raising it would make automations poll **less** often,
-  which is the opposite of the goal. The user picks any interval at or above the floor.
-- **One `automations` tool**, mode-parameterised like `plan`/`mcp_call` so the standing cost is the tool
-  description alone: `list` (with recent runs + logs), `create`, `update`, `stop`/`cancel`, `delete`.
-- **`create`/`update`/`delete` go through the approval gate; `list` is free.** A standing, recurring,
-  quota-spending job that runs while nobody is watching is a different risk class from a one-shot file
-  edit, and a silently deleted automation leaves nothing on disk to notice. The gate and its card
-  already exist.
-- **The agent is told when a run finishes, hangs, or a poll is missed**, drained through the existing
-  background-result channel (`takePendingBackgroundCommandResults`) so it lands in the next turn rather
-  than interrupting one — and so it honours the v14.23.0 rule that background work never wakes a
-  stopped turn. Default to surfacing runs on request plus a count in the feed; per-automation opt-in for
-  push.
-- **NO `allow_stalled` for automations** (asked and answered). It exists for background jobs because
-  output silence is ambiguous liveness — `OUTPUT_IDLE_THRESHOLD_MS = 180_000`, comment: "output-flow =
-  liveness", advisory-only, fires once. None of that transfers: an automation is silent between polls by
-  construction (100% of the time at an hourly floor), and its liveness is **arithmetic** —
-  `lastRunAt` + `intervalMinutes` answers "did a poll happen?" objectively, so there is nothing for the
-  agent to declare. Worse, a background job's flag dies with the job while an automation is *standing*,
-  so the flag would persist across sessions and silently convert "this poller is dead" into "don't
-  mention it" — the worst possible failure for a notify-only feature. Detect instead: **hung run**
-  (started, unfinished after N× expected duration; reported, and does not block the next poll) and
-  **missed poll** (`lastRunAt` older than ~2 intervals).
-- **Timers need nothing new.** `schedule_wakeup` already clamps to 60–14400s (4 h), and
-  `background_jobs` already has `wake_in`/`adjust_timer`. Automations just need to participate.
-- **The real win is recommendation:** having watched the user tag, wait, check CI and fix by hand, the
-  agent should be able to offer to make that an automation. That is the difference between a feature
-  users discover and one they don't.
+Everything this entry said to PRESERVE was preserved: nothing is killed, there is no lifetime
+cap, wake-ups stay re-armable, `MIN_POLL_INTERVAL_MINUTES` is untouched, and there is no
+`allow_stalled` for automations.
 
 ## ⏳ Open / deferred
 

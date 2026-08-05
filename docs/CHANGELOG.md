@@ -3,6 +3,63 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
+## [14.27.0] (2026-08-05) — Your credentials and your workspaces stop disappearing
+
+Three things this release stops doing to you, and one it starts.
+
+**Signing out no longer logs you out.** That is not a typo. Two reports —
+"I didn't sign out so why does the app log me out when I close it" and "I keep losing all my
+api keys" — turned out to be one mistake made in two places: **when the OS keystore was briefly
+unavailable, Atlarix read that as "there is no data", and then wrote the emptiness over the real
+data.**
+
+An existing session file was skipped and reported as no session at all. That result was cached,
+which quietly defeated the retry added in v13.9 for exactly this case — it re-read the cache
+instead of the disk, so the fix could never fire. The next save then wrote the blank over your
+session. And a session obtained while the keystore was busy was never written at all, which is
+the literal "close the app and you're signed out".
+
+Your API keys died the same way: any key that could not be decrypted was dropped from memory,
+and because saving worked by read-modify-write, changing your theme was enough to persist the
+loss. Unreadable is not absent. Nothing is deleted now because it could not be opened, and the
+warning no longer tells you to re-enter keys that are still there.
+
+**Signing out no longer deletes your workspaces.** It ran an unconditional delete of every
+workspace — and with them every chat session, MCP server and automation — under a comment
+reading "fresh start". Your folders and code were never touched, but everything Atlarix knew
+about them was. No comparable tool does this; signing out of Claude Code clears tokens and
+leaves your project history alone. The Free plan limit now works the way this product's other
+limits already worked: it declines to create a second workspace and tells you why, rather than
+deleting the ones you have. If you're above the limit already, you keep everything.
+
+Fixing that turned up three more: a Free user sitting at the one-workspace limit **could not
+re-open the workspace they already had**, because the check ran before the "do you already have
+this?" lookup; duplicating a workspace skipped the limit entirely; and the workspace count was
+cached in a way that only refreshed on delete. Wanting the data gone is now an unchecked box in
+the sign-out dialog rather than the default.
+
+**The AI can see your automations.** The feature was substantial and completely invisible to
+the agent — it had tables, cron/GitHub/MCP triggers, a runner, pollers and a run feed, and not
+one mention anywhere the model could read. So the actor best placed to notice "you've checked
+CI by hand three times today" had no idea automations existed.
+
+Now there's one `automations` tool. Listing is free in every mode; creating, changing or
+deleting one asks you first, on a card that spells out what a name cannot: that it runs on its
+own, whether it will wake the AI, whether it costs a model turn each time it fires, and any
+standing MCP consent it grants.
+
+Every automation now has to say **whether it tells the AI** — required, no default, from you
+and from the agent alike, and switchable either way afterwards. It is the difference between
+"watch CI and act on it" and "watch Slack and let me deal with it": an automation set not to
+tell the AI cannot spend a token no matter how often it fires. The agent is told to propose
+rather than set things up on its own, and to say which it chose and why.
+
+**The AI no longer has terminal tabs.** Its commands and their output already appear in chat;
+the tabs were a second copy, and keeping them tidy had grown four special-case rules and a
+timer. Removing them surfaced two real bugs: reading a background job's output returned nothing
+unless you happened to have the Terminal tab open, and a request for 50 lines could return 900.
+Your own terminal tabs are untouched.
+
 ## [14.26.0] (2026-08-05) — One engine for every file lookup, one answer per permission question
 
 Two threads, both about the same habit: keeping a mechanism because it exists rather than
