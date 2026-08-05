@@ -22,6 +22,34 @@ setAgentMemoryRootOverride(
 );
 
 /**
+ * Tests NEVER write to the app's real log file.
+ *
+ * electron-log resolves its file transport to the OS log directory
+ * (`~/Library/Logs/Atlarix/main.log` on macOS) — the SAME file the packaged app
+ * writes to. Every suite that touches a main-process module logs there, and the
+ * volume is enough to rotate real history away in minutes: on 2026-08-05 both
+ * `main.log` and `main.old.log` contained nothing but that day's test output
+ * (`chat -1`, a `"subscription lookup exploded"` fixture), which destroyed the
+ * diagnostic record of a live user-reported credential-loss bug at exactly the
+ * moment it was being investigated.
+ *
+ * Same class as the agent-memory leak above, with a worse failure mode: that one
+ * created junk, this one deletes evidence. Console output is untouched, so a
+ * failing test still says why.
+ */
+try {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const electronLog = require("electron-log") as {
+    transports?: { file?: { level?: unknown } };
+  };
+  if (electronLog?.transports?.file) {
+    electronLog.transports.file.level = false;
+  }
+} catch {
+  /* electron-log not resolvable in this project — nothing to silence */
+}
+
+/**
  * Vitest runs in Node, not Electron. Many main-process modules import `electron`
  * or `@sentry/electron/main`; stub them so importing those graphs does not throw.
  */

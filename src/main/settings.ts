@@ -101,8 +101,14 @@ export function readSettings(): UserSettings {
   const onDecryptFailure = (err: unknown) => {
     if (decryptFailureLogged) return;
     decryptFailureLogged = true;
+    // Deliberately NOT "re-enter your API keys": that advice was wrong often
+    // enough to be harmful. The most common cause is the OS keystore being busy
+    // for a moment around launch, and the stored ciphertext is preserved on
+    // every write now, so it comes back on its own once the keystore does.
     logger.warn(
-      "settings: Could not decrypt one or more stored secrets (OS keychain changed, different machine, or corrupt data). Re-enter API keys or sign in again in Settings.",
+      "settings: Could not decrypt one or more stored secrets right now (OS keystore busy, changed, or on a different machine). " +
+        "The stored values are KEPT and will be readable again once the keystore is available — nothing has been erased. " +
+        "Only re-enter a key if it is still missing after a restart.",
       err,
     );
   };
@@ -244,26 +250,107 @@ export function readSettings(): UserSettings {
   }
 }
 
+/**
+ * The settings file exactly as it sits on disk — no decryption, no defaults.
+ *
+ * `writeSettings` needs this because it must be able to preserve a secret it
+ * cannot currently READ. See the comment there.
+ */
+function readRawSettingsFile(): Record<string, unknown> | null {
+  try {
+    const filePath = getSettingsFilePath();
+    if (!fs.existsSync(filePath)) return null;
+    const parsed = JSON.parse(fs.readFileSync(filePath, "utf-8"));
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
 export function writeSettings(settings: Partial<UserSettings>): void {
   try {
     const filePath = getSettingsFilePath();
     const currentSettings = readSettings();
     const newSettings = { ...currentSettings, ...settings };
-    if (newSettings.githubAccessToken) {
+
+    // A SECRET THE CALLER DID NOT TOUCH IS NEVER REWRITTEN FROM MEMORY.
+    //
+    // This function used to build entirely on `readSettings()`, which DELETES
+    // any secret it fails to decrypt. So a momentarily unavailable OS keystore
+    // (the same transient condition the auth layer retries for) turned every
+    // later settings write — a theme change, a zoom change, picking a model —
+    // into the step that erased the user's API keys from disk permanently. The
+    // reported symptom was "I keep losing all my api keys".
+    //
+    // The rule now: encrypt what the caller explicitly supplied; for anything
+    // else, copy the ciphertext already on disk through untouched. Writing no
+    // longer depends on being able to read.
+    const raw = readRawSettingsFile();
+    const rawProviders = (raw?.providerSettings ?? {}) as Record<
+      string,
+      { apiKey?: unknown; serviceAccountKey?: unknown } | undefined
+    >;
+    const callerTouchedProviders = settings.providerSettings != null;
+
+    if ("githubAccessToken" in settings) {
+      // Explicit: honour it, including an explicit removal.
+      if (newSettings.githubAccessToken) {
+        newSettings.githubAccessToken = encrypt(
+          newSettings.githubAccessToken.value,
+        );
+      }
+    } else if (newSettings.githubAccessToken) {
       newSettings.githubAccessToken = encrypt(
         newSettings.githubAccessToken.value,
       );
+    } else if (raw?.githubAccessToken) {
+      // Present on disk, unreadable now, untouched by the caller — keep it.
+      newSettings.githubAccessToken =
+        raw.githubAccessToken as UserSettings["githubAccessToken"];
     }
+
     for (const provider in newSettings.providerSettings) {
+      const callerTouchedThisProvider =
+        callerTouchedProviders && settings.providerSettings?.[provider] != null;
+      const rawProvider = rawProviders[provider];
+
       if (newSettings.providerSettings[provider].apiKey) {
         newSettings.providerSettings[provider].apiKey = encrypt(
           newSettings.providerSettings[provider].apiKey.value,
         );
+      } else if (!callerTouchedThisProvider && rawProvider?.apiKey) {
+        newSettings.providerSettings[provider].apiKey =
+          rawProvider.apiKey as NonNullable<
+            UserSettings["providerSettings"][string]["apiKey"]
+          >;
       }
+
       // Encrypt Vertex service account key if present
       const v = newSettings.providerSettings[provider] as VertexProviderSetting;
       if (provider === "vertex" && v?.serviceAccountKey) {
         v.serviceAccountKey = encrypt(v.serviceAccountKey.value);
+      } else if (
+        provider === "vertex" &&
+        !callerTouchedThisProvider &&
+        rawProvider?.serviceAccountKey
+      ) {
+        v.serviceAccountKey =
+          rawProvider.serviceAccountKey as VertexProviderSetting["serviceAccountKey"];
+      }
+    }
+
+    // A provider whose ONLY content was an unreadable key is absent from the
+    // decrypted view entirely, so the loop above never visits it. Carry those
+    // through too, or the key vanishes exactly as before.
+    if (raw?.providerSettings) {
+      for (const provider in rawProviders) {
+        if (newSettings.providerSettings[provider]) continue;
+        if (callerTouchedProviders && settings.providerSettings?.[provider] != null) continue;
+        const rawProvider = rawProviders[provider];
+        if (rawProvider?.apiKey || rawProvider?.serviceAccountKey) {
+          newSettings.providerSettings[provider] =
+            rawProvider as UserSettings["providerSettings"][string];
+        }
       }
     }
     const validatedSettings = UserSettingsSchema.parse(newSettings);
