@@ -3,6 +3,7 @@ import type { InlineTimelineToolStatus } from "@/lib/chat/inline-timeline";
 import {
   formatToolResultPreview,
   getToolCompletedSummary,
+  getToolFailedSummary,
   getToolRunningSummary,
 } from "@/lib/chat/stream-tool-display";
 import {
@@ -32,8 +33,11 @@ export function getPersistedToolSummary(
     return getToolRunningSummary(part.toolName, toolArgs);
   }
   if (part.status === "error") {
+    // Was `getToolCompletedSummary` — past-tense SUCCESS prose ("Found files matching
+    // …") with the error appended after a colon, so a reloaded failed card claimed the
+    // thing it had failed to do. Name the attempt, then the error.
     const err = part.error?.trim();
-    const base = getToolCompletedSummary(part.toolName, toolArgs);
+    const base = getToolFailedSummary(part.toolName, toolArgs);
     return err ? `${base}: ${err.slice(0, 80)}` : base;
   }
   const hint = argsPathHint(part.args);

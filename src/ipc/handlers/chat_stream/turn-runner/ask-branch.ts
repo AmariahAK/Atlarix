@@ -70,6 +70,7 @@ import {
   redactToolMediaForDisplay,
   extractImageMedia,
 } from "@/lib/ai/tool-model-output";
+import { toolActivityStatusFor } from "@/lib/tools/tool-result-status";
 import {
   summarizeToolResultForActivityDetail,
   toolResultTextForExpand,
@@ -753,6 +754,11 @@ export async function runAskBranch(
                       }
                     }
 
+                    // A RETURNED failure (`{success:false}` / legacy bare `{error}`) is a
+                    // failure just as much as a thrown one. `askActivityStatus` was set
+                    // only in the `catch`, so a returned failure rendered with a green
+                    // tick and a past-tense success label. Same fix as build-branch.
+                    askActivityStatus = toolActivityStatusFor(result);
                     // v12 0.2: redacted display copy + structured screenshot
                     // return (media part via toModelOutput).
                     toolResultForActivity = redactToolMediaForDisplay(result);

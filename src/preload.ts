@@ -44,8 +44,8 @@ const validInvokeChannels = [
   "stream:get-lines",             // v3.9: get collected lines
   "stream:feed-terminal",         // v3.9: feed terminal output (main process)
   "chat:count-tokens",
-  "chat:hydrate-ephemeral-messages",
   "sessions:list",
+  "sessions:hydrate-transport",
   "automations:list",
   "automations:create",
   "automations:update",

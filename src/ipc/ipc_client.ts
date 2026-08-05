@@ -1666,22 +1666,23 @@ export class IpcClient {
   }
 
 
-  public async hydrateEphemeralChatMessages(
+  /**
+   * Hydrate a chat's transport for a persisted session WITHOUT re-sending its bodies.
+   *
+   * Main already holds every byte (it just read them for `sessions:get`). The only
+   * thing it cannot know is the numeric display id the renderer allocated for each
+   * row, so that — plus the row UUID it maps to — is all that crosses IPC. Order is
+   * significant and is taken from this array.
+   */
+  public async hydrateSessionTransport(
     chatId: number,
-    messages: {
-      role: string;
-      content: string;
-      id?: number;
-      /** v12 0.4-C2: session DB row UUID (direct edit targeting). */
-      sessionRowId?: string;
-      /** Provider's real token total for an assistant turn (the meter's truth). */
-      maxTokensUsed?: number | null;
-      [k: string]: unknown;
-    }[],
-  ): Promise<void> {
-    await this.ipcRenderer.invoke("chat:hydrate-ephemeral-messages", {
+    sessionId: string,
+    rows: { id: number; sessionRowId?: string | null }[],
+  ): Promise<{ hydrated: number }> {
+    return this.ipcRenderer.invoke("sessions:hydrate-transport", {
       chatId,
-      messages,
+      sessionId,
+      rows,
     });
   }
 

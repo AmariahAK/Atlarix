@@ -44,6 +44,12 @@ import {
   updateOpenChatTabTitleForSession,
 } from "@/lib/open-workspace-session";
 import { showInfo } from "@/lib/toast";
+import {
+  diagSpan,
+  diagSpanSync,
+  diagStopwatch,
+  sessionLoadDiagEnabled,
+} from "@/lib/diag/session-load-diag";
 import type { DisplaySnapshotV1 } from "@/lib/chat/display-snapshot";
 import { shouldUseStreamingSessionFastPath } from "@/lib/chat/activity-stream";
 import { attachmentInfoFromStoredFile, hydrateAttachmentStoreFromMessages } from "@/lib/attachment-persistence";
@@ -203,11 +209,28 @@ export function WorkspaceSessionList({
       setWorkspaceSessionLoading(true);
     }, SESSION_LOAD_OVERLAY_DELAY_MS);
 
+    // Let React commit and PAINT the overlay before any of the load runs.
+    //
+    // Without this the whole load is one synchronous-ish run of the event loop: the
+    // overlay timer fires but its state write cannot be painted, so a slow load shows
+    // the user a frozen window rather than a spinner — reported as a macOS beach ball.
+    // The delay above only prevents a flash on fast loads; it does nothing to make the
+    // overlay reachable on slow ones. One macrotask is enough to hand the main thread
+    // back to the compositor, and it costs a frame on loads that were never slow.
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+    // Whole-load stopwatch: every span below is a slice of this, so the slices
+    // have to account for it or something unmeasured is eating the time.
+    const loadWatch = diagStopwatch("renderer: TOTAL handleSelectSession");
     try {
-      const { session, messages, truncated } =
-        await IpcClient.getInstance().getWorkspaceSession(sessionId, {
-          limit: SESSION_LOAD_MESSAGE_LIMIT,
-        });
+      const { session, messages, truncated } = await diagSpan(
+        "renderer: sessions:get IPC (incl. main→renderer clone)",
+        () =>
+          IpcClient.getInstance().getWorkspaceSession(sessionId, {
+            limit: SESSION_LOAD_MESSAGE_LIMIT,
+          }),
+        { count: (r) => r.messages.length },
+      );
       let chatId = sessionIdToChatId.get(sessionId);
       if (chatId == null) {
         ({ chatId } =
@@ -226,29 +249,29 @@ export function WorkspaceSessionList({
           ? { name: workspaceApp.name, path: workspaceApp.path ?? undefined }
           : undefined,
       );
-      const uiMessages = sessionMessagesToUiMessages(
-        session.id,
-        chatId,
-        messages,
+      const uiMessages = diagSpanSync(
+        "renderer: sessionMessagesToUiMessages",
+        () => sessionMessagesToUiMessages(session.id, chatId!, messages),
+        { count: (m) => m.length },
       );
       hydrateAttachmentStoreFromMessages(uiMessages);
-      await IpcClient.getInstance().hydrateEphemeralChatMessages(
-        chatId,
-        uiMessages.map((m) => ({
-          id: m.id,
-          sessionRowId: m.sessionRowId ?? undefined,
-          role: m.role,
-          content: String(m.content ?? ""),
-          displaySnapshot: m.displaySnapshot ?? undefined,
-          modelContent: m.modelContent ?? undefined,
-          pasteAttachments: m.pasteAttachments ?? undefined,
-          fileAttachments: m.fileAttachments ?? undefined,
-          attachments: m.attachments ?? undefined,
-          // Carry the provider's real token total back into the transport, or
-          // the meter loses its ground truth on reload and falls back to an
-          // estimate that reads about half.
-          maxTokensUsed: m.maxTokensUsed ?? undefined,
-        })),
+      // Ids only. This used to ship content + modelContent + displaySnapshot BACK
+      // to main — bytes main had just read out of SQLite for `sessions:get`. Main
+      // joins the bodies from its own rows now; everything the transport needs
+      // (including `maxTokensUsed`, the token meter's ground truth on reload) comes
+      // from the DB rather than a round trip.
+      await diagSpan(
+        "renderer: sessions:hydrate-transport IPC (ids only)",
+        () =>
+          IpcClient.getInstance().hydrateSessionTransport(
+            chatId!,
+            session.id,
+            uiMessages.map((m) => ({
+              id: m.id,
+              sessionRowId: m.sessionRowId ?? null,
+            })),
+          ),
+        { count: (r) => r.hydrated },
       );
       setMessagesById((prev) => {
         const next = new Map(prev);
@@ -267,7 +290,12 @@ export function WorkspaceSessionList({
       const { replaceDisplayHydrationForChat } = await import(
         "@/lib/chat/apply-stream-display-hydration"
       );
-      replaceDisplayHydrationForChat(chatId, uiMessages);
+      // Re-parses every assistant message's raw content on top of the snapshot it
+      // already has (threadFromSnapshot → buildCompletedStreamThreadFromAssistantContent),
+      // then does the snapshot pass a second time in applyStreamDisplayHydration.
+      diagSpanSync("renderer: replaceDisplayHydrationForChat", () =>
+        replaceDisplayHydrationForChat(chatId!, uiMessages),
+      );
       setActiveSessionId(session.id);
       setLoadedTruncated(Boolean(truncated));
       // Only a genuinely prior-launch session is "restored" — a session opened
@@ -287,6 +315,15 @@ export function WorkspaceSessionList({
       });
       navigate({ to: "/" });
       onSessionsChange?.();
+      // Two frames after the state writes: the first is the commit, the second is
+      // the browser having actually painted it. This is the number the user feels —
+      // everything before it is time the window spent unresponsive.
+      if (sessionLoadDiagEnabled()) {
+        const paintWatch = diagStopwatch("renderer: state → painted");
+        requestAnimationFrame(() =>
+          requestAnimationFrame(() => paintWatch.stop("first frame after commit")),
+        );
+      }
     } catch (e) {
       console.error("Failed to load session:", e);
     } finally {
@@ -296,6 +333,7 @@ export function WorkspaceSessionList({
       }
       setWorkspaceSessionLoading(false);
       setSessionSwitchBusy(false);
+      loadWatch.stop();
     }
   };
 

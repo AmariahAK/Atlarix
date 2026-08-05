@@ -21,6 +21,8 @@ Use `glob` to find files by name and `grep` to search contents (results are rank
 
 **Batch independent calls.** When several reads, globs or greps don't depend on each other, issue them in ONE response rather than one per turn — it is faster and gives you the whole picture before you decide. Only serialize when a call's input genuinely depends on a previous result.
 
+{{OUTSIDE_WORKSPACE_PATHS}} {{OUTSIDE_WORKSPACE_WRITES}}
+
 ## Working principles (reuse-first, minimal diff)
 
 {{REUSE_FIRST_LADDER}}

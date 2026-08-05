@@ -28,8 +28,36 @@ export const REUSE_FIRST_LADDER = `Be lazy about the SOLUTION, never about readi
 
 Never cut corners on validation, trust-boundary checks, security, data-loss handling, or accessibility — trim only unnecessary complexity. Make the smallest diff that fully solves the task, and match the surrounding code's style and conventions.`;
 
+/**
+ * One spelling rule for reaching another project.
+ *
+ * The tools have allowed this for a while (reads anywhere, writes behind a
+ * per-folder grant), but nothing SAID so — the permission lived only in parameter
+ * descriptions. Observed result: asked to look at a sibling repo, the agent read the
+ * workspace as a wall, abandoned `glob`/`read_file` for `pwd`/`ls`/`find`, and then
+ * guessed the wrong parent directory. Sub-agents fared worse: the read-only scout
+ * has no `run_command` to fall back on.
+ *
+ * Stated as ONE canonical form (absolute), matching opencode, Claude Code, Gemini
+ * CLI and Copilot. Deliberately not "always use absolute paths": in-workspace work
+ * is the overwhelming majority, relative already works, and pushing every path to
+ * absolute would fight the training prior and lengthen every call for nothing.
+ */
+export const OUTSIDE_WORKSPACE_PATHS = `**Reaching outside the workspace.** The workspace is your default scope, not a wall. To read or search a file in another project, pass its **absolute path** — \`read_file\`, \`glob\` and \`grep\` all take one, and reads outside the workspace need no approval. Don't shell out to \`find\`/\`ls\`/\`cat\` to reach another directory, and don't guess where a project lives — if you don't know its path, ask.`;
+
+/**
+ * The write half, kept separate so it reaches only prompts whose agent HAS
+ * `edit_file`. Naming a tool a mode cannot call is the failure the v14.22.0
+ * standing guard exists to catch (`mode_system_consistency.test.ts`), and telling a
+ * read-only scout how outside writes work is at best noise, at worst an invitation
+ * to attempt one.
+ */
+export const OUTSIDE_WORKSPACE_WRITES = `To edit a file outside the workspace, give \`edit_file\` its absolute path; the first write to a folder outside the workspace asks the user once for that folder, and the grant then covers commands too.`;
+
 const FRAGMENTS: Record<string, string> = {
   REUSE_FIRST_LADDER,
+  OUTSIDE_WORKSPACE_PATHS,
+  OUTSIDE_WORKSPACE_WRITES,
 };
 
 /**

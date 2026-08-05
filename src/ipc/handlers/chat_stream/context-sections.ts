@@ -262,6 +262,8 @@ export async function loadMemoryMdSection(
       readMemoryIndex,
       migrateLegacyMemoryMd,
       memoryIndexPathFor,
+      listMemoryNoteSizes,
+      planMemoryCompaction,
     } = await import("@/lib/agent-memory");
     if (isAgentMemoryDisabled()) return null;
 
@@ -275,9 +277,22 @@ export async function loadMemoryMdSection(
     });
     if (!memory) return null;
 
+    // Memory compacts, it is never capped — so the signal has to reach the agent on a
+    // turn where it happens to be writing a note AND on one where it isn't. The
+    // edit_file notice covers the first; this covers the second.
+    //
+    // It rides the HEADER LINE that is already being paid for, as a few words. This
+    // section renders on every turn, so a paragraph here is a paragraph on every request
+    // until the store shrinks — the first version cost 147 tokens per turn, which is the
+    // payload-instead-of-index mistake v14.25.0 existed to undo. The convention is
+    // already one `guides/memory` pointer away; repeating it is not Atlarix's job.
+    const compaction = await preflight.time("memory-compaction", async () =>
+      planMemoryCompaction({ notes: await listMemoryNoteSizes(appPath) }),
+    );
+
     const indexPath = memoryIndexPathFor(appPath);
     const content = [
-      `## Project memory — ${memory.noteCount} note(s), indexed at ${indexPath}`,
+      `## Project memory — ${memory.noteCount} note(s)${compaction ? ` [${compaction.flag}]` : ""}, indexed at ${indexPath}`,
       memory.index || "(index empty — list the directory to see the notes)",
       `Optional: read a note with read_file when its line looks relevant to this task. When you learn something durable that the code does NOT already record, you may add a note (one fact per file, plus one index line) — never interrupt the user's task to do it. The full convention is the \`guides/memory\` entry under "Skills available"; read that file only when writing a note.`,
     ].join("\n");

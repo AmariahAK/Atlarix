@@ -9,28 +9,30 @@ import {
   type DisplaySnapshotV1,
 } from "@/lib/chat/display-snapshot";
 import { hydrateStreamDisplayForMessages } from "@/lib/chat/hydrate-stream-display";
-import { flattenToolGroupsInThread } from "@/lib/chat/group-stream-tools";
-import { consolidateSubagentRoundsInThread } from "@/lib/chat/stream-thread";
 import { getDefaultStore } from "jotai";
 import type { Message } from "@/ipc/ipc_types";
 
+/**
+ * Fold a snapshot's thinking + interleaved content into the accumulators.
+ *
+ * Deliberately does NOT touch `completedThreads` or `inlineTimelines`.
+ * `hydrateStreamDisplayForMessages` already produced both, and its thread is
+ * STRICTLY better: `threadFromSnapshot` merges the sub-agent round recovered from
+ * the assistant's raw content into the one stored in the snapshot
+ * (`mergeSubAgentRunEntries`), and falls back to the content-derived timeline when
+ * the snapshot has none.
+ *
+ * This function used to recompute a snapshot-only thread and assign it over the top,
+ * so that merge was computed and then thrown away on every session load — the
+ * sub-agent entries it recovered simply vanished, and the flatten/consolidate pass
+ * ran twice per assistant message for the privilege.
+ */
 function applySnapshotForMessage(
   messageId: number,
   snapshot: DisplaySnapshotV1,
-  completedThreads: Record<number, import("@/lib/chat/stream-thread").StreamThreadItem[]>,
-  inlineTimelines: Record<number, import("@/lib/chat/inline-timeline").InlineTimelineItem[]>,
   thinking: Record<number, import("@/lib/thinking/extract-thinking-from-content").CompletedTurnThinkingSnapshot>,
   interleaved: Record<number, string>,
 ): void {
-  const thread = flattenToolGroupsInThread(
-    consolidateSubagentRoundsInThread(snapshot.completedThread),
-  );
-  if (thread.length > 0) {
-    completedThreads[messageId] = thread;
-  }
-  if (snapshot.inlineTimeline?.length) {
-    inlineTimelines[messageId] = snapshot.inlineTimeline;
-  }
   if (snapshot.thinking) {
     thinking[messageId] = snapshot.thinking;
   }
@@ -58,14 +60,7 @@ export function applyStreamDisplayHydration(messages: Message[]): void {
 
   for (const m of messages) {
     if (m.role !== "assistant" || !m.displaySnapshot) continue;
-    applySnapshotForMessage(
-      m.id,
-      m.displaySnapshot,
-      completedThreads,
-      inlineTimelines,
-      thinking,
-      interleaved,
-    );
+    applySnapshotForMessage(m.id, m.displaySnapshot, thinking, interleaved);
   }
 
   if (Object.keys(completedThreads).length > 0) {

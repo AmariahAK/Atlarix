@@ -40,6 +40,29 @@ let claimedSignupCredit:
     | { ok: boolean; balanceCents: number; granted: boolean }
     | null = null;
 
+/**
+ * Remembered workspace-limit enforcement for the signed-in session.
+ *
+ * `useAuth` is an UNSHARED hook: ~24 files import it, each running its own effect, and its
+ * OAuth-success handler invokes this channel. One sign-in therefore fired it repeatedly —
+ * observed as five "Enforcing workspace limit" lines per sign-in.
+ *
+ * That was never merely wasteful. This handler DELETES workspaces (Free tier keeps the
+ * oldest), so N concurrent copies each read the workspace list and delete everything after
+ * the first row. It survived only because better-sqlite3 is synchronous, so the later
+ * copies happened to observe the post-delete state and no-op — a destructive operation
+ * racing itself and getting away with it.
+ *
+ * Coalescing overlapping calls plus remembering the settled result fixes every consumer at
+ * once without touching any of them. Guarding in the HOOK would have to be repeated in 24
+ * places and re-derived by the 25th; the invariant belongs to the handler.
+ *
+ * Cleared on sign-out — a different account must be enforced on its own terms.
+ */
+let enforcedWorkspaceLimit:
+    | { success: boolean; removed: number; keptWorkspace?: string }
+    | null = null;
+
 function coalesce<T>(key: string, run: () => Promise<T>): Promise<T> {
     const existing = inFlight.get(key) as Promise<T> | undefined;
     if (existing) return existing;
@@ -82,8 +105,10 @@ export function registerAuthHandlers() {
     // Sign out - also clears all workspaces for fresh start
     ipcMain.handle("auth:sign-out", async () => {
         logger.log("[AuthHandlers] Sign out requested");
-        // The next account to sign in must be able to claim its own signup credit.
+        // The next account to sign in must be able to claim its own signup credit, and be
+        // enforced against its own plan.
         claimedSignupCredit = null;
+        enforcedWorkspaceLimit = null;
 
         try {
             // Delete ALL workspaces on logout (fresh start)
@@ -188,6 +213,23 @@ export function registerAuthHandlers() {
     // Enforce workspace limit for Free tier users
     // Called on login - removes newer workspaces if Free tier user has more than 1
     ipcMain.handle("auth:enforce-workspace-limit", async () => {
+        // Settled already this session → return that answer. See `enforcedWorkspaceLimit`.
+        if (enforcedWorkspaceLimit) return enforcedWorkspaceLimit;
+        // Overlapping calls (the common case: every useAuth consumer in one event tick)
+        // share one execution rather than each deleting workspaces.
+        return coalesce("enforce-workspace-limit", async () => {
+            if (enforcedWorkspaceLimit) return enforcedWorkspaceLimit;
+            const result = await enforceWorkspaceLimit();
+            if (result.success) enforcedWorkspaceLimit = result;
+            return result;
+        });
+    });
+
+    async function enforceWorkspaceLimit(): Promise<{
+        success: boolean;
+        removed: number;
+        keptWorkspace?: string;
+    }> {
         logger.log("[AuthHandlers] Enforcing workspace limit");
 
         try {
@@ -232,9 +274,10 @@ export function registerAuthHandlers() {
             };
         } catch (error) {
             logger.error(`[AuthHandlers] Enforce workspace limit error:`, error);
+            // NOT remembered — a failed enforcement must be retryable.
             return { success: false, removed: 0 };
         }
-    });
+    }
 
     // Get workspace limit info
     // Coalesced: the subscription lookup inside is TTL-cached, but a cold cache with

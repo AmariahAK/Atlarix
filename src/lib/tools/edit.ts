@@ -33,6 +33,12 @@ import {
 } from "./edit-escape";
 import { overlayContent } from "@/lib/agents/subagent-proposals";
 import { checkFreshness, resolveReadScope } from "./file-read-log";
+import {
+  isAgentMemoryDisabled,
+  isAgentMemoryPath,
+  listMemoryNoteSizes,
+  planMemoryCompaction,
+} from "@/lib/agent-memory";
 
 const logger = log.scope("edit-tools");
 
@@ -664,7 +670,7 @@ Read the file first — \`replace\` matches its current bytes, and you'll be tol
       path: {
         type: "string",
         description:
-          "File to edit. A relative path resolves against the workspace root; an absolute path targets that exact location, including outside the workspace.",
+          "File to edit. A relative path resolves against the workspace root; to edit a file outside the workspace, give its ABSOLUTE path (you will be asked once to grant that folder).",
       },
       operation: {
         type: "string",
@@ -735,11 +741,25 @@ Read the file first — \`replace\` matches its current bytes, and you'll be tol
     if (!filePath) return { error: "Missing required parameter: path", operation: "edit_file" };
     if (!operation) return { error: "Missing required parameter: operation", operation: "edit_file" };
 
-    // An EXPLICIT absolute path targets that exact location (cross-repo edits);
-    // it's still gated by the approval + diff downstream. A relative path stays
+    // An EXPLICIT target — an absolute path, or a relative one written with `../`
+    // — addresses that exact location (cross-repo edits); it's still gated by the
+    // approval + diff downstream, and an outside path additionally raises the
+    // folder-grant prompt in the interceptor. An ordinary relative path stays
     // confined under the workspace exactly as before.
+    //
+    // Absolute is the canonical spelling for anything outside the workspace and is
+    // what the prompt teaches; `../` is ABSORBED rather than rejected. Rejecting it
+    // here while accepting the byte-identical absolute path was a spelling rule
+    // masquerading as a boundary — and it read to the model as "you may not leave
+    // the workspace", which sent it to shell `sed`/`python` instead. Same condition
+    // as read_file/glob/grep, so all four file tools resolve identically.
+    const rawFilePath = String(filePath).trim();
+    const isExplicitTarget =
+      path.isAbsolute(rawFilePath) ||
+      /^\.\.[\\/]/.test(rawFilePath) ||
+      rawFilePath === "..";
     const absoluteTarget =
-      path.isAbsolute(filePath) && workspace
+      isExplicitTarget && workspace
         ? resolveToolTargetPath(workspace, filePath)
         : null;
     const normalizedPath = absoluteTarget
@@ -753,15 +773,81 @@ Read the file first — \`replace\` matches its current bytes, and you'll be tol
         : path.resolve(normalizedPath);
     assertReadableUnlessOutside(normalizedPath, fullPath, workspace);
 
-    switch (operation) {
-      case "write":
-        return runWrite(rawArgs, normalizedPath, fullPath, workspace);
-      case "replace":
-        return runReplace(rawArgs, normalizedPath, fullPath, workspace);
-      case "merge":
-        return runMerge(rawArgs, normalizedPath, fullPath, workspace);
-      default:
-        return { error: `Unknown operation: ${operation}. Use write | replace | merge.`, operation: "edit_file" };
-    }
+    const result = await (async () => {
+      switch (operation) {
+        case "write":
+          return runWrite(rawArgs, normalizedPath, fullPath, workspace);
+        case "replace":
+          return runReplace(rawArgs, normalizedPath, fullPath, workspace);
+        case "merge":
+          return runMerge(rawArgs, normalizedPath, fullPath, workspace);
+        default:
+          return { error: `Unknown operation: ${operation}. Use write | replace | merge.`, operation: "edit_file" };
+      }
+    })();
+
+    // Agent-memory compaction directive, computed from the FINAL body every operation
+    // produces.
+    //
+    // Applied here rather than inside each operation because all three converge on one
+    // envelope shape (`preview.content` is the exact bytes that will land), so one place
+    // covers write / replace / merge — including a sub-agent proposal, which reaches
+    // disk through this same tool.
+    //
+    // Nothing is ever REFUSED for size. Memory compacts like context does: the write
+    // lands and the agent is told which notes to rewrite for accuracy.
+    return await annotateAgentMemoryCompaction(result, fullPath, workspace);
   },
 });
+
+/**
+ * Attach a compaction directive to an edit_file envelope whose target is an
+ * agent-memory note, once the store is large enough to need one.
+ *
+ * Never refuses and never alters the write. Non-memory paths and non-envelope results
+ * pass through untouched, so this cannot affect ordinary editing.
+ */
+async function annotateAgentMemoryCompaction(
+  result: unknown,
+  fullPath: string,
+  workspace?: string,
+): Promise<unknown> {
+  if (!workspace || isAgentMemoryDisabled()) return result;
+  const envelope = result as
+    | { __permission_required?: boolean; preview?: { content?: string; notice?: string } }
+    | undefined;
+  const content = envelope?.preview?.content;
+  if (!envelope?.__permission_required || typeof content !== "string") return result;
+  if (!isAgentMemoryPath(workspace, fullPath)) return result;
+
+  const noteName = path.basename(fullPath);
+  const plan = planMemoryCompaction({
+    notes: await listMemoryNoteSizes(workspace),
+    // The note about to land, so a rewrite that shrinks it counts as progress on this
+    // very call rather than one write later.
+    pendingWrite: { name: noteName, bytes: Buffer.byteLength(content, "utf8") },
+  });
+  if (!plan) return result;
+
+  if (plan.required) {
+    logger.log(
+      `[edit_file] memory compaction required for this workspace (${plan.totalBytes}B)`,
+    );
+  }
+  // Rides the existing `notice` field — the one the approval card and the model already
+  // both read — rather than inventing a second signalling channel.
+  //
+  // One line, not a paragraph: the agent is already inside the memory store on this
+  // call, so it needs the state and the file names, not a re-teaching of the convention
+  // (which is one `guides/memory` read away and only worth reading when acting on it).
+  const notice = `Project memory ${plan.flag}.`;
+  return {
+    ...envelope,
+    preview: {
+      ...envelope.preview,
+      notice: envelope.preview?.notice
+        ? `${envelope.preview.notice}\n\n${notice}`
+        : notice,
+    },
+  };
+}

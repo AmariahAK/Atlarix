@@ -13,6 +13,7 @@ import { summarizeToolActivityItem } from "@/lib/chat/inline-timeline";
 import {
   formatToolResultPreview,
   getToolCompletedSummary,
+  getToolFailedSummary,
   getToolRunningSummary,
   looksLikeToolArgsJson,
 } from "@/lib/chat/stream-tool-display";
@@ -182,7 +183,12 @@ function mergeToolItems(
         next.status === "running"
           ? getToolRunningSummary(prev.toolName, next.toolArgs ?? prev.toolArgs)
           : next.summary ||
-            getToolCompletedSummary(prev.toolName, next.toolArgs ?? prev.toolArgs),
+            (next.status === "error"
+              ? getToolFailedSummary(prev.toolName, next.toolArgs ?? prev.toolArgs)
+              : getToolCompletedSummary(
+                  prev.toolName,
+                  next.toolArgs ?? prev.toolArgs,
+                )),
     };
   }
   return {
@@ -316,7 +322,13 @@ function finalizeToolItem(
       opts?.summary ??
       (status === "running"
         ? getToolRunningSummary(registryName, item.toolArgs)
-        : getToolCompletedSummary(registryName, item.toolArgs)),
+        : status === "error"
+          ? // A failed call must not read as an accomplishment. The completed summary
+            // is past-tense success prose ("Found files matching ../telios/*"), which
+            // beside an error text is the same lie v14.22.0 fixed for run_command's
+            // "Successfully executed" next to a non-zero exit. Name the attempt.
+            getToolFailedSummary(registryName, item.toolArgs)
+          : getToolCompletedSummary(registryName, item.toolArgs)),
     detail: rawDetail,
     resultText,
     expand,
@@ -539,7 +551,9 @@ export function streamThreadItemFromActivity(
       summary: isRunning
         ? runningSummary
         : summarizeToolActivityItem(item) ||
-          getToolCompletedSummary(registryName, item.toolArgs),
+          (status === "error"
+            ? getToolFailedSummary(registryName, item.toolArgs)
+            : getToolCompletedSummary(registryName, item.toolArgs)),
       detail: rawDetail,
       expand,
       toolArgs: item.toolArgs,
@@ -1445,7 +1459,9 @@ function assistantPartToStreamItem(
     preview?.trim() ||
     (status === "running"
       ? getToolRunningSummary(registryName, toolArgs)
-      : getToolCompletedSummary(registryName, toolArgs));
+      : status === "error"
+        ? getToolFailedSummary(registryName, toolArgs)
+        : getToolCompletedSummary(registryName, toolArgs));
 
   return {
     kind: "tool",

@@ -17,10 +17,15 @@ import * as path from "node:path";
 const granted = new Map<number, string[]>();
 /** Every relativePaths batch captureSnapshot was handed. */
 const snapshotBatches: string[][] = [];
+const snapshotGrantedRoots: string[][] = [];
 
 vi.mock("@/lib/snapshot/snapshot-manager", () => ({
-  captureSnapshot: (args: { relativePaths: string[] }) => {
-    snapshotBatches.push(args.relativePaths);
+  captureSnapshotAcrossRoots: (args: {
+    paths: string[];
+    grantedRoots: readonly string[];
+  }) => {
+    snapshotBatches.push([...args.paths]);
+    snapshotGrantedRoots.push([...args.grantedRoots]);
     return Promise.resolve();
   },
 }));
@@ -71,6 +76,7 @@ function resolveWrite(ws: string, target: string): string {
 afterEach(() => {
   granted.clear();
   snapshotBatches.length = 0;
+  snapshotGrantedRoots.length = 0;
   for (const d of tmpRoots.splice(0)) fs.rmSync(d, { recursive: true, force: true });
 });
 
@@ -181,19 +187,30 @@ describe("granted folders — blast radius", () => {
     expect(() => resolveWrite(ws, link)).toThrow(/symlink/i);
   });
 
-  it("a mixed batch still snapshots the IN-workspace files", async () => {
-    // captureSnapshot stages the whole batch in ONE `git add -f --` with
-    // cwd = workspace, and git aborts the entire invocation on a path outside
-    // the repo — staging NOTHING, warning only to the log, then committing the
-    // tree anyway. So one granted-folder file used to silently discard the
-    // pre-write snapshot of every in-workspace file beside it, and Revert then
-    // restored fewer files while reporting success.
-    const { ws } = makeTree();
+  it("a mixed batch hands over EVERY path plus the granted roots", async () => {
+    // History: `captureSnapshot` stages a batch in ONE `git add -f --` at
+    // cwd = workspace, and git aborts the entire invocation on a path outside the
+    // repo — staging NOTHING, then committing the tree anyway. One granted-folder
+    // file therefore discarded the pre-write snapshot of every in-workspace file
+    // beside it, so outside paths were filtered out here and this test asserted
+    // exactly that: `[["src/a.ts", "src/c.ts"]]`.
+    //
+    // The cost of that filter was cross-repo edits silently having NO Revert.
+    // `captureSnapshotAcrossRoots` removes the cost instead of the paths: it groups
+    // by root and captures each against its OWN work-tree, so nothing is ever
+    // outside the repo git is asked about. The interceptor's job is now simply to
+    // hand over the full list and the grant set — the grouping itself is covered by
+    // `snapshot-cross-root.test.ts`.
+    const { ws, sibling } = makeTree();
+    granted.set(APP_ID, [sibling]);
     const i = new PermissionInterceptor(ws, APP_ID, "turn-1") as unknown as {
       maybeCaptureWorkspaceSnapshot: (rels: string[]) => Promise<void>;
     };
     await i.maybeCaptureWorkspaceSnapshot(["src/a.ts", "../peer/b.ts", "src/c.ts"]);
-    expect(snapshotBatches).toEqual([["src/a.ts", "src/c.ts"]]);
+    // No pre-filtering: the outside path survives to the snapshot layer.
+    expect(snapshotBatches).toEqual([["src/a.ts", "../peer/b.ts", "src/c.ts"]]);
+    // And the grant set travels with it, so only granted roots can be snapshotted.
+    expect(snapshotGrantedRoots[0]).toContain(sibling);
   });
 
   // Every operation that can touch a path must be collected, or a batch would ask
@@ -250,12 +267,16 @@ describe("granted folders — blast radius", () => {
     ).toEqual([]);
   });
 
-  it("skips the snapshot entirely when every path is outside", async () => {
-    const { ws } = makeTree();
+  it("an all-outside batch still reaches the snapshot layer", async () => {
+    // Previously skipped entirely (`[]`), which is precisely how a cross-repo edit
+    // ended up with no Revert. Whether anything is actually captured is now decided
+    // by the GRANT, in `groupPathsByRoot` — an ungranted path still mints nothing.
+    const { ws, sibling } = makeTree();
+    granted.set(APP_ID, [sibling]);
     const i = new PermissionInterceptor(ws, APP_ID, "turn-1") as unknown as {
       maybeCaptureWorkspaceSnapshot: (rels: string[]) => Promise<void>;
     };
     await i.maybeCaptureWorkspaceSnapshot(["../peer/b.ts"]);
-    expect(snapshotBatches).toEqual([]);
+    expect(snapshotBatches).toEqual([["../peer/b.ts"]]);
   });
 });

@@ -40,7 +40,8 @@ import {
     parseSandboxDenialsFromOutput,
     sandboxGrantPath,
 } from "@/lib/sandbox/wrap-command";
-import { captureSnapshot } from "../../../lib/snapshot/snapshot-manager";
+import { describeSandboxFailureContext } from "@/lib/sandbox/sandbox-failure-context";
+import { captureSnapshotAcrossRoots } from "../../../lib/snapshot/snapshot-manager";
 import { appendLedgerFilesWritten } from "../../../lib/tasks/task-ledger";
 import {
     isAlwaysAutoApproveAtlarixRelativePath,
@@ -133,6 +134,15 @@ export class PermissionInterceptor extends EventEmitter {
     /** When run_command uses an absolute cwd outside workspace, we allow file ops under that path for this session */
     private allowedRoots: Set<string> = new Set();
 
+    /**
+     * This project's agent-memory directory, or null when memory is off.
+     * Resolved but NOT created — see `ensureMemoryDirForWrite`.
+     */
+    private memoryDir: string | null = null;
+
+    /** One mkdir per interceptor at most. */
+    private memoryDirEnsured = false;
+
     constructor(
         workspacePath: string,
         workspaceId?: number,
@@ -165,15 +175,20 @@ export class PermissionInterceptor extends EventEmitter {
         // relative path leaves the workspace.)
         try {
             if (workspacePath && !isAgentMemoryDisabled()) {
-                const memDir = path.resolve(memoryDirFor(workspacePath));
-                // Created up front because the containment check below realpaths
-                // the target, and realpath cannot resolve a directory that does
-                // not exist yet — so without this the FIRST note (the only one
-                // that matters for a new project) would still be refused. An
-                // empty directory costs nothing and makes the path the prompt
-                // advertises a real one.
-                fsSync.mkdirSync(memDir, { recursive: true });
-                this.allowedRoots.add(fsSync.realpathSync(memDir));
+                // NOT created here. The directory is made on the first write that
+                // actually targets it (`ensureMemoryDirForWrite`).
+                //
+                // It used to be `mkdirSync`'d in this constructor, because the
+                // realpath containment check below cannot resolve a directory that
+                // does not exist and would refuse the first note. But an interceptor
+                // is constructed for every workspace path the app ever sees —
+                // including the temp workspaces the test suite builds — so this line
+                // created 435 empty `…atlarix-grant-XXXXXX…` directories in the
+                // developer's real ~/.atlarix/projects. "An empty directory costs
+                // nothing" was true per directory and wrong in aggregate: it made the
+                // project count meaningless and wrote into a user's home from tests.
+                this.memoryDir = path.resolve(memoryDirFor(workspacePath));
+                this.allowedRoots.add(this.memoryDir);
             }
         } catch {
             // Memory is optional; never block a turn on it.
@@ -1265,6 +1280,10 @@ export class PermissionInterceptor extends EventEmitter {
                 );
             }
         }
+        // The memory directory is created on demand, right before the containment
+        // check that needs it to exist (it realpaths every allowed root and SKIPS
+        // the ones it cannot resolve, which would silently refuse the first note).
+        this.ensureMemoryDirForWrite(resolved);
         // A9/M-2: the string containment above is symlink-blind. Verify the REAL
         // target (resolving symlinks in the path) still lands inside the real
         // workspace/allowed roots — else a symlink committed into the repo could
@@ -1273,6 +1292,22 @@ export class PermissionInterceptor extends EventEmitter {
         // symlinks don't cause false rejections; any realpath error fails OPEN.
         this.assertRealpathContained(resolved, normalizedWorkspace, filePath);
         return resolved;
+    }
+
+    /**
+     * Create this project's memory directory the first time a write actually targets
+     * it — never for a workspace whose agent simply never wrote a note.
+     */
+    private ensureMemoryDirForWrite(resolved: string): void {
+        if (!this.memoryDir || this.memoryDirEnsured) return;
+        const rel = path.relative(this.memoryDir, resolved);
+        if (rel.startsWith("..") || path.isAbsolute(rel)) return;
+        try {
+            fsSync.mkdirSync(this.memoryDir, { recursive: true });
+            this.memoryDirEnsured = true;
+        } catch {
+            // Memory is optional; never block a turn on it.
+        }
     }
 
     /** Reject when the real (symlink-resolved) target escapes the workspace.
@@ -1322,30 +1357,36 @@ export class PermissionInterceptor extends EventEmitter {
     }
 
     /**
-     * Capture pre-write file state under `.atlarix/snapshots/<turnId>/`.
-     * Requires `snapshotTurnId` (see field doc). `captureSnapshot` itself does not read chatId;
-     * gating is entirely whether the stream passed a turn id into this interceptor.
+     * Capture pre-write file state for this turn, in the workspace AND in any granted
+     * folder it touched.
+     *
+     * Requires `snapshotTurnId` (see field doc). `captureSnapshot` itself does not read
+     * chatId; gating is entirely whether the stream passed a turn id into this interceptor.
+     *
+     * Outside paths used to be DROPPED here, because `captureSnapshot` stages a batch with
+     * one `git add -f --` at `cwd = workspace` and git aborts the entire invocation on a
+     * path outside its work-tree — so a single granted-folder file in a multi-file write
+     * destroyed the pre-write snapshot of every in-workspace file beside it, and Revert
+     * then reported success having restored fewer files than it claimed. Dropping them
+     * fixed that, at the cost of cross-repo edits silently having no Revert.
+     *
+     * `captureSnapshotAcrossRoots` removes the cost: each root is snapshotted against its
+     * OWN work-tree, so no path is ever outside the repo git is being asked about. Only
+     * granted roots are eligible — a path outside every grant could not have been written
+     * by an approved edit, and is dropped as before.
      */
     private async maybeCaptureWorkspaceSnapshot(relativePaths: string[]): Promise<void> {
         if (!this.snapshotTurnId || !this.workspacePath) return;
         const paths = relativePaths
             .map((p) => p.split(path.sep).join("/"))
-            .filter(Boolean)
-            // Outside-workspace paths are NOT snapshottable and must never reach
-            // captureSnapshot. It stages the whole batch in one `git add -f --`
-            // with cwd = workspace, and git aborts the ENTIRE invocation on a path
-            // outside the repo — staging nothing, warning only to the log, then
-            // committing the tree anyway. So one granted-folder file in a
-            // multi-file write silently destroyed the pre-write snapshot of every
-            // IN-workspace file beside it, and Revert then reported success having
-            // restored fewer files than it claimed.
-            .filter((p) => !p.startsWith("../"));
+            .filter(Boolean);
         if (paths.length === 0) return;
         try {
-            await captureSnapshot({
+            await captureSnapshotAcrossRoots({
                 workspacePath: this.workspacePath,
                 turnId: this.snapshotTurnId,
-                relativePaths: paths,
+                paths,
+                grantedRoots: this.writableRoots(),
             });
         } catch (e) {
             logger.warn("[maybeCaptureWorkspaceSnapshot] skipped:", e);
@@ -1952,7 +1993,38 @@ export class PermissionInterceptor extends EventEmitter {
                     const errDetail = result.stderr
                         ? `\n\n${result.stderr.slice(0, 500)}`
                         : (result.stdout ? `\n\n${result.stdout.slice(0, 200)}` : "");
-                    thrownError = new Error(`Command failed with exit code ${result.exitCode}${errDetail}`);
+                    // State that the sandbox was there. Nothing more.
+                    //
+                    // By here the escalation pass has run and found no attributable path
+                    // (`maybeEscalateSandboxDenial` returned null, so `result` is the
+                    // original failure), which means the model is about to receive a bare
+                    // non-zero exit with no hint that Atlarix itself constrained the
+                    // process — a boundary it cannot reason about because nobody told it.
+                    //
+                    // Facts only: no attempt to work out whether this failure WAS a
+                    // denial. The output is already in the error; the model reads it
+                    // better than a heuristic here could, and a wrong guess would send the
+                    // user a grant request for an unrelated folder.
+                    const sandboxNote = describeSandboxFailureContext({
+                        sandboxed: !!sandboxOpts,
+                        workingDir,
+                        writableRoots: [
+                            ...(sandboxOpts && !sandboxOpts.readOnly
+                                ? [sandboxOpts.workspacePath]
+                                : []),
+                            ...(sandboxOpts?.extraWritablePaths ?? []),
+                        ],
+                        ...(sandboxOpts?.readOnly ? { readOnly: true } : {}),
+                        exitCode: result.exitCode,
+                        alreadyAttributed:
+                            parseSandboxDenialsFromOutput(
+                                `${result.stderr ?? ""}\n${result.stdout ?? ""}`,
+                            ).length > 0,
+                    });
+                    thrownError = new Error(
+                        `Command failed with exit code ${result.exitCode}${errDetail}` +
+                            (sandboxNote ? `\n\n${sandboxNote}` : ""),
+                    );
                 }
                 resolveExec();
             })

@@ -17,6 +17,10 @@
  */
 
 import type { UserAgent } from "./user-agents";
+import {
+  OUTSIDE_WORKSPACE_PATHS,
+  OUTSIDE_WORKSPACE_WRITES,
+} from "@/lib/prompts/shared-fragments";
 
 const EXPLORER_PROMPT = `# Explorer (read-only reconnaissance)
 
@@ -25,13 +29,15 @@ ONE area. Your final message is returned to the parent agent as data — write i
 an agent, not a human.
 
 - Stay inside the given scope; do not expand the task.
-- Be evidence-based: cite workspace-relative paths (\`src/auth/login.ts:42\`) and
-  short excerpts for every claim. Prefer \`grep\` to locate code, \`glob\` to find
-  files, \`read_file\` to confirm details; use \`web_search\`/\`read_url\` for external
-  facts (primary sources, include URLs).
+- Be evidence-based: cite file paths (\`src/auth/login.ts:42\`) and short excerpts
+  for every claim — workspace-relative, or absolute for a file outside it. Prefer
+  \`grep\` to locate code, \`glob\` to find files, \`read_file\` to confirm details; use
+  \`web_search\`/\`read_url\` for external facts (primary sources, include URLs).
 - READ-ONLY: no file writes, no shell commands, no further sub-agents. No questions
   back to the user — work with what you have; if the scope can't be answered, say
   exactly what you tried and what was missing.
+
+${OUTSIDE_WORKSPACE_PATHS}
 
 Answer shape: (1) one-paragraph direct answer, (2) findings as bullets with path
 citations, (3) real open gaps only.`;
@@ -46,6 +52,8 @@ IMPLEMENTATION PLAN as your final message — you do NOT edit files.
 - Prefer reusing existing utilities/patterns over proposing new code; call out where.
 - READ-ONLY: no file writes, no shell commands, no further sub-agents. No questions
   back to the user.
+
+${OUTSIDE_WORKSPACE_PATHS}
 
 Answer shape: (1) the approach in a sentence or two, (2) an ordered, step-by-step
 plan — each step names the file(s) and the change, (3) key files to touch, reused
@@ -74,6 +82,8 @@ not merely describe changes.
   real and leave nothing to review; the main agent runs the project's checks after
   accepting your changes, so do not claim you ran tests. No further sub-agents. No
   questions back to the user.
+
+${OUTSIDE_WORKSPACE_PATHS} ${OUTSIDE_WORKSPACE_WRITES}
 
 Answer shape (returned to the parent as data): (1) what you changed and why, (2) the
 files you edited with a one-line note each, (3) anything to verify or left incomplete.`;

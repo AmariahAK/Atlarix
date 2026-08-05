@@ -2,7 +2,58 @@
 
 **Current Version:** v14.25.0 (2026-08-04) — the context meter counts what the model actually
 holds, skills are read on demand instead of pasted every turn, and work reaches beyond one folder.
-**Last Updated:** 2026-08-04
+**Last Updated:** 2026-08-05
+
+## 🚧 IN PROGRESS (unreleased) — one path rule, memory that compacts, cross-repo revert
+
+**One spelling for reaching another project.** The four file tools disagreed: `glob`/`grep` took
+`../sibling` and absolute, `read_file`/`edit_file` took absolute only and threw on `../`, and `glob`
+rejected `..` inside the *pattern* with "Use a path within the project" — false since v14.25.0, and the
+one message the model actually hit. Observed cost: it abandoned the tools for `pwd`/`ls`/`find` and then
+guessed the wrong parent directory. Now **absolute is canonical, `../` is absorbed**, all four resolve
+identically, and the rule is stated once via `shared-fragments.ts` into AGENTS.md, both sub-agent skills
+and all three `BUILTIN_AGENTS` prompts — with the WRITE half split out so the read-only explorer is
+never told about `edit_file` it cannot call.
+
+**Memory compacts; it is not capped.** Nothing is ever refused for size and nothing is deleted to make
+room. Past 25 MB per project, `planMemoryCompaction()` names the largest notes (never `MEMORY.md`) and
+asks for a rewrite that is *more accurate about the file or feature it concerns*. A pending write counts
+in place of the note it replaces, so a shrinking rewrite reads as progress on that same call.
+- The signal is a **flag, not a lesson**: it rides the memory header line already being paid for
+  (`[26.0 MB — compact a.md, b.md (see guides/memory)]`). The first version pasted a 147-token paragraph
+  into **every turn** until the store shrank — the payload-instead-of-index mistake v14.25.0 existed to
+  undo. Measured 147 → 24 tokens/turn (84%); guard tests fail if instruction prose creeps back in.
+- The eager `mkdirSync` that created a memory directory for **every workspace path the app ever saw** is
+  gone (lazy now). It had put **435 empty `…atlarix-grant-…` directories in the developer's real
+  `~/.atlarix/projects/`**, because the test suite builds temp workspaces; `vitest.setup.ts` now points
+  memory at a temp dir so no test can reach `~/.atlarix`.
+
+**Cross-repo edits are revertible.** Outside paths were dropped before reaching `captureSnapshot` (one
+`git add` at `cwd = workspace` aborts on a path outside its work-tree, which had destroyed the
+in-workspace snapshots beside it) — so an approved edit to a granted sibling silently had **no Revert**.
+`captureSnapshotAcrossRoots` groups a turn's paths onto the primary workspace plus each granted root and
+captures each against its own shadow work-tree; revert/list/exists iterate roots. Ungranted absolute
+paths are still dropped. Per-root locks — wrapping the captures in the primary's lock deadlocks on
+`captureSnapshot`'s own chain.
+
+**The sandbox says it was there.** See the deleted-supervisor entry below.
+
+**`auth:enforce-workspace-limit` runs once per session.** It DELETES workspaces, and ~24 `useAuth`
+consumers each invoked it on one sign-in (five log lines observed). It survived only because
+better-sqlite3 is synchronous, so later copies saw the post-delete state and no-op'd — a destructive
+operation racing itself. Coalesced + remembered in the handler, cleared on sign-out, failures not
+remembered. Fixed in main, not the hook: 24 call sites means re-deriving the invariant at the 25th.
+
+**Session load: measured, and my hypothesis was wrong.** Every stage suspected of the macOS beach ball
+totals ~550 ms on the real 44-message / 4.54 MB session (DB read 5 ms, IPC clones 11 ms, display
+hydration 31 ms, re-parse 37 ms, shiki 76 ms, token count 345 ms), of which only the token count blocks.
+**Root cause still unknown** — instrumentation is in place behind `ATLARIX_DIAG_SESSION_LOAD=1` (main) /
+`localStorage["atlarix:diag:session-load"]` (renderer), including a `state → painted` span; it needs one
+session-open in the packaged app. Landed anyway because each is a defect on its own merits: the renderer
+no longer ships the whole payload BACK to main (ids only; the old channel deleted), the hydration pass
+that discarded `threadFromSnapshot`'s sub-agent merge is fixed (data loss, not slowness), the load
+yields so the overlay can actually paint, and `workspace-session-title.ts` no longer fetches every
+message body to read one field after every turn.
 
 ## ✅ SHIPPED in v14.25.0 — honest context accounting, skills on demand, one grant list
 
@@ -332,6 +383,65 @@ for that turn. Three separate causes:
 - **New standing guard:** no mode's prompt may name a tool that mode cannot call — it caught three
   of the six contradictions above.
 
+## 🔜 NEXT SESSION — Agent-visible automations
+
+**Automations are fully built and completely invisible to the agent.** `grep -rn "automation"` across
+`src/prompts/system_prompt.ts`, `chat_stream/context-sections.ts`, `AGENTS.md` and every skill returns
+**nothing** — no tool, no prompt line, no notification. Meanwhile the feature is substantial: the
+`automations` + `automation_runs` tables, three trigger kinds (`schedule` cron, `github`
+new-pr/review-requested/ci-failed, `mcp` tool poll), a runner, pollers, auto-approve, notify, and a run
+feed the human drives entirely by hand in `AutomationsTab`. The actor best placed to notice "you have
+checked CI by hand three times today" cannot see that automations exist.
+
+**Shape (owner-approved, 2026-08-05):** think of an automation as a background task that persists —
+same lifecycle affordances, but for logs, CI and MCP polls.
+
+- **Notify only. Atlarix informs; the AGENT acts.** No write-capable automations: `runMode` stays
+  `notify-only | read-only`. (`worktree-write` was removed in v14.21.0 with the sub-agent worktree and
+  is deliberately not returning — an unattended agent making changes on a timer is a different product,
+  and the unattended read-only allowlist below is still unsolved.)
+- **Nothing is ever killed, and there is no lifetime cap.** Both guarantees already hold and must be
+  preserved rather than built: a background job is **"NEVER auto-killed"**
+  (`background-commands.ts:115`) — the 3-minute stall threshold is advisory-only, fires once, and
+  `killBackgroundJob` runs only on an explicit agent/user cancel (plus `killAllBackgroundJobs` at
+  shutdown). Automations have no kill path at all; they are polled. An automation or job may run as long
+  as it likes.
+- **Wake-ups: 4 h per call, re-armable indefinitely.** Also already true — `MAX_DELAY_MS = 14_400_000`
+  in `lib/agent/scheduled-wakeups.ts:20`, clamped **per call**, so the agent can arm another 4 h when one
+  fires and keep going. The only limit is `MAX_PENDING_PER_CHAT = 8` *concurrent* pending wake-ups,
+  which does not restrict sequential re-arming. Nothing to change; automations just need to participate.
+- **Leave `MIN_POLL_INTERVAL_MINUTES` (5) alone.** An earlier draft of this entry said "raise the poll
+  floor 5 min → 1 hour to match background tasks" — that conflated two unrelated things and is
+  **withdrawn**. It is a *rate limit* on how often we hit GitHub / an MCP server, protecting API quota;
+  it has nothing to do with killing anything, and raising it would make automations poll **less** often,
+  which is the opposite of the goal. The user picks any interval at or above the floor.
+- **One `automations` tool**, mode-parameterised like `plan`/`mcp_call` so the standing cost is the tool
+  description alone: `list` (with recent runs + logs), `create`, `update`, `stop`/`cancel`, `delete`.
+- **`create`/`update`/`delete` go through the approval gate; `list` is free.** A standing, recurring,
+  quota-spending job that runs while nobody is watching is a different risk class from a one-shot file
+  edit, and a silently deleted automation leaves nothing on disk to notice. The gate and its card
+  already exist.
+- **The agent is told when a run finishes, hangs, or a poll is missed**, drained through the existing
+  background-result channel (`takePendingBackgroundCommandResults`) so it lands in the next turn rather
+  than interrupting one — and so it honours the v14.23.0 rule that background work never wakes a
+  stopped turn. Default to surfacing runs on request plus a count in the feed; per-automation opt-in for
+  push.
+- **NO `allow_stalled` for automations** (asked and answered). It exists for background jobs because
+  output silence is ambiguous liveness — `OUTPUT_IDLE_THRESHOLD_MS = 180_000`, comment: "output-flow =
+  liveness", advisory-only, fires once. None of that transfers: an automation is silent between polls by
+  construction (100% of the time at an hourly floor), and its liveness is **arithmetic** —
+  `lastRunAt` + `intervalMinutes` answers "did a poll happen?" objectively, so there is nothing for the
+  agent to declare. Worse, a background job's flag dies with the job while an automation is *standing*,
+  so the flag would persist across sessions and silently convert "this poller is dead" into "don't
+  mention it" — the worst possible failure for a notify-only feature. Detect instead: **hung run**
+  (started, unfinished after N× expected duration; reported, and does not block the next poll) and
+  **missed poll** (`lastRunAt` older than ~2 intervals).
+- **Timers need nothing new.** `schedule_wakeup` already clamps to 60–14400s (4 h), and
+  `background_jobs` already has `wake_in`/`adjust_timer`. Automations just need to participate.
+- **The real win is recommendation:** having watched the user tag, wait, check CI and fix by hand, the
+  agent should be able to offer to make that an automation. That is the difference between a feature
+  users discover and one they don't.
+
 ## 🔭 v14.19+ — Mobile emulator toolset
 
 **`mobile_*` tools, mirroring the browser family** — a device `target`, and **a11y-tree-first** so
@@ -360,15 +470,17 @@ end-to-end mobile UI testing.
   `npm run package` needs `npm_config_registry=https://registry.npmjs.org/`. Held pending the
   owner's account migration.
 - ~~**Report-only audit sweep**~~ — **DONE in v14.23.0**, written up in
-  [`docs/PROMPT_SURFACE_AUDIT_v14.23.0.md`](./PROMPT_SURFACE_AUDIT_v14.23.0.md). One finding worth
-  acting on, in its own change: **named sub-agents are under-prompted.**
-  `task({subagent_type:"explorer"})` gets `EXPLORER_PROMPT` (338 chars) while the un-named
-  `task({description})` gets `skills/subagents/subagent.md` (~1.1 KB) — and the mode prompts steer
-  callers to the *named* form. Worst case is `implementer` (108 chars), which never reads the 44
-  lines of `subagent-writer.md` explaining that its edits become proposals rather than disk writes.
-  The two sources are mutually exclusive (no duplicated context) but their opening paragraphs are
-  near-verbatim, so they will drift. Direction: point `BUILTIN_AGENTS[*].systemPrompt` at the same
-  skill markdown and keep the constants for the role-specific delta only.
+  [`docs/PROMPT_SURFACE_AUDIT_v14.23.0.md`](./PROMPT_SURFACE_AUDIT_v14.23.0.md).
+  - ~~"Named sub-agents are under-prompted"~~ — **STALE, corrected 2026-08-05.** The entry cited
+    `EXPLORER_PROMPT` at 338 chars and `implementer` at 108. Measured today they are **909 / 819 / 864**
+    (explorer / architect / implementer), and `IMPLEMENTER_PROMPT` now explains the proposal mechanism
+    in full — the specific gap the audit named ("never reads the 44 lines of `subagent-writer.md`
+    explaining that its edits become proposals") no longer exists.
+  - What the entry was *right* about is drift risk from two near-verbatim sources, and that is now
+    handled structurally: `shared-fragments.ts` holds the text that must read identically, and all
+    three `BUILTIN_AGENTS` prompts plus both sub-agent skills render from it
+    (`{{REUSE_FIRST_LADDER}}`, `{{OUTSIDE_WORKSPACE_PATHS}}`, `{{OUTSIDE_WORKSPACE_WRITES}}`), with
+    tests asserting each fragment reaches every consumer that should have it — and only those.
   (Compaction prompt: 2,298 B vs opencode's 823 B — measured, no change recommended, see the doc.
   `<system-reminder>` sites: **22**, not 16.)
 - ~~**`preview_test` is misnamed.**~~ — **DONE in v14.23.0**: renamed to `browser_test`. The registry
@@ -407,42 +519,56 @@ only, for the right reason — when the shared trailing is removed.
 
 ### Other
 
-- **Sub-agent results still don't *continue* in the timeline** — STILL OPEN after v14.23.0, but the
-  painful half is gone: results now RENDER properly (markdown, with a real `task` tool card) instead
-  of as a raw envelope slice. What remains is purely placement — they live inside the round-panel
-  cards behind the expand affordance rather than resolving inline where they were spawned. Revisiting
-  means weaving settled `subagent` items via `weaveIpcItemsIntoParts` and collapsing the panel once
-  all agents settle, so the same agent isn't rendered twice. Deferred deliberately: the parity test
-  added in v14.23.0 now makes that change safe to attempt, which it wasn't before.
+- **Sub-agent results still don't *continue* in the timeline** — STILL OPEN, and deliberately not
+  attempted in the 2026-08-05 batch. The painful half is gone: results RENDER properly (markdown, with
+  a real `task` tool card) instead of as a raw envelope slice. What remains is purely placement — they
+  live inside the round-panel cards behind the expand affordance rather than resolving inline where
+  they were spawned. Direction unchanged: weave settled `subagent` items via `weaveIpcItemsIntoParts`
+  (`WEAVABLE_KINDS` currently excludes `subagent_round` — "panels/rounds always stay tail") and
+  collapse the panel once all agents settle, so the same agent isn't rendered twice.
+  - **Why it was skipped:** its entire value is visual placement, and it sits in the most
+    reflow-sensitive code in the renderer — `AssistantMessageBody`'s sticky-agents / seam-offset /
+    synthesized-round interaction, which has already produced one "scratchy rendering" regression from
+    the panel unmounting mid-stream (fixed in v14.23.0 by gating collapse on `!isStreaming`). The
+    v14.23.0 parity test guards trailing-element *duplication*; nothing guards "does it look right".
+    Land it in a session that starts with the packaged app open, so each step is seen rather than
+    inferred.
 - ~~agent-evals flakiness~~ — **FIXED** (see the in-progress section above).
 
-- **Linux authoritative denied-path supervisor — Phase 2 (WRITTEN, compiles, feature-gated OFF; pending dev validation).**
-  `native/atlarix-sandbox-linux` gained a ptrace + seccomp(`SECCOMP_RET_TRACE`) supervisor that records
-  write syscalls to paths outside the writable roots into a `--deny-report` file — for tools that swallow
-  the path. **Feature-gated OFF** (`trace-supervisor`; optional nix/libc/seccompiler deps) + runtime-gated
-  (`ATLARIX_SANDBOX_TRACE=1`) + graceful fallback, so the default build is unchanged and the sandbox can
-  never break. `cargo check --target {x86_64,aarch64}-unknown-linux-gnu` clean with/without the feature.
-  - **REMAINING:** (1) real-Linux dev-hardware runtime validation (does it capture denials, trace forked
-    children, propagate exit codes?) — build `--features trace-supervisor` + `ATLARIX_SANDBOX_TRACE=1`;
-    (2) production report-file threading (`wrap-command.ts` passes `--deny-report` + the interceptor
-    prefers the report over stderr-parse) — land with the validation; (3) flip the feature on in CI once
-    green. Windows stays stderr-parse (ETW needs elevation).
+- ~~**Linux authoritative denied-path supervisor (Phase 2)**~~ — **DELETED 2026-08-05, not shipped.**
+  The ptrace + seccomp(`SECCOMP_RET_TRACE`) supervisor was 258 of the crate's 429 lines, feature-gated
+  off, never consumed (`--deny-report` appeared nowhere in `src/`), and **never compiled by CI**
+  (`release.yml` builds default features only) — so the highest-risk-per-line code in the repo was the
+  only code no automated process type-checked. It also improved DIAGNOSTICS, not security: Landlock was
+  and remains the boundary.
+  - Owner's call after weighing it: a kernel oracle would have made the message more precise on **one**
+    OS, so it was dropped in favour of making the message **exist on all three**. macOS has no clean
+    route at all (custom `sandbox-exec` profiles do not log denials; Endpoint Security needs an
+    Apple-granted entitlement; `DYLD_INSERT_LIBRARIES` is stripped for the platform binaries we invoke)
+    and Windows needs elevation or a signed driver — so per-OS parity was never reachable anyway.
+  - **Shipped instead:** `src/lib/sandbox/sandbox-failure-context.ts`. When a sandboxed command fails and
+    no path can be scraped, the model is told the sandbox was applied, whether it was read-only, the
+    writable roots and the cwd — **facts only, no diagnosis.** An intermediate version tried to classify
+    failures (permission-signal regexes, a vendor blocklist, a tool→cache-path table) and was deleted for
+    guessing: the command's output is already in the error, and the model reads it better than a regex.
+  - Git history keeps the supervisor if a real report ever shows tools swallowing paths — at which point
+    we will know *which* tools, and the scraper may just need another pattern.
 
-## ⏳ TBD / Next (fast-follow 14.14.1)
+## 🔜 Blocked on the owner — NOT active work
 
-- **Owner-side verification (from the v14.14.0 web-search work):** (1) billing A/B — confirm OpenRouter
-  `usage.cost` includes the ~$0.005 search fee so the wallet debit = `ceil(cost × 1.4)` (else add a proxy
-  surcharge in `atlarix-proxy/src/server.ts`); (2) per-Core-model check that DeepSeek/Qwen/Kimi/MiniMax
-  reliably emit `openrouter:web_search` — set `webSearch:false` in `core-models.json` for any that don't.
+Kept for the record; none of these can be picked up in a coding session.
 
-
-## 🔜 Deferred / next
-
-- **Windows code-signing / cert** — C6 auto-update signing + native-sandbox CI remain open (release-infra,
-  no cert). OAuth `state` nonce / PKCE stays **not doing** (attempted v14.12.0, broke sign-in, reverted; the
+- **Windows code-signing / cert** — C6 auto-update signing + native-sandbox CI (release-infra, no cert).
+  OAuth `state` nonce / PKCE stays **not doing** (attempted v14.12.0, broke sign-in, reverted; the
   flow-in-progress gate stays).
+- **Billing A/B (owner-side):** confirm OpenRouter `usage.cost` includes the ~$0.005 search fee so the
+  wallet debit = `ceil(cost × 1.4)`; else add a proxy surcharge in `atlarix-proxy/src/server.ts`.
 - **Runtime-verify voice mic + DB shutdown-race** on a packaged build (voice confirmed working by owner
   2026-07-14; shutdown-guard committed, not stress-verified).
+- ~~**Per-Core-model web-search check**~~ — **DELETED 2026-08-05.** There is no web-search API to
+  verify against, so the entry described work that cannot exist.
+- **Mobile emulator toolset** and **dependency deprecation triage** are each their own release; see
+  their sections below and treat them as roadmap, not queue.
 
 ## 🔐 Security follow-ups (from `docs/SECURITY_REVIEW_v14.8.12.md`, owner-triaged)
 
@@ -475,13 +601,10 @@ also closed M1 — cwd `allowedRoots` widening is now gated on interactive appro
   / `isDatabaseClosing()` / `DatabaseClosingError` in `db/index.ts:690-736`, the `db` Proxy
   short-circuits on `_dbClosing`, `main.ts:1793` sets it before the `before-quit` chain, and
   `src/__tests__/db-closing-guard.test.ts` covers it.
-  - **Adjacent, still open (found while verifying, NOT the same bug):** the `reset-all` handler
-    (`app_handlers.ts:1202`) calls `db.$client.close()` and unlinks the file WITHOUT setting the
-    closing flag or clearing `_db`, then returns while the app keeps running — so any later DB access
-    hits a closed handle and throws the opaque better-sqlite3 error again. Not fixed here because
-    `_dbClosing` is one-way: setting it would permanently brick a session that is expected to keep
-    working after a reset. Wants a decision on whether reset-all should force a relaunch (then set the
-    flag) or re-initialize the DB in place (then clear `_db` and re-run `initializeDatabase`).
+  - ~~**Adjacent: `reset-all` leaves a closed DB handle**~~ — **ALSO ALREADY FIXED; this entry was
+    stale.** It shipped in v14.23.0 as `reinitializeDatabaseAfterReset()` (`db/index.ts:706`), called
+    from `app_handlers.ts:1219`, which is exactly the "re-initialize in place" option the entry was
+    asking for a decision on. Struck 2026-08-05.
 - **DONE in v14.8.12:** approval-wait audit (MCP auth waits now indefinite + Stop-cancellable),
   Shift+Tab global, attachment vision cold-cache, notification sound. **B4 (bg-command "done" while
   running)** resolved as model behavior — the harness DOES re-inject the exit result via auto-wake

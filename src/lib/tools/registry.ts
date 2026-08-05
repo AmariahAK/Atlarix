@@ -7,6 +7,7 @@
 import { isMainProcessNode } from "../runtime/is-main-node";
 import { guardToolCall } from "./guard";
 import { resolveRecoverySuggestion } from "./tool-error-patterns";
+import { isFailedToolResult } from "./tool-result-status";
 import { extractImageMedia } from "@/lib/ai/tool-model-output";
 
 // NOTE: this module is imported by both the Electron main process AND the renderer
@@ -352,17 +353,7 @@ export class ToolRegistry {
                 // the latter previously slipped through as success:true with the
                 // error nested in `result` — so the model saw a "successful" call
                 // that had actually failed, and never got the recovery hint.
-                const asRawObj = raw as { success?: boolean; error?: unknown };
-                const isBareError =
-                    asRawObj.success !== true &&
-                    typeof asRawObj.error === "string" &&
-                    asRawObj.error.trim().length > 0;
-                if (
-                    raw &&
-                    typeof raw === "object" &&
-                    !Array.isArray(raw) &&
-                    (asRawObj.success === false || isBareError)
-                ) {
+                if (isFailedToolResult(raw)) {
                     const fail = raw as {
                         error?: string;
                         message?: string;

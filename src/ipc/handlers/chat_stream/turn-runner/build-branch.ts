@@ -49,6 +49,7 @@ import { recordUnverifiedEdit, clearUnverifiedEdit } from "@/lib/agent/mutation-
 import { runAgentTurn } from "@/lib/agent/run-agent-turn";
 import { sanitizeJsonSchemaForProvider } from "@/lib/ai/normalize-tool-schema";
 import { buildToolModelOutput, redactToolMediaForDisplay, extractImageMedia } from "@/lib/ai/tool-model-output";
+import { toolActivityStatusFor } from "@/lib/tools/tool-result-status";
 import { stripHallucinatedAtlarixToolTagsFromDelta } from "@/lib/chat/answer-display";
 import { summarizeToolResultForActivityDetail, toolResultTextForExpand } from "@/lib/chat/stream-tool-display";
 import { computeDiffHunks } from "@/lib/diff/compose-hunks";
@@ -899,6 +900,15 @@ export async function runBuildBranch(
                     // Not a permission request - return result directly.
                     // (Repetition is recorded once at the wrapper top — Fix R.)
                     recordBuildToolLedger(toolName, result);
+                    // A tool reports failure two ways: by THROWING, and by RETURNING a
+                    // failure shape (`{success:false}`, or the legacy bare `{error}`).
+                    // `activityStatus` was only set in the `catch` below, so a RETURNED
+                    // failure emitted status "done" and the card rendered with a green
+                    // tick and the past-tense success label — `glob` refusing a pattern
+                    // showed as "Found files matching …" beside its own error text.
+                    // Same class as v14.22.0's "Successfully executed" next to a non-zero
+                    // exit, and it affected every tool using the return convention.
+                    activityStatus = toolActivityStatusFor(result);
                     // v12 0.2: display copy never carries base64 (cards show a
                     // size placeholder instead of megabytes of image data).
                     toolResultForActivity = redactToolMediaForDisplay(result);

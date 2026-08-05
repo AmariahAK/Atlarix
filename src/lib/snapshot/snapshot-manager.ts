@@ -80,6 +80,28 @@ function turnManifestPath(gitDir: string, seg: string): string {
   return path.join(gitDir, TURNS_DIR, `${seg}.json`);
 }
 
+/**
+ * Extra roots a turn touched outside the primary workspace, owned by the PRIMARY
+ * workspace's shadow repo.
+ *
+ * A turn that edits this project and a granted sibling produces one shadow repo per root
+ * (each keyed by its own path, each with its own work-tree), so revert needs one place to
+ * ask "what did this turn touch?" — that place is here.
+ */
+function turnRootsPath(gitDir: string, seg: string): string {
+  return path.join(gitDir, TURNS_DIR, `${seg}.roots.json`);
+}
+
+async function readTurnRoots(gitDir: string, seg: string): Promise<string[]> {
+  try {
+    const raw = await fs.readFile(turnRootsPath(gitDir, seg), "utf8");
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter((r) => typeof r === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
 function turnIndexPath(gitDir: string, seg: string): string {
   return path.join(gitDir, `index-${seg}`);
 }
@@ -272,6 +294,145 @@ export async function captureSnapshot(params: CaptureSnapshotParams): Promise<vo
   });
 }
 
+/**
+ * Capture a turn's pre-write state across the primary workspace AND any granted roots it
+ * touched — the whole of cross-project revert.
+ *
+ * Each root gets its own shadow repo (keyed by its own path, work-tree pointed at it), so
+ * `captureSnapshot` runs unchanged per root; only the bookkeeping is new. The primary
+ * workspace's shadow repo records which extra roots participated, so revert has one place
+ * to ask what the turn touched.
+ *
+ * This replaced the previous behaviour of DROPPING every outside path
+ * (`interceptor.ts`: `.filter((p) => !p.startsWith("../"))`). That filter was right at the
+ * time — `git add` with `cwd = workspace` aborts the whole invocation on a path outside
+ * its work-tree, so one outside file in a multi-file write destroyed the pre-write
+ * snapshot of every in-workspace file beside it. But its consequence was that a cross-repo
+ * edit silently had no Revert at all, which is the gap this closes: the path never leaves
+ * its own root's work-tree, so git has nothing to object to.
+ */
+export async function captureSnapshotAcrossRoots(params: {
+  /** The primary workspace — owns the roots index. */
+  workspacePath: string;
+  turnId: string;
+  /** Absolute paths, or paths relative to the workspace (`../sibling/x` included). */
+  paths: readonly string[];
+  /** Roots the user has granted. Nothing outside these is snapshotted. */
+  grantedRoots: readonly string[];
+  promptSummary?: string;
+}): Promise<void> {
+  const { workspacePath, turnId } = params;
+  if (!workspacePath || !turnId) return;
+
+  const groups = groupPathsByRoot({
+    workspacePath,
+    paths: params.paths,
+    grantedRoots: params.grantedRoots,
+  });
+  if (groups.length === 0) return;
+
+  for (const group of groups) {
+    await captureSnapshot({
+      workspacePath: group.root,
+      turnId,
+      relativePaths: group.relativePaths,
+      ...(params.promptSummary ? { promptSummary: params.promptSummary } : {}),
+    });
+  }
+
+  const extraRoots = groups.filter((g) => !g.isPrimary).map((g) => g.root);
+  if (extraRoots.length > 0) {
+    await recordTurnRoots(workspacePath, turnId, extraRoots);
+  }
+}
+
+/**
+ * Add roots to a turn's index in the primary workspace's shadow repo.
+ *
+ * Sequenced AFTER the captures rather than wrapping them: `captureSnapshot` takes the
+ * per-root lock itself, so holding the primary's lock around a call that also wants it
+ * would deadlock on its own promise chain.
+ */
+async function recordTurnRoots(
+  workspacePath: string,
+  turnId: string,
+  roots: string[],
+): Promise<void> {
+  await withWorkspaceLock(workspacePath, async () => {
+    try {
+      const gitDir = await ensureShadowRepo(workspacePath);
+      const seg = sanitizeLedgerDirSegment(turnId);
+      const existing = await readTurnRoots(gitDir, seg);
+      const merged = [...new Set([...existing, ...roots])];
+      if (merged.length === existing.length && existing.every((r) => merged.includes(r))) {
+        return;
+      }
+      await fs.mkdir(path.join(gitDir, TURNS_DIR), { recursive: true });
+      await fs.writeFile(
+        turnRootsPath(gitDir, seg),
+        JSON.stringify(merged, null, 2),
+        "utf8",
+      );
+    } catch (err) {
+      // Same policy as captureSnapshot: never block a write on snapshot bookkeeping.
+      logger.warn(`recordTurnRoots failed for turn ${turnId}:`, err);
+    }
+  });
+}
+
+/** Is `abs` inside `root`? (Both already resolved.) */
+function isInside(root: string, abs: string): boolean {
+  const rel = path.relative(root, abs);
+  return rel === "" ? false : !rel.startsWith("..") && !path.isAbsolute(rel);
+}
+
+/**
+ * Split a turn's touched paths by the root that will snapshot them.
+ *
+ * In-workspace paths belong to the primary root. A path outside it belongs to the
+ * innermost GRANTED root that contains it — innermost so that a grant of `/a/b` inside a
+ * grant of `/a` snapshots against the narrower work-tree.
+ *
+ * A path outside every granted root is DROPPED, not snapshotted. Granting is what makes a
+ * folder writable in the first place, so an ungranted outside path cannot have been
+ * written by an approved edit — and minting a shadow repo for an arbitrary absolute path
+ * would scatter git directories across the user's disk.
+ *
+ * Exported for testing: the grouping is the whole correctness surface of cross-root
+ * revert, and it is pure.
+ */
+export function groupPathsByRoot(args: {
+  workspacePath: string;
+  /** Absolute paths, or paths relative to the workspace (`../sibling/x` included). */
+  paths: readonly string[];
+  grantedRoots: readonly string[];
+}): { root: string; relativePaths: string[]; isPrimary: boolean }[] {
+  const primary = path.resolve(args.workspacePath);
+  // Longest first so the innermost containing grant wins.
+  const roots = [...new Set(args.grantedRoots.map((r) => path.resolve(r)))].sort(
+    (a, b) => b.length - a.length,
+  );
+  const byRoot = new Map<string, string[]>();
+
+  for (const raw of args.paths) {
+    if (!raw) continue;
+    const abs = path.isAbsolute(raw) ? path.resolve(raw) : path.resolve(primary, raw);
+    const owner = isInside(primary, abs) ? primary : roots.find((r) => isInside(r, abs));
+    if (!owner) continue; // outside every granted root — not ours to snapshot
+    const rel = path.relative(owner, abs).split(path.sep).join("/");
+    if (!rel || rel.startsWith("..")) continue;
+    const list = byRoot.get(owner) ?? [];
+    if (!list.includes(rel)) list.push(rel);
+    byRoot.set(owner, list);
+  }
+
+  return [...byRoot.entries()].map(([root, relativePaths]) => ({
+    root,
+    relativePaths,
+    isPrimary: root === primary,
+  }));
+}
+
 export interface RevertSnapshotResult {
   success: boolean;
   error?: string;
@@ -355,20 +516,52 @@ async function shadowRevert(
 // v10.1: legacy pre-v10 `.bak` file-copy revert fallback removed — turns
 // captured before the shadow-git store can no longer be reverted.
 
-/** Restore all files captured for a turn. */
+/**
+ * Every root a turn touched: the primary workspace plus whatever it recorded.
+ *
+ * The primary is always first, so a revert restores in-workspace files before reaching
+ * across into a sibling project.
+ */
+async function turnRoots(workspacePath: string, turnId: string): Promise<string[]> {
+  const primary = path.resolve(workspacePath);
+  const extra = await readTurnRoots(
+    shadowGitDir(primary),
+    sanitizeLedgerDirSegment(turnId),
+  );
+  return [primary, ...extra.filter((r) => path.resolve(r) !== primary)];
+}
+
+/** Restore all files captured for a turn, in every root it touched. */
 export async function revertSnapshot(params: {
   workspacePath: string;
   turnId: string;
 }): Promise<RevertSnapshotResult> {
   const { workspacePath, turnId } = params;
-  return withWorkspaceLock(workspacePath, async () => {
-    const shadow = await shadowRevert(workspacePath, turnId, null);
-    if (shadow) return shadow;
-    return { success: false, restoredFiles: 0 };
-  });
+  const roots = await turnRoots(workspacePath, turnId);
+  let restored = 0;
+  let anyManifest = false;
+
+  for (const root of roots) {
+    // Per-root lock: each shadow repo has its own capture chain.
+    const result = await withWorkspaceLock(root, () =>
+      shadowRevert(root, turnId, null),
+    );
+    if (!result) continue; // no manifest for this root — nothing was captured there
+    anyManifest = true;
+    restored += result.restoredFiles ?? 0;
+  }
+
+  if (!anyManifest) return { success: false, restoredFiles: 0 };
+  return { success: true, restoredFiles: restored };
 }
 
-/** Restore only specific workspace-relative paths captured for a turn. */
+/**
+ * Restore only specific paths captured for a turn.
+ *
+ * `paths` arrive as the UI shows them — workspace-relative, which for an outside file
+ * means `../sibling/x`. They are grouped back onto their owning root before being handed
+ * to that root's shadow repo, where they are root-relative again.
+ */
 export async function revertSnapshotFiles(params: {
   workspacePath: string;
   turnId: string;
@@ -378,11 +571,28 @@ export async function revertSnapshotFiles(params: {
   if (relativePaths.length === 0) {
     return { success: true, restoredFiles: 0 };
   }
-  return withWorkspaceLock(workspacePath, async () => {
-    const shadow = await shadowRevert(workspacePath, turnId, relativePaths);
-    if (shadow) return shadow;
-    return { success: false, restoredFiles: 0 };
+  const roots = await turnRoots(workspacePath, turnId);
+  const groups = groupPathsByRoot({
+    workspacePath,
+    paths: relativePaths,
+    // The turn's own roots are the eligible set here: a path is revertible exactly where
+    // it was captured.
+    grantedRoots: roots,
   });
+
+  let restored = 0;
+  let anyManifest = false;
+  for (const group of groups) {
+    const result = await withWorkspaceLock(group.root, () =>
+      shadowRevert(group.root, turnId, group.relativePaths),
+    );
+    if (!result) continue;
+    anyManifest = true;
+    restored += result.restoredFiles ?? 0;
+  }
+
+  if (!anyManifest) return { success: false, restoredFiles: 0 };
+  return { success: true, restoredFiles: restored };
 }
 
 /** True when a snapshot exists for this turn (shadow-git store). */
@@ -392,8 +602,13 @@ export async function snapshotExists(
 ): Promise<boolean> {
   if (!workspacePath || !turnId) return false;
   const seg = sanitizeLedgerDirSegment(turnId);
-  const manifest = await readManifest(shadowGitDir(workspacePath), seg);
-  return manifest != null;
+  // A turn that ONLY touched a granted sibling still has a revertible snapshot — it just
+  // lives in that root's shadow repo. Checking the primary alone would hide the Revert
+  // affordance for exactly the cross-repo edits this release made revertible.
+  for (const root of await turnRoots(workspacePath, turnId)) {
+    if ((await readManifest(shadowGitDir(root), seg)) != null) return true;
+  }
+  return false;
 }
 
 /**
@@ -407,12 +622,28 @@ export async function listSnapshotFiles(
 ): Promise<{ filesChanged: string[]; createdFiles: string[] } | null> {
   if (!workspacePath || !turnId) return null;
   const seg = sanitizeLedgerDirSegment(turnId);
-  const manifest = await readManifest(shadowGitDir(workspacePath), seg);
-  if (!manifest) return null;
-  return {
-    filesChanged: manifest.filesChanged ?? [],
-    createdFiles: manifest.createdFiles ?? [],
-  };
+  const primary = path.resolve(workspacePath);
+  const filesChanged: string[] = [];
+  const createdFiles: string[] = [];
+  let found = false;
+
+  for (const root of await turnRoots(workspacePath, turnId)) {
+    const manifest = await readManifest(shadowGitDir(root), seg);
+    if (!manifest) continue;
+    found = true;
+    // Re-express an outside root's paths the way the UI shows them (`../sibling/x`), so
+    // the revert list reads as one turn rather than several disjoint sets, and so the
+    // strings round-trip back through `revertSnapshotFiles`.
+    const toDisplay = (rel: string): string =>
+      root === primary
+        ? rel
+        : path.relative(primary, path.join(root, rel)).split(path.sep).join("/");
+    for (const rel of manifest.filesChanged ?? []) filesChanged.push(toDisplay(rel));
+    for (const rel of manifest.createdFiles ?? []) createdFiles.push(toDisplay(rel));
+  }
+
+  if (!found) return null;
+  return { filesChanged, createdFiles };
 }
 
 // ── Retention ───────────────────────────────────────────────────────────────

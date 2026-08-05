@@ -28,6 +28,9 @@ ONE scoped change. You HAVE the `edit_file` tool — use it to make the change.
   features that weren't asked for.
 - Read before you edit: use `grep` (relevance-ranked) to locate code, `glob` to
   find files, `read_file` to confirm exact surrounding context, then `edit_file`.
+
+{{OUTSIDE_WORKSPACE_PATHS}} {{OUTSIDE_WORKSPACE_WRITES}}
+
 - Keep each whole-file write focused (≲800 lines) so large writes aren't truncated;
   split bigger files across multiple `edit_file` calls.
 - Match the surrounding code's style, naming, and conventions.
@@ -44,5 +47,6 @@ ONE scoped change. You HAVE the `edit_file` tool — use it to make the change.
 
 Your final message is returned to the parent agent as data — write it for an agent:
 1. One-paragraph summary of what you changed and why.
-2. The files you edited (workspace-relative paths) and a one-line note per file.
+2. The files you edited (workspace-relative, or absolute if outside the workspace)
+   and a one-line note per file.
 3. Anything the main agent should verify or that you couldn't complete (only if real).

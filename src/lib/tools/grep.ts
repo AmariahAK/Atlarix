@@ -163,7 +163,7 @@ ToolRegistry.register({
   parameters: createParameters(
     {
       pattern: stringParam("Regex (ripgrep syntax) or literal text to find."),
-      path: stringParam("Optional: limit to a folder or file. Workspace-relative by default; an absolute path, or a relative one with `../`, searches outside the workspace."),
+      path: stringParam("Optional: limit to a folder or file. Workspace-relative by default; to search outside the workspace, give its ABSOLUTE path."),
       include: stringParam(
         "Optional file glob filter (e.g. '*.ts', 'src/**/*.tsx').",
       ),

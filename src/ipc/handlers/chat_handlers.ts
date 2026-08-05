@@ -13,7 +13,6 @@ import {
 } from "@/lib/attachment-persistence";
 import {
   getStreamTransport,
-  hydrateStreamTransport,
   isStreamTransportId,
 } from "@/lib/chat/stream-transport";
 import log from "electron-log";
@@ -27,33 +26,12 @@ const LEGACY_CHAT_REMOVED =
 export function registerChatHandlers() {
   // v12 0.4-C3: chat:clear-ephemeral-messages deleted — it was a no-op
   // precursor (hydrate replaces the buffer wholesale).
-
-  handle(
-    "chat:hydrate-ephemeral-messages",
-    async (
-      _,
-      payload: {
-        chatId: number;
-        messages: {
-          role: string;
-          content: string;
-          id?: number;
-          /** v12 0.4-C2: session DB row UUID (direct edit targeting). */
-          sessionRowId?: string | null;
-          displaySnapshot?: DisplaySnapshotV1 | null;
-          modelContent?: string | null;
-          pasteAttachments?: import("../ipc_types").PasteAttachmentMeta[] | null;
-          fileAttachments?: import("../ipc_types").StoredFileAttachment[] | null;
-          attachments?: import("../ipc_types").AttachmentInfo[] | null;
-          maxTokensUsed?: number | null;
-        }[];
-      },
-    ) => {
-      if (!isStreamTransportId(payload.chatId)) return;
-      hydrateAttachmentStoreFromMessages(payload.messages ?? []);
-      hydrateStreamTransport(payload.chatId, payload.messages ?? []);
-    },
-  );
+  //
+  // `chat:hydrate-ephemeral-messages` deleted with the session-load round trip: the
+  // renderer used it to send content + modelContent + displaySnapshot BACK to main
+  // for bytes main had just read out of SQLite. `sessions:hydrate-transport`
+  // (workspace_session_handlers.ts) takes the renderer's numeric ids — the one thing
+  // main cannot know — and joins the bodies from its own rows.
 
   // v12 7A: list a workspace's user-defined agents (.atlarix/agents/*.md)
   // for the mode picker.

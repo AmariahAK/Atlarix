@@ -22,13 +22,23 @@ import type {
   PasteAttachmentMeta,
   StoredFileAttachment,
 } from "../ipc_types";
-import { hydrateAttachmentStoreFromMessages } from "@/lib/attachment-persistence";
+import {
+  attachmentInfoFromStoredFile,
+  hydrateAttachmentStoreFromMessages,
+} from "@/lib/attachment-persistence";
+import {
+  diagSpan,
+  diagSpanSync,
+  measureSessionPayloadBytes,
+  sessionLoadDiagEnabled,
+} from "@/lib/diag/session-load-diag";
 import { requireAuthSession } from "@/lib/auth/require_auth_session";
 import {
   createStreamTransport,
   deleteStreamTransport,
   getStreamTransport,
   getStreamTransportAppId,
+  hydrateStreamTransport,
   isStreamTransportId,
   seedEphemeralChatCounterBelow,
 } from "@/lib/chat/stream-transport";
@@ -378,6 +388,63 @@ export async function resolveOrBindWorkspaceSessionForStream(input: {
  * empties for deletion. Sessions with messages or custom titles are never
  * touched. Extracted for unit testing.
  */
+/** One transport message, joined from a DB row plus the renderer's numeric id. */
+export type TransportRowRef = { id: number; sessionRowId?: string | null };
+
+/**
+ * Join the renderer's ordered `{id, sessionRowId}` refs against main's own message
+ * rows — the whole point of `sessions:hydrate-transport`.
+ *
+ * ORDER comes from `refs`, never from the row array: the refs are what the renderer
+ * actually rendered, and a transport in a different order than the screen would
+ * mis-target edits and reverts (both key on the numeric id's position).
+ *
+ * A ref with no matching row is DROPPED rather than hydrated as an empty message. A
+ * blank message in the transport would be sent to the model as real history.
+ *
+ * Exported for testing (same convention as `pickSessionReuse`) so the join contract
+ * is pinned without standing up a database.
+ */
+export function joinTransportRows(
+  rows: SessionMessageRow[],
+  refs: TransportRowRef[],
+): {
+  id: number;
+  sessionRowId: string;
+  role: SessionMessageRow["role"];
+  content: string;
+  displaySnapshot: DisplaySnapshotV1 | null;
+  modelContent: string | null;
+  pasteAttachments: PasteAttachmentMeta[] | null;
+  fileAttachments: StoredFileAttachment[] | null;
+  attachments: ReturnType<typeof attachmentInfoFromStoredFile>[] | null;
+  maxTokensUsed: number | null;
+}[] {
+  const byRowId = new Map(rows.map((r) => [r.id, r]));
+  return refs.flatMap((ref) => {
+    const row = ref.sessionRowId ? byRowId.get(ref.sessionRowId) : undefined;
+    if (!row) return [];
+    return [
+      {
+        id: ref.id,
+        sessionRowId: row.id,
+        role: row.role,
+        content: row.content ?? "",
+        displaySnapshot: row.displaySnapshot ?? null,
+        modelContent: row.modelContent ?? null,
+        pasteAttachments: row.pasteAttachments ?? null,
+        fileAttachments: row.fileAttachments ?? null,
+        attachments:
+          row.fileAttachments?.map(attachmentInfoFromStoredFile) ?? null,
+        // The provider's real token total. Dropping it downgrades the context
+        // meter to a client estimate that reads about half — the exact regression
+        // the old renderer round trip carried a comment about.
+        maxTokensUsed: row.maxTokensUsed ?? null,
+      },
+    ];
+  });
+}
+
 export function pickSessionReuse(
   rows: { id: string; title: string; messageCount: number }[],
 ): { reuseId: string | null; pruneIds: string[] } {
@@ -664,28 +731,97 @@ export function registerWorkspaceSessionHandlers(): void {
         .where(eq(sessionMessages.sessionId, sessionId));
       const totalCount = Number(countRow?.count ?? 0);
 
-      const recent = await db
-        .select()
-        .from(sessionMessages)
-        .where(eq(sessionMessages.sessionId, sessionId))
-        .orderBy(desc(sessionMessages.createdAt))
-        .limit(limit);
+      // better-sqlite3 is SYNCHRONOUS: this read blocks the main process for its
+      // whole duration, which is why it is timed separately from the mapping below.
+      const recent = await diagSpan(
+        "main: select session_messages",
+        () =>
+          db
+            .select()
+            .from(sessionMessages)
+            .where(eq(sessionMessages.sessionId, sessionId))
+            .orderBy(desc(sessionMessages.createdAt))
+            .limit(limit),
+        {
+          sink: (line) => logger.info(line),
+          count: (r) => r.length,
+          bytes: (r) => measureSessionPayloadBytes(r).total,
+        },
+      );
       const rows = [...recent].reverse();
 
-      const messages = rows
-        .map(mapMessage)
-        .filter((m) => m.kind !== "plan");
+      // `mapMessage` runs parseDisplaySnapshot per row — a JSON.parse of the whole
+      // rendered thread for every assistant turn, all on the main thread.
+      const messages = diagSpanSync(
+        "main: mapMessage + parseDisplaySnapshot",
+        () => rows.map(mapMessage).filter((m) => m.kind !== "plan"),
+        { sink: (line) => logger.info(line), count: (m) => m.length },
+      );
       hydrateAttachmentStoreFromMessages(
         messages,
         typeof session.streamChatId === "number" ? session.streamChatId : undefined,
         session.id,
       );
+      if (sessionLoadDiagEnabled()) {
+        const b = measureSessionPayloadBytes(messages);
+        logger.info(
+          `[diag:session-load] main: payload to renderer — total ${(b.total / 1_048_576).toFixed(2)} MB ` +
+            `(content ${(b.content / 1_048_576).toFixed(2)}, modelContent ${(b.modelContent / 1_048_576).toFixed(2)}, ` +
+            `displaySnapshot ${(b.displaySnapshot / 1_048_576).toFixed(2)}) across ${messages.length} messages`,
+        );
+      }
       return {
         session: mapSession(session),
         messages,
         truncated: totalCount > limit,
         totalCount,
       };
+    },
+  );
+
+  /**
+   * Hydrate a chat's in-memory transport from MAIN's own session rows.
+   *
+   * Replaces the renderer round trip: `sessions:get` shipped `content`,
+   * `modelContent` and `displaySnapshot` to the renderer, which mapped them to UI
+   * messages and then sent every one of those bytes straight BACK to main via
+   * `chat:hydrate-ephemeral-messages` — 4.5 MB re-serialized, in both directions,
+   * for data main had just read out of SQLite.
+   *
+   * Only the renderer can supply the numeric display ids (they are allocated in the
+   * renderer and the whole edit/revert path keys on them), so that is all it sends:
+   * an ordered list of `{id, sessionRowId}`. Everything else is joined from the DB
+   * here. Order comes from the renderer's array, not from a re-query, so the
+   * transport can never disagree with what is on screen.
+   */
+  handle(
+    "sessions:hydrate-transport",
+    async (
+      _event,
+      payload: {
+        chatId: number;
+        sessionId: string;
+        rows: { id: number; sessionRowId?: string | null }[];
+      },
+    ) => {
+      if (!isStreamTransportId(payload.chatId)) return { hydrated: 0 };
+      const dbRows = await db
+        .select()
+        .from(sessionMessages)
+        .where(eq(sessionMessages.sessionId, payload.sessionId));
+
+      const messages = joinTransportRows(dbRows.map(mapMessage), payload.rows);
+
+      hydrateAttachmentStoreFromMessages(messages, payload.chatId, payload.sessionId);
+      hydrateStreamTransport(payload.chatId, messages);
+      if (sessionLoadDiagEnabled()) {
+        const b = measureSessionPayloadBytes(messages);
+        logger.info(
+          `[diag:session-load] main: hydrated transport from own rows — ${messages.length} messages, ` +
+            `${(b.total / 1_048_576).toFixed(2)} MB never crossed IPC`,
+        );
+      }
+      return { hydrated: messages.length };
     },
   );
 

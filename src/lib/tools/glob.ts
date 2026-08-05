@@ -31,6 +31,52 @@ const execFileAsync = promisify(execFile);
 const DEFAULT_LIMIT = 100;
 const MAX_LIMIT = 1000;
 
+/**
+ * Move a leading DIRECTORY prefix out of the pattern and into the search path, so
+ * `glob("../telios/**\/*.go")` means what it obviously means.
+ *
+ * Only a prefix that is unambiguously a location is absorbed: a run of leading
+ * `../` segments, or an absolute path, up to the first segment containing a glob
+ * metacharacter. `src/**\/*.ts` is untouched — a workspace-relative pattern is a
+ * pattern, and ripgrep already handles it.
+ *
+ * An explicit `path` argument WINS: the caller said where to look, so a directory
+ * prefix in the pattern is left alone rather than silently retargeting the search.
+ */
+export function absorbPatternDirectoryPrefix(
+    pattern: string,
+    searchPath: string,
+): { pattern: string; searchPath: string } {
+    const trimmed = (pattern ?? "").trim();
+    const callerGavePath = (searchPath ?? "").trim() !== "" && searchPath !== ".";
+    if (callerGavePath || !trimmed) return { pattern, searchPath };
+
+    const isAbsolute = path.isAbsolute(trimmed);
+    const startsWithParent = /^\.\.[\\/]/.test(trimmed);
+    if (!isAbsolute && !startsWithParent) return { pattern, searchPath };
+
+    // Split into segments, dropping the empty leading segment an absolute path
+    // produces so the rebuild below controls the root explicitly.
+    const segments = trimmed.split(/[\\/]+/).filter((s) => s !== "");
+    const dirSegments: string[] = [];
+    let i = 0;
+    for (; i < segments.length; i++) {
+        // Stop at the first segment that is a pattern rather than a directory name.
+        if (/[*?[\]{}]/.test(segments[i])) break;
+        dirSegments.push(segments[i]);
+    }
+    if (dirSegments.length === 0) return { pattern, searchPath };
+
+    const dir = isAbsolute
+        ? path.sep + dirSegments.join(path.sep)
+        : dirSegments.join("/");
+    const remainder = segments.slice(i).join("/");
+
+    // Nothing left to match on (e.g. `../telios`) → list that directory, which is
+    // already the documented "bare directory listing" form of this tool.
+    return { pattern: remainder || "*", searchPath: dir };
+}
+
 ToolRegistry.register({
     name: "glob",
     description:
@@ -45,7 +91,7 @@ ToolRegistry.register({
             pattern: stringParam(
                 "Glob pattern (e.g. '**/*.tsx', 'component*', 'src/**')",
             ),
-            path: stringParam("Folder to search in — defaults to the workspace root. An absolute path, or a relative one with `../`, searches outside the workspace."),
+            path: stringParam("Folder to search in — defaults to the workspace root. To search outside the workspace, give its ABSOLUTE path."),
             limit: numberParam(
                 `Max files returned (default ${DEFAULT_LIMIT}, max ${MAX_LIMIT})`,
                 DEFAULT_LIMIT,
@@ -67,14 +113,22 @@ ToolRegistry.register({
         workspace?: string;
     }) => {
         const max = Math.min(MAX_LIMIT, Math.max(1, limit ?? DEFAULT_LIMIT));
-        // A18/L-3: a `../` segment in the PATTERN would enumerate outside the
-        // workspace even though `searchPath` is confined. Reject it.
-        if (/(^|[\\/])\.\.([\\/]|$)/.test(pattern)) {
-            return {
-                success: false,
-                error: "glob pattern may not contain '..' (it would escape the workspace). Use a path within the project.",
-            };
-        }
+        // A `../…` or absolute DIRECTORY prefix in the pattern is absorbed into
+        // `path` rather than refused.
+        //
+        // The old A18/L-3 guard rejected any `..` in the pattern, on the reasoning
+        // that it would escape a confined `searchPath`. `searchPath` is no longer
+        // confined — an absolute or `../` path searches where it says, because reads
+        // are auto-allowed anywhere — so the guard was defending a boundary that had
+        // already, deliberately, moved. What it still did was fail the single most
+        // natural way to ask the question (`glob("../telios/*")`), with a message
+        // telling the model to "use a path within the project" and never mentioning
+        // the `path` parameter that would have worked. Observed cost: the model
+        // abandoned the tool and went to `pwd`/`ls`/`find`, then guessed the wrong
+        // directory. Absorb the alias; don't prompt against it.
+        const absorbed = absorbPatternDirectoryPrefix(pattern, searchPath);
+        const effectivePattern = absorbed.pattern;
+        const effectiveSearchPath = absorbed.searchPath;
         try {
             // An absolute `path` — or a relative one written with `../` — searches
             // that exact location; reads are auto-allowed outside the workspace.
@@ -85,13 +139,13 @@ ToolRegistry.register({
             // `find` to rediscover a path it was always permitted to read. The
             // boundary is where the path lands, not how it was spelled.
             const usesParentTraversal =
-                /^\.\.[\\/]/.test(searchPath) || searchPath === "..";
+                /^\.\.[\\/]/.test(effectiveSearchPath) || effectiveSearchPath === "..";
             const fullPath =
-                path.isAbsolute(searchPath) || usesParentTraversal
-                    ? resolveToolTargetPath(workspace || process.cwd(), searchPath).absPath
+                path.isAbsolute(effectiveSearchPath) || usesParentTraversal
+                    ? resolveToolTargetPath(workspace || process.cwd(), effectiveSearchPath).absPath
                     : workspace
-                      ? resolvePathUnderWorkspace(workspace, searchPath || ".")
-                      : path.resolve(stripToolPathPrefixes(searchPath || ".") || ".");
+                      ? resolvePathUnderWorkspace(workspace, effectiveSearchPath || ".")
+                      : path.resolve(stripToolPathPrefixes(effectiveSearchPath || ".") || ".");
 
             // ripgrep lists files under cwd (paths relative to it), filtered by
             // .gitignore/.ignore/.atlarixignore. A CATCH-ALL `-g` glob (`*`, `**`,
@@ -100,7 +154,7 @@ ToolRegistry.register({
             // (plain `rg --files` is already correctly ignore-filtered) and, for a
             // bare `*`, keep only top-level entries (matching the old glob's
             // non-recursive `*` semantics). Constrained patterns respect ignores.
-            const trimmed = pattern.trim();
+            const trimmed = effectivePattern.trim();
             const isUniversal =
                 trimmed === "" ||
                 trimmed === "*" ||
@@ -108,7 +162,7 @@ ToolRegistry.register({
                 trimmed === "**/*";
             const ignoreArgs = await ripgrepIgnoreArgs(workspace);
             const rgArgs = ["--files", ...ignoreArgs];
-            if (!isUniversal) rgArgs.push("-g", pattern);
+            if (!isUniversal) rgArgs.push("-g", effectivePattern);
             let matched: string[] = [];
             try {
                 const { stdout } = await execFileAsync(await resolveRipgrepPath(), rgArgs, {
@@ -141,7 +195,15 @@ ToolRegistry.register({
             const files = matched;
 
             if (files.length === 0) {
-                return `No files found matching pattern: ${pattern}. Often an extension or casing issue — try a broader glob (e.g. "**/${pattern}"), or use grep to find the file by its content.`;
+                // Report what was actually searched, not just what was asked. When a
+                // directory prefix was absorbed out of the pattern, saying only
+                // "no files matching ../telios/*.go" leaves the model unable to tell
+                // whether the directory or the pattern was wrong.
+                const searchedNote =
+                    effectivePattern !== pattern
+                        ? ` (searched "${effectivePattern}" under ${fullPath})`
+                        : "";
+                return `No files found matching pattern: ${pattern}${searchedNote}. Often an extension or casing issue — try a broader glob (e.g. "**/${effectivePattern}"), or use grep to find the file by its content.`;
             }
 
             // Modification-time sort, newest first (recently-touched files are

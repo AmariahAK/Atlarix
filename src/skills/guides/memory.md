@@ -90,3 +90,26 @@ If the user asks you to remember something in those categories, ask what was
   no note, because it will be trusted.
 - Notes are point-in-time. If one names a file, function, or flag, verify it still
   exists before acting on it — the code moved on and the note didn't.
+
+## Compaction
+
+Memory is **not capped**. No note is ever refused for size and nothing is deleted to
+make room. Instead it compacts, the same way context does: past **25 MB** for a project
+you will be told to rewrite specific notes, and told again every turn until the store is
+smaller.
+
+You will be named the largest notes. For each one:
+
+- Keep only what is still true and **non-obvious**.
+- Delete what the code, config, or git history already records — memory that restates
+  the codebase is a worse copy of it.
+- Merge duplicated detail into a single statement.
+- Be **specific about the file or feature** it concerns. "The auth flow is complicated"
+  is bulk; "`useAuth` is an unshared hook — each of its ~22 consumers runs its own
+  session check, so guard in the IPC handler, not the hook" is a fact.
+
+A note that gets shorter and sharper is the goal. A note that gets shorter by losing a
+fact is a regression — if something is still true and still non-obvious, keep it and cut
+elsewhere.
+
+Compact only the notes you were named, unless the user asks for a full pass.

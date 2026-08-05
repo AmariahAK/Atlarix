@@ -217,3 +217,140 @@ export function isAgentMemoryDisabled(): boolean {
   const v = (process.env.ATLARIX_MEMORY ?? "").trim().toLowerCase();
   return v === "off" || v === "0" || v === "false";
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Compaction (NOT a cap)
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// Notes are written indefinitely and nothing ever pruned them. Cost to the PROMPT is
+// bounded by design (only the one-line index is injected), so the failure mode isn't
+// token spend — it is an index whose entries increasingly point at bloated, redundant
+// notes that nobody rewrote.
+//
+// Memory is therefore treated exactly like context: it COMPACTS, it does not fill up.
+// Nothing is ever refused and nothing is deleted to make room — past the threshold the
+// harness tells the agent to rewrite specific notes more accurately, and keeps telling
+// it until the store is smaller. A hard ceiling would fail the one write that mattered
+// (often the one consolidating everything) and would make the agent's first signal a
+// failure.
+//
+// PER PROJECT, deliberately: the threshold is computed from the note's own directory,
+// and one busy project can't force compaction on the rest.
+//
+// Named notes, not a blanket sweep: the guidance points at the LARGEST notes, because
+// those are where accuracy has actually decayed, and a whole-store pass is a decision
+// for the user to ask for.
+
+/** Size at which the agent is required to compact this project's memory. */
+export const MEMORY_COMPACT_BYTES = 25 * 1024 * 1024;
+
+/** Fraction of the threshold at which compaction is first raised. */
+export const MEMORY_COMPACT_NUDGE_RATIO = 0.8;
+
+/** How many of the largest notes the directive names. */
+const MEMORY_COMPACT_TARGET_COUNT = 3;
+
+export type MemoryNoteSize = { name: string; bytes: number };
+
+/** Every note file in a project's memory directory, largest first (index included). */
+export async function listMemoryNoteSizes(
+  workspacePath: string,
+): Promise<MemoryNoteSize[]> {
+  const dir = memoryDirFor(workspacePath);
+  try {
+    const entries = await fs.readdir(dir, { withFileTypes: true });
+    const sizes = await Promise.all(
+      entries
+        .filter((e) => e.isFile())
+        .map(async (e) => {
+          try {
+            return { name: e.name, bytes: (await fs.stat(path.join(dir, e.name))).size };
+          } catch {
+            return { name: e.name, bytes: 0 }; // vanished mid-scan
+          }
+        }),
+    );
+    return sizes.sort((a, b) => b.bytes - a.bytes);
+  } catch {
+    return []; // no memory directory yet
+  }
+}
+
+/** Total bytes of every note file in a project's memory directory (index included). */
+export async function memoryDirBytes(workspacePath: string): Promise<number> {
+  const notes = await listMemoryNoteSizes(workspacePath);
+  return notes.reduce((sum, n) => sum + n.bytes, 0);
+}
+
+function mb(bytes: number): string {
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+export type MemoryCompactionPlan = {
+  /** Projected directory size, in bytes. */
+  totalBytes: number;
+  /** True once past the full threshold rather than the early nudge. */
+  required: boolean;
+  /** The notes to rewrite, largest first. */
+  targets: MemoryNoteSize[];
+  /**
+   * The whole signal, as a FLAG — a handful of tokens naming the state and the notes.
+   *
+   * Deliberately not a lesson. This rides `loadMemoryMdSection`, which runs on every
+   * turn, so a paragraph here is a paragraph on every request until the store shrinks:
+   * the first version of this cost 147 tokens per turn (~7,350 over a 50-turn session),
+   * which is precisely the payload-instead-of-index mistake v14.25.0 existed to undo.
+   *
+   * The HOW lives in `skills/guides/memory.md`, which the memory section already points
+   * at. Atlarix's job is to tell the model the one thing it cannot derive — that this
+   * store needs a pass, and which notes — not to re-teach the convention every turn.
+   */
+  flag: string;
+};
+
+/**
+ * Decide whether this project's memory needs compacting, and name the notes to do it
+ * on. Returns null when there is nothing to say.
+ *
+ * `notes` is the directory's current contents; `pendingWrite` (optional) is a note
+ * about to be written, so the decision reflects the size the store is heading for
+ * rather than the one it just left. A write that SHRINKS its note therefore counts as
+ * progress immediately.
+ *
+ * Pure — the thresholds and the wording are testable without a filesystem.
+ */
+export function planMemoryCompaction(args: {
+  notes: MemoryNoteSize[];
+  pendingWrite?: { name: string; bytes: number };
+}): MemoryCompactionPlan | null {
+  const projected = new Map(args.notes.map((n) => [n.name, n.bytes]));
+  if (args.pendingWrite) {
+    projected.set(args.pendingWrite.name, args.pendingWrite.bytes);
+  }
+  const all = [...projected.entries()]
+    .map(([name, bytes]) => ({ name, bytes }))
+    .sort((a, b) => b.bytes - a.bytes);
+  const totalBytes = all.reduce((sum, n) => sum + n.bytes, 0);
+
+  if (totalBytes <= MEMORY_COMPACT_BYTES * MEMORY_COMPACT_NUDGE_RATIO) return null;
+
+  const required = totalBytes > MEMORY_COMPACT_BYTES;
+  // Only notes with real bulk are worth naming — compacting a 300-byte note is noise.
+  const targets = all
+    .filter((n) => n.name !== MEMORY_INDEX_FILE && n.bytes > 0)
+    .slice(0, MEMORY_COMPACT_TARGET_COUNT);
+  const named = targets.map((t) => t.name).join(", ");
+
+  const flag = required
+    ? `${mb(totalBytes)} — compact ${named} (see guides/memory)`
+    : `${mb(totalBytes)} — compact ${named} when next open`;
+
+  return { totalBytes, required, targets, flag };
+}
+
+/** True when `absPath` is inside this workspace's memory directory. */
+export function isAgentMemoryPath(workspacePath: string, absPath: string): boolean {
+  const dir = path.resolve(memoryDirFor(workspacePath));
+  const rel = path.relative(dir, path.resolve(absPath));
+  return rel !== "" && !rel.startsWith("..") && !path.isAbsolute(rel);
+}

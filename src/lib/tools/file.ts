@@ -166,7 +166,7 @@ ToolRegistry.register({
     isReadOnly: true,
     parameters: createParameters(
         {
-            path: stringParam("Path to the file to read (relative to workspace)"),
+            path: stringParam("Path to the file to read — workspace-relative, or an ABSOLUTE path for anything outside the workspace."),
             file_path: stringParam("Alternative: Path to the file (alias for path)"),
             max_lines: {
                 type: "number",
@@ -248,15 +248,26 @@ ToolRegistry.register({
             }
 
             const rawPath = String(filePath);
-            const isAbsolutePath = path.isAbsolute(rawPath);
+            // An absolute path — or a relative one written with `../` — targets that
+            // exact location. Absolute is the CANONICAL spelling for anything outside
+            // the workspace (it is what every tool here documents and what the prompt
+            // teaches); `../` is absorbed rather than rejected, because refusing a
+            // spelling whose meaning is unambiguous costs a turn and taught the model
+            // that outside paths were forbidden — which they are not. Same condition
+            // as glob/grep, so all four file tools now resolve identically.
+            const isExplicitTarget =
+                path.isAbsolute(rawPath) ||
+                /^\.\.[\\/]/.test(rawPath.trim()) ||
+                rawPath.trim() === "..";
 
             let fullPath: string;
-            if (isAbsolutePath) {
-                // Explicit absolute target: reads are auto-allowed ANYWHERE. The
-                // workspace is the default SCOPE, not a wall — the approval gate
-                // governs WRITES, not reads. (Supersedes the narrower legacy
-                // tool-output-spill allowance.) Symlinks are realpath'd inside
-                // resolveToolTargetPath.
+            if (isExplicitTarget) {
+                // Explicit target: reads are auto-allowed ANYWHERE. The workspace is
+                // the default SCOPE, not a wall — the approval gate governs WRITES,
+                // not reads. (Supersedes the narrower legacy tool-output-spill
+                // allowance.) Symlinks are realpath'd inside resolveToolTargetPath,
+                // so an in-workspace symlink cannot smuggle an outside target past a
+                // caller that gates on `isOutsideWorkspace`.
                 const { absPath } = resolveToolTargetPath(
                     workspace || process.cwd(),
                     rawPath,

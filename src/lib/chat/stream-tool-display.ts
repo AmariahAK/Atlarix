@@ -608,6 +608,31 @@ export function getToolCompletedSummary(
   return getToolDoneLabel(registryName, args);
 }
 
+/**
+ * Summary for a tool call that FAILED.
+ *
+ * The completed summary is past-tense success prose — "Found files matching
+ * ../telios/*", "Searched for X" — which read beside the call's own error text is a
+ * contradiction the user has to resolve themselves. Worse, the card's icon is driven by
+ * status while the words were not, so a failed call could show a green tick and an
+ * accomplishment.
+ *
+ * Names the ATTEMPT instead, reusing the running label (present participle) with its
+ * arg-aware detail intact, so a failed `glob` still shows which pattern was tried. The
+ * error itself is already rendered by the card; this must not duplicate or paraphrase it.
+ */
+export function getToolFailedSummary(
+  registryName: string,
+  args?: Record<string, unknown> | null,
+): string {
+  const attempt = getToolRunningSummary(registryName, args)
+    // Running labels are written with a trailing ellipsis for live activity ("Searching
+    // code…"); a settled failure is not still in progress.
+    .replace(/[…]+$/u, "")
+    .trim();
+  return attempt ? `Failed: ${attempt}` : "Tool failed";
+}
+
 export function looksLikeToolArgsJson(detail: string | undefined): boolean {
   if (!detail?.trim()) return false;
   const t = detail.trim();

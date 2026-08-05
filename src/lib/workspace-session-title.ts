@@ -72,7 +72,13 @@ export function allowRetitleAfterFirstPromptEdit(chatId: number): void {
 export async function applyAIWorkspaceSessionTitle(sessionId: string): Promise<void> {
   setSessionTitleGenerating(sessionId, true);
   try {
-    const { session } = await IpcClient.getInstance().getWorkspaceSession(sessionId);
+    // `limit: 1` because only `session.titleSource` is read below. Unbounded, this
+    // pulled every message body, modelContent and display snapshot in the session
+    // across IPC — megabytes on a long session — and discarded all of it, after
+    // every completed turn.
+    const { session } = await IpcClient.getInstance().getWorkspaceSession(sessionId, {
+      limit: 1,
+    });
     // Ownership, not "is it still Untitled". Re-deriving a title the USER typed
     // would be worse than never re-titling; re-deriving one we generated is the
     // whole point when the prompt it came from has changed.
