@@ -1,10 +1,50 @@
 # Atlarix TODO
 
-**Current Version:** v14.25.0 (2026-08-04) — the context meter counts what the model actually
-holds, skills are read on demand instead of pasted every turn, and work reaches beyond one folder.
+**Current Version:** v14.26.0 (2026-08-05) — one engine for every file lookup, and a permission
+surface that was measured before anything was cut.
 **Last Updated:** 2026-08-05
 
-## 🚧 IN PROGRESS (unreleased) — one path rule, memory that compacts, cross-repo revert
+## ✅ SHIPPED in v14.26.0 — one engine for every file lookup, one answer per permission question
+
+**File discovery had three engines and a hand-maintained exclusion list.** See the struck
+section below for the full account, including the two corrections found while implementing.
+Net **+430/-2,220**, and `@`-mention now behaves the same for every user regardless of what
+they have installed.
+
+**The permission surface was measured before anything was cut**
+(`docs/PERMISSION_SURFACE_AUDIT_v14.26.0.md`). Four duplication hypotheses went in; **all
+four were refuted.** `guard.ts` is not a permission mechanism at all (schema validation and
+an error trap). The three "ways to say ask/deny" are three different AUTHORITIES — committed
+team policy, remembered personal click, executable escape hatch. The danger/system-scope
+gates already declare themselves UX in front of the boundary, and answer two different
+questions the sandbox cannot answer at all. `isReadOnlyWorkMode` has exactly two references
+in the codebase: its definition and one call site. **The layers are distinct; they are not
+duplicates.** What the audit did find was one config key that did nothing and one very large
+file.
+
+- **`ask` in `.atlarix/permissions.json` is DELETED.** It was compiled, matched, returned as
+  a decision — and then logged. A user who wrote `"ask": ["run_command(git push*)"]` got a
+  log line and believed they had a gate. Not a hole (it fails toward asking more), but a
+  config key that silently does nothing is worse than an absent one. An `ask` key found in a
+  file now WARNS at load.
+- **`interceptor.ts` 2,128 → 1,919.** Pure helpers extracted (`command-output.ts`,
+  `operation-targets.ts`), plan-ledger refresh moved to `lib/tasks/plan-ledger-from-file.ts`,
+  and `toCodeProposal` — a PUBLIC method with zero consumers — deleted. Characterization
+  tests were written FIRST and immediately found **two real bugs in `formatCommandOutput`**,
+  which every non-trivial command result passes through and which had no direct coverage:
+  the truncation notice is 105 bytes but only 80 were reserved (so the byte cap never held),
+  and the cut landed mid-rune, where Node substitutes a 3-byte U+FFFD — leaving the result
+  both corrupted and LARGER than the slice it replaced. Any CJK or emoji output hit it.
+- **Workspace hooks are DELETED** (owner: "I do not fundamentally see the value"). The case
+  for keeping the `stop` gate and the committable-policy property was put and declined.
+  `profile.taskCompleteGate` went with them — hooks was its only producer. The
+  `.atlarix/hooks/**` auto-approve refusal STAYS: inert now, but a guard removed because its
+  subject went away is how that class of hole reopens, and it was itself one of v14.25.0's
+  eight findings.
+- **Accessibility statement** at `atlarix.dev/accessibility`, covering both the site and the
+  app, claiming **no** conformance level (nothing has been audited) and naming its gaps.
+
+## 🚧 ALSO IN v14.26.0 — one path rule, memory that compacts, cross-repo revert
 
 **One spelling for reaching another project.** The four file tools disagreed: `glob`/`grep` took
 `../sibling` and absolute, `read_file`/`edit_file` took absolute only and threw on `../`, and `glob`
@@ -356,7 +396,7 @@ for that turn. Three separate causes:
   fallback.
 
 - **Docs:** report-only prompt-surface audit
-  ([`PROMPT_SURFACE_AUDIT_v14.23.0.md`](./PROMPT_SURFACE_AUDIT_v14.23.0.md)); corrected the stale
+  (report deleted in v14.26.0, having been acted on); corrected the stale
   AI-SDK constraint in the dependency-triage entry (repo is on `ai@6` + v3 providers, not
   `anthropic@2.x` + `ai@5`); marked the DB shutdown-race entry fixed (it already was) and recorded
   the adjacent `reset-all` gap found while verifying it.
@@ -442,24 +482,6 @@ same lifecycle affordances, but for logs, CI and MCP polls.
   agent should be able to offer to make that an automation. That is the difference between a feature
   users discover and one they don't.
 
-## 🔭 v14.19+ — Mobile emulator toolset
-
-**`mobile_*` tools, mirroring the browser family** — a device `target`, and **a11y-tree-first** so
-it stays token-cheap (screenshots a last resort, exactly as in `BROWSER_NOTE`). Gives Atlarix real
-end-to-end mobile UI testing.
-
-- **Android — raw `adb`**, no dependency beyond the user's own SDK. `emulator -list-avds` /
-  `emulator -avd <name>` to boot; `adb shell input tap|swipe|text|keyevent` to interact;
-  **`adb exec-out uiautomator dump`** for the a11y tree with resource-ids and bounds (the direct
-  analogue of `browser_inspect`, and what keeps this cheap); `adb exec-out screencap -p`,
-  `adb install`, `adb logcat`, deep links via `adb shell am start -a android.intent.action.VIEW -d`.
-- **iOS (macOS only) — `xcrun simctl` + `idb`.** simctl covers lifecycle (list/boot/install/launch/
-  `io booted screenshot`/openurl) but has **no touch input**; `idb ui tap|swipe|text|describe-all`
-  supplies taps and the a11y tree. **Verify idb's maintenance status before committing to it** —
-  Appium + WebDriverAgent is the fallback if it has gone stale (heavier: Node server + WDA signing).
-- Considered and set aside: Maestro (single binary, both platforms, but less low-level control) and
-  Appium as the primary driver (one driver for both, at a much heavier install cost for users).
-
 ## ⏳ Open / deferred
 
 ### From v14.22.0
@@ -469,8 +491,8 @@ end-to-end mobile UI testing.
   so a custom global registry wins and `packageAfterPrune` dies with `E401`. Until it lands,
   `npm run package` needs `npm_config_registry=https://registry.npmjs.org/`. Held pending the
   owner's account migration.
-- ~~**Report-only audit sweep**~~ — **DONE in v14.23.0**, written up in
-  [`docs/PROMPT_SURFACE_AUDIT_v14.23.0.md`](./PROMPT_SURFACE_AUDIT_v14.23.0.md).
+- ~~**Report-only audit sweep**~~ — **DONE in v14.23.0**; the report was acted on and deleted in
+  v14.26.0.
   - ~~"Named sub-agents are under-prompted"~~ — **STALE, corrected 2026-08-05.** The entry cited
     `EXPLORER_PROMPT` at 338 chars and `implementer` at 108. Measured today they are **909 / 819 / 864**
     (explorer / architect / implementer), and `IMPLEMENTER_PROMPT` now explains the proposal mechanism
@@ -566,101 +588,25 @@ deleted this batch. **The test that matters is what happens when the list is INC
   `tool-activity-labels-coverage.test.ts` now fails with the offending tool's name so the
   requirement lives in the suite instead of a note. Expand views were already fine (`text`).
 
-### 🎯 NEXT SESSION — delete the file-discovery exclusion apparatus (owner-directed)
+### ~~🎯 delete the file-discovery exclusion apparatus~~ — **SHIPPED v14.26.0**
 
-The **only** one of the swept findings that needs active work. Deep-dived 2026-08-05; the
-owner's read was right, and the mechanism is more specific than first written up.
+Done as specified, with one correction found while implementing. The TODO's plan said
+`--iglob "*q*"` was "an exact equivalent" of the composer's `.toLowerCase().includes(q)`
+filter. **It is not** — a ripgrep glob with no `/` matches the BASENAME only. Measured on
+this repo for query `chat`: **60 hits vs 209**, with `src/components/chat/Composer.tsx` in
+the second set and not the first. Shipping it would have silently stopped `@`-mention
+finding anything under a matching DIRECTORY. Enumeration is 15-20 ms here, so ripgrep
+enumerates and Node filters — substring semantics byte-identical, truncation still fixed,
+payload still just the matches.
 
-**The finding.** `isExcludedDiscoveryRelPath` + `ALWAYS_EXCLUDE` (`ipc/utils/project-files.ts`)
-and `isExcludedDir` (`ipc/utils/file_utils.ts`) are TWO parallel implementations of one
-exclusion set, hardcoding `cdk.out`, `.cdk-out-deploy`, `.cdk-staging`, `.aws-sam`, `asset.*`
-and **any 64-hex-character directory segment**. Added v8.2.0, presumably while working on
-aws-cdk (a registered workspace here) — [[atlarix-no-hardcoding-telios]] exactly.
+Also found by the new tests, not by reading: **ripgrep's parallel walkers do not emit a
+stable order**, so two runs on an unchanged tree come back shuffled. Invisible while the
+list was built once and cached 5 minutes; with a query per keystroke it reshuffled the `@`
+menu mid-type. The list is sorted and a test pins it.
 
-**Why it exists, and why that reason is obsolete.** `getProjectFiles` has three strategies: `fd`
-(with `--no-ignore-vcs`, i.e. deliberately discarding `.gitignore`), `rg`, and a legacy
-**synchronous recursive walk**. The exclusion list is scaffolding for the two strategies that
-do not honour `.gitignore`.
-- **`project-files.ts` probes `rg --version` on PATH and shells out to `"rg …"` — it does NOT
-  use the bundled `@vscode/ripgrep` that `grep`/`glob` resolve via `resolveRipgrepPath()`.**
-  That single line is the whole problem: on a machine with neither `fd` nor a system `rg`
-  installed (the common case), discovery lands on the legacy walk, which is why the hand-
-  maintained excludes are needed at all.
-- It also means `@`-mention behaviour currently **differs between users** depending on whether
-  they happen to have `fd` installed — the `fd` path offers gitignored files, the `rg` path
-  does not. That inconsistency is worth killing on its own.
-
-**Measured, so the trade-off is known rather than assumed.** The bundled ripgrep with the exact
-flags `grep`/`glob` use (`--files --hidden --no-ignore-parent --no-ignore-global`) against a
-fixture containing `.gitignore` (`.env`, `cdk.out/`), `.env`, `cdk.out/a.js`, `real.ts`:
-- **excludes `cdk.out/a.js`** → every CDK name AND the 64-hex rule are redundant, since any real
-  project gitignores its build output;
-- **excludes `.env`** (gitignored) → matches what most users already get today, since the `fd`
-  path is the outlier;
-- **includes `.git/**`** (19 files) → **exactly one exclusion is still needed**, and it is
-  derived from an observed need rather than an ecosystem list.
-
-**Why the bundle does not already cover this** (it was raised, and it is the crux): the bundled
-`@vscode/ripgrep` DOES cover `grep`/`glob` — they resolve it via `resolveRipgrepPath()`.
-`project-files.ts` opts out by probing `rg --version` on PATH instead, so it is the one file
-discovery path the bundle never reaches. The bundling is right; this file just declines it.
-
-**`@`-mention should become a LIVE ripgrep query, not a pre-built list** (owner's proposal,
-measured and adopted). Today `workspace:list-paths` builds up to `MENTION_PATHS_LIMIT = 4000`
-paths, caches them 5 minutes, ships them to the renderer, and the composer filters client-side.
-- **It already truncates on Atlarix's own repo:** 5,505 files vs a 4,000 cap, so ~1,500 files
-  cannot be `@`-mentioned here *today*. That is a live bug, not a hypothetical.
-- **Live query latency, bundled rg, measured on this repo (5,505 files), including process
-  spawn:** `@app` 45 ms / `@test` 48 ms / `@index` 47 ms / `@workspace` 46 ms / `@a` 63 ms. With
-  a ~100 ms debounce that is imperceptible, and it is *fresher* than a 5-minute cache.
-- **No behaviour to preserve:** `ComposerAutocomplete` filters with plain
-  `.toLowerCase().includes(q)` — substring, not fuzzy — so `--iglob "*q*"` is an exact
-  equivalent. (`--iglob`, not `--glob`, to keep the case-insensitivity.)
-- Payload shrinks from 4,000 paths to just the matches.
-
-**The change.**
-1. `@`-mention (`workspace:list-paths`) becomes a live `resolveRipgrepPath()` query, debounced,
-   cancelling in-flight requests. Drop `MENTION_PATHS_LIMIT` as a correctness cap (keep a
-   display cap on results).
-2. Do the same for the other two `getProjectFiles` consumers —
-   `lib/tools/workspace-file-hints.ts` (the "did you mean this path" suggestion after a failed
-   read/edit) and `ipc/utils/mention_apps.ts` (scoped `@` dirs) — via one shared helper.
-3. **`getProjectFiles` then has no consumers: delete `project-files.ts` entirely**, and with it
-   the `fd` strategy (and its `--no-ignore-vcs`), the legacy synchronous walk, `ALWAYS_EXCLUDE`,
-   `isExcludedDiscoveryRelPath` and `CDK_ASSET_HEX_SEGMENT`. `.gitignore` does the excluding,
-   one engine for every file lookup in the product.
-4. Keep one `--glob '!.git/**'` (or drop `--hidden`), per the measurement above — the only
-   exclusion that survives, and it is derived from an observed need.
-5. `file_handlers.ts:108` calls `@`-mention "gitignore-aware via getProjectFiles" — **false
-   today** on the `fd` path. The comment goes with the file.
-
-**`isExcludedDir` + the whole codebase-extractor chain is DEAD — delete it.** Correcting the
-earlier note in this doc, which said it "has a different live consumer" and needed its own
-decision. Traced properly, nothing reaches it:
-- `ContextFilesPicker` renders only behind `showContextFilesPicker`, which defaults to `false`
-  and **is never passed anywhere** (`<ChatInputControls chatId={chatId} />` is the only call
-  site) → `useContextPaths` never runs → `get-context-paths` / `set-context-paths` are never
-  invoked.
-- The other `extractCodebaseCached` caller is `debug_handlers`' `get-chat-logs`, which has an
-  `ipc_client` method (`getChatLogs`) and **no UI consumer at all**.
-- Only the TYPE `CodebaseFile` is still used (type-only imports in `simple-stream-text.ts` and
-  `versioned_codebase_context.ts`), which keeps no runtime alive.
-- So `extractCodebaseCached` is unreachable, `isExcludedDir` has **zero live consumers**, and the
-  deletable set is: `ContextFilesPicker.tsx`, `useContextPaths.ts`, the `showContextFilesPicker`
-  prop, `context_paths_handlers.ts` + its two preload channels + two `ipc_client` methods, the
-  `extractCodebaseCached` runtime in `utils/codebase.ts` (keep the `CodebaseFile` type), and
-  `isExcludedDir` + its exclusion list in `file_utils.ts`. Vestiges of the deleted Code tab and
-  the retrieval teardown — the owner's read ("we don't have a code tab, that's dead logic").
-- Check `file_utils_excluded_dirs.test.ts` goes with it, and re-check `get-chat-logs` /
-  `get-system-debug-info` while there: if neither has a consumer, `debug_handlers` may be
-  deletable too, which is a separate call.
-
-**One note to leave alone:** `glob.ts`'s "in-workspace files (incl. `.env`) are enumerable" means
-"we apply no secret denylist of our own" — a *gitignored* `.env` is still not listed. True as
-written, easy to misread.
-
-Net effect: one engine for every file lookup, a truncation bug fixed, identical behaviour for
-every user regardless of what they have installed, and several hundred lines deleted.
+`workspace-discovery.ts`, `file_utils.ts` (all three exports), `context_paths_utils.ts` and
+the dead `workspaceDiscoveryHints` / `fileDiscoveryWarnings` fields went too. Net
+**+430/-2,220**.
 
 **Checked and CORRECT as-is — do not "fix" these.** None needs work next session; the
 distinguishing test in every case is *what happens when the list is incomplete*:
@@ -699,8 +645,35 @@ Kept for the record; none of these can be picked up in a coding session.
   2026-07-14; shutdown-guard committed, not stress-verified).
 - ~~**Per-Core-model web-search check**~~ — **DELETED 2026-08-05.** There is no web-search API to
   verify against, so the entry described work that cannot exist.
-- **Mobile emulator toolset** and **dependency deprecation triage** are each their own release; see
-  their sections below and treat them as roadmap, not queue.
+- ~~**Mobile emulator toolset**~~ — **WITHDRAWN 2026-08-05 (owner).** The `mobile_*` family would
+  have been ~6 tools of standing description cost wrapping binaries the agent can already drive:
+  `adb` and `xcrun simctl` are CLIs, and `run_command` calls them today. The "hand this step to the
+  user" rung the section implied already exists as `plan.ts`'s `external` state with its required
+  `— needs you: …` reason. Nothing to build; the capability is present.
+- **Dependency deprecation triage** is its own release; see its section below and treat it as
+  roadmap, not queue.
+
+## 🔎 Recorded in v14.26.0 — not scheduled
+
+- **The Dyad-era hosted-engine subsystem is orthogonal to the current architecture, and it is an
+  OWNER decision whether it is still a product.** Traced while unthreading the always-empty `files`
+  array: `get_model_client.ts:170-221` branches to `createAtlarixEngine` at
+  `https://engine.atlarix.dev/v1` whenever `settings.enableAtlarixPro` is set — and that toggle is
+  still live user-facing UI at `ProviderSettingsPage.tsx:414`. Hanging off it:
+  `llm_engine_provider.ts`, lazy edits, smart-files context, deep context, and the git-history half
+  of `versioned_codebase_context.ts` (which is why that file was KEPT — its second loop does real
+  work, reading paths named in past assistant turns back out of git at the commit they recorded).
+  None of this relates to Core-as-prepaid-wallet-through-the-proxy. Not a coding-session call.
+- **`selectedComponents` still flows renderer → IPC → `ChatStreamParams` and is read by nothing on
+  the main side.** Same Dyad-era shape; unpicking it crosses into the renderer and belongs with the
+  decision above.
+- **The `node` vitest project has no explicit `testTimeout`, so it inherits 5,000 ms — and real
+  tests now sit at ~2,600 ms uncontended.** Observed twice on 2026-08-05: full-suite runs sharing a
+  machine with a concurrent `tsc` produced 4 and then 8 "Test timed out in 5000ms" failures across
+  `spawn-task`, `subagent-*`, `cancel-preserves-revert`, `stop-and-revert-integrity` and
+  `active-skill-truncation`; all pass in isolation. This is the documented v14.23.0 trap resurfacing
+  as a margin problem rather than a Windows-only one. CI on a busy runner will flake. Raise the
+  project's timeout rather than chasing individual tests.
 
 ## 🔐 Security follow-ups (from `docs/SECURITY_REVIEW_v14.8.12.md`, owner-triaged)
 

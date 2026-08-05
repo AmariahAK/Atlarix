@@ -3,6 +3,61 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
+## [14.26.0] (2026-08-05) — One engine for every file lookup, one answer per permission question
+
+Two threads, both about the same habit: keeping a mechanism because it exists rather than
+because it earns its place.
+
+**File discovery ran three engines behind one function.** `fd`, then a system `rg` probed on
+PATH, then a legacy synchronous walk — and because two of those three ignore `.gitignore`,
+they needed a hand-maintained exclusion list to compensate: 26 directory names plus a
+64-hex-segment rule for CDK asset dirs, i.e. the layout of whichever project its author had
+open. Two things followed. `@`-mention behaved **differently per user** — with `fd` installed
+you got gitignored files offered, without it you did not — and the 4,000-path cap applied to
+the corpus rather than the results, so on this repo (5,505 files) about 1,500 files could not
+be `@`-mentioned however you spelled them.
+
+Now one helper on the **bundled ripgrep** that `grep` and `glob` already use — the single
+discovery path that never reached the bundle, because it probed `rg --version` on PATH
+instead. `.gitignore` does the excluding. One exclusion survives, `.git/**`, and only because
+`--hidden` makes ripgrep list it.
+
+- **`@`-mention is a live query per keystroke** (~15-20 ms, debounced), not a pre-built,
+  five-minute-cached, truncated list. Fresher than the cache it replaces, and only the matches
+  cross IPC. "Did you mean this path?" gains the most: its whole job is answering a miss a
+  rename just caused, and it had been reading a list up to five minutes stale.
+- The menu is now **stably sorted** — ripgrep's parallel walkers do not emit a stable order,
+  which was invisible behind the cache and would have reshuffled the list mid-type.
+- Deleted with the fallbacks: the dead context-files picker chain, `get-chat-logs` (the
+  backend of an "Upload Chat Session" button removed in v0.9.20 and orphaned for seven
+  months), the whole-repo codebase extractor, and a `files` array that had been hardcoded to
+  `[]` and threaded through the entire streaming path. **-2,547 lines net.**
+
+**The permission surface was measured before anything was cut**
+(`docs/PERMISSION_SURFACE_AUDIT_v14.26.0.md`, report-only). Four duplication hypotheses were
+tested and **all four refuted** — the layers answer genuinely different questions and each
+earns its place. What the audit found instead:
+
+- **`ask` rules in `.atlarix/permissions.json` are gone.** They were compiled, matched,
+  returned as a decision, and then written to a log line. Anyone who configured one believed
+  they had a gate they did not have. An `ask` key now warns at load instead of being ignored.
+- **`interceptor.ts` is 209 lines smaller**, with its pure helpers and its plan-ledger
+  bookkeeping moved out and a public method that nothing called deleted. Writing the
+  characterization tests first surfaced **two real bugs in command-output truncation**: the
+  byte cap silently did not hold (105-byte notice, 80 bytes reserved), and cuts landed
+  mid-character on CJK or emoji output, where the replacement character is itself larger than
+  the bytes it replaced. Both fixed.
+
+**Workspace hooks are removed** — `.atlarix/hooks/` and its Settings panel. A GUI harness with
+an approval queue, committable deny rules and per-workspace permission stores did not earn a
+second, shell-executing policy mechanism. The refusal to ever auto-approve a write under
+`.atlarix/hooks/` stays regardless.
+
+**Accessibility statement** at [atlarix.dev/accessibility](https://www.atlarix.dev/accessibility),
+covering the website and the desktop app. It claims **no** WCAG conformance level, because
+nothing has been formally audited, and it names what does not work today — including that the
+terminal and side-by-side diffs are hard to convey non-visually, which is unsolved.
+
 ## [14.25.0] (2026-08-04) — The context meter stops lying, and skills stop shouting
 
 Two halves of the same problem: Atlarix pushed content at the model and then misreported
@@ -411,7 +466,7 @@ the richest output in the app had no display branch at all.
   across all three branch configurations — this class of bug had shipped four times.
 - Registry tools can declare `aliases`, so a rename keeps working for saved sessions without spending
   prompt budget on the old name.
-- Report-only prompt-surface audit in `docs/PROMPT_SURFACE_AUDIT_v14.23.0.md`. Finding: sub-agents
+- Report-only prompt-surface audit (acted on, then removed in 14.26.0). Finding: sub-agents
   spawned by name get a much shorter system prompt than un-named ones, and the guidance steers callers
   toward the named form.
 - Project instructions had **two** injection sites (the context section and the base prompt's
