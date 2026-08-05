@@ -370,21 +370,11 @@ export interface App {
   isFavorite: boolean;
   /** v2.1: true if the workspace folder exists on disk; false if deleted outside app */
   pathExists?: boolean;
-  /** Non-fatal file-list issues from fallback discovery (permissions, symlinks). */
-  fileDiscoveryWarnings?: string[];
-  /** Repo layout hints for discovery UX (multi-repo parent folder, missing root .git). */
-  workspaceDiscoveryHints?: WorkspaceDiscoveryHints;
   /** Derived from pathExists: active = folder present, missing = folder absent */
   status?: "active" | "missing";
   lastOpenedAt?: Date | null;
   workspaceKind?: "local" | "remote-ssh";
   remoteConnection?: Record<string, unknown> | null;
-}
-
-export interface WorkspaceDiscoveryHints {
-  hasRootGit: boolean;
-  isMultiRepoWorkspace: boolean;
-  nestedRepoNames?: string[];
 }
 
 export interface Version {

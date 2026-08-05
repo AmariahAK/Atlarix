@@ -26,7 +26,6 @@ import { registerSessionHandlers } from "./handlers/session_handlers";
 import { registerWorkspaceSessionHandlers } from "./handlers/workspace_session_handlers";
 import { registerDisplaySnapshotHandlers } from "./handlers/display_snapshot_handlers";
 import { registerProHandlers } from "./handlers/pro_handlers";
-import { registerContextPathsHandlers } from "./handlers/context_paths_handlers";
 import { registerAppUpgradeHandlers } from "./handlers/app_upgrade_handlers";
 import { registerCapacitorHandlers } from "./handlers/capacitor_handlers";
 import { registerAppEnvVarsHandlers } from "./handlers/app_env_vars_handlers";
@@ -87,7 +86,6 @@ export function registerIpcHandlers() {
   registerRemoteSshHandlers();
   registerSessionHandlers();
   registerProHandlers();
-  registerContextPathsHandlers();
   registerAppUpgradeHandlers();
   registerCapacitorHandlers();
   registerAppEnvVarsHandlers();

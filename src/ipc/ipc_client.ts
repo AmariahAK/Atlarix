@@ -1,7 +1,6 @@
 import {
   type ChatSummary,
   type UserSettings,
-  type ContextPathResults,
   AppSearchResultsSchema,
 } from "../lib/schemas";
 import type {
@@ -19,7 +18,6 @@ import type {
   LocalModelListResponse,
   TokenCountParams,
   TokenCountResult,
-  ChatLogsData,
   BranchResult,
   LanguageModelProvider,
   LanguageModel,
@@ -59,7 +57,6 @@ import type {
   ChatTokenUsage,
 } from "./ipc_types";
 import type {
-  AppChatContext,
   AppSearchResult,
   ChatSearchResult,
   ProposalResult,
@@ -2459,11 +2456,16 @@ export class IpcClient {
     return this.ipcRenderer.invoke("skills:list-repo-skills", { workspaceId: workspaceId ?? null });
   }
 
-  /** Files + folders in a workspace, for the chat composer `@` autocomplete. */
+  /**
+   * Files + folders matching `query` in a workspace, for the chat composer `@`
+   * autocomplete. Searched live in main over every file — an omitted/empty query
+   * returns the first page of everything.
+   */
   public async listWorkspacePaths(
     appId: number,
+    query?: string,
   ): Promise<{ files: string[]; dirs: string[] }> {
-    return this.ipcRenderer.invoke("workspace:list-paths", { appId });
+    return this.ipcRenderer.invoke("workspace:list-paths", { appId, query });
   }
 
   public onMcpToolConsentRequest(
@@ -3118,10 +3120,6 @@ export class IpcClient {
     return this.ipcRenderer.invoke("get-system-debug-info");
   }
 
-  public async getChatLogs(chatId: number): Promise<ChatLogsData> {
-    return this.ipcRenderer.invoke("get-chat-logs", chatId);
-  }
-
   public async uploadToSignedUrl(
     url: string,
     contentType: string,
@@ -3400,19 +3398,6 @@ export class IpcClient {
   // Method to get user budget information
   public async getUserBudget(): Promise<UserBudgetInfo | null> {
     return this.ipcRenderer.invoke("get-user-budget");
-  }
-
-  public async getChatContextResults(params: {
-    appId: number;
-  }): Promise<ContextPathResults> {
-    return this.ipcRenderer.invoke("get-context-paths", params);
-  }
-
-  public async setChatContext(params: {
-    appId: number;
-    chatContext: AppChatContext;
-  }): Promise<void> {
-    await this.ipcRenderer.invoke("set-context-paths", params);
   }
 
   public async getAppUpgrades(params: {

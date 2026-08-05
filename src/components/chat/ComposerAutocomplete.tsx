@@ -11,7 +11,7 @@
  * and arrow/enter/esc are routed through the composer's own `onKeyDown`.
  */
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useAtomValue, useSetAtom } from "jotai";
 import { IpcClient } from "@/ipc/ipc_client";
 import { selectedAppIdAtom } from "@/atoms/appAtoms";
@@ -66,10 +66,24 @@ export function useComposerAutocomplete(opts: {
   // Suppress reopening for the exact value the user dismissed with Esc.
   const dismissedForValue = useRef<string | null>(null);
 
+  // The query is searched in MAIN (live ripgrep over every file) rather than
+  // fetched once and filtered here — a pre-built list was capped at 4,000 paths,
+  // so past that size files were unmentionable however you spelled them.
+  // Debounced so a fast typist spawns one search, not one per keystroke; previous
+  // results stay on screen while the next lands, so the menu never blanks.
+  const [debouncedQuery, setDebouncedQuery] = useState("");
+  const activeQuery = trigger?.query ?? "";
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedQuery(activeQuery), 100);
+    return () => clearTimeout(t);
+  }, [activeQuery]);
+
   const { data: paths } = useQuery({
-    queryKey: ["workspacePaths", workspaceId],
-    queryFn: () => IpcClient.getInstance().listWorkspacePaths(workspaceId!),
-    enabled: workspaceId != null,
+    queryKey: ["workspacePaths", workspaceId, debouncedQuery],
+    queryFn: () =>
+      IpcClient.getInstance().listWorkspacePaths(workspaceId!, debouncedQuery),
+    enabled: workspaceId != null && trigger != null,
+    placeholderData: keepPreviousData,
   });
 
   // Recompute the active trigger from the live caret whenever the value changes.

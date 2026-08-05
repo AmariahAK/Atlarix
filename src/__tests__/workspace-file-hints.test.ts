@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const getProjectFiles = vi.fn();
-vi.mock("@/ipc/utils/project-files", () => ({
-  getProjectFiles: (...args: unknown[]) => getProjectFiles(...args),
+const listWorkspaceFiles = vi.fn();
+vi.mock("@/ipc/utils/workspace-file-list", () => ({
+  listWorkspaceFiles: (...args: unknown[]) => listWorkspaceFiles(...args),
 }));
 
 import {
@@ -35,8 +35,8 @@ describe("suggestClosestPath", () => {
     "README.md",
   ];
   beforeEach(() => {
-    getProjectFiles.mockReset();
-    getProjectFiles.mockResolvedValue({ files, strategy: "test", count: files.length });
+    listWorkspaceFiles.mockReset();
+    listWorkspaceFiles.mockResolvedValue(files);
   });
 
   it("suggests the renamed file (edit-distance on basename)", async () => {
@@ -65,7 +65,7 @@ describe("suggestClosestPath", () => {
   });
 
   it("returns null on an empty workspace", async () => {
-    getProjectFiles.mockResolvedValue({ files: [], strategy: "test", count: 0 });
+    listWorkspaceFiles.mockResolvedValue([]);
     expect(await suggestClosestPath("/ws", "src/anything.ts")).toBeNull();
   });
 });

@@ -1,20 +1,13 @@
 import { BrowserWindow, clipboard, ipcMain } from "electron";
 import { platform, arch } from "os";
-import { SystemDebugInfo, ChatLogsData } from "../ipc_types";
+import { SystemDebugInfo } from "../ipc_types";
 import { readSettings } from "../../main/settings";
 
 import log from "electron-log";
 import path from "path";
 import fs from "fs";
 import { runShellCommandSimple as runShellCommand } from "../utils/runShellCommand";
-import { extractCodebaseCached } from "../../utils/codebase";
-import { db } from "../../db";
-import { getStreamTransport, getStreamTransportAppId } from "@/lib/chat/stream-transport";
-import { apps } from "../../db/schema";
-import { eq } from "drizzle-orm";
-import { getAtlarixAppPath } from "../../paths/paths";
 import { LargeLanguageModel } from "@/lib/schemas";
-import { validateChatContext } from "../utils/context_paths_utils";
 
 // Shared function to get system debug info
 async function getSystemDebugInfo({
@@ -124,69 +117,6 @@ export function registerDebugHandlers() {
         linesOfLogs: 20,
         level: "warn",
       });
-    },
-  );
-
-  ipcMain.handle(
-    "get-chat-logs",
-    async (_, chatId: number): Promise<ChatLogsData> => {
-      console.log(`IPC: get-chat-logs called for chat ${chatId}`);
-
-      try {
-        // We can retrieve a lot more lines here because we're not limited by the
-        // GitHub issue URL length limit.
-        const debugInfo = await getSystemDebugInfo({
-          linesOfLogs: 1_000,
-          level: "info",
-        });
-
-        const ephemeral = getStreamTransport(chatId);
-        if (!ephemeral) {
-          throw new Error(`Active chat transport ${chatId} not found`);
-        }
-
-        const chat = {
-          id: chatId,
-          title: ephemeral.title || "Workspace chat",
-          messages: ephemeral.messages.map((msg) => ({
-            id: msg.id,
-            role: msg.role,
-            content: msg.content,
-            approvalState: msg.approvalState,
-          })),
-        };
-
-        // Get app data from database
-        const transportAppId = getStreamTransportAppId(chatId);
-        if (transportAppId == null) {
-          throw new Error("Chat has no workspace");
-        }
-        const app = await db.query.apps.findFirst({
-          where: eq(apps.id, transportAppId),
-        });
-
-        if (!app) {
-          throw new Error(`App with ID ${transportAppId} not found`);
-        }
-
-        // Extract codebase
-        const appPath = getAtlarixAppPath(app.path);
-        const codebase = (
-          await extractCodebaseCached({
-            appPath,
-            chatContext: validateChatContext(app.chatContext),
-          })
-        ).formattedOutput;
-
-        return {
-          debugInfo,
-          chat,
-          codebase,
-        };
-      } catch (error) {
-        console.error(`Error in get-chat-logs:`, error);
-        throw error;
-      }
     },
   );
 

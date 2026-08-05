@@ -15,10 +15,18 @@ import { assertFileUnderRegisteredWorkspace } from "@/lib/security/workspace-pat
 import { db } from "../../db";
 import { apps } from "../../db/schema";
 import { getAtlarixAppPath } from "../../paths/paths";
-import { getProjectFiles } from "../utils/project-files";
+import { searchWorkspaceFiles } from "../utils/workspace-file-list";
 
-/** Cap on entries returned to the @-mention autocomplete (keeps the menu/list snappy). */
-const MENTION_PATHS_LIMIT = 4000;
+/**
+ * Cap on entries SHIPPED to the @-mention autocomplete for one query.
+ *
+ * Note what this is not: the old `MENTION_PATHS_LIMIT = 4000` capped the CORPUS
+ * — the list was built once, truncated, and then searched — so on any repo past
+ * 4,000 files the tail was unmentionable no matter what you typed (5,505 files
+ * here, so ~1,500 of them). This caps the RESULT of a search over every file, and
+ * the menu renders at most 8 of them.
+ */
+const MENTION_RESULT_LIMIT = 500;
 
 /** Derive the set of folder paths implied by a list of relative file paths. */
 function deriveDirs(files: string[]): string[] {
@@ -105,19 +113,27 @@ export function registerFileHandlers() {
   });
 
   // Powers the chat composer `@` autocomplete: files + folders in the current
-  // workspace (gitignore-aware via getProjectFiles). Returns relative paths.
+  // workspace, gitignore-aware via bundled ripgrep. A LIVE query per keystroke
+  // (~15-20 ms) rather than a pre-built, 5-minute-cached, truncated list — so the
+  // results are fresh, complete, and only the matches cross IPC.
+  //
+  // Folders are derived from the MATCHING files, which is equivalent to deriving
+  // them from every file and then filtering: a folder path can only contain the
+  // query if every file beneath it does too.
   ipcMain.handle(
     "workspace:list-paths",
-    async (_, params: { appId: number }) => {
+    async (_, params: { appId: number; query?: string }) => {
       try {
         const app = await db.query.apps.findFirst({
           where: eq(apps.id, params.appId),
         });
         if (!app) return { files: [], dirs: [] };
         const appPath = getAtlarixAppPath(app.path);
-        const { files } = await getProjectFiles(appPath);
-        const capped = files.slice(0, MENTION_PATHS_LIMIT);
-        return { files: capped, dirs: deriveDirs(capped) };
+        const matched = await searchWorkspaceFiles(appPath, params.query ?? "");
+        return {
+          files: matched.slice(0, MENTION_RESULT_LIMIT),
+          dirs: deriveDirs(matched).slice(0, MENTION_RESULT_LIMIT),
+        };
       } catch (error) {
         logger.error("[workspace:list-paths] Failed:", error);
         return { files: [], dirs: [] };

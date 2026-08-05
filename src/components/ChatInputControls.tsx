@@ -1,5 +1,4 @@
 import { useCallback } from "react";
-import { ContextFilesPicker } from "./ContextFilesPicker";
 import { ModelPickerSheetContent } from "./ModelPickerSheetContent";
 import { ChatConfigDropdown } from "./ChatConfigDropdown";
 import { ChatIntentSelector } from "./ChatIntentSelector";
@@ -41,13 +40,7 @@ function formatTokens(n: number): string {
   return String(n);
 }
 
-export function ChatInputControls({
-  showContextFilesPicker = false,
-  chatId,
-}: {
-  showContextFilesPicker?: boolean;
-  chatId?: number;
-}) {
+export function ChatInputControls({ chatId }: { chatId?: number }) {
   const appId = useAtomValue(selectedAppIdAtom);
   const pendingWorkspaceAppId = useAtomValue(pendingWorkspaceAppIdAtom);
   const selectedWorkspaceInfo = useAtomValue(selectedWorkspaceInfoAtom);
@@ -238,12 +231,6 @@ export function ChatInputControls({
           <ChatIntentSelector />
         </span>
 
-        {showContextFilesPicker && (
-          <>
-            <div className="w-1" />
-            <ContextFilesPicker />
-          </>
-        )}
       </div>
     </div>
   );

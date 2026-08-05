@@ -11,7 +11,7 @@
 import * as fs from "node:fs/promises";
 import log from "electron-log";
 import { safeJoin } from "./path_utils";
-import { getProjectFiles } from "./project-files";
+import { listWorkspaceFilesUnder } from "./workspace-file-list";
 
 const logger = log.scope("mention_context");
 
@@ -61,9 +61,9 @@ export async function extractMentionedContext({
   for (const rel of dirs) {
     if (total >= TOTAL_CAP) break;
     try {
-      const { files: dirFiles } = await getProjectFiles(appPath, { scopePath: rel });
-      // getProjectFiles returns paths relative to the scope; re-root them under the
-      // mentioned folder so the agent can grep/read_file them directly.
+      const dirFiles = await listWorkspaceFilesUnder(appPath, rel);
+      // Paths come back relative to the mentioned folder; re-root them under it so
+      // the agent can grep/read_file them directly.
       const rooted = dirFiles.map((f) => `${rel.replace(/\/$/, "")}/${f}`);
       const listing = rooted.slice(0, DIR_LISTING_CAP);
       const more =

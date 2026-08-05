@@ -1,4 +1,4 @@
-import { getProjectFiles } from "@/ipc/utils/project-files";
+import { listWorkspaceFiles } from "@/ipc/utils/workspace-file-list";
 
 /** Repos at or below this size get an explicit path list in tool errors and delegation prompts. */
 export const SMALL_REPO_FILE_THRESHOLD = 30;
@@ -6,7 +6,7 @@ export const SMALL_REPO_FILE_THRESHOLD = 30;
 export async function getWorkspaceRelFilePaths(
   workspacePath: string,
 ): Promise<{ paths: string[]; count: number }> {
-  const { files } = await getProjectFiles(workspacePath);
+  const files = await listWorkspaceFiles(workspacePath);
   return { paths: files, count: files.length };
 }
 
@@ -67,9 +67,12 @@ function boundedLevenshtein(a: string, b: string, max: number): number {
 
 /**
  * "Did you mean …?" suggestion for a path that doesn't exist — the rename/typo
- * recovery the model needs after e.g. moving a file. Backed by the cached
- * `getProjectFiles` set (no new index). Returns null when the path exists, the
- * workspace is empty, or nothing is close. Cheap: only called on a tool FAILURE.
+ * recovery the model needs after e.g. moving a file. Backed by a LIVE ripgrep
+ * listing (no index, no cache): this helper's whole job is answering a miss that
+ * a rename just caused, and the discovery cache it used to read was 5 minutes
+ * stale, so it could suggest the very name that had just stopped existing.
+ * Returns null when the path exists, the workspace is empty, or nothing is
+ * close. Cheap: only called on a tool FAILURE.
  */
 export async function suggestClosestPath(
   workspacePath: string,
@@ -79,7 +82,7 @@ export async function suggestClosestPath(
   if (!target || !workspacePath) return null;
   let files: string[];
   try {
-    ({ files } = await getProjectFiles(workspacePath));
+    files = await listWorkspaceFiles(workspacePath);
   } catch {
     return null;
   }
