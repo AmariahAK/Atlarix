@@ -74,6 +74,7 @@ import raw_67_0067_automation_run_context from "../../../drizzle/0067_automation
 import raw_68_0068_session_title_source from "../../../drizzle/0068_session_title_source.sql?raw";
 import raw_69_0069_session_message_token_usage from "../../../drizzle/0069_session_message_token_usage.sql?raw";
 import raw_70_0070_drop_worktree_run_mode from "../../../drizzle/0070_drop_worktree_run_mode.sql?raw";
+import raw_71_0071_automation_notify_agent from "../../../drizzle/0071_automation_notify_agent.sql?raw";
 
 export type BundledMigration = {
   name: string;
@@ -155,6 +156,7 @@ export const BUNDLED_MIGRATIONS: BundledMigration[] = [
   { name: "0068_session_title_source", sql: raw_68_0068_session_title_source as string, drizzleHash: "50d7c05052341f3a1c40d752dc4565b20a117d6cdad76ec69d70acc8282318e6", when: 1783520000000 },
   { name: "0069_session_message_token_usage", sql: raw_69_0069_session_message_token_usage as string, drizzleHash: "e94881325d65ec6314de161df7367aa99557e8fd5ba3a0c9c611df1260a0005c", when: 1783530000000 },
   { name: "0070_drop_worktree_run_mode", sql: raw_70_0070_drop_worktree_run_mode as string, drizzleHash: "7272a5be115ba9856d7cb7683c85e2e7da1e5434cd6f9b8ef70e1c78606d95ef", when: 1783540000000 },
+  { name: "0071_automation_notify_agent", sql: raw_71_0071_automation_notify_agent as string, drizzleHash: "3d2db9b1c014ea4830cac6450b8be42e2703cc6295a4f8e5a6694517ffeab90f", when: 1783540010000 },
 ];
 
 /** Map Drizzle __drizzle_migrations.hash → migration tag for bridge. */
@@ -230,4 +232,5 @@ export const DRIZZLE_HASH_TO_NAME: Record<string, string> = {
   "50d7c05052341f3a1c40d752dc4565b20a117d6cdad76ec69d70acc8282318e6": "0068_session_title_source",
   "e94881325d65ec6314de161df7367aa99557e8fd5ba3a0c9c611df1260a0005c": "0069_session_message_token_usage",
   "7272a5be115ba9856d7cb7683c85e2e7da1e5434cd6f9b8ef70e1c78606d95ef": "0070_drop_worktree_run_mode",
+  "3d2db9b1c014ea4830cac6450b8be42e2703cc6295a4f8e5a6694517ffeab90f": "0071_automation_notify_agent",
 };

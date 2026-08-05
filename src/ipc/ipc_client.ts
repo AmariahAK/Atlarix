@@ -1702,6 +1702,7 @@ export class IpcClient {
       trigger: unknown;
       prompt: string;
       runMode: "notify-only" | "read-only";
+      notifyAgent: boolean;
       model: { provider: string; name: string } | null;
       lastRunAt: number | null;
       createdAt: number;

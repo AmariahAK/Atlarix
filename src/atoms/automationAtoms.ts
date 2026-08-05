@@ -9,6 +9,8 @@ export interface AutomationListItem {
   trigger: unknown;
   prompt: string;
   runMode: "notify-only" | "read-only";
+  /** Does a finished run reach the AGENT, or only the user? Toggleable either way. */
+  notifyAgent: boolean;
   model: { provider: string; name: string } | null;
   lastRunAt: number | null;
   createdAt: number;

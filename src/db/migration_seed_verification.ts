@@ -231,6 +231,8 @@ export function isJournalMigrationApplied(
       );
     case "0063_session_message_snapshot_turn":
       return columnExists(sqlite, "session_messages", "snapshot_turn_id");
+    case "0071_automation_notify_agent":
+      return columnExists(sqlite, "automations", "notify_agent");
     default:
       return false;
   }

@@ -498,6 +498,13 @@
       "when": 1783540000000,
       "tag": "0070_drop_worktree_run_mode",
       "breakpoints": true
+    },
+    {
+      "idx": 71,
+      "version": "6",
+      "when": 1783540010000,
+      "tag": "0071_automation_notify_agent",
+      "breakpoints": true
     }
   ]
 }

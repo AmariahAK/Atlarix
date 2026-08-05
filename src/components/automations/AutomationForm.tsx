@@ -94,6 +94,15 @@ export function AutomationForm({
   const [runMode, setRunMode] = useState<"notify-only" | "read-only">(
     (existing?.runMode as "notify-only" | "read-only") ?? "notify-only",
   );
+  /**
+   * No default for a NEW automation — the user picks, exactly as the agent must.
+   * This is the field that decides whether the automation can spend tokens in
+   * chat, and a pre-selected radio is a decision made on the user's behalf while
+   * looking like one they made.
+   */
+  const [notifyAgent, setNotifyAgent] = useState<boolean | null>(
+    existing ? (existing.notifyAgent ?? false) : null,
+  );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -132,7 +141,10 @@ export function AutomationForm({
 
   const effectiveRunMode = runMode;
   const valid = Boolean(
-    name.trim() && trigger && (effectiveRunMode === "notify-only" || prompt.trim()),
+    name.trim() &&
+      trigger &&
+      notifyAgent !== null &&
+      (effectiveRunMode === "notify-only" || prompt.trim()),
   );
 
   const save = async () => {
@@ -145,6 +157,7 @@ export function AutomationForm({
       trigger,
       prompt: prompt.trim(),
       runMode: effectiveRunMode,
+      notifyAgent: notifyAgent === true,
       model: existing?.model ?? null,
     };
     try {
@@ -345,6 +358,43 @@ export function AutomationForm({
                     checked={runMode === opt.key}
                     disabled={opt.disabled}
                     onChange={() => setRunMode(opt.key)}
+                  />
+                  <span>
+                    <span className="block text-sm font-medium">{opt.title}</span>
+                    <span className="block text-xs text-muted-foreground">{opt.detail}</span>
+                  </span>
+                </label>
+              ))}
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label>When it fires, tell the AI?</Label>
+            <div className="grid gap-2">
+              {[
+                {
+                  key: false,
+                  title: "No — just tell me",
+                  detail:
+                    "Shows in the run feed and notifies you. The AI is never woken, so this automation can't cost tokens. Good for Slack and other inbox-shaped noise you'll triage yourself.",
+                },
+                {
+                  key: true,
+                  title: "Yes — tell the AI",
+                  detail:
+                    "The result lands in the AI's next turn so it can act on it. Good for CI and tests. You can switch this off any time.",
+                },
+              ].map((opt) => (
+                <label
+                  key={String(opt.key)}
+                  className={cnRunMode(false, notifyAgent === opt.key)}
+                >
+                  <input
+                    type="radio"
+                    name="automation-notify-agent"
+                    className="mt-0.5"
+                    checked={notifyAgent === opt.key}
+                    onChange={() => setNotifyAgent(opt.key)}
                   />
                   <span>
                     <span className="block text-sm font-medium">{opt.title}</span>

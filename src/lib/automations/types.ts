@@ -67,6 +67,21 @@ export const AutomationInputSchema = z
     /** Required for agent-run modes; notify-only automations don't need one. */
     prompt: z.string().default(""),
     runMode: AutomationRunModeSchema.default("notify-only"),
+    /**
+     * Does a finished run reach the AGENT, or only the user?
+     *
+     * REQUIRED, with no default, and that is the design rather than an
+     * oversight: this is the field that decides whether an automation can spend
+     * tokens in chat, and a default would make that decision silently on behalf
+     * of whoever created it. Both the user (Automations tab) and the agent
+     * (`automations` tool) have to say which they mean — and either can flip it
+     * afterwards, so choosing is cheap and reversible rather than a commitment.
+     *
+     *   true  → the outcome lands in the agent's next turn (CI, tests).
+     *   false → run feed + OS notification only; the agent is never woken, so
+     *           the automation cannot cost tokens (Slack/MCP inbox noise).
+     */
+    notifyAgent: z.boolean(),
     /** {provider,name} override; null → settings.selectedModel at run time. */
     model: z.object({ provider: z.string(), name: z.string() }).nullable().default(null),
   })

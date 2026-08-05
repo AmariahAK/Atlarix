@@ -48,7 +48,22 @@ describe("AutomationInputSchema run modes", () => {
   const base = {
     name: "x",
     trigger: { kind: "schedule", cron: "0 9 * * *" },
+    // Required since v14.27.0 — see the dedicated case below.
+    notifyAgent: false,
   };
+
+  it("REQUIRES notifyAgent — there is deliberately no default", () => {
+    // This is the field that decides whether an automation can spend tokens in
+    // chat. A default would make that call silently for whoever created it, so
+    // both the user (Automations tab) and the agent (`automations` tool) have to
+    // state it. Cheap to change afterwards; never assumed up front.
+    const { notifyAgent: _omitted, ...withoutNotifyAgent } = base;
+    expect(() => AutomationInputSchema.parse(withoutNotifyAgent)).toThrow();
+    expect(AutomationInputSchema.parse({ ...base, notifyAgent: true }).notifyAgent).toBe(
+      true,
+    );
+    expect(AutomationInputSchema.parse(base).notifyAgent).toBe(false);
+  });
 
   it("defaults to notify-only with no prompt required", () => {
     const parsed = AutomationInputSchema.parse(base);

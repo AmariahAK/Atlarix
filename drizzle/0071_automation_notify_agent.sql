@@ -1,0 +1,20 @@
+-- v14.27.0: every automation declares whether its outcome reaches the AGENT.
+--
+-- `run_mode` already says whether a fired trigger runs the model unattended.
+-- `notify_agent` is the other half, and the one that governs interactive spend:
+-- whether a finished run is delivered into the user's chat session for the agent
+-- to see and act on.
+--
+--   notify_agent = 1  → CI passed/failed, tests: things worth acting on.
+--   notify_agent = 0  → Slack via MCP and similar inbox-shaped noise. The run
+--                       feed and the OS notification still fire; the agent is
+--                       never woken, so this automation can never cost tokens.
+--
+-- Existing rows default to 0, deliberately. Every automation on disk predates
+-- the field, so nobody chose a value for them — and the safe reading of "not
+-- chosen" is "do not spend". A user who wants one to reach the agent flips it in
+-- the Automations tab, which is one click and now the only way it happens.
+--
+-- New automations must state it explicitly (the zod schema requires it); the
+-- column default exists only for these pre-existing rows.
+ALTER TABLE automations ADD COLUMN notify_agent integer DEFAULT 0 NOT NULL;

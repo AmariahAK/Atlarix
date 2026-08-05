@@ -827,6 +827,23 @@ export const automations = sqliteTable("automations", {
   runMode: text("run_mode", { enum: ["notify-only", "read-only"] })
     .notNull()
     .default("read-only"),
+  /**
+   * Does a finished run reach the AGENT, or only the user?
+   *
+   * Distinct from `runMode`, and the pair is the point. `runMode` decides
+   * whether a fired trigger runs the model UNATTENDED; `notifyAgent` decides
+   * whether the outcome is delivered into the interactive session for the agent
+   * to act on. An automation with `notifyAgent` false can never cost tokens in
+   * chat no matter how often it fires — which is what makes "watch Slack" and
+   * "watch CI" different kinds of thing rather than the same thing at different
+   * intervals.
+   *
+   * Required at the zod layer for anything new (user OR agent must choose);
+   * the column default covers only rows that predate the field.
+   */
+  notifyAgent: integer("notify_agent", { mode: "boolean" })
+    .notNull()
+    .default(false),
   /** JSON {provider,name} model override; null → settings.selectedModel. */
   model: text("model"),
   /** JSON poller state (github cursors / mcp result hash); null until first poll. */

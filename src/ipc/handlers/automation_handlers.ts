@@ -5,124 +5,35 @@
  * this explicitly — the poller never prompts).
  */
 
-import { randomUUID } from "node:crypto";
 import log from "electron-log";
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { db } from "../../db";
-import { apps, automationRuns, automations, mcpToolConsents } from "../../db/schema";
+import { automationRuns, automations } from "../../db/schema";
 import { createLoggedHandler } from "./safe_handle";
+import { AutomationInputSchema } from "@/lib/automations/types";
 import {
-  AutomationInputSchema,
-  type AutomationInput,
-} from "@/lib/automations/types";
+  listAutomations as listAutomationsService,
+  createAutomation as createAutomationService,
+  updateAutomation as updateAutomationService,
+  deleteAutomation as deleteAutomationService,
+  setAutomationEnabled as setAutomationEnabledService,
+} from "@/lib/automations/service";
 import { getAutomationRunView } from "@/lib/automations/notify";
-import { SubscriptionManager } from "../../lib/SubscriptionManager";
 
 const logger = log.scope("automation_handlers");
 const handle = createLoggedHandler(logger);
 
-/** Automations per workspace: Free = 2, Pro = 10. */
-const AUTOMATIONS_FREE_MAX = 2;
-const AUTOMATIONS_WORKSPACE_MAX = 10;
-
-async function upsertMcpConsentIfNeeded(input: AutomationInput): Promise<void> {
-  if (input.trigger.kind !== "mcp") return;
-  const { serverId, tool } = input.trigger;
-  await db
-    .insert(mcpToolConsents)
-    .values({ serverId, toolName: tool, consent: "always", updatedAt: new Date() })
-    .onConflictDoUpdate({
-      target: [mcpToolConsents.serverId, mcpToolConsents.toolName],
-      set: { consent: "always", updatedAt: new Date() },
-    });
-}
-
-async function refreshSchedule(automationId: string): Promise<void> {
-  const { refreshAutomationSchedule } = await import("@/lib/automations/runner");
-  await refreshAutomationSchedule(automationId);
-}
-
-function mapAutomation(row: typeof automations.$inferSelect) {
-  return {
-    id: row.id,
-    workspaceId: row.workspaceId,
-    name: row.name,
-    enabled: row.enabled,
-    trigger: JSON.parse(row.trigger) as unknown,
-    prompt: row.prompt,
-    runMode: row.runMode,
-    model: row.model ? (JSON.parse(row.model) as { provider: string; name: string }) : null,
-    lastRunAt: row.lastRunAt?.getTime() ?? null,
-    createdAt: row.createdAt.getTime(),
-  };
-}
 
 export function registerAutomationHandlers(): void {
   handle("automations:list", async (_event, workspaceId: number) => {
-    const rows = await db
-      .select()
-      .from(automations)
-      .where(eq(automations.workspaceId, workspaceId))
-      .orderBy(desc(automations.createdAt));
-    const unreadRow = await db
-      .select({ count: sql<number>`count(*)` })
-      .from(automationRuns)
-      .innerJoin(automations, eq(automationRuns.automationId, automations.id))
-      .where(
-        and(
-          eq(automations.workspaceId, workspaceId),
-          eq(automationRuns.unread, true),
-          eq(automationRuns.archived, false),
-        ),
-      );
-    return {
-      automations: rows.map(mapAutomation),
-      unreadCount: unreadRow[0]?.count ?? 0,
-    };
+    return listAutomationsService(workspaceId);
   });
 
   handle(
     "automations:create",
     async (_event, payload: { workspaceId: number; input: unknown }) => {
       const input = AutomationInputSchema.parse(payload.input);
-      const app = await db.query.apps.findFirst({
-        where: eq(apps.id, payload.workspaceId),
-      });
-      if (!app) throw new Error("Workspace not found");
-
-      const existing = await db
-        .select({ count: sql<number>`count(*)` })
-        .from(automations)
-        .where(eq(automations.workspaceId, payload.workspaceId));
-      const count = existing[0]?.count ?? 0;
-      if (count >= AUTOMATIONS_WORKSPACE_MAX) {
-        throw new Error(
-          `Maximum ${AUTOMATIONS_WORKSPACE_MAX} automations per workspace. Remove one to add another.`,
-        );
-      }
-      if (!SubscriptionManager.isPro() && count >= AUTOMATIONS_FREE_MAX) {
-        throw new Error(
-          `Free tier is limited to ${AUTOMATIONS_FREE_MAX} automations per workspace. Upgrade to Pro for up to ${AUTOMATIONS_WORKSPACE_MAX}.`,
-        );
-      }
-
-      await upsertMcpConsentIfNeeded(input);
-      const id = randomUUID();
-      const now = new Date();
-      await db.insert(automations).values({
-        id,
-        workspaceId: payload.workspaceId,
-        name: input.name,
-        enabled: input.enabled,
-        trigger: JSON.stringify(input.trigger),
-        prompt: input.prompt,
-        runMode: input.runMode,
-        model: input.model ? JSON.stringify(input.model) : null,
-        createdAt: now,
-        updatedAt: now,
-      });
-      await refreshSchedule(id);
-      return { id };
+      return createAutomationService(payload.workspaceId, input);
     },
   );
 
@@ -130,41 +41,20 @@ export function registerAutomationHandlers(): void {
     "automations:update",
     async (_event, payload: { id: string; input: unknown }) => {
       const input = AutomationInputSchema.parse(payload.input);
-      await upsertMcpConsentIfNeeded(input);
-      await db
-        .update(automations)
-        .set({
-          name: input.name,
-          enabled: input.enabled,
-          trigger: JSON.stringify(input.trigger),
-          prompt: input.prompt,
-          runMode: input.runMode,
-          model: input.model ? JSON.stringify(input.model) : null,
-          // Trigger change invalidates the poll cursor (repo/tool may differ).
-          cursor: null,
-          updatedAt: new Date(),
-        })
-        .where(eq(automations.id, payload.id));
-      await refreshSchedule(payload.id);
+      await updateAutomationService(payload.id, input);
       return { ok: true };
     },
   );
 
   handle("automations:delete", async (_event, id: string) => {
-    const { disarmAutomation } = await import("@/lib/automations/runner");
-    disarmAutomation(id);
-    await db.delete(automations).where(eq(automations.id, id));
+    await deleteAutomationService(id);
     return { ok: true };
   });
 
   handle(
     "automations:toggle",
     async (_event, payload: { id: string; enabled: boolean }) => {
-      await db
-        .update(automations)
-        .set({ enabled: payload.enabled, updatedAt: new Date() })
-        .where(eq(automations.id, payload.id));
-      await refreshSchedule(payload.id);
+      await setAutomationEnabledService(payload.id, payload.enabled);
       return { ok: true };
     },
   );
