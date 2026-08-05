@@ -163,6 +163,78 @@ export function listTerminalInstances(scopeKey: string) {
   }));
 }
 
+/**
+ * Record a command's output against its agent instance.
+ *
+ * MAIN OWNS THIS NOW. It used to be the renderer's job: `TerminalPanel` listened
+ * to `terminal-output`, built the lines, and pushed them back down through
+ * `terminal-instances:sync-scope`. Main created every instance with `lines: []`
+ * and never filled them itself.
+ *
+ * That made the buffer depend on a mounted component — and `TerminalPanel` only
+ * mounts while the Terminal tab is SELECTED (`RightPanel.tsx`). So
+ * `background_jobs({operation:"read"})` silently returned nothing for anyone who
+ * had not opened the panel: the agent asked what its dev server had printed and
+ * was told nothing had been printed. Main has the output at the moment it
+ * happens; it now keeps it, and the answer no longer depends on what the user
+ * happens to be looking at.
+ *
+ * Idempotent per chunk, matching the renderer logic it replaces: output ids are
+ * keyed on the accumulated length so a re-emitted chunk replaces rather than
+ * duplicates.
+ */
+export function appendAgentCommandOutput(
+  scopeKey: string,
+  args: {
+    operationId: string;
+    command: string;
+    output: string;
+    status: "running" | "completed" | "error";
+  },
+): void {
+  const scope = getScope(scopeKey);
+  // Resolve through the same `agentOpMap` the open path writes, so callers only
+  // need the operation id they already have — no instance id threaded through
+  // every emit site.
+  const instanceId = scope.agentOpMap[args.operationId];
+  const inst = instanceId
+    ? scope.instances.find((i) => i.id === instanceId)
+    : undefined;
+  if (!inst) return;
+
+  const lines = inst.lines.filter(
+    (l) => !l.id.startsWith(`${args.operationId}-out-`),
+  );
+  if (!lines.some((l) => l.id === `${args.operationId}-cmd`)) {
+    lines.push({
+      id: `${args.operationId}-cmd`,
+      prefix: "[Agent]",
+      text: `$ ${args.command}`,
+      kind: "prompt",
+    });
+  }
+  if (args.output.trim()) {
+    lines.push({
+      id: `${args.operationId}-out-${args.output.length}`,
+      prefix: "[Agent]",
+      text: args.output,
+      kind: "output",
+    });
+  }
+  if (args.status === "completed" || args.status === "error") {
+    if (!lines.some((l) => l.id === `${args.operationId}-st`)) {
+      lines.push({
+        id: `${args.operationId}-st`,
+        prefix: "[Agent]",
+        text: args.status === "completed" ? "exit 0" : "failed",
+        kind: "status",
+      });
+    }
+  }
+  inst.lines = capTerminalLines(lines);
+  schedulePersist();
+}
+
 export function readTerminalInstance(
   scopeKey: string,
   instanceId: string,

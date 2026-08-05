@@ -56,6 +56,7 @@ import { resolveEffectiveWorkMode, isReadOnlyWorkMode } from "@/lib/work-mode";
 import {
   openTerminalInstance,
   resolveScopeKey,
+  appendAgentCommandOutput,
 } from "../../../lib/terminal-instance-store";
 import { isAgentMemoryDisabled, memoryDirFor } from "@/lib/agent-memory";
 import { isOutsidePathOnlySystemScope } from "@/lib/system-scope-commands";
@@ -1437,6 +1438,43 @@ export class PermissionInterceptor extends EventEmitter {
         };
     }
 
+    /**
+     * Broadcast a command's output AND record it in the main-side terminal
+     * buffer.
+     *
+     * Both halves in one place deliberately: the buffer used to be filled by the
+     * renderer reacting to this event, so any emit site that the panel happened
+     * not to be mounted for produced output nobody kept — which is why
+     * `background_jobs({operation:"read"})` returned nothing unless the Terminal
+     * tab was open. Recording here makes "we said it" and "we kept it" the same
+     * action.
+     */
+    private emitTerminalOutput(payload: {
+        operationId: string;
+        command: string;
+        output: string;
+        status: "running" | "completed" | "error";
+        background: boolean;
+        exitCode?: number;
+        duration?: number;
+    }): void {
+        try {
+            appendAgentCommandOutput(
+                resolveScopeKey(this.activeChatId, this.workspaceId),
+                {
+                    operationId: payload.operationId,
+                    command: payload.command,
+                    output: payload.output,
+                    status: payload.status,
+                },
+            );
+        } catch (e) {
+            // Never let bookkeeping cost the user their output.
+            logger.warn("[terminal-buffer] append failed:", e);
+        }
+        this.emit("terminal-output", payload);
+    }
+
     /** Run one sandboxed attempt of a command, streaming output to `operationId`. */
     private runSandboxedOnce(
         command: string,
@@ -1447,7 +1485,7 @@ export class PermissionInterceptor extends EventEmitter {
         return runShellCommandStreaming(command, workingDir, {
             sandbox,
             onOutput: ({ stdout, stderr }) => {
-                this.emit("terminal-output", {
+                this.emitTerminalOutput({
                     operationId,
                     command,
                     output: stdout + (stderr ? `\n${stderr}` : ""),
@@ -1692,7 +1730,7 @@ export class PermissionInterceptor extends EventEmitter {
         // An interactively-approved system-scope command runs unsandboxed (see builder).
         const sandboxOpts = this.buildRunCommandSandbox(preview);
 
-        this.emit('terminal-output', {
+        this.emitTerminalOutput({
             operationId,
             command: commandToRun,
             output: '',
@@ -1736,7 +1774,7 @@ export class PermissionInterceptor extends EventEmitter {
                 // Harness control text (not captured output) — don't frame as untrusted.
                 harnessMessage: true,
             });
-            this.emit('terminal-output', {
+            this.emitTerminalOutput({
                 operationId,
                 command: commandToRun,
                 output: accOutput,
@@ -1768,7 +1806,7 @@ export class PermissionInterceptor extends EventEmitter {
                 if (promoted && chatIdForBg != null) {
                     bg.updateBackgroundOutput(chatIdForBg, operationId, accOutput);
                 }
-                this.emit('terminal-output', {
+                this.emitTerminalOutput({
                     operationId,
                     command: commandToRun,
                     output: accOutput,
@@ -1804,7 +1842,7 @@ export class PermissionInterceptor extends EventEmitter {
                 }
                 if (chatIdForBg != null) bg.clearForegroundProc(chatIdForBg, operationId);
                 const duration = Date.now() - startTime;
-                this.emit('terminal-output', {
+                this.emitTerminalOutput({
                     operationId,
                     command: commandToRun,
                     output: result.stdout + (result.stderr ? `\n${result.stderr}` : ''),
@@ -1873,7 +1911,7 @@ export class PermissionInterceptor extends EventEmitter {
                 if (chatIdForBg != null) bg.clearForegroundProc(chatIdForBg, operationId);
                 const duration = Date.now() - startTime;
                 const errMsg = err instanceof Error ? err.message : String(err);
-                this.emit('terminal-output', {
+                this.emitTerminalOutput({
                     operationId,
                     command: commandToRun,
                     output: errMsg,
