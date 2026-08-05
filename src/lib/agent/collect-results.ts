@@ -1,6 +1,9 @@
 /**
  * R2 — collect pending background results into a single model-facing block.
  *
+ * Sources: background commands, sub-agents, finished automations (only those set
+ * to `notifyAgent`), and stall advisories.
+ *
  * This is the body returned by the internal `collect_results` tool that an
  * auto-wake continuation turn is FORCED to call (see `chat_stream_handlers.ts`).
  * Delivering finished background-command / sub-agent results as a real tool
@@ -19,11 +22,16 @@ import {
   takePendingSubagentResults,
   hasPendingSubagentResults,
 } from "../agents/subagent-results";
+import {
+  takePendingAutomationResults,
+  hasPendingAutomationResults,
+} from "./automation-results";
 
 export function collectPendingBackgroundResultsBody(chatId: number): string {
   const parts = [
     takePendingBackgroundCommandResults(chatId),
     takePendingSubagentResults(chatId),
+    takePendingAutomationResults(chatId),
     takePendingStalledAdvisories(chatId),
   ].filter((p): p is string => !!p);
   return parts.length ? parts.join("\n\n") : "No pending background results.";
@@ -46,6 +54,7 @@ export function computeWakePendingResults(
     isWake &&
     (hasPendingBackgroundCommandResults(chatId) ||
       hasPendingSubagentResults(chatId) ||
+      hasPendingAutomationResults(chatId) ||
       hasPendingStalledAdvisories(chatId))
   );
 }

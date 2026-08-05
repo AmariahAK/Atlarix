@@ -22,6 +22,7 @@ import {
     FileOperationPreview,
     CommandOperationPreview,
     BatchPlanPreview,
+    AutomationOperationPreview,
     parsePermissionRequest,
 } from "../../../lib/tools/permissions/schema";
 import {
@@ -640,6 +641,9 @@ export class PermissionInterceptor extends EventEmitter {
                     // originating command can grant the denied path + retry (see
                     // maybeEscalateSandboxDenial). resolveApproval(true) fires below.
                     break;
+                case "automation_write":
+                    await this.executeAutomationWrite(request);
+                    break;
                 default:
                     throw new Error(`Unknown operation: ${request.operation}`);
             }
@@ -1219,6 +1223,51 @@ export class PermissionInterceptor extends EventEmitter {
         } catch (e) {
             logger.warn("[maybeCaptureWorkspaceSnapshot] skipped:", e);
         }
+    }
+
+    /**
+     * Apply an approved automation change.
+     *
+     * Nothing reached the database before this point: the tool returned a
+     * preview and stopped. A standing job that fires on a schedule while nobody
+     * is watching is the case the approval gate exists for — and a deleted
+     * automation leaves nothing behind to notice, unlike a file.
+     *
+     * Routed through `lib/automations/service` so this shares the tier caps, the
+     * MCP consent upsert and the scheduler re-arm with the Automations tab. An
+     * executor that spoke to the tables directly would drift from the UI, and
+     * silently: a missing MCP consent looks just like "the poll found nothing".
+     */
+    private async executeAutomationWrite(request: PermissionRequest): Promise<void> {
+        const preview = request.preview as AutomationOperationPreview;
+        const svc = await import("@/lib/automations/service");
+
+        if (preview.action === "delete") {
+            if (!preview.automationId) throw new Error("Automation id missing");
+            await svc.deleteAutomation(preview.automationId);
+            logger.log(`[automation] deleted ${preview.automationId} (${preview.name})`);
+            return;
+        }
+
+        const { AutomationInputSchema } = await import("@/lib/automations/types");
+        const pending = preview.input;
+        if (pending == null) {
+            throw new Error(
+                "Automation payload missing — nothing was written. Re-issue the automations call.",
+            );
+        }
+        const input = AutomationInputSchema.parse(pending);
+
+        if (preview.action === "create") {
+            if (this.workspaceId == null) throw new Error("Workspace required");
+            const { id } = await svc.createAutomation(this.workspaceId, input);
+            logger.log(`[automation] created ${id} (${input.name})`);
+            return;
+        }
+
+        if (!preview.automationId) throw new Error("Automation id missing");
+        await svc.updateAutomation(preview.automationId, input);
+        logger.log(`[automation] updated ${preview.automationId} (${input.name})`);
     }
 
     private async executeRevertProjectSnapshot(request: PermissionRequest): Promise<void> {

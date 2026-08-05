@@ -106,6 +106,49 @@ export const WorkforceActionPreviewSchema = z.object({
     payload: z.record(z.string(), z.unknown()).describe("Action payload arguments"),
 });
 
+/**
+ * Creating / changing / deleting an automation.
+ *
+ * Gated for a reason the file-write gate does not cover: this is a STANDING
+ * order. An approved file write happens once and leaves a diff to notice; an
+ * approved automation runs on a schedule, unattended, possibly spending tokens,
+ * until someone remembers it exists — and a deleted one leaves nothing on disk
+ * to notice at all.
+ *
+ * The card carries `runMode` and `notifyAgent` explicitly because between them
+ * they decide whether this costs money while nobody is watching, and that must
+ * not be something the user has to infer from a name.
+ */
+export const AutomationOperationPreviewSchema = z.object({
+    action: z.enum(["create", "update", "delete"]),
+    name: z.string(),
+    /** Human-readable trigger ("every weekday at 09:00", "CI failures on owner/repo"). */
+    triggerSummary: z.string(),
+    description: z.string(),
+    /** Present for create/update; absent for delete. */
+    runMode: z.enum(["notify-only", "read-only"]).optional(),
+    notifyAgent: z.boolean().optional(),
+    /** update/delete only — which automation is being changed. */
+    automationId: z.string().optional(),
+    /** update only: a short "was → now" per changed field, so the card shows the delta. */
+    changes: z.array(z.string()).optional(),
+    /** Set when an MCP trigger will record standing consent for its tool. */
+    grantsMcpConsent: z.string().optional(),
+    /**
+     * The validated `AutomationInput` to apply on approval (create/update).
+     *
+     * Carried INSIDE the preview rather than beside it because the request is
+     * zod-parsed on its way through, and `z.object` strips unknown keys — a
+     * sibling field would have been silently dropped and the executor would have
+     * approved an automation it then had no payload to write.
+     */
+    input: z.unknown().optional(),
+});
+
+export type AutomationOperationPreview = z.infer<
+    typeof AutomationOperationPreviewSchema
+>;
+
 export const ProjectRevertPreviewSchema = z.object({
     snapshotId: z.coerce.number().int().positive(),
     label: z.string(),
@@ -134,6 +177,8 @@ export const PermissionOperationType = z.enum([
     "revert_project_snapshot",
     // Sandbox write-denial escalation (grant a denied path + retry sandboxed)
     "sandbox_escalation",
+    // Create/update/delete a standing automation (v14.27.0)
+    "automation_write",
 ]);
 
 /** Single operation inside a batch_plan (file or command) */
@@ -160,6 +205,7 @@ export const PermissionRequestSchema = z.object({
         z.array(FileOperationPreviewSchema),
         CommandOperationPreviewSchema,
         SandboxEscalationPreviewSchema,
+        AutomationOperationPreviewSchema,
         WorkforceActionPreviewSchema,
         BatchPlanPreviewSchema,
         ProjectRevertPreviewSchema,

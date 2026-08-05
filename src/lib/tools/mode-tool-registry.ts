@@ -61,6 +61,7 @@ function withEveryModeTools(list: readonly string[]): readonly string[] {
 }
 
 const ASK_TOOLS = [
+  "automations",
   "background_jobs",
   "browser_batch",
   "browser_find",
@@ -82,6 +83,7 @@ const ASK_TOOLS = [
 // .atlarix docs) / destructive run_command stay excluded from the advertised
 // list and the execute-gate (incl. the text-tool fallback path).
 const PLAN_TOOLS = [
+  "automations",
   "browser_batch",
   "browser_find",
   "browser_inspect",
@@ -98,6 +100,7 @@ const PLAN_TOOLS = [
 ] as const;
 
 const REVIEW_TOOLS = [
+  "automations",
   "background_jobs",
   "browser_batch",
   "browser_find",

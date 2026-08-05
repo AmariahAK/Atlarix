@@ -13,7 +13,7 @@ import { IpcClient } from "@/ipc/ipc_client";
 import { Button } from "@/components/ui/button";
 import { SmartDiffView } from "@/components/SmartDiffView";
 import { composeContentFromHunks } from "@/lib/diff/compose-hunks";
-import { Shield, Terminal } from "lucide-react";
+import { Clock, Shield, Terminal } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
@@ -84,6 +84,15 @@ function queueEntryFromPermission(
     sandboxDeniedPath: preview.deniedPath as string | undefined,
     sandboxGrantPath: preview.grantPath as string | undefined,
     sandboxGrantKind: preview.kind as 'command' | 'file' | undefined,
+    ...(request.operation === "automation_write" && {
+      automationAction: preview.action as 'create' | 'update' | 'delete' | undefined,
+      automationName: preview.name as string | undefined,
+      automationTrigger: preview.triggerSummary as string | undefined,
+      automationRunMode: preview.runMode as 'notify-only' | 'read-only' | undefined,
+      automationNotifyAgent: preview.notifyAgent as boolean | undefined,
+      automationChanges: preview.changes as string[] | undefined,
+      automationGrantsMcpConsent: preview.grantsMcpConsent as string | undefined,
+    }),
     ...(request.operation === "batch_plan" && {
       batchPlanTitle: preview.title as string | undefined,
       batchPlanSummary: preview.summary as string | undefined,
@@ -362,6 +371,93 @@ function CommandPermissionCard({
   );
 }
 
+/**
+ * Approving a standing automation.
+ *
+ * Deliberately spells out `notifyAgent` and `runMode` rather than leaving them
+ * to the name. Between them they decide whether this costs money while nobody is
+ * watching, and that is not something a user should have to infer from
+ * "CI failures on main" — it is the single fact this card exists to surface.
+ */
+export function AutomationPermissionCard({
+  operation,
+  onAllow,
+  onDeny,
+}: {
+  operation: QueuedOperation;
+  onAllow: (id: string) => void;
+  onDeny: (id: string) => void;
+}) {
+  const action = operation.automationAction ?? "update";
+  const isDelete = action === "delete";
+  const verb = isDelete ? "Delete" : action === "create" ? "Create" : "Update";
+  const notifies = operation.automationNotifyAgent === true;
+  const runsAgent = operation.automationRunMode === "read-only";
+  return (
+    <div className="my-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs">
+      <div className="flex items-start gap-2">
+        <Clock className="h-3.5 w-3.5 shrink-0 mt-0.5 text-muted-foreground" />
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 font-medium text-foreground/90">
+            {verb} automation
+            <span className="rounded bg-amber-500/20 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-900 dark:text-amber-200">
+              Runs on its own
+            </span>
+          </div>
+          <p className="mt-1.5 text-amber-900 dark:text-amber-100/90">
+            <span className="font-medium">{operation.automationName}</span>
+            {operation.automationTrigger ? <> — {operation.automationTrigger}</> : null}
+          </p>
+
+          {!isDelete && (
+            <ul className="mt-2 space-y-1 text-[11px] text-amber-900/90 dark:text-amber-100/80">
+              <li>
+                {notifies
+                  ? "Tells the AI when it finishes, so it can act on the result."
+                  : "Tells you only — the AI is never woken, so this can't spend tokens."}
+              </li>
+              <li>
+                {runsAgent
+                  ? "Runs an unattended AI turn each time it fires (costs one turn per fire)."
+                  : "Posts the event with no AI turn."}
+              </li>
+              {operation.automationGrantsMcpConsent ? (
+                <li>
+                  Grants standing consent to the MCP tool{" "}
+                  <span className="font-mono">{operation.automationGrantsMcpConsent}</span>{" "}
+                  (the poller runs unattended and can't ask).
+                </li>
+              ) : null}
+            </ul>
+          )}
+
+          {operation.automationChanges?.length ? (
+            <div className="mt-2 font-mono text-[11px] text-muted-foreground bg-background/60 rounded px-2 py-1.5 space-y-0.5">
+              {operation.automationChanges.map((c) => (
+                <div key={c}>{c}</div>
+              ))}
+            </div>
+          ) : null}
+
+          <div className="mt-2 flex gap-2">
+            <Button size="sm" className="h-7 text-xs" onClick={() => onAllow(operation.id)}>
+              {verb}
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 text-xs"
+              onClick={() => onDeny(operation.id)}
+            >
+              Cancel
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function SandboxEscalationCard({
   operation,
   onAllow,
@@ -516,13 +612,18 @@ export function InlinePermissionApprovals({ chatId }: { chatId: number }) {
     () => pending.filter((op) => op.operation === "sandbox_escalation"),
     [pending],
   );
+  const automationPending = useMemo(
+    () => pending.filter((op) => op.operation === "automation_write"),
+    [pending],
+  );
   const otherPending = useMemo(
     () =>
       pending.filter(
         (op) =>
           !isFileOperation(op.operation) &&
           op.operation !== "run_command" &&
-          op.operation !== "sandbox_escalation",
+          op.operation !== "sandbox_escalation" &&
+          op.operation !== "automation_write",
       ),
     [pending],
   );
@@ -639,7 +740,9 @@ export function InlinePermissionApprovals({ chatId }: { chatId: number }) {
   // Sandbox escalation: "Allow" resolves the approval (approved) — the interceptor
   // persists the workspace grant and re-runs the command still sandboxed. No appId
   // needed (the interceptor uses its own workspaceId).
-  const handleEscalationAllow = useCallback(
+  /** Plain allow/deny, shared by sandbox escalations and automation writes —
+   *  neither offers per-file/per-directory scopes, so "once" is the only mode. */
+  const handleSimpleAllow = useCallback(
     async (id: string) => {
       setQueue((q) => updateOperationStatus(q, id, { status: "queued" }));
       await IpcClient.getInstance().executePermission({
@@ -651,7 +754,7 @@ export function InlinePermissionApprovals({ chatId }: { chatId: number }) {
     [chatId, setQueue],
   );
 
-  const handleEscalationDeny = useCallback(
+  const handleSimpleDeny = useCallback(
     async (id: string) => {
       setQueue((q) => removeOperation(q, id));
       await IpcClient.getInstance().executePermission({
@@ -738,8 +841,16 @@ export function InlinePermissionApprovals({ chatId }: { chatId: number }) {
         <SandboxEscalationCard
           key={op.id}
           operation={op}
-          onAllow={handleEscalationAllow}
-          onDeny={handleEscalationDeny}
+          onAllow={handleSimpleAllow}
+          onDeny={handleSimpleDeny}
+        />
+      ))}
+      {automationPending.map((op) => (
+        <AutomationPermissionCard
+          key={op.id}
+          operation={op}
+          onAllow={handleSimpleAllow}
+          onDeny={handleSimpleDeny}
         />
       ))}
       {otherPending.map((op) => (

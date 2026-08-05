@@ -119,6 +119,41 @@ async function broadcastRunUpdate(runId: string): Promise<void> {
   }
 }
 
+
+/**
+ * Hand a finished run to the agent — but ONLY if this automation is set to
+ * notify it.
+ *
+ * The whole point of `notifyAgent` lives on this line: an automation the user
+ * chose not to share cannot reach the model, so it cannot cost tokens however
+ * often it fires. The user still gets the feed row and the OS notification
+ * either way; that is what they act on, and what lets them say "there's a new
+ * Slack message, deal with it" in their own time.
+ */
+async function maybeTellTheAgent(
+  automation: { id: string; name: string; notifyAgent: boolean; workspaceId: number | null },
+  status: "ok" | "nothing-to-report" | "error",
+  body: string,
+): Promise<void> {
+  if (!automation.notifyAgent || automation.workspaceId == null) return;
+  // Nothing to report is not news. Delivering it would train the model to treat
+  // automation results as noise, which is exactly what makes a real one get
+  // skimmed.
+  if (status === "nothing-to-report") return;
+  try {
+    const { recordAutomationResult } = await import("@/lib/agent/automation-results");
+    recordAutomationResult(automation.workspaceId, {
+      automationId: automation.id,
+      automationName: automation.name,
+      status,
+      body,
+      finishedAt: Date.now(),
+    });
+  } catch (e) {
+    logger.warn("could not queue automation result for the agent:", e);
+  }
+}
+
 export async function executeAutomationRun(
   automationId: string,
   triggerContext: string | null,
@@ -171,6 +206,7 @@ export async function executeAutomationRun(
     } catch (e) {
       logger.warn("automation notification failed:", e);
     }
+    await maybeTellTheAgent(automation, "ok", triggerContext ?? headline);
     logger.info(`automation "${automation.name}" fired (notify-only)`);
     return { runId };
   }
@@ -309,6 +345,11 @@ export async function executeAutomationRun(
     .where(eq(chatSessions.id, sessionId));
 
   deleteStreamTransport(chatId);
+  await maybeTellTheAgent(
+    automation,
+    status,
+    runError ?? summary ?? "",
+  );
   await broadcastRunUpdate(runId);
   try {
     const { notifyRunFinished } = await import("./notify");

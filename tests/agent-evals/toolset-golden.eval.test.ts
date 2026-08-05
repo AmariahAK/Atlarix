@@ -47,16 +47,20 @@ function offeredToolNames(scenarioId: string): string[] {
 // v14.21: `subagents` is EVERY mode (Plan delegates read-only recon, so it must
 // be able to list/read/cancel it); `proposals` is build/debug only, because
 // accepting one ends in a real workspace write.
+// v14.27: `automations` is EVERY mode. An automation is not a workspace
+// mutation, its mutating operations go through the approval gate, and `list`
+// from a read-only mode is the point — Explore is where the user is most likely
+// to be doing by hand the repeated check that should become an automation.
 const GOLDEN = {
   ask: [
-    "ask_user", "background_jobs", "browser_batch", "browser_find",
+    "ask_user", "automations", "background_jobs", "browser_batch", "browser_find",
     "browser_inspect", "browser_interact",
     "browser_navigate", "browser_tabs", "compress_context", "glob", "grep", "list_attachments",
     "list_available_mcps", "mcp_call", "read_attachment", "read_file",
     "read_url", "run_command", "schedule_wakeup", "subagents", "task", "web_search",
   ],
   plan: [
-    "ask_user", "browser_batch", "browser_find", "browser_inspect",
+    "ask_user", "automations", "browser_batch", "browser_find", "browser_inspect",
     "browser_interact", "browser_navigate", "browser_tabs",
     "compress_context", "glob", "grep", "list_attachments",
     "list_available_mcps", "mcp_call", "plan", "read_attachment", "read_file",
@@ -65,7 +69,7 @@ const GOLDEN = {
   build: [
     // Sorted. `browser_test` sits with the rest of the browser_* family now — it was
     // `preview_test` (renamed v14.23.0), which sorted after `plan`.
-    "ask_user", "background_jobs", "browser_batch", "browser_find",
+    "ask_user", "automations", "background_jobs", "browser_batch", "browser_find",
     "browser_inspect", "browser_interact",
     "browser_navigate", "browser_tabs", "browser_test", "compress_context", "edit_file",
     "glob", "grep", "list_attachments", "list_available_mcps",

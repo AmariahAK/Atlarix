@@ -11,7 +11,7 @@ export type OperationStatus = 'pending' | 'queued' | 'running' | 'completed' | '
 
 export interface QueuedOperation {
     id: string;
-    operation: 'run_command' | 'write_file' | 'edit_file' | 'delete_file' | 'rename_file' | 'write_multiple_files' | 'batch_plan' | 'revert_project_snapshot' | 'sandbox_escalation' | 'unknown';
+    operation: 'run_command' | 'write_file' | 'edit_file' | 'delete_file' | 'rename_file' | 'write_multiple_files' | 'batch_plan' | 'revert_project_snapshot' | 'sandbox_escalation' | 'automation_write' | 'unknown';
     command?: string;
     path?: string;
     /** sandbox_escalation: the path the OS sandbox denied a write to. */
@@ -21,6 +21,18 @@ export interface QueuedOperation {
     /** sandbox_escalation: which lane asked — a blocked command, or a file edit
      * targeting a folder outside the workspace. Same grant either way. */
     sandboxGrantKind?: 'command' | 'file';
+    /** automation_write: create | update | delete. */
+    automationAction?: 'create' | 'update' | 'delete';
+    automationName?: string;
+    /** Plain-English trigger ("every weekday at 09:00"). */
+    automationTrigger?: string;
+    automationRunMode?: 'notify-only' | 'read-only';
+    /** Whether finished runs reach the AGENT — the field that governs unattended spend. */
+    automationNotifyAgent?: boolean;
+    /** update only: "was → now" per changed field. */
+    automationChanges?: string[];
+    /** Set when an MCP trigger will record standing consent for its tool. */
+    automationGrantsMcpConsent?: string;
     content?: string;       // File content for write_file
     oldContent?: string;    // Original content for diff view
     description?: string;   // AI-generated change summary

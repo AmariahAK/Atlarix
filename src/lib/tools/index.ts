@@ -25,6 +25,7 @@ import "./proposals"; // v14.21 review writer sub-agent edit proposals
 import "./subagents"; // v14.21 list/output/cancel for running sub-agents
 import "./workspace";
 import "./plan";
+import "./automations"; // v14.27 agent-visible standing automations
 import "./browser"; // v11 in-app browser agent tools
 
 // Re-export registry for convenience
