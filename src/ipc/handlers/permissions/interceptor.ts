@@ -11,7 +11,6 @@ import * as fs from "fs/promises";
 import * as fsSync from "node:fs";
 import * as path from "path";
 import { assertRealpathContained as assertRealpathContainedShared } from "@/lib/security/realpath-contain";
-import { createHash } from "crypto";
 import { recordMutationOutcome } from "@/lib/agent/mutation-verify";
 import { wrapUntrustedData } from "@/lib/streaming/untrusted-data";
 import log from "electron-log";
@@ -43,6 +42,7 @@ import {
 import { describeSandboxFailureContext } from "@/lib/sandbox/sandbox-failure-context";
 import { formatCommandOutput, resolveMaxOutputBytes } from "./command-output";
 import { targetPathsForOperation } from "./operation-targets";
+import { refreshPlanLedgerFromWrittenFile } from "@/lib/tasks/plan-ledger-from-file";
 import { captureSnapshotAcrossRoots } from "../../../lib/snapshot/snapshot-manager";
 import { appendLedgerFilesWritten } from "../../../lib/tasks/task-ledger";
 import {
@@ -108,9 +108,6 @@ export class PermissionInterceptor extends EventEmitter {
 
     /** Per run_command operation: max UTF-8 bytes for formatted output (survives pendingOperations eviction). */
     private commandOutputMaxBytes: Map<string, number> = new Map();
-
-    /** Skip redundant full re-seeds when the model writes the same plan twice in quick succession. */
-    private static planLedgerRefreshGuard = new Map<string, { hash: string; at: number }>();
 
     /** Monotonic id suffix for mid-run sandbox-escalation approval requests. */
     private sandboxEscalationSeq = 0;
@@ -286,64 +283,6 @@ export class PermissionInterceptor extends EventEmitter {
     }
 
     /** After writing ATLARIX_PLAN.md: refresh workspace `plan:<id>` ledger without re-archiving. */
-    private async refreshPlanLedgerFromWrittenFile(fullPath: string, rel: string): Promise<void> {
-        if (!this.workspaceId || !isAtlarixPlanRelativePath(rel)) return;
-        let content: string;
-        try {
-            content = await fs.readFile(fullPath, "utf8");
-        } catch (e) {
-            logger.warn("[refreshPlanLedgerFromWrittenFile] read failed:", e);
-            return;
-        }
-        const digest = createHash("sha256").update(content, "utf8").digest("hex");
-        const guardKey = `${this.workspaceId}:${rel.replace(/\\/g, "/")}`;
-        const now = Date.now();
-        const prev = PermissionInterceptor.planLedgerRefreshGuard.get(guardKey);
-        if (prev?.hash === digest && now - prev.at < 450) {
-            logger.log("[refreshPlanLedgerFromWrittenFile] skip duplicate plan body (debounced)");
-            return;
-        }
-        PermissionInterceptor.planLedgerRefreshGuard.set(guardKey, { hash: digest, at: now });
-
-        const { parsePlanToSteps, extractPlanTitle } = await import("@/lib/tasks/atlarix-plan-steps");
-        const steps = parsePlanToSteps(content);
-        if (steps.length === 0) return;
-
-        const {
-            planLedgerTurnId,
-            getLedger,
-            createLedger,
-            setLedgerSteps,
-            persistLedgerToDisk,
-        } = await import("@/lib/tasks/task-ledger");
-        const { syncPlanFile } = await import("@/lib/tasks/plan-sync");
-        const planTurnId = planLedgerTurnId(this.workspaceId);
-        if (planTurnId == null) return;
-        const taskHead = extractPlanTitle(content, "Implementation plan");
-
-        const existing = getLedger(planTurnId);
-        if (existing) {
-            await setLedgerSteps(planTurnId, steps, { archive: false });
-            const L = getLedger(planTurnId);
-            if (L) {
-                L.chatId = this.activeChatId;
-                await persistLedgerToDisk(L);
-                await syncPlanFile(this.workspacePath, L);
-            }
-        } else {
-            createLedger({
-                turnId: planTurnId,
-                chatId: this.activeChatId,
-                originalTask: taskHead,
-                chatType: "workspace",
-                workspacePath: this.workspacePath,
-                stepDescriptions: steps,
-            });
-            const L = getLedger(planTurnId);
-            if (L) await syncPlanFile(this.workspacePath, L);
-        }
-    }
-
     /**
      * Emit operation status to all windows for queue UI updates
      */
@@ -1330,7 +1269,13 @@ export class PermissionInterceptor extends EventEmitter {
             ]);
         }
         if (isAtlarixPlanRelativePath(rel)) {
-            await this.refreshPlanLedgerFromWrittenFile(fullPath, rel);
+            await refreshPlanLedgerFromWrittenFile({
+                workspaceId: this.workspaceId,
+                workspacePath: this.workspacePath,
+                activeChatId: this.activeChatId,
+                fullPath,
+                rel,
+            });
         }
     }
 
@@ -1354,7 +1299,13 @@ export class PermissionInterceptor extends EventEmitter {
             logger.log(`Wrote file: ${fullPath}`);
             relPaths.push(rel);
             if (isAtlarixPlanRelativePath(rel)) {
-                await this.refreshPlanLedgerFromWrittenFile(fullPath, rel);
+                await refreshPlanLedgerFromWrittenFile({
+                workspaceId: this.workspaceId,
+                workspacePath: this.workspacePath,
+                activeChatId: this.activeChatId,
+                fullPath,
+                rel,
+            });
             }
         }
         if (this.snapshotTurnId && relPaths.length > 0) {
