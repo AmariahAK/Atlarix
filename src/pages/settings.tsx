@@ -494,25 +494,6 @@ export function WorkflowSettings() {
   );
 }
 
-function HooksSettings() {
-  return (
-    <div className="mt-6 space-y-8 border-t border-border pt-6">
-      <div className="space-y-3">
-        <h3 className="text-sm font-medium text-foreground">Hooks</h3>
-        <p className="text-xs text-muted-foreground max-w-2xl">
-          Hooks are configured per workspace in{" "}
-          <code className="text-[11px]">.atlarix/hooks/hooks.json</code> — blocking{" "}
-          <code className="text-[11px]">pre_tool_use</code>, advisory{" "}
-          <code className="text-[11px]">post_tool_use</code>, and a{" "}
-          <code className="text-[11px]">stop</code> gate on task completion, all enforced
-          at the tool-execution funnel. The file is committable, so hooks travel with
-          the repo. See the workspace contract docs for the format.
-        </p>
-      </div>
-    </div>
-  );
-}
-
 export function AISettings() {
   const queryClient = useQueryClient();
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -630,7 +611,6 @@ export function AISettings() {
         </p>
       </div>
 
-      <HooksSettings />
 
       <p className="text-xs text-muted-foreground mt-2">
         Token budget caps are configured per provider in each provider&apos;s

@@ -53,7 +53,6 @@ import { toolActivityStatusFor } from "@/lib/tools/tool-result-status";
 import { stripHallucinatedAtlarixToolTagsFromDelta } from "@/lib/chat/answer-display";
 import { summarizeToolResultForActivityDetail, toolResultTextForExpand } from "@/lib/chat/stream-tool-display";
 import { computeDiffHunks } from "@/lib/diff/compose-hunks";
-import { runStopHooks, hasStopHooks } from "@/lib/hooks/file-hooks";
 import { simplifyToolParametersForProfile } from "@/lib/routing/model-capability-profile";
 import { detectReasoningCapability, resolveReasoningCatalogModelId } from "@/lib/routing/reasoning-detector";
 import { shouldUseTextToolFallback } from "@/lib/stream/text-tool-fallback";
@@ -1518,12 +1517,6 @@ export async function runBuildBranch(
                         calls as Array<{ toolName: string; args: Record<string, unknown> }>,
                       ),
                     stripTextToolXML: stripToolCallXML,
-                    // v12 2.2/7B: workspace `stop` hooks gate <task_complete>
-                    // ("require tests before done"). Attached only when the
-                    // workspace declares stop hooks (cheap pre-check).
-                    ...(appPath && hasStopHooks(appPath)
-                      ? { taskCompleteGate: () => runStopHooks(appPath) }
-                      : {}),
                     // v14.8.9 continue-until-done: drive an active session plan to
                     // completion (self-gates on plan existence + pending steps).
                     // NOT in plan mode: there the plan itself is the deliverable —

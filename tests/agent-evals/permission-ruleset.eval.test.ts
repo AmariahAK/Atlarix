@@ -9,12 +9,18 @@ import { scenario } from "../infra/scenario";
 import { expectNoStreamError, expectStreamEnded } from "../infra/assert";
 
 /**
- * v12 2.2 / 7B — the permission ruleset + blocking file hooks at the single
- * tool-execution funnel (runToolExecute). These cover ask+build, native AND
- * text-tool paths uniformly. A deny rule / a non-zero pre_tool_use hook
- * returns a structured tool error the model sees; a stop hook blocks a
- * natural prose-only completion. No rules/hooks files ⇒ behavior identical to pre-2.2
- * (the existing edit-with-approval evals are that regression guard).
+ * The permission `deny` ruleset at the single tool-execution funnel
+ * (runToolExecute), covering ask+build and native AND text-tool paths
+ * uniformly: a deny rule returns a structured tool error the model sees, and
+ * the workspace file merges over the global `~/.atlarix` one.
+ *
+ * Two hook cases lived here until v14.26.0 (a non-zero `pre_tool_use` denying a
+ * tool, and a red `stop` hook blocking a prose-only completion). They went with
+ * the hooks feature. The `ask` list this file never covered went in the same
+ * release — it was only ever logged.
+ *
+ * No permissions file ⇒ behaviour identical to having none (the existing
+ * edit-with-approval evals are that regression guard).
  */
 
 let ctx: EvalContext;
@@ -29,7 +35,7 @@ afterAll(async () => {
   await ctx.cleanup();
 });
 
-describe("permission ruleset + file hooks (2.2/7B)", () => {
+describe("permission ruleset — deny rules at the single funnel", () => {
   it("a deny glob blocks a native run_command and the model sees the error", async () => {
     ctx.ws.write(
       ".atlarix/permissions.json",
@@ -124,101 +130,4 @@ describe("permission ruleset + file hooks (2.2/7B)", () => {
     }
   }, 30_000);
 
-  it("a non-zero pre_tool_use hook denies the tool with its stderr tail", async () => {
-    ctx.ws.write(
-      ".atlarix/hooks/hooks.json",
-      JSON.stringify({
-        hooks: [
-          {
-            trigger: "pre_tool_use",
-            match: "run_command",
-            command: "echo 'policy: no shell in this workspace' 1>&2; exit 1",
-            blocking: true,
-          },
-        ],
-      }),
-    );
-    ctx.server.register(
-      scenario("hook-deny")
-        .toolCall("run_command", { command: "ls", description: "list" })
-        .text("Blocked by hook.")
-        .repeatLast()
-        .build(),
-    );
-
-    const chatId = await ctx.newChat();
-    const { fakeIpc } = await runTurn(ctx, {
-      chatId,
-      prompt: "sc=hook-deny List files.",
-      mode: "build",
-    });
-    expectNoStreamError(fakeIpc.sends, chatId);
-
-    const blob = JSON.stringify(ctx.server.requestsFor("hook-deny"));
-    expect(blob).toContain("Blocked by a workspace pre_tool_use hook");
-    expect(blob).toContain("no shell in this workspace");
-
-    ctx.ws.write(".atlarix/hooks/hooks.json", JSON.stringify({ hooks: [] }));
-  }, 30_000);
-
-  it("a stop hook blocks a natural completion until it passes", async () => {
-    // The stop hook fails the first time (a sentinel file is absent) and
-    // passes once it exists — the model "fixes" by creating it.
-    ctx.ws.write(
-      ".atlarix/hooks/hooks.json",
-      JSON.stringify({
-        hooks: [
-          {
-            trigger: "stop",
-            command: "test -f .ready || (echo 'tests not green' 1>&2; exit 1)",
-          },
-        ],
-      }),
-    );
-    ctx.server.register(
-      scenario("hook-stop")
-        // Round 1: claim done with no writes → stop hook is red → blocked.
-        .text("All done.")
-        // Round 2 (exists only because the gate blocked): create the sentinel
-        // via edit_file(operation:"write"), then claim done again.
-        .toolCall("edit_file", {
-          operation: "write",
-          path: ".ready",
-          content: "ok\n",
-          description: "mark ready",
-        })
-        .text("Now it is ready.")
-        .repeatLast()
-        .build(),
-    );
-
-    const chatId = await ctx.newChat();
-    const { fakeIpc } = await runTurn(ctx, {
-      chatId,
-      prompt: "sc=hook-stop Finish the task.",
-      mode: "build",
-      during: async (ipc) => {
-        // Approve the write that creates the sentinel.
-        const permission: any = await ipc.waitFor(
-          "permission-request",
-          (p: any) => p?.chatId === chatId,
-        );
-        const executePermission = await getIpcHandler("execute-permission");
-        await executePermission({} as any, {
-          chatId,
-          operationId: permission.payload.operationId,
-        });
-      },
-      timeoutMs: 25_000,
-    });
-    expectNoStreamError(fakeIpc.sends, chatId);
-    expectStreamEnded(fakeIpc.sends, chatId);
-
-    // The stop-hook failure was fed back (the turn did NOT end on round 1).
-    const requests = ctx.server.requestsFor("hook-stop") as Array<unknown>;
-    expect(requests.length).toBeGreaterThanOrEqual(2);
-    expect(JSON.stringify(requests)).toContain("stop-hook");
-
-    ctx.ws.write(".atlarix/hooks/hooks.json", JSON.stringify({ hooks: [] }));
-  }, 30_000);
 });

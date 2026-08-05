@@ -146,13 +146,18 @@ export function isAlwaysAutoApproveAtlarixRelativePath(relPosix: string): boolea
   if (underAtlarix && (base === "atlarix.md" || base === "permissions.json")) {
     return false;
   }
-  // `.atlarix/hooks/**` is the same escalation as the two above, only worse:
-  // hooks.json is not instructions the model must persuade a future turn to
-  // follow, it is a command string this app hands to `/bin/sh -c` on EVERY
-  // pre/post tool call (lib/hooks/file-hooks.ts). Silently auto-approving a
-  // write to it means the agent can grant itself arbitrary shell with no card
-  // in front of the user. The carve-out above reasoned exactly this way about
-  // standing authority and simply missed the directory that executes.
+  // `.atlarix/hooks/**` KEPT after the hooks feature was deleted in v14.26.0.
+  //
+  // While hooks existed this was the sharpest carve-out of the three: hooks.json
+  // was not instructions the model had to persuade a future turn to follow, it
+  // was a command string handed to `/bin/sh -c` on every pre/post tool call, so
+  // auto-approving a write to it let the agent grant itself arbitrary shell with
+  // no card in front of the user. Nothing executes that directory today.
+  //
+  // It stays anyway, deliberately. The rule costs one comparison, and the way
+  // this class of hole gets reopened is precisely by removing a guard because
+  // the thing it guarded went away — if a `.atlarix/hooks/` convention ever
+  // returns, in this product or a plugin, it returns already covered.
   if (underAtlarix && norm.split("/").includes("hooks")) {
     return false;
   }

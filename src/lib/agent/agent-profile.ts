@@ -94,16 +94,6 @@ export interface AgentProfile {
   stripTextToolXML?(text: string): string;
 
   /**
-   * v12 2.2/7B: workspace `stop` hooks ("require tests before done") — runs
-   * when a build/debug turn would end (the model yields a prose-only round); a
-   * non-null feedback string suppresses the break (bounded) and is fed back as
-   * a user message.
-   * Attached only when `.atlarix/hooks/` declares stop hooks. (v13.1: the
-   * post-write LSP verify that shared this counter was removed — verification
-   * is the project's own checks + tests, run via run_command.)
-   */
-  taskCompleteGate?(): Promise<string | null>;
-  /**
    * v14.8.9 continue-until-done: called on a build prose-yield. Returns a nudge
    * when the session plan still has incomplete steps (else null), so the turn
    * drives the plan to completion instead of stopping at a phase boundary. Uses

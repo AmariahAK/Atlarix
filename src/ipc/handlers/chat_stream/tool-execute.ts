@@ -11,7 +11,6 @@ import {
   evaluateRuleset,
   loadEffectiveRuleset,
 } from "@/lib/tools/permissions/ruleset";
-import { runPreToolUseHooks, runPostToolUseHooks } from "@/lib/hooks/file-hooks";
 import { getStoredConsent, requestMcpToolConsent } from "@/ipc/utils/mcp_consent";
 import { requireMcpAuth, type RequireMcpAuthInfo } from "@/ipc/utils/mcp_auth_wait";
 import { ToolRegistry } from "@/lib/tools";
@@ -75,17 +74,6 @@ export async function runToolExecute(
         error: `Blocked by permission rule \`${decision.rule}\` (.atlarix/permissions.json — workspace or global ~/.atlarix). Do not retry this exact call; choose a different approach or ask the user to adjust the rule.`,
       });
     }
-    const hookDenial = await runPreToolUseHooks(
-      gateWorkspace,
-      toolName,
-      executeArgs,
-    );
-    if (hookDenial) {
-      return JSON.stringify({
-        success: false,
-        error: `Blocked by a workspace pre_tool_use hook (\`${hookDenial.deniedBy}\`):\n${hookDenial.outputTail || "(no output)"}`,
-      });
-    }
   }
 
   // v14.8.11: attachment tools are scoped to the calling chat/session (the
@@ -145,9 +133,6 @@ export async function runToolExecute(
   }
 
   const result: unknown = await ToolRegistry.execute(toolName, executeArgs);
-  if (gateWorkspace) {
-    runPostToolUseHooks(gateWorkspace, toolName, executeArgs);
-  }
   // Mutation verification (run_command + edits): record the most recent
   // state-changing mutation's outcome so the completion gate can refuse to
   // finish on a failed/unverified one, and enrich a failed command with

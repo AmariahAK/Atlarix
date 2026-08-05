@@ -21,7 +21,10 @@ describe(".atlarix blanket auto-approve", () => {
     expect(isAlwaysAutoApproveAtlarixRelativePath(".atlarix/permissions.json")).toBe(false);
   });
 
-  // hooks.json is not instructions a future turn might follow — it is a command
+  // Kept after the hooks feature was deleted in v14.26.0 — nothing executes this
+  // directory now, but a guard removed because its subject went away is exactly
+  // how this class of hole gets reopened. When hooks existed:
+  // hooks.json was not instructions a future turn might follow — it was a command
   // string handed to `/bin/sh -c` on every pre/post tool call. A silent write to
   // it is the agent granting itself arbitrary shell.
   it("never auto-approves anything under .atlarix/hooks/", () => {
