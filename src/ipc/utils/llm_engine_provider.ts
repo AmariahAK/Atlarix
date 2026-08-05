@@ -131,10 +131,6 @@ export function createAtlarixEngine(
           if ("dyadVersionedFiles" in parsedBody) {
             delete parsedBody.dyadVersionedFiles;
           }
-          const filesPayload = parsedBody.dyadFiles;
-          if ("dyadFiles" in parsedBody) {
-            delete parsedBody.dyadFiles;
-          }
           const requestId = parsedBody.dyadRequestId;
           if ("dyadRequestId" in parsedBody) {
             delete parsedBody.dyadRequestId;
@@ -160,10 +156,11 @@ export function createAtlarixEngine(
             modifiedRequestId = `${requestId}:attempt-${currentAttempt}`;
           }
 
-          // Add files to the request if they exist
+          // `files` used to ride here too, sourced from an array the caller
+          // hardcoded to `[]`, so it serialized as `undefined` and was dropped by
+          // JSON.stringify on every request. Removing the key is wire-identical.
           if (!disableFilesPayload) {
             parsedBody.dyad_options = {
-              files: filesPayload,
               versioned_files: versionedFilesPayload,
               enable_lazy_edits: options.atlarixEngineOptions.enableLazyEdits,
               enable_smart_files_context:

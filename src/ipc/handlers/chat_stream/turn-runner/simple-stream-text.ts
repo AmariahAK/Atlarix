@@ -12,7 +12,6 @@ import log from "electron-log";
 import type { IpcMainInvokeEvent } from "electron";
 import { streamText, stepCountIs } from "ai";
 import type { ModelMessage, ToolSet } from "ai";
-import type { CodebaseFile } from "@/utils/codebase";
 import type {
   SmartContextMode,
   UserSettings,
@@ -109,7 +108,6 @@ const logger = log.scope("chat_stream_handlers");
 export interface SimpleStreamTextArgs {
   chatMessages: ModelMessage[];
   modelClient: ModelClient;
-  files: CodebaseFile[];
   tools?: ToolSet;
   systemPromptOverride?: string;
   /** PASS8 A5: prepended as a system-role message so the static `system`
@@ -160,7 +158,6 @@ export async function simpleStreamText(
     systemPromptOverride = deps.systemPrompt,
     dynamicSystemTail,
     dyadDisableFiles = false,
-    files,
     repetition,
     abortSignalOverride,
     maxStepsPerRound,
@@ -208,7 +205,6 @@ export async function simpleStreamText(
             if (isDeepContextEnabled) {
               versionedFiles = await preflight.time("versioned-files", () =>
                 getVersionedFiles({
-                  files,
                   chatMessages,
                   appPath,
                 }),
@@ -233,7 +229,6 @@ export async function simpleStreamText(
                 dyadRequestId: engineRequestId,
                 dyadDisableFiles,
                 dyadSmartContextMode: smartContextMode,
-                dyadFiles: versionedFiles ? undefined : files,
                 dyadVersionedFiles: versionedFiles,
               },
               // Capability resolution keys off the VENDOR, not the synthetic

@@ -83,7 +83,6 @@ export interface BuildBranchDeps {
   streamTurnId: string;
   STREAM_CONTINUATION_MAX: number;
   chatMessages: ModelMessage[];
-  files: any[];
   activeUserAgent: UserAgent | null;
   hasWorkspace: boolean;
   logTtftOnce: () => void;
@@ -139,7 +138,6 @@ export async function runBuildBranch(
     streamTurnId,
     STREAM_CONTINUATION_MAX,
     chatMessages,
-    files,
     activeUserAgent,
     hasWorkspace,
     logTtftOnce,
@@ -1566,7 +1564,6 @@ export async function runBuildBranch(
                         tools: opts.tools as ToolSet,
                         systemPromptOverride: opts.systemPromptOverride,
                         dynamicSystemTail: opts.dynamicSystemTail,
-                        files: files,
                         repetition: agenticRepetition,
                         abortSignalOverride: opts.abortSignal,
                         maxStepsPerRound: opts.maxStepsPerRound,

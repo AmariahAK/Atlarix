@@ -100,7 +100,6 @@ export interface AskBranchDeps {
   streamTurnId: string;
   STREAM_CONTINUATION_MAX: number;
   chatMessages: ModelMessage[];
-  files: any[];
   activeUserAgent: UserAgent | null;
   hasWorkspace: boolean;
   promptIdentityOpts: {
@@ -152,7 +151,6 @@ export async function runAskBranch(
     streamTurnId,
     STREAM_CONTINUATION_MAX,
     chatMessages,
-    files,
     activeUserAgent,
     hasWorkspace,
     promptIdentityOpts,
@@ -907,7 +905,6 @@ export async function runAskBranch(
                       tools: opts.tools as ToolSet,
                       systemPromptOverride: opts.systemPromptOverride,
                       dynamicSystemTail: opts.dynamicSystemTail,
-                      files: files,
                       repetition: askAgenticRepetition,
                       abortSignalOverride: opts.abortSignal,
                     }),

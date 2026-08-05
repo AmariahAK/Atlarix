@@ -1052,7 +1052,6 @@ ${componentSnippet}
           });
         }
         const isEngineEnabled = initialModelClientBundle.isEngineEnabled;
-        const isSmartContextEnabled = initialModelClientBundle.isSmartContextEnabled;
         // Native extended-thinking/reasoning turns on whenever the selected
         // model + gateway support it (the fast/balanced/thinking tiers are gone;
         // a model now delivers its full capability).
@@ -1123,37 +1122,14 @@ ${componentSnippet}
           });
         }
 
-        let codebaseInfo = "";
-        let files: any[] = [];
-
-        if (hasWorkspace) {
-          // PASS1: no proactive codebase-context injection — the model explores
-          // via grep (Blueprint-reranked), glob, and read_file on demand.
-          // Do not re-enable proactive injection.
-
-          // Note: files array kept for backward compatibility with selected components
-          // but no longer used for full codebase dump
-          files = [];
-          codebaseInfo = ""; // Diagram context injected via systemPrompt instead
-
-          // For smart context and selected components, we will mark the selected components' files as focused.
-          // This means that we don't do the regular smart context handling, but we'll allow fetching
-          // additional files through <atlarix-read> as needed.
-          if (
-            isSmartContextEnabled &&
-            req.selectedComponents &&
-            req.selectedComponents.length > 0
-          ) {
-            const selectedPaths = new Set(
-              req.selectedComponents.map((component) => component.relativePath),
-            );
-            for (const file of files) {
-              if (selectedPaths.has(file.path)) {
-                file.focused = true;
-              }
-            }
-          }
-        }
+        // PASS1: no proactive codebase-context injection — the model explores
+        // via grep, glob and read_file on demand. Do not re-enable it.
+        //
+        // A `files: any[]` used to be declared here, set to `[]`, walked to mark
+        // "selected components" focused (a loop over an empty array), and then
+        // threaded through both branches into `simpleStreamText` and out as
+        // `dyadFiles`. Its own comment said "kept for backward compatibility".
+        const codebaseInfo = ""; // Diagram context injected via systemPrompt instead
 
         // Parse @file:/@dir: mentions and build a scoped context block
         // (file contents + folder listings, capped). Replaces the old
@@ -1980,7 +1956,6 @@ ${componentSnippet}
               streamTurnId,
               STREAM_CONTINUATION_MAX,
               chatMessages,
-              files,
               activeUserAgent,
               hasWorkspace,
               promptIdentityOpts,
@@ -2015,7 +1990,6 @@ ${componentSnippet}
               streamTurnId,
               STREAM_CONTINUATION_MAX,
               chatMessages,
-              files,
               activeUserAgent,
               hasWorkspace,
               logTtftOnce,

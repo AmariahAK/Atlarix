@@ -1,4 +1,4 @@
-import { CodebaseFile, CodebaseFileReference } from "@/utils/codebase";
+import { CodebaseFileReference } from "@/utils/codebase";
 import { ModelMessage } from "@ai-sdk/provider-utils";
 import crypto from "node:crypto";
 import log from "electron-log";
@@ -95,36 +95,23 @@ export function parseFilesFromMessage(content: string): string[] {
 }
 
 export async function processChatMessagesWithVersionedFiles({
-  files,
   chatMessages,
   appPath,
 }: {
-  files: CodebaseFile[];
   chatMessages: ModelMessage[];
   appPath: string;
 }): Promise<VersionedFiles> {
   const fileIdToContent: Record<string, string> = {};
+  // Always empty on entry: this used to be seeded from a `files` array that
+  // `chat_stream_handlers` hardcoded to `[]` ("kept for backward compatibility")
+  // once proactive codebase injection was removed. Everything below is populated
+  // from the MESSAGE HISTORY instead — paths named in past assistant turns, read
+  // back out of git at the commit those turns recorded.
   const fileReferences: CodebaseFileReference[] = [];
   const messageIndexToFilePathToFileId: Record<
     number,
     Record<string, string>
   > = {};
-  for (const file of files) {
-    // Generate SHA-256 hash of content as fileId
-    const fileId = crypto
-      .createHash("sha256")
-      .update(file.content)
-      .digest("hex");
-
-    fileIdToContent[fileId] = file.content;
-    const { content: _content, ...restOfFile } = file;
-
-    fileReferences.push({
-      ...restOfFile,
-      fileId,
-    });
-  }
-
   for (
     let messageIndex = 0;
     messageIndex < chatMessages.length;

@@ -4,7 +4,6 @@ import {
 } from "@/ipc/utils/versioned_codebase_context";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { ModelMessage } from "@ai-sdk/provider-utils";
-import type { CodebaseFile } from "@/utils/codebase";
 import crypto from "node:crypto";
 
 // Mock git_utils
@@ -334,56 +333,11 @@ describe("processChatMessagesWithVersionedFiles", () => {
   };
 
   describe("basic functionality", () => {
-    it("should process files parameter and create fileIdToContent and fileReferences", async () => {
-      const files: CodebaseFile[] = [
-        {
-          path: "src/components/Button.tsx",
-          content: "export const Button = () => <button>Click</button>;",
-        },
-        {
-          path: "src/utils/helpers.ts",
-          content: "export const add = (a: number, b: number) => a + b;",
-        },
-      ];
-
-      const chatMessages: ModelMessage[] = [];
-      const appPath = "/test/app";
-
-      const result = await processChatMessagesWithVersionedFiles({
-        files,
-        chatMessages,
-        appPath,
-      });
-
-      // Check fileIdToContent contains hashed content
-      const buttonHash = hashContent(files[0].content);
-      const helperHash = hashContent(files[1].content);
-
-      expect(result.fileIdToContent[buttonHash]).toBe(files[0].content);
-      expect(result.fileIdToContent[helperHash]).toBe(files[1].content);
-
-      // Check fileReferences
-      expect(result.fileReferences).toHaveLength(2);
-      expect(result.fileReferences[0]).toEqual({
-        path: "src/components/Button.tsx",
-        fileId: buttonHash,
-      });
-      expect(result.fileReferences[1]).toEqual({
-        path: "src/utils/helpers.ts",
-        fileId: helperHash,
-      });
-
-      // messageIndexToFilePathToFileId should be empty
-      expect(result.messageIndexToFilePathToFileId).toEqual({});
-    });
-
     it("should handle empty files array", async () => {
-      const files: CodebaseFile[] = [];
       const chatMessages: ModelMessage[] = [];
       const appPath = "/test/app";
 
       const result = await processChatMessagesWithVersionedFiles({
-        files,
         chatMessages,
         appPath,
       });
@@ -402,7 +356,6 @@ describe("processChatMessagesWithVersionedFiles", () => {
       const fileContent = "const oldVersion = 'content';";
       mockGetFileAtCommit.mockResolvedValue(fileContent);
 
-      const files: CodebaseFile[] = [];
       const chatMessages: ModelMessage[] = [
         {
           role: "assistant",
@@ -418,7 +371,6 @@ describe("processChatMessagesWithVersionedFiles", () => {
       const appPath = "/test/app";
 
       const result = await processChatMessagesWithVersionedFiles({
-        files,
         chatMessages,
         appPath,
       });
@@ -447,7 +399,6 @@ describe("processChatMessagesWithVersionedFiles", () => {
       const fileContent = "const arrayContent = 'test';";
       mockGetFileAtCommit.mockResolvedValue(fileContent);
 
-      const files: CodebaseFile[] = [];
       const chatMessages: ModelMessage[] = [
         {
           role: "assistant",
@@ -471,7 +422,6 @@ describe("processChatMessagesWithVersionedFiles", () => {
       const appPath = "/test/app";
 
       const result = await processChatMessagesWithVersionedFiles({
-        files,
         chatMessages,
         appPath,
       });
@@ -493,7 +443,6 @@ describe("processChatMessagesWithVersionedFiles", () => {
       const { getFileAtCommit } = await import("@/ipc/utils/git_utils");
       const mockGetFileAtCommit = vi.mocked(getFileAtCommit);
 
-      const files: CodebaseFile[] = [];
       const chatMessages: ModelMessage[] = [
         {
           role: "user",
@@ -504,7 +453,6 @@ describe("processChatMessagesWithVersionedFiles", () => {
       const appPath = "/test/app";
 
       const result = await processChatMessagesWithVersionedFiles({
-        files,
         chatMessages,
         appPath,
       });
@@ -518,7 +466,6 @@ describe("processChatMessagesWithVersionedFiles", () => {
       const { getFileAtCommit } = await import("@/ipc/utils/git_utils");
       const mockGetFileAtCommit = vi.mocked(getFileAtCommit);
 
-      const files: CodebaseFile[] = [];
       const chatMessages: ModelMessage[] = [
         {
           role: "assistant",
@@ -537,7 +484,6 @@ describe("processChatMessagesWithVersionedFiles", () => {
       const appPath = "/test/app";
 
       const result = await processChatMessagesWithVersionedFiles({
-        files,
         chatMessages,
         appPath,
       });
@@ -550,7 +496,6 @@ describe("processChatMessagesWithVersionedFiles", () => {
       const { getFileAtCommit } = await import("@/ipc/utils/git_utils");
       const mockGetFileAtCommit = vi.mocked(getFileAtCommit);
 
-      const files: CodebaseFile[] = [];
       const chatMessages: ModelMessage[] = [
         {
           role: "assistant",
@@ -565,7 +510,6 @@ describe("processChatMessagesWithVersionedFiles", () => {
       const appPath = "/test/app";
 
       const result = await processChatMessagesWithVersionedFiles({
-        files,
         chatMessages,
         appPath,
       });
@@ -587,7 +531,6 @@ describe("processChatMessagesWithVersionedFiles", () => {
         .mockResolvedValueOnce(file1Content)
         .mockResolvedValueOnce(file2Content);
 
-      const files: CodebaseFile[] = [];
       const chatMessages: ModelMessage[] = [
         {
           role: "assistant",
@@ -605,7 +548,6 @@ src/file2.ts
       const appPath = "/test/app";
 
       const result = await processChatMessagesWithVersionedFiles({
-        files,
         chatMessages,
         appPath,
       });
@@ -643,7 +585,6 @@ src/file2.ts
         .mockResolvedValueOnce("file2")
         .mockResolvedValueOnce("file3");
 
-      const files: CodebaseFile[] = [];
       const chatMessages: ModelMessage[] = [
         {
           role: "assistant",
@@ -665,7 +606,6 @@ src/file3.ts
       const appPath = "/test/app";
 
       const result = await processChatMessagesWithVersionedFiles({
-        files,
         chatMessages,
         appPath,
       });
@@ -687,7 +627,6 @@ src/file3.ts
       // Simulate file not found
       mockGetFileAtCommit.mockResolvedValue(null);
 
-      const files: CodebaseFile[] = [];
       const chatMessages: ModelMessage[] = [
         {
           role: "assistant",
@@ -703,7 +642,6 @@ src/file3.ts
       const appPath = "/test/app";
 
       const result = await processChatMessagesWithVersionedFiles({
-        files,
         chatMessages,
         appPath,
       });
@@ -722,7 +660,6 @@ src/file3.ts
       // Simulate error
       mockGetFileAtCommit.mockRejectedValue(new Error("Git error"));
 
-      const files: CodebaseFile[] = [];
       const chatMessages: ModelMessage[] = [
         {
           role: "assistant",
@@ -738,7 +675,6 @@ src/file3.ts
 
       // Should not throw - errors are caught and logged
       const result = await processChatMessagesWithVersionedFiles({
-        files,
         chatMessages,
         appPath,
       });
@@ -759,7 +695,6 @@ src/file3.ts
         .mockRejectedValueOnce(new Error("Error"))
         .mockResolvedValueOnce(null);
 
-      const files: CodebaseFile[] = [];
       const chatMessages: ModelMessage[] = [
         {
           role: "assistant",
@@ -778,7 +713,6 @@ src/missing.ts
       const appPath = "/test/app";
 
       const result = await processChatMessagesWithVersionedFiles({
-        files,
         chatMessages,
         appPath,
       });
@@ -806,7 +740,6 @@ src/missing.ts
         .mockResolvedValueOnce(file1AtCommit1)
         .mockResolvedValueOnce(file1AtCommit2);
 
-      const files: CodebaseFile[] = [];
       const chatMessages: ModelMessage[] = [
         {
           role: "user",
@@ -839,7 +772,6 @@ src/missing.ts
       const appPath = "/test/app";
 
       const result = await processChatMessagesWithVersionedFiles({
-        files,
         chatMessages,
         appPath,
       });
@@ -875,20 +807,16 @@ src/missing.ts
     });
   });
 
-  describe("integration with files parameter", () => {
-    it("should combine files parameter with versioned files from messages", async () => {
+  describe("versioned files from message history", () => {
+    it("resolves a path named in an assistant message at that turn's commit", async () => {
+      // Was "should combine files parameter with versioned files from messages".
+      // The `files` half is gone — it was fed by an array `chat_stream_handlers`
+      // hardcoded to `[]`. What remains is the half that does real work.
       const { getFileAtCommit } = await import("@/ipc/utils/git_utils");
       const mockGetFileAtCommit = vi.mocked(getFileAtCommit);
 
       const versionedContent = "old version from git";
       mockGetFileAtCommit.mockResolvedValue(versionedContent);
-
-      const files: CodebaseFile[] = [
-        {
-          path: "src/current.ts",
-          content: "current version",
-        },
-      ];
 
       const chatMessages: ModelMessage[] = [
         {
@@ -901,221 +829,19 @@ src/missing.ts
           },
         },
       ];
-      const appPath = "/test/app";
 
       const result = await processChatMessagesWithVersionedFiles({
-        files,
         chatMessages,
-        appPath,
+        appPath: "/test/app",
       });
 
-      const currentHash = hashContent("current version");
       const oldHash = hashContent(versionedContent);
-
-      // Both should be present
-      expect(result.fileIdToContent[currentHash]).toBe("current version");
       expect(result.fileIdToContent[oldHash]).toBe(versionedContent);
-
-      // fileReferences should only include files from the files parameter
-      expect(result.fileReferences).toHaveLength(1);
-      expect(result.fileReferences[0].path).toBe("src/current.ts");
-
-      // messageIndexToFilePathToFileId should have the versioned file
+      // `fileReferences` was only ever populated by the deleted loop.
+      expect(result.fileReferences).toHaveLength(0);
       expect(result.messageIndexToFilePathToFileId[0]).toEqual({
         "src/old.ts": oldHash,
       });
-    });
-  });
-
-  describe("content hashing", () => {
-    it("should deduplicate identical content with same hash", async () => {
-      const { getFileAtCommit } = await import("@/ipc/utils/git_utils");
-      const mockGetFileAtCommit = vi.mocked(getFileAtCommit);
-
-      const sameContent = "identical content";
-
-      // Both files have the same content
-      mockGetFileAtCommit
-        .mockResolvedValueOnce(sameContent)
-        .mockResolvedValueOnce(sameContent);
-
-      const files: CodebaseFile[] = [];
-      const chatMessages: ModelMessage[] = [
-        {
-          role: "assistant",
-          content: `<atlarix-code-search-result>
-src/file1.ts
-src/file2.ts
-</atlarix-code-search-result>`,
-          providerOptions: {
-            "dyad-engine": {
-              sourceCommitHash: "commit1",
-            },
-          },
-        },
-      ];
-      const appPath = "/test/app";
-
-      const result = await processChatMessagesWithVersionedFiles({
-        files,
-        chatMessages,
-        appPath,
-      });
-
-      const hash = hashContent(sameContent);
-
-      // fileIdToContent should only have one entry for the hash
-      expect(Object.keys(result.fileIdToContent)).toHaveLength(1);
-      expect(result.fileIdToContent[hash]).toBe(sameContent);
-
-      // Both files should point to the same hash
-      expect(result.messageIndexToFilePathToFileId[0]).toEqual({
-        "src/file1.ts": hash,
-        "src/file2.ts": hash,
-      });
-    });
-  });
-
-  describe("hasExternalChanges", () => {
-    it("should default to true when no assistant message has commitHash", async () => {
-      const { getCurrentCommitHash, isGitStatusClean } = await import(
-        "@/ipc/utils/git_utils"
-      );
-      const mockGetCurrentCommitHash = vi.mocked(getCurrentCommitHash);
-      const mockIsGitStatusClean = vi.mocked(isGitStatusClean);
-
-      const files: CodebaseFile[] = [];
-      const chatMessages: ModelMessage[] = [
-        {
-          role: "assistant",
-          content: "No commit hash here",
-          providerOptions: {
-            "dyad-engine": {
-              sourceCommitHash: "abc123",
-              commitHash: null,
-            },
-          },
-        },
-      ];
-      const appPath = "/test/app";
-
-      const result = await processChatMessagesWithVersionedFiles({
-        files,
-        chatMessages,
-        appPath,
-      });
-
-      expect(result.hasExternalChanges).toBe(true);
-      expect(mockGetCurrentCommitHash).not.toHaveBeenCalled();
-      expect(mockIsGitStatusClean).not.toHaveBeenCalled();
-    });
-
-    it("should be false when latest assistant commit matches current and git status is clean", async () => {
-      const { getCurrentCommitHash, isGitStatusClean } = await import(
-        "@/ipc/utils/git_utils"
-      );
-      const mockGetCurrentCommitHash = vi.mocked(getCurrentCommitHash);
-      const mockIsGitStatusClean = vi.mocked(isGitStatusClean);
-
-      mockGetCurrentCommitHash.mockResolvedValue("commit-123");
-      mockIsGitStatusClean.mockResolvedValue(true);
-
-      const files: CodebaseFile[] = [];
-      const chatMessages: ModelMessage[] = [
-        {
-          role: "assistant",
-          content: "Assistant message with commit hash",
-          providerOptions: {
-            "dyad-engine": {
-              sourceCommitHash: "ignored-for-this-test",
-              commitHash: "commit-123",
-            },
-          },
-        },
-      ];
-      const appPath = "/test/app";
-
-      const result = await processChatMessagesWithVersionedFiles({
-        files,
-        chatMessages,
-        appPath,
-      });
-
-      expect(result.hasExternalChanges).toBe(false);
-      expect(mockGetCurrentCommitHash).toHaveBeenCalledWith({ path: appPath });
-      expect(mockIsGitStatusClean).toHaveBeenCalledWith({ path: appPath });
-    });
-
-    it("should be true when latest assistant commit differs from current", async () => {
-      const { getCurrentCommitHash, isGitStatusClean } = await import(
-        "@/ipc/utils/git_utils"
-      );
-      const mockGetCurrentCommitHash = vi.mocked(getCurrentCommitHash);
-      const mockIsGitStatusClean = vi.mocked(isGitStatusClean);
-
-      mockGetCurrentCommitHash.mockResolvedValue("current-commit");
-      mockIsGitStatusClean.mockResolvedValue(true);
-
-      const files: CodebaseFile[] = [];
-      const chatMessages: ModelMessage[] = [
-        {
-          role: "assistant",
-          content: "Assistant message with different commit hash",
-          providerOptions: {
-            "dyad-engine": {
-              sourceCommitHash: "ignored-for-this-test",
-              commitHash: "older-commit",
-            },
-          },
-        },
-      ];
-      const appPath = "/test/app";
-
-      const result = await processChatMessagesWithVersionedFiles({
-        files,
-        chatMessages,
-        appPath,
-      });
-
-      expect(result.hasExternalChanges).toBe(true);
-      expect(mockGetCurrentCommitHash).toHaveBeenCalledWith({ path: appPath });
-      expect(mockIsGitStatusClean).toHaveBeenCalledWith({ path: appPath });
-    });
-
-    it("should be true when git status is dirty even if commits match", async () => {
-      const { getCurrentCommitHash, isGitStatusClean } = await import(
-        "@/ipc/utils/git_utils"
-      );
-      const mockGetCurrentCommitHash = vi.mocked(getCurrentCommitHash);
-      const mockIsGitStatusClean = vi.mocked(isGitStatusClean);
-
-      mockGetCurrentCommitHash.mockResolvedValue("same-commit");
-      mockIsGitStatusClean.mockResolvedValue(false);
-
-      const files: CodebaseFile[] = [];
-      const chatMessages: ModelMessage[] = [
-        {
-          role: "assistant",
-          content: "Assistant message with matching commit but dirty status",
-          providerOptions: {
-            "dyad-engine": {
-              sourceCommitHash: "ignored-for-this-test",
-              commitHash: "same-commit",
-            },
-          },
-        },
-      ];
-      const appPath = "/test/app";
-
-      const result = await processChatMessagesWithVersionedFiles({
-        files,
-        chatMessages,
-        appPath,
-      });
-
-      expect(result.hasExternalChanges).toBe(true);
-      expect(mockGetCurrentCommitHash).toHaveBeenCalledWith({ path: appPath });
-      expect(mockIsGitStatusClean).toHaveBeenCalledWith({ path: appPath });
     });
   });
 });
