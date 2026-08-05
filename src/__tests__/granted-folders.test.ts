@@ -50,6 +50,7 @@ vi.mock("@/lib/file-permissions-store", () => ({
 }));
 
 import { PermissionInterceptor } from "@/ipc/handlers/permissions/interceptor";
+import { targetPathsForOperation } from "@/ipc/handlers/permissions/operation-targets";
 
 const APP_ID = 77;
 const tmpRoots: string[] = [];
@@ -217,8 +218,10 @@ describe("granted folders — blast radius", () => {
   // for nothing up front and then throw part-way through with earlier items
   // already applied.
   it("collects targets from every path-bearing operation shape", () => {
-    const { ws } = makeTree();
-    const i = new PermissionInterceptor(ws, APP_ID) as unknown as {
+    // Extracted out of the interceptor in v14.26.0 — it never read instance
+    // state. Exercised directly here; the exhaustive shape cases live in
+    // `interceptor-pure-helpers.test.ts`.
+    const i = { targetPathsForOperation } as {
       targetPathsForOperation: (r: unknown) => string[];
     };
 

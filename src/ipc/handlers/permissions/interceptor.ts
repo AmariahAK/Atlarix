@@ -41,6 +41,8 @@ import {
     sandboxGrantPath,
 } from "@/lib/sandbox/wrap-command";
 import { describeSandboxFailureContext } from "@/lib/sandbox/sandbox-failure-context";
+import { formatCommandOutput, resolveMaxOutputBytes } from "./command-output";
+import { targetPathsForOperation } from "./operation-targets";
 import { captureSnapshotAcrossRoots } from "../../../lib/snapshot/snapshot-manager";
 import { appendLedgerFilesWritten } from "../../../lib/tasks/task-ledger";
 import {
@@ -660,7 +662,7 @@ export class PermissionInterceptor extends EventEmitter {
             // harness refused to honour.
             await this.ensureOutsideTargetsGranted(
                 operationId,
-                this.targetPathsForOperation(request),
+                targetPathsForOperation(request),
             );
 
             switch (request.operation) {
@@ -832,10 +834,10 @@ export class PermissionInterceptor extends EventEmitter {
                     // command output is untrusted — frame it as data. Harness control
                     // messages (e.g. a background-job start notice) are trusted → not wrapped.
                     output: cmdResult.harnessMessage
-                        ? this.formatCommandOutput(cmdResult.stdout, cmdResult.stderr, maxB)
+                        ? formatCommandOutput(cmdResult.stdout, cmdResult.stderr, maxB)
                         : wrapUntrustedData(
                               "command-output",
-                              this.formatCommandOutput(cmdResult.stdout, cmdResult.stderr, maxB),
+                              formatCommandOutput(cmdResult.stdout, cmdResult.stderr, maxB),
                           ),
                     exitCode: cmdResult.exitCode,
                     error: cmdResult.success ? undefined : cmdResult.stderr.slice(0, 500) || 'Command failed',
@@ -868,10 +870,10 @@ export class PermissionInterceptor extends EventEmitter {
                         // (stripUntrustedDataEnvelope) so the user sees only the output.
                         // A harness control message (bg-job start notice) is trusted → not wrapped.
                         output: cmdResult.harnessMessage
-                            ? this.formatCommandOutput(cmdResult.stdout, cmdResult.stderr, maxOutBytes)
+                            ? formatCommandOutput(cmdResult.stdout, cmdResult.stderr, maxOutBytes)
                             : wrapUntrustedData(
                                   "command-output",
-                                  this.formatCommandOutput(cmdResult.stdout, cmdResult.stderr, maxOutBytes),
+                                  formatCommandOutput(cmdResult.stdout, cmdResult.stderr, maxOutBytes),
                               ),
                         exitCode: cmdResult.exitCode,
                         error: cmdResult.success ? undefined : cmdResult.stderr.slice(0, 500),
@@ -931,7 +933,7 @@ export class PermissionInterceptor extends EventEmitter {
             if (cmdResult) {
                 return {
                     success: false,
-                    output: this.formatCommandOutput(
+                    output: formatCommandOutput(
                         cmdResult.stdout,
                         cmdResult.stderr,
                         maxOutBytes,
@@ -954,79 +956,11 @@ export class PermissionInterceptor extends EventEmitter {
         if (fromMap != null) return fromMap;
         if (operation?.request?.operation === "run_command") {
             const p = operation.request.preview as CommandOperationPreview;
-            const raw = (p as { max_output_bytes?: number }).max_output_bytes;
-            return Math.min(1_000_000, Math.max(1024, Number(raw) || 80_000));
-        }
-        return 80_000;
-    }
-
-    /**
-     * Format command output with smart truncation for AI context.
-     * Priority: Errors > Warnings > First 5 lines > Last 5 lines; then UTF-8 byte cap.
-     */
-    private formatCommandOutput(
-        stdout: string,
-        stderr: string,
-        maxOutputBytes: number,
-    ): string {
-        const hasOut = Boolean(stdout?.trim());
-        const hasErr = Boolean(stderr?.trim());
-        let combined: string;
-        if (hasOut && hasErr) {
-            combined = `=== STDOUT ===\n${stdout}\n\n=== STDERR ===\n${stderr}`;
-        } else {
-            combined = stdout || stderr || "";
-        }
-
-        if (!combined.trim()) {
-            return "(no output)";
-        }
-
-        const utf8ByteLength = (s: string): number => Buffer.byteLength(s, "utf8");
-
-        const truncateUtf8 = (s: string, maxBytes: number): string => {
-            const buf = Buffer.from(s, "utf8");
-            if (buf.length <= maxBytes) return s;
-            const cut = buf.subarray(0, Math.max(0, maxBytes - 80));
-            return (
-                cut.toString("utf8") +
-                "\n\n… [truncated: output exceeded max_output_bytes; pass a higher max_output_bytes or a narrower command]"
+            return resolveMaxOutputBytes(
+                (p as { max_output_bytes?: number }).max_output_bytes,
             );
-        };
-
-        if (utf8ByteLength(combined) <= maxOutputBytes) {
-            return combined;
         }
-
-        const lines = combined.split("\n");
-        const errors = lines.filter(
-            (l) =>
-                l.toLowerCase().includes("error") ||
-                l.toLowerCase().includes("failed") ||
-                l.includes("\u2717") ||
-                l.includes("ERR!"),
-        );
-        const warnings = lines.filter(
-            (l) => l.toLowerCase().includes("warn") || l.includes("\u26a0"),
-        );
-
-        let summary = "";
-
-        if (errors.length > 0) {
-            summary += "=== ERRORS ===\n" + errors.slice(0, 10).join("\n") + "\n\n";
-        }
-
-        if (warnings.length > 0) {
-            summary += "=== WARNINGS ===\n" + warnings.slice(0, 5).join("\n") + "\n\n";
-        }
-
-        summary +=
-            "=== FIRST 5 LINES ===\n" +
-            lines.slice(0, 5).join("\n") +
-            "\n\n";
-        summary += "=== LAST 5 LINES ===\n" + lines.slice(-5).join("\n");
-
-        return truncateUtf8(summary, maxOutputBytes);
+        return resolveMaxOutputBytes(undefined);
     }
 
     /**
@@ -1121,52 +1055,6 @@ export class PermissionInterceptor extends EventEmitter {
     // ════════════════════════════════════════════════════════════════════════════
 
     /** Absolute targets a file operation is about to touch (empty for non-file ops). */
-    private targetPathsForOperation(request: PermissionRequest): string[] {
-        const out: string[] = [];
-        const push = (p: unknown) => {
-            if (typeof p === "string" && p.trim()) out.push(p);
-        };
-        if (Array.isArray(request.preview)) {
-            for (const p of request.preview as FileOperationPreview[]) push(p?.path);
-            return out;
-        }
-        const preview = request.preview as FileOperationPreview | undefined;
-        switch (request.operation) {
-            case "write_file":
-            case "edit_file":
-            case "replace_code":
-            case "insert_code":
-            case "delete_lines":
-            case "delete_file":
-                push(preview?.path);
-                break;
-            case "rename_file":
-                // BOTH endpoints — a rename can carry a file across the boundary
-                // in either direction, and each is resolved independently.
-                push(preview?.fromPath);
-                push(preview?.toPath);
-                break;
-            case "batch_plan": {
-                // batch_plan re-dispatches to the file executors per sub-operation,
-                // so its children hit the same containment check. Collect them here
-                // or a batch would ask for nothing and then throw mid-way through,
-                // having already applied the earlier items.
-                const items =
-                    (request.preview as { operations?: unknown[] } | undefined)?.operations ?? [];
-                for (const item of items) {
-                    const op = item as FileOperationPreview | undefined;
-                    push(op?.path);
-                    push(op?.fromPath);
-                    push(op?.toPath);
-                }
-                break;
-            }
-            default:
-                break;
-        }
-        return out;
-    }
-
     /**
      * For every target outside the workspace, ask the user once for its PARENT
      * DIRECTORY and persist the grant. Throws if they decline.
@@ -2077,51 +1965,4 @@ export class PermissionInterceptor extends EventEmitter {
     /**
      * Convert pending operations to CodeProposal format for FileDiffPanel
      */
-    toCodeProposal(): {
-        type: "code-proposal";
-        title: string;
-        filesChanged: Array<{
-            name: string;
-            path: string;
-            summary: string;
-            type: "write" | "rename" | "delete";
-            content?: string;
-        }>;
-    } {
-        const filesChanged: Array<{
-            name: string;
-            path: string;
-            summary: string;
-            type: "write" | "rename" | "delete";
-            content?: string;
-        }> = [];
-
-        for (const [, operation] of this.pendingOperations) {
-            const previews = Array.isArray(operation.request.preview)
-                ? operation.request.preview
-                : [operation.request.preview];
-
-            for (const preview of previews) {
-                if ("path" in preview) {
-                    const filePreview = preview as FileOperationPreview;
-                    filesChanged.push({
-                        name: path.basename(filePreview.path),
-                        path: filePreview.path,
-                        summary: filePreview.description,
-                        type: filePreview.type === "delete" ? "delete" :
-                            filePreview.type === "rename" ? "rename" : "write",
-                        content: filePreview.content,
-                    });
-                }
-            }
-        }
-
-        return {
-            type: "code-proposal",
-            title: this.pendingOperations.size === 1
-                ? "Proposed File Change"
-                : `Proposed Changes (${this.pendingOperations.size} operations)`,
-            filesChanged,
-        };
-    }
 }
