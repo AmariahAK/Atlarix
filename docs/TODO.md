@@ -662,6 +662,33 @@ written, easy to misread.
 Net effect: one engine for every file lookup, a truncation bug fixed, identical behaviour for
 every user regardless of what they have installed, and several hundred lines deleted.
 
+**"What if the user doesn't have X?" — the complete external-binary posture** (asked about file
+watchers; answered generally so it need not be re-asked):
+
+| dependency | how obtained | if absent |
+| --- | --- | --- |
+| **file watcher** | **does not exist** — no dep, no `fs.watch`/`chokidar`/`inotify` anywhere | nothing to miss |
+| `rg` for `grep`/`glob` | **BUNDLED** (`@vscode/ripgrep`) | covered; PATH `rg` only as a backstop |
+| `rg`/`fd` for `project-files` | **PATH only — the queued bug above** | legacy sync walk + the hardcoded excludes |
+| `git` | PATH, with an explicit `GIT_NOT_INSTALLED_MESSAGE` | clear error; isomorphic-git covers HTTPS clone |
+| `sandbox-exec` (macOS) | OS built-in (`/usr/bin`) | `unavailableNote`; runs unsandboxed, approval gate still gates every write |
+| `bwrap` (Linux) | user-installed; the bundled Landlock helper is the primary | `unavailableNote`, same degradation |
+| `atlarix-sandbox.exe` (Windows) | **BUNDLED** | note only if the bundle is broken |
+| `/bin/sh`, `/bin/zsh` | OS | always present |
+| `node`, `npm` | the USER's project tooling, not ours | their project's problem, surfaced verbatim |
+
+**There is no file watcher, deliberately** — it is a stated product property ("no index to build,
+no background file-watcher, constant low memory at any repo size") and removing the indexing era
+is what killed the thermal spike ([[atlarix-retrieval-simplification]]). The three things named
+"watch" are unrelated to the filesystem: `background_jobs watch` attaches a wake condition to a
+job's **output stream** (a child process's stdout pipe, a Node built-in); the stall watchdog is a
+plain `setInterval` (60 s, `unref`'d so it never holds the app open); and `allow_stalled`'s
+wording — "a dev server / watcher" — describes the USER's quiet-by-design process, as does
+`dev_server_manager`'s `watcherProcess` field (their own `tsc --watch`, spawned as a child).
+
+So the only place a missing binary genuinely degrades Atlarix is the `project-files.ts` bug
+already queued above. Everything else is bundled, OS-guaranteed, or fails with a clear message.
+
 **Checked and CORRECT as-is — do not "fix" these.** None needs work next session; the
 distinguishing test in every case is *what happens when the list is incomplete*:
 - **`defaultWritablePaths`** (`lib/sandbox/wrap-command.ts`) — a curated ~18-entry home-cache
