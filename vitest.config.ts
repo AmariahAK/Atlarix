@@ -28,6 +28,32 @@ if (!AGENT_EVALS_READY) {
   );
 }
 
+/**
+ * Explicit timeout for the unit projects.
+ *
+ * They had none, so they inherited vitest's 5,000 ms default — and that stopped
+ * being generous a while ago. Measured 2026-08-05 on an idle machine, the
+ * slowest `node` test (`subagent-proposals`) runs **2,592 ms**: already past half
+ * the budget with nothing else competing. Several others sit in the same band
+ * because they `await import()` modules that pull in native bindings and
+ * migrations.
+ *
+ * The failure mode is not a slow test, it is a MISLEADING one. Two full-suite
+ * runs that day shared the machine with a `tsc --noEmit` and produced 4 and then
+ * 8 "Test timed out in 5000ms" failures across `spawn-task`, `subagent-*`,
+ * `cancel-preserves-revert`, `stop-and-revert-integrity` and
+ * `active-skill-truncation` — every one of which passes in isolation. A CI
+ * runner is exactly that environment, and a suite that fails differently
+ * depending on what else the box is doing teaches people to re-run red builds
+ * instead of reading them. (This is the v14.23.0 timeout trap resurfacing as a
+ * margin problem rather than a Windows-only one.)
+ *
+ * 30s is ~11x the slowest real test — room for a loaded runner without being so
+ * long that a genuinely hung test stops looking hung. `agent-evals` keeps its own
+ * 90s for the separate reason documented at its project.
+ */
+const UNIT_TEST_TIMEOUT_MS = 30_000;
+
 const sharedExclude = [
   "**/node_modules/**",
   "**/dist/**",
@@ -62,6 +88,8 @@ export default defineConfig({
           name: "node",
           environment: "node",
           setupFiles: ["./vitest.setup.ts"],
+          testTimeout: UNIT_TEST_TIMEOUT_MS,
+          hookTimeout: UNIT_TEST_TIMEOUT_MS,
           // tests/** belongs to the agent-evals project (real DB + fake LLM).
           exclude: [...sharedExclude, "src/__tests__/renderer/**", "tests/**"],
         },
@@ -76,6 +104,8 @@ export default defineConfig({
           name: "renderer",
           environment: "jsdom",
           setupFiles: ["./vitest.renderer.setup.ts"],
+          testTimeout: UNIT_TEST_TIMEOUT_MS,
+          hookTimeout: UNIT_TEST_TIMEOUT_MS,
           include: ["src/__tests__/renderer/**/*.test.{ts,tsx}"],
           exclude: sharedExclude,
         },

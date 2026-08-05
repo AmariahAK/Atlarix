@@ -667,13 +667,15 @@ Kept for the record; none of these can be picked up in a coding session.
 - **`selectedComponents` still flows renderer → IPC → `ChatStreamParams` and is read by nothing on
   the main side.** Same Dyad-era shape; unpicking it crosses into the renderer and belongs with the
   decision above.
-- **The `node` vitest project has no explicit `testTimeout`, so it inherits 5,000 ms — and real
-  tests now sit at ~2,600 ms uncontended.** Observed twice on 2026-08-05: full-suite runs sharing a
-  machine with a concurrent `tsc` produced 4 and then 8 "Test timed out in 5000ms" failures across
-  `spawn-task`, `subagent-*`, `cancel-preserves-revert`, `stop-and-revert-integrity` and
-  `active-skill-truncation`; all pass in isolation. This is the documented v14.23.0 trap resurfacing
-  as a margin problem rather than a Windows-only one. CI on a busy runner will flake. Raise the
-  project's timeout rather than chasing individual tests.
+- ~~**The unit vitest projects had no explicit `testTimeout`**~~ — **FIXED 2026-08-05.** They
+  inherited vitest's 5,000 ms default while the slowest real `node` test (`subagent-proposals`)
+  runs 2,592 ms idle. Two full-suite runs sharing the machine with a `tsc --noEmit` produced 4
+  and then 8 "Test timed out in 5000ms" failures across `spawn-task`, `subagent-*`,
+  `cancel-preserves-revert`, `stop-and-revert-integrity` and `active-skill-truncation` — all of
+  which pass in isolation. `node` and `renderer` now set 30 s explicitly
+  (`UNIT_TEST_TIMEOUT_MS`); `agent-evals` keeps its own 90 s. **Verified by reproducing the
+  failure condition:** the same suite run against two concurrent `tsc` processes now passes
+  309/310 with zero 5,000 ms timeouts.
 
 ## 🔐 Security follow-ups (from `docs/SECURITY_REVIEW_v14.8.12.md`, owner-triaged)
 
