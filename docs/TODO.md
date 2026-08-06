@@ -198,6 +198,30 @@ one exported `findAgentBuffer`; the test calls it. Also: it now falls back to th
 foreground buffer rather than refusing output it holds, and speaks `list`'s vocabulary (retained
 COMMANDS) instead of naming a terminal UI the agent no longer has.
 
+**Three Windows path bugs, caught by the tag build and nothing before it.** The v14.26.0 batch was
+folded into this release rather than tagged, and installers only build on `v*` — so its file-tool
+rewrite reached a Windows runner for the first time at the v14.27.0 tag, and failed three tests.
+All three were real product defects, all silent:
+- `parseGrepOutput` split ripgrep lines on `:`, so a drive letter became the filename and
+  `parseInt` returned NaN — **every match discarded, on every search**, reported as "No matches".
+  ripgrep always gets an absolute search root, so this was total on Windows.
+- `absorbPatternDirectoryPrefix` rebuilt an absolute prefix as `path.sep + join(path.sep)`, right
+  on POSIX (where splitting drops an empty leading segment) and wrong on Windows:
+  `C:\proj\x` → `\C:\proj\x`, so **every absolute `glob` pattern** returned a tool error.
+- glob's bare-`*` filter tested `!f.includes("/")`, so on Windows it matched nothing and
+  `glob("*")` returned **the whole recursive tree** instead of one directory.
+
+**LESSON — the platform has to be a parameter, not the runner.** `path.isAbsolute("C:\\x")` is
+FALSE on macOS and Linux, so the broken branches were unreachable from any developer machine and
+from every CI job except the Windows one. The existing tests were correct and did catch all three
+— they simply had nowhere to run until a tag. Both new test files
+(`glob-absolute-pattern-windows`, `grep-windows-drive-letter`) take Windows-shaped strings or an
+injected `path.win32` directly, so they run everywhere. Do this for any new path handling.
+
+**Verification without a tag:** `gh workflow run "Atlarix CI" --ref main` runs `build-windows`
+(its `if` accepts `workflow_dispatch`) while `publish-release` and `announce-release` stay skipped
+— they require a tag ref. Two dispatch runs took this from 3 failures to 2 to green.
+
 **The release workflow truncated its own notes at 80 lines.** This section is 92, so the last two
 paragraphs would have vanished from the published GitHub release with nothing to mark the cut.
 Raised to 400 (a runaway guard; the CHANGELOG section boundary is the real limit). Discord stays a

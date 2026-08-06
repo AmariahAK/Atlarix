@@ -84,6 +84,16 @@ naming step read the pasted attachment, found no words in it, and gave up before
 reply sitting right there; the app then recorded the session as "named" anyway and never asked
 again. Both halves are fixed, and it now retries on the next turn instead of getting one chance.
 
+**On Windows, search actually works.** Three bugs, all in how Windows spells a path, and all of
+them silent — the assistant was not told it had failed, it was told the wrong answer. **`grep`
+found nothing, ever:** a drive letter carries its own colon, so every result ripgrep reported was
+discarded while parsing and the assistant was told the code you asked about does not exist.
+**`glob` with a full path returned an error** for the same reason in reverse — `C:\proj\...`
+became `\C:\proj\...`, a path that cannot exist. And **asking for one folder's contents returned
+your entire project**, because the filter that keeps a listing shallow only recognised `/`. macOS
+and Linux were never affected, which is exactly why these lasted: they cannot fail on any other
+operating system.
+
 **Smaller things you may have noticed.** `@` now leads with your actual files instead of dotted
 config folders. An automation the AI creates appears in the panel immediately rather than when
 something else happens to refresh it. And a cloud model whose key went missing is labelled with
