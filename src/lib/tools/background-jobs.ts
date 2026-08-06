@@ -28,7 +28,8 @@ import {
 } from "@/lib/agent/background-commands";
 import { setJobWakeup, adjustJobWakeup } from "@/lib/agent/scheduled-wakeups";
 import {
-  listTerminalInstances,
+  findAgentBuffer,
+  listRetainedAgentCommands,
   readTerminalInstance,
   resolveScopeKey,
 } from "@/lib/terminal-instance-store";
@@ -174,9 +175,13 @@ ToolRegistry.register({
         // still readable. Labelled by the command that produced it; the agent
         // no longer names these (run_command's `terminal` param was removed in
         // v14.27.0 along with the agent tabs in the UI).
-        retained_output: listTerminalInstances(resolveScopeKey(chatId, null))
-          .filter((t) => t.owner === "agent")
-          .map((t) => ({ command: t.label, lines: t.lineCount })),
+        // The shared foreground buffer is excluded: its label is "Agent", not a
+        // command, so listing it as one invites a `job:"Agent"` that means
+        // nothing. `operation:"output"` falls back to it by id when no command
+        // name matches, which is the only way it is usefully reachable.
+        retained_output: listRetainedAgentCommands(resolveScopeKey(chatId, null)).map(
+          (t) => ({ command: t.label, lines: t.lineCount }),
+        ),
         note: jobs.length === 0 ? "No background jobs are running." : undefined,
       };
     }
@@ -239,12 +244,13 @@ ToolRegistry.register({
         // that rather than refusing. Refusing is what made a model conclude it
         // had missed the output and re-run work that had already succeeded.
         const scopeKey = resolveScopeKey(chatId, null);
-        const tabs = listTerminalInstances(scopeKey);
-        const needle = wanted.toLowerCase();
-        const tab =
-          tabs.find((t) => t.id === wanted) ??
-          tabs.find((t) => t.label.toLowerCase() === needle) ??
-          tabs.find((t) => t.label.toLowerCase().includes(needle));
+        // Agent-owned buffers only, and the shared foreground one as a last
+        // resort — see `findAgentBuffer`. Searching every instance meant a
+        // substring match could return one of the USER's shells, and refusing
+        // when the foreground buffer held the answer is what this file's
+        // `finished` branch above exists to stop: a model that thinks it missed
+        // the output re-runs work that already succeeded.
+        const tab = findAgentBuffer(scopeKey, wanted);
         if (tab) {
           const read = readTerminalInstance(scopeKey, tab.id, maxLines);
           if (read.success) {
@@ -256,15 +262,25 @@ ToolRegistry.register({
               terminal: read.label,
               mode: "tail",
               output: read.text || "(no output)",
-              note: "This job has finished and its result was already delivered — this is its retained output. Act on it; do not re-run the work.",
+              note:
+                tab.shared
+                  ? `No command named "${wanted}" is retained separately; this is the recent output of foreground commands in this session. Act on it; do not re-run the work.`
+                  : "This job has finished and its result was already delivered — this is its retained output. Act on it; do not re-run the work.",
             };
           }
         }
+        // Only now is there genuinely nothing. Say it in the vocabulary `list`
+        // uses — retained COMMANDS. "Open terminals" named a UI the agent no
+        // longer has: agent tabs and `run_command`'s `terminal` param were both
+        // removed in v14.27.0, so a terminal is not something it can address.
+        const retained = listRetainedAgentCommands(scopeKey).map((t) => t.label);
         return {
           success: false,
           error:
-            `No running job or terminal matching "${wanted}". Open terminals: ` +
-            `${JSON.stringify(tabs.map((t) => t.label))}. ` +
+            `No running job matching "${wanted}", and no retained output under that name. ` +
+            (retained.length > 0
+              ? `Retained commands: ${JSON.stringify(retained)}. `
+              : "Nothing is retained for this session. ") +
             "If this job finished, its result was already delivered to you — act on that; do not re-run the work.",
         };
       }

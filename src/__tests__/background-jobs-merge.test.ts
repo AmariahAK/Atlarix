@@ -21,6 +21,8 @@ vi.mock("@/paths/paths", () => ({
 }));
 
 import {
+  findAgentBuffer,
+  listRetainedAgentCommands,
   listTerminalInstances,
   openTerminalInstance,
   readTerminalInstance,
@@ -31,20 +33,16 @@ import {
 import { AGENT_FG_LABEL } from "@/lib/terminal-instances";
 
 /**
- * The finished-job fallback resolves a tab the same way the tool does: id,
- * then exact label, then substring. Mirrored here because the tool's handler
- * needs a live chat session to invoke directly.
+ * The REAL resolver the tool calls — not a copy.
+ *
+ * This used to re-implement the three-step match by hand, "because the tool's
+ * handler needs a live chat session to invoke directly". Both copies then
+ * searched every terminal instance including the USER's shells, and the test
+ * agreed with the bug it was meant to catch: since user tabs are labelled by
+ * their last command, a substring match could hand the agent a shell the user
+ * was typing in. The logic now lives once, in `terminal-instance-store`.
  */
-function resolveTab(scopeKey: string, wanted: string) {
-  const tabs = listTerminalInstances(scopeKey);
-  const needle = wanted.toLowerCase();
-  return (
-    tabs.find((t) => t.id === wanted) ??
-    tabs.find((t) => t.label.toLowerCase() === needle) ??
-    tabs.find((t) => t.label.toLowerCase().includes(needle)) ??
-    null
-  );
-}
+const resolveTab = findAgentBuffer;
 
 let seq = 500;
 function freshScope(): string {
@@ -114,14 +112,56 @@ describe("finished-job output falls back to the terminal tab", () => {
     if (read.success) expect(read.text).toContain("PASS a.test.ts");
   });
 
-  it("reports no match with the open tabs listed", () => {
-    // The error has to name what DOES exist, or the model guesses again.
+  it("falls back to the shared foreground buffer when it has output", () => {
+    // A foreground command's output goes to the one buffer labelled "Agent",
+    // which matches no command name a model would ask for. Returning it beats
+    // refusing: this file's whole finished-job path exists because a model that
+    // believes it missed the output re-runs work that already succeeded.
     const scope = freshScope();
     openTerminalInstance(scope, { owner: "agent", operationId: "op4" });
-    expect(resolveTab(scope, "nothing-like-this")).toBeNull();
+    appendAgentCommandOutput(scope, {
+      operationId: "op4",
+      command: "pnpm check",
+      output: "✓ 12 files checked",
+      status: "completed",
+    });
+    const tab = resolveTab(scope, "nothing-like-this");
+    expect(tab?.label).toBe(AGENT_FG_LABEL);
+  });
+
+  it("never matches — or names — one of the USER's shells", () => {
+    // User tabs are labelled by their last command, so an unfiltered substring
+    // match handed the agent the buffer of a shell the user was typing in. The
+    // error message listed them too: `Open terminals: ["Agent"]` came from the
+    // same unfiltered list.
+    const scope = freshScope();
+    setTerminalScopeState(scope, {
+      instances: [
+        {
+          id: "user-1",
+          label: "pnpm check",
+          owner: "user",
+          lines: [{ kind: "output", text: "secret from the user's shell" }],
+          createdAt: 1,
+        },
+      ] as never,
+      activeInstanceId: "user-1",
+      agentOpMap: {},
+    });
+    expect(resolveTab(scope, "pnpm check")).toBeNull();
+    expect(listRetainedAgentCommands(scope)).toHaveLength(0);
+    // The shell is present — it is simply not the agent's to read.
     expect(listTerminalInstances(scope).map((t) => t.label)).toContain(
-      AGENT_FG_LABEL,
+      "pnpm check",
     );
+  });
+
+  it("lists retained COMMANDS, never the bare shared buffer", () => {
+    // `"Agent"` is not a command, so advertising it invites `job:"Agent"`.
+    const scope = freshScope();
+    openTerminalInstance(scope, { owner: "agent", operationId: "op4b" });
+    const labels = listRetainedAgentCommands(scope).map((t) => t.label);
+    expect(labels).not.toContain(AGENT_FG_LABEL);
   });
 
   it("caps how much is returned", () => {

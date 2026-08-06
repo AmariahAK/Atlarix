@@ -187,6 +187,53 @@ export function listTerminalInstances(scopeKey: string) {
 }
 
 /**
+ * The retained agent buffer a finished job's output is in, or null.
+ *
+ * Lives here, exported, because `background_jobs` used to resolve it inline and
+ * its test re-implemented the same three-step match by hand — so when the tool's
+ * copy searched every instance including the USER's shells, the mirrored copy
+ * did too and agreed with it. Two wrong implementations that validate each other
+ * are worse than one.
+ *
+ * `owner === "agent"` is the whole point: user tabs are labelled by their last
+ * command (`userTabLabelFromInstance`), so a substring match across all
+ * instances would return a shell the user was typing in.
+ */
+export function findAgentBuffer(scopeKey: string, wanted: string) {
+  const buffers = listTerminalInstances(scopeKey).filter(
+    (t) => t.owner === "agent",
+  );
+  const needle = wanted.trim().toLowerCase();
+  if (!needle) return null;
+  // The shared tab is identified through `agentOpMap`, not by its instance id —
+  // `AGENT_FG_KEY` is the reserved MAP key, and the instance behind it has an
+  // ordinary generated id like every other.
+  const sharedId = sharedForegroundInstanceId(scopeKey);
+  const hit =
+    buffers.find((t) => t.id === wanted) ??
+    buffers.find((t) => t.label.toLowerCase() === needle) ??
+    buffers.find((t) => t.label.toLowerCase().includes(needle)) ??
+    // Foreground commands share one buffer whose label is "Agent" and so matches
+    // no command name. It is still where the output is.
+    buffers.find((t) => t.id === sharedId && t.lineCount > 0);
+  if (!hit) return null;
+  return { ...hit, shared: hit.id === sharedId };
+}
+
+/** The instance every foreground agent command writes to, if one exists yet. */
+export function sharedForegroundInstanceId(scopeKey: string): string | null {
+  return getScope(scopeKey).agentOpMap[AGENT_FG_KEY] ?? null;
+}
+
+/** Agent buffers that are named after a command — the shared one is not. */
+export function listRetainedAgentCommands(scopeKey: string) {
+  const sharedId = sharedForegroundInstanceId(scopeKey);
+  return listTerminalInstances(scopeKey).filter(
+    (t) => t.owner === "agent" && t.id !== sharedId,
+  );
+}
+
+/**
  * Record a command's output against its agent instance.
  *
  * MAIN OWNS THIS NOW. It used to be the renderer's job: `TerminalPanel` listened
