@@ -61,6 +61,28 @@ the count and whether there is room, and the AI is told that a refusal here mean
 upgrade, not debug your workspace. Free allows 1 MCP server and 2 automations per workspace; Pro
 allows 10 of each.
 
+**Automations got a real editor.** Setting a time meant knowing that `30 14 * * *` puts the
+minutes first; there is a scrollable hour / minute / AM-PM picker now. It writes into the cron
+rather than replacing it, so anything you could express before still works — and a schedule the
+picker can't represent is left alone instead of being quietly flattened.
+
+The GitHub tab is **Pipelines**, and the host is a field you fill in rather than a tab someone
+has to add. Atlarix polls the hosts it has support for and tells you which those are when you
+type one it can't — an automation that saves and then silently never fires is worse than one
+that is refused.
+
+**The AI knows your plan limits, and stops guessing where your workspace is.** It was never told
+the absolute path of the folder you have open, yet every command it runs needs one — so it
+occasionally invented a plausible path and lost a turn discovering it was wrong. It also learned
+the MCP and automation caps only by hitting them, which made a plan limit look like a broken
+workspace. Both are now stated plainly, and on Pro it no longer suggests upgrading to a tier that
+doesn't exist.
+
+**Smaller things you may have noticed.** `@` now leads with your actual files instead of dotted
+config folders. An automation the AI creates appears in the panel immediately rather than when
+something else happens to refresh it. And a cloud model whose key went missing is labelled with
+its real provider — it used to read "(local)" while Atlarix Core quietly answered every message.
+
 **The AI no longer has terminal tabs.** Its commands and their output already appear in chat;
 the tabs were a second copy, and keeping them tidy had grown four special-case rules and a
 timer. Removing them surfaced two real bugs: reading a background job's output returned nothing

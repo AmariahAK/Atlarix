@@ -60,6 +60,26 @@ interpolates — with the caps now appearing in PROMPTS, a literal that drifted 
 is the one kind of hardcoding nothing would ever catch. Tests assert against the imported
 constants for the same reason.
 
+**Six defects found by USING the packaged build** — the log is readable again now that tests
+don't write to it:
+- **The model was never told the workspace path.** Log: workspace `…/Github/railway-cli`, agent
+  ran against `…/Github/AI/railway-cli` (the parent of a different repo spliced in) and spent a
+  turn hunting. `appPath` appeared in no prompt, yet `run_command` takes a `cwd`. Now a
+  `workspaceRoot` context section states it, and `resolveWorkingDirectory` names the correct root
+  in its error so a wrong guess self-corrects.
+- **`@` led with dotfiles** — my own regression from the stable-sort added the day before. Now
+  visible before hidden, shallower before deeper.
+- **An agent-created automation didn't appear** until the panel was poked: there was a broadcast
+  for RUNS and none for definitions. `automations:changed` now fires from the service.
+- **On Pro the model was told to "upgrade"** at 10/10. `capRemedy` is tier-aware.
+- **A cloud model whose key vanished read "(local)"** while Core answered — the display inferred
+  the provider from the model NAME (no `/` → literal "local") instead of using
+  `selectedModel.provider`, which was in scope. It kept streaming the whole time, which is how it
+  went unnoticed: the app worked and lied about it.
+- **Automations UI**: scrollable time picker (cron stays the source of truth), and `pipeline`
+  triggers with a free-form `host` resolved through a poller registry that is also the
+  validation — an unpollable host is refused rather than saved to never fire.
+
 **Tests stop eating the evidence.** The suite wrote to `~/Library/Logs/Atlarix/main.log` — the
 packaged app's own log — and had rotated the real history away inside three minutes, destroying
 the diagnostic record of the credential bug while it was being investigated. Same class as the
