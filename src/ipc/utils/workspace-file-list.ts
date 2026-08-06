@@ -132,11 +132,38 @@ export async function listWorkspaceFiles(
       // an unchanged tree come back differently shuffled. That never showed
       // before because the old path built the list once and cached it for five
       // minutes; now that every keystroke is its own run, an unsorted list would
-      // reshuffle the `@` menu under the user's cursor mid-type. Sorting 3-5k
-      // strings is microseconds and makes the menu alphabetical, which is what
-      // you'd want anyway.
-      .sort()
+      // reshuffle the `@` menu under the user's cursor mid-type.
+      .sort(compareForMention)
   );
+}
+
+/**
+ * Deterministic AND useful ordering.
+ *
+ * A plain `.sort()` is deterministic, which is what the menu needs, but it is
+ * lexicographic — so every dotfile sorts first and `@` opened on `.cargo/`,
+ * `.github/`, `.github/workflows/`, `.cargo/audit.toml`… with the actual
+ * contents of the repo pushed below the fold. Correct, and useless.
+ *
+ * Order: visible before hidden, then shallower before deeper, then
+ * lexicographic. Hidden files stay fully reachable — typing `.gith` still finds
+ * them — they just stop being what you see first. Depth before name because
+ * `src/main.ts` is a likelier mention than `src/a/b/c/helper.ts`.
+ */
+function isHiddenPath(p: string): boolean {
+  return p.split("/").some((seg) => seg.startsWith("."));
+}
+
+export function compareForMention(a: string, b: string): number {
+  const hiddenA = isHiddenPath(a);
+  const hiddenB = isHiddenPath(b);
+  if (hiddenA !== hiddenB) return hiddenA ? 1 : -1;
+
+  const depthA = a.split("/").length;
+  const depthB = b.split("/").length;
+  if (depthA !== depthB) return depthA - depthB;
+
+  return a.localeCompare(b);
 }
 
 /**

@@ -192,6 +192,7 @@ import {
   loadModeSkillSection,
   loadSkillsIndexSection,
   loadWorkspaceCapsSection,
+  loadWorkspaceRootSection,
   loadActivePlanSection,
   loadAtlarixMdSection,
   loadMemoryMdSection,
@@ -1444,6 +1445,9 @@ ${componentSnippet}
           // loadActivePlanSection is the sole writer of taskLedgerBlock.
           taskLedgerBlock = activePlanResult.taskLedgerBlock;
           const loadedSections = [
+            // Cheap + synchronous: the absolute workspace path, so the model
+            // never has to invent a `cwd`.
+            loadWorkspaceRootSection(contextSectionParams),
             modeSkillSection,
             skillsIndexSection,
             workspaceCapsSection,

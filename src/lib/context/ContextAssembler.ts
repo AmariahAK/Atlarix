@@ -12,6 +12,9 @@ export type ContextSectionName =
   // back by accident.
   | "skillsIndex"
   | "taskProgress"
+  // v14.27.0: the absolute workspace path. Nothing used to state it, so the
+  // model invented a `cwd` for run_command and lost turns hunting for the root.
+  | "workspaceRoot"
   | "fileSystemTruth"
   | "workModeHint"
   | "workspaceAnalysis"

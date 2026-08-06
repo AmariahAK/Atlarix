@@ -409,6 +409,7 @@ const validReceiveChannels = [
   "browser:request-panel", // main → renderer: the agent needs the Browser panel open (mirrors the plan-artifact auto-open)
   "chat:background-job-update", // main → renderer: background job started/finished/cancelled
   "automation:run-update", // main → renderer: automation run started/finished (triage feed refresh)
+  "automations:changed", // main → renderer: a definition was created/updated/deleted (incl. by the agent)
   "automations:focus-feed", // main → renderer: OS-notification click → open the automations tab
   "autonomous:session-complete",
   "chat:auto-self-correct", // main → renderer: synthetic fix prompt inserted; continue stream

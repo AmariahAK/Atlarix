@@ -1757,6 +1757,15 @@ export class IpcClient {
     return typeof unsubscribe === "function" ? unsubscribe : () => {};
   }
 
+  /**
+   * A definition was created/updated/deleted anywhere — including by the AGENT,
+   * which writes in main and would otherwise leave the panel stale.
+   */
+  public onAutomationsChanged(handler: () => void): () => void {
+    const unsubscribe = this.ipcRenderer.on("automations:changed", () => handler());
+    return typeof unsubscribe === "function" ? unsubscribe : () => {};
+  }
+
   /** OS-notification click: focus the automations feed (optionally at a run). */
   public onAutomationsFocusFeed(
     handler: (payload: { runId?: string }) => void,

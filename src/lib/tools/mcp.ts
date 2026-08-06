@@ -15,7 +15,7 @@
 
 import { ToolRegistry } from "./registry";
 import { SubscriptionManager } from "@/lib/SubscriptionManager";
-import { describePlanCap, planCapClause } from "@/lib/plan-caps";
+import { capRemedy, describePlanCap, planCapClause } from "@/lib/plan-caps";
 import { wrapUntrustedData } from "../streaming/untrusted-data";
 import { db } from "../../db";
 import { mcpServers } from "../../db/schema";
@@ -165,7 +165,7 @@ ToolRegistry.register({
           "Call mcp_call({ server: '<server name>', tool: '<tool name>', arguments: {...} }) to invoke a tool. Each invocation requires user consent on first use." +
           (limits.canAddMore
             ? ""
-            : ` The user is at the ${limits.tier} limit of ${limits.max} MCP server(s) — adding another means removing one${limits.tier === "free" ? ` or upgrading to Pro (up to ${limits.proMax})` : ""}, not a workspace fix.`),
+            : ` The user is at the ${limits.tier} limit of ${limits.max} MCP server(s) — a plan limit, not a workspace fix. ${capRemedy("mcp", limits.tier === "pro")}`),
       };
     } catch (err) {
       return { error: err instanceof Error ? err.message : String(err) };

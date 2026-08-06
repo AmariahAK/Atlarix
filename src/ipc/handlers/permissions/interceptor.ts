@@ -1533,6 +1533,7 @@ export class PermissionInterceptor extends EventEmitter {
     ): Promise<CommandResult> {
         return runShellCommandStreaming(command, workingDir, {
             sandbox,
+            workspaceRoot: this.workspacePath,
             onOutput: ({ stdout, stderr }) => {
                 this.emitTerminalOutput({
                     operationId,
@@ -1836,6 +1837,7 @@ export class PermissionInterceptor extends EventEmitter {
 
         runShellCommandStreaming(commandToRun, workingDir, {
             sandbox: sandboxOpts,
+            workspaceRoot: this.workspacePath,
             onSpawn: (p) => {
                 proc = p;
                 if (promoted && chatIdForBg != null) {

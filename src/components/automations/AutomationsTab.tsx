@@ -149,6 +149,15 @@ export function AutomationsTab({ appId }: { appId: number | null }) {
     void refresh();
   }, [refresh]);
 
+  // A definition changed somewhere else — most often the AGENT creating one via
+  // the `automations` tool, which writes in main. Without this the panel only
+  // caught up when something else made it refetch.
+  useEffect(() => {
+    return IpcClient.getInstance().onAutomationsChanged(() => {
+      void refresh();
+    });
+  }, [refresh]);
+
   // Environment probe for the form (MCP servers).
   useEffect(() => {
     if (appId == null) return;

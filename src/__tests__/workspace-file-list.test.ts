@@ -73,14 +73,37 @@ describe("listWorkspaceFiles", () => {
     expect(files).not.toContain(".env");
   });
 
-  it("returns a stable, sorted order across runs", async () => {
+  it("returns a stable order across runs", async () => {
     // ripgrep's parallel walkers do not emit a stable order. Unsorted, the `@`
     // menu would reshuffle between keystrokes now that every query is its own
     // run — invisible before, when the list was built once and cached 5 minutes.
     const a = await listWorkspaceFiles(ws);
     const b = await listWorkspaceFiles(ws);
     expect(a).toEqual(b);
-    expect(a).toEqual([...a].sort());
+  });
+
+  it("leads with real content, not dotfiles", async () => {
+    // The regression a plain `.sort()` shipped: `@` opened on `.cargo/`,
+    // `.github/`, `.cargo/audit.toml`… with the repo's actual contents below the
+    // fold. Deterministic and useless.
+    const files = await listWorkspaceFiles(ws);
+    const firstVisible = files.findIndex((f) => !f.split("/").some((s) => s.startsWith(".")));
+    const firstHidden = files.findIndex((f) => f.split("/").some((s) => s.startsWith(".")));
+    expect(firstVisible).toBeLessThan(firstHidden);
+    expect(files[0]).toBe("README.md");
+  });
+
+  it("puts shallower paths first — a root file beats a deeply nested one", async () => {
+    const files = await listWorkspaceFiles(ws);
+    expect(files.indexOf("real.ts")).toBeLessThan(
+      files.indexOf("packages/api/nested/deep.ts"),
+    );
+  });
+
+  it("still finds hidden files when you type for them", async () => {
+    // Ordering them last must not make them unreachable.
+    const hits = await searchWorkspaceFiles(ws, ".github");
+    expect(hits).toContain(".github/workflows/ci.yml");
   });
 
   it("returns [] for a missing workspace instead of throwing", async () => {

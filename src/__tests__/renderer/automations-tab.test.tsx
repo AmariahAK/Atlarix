@@ -5,7 +5,7 @@
  */
 import React from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor } from "@testing-library/react";
 import { getDefaultStore } from "jotai";
 import { automationRunsAtom, automationsAtom } from "@/atoms/automationAtoms";
 import { renderWithProviders } from "./helpers";
@@ -63,6 +63,14 @@ const markAutomationRunsRead = vi.fn(async () => ({ ok: true }));
 const getCurrentBranch = vi.fn(async () => ({ branch: "main" }));
 const listMcpServers = vi.fn(async () => []);
 const onAutomationRunUpdate = vi.fn(() => () => {});
+/** Fires when a definition changes anywhere — including the agent creating one. */
+let automationsChangedHandler: (() => void) | null = null;
+const onAutomationsChanged = vi.fn((h: () => void) => {
+  automationsChangedHandler = h;
+  return () => {
+    automationsChangedHandler = null;
+  };
+});
 const runAutomationNow = vi.fn(async () => ({ ok: true }));
 
 vi.mock("@/ipc/ipc_client", () => ({
@@ -74,6 +82,7 @@ vi.mock("@/ipc/ipc_client", () => ({
       getCurrentBranch,
       listMcpServers,
       onAutomationRunUpdate,
+      onAutomationsChanged,
       runAutomationNow,
     }),
   },
@@ -118,5 +127,22 @@ describe("AutomationsTab", () => {
   it("prompts to open a workspace when appId is null", () => {
     renderWithProviders(<AutomationsTab appId={null} />);
     expect(screen.getByText(/open a workspace/i)).toBeTruthy();
+  });
+
+  it("refetches when a definition changes elsewhere — e.g. the AGENT created one", async () => {
+    // The observed gap: the agent created "Weekly cargo test on main", the
+    // service logged it, and the panel stayed empty until something else made it
+    // refetch. The IPC path never showed it because the tab refetches after its
+    // OWN call; the tool writes in main.
+    renderWithProviders(<AutomationsTab appId={7} />);
+    await screen.findAllByText("Nightly audit");
+    const before = listAutomations.mock.calls.length;
+
+    expect(automationsChangedHandler).toBeTypeOf("function");
+    await act(async () => {
+      automationsChangedHandler?.();
+    });
+
+    expect(listAutomations.mock.calls.length).toBeGreaterThan(before);
   });
 });

@@ -95,6 +95,44 @@ export async function loadSkillsIndexSection(
   }
 }
 
+/**
+ * Where the workspace actually is, stated once per turn.
+ *
+ * THE BUG THIS FIXES
+ * ------------------
+ * Nothing ever told the model the absolute workspace path — not the system
+ * prompt, not the mode bundles, not AGENTS.md. Yet `run_command` takes a `cwd`,
+ * so the model had to produce a path it had never been given. Observed in the
+ * packaged app: the workspace was `/Users/…/Github/railway-cli` and the agent
+ * ran against `/Users/…/Github/AI/railway-cli` — it had spliced in the parent of
+ * a DIFFERENT repo it had seen — then spent a turn hunting for the real root.
+ *
+ * Claude Code puts the working directory in its env block; we simply never did.
+ * One line, built from the live `appPath`, so it follows the user's machine and
+ * OS rather than assuming anything about either.
+ *
+ * Its own section rather than folded into workspace capabilities, because that
+ * one returns null when a workspace has no skills or MCP servers — and the root
+ * is not a capability, it is the ground the turn stands on.
+ */
+export function loadWorkspaceRootSection(
+  p: ContextSectionParams,
+): ContextSection | null {
+  const { hasWorkspace, appPath } = p;
+  if (!(hasWorkspace && appPath)) return null;
+  return {
+    name: "workspaceRoot",
+    priority: -4,
+    content: [
+      `## Workspace`,
+      "",
+      `Absolute path: \`${appPath}\``,
+      "",
+      "`run_command` runs here by default — omit `cwd` unless you genuinely need a subdirectory, and pass an absolute path when you do. Never guess a path outside this root.",
+    ].join("\n"),
+  };
+}
+
 export async function loadWorkspaceCapsSection(
   p: ContextSectionParams,
 ): Promise<ContextSection | null> {

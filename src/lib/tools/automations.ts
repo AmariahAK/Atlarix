@@ -35,7 +35,7 @@ import {
 } from "@/lib/automations/types";
 import { listAutomations, getAutomation } from "@/lib/automations/service";
 import { SubscriptionManager } from "@/lib/SubscriptionManager";
-import { describePlanCap, planCapClause } from "@/lib/plan-caps";
+import { capRemedy, describePlanCap, planCapClause } from "@/lib/plan-caps";
 
 const logger = log.scope("automations-tool");
 
@@ -176,7 +176,7 @@ ToolRegistry.register({
           last_run_at: a.lastRunAt,
         })),
         note: !limits.canAddMore
-          ? `At the ${limits.tier} limit of ${limits.max}. To add another the user removes one${limits.tier === "free" ? ` or upgrades to Pro (up to ${limits.proMax})` : ""} — this is a plan limit, not a workspace problem.`
+          ? `At the ${limits.tier} limit of ${limits.max} automations. This is a plan limit, not a workspace problem. ${capRemedy("automations", limits.tier === "pro")}`
           : rows.length === 0
             ? "No automations yet. Offer one only if the user has been repeating a check by hand."
             : undefined,

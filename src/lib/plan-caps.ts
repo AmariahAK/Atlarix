@@ -63,12 +63,31 @@ export function describePlanCap(
 }
 
 /**
+ * What to say when a cap is reached, for a GIVEN tier.
+ *
+ * Tier-aware because the remedy is not the same on both, and getting that wrong
+ * is worse than saying nothing: Pro IS the top tier, so telling a Pro user at
+ * 10/10 to "upgrade" sends the model recommending a purchase that does not
+ * exist. On Pro the honest answer is that the number is the ceiling.
+ */
+export function capRemedy(kind: "mcp" | "automations", isPro: boolean): string {
+  const noun = kind === "mcp" ? "MCP servers" : "automations";
+  const proMax = kind === "mcp" ? MCP_PRO_MAX : AUTOMATIONS_PRO_MAX;
+  return isPro
+    ? `${proMax} is the maximum ${noun} per workspace — Pro is the top tier, so there is nothing to upgrade to. Removing one is the only way to add another.`
+    : `Remove one, or upgrade to Pro for up to ${proMax} ${noun} per workspace.`;
+}
+
+/**
  * The sentence the model reads in a tool description.
  *
  * Says the caps AND what to do when one is hit, because the useful failure is
- * not "you were refused" but "you were refused for a reason with two known
+ * not "you were refused" but "you were refused for a reason with known
  * remedies". Without the second half the model tends to retry or to report a
  * plan limit as a defect.
+ *
+ * The remedy is spelled out per tier here rather than generically, because the
+ * description is read BEFORE `list` has told the model which tier applies.
  */
 export function planCapClause(kind: "mcp" | "automations"): string {
   const noun = kind === "mcp" ? "MCP servers" : "automations";
@@ -78,6 +97,7 @@ export function planCapClause(kind: "mcp" | "automations"): string {
     `PLAN LIMIT: ${freeMax} ${noun} per workspace on Free, ${proMax} on Pro — ` +
     `\`list\` reports the tier, the count and whether there is room. ` +
     `If a create is refused by this cap it is a plan limit, NOT a broken workspace: ` +
-    `say which limit was hit and offer the two real options — remove an existing one, or upgrade — instead of retrying.`
+    `say which limit was hit instead of retrying. On Free the fix is remove one or upgrade; ` +
+    `on Pro ${proMax} is the ceiling — do NOT suggest upgrading, there is no higher tier.`
   );
 }

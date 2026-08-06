@@ -22,6 +22,7 @@ import log from "electron-log";
 import { db } from "@/db";
 import { apps, automationRuns, automations, mcpToolConsents } from "@/db/schema";
 import { SubscriptionManager } from "@/lib/SubscriptionManager";
+import { broadcastToAllWindows } from "@/ipc/utils/broadcast_all_windows";
 import type { AutomationInput } from "./types";
 import {
   AUTOMATIONS_FREE_MAX as FREE_MAX,
@@ -81,6 +82,24 @@ async function upsertMcpConsentIfNeeded(input: AutomationInput): Promise<void> {
 async function refreshSchedule(automationId: string): Promise<void> {
   const { refreshAutomationSchedule } = await import("./runner");
   await refreshAutomationSchedule(automationId);
+}
+
+/**
+ * Tell any open window the automation LIST changed.
+ *
+ * There was already a broadcast for automation RUNS (`automation:run-update`)
+ * and none for the definitions. That was survivable while the only way to create
+ * one was the tab itself, which refetches after its own call — but the agent now
+ * writes through this service in main, and nothing told the renderer. Observed:
+ * the agent created "Weekly cargo test on main", the service logged it, and the
+ * panel stayed empty until it was poked. Not a failure; just invisible.
+ */
+function broadcastAutomationsChanged(): void {
+  try {
+    broadcastToAllWindows("automations:changed", {});
+  } catch (e) {
+    logger.warn("could not broadcast automations:changed:", e);
+  }
 }
 
 export async function listAutomations(workspaceId: number): Promise<{
@@ -156,6 +175,7 @@ export async function createAutomation(
     updatedAt: now,
   });
   await refreshSchedule(id);
+  broadcastAutomationsChanged();
   logger.log(
     `created automation "${input.name}" (${input.trigger.kind}, runMode=${input.runMode}, notifyAgent=${input.notifyAgent})`,
   );
@@ -183,12 +203,14 @@ export async function updateAutomation(
     })
     .where(eq(automations.id, id));
   await refreshSchedule(id);
+  broadcastAutomationsChanged();
 }
 
 export async function deleteAutomation(id: string): Promise<void> {
   const { disarmAutomation } = await import("./runner");
   disarmAutomation(id);
   await db.delete(automations).where(eq(automations.id, id));
+  broadcastAutomationsChanged();
 }
 
 export async function setAutomationEnabled(
@@ -200,6 +222,7 @@ export async function setAutomationEnabled(
     .set({ enabled, updatedAt: new Date() })
     .where(eq(automations.id, id));
   await refreshSchedule(id);
+  broadcastAutomationsChanged();
 }
 
 /**
@@ -219,4 +242,5 @@ export async function setAutomationNotifyAgent(
     .update(automations)
     .set({ notifyAgent, updatedAt: new Date() })
     .where(eq(automations.id, id));
+  broadcastAutomationsChanged();
 }

@@ -18,6 +18,7 @@ import {
   AUTOMATIONS_PRO_MAX,
   describePlanCap,
   planCapClause,
+  capRemedy,
 } from "@/lib/plan-caps";
 
 describe("describePlanCap", () => {
@@ -71,13 +72,43 @@ describe("planCapClause — what the model actually reads", () => {
     }
   });
 
-  it("offers the two real remedies rather than a retry", () => {
+  it("offers a remedy rather than a retry", () => {
     for (const kind of ["mcp", "automations"] as const) {
       const clause = planCapClause(kind);
-      expect(clause).toMatch(/remove an existing one/i);
-      expect(clause).toMatch(/upgrade/i);
+      expect(clause).toMatch(/remove one/i);
       expect(clause).toMatch(/instead of retrying/i);
     }
+  });
+
+  it("tells the model NOT to suggest upgrading on Pro", () => {
+    // Pro IS the top tier. Recommending an upgrade that does not exist is worse
+    // than saying nothing — the user goes looking for a purchase page.
+    for (const kind of ["mcp", "automations"] as const) {
+      expect(planCapClause(kind)).toMatch(/no higher tier/i);
+    }
+  });
+});
+
+describe("capRemedy — tier-aware, because the answer differs", () => {
+  it("offers the upgrade on Free", () => {
+    expect(capRemedy("automations", false)).toMatch(/upgrade to Pro/i);
+    expect(capRemedy("automations", false)).toContain(String(AUTOMATIONS_PRO_MAX));
+  });
+
+  it("does NOT recommend an upgrade on Pro, and says why", () => {
+    // The assertion is about the RECOMMENDATION, not the word: "nothing to
+    // upgrade to" is a denial and must stay allowed. A first draft banned
+    // /upgrade to/ outright and failed on the correct string.
+    const pro = capRemedy("automations", true);
+    expect(pro).not.toMatch(/upgrade to Pro/i);
+    expect(pro).toMatch(/top tier|nothing to upgrade/i);
+    expect(pro).toContain(String(AUTOMATIONS_PRO_MAX));
+  });
+
+  it("says the same for MCP servers, from the MCP constants", () => {
+    expect(capRemedy("mcp", false)).toContain(String(MCP_PRO_MAX));
+    expect(capRemedy("mcp", true)).not.toMatch(/upgrade to Pro/i);
+    expect(capRemedy("mcp", true)).toMatch(/top tier/i);
   });
 });
 

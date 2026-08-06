@@ -39,7 +39,19 @@ export interface CommandResult {
   harnessMessage?: boolean;
 }
 
-function resolveWorkingDirectory(cwd?: string): { cwd?: string; error?: CommandResult } {
+/**
+ * @param workspaceRoot Where the workspace actually is, so a bad `cwd` can be
+ * corrected rather than merely refused. Observed in the packaged app: the model
+ * invented `/Users/…/Github/AI/railway-cli` for a workspace at
+ * `/Users/…/Github/railway-cli`, got a bare ENOENT with nothing to correct TO,
+ * and spent a turn hunting for the root. Same principle as
+ * `sandbox-failure-context.ts` — the harness supplies what the model cannot see,
+ * facts only, no diagnosis.
+ */
+function resolveWorkingDirectory(
+  cwd?: string,
+  workspaceRoot?: string,
+): { cwd?: string; error?: CommandResult } {
   if (!cwd) return { cwd: undefined };
   try {
     const absolute = path.resolve(cwd);
@@ -60,7 +72,11 @@ function resolveWorkingDirectory(cwd?: string): { cwd?: string; error?: CommandR
     return { cwd: resolved };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    const out = `Invalid or inaccessible working directory: ${cwd}. ${message}`;
+    const hint =
+      workspaceRoot && path.resolve(cwd) !== path.resolve(workspaceRoot)
+        ? ` The workspace root is ${workspaceRoot} — commands run there by default, so omit \`cwd\` unless you need a subdirectory of it.`
+        : "";
+    const out = `Invalid or inaccessible working directory: ${cwd}. ${message}${hint}`;
     logger.error(out);
     return {
       error: {
@@ -81,6 +97,8 @@ interface RunShellProcessOptions {
   onSpawn?: (proc: ChildProcess) => void;
   /** When set, confine filesystem writes via the per-OS sandbox. */
   sandbox?: SandboxRunOptions;
+  /** The workspace root, so an unusable `cwd` is reported with the right one. */
+  workspaceRoot?: string;
 }
 
 /**
@@ -193,8 +211,12 @@ function runShellProcess(options: RunShellProcessOptions): Promise<CommandResult
 /**
  * Run a shell command with full output capture.
  */
-export function runShellCommand(command: string, cwd?: string): Promise<CommandResult> {
-  const { cwd: resolvedCwd, error } = resolveWorkingDirectory(cwd);
+export function runShellCommand(
+  command: string,
+  cwd?: string,
+  workspaceRoot?: string,
+): Promise<CommandResult> {
+  const { cwd: resolvedCwd, error } = resolveWorkingDirectory(cwd, workspaceRoot);
   if (error) return Promise.resolve(error);
 
   logger.log(`Running command: ${command}${resolvedCwd ? ` in ${resolvedCwd}` : ""}`);
@@ -208,6 +230,8 @@ export interface RunShellCommandStreamingOptions {
   onSpawn?: (proc: ChildProcess) => void;
   /** When set, confine filesystem writes via the per-OS sandbox. */
   sandbox?: SandboxRunOptions;
+  /** The workspace root, so an unusable `cwd` is reported with the right one. */
+  workspaceRoot?: string;
 }
 
 /**
@@ -219,7 +243,10 @@ export function runShellCommandStreaming(
   cwd?: string,
   options?: RunShellCommandStreamingOptions,
 ): Promise<CommandResult> {
-  const { cwd: resolvedCwd, error } = resolveWorkingDirectory(cwd);
+  const { cwd: resolvedCwd, error } = resolveWorkingDirectory(
+    cwd,
+    options?.workspaceRoot,
+  );
   if (error) return Promise.resolve(error);
 
   logger.log(`Running command (streaming): ${command}${resolvedCwd ? ` in ${resolvedCwd}` : ""}`);
