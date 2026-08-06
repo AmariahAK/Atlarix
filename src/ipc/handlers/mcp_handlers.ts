@@ -1,4 +1,5 @@
 import { IpcMainInvokeEvent } from "electron";
+import { MCP_FREE_MAX, MCP_PRO_MAX } from "@/lib/plan-caps";
 import log from "electron-log";
 import { db } from "../../db";
 import { apps, mcpServers, mcpToolConsents } from "../../db/schema";
@@ -45,8 +46,12 @@ export function logMcpError(context: string, e: unknown): void {
   }
 }
 
-const MCP_FREE_TIER_LIMIT = 1;
-export const MCP_WORKSPACE_MAX = 10;
+/**
+ * Re-exported from `lib/plan-caps` so enforcement, the reported limit and the
+ * sentence the model reads cannot drift apart. The old local literals are gone.
+ */
+const MCP_FREE_TIER_LIMIT = MCP_FREE_MAX;
+export const MCP_WORKSPACE_MAX = MCP_PRO_MAX;
 
 type ConsentDecision = "accept-once" | "accept-always" | "decline";
 

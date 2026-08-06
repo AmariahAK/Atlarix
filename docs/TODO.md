@@ -49,6 +49,17 @@ tab-name addressing. Two real bugs fell out: `background_jobs` read returned NOT
 Terminal tab happened to be open (the renderer owned the buffer), and `maxLines` capped entries
 rather than lines, so asking for 50 returned 900 straight into the context window.
 
+**The agent knows the plan caps** (owner-requested): `1/10` MCP servers and `2/10` automations
+per workspace, Free/Pro. It could previously learn a cap only by hitting it, and nothing in the
+prompt, the mode bundles or `AGENTS.md` tells it the user's tier — so a refusal read as a broken
+workspace. `list_available_mcps` and `automations list` now return
+`limits: {tier, used, max, canAddMore, proMax}`, and each tool description carries one clause
+naming both tiers AND the behaviour: a cap refusal means remove-one-or-upgrade, not a retry and
+not a workspace fault. All four numbers moved to `lib/plan-caps.ts` and every consumer
+interpolates — with the caps now appearing in PROMPTS, a literal that drifted from the constant
+is the one kind of hardcoding nothing would ever catch. Tests assert against the imported
+constants for the same reason.
+
 **Tests stop eating the evidence.** The suite wrote to `~/Library/Logs/Atlarix/main.log` — the
 packaged app's own log — and had rotated the real history away inside three minutes, destroying
 the diagnostic record of the credential bug while it was being investigated. Same class as the

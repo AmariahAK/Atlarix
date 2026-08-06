@@ -23,12 +23,19 @@ import { db } from "@/db";
 import { apps, automationRuns, automations, mcpToolConsents } from "@/db/schema";
 import { SubscriptionManager } from "@/lib/SubscriptionManager";
 import type { AutomationInput } from "./types";
+import {
+  AUTOMATIONS_FREE_MAX as FREE_MAX,
+  AUTOMATIONS_PRO_MAX as PRO_MAX,
+} from "@/lib/plan-caps";
 
 const logger = log.scope("automations-service");
 
-/** Automations per workspace: Free = 2, Pro = 10. */
-export const AUTOMATIONS_FREE_MAX = 2;
-export const AUTOMATIONS_WORKSPACE_MAX = 10;
+/**
+ * Automations per workspace. Re-exported from `lib/plan-caps` so enforcement,
+ * the reported limit and the sentence the model reads cannot drift apart.
+ */
+export const AUTOMATIONS_FREE_MAX = FREE_MAX;
+export const AUTOMATIONS_WORKSPACE_MAX = PRO_MAX;
 
 export type AutomationRow = typeof automations.$inferSelect;
 

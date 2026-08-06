@@ -14,6 +14,8 @@
  */
 
 import { ToolRegistry } from "./registry";
+import { SubscriptionManager } from "@/lib/SubscriptionManager";
+import { describePlanCap, planCapClause } from "@/lib/plan-caps";
 import { wrapUntrustedData } from "../streaming/untrusted-data";
 import { db } from "../../db";
 import { mcpServers } from "../../db/schema";
@@ -134,22 +136,36 @@ ToolRegistry.register({
   isReadOnly: true,
   allowInAskMode: true,
   description:
-    "List MCP (Model Context Protocol) servers configured for this session: global servers plus, when in a workspace, that workspace's own MCP servers. Returns server names, transports, and the tool names each server exposes. Call this BEFORE invoking any MCP tool via mcp_call.",
+    "List MCP (Model Context Protocol) servers configured for this session: global servers plus, when in a workspace, that workspace's own MCP servers. Returns server names, transports, and the tool names each server exposes. Call this BEFORE invoking any MCP tool via mcp_call. " +
+    planCapClause("mcp"),
   parameters: { type: "object", properties: {} },
   handler: async (args: { workspaceId?: number }) => {
     try {
       const servers = await listConfiguredMcps(args.workspaceId ?? null);
+      // The cap the USER is subject to, reported rather than only enforced —
+      // the agent has no other way to learn the tier, so "you can't add another"
+      // would otherwise look like a fault instead of a plan limit.
+      const limits = describePlanCap(
+        "mcp",
+        SubscriptionManager.isPro(),
+        servers.length,
+      );
       if (servers.length === 0) {
         return {
           servers: [],
+          limits,
           message:
             "No MCP servers configured. Add one in Settings → MCP, or attach a workspace that has workspace-scoped MCP servers.",
         };
       }
       return {
         servers,
+        limits,
         usage:
-          "Call mcp_call({ server: '<server name>', tool: '<tool name>', arguments: {...} }) to invoke a tool. Each invocation requires user consent on first use.",
+          "Call mcp_call({ server: '<server name>', tool: '<tool name>', arguments: {...} }) to invoke a tool. Each invocation requires user consent on first use." +
+          (limits.canAddMore
+            ? ""
+            : ` The user is at the ${limits.tier} limit of ${limits.max} MCP server(s) — adding another means removing one${limits.tier === "free" ? ` or upgrading to Pro (up to ${limits.proMax})` : ""}, not a workspace fix.`),
       };
     } catch (err) {
       return { error: err instanceof Error ? err.message : String(err) };
@@ -164,7 +180,7 @@ ToolRegistry.register({
   isReadOnly: false,
   allowInAskMode: true,
   description:
-    "Invoke a specific MCP tool by server name and tool name. Use list_available_mcps first to discover which servers and tools are available. The user is prompted for consent on first use of each tool.",
+    "Invoke a specific MCP tool by server name and tool name. Use list_available_mcps first to discover which servers and tools are available — it also reports the plan limit on MCP servers and how many are in use. The user is prompted for consent on first use of each tool.",
   parameters: {
     type: "object",
     properties: {

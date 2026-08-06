@@ -34,6 +34,8 @@ import {
   type AutomationTrigger,
 } from "@/lib/automations/types";
 import { listAutomations, getAutomation } from "@/lib/automations/service";
+import { SubscriptionManager } from "@/lib/SubscriptionManager";
+import { describePlanCap, planCapClause } from "@/lib/plan-caps";
 
 const logger = log.scope("automations-tool");
 
@@ -96,7 +98,9 @@ ToolRegistry.register({
     "`run_mode` is separate: \"notify-only\" (default) posts the fired trigger with no model involved; \"read-only\" runs an unattended agent turn with read-only tools and costs a model turn per fire — it needs a `prompt`. " +
     "\n" +
     "PROPOSE, DO NOT SELF-START. Offer an automation when you have watched the user do the same check repeatedly, and create it once they agree. Do not set up watches on GitHub, Slack, CI or anything else the user has not asked for. create/update/delete all require the user's approval before anything is written. " +
-    "An MCP trigger also records standing consent for that tool (the poller runs unattended and cannot prompt) — say so when you propose one.",
+    "An MCP trigger also records standing consent for that tool (the poller runs unattended and cannot prompt) — say so when you propose one. " +
+    "\n" +
+    planCapClause("automations"),
   requiresWorkspace: true,
   isCore: false,
   isReadOnly: false,
@@ -151,8 +155,17 @@ ToolRegistry.register({
 
     if (args.operation === "list") {
       const { automations: rows } = await listAutomations(workspaceId);
+      // Report the cap alongside the contents: the agent has no other way to
+      // learn the user's tier (nothing in the prompt mentions a plan), so
+      // without this a refused create reads as a broken workspace.
+      const limits = describePlanCap(
+        "automations",
+        SubscriptionManager.isPro(),
+        rows.length,
+      );
       return {
         success: true,
+        limits,
         automations: rows.map((a) => ({
           id: a.id,
           name: a.name,
@@ -162,8 +175,9 @@ ToolRegistry.register({
           notify_agent: a.notifyAgent,
           last_run_at: a.lastRunAt,
         })),
-        note:
-          rows.length === 0
+        note: !limits.canAddMore
+          ? `At the ${limits.tier} limit of ${limits.max}. To add another the user removes one${limits.tier === "free" ? ` or upgrades to Pro (up to ${limits.proMax})` : ""} — this is a plan limit, not a workspace problem.`
+          : rows.length === 0
             ? "No automations yet. Offer one only if the user has been repeating a check by hand."
             : undefined,
       };

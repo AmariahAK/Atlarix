@@ -54,6 +54,13 @@ and from the agent alike, and switchable either way afterwards. It is the differ
 tell the AI cannot spend a token no matter how often it fires. The agent is told to propose
 rather than set things up on its own, and to say which it chose and why.
 
+**The AI knows your plan limits.** It could only discover a cap by hitting one, and nothing
+anywhere told it which plan you are on — so "you can't add another MCP server" arrived with no
+context and read as something broken. Listing automations or MCP servers now reports the tier,
+the count and whether there is room, and the AI is told that a refusal here means remove one or
+upgrade, not debug your workspace. Free allows 1 MCP server and 2 automations per workspace; Pro
+allows 10 of each.
+
 **The AI no longer has terminal tabs.** Its commands and their output already appear in chat;
 the tabs were a second copy, and keeping them tidy had grown four special-case rules and a
 timer. Removing them surfaced two real bugs: reading a background job's output returned nothing
