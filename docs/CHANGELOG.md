@@ -78,6 +78,12 @@ the MCP and automation caps only by hitting them, which made a plan limit look l
 workspace. Both are now stated plainly, and on Pro it no longer suggests upgrading to a tier that
 doesn't exist.
 
+**Start a session by pasting, and it gets a name.** A session whose first message was nothing
+but pasted text stayed called "Untitled" — not for a turn, but forever, however long it ran. The
+naming step read the pasted attachment, found no words in it, and gave up before looking at the
+reply sitting right there; the app then recorded the session as "named" anyway and never asked
+again. Both halves are fixed, and it now retries on the next turn instead of getting one chance.
+
 **Smaller things you may have noticed.** `@` now leads with your actual files instead of dotted
 config folders. An automation the AI creates appears in the panel immediately rather than when
 something else happens to refresh it. And a cloud model whose key went missing is labelled with
@@ -85,9 +91,11 @@ its real provider — it used to read "(local)" while Atlarix Core quietly answe
 
 **The AI no longer has terminal tabs.** Its commands and their output already appear in chat;
 the tabs were a second copy, and keeping them tidy had grown four special-case rules and a
-timer. Removing them surfaced two real bugs: reading a background job's output returned nothing
-unless you happened to have the Terminal tab open, and a request for 50 lines could return 900.
-Your own terminal tabs are untouched.
+timer. Removing them surfaced three real bugs: reading a background job's output returned nothing
+unless you happened to have the Terminal tab open, a request for 50 lines could return 900, and
+when the AI asked for output it already had, it was told to look at a list of terminals — a list
+that included *your* shells, which it had no business reading. Your own terminal tabs are
+untouched, and now genuinely private.
 
 ## [14.26.0] (2026-08-05) — One engine for every file lookup, one answer per permission question
 

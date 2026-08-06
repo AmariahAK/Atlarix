@@ -177,6 +177,34 @@ that discarded `threadFromSnapshot`'s sub-agent merge is fixed (data loss, not s
 yields so the overlay can actually paint, and `workspace-session-title.ts` no longer fetches every
 message body to read one field after every turn.
 
+**A session that opens with a paste was never named.** Found in the packaged app and confirmed
+against the live DB: two sessions, 10 and 20 messages long, still called "Untitled" while every
+other recent one was named. Both opened with a user message that was nothing but
+`<atlarix-text-attachment …/>`, which strips to `""`. Two faults had to line up.
+`sessions:generate-title` looks PAST an attachment-only user message — right, except when it is
+the only one, and the gate `!firstUser || !firstAssistant` then returned "Untitled" with a 289 KB
+reply unread and its own `generateSimpleChatName` last resort unreachable behind the early return.
+Meanwhile the renderer called `markTitleGenerated` BEFORE generating, so one starved turn closed
+the door for the session's life. Now: bail only when BOTH sides are empty, and mark it done only
+when a title lands, bounded at three attempts so an unnameable session stops asking.
+
+**`background_jobs` searched the user's shells.** `listTerminalInstances` returns every instance
+including `owner:"user"`, and the finished-job fallback matched labels by SUBSTRING — and user
+tabs are labelled by their last command. So `job:"pnpm check"` could return the buffer of a shell
+the user was typing in, and the error named those shells (`Open terminals: ["Agent"]`). The test
+missed it because it re-implemented the three-step match by hand and both copies searched
+everything. LESSON: a test that mirrors the logic it tests validates the bug. The resolution is
+one exported `findAgentBuffer`; the test calls it. Also: it now falls back to the shared
+foreground buffer rather than refusing output it holds, and speaks `list`'s vocabulary (retained
+COMMANDS) instead of naming a terminal UI the agent no longer has.
+
+**The release workflow truncated its own notes at 80 lines.** This section is 92, so the last two
+paragraphs would have vanished from the published GitHub release with nothing to mark the cut.
+Raised to 400 (a runaway guard; the CHANGELOG section boundary is the real limit). Discord stays a
+40-line teaser but now always carries the full-notes link, not only when the extract came back
+empty. CHECK THIS BEFORE EVERY TAG: `scripts/ci/extract-changelog.sh <version> 400 | wc -l`
+against what the workflow passes.
+
 ## ✅ SHIPPED in v14.25.0 — honest context accounting, skills on demand, one grant list
 
 **The meter counted the wrong thing.** `token_count_handlers` scored each message's display

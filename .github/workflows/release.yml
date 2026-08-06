@@ -753,7 +753,12 @@ jobs:
         run: |
           chmod +x scripts/ci/extract-changelog.sh
           VERSION="${GITHUB_REF_NAME#v}"
-          ./scripts/ci/extract-changelog.sh "$VERSION" 80 > release-notes.md || true
+          # The GitHub release carries the WHOLE section. 80 was an arbitrary cap
+          # that this release's notes (92 lines) crossed, and the failure mode is
+          # the silent kind: the last paragraphs simply vanish from the published
+          # notes with nothing to say they were dropped. The section boundary in
+          # docs/CHANGELOG.md is the real limit; this is only a runaway guard.
+          ./scripts/ci/extract-changelog.sh "$VERSION" 400 > release-notes.md || true
           if [ -z "$(tr -d '[:space:]' < release-notes.md)" ]; then
             echo "::warning::No section found in docs/CHANGELOG.md for v${VERSION}. Expected ## [${VERSION}] or ## v${VERSION}."
             echo "See full changelog: https://github.com/AmariahAK/atlarix-releases/releases/tag/v${VERSION}" > release-notes.md
@@ -763,9 +768,11 @@ jobs:
             echo ""
             ./scripts/ci/extract-changelog.sh "$VERSION" 40 || true
           } > discord-body.txt
-          if [ -z "$(tail -n +3 discord-body.txt | tr -d '[:space:]')" ]; then
-            echo "See https://github.com/AmariahAK/atlarix-releases/releases/tag/${GITHUB_REF_NAME}" >> discord-body.txt
-          fi
+          # Discord stays a 40-line teaser deliberately — but a teaser that stops
+          # mid-sentence with no way to read the rest is just a truncated post.
+          # The link goes on every time, not only when the extract came back empty.
+          echo "" >> discord-body.txt
+          echo "Full notes: https://github.com/AmariahAK/atlarix-releases/releases/tag/${GITHUB_REF_NAME}" >> discord-body.txt
 
       - name: Update GitHub release notes
         env:
