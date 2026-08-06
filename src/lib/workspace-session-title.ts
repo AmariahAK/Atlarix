@@ -47,13 +47,34 @@ function setSessionTitleGenerating(sessionId: string, generating: boolean): void
  */
 const titleGeneratedChats = new Set<number>();
 
+/**
+ * Attempts spent on chats that have not produced a title yet.
+ *
+ * A single unconditional attempt was the second half of the "Untitled forever"
+ * bug: the caller marked the chat done BEFORE generating, so a first turn with
+ * nothing nameable in it burned the only chance. Two live sessions sat at 10 and
+ * 20 messages still called "Untitled" — by turn two there was ample material.
+ *
+ * Bounded rather than unbounded: a session that genuinely cannot be named stops
+ * asking instead of spending a title call every turn, forever.
+ */
+const titleAttemptsByChat = new Map<number, number>();
+const MAX_TITLE_ATTEMPTS = 3;
+
 /** True when this chat still needs a generated title. */
 export function needsGeneratedTitle(chatId: number): boolean {
-  return !titleGeneratedChats.has(chatId);
+  if (titleGeneratedChats.has(chatId)) return false;
+  return (titleAttemptsByChat.get(chatId) ?? 0) < MAX_TITLE_ATTEMPTS;
 }
 
 export function markTitleGenerated(chatId: number): void {
   titleGeneratedChats.add(chatId);
+  titleAttemptsByChat.delete(chatId);
+}
+
+/** An attempt that produced nothing — spend one try, but keep the door open. */
+export function noteTitleAttemptFailed(chatId: number): void {
+  titleAttemptsByChat.set(chatId, (titleAttemptsByChat.get(chatId) ?? 0) + 1);
 }
 
 /**
@@ -66,10 +87,15 @@ export function markTitleGenerated(chatId: number): void {
  */
 export function allowRetitleAfterFirstPromptEdit(chatId: number): void {
   titleGeneratedChats.delete(chatId);
+  titleAttemptsByChat.delete(chatId);
 }
 
-/** Async AI title from first user + assistant messages after the first turn completes. */
-export async function applyAIWorkspaceSessionTitle(sessionId: string): Promise<void> {
+/**
+ * Async AI title from first user + assistant messages after the first turn
+ * completes. Returns whether a real title landed, so the caller knows whether
+ * this chat is done or should try again on the next turn.
+ */
+export async function applyAIWorkspaceSessionTitle(sessionId: string): Promise<boolean> {
   setSessionTitleGenerating(sessionId, true);
   try {
     // `limit: 1` because only `session.titleSource` is read below. Unbounded, this
@@ -82,7 +108,8 @@ export async function applyAIWorkspaceSessionTitle(sessionId: string): Promise<v
     // Ownership, not "is it still Untitled". Re-deriving a title the USER typed
     // would be worse than never re-titling; re-deriving one we generated is the
     // whole point when the prompt it came from has changed.
-    if (session.titleSource === "user") return;
+    // A title the user typed is theirs — done, and never retry.
+    if (session.titleSource === "user") return true;
 
     const { title } = await IpcClient.getInstance().generateWorkspaceSessionTitle(sessionId);
     if (
@@ -94,9 +121,12 @@ export async function applyAIWorkspaceSessionTitle(sessionId: string): Promise<v
       // v14.8.11: the tab strip holds a title SNAPSHOT — push the new name
       // into any open tab for this session or it stays "Untitled" forever.
       updateOpenChatTabTitleForSession(sessionId, title);
+      return true;
     }
+    return false;
   } catch (e) {
     console.error("Failed to apply AI workspace session title:", e);
+    return false;
   } finally {
     setSessionTitleGenerating(sessionId, false);
   }

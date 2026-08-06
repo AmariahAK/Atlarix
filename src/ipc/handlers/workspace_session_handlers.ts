@@ -871,28 +871,37 @@ export function registerWorkspaceSessionHandlers(): void {
     // `<atlarix-text-attachment … />` — stripped to "" (chat_naming.ts removes all
     // tags). That empty string was fed to the title model AND was what the
     // simple-name fallback below is gated on, so both paths starved and the
-    // session stayed "Untitled" forever. Looking past a message that carries only
-    // attachments fixes the input and the fallback together.
+    // session stayed "Untitled" forever.
     const firstUser = rows.find(
       (m) =>
         m.role === "user" && stripContentForTitleSource(m.content ?? "", "user").trim(),
     );
-    if (!firstUser?.content?.trim() || !firstAssistant?.content?.trim()) {
+
+    const userText = firstUser
+      ? stripContentForTitleSource(firstUser.content ?? "", "user").trim()
+      : "";
+    const assistantText = firstAssistant
+      ? stripContentForTitleSource(firstAssistant.content ?? "", "assistant")
+          .trim()
+          .slice(0, 2000)
+      : "";
+
+    // Bail only when there is NOTHING to name from — not when one side is empty.
+    //
+    // Looking past an attachment-only message is right, but when it is the ONLY
+    // user message there is nothing to look past to, and the old `!firstUser ||
+    // !firstAssistant` gate returned here with a full assistant reply sitting
+    // unread. Two live sessions (10 and 20 messages) stayed "Untitled" for their
+    // whole lives on exactly that shape. Either side alone is enough: the AI namer
+    // takes what it is given, and the `generateSimpleChatName` last resort below
+    // already prefers the user's words and falls back to the assistant's.
+    if (!userText && !assistantText) {
       return { title: currentTitle };
     }
 
     const conversationMessages = [
-      {
-        role: "user",
-        content: stripContentForTitleSource(firstUser.content, "user"),
-      },
-      {
-        role: "assistant",
-        content: stripContentForTitleSource(firstAssistant.content, "assistant").slice(
-          0,
-          2000,
-        ),
-      },
+      { role: "user", content: userText },
+      { role: "assistant", content: assistantText },
     ];
 
     let newTitle = currentTitle;
@@ -900,7 +909,9 @@ export function registerWorkspaceSessionHandlers(): void {
       newTitle = await generateAIChatName(conversationMessages, currentTitle);
     } catch (err) {
       logger.warn("AI session title generation failed:", err);
-      const summaryMatch = firstAssistant.content.match(
+      // `firstAssistant` is optional now — a session can reach here on the user's
+      // words alone, before any reply has been written.
+      const summaryMatch = (firstAssistant?.content ?? "").match(
         /<atlarix-chat-summary>([\s\S]*?)<\/atlarix-chat-summary>/,
       );
       if (summaryMatch?.[1]?.trim()) {
