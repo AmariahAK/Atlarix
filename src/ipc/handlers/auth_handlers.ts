@@ -220,42 +220,6 @@ export function registerAuthHandlers() {
      * `auth:enforce-workspace-limit` lived here until v14.27.0.
      *
      * It ran on sign-in and, for a Free user, DELETED every workspace but the
-     * oldest — cascading through chat sessions, MCP servers, daily logs, workflow
-     * templates and automations. It also needed coalescing and a remembered
-     * result, because ~22 `useAuth` consumers each invoked it in one tick and a
-     * destructive operation was racing itself.
-     *
-     * None of that is needed once the cap is enforced where a workspace is
-     * CREATED (`ipc/utils/workspace-quota.ts`), which is how this product already
-     * enforced its MCP and automation caps. Nothing is deleted, so nothing has to
-     * be serialised against itself, and a user who is already over the cap keeps
-     * what they have.
-     */
-
-    // Check workspace limit (alias for frontend use)
-    ipcMain.handle("auth:check-workspace-limit", async () => {
-        try {
-            const result = await SubscriptionManager.canCreateWorkspace();
-            return {
-                allowed: result.allowed,
-                reason: result.reason,
-                currentCount: result.currentCount,
-                maxAllowed: result.maxAllowed,
-            };
-        } catch (error) {
-            logger.error(`[AuthHandlers] Check workspace limit error:`, error);
-            // A16/L-1: fail CLOSED (was `allowed: true`).
-            return {
-                allowed: false,
-                reason: "Couldn't verify your plan limit — please try again.",
-            };
-        }
-    });
-
-    /*
-     * `auth:enforce-workspace-limit` lived here until v14.27.0.
-     *
-     * It ran on sign-in and, for a Free user, DELETED every workspace but the
      * OLDEST — cascading through chat sessions, MCP servers, daily logs, workflow
      * templates and automations. It also needed request coalescing and a
      * remembered result, because ~22 `useAuth` consumers each invoked it in one
