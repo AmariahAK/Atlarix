@@ -20,7 +20,6 @@ import {
   AutomationTriggerSchema,
   MIN_POLL_INTERVAL_MINUTES,
   type AutomationTrigger,
-  type GithubCursor,
   type McpCursor,
 } from "./types";
 import type { ExecuteRunDeps } from "./execute-run";
@@ -97,7 +96,9 @@ function parseTrigger(raw: string): AutomationTrigger | null {
   }
 }
 
-async function persistCursor(automationId: string, cursor: GithubCursor | McpCursor): Promise<void> {
+// `unknown`: a pipeline host owns its own cursor shape, and the runner only
+// stores it. Narrowing here would mean this file knowing every host's internals.
+async function persistCursor(automationId: string, cursor: unknown): Promise<void> {
   await db
     .update(automations)
     .set({ cursor: JSON.stringify(cursor), updatedAt: new Date() })
@@ -145,9 +146,20 @@ async function pollOnce(automationId: string): Promise<void> {
   const deps = runnerDeps ?? (runnerDeps = await defaultDeps());
 
   try {
-    if (trigger.kind === "github") {
-      const cursor = automation.cursor ? (JSON.parse(automation.cursor) as GithubCursor) : null;
-      const result = await deps.pollGithub(trigger, cursor);
+    if (trigger.kind === "pipeline") {
+      // Dispatch by HOST through the registry rather than by a hardcoded vendor
+      // branch — adding GitLab is a registry entry, not an edit here.
+      const { getPipelineHost } = await import("./pipeline-hosts");
+      const host = getPipelineHost(trigger.host);
+      if (!host) {
+        // Registered at create time, so this means a build without that poller.
+        // Say it once rather than failing silently every interval.
+        throw new Error(
+          `No poller registered for pipeline host "${trigger.host}" — this automation cannot fire.`,
+        );
+      }
+      const cursor = automation.cursor ? (JSON.parse(automation.cursor) as unknown) : null;
+      const result = await host.poll(trigger, cursor);
       await persistCursor(automationId, result.nextCursor);
       if (result.fired) enqueueRun(automationId, result.context ?? null, "poll");
     } else {

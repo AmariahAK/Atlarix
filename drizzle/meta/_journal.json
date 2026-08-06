@@ -505,6 +505,13 @@
       "when": 1783540010000,
       "tag": "0071_automation_notify_agent",
       "breakpoints": true
+    },
+    {
+      "idx": 72,
+      "version": "6",
+      "when": 1783540020000,
+      "tag": "0072_automation_pipeline_trigger",
+      "breakpoints": true
     }
   ]
 }

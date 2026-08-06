@@ -233,6 +233,19 @@ export function isJournalMigrationApplied(
       return columnExists(sqlite, "session_messages", "snapshot_turn_id");
     case "0071_automation_notify_agent":
       return columnExists(sqlite, "automations", "notify_agent");
+    case "0072_automation_pipeline_trigger":
+      // A data migration, not DDL — "applied" means no legacy github trigger
+      // is left. Vacuously true on a fresh DB, which is correct.
+      return (
+        tableExists(sqlite, "automations") &&
+        !(
+          sqlite
+            .prepare(
+              "SELECT 1 FROM automations WHERE json_valid(trigger) AND json_extract(trigger,'$.kind')='github' LIMIT 1",
+            )
+            .get() as unknown
+        )
+      );
     default:
       return false;
   }

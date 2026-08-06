@@ -46,7 +46,7 @@ function triggerLabel(trigger: unknown): string {
   const t = trigger as AutomationTrigger | null;
   if (!t || typeof t !== "object") return "unknown trigger";
   if (t.kind === "schedule") return `cron ${t.cron}`;
-  if (t.kind === "github") return `GitHub ${t.repo} (${t.events.join(", ")})`;
+  if (t.kind === "pipeline") return `${t.host} ${t.repo} (${t.events.join(", ")})`;
   return `MCP ${t.tool} every ${t.intervalMinutes}m`;
 }
 

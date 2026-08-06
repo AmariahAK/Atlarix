@@ -4,7 +4,7 @@
  * pre-consent notice — saving grants consent="always" for that server+tool.
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -18,6 +18,14 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { IpcClient } from "@/ipc/ipc_client";
+import { pipelineHostIds } from "@/lib/automations/pipeline-hosts";
+import {
+  clockFromCron,
+  cronWithClock,
+  formatClock,
+  HOUR_OPTIONS,
+  MINUTE_OPTIONS,
+} from "@/lib/automations/cron-time";
 import type { AutomationListItem } from "@/atoms/automationAtoms";
 import type { AutomationTrigger } from "@/lib/automations/types";
 
@@ -47,6 +55,66 @@ interface McpServerOption {
   name: string;
 }
 
+/**
+ * One scrollable column of the time picker.
+ *
+ * A scrolling list rather than a `<select>` so hours and all sixty minutes are
+ * browsable at a glance — and so the minute column can offer every value
+ * instead of the 5-minute steps a dropdown would push you toward. The selected
+ * row scrolls itself into view on open, which is the whole reason a 60-item
+ * column is usable at all.
+ */
+function ScrollColumn({
+  label,
+  values,
+  selected,
+  onSelect,
+}: {
+  label: string;
+  /** [value, display] pairs — display differs for zero-padded minutes. */
+  values: Array<[string, string]>;
+  selected: string;
+  onSelect: (value: string) => void;
+}) {
+  const selectedRef = useRef<HTMLButtonElement | null>(null);
+  useEffect(() => {
+    selectedRef.current?.scrollIntoView({ block: "center" });
+  }, [selected]);
+  return (
+    <div className="flex flex-col gap-1">
+      <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+        {label}
+      </span>
+      <div
+        role="listbox"
+        aria-label={label}
+        className="h-28 w-16 overflow-y-auto rounded-md border border-border bg-background/60"
+      >
+        {values.map(([value, display]) => {
+          const isSelected = value === selected;
+          return (
+            <button
+              key={value}
+              ref={isSelected ? selectedRef : undefined}
+              type="button"
+              role="option"
+              aria-selected={isSelected}
+              onClick={() => onSelect(value)}
+              className={`block w-full px-2 py-1 text-center text-sm tabular-nums ${
+                isSelected
+                  ? "bg-primary text-primary-foreground"
+                  : "hover:bg-accent"
+              }`}
+            >
+              {display}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 export function AutomationForm({
   workspaceId,
   existing,
@@ -71,13 +139,20 @@ export function AutomationForm({
     existingTrigger?.kind === "schedule" ? existingTrigger.cron : SCHEDULE_PRESETS[1].cron,
   );
   const [repo, setRepo] = useState(
-    existingTrigger?.kind === "github" ? existingTrigger.repo : (defaultRepo ?? ""),
+    existingTrigger?.kind === "pipeline" ? existingTrigger.repo : (defaultRepo ?? ""),
+  );
+  // Free-form. The registry supplies suggestions; it does not constrain typing —
+  // adding a host is registering a poller, not editing an enum here.
+  const [host, setHost] = useState(
+    existingTrigger?.kind === "pipeline"
+      ? existingTrigger.host
+      : (pipelineHostIds()[0] ?? "github"),
   );
   const [events, setEvents] = useState<Array<"new-pr" | "review-requested" | "ci-failed">>(
-    existingTrigger?.kind === "github" ? existingTrigger.events : ["new-pr"],
+    existingTrigger?.kind === "pipeline" ? existingTrigger.events : ["new-pr"],
   );
   const [interval, setIntervalMin] = useState(
-    existingTrigger?.kind === "github" || existingTrigger?.kind === "mcp"
+    existingTrigger?.kind === "pipeline" || existingTrigger?.kind === "mcp"
       ? existingTrigger.intervalMinutes
       : 15,
   );
@@ -110,14 +185,18 @@ export function AutomationForm({
     if (!open) setError(null);
   }, [open]);
 
+  // Derived, never stored: the cron is the value, the clock is a view of it.
+  const clock = useMemo(() => clockFromCron(cron), [cron]);
+
   const trigger = useMemo((): AutomationTrigger | null => {
     if (kind === "schedule") {
       return cron.trim() ? { kind: "schedule", cron: cron.trim() } : null;
     }
-    if (kind === "github") {
+    if (kind === "pipeline") {
       if (!/^[\w.-]+\/[\w.-]+$/.test(repo.trim()) || events.length === 0) return null;
       return {
-        kind: "github",
+        kind: "pipeline",
+        host: host.trim(),
         repo: repo.trim(),
         events,
         intervalMinutes: Math.max(5, interval),
@@ -179,7 +258,10 @@ export function AutomationForm({
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="max-w-lg">
+      {/* Scroll the body rather than growing the dialog past the viewport —
+          the form gained a time picker and a host field, and a tall dialog
+          pushes its own Save button off-screen. */}
+      <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{existing ? "Edit automation" : "New automation"}</DialogTitle>
         </DialogHeader>
@@ -197,7 +279,7 @@ export function AutomationForm({
           <Tabs value={kind} onValueChange={(v) => setKind(v as AutomationTrigger["kind"])}>
             <TabsList className="grid w-full grid-cols-3">
               <TabsTrigger value="schedule">Schedule</TabsTrigger>
-              <TabsTrigger value="github">GitHub</TabsTrigger>
+              <TabsTrigger value="pipeline">Pipelines</TabsTrigger>
               <TabsTrigger value="mcp">MCP</TabsTrigger>
             </TabsList>
           </Tabs>
@@ -217,6 +299,60 @@ export function AutomationForm({
                   </Button>
                 ))}
               </div>
+              {/* Time of day, scrollable. Writes INTO the cron below, which
+                  stays the source of truth — so a hand-written expression the
+                  picker cannot represent is reported, never overwritten. */}
+              <div className="space-y-1.5">
+                <Label>Time of day</Label>
+                {clock ? (
+                  <div className="flex items-stretch gap-1.5">
+                    <ScrollColumn
+                      label="Hour"
+                      values={HOUR_OPTIONS.map((h) => [String(h), String(h)])}
+                      selected={String(clock.hour12)}
+                      onSelect={(v) =>
+                        setCron(cronWithClock(cron, { ...clock, hour12: Number(v) }))
+                      }
+                    />
+                    <ScrollColumn
+                      label="Minute"
+                      values={MINUTE_OPTIONS.map((m) => [
+                        String(m),
+                        String(m).padStart(2, "0"),
+                      ])}
+                      selected={String(clock.minute)}
+                      onSelect={(v) =>
+                        setCron(cronWithClock(cron, { ...clock, minute: Number(v) }))
+                      }
+                    />
+                    <ScrollColumn
+                      label="AM/PM"
+                      values={[
+                        ["AM", "AM"],
+                        ["PM", "PM"],
+                      ]}
+                      selected={clock.meridiem}
+                      onSelect={(v) =>
+                        setCron(
+                          cronWithClock(cron, {
+                            ...clock,
+                            meridiem: v as "AM" | "PM",
+                          }),
+                        )
+                      }
+                    />
+                    <div className="self-end pb-1 text-sm text-muted-foreground">
+                      {formatClock(clock)}
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    This schedule doesn't run at one time of day, so the picker
+                    can't show it — edit the cron directly below.
+                  </p>
+                )}
+              </div>
+
               <div className="space-y-1.5">
                 <Label htmlFor="automation-cron">Cron expression</Label>
                 <Input
@@ -233,8 +369,29 @@ export function AutomationForm({
             </div>
           )}
 
-          {kind === "github" && (
+          {kind === "pipeline" && (
             <div className="space-y-2">
+              <div className="space-y-1.5">
+                <Label htmlFor="automation-host">Host</Label>
+                <Input
+                  id="automation-host"
+                  list="automation-host-options"
+                  value={host}
+                  onChange={(e) => setHost(e.target.value)}
+                  placeholder="github"
+                  className="font-mono"
+                />
+                {/* Suggestions, not a closed list — the field accepts anything,
+                    and the save is what tells you if nothing can poll it. */}
+                <datalist id="automation-host-options">
+                  {pipelineHostIds().map((h) => (
+                    <option key={h} value={h} />
+                  ))}
+                </datalist>
+                <p className="text-xs text-muted-foreground">
+                  Atlarix can poll: {pipelineHostIds().join(", ") || "nothing yet"}.
+                </p>
+              </div>
               <div className="space-y-1.5">
                 <Label htmlFor="automation-repo">Repository (owner/name)</Label>
                 <Input
@@ -312,7 +469,7 @@ export function AutomationForm({
             </div>
           )}
 
-          {(kind === "github" || kind === "mcp") && (
+          {(kind === "pipeline" || kind === "mcp") && (
             <div className="space-y-1.5">
               <Label htmlFor="automation-interval">Poll every (minutes, min 5)</Label>
               <Input

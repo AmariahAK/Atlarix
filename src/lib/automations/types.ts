@@ -21,9 +21,37 @@ export const GithubTriggerEventSchema = z.enum([
   "ci-failed",
 ]);
 
-export const GithubTriggerSchema = z.object({
+/**
+ * A CI/code host to watch. The vendor is a FIELD, not the kind.
+ *
+ * `host` is deliberately an unconstrained string here — no enum, no union, so
+ * adding GitLab or a self-hosted Jenkins never touches this file. What a host
+ * MEANS is decided by `pipeline-hosts.ts`: if nothing there can poll it, the
+ * create is refused with the registered list, because an automation that can
+ * never fire is worse than one that is refused.
+ *
+ * Replaces `kind: "github"`, which made one vendor into a schema branch, a
+ * poller call and a form tab.
+ */
+export const PipelineTriggerSchema = z.object({
+  kind: z.literal("pipeline"),
+  /** e.g. "github". Free-form; validated against the poller registry. */
+  host: z.string().min(1),
+  /** What to watch — shape depends on the host ("owner/name" for GitHub). */
+  repo: z.string().min(1),
+  events: z.array(GithubTriggerEventSchema).min(1),
+  intervalMinutes: z.number().int().min(MIN_POLL_INTERVAL_MINUTES),
+});
+
+/**
+ * The pre-v14.27.0 shape, kept ONLY so saved automations still parse.
+ *
+ * Migration 0072 rewrites stored rows to `pipeline`; this alias covers anything
+ * that slipped through (an in-flight edit, a hand-written file) and is
+ * normalised by `parseTrigger` rather than reaching the runner.
+ */
+export const LegacyGithubTriggerSchema = z.object({
   kind: z.literal("github"),
-  /** "owner/name" — prefilled from the workspace origin remote at creation. */
   repo: z.string().regex(/^[\w.-]+\/[\w.-]+$/),
   events: z.array(GithubTriggerEventSchema).min(1),
   intervalMinutes: z.number().int().min(MIN_POLL_INTERVAL_MINUTES),
@@ -38,14 +66,34 @@ export const McpTriggerSchema = z.object({
   intervalMinutes: z.number().int().min(MIN_POLL_INTERVAL_MINUTES),
 });
 
-export const AutomationTriggerSchema = z.discriminatedUnion("kind", [
+const RawAutomationTriggerSchema = z.discriminatedUnion("kind", [
   ScheduleTriggerSchema,
-  GithubTriggerSchema,
+  PipelineTriggerSchema,
+  LegacyGithubTriggerSchema,
   McpTriggerSchema,
 ]);
 
+/**
+ * Accepts the legacy `github` shape and hands back a `pipeline`, so exactly one
+ * shape reaches the runner, the form and the tool.
+ */
+export const AutomationTriggerSchema = RawAutomationTriggerSchema.transform(
+  (t) =>
+    t.kind === "github"
+      ? ({
+          kind: "pipeline" as const,
+          host: "github",
+          repo: t.repo,
+          events: t.events,
+          intervalMinutes: t.intervalMinutes,
+        })
+      : t,
+);
+
 export type ScheduleTrigger = z.infer<typeof ScheduleTriggerSchema>;
-export type GithubTrigger = z.infer<typeof GithubTriggerSchema>;
+export type PipelineTrigger = z.infer<typeof PipelineTriggerSchema>;
+/** Legacy alias — the GitHub poller still speaks this shape. */
+export type GithubTrigger = z.infer<typeof LegacyGithubTriggerSchema>;
 export type McpTrigger = z.infer<typeof McpTriggerSchema>;
 export type AutomationTrigger = z.infer<typeof AutomationTriggerSchema>;
 

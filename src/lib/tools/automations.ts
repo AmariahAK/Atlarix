@@ -36,14 +36,15 @@ import {
 import { listAutomations, getAutomation } from "@/lib/automations/service";
 import { SubscriptionManager } from "@/lib/SubscriptionManager";
 import { capRemedy, describePlanCap, planCapClause } from "@/lib/plan-caps";
+import { pipelineHostIds } from "@/lib/automations/pipeline-hosts";
 
 const logger = log.scope("automations-tool");
 
 /** Plain-English trigger, for the approval card and the model's own summary. */
 export function describeTrigger(trigger: AutomationTrigger): string {
   if (trigger.kind === "schedule") return `on the schedule \`${trigger.cron}\``;
-  if (trigger.kind === "github") {
-    return `on ${trigger.events.join(" / ")} in ${trigger.repo}, polled every ${trigger.intervalMinutes} min`;
+  if (trigger.kind === "pipeline") {
+    return `on ${trigger.events.join(" / ")} in ${trigger.repo} (${trigger.host}), polled every ${trigger.intervalMinutes} min`;
   }
   return `by polling MCP tool \`${trigger.tool}\` every ${trigger.intervalMinutes} min`;
 }
@@ -124,7 +125,7 @@ ToolRegistry.register({
         type: "object",
         description:
           "One of: {kind:\"schedule\", cron:\"0 9 * * 1-5\"} · " +
-          `{kind:"github", repo:"owner/name", events:["new-pr"|"review-requested"|"ci-failed"], intervalMinutes:>=${MIN_POLL_INTERVAL_MINUTES}} · ` +
+          `{kind:"pipeline", host:"<host>", repo:"owner/name", events:["new-pr"|"review-requested"|"ci-failed"], intervalMinutes:>=${MIN_POLL_INTERVAL_MINUTES}} — hosts Atlarix can poll right now: ${pipelineHostIds().join(", ") || "(none)"} · ` +
           `{kind:"mcp", serverId:<number>, tool:"<tool>", args:{…}, intervalMinutes:>=${MIN_POLL_INTERVAL_MINUTES}}`,
       },
       prompt: stringParam(

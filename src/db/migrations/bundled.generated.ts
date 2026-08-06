@@ -75,6 +75,7 @@ import raw_68_0068_session_title_source from "../../../drizzle/0068_session_titl
 import raw_69_0069_session_message_token_usage from "../../../drizzle/0069_session_message_token_usage.sql?raw";
 import raw_70_0070_drop_worktree_run_mode from "../../../drizzle/0070_drop_worktree_run_mode.sql?raw";
 import raw_71_0071_automation_notify_agent from "../../../drizzle/0071_automation_notify_agent.sql?raw";
+import raw_72_0072_automation_pipeline_trigger from "../../../drizzle/0072_automation_pipeline_trigger.sql?raw";
 
 export type BundledMigration = {
   name: string;
@@ -157,6 +158,7 @@ export const BUNDLED_MIGRATIONS: BundledMigration[] = [
   { name: "0069_session_message_token_usage", sql: raw_69_0069_session_message_token_usage as string, drizzleHash: "e94881325d65ec6314de161df7367aa99557e8fd5ba3a0c9c611df1260a0005c", when: 1783530000000 },
   { name: "0070_drop_worktree_run_mode", sql: raw_70_0070_drop_worktree_run_mode as string, drizzleHash: "7272a5be115ba9856d7cb7683c85e2e7da1e5434cd6f9b8ef70e1c78606d95ef", when: 1783540000000 },
   { name: "0071_automation_notify_agent", sql: raw_71_0071_automation_notify_agent as string, drizzleHash: "3d2db9b1c014ea4830cac6450b8be42e2703cc6295a4f8e5a6694517ffeab90f", when: 1783540010000 },
+  { name: "0072_automation_pipeline_trigger", sql: raw_72_0072_automation_pipeline_trigger as string, drizzleHash: "38d2cdf1f97d68f25b85e37e4bf52a2a2fa177d9cb191f0ccfa1181b3dc18a69", when: 1783540020000 },
 ];
 
 /** Map Drizzle __drizzle_migrations.hash → migration tag for bridge. */
@@ -233,4 +235,5 @@ export const DRIZZLE_HASH_TO_NAME: Record<string, string> = {
   "e94881325d65ec6314de161df7367aa99557e8fd5ba3a0c9c611df1260a0005c": "0069_session_message_token_usage",
   "7272a5be115ba9856d7cb7683c85e2e7da1e5434cd6f9b8ef70e1c78606d95ef": "0070_drop_worktree_run_mode",
   "3d2db9b1c014ea4830cac6450b8be42e2703cc6295a4f8e5a6694517ffeab90f": "0071_automation_notify_agent",
+  "38d2cdf1f97d68f25b85e37e4bf52a2a2fa177d9cb191f0ccfa1181b3dc18a69": "0072_automation_pipeline_trigger",
 };
