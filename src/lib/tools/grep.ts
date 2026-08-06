@@ -32,16 +32,30 @@ type GrepGroup = {
   relFile?: string;
 };
 
-function parseGrepOutput(output: string): GrepGroup[] {
+/** Exported for tests: Windows output shapes are unreachable from a POSIX runner. */
+export function parseGrepOutput(output: string): GrepGroup[] {
   const groups: GrepGroup[] = [];
   const lines = output.split("\n");
   let current: GrepGroup | null = null;
 
   for (const line of lines) {
     if (!line.includes(":")) continue;
-    const [file, lineNum, ...content] = line.split(":");
-    const num = parseInt(lineNum, 10);
-    if (!file || !lineNum || isNaN(num)) continue;
+    // A Windows drive letter carries its own colon, so a plain `split(":")` tore
+    // `C:\repo\pkg\loader.go:3:text` into file="C", lineNum="\repo\pkg\loader.go"
+    // — `parseInt` returned NaN and the match was DISCARDED. Since ripgrep is
+    // handed an absolute search root, every path it prints on Windows starts with
+    // a drive letter, so every match was dropped and grep reported "No matches"
+    // however many there were. A silent wrong answer, which is the worst kind:
+    // the model concludes the code it is looking for does not exist.
+    //
+    // The optional `[A-Za-z]:` prefix absorbs the drive; `[^:]*` then holds the
+    // rest of the path, which cannot contain a colon on either platform.
+    const m = /^((?:[A-Za-z]:)?[^:]*):(\d+):([\s\S]*)$/.exec(line);
+    if (!m) continue;
+    const file = m[1];
+    const num = parseInt(m[2], 10);
+    const content = [m[3]];
+    if (!file || isNaN(num)) continue;
 
     if (current && current.file !== file) {
       groups.push(current);

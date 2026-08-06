@@ -209,7 +209,13 @@ ToolRegistry.register({
             }
             if (trimmed === "*") {
                 // Bare `*` = list this directory's own files, not the whole tree.
-                matched = matched.filter((f) => !f.includes("/"));
+                //
+                // ripgrep separates with the PLATFORM's separator, so testing only
+                // for "/" meant this filter did nothing on Windows: `glob("*")`
+                // returned the entire recursive tree instead of one directory's
+                // entries — the opposite of what was asked, and a flood of paths
+                // into the model's context.
+                matched = matched.filter((f) => !/[\\/]/.test(f));
             }
 
             // Like opencode / Claude Code, in-workspace files (incl. .env) are
