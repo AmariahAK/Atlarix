@@ -42,22 +42,42 @@ const MAX_LIMIT = 1000;
  *
  * An explicit `path` argument WINS: the caller said where to look, so a directory
  * prefix in the pattern is left alone rather than silently retargeting the search.
+ *
+ * `p` is the path flavour, injectable ONLY so both platforms can be tested from
+ * one machine. It defaults to the running platform's and nothing passes it in
+ * production. The Windows drive-letter bug this function used to have was
+ * unreachable from a macOS or Linux test — `path.isAbsolute("C:\\x")` is false
+ * there, so the broken branch never ran — and it therefore survived until a
+ * tagged build put it on a Windows runner.
  */
 export function absorbPatternDirectoryPrefix(
     pattern: string,
     searchPath: string,
+    p: path.PlatformPath = path,
 ): { pattern: string; searchPath: string } {
     const trimmed = (pattern ?? "").trim();
     const callerGavePath = (searchPath ?? "").trim() !== "" && searchPath !== ".";
     if (callerGavePath || !trimmed) return { pattern, searchPath };
 
-    const isAbsolute = path.isAbsolute(trimmed);
+    const isAbsolute = p.isAbsolute(trimmed);
     const startsWithParent = /^\.\.[\\/]/.test(trimmed);
     if (!isAbsolute && !startsWithParent) return { pattern, searchPath };
 
-    // Split into segments, dropping the empty leading segment an absolute path
-    // produces so the rebuild below controls the root explicitly.
-    const segments = trimmed.split(/[\\/]+/).filter((s) => s !== "");
+    // Take the ROOT from the platform rather than assuming one leading separator.
+    //
+    // The old rebuild was `path.sep + segments.join(path.sep)`, which is right on
+    // POSIX — splitting `/Users/me/x` drops an empty leading segment that has to be
+    // put back — and wrong on Windows, where there is no empty leading segment to
+    // restore. `C:\proj\sibling\**\*.go` came back as `\C:\proj\sibling`, a path
+    // that does not exist, so ripgrep failed to start and `glob` returned
+    // "glob failed to run the pattern" for every absolute pattern on Windows.
+    // `path.parse().root` is `/` there and `C:\` here, which is exactly the
+    // difference the old line was papering over.
+    const root = isAbsolute ? p.parse(trimmed).root : "";
+    const segments = trimmed
+        .slice(root.length)
+        .split(/[\\/]+/)
+        .filter((s) => s !== "");
     const dirSegments: string[] = [];
     let i = 0;
     for (; i < segments.length; i++) {
@@ -67,8 +87,10 @@ export function absorbPatternDirectoryPrefix(
     }
     if (dirSegments.length === 0) return { pattern, searchPath };
 
+    // `path.join` on the root keeps the platform's own separator rules — including
+    // a UNC root, where naive concatenation loses a leading slash.
     const dir = isAbsolute
-        ? path.sep + dirSegments.join(path.sep)
+        ? p.join(root, ...dirSegments)
         : dirSegments.join("/");
     const remainder = segments.slice(i).join("/");
 
