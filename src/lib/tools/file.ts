@@ -12,6 +12,8 @@ import * as fs from "fs";
 import { recordFileRead, resolveReadScope } from "./file-read-log";
 import { truncateUtf8ByBytes } from "@/lib/truncate";
 import * as path from "path";
+import * as fsSync from "node:fs";
+import { resolveBundledGuidePath } from "@/lib/skills/bundled-guide-path";
 
 
 import {
@@ -292,8 +294,29 @@ ToolRegistry.register({
                     ? resolvePathUnderWorkspace(workspace, filePath)
                     : path.resolve(stripToolPathPrefixes(filePath));
 
+                // A bundled guide (`guides/memory`) resolves to Atlarix's own
+                // resources — but ONLY when the workspace has no such file, so a
+                // real `guides/` directory in someone's repo always wins.
+                //
+                // The skills index advertises these by NAME rather than by their
+                // absolute path inside the .app bundle: where Atlarix is
+                // installed is not the model's business, and handing it an
+                // unreconstructable path taught it to invent one (observed:
+                // `/Users/armaan/.atlarix/guides/memory.md` for a user named
+                // `amariah`). See `skills/bundled-guide-path.ts`.
+                if (!fsSync.existsSync(fullPath)) {
+                    const guide = resolveBundledGuidePath(String(filePath));
+                    if (guide && fsSync.existsSync(guide)) {
+                        fullPath = guide;
+                        displayPath = String(filePath);
+                    }
+                }
+
                 try {
-                    if (workspace) {
+                    // A resolved bundled guide is Atlarix's own read-only
+                    // resource, not a workspace path — the containment checks
+                    // below would reject it for being outside the workspace.
+                    if (workspace && !resolveBundledGuidePath(String(filePath))) {
                         assertReadablePath(String(filePath), workspace);
                         // String checks are symlink-blind — reject a workspace
                         // symlink whose real target escapes the workspace.

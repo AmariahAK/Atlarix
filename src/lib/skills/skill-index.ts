@@ -152,7 +152,11 @@ async function loadGuideEntries(): Promise<SkillIndexEntry[]> {
       out.push({
         name: guide.name,
         description: guide.description,
-        readPath: abs,
+        // The NAME, not the absolute path. `read_file` resolves it — see
+        // `bundled-guide-path.ts` for why the install location must not reach
+        // the model. (It is still `access`ed above so a guide missing from this
+        // build is not advertised.)
+        readPath: guide.name,
         source: "guide",
       });
     } catch {
