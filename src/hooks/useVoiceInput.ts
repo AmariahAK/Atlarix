@@ -128,6 +128,12 @@ export function useVoiceInput({
         pendingLocal.current.delete(m.id);
         resolve?.(m.text ?? "");
       } else if (m.type === "error") {
+        // CLEAR THE SPINNER. Only `ready` used to do this, so a failed model load
+        // left `modelLoadProgress` set forever — the mic icon spun indefinitely
+        // while the error sat in state, which is exactly how a broken on-device
+        // load presented: "the mic does nothing but rotate". An error is a
+        // terminal outcome for the load, so it must end the loading state too.
+        setModelLoadProgress(null);
         setError(m.message ?? "Transcription failed");
         if (m.id) {
           pendingLocal.current.get(m.id)?.("");

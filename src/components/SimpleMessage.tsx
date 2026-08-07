@@ -23,6 +23,8 @@ import {
     CHAT_MESSAGE_MARKDOWN_PROSE,
     UserMessageMarkdownParser,
 } from "./chat/AtlarixMarkdownParser";
+import { SentMentionChips } from "./chat/SentMentionChips";
+import { extractMentions } from "@/lib/chat/mention-attachment";
 import { AssistantMessageBody } from "./chat/AssistantMessageBody";
 import { InlineStreamStatus } from "./chat/InlineStreamStatus";
 import { RevertTurnAction } from "./chat/RevertTurnAction";
@@ -246,14 +248,30 @@ function SimpleMessageImpl({
                                     contentDrivenThread={false}
                                 />
                             ) : (
-                                <UserMessageMarkdownParser
-                                    content={message.content}
-                                    pasteAttachments={(() => {
-                                        const pastes =
-                                            resolvePasteAttachmentsForMessage(message);
-                                        return pastes.length > 0 ? pastes : undefined;
-                                    })()}
-                                />
+                                // `@file:`/`@dir:` tokens are re-emitted into the prompt on
+                                // send (the server needs them for extractMentionedContext),
+                                // so without this they rendered as raw text — an attachment
+                                // that looked like text and could not be previewed. Split
+                                // them out for DISPLAY only; message.content keeps its
+                                // tokens, so editing and re-dispatch are unaffected.
+                                (() => {
+                                    const { text, mentions } = extractMentions(
+                                        message.content ?? "",
+                                    );
+                                    return (
+                                        <>
+                                            <SentMentionChips mentions={mentions} />
+                                            <UserMessageMarkdownParser
+                                                content={text}
+                                                pasteAttachments={(() => {
+                                                    const pastes =
+                                                        resolvePasteAttachmentsForMessage(message);
+                                                    return pastes.length > 0 ? pastes : undefined;
+                                                })()}
+                                            />
+                                        </>
+                                    );
+                                })()
                             )}
 
 

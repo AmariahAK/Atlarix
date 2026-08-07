@@ -56,6 +56,12 @@ let loadedDevice: "webgpu" | "wasm" = "wasm";
 async function getTranscriber(
   model: string,
 ): Promise<AutomaticSpeechRecognitionPipeline> {
+  // Memoized so concurrent callers share one load. But a REJECTED promise must not
+  // be memoized: it used to be, so a single failed load poisoned the worker for its
+  // whole lifetime — every later `load`/`transcribe` re-returned the same rejection
+  // and the only recovery was restarting the app. Clearing it on failure makes a
+  // retry (e.g. after a network blip, or once the model cache is cleared) actually
+  // retry.
   if (transcriberPromise) return transcriberPromise;
 
   const progress_callback = (p: unknown) => {
@@ -72,20 +78,43 @@ async function getTranscriber(
     // WebGPU first (fp16 is the fast path); fall back to a quantized WASM build
     // on machines without WebGPU or where the GPU init throws.
     //
-    // Ask for an ADAPTER, not just for the API to exist. Chromium exposes
-    // `navigator.gpu` on machines whose GPU cannot actually back it, so the old
-    // `typeof navigator.gpu !== "undefined"` check sent us down the WebGPU path
-    // anyway — and `onnxruntime-web` logs its own `console.error`
-    // ("no available backend found. ERR: [webgpu] … Failed to get GPU adapter")
-    // BEFORE the catch below can fall back. Transcription still worked, but every
-    // affected user saw a scary error. Observed on Windows 10 hardware that also
-    // failed Chromium's DirectComposition probe.
+    // Require a real, USABLE WebGPU device — not merely the API, and not merely an
+    // adapter. This gate has been wrong twice, each time costing the user something:
+    //
+    //  1. `typeof navigator.gpu !== "undefined"` — Chromium exposes the API on
+    //     machines whose GPU cannot back it, so we entered the WebGPU path anyway
+    //     and `onnxruntime-web` logged its own console.error ("no available backend
+    //     found … Failed to get GPU adapter") before the catch below could fall back.
+    //  2. `requestAdapter()` alone — an adapter can be returned and still be a
+    //     software fallback that cannot execute `MatMulNBits`, the 4-bit op the q4
+    //     decoder is built from. ONNX Runtime then fails at SESSION CREATION with
+    //     "Missing required scale: model.decoder.embed_tokens.weight_merged_0_scale",
+    //     which reads like a corrupt download but is an unsupported-op problem.
+    //
+    // That second failure was expensive, not just noisy: by the time it fired we had
+    // already fetched the fp32 encoder + q4 decoder (~500 MB), and the WASM fallback
+    // then fetched q8 of both — 821 MB of Cache Storage on a machine that was always
+    // going to run on CPU. Requesting a DEVICE is what proves the ops can run, so a
+    // machine like that now downloads ONE variant.
     const hasWebGpu = await (async () => {
-      const gpu = (navigator as unknown as { gpu?: { requestAdapter?: () => Promise<unknown> } })
-        .gpu;
+      const gpu = (
+        navigator as unknown as {
+          gpu?: {
+            requestAdapter?: () => Promise<{
+              requestDevice?: () => Promise<{ destroy?: () => void } | null>;
+            } | null>;
+          };
+        }
+      ).gpu;
       if (!gpu?.requestAdapter) return false;
       try {
-        return Boolean(await gpu.requestAdapter());
+        const adapter = await gpu.requestAdapter();
+        if (!adapter?.requestDevice) return false;
+        const device = await adapter.requestDevice();
+        if (!device) return false;
+        // Release it immediately; transformers.js acquires its own.
+        device.destroy?.();
+        return true;
       } catch {
         return false;
       }
@@ -106,10 +135,16 @@ async function getTranscriber(
         });
         loadedDevice = "webgpu";
         return t as AutomaticSpeechRecognitionPipeline;
-      } catch {
+      } catch (e) {
+        // Include the reason. Previously this said only
+        // "webgpu-unavailable-falling-back-to-wasm" while ONNX Runtime's own
+        // console.error was the only thing carrying the cause — so the user saw a
+        // raw "Can't create a session … Missing required scale" and no explanation
+        // that we had recovered from it.
         self.postMessage({
           type: "progress",
           status: "webgpu-unavailable-falling-back-to-wasm",
+          message: e instanceof Error ? e.message.slice(0, 300) : String(e).slice(0, 300),
         });
       }
     }
@@ -121,6 +156,13 @@ async function getTranscriber(
     loadedDevice = "wasm";
     return t as AutomaticSpeechRecognitionPipeline;
   })();
+
+  // Un-memoize a failure so the next attempt is a real attempt. The rejection is
+  // still propagated to this caller (and surfaced by the onmessage catch); this only
+  // stops it being cached as the permanent answer.
+  transcriberPromise.catch(() => {
+    transcriberPromise = null;
+  });
 
   return transcriberPromise;
 }

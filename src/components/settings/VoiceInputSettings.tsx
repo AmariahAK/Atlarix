@@ -8,9 +8,12 @@
  * of truth.
  */
 
+import { useState } from "react";
 import { useSettings } from "@/hooks/useSettings";
 import { useTranscriptionProviders } from "@/hooks/useTranscriptionProviders";
+import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import { showError, showSuccess } from "@/lib/toast";
 import {
   Select,
   SelectContent,
@@ -50,9 +53,33 @@ const COMMON_LANGUAGES = [
 /** Sentinel for "follow the OS locale" — distinct from an explicit "auto". */
 const SYSTEM = "__system__";
 
+/**
+ * Delete the on-device model weights from Cache Storage.
+ *
+ * The on-device engine fetches ~250-500 MB of ONNX weights on first use and caches
+ * them under userData. There was no way to clear that: a load that failed for any
+ * reason (interrupted fetch, a quantisation the machine's runtime cannot build a
+ * session for) left the user with hundreds of megabytes cached, no retry path, and
+ * no recourse short of hand-deleting AppData. Because userData is INHERITED across
+ * reinstalls — including a Squirrel-to-Store switch — reinstalling never cleared it
+ * either.
+ *
+ * Runs entirely in the renderer: transformers.js uses the `caches` API, so no IPC.
+ */
+async function clearOnDeviceModelCache(): Promise<number> {
+  if (typeof caches === "undefined") return 0;
+  const keys = await caches.keys();
+  // transformers.js names its cache "transformers-cache"; match loosely so a rename
+  // upstream degrades to "cleared nothing" rather than clearing unrelated caches.
+  const targets = keys.filter((k) => /transformers|onnx/i.test(k));
+  await Promise.all(targets.map((k) => caches.delete(k)));
+  return targets.length;
+}
+
 export function VoiceInputSettings() {
   const { settings, updateSettings } = useSettings();
   const { data: liveProviders } = useTranscriptionProviders();
+  const [clearing, setClearing] = useState(false);
 
   const providers =
     liveProviders && liveProviders.length > 0
@@ -152,6 +179,43 @@ export function VoiceInputSettings() {
           </SelectContent>
         </Select>
       </div>
+
+      {/* Only meaningful for the on-device engine — the BYOK engines cache nothing. */}
+      {provider === "local" && (
+        <div className="flex items-center justify-between max-w-md gap-4">
+          <div className="space-y-0.5">
+            <Label className="text-sm">Downloaded model</Label>
+            <p className="text-xs text-muted-foreground">
+              The on-device engine caches its weights after the first use so it works
+              offline. Clear them if transcription is stuck or failing — they
+              re-download next time you dictate.
+            </p>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            className="shrink-0"
+            disabled={clearing}
+            onClick={async () => {
+              setClearing(true);
+              try {
+                const removed = await clearOnDeviceModelCache();
+                showSuccess(
+                  removed > 0
+                    ? "Cached voice model cleared — it will re-download next time you dictate."
+                    : "No cached voice model found.",
+                );
+              } catch (e) {
+                showError(e);
+              } finally {
+                setClearing(false);
+              }
+            }}
+          >
+            {clearing ? "Clearing…" : "Clear cache"}
+          </Button>
+        </div>
+      )}
     </div>
   );
 }
