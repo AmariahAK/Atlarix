@@ -91,3 +91,66 @@ describe("getPreviewRuntimeFeedback", () => {
     expect(getPreviewRuntimeFeedback("t1")).toContain("network-failed");
   });
 });
+
+// ── Errors from another tab are `unrelated` and must not block a turn ──
+//
+// Surface errors buffer per WINDOW, not per tab. So a docs page, dashboard, or any
+// browsing the user has open alongside the agent's work pushed errors into the same
+// list — where they read as the agent's own failures, appeared in
+// browser_inspect(mode:"console"), and blocked the completion gate for a page the
+// agent never touched.
+//
+// `unrelated` marks them without hiding them, exactly like a plan step's `external`
+// state: still reported to the model, explicitly not its work, never blocking.
+describe("blockingPreviewErrors — unrelated tabs", () => {
+  const err = (over: Partial<BrowserSurfaceError> = {}): BrowserSurfaceError => ({
+    type: "console-error",
+    message: "boom",
+    timestamp: 100,
+    level: "error",
+    ...over,
+  });
+
+  it("excludes an unrelated error even when it would otherwise block", () => {
+    // A hard console error — blocking in every other respect.
+    expect(blockingPreviewErrors([err({ unrelated: true })])).toEqual([]);
+  });
+
+  it("still blocks on the agent's own error", () => {
+    expect(blockingPreviewErrors([err({ unrelated: false })])).toHaveLength(1);
+    // Absent means related — the field is optional and must default to "mine".
+    expect(blockingPreviewErrors([err()])).toHaveLength(1);
+  });
+
+  it("excludes unrelated load-failed / render-gone / network-failed too", () => {
+    // These are "always blocking" by type, so the unrelated check must sit BEFORE
+    // that branch, not after it.
+    for (const type of ["load-failed", "render-gone", "network-failed"] as const) {
+      expect(blockingPreviewErrors([err({ type, level: undefined, unrelated: true })])).toEqual([]);
+      expect(blockingPreviewErrors([err({ type, level: undefined })])).toHaveLength(1);
+    }
+  });
+
+  it("keeps only the agent's own errors from a mixed buffer", () => {
+    const kept = blockingPreviewErrors([
+      err({ message: "mine" }),
+      err({ message: "other tab", unrelated: true }),
+      err({ message: "mine too", type: "network-failed", level: undefined }),
+    ]);
+    expect(kept.map((e) => e.message)).toEqual(["mine", "mine too"]);
+  });
+
+  it("composes with the per-turn baseline rather than replacing it", () => {
+    // An unrelated error from THIS turn and an own error from a PRIOR turn are both
+    // excluded, for different reasons.
+    const kept = blockingPreviewErrors(
+      [
+        err({ message: "old but mine", timestamp: 50 }),
+        err({ message: "new but theirs", timestamp: 200, unrelated: true }),
+        err({ message: "new and mine", timestamp: 200 }),
+      ],
+      100,
+    );
+    expect(kept.map((e) => e.message)).toEqual(["new and mine"]);
+  });
+});

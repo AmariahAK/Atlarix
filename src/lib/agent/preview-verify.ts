@@ -32,6 +32,12 @@ export function blockingPreviewErrors(
 ): BrowserSurfaceError[] {
   return entries.filter((e) => {
     if (e.timestamp < sinceTs) return false;
+    // An error from a tab the agent is not working in is not the agent's failure.
+    // Errors buffer per WINDOW, so a docs page or dashboard the user has open
+    // alongside would otherwise block a turn for a page the agent never touched —
+    // the same reason a prior turn's errors are excluded by `sinceTs` above.
+    // Still reported to the model, just labelled; see BrowserSurfaceError.unrelated.
+    if (e.unrelated) return false;
     if (e.type === "console-error") return e.level === "error";
     // load-failed | render-gone | network-failed are always blocking.
     return true;

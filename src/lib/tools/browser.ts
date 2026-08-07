@@ -687,17 +687,30 @@ function inspectConsole(scope: BrowserScope) {
   if (errors.length === 0) {
     return { success: true, count: 0, content: "No runtime errors captured from the browser." };
   }
+  // Errors buffer per WINDOW, so a tab the agent is not working in contributes
+  // too. Those are LABELLED rather than dropped: the model should be able to see
+  // that something failed elsewhere (it may be relevant context) while knowing it
+  // is not its own work to fix. Same idea as a plan step's `external` state.
+  const unrelatedCount = errors.filter((e) => e.unrelated).length;
   const body = errors
     .map(
       (e) =>
-        `• [${e.type}] ${e.message}${e.url ? ` (${e.url})` : ""}` +
+        `• ${e.unrelated ? "[unrelated] " : ""}[${e.type}] ${e.message}${e.url ? ` (${e.url})` : ""}` +
         (e.stack ? `\n    ${e.stack.split("\n").slice(0, 6).join("\n    ")}` : ""),
     )
     .join("\n");
+  const unrelatedNote =
+    unrelatedCount > 0
+      ? `\n\n${unrelatedCount} of these are marked [unrelated] — they came from a different browser tab than the one you are working in, so they are not yours to fix and do not block finishing.`
+      : "";
   return {
     success: true,
     count: errors.length,
-    content: untrustedPageEnvelope("browser", body),
+    unrelatedCount,
+    // The note sits OUTSIDE the untrusted-page envelope: it is harness-authored
+    // fact about provenance, not page content, and must not be attributable to
+    // anything the page could have written.
+    content: untrustedPageEnvelope("browser", body) + unrelatedNote,
   };
 }
 

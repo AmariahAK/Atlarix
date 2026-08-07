@@ -381,7 +381,7 @@ function wireTabEvents(
     // it isn't ALSO recorded as a plain console-error (no double-capture).
     const rich = tryParseErrorSentinel(message);
     if (rich) {
-      pushBrowserSurfaceError(scope, { ...rich, url: rich.url ?? sourceUrl, timestamp: nowTs() });
+      pushBrowserSurfaceError(scope, { ...rich, url: rich.url ?? sourceUrl, timestamp: nowTs(), tabId: id });
       return;
     }
     const isError = level === "error" || level === 2;
@@ -393,6 +393,7 @@ function wireTabEvents(
       url: sourceUrl,
       timestamp: nowTs(),
       level: isError ? "error" : "warning",
+      tabId: id,
     });
   });
   wc.on("did-fail-load", (_e, code, desc, url) => {
@@ -406,6 +407,7 @@ function wireTabEvents(
       message: `${desc} (${code})`,
       url,
       timestamp: nowTs(),
+      tabId: id,
     });
     broadcastState(scope);
   });
@@ -414,6 +416,7 @@ function wireTabEvents(
       type: "render-gone",
       message: `Browser tab renderer gone: ${details?.reason ?? "unknown"}`,
       timestamp: nowTs(),
+      tabId: id,
     });
   });
   // Install the injected instrumentation (uncaught errors / unhandled
@@ -648,12 +651,27 @@ function pushBrowserSurfaceError(
   scope: BrowserScope,
   entry: BrowserSurfaceError,
 ): void {
-  scope.surfaceErrors.push(entry);
+  // Classify at RECORD time, not read time: the active tab can change between the
+  // error arriving and the agent inspecting, and "was this mine when it happened"
+  // is the question that matters.
+  //
+  // Errors buffer per WINDOW, so a second tab the user has open pushes into the same
+  // list. Untagged, those read as the agent's own failures — they showed up in
+  // browser_inspect and blocked the completion gate for pages the agent never
+  // touched. `unrelated` marks them without hiding them, like a plan step's
+  // `external` state.
+  const stamped: BrowserSurfaceError = {
+    ...entry,
+    unrelated:
+      entry.unrelated ??
+      (entry.tabId != null && scope.activeTabId != null && entry.tabId !== scope.activeTabId),
+  };
+  scope.surfaceErrors.push(stamped);
   if (scope.surfaceErrors.length > BROWSER_ERROR_BUFFER_MAX) {
     scope.surfaceErrors = scope.surfaceErrors.slice(-BROWSER_ERROR_BUFFER_MAX);
   }
   if (!scope.window.isDestroyed()) {
-    safeSend(scope.window.webContents, "browser:error", entry);
+    safeSend(scope.window.webContents, "browser:error", stamped);
   }
 }
 

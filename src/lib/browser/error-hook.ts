@@ -25,6 +25,22 @@ export type BrowserSurfaceError = {
   /** Stack trace for uncaught exceptions / unhandled rejections captured by the
    * injected instrumentation hook — gives the agent a fixable location. */
   stack?: string;
+  /** Which browser tab produced this. Errors are buffered per WINDOW, so without
+   * this a second tab's errors are indistinguishable from the agent's own. */
+  tabId?: number;
+  /**
+   * True when this error did not come from the tab the agent is working in.
+   *
+   * The agent's own work happens in ONE tab. Anything the user has open alongside
+   * it — a docs page, a dashboard, their own browsing — pushes errors into the same
+   * per-window buffer, where they read as the agent's problem: they appeared in
+   * `browser_inspect(mode:"console")` and, worse, blocked the completion gate for a
+   * page the agent never touched.
+   *
+   * Mirrors a plan step's `external` state: still visible, explicitly not mine.
+   * Unrelated errors are reported to the model LABELLED, and never block a turn.
+   */
+  unrelated?: boolean;
 };
 
 export const ERROR_SENTINEL = "[[ATLARIX_ERR]]";
