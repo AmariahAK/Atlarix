@@ -52,29 +52,34 @@ signature exists only so Windows will install it for testing.
 
 ## 2. One-time Windows setup
 
-### Signing tools
+### Signing tools — no SDK install required
 
 MSIX signing requires `signtool.exe`. There is no PowerShell equivalent —
 `Set-AuthenticodeSignature` cannot sign a `.msix`, because signing must also
 rewrite `AppxBlockMap.xml` and `AppxSignature.p7x` inside the package.
 
-Install just the signing component, not the whole SDK:
-
-1. Download the **Windows SDK** installer from Microsoft.
-2. In the component list, select **only** *Windows SDK Signing Tools for Desktop
-   Apps*. Deselect everything else.
-3. Note the resulting path, typically:
-   ```
-   C:\Program Files (x86)\Windows Kits\10\bin\<10.0.x.y>\x64\signtool.exe
-   ```
-
-Add it to `$PROFILE` so the rest of this document can just say `signtool`:
+You do **not** need the Windows SDK installer. The `Microsoft.Windows.SDK.BuildTools`
+NuGet package is a ~21 MB zip that carries `signtool.exe` together with every DLL
+appx signing needs (`appxpackaging.dll`, `appxsip.dll`, `mssign32.dll`,
+`wintrust.dll`, `opcservices.dll`). Extract and run — no installer, no admin.
 
 ```powershell
-$sdk = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin" -Directory |
-  Where-Object Name -like "10.*" | Sort-Object Name -Descending | Select-Object -First 1
-$env:Path += ";$($sdk.FullName)\x64"
-signtool /?   # should print usage
+$work = "$HOME\atlarix-msix"
+New-Item -ItemType Directory -Force -Path $work | Out-Null
+
+# Some Windows 10 builds still default to TLS 1.0 for Invoke-WebRequest.
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+
+$pkg = "microsoft.windows.sdk.buildtools"
+$ver = (Invoke-RestMethod "https://api.nuget.org/v3-flatcontainer/$pkg/index.json").versions[-1]
+Invoke-WebRequest "https://api.nuget.org/v3-flatcontainer/$pkg/$ver/$pkg.$ver.nupkg" `
+  -OutFile "$work\sdk-buildtools.zip"
+Expand-Archive "$work\sdk-buildtools.zip" -DestinationPath "$work\sdk" -Force
+
+$signtool = (Get-ChildItem "$work\sdk\bin" -Recurse -Filter signtool.exe |
+  Where-Object FullName -like "*\x64\*" | Select-Object -First 1).FullName
+$signtool          # remember this path; used in step 3
+& $signtool /?     # should print usage
 ```
 
 ### Test certificate (generate ONCE, then reuse)
@@ -119,15 +124,21 @@ the result — which is the single most important thing the spike measures.
 
 ## 3. Sign and install
 
+GitHub serves workflow artifacts as a zip, so extract it first — signing the zip
+instead of the `.msix` inside it is an easy mistake to make.
+
 ```powershell
-cd <folder with the artifact>
+$work = "$HOME\atlarix-msix"
+Expand-Archive "$HOME\Downloads\atlarix-msix-x64.zip" -DestinationPath "$work\pkg" -Force
+$msix = (Get-ChildItem "$work\pkg" -Recurse -Filter *.msix | Select-Object -First 1).FullName
+$msix
 
-signtool sign /fd SHA256 /a /f "$HOME\atlarix-msix-test.pfx" /p <password> `
-  .\Atlarix-<version>-x64.msix
+# $signtool from step 2. Omit /p if you would rather be prompted.
+& $signtool sign /fd SHA256 /f "$HOME\atlarix-msix-test.pfx" /p <password> $msix
 
-signtool verify /pa /v .\Atlarix-<version>-x64.msix    # should report a valid chain
+& $signtool verify /pa /v $msix        # should report a valid chain
 
-Add-AppxPackage .\Atlarix-<version>-x64.msix
+Add-AppxPackage $msix
 ```
 
 If `Add-AppxPackage` fails, the message is usually unhelpful. Get the real reason:
