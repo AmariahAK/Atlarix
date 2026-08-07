@@ -11,6 +11,29 @@ import fs from "fs";
 const SHELL_BLACKLIST = new Set(["fish", "nu"]);
 
 /**
+ * Does this shell speak cmd.exe syntax (`/c`, `type`, `echo x> f`) rather than
+ * POSIX (`-c`, `cat`, `printf`)?
+ *
+ * Callers must branch on THIS, never on `process.platform`. On Windows
+ * `getAcceptableShell()` prefers Git-for-Windows' bash when it is installed, so
+ * "platform is win32" does NOT imply cmd semantics. That assumption has now caused
+ * two separate bugs: the sandbox helper hardcoded `cmd.exe /c` while unsandboxed
+ * runs used bash (so POSIX commands failed with cmd syntax errors that looked like
+ * sandbox denials), and then the sandbox self-test probe used `type` to read a file
+ * — which in bash is a builtin meaning "describe a command", so it failed both
+ * sandboxed and unsandboxed.
+ *
+ * Mirrors `command_line_for()` in native/atlarix-sandbox/src/main.rs.
+ */
+export function isCmdShell(shell: string): boolean {
+  if (!shell) return process.platform === "win32";
+  const base = (
+    process.platform === "win32" ? path.win32.basename(shell) : path.basename(shell)
+  ).toLowerCase();
+  return base === "cmd.exe" || base === "cmd";
+}
+
+/**
  * Find Git-for-Windows' bash, wherever git actually is.
  *
  * This used to hardcode `%ProgramFiles%\Git\bin\bash.exe` — the winget/installer

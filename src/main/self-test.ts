@@ -191,7 +191,7 @@ export const DEFAULT_PROBES: SelfTestProbe[] = [
       const { promisify } = await import("node:util");
       const { execFile } = await import("node:child_process");
       const path = await import("node:path");
-      const { getAcceptableShell } = await import("@/lib/shell/resolve-shell");
+      const { getAcceptableShell, isCmdShell } = await import("@/lib/shell/resolve-shell");
       const run = promisify(execFile);
 
       const shell = getAcceptableShell();
@@ -199,9 +199,11 @@ export const DEFAULT_PROBES: SelfTestProbe[] = [
         process.platform === "win32" ? path.win32.basename(shell) : path.basename(shell)
       ).toLowerCase();
       // cmd.exe takes /c and has no printf; POSIX shells (incl. Git bash on
-      // Windows) take -c.
-      const args =
-        base === "cmd.exe" ? ["/c", `echo ${MARK}`] : ["-c", `printf '%s\\n' ${MARK}`];
+      // Windows) take -c. Decided from the SHELL via the shared helper, never from
+      // the platform — see the note on `isCmdShell`.
+      const args = isCmdShell(shell)
+        ? ["/c", `echo ${MARK}`]
+        : ["-c", `printf '%s\\n' ${MARK}`];
 
       // Rejects on a non-zero exit, which is the assertion that matters here.
       const { stdout } = await run(shell, args, { windowsHide: true });
@@ -278,9 +280,22 @@ export const DEFAULT_PROBES: SelfTestProbe[] = [
       const path = await import("node:path");
       const { runShellCommandStreaming } = await import("@/ipc/utils/runShellCommand");
       const { wrapCommandInSandbox } = await import("@/lib/sandbox/wrap-command");
-      const { getAcceptableShell } = await import("@/lib/shell/resolve-shell");
+      const { getAcceptableShell, isCmdShell } = await import("@/lib/shell/resolve-shell");
 
-      const win = process.platform === "win32";
+      // Command syntax follows the RESOLVED SHELL, never `process.platform`.
+      //
+      // On Windows `getAcceptableShell()` prefers Git bash when Git for Windows is
+      // installed, so a platform check picks cmd syntax for a POSIX shell. The first
+      // version of this probe branched on the platform and used `type` to read a
+      // file — which in bash is a builtin meaning "describe a command", not "print a
+      // file". It failed sandboxed AND unsandboxed, and the differential correctly
+      // reported the probe environment as broken rather than blaming the sandbox.
+      //
+      // That is the same mistake the helper itself had (hardcoding `cmd.exe /c` while
+      // unsandboxed runs used bash), made a second time in the test for it. Mirrors
+      // `command_line_for()` in native/atlarix-sandbox/src/main.rs.
+      const shell = getAcceptableShell();
+      const isCmd = isCmdShell(shell);
       const home = os.homedir();
       // Both live directly in HOME: `defaultWritablePaths` grants specific home
       // SUBdirECTORIES (~/.npm, ~/.cache, …) but never HOME itself, so `outside`
@@ -310,7 +325,7 @@ export const DEFAULT_PROBES: SelfTestProbe[] = [
         // so report it as a FAILURE rather than skipping the assertions below.
         const wrapped = wrapCommandInSandbox({
           command: "exit 0",
-          shell: getAcceptableShell(),
+          shell,
           workspacePath: ws,
         });
         if (!wrapped.sandboxed) {
@@ -318,14 +333,14 @@ export const DEFAULT_PROBES: SelfTestProbe[] = [
         }
 
         // 1. Writes INSIDE the workspace must work, or the sandbox is unusable.
-        const inside = await sandboxed(win ? "echo x> inside.txt" : "printf x > inside.txt");
+        const inside = await sandboxed(isCmd ? "echo x> inside.txt" : "printf x > inside.txt");
         if (inside.exitCode !== 0) {
           throw new Error(`write inside workspace FAILED (exit ${inside.exitCode}): ${inside.stderr.slice(0, 160)}`);
         }
 
         // 2. Writes OUTSIDE every writable root must be denied, or it confines nothing.
         const escaped = await sandboxed(
-          win ? `echo x> "${outside}"` : `printf x > "${outside}"`,
+          isCmd ? `echo x> "${outside}"` : `printf x > "${outside}"`,
         );
         if (escaped.exitCode === 0) {
           throw new Error(`write OUTSIDE the workspace SUCCEEDED (${outside}) — writes are not confined`);
@@ -333,7 +348,7 @@ export const DEFAULT_PROBES: SelfTestProbe[] = [
 
         // 3. Reads outside must still work. THIS is the assertion that would have
         //    caught the AppContainer bug on the day the helper started shipping.
-        const readCmd = win ? `type "${outside}"` : `cat "${outside}"`;
+        const readCmd = isCmd ? `type "${outside}"` : `cat "${outside}"`;
         const readSandboxed = await sandboxed(readCmd);
         if (readSandboxed.exitCode !== 0) {
           const readPlain = await plain(readCmd);
@@ -364,7 +379,7 @@ export const DEFAULT_PROBES: SelfTestProbe[] = [
         // 5. `truncate(2)` is gated by a SEPARATE Landlock right (TRUNCATE, ABI V3)
         //    from WRITE_FILE, so a helper pinned to an older ABI confines `>` but
         //    not `truncate`. POSIX only — Windows has no equivalent utility.
-        if (!win) {
+        if (!isCmd) {
           const truncPlain = await plain(`truncate -s 0 "${outside}"`);
           if (truncPlain.exitCode !== 0) {
             notes.push("truncate=absent (assertion skipped)");
