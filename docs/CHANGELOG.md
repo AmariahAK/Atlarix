@@ -48,12 +48,25 @@ as an opaque binary blob with no preview.
   cannot decode; the markup is far more useful, and `read_attachment` already worked this way.
 - Misnamed files are handled correctly too — a JPEG saved as `photo.png` is detected as a JPEG.
 
+**`@file:` mentions now appear as attachments.** Picking a file with `@` showed a chip while
+composing, but the sent message rendered the raw `@file:name.txt` text and there was nothing
+to preview. It's now a chip you can click to see the file's contents.
+
+**Known limitation — on-device voice input.** The on-device (free) transcription engine does
+not work on all hardware. On some GPUs, ONNX Runtime reports
+`Can't create a session … Missing required scale` because it cannot execute the 4-bit
+operator the quantised model uses — even where WebGPU itself initialises correctly. This is
+not new, but it used to present as a mic icon that **span forever**. It now fails visibly
+with an error, stops re-downloading ~500 MB on every retry, and can be retried without
+restarting the app. Settings → AI → Voice input has a **Clear cache** action for the
+downloaded weights. If on-device transcription doesn't work for you, the BYOK engines
+(OpenAI, Groq, Gemini) use your own key and are unaffected. Tracked for a proper fix.
+
 **Other fixes:** the "install Git" message no longer tells Windows and Linux users to run a
 macOS-only command; on Windows, Git-for-Windows' bash is now found wherever git is installed
 (scoop, chocolatey, portable) instead of only in `%ProgramFiles%`; the dev-server proxy
 stopped logging errors about libraries it never shipped (and no longer forces uncompressed
-responses); voice input no longer logs a WebGPU adapter error on machines without WebGPU
-support.
+responses).
 
 ## [14.27.0] (2026-08-05) — Your credentials and your workspaces stop disappearing
 

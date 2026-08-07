@@ -148,6 +148,41 @@ opencode keeps extension lists too, but only for LSP and formatter routing — t
 - Sample is 8 KB (git's threshold), so classifying never means reading a large attachment in
   full. A NUL past the sample is not seen — the same tradeoff git makes, documented in a test.
 
+### Open — on-device voice does not work on all hardware (SHIPPING as a known limitation)
+
+Observed on the Windows 10 test machine across every session: the mic span forever and never
+transcribed. Two bugs made a failure look like a hang, both now fixed — but the underlying
+model failure is NOT fixed and ships documented.
+
+**What was fixed:** `useVoiceInput` cleared `modelLoadProgress` only on `ready`, so an
+`error` left the spinner running forever while the message sat unread (the UI does toast it —
+`VoiceInputButton.tsx:54` — it just never got the chance). And `getTranscriber()` memoised
+rejections, so one failure poisoned the worker for its lifetime and the only recovery was
+restarting the app. Plus a `Clear cache` action, because ~800 MB of weights were cached with
+no way to remove them — and since `userData` is inherited across reinstalls, a bad cache
+survived even the Squirrel→Store switch.
+
+**What is NOT fixed.** ONNX Runtime cannot build a session for the **q4 decoder**:
+`qdq_actions.cc:137 TransposeDQWeightsForMatMulNBits — Missing required scale:
+model.decoder.embed_tokens.weight_merged_0_scale`. `MatMulNBits` is the 4-bit operator q4 is
+made of, and that machine's runtime cannot execute it.
+
+**The gate cannot predict it.** Two attempts failed: `typeof navigator.gpu !== "undefined"`,
+then `requestAdapter()`. The final evidence killed the third idea too — `requestAdapter()`
+AND `requestDevice()` both succeed there, so the device is genuinely real; only the op is
+unsupported. The only way to know is to try, by which point ~500 MB is downloaded. Mitigated
+with `webGpuKnownBad`, so a retry skips it instead of re-fetching.
+
+**Candidate fixes, none verifiable without affected hardware:**
+- [ ] Drop q4 in favour of q8/fp32 for the WebGPU decoder, so `MatMulNBits` is never used and
+      only ONE model variant is ever fetched. Risk: the existing comment records that a
+      blanket fp16 decoder produces degenerate output ("I'm not." for real speech), so the
+      dtype choice is load-bearing and needs testing, not guessing.
+- [ ] Probe op support by building a throwaway session before committing to a download.
+- [ ] Offer a smaller model (`whisper-base`) as a fallback, halving the fetch.
+
+Unaffected: the BYOK engines (OpenAI/Groq/Gemini) never touch ONNX.
+
 ### Deferred (recorded, not started)
 - [ ] **Configurable read-deny patterns, opencode-style** — no built-in list, no defaults;
       the user declares their own (`read: { "<pattern>": "ask" | "allow" | "deny" }`). Chosen

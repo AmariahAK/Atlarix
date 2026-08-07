@@ -49,8 +49,25 @@ type TranscribeMessage = {
 };
 type InboundMessage = LoadMessage | TranscribeMessage;
 
-let transcriberPromise: Promise<AutomaticSpeechRecognitionPipeline> | null = null;
+let transcriberPromise: Promise<AutomaticSpeechRecognitionPipeline> | null =
+  null;
 let loadedDevice: "webgpu" | "wasm" = "wasm";
+
+/**
+ * Set once WebGPU has failed in this worker, so a retry does not pay for it again.
+ *
+ * The pre-flight gate cannot predict this failure. On hardware observed in testing,
+ * `requestAdapter()` AND `requestDevice()` both succeed — the device is real — and
+ * ONNX Runtime still cannot build a session for the q4 decoder, because it cannot
+ * execute `MatMulNBits` (the 4-bit op q4 is made of). The only way to find out is to
+ * try, by which point the fp32 encoder + q4 decoder (~500 MB) have been fetched.
+ *
+ * Since failures are no longer memoised, a retry would otherwise re-attempt WebGPU
+ * and re-fetch all of it. Remembering the verdict sends every later attempt straight
+ * to WASM. Deliberately per-worker rather than persisted: a driver or browser update
+ * can change the answer, so a fresh session is allowed to try once more.
+ */
+let webGpuKnownBad = false;
 
 /** Load the ASR pipeline, preferring WebGPU and falling back to WASM. */
 async function getTranscriber(
@@ -96,29 +113,33 @@ async function getTranscriber(
     // then fetched q8 of both — 821 MB of Cache Storage on a machine that was always
     // going to run on CPU. Requesting a DEVICE is what proves the ops can run, so a
     // machine like that now downloads ONE variant.
-    const hasWebGpu = await (async () => {
-      const gpu = (
-        navigator as unknown as {
-          gpu?: {
-            requestAdapter?: () => Promise<{
-              requestDevice?: () => Promise<{ destroy?: () => void } | null>;
-            } | null>;
-          };
-        }
-      ).gpu;
-      if (!gpu?.requestAdapter) return false;
-      try {
-        const adapter = await gpu.requestAdapter();
-        if (!adapter?.requestDevice) return false;
-        const device = await adapter.requestDevice();
-        if (!device) return false;
-        // Release it immediately; transformers.js acquires its own.
-        device.destroy?.();
-        return true;
-      } catch {
-        return false;
-      }
-    })();
+    const hasWebGpu = webGpuKnownBad
+      ? false
+      : await (async () => {
+          const gpu = (
+            navigator as unknown as {
+              gpu?: {
+                requestAdapter?: () => Promise<{
+                  requestDevice?: () => Promise<{
+                    destroy?: () => void;
+                  } | null>;
+                } | null>;
+              };
+            }
+          ).gpu;
+          if (!gpu?.requestAdapter) return false;
+          try {
+            const adapter = await gpu.requestAdapter();
+            if (!adapter?.requestDevice) return false;
+            const device = await adapter.requestDevice();
+            if (!device) return false;
+            // Release it immediately; transformers.js acquires its own.
+            device.destroy?.();
+            return true;
+          } catch {
+            return false;
+          }
+        })();
     if (hasWebGpu) {
       try {
         const t = await pipeline("automatic-speech-recognition", model, {
@@ -136,6 +157,8 @@ async function getTranscriber(
         loadedDevice = "webgpu";
         return t as AutomaticSpeechRecognitionPipeline;
       } catch (e) {
+        // Do not pay for this attempt again in this worker — see `webGpuKnownBad`.
+        webGpuKnownBad = true;
         // Include the reason. Previously this said only
         // "webgpu-unavailable-falling-back-to-wasm" while ONNX Runtime's own
         // console.error was the only thing carrying the cause — so the user saw a
@@ -144,7 +167,10 @@ async function getTranscriber(
         self.postMessage({
           type: "progress",
           status: "webgpu-unavailable-falling-back-to-wasm",
-          message: e instanceof Error ? e.message.slice(0, 300) : String(e).slice(0, 300),
+          message:
+            e instanceof Error
+              ? e.message.slice(0, 300)
+              : String(e).slice(0, 300),
         });
       }
     }
