@@ -1,7 +1,7 @@
 # Atlarix TODO
 
-**Current Version:** v14.27.0 (2026-08-05) — your credentials and your workspaces stop
-disappearing, and the agent can finally see the automations it should be recommending.
+**Current Version:** v14.28.0 (2026-08-07) — Windows agent commands work again (the sandbox
+was the wrong primitive), and Atlarix is packaged for the Microsoft Store.
 **Last Updated:** 2026-08-07
 
 ## 🚧 IN PROGRESS — the Windows sandbox was breaking the toolchain
@@ -285,8 +285,11 @@ three of the four spike questions produce a pass/fail table instead of hand obse
 - [ ] `runFullTrust` justification (restricted capability, needs Microsoft approval) + the
       Lemon Squeezy IAP note. Both drafted in the runbook §5.
 - [ ] Submit; Microsoft strips the test signature and re-signs.
-- [ ] **Only after certification passes**, wire MSIX into `release.yml`. Windows-only path bugs
-      here have a history of surfacing at tag time.
+- [x] **Wire MSIX into `release.yml`** — done in v14.28.0. Tagging `v*` now calls
+      `msix.yml` with `upload_wrapper: true`, so every release produces a submittable
+      `.msixupload`. Held until the spike passed on real hardware, and deliberately
+      NON-GATING: `build-msix` is absent from `publish-release`'s `needs`, and the
+      unsigned package is never uploaded to `atlarix-releases`.
 - [ ] `MakerSquirrel.iconUrl` is still unset, so Add/Remove Programs shows a Squirrel default.
       Needs a publicly-hosted 256px `.ico` (e.g. `https://www.atlarix.dev/logo.ico`) — a one-line
       addition to `atlarix-launchpad/public/`, deliberately not pointed at a URL that 404s.

@@ -1,24 +1,32 @@
-# Build an UNSIGNED Windows MSIX for Microsoft Store testing.
+# Build an UNSIGNED Windows MSIX for the Microsoft Store.
 #
-# Manual only (workflow_dispatch). This is deliberately a SEPARATE workflow rather
-# than a step on release.yml's build-windows job, for two reasons:
+# Runs two ways: manually (workflow_dispatch) for testing a change, and called by
+# release.yml on a `v*` tag so every release produces a submittable package.
 #
-#   1. A workflow_dispatch against release.yml runs `create-draft`, which publishes
-#      a `v0.0.0-manual` draft release into the PUBLIC atlarix-releases repo. A
-#      spike build must not touch the release channel.
-#   2. MSIX is unproven on real hardware. Windows-only path bugs in this repo have
-#      historically surfaced at tag time, so MSIX stays off the `v*` path until the
-#      packaged-context spike passes. Wire it into release.yml only after Store
-#      certification succeeds.
+# Still a SEPARATE workflow rather than a step on build-windows, because a
+# workflow_dispatch against release.yml runs `create-draft`, which publishes a
+# `v0.0.0-manual` draft release into the PUBLIC atlarix-releases repo — a test build
+# must never touch the release channel.
 #
-# The artifact is UNSIGNED on purpose: signing happens on the maintainer's Windows
-# machine so no code-signing private key needs to live in GitHub secrets, and the
-# certificate stays stable so `Add-AppxPackage` can upgrade in place between runs.
-# See docs/MSIX_RUNBOOK.md.
+# It was `workflow_dispatch`-only until the packaged-context spike passed on real
+# Windows hardware (8/8 self-test probes inside the MSIX, including the sandbox
+# assertions). Two safeguards keep it off the critical path now that it is wired in:
+#
+#   * release.yml does NOT list this job in `publish-release`'s `needs`, so an MSIX
+#     failure can never block a real release.
+#   * The artifact is NOT uploaded to atlarix-releases. It is unsigned, and an
+#     unsigned .msix is uninstallable without the signer's certificate — publishing
+#     one would just be a broken download on the public releases page.
+#
+# UNSIGNED is deliberate: signing happens on the maintainer's Windows machine, so no
+# code-signing private key needs to live in GitHub secrets, and the certificate stays
+# stable so `Add-AppxPackage` can upgrade in place between runs. Microsoft re-signs
+# at certification anyway. See docs/MSIX_RUNBOOK.md.
 
-name: Atlarix MSIX (manual)
+name: Atlarix MSIX
 
 on:
+  # Manual runs, for testing a change without cutting a release.
   workflow_dispatch:
     inputs:
       # x64 is the ONLY valid option today: scripts/win-ci-lib.mjs hardcodes
@@ -36,6 +44,21 @@ on:
         description: "Also produce a .msixupload (ZIP wrapper) for Store submission"
         required: false
         default: false
+        type: boolean
+  # Called by release.yml on a `v*` tag, so every release produces a submittable
+  # package without anyone remembering to run this by hand. `upload_wrapper`
+  # defaults to TRUE there: a release build is exactly when the Store wrapper is
+  # wanted. Inputs must be declared separately — workflow_call and
+  # workflow_dispatch do not share an input block.
+  workflow_call:
+    inputs:
+      arch:
+        required: false
+        default: "x64"
+        type: string
+      upload_wrapper:
+        required: false
+        default: true
         type: boolean
 
 # Mirrors the env block in release.yml. These are the credentials Vite embeds at

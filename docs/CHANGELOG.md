@@ -3,7 +3,7 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
-## [Unreleased] — Windows commands work again, and the app is on the Microsoft Store
+## [14.28.0] (2026-08-07) — Windows commands work again, and Atlarix is on the Microsoft Store
 
 **If you use Atlarix on Windows, agent commands involving git, bash, or most tools in
 `C:\Program Files` were failing.** The write-confining sandbox used AppContainer, which

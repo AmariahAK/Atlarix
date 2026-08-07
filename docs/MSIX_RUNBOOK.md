@@ -32,17 +32,31 @@ These live in `build/msix/AppxManifest.template.xml`.
 MSIX packaging needs the Windows SDK's `makeappx.exe`, so it cannot run on macOS.
 `scripts/make-msix.mjs` exits with that message if you try.
 
-1. Run the **Atlarix MSIX (manual)** workflow — Actions → `msix.yml` →
-   *Run workflow*. It is `workflow_dispatch` only and never touches the
-   `atlarix-releases` repo.
-   - Leave `arch` on `x64`. It is the only valid value: `scripts/win-ci-lib.mjs`
-     hardcodes `ARCH = "x64"`.
-   - Tick `upload_wrapper` only when preparing an actual Store submission.
-2. Download the `atlarix-msix-x64` artifact. It contains:
-   - `Atlarix-<version>-x64.msix` — **unsigned**
-   - `AppxManifest.xml` — the rendered manifest, so you can confirm the identity
-     values without unpacking the package
-3. Copy it to the Windows test machine.
+**On a release, this is automatic.** Tagging `v*` runs `release.yml`, which calls
+`msix.yml` with `upload_wrapper: true`, so every release produces both a `.msix` and
+the `.msixupload` Store wrapper as a workflow artifact. Two safeguards:
+
+- `build-msix` is **not** in `publish-release`'s `needs`, so an MSIX failure cannot
+  block shipping the `.exe`/`.dmg`/`.deb`.
+- The package is **not** uploaded to `atlarix-releases`. It is unsigned, and an
+  unsigned `.msix` cannot be installed without the signer's certificate — publishing
+  one would put a broken download on the public releases page.
+
+**For a test build between releases**, run it manually: Actions → **Atlarix MSIX** →
+*Run workflow*.
+- Leave `arch` on `x64`. It is the only valid value: `scripts/win-ci-lib.mjs`
+  hardcodes `ARCH = "x64"`.
+- `upload_wrapper` defaults to off for manual runs (a test build doesn't need the
+  Store wrapper) and on for release runs.
+
+Either way, download the `atlarix-msix-x64` artifact. It contains:
+- `Atlarix-<version>-x64.msix` — **unsigned**
+- `Atlarix-<version>-x64.msixupload` — on release runs; this is what Partner Center
+  wants
+- `AppxManifest.xml` — the rendered manifest, so you can confirm the identity values
+  without unpacking the package
+
+Then copy it to the Windows machine.
 
 The package is unsigned by design: no code-signing private key needs to live in
 GitHub secrets, and Microsoft re-signs at certification anyway. The local
@@ -262,9 +276,10 @@ Get-AppxPackage *Atlarix* | Remove-AppxPackage
 - Upload, submit, wait out certification (a few hours to ~3 business days).
   Microsoft strips the test signature and re-signs with its own trusted
   certificate — which is the whole point: zero SmartScreen for every user.
-- **Only after certification passes**, wire MSIX into the release automation.
-  Until then it stays on `workflow_dispatch`. Windows-only path bugs in this repo
-  have a history of surfacing at tag time.
+- ~~Wire MSIX into the release automation.~~ **Done in v14.28.0** — `release.yml`
+  calls `msix.yml` on every `v*` tag with `upload_wrapper: true`. Held back until the
+  spike passed on real hardware (8/8 probes), and kept non-gating so it cannot block
+  a release. See §1.
 
 ---
 

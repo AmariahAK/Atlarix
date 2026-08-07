@@ -739,6 +739,31 @@ jobs:
       # now updates via update-electron-app / update.electronjs.org, which reads
       # the RELEASES index + *-full.nupkg uploaded above — no latest.yml needed.
 
+  # Microsoft Store package. Produces the .msix + .msixupload as a WORKFLOW ARTIFACT
+  # for manual submission to Partner Center — deliberately NOT uploaded to
+  # atlarix-releases, because the package is unsigned and an unsigned .msix cannot be
+  # installed without the signer's certificate. Publishing one would put a broken
+  # download on the public releases page.
+  #
+  # DELIBERATELY ABSENT from `publish-release`'s and `announce-release`'s `needs`: the
+  # Store package is not part of the public release, so an MSIX failure must never
+  # block shipping the .exe/.dmg/.deb. It gates on `quality` only.
+  #
+  # Was workflow_dispatch-only until the packaged-context spike passed on real
+  # Windows hardware (8/8 probes inside the MSIX, sandbox assertions included).
+  build-msix:
+    needs: [quality]
+    if: startsWith(github.ref, 'refs/tags/v')
+    uses: ./.github/workflows/msix.yml
+    with:
+      arch: x64
+      # A release build is exactly when the Store wrapper is wanted.
+      upload_wrapper: true
+    # Called workflows do NOT inherit the caller's `env`, and msix.yml needs the
+    # same build-time credentials (Supabase, Lemon Squeezy, Core proxy) that the
+    # other build jobs get from the top-level env block.
+    secrets: inherit
+
   publish-release:
     needs: [quality, create-draft, build-macos, build-linux, build-windows]
     runs-on: ubuntu-latest
