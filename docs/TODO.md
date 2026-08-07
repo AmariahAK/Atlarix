@@ -4,7 +4,120 @@
 disappearing, and the agent can finally see the automations it should be recommending.
 **Last Updated:** 2026-08-07
 
-## 🚧 IN PROGRESS — Microsoft Store (MSIX) packaging + the Windows brand fix
+## 🚧 IN PROGRESS — the Windows sandbox was breaking the toolchain
+
+Found by running the MSIX spike, but **not an MSIX bug** — it has been in every Windows
+release since `atlarix-sandbox.exe` started shipping. The helper engaged on every
+`run_command` (`Sandboxing run_command (win32); 19 writable roots`, zero fallbacks) and
+broke git, bash and PowerShell.
+
+**Root cause: the wrong primitive, not tuning.** AppContainer is **deny-by-default on
+READS** — a file is reachable only if its DACL carries an ACE for the container SID or
+`ALL APPLICATION PACKAGES`. System32 has it (`where git` → exit 0);
+`C:\Program Files\Git\bin\bash.exe` does not (`Access is denied`). Our policy is the
+opposite shape: reads broad, writes confined. `WINDOWS_HELPER.md` asserted *"reads of the
+rest of the volume remain allowed"*, which is simply false for AppContainer — that false
+premise is the bug.
+
+**A second, compounding bug:** the helper hardcoded `cmd.exe /c` while
+`getAcceptableShell()` gives unsandboxed runs **Git bash**. So POSIX-shaped commands
+(`printf`, `VAR=x cmd`, `mkdir -p`, `echo $0`) failed under the sandbox with cmd syntax
+errors that read like denials. A large part of the failing transcript was this, not ACLs.
+
+**Rewritten onto Low Integrity Level.** MIC is built in since Vista, on **every edition
+incl. Home**, and needs no virtualization, no BIOS setting, no local accounts and **no
+elevation** — which matters for an MSIX Store app. `NO_WRITE_UP` *is* "reads broad,
+writes confined". Writes are granted back by stamping a Low mandatory label
+(`S:(ML;OICI;NW;;;LW)`) on the writable roots, plus a Low-labelled `TEMP` under
+`LocalLow` — a Low-IL child cannot write the normal `%TEMP%`, which is how git's
+`/dev/null` failure actually presented.
+- **The Low label PERSISTS on the workspace.** Accepted trade: any other Low-IL process
+  running as that user could write there (that's where sandboxed browser renderers live).
+  Reverting per-command would race between concurrent runs and a crash would leave it
+  anyway.
+- A `--probe` mode runs **once per session**, cached, so an unusable mechanism is detected
+  before any user command instead of surfacing as exit 87. Deliberately synthetic — never
+  a retry after a user command fails, which would downgrade on exactly the commands that
+  matter and could be triggered on purpose.
+
+**How the references do Windows** (researched, so we don't reinvent): Claude Code —
+**none**, WSL2 only, native is an open feature request (#46740). Cursor — **none native**,
+runs its Linux sandbox in WSL2, and says the available primitives are *"tailored to
+browsers and do not support general-purpose developer tools"*. Codex — the only native
+one: dedicated local users + restricted tokens + ACLs + firewall rules, needing a UAC
+prompt to create Windows accounts. Ours was the only AppContainer, i.e. the browser
+primitive Cursor warned about.
+
+**Linux had a real gap too.** `ABI::V2` was pinned, but `LANDLOCK_ACCESS_FS_TRUNCATE`
+arrived in **ABI V3** (kernel 6.2), so `truncate -s 0 ~/.ssh/id_rsa` walked straight
+through write confinement — `truncate(2)` works by path and needs no writable fd. Raised
+to **V4**. Deliberately *not* V5: that adds `IoctlDev` to the handled set, newly denying
+device ioctls — speculative hardening with the same "sandbox breaks the toolchain" risk
+we were fixing. The helper also hardcoded `/bin/sh`; it now takes `--shell`.
+
+**The systemic cause: nothing ever EXECUTED either helper.** CI only ran `cargo build`,
+and both crates are `#![cfg(windows)]` / `#![cfg(target_os = "linux")]`, so on the wrong
+host they compile to an **empty binary and report success**. Two gates added:
+- `npm run check:sandbox` → `cargo check --target x86_64-pc-windows-msvc` (+ the Linux
+  triple). Sets the `cfg` for real and type-checks the body; needs no cross-linker because
+  `check` never links. **This works from macOS** and is now in the CI `quality` job.
+- A **`sandbox` self-test probe** — the behavioural gate, running in all three package
+  jobs. Asserts write-inside OK, write-outside denied, **read-outside OK** (would have
+  caught the AppContainer bug on day one), non-system binary execs, truncate-outside
+  denied.
+
+**WSL workspaces now route into the distro.** `\\wsl$\…` / `\\wsl.localhost\…` workspaces
+are genuinely Linux projects, so `run_command` goes through `wsl.exe -d <distro>` instead
+of being confined Windows-side. Plain `C:\…` workspaces are untouched.
+
+**Also cleaned up, all found by the spike:**
+- `configureGitEnvironment()` **deleted** — a blocking `execSync("git --version")` at
+  module scope on every launch whose only non-logging effect was setting
+  `LOCAL_GIT_DIRECTORY` from `resourcesPath/git`, a path `extraResource` never ships and
+  `dugite` hasn't needed since v11. It could never fire. `isGitAvailable()` already does a
+  cached lazy probe.
+- `GIT_NOT_INSTALLED_MESSAGE` is **platform-aware** — it told Windows users to run
+  `xcode-select --install`.
+- The proxy's **entire script-injection apparatus removed** (~190 lines). It injected
+  stacktrace.js, html-to-image and four `dyad-*.js` clients into every proxied HTML
+  response, and **nothing in `src/` had listened for any of their message types since the
+  preview surface went in v14.15.0**. Two of the libraries were never declared
+  dependencies, so it logged ENOENT on every start and put a `console.error` in every
+  proxied page. The proxy is now a straight pass-through — which also stops it stripping
+  `accept-encoding` to force uncompressed bodies it no longer rewrites. `worker/dyad-*.js`
+  deleted; no `dyad`-named files remain outside e2e fixtures.
+- WebGPU probe now awaits `requestAdapter()` instead of testing `typeof navigator.gpu`.
+  Chromium exposes the API on machines whose GPU can't back it, so we entered the WebGPU
+  path anyway and `onnxruntime-web` logged its own `console.error` before our existing
+  fallback could catch. Affects the `.exe` too, not just MSIX.
+
+### Open — needs the Windows machine
+- [ ] `run_command` must succeed with git under Low IL. **This is the whole point.**
+- [ ] `--self-test` → expect **8 probes** including `sandbox`; confirm an **info**-level
+      `Sandboxing run_command` line (it was `debug`, so only failure was ever visible).
+- [ ] Confirm `CreateProcessAsUserW` succeeds unprivileged. If it returns
+      `ERROR_PRIVILEGE_NOT_HELD (1314)` the probe will report the sandbox unusable and
+      commands run unconfined — at which point implement Codex's model.
+
+### Deferred (recorded, not started)
+- [ ] **Ship the Landlock ELF to Windows builds** so WSL workspaces get real confinement
+      instead of bwrap-if-present. `forge.config.ts:319` only bundles it when
+      `process.platform === "linux"`, and cross-building from `windows-latest` needs a
+      toolchain that runner lacks — pipe it from the `build-linux` job as a CI artifact.
+- [ ] Landlock `ABI::V5` (`IoctlDev`) once there's a compatibility test for device ioctls.
+- [ ] `proxy-worker` self-test probe can't run from source: `start_proxy_server.ts:30`
+      resolves `__dirname/../../worker`, which is right in the packaged build and wrong
+      under vitest. Covered meanwhile by `src/__tests__/proxy-passthrough.test.ts`.
+
+---
+
+## ✅ SHIPPED — Microsoft Store (MSIX) packaging + the Windows brand fix
+
+Spike **passed** on Windows 10: package installs, Google OAuth deep link returns to the
+app (validating the manifest's `windows.protocol` declaration), `userData` resolves to the
+**same** `%APPDATA%\Atlarix` as the Squirrel build so Store users inherit their profile
+(**no migration needed**), sub-agents run, terminal works, Lemon Squeezy reaches checkout,
+and the updater correctly logged *"no bundled updater for this install (Microsoft Store)"*.
 
 Goal: list Atlarix on the Microsoft Store so Windows users stop hitting SmartScreen
 (Microsoft re-signs with a trusted cert). Everything below is **additive** — the Squirrel

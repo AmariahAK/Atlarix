@@ -27,8 +27,27 @@ export interface IGitExecutionOptions {
   signal?: AbortSignal;
 }
 
+/**
+ * How to install git, for the platform the user is actually on.
+ *
+ * This used to hardcode `xcode-select --install` for everyone, so Windows users
+ * were told to run a macOS-only command — observed on a real Windows install where
+ * git genuinely was missing. A recovery instruction that cannot work on the user's
+ * OS is worse than none: it sends them somewhere that doesn't exist.
+ */
+function gitInstallHint(): string {
+  switch (process.platform) {
+    case "darwin":
+      return "on macOS run `xcode-select --install`";
+    case "win32":
+      return "on Windows install Git for Windows (`winget install Git.Git`, or git-scm.com/download/win)";
+    default:
+      return "on Linux install it with your package manager (e.g. `apt install git`)";
+  }
+}
+
 export const GIT_NOT_INSTALLED_MESSAGE =
-  "Git is not installed (or not on PATH). Install Git — on macOS run `xcode-select --install` — to enable version control features.";
+  `Git is not installed (or not on PATH). Install Git — ${gitInstallHint()} — to enable version control features.`;
 
 /** Exit 127 is exec()'s sentinel for "no usable git binary" (see above). */
 export function isGitMissingResult(result: IGitResult): boolean {

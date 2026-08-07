@@ -164,11 +164,17 @@ Run the automated probes first, then the three things no probe can cover.
 
 ### 4a. Baseline on the Squirrel build (do this FIRST)
 
-The Windows AppContainer sandbox helper (`atlarix-sandbox.exe`) has never been
-validated on real Windows hardware — see `src/lib/sandbox/WINDOWS_HELPER.md`. If
-you test it for the first time *inside* MSIX and it fails, you cannot tell whether
-MSIX or the helper is at fault. So capture a baseline on a normal install first,
-then uninstall it.
+Capture a baseline on a normal install before uninstalling it, so any failure inside
+MSIX is attributable to MSIX rather than to the thing being tested.
+
+> **Note:** older builds have only 4 probes. The `context`, `child-exec`,
+> `fs-outside-container` and `sandbox` probes were added later, so a baseline taken
+> from a pre-14.28 build will report `PASSED (4/4)` — that is complete, not missing.
+
+> **Do not use `npm run self-test:packaged` for this.** It sets
+> `E2E_TEST_BUILD=true`, which redirects the app's data paths
+> (`src/paths/paths.ts`), so the `context` probe would report test paths and the
+> whole userData comparison would be meaningless.
 
 ```powershell
 $env:ATLARIX_SELF_TEST_OUT="$HOME\atlarix-squirrel-selftest.log"
@@ -192,7 +198,7 @@ Get-Content $env:ATLARIX_SELF_TEST_OUT
 ```
 
 Expected probes: `pty-spawn`, `proxy-worker`, `ripgrep`, `ai-sdk-deps`, `context`,
-`child-exec`, `fs-outside-container`.
+`child-exec`, `fs-outside-container`, `sandbox`.
 
 **Diff the MSIX log against the Squirrel baseline.** What to look for:
 
@@ -202,14 +208,23 @@ Expected probes: `pty-spawn`, `proxy-worker`, `ripgrep`, `ai-sdk-deps`, `context
 | `child-exec` | Proves a command actually *executed* (asserts on exit code, unlike `pty-spawn`). The `git=` field surfaces how an external dev tool resolves under inherited package identity. |
 | `fs-outside-container` | A `REDIRECTED` note means writes to `$HOME` are being sent elsewhere by the container — that would be a serious finding. |
 | `pty-spawn` | Terminal spawning via conpty. Note: on Windows this probe is weak — it writes `printf` into a PowerShell pty and PowerShell has no `printf`, so the marker appears in the *error* text. Trust `child-exec` for execution; trust this one only for "node-pty loads and streams". |
+| `sandbox` | The write-confining sandbox, end to end: write-inside allowed, write-outside denied, **read-outside allowed**, a non-system binary execs, `truncate` outside denied. A failure here is a real finding — this is the probe that exists because the AppContainer helper shipped broken for several releases. |
 
 ### 4c. Manual checks (no probe can cover these)
 
 1. **Launch the app.** It should open a window, not just exit.
 2. **Terminal tab** — open one and run a command interactively.
-3. **Agent `run_command`** — run an agent turn that shells out. Check the log for
-   whether the AppContainer sandbox engaged or fell back (`wrap-command.ts` logs a
-   warning on fallback).
+3. **Agent `run_command`** — ask the agent something that shells out, e.g.
+   *"what version of node and npm are installed?"*. **It must succeed, and `git
+   --version` must work too.** Note a terminal *tab* does not exercise this: PTY tabs
+   are never sandboxed by design, and `edit_file` is a different path — so testing
+   only those tells you nothing about the sandbox. Then confirm engagement:
+   ```powershell
+   Select-String -Path (Join-Path $env:APPDATA "Atlarix\logs\main.log") `
+     -Pattern "Sandboxing run_command|not sandboxed" | Select-Object -Last 5
+   ```
+   An `info`-level `Sandboxing run_command (win32)` line means it engaged; a
+   `not sandboxed` warning means it fell back and is running unconfined.
 4. **A sub-agent turn** — sub-agents are in-process
    (`src/lib/agents/run-subagent.ts`, no `fork`), so this should follow from the
    app running at all. Confirm anyway.

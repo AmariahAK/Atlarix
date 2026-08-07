@@ -8,8 +8,7 @@ const http = require("http");
 const https = require("https");
 
 const { URL } = require("url");
-const fs = require("fs");
-const path = require("path");
+// `fs` and `path` were only needed to read the injected client scripts off disk.
 
 /* ──────────────────────────── worker code ─────────────────────────────── */
 const LISTEN_HOST = "localhost";
@@ -33,194 +32,25 @@ let rememberedOrigin = null; // e.g. "http://localhost:5173"
   }
 }
 
-/* ---------- optional resources for HTML injection ---------------------- */
-
-let stacktraceJsContent = null;
-let dyadShimContent = null;
-let dyadComponentSelectorClientContent = null;
-let dyadScreenshotClientContent = null;
-let htmlToImageContent = null;
-let dyadVisualEditorClientContent = null;
-
-try {
-  const htmlToImagePath = path.join(
-    __dirname,
-    "..",
-    "node_modules",
-    "html-to-image",
-    "dist",
-    "html-to-image.js",
-  );
-  htmlToImageContent = fs.readFileSync(htmlToImagePath, "utf-8");
-  parentPort?.postMessage(
-    `[proxy-worker] html-to-image.js loaded from: ${htmlToImagePath}`,
-  );
-} catch (error) {
-  parentPort?.postMessage(
-    `[proxy-worker] Failed to read html-to-image.js: ${error.message}`,
-  );
-}
-
-try {
-  const stackTraceLibPath = path.join(
-    __dirname,
-    "..",
-    "node_modules",
-    "stacktrace-js",
-    "dist",
-    "stacktrace.min.js",
-  );
-  stacktraceJsContent = fs.readFileSync(stackTraceLibPath, "utf-8");
-  parentPort?.postMessage("[proxy-worker] stacktrace.js loaded.");
-} catch (error) {
-  parentPort?.postMessage(
-    `[proxy-worker] Failed to read stacktrace.js: ${error.message}`,
-  );
-}
-
-try {
-  const dyadShimPath = path.join(__dirname, "dyad-shim.js");
-  dyadShimContent = fs.readFileSync(dyadShimPath, "utf-8");
-  parentPort?.postMessage("[proxy-worker] dyad-shim.js loaded.");
-} catch (error) {
-  parentPort?.postMessage(
-    `[proxy-worker] Failed to read dyad-shim.js: ${error.message}`,
-  );
-}
-
-try {
-  const dyadComponentSelectorClientPath = path.join(
-    __dirname,
-    "dyad-component-selector-client.js",
-  );
-  dyadComponentSelectorClientContent = fs.readFileSync(
-    dyadComponentSelectorClientPath,
-    "utf-8",
-  );
-  parentPort?.postMessage(
-    "[proxy-worker] dyad-component-selector-client.js loaded.",
-  );
-} catch (error) {
-  parentPort?.postMessage(
-    `[proxy-worker] Failed to read dyad-component-selector-client.js: ${error.message}`,
-  );
-}
-
-try {
-  const dyadScreenshotClientPath = path.join(
-    __dirname,
-    "dyad-screenshot-client.js",
-  );
-  dyadScreenshotClientContent = fs.readFileSync(
-    dyadScreenshotClientPath,
-    "utf-8",
-  );
-  parentPort?.postMessage("[proxy-worker] dyad-screenshot-client.js loaded.");
-} catch (error) {
-  parentPort?.postMessage(
-    `[proxy-worker] Failed to read dyad-screenshot-client.js: ${error.message}`,
-  );
-}
-
-try {
-  const dyadVisualEditorClientPath = path.join(
-    __dirname,
-    "dyad-visual-editor-client.js",
-  );
-  dyadVisualEditorClientContent = fs.readFileSync(
-    dyadVisualEditorClientPath,
-    "utf-8",
-  );
-  parentPort?.postMessage(
-    "[proxy-worker] dyad-visual-editor-client.js loaded.",
-  );
-} catch (error) {
-  parentPort?.postMessage(
-    `[proxy-worker] Failed to read dyad-visual-editor-client.js: ${error.message}`,
-  );
-}
-
-/* ---------------------- helper: need to inject? ------------------------ */
-function needsInjection(pathname) {
-  // Inject for routes without a file extension (e.g., "/foo", "/foo/bar", "/")
-  const ext = path.extname(pathname).toLowerCase();
-  return ext === "" || ext === ".html";
-}
-
-function injectHTML(buf) {
-  let txt = buf.toString("utf8");
-  // These are strings that were used since the first version of the dyad shim.
-  // If the dyad shim is used from legacy apps which came pre-baked with the shim
-  // as a vite plugin, then do not inject the shim twice to avoid weird behaviors.
-  const legacyAppWithShim =
-    txt.includes("window-error") && txt.includes("unhandled-rejection");
-
-  const scripts = [];
-
-  if (!legacyAppWithShim) {
-    if (stacktraceJsContent) {
-      scripts.push(`<script>${stacktraceJsContent}</script>`);
-    } else {
-      scripts.push(
-        '<script>console.warn("[proxy-worker] stacktrace.js was not injected.");</script>',
-      );
-    }
-
-    if (dyadShimContent) {
-      scripts.push(`<script>${dyadShimContent}</script>`);
-    } else {
-      scripts.push(
-        '<script>console.warn("[proxy-worker] dyad shim was not injected.");</script>',
-      );
-    }
-  }
-  if (dyadComponentSelectorClientContent) {
-    scripts.push(`<script>${dyadComponentSelectorClientContent}</script>`);
-  } else {
-    scripts.push(
-      '<script>console.warn("[proxy-worker] dyad component selector client was not injected.");</script>',
-    );
-  }
-  if (htmlToImageContent) {
-    scripts.push(`<script>${htmlToImageContent}</script>`);
-    parentPort?.postMessage(
-      "[proxy-worker] html-to-image script injected into HTML.",
-    );
-  } else {
-    scripts.push(
-      '<script>console.error("[proxy-worker] html-to-image was not injected - library not loaded.");</script>',
-    );
-    parentPort?.postMessage(
-      "[proxy-worker] WARNING: html-to-image not injected!",
-    );
-  }
-  if (dyadScreenshotClientContent) {
-    scripts.push(`<script>${dyadScreenshotClientContent}</script>`);
-  } else {
-    scripts.push(
-      '<script>console.warn("[proxy-worker] dyad screenshot client was not injected.");</script>',
-    );
-  }
-  if (dyadVisualEditorClientContent) {
-    scripts.push(`<script>${dyadVisualEditorClientContent}</script>`);
-  } else {
-    scripts.push(
-      '<script>console.warn("[proxy-worker] dyad visual editor client was not injected.");</script>',
-    );
-  }
-  const allScripts = scripts.join("\n");
-
-  const headRegex = /<head[^>]*>/i;
-  if (headRegex.test(txt)) {
-    txt = txt.replace(headRegex, `$&\n${allScripts}`);
-  } else {
-    txt = allScripts + "\n" + txt;
-    parentPort?.postMessage(
-      "[proxy-worker] Warning: <head> tag not found – scripts prepended.",
-    );
-  }
-  return Buffer.from(txt, "utf8");
-}
+/* ---------------------- HTML injection: REMOVED -------------------------
+ * This proxy used to inject stacktrace.js, html-to-image, and four `dyad-*.js`
+ * client scripts (error shim, component selector, screenshot, visual editor) into
+ * every proxied HTML response.
+ *
+ * All of it was dead. Those scripts communicate by posting message types
+ * (`window-error`, `build-error-report`, `dyad-component-selected`,
+ * `dyad-screenshot-response`, `dyad-text-updated`, …) and NOTHING in `src/` has
+ * listened for any of them since the preview surface was removed in v14.15.0 and
+ * the app unified on the Browser tab.
+ *
+ * Worse, it was noisy dead code: `html-to-image` and `stacktrace-js` are not
+ * declared dependencies, so every proxy start logged two ENOENT failures and every
+ * proxied page got a `console.error` telling the user a library had not loaded.
+ *
+ * What this proxy still does IS used: it proxies the user's dev-server URL and
+ * announces it as `[atlarix-preview-proxy]started=[…]`, which `useRunApp.ts`
+ * consumes. That behaviour is untouched.
+ * --------------------------------------------------------------------- */
 
 /* ---------------- helper: build upstream URL from request -------------- */
 function buildTargetURL(clientReq) {
@@ -257,12 +87,10 @@ const server = http.createServer((clientReq, clientRes) => {
       delete headers.referer;
     }
   }
-  if (needsInjection(target.pathname)) {
-    // Request uncompressed content from upstream
-    delete headers["accept-encoding"];
-    // Avoid getting cached resources.
-    delete headers["if-none-match"];
-  }
+  // NOTE: we used to strip `accept-encoding` and `if-none-match` for HTML routes so
+  // the body arrived uncompressed and uncached and could be rewritten. With script
+  // injection gone there is nothing to rewrite, so compression and conditional
+  // requests are now passed through — the proxy is a plain pass-through again.
 
   const upOpts = {
     protocol: target.protocol,
@@ -273,46 +101,12 @@ const server = http.createServer((clientReq, clientRes) => {
     headers,
   };
 
+  // Straight pass-through: stream upstream's response untouched. Previously the
+  // whole HTML body was buffered so scripts could be spliced into <head>; that
+  // apparatus is gone (see the note above), so nothing needs the full body.
   const upReq = lib.request(upOpts, (upRes) => {
-    const wantsInjection = needsInjection(target.pathname);
-    // Only inject when upstream indicates HTML content
-    const contentTypeHeader = upRes.headers["content-type"];
-    const contentType = Array.isArray(contentTypeHeader)
-      ? contentTypeHeader[0]
-      : contentTypeHeader || "";
-    const isHtml =
-      typeof contentType === "string" &&
-      contentType.toLowerCase().includes("text/html");
-    const inject = wantsInjection && isHtml;
-
-    if (!inject) {
-      clientRes.writeHead(upRes.statusCode, upRes.headers);
-      return void upRes.pipe(clientRes);
-    }
-
-    const chunks = [];
-    upRes.on("data", (c) => chunks.push(c));
-    upRes.on("end", () => {
-      try {
-        const merged = Buffer.concat(chunks);
-        const patched = injectHTML(merged);
-
-        const hdrs = {
-          ...upRes.headers,
-          "content-length": Buffer.byteLength(patched),
-        };
-        // If we injected content, it's no longer encoded in the original way
-        delete hdrs["content-encoding"];
-        // Also, remove ETag as content has changed
-        delete hdrs["etag"];
-
-        clientRes.writeHead(upRes.statusCode, hdrs);
-        clientRes.end(patched);
-      } catch (e) {
-        clientRes.writeHead(500, { "content-type": "text/plain" });
-        clientRes.end("Injection failed: " + e.message);
-      }
-    });
+    clientRes.writeHead(upRes.statusCode, upRes.headers);
+    upRes.pipe(clientRes);
   });
 
   clientReq.pipe(upReq);

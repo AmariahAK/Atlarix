@@ -3,6 +3,44 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
+## [Unreleased] — Windows commands work again, and the app is on the Microsoft Store
+
+**If you use Atlarix on Windows, agent commands involving git, bash, or most tools in
+`C:\Program Files` were failing.** The write-confining sandbox used AppContainer, which
+denies *reads* by default — the opposite of what it needed to do. `bash.exe` returned
+"Access is denied" and git couldn't open `/dev/null`. It has been rebuilt on Windows'
+Mandatory Integrity Control (Low integrity level), which allows reads and execution while
+still confining writes to your workspace.
+
+- Sandboxed commands now run in the **same shell** as unsandboxed ones. Previously the
+  sandbox forced `cmd.exe` while everything else used Git bash, so POSIX-style commands
+  failed with confusing syntax errors.
+- **Note:** confining writes this way requires marking your workspace folder with a Low
+  integrity label, which persists. This means other low-integrity processes running as you
+  (notably sandboxed browser tabs) could write there. Details in
+  `src/lib/sandbox/WINDOWS_HELPER.md`.
+- If the mechanism can't initialise on your machine, commands run **unconfined** with a
+  warning rather than failing.
+- Windows workspaces stored inside WSL (`\\wsl$\…`) now run their commands **inside the
+  distro**, where the paths and toolchain actually live.
+
+**Linux:** `truncate` was not covered by write confinement — Landlock was pinned to an ABI
+predating the `TRUNCATE` right, so `truncate -s 0` on a file outside your workspace
+succeeded. Fixed.
+
+**Microsoft Store:** Atlarix now builds as an MSIX package. Store installs keep your
+existing workspaces, chats and credentials, and are updated by the Store rather than the
+in-app updater.
+
+**Windows and Linux branding:** the Windows installer and app icon were still the upstream
+project's logo — `logo.ico` was never regenerated during the rebrand — and deb/rpm shipped
+the generic Electron icon. All app icons are now derived from one source.
+
+**Other fixes:** the "install Git" message no longer tells Windows and Linux users to run a
+macOS-only command; the dev-server proxy stopped logging errors about libraries it never
+shipped (and no longer forces uncompressed responses); voice input no longer logs a WebGPU
+adapter error on machines without WebGPU support.
+
 ## [14.27.0] (2026-08-05) — Your credentials and your workspaces stop disappearing
 
 Three things this release stops doing to you, and one it starts.

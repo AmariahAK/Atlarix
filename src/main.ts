@@ -48,7 +48,6 @@ import * as Sentry from "@sentry/electron/main";
 import { sentryBeforeSendDropExpected } from "./lib/sentry-before-send";
 import { SENTRY_IGNORE_ERROR_PATTERNS } from "./lib/sentry-ignore-patterns";
 import fs from "fs";
-import { execSync } from "node:child_process";
 import os from "node:os";
 import { restoreAuthSessionOnStartup } from "./lib/auth/supabase-client";
 import { markStartupAuthResolved } from "./lib/auth/startup-auth-state";
@@ -238,29 +237,19 @@ if (IS_SELF_TEST) {
   })();
 }
 
-/** v11: system git only (dugite removed). A bundled git in resources (E2E /
- * ATLARIX_BUNDLE_GIT=1 builds) is still honored via LOCAL_GIT_DIRECTORY. */
-function configureGitEnvironment(): void {
-  try {
-    execSync("git --version", { stdio: "ignore" });
-    logger.info("[git] Using system git from PATH");
-    return;
-  } catch {
-    const bundled = app.isPackaged
-      ? path.join(process.resourcesPath, "git")
-      : null;
-    if (bundled && fs.existsSync(bundled)) {
-      process.env.LOCAL_GIT_DIRECTORY = bundled;
-      logger.info("[git] Using bundled git from resources");
-    } else {
-      logger.warn(
-        "[git] No system git found — git features disabled. Install Git (macOS: `xcode-select --install`) to enable them.",
-      );
-    }
-  }
-}
-
-configureGitEnvironment();
+// REMOVED: `configureGitEnvironment()`.
+//
+// It ran a BLOCKING `execSync("git --version")` at module scope on every launch,
+// and its only effect beyond logging was setting `LOCAL_GIT_DIRECTORY` when a
+// bundled git existed at `process.resourcesPath/git`. `extraResource` in
+// forge.config.ts ships no `git` directory and `dugite` has not been a dependency
+// since v11, so that branch could never fire — the function was a synchronous
+// subprocess on the boot-critical path in exchange for one log line.
+//
+// `isGitAvailable()` in src/ipc/utils/system_git_exec.ts already does a CACHED,
+// LAZY probe, so availability is still known wherever it actually matters. That
+// module still honours `LOCAL_GIT_DIRECTORY` if something in the environment sets
+// it, preserving the documented escape hatch.
 
 app.on("child-process-gone", (_event, details) => {
   logger.error("[crash] child-process-gone", details);

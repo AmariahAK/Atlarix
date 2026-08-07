@@ -71,8 +71,25 @@ async function getTranscriber(
   transcriberPromise = (async () => {
     // WebGPU first (fp16 is the fast path); fall back to a quantized WASM build
     // on machines without WebGPU or where the GPU init throws.
-    const hasWebGpu =
-      typeof (navigator as unknown as { gpu?: unknown }).gpu !== "undefined";
+    //
+    // Ask for an ADAPTER, not just for the API to exist. Chromium exposes
+    // `navigator.gpu` on machines whose GPU cannot actually back it, so the old
+    // `typeof navigator.gpu !== "undefined"` check sent us down the WebGPU path
+    // anyway — and `onnxruntime-web` logs its own `console.error`
+    // ("no available backend found. ERR: [webgpu] … Failed to get GPU adapter")
+    // BEFORE the catch below can fall back. Transcription still worked, but every
+    // affected user saw a scary error. Observed on Windows 10 hardware that also
+    // failed Chromium's DirectComposition probe.
+    const hasWebGpu = await (async () => {
+      const gpu = (navigator as unknown as { gpu?: { requestAdapter?: () => Promise<unknown> } })
+        .gpu;
+      if (!gpu?.requestAdapter) return false;
+      try {
+        return Boolean(await gpu.requestAdapter());
+      } catch {
+        return false;
+      }
+    })();
     if (hasWebGpu) {
       try {
         const t = await pipeline("automatic-speech-recognition", model, {
