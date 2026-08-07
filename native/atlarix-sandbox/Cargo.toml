@@ -2,7 +2,7 @@
 name = "atlarix-sandbox"
 version = "0.1.0"
 edition = "2021"
-description = "Windows AppContainer write-confining sandbox helper for Atlarix run_command"
+description = "Windows Low-Integrity write-confining sandbox helper for Atlarix run_command"
 license = "MIT"
 publish = false
 
@@ -20,11 +20,17 @@ codegen-units = 1
 [dependencies.windows]
 version = "0.58"
 features = [
+    # LocalFree / HLOCAL / BOOL / HANDLE / CloseHandle all live in Win32_Foundation.
     "Win32_Foundation",
+    # Tokens (DuplicateTokenEx, SetTokenInformation, TOKEN_MANDATORY_LABEL),
+    # GetSecurityDescriptorSacl, LABEL_SECURITY_INFORMATION.
     "Win32_Security",
+    # SDDL conversion + SetNamedSecurityInfoW for the Low mandatory label.
     "Win32_Security_Authorization",
-    "Win32_Security_Isolation",
+    # OpenProcessToken / GetCurrentProcess / CreateProcessAsUserW.
     "Win32_System_Threading",
-    "Win32_System_Memory",
+    # SE_GROUP_INTEGRITY.
     "Win32_System_SystemServices",
+    # NOTE: Win32_Security_Isolation (AppContainer) was dropped when this helper
+    # moved to Low Integrity Level — see the rationale at the top of src/main.rs.
 ]

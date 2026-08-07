@@ -14,10 +14,12 @@
  * caller is in `enforce` mode), so the sandbox can never break a user's workflow.
  */
 
+import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, realpathSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import log from "electron-log";
+import { wrapWsl } from "./wsl";
 
 const logger = log.scope("command-sandbox");
 
@@ -269,12 +271,16 @@ function findLinuxHelper(): string | null {
 
 function wrapLinux(req: SandboxRequest, writable: string[]): WrappedSpawn | null {
   // Prefer the bundled Landlock helper (self-contained); same CLI contract as the
-  // Windows AppContainer helper: --workspace <dir> [--writable <dir>]... -- <cmd>.
+  // Windows helper: --workspace <dir> [--writable <dir>]... -- <cmd>.
   const helper = findLinuxHelper();
   if (helper) {
     const args = ["--workspace", req.workspacePath];
     if (req.readOnly) args.push("--read-only"); // deny workspace writes
     for (const p of writable) args.push("--writable", p);
+    // Pass the RESOLVED shell. The helper used to hardcode `/bin/sh`, so a command
+    // using bashisms worked unsandboxed and failed sandboxed — the sandbox was
+    // changing language semantics, not just permissions.
+    args.push("--shell", req.shell);
     args.push("--", req.command);
     return { file: helper, args, sandboxed: true, useShellOption: false };
   }
@@ -298,17 +304,18 @@ function wrapLinux(req: SandboxRequest, writable: string[]): WrappedSpawn | null
   return { file: bwrap, args, sandboxed: true, useShellOption: false };
 }
 
-// ── Windows (AppContainer helper) ────────────────────────────────────────────
+// ── Windows (Low Integrity Level helper) ─────────────────────────────────────
 
 /**
- * Resolve the bundled AppContainer helper (`atlarix-sandbox.exe`, cargo-built +
- * signed in the Windows CI job, shipped via forge.config.ts `extraResource`).
- * Resolves at runtime from `process.resourcesPath`; override with
- * ATLARIX_SANDBOX_HELPER. Contract:
+ * Resolve the bundled helper (`atlarix-sandbox.exe`, cargo-built + signed in the
+ * Windows CI job, shipped via forge.config.ts `extraResource`). Resolves at
+ * runtime from `process.resourcesPath`; override with ATLARIX_SANDBOX_HELPER.
+ * Contract:
  *   atlarix-sandbox.exe --workspace <dir> [--writable <dir>]... -- <command>
- * The helper creates an AppContainer profile with write-ACLs on the writable
- * set + the `internetClient` capability and runs the command inside it. Falls
- * back to unsandboxed when absent (e.g. a build where the crate didn't compile).
+ * The helper runs the command under a Low-integrity token, stamping a Low
+ * mandatory label on the writable set so writes there are allowed while reads and
+ * exec stay unrestricted. Falls back to unsandboxed when absent (e.g. a build
+ * where the crate didn't compile).
  */
 function findWindowsHelper(): string | null {
   const fromEnv = process.env.ATLARIX_SANDBOX_HELPER;
@@ -326,12 +333,60 @@ function findWindowsHelper(): string | null {
   return null;
 }
 
+/**
+ * `null` until probed, then the cached verdict for this session.
+ * Exported reset exists only for tests.
+ */
+let windowsHelperUsable: boolean | null = null;
+
+export function resetWindowsSandboxProbeForTests(): void {
+  windowsHelperUsable = null;
+}
+
+/**
+ * Does the Low-IL mechanism actually work on THIS machine?
+ *
+ * `CreateProcessAsUserW` is documented as needing `SE_ASSIGNPRIMARYTOKEN_NAME`
+ * when the token "is not assignable". A lowered duplicate of our own token should
+ * be assignable (this is how Chrome sandboxes renderers on standard accounts), but
+ * a locked-down or EDR-managed machine can still refuse it — so we ask once rather
+ * than assume.
+ *
+ * Deliberately a SYNTHETIC probe run before any user command, not a retry after a
+ * user command fails. Retry-on-denial would downgrade to unsandboxed on exactly
+ * the commands that matter and could be triggered on purpose by a crafted command;
+ * a probe cannot be influenced that way.
+ */
+function windowsSandboxUsable(helper: string): boolean {
+  if (windowsHelperUsable !== null) return windowsHelperUsable;
+  try {
+    const probe = spawnSync(helper, ["--probe"], { timeout: 15_000, windowsHide: true });
+    windowsHelperUsable = probe.status === 0;
+    if (!windowsHelperUsable) {
+      logger.warn(
+        `Windows sandbox self-probe FAILED (status=${probe.status}); run_command will be ` +
+          `unconfined on this machine. ${(probe.stderr?.toString() ?? "").trim().slice(0, 300)}`,
+      );
+    }
+  } catch (e) {
+    windowsHelperUsable = false;
+    logger.warn(`Windows sandbox self-probe could not run: ${e instanceof Error ? e.message : String(e)}`);
+  }
+  return windowsHelperUsable;
+}
+
 function wrapWindows(req: SandboxRequest, writable: string[]): WrappedSpawn | null {
   const helper = findWindowsHelper();
   if (!helper) return null;
+  if (!windowsSandboxUsable(helper)) return null;
   const args = ["--workspace", req.workspacePath];
   if (req.readOnly) args.push("--read-only"); // deny workspace writes
   for (const p of writable) args.push("--writable", p);
+  // Same shell the unsandboxed path uses. On Windows `getAcceptableShell()` prefers
+  // Git bash when it's installed, while the helper used to hardcode `cmd.exe /c` —
+  // so POSIX-shaped commands failed under the sandbox with cmd syntax errors that
+  // looked like sandbox denials but weren't.
+  args.push("--shell", req.shell);
   args.push("--", req.command);
   return { file: helper, args, sandboxed: true, useShellOption: false };
 }
@@ -366,16 +421,48 @@ export function wrapCommandInSandbox(req: SandboxRequest): WrappedSpawn {
       wrapped = wrapLinux(req, writable);
       unavailableNote = "bubblewrap (bwrap) not installed";
       break;
-    case "win32":
+    case "win32": {
+      // A workspace under \\wsl$\… is a Linux project with a Linux toolchain, so
+      // route into the distro rather than confining it Windows-side. Checked FIRST
+      // because Low IL would otherwise confine the wrong filesystem. Plain C:\…
+      // workspaces fall straight through to the Windows helper.
+      const viaWsl = wrapWsl({
+        workspacePath: req.workspacePath,
+        shell: req.shell,
+        command: req.command,
+        extraWritablePaths: req.extraWritablePaths,
+        readOnly: req.readOnly,
+      });
+      if (viaWsl) {
+        if (viaWsl.sandboxed) {
+          logger.info(`Sandboxing run_command via WSL (bwrap) for ${req.workspacePath}`);
+          return { file: viaWsl.file, args: viaWsl.args, sandboxed: true, useShellOption: false };
+        }
+        // Routed into the distro but unconfined: still the right OS to run in, so
+        // report it as unsandboxed and let the caller's enforce/warn path decide.
+        return {
+          file: viaWsl.file,
+          args: viaWsl.args,
+          sandboxed: false,
+          useShellOption: false,
+          note: viaWsl.note,
+        };
+      }
       wrapped = wrapWindows(req, writable);
-      unavailableNote = "AppContainer helper (atlarix-sandbox.exe) not bundled";
+      unavailableNote =
+        "Low-integrity helper (atlarix-sandbox.exe) not bundled, or its self-probe failed on this machine";
       break;
+    }
     default:
       unavailableNote = `no sandbox for platform ${process.platform}`;
   }
 
   if (wrapped) {
-    logger.debug(`Sandboxing run_command (${process.platform}); ${writable.length} writable roots`);
+    // INFO, not debug: a write-confining control that degrades silently must be
+    // affirmatively observable. Previously only its FAILURE was logged (at warn),
+    // so "the sandbox is on" could only ever be inferred from the absence of a
+    // warning — which is how a broken Windows sandbox went unnoticed for releases.
+    logger.info(`Sandboxing run_command (${process.platform}); ${writable.length} writable roots`);
     return wrapped;
   }
 

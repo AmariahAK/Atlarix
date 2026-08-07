@@ -52,6 +52,13 @@ struct Args {
     writable: Vec<String>,
     /// Read-only mode: the workspace is NOT granted write (only `--writable` roots are).
     read_only: bool,
+    /// Shell to exec, from `--shell`. Defaults to `/bin/sh`.
+    ///
+    /// Without this the helper always used `/bin/sh` while `wrap-command.ts` resolves
+    /// the user's preferred shell (bash) for UNsandboxed runs — so a command using
+    /// bashisms worked unsandboxed and failed sandboxed. A sandbox must change
+    /// permissions, not language semantics.
+    shell: String,
     command: String,
 }
 
@@ -60,6 +67,7 @@ fn parse_args() -> Args {
     let mut workspace = String::new();
     let mut writable: Vec<String> = Vec::new();
     let mut read_only = false;
+    let mut shell = String::from("/bin/sh");
     let mut command = String::new();
     let mut i = 0;
     while i < argv.len() {
@@ -72,6 +80,14 @@ fn parse_args() -> Args {
                 i += 1;
                 if let Some(p) = argv.get(i) {
                     writable.push(p.clone());
+                }
+            }
+            "--shell" => {
+                i += 1;
+                if let Some(s) = argv.get(i) {
+                    if !s.is_empty() {
+                        shell = s.clone();
+                    }
                 }
             }
             "--read-only" => {
@@ -96,6 +112,7 @@ fn parse_args() -> Args {
         workspace,
         writable,
         read_only,
+        shell,
         command,
     }
 }
@@ -120,7 +137,26 @@ fn writable_roots(args: &Args) -> Vec<String> {
 /// any Landlock error we log and return (run unconfined) — matching the "sandbox
 /// never breaks the workflow" policy.
 fn apply_landlock(roots: &[String]) {
-    let abi = ABI::V2;
+    // V4, not V2. `AccessFs::from_write` gains rights per ABI:
+    //   V2 = V1 | Refer            (no Truncate — the bug this fixes)
+    //   V3/V4 = V2 | Truncate      (Linux 6.2 / 6.7)
+    //   V5+   = V4 | IoctlDev      (Linux 6.10)
+    //
+    // Pinning V2 left `LANDLOCK_ACCESS_FS_TRUNCATE` OUT of the handled set, so
+    // truncation was never confined: `truncate -s 0 ~/.ssh/id_rsa` succeeded
+    // outside the writable roots. Shell redirection was always safe (that is
+    // `open(O_TRUNC)`, gated by WriteFile), but `truncate(2)` works by path and
+    // needs no writable fd, so it walked straight through.
+    //
+    // Deliberately NOT V5: that adds `IoctlDev` to the handled set, newly denying
+    // ioctls on device files. That is speculative hardening with a real
+    // compatibility risk — exactly the "sandbox breaks the toolchain" failure mode
+    // being fixed on Windows in this same change. Revisit with a compat test.
+    //
+    // `Ruleset::default()` uses `CompatLevel::BestEffort` (the crate's `#[default]`),
+    // so on a pre-6.2 kernel the unsupported rights are silently dropped rather
+    // than erroring.
+    let abi = ABI::V4;
     let write = AccessFs::from_write(abi);
 
     let result = Ruleset::default()
@@ -140,8 +176,9 @@ fn main() {
     let args = parse_args();
     let roots = writable_roots(&args);
 
-    // Apply Landlock to self, then become the command.
+    // Apply Landlock to self, then become the command. The ruleset is inherited
+    // across exec, so the shell and everything it spawns stay confined.
     apply_landlock(&roots);
-    let err = Command::new("/bin/sh").arg("-c").arg(&args.command).exec();
-    die(&format!("exec /bin/sh failed: {err}"));
+    let err = Command::new(&args.shell).arg("-c").arg(&args.command).exec();
+    die(&format!("exec {} failed: {err}", args.shell));
 }

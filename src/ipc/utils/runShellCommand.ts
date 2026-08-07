@@ -120,18 +120,26 @@ function runShellProcess(options: RunShellProcessOptions): Promise<CommandResult
       extraWritablePaths: sandbox.extraWritablePaths,
       readOnly: sandbox.readOnly,
     });
-    if (wrapped.sandboxed) {
+    // The SPAWN SHAPE is decided by `useShellOption`, not by `sandboxed`. They are
+    // not the same question: a WSL-routed command has an explicit file+args
+    // (`wsl.exe -d …`) and must be spawned that way even when bwrap is absent
+    // inside the distro and it is therefore NOT confined. Branching on `sandboxed`
+    // here would silently run such a command on the Windows side instead — wrong
+    // toolchain, wrong paths.
+    if (!wrapped.useShellOption) {
       spawnFile = wrapped.file;
       spawnArgs = wrapped.args;
-    } else if (sandbox.enforce) {
-      logger.error(`Sandbox required but unavailable (${wrapped.note}); refusing to run: ${command}`);
-      return Promise.resolve({
-        stdout: "",
-        stderr: `Command sandbox is required but unavailable on this system (${wrapped.note}). Command not run.`,
-        exitCode: 1,
-        success: false,
-      });
-    } else {
+    }
+    if (!wrapped.sandboxed) {
+      if (sandbox.enforce) {
+        logger.error(`Sandbox required but unavailable (${wrapped.note}); refusing to run: ${command}`);
+        return Promise.resolve({
+          stdout: "",
+          stderr: `Command sandbox is required but unavailable on this system (${wrapped.note}). Command not run.`,
+          exitCode: 1,
+          success: false,
+        });
+      }
       logger.warn(`run_command not sandboxed (${wrapped.note}); running unconfined: ${command}`);
     }
   }
