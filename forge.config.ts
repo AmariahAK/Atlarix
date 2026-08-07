@@ -66,6 +66,29 @@ const RENDERER_ONLY_PACKAGES = new Set([
 
 const isEndToEndTestBuild = process.env.E2E_TEST_BUILD === "true";
 
+/**
+ * Linux icon theme map for the deb/rpm makers.
+ *
+ * `electron-installer-common` branches on the shape of `options.icon`: an OBJECT
+ * installs into `/usr/share/icons/hicolor/<key>/apps/` (a proper multi-resolution
+ * theme entry), a STRING installs a single pixmap, and OMITTING it falls back to
+ * the module's own bundled default — which is the generic Electron atom. deb/rpm
+ * previously set no icon at all, so both shipped the Electron logo.
+ *
+ * Keys must be the hicolor resolution directory names, so they are stated
+ * explicitly rather than derived from the iconset's macOS `@2x` filenames (where
+ * `icon_32x32@2x.png` is in fact 64x64). All files are regenerated from
+ * `assets/icon/logo.icns` by `scripts/gen-icons.mjs`.
+ */
+const LINUX_HICOLOR_ICONS = {
+  "16x16": "./assets/icon/logo.iconset/icon_16x16.png",
+  "32x32": "./assets/icon/logo.iconset/icon_32x32.png",
+  "64x64": "./assets/icon/logo.iconset/icon_32x32@2x.png",
+  "128x128": "./assets/icon/logo.iconset/icon_128x128.png",
+  "256x256": "./assets/icon/logo.iconset/icon_256x256.png",
+  "512x512": "./assets/icon/logo.iconset/icon_512x512.png",
+};
+
 /** Dev/test packages that must never ship in production asar. */
 const RELEASE_DENY_PACKAGES = [
   "playwright",
@@ -309,11 +332,18 @@ const config: ForgeConfig = {
     force: true,
   },
   makers: [
-    new MakerSquirrel((process.env.SM_CODE_SIGNING_CERT_SHA1_HASH ? {
-        signWithParams: `/sha1 ${process.env.SM_CODE_SIGNING_CERT_SHA1_HASH} /tr http://timestamp.digicert.com /td SHA256 /fd SHA256`,
-      } : {
-        setupIcon: "./assets/icon/logo.ico",
-      })),
+    new MakerSquirrel({
+      // The Setup.exe icon. This USED to sit in the `else` arm of a ternary on
+      // SM_CODE_SIGNING_CERT_SHA1_HASH — so every signed build (i.e. every real
+      // CI release) silently dropped it and shipped Squirrel's default icon.
+      // Signing and branding are independent concerns; always set both.
+      setupIcon: "./assets/icon/logo.ico",
+      ...(process.env.SM_CODE_SIGNING_CERT_SHA1_HASH
+        ? {
+            signWithParams: `/sha1 ${process.env.SM_CODE_SIGNING_CERT_SHA1_HASH} /tr http://timestamp.digicert.com /td SHA256 /fd SHA256`,
+          }
+        : {}),
+    }),
     new MakerDMG({
       icon: "./assets/icon/logo.icns",
       // appdmg@0.6.6 errors if the target .dmg already exists; allow overwrite so
@@ -324,11 +354,17 @@ const config: ForgeConfig = {
     new MakerRpm({
       options: {
         mimeType: ["x-scheme-handler/atlarix"],
+        // @ts-expect-error Forge types this as `string`, but the underlying
+        // electron-installer-common branches on shape and accepts the hicolor
+        // object (see LINUX_HICOLOR_ICONS). The types lag the implementation.
+        icon: LINUX_HICOLOR_ICONS,
       },
     }),
     new MakerDeb({
       options: {
         mimeType: ["x-scheme-handler/atlarix"],
+        // @ts-expect-error see the MakerRpm note above.
+        icon: LINUX_HICOLOR_ICONS,
       },
     }),
     new MakerAppImage({
