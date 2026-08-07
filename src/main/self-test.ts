@@ -253,6 +253,140 @@ export const DEFAULT_PROBES: SelfTestProbe[] = [
       }
     },
   },
+  {
+    /**
+     * Does the run_command sandbox actually confine writes WITHOUT breaking the
+     * toolchain?
+     *
+     * This probe exists because CI only ever ran `cargo build` on the sandbox
+     * helpers — nothing executed them. The Windows helper therefore shipped for
+     * several releases silently blocking `bash.exe` and git's `/dev/null`, because
+     * AppContainer is deny-by-default on READS while our policy is "reads broad,
+     * writes confined". Every assertion below maps to a real observed failure.
+     *
+     * It drives the SHIPPED path (`runShellCommandStreaming` → `wrapCommandInSandbox`
+     * → spawn), so it tests what users get rather than a reimplementation.
+     *
+     * Differential where it matters: the read and toolchain checks compare
+     * sandboxed against UNSANDBOXED behaviour, so "git isn't installed" can never
+     * masquerade as "the sandbox blocked git".
+     */
+    name: "sandbox",
+    run: async () => {
+      const fsp = await import("node:fs/promises");
+      const os = await import("node:os");
+      const path = await import("node:path");
+      const { runShellCommandStreaming } = await import("@/ipc/utils/runShellCommand");
+      const { wrapCommandInSandbox } = await import("@/lib/sandbox/wrap-command");
+      const { getAcceptableShell } = await import("@/lib/shell/resolve-shell");
+
+      const win = process.platform === "win32";
+      const home = os.homedir();
+      // Both live directly in HOME: `defaultWritablePaths` grants specific home
+      // SUBdirECTORIES (~/.npm, ~/.cache, …) but never HOME itself, so `outside`
+      // is genuinely outside every writable root while `ws` is writable only
+      // because it IS the workspace. Putting the workspace under tmpdir instead
+      // would let the temp grant satisfy assertion 1 and prove nothing.
+      const ws = path.join(home, `atlarix-sbx-ws-${process.pid}`);
+      const outside = path.join(home, `atlarix-sbx-out-${process.pid}.txt`);
+
+      await fsp.mkdir(ws, { recursive: true });
+      await fsp.writeFile(outside, MARK, "utf8");
+
+      /** Run `command` through the real sandbox path, rooted at the probe workspace. */
+      const sandboxed = (command: string) =>
+        runShellCommandStreaming(command, ws, {
+          onOutput: () => {},
+          workspaceRoot: ws,
+          sandbox: { workspacePath: ws, readOnly: false },
+        });
+      /** Same command with no sandbox — the control arm of the differential. */
+      const plain = (command: string) =>
+        runShellCommandStreaming(command, ws, { onOutput: () => {}, workspaceRoot: ws });
+
+      const notes: string[] = [];
+      try {
+        // A sandbox that isn't applied is the false-pass this probe exists to kill,
+        // so report it as a FAILURE rather than skipping the assertions below.
+        const wrapped = wrapCommandInSandbox({
+          command: "exit 0",
+          shell: getAcceptableShell(),
+          workspacePath: ws,
+        });
+        if (!wrapped.sandboxed) {
+          throw new Error(`sandbox not applied (${wrapped.note ?? "no reason given"})`);
+        }
+
+        // 1. Writes INSIDE the workspace must work, or the sandbox is unusable.
+        const inside = await sandboxed(win ? "echo x> inside.txt" : "printf x > inside.txt");
+        if (inside.exitCode !== 0) {
+          throw new Error(`write inside workspace FAILED (exit ${inside.exitCode}): ${inside.stderr.slice(0, 160)}`);
+        }
+
+        // 2. Writes OUTSIDE every writable root must be denied, or it confines nothing.
+        const escaped = await sandboxed(
+          win ? `echo x> "${outside}"` : `printf x > "${outside}"`,
+        );
+        if (escaped.exitCode === 0) {
+          throw new Error(`write OUTSIDE the workspace SUCCEEDED (${outside}) — writes are not confined`);
+        }
+
+        // 3. Reads outside must still work. THIS is the assertion that would have
+        //    caught the AppContainer bug on the day the helper started shipping.
+        const readCmd = win ? `type "${outside}"` : `cat "${outside}"`;
+        const readSandboxed = await sandboxed(readCmd);
+        if (readSandboxed.exitCode !== 0) {
+          const readPlain = await plain(readCmd);
+          throw new Error(
+            readPlain.exitCode === 0
+              ? `read outside the workspace is BLOCKED by the sandbox (works unsandboxed) — deny-by-default on reads`
+              : `read outside failed both sandboxed and unsandboxed; probe environment is broken, not the sandbox`,
+          );
+        }
+
+        // 4. A non-system toolchain binary must be executable. On Windows this is
+        //    `C:\Program Files\Git\`, which is exactly what returned
+        //    "Access is denied" under AppContainer. Differential so a machine
+        //    without git skips rather than fails.
+        const gitPlain = await plain("git --version");
+        if (gitPlain.exitCode !== 0) {
+          notes.push("git=absent (toolchain exec assertion skipped)");
+        } else {
+          const gitSandboxed = await sandboxed("git --version");
+          if (gitSandboxed.exitCode !== 0) {
+            throw new Error(
+              `git runs unsandboxed but FAILS sandboxed (exit ${gitSandboxed.exitCode}): ${gitSandboxed.stderr.slice(0, 160)}`,
+            );
+          }
+          notes.push("git=exec ok");
+        }
+
+        // 5. `truncate(2)` is gated by a SEPARATE Landlock right (TRUNCATE, ABI V3)
+        //    from WRITE_FILE, so a helper pinned to an older ABI confines `>` but
+        //    not `truncate`. POSIX only — Windows has no equivalent utility.
+        if (!win) {
+          const truncPlain = await plain(`truncate -s 0 "${outside}"`);
+          if (truncPlain.exitCode !== 0) {
+            notes.push("truncate=absent (assertion skipped)");
+          } else {
+            await fsp.writeFile(outside, MARK, "utf8"); // the control arm emptied it
+            const truncSandboxed = await sandboxed(`truncate -s 0 "${outside}"`);
+            if (truncSandboxed.exitCode === 0) {
+              throw new Error(
+                "truncate OUTSIDE the workspace SUCCEEDED — write confinement bypassable via truncate(2)",
+              );
+            }
+            notes.push("truncate=denied");
+          }
+        }
+
+        return `confined writes, reads+exec unrestricted${notes.length ? ` | ${notes.join(" | ")}` : ""}`;
+      } finally {
+        await fsp.rm(ws, { recursive: true, force: true });
+        await fsp.rm(outside, { force: true });
+      }
+    },
+  },
 ];
 
 export async function runSelfTest(probes: SelfTestProbe[] = DEFAULT_PROBES): Promise<SelfTestReport> {

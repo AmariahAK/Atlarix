@@ -65,7 +65,8 @@
     "build:linux-sandbox": "cargo build --release --manifest-path native/atlarix-sandbox-linux/Cargo.toml",
     "check": "npm run check:ts && npm run check:lint",
     "check:ts": "node node_modules/typescript/lib/tsc.js -p tsconfig.app.json --noEmit",
-    "check:lint": "oxlint src"
+    "check:lint": "oxlint src",
+    "check:sandbox": "node scripts/check-sandbox-helpers.mjs"
   },
   "keywords": [
     "ai",

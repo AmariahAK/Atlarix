@@ -104,6 +104,20 @@ jobs:
       - name: Lint (oxlint)
         run: npm run check:lint
 
+      # The Rust sandbox helpers are `#![cfg(windows)]` / `#![cfg(target_os =
+      # "linux")]`, so a plain `cargo build` on the wrong host compiles an EMPTY
+      # binary and reports success — which is how the Windows AppContainer helper
+      # shipped broken. `cargo check --target <triple>` sets the cfg for real and
+      # type-checks the body; it needs no cross-linker because it never links.
+      # Behaviour is still the `sandbox` self-test probe's job in the package jobs.
+      - name: Install Rust targets for sandbox helpers
+        run: |
+          rustup target add x86_64-pc-windows-msvc
+          rustup target add x86_64-unknown-linux-gnu
+
+      - name: Type check sandbox helpers (cross-target)
+        run: npm run check:sandbox
+
       # NOTE: the agent-evals vitest project is a LOCAL gate — its harness needs
       # a Node-ABI better-sqlite3 (tests/infra) plus a git-mock server and the
       # fake-LLM server that aren't provisioned on CI runners. It self-skips when

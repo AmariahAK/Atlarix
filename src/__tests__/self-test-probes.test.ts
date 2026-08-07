@@ -17,6 +17,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { DEFAULT_PROBES, runSelfTest } from "@/main/self-test";
+import { wrapCommandInSandbox } from "@/lib/sandbox/wrap-command";
+import { getAcceptableShell } from "@/lib/shell/resolve-shell";
 
 function probe(name: string) {
   const found = DEFAULT_PROBES.find((p) => p.name === name);
@@ -35,6 +37,51 @@ describe("self-test probe registry", () => {
     expect(names).toEqual(
       expect.arrayContaining(["pty-spawn", "proxy-worker", "ripgrep", "ai-sdk-deps"]),
     );
+  });
+
+  it("registers the sandbox probe", () => {
+    expect(DEFAULT_PROBES.map((p) => p.name)).toContain("sandbox");
+  });
+});
+
+describe("sandbox probe", () => {
+  /**
+   * Only run it where a sandbox actually exists. The `quality` CI job runs
+   * `npm test` on ubuntu-latest WITHOUT building the Landlock helper or
+   * installing bwrap, so an unconditional run would fail there for environmental
+   * reasons and teach us nothing. The real cross-platform gate is
+   * `scripts/run-packaged-self-test.mjs` in the three package jobs, where the
+   * helpers are built.
+   */
+  const available = (() => {
+    try {
+      return wrapCommandInSandbox({
+        command: "exit 0",
+        shell: getAcceptableShell(),
+        workspacePath: os.tmpdir(),
+      }).sandboxed;
+    } catch {
+      return false;
+    }
+  })();
+
+  it.skipIf(!available)(
+    "confines writes while leaving reads and exec alone",
+    async () => {
+      const detail = String(await probe("sandbox").run());
+      expect(detail).toContain("confined writes");
+      // Leaves nothing behind in HOME, where it stages its workspace and target.
+      const leftovers = fs
+        .readdirSync(os.homedir())
+        .filter((f) => f.startsWith("atlarix-sbx-"));
+      expect(leftovers).toEqual([]);
+    },
+    120_000,
+  );
+
+  it.skipIf(available)("is skipped when no sandbox is available on this host", () => {
+    // Placeholder so the suite reports the reason rather than silently omitting.
+    expect(available).toBe(false);
   });
 });
 
