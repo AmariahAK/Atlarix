@@ -11,13 +11,22 @@ release since `atlarix-sandbox.exe` started shipping. The helper engaged on ever
 `run_command` (`Sandboxing run_command (win32); 19 writable roots`, zero fallbacks) and
 broke git, bash and PowerShell.
 
-**Root cause: the wrong primitive, not tuning.** AppContainer is **deny-by-default on
-READS** — a file is reachable only if its DACL carries an ACE for the container SID or
-`ALL APPLICATION PACKAGES`. System32 has it (`where git` → exit 0);
-`C:\Program Files\Git\bin\bash.exe` does not (`Access is denied`). Our policy is the
-opposite shape: reads broad, writes confined. `WINDOWS_HELPER.md` asserted *"reads of the
-rest of the volume remain allowed"*, which is simply false for AppContainer — that false
-premise is the bug.
+**Root cause: the wrong primitive, not tuning — but not for the reason first written down.**
+An earlier version of this entry (and of `WINDOWS_HELPER.md`) blamed file DACLs. The
+evidence contradicts that: `"C:\Program Files\Git\bin\git.exe" --version` returned **exit
+128** with a `/dev/null` error, i.e. it **executed** — so Program Files was readable and
+executable by the container.
+
+The real blocker was AppContainer's **device and object namespace** isolation. `/dev/null`
+(→ `\\.\NUL`) failed on all five git invocations; PowerShell could not enumerate drives
+(`Cannot find drive 'Microsoft.PowerShell.Core\FileSystem'`); MSYS bash could not create
+its shared-memory sections. **It could not be "un-inverted":** a per-path ACL can grant the
+file dimension (badly — admin per grant, permanent system mutation, unbounded set), but
+there is no ACL and no capability SID for the device map or object namespace. Repairing one
+dimension would not have touched the other three.
+
+Low IL works because **it is not a container**: same user token, lower integrity label, so
+all four namespaces behave normally and only writes up are refused.
 
 **A second, compounding bug:** the helper hardcoded `cmd.exe /c` while
 `getAcceptableShell()` gives unsandboxed runs **Git bash**. So POSIX-shaped commands
@@ -99,7 +108,63 @@ of being confined Windows-side. Plain `C:\…` workspaces are untouched.
       `ERROR_PRIVILEGE_NOT_HELD (1314)` the probe will report the sandbox unusable and
       commands run unconfined — at which point implement Codex's model.
 
+## ✅ ALSO — attachment file types decided by content, not a hardcoded list
+
+Reported as *".ts isn't always allowed on my Mac"*. Two causes.
+
+**macOS reports `.ts` as `video/mp2t`** (MPEG transport stream). `attachmentMimeType` in
+`src/ipc/ipc_client.ts` trusted a non-empty `File.type` first, so a TypeScript file was
+recorded as **video** — a filename-derived answer that was confidently wrong.
+
+**And `SUPPORTED_TEXT_EXTENSIONS` was a 39-entry hardcoded allowlist** that could never be
+complete. It was missing 44 common text types including **`.mjs`/`.cjs`/`.mts`/`.cts`** —
+which this repo's own configs use (`vite.main.config.mts`) — plus `.vue`, `.svelte`,
+`.scss`, `.ps1`, `.tf`, `.proto`, `.kt`, `.zig`. Files with **no extension at all**
+(`Dockerfile`, `Makefile`, `LICENSE`, `CODEOWNERS`) could never match, and fell through
+`read_attachment` to `type: "binary"` with raw base64 — unreadable to the model.
+
+Replaced with `src/lib/file-content-type.ts`, modelled on opencode's
+`tool/read-filesystem.ts`: **magic bytes** for images, a **NUL byte** for binary, and
+**strict UTF-8** for text. `attachment-extensions.ts` is deleted.
+
+**The extension-vs-content split, which is the durable lesson:**
+
+| Question | Right signal |
+| --- | --- |
+| Can this be read as text? | **content** — sniff it |
+| Which extractor handles this (`.docx` vs `.xlsx` vs `.pptx`)? | **extension** — content only says "ZIP" |
+| Is this file sensitive? | **filename** — content cannot tell you |
+
+opencode keeps extension lists too, but only for LSP and formatter routing — the middle row.
+`SUPPORTED_DOCUMENT_EXTENSIONS` stays for exactly that reason.
+
+- **`{ stream: true }` on the TextDecoder is load-bearing.** An 8 KB sample sometimes cuts a
+  multi-byte character in half, and a non-streaming `fatal` decoder throws on the truncated
+  tail — which would report any file with non-ASCII content near the boundary as binary.
+  There is a regression test, verified by removing the flag and watching it fail.
+- **SVG is now text everywhere.** `read_attachment` already did this (*"providers reject
+  image/svg+xml as image input"*); only the renderer disagreed and tagged it `image/*`. The
+  two now agree, and the special case is gone rather than duplicated.
+- Sample is 8 KB (git's threshold), so classifying never means reading a large attachment in
+  full. A NUL past the sample is not seen — the same tradeoff git makes, documented in a test.
+
 ### Deferred (recorded, not started)
+- [ ] **Configurable read-deny patterns, opencode-style** — no built-in list, no defaults;
+      the user declares their own (`read: { "<pattern>": "ask" | "allow" | "deny" }`). Chosen
+      over Codex's model (which ships defaults for `.env*`, keys, `.aws/credentials`,
+      `secrets/**`, overridable in `AGENTS.md`/`config.toml` and enforceable via
+      `requirements.toml`) because it keeps `src/lib/tools/glob.ts:221` intact — that line
+      already records the deliberate decision that *"in-workspace files (incl. .env) are
+      enumerable"*, citing the same references. Purely additive, nothing to reverse.
+      **Caveat that dominates the estimate:** the config is the easy half. A deny-read is
+      only real if `run_command` cannot `cat` the file. macOS Seatbelt takes
+      `(deny file-read* …)` and Linux Landlock takes read rights in the handled set — both
+      cheap. **Windows Low IL cannot**: MIC is `NO_WRITE_UP`, so reads up are allowed by
+      design. It would need a `NO_READ_UP` label per protected file (persistently mutating
+      the user's files) or tool-level checks only, which `run_command` bypasses. Ironically
+      the AppContainer we removed *could* deny reads — that is exactly why it broke. Scope as
+      tool-level enforcement everywhere + sandbox-level on macOS/Linux + a documented Windows
+      gap.
 - [ ] **Ship the Landlock ELF to Windows builds** so WSL workspaces get real confinement
       instead of bwrap-if-present. `forge.config.ts:319` only bundles it when
       `process.platform === "linux"`, and cross-building from `windows-latest` needs a

@@ -36,10 +36,24 @@ in-app updater.
 project's logo — `logo.ico` was never regenerated during the rebrand — and deb/rpm shipped
 the generic Electron icon. All app icons are now derived from one source.
 
+**Attachments now work for any text file.** File types are recognised from their contents
+instead of a fixed list of extensions, so `.mjs`, `.mts`, `.vue`, `.svelte`, `.scss`, `.ps1`,
+`.tf`, `.zig`, `.kt` — and files with no extension at all, like `Dockerfile`, `Makefile` and
+`LICENSE` — can be attached and read. Previously anything outside a 39-entry list was treated
+as an opaque binary blob with no preview.
+
+- **`.ts` files on macOS are fixed.** macOS registers `.ts` as MPEG video, so attaching a
+  TypeScript file recorded it as `video/mp2t` and handled it as video.
+- **SVG now reaches the model as source.** It was being sent as an image, which vision models
+  cannot decode; the markup is far more useful, and `read_attachment` already worked this way.
+- Misnamed files are handled correctly too — a JPEG saved as `photo.png` is detected as a JPEG.
+
 **Other fixes:** the "install Git" message no longer tells Windows and Linux users to run a
-macOS-only command; the dev-server proxy stopped logging errors about libraries it never
-shipped (and no longer forces uncompressed responses); voice input no longer logs a WebGPU
-adapter error on machines without WebGPU support.
+macOS-only command; on Windows, Git-for-Windows' bash is now found wherever git is installed
+(scoop, chocolatey, portable) instead of only in `%ProgramFiles%`; the dev-server proxy
+stopped logging errors about libraries it never shipped (and no longer forces uncompressed
+responses); voice input no longer logs a WebGPU adapter error on machines without WebGPU
+support.
 
 ## [14.27.0] (2026-08-05) — Your credentials and your workspaces stop disappearing
 

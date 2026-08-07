@@ -230,3 +230,68 @@ describe("read_attachment paging (W3)", () => {
     expect(again.content).toContain("line 5000");
   });
 });
+
+// ── read_attachment classifies by CONTENT, not by extension ──
+//
+// These are the end-to-end proof of the fix. Each filename below was previously
+// unreadable: `read_attachment` gated on a 39-entry extension allowlist, so anything
+// absent from it fell all the way through to `type: "binary"` with raw base64 —
+// useless to the model. The `.ts` case is the originally reported bug (macOS reports
+// `.ts` as video/mp2t).
+describe("read_attachment content classification", () => {
+  const add = (id: string, filename: string, body: string | Buffer, mimeType = "text/plain") => {
+    const buf = Buffer.isBuffer(body) ? body : Buffer.from(body, "utf-8");
+    AttachmentStore.add({
+      id,
+      filename,
+      mimeType,
+      data: buf.toString("base64"),
+      size: buf.length,
+      addedAt: 1,
+    });
+  };
+
+  const read = async (id: string) =>
+    ((await ToolRegistry.execute("read_attachment", { attachmentId: id })) as any).result;
+
+  it.each([
+    ["typescript", "main.ts", "export const x: number = 1;\n"],
+    ["esm config", "vite.config.mts", "export default { build: {} }\n"],
+    ["vue", "App.vue", "<script setup>\nconst a = 1\n</script>\n"],
+    ["powershell", "deploy.ps1", "$ErrorActionPreference = 'Stop'\n"],
+    ["terraform", "main.tf", 'resource "aws_s3_bucket" "b" {}\n'],
+    ["no extension at all", "Dockerfile", "FROM node:24\nRUN npm ci\n"],
+    ["makefile", "Makefile", "all:\n\tgcc -o out main.c\n"],
+  ])("reads %s as text", async (_label, filename, body) => {
+    const id = `cls-${filename}`;
+    add(id, filename, body);
+    const r = await read(id);
+    expect(r.type).toBe("text");
+    expect(r.content).toContain(body.trim().split("\n")[0]);
+  });
+
+  it("still returns real binary content as binary", async () => {
+    // A NUL-containing blob must NOT be coaxed into the text path.
+    add("cls-bin", "blob.dat", Buffer.from([1, 2, 0, 3, 4, 5]), "application/octet-stream");
+    const r = await read("cls-bin");
+    expect(r.type).toBe("binary");
+  });
+
+  it("returns SVG as text markup, not as image input", async () => {
+    // Providers reject image/svg+xml as image input; the source is what's useful.
+    add("cls-svg", "icon.svg", '<svg viewBox="0 0 1 1"><path d="M0 0"/></svg>');
+    const r = await read("cls-svg");
+    expect(r.type).toBe("text");
+    expect(r.content).toContain("<svg");
+  });
+
+  it("still routes a real PNG to the image path (signature beats text heuristics)", async () => {
+    const png = Buffer.concat([
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+      Buffer.alloc(32, 7),
+    ]);
+    add("cls-png", "shot.png", png, "image/png");
+    const r = await read("cls-png");
+    expect(r.mimeType).toBe("image/png");
+  });
+});

@@ -26,7 +26,7 @@ import {
     extractTextFromOdtBuffer,
 } from "@/lib/attachment-office-xml-extract";
 import { extractTextFromRtfBuffer } from "@/lib/attachment-rtf-extract";
-import { SUPPORTED_TEXT_EXTENSIONS } from "@/lib/attachment-extensions";
+import { classifyContent, SNIFF_SAMPLE_BYTES } from "@/lib/file-content-type";
 
 
 import { estimateTokens } from "@/ipc/utils/token_utils";
@@ -312,10 +312,6 @@ function getFileExtension(filename: string): string {
     return path.extname(filename).toLowerCase();
 }
 
-function isTextFile(ext: string): boolean {
-    return SUPPORTED_TEXT_EXTENSIONS.includes(ext);
-}
-
 function isImageFile(ext: string): boolean {
     return SUPPORTED_IMAGE_EXTENSIONS.includes(ext);
 }
@@ -402,6 +398,20 @@ async function extractTextFromXlsx(buffer: Buffer): Promise<{
 function extractStructuredData(attachment: AttachmentData): any {
     const ext = getFileExtension(attachment.filename);
 
+    // "Is this readable text?" comes from the BYTES, not the name. The old extension
+    // allowlist meant a .mjs / .vue / .ps1 / extensionless Dockerfile attachment fell
+    // all the way through to `type: "binary"` with raw base64 — unreadable to the
+    // model — while a .ts on macOS was reported as video/mp2t and mishandled the other
+    // way.
+    //
+    // Extensions still route BELOW this point, legitimately: content cannot tell a
+    // .docx from a .xlsx (both ZIP) or pick the CSV table path.
+    //
+    // Only the head is decoded: classifying must not mean base64-decoding a whole
+    // large attachment. 4 base64 chars encode 3 bytes.
+    const headBase64 = attachment.data.slice(0, Math.ceil(SNIFF_SAMPLE_BYTES / 3) * 4);
+    const classified = classifyContent(new Uint8Array(Buffer.from(headBase64, "base64")));
+
     // CSV gets the structured spreadsheet path (table card in the renderer);
     // other text extensions keep the plain-text path below.
     if (ext === ".csv") {
@@ -436,7 +446,7 @@ function extractStructuredData(attachment: AttachmentData): any {
         }) as any;
     }
 
-    if (isTextFile(ext)) {
+    if (classified.kind === "text") {
         try {
             const buffer = Buffer.from(attachment.data, "base64");
             const text = buffer.toString("utf-8");
@@ -460,21 +470,13 @@ function extractStructuredData(attachment: AttachmentData): any {
         }
     }
 
+    // SVG needs no special case here any more. It is XML with no magic number, so
+    // the content check above already classifies it as text and returns its markup
+    // — which is what the old `ext === ".svg"` branch did, for the same reason:
+    // providers reject image/svg+xml as image input, and the source is more useful
+    // to the model anyway. The renderer now agrees (see attachmentMimeType in
+    // ipc_client.ts); previously it tagged SVG image/* while this returned text.
     if (isImageFile(ext)) {
-        // SVG is XML — most providers reject image/svg+xml as image input, and
-        // the markup is far more useful to the model as text anyway.
-        if (ext === ".svg") {
-            const text = Buffer.from(attachment.data, "base64").toString("utf-8");
-            return {
-                type: "text",
-                filename: attachment.filename,
-                size: attachment.size,
-                content: text,
-                lineCount: text.split("\n").length,
-                charCount: text.length,
-                note: "SVG returned as XML markup (providers do not accept SVG as image input).",
-            };
-        }
         const mimeTypes: Record<string, string> = {
             ".jpg": "image/jpeg",
             ".jpeg": "image/jpeg",

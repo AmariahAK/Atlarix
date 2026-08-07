@@ -62,6 +62,7 @@ import type {
   ProposalResult,
 } from "@/lib/schemas";
 import { showError } from "@/lib/toast";
+import { classifyContent } from "@/lib/file-content-type";
 import { DeepLinkData } from "./deep_link_data";
 import { getDefaultStore } from "jotai";
 import { autonomousSessionReviewAtom } from "@/atoms/chatAtoms";
@@ -95,21 +96,27 @@ interface DeleteCustomModelParams {
   modelApiName: string;
 }
 
-function guessMimeTypeFromFilename(filename: string): string {
-  const lower = filename.toLowerCase();
-  if (lower.endsWith(".pdf")) return "application/pdf";
-  if (lower.endsWith(".png")) return "image/png";
-  if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return "image/jpeg";
-  if (lower.endsWith(".gif")) return "image/gif";
-  if (lower.endsWith(".webp")) return "image/webp";
-  if (lower.endsWith(".svg")) return "image/svg+xml";
-  if (lower.endsWith(".txt") || lower.endsWith(".md")) return "text/plain";
-  return "application/octet-stream";
-}
-
-function attachmentMimeType(file: File): string {
-  if (file.type?.trim()) return file.type;
-  return guessMimeTypeFromFilename(file.name);
+/**
+ * The MIME type to record for an attachment, decided from its CONTENT.
+ *
+ * The OS's `File.type` is not authoritative for source files: macOS registers
+ * `.ts` as an MPEG transport stream, so a TypeScript file arrives claiming
+ * `video/mp2t`. Trusting that produced an attachment handled as video rather than
+ * text — a confidently wrong answer derived from the filename.
+ *
+ * So classify the bytes (`classifyContent`), and consult `file.type` only for the
+ * one thing content cannot settle: which specific ZIP-based Office format a
+ * document is. Everything else — images by magic bytes, text by strict UTF-8 —
+ * comes from the file itself.
+ */
+function attachmentMimeType(file: File, bytes: Uint8Array): string {
+  const classified = classifyContent(bytes);
+  if (classified.kind === "document" && classified.mime === "application/zip") {
+    // .docx/.xlsx/.pptx/.odt are all ZIPs; only the name distinguishes them, so
+    // prefer whatever the OS says before falling back to the generic container.
+    return file.type?.trim() || classified.mime;
+  }
+  return classified.mime;
 }
 
 /** Base64 without FileReader — avoids renderer failures on some PDFs in Electron. */
@@ -178,7 +185,7 @@ async function encodeFileAttachmentForStream(attachment: FileAttachment): Promis
     const reason = e instanceof Error ? e.message : String(e);
     throw new Error(`Failed to encode file: ${file.name} (${reason})`);
   }
-  const mime = attachmentMimeType(file);
+  const mime = attachmentMimeType(file, bytes);
   const raw = `data:${mime};base64,${base64Data}`;
   // Deterministic content-hash id: the same file encoded twice (double-add,
   // edit/resend) resolves to the SAME id, so AttachmentStore + the server-side

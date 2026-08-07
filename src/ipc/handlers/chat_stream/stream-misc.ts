@@ -4,7 +4,6 @@
  * routine. No module state. (Satellite: never imports the parent handler.)
  */
 
-import * as path from "path";
 import log from "electron-log";
 import {
   revertSnapshot,
@@ -21,11 +20,33 @@ export async function awaitWithTimeout(p: Promise<unknown>, ms: number): Promise
   ]);
 }
 
+/**
+ * Is this attachment readable as text? Decided by reading its head, not its name.
+ *
+ * Was an extension allowlist, which meant a `.mjs`, `.vue`, `.ps1` or extensionless
+ * `Dockerfile` attachment got NO inline preview and was labelled `binary` to the
+ * model — while a `.ts` on macOS was reported as `video/mp2t` and mishandled the
+ * other way. Sniffing answers both, and covers file types nobody has invented yet.
+ *
+ * Only the first `SNIFF_SAMPLE_BYTES` are read: classifying must not mean loading a
+ * large attachment in full.
+ */
 export async function isTextFile(filePath: string): Promise<boolean> {
-  // W3 (v14.8.11): one shared list with read_attachment — the old 8-entry
-  // local whitelist meant a .py/.go upload got NO inline preview at all.
-  const { isSupportedTextExtension } = await import("@/lib/attachment-extensions");
-  return isSupportedTextExtension(path.extname(filePath).toLowerCase());
+  const { open } = await import("node:fs/promises");
+  const { classifyContent, SNIFF_SAMPLE_BYTES } = await import("@/lib/file-content-type");
+  let handle;
+  try {
+    handle = await open(filePath, "r");
+    const buf = Buffer.alloc(SNIFF_SAMPLE_BYTES);
+    const { bytesRead } = await handle.read(buf, 0, SNIFF_SAMPLE_BYTES, 0);
+    return classifyContent(new Uint8Array(buf.subarray(0, bytesRead))).kind === "text";
+  } catch (err) {
+    // Unreadable is not "binary" — say so and let the caller skip the preview.
+    logger.warn(`isTextFile: could not sample ${filePath}: ${String(err)}`);
+    return false;
+  } finally {
+    await handle?.close().catch(() => undefined);
+  }
 }
 
 /** Full snapshot revert + ledger cancel + message `isReverted` flags + blueprint (via `revertSnapshot` or partial files + sync). */
