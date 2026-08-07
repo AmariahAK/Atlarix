@@ -20,18 +20,25 @@
 //! git failed with "could not open '/dev/null'", and PowerShell could not resolve
 //! its own FileSystem provider.
 //!
-//! The cause was a primitive/policy mismatch, not tuning. **AppContainer is
-//! deny-by-default on READS**: a file is only reachable if its DACL carries an ACE
-//! for the container SID or `ALL APPLICATION PACKAGES`. System32 ships that ACE,
-//! which is why `where.exe` worked; `C:\Program Files\` does not, which is why
-//! `bash.exe` did not. It is the browser/UWP isolation model, and our policy is the
-//! opposite shape — reads broad, writes confined.
+//! The cause was a primitive/policy mismatch, not tuning — but note WHICH mismatch.
+//! It was NOT file DACLs: `"C:\Program Files\Git\bin\git.exe" --version` returned
+//! exit 128 with a `/dev/null` error, i.e. it EXECUTED, so Program Files was
+//! readable and executable by the container.
 //!
-//! Mandatory Integrity Control is that shape natively. A Low-IL process may read
-//! and execute higher-integrity objects but cannot write them (`NO_WRITE_UP`), so
-//! confinement comes from the OS with no ACL surgery on system directories. It also
-//! needs no elevation, no local accounts, and no virtualization — which matters
-//! because this ships inside an MSIX Store package.
+//! The blocker was AppContainer's **device and object namespace** isolation.
+//! `/dev/null` (→ `\\.\NUL`) failed on every git invocation, PowerShell could not
+//! enumerate drives, and MSYS bash could not create its shared-memory sections.
+//! None of that is grantable with a per-path ACL, and there is no capability SID
+//! for it — so it could not be "un-inverted". AppContainer is the browser/UWP
+//! isolation model, and a developer toolchain needs exactly the namespaces it hides.
+//!
+//! Low IL is not a container at all — it is the same user token with a lower
+//! integrity label. Device map, object namespace, registry and filesystem all behave
+//! normally (hence `/dev/null` works); only writes to higher-integrity objects are
+//! refused (`NO_WRITE_UP`). That is "reads broad, writes confined" from the kernel,
+//! with none of AppContainer's namespace isolation. It also needs no elevation, no
+//! local accounts, and no virtualization — which matters because this ships inside
+//! an MSIX Store package.
 //!
 //! Writes are granted back by stamping a Low mandatory label on each writable root
 //! (the Win32 equivalent of `icacls <dir> /setintegritylevel (OI)(CI) L`). That

@@ -27,39 +27,55 @@ to claim:
 
 > ~~"Reads of the rest of the volume remain allowed."~~
 
-**That was false, and it is the entire bug.** In an AppContainer, a file is only
-reachable if its DACL carries an ACE for the container SID or for
-`ALL APPLICATION PACKAGES`. Windows' own directories ship that ACE; third-party
-installs do not.
+**That was false, and it is the bug.** But note carefully WHICH way it was false —
+an earlier version of this document blamed file DACLs, and the observed evidence
+does not support that.
 
 Observed on Windows 10 the first time the helper actually ran:
 
 | Command | Result |
 | --- | --- |
-| `where git` | exit 0 — `where.exe` is in System32, which *has* the ACE |
-| `"C:\Program Files\Git\bin\bash.exe" -c …` | **`Access is denied`** — no ACE |
-| `git --version` | `fatal: could not open '/dev/null'` — container denied the device |
-| `powershell.exe -Command …` | could not resolve its own FileSystem provider |
+| `where git` | exit 0 |
+| `"C:\Program Files\Git\bin\git.exe" --version` | **exit 128** — `could not open '/dev/null'` |
+| `git --version` (×3 more, via PATH / cmd / bare) | exit 128 — same `/dev/null` error every time |
+| `"C:\Program Files\Git\bin\bash.exe" -c …` | `Access is denied` |
+| `powershell.exe -Command …` | `Cannot find drive 'Microsoft.PowerShell.Core\FileSystem'` |
 
-**AppContainer is deny-by-default on reads. This policy is the opposite shape.** It
-is the browser/UWP isolation model — Cursor's engineering blog rejected the native
-Windows route for exactly this reason, that the available primitives are *"tailored
-to browsers and do not support general-purpose developer tools."*
+**`git.exe` under `C:\Program Files` EXECUTED** — exit 128 is a runtime failure, not a
+launch failure. So Program Files was readable and executable by the container, and
+"third-party installs lack an `ALL APPLICATION PACKAGES` ACE" is *not* what broke it.
 
-Fixing it by granting the container SID read+execute on `C:\Program Files` and every
-PATH directory was rejected: it needs admin **per grant** (`WRITE_DAC`), permanently
-mutates system DACLs, and is unbounded — you cannot enumerate the tools the agent
-will reach for, so each newly installed tool would need another elevation. Its best
-case is "reads are broad", which is Low IL's default for free.
+The blocker was the **device and object namespace**. `/dev/null` (→ `\\.\NUL`) failed on
+every single git invocation; PowerShell could not enumerate drives; MSYS's bash could not
+create its shared-memory sections. AppContainer restricts all of that — it is a namespace
+container, not merely a file-ACL filter. (Precise mechanism inferred from the transcript
+rather than measured on a live machine; the pattern is unambiguous, the exact API is not.)
+
+**Why it could not simply be "un-inverted."** Had it been only file ACLs, you could grant
+the container SID read+execute per path — badly: admin per grant (`WRITE_DAC`), permanent
+mutation of system DACLs, and an unbounded set, since you cannot enumerate the tools an
+agent will reach for. But the **device map and object namespace have no per-path ACL to
+grant**, and there is no capability SID for "let me open NUL". Repairing the file
+dimension would not have touched the other three.
+
+This is exactly what Cursor's engineering blog means by primitives *"tailored to browsers
+[that] do not support general-purpose developer tools"*: a browser renderer never opens
+`NUL`, enumerates drives, or allocates MSYS shared memory. A developer toolchain does all
+three.
 
 ## Why Low Integrity Level
+
+**Low IL is not a container.** That is the whole point. It is the same user token with a
+lower integrity label, so the device map, object namespace, registry, and filesystem all
+behave normally — which is why `/dev/null`, drive enumeration, and MSYS shared memory work.
+The only thing that changes is that writes to higher-integrity objects are refused
+(`NO_WRITE_UP`). That is precisely "reads broad, writes confined", from the kernel, with
+none of AppContainer's namespace isolation.
 
 Mandatory Integrity Control has been in Windows since Vista, is present on **every
 edition** (including Home), and needs no virtualization, no BIOS setting, no local
 accounts, and **no elevation** — which matters because this ships inside an MSIX
-Store package. Its default policy is `NO_WRITE_UP`: a Low-IL process may read and
-execute higher-integrity objects but cannot write them. That is precisely
-"reads broad, writes confined", from the kernel.
+Store package.
 
 The proven fallback if Low IL ever fails is Codex's model (dedicated local users +
 restricted tokens + firewall rules), which we declined because it needs a UAC prompt
