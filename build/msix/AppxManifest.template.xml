@@ -1,0 +1,130 @@
+<?xml version="1.0" encoding="utf-8"?>
+
+<!--
+  Atlarix MSIX package manifest (Microsoft Store channel).
+
+  Rendered by `scripts/make-msix.mjs`, which substitutes {{VERSION}} with a
+  four-part version and copies the result into the package layout as
+  `AppxManifest.xml`. Kept as a template in git so the identity values and the
+  declared capabilities are reviewable rather than string-built in a script.
+
+  Identity values below are ASSIGNED BY Partner Center for the reserved
+  "Atlarix" name — do not edit them. They are also what the local test signing
+  certificate's subject must match EXACTLY (see docs/MSIX_RUNBOOK.md): Windows
+  compares the cert subject against Identity/@Publisher byte-for-byte and
+  refuses the install on mismatch, with an error that does not say why.
+
+  Element ORDER matters: makeappx validates against the Appx schema, which
+  fixes the sequence Identity → Properties → Dependencies → Resources →
+  Applications → Capabilities. Reordering these fails the pack, not the install.
+-->
+<Package
+  xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+  xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+  xmlns:uap3="http://schemas.microsoft.com/appx/manifest/uap/windows10/3"
+  xmlns:desktop="http://schemas.microsoft.com/appx/manifest/desktop/windows10"
+  xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+  IgnorableNamespaces="uap uap3 desktop rescap">
+
+  <Identity
+    Name="AmariahAbishai.Atlarix"
+    Publisher="CN=B8A553CE-4E5B-49AD-B077-6973F43EADFD"
+    Version="{{VERSION}}"
+    ProcessorArchitecture="x64" />
+
+  <Properties>
+    <DisplayName>Atlarix</DisplayName>
+    <PublisherDisplayName>Amariah Abishai</PublisherDisplayName>
+    <Logo>Assets\StoreLogo.png</Logo>
+  </Properties>
+
+  <Dependencies>
+    <!--
+      MinVersion 10.0.17763.0 is Windows 10 1809 — the oldest build that is both
+      still supported and new enough for appExecutionAlias. Raising it would
+      silently exclude the Windows 10 machine this package is tested on.
+    -->
+    <TargetDeviceFamily
+      Name="Windows.Desktop"
+      MinVersion="10.0.17763.0"
+      MaxVersionTested="10.0.22621.0" />
+  </Dependencies>
+
+  <Resources>
+    <Resource Language="en-us" />
+  </Resources>
+
+  <Applications>
+    <!--
+      EntryPoint="Windows.FullTrustApplication" is what makes this a packaged
+      Win32 app rather than a UWP one: the process runs with the user's normal
+      token, so classic Win32 file APIs, child processes, and node-pty behave as
+      they do outside the package. It is the counterpart to the runFullTrust
+      capability declared at the bottom.
+
+      Executable is LOWERCASE `atlarix.exe` — set by `executableName: "atlarix"`
+      in forge.config.ts (originally to fix a Linux case-sensitivity issue, but
+      it applies to every platform).
+    -->
+    <Application
+      Id="Atlarix"
+      Executable="atlarix.exe"
+      EntryPoint="Windows.FullTrustApplication">
+
+      <uap:VisualElements
+        DisplayName="Atlarix"
+        Description="The private AI workstation for engineering teams — your code stays on your machine."
+        BackgroundColor="transparent"
+        Square150x150Logo="Assets\Square150x150Logo.png"
+        Square44x44Logo="Assets\Square44x44Logo.png" />
+
+      <Extensions>
+        <!--
+          THE load-bearing declaration. Atlarix registers `atlarix://` at runtime
+          via app.setAsDefaultProtocolClient (src/main.ts), which writes HKCU —
+          and MSIX virtualizes HKCU writes into a package-private hive, so that
+          call cannot register the scheme system-wide. Without this extension,
+          Supabase OAuth (atlarix://auth/callback), MCP OAuth, and the Lemon
+          Squeezy completion leg (atlarix://pro-return) all break.
+
+          Full-trust protocol activation delivers the URI as a command-line
+          argument, which the app already handles on both the cold-start path
+          (extractDeepLinkUrl(process.argv)) and the second-instance path.
+        -->
+        <uap:Extension Category="windows.protocol">
+          <uap:Protocol Name="atlarix">
+            <uap:DisplayName>Atlarix</uap:DisplayName>
+          </uap:Protocol>
+        </uap:Extension>
+
+        <!--
+          Puts `atlarix.exe` on PATH. Two reasons: the app already accepts a
+          directory argument (openWorkspaceFromCliPath), so `atlarix C:\repo` is
+          a real entry point; and it is the only practical way to run the
+          packaged self-test inside the package, since the installed binary
+          under C:\Program Files\WindowsApps is ACL-restricted.
+          (NB: XML comments cannot contain a double hyphen, so CLI flags are
+          described rather than written literally anywhere in this file.)
+        -->
+        <uap3:Extension
+          Category="windows.appExecutionAlias"
+          Executable="atlarix.exe"
+          EntryPoint="Windows.FullTrustApplication">
+          <uap3:AppExecutionAlias>
+            <desktop:ExecutionAlias Alias="atlarix.exe" />
+          </uap3:AppExecutionAlias>
+        </uap3:Extension>
+      </Extensions>
+    </Application>
+  </Applications>
+
+  <Capabilities>
+    <!--
+      RESTRICTED capability — requires Microsoft approval at submission. The
+      justification is that Atlarix is a full-trust desktop AI workstation that
+      spawns local developer processes (shells via node-pty, git, ripgrep,
+      package managers) and reads/writes the user's own source trees.
+    -->
+    <rescap:Capability Name="runFullTrust" />
+  </Capabilities>
+</Package>

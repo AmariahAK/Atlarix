@@ -41,6 +41,17 @@ describe("shouldRunNotifyOnlyCheck", () => {
       shouldRunNotifyOnlyCheck({ isPackaged: true, electronUpdaterActive: false }),
     ).toBe(true);
   });
+  // The bridge exists to point users at a GitHub download. For a Microsoft Store
+  // install that is a downgrade, and the Store already handles updates.
+  it("suppresses for a Microsoft Store (MSIX) install", () => {
+    expect(
+      shouldRunNotifyOnlyCheck({
+        isPackaged: true,
+        electronUpdaterActive: false,
+        isWindowsStore: true,
+      }),
+    ).toBe(false);
+  });
 });
 
 describe("canElectronUpdaterRun", () => {
@@ -114,5 +125,25 @@ describe("chooseUpdaterKind", () => {
     expect(
       chooseUpdaterKind({ ...base, platform: "win32", isPackaged: false }),
     ).toBe("none");
+  });
+
+  // An MSIX install is packaged win32, so without an explicit check it would be
+  // handed to Squirrel — which writes into C:\Program Files\WindowsApps, a
+  // READ-ONLY location. The Store owns updates for these installs.
+  it("Microsoft Store (MSIX) → none, beating the win32 → squirrel branch", () => {
+    expect(
+      chooseUpdaterKind({
+        ...base,
+        platform: "win32",
+        isInApplicationsFolder: false,
+        isWindowsStore: true,
+      }),
+    ).toBe("none");
+  });
+  it("isWindowsStore omitted or false leaves Windows on squirrel", () => {
+    expect(
+      chooseUpdaterKind({ ...base, platform: "win32", isWindowsStore: false }),
+    ).toBe("squirrel");
+    expect(chooseUpdaterKind({ ...base, platform: "win32" })).toBe("squirrel");
   });
 });

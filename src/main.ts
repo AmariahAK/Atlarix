@@ -201,6 +201,23 @@ if (started) {
 }
 
 /**
+ * True when this copy was installed from the Microsoft Store as an MSIX package.
+ *
+ * Electron sets `process.windowsStore` for appx/MSIX packages and leaves it
+ * `undefined` everywhere else (the type says `boolean`, the runtime does not —
+ * hence the explicit `=== true`).
+ *
+ * Two things behave differently inside the package container:
+ *  - Updates come from the Store. The install lives under
+ *    `C:\Program Files\WindowsApps`, which is read-only, so no bundled updater
+ *    can work.
+ *  - Registry writes are virtualized into a package-private hive, so runtime
+ *    protocol registration silently does nothing; `AppxManifest.xml` declares
+ *    the `atlarix://` handler instead.
+ */
+const IS_MICROSOFT_STORE_BUILD = process.windowsStore === true;
+
+/**
  * Packaged self-test (`--self-test`): exercise the real ship paths (node-pty
  * spawn, proxy-worker resolution from the asar, ripgrep) and exit BEFORE
  * any app lifecycle — no single-instance lock (which would collide with a
@@ -260,8 +277,20 @@ app.on("child-process-gone", (_event, details) => {
 });
 
 // https://www.electronjs.org/docs/latest/tutorial/launch-app-from-url-in-another-app#main-process-mainjs
-// Register atlarix:// protocol for OAuth and deep links
-if (process.defaultApp) {
+// Register atlarix:// protocol for OAuth and deep links.
+//
+// Skipped for a Microsoft Store (MSIX) install: `setAsDefaultProtocolClient`
+// works by writing HKCU, and MSIX virtualizes those writes into a
+// package-private hive — so the call cannot register the scheme system-wide and
+// would only succeed misleadingly. The package declares the handler in
+// `build/msix/AppxManifest.template.xml` instead (`windows.protocol`), and
+// full-trust protocol activation arrives as argv, which `extractDeepLinkUrl`
+// already handles on both the cold-start and second-instance paths.
+if (IS_MICROSOFT_STORE_BUILD) {
+  logger.info(
+    "Microsoft Store build — atlarix:// is registered by AppxManifest.xml, not at runtime.",
+  );
+} else if (process.defaultApp) {
   if (process.argv.length >= 2) {
     app.setAsDefaultProtocolClient("atlarix", process.execPath, [
       path.resolve(process.argv[1]),
@@ -558,18 +587,32 @@ export async function onReady() {
   registerUpdateStatusIpc();
   if (settings.enableAutoUpdate) {
     // Windows ships Squirrel installers → built-in autoUpdater via
-    // update-electron-app; mac/Linux → electron-updater.
+    // update-electron-app; mac/Linux → electron-updater. A Microsoft Store
+    // (MSIX) install gets NEITHER — see below.
     const kind = chooseUpdaterKind({
       platform: process.platform,
       isPackaged: app.isPackaged,
       isAppImage: Boolean(process.env.APPIMAGE),
       isInApplicationsFolder:
         process.platform !== "darwin" || safeIsInApplicationsFolder(),
+      isWindowsStore: IS_MICROSOFT_STORE_BUILD,
     });
     if (kind === "squirrel") {
       initWindowsAutoUpdater();
-    } else {
+    } else if (kind === "electron-updater") {
       initAutoUpdater();
+    } else {
+      // "none" must be handled EXPLICITLY rather than falling through to
+      // initAutoUpdater(). Its internal `canElectronUpdaterRun` guard only
+      // rejects deb/rpm and mac-outside-/Applications — an MSIX install is
+      // win32, so it would sail past that check and start driving
+      // electron-updater against C:\Program Files\WindowsApps, which is
+      // read-only.
+      logger.info(
+        `[AutoUpdater] no bundled updater for this install${
+          IS_MICROSOFT_STORE_BUILD ? " (Microsoft Store — the Store updates it)" : ""
+        }`,
+      );
     }
   }
 
@@ -581,6 +624,7 @@ export async function onReady() {
       shouldRunNotifyOnlyCheck({
         isPackaged: app.isPackaged,
         electronUpdaterActive: activeUpdaterKind !== "none",
+        isWindowsStore: IS_MICROSOFT_STORE_BUILD,
       })
     ) {
       void checkForUpdatesNotify();

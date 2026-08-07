@@ -46,12 +46,20 @@ export function isNewer(a: string, b: string): boolean {
  * When electron-updater IS active for this install it would only double-fire a
  * confusing "go download from GitHub" banner alongside the silent download, so
  * we suppress it. Dev (unpackaged) builds never check.
+ *
+ * A Microsoft Store (MSIX) install suppresses it too. Store apps are updated by
+ * the Store, so the bridge has nothing to bridge to — it would just nag the user
+ * to go hand-install a build from GitHub, which for a Store install is a
+ * downgrade in every sense.
  */
 export function shouldRunNotifyOnlyCheck(env: {
   isPackaged: boolean;
   electronUpdaterActive: boolean;
+  /** `process.windowsStore` — true only for an MSIX/appx (Store) install. */
+  isWindowsStore?: boolean;
 }): boolean {
   if (!env.isPackaged) return false;
+  if (env.isWindowsStore) return false;
   return !env.electronUpdaterActive;
 }
 
@@ -64,19 +72,28 @@ export function shouldRunNotifyOnlyCheck(env: {
  * `update-electron-app` / update.electronjs.org (the Squirrel-native path).
  * macOS + Linux stay on electron-updater, gated by `canElectronUpdaterRun`.
  *
- * - `"squirrel"`   → Windows (packaged): built-in autoUpdater + update-electron-app.
+ * A Microsoft Store (MSIX) install is `"none"`, and that check must come BEFORE
+ * the win32 branch. An MSIX install is packaged win32, so it would otherwise be
+ * handed to Squirrel — which would try to write into
+ * `C:\Program Files\WindowsApps\…`, a READ-ONLY location. Store apps update
+ * through the Store; there is nothing for a bundled updater to do.
+ *
+ * - `"squirrel"`   → Windows (packaged, non-Store): built-in autoUpdater + update-electron-app.
  * - `"electron-updater"` → mac (in /Applications) / Linux AppImage.
- * - `"none"`       → unpackaged, or an install electron-updater can't drive
- *                    (deb/rpm, mac outside /Applications) — the notify-only
- *                    bridge handles those.
+ * - `"none"`       → unpackaged, Microsoft Store (MSIX), or an install
+ *                    electron-updater can't drive (deb/rpm, mac outside
+ *                    /Applications) — the notify-only bridge handles the last group.
  */
 export function chooseUpdaterKind(env: {
   platform: NodeJS.Platform;
   isPackaged: boolean;
   isAppImage: boolean;
   isInApplicationsFolder: boolean;
+  /** `process.windowsStore` — true only for an MSIX/appx (Store) install. */
+  isWindowsStore?: boolean;
 }): "squirrel" | "electron-updater" | "none" {
   if (!env.isPackaged) return "none";
+  if (env.isWindowsStore) return "none";
   if (env.platform === "win32") return "squirrel";
   return canElectronUpdaterRun(env).ok ? "electron-updater" : "none";
 }

@@ -1,0 +1,229 @@
+# Build an UNSIGNED Windows MSIX for Microsoft Store testing.
+#
+# Manual only (workflow_dispatch). This is deliberately a SEPARATE workflow rather
+# than a step on release.yml's build-windows job, for two reasons:
+#
+#   1. A workflow_dispatch against release.yml runs `create-draft`, which publishes
+#      a `v0.0.0-manual` draft release into the PUBLIC atlarix-releases repo. A
+#      spike build must not touch the release channel.
+#   2. MSIX is unproven on real hardware. Windows-only path bugs in this repo have
+#      historically surfaced at tag time, so MSIX stays off the `v*` path until the
+#      packaged-context spike passes. Wire it into release.yml only after Store
+#      certification succeeds.
+#
+# The artifact is UNSIGNED on purpose: signing happens on the maintainer's Windows
+# machine so no code-signing private key needs to live in GitHub secrets, and the
+# certificate stays stable so `Add-AppxPackage` can upgrade in place between runs.
+# See docs/MSIX_RUNBOOK.md.
+
+name: Atlarix MSIX (manual)
+
+on:
+  workflow_dispatch:
+    inputs:
+      # x64 is the ONLY valid option today: scripts/win-ci-lib.mjs hardcodes
+      # `export const ARCH = "x64"`, so the packaged output directory is always
+      # out/Atlarix-win32-x64. Adding arm64 here without changing that would
+      # build x64 and then look for a directory that does not exist.
+      arch:
+        description: "Target architecture"
+        required: false
+        default: "x64"
+        type: choice
+        options:
+          - x64
+      upload_wrapper:
+        description: "Also produce a .msixupload (ZIP wrapper) for Store submission"
+        required: false
+        default: false
+        type: boolean
+
+# Mirrors the env block in release.yml. These are the credentials Vite embeds at
+# BUILD time — Supabase, Lemon Squeezy variant ids, the Atlarix Core proxy URL.
+# WITHOUT THEM the package installs and launches but has no auth and no checkout
+# config, which makes the whole behavior spike meaningless: sign-in and the
+# `atlarix://pro-return` leg are two of the four things it exists to verify.
+env:
+  LEMONSQUEEZY_STORE_ID: ${{ secrets.LEMONSQUEEZY_STORE_ID }}
+  LEMONSQUEEZY_VARIANT_ID: ${{ secrets.LEMONSQUEEZY_VARIANT_ID }}
+  LEMONSQUEEZY_CREDIT_VARIANT_ID: ${{ secrets.LEMONSQUEEZY_CREDIT_VARIANT_ID }}
+  NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+  NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY }}
+  EMAIL_SOURCE: ${{ secrets.EMAIL_SOURCE }}
+  SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+  POSTHOG_API_KEY: ${{ secrets.POSTHOG_API_KEY }}
+  ATLARIX_CORE_PROXY_URL: ${{ vars.ATLARIX_CORE_PROXY_URL || secrets.ATLARIX_CORE_PROXY_URL }}
+  ATLARIX_CORE_MODEL_1: ${{ vars.ATLARIX_CORE_MODEL_1 || secrets.ATLARIX_CORE_MODEL_1 }}
+  ATLARIX_CORE_MODEL_2: ${{ vars.ATLARIX_CORE_MODEL_2 || secrets.ATLARIX_CORE_MODEL_2 }}
+  ATLARIX_CORE_MODEL_3: ${{ vars.ATLARIX_CORE_MODEL_3 || secrets.ATLARIX_CORE_MODEL_3 }}
+  ATLARIX_CORE_MODEL_4: ${{ vars.ATLARIX_CORE_MODEL_4 || secrets.ATLARIX_CORE_MODEL_4 }}
+  OAUTH_CLIENT_ID: ${{ secrets.OAUTH_CLIENT_ID }}
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  ELECTRON_CACHE: ${{ github.workspace }}/.cache/electron
+  NPM_CONFIG_REGISTRY: https://registry.npmjs.org/
+
+jobs:
+  msix:
+    runs-on: windows-latest
+    timeout-minutes: 120
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          # Node 25 breaks the better-sqlite3 native build on windows-latest
+          # (llvm-lib /LTCG:INCREMENTAL). Matches release.yml's build-windows.
+          node-version: "24"
+
+      # Guards against a package whose build-time credentials are all empty —
+      # it would install fine and fail every spike item that matters, wasting a
+      # full round trip to the test machine. Names only; values stay masked.
+      - name: Verify build credentials are present
+        shell: pwsh
+        run: |
+          $required = @(
+            "NEXT_PUBLIC_SUPABASE_URL",
+            "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY",
+            "ATLARIX_CORE_PROXY_URL",
+            "LEMONSQUEEZY_VARIANT_ID"
+          )
+          $missing = @()
+          foreach ($name in $required) {
+            if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($name))) {
+              $missing += $name
+            }
+          }
+          if ($missing.Count -gt 0) {
+            Write-Host "::error::Missing build-time credentials: $($missing -join ', '). The MSIX would ship with no auth or checkout config, so the behavior spike could not test sign-in or the atlarix://pro-return leg."
+            exit 1
+          }
+          Write-Host "All $($required.Count) required build credentials present."
+
+      - name: Cache Electron binaries
+        uses: actions/cache@v5
+        with:
+          path: .cache/electron
+          key: electron-${{ runner.os }}-${{ inputs.arch }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            electron-${{ runner.os }}-${{ inputs.arch }}-
+
+      - name: Install dependencies
+        shell: pwsh
+        run: |
+          node scripts/verify-npm-lock-registry.mjs
+          $attempts = 0
+          $maxAttempts = 5
+          while ($attempts -lt $maxAttempts) {
+            $attempts++
+            npm ci
+            if ($LASTEXITCODE -eq 0) {
+              Write-Host "npm ci succeeded on attempt $attempts"
+              exit 0
+            }
+            Write-Warning "npm ci failed (attempt $attempts of $maxAttempts); retrying..."
+            Remove-Item -Recurse -Force node_modules -ErrorAction SilentlyContinue
+            Start-Sleep -Seconds ($attempts * 25)
+          }
+          Write-Error "npm ci failed after $maxAttempts attempts"
+          exit 1
+
+      - name: Verify Forge patch applied
+        shell: pwsh
+        run: node scripts/verify-forge-patch.mjs
+
+      - name: Ensure Electron binary (Windows)
+        shell: pwsh
+        run: node node_modules/electron/install.js
+
+      - name: Verify Electron distro zip (Windows)
+        shell: pwsh
+        run: node scripts/win-ci-electron-zip.mjs --verify
+
+      - name: Install ripgrep
+        shell: pwsh
+        run: |
+          choco install ripgrep -y --no-progress
+          $rg = Get-Command rg -ErrorAction SilentlyContinue
+          if (-not $rg) {
+            Write-Error "rg not on PATH after choco install"
+            exit 1
+          }
+          rg --version
+
+      - name: Prepare packager temp (Windows)
+        shell: pwsh
+        run: |
+          $tmp = Join-Path $env:RUNNER_TEMP "electron-packager"
+          if (Test-Path $tmp) { Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue }
+          New-Item -ItemType Directory -Force -Path "${{ github.workspace }}/.cache/packager-tmp" | Out-Null
+
+      - name: Build for Windows (Vite)
+        shell: pwsh
+        env:
+          NODE_OPTIONS: "--max-old-space-size=8192"
+        run: |
+          npm run clean
+          node scripts/win-ci-vite.mjs
+
+      # The AppContainer sandbox helper for agent `run_command`. Unsigned is fine
+      # here: inside an MSIX every payload file is covered by the PACKAGE
+      # signature, so a per-file cert would add nothing. Non-fatal for a spike
+      # build — wrap-command.ts falls back to unsandboxed with a warning, and the
+      # helper is validated on a Squirrel install first anyway (see the runbook).
+      - name: Build Windows sandbox helper (Rust)
+        shell: pwsh
+        run: |
+          cargo build --release --manifest-path native/atlarix-sandbox/Cargo.toml
+          $exe = "native/atlarix-sandbox/target/release/atlarix-sandbox.exe"
+          if (Test-Path $exe) {
+            Write-Host "Built sandbox helper: $exe"
+          } else {
+            Write-Host "::warning::atlarix-sandbox.exe failed to build — this MSIX will run run_command UNSANDBOXED. Acceptable for a spike build; do not ship it."
+          }
+
+      - name: Package (electron-forge)
+        timeout-minutes: 55
+        shell: pwsh
+        env:
+          NODE_OPTIONS: "--max-old-space-size=8192"
+          TMP: ${{ github.workspace }}/.cache/packager-tmp
+          TEMP: ${{ github.workspace }}/.cache/packager-tmp
+        run: |
+          node scripts/win-ci-packager-worker.mjs
+          if (-not $?) { exit $LASTEXITCODE }
+          node scripts/verify-ci-package-out.mjs --stage package --platform win32 --arch ${{ inputs.arch }}
+
+      - name: Build MSIX
+        shell: pwsh
+        run: |
+          # NOT `$args` — that is a PowerShell automatic variable.
+          $nodeArgs = @("scripts/make-msix.mjs", "--arch", "${{ inputs.arch }}")
+          if ("${{ inputs.upload_wrapper }}" -eq "true") { $nodeArgs += "--upload" }
+          node @nodeArgs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Upload MSIX artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: atlarix-msix-${{ inputs.arch }}
+          # The rendered manifest ships alongside so the exact Identity/Publisher
+          # that the local signing certificate must match is verifiable without
+          # unpacking the .msix.
+          path: |
+            out/msix/*.msix
+            out/msix/*.msixupload
+            out/msix/layout-${{ inputs.arch }}/AppxManifest.xml
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Next steps
+        shell: pwsh
+        run: |
+          Write-Host "MSIX built and uploaded as an artifact (UNSIGNED)."
+          Write-Host "Sign and install it on the Windows test machine per docs/MSIX_RUNBOOK.md:"
+          Write-Host "  1. Import/generate the test cert (subject MUST be CN=B8A553CE-4E5B-49AD-B077-6973F43EADFD)"
+          Write-Host "  2. signtool sign /fd SHA256 ..."
+          Write-Host "  3. Add-AppxPackage"
+          Write-Host "  4. atlarix.exe --self-test   (with ATLARIX_SELF_TEST_OUT set)"

@@ -40,7 +40,7 @@ function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
 /** Marker split across args so the shell's command echo can't false-positive it. */
 const MARK = ["atlarix", "selftest", "ok"].join("-");
 
-const DEFAULT_PROBES: SelfTestProbe[] = [
+export const DEFAULT_PROBES: SelfTestProbe[] = [
   {
     // Native binding + unpacked spawn-helper/conpty.
     name: "pty-spawn",
@@ -144,6 +144,113 @@ const DEFAULT_PROBES: SelfTestProbe[] = [
         baseURL: "https://example.invalid/v1",
       });
       return `${names.length} provider SDK factories + zod/v4 resolvable`;
+    },
+  },
+  {
+    // REPORTER, not an assertion — it never fails. Added for the Microsoft Store
+    // (MSIX) packaging spike, where the open question is not "does it work" but
+    // "WHERE did the package container put things". Inside an MSIX the install
+    // dir is read-only and AppData writes may be redirected into
+    // %LOCALAPPDATA%\Packages\<PFN>\, which would mean a user moving from the
+    // Squirrel build to the Store build silently gets a fresh profile — no
+    // workspaces, no chats, no stored credentials. Diff this against a Squirrel
+    // install to find out. Useful on every platform as a provenance record.
+    name: "context",
+    run: async () => {
+      const { app } = await import("electron");
+      const os = await import("node:os");
+      const facts = {
+        windowsStore: process.windowsStore === true,
+        packaged: app.isPackaged,
+        execPath: process.execPath,
+        resources: process.resourcesPath,
+        userData: app.getPath("userData"),
+        temp: app.getPath("temp"),
+        home: os.homedir(),
+      };
+      return Object.entries(facts)
+        .map(([k, v]) => `${k}=${v}`)
+        .join(" | ");
+    },
+  },
+  {
+    // Can the app actually EXECUTE a command in a child process?
+    //
+    // `pty-spawn` above does not answer that on Windows. It writes
+    // `printf '%s\n' <marker>` into a PowerShell pty, and PowerShell has no
+    // `printf` — so the marker appears in PowerShell's ERROR text and the probe
+    // goes green having executed nothing. That probe is still worth keeping (it
+    // proves the node-pty binding loads, spawns, and streams), but the Store
+    // spike needs proof that a command ran, so this asserts on the EXIT CODE and
+    // on stdout from the non-interactive shell `run_command` actually uses.
+    //
+    // Matters for MSIX because child processes inherit the package identity by
+    // default, and Node's child_process cannot opt out of that.
+    name: "child-exec",
+    run: async () => {
+      const { promisify } = await import("node:util");
+      const { execFile } = await import("node:child_process");
+      const path = await import("node:path");
+      const { getAcceptableShell } = await import("@/lib/shell/resolve-shell");
+      const run = promisify(execFile);
+
+      const shell = getAcceptableShell();
+      const base = (
+        process.platform === "win32" ? path.win32.basename(shell) : path.basename(shell)
+      ).toLowerCase();
+      // cmd.exe takes /c and has no printf; POSIX shells (incl. Git bash on
+      // Windows) take -c.
+      const args =
+        base === "cmd.exe" ? ["/c", `echo ${MARK}`] : ["-c", `printf '%s\\n' ${MARK}`];
+
+      // Rejects on a non-zero exit, which is the assertion that matters here.
+      const { stdout } = await run(shell, args, { windowsHide: true });
+      if (!stdout.includes(MARK)) {
+        throw new Error(`${base} exited 0 but did not emit the marker: ${stdout.slice(0, 120)}`);
+      }
+
+      // An external dev tool, best-effort: a bare test machine may genuinely
+      // have no git, and failing the probe for that would be a false alarm. The
+      // point is to surface HOW git resolves from inside the package container.
+      let git = "git=absent";
+      try {
+        const { stdout: gitOut } = await run("git", ["--version"], { windowsHide: true });
+        git = `git=${gitOut.trim()}`;
+      } catch (e) {
+        git = `git=unavailable (${e instanceof Error ? e.message.split("\n")[0] : String(e)})`;
+      }
+
+      return `${base} executed the command, marker on stdout | ${git}`;
+    },
+  },
+  {
+    // Can the app read/write outside its own container?
+    //
+    // Atlarix is useless if it cannot touch the user's source trees, and an MSIX
+    // package container is the one place that could silently prevent it. Writes
+    // to the HOME directory, then reports the path it RESOLVED to — under
+    // filesystem redirection the write succeeds but lands somewhere else, so the
+    // resolved path is the actual finding, not the success.
+    name: "fs-outside-container",
+    run: async () => {
+      const fsp = await import("node:fs/promises");
+      const os = await import("node:os");
+      const path = await import("node:path");
+
+      const target = path.join(os.homedir(), `.atlarix-self-test-${process.pid}`);
+      await fsp.writeFile(target, MARK, "utf8");
+      try {
+        const readBack = await fsp.readFile(target, "utf8");
+        if (readBack !== MARK) {
+          throw new Error(`wrote ${MARK} but read back ${JSON.stringify(readBack.slice(0, 60))}`);
+        }
+        // realpath AFTER a successful write: this is where the bytes actually went.
+        const resolved = await fsp.realpath(target);
+        const redirected = path.dirname(resolved) !== os.homedir();
+        return `wrote+read ${resolved}${redirected ? " (REDIRECTED away from homedir)" : ""}`;
+      } finally {
+        await fsp.rm(target, { force: true });
+      }
     },
   },
 ];

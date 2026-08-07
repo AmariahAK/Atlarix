@@ -2,7 +2,81 @@
 
 **Current Version:** v14.27.0 (2026-08-05) — your credentials and your workspaces stop
 disappearing, and the agent can finally see the automations it should be recommending.
-**Last Updated:** 2026-08-05
+**Last Updated:** 2026-08-07
+
+## 🚧 IN PROGRESS — Microsoft Store (MSIX) packaging + the Windows brand fix
+
+Goal: list Atlarix on the Microsoft Store so Windows users stop hitting SmartScreen
+(Microsoft re-signs with a trusted cert). Everything below is **additive** — the Squirrel
+path is untouched, and MSIX is `workflow_dispatch`-only until it is proven on real hardware.
+Full procedure in [`docs/MSIX_RUNBOOK.md`](MSIX_RUNBOOK.md).
+
+**The Windows installer and app were shipping the OLD project's logo.** `assets/icon/logo.ico`
+was never regenerated during the rebrand, so both the installed app (packager resolves `.ico` on
+Windows) and the Squirrel installer carried it. macOS looked right, which is exactly why nobody
+caught it. `logo.png` and `logo.iconset/` had drifted too — both a letterboxed, vertically
+stretched crop rather than the clean square in the `.icns`.
+- `assets/icon/logo.icns` is now the SINGLE source of truth; `scripts/gen-icons.mjs` derives the
+  iconset, a square 1024² `logo.png`, the 7-frame `logo.ico`, and the MSIX Store logos from it.
+  Hand-editing any output is what let them drift apart in the first place.
+- **`MakerSquirrel` was dropping `setupIcon` on every signed build.** It sat in the `else` arm of a
+  ternary on `SM_CODE_SIGNING_CERT_SHA1_HASH`, so the branch that ran in CI — i.e. every real
+  release — set `signWithParams` and no icon at all. Signing and branding are independent; both
+  are now always set.
+- **deb/rpm were shipping the generic Electron atom.** Neither maker set `options.icon`, so
+  `electron-installer-common` fell back to its own bundled default. Both now get a proper
+  multi-resolution hicolor set. (Forge types this as `string`; the runtime branches on shape and
+  accepts the object — hence the `@ts-expect-error`, same as `chromiumSandbox`.)
+
+**MSIX packaging.** Not `@electron-forge/maker-appx`: it imports `electron-windows-store` (2023,
+undeclared) and its cert path shells out to `makecert.exe`, removed from the SDK years ago.
+`scripts/make-msix.mjs` drives `makeappx.exe` directly, which is what gives us exact manifest
+authority — needed because the `windows.protocol` declaration is load-bearing.
+- **MSIX virtualizes HKCU writes into a package-private hive**, so
+  `app.setAsDefaultProtocolClient` cannot register `atlarix://` system-wide. That would have
+  broken Supabase OAuth, MCP OAuth, and the Lemon Squeezy `atlarix://pro-return` completion leg.
+  The manifest declares the handler instead; full-trust activation arrives as argv, which
+  `extractDeepLinkUrl` already handled on both the cold-start and second-instance paths.
+- **Squirrel would have run against a read-only install dir.** `chooseUpdaterKind` returned
+  `"squirrel"` for any packaged win32 build, and `C:\Program Files\WindowsApps` cannot be written.
+  It now returns `"none"` for `process.windowsStore`, checked BEFORE the win32 branch. The
+  `"none"` case in `main.ts` also needed an explicit branch — it used to fall through to
+  `initAutoUpdater()`, whose internal guard only rejects deb/rpm and mac-outside-`/Applications`,
+  so an MSIX install would have sailed past it.
+- `appExecutionAlias` puts `atlarix.exe` on PATH. Doubles as a real CLI entry point
+  (`atlarix C:\repo` — `openWorkspaceFromCliPath` already existed) and is the only practical way
+  to run `--self-test` inside the package, since the installed binary is ACL-restricted.
+
+**Spike probes.** `context`, `child-exec`, and `fs-outside-container` added to `self-test.ts`, so
+three of the four spike questions produce a pass/fail table instead of hand observation.
+- `child-exec` exists because **`pty-spawn` silently false-passes on Windows**: it writes
+  `printf '%s\n' <marker>` into a PowerShell pty, and PowerShell has no `printf`, so the marker
+  lands in the *error* text and the probe goes green having executed nothing. `pty-spawn` still
+  proves node-pty loads/spawns/streams, so it stays; `child-exec` asserts on the exit code.
+- `src/__tests__/self-test-probes.test.ts` is new — the probes are the packaged-build safety net
+  and nothing verified the probes themselves.
+
+### Open — needs the Windows 10 test machine
+- [ ] Run the spike (runbook §4). **Baseline on Squirrel FIRST** — `atlarix-sandbox.exe` has never
+      been validated on real Windows (`WINDOWS_HELPER.md`), so testing it first inside MSIX makes
+      any failure unattributable.
+- [ ] **Record `userData=` from the `context` probe and diff it against the Squirrel baseline.** If
+      the path diverges, a Squirrel user switching to the Store build silently gets a fresh profile
+      — no workspaces, chats, or credentials — and needs a one-time migration. Measure before
+      building anything.
+- [ ] Confirm the manifest protocol declaration works (OAuth sign-in) and that
+      `atlarix://pro-return` completes a Lemon Squeezy purchase.
+
+### Open — owner-driven, after the spike passes
+- [ ] Store listing: description, screenshots, category, age rating.
+- [ ] `runFullTrust` justification (restricted capability, needs Microsoft approval) + the
+      Lemon Squeezy IAP note. Both drafted in the runbook §5.
+- [ ] Submit; Microsoft strips the test signature and re-signs.
+- [ ] **Only after certification passes**, wire MSIX into `release.yml`. Windows-only path bugs
+      here have a history of surfacing at tag time.
+- [ ] `MakerSquirrel.iconUrl` is still unset, so Add/Remove Programs shows a Squirrel default.
+      Needs a publicly-hosted 256px `.ico` (e.g. `https://www.atlarix.dev/logo.ico`) — a one-line
+      addition to `atlarix-launchpad/public/`, deliberately not pointed at a URL that 404s.
 
 ## ✅ SHIPPED in v14.27.0 — stop losing credentials, stop deleting workspaces, let the agent see automations
 
