@@ -31,6 +31,12 @@ features = [
     "Win32_System_Threading",
     # SE_GROUP_INTEGRITY.
     "Win32_System_SystemServices",
+    # SHGetKnownFolderPath + FOLDERID_LocalAppDataLow: the ONLY supported way to
+    # locate LocalLow. Windows ships no environment variable for it, and the
+    # %USERPROFILE%\AppData\LocalLow shortcut breaks under Folder Redirection.
+    "Win32_UI_Shell",
+    # CoTaskMemFree, to release the PWSTR SHGetKnownFolderPath allocates.
+    "Win32_System_Com",
     # NOTE: Win32_Security_Isolation (AppContainer) was dropped when this helper
     # moved to Low Integrity Level — see the rationale at the top of src/main.rs.
 ]

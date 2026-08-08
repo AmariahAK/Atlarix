@@ -91,11 +91,23 @@ to create Windows user accounts — poor for a Store app. See `docs/TODO.md`.
    there. Built from the SDDL `S:(ML;OICI;NW;;;LW)` — `SetEntriesInAclW` cannot
    produce a `SYSTEM_MANDATORY_LABEL_ACE`, it only emits allow/deny ACEs. Equivalent
    to `icacls <dir> /setintegritylevel (OI)(CI) L`.
-3. Point `TEMP`/`TMP` at a directory under `%USERPROFILE%\AppData\LocalLow\Atlarix\`
-   (already Low-labelled by Windows) via a hand-built environment block. **A Low-IL
-   child cannot write the normal `%TEMP%`**, and a tool that cannot create a temp
-   file fails in ways that look nothing like a sandbox denial — that is how git's
+3. Point `TEMP`/`TMP` at a directory under LocalLow (already Low-labelled by Windows,
+   and the label is inherited by what we create there) via a hand-built environment
+   block. **A Low-IL child cannot write the normal `%TEMP%`** — it lives under
+   `%LOCALAPPDATA%`, which is Medium integrity — and a tool that cannot create a temp
+   file fails in ways that look nothing like a sandbox denial; that is how git's
    `/dev/null` failure presented.
+
+   LocalLow is resolved with `SHGetKnownFolderPath(FOLDERID_LocalAppDataLow)`, **not**
+   by appending `\AppData\LocalLow` to `%USERPROFILE%`. Windows ships no environment
+   variable for LocalLow (there is `%APPDATA%` and `%LOCALAPPDATA%`, but no
+   low-integrity equivalent), so the concatenation was a shortcut around a missing
+   variable — and it is wrong wherever AppData is redirected, which enterprise Folder
+   Redirection and roaming profiles both do. That would fail in the worst way: a
+   directory *we* create at a guessed path carries no Low label, so `%TEMP%` would be
+   unwritable, reproducing the exact failure this redirection exists to prevent.
+   Resolution failure is fatal (exit 87) rather than best-effort, so `--probe` catches
+   it and the caller falls back to unconfined-with-a-warning.
 4. `CreateProcessAsUserW` with the lowered token, running the command through the
    **same shell the unsandboxed path would use** (`--shell`). Without that,
    `getAcceptableShell()` picked Git bash for unsandboxed runs while the helper

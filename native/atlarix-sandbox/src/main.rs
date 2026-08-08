@@ -78,11 +78,13 @@ use windows::Win32::Security::{
     PSID, SID_AND_ATTRIBUTES, TOKEN_ALL_ACCESS, TOKEN_DUPLICATE, TOKEN_MANDATORY_LABEL,
     TOKEN_QUERY,
 };
+use windows::Win32::System::Com::CoTaskMemFree;
 use windows::Win32::System::SystemServices::SE_GROUP_INTEGRITY;
 use windows::Win32::System::Threading::{
     CreateProcessAsUserW, GetCurrentProcess, GetExitCodeProcess, OpenProcessToken,
     WaitForSingleObject, CREATE_UNICODE_ENVIRONMENT, INFINITE, PROCESS_INFORMATION, STARTUPINFOW,
 };
+use windows::Win32::UI::Shell::{SHGetKnownFolderPath, FOLDERID_LocalAppDataLow, KF_FLAG_CREATE};
 
 const SANDBOX_SETUP_FAILED: i32 = 87; // ERROR_INVALID_PARAMETER
 
@@ -328,10 +330,47 @@ fn env_block_with_low_temp(temp: &str) -> Vec<u16> {
 }
 
 /// Create (and return) a Low-writable temp directory for the child.
-fn low_temp_dir() -> String {
-    let base = std::env::var("USERPROFILE").unwrap_or_default();
-    let dir = format!("{base}\\AppData\\LocalLow\\Atlarix\\sandbox-temp");
-    let _ = std::fs::create_dir_all(&dir);
+///
+/// LocalLow is resolved with `SHGetKnownFolderPath(FOLDERID_LocalAppDataLow)` rather
+/// than by appending `\AppData\LocalLow` to `%USERPROFILE%`. Windows exposes NO
+/// environment variable for it — there is `%APPDATA%` and `%LOCALAPPDATA%`, but no
+/// low-integrity equivalent — so the concatenation was a shortcut around a missing
+/// variable, and it is wrong wherever AppData is redirected (enterprise Folder
+/// Redirection, roaming profiles).
+///
+/// Guessing the path fails in the worst possible way: a directory WE create at a
+/// guessed location carries no Low mandatory label (only the real LocalLow does, and
+/// its label is inherited), so the child's `%TEMP%` would be unwritable — which is
+/// precisely the "cannot create a temp file" class of failure this redirection exists
+/// to prevent, and which presented as git's `/dev/null` error.
+///
+/// `KF_FLAG_CREATE` has Windows create LocalLow, correctly labelled, if it is absent.
+/// Failure is fatal rather than best-effort: `--probe` runs before any user command,
+/// so exiting 87 here makes `wrap-command.ts` fall back to unconfined-with-a-warning
+/// instead of letting a real command fail cryptically much later.
+unsafe fn low_temp_dir() -> String {
+    let base = match SHGetKnownFolderPath(
+        &FOLDERID_LocalAppDataLow,
+        KF_FLAG_CREATE,
+        HANDLE::default(),
+    ) {
+        Ok(p) => {
+            let s = p.to_string().unwrap_or_default();
+            CoTaskMemFree(Some(p.0 as *const _));
+            s
+        }
+        Err(e) => die(&format!(
+            "SHGetKnownFolderPath(FOLDERID_LocalAppDataLow) failed: {e:?} — cannot \
+             locate a Low-writable TEMP for the confined child"
+        )),
+    };
+    if base.is_empty() {
+        die("FOLDERID_LocalAppDataLow resolved to an empty path");
+    }
+    let dir = format!("{base}\\Atlarix\\sandbox-temp");
+    if let Err(e) = std::fs::create_dir_all(&dir) {
+        die(&format!("could not create Low temp dir {dir}: {e}"));
+    }
     dir
 }
 

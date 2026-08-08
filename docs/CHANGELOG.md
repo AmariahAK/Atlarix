@@ -3,6 +3,32 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
+## [Unreleased]
+
+**Windows sandbox: two path assumptions corrected.** Both were found by reading the
+code after v14.28.0 shipped, not from a user report, and both are Windows-only.
+
+- **Toolchain caches outside `%USERPROFILE%` are now writable.** The sandbox's default
+  writable set used one curated list for all three platforms, and it was POSIX-shaped:
+  it granted `~/.npm`, but npm on Windows caches to `%LOCALAPPDATA%\npm-cache` and sets
+  no `npm_config_cache` for the env-var layer to pick up. Under Low integrity an
+  unlabelled directory is simply unwritable, so agent-run `npm install` could not write
+  its cache. pnpm, yarn, Go's build cache and Deno had the same gap. Read from
+  `%LOCALAPPDATA%`/`%APPDATA%`, so a redirected AppData is followed rather than guessed.
+- **`~/Library/Caches` and `~/Library/pnpm` are no longer created on Windows and Linux.**
+  They are macOS paths, but sat in the shared list — and missing cache dirs are created
+  on every non-darwin platform, so those machines got a macOS-shaped directory in the
+  user's home that nothing reads.
+- **LocalLow is resolved properly.** The Low-integrity `TEMP` directory was built by
+  appending `\AppData\LocalLow` to `%USERPROFILE%`. Windows exposes no environment
+  variable for LocalLow, so that was a shortcut around a missing one — and it is wrong
+  wherever AppData is redirected (Folder Redirection, roaming profiles). A directory
+  created at a guessed path carries no Low label, so the child's `%TEMP%` would be
+  unwritable: exactly the "cannot create a temp file" failure the redirection exists to
+  prevent. Now uses `SHGetKnownFolderPath(FOLDERID_LocalAppDataLow)`, and a failure to
+  resolve or create it exits 87 instead of limping on, so `--probe` catches it and
+  commands fall back to unconfined with a warning.
+
 ## [14.28.0] (2026-08-07) — Windows commands work again, and Atlarix is on the Microsoft Store
 
 **If you use Atlarix on Windows, agent commands involving git, bash, or most tools in

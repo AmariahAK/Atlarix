@@ -7,7 +7,8 @@
  * - macOS:   `sandbox-exec` (Seatbelt) — built-in, free.
  * - Linux:   bundled `atlarix-sandbox-linux` (Landlock) helper; falls back to an
  *            OS-installed `bwrap` (bubblewrap), then unsandboxed.
- * - Windows: `atlarix-sandbox.exe` AppContainer helper — falls back if not bundled.
+ * - Windows: bundled `atlarix-sandbox.exe` (Low Integrity Level) helper; falls back
+ *            to unsandboxed if it is missing or `--probe` fails on this machine.
  *
  * Applies ONLY to agent `run_command`. The user's interactive PTY tabs are never
  * sandboxed. On any failure the caller runs the command unsandboxed (unless the
@@ -136,6 +137,74 @@ const TOOLCHAIN_DIR_ENV_VARS = [
 ] as const;
 
 /**
+ * Toolchain cache dirs under `$HOME`, on every platform.
+ *
+ * Kept on Windows as well as POSIX: the Windows shell is Git bash whenever Git for
+ * Windows is installed (`resolveWindowsShell`), so MSYS tools genuinely do read
+ * `~/.cache` and `~/.config` there, and cargo, rustup, gradle, maven, bun and
+ * GOPATH all default to `%USERPROFILE%\.<name>` on Windows too.
+ */
+export const HOME_CACHE_DIRS: readonly (readonly string[])[] = [
+  [".npm"],
+  [".cache"],
+  [".config"],
+  [".yarn"],
+  [".pnpm-store"],
+  [".bun"],
+  [".deno"],
+  [".cargo"],
+  [".rustup"],
+  [".gradle"],
+  [".m2"],
+  [".gem"],
+  [".nuget", "packages"],
+  [".local", "share"],
+  [".local", "state"],
+  ["go", "pkg"],
+];
+
+/**
+ * macOS-only locations. These used to sit in the shared list, so with
+ * `createMissingCaches` on (every non-darwin platform) Linux and Windows machines
+ * had `~/Library/Caches` and `~/Library/pnpm` created in their home directory —
+ * a macOS-shaped path no tool on those platforms ever reads.
+ */
+export const MACOS_CACHE_DIRS: readonly (readonly string[])[] = [
+  ["Library", "Caches"],
+  ["Library", "pnpm"], // pnpm's default PNPM_HOME on macOS (the store lives here)
+];
+
+/**
+ * Windows toolchain caches that do NOT live under `$HOME`, so nothing in
+ * HOME_CACHE_DIRS covers them.
+ *
+ * Omitting these was not cosmetic. Under Low IL an unlabelled directory is simply
+ * unwritable, so `npm install` run by the agent could not write its cache — npm on
+ * Windows defaults to `%LOCALAPPDATA%\npm-cache`, not `~/.npm`, and sets no
+ * `npm_config_cache` to be picked up by the env-var layer above.
+ *
+ * Read from the environment rather than composed from `os.homedir()`, so a
+ * redirected AppData is followed instead of guessed — the same reason the Rust
+ * helper resolves LocalLow via `SHGetKnownFolderPath`.
+ */
+export function windowsCacheDirs(): string[] {
+  const local = process.env.LOCALAPPDATA;
+  const roaming = process.env.APPDATA;
+  const out: string[] = [];
+  if (local) {
+    out.push(
+      path.join(local, "npm-cache"), // npm
+      path.join(local, "pnpm"), // pnpm store + default PNPM_HOME
+      path.join(local, "Yarn", "Cache"), // yarn classic
+      path.join(local, "go-build"), // GOCACHE default
+      path.join(local, "deno"), // DENO_DIR default
+    );
+  }
+  if (roaming) out.push(path.join(roaming, "npm")); // npm global prefix
+  return out;
+}
+
+/**
  * Common package-manager / toolchain cache dirs that legitimately need writes.
  *
  * Two classes of candidate:
@@ -168,24 +237,13 @@ function defaultWritablePaths(
   ];
   // Write-intent dirs granted even when missing (curated caches + escalation/
   // settings extras): a first run must be able to CREATE its own cache dir.
+  // Platform-branched — see the three lists above for why a single list was wrong.
   const grantable = [
-    path.join(home, ".npm"),
-    path.join(home, ".cache"),
-    path.join(home, ".config"),
-    path.join(home, ".yarn"),
-    path.join(home, ".pnpm-store"),
-    path.join(home, ".bun"),
-    path.join(home, ".deno"),
-    path.join(home, ".cargo"),
-    path.join(home, ".rustup"),
-    path.join(home, ".gradle"),
-    path.join(home, ".m2"),
-    path.join(home, ".gem"),
-    path.join(home, ".local", "share"),
-    path.join(home, ".local", "state"),
-    path.join(home, "go", "pkg"),
-    path.join(home, "Library", "Caches"), // macOS
-    path.join(home, "Library", "pnpm"), // pnpm's default PNPM_HOME on macOS (store lives here)
+    ...HOME_CACHE_DIRS.map((segments) => path.join(home, ...segments)),
+    ...(process.platform === "darwin"
+      ? MACOS_CACHE_DIRS.map((segments) => path.join(home, ...segments))
+      : []),
+    ...(process.platform === "win32" ? windowsCacheDirs() : []),
     ...extra,
   ];
   const seen = new Set<string>();
