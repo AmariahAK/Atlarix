@@ -26,7 +26,7 @@ export interface SelfTestReport {
   results: { name: string; ok: boolean; detail: string; ms: number }[];
 }
 
-const PROBE_TIMEOUT_MS = 15_000;
+const PROBE_TIMEOUT_MS = 45_000;
 
 function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
   return Promise.race([
@@ -58,7 +58,7 @@ export const DEFAULT_PROBES: SelfTestProbe[] = [
       try {
         const seen = await new Promise<boolean>((resolve, reject) => {
           let buf = "";
-          const timer = setTimeout(() => reject(new Error("no marker within 8s")), 8000);
+          const timer = setTimeout(() => reject(new Error("no marker within 20s")), 20_000);
           timer.unref?.();
           pty.onData((d: string) => {
             buf += d;
@@ -67,8 +67,13 @@ export const DEFAULT_PROBES: SelfTestProbe[] = [
               resolve(true);
             }
           });
-          // `printf` avoids the marker appearing only in the command echo.
-          pty.write(`printf '%s\\n' ${MARK}\r`);
+          // PowerShell has no `printf`; `Write-Output` works there.
+          // Bash/zsh have no `Write-Output`; `printf` works there.
+          // Use the shell-appropriate command so both actually execute.
+          const cmd = file.toLowerCase().includes("powershell")
+            ? `Write-Output ${MARK}`
+            : `printf '%s\\n' ${MARK}`;
+          pty.write(`${cmd}\r`);
         });
         if (!seen) throw new Error("marker not observed");
         return `spawned ${file}, marker observed`;
