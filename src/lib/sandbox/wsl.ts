@@ -13,15 +13,16 @@
  * Low-integrity Windows sandbox — we are not moving Windows-native projects into
  * Linux, which would give the agent a different OS than the file-editing tools use.
  *
- * CONFINEMENT, v1: `bwrap` inside the distro when it's installed, otherwise
- * unconfined with a warning. The bundled Landlock helper is a Linux ELF that
- * `forge.config.ts` only ships on Linux builds, and cross-building it from
- * `windows-latest` needs a toolchain that runner lacks. Piping it from the
- * `build-linux` job as a CI artifact is tracked in docs/TODO.md.
+ * CONFINEMENT: prefers the bundled Landlock helper (`atlarix-sandbox-linux`, piped
+ * from the `build-linux` CI job into the Windows build as a CI artifact and shipped
+ * via `forge.config.ts` extraResource). Kernel-level, no install needed in the
+ * distro. Falls back to `bwrap` when the helper is absent or the kernel is too old,
+ * then unconfined with a warning.
  */
 
 import { spawnSync } from "node:child_process";
 import log from "electron-log";
+import { findLinuxHelper } from "./wrap-command";
 
 const logger = log.scope("command-sandbox");
 
@@ -53,36 +54,99 @@ export function parseWslPath(p: string): WslLocation | null {
   return { distro, linuxPath: linuxPath === "" ? "/" : linuxPath };
 }
 
-/** Cached per distro: probing costs a subprocess, and this is on the command path. */
-const bwrapByDistro = new Map<string, boolean>();
+// ---------------------------------------------------------------------------
+// Confinement resolution: Landlock helper > bwrap > unconfined
+// ---------------------------------------------------------------------------
+
+type Confinement = "landlock" | "bwrap" | "none";
+const confinementByDistro = new Map<string, { kind: Confinement; helperPath?: string }>();
 
 export function resetWslProbeCacheForTests(): void {
-  bwrapByDistro.clear();
+  confinementByDistro.clear();
+}
+
+/** Convert a Windows path to a WSL-accessible `/mnt/c/…` path. */
+function windowsToWslPath(windowsPath: string): string {
+  return windowsPath
+    .replace(/^([A-Za-z]):\\/, (_, d: string) => `/mnt/${d.toLowerCase()}/`)
+    .replace(/\\/g, "/");
+}
+
+/**
+ * Probe the bundled Landlock helper inside `distro`. The helper is a Linux ELF
+ * shipped via `process.resourcesPath` on the Windows side; drvfs (`/mnt/c/…`)
+ * does not set executable permissions, so we copy it to `/tmp` inside the distro
+ * and probe from there. The copy + probe runs once per distro.
+ */
+function probeLandlock(distro: string, wslHelperPath: string): boolean {
+  try {
+    const probe = spawnSync(
+      "wsl.exe",
+      ["-d", distro, "--", "sh", "-c",
+       `cp "${wslHelperPath}" /tmp/atlarix-sandbox-linux 2>/dev/null && chmod +x /tmp/atlarix-sandbox-linux && /tmp/atlarix-sandbox-linux --probe`],
+      { timeout: 15_000, windowsHide: true },
+    );
+    return probe.status === 0;
+  } catch {
+    return false;
+  }
 }
 
 /** Is `bwrap` available inside `distro`? */
 function distroHasBwrap(distro: string): boolean {
-  const cached = bwrapByDistro.get(distro);
-  if (cached !== undefined) return cached;
-  let found = false;
   try {
     const probe = spawnSync(
       "wsl.exe",
       ["-d", distro, "--", "sh", "-c", "command -v bwrap >/dev/null 2>&1"],
       { timeout: 15_000, windowsHide: true },
     );
-    found = probe.status === 0;
+    return probe.status === 0;
   } catch {
-    found = false;
+    return false;
   }
-  bwrapByDistro.set(distro, found);
-  if (!found) {
-    logger.warn(
-      `WSL distro "${distro}" has no bwrap; run_command there will be UNCONFINED. ` +
-        `Install it in the distro (e.g. apt install bubblewrap) to enable confinement.`,
+}
+
+/**
+ * Resolve the best available confinement for `distro`:
+ * 1. Bundled Landlock helper (kernel-level, no install needed in the distro)
+ * 2. OS-installed bwrap (bubblewrap)
+ * 3. Unconfined (with a warning)
+ */
+function resolveConfinement(distro: string): { kind: Confinement; helperPath?: string } {
+  const cached = confinementByDistro.get(distro);
+  if (cached) return cached;
+
+  // 1. Try the bundled Landlock helper
+  const helperWinPath = findLinuxHelper();
+  if (helperWinPath) {
+    const wslPath = windowsToWslPath(helperWinPath);
+    if (probeLandlock(distro, wslPath)) {
+      const entry = { kind: "landlock" as const, helperPath: "/tmp/atlarix-sandbox-linux" };
+      confinementByDistro.set(distro, entry);
+      logger.info(`WSL distro "${distro}": using bundled Landlock helper for confinement.`);
+      return entry;
+    }
+    logger.info(
+      `WSL distro "${distro}": Landlock helper present but --probe failed ` +
+        `(kernel too old or missing Landlock support); falling back to bwrap.`,
     );
   }
-  return found;
+
+  // 2. Try bwrap
+  if (distroHasBwrap(distro)) {
+    const entry = { kind: "bwrap" as const };
+    confinementByDistro.set(distro, entry);
+    return entry;
+  }
+
+  // 3. Unconfined
+  const entry = { kind: "none" as const };
+  confinementByDistro.set(distro, entry);
+  logger.warn(
+    `WSL distro "${distro}" has no Landlock support and no bwrap; run_command there will be UNCONFINED. ` +
+      `Install bwrap in the distro (e.g. apt install bubblewrap) to enable confinement.`,
+  );
+  return entry;
 }
 
 /**
@@ -108,7 +172,7 @@ function bwrapArgs(writableLinuxPaths: string[], shell: string, command: string)
 export interface WslSpawn {
   file: string;
   args: string[];
-  /** True only when bwrap is actually applied inside the distro. */
+  /** True when Landlock or bwrap confinement is applied inside the distro. */
   sandboxed: boolean;
   /** Set when routed but unconfined, so the caller can warn accurately. */
   note?: string;
@@ -146,7 +210,27 @@ export function wrapWsl(req: {
   // meaningless there. Honour $SHELL when the caller passed a plain name.
   const shell = req.shell.includes("\\") || req.shell === "" ? "/bin/sh" : req.shell;
 
-  if (distroHasBwrap(loc.distro)) {
+  const confinement = resolveConfinement(loc.distro);
+
+  if (confinement.kind === "landlock" && confinement.helperPath) {
+    return {
+      file: "wsl.exe",
+      args: [
+        "-d", loc.distro,
+        "--cd", loc.linuxPath,
+        "--",
+        confinement.helperPath,
+        "--workspace", loc.linuxPath,
+        ...writable.flatMap(p => ["--writable", p]),
+        ...(req.readOnly ? ["--read-only"] : []),
+        "--shell", shell,
+        "--", req.command,
+      ],
+      sandboxed: true,
+    };
+  }
+
+  if (confinement.kind === "bwrap") {
     return {
       file: "wsl.exe",
       args: [
@@ -166,6 +250,6 @@ export function wrapWsl(req: {
     file: "wsl.exe",
     args: ["-d", loc.distro, "--cd", loc.linuxPath, "--", shell, "-c", req.command],
     sandboxed: false,
-    note: `WSL distro "${loc.distro}" has no bwrap installed`,
+    note: `WSL distro "${loc.distro}" has no Landlock support and no bwrap installed`,
   };
 }

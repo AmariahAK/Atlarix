@@ -314,9 +314,10 @@ const config: ForgeConfig = {
         : []),
       // Linux Landlock sandbox helper (cargo-built in CI; no code-signing needed).
       // Resolves at runtime via process.resourcesPath/atlarix-sandbox-linux
-      // (see src/lib/sandbox/wrap-command.ts). Guarded so non-Linux / un-built
-      // packaging is unaffected; falls back to OS bwrap when absent.
-      ...(process.platform === "linux" &&
+      // (see src/lib/sandbox/wrap-command.ts). Ships on Linux builds natively and
+      // on Windows builds for WSL confinement (piped from the build-linux CI job).
+      // Guarded so un-built packaging is unaffected; falls back to OS bwrap when absent.
+      ...((process.platform === "linux" || process.platform === "win32") &&
       fs.existsSync(
         path.join(__dirname, "native/atlarix-sandbox-linux/target/release/atlarix-sandbox-linux"),
       )
@@ -338,6 +339,7 @@ const config: ForgeConfig = {
       // CI release) silently dropped it and shipped Squirrel's default icon.
       // Signing and branding are independent concerns; always set both.
       setupIcon: "./assets/icon/logo.ico",
+      iconUrl: "https://www.atlarix.dev/logo.ico",
       ...(process.env.SM_CODE_SIGNING_CERT_SHA1_HASH
         ? {
             signWithParams: `/sha1 ${process.env.SM_CODE_SIGNING_CERT_SHA1_HASH} /tr http://timestamp.digicert.com /td SHA256 /fd SHA256`,

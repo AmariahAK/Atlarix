@@ -312,7 +312,7 @@ function findBwrap(): string | null {
  * dependency, unlike bwrap. Falls back to bwrap when absent (e.g. a dev build
  * without the compiled helper). Override with ATLARIX_SANDBOX_HELPER_LINUX.
  */
-function findLinuxHelper(): string | null {
+export function findLinuxHelper(): string | null {
   const fromEnv = process.env.ATLARIX_SANDBOX_HELPER_LINUX;
   if (fromEnv && existsSync(fromEnv)) return fromEnv;
   try {

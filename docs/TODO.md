@@ -1,8 +1,8 @@
 # Atlarix TODO
 
-**Current Version:** v14.28.0 (2026-08-07) — Windows agent commands work again (the sandbox
-was the wrong primitive), and Atlarix is packaged for the Microsoft Store.
-**Last Updated:** 2026-08-07
+**Current Version:** v14.29.0 (2026-08-10) — automated Store submission, MakerSquirrel icon,
+WSL Landlock confinement.
+**Last Updated:** 2026-08-10
 
 ## 🚧 IN PROGRESS — the Windows sandbox was breaking the toolchain
 
@@ -200,10 +200,10 @@ Unaffected: the BYOK engines (OpenAI/Groq/Gemini) never touch ONNX.
       the AppContainer we removed *could* deny reads — that is exactly why it broke. Scope as
       tool-level enforcement everywhere + sandbox-level on macOS/Linux + a documented Windows
       gap.
-- [ ] **Ship the Landlock ELF to Windows builds** so WSL workspaces get real confinement
-      instead of bwrap-if-present. `forge.config.ts:319` only bundles it when
-      `process.platform === "linux"`, and cross-building from `windows-latest` needs a
-      toolchain that runner lacks — pipe it from the `build-linux` job as a CI artifact.
+- [x] **Ship the Landlock ELF to Windows builds** so WSL workspaces get real confinement
+      instead of bwrap-if-present. `build-linux` uploads it as a CI artifact, `build-windows`
+      and `msix` download it. `wsl.ts` copies the helper to `/tmp` inside the distro (drvfs
+      doesn't set the executable bit) and prefers it over bwrap.
 - [ ] Landlock `ABI::V5` (`IoctlDev`) once there's a compatibility test for device ioctls.
 - [ ] `proxy-worker` self-test probe can't run from source: `start_proxy_server.ts:30`
       resolves `__dirname/../../worker`, which is right in the packaged build and wrong
@@ -280,19 +280,17 @@ three of the four spike questions produce a pass/fail table instead of hand obse
 - [ ] Confirm the manifest protocol declaration works (OAuth sign-in) and that
       `atlarix://pro-return` completes a Lemon Squeezy purchase.
 
-### Open — owner-driven, after the spike passes
-- [ ] Store listing: description, screenshots, category, age rating.
-- [ ] `runFullTrust` justification (restricted capability, needs Microsoft approval) + the
-      Lemon Squeezy IAP note. Both drafted in the runbook §5.
-- [ ] Submit; Microsoft strips the test signature and re-signs.
+### Completed — Store is live
+- [x] Store listing: description, screenshots, category, age rating. **Live on the Store.**
+- [x] `runFullTrust` justification + Lemon Squeezy IAP note — approved by Microsoft.
+- [x] Submit and certify. Microsoft re-signed with a trusted certificate.
 - [x] **Wire MSIX into `release.yml`** — done in v14.28.0. Tagging `v*` now calls
       `msix.yml` with `upload_wrapper: true`, so every release produces a submittable
-      `.msixupload`. Held until the spike passed on real hardware, and deliberately
-      NON-GATING: `build-msix` is absent from `publish-release`'s `needs`, and the
-      unsigned package is never uploaded to `atlarix-releases`.
-- [ ] `MakerSquirrel.iconUrl` is still unset, so Add/Remove Programs shows a Squirrel default.
-      Needs a publicly-hosted 256px `.ico` (e.g. `https://www.atlarix.dev/logo.ico`) — a one-line
-      addition to `atlarix-launchpad/public/`, deliberately not pointed at a URL that 404s.
+      `.msixupload`. Non-gating: `build-msix` is absent from `publish-release`'s `needs`.
+- [x] **Automated Store submission** — `scripts/store-submit.mjs` submits to the Partner
+      Center Submission API v1 on every `v*` tag. Three Azure AD secrets; `continue-on-error`.
+- [x] **`MakerSquirrel.iconUrl`** set to `https://www.atlarix.dev/logo.ico` — Add/Remove
+      Programs now shows the Atlarix icon instead of the Squirrel default.
 
 ## ✅ SHIPPED in v14.27.0 — stop losing credentials, stop deleting workspaces, let the agent see automations
 

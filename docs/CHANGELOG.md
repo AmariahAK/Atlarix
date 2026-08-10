@@ -3,7 +3,15 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
-## [Unreleased]
+## [14.29.0] (2026-08-10) — Store submission automated, WSL Landlock confinement, sandbox path fixes
+
+- **Automated Microsoft Store submission** — every `v*` tag now submits to the
+  Store via the Partner Center Submission API v1. No manual upload needed.
+- **`MakerSquirrel.iconUrl`** — Add/Remove Programs shows the Atlarix icon instead
+  of the Squirrel default.
+- **WSL workspaces use the bundled Landlock helper** when available — no `bwrap`
+  install needed in the distro. The helper is shipped from the Linux CI build and
+  copied to `/tmp` inside the distro at first use.
 
 **Windows sandbox: two path assumptions corrected.** Both were found by reading the
 code after v14.28.0 shipped, not from a user report, and both are Windows-only.

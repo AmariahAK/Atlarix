@@ -263,23 +263,20 @@ Get-AppxPackage *Atlarix* | Remove-AppxPackage
 
 ---
 
-## 5. Still to do (owner-driven, after the spike passes)
+## 5. Completed
 
-- Store listing: description, screenshots, category, age-rating questionnaire.
-- **`runFullTrust` justification.** It is a *restricted* capability needing
-  Microsoft approval. One honest line: a full-trust desktop AI workstation that
-  spawns local developer processes (shells, git, ripgrep, package managers) and
-  reads/writes the user's own source trees.
-- **Lemon Squeezy / IAP note.** Purchases go through a PCI-DSS-compliant
-  third-party merchant of record; the app collects no financial account
-  information.
-- Upload, submit, wait out certification (a few hours to ~3 business days).
-  Microsoft strips the test signature and re-signs with its own trusted
-  certificate — which is the whole point: zero SmartScreen for every user.
-- ~~Wire MSIX into the release automation.~~ **Done in v14.28.0** — `release.yml`
-  calls `msix.yml` on every `v*` tag with `upload_wrapper: true`. Held back until the
-  spike passed on real hardware (8/8 probes), and kept non-gating so it cannot block
-  a release. See §1.
+All items shipped:
+
+- **Store listing** — live at `https://apps.microsoft.com/detail/9p3rr11dvzpw`.
+- **`runFullTrust` justification** — approved by Microsoft.
+- **Lemon Squeezy / IAP note** — approved.
+- **Certification passed** — Microsoft re-signs with a trusted certificate.
+- **Release automation** — `release.yml` calls `msix.yml` on every `v*` tag.
+  Non-gating (absent from `publish-release`'s `needs`).
+- **Automated Store submission** — `scripts/store-submit.mjs` uses the Partner
+  Center Submission API v1 (Azure AD client credentials). Triggered on release
+  tags, `continue-on-error: true`. Requires three GitHub secrets:
+  `AZURE_AD_TENANT_ID`, `AZURE_AD_CLIENT_ID`, `AZURE_AD_CLIENT_SECRET`.
 
 ---
 
