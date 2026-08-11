@@ -17,6 +17,27 @@ import { rebuild } from "@electron/rebuild";
 
 const npm = process.platform === "win32" ? "npm.cmd" : "npm";
 
+/**
+ * Runs `npm install` inside the PRUNED app tree, which has consequences that are easy to
+ * miss: the staged `package.json` comes with us, so **the app's own `postinstall` runs
+ * here**, in a tree installed with `--omit=dev` and therefore WITHOUT devDependencies.
+ *
+ * That is why `postinstall`'s trailing `|| true` is load-bearing and must stay last:
+ * `patch-package` is a devDependency, so its binary does not exist in this tree. On
+ * Windows that surfaces as
+ *
+ *     'patch-package' is not recognized as an internal or external command
+ *
+ * and the `&&` chain fails. `(patch-package && …) || true` swallows it; moving the
+ * parenthesis to `patch-package && (… || true)` does NOT, and packaging dies here with
+ * "npm install exited with code 1". Linux and macOS resolve the binary and never notice
+ * the difference, so this only breaks Windows — and only at package time. It cost the
+ * first v14.30.0 tag.
+ *
+ * The guard that patch-package actually applied lives where it can be enforced: CI runs
+ * `npx patch-package` as its own step, and a unit test asserts the patched bytes are
+ * present in the shipped `transformers.web.js`.
+ */
 function runNpmInstall(cwd: string, args: string[]): Promise<void> {
   const useShell = process.platform === "win32";
   return new Promise<void>((resolve, reject) => {

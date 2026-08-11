@@ -224,10 +224,21 @@ model *could* emit `MatMulNBits` instead of running the matrix. The matrix took 
   reported last, and a **stall watchdog** fails a load that goes 120s with no progress at all
   — the hang case that "clear the spinner on error" cannot cover, because a hang never
   produces an error.
-- `postinstall` read `patch-package && node …/electron/install.js || true`, where the
-  `|| true` swallowed a **failed patch application** as well as the Electron install it was
-  written for. Now scoped to the Electron install, with a test asserting the patch is present
-  in the shipped file.
+- A unit test now asserts the transformers patch is actually present in the shipped
+  `dist/transformers.web.js`, because losing it silently would put on-device voice straight
+  back to permanently dead.
+
+  **The `postinstall` `|| true` was NOT the place for that guard — attempting it broke the
+  first v14.30.0 tag.** `postinstall` reads
+  `patch-package && node …/electron/install.js || true`, and the `|| true` looks like it is
+  only there for the Electron install. It is not: `packageAfterPrune` runs `npm install`
+  inside the pruned app tree with `--omit=dev`, so the app's own `postinstall` runs *there*,
+  where `patch-package` — a devDependency — **does not exist**. Rewriting it as
+  `patch-package && (node … || true)` leaves that first failure uncaught, and Windows
+  packaging dies with `'patch-package' is not recognized as an internal or external command`
+  → `npm install exited with code 1`. Linux and macOS resolve the binary and never notice, so
+  it is Windows-only and only at package time. The trailing `|| true` must stay last; see the
+  comment on `runNpmInstall` in `forge.config.ts`.
 
 Unaffected: the BYOK engines (OpenAI/Groq/Gemini) never touch ONNX.
 
