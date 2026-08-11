@@ -3,6 +3,41 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
+## [14.30.0] (2026-08-11) — On-device dictation works on Windows and Linux
+
+**The free, on-device voice engine now works when your machine falls back to the CPU** —
+which, it turns out, was every machine that ever tried. The previous release documented this
+as a hardware limitation of "some GPUs". That was wrong twice over.
+
+What actually happened: ONNX Runtime's default graph optimizations crash on Whisper's merged
+*int8* decoder, so the CPU path could never build a session **on any platform, including
+macOS**. Macs only looked fine because WebGPU works there and the CPU path was never reached.
+Windows and Linux machines without usable WebGPU hit it every single time — and, because
+nothing could recover from a failed session build, hit it again on every retry and every
+restart.
+
+- **The model is now the same 4-bit variant on GPU and CPU.** No int8 anywhere, so the
+  crashing optimization never runs. Transcripts are identical to before, and dictation on the
+  GPU is marginally *faster* than it was.
+- **One download instead of two or three: ~285 MB, once.** Falling back from GPU to CPU used
+  to fetch a completely different set of weights, so an affected machine downloaded ~800 MB
+  before showing you an error. A fallback now re-downloads nothing.
+- **The mic is usable while the model downloads.** It used to be a disabled, spinning icon for
+  the entire download — the "it spins forever and I can't do anything" report. You can start
+  talking straight away; the transcript arrives once the weights land.
+- **The progress figure is now honest**, aggregated across files with megabytes shown, instead
+  of jumping around as whichever file reported last.
+- **A download that stalls now fails and says so** instead of spinning indefinitely. A blocked
+  or black-holed connection produces no error of its own, so nothing could end that wait.
+- **Speech recognition no longer needs a CDN at runtime.** The recognition runtime (23.5 MB)
+  was fetched from `cdn.jsdelivr.net` on every cold start even though the identical file was
+  already inside the app. On a network that blocks or silently drops that host, dictation
+  simply never started, with no error. It now loads from inside the app, so it genuinely works
+  offline once the model is cached.
+
+If on-device transcription still doesn't work for you, the BYOK engines (OpenAI, Groq, Gemini)
+use your own key and are unaffected. Settings → AI → Voice input still has **Clear cache**.
+
 ## [14.29.0] (2026-08-10) — Store submission automated, WSL Landlock confinement, sandbox path fixes
 
 - **Automated Microsoft Store submission** — every `v*` tag now submits to the
@@ -95,6 +130,12 @@ with an error, stops re-downloading ~500 MB on every retry, and can be retried w
 restarting the app. Settings → AI → Voice input has a **Clear cache** action for the
 downloaded weights. If on-device transcription doesn't work for you, the BYOK engines
 (OpenAI, Groq, Gemini) use your own key and are unaffected. Tracked for a proper fix.
+
+> **Superseded — fixed in v14.30.0, and the explanation above is wrong.** It was not the GPU
+> and not the 4-bit operator. ONNX Runtime's default graph optimizations crash on Whisper's
+> merged *int8* decoder, so the **CPU fallback** could never build a session on any platform —
+> including macOS, where it was simply never reached because WebGPU works there. See the
+> v14.30.0 notes.
 
 **Other fixes:** the "install Git" message no longer tells Windows and Linux users to run a
 macOS-only command; on Windows, Git-for-Windows' bash is now found wherever git is installed

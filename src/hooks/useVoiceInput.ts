@@ -40,6 +40,8 @@ export interface UseVoiceInputState {
   isTranscribing: boolean;
   /** 0..1 model-download progress on first local use; null once ready. */
   modelLoadProgress: number | null;
+  /** Bytes downloaded so far / expected, so the UI can say how big the wait is. */
+  modelLoadBytes: { loaded: number; total: number } | null;
   device: "webgpu" | "wasm" | null;
   error: string | null;
   start: () => Promise<void>;
@@ -49,6 +51,37 @@ export interface UseVoiceInputState {
 }
 
 const LIVE_RETRANSCRIBE_MS = 1500;
+
+/**
+ * Whether WebGPU already failed to build a session in this app session.
+ *
+ * Module-level rather than per-hook because the worker is REPLACED after a failed load
+ * (see the error branch below) and a fresh worker resets its own copy of this verdict —
+ * so without carrying it here, every rebuild would re-attempt WebGPU and re-fail. Not
+ * persisted to disk: a driver or browser update can change the answer, so a fresh app
+ * launch is allowed to try once more.
+ */
+let webGpuFailedThisSession = false;
+
+/**
+ * Aggregate download progress across every file the model needs.
+ *
+ * The hook used to set progress from whichever file reported last, so the bar jumped
+ * around — encoder at 80% then a tokenizer file resetting it to 3%. Summing bytes gives
+ * one honest number. `Math.max` against the previous value stops it snapping backwards
+ * when a new file joins and raises the denominator mid-download.
+ */
+export function aggregateProgress(
+  byFile: Map<string, { loaded: number; total: number }>,
+): { progress: number; loaded: number; total: number } {
+  let loaded = 0;
+  let total = 0;
+  for (const entry of byFile.values()) {
+    loaded += entry.loaded;
+    total += entry.total;
+  }
+  return { progress: total > 0 ? loaded / total : 0, loaded, total };
+}
 
 /** Decode an audio Blob to mono 16 kHz Float32 PCM (Whisper's expected input). */
 async function blobToPcm16k(blob: Blob): Promise<Float32Array> {
@@ -82,6 +115,10 @@ export function useVoiceInput({
   const [isRecording, setIsRecording] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [modelLoadProgress, setModelLoadProgress] = useState<number | null>(null);
+  const [modelLoadBytes, setModelLoadBytes] = useState<{
+    loaded: number;
+    total: number;
+  } | null>(null);
   const [device, setDevice] = useState<"webgpu" | "wasm" | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -93,11 +130,29 @@ export function useVoiceInput({
   const reqCounter = useRef(0);
   const pendingLocal = useRef(new Map<string, (text: string) => void>());
   const cancelledRef = useRef(false);
+  const progressByFile = useRef(
+    new Map<string, { loaded: number; total: number }>(),
+  );
 
   const supported =
     typeof navigator !== "undefined" &&
     !!navigator.mediaDevices?.getUserMedia &&
     typeof MediaRecorder !== "undefined";
+
+  /**
+   * Terminate the worker and resolve anything waiting on it, so nothing can hang.
+   *
+   * Used both on unmount and after a failed LOAD. A pending `transcribe` whose worker
+   * disappears would otherwise never settle, leaving `isTranscribing` true and the
+   * spinner running — the exact symptom this whole change is here to remove.
+   */
+  const teardownWorker = useCallback(() => {
+    workerRef.current?.terminate();
+    workerRef.current = null;
+    for (const resolve of pendingLocal.current.values()) resolve("");
+    pendingLocal.current.clear();
+    progressByFile.current.clear();
+  }, []);
 
   // Lazily create the local Whisper worker (only when provider === "local").
   const ensureWorker = useCallback((): Worker => {
@@ -109,8 +164,12 @@ export function useVoiceInput({
     worker.onmessage = (
       e: MessageEvent<{
         type: string;
+        status?: string;
         device?: "webgpu" | "wasm";
+        file?: string;
         progress?: number;
+        loaded?: number;
+        total?: number;
         id?: string;
         text?: string;
         message?: string;
@@ -118,11 +177,38 @@ export function useVoiceInput({
     ) => {
       const m = e.data;
       if (m.type === "progress") {
-        if (typeof m.progress === "number") setModelLoadProgress(m.progress / 100);
+        // Remember a WebGPU failure for the whole app session, not just this worker —
+        // the worker below is replaced on a load error and would otherwise retry it.
+        if (m.status === "webgpu-unavailable-falling-back-to-wasm") {
+          webGpuFailedThisSession = true;
+        }
+        if (
+          m.file &&
+          typeof m.loaded === "number" &&
+          typeof m.total === "number" &&
+          m.total > 0
+        ) {
+          progressByFile.current.set(m.file, { loaded: m.loaded, total: m.total });
+          const agg = aggregateProgress(progressByFile.current);
+          setModelLoadBytes({ loaded: agg.loaded, total: agg.total });
+          setModelLoadProgress((prev) =>
+            prev == null ? agg.progress : Math.max(prev, agg.progress),
+          );
+        } else if (typeof m.progress === "number") {
+          // No byte counts on this event — keep the loading state alive without
+          // letting a bare percentage regress the aggregate.
+          const bare = m.progress / 100;
+          setModelLoadProgress((prev) => prev ?? bare);
+        }
+      } else if (m.type === "diag") {
+        // The worker has no IPC of its own; the renderer console isn't captured in
+        // the main log, and that log is the only evidence we get from a user's
+        // machine. Forward everything it reports.
+        IpcClient.getInstance().logVoiceDiag(m.message ?? "");
       } else if (m.type === "ready") {
         setModelLoadProgress(null);
+        setModelLoadBytes(null);
         setDevice(m.device ?? "wasm");
-        IpcClient.getInstance().logVoiceDiag(`model ready on device=${m.device}`);
       } else if (m.type === "result" && m.id) {
         const resolve = pendingLocal.current.get(m.id);
         pendingLocal.current.delete(m.id);
@@ -134,17 +220,31 @@ export function useVoiceInput({
         // load presented: "the mic does nothing but rotate". An error is a
         // terminal outcome for the load, so it must end the loading state too.
         setModelLoadProgress(null);
+        setModelLoadBytes(null);
         setError(m.message ?? "Transcription failed");
         if (m.id) {
           pendingLocal.current.get(m.id)?.("");
           pendingLocal.current.delete(m.id);
+          return;
         }
+        // No `id` means the LOAD failed. Replace the worker rather than reusing it.
+        //
+        // transformers.js serialises session creation through a module-level promise
+        // chain and (before our patch) left it REJECTED after any failure, so the FIRST
+        // session failure of a worker's life permanently disabled every session build
+        // after it — including the fallback whose job is to recover, and including every
+        // retry. A new worker is a new module instance and therefore a clean chain, so
+        // this guard holds even if the patch is lost to a dependency bump.
+        // `webGpuFailedThisSession` above is what stops the rebuilt worker walking into
+        // the same failure again.
+        teardownWorker();
       }
     };
-    worker.postMessage({ type: "load" });
+    progressByFile.current.clear();
+    worker.postMessage({ type: "load", skipWebGpu: webGpuFailedThisSession });
     workerRef.current = worker;
     return worker;
-  }, []);
+  }, [teardownWorker]);
 
   const transcribeLocal = useCallback(
     (audio: Float32Array): Promise<string> => {
@@ -257,7 +357,13 @@ export function useVoiceInput({
       };
       // Live mode: emit a chunk each interval so we can re-transcribe the
       // growing buffer (local + WebGPU only; WASM/cloud fall back to final-only).
-      const canLive = mode === "live" && provider === "local" && device !== "wasm";
+      //
+      // `device === "webgpu"`, not `device !== "wasm"`: device is null until the model
+      // is ready, and now that recording is allowed DURING the download, the old test
+      // was true while loading — so a live session would queue a re-transcribe every
+      // 1.5s against a pipeline that doesn't exist yet, then run them all serially once
+      // it did. Live requires a device we have positively confirmed.
+      const canLive = mode === "live" && provider === "local" && device === "webgpu";
       recorder.start(canLive ? LIVE_RETRANSCRIBE_MS : undefined);
       setIsRecording(true);
       if (canLive) {
@@ -309,17 +415,17 @@ export function useVoiceInput({
 
   useEffect(() => {
     return () => {
-      workerRef.current?.terminate();
-      workerRef.current = null;
+      teardownWorker();
       streamRef.current?.getTracks().forEach((t) => t.stop());
       if (liveTimerRef.current) clearInterval(liveTimerRef.current);
     };
-  }, []);
+  }, [teardownWorker]);
 
   return {
     isRecording,
     isTranscribing,
     modelLoadProgress,
+    modelLoadBytes,
     device,
     error,
     start,

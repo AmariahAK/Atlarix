@@ -1,8 +1,8 @@
 # Atlarix TODO
 
-**Current Version:** v14.29.0 (2026-08-10) — automated Store submission, MakerSquirrel icon,
-WSL Landlock confinement.
-**Last Updated:** 2026-08-10
+**Current Version:** v14.30.0 (2026-08-11) — on-device dictation works on Windows and Linux
+(the CPU fallback had never built a session on any platform).
+**Last Updated:** 2026-08-11
 
 ## 🚧 IN PROGRESS — the Windows sandbox was breaking the toolchain
 
@@ -148,40 +148,98 @@ opencode keeps extension lists too, but only for LSP and formatter routing — t
 - Sample is 8 KB (git's threshold), so classifying never means reading a large attachment in
   full. A NUL past the sample is not seen — the same tradeoff git makes, documented in a test.
 
-### Open — on-device voice does not work on all hardware (SHIPPING as a known limitation)
+### ✅ SHIPPED in v14.30.0 — on-device voice: the CPU fallback had never worked, on any platform
 
-Observed on the Windows 10 test machine across every session: the mic span forever and never
-transcribed. Two bugs made a failure look like a hang, both now fixed — but the underlying
-model failure is NOT fixed and ships documented.
+Previously recorded here as a **hardware limitation** shipping as a known limitation, with
+the cause given as *"ONNX Runtime cannot build a session for the q4 decoder … that machine's
+runtime cannot execute `MatMulNBits`"*. **That diagnosis was wrong, and so was the first
+replacement for it.** Both are written out below, because each was a plausible reading of the
+same screenshot and the way they failed is the useful part.
 
-**What was fixed:** `useVoiceInput` cleared `modelLoadProgress` only on `ready`, so an
-`error` left the spinner running forever while the message sat unread (the UI does toast it —
-`VoiceInputButton.tsx:54` — it just never got the chance). And `getTranscriber()` memoised
-rejections, so one failure poisoned the worker for its lifetime and the only recovery was
-restarting the app. Plus a `Clear cache` action, because ~800 MB of weights were cached with
-no way to remove them — and since `userData` is inherited across reinstalls, a bad cache
-survived even the Squirrel→Store switch.
+**What the error actually was.** ORT's `extended` graph-optimization level — inside its
+default `all` — runs `TransposeDQWeightsForMatMulNBits`, and that pass is broken for
+Whisper's **merged INT8 decoder** in the pinned `onnxruntime-web@1.26.0-dev.20260416`. Every
+int8 variant on the **WASM (CPU)** execution provider died at session creation. Measured on
+**macOS**, against `whisper-tiny` and `whisper-small`:
 
-**What is NOT fixed.** ONNX Runtime cannot build a session for the **q4 decoder**:
-`qdq_actions.cc:137 TransposeDQWeightsForMatMulNBits — Missing required scale:
-model.decoder.embed_tokens.weight_merged_0_scale`. `MatMulNBits` is the 4-bit operator q4 is
-made of, and that machine's runtime cannot execute it.
+| config | result |
+| --- | --- |
+| `q8` on wasm @ default (**what shipped**) | ❌ `qdq_actions.cc:137 … Missing required scale` |
+| `uint8` on wasm @ default | ❌ same |
+| `q8` on wasm @ `graphOptimizationLevel: basic` | ✅ |
+| `q4` on wasm @ default | ✅ |
+| `q4` on webgpu | ✅ |
+| `fp32` encoder + `q4` decoder on webgpu (**the old WebGPU path**) | ✅ |
 
-**The gate cannot predict it.** Two attempts failed: `typeof navigator.gpu !== "undefined"`,
-then `requestAdapter()`. The final evidence killed the third idea too — `requestAdapter()`
-AND `requestDevice()` both succeed there, so the device is genuinely real; only the op is
-unsupported. The only way to know is to try, by which point ~500 MB is downloaded. Mitigated
-with `webGpuKnownBad`, so a retry skips it instead of re-fetching.
+So the CPU fallback had never built a session on **any** platform, including macOS. It only
+looked Mac-only-good because macOS has working WebGPU and therefore never reached the
+fallback. Electron 38 (Chromium 140) enables WebGPU on Linux by default, which is why Linux
+was in the same position as Windows: fine until it wasn't.
 
-**Candidate fixes, none verifiable without affected hardware:**
-- [ ] Drop q4 in favour of q8/fp32 for the WebGPU decoder, so `MatMulNBits` is never used and
-      only ONE model variant is ever fetched. Risk: the existing comment records that a
-      blanket fp16 decoder produces degenerate output ("I'm not." for real speech), so the
-      dtype choice is load-bearing and needs testing, not guessing.
-- [ ] Probe op support by building a throwaway session before committing to a download.
-- [ ] Offer a smaller model (`whisper-base`) as a fallback, halving the fetch.
+**Why `q4` is the fix and not the culprit.** q4 *is* `MatMulNBits`, so there is no
+dequantized weight for the broken pass to transpose — it never runs. `q4` for **both**
+devices, measured on an 11s clip of real speech (all transcripts character-identical):
+
+| config | session | transcribe |
+| --- | --- | --- |
+| `q4` on webgpu | 2.5s | **1.7s** |
+| `q4` on wasm | 1.6s | 15.4s |
+| `q8` on webgpu | — | 16.6s (**8x slower** — WebGPU has no efficient int8 kernels) |
+| `fp32`+`q4` on webgpu (old) | 3.5s | 2.0s |
+
+That also collapses the download: both devices now want `encoder_model_q4.onnx` (63.1 MB) +
+`decoder_model_merged_q4.onnx` (222.3 MB) = **285 MB once**. The old config asked for a
+336.5 MB fp32 encoder on WebGPU and int8 on WASM, so failing over fetched a *second* set of
+weights — 559 MB, then 238 MB more, i.e. the ~800 MB users waited through before the error.
+
+**`num_beams` was measured and deliberately left at 4:** 15.3 / 15.4 / 15.4s on wasm for
+beams 4 / 2 / 1, and 1.7 / 1.6s on webgpu. It is not the bottleneck.
+
+**The second wrong diagnosis, and the real bug it did find.** The replacement theory was
+that the fallback's error was a *replay*: transformers.js serialises session creation
+through `webInitChain = webInitChain.then(load)` with no `.catch`, so once rejected it
+re-rejects forever without calling `load`. The reasoning was "q8 has no `MatMulNBits`, so the
+fallback cannot have produced that message" — which is false, as the table above shows. But
+the chain bug is real and verified end-to-end (force a genuine session failure, then load a
+real model: unpatched it replays, patched it runs). It is not what produced the message; it
+is what made the failure **unrecoverable** rather than one fallback away from working. Fixed
+in `patches/@huggingface+transformers+4.2.0.patch`, which also fixes the identical
+`webInferenceChain`.
+
+**Lesson worth keeping:** an error message names the model that *reported* it, not
+necessarily one that was ever loaded. Both wrong diagnoses came from reasoning about which
+model *could* emit `MatMulNBits` instead of running the matrix. The matrix took one probe.
+
+**Also fixed in the same pass:**
+- ONNX Runtime was fetched from `cdn.jsdelivr.net` on **every cold start** — 23.5 MB, pinned
+  to an npm *prerelease*, as the first thing that happens, with no progress reporting, no
+  timeout, and failure swallowed by a `logger.warn`. A blocked or black-holed jsdelivr
+  presented as a mic spinning at 0% with no error. Vite was already emitting the identical
+  `.wasm` into the asar as dead weight; it is now what we load (`wasmPaths` + Vite `?url`),
+  verified with an `onBeforeRequest` observer reporting **zero** jsdelivr requests.
+- The mic button was **disabled for the whole download** (`busy` included `loading`), which
+  is what "spins endlessly, no beginning no end, not even usable" described. Recording needs
+  no model, so it is clickable immediately.
+- Progress is aggregated across files with byte counts instead of showing whichever file
+  reported last, and a **stall watchdog** fails a load that goes 120s with no progress at all
+  — the hang case that "clear the spinner on error" cannot cover, because a hang never
+  produces an error.
+- `postinstall` read `patch-package && node …/electron/install.js || true`, where the
+  `|| true` swallowed a **failed patch application** as well as the Electron install it was
+  written for. Now scoped to the Electron install, with a test asserting the patch is present
+  in the shipped file.
 
 Unaffected: the BYOK engines (OpenAI/Groq/Gemini) never touch ONNX.
+
+### Open — deferred security item found while diagnosing the above
+
+- [ ] **The CSP does not reach the whisper worker.** `installContentSecurityPolicy()`
+      (`main.ts:304`) is enforced on the `file://` document — verified: `eval()` and inline
+      scripts are refused there — but a dedicated worker loaded from `file://` does **not**
+      inherit it, and `eval()` runs freely inside the worker. So A13/M-6 does not cover
+      `whisper-worker`, and the `'wasm-unsafe-eval'` in the policy is not what lets ONNX
+      compile. Low urgency (the worker runs our own bundled code and fetches from HF only),
+      but the comment on that function claims coverage it does not have.
 
 ### Deferred (recorded, not started)
 - [ ] **Configurable read-deny patterns, opencode-style** — no built-in list, no defaults;

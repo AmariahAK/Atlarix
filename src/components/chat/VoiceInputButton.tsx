@@ -18,6 +18,11 @@ import { useSettings } from "@/hooks/useSettings";
 import { useVoiceInput } from "@/hooks/useVoiceInput";
 import { resolveVoiceLanguage } from "@/lib/voice/language";
 
+/** Whole megabytes — the numbers here are hundreds of MB, so decimals are noise. */
+function formatMegabytes(bytes: number): string {
+  return `${Math.round(bytes / 1_048_576)} MB`;
+}
+
 interface VoiceInputButtonProps {
   disabled?: boolean;
   /** Insert transcribed text into the composer (interim replaces, final appends). */
@@ -37,6 +42,7 @@ export function VoiceInputButton({ disabled, onInsertText }: VoiceInputButtonPro
     isRecording,
     isTranscribing,
     modelLoadProgress,
+    modelLoadBytes,
     error,
     start,
     stop,
@@ -59,17 +65,33 @@ export function VoiceInputButton({ disabled, onInsertText }: VoiceInputButtonPro
   if (!supported) return null;
 
   const loading = modelLoadProgress != null;
-  const busy = isTranscribing || loading;
+  /**
+   * The model download deliberately does NOT make the button busy.
+   *
+   * It used to: `busy` included `loading`, and `busy` disables the button — so on first
+   * use the mic was an unclickable spinner for the entire (then ~800 MB) download, which
+   * is what "it spins endlessly, no beginning no end, not even usable" described.
+   * Recording needs no model; only `transcribe` awaits the pipeline. So you can talk
+   * immediately and the transcript arrives once the weights land.
+   */
+  const busy = isTranscribing;
+
+  const downloadLabel = loading
+    ? modelLoadBytes && modelLoadBytes.total > 0
+      ? `Downloading speech model… ${Math.round((modelLoadProgress ?? 0) * 100)}% (${formatMegabytes(
+          modelLoadBytes.loaded,
+        )} of ${formatMegabytes(modelLoadBytes.total)}) — you can start talking now`
+      : `Downloading speech model… ${Math.round((modelLoadProgress ?? 0) * 100)}% — you can start talking now`
+    : null;
 
   const title = isRecording
     ? "Stop & transcribe"
-    : loading
-      ? `Loading speech model… ${Math.round((modelLoadProgress ?? 0) * 100)}%`
-      : isTranscribing
-        ? "Transcribing…"
-        : provider === "local"
+    : isTranscribing
+      ? "Transcribing…"
+      : (downloadLabel ??
+        (provider === "local"
           ? "Dictate (on-device)"
-          : `Dictate (${provider})`;
+          : `Dictate (${provider})`));
 
   return (
     <TooltipProvider>
@@ -94,7 +116,10 @@ export function VoiceInputButton({ disabled, onInsertText }: VoiceInputButtonPro
             ) : busy ? (
               <Loader2 className="h-4 w-4 animate-spin" />
             ) : (
-              <Mic className="h-4 w-4" />
+              // Still a mic while the model downloads — the button works, so it must not
+              // look like it doesn't. Dimming plus the tooltip carries the download; a
+              // spinner here would be indistinguishable from the old unusable state.
+              <Mic className={loading ? "h-4 w-4 opacity-50" : "h-4 w-4"} />
             )}
           </Button>
         </TooltipTrigger>
