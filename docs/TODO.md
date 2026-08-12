@@ -39,9 +39,14 @@ them all.
 ### MSIX / Store build
 - [ ] Run the spike (`docs/MSIX_RUNBOOK.md` §4). **Baseline on Squirrel FIRST** — a failure
       inside MSIX is otherwise unattributable.
-- [ ] **Record `userData=` from the `context` probe and diff it against the Squirrel baseline.**
-      If the path diverges, a Squirrel user switching to the Store build silently gets a fresh
-      profile — no workspaces, chats, or credentials — and needs a one-time migration.
+- [x] **A Squirrel → Store reinstall keeps the user's data — verified manually by the owner,
+      2026-08-12.** The concern was that if `userData` diverged inside the package container, a
+      Squirrel user switching to the Store build would silently get a fresh profile (no
+      workspaces, chats or credentials) and need a one-time migration. It does not diverge, so
+      **no migration is needed** and it is safe to tell users to uninstall and reinstall from
+      the Store — which the 2026-08 outreach email now does.
+      *Checked by hand rather than by the `context` probe, so the exact path string is still
+      unrecorded; if you ever want it in the log, that is the one remaining piece.*
 - [ ] Confirm the manifest protocol declaration works (OAuth sign-in) and that
       `atlarix://pro-return` completes a Lemon Squeezy purchase.
 

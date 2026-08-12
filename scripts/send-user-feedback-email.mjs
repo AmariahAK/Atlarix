@@ -17,16 +17,19 @@ import { createClient } from "@supabase/supabase-js";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 // Campaign-specific log so this send does NOT dedup against earlier campaigns.
-const LOG_FILE = join(ROOT, "scripts", ".outreach-token-wall.log.json");
+const LOG_FILE = join(ROOT, "scripts", ".outreach-first-run-2026-08.log.json");
 
 const EXCLUDED_EMAILS = new Set(
   ["amariah.abish@gmail.com", "amani.kamau06@gmail.com"].map((e) => e.toLowerCase()),
 );
 
-const SUBJECT = "The token wall is gone (and thank you)";
+const SUBJECT = "Windows is fixed, and Atlarix is on the Microsoft Store";
 const PREFERRED_FROM = "Amariah <amariah@atlarix.dev>";
 const DEFAULT_REPLY_TO = "amariah@atlarix.dev";
-const THROTTLE_MS = 600;
+// 600ms put all 96 out in under a minute, which from a domain that rarely sends
+// bulk mail is the shape spam filters look for. 5s spreads the batch over ~8
+// minutes — still one sitting, far less like a blast.
+const THROTTLE_MS = 5000;
 
 const args = new Set(process.argv.slice(2));
 const DRY_RUN = args.has("--dry-run");
@@ -54,66 +57,104 @@ function requireEnv(name) {
   return v;
 }
 
+/**
+ * Capitalise only an all-lowercase token, e.g. "dhulii" → "Dhulii".
+ *
+ * Left alone otherwise, because anything with existing capitals is either already
+ * right or deliberately styled ("McPherson", "de Souza", "iain") and "fixing" it
+ * is how a personal email starts looking generated.
+ */
+function tidyName(name) {
+  return /^[a-z][a-z'-]*$/.test(name)
+    ? name.charAt(0).toUpperCase() + name.slice(1)
+    : name;
+}
+
 function deriveFirstName(user) {
   const meta = user.user_metadata || {};
   if (typeof meta.first_name === "string" && meta.first_name.trim()) {
-    return meta.first_name.trim();
+    return tidyName(meta.first_name.trim());
   }
   if (typeof meta.full_name === "string" && meta.full_name.trim()) {
-    return meta.full_name.trim().split(/\s+/)[0];
+    return tidyName(meta.full_name.trim().split(/\s+/)[0]);
   }
   if (typeof meta.name === "string" && meta.name.trim()) {
-    return meta.name.trim().split(/\s+/)[0];
+    return tidyName(meta.name.trim().split(/\s+/)[0]);
   }
-  const email = user.email || "";
-  const local = email.split("@")[0] || "";
-  if (local) {
-    const part = local.split(/[._+-]/)[0];
-    // Only use the local part when it looks like an actual name (2+ letters, all
-    // alphabetic) — otherwise "Hey 3104560364," reads as spam. Fall back to "there".
-    if (/^[a-zA-Z]{2,}$/.test(part)) {
-      return part.charAt(0).toUpperCase() + part.slice(1).toLowerCase();
-    }
-  }
+  // NOTHING is guessed from the email address. The old version capitalised the
+  // local part whenever it was 2+ alphabetic characters, which passes the check
+  // and still produces "Hey Acowpbackup," and "Hey Jnadal," — the same
+  // reads-as-spam failure the check was added to prevent, just less obvious than
+  // "Hey 3104560364,".
+  //
+  // Measured on the newest 40 confirmed users before removing it: 38 had a real
+  // name in their OAuth metadata, and the only 2 that did not were both of the
+  // bad cases above. So the fallback bought two wrong names and no right ones.
+  // "there" reads like a human wrote it; a mangled handle does not.
   return "there";
 }
 
+/**
+ * Campaign 2026-08: two things that were breaking retention are fixed; ask why people stopped.
+ *
+ * Written against the data. Of 97 users, 72 never generated a second sign-in, and
+ * 6 of the 25 who did signed in twice inside 30 minutes — a first sign-in that
+ * failed to stick, not a return. So ~80% had a single session, and subtracting the
+ * owner leaves ~15 who ever signed in on a different day. The always-open realtime
+ * plan channel shows no persistent floor, so there is no hidden cached-session
+ * usage either.
+ *
+ * Deliberately NOT "you never came back": true for most, wrong for some, and being
+ * wrong to someone's face is what kills the "I actually pay attention" premise the
+ * whole email rests on. It leads with the two fixes instead, which is both a real
+ * reason to write and the likeliest reason people left:
+ *
+ *   - v14.28.0 — `run_command` was broken on Windows in EVERY prior release
+ *     (AppContainer denied reads, so git and bash failed outright). That is the
+ *     core loop of an agentic tool, and it predates almost every signup here.
+ *   - v14.27.0 — the app could lose credentials and workspaces between launches.
+ *     A later sign-in in the auth data is more likely THIS than loyalty.
+ *
+ * Naming both makes replying easy for anyone who hit them, and neither would ever
+ * surface from an open-ended "was it clear what to do".
+ */
 function buildBodies(firstName) {
   const text = `Hey ${firstName},
 
-Two things.
+Amariah here — I build Atlarix, and this is a real email; replies come straight to me.
 
-One — thank you. Your feedback and the way you've pushed Atlarix is why it's now a recognized contributor to real open-source projects: Qwen Code (Alibaba), Crawlee (Apify), and PdfDing. That only happens when the harness genuinely works. That's on you.
+I think Atlarix let you down, and I want to know how.
 
-Two — you told us the token limit ran out too fast. We listened, and we rebuilt it.
+Two things were broken badly enough to make anyone stop, and both are now fixed. On Windows, terminal commands and git were failing outright — the main thing Atlarix does. And on every platform, the app could lose your sign-in and your workspace list between launches. If you came back once, found yourself logged out with your workspaces gone, and didn't bother again: that was a bug, not you.
 
-No more capped free pool. Now you can:
-- Run free with your own model — DeepSeek, Qwen, or local via Ollama. No wall, no limit.
-- Or go pay-as-you-go — we handle the model, you pay only for what you use.
+Atlarix is on the Microsoft Store now too, so on Windows it installs with no security warning and keeps itself updated: https://apps.microsoft.com/detail/9p3rr11dvzpw
 
-Same harness. Same speed and security. Just no ceiling.
+So — what stopped you?
 
-One quick step: you'll need to re-download Atlarix to get this update. This release adds automatic updates — so this is the last time you'll ever have to update it by hand. Grab it here: https://www.atlarix.dev/#download
+Anything at all: it didn't do what you expected, you couldn't tell what to do first, it wanted an API key or credit before it was useful, something broke, or you got busy and forgot. "I opened it, poked around, closed it" is a complete and genuinely useful answer — it tells me exactly what to fix.
 
-Thanks for building this with us.
+One line back is plenty. I read every reply myself.
 
-— Amariah, Atlarix`;
+Amariah
+I build Atlarix
+
+PS — on Windows, the Store build is the one to have: uninstall the copy you've got and reinstall from the link above. Your projects are folders on your disk, so they stay put.
+
+Don't want emails like this? Reply "stop" and I won't send another.`;
 
   const html = `<!DOCTYPE html>
 <html><body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;line-height:1.6;color:#0f172a;max-width:560px;">
 <p>Hey ${escapeHtml(firstName)},</p>
-<p>Two things.</p>
-<p><strong>One — thank you.</strong> Your feedback and the way you've pushed Atlarix is why it's now a recognized contributor to real open-source projects: Qwen Code (Alibaba), Crawlee (Apify), and PdfDing. That only happens when the harness genuinely works. That's on you.</p>
-<p><strong>Two — you told us the token limit ran out too fast.</strong> We listened, and we rebuilt it.</p>
-<p>No more capped free pool. Now you can:</p>
-<ul>
-<li>Run free with your own model — DeepSeek, Qwen, or local via Ollama. No wall, no limit.</li>
-<li>Or go pay-as-you-go — we handle the model, you pay only for what you use.</li>
-</ul>
-<p>Same harness. Same speed and security. Just no ceiling.</p>
-<p>One quick step: you'll need to re-download Atlarix to get this update. This release adds automatic updates — so this is the last time you'll ever have to update it by hand. <a href="https://www.atlarix.dev/#download">Grab it here</a>.</p>
-<p>Thanks for building this with us.</p>
-<p>— Amariah, Atlarix</p>
+<p>Amariah here — I build Atlarix, and this is a real email; replies come straight to me.</p>
+<p>I think Atlarix let you down, and I want to know how.</p>
+<p>Two things were broken badly enough to make anyone stop, and both are now fixed. On Windows, terminal commands and git were failing outright — the main thing Atlarix does. And on every platform, the app could lose your sign-in and your workspace list between launches. If you came back once, found yourself logged out with your workspaces gone, and didn't bother again: that was a bug, not you.</p>
+<p>Atlarix is on the <a href="https://apps.microsoft.com/detail/9p3rr11dvzpw">Microsoft Store</a> now too, so on Windows it installs with no security warning and keeps itself updated.</p>
+<p>So — <strong>what stopped you?</strong></p>
+<p>Anything at all: it didn't do what you expected, you couldn't tell what to do first, it wanted an API key or credit before it was useful, something broke, or you got busy and forgot. "I opened it, poked around, closed it" is a complete and genuinely useful answer — it tells me exactly what to fix.</p>
+<p>One line back is plenty. I read every reply myself.</p>
+<p>Amariah<br />I build Atlarix</p>
+<p style="color:#475569;font-size:14px;">PS — on Windows, the Store build is the one to have: uninstall the copy you've got and reinstall from the link above. Your projects are folders on your disk, so they stay put.</p>
+<p style="color:#94a3b8;font-size:12px;">Don't want emails like this? Reply "stop" and I won't send another.</p>
 </body></html>`;
 
   return { text, html };
@@ -166,7 +207,12 @@ function buildRecipientList(users) {
     const email = user.email?.trim().toLowerCase();
     if (!email) continue;
     if (!user.email_confirmed_at) continue;
-    if (EXCLUDED_EMAILS.has(email)) continue;
+    // `--only <address>` overrides the exclusion list. Naming one address is an
+    // explicit instruction, and the excluded addresses are the maintainer's own —
+    // which are exactly the ones you want to send a probe to before a real batch.
+    // Without this, `--only amani.kamau06@gmail.com` reported "no confirmed
+    // recipient found" and sent nothing, which reads like the account is missing.
+    if (EXCLUDED_EMAILS.has(email) && email !== ONLY_EMAIL) continue;
     if (seen.has(email)) continue;
     seen.add(email);
 
@@ -174,10 +220,19 @@ function buildRecipientList(users) {
       email,
       firstName: deriveFirstName(user),
       userId: user.id,
+      createdAt: user.created_at ?? null,
+      // Only updates on a NEW sign-in — a cached session that silently refreshes
+      // does not bump it. Shown in --dry-run as a sanity check on who is being
+      // targeted, never used to decide anything.
+      lastSignInAt: user.last_sign_in_at ?? null,
     });
   }
 
-  recipients.sort((a, b) => a.email.localeCompare(b.email));
+  // NEWEST SIGNUP FIRST, so `--limit N` means "the N most recent signups".
+  // It used to sort by email, which made `--limit` select a semi-random slice —
+  // fine for a send-to-everyone campaign, wrong for any campaign aimed at recent
+  // signups, and silently so.
+  recipients.sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? ""));
   return recipients;
 }
 
