@@ -1,5 +1,5 @@
 import "./preload-env";
-import { app, autoUpdater as squirrelUpdater, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, Notification, powerMonitor, session, shell, type MenuItemConstructorOptions } from "electron";
+import { app, autoUpdater as squirrelUpdater, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, powerMonitor, session, shell, type MenuItemConstructorOptions } from "electron";
 import { updateElectronApp } from "update-electron-app";
 import * as path from "node:path";
 import dotenv from "dotenv";
@@ -14,6 +14,7 @@ import {
   reEncryptPlaintextSecretsIfPossible,
 } from "./main/settings";
 import { handleAtlarixProReturn } from "./main/pro";
+import { showDesktopNotification } from "./main/desktop-notification";
 import { IS_TEST_BUILD } from "./ipc/utils/test_utils";
 import {
   isNewer,
@@ -1016,15 +1017,15 @@ async function checkLinuxPackageUpdate(): Promise<void> {
     const releaseUrl =
       data.html_url ?? "https://github.com/AmariahAK/atlarix-releases/releases/latest";
 
-    const n = new Notification({
+    // Lifetime is owned by showDesktopNotification — see the crash it exists
+    // for. This path is Linux-only, which is exactly where that crash lives.
+    await showDesktopNotification({
       title: `Atlarix ${latest} is available`,
       body: "Click to download the matching .deb or .rpm.",
-      silent: false,
+      onClick: () => {
+        void shell.openExternal(releaseUrl);
+      },
     });
-    n.on("click", () => {
-      void shell.openExternal(releaseUrl);
-    });
-    n.show();
   } catch (err) {
     log.warn("[AutoUpdater:linux-pkg] check failed:", (err as Error)?.message ?? err);
   }

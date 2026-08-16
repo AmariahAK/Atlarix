@@ -9,6 +9,7 @@ import { eq } from "drizzle-orm";
 import { db } from "@/db";
 import { automationRuns, automations } from "@/db/schema";
 import { broadcastToAllWindows } from "@/ipc/utils/broadcast_all_windows";
+import { showDesktopNotification } from "@/main/desktop-notification";
 import type { AutomationRunView } from "./types";
 
 const logger = log.scope("automations");
@@ -56,26 +57,28 @@ export async function notifyRunFinished(runId: string): Promise<void> {
   // Focused app → the renderer's automation:run-update subscription shows a
   // sonner toast; an OS notification on top would be double noise.
   try {
-    const { BrowserWindow, Notification } = await import("electron");
+    const { BrowserWindow } = await import("electron");
     const focused = BrowserWindow.getAllWindows().some((w) => w.isFocused());
     if (focused) return;
-    if (!Notification.isSupported()) return;
 
     const body =
       view.status === "error"
         ? `Run failed: ${view.error ?? "unknown error"}`
         : (view.summary ?? "Finished with findings");
-    const n = new Notification({ title: view.automationName, body, silent: false });
-    n.on("click", () => {
-      const win = BrowserWindow.getAllWindows()[0];
-      if (win) {
-        if (win.isMinimized()) win.restore();
-        win.show();
-        win.focus();
-        win.webContents.send("automations:focus-feed", { runId });
-      }
+    // Lifetime is owned by showDesktopNotification — see the crash it exists for.
+    await showDesktopNotification({
+      title: view.automationName,
+      body,
+      onClick: () => {
+        const win = BrowserWindow.getAllWindows()[0];
+        if (win) {
+          if (win.isMinimized()) win.restore();
+          win.show();
+          win.focus();
+          win.webContents.send("automations:focus-feed", { runId });
+        }
+      },
     });
-    n.show();
   } catch (e) {
     logger.warn("OS notification failed:", e);
   }

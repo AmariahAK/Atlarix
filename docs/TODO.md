@@ -117,6 +117,17 @@ review.
   - **Still owed:** the UI (see Designed), user-side "Send to Atlarix" routing, the unread badge, a
     setting for what triggers a notice, per-tab cards + navigation separators, and the packaged-app
     pass.
+- **Sentry native crash: notifications held against GC.** `SIGSEGV / SI_KERNEL / 0x0` in
+  `electron::NotificationPresenter::RemoveNotification` — browser process, unhandled, so it took the
+  whole app down. Fedora 44, Electron 38.2.2, reported on 14.8.13. All three call sites did
+  `const n = new Notification(...); n.show();` and dropped the reference, letting V8 collect the
+  wrapper while the OS notification was still on screen; the resulting teardown races the
+  notification daemon's own. Same double-teardown shape as electron#40461 and electron#43040 — both
+  fixed long before 38, neither guards the GC path. Now one `showDesktopNotification` holds each
+  notification until `close`/`failed`, never calls `close()` itself, and checks `isSupported()`
+  (the Linux-only updater notification skipped that entirely).
+  - **OWED: Linux confirmation.** It reproduces only on Linux, so the fix is reasoned rather than
+    observed. Goes with the other Linux verification items below.
 - **Delegation stagger** — `acquireDelegationSlot()` spaces same-turn siblings by
   `ATLARIX_DELEGATION_STAGGER_MS` (default 750ms, 0 disables), so the first writes the shared cache
   prefix and the rest read it. **Deliberately NOT gated on `resolveCacheMarkerPlacement`** — that

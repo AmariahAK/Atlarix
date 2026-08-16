@@ -1,5 +1,6 @@
 import log from "electron-log";
 import { readSettings } from "./settings";
+import { showDesktopNotification } from "./desktop-notification";
 
 const logger = log.scope("agent-notification");
 
@@ -12,26 +13,24 @@ const logger = log.scope("agent-notification");
  */
 export async function showAgentNotification(title: string, body: string): Promise<void> {
   try {
-    const { BrowserWindow, Notification } = await import("electron");
+    const { BrowserWindow } = await import("electron");
     const windows = BrowserWindow.getAllWindows();
     if (windows.length === 0) return;
     if (windows.some((w) => w.isFocused())) return; // focused → skip
     if (readSettings().notificationSound?.enabled === false) return;
-    if (!Notification.isSupported()) return;
-    const n = new Notification({
+    // Lifetime is owned by showDesktopNotification — see the crash it exists for.
+    await showDesktopNotification({
       title,
-      body: String(body).slice(0, 140),
-      silent: false,
+      body,
+      onClick: () => {
+        const win = BrowserWindow.getAllWindows()[0];
+        if (win) {
+          if (win.isMinimized()) win.restore();
+          win.show();
+          win.focus();
+        }
+      },
     });
-    n.on("click", () => {
-      const win = BrowserWindow.getAllWindows()[0];
-      if (win) {
-        if (win.isMinimized()) win.restore();
-        win.show();
-        win.focus();
-      }
-    });
-    n.show();
   } catch (e) {
     logger.warn("agent OS notification failed:", e);
   }
