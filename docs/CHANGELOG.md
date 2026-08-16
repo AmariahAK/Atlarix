@@ -53,6 +53,10 @@ held until it is genuinely finished.
   it instead of each paying to write their own.
 - For the agent: `browser_inspect(mode:"network")` now shows every request rather than only
   failures, and both console and network reads accept a `tab_id`.
+- **File search is repeatable.** Files sharing a modification time — anything checked out or
+  generated together — came back in whatever order the directory happened to enumerate in, so two
+  identical searches could disagree, and when a result was truncated an arbitrary tie decided which
+  files the agent saw at all.
 
 ## [14.30.0] (2026-08-11) — On-device dictation works on Windows and Linux
 

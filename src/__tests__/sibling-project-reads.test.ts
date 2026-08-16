@@ -59,6 +59,34 @@ describe("globbing a sibling project", () => {
     expect(viaRelative).toBe(viaAbsolute);
   });
 
+  it("breaks an mtime TIE deterministically, not by directory order", async () => {
+    // Files that share an mtime — checked out together, generated together, or
+    // just written in the same millisecond — used to come back in whatever order
+    // the directory happened to enumerate in, so two identical calls could
+    // disagree. It failed exactly once, on a release tag, having passed on the
+    // same commit minutes earlier: the worst way to find out.
+    //
+    // Not only cosmetic. When a result is TRUNCATED at `limit`, an arbitrary
+    // tie-break decides which files the agent is allowed to see.
+    //
+    // The tie is forced here rather than hoped for: on a filesystem with
+    // high-resolution timestamps these two writes land microseconds apart and
+    // never tie at all, which is why this only ever broke on CI.
+    const tied = path.join(base, "tied");
+    fs.mkdirSync(tied, { recursive: true });
+    for (const name of ["zebra.md", "alpha.md", "middle.md"]) {
+      fs.writeFileSync(path.join(tied, name), "x");
+      fs.utimesSync(path.join(tied, name), new Date(1_700_000_000_000), new Date(1_700_000_000_000));
+    }
+
+    const first = text(await glob({ pattern: "**/*", path: tied }));
+    for (let i = 0; i < 5; i++) {
+      expect(text(await glob({ pattern: "**/*", path: tied }))).toBe(first);
+    }
+    expect(first.indexOf("alpha.md")).toBeLessThan(first.indexOf("middle.md"));
+    expect(first.indexOf("middle.md")).toBeLessThan(first.indexOf("zebra.md"));
+  });
+
   it("bare .. reaches the parent directory", async () => {
     const out = text(await glob({ pattern: "**/*", path: ".." }));
     expect(out).toMatch(/telios/);

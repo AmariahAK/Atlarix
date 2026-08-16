@@ -246,7 +246,14 @@ ToolRegistry.register({
                     }
                 }),
             );
-            withMtime.sort((a, b) => b.m - a.m);
+            // Ties broken by path, deterministically. Without this, files sharing
+            // an mtime — anything checked out together, generated together, or
+            // written in the same millisecond — come back in whatever order the
+            // directory happened to enumerate in, so two identical calls can
+            // disagree. That is not just cosmetic: when the result is TRUNCATED at
+            // `max`, an arbitrary tie-break decides WHICH files the agent gets to
+            // see. Caught by a CI-only flake in sibling-project-reads.test.ts.
+            withMtime.sort((a, b) => b.m - a.m || a.f.localeCompare(b.f));
             const kept = withMtime.slice(0, max).map((e) => e.f);
             const truncatedNote =
                 withMtime.length > max
