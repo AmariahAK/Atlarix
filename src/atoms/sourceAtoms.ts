@@ -454,19 +454,29 @@ export const consoleLevelFilterAtom = atom<ConsoleLevelFilter>('problems');
 export const visiblePageConsoleAtom = atom((get) => {
   const entries = get(pageConsoleAtom);
   const filter = get(consoleLevelFilterAtom);
+  // Navigation markers survive EVERY filter. They are dividers, not entries —
+  // hiding them is how you end up reading one page's logs under another page's
+  // heading, which is the confusion they exist to remove.
+  const keep = (e: PageConsoleEntry, matches: boolean) =>
+    e.type === 'navigated' || matches;
   if (filter === 'all') return entries;
   if (filter === 'errors') {
-    return entries.filter((e) => e.level === 'error' || e.type !== 'console-error');
+    return entries.filter((e) =>
+      keep(e, e.level === 'error' || e.type !== 'console-error'),
+    );
   }
-  if (filter === 'warnings') return entries.filter((e) => e.level === 'warning');
+  if (filter === 'warnings') return entries.filter((e) => keep(e, e.level === 'warning'));
   if (filter === 'logs') {
-    return entries.filter(
-      (e) => e.type === 'console-error' && e.level !== 'error' && e.level !== 'warning',
+    return entries.filter((e) =>
+      keep(
+        e,
+        e.type === 'console-error' && e.level !== 'error' && e.level !== 'warning',
+      ),
     );
   }
   // 'problems' (default): errors, warnings, and non-console failures.
-  return entries.filter(
-    (e) => e.type !== 'console-error' || e.level === 'error' || e.level === 'warning',
+  return entries.filter((e) =>
+    keep(e, e.type !== 'console-error' || e.level === 'error' || e.level === 'warning'),
   );
 });
 

@@ -53,10 +53,29 @@ function formatTime(ts: number): string {
     return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}.${pad(d.getMilliseconds(), 3)}`;
 }
 
+/**
+ * A navigation divider. The console is deliberately NOT cleared on navigate —
+ * the agent may be comparing two loads — so this is what tells you where the
+ * previous page's output ends.
+ */
+function NavigationSeparator({ entry }: { entry: PageConsoleEntry }) {
+    return (
+        <div className="flex items-center gap-2 px-3 py-2 font-mono text-[11px] text-muted-foreground">
+            <span className="h-px flex-1 bg-border" />
+            <span className="shrink-0 truncate" title={entry.url}>
+                ↳ {entry.url ?? entry.message}
+            </span>
+            <span className="h-px flex-1 bg-border" />
+        </div>
+    );
+}
+
 function ConsoleRow({ entry }: { entry: PageConsoleEntry }) {
     const [expanded, setExpanded] = useState(false);
     const level = levelOf(entry);
     const hasStack = Boolean(entry.stack);
+
+    if (entry.type === 'navigated') return <NavigationSeparator entry={entry} />;
 
     return (
         <div

@@ -32,7 +32,23 @@ export type BrowserSurfaceError = {
    * narrows by `level`, so widening levels needed no change there. Read it as
    * "console entry"; `level` carries the severity.
    */
-  type: "console-error" | "load-failed" | "render-gone" | "network-failed";
+  type:
+    | "console-error"
+    | "load-failed"
+    | "render-gone"
+    | "network-failed"
+    | /**
+       * A navigation marker, not an event that happened to the page.
+       *
+       * DevTools clears the console on navigate by default; we deliberately do
+       * not, because the agent may be mid-comparison across two loads. A
+       * separator row removes the stale/fresh ambiguity without destroying data.
+       *
+       * It is NOT a failure and must never be counted as one: excluded from
+       * `runtimeFailuresSince`, from the runtime notice, and from the
+       * `browser:error` channel the Errors list reads.
+       */
+      "navigated";
   message: string;
   url?: string;
   timestamp: number;

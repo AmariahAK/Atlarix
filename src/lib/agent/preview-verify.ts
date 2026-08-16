@@ -48,6 +48,9 @@ export function runtimeFailuresSince(
     // the same reason a prior turn's errors are excluded by `sinceTs` above.
     // Still reported to the model, just labelled; see BrowserSurfaceError.unrelated.
     if (e.unrelated) return false;
+    // A navigation marker is a separator in the feed, not something that went
+    // wrong. Counting it would make every page load look like a failure.
+    if (e.type === "navigated") return false;
     // A console entry counts only at error level. `level` is optional on the
     // type, so an entry that arrives without one does NOT count — fail open,
     // since a false failure is worse than a missed one for a verdict the agent
@@ -101,7 +104,7 @@ export function buildRuntimeNotice(turnId: string): string | null {
   if (!scope) return null;
 
   const fresh = getBrowserSurfaceErrors(scope).filter(
-    (e) => e.timestamp >= baseline && !e.unrelated,
+    (e) => e.timestamp >= baseline && !e.unrelated && e.type !== "navigated",
   );
   if (fresh.length === 0) return null;
 
@@ -128,6 +131,6 @@ export function buildRuntimeNotice(turnId: string): string | null {
     `The browser recorded ${parts.join(", ")} during this turn. ` +
     `This is not a verdict — it may be the app you are building, or a page you ` +
     `merely opened. Read them with browser_inspect(mode:"network") or ` +
-    `mode:"console") if they are relevant to your task.`
+    `browser_inspect(mode:"console") if they are relevant to your task.`
   );
 }

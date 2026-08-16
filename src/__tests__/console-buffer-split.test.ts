@@ -189,3 +189,90 @@ describe("IPC fan-out", () => {
     expect((batches[0].payload as BrowserSurfaceError[])).toHaveLength(50);
   });
 });
+
+describe("per-tab console isolation", () => {
+  beforeEach(async () => {
+    await new Promise((r) => setTimeout(r, 150));
+    sent.length = 0;
+  });
+
+  function tabEntry(tabId: number, message: string): BrowserSurfaceError {
+    return { type: "console-error", level: "log", message, timestamp: Date.now(), tabId };
+  }
+
+  it("a tab logging in a loop cannot evict another tab's history", () => {
+    const scope = makeScope();
+    scope.activeTabId = 1;
+    pushBrowserSurfaceError(scope, tabEntry(1, "the one that matters"));
+
+    for (let i = 0; i < 900; i++) {
+      // Same active tab, so these are NOT stamped unrelated — this is one tab
+      // drowning out another's history, not a filtering question.
+      scope.activeTabId = 2;
+      pushBrowserSurfaceError(scope, tabEntry(2, `spew ${i}`));
+    }
+
+    const entries = getBrowserConsoleEntries(scope);
+    expect(entries.some((e) => e.message === "the one that matters")).toBe(true);
+    // The noisy tab is held to its own budget rather than the whole window's.
+    expect(entries.filter((e) => e.tabId === 2).length).toBeLessThanOrEqual(200);
+  });
+
+  it("keeps the noisy tab's NEWEST entries", () => {
+    const scope = makeScope();
+    scope.activeTabId = 3;
+    for (let i = 0; i < 500; i++) {
+      pushBrowserSurfaceError(scope, tabEntry(3, `n${i}`));
+    }
+    const mine = getBrowserConsoleEntries(scope).filter((e) => e.tabId === 3);
+    expect(mine[mine.length - 1].message).toBe("n499");
+    expect(mine.some((e) => e.message === "n0")).toBe(false);
+  });
+});
+
+describe("navigation separators", () => {
+  beforeEach(async () => {
+    await new Promise((r) => setTimeout(r, 150));
+    sent.length = 0;
+  });
+
+  const navigated = (tabId: number, url: string): BrowserSurfaceError => ({
+    type: "navigated",
+    message: `Navigated to ${url}`,
+    url,
+    timestamp: Date.now(),
+    tabId,
+  });
+
+  it("records the marker in the console feed and preserves prior entries", () => {
+    const scope = makeScope();
+    scope.activeTabId = 1;
+    pushBrowserSurfaceError(scope, {
+      type: "console-error",
+      level: "error",
+      message: "from the first page",
+      timestamp: Date.now(),
+      tabId: 1,
+    });
+    pushBrowserSurfaceError(scope, navigated(1, "https://github.com"));
+
+    const entries = getBrowserConsoleEntries(scope);
+    // Not a clear — DevTools would have thrown the first page away.
+    expect(entries.map((e) => e.message)).toEqual([
+      "from the first page",
+      "Navigated to https://github.com",
+    ]);
+  });
+
+  it("never reaches browser:error, which would render it as a failure", () => {
+    const scope = makeScope();
+    scope.activeTabId = 1;
+    pushBrowserSurfaceError(scope, navigated(1, "https://example.com"));
+
+    expect(sent.filter((s) => s.channel === "browser:error")).toHaveLength(0);
+    // It does reach the console feed, immediately — a separator that shows up
+    // late lands under the wrong page's output.
+    const batches = sent.filter((s) => s.channel === "browser:console");
+    expect(batches).toHaveLength(1);
+  });
+});

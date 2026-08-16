@@ -600,8 +600,23 @@ function wireTabEvents(
       event.preventDefault();
     }
   });
-  // WebMCP (Phase 4): page tools are registered per-document; clear on nav.
-  wc.on("did-navigate", () => {
+  // A navigation SEPARATOR, not a clear.
+  //
+  // DevTools clears the console on navigate by default. We deliberately do not:
+  // the agent may be comparing behaviour across two loads, and throwing the
+  // earlier one away to save it from confusion costs more than it saves. A marker
+  // row answers "is this stale?" without destroying anything.
+  //
+  // `did-navigate` only — `did-navigate-in-page` fires on every SPA route change
+  // and would turn the feed into separators.
+  wc.on("did-navigate", (_e, url) => {
+    pushBrowserSurfaceError(scope, {
+      type: "navigated",
+      message: `Navigated to ${url}`,
+      url,
+      timestamp: nowTs(),
+      tabId: id,
+    });
   });
   wc.on("destroyed", () => {
   });
@@ -832,6 +847,16 @@ export function ensureTab(scope: BrowserScope): WebContentsView {
 const BROWSER_CONSOLE_BUFFER_MAX = 500;
 const BROWSER_NETWORK_BUFFER_MAX = 200;
 
+/**
+ * Per-tab console cap, enforced INSIDE the window-wide buffer above.
+ *
+ * The window cap alone lets one chatty tab evict every other tab's history —
+ * the same bug console and network had while they shared a 50-entry buffer. The
+ * window cap stays as a memory ceiling for the many-tabs case; this one keeps
+ * any single tab from spending the whole budget.
+ */
+const BROWSER_CONSOLE_PER_TAB_MAX = 200;
+
 /** Coalescing window for the `browser:console` batch channel. */
 const CONSOLE_FLUSH_MS = 100;
 
@@ -920,11 +945,7 @@ export function pushBrowserSurfaceError(
     }
   } else {
     scope.consoleEntries.push(stamped);
-    if (scope.consoleEntries.length > BROWSER_CONSOLE_BUFFER_MAX) {
-      scope.consoleEntries = scope.consoleEntries.slice(
-        -BROWSER_CONSOLE_BUFFER_MAX,
-      );
-    }
+    scope.consoleEntries = evictConsoleEntries(scope.consoleEntries, stamped.tabId);
   }
   if (scope.window.isDestroyed()) return;
 
@@ -936,7 +957,9 @@ export function pushBrowserSurfaceError(
     stamped.level != null &&
     stamped.level !== "error" &&
     stamped.level !== "warning";
-  if (!isNoisyLevel) {
+  // A navigation marker is not an error and must never reach the Errors list,
+  // which would render it as a failure with a red badge.
+  if (!isNoisyLevel && stamped.type !== "navigated") {
     safeSend(scope.window.webContents, "browser:error", stamped);
   }
 
@@ -957,6 +980,41 @@ export function pushBrowserSurfaceError(
     // Never hold the process open for a console flush.
     scope.consoleFlushTimer.unref?.();
   }
+}
+
+/**
+ * Evict from the console buffer, per tab first.
+ *
+ * The buffer stays ONE chronologically-ordered list — the panel reads it as a
+ * stream and the cards filter by tab — so eviction drops the offending tab's
+ * oldest entries in place rather than keeping a list per tab. Only the tab that
+ * just pushed can be over its own cap, so that is the only one scanned.
+ *
+ * Exported for the test that pins the isolation: a tab spewing thousands of
+ * lines must not cost a quiet tab a single row.
+ */
+export function evictConsoleEntries(
+  entries: BrowserSurfaceError[],
+  tabId: number | undefined,
+): BrowserSurfaceError[] {
+  let out = entries;
+  if (tabId != null) {
+    let overBy = out.filter((e) => e.tabId === tabId).length - BROWSER_CONSOLE_PER_TAB_MAX;
+    if (overBy > 0) {
+      out = out.filter((e) => {
+        if (overBy > 0 && e.tabId === tabId) {
+          overBy--;
+          return false;
+        }
+        return true;
+      });
+    }
+  }
+  // The window ceiling still applies: enough tabs, each under its own cap, would
+  // otherwise add up without bound.
+  return out.length > BROWSER_CONSOLE_BUFFER_MAX
+    ? out.slice(-BROWSER_CONSOLE_BUFFER_MAX)
+    : out;
 }
 
 function nowTs(): number {
