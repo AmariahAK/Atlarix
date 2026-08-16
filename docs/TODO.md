@@ -83,8 +83,8 @@ review.
   level filter chips beside the file-grouped build errors. **Default filter is Errors + Warnings —
   identical to the old view.** `browser_inspect(mode:"console")` gained a `level` filter and no
   longer returns network failures (it was never a console view).
-  - **The gate did not move.** `preview-verify.ts` still blocks only on error level; the set is now
-    named `BLOCKING_CONSOLE_LEVELS` and `console-capture-gate.test.ts` pins it with 600 log entries.
+  - **Then the gate was removed entirely** — see the Console+Network entry below. Nothing a browser
+    tab reports can end a turn any more.
   - **Latent bug fixed on the way:** `normalizeConsoleLevel` — the old numeric mapping read
     Electron's `console-message` integers as `2 = error, 3 = warning`, the inverse of the documented
     "verbose, info, warning, error" order. Dead on Electron 38 (always the string branch), but on
@@ -98,6 +98,25 @@ review.
   - **OWED: the packaged-app pass.** Confirm all levels appear with working filters, the default
     view matches the old one, a page logging in a loop neither stalls the UI nor blocks a turn, and
     devtools now opens on the app window.
+- **Runtime gating removed; network capture built.** Nothing a browser tab reports blocks a turn any
+  more — the harness cannot tell whose error it is (a frontend on `:5173` calling its own API on
+  `:8080` is one app across two origins), and a wrong block costs accuracy. The model gets ONE
+  `systemReminder` pointer per turn naming counts and the read tool, never a dump.
+  - **Capture has two tiers.** CDP (`webContents.debugger` + `Network.enable`) on browser tabs —
+    real timing, transfer size, bodies on demand. On attach failure / detach / `ATLARIX_BROWSER_CDP=0`
+    a tab is marked degraded and records through `webRequest` plus a page-injected `fetch`/XHR
+    wrapper for bodies. Storage is **per tab** (`network-entry.ts`, cap 500).
+  - **Traps encoded, all measured on Electron 38.2.2:** `Network.enable` **hangs forever** on a tab
+    that has never navigated — attach resolves, the command never does, no error — so `createTab`
+    primes `about:blank` first and every CDP command is timeout-wrapped. `closeTab` detaches
+    **before** `webContents.close()`. Response bodies are frequently evicted (4/25 and 9/25 on a
+    heavy page), so "no longer buffered" is its own message, not an empty body.
+  - **`onBeforeRequest` is installed lazily**, on the first tab that degrades. It is the only
+    BLOCKING webRequest hook; always-on would charge every request in every tab a main-process round
+    trip for a path most sessions never take.
+  - **Still owed:** the UI (see Designed), user-side "Send to Atlarix" routing, the unread badge, a
+    setting for what triggers a notice, per-tab cards + navigation separators, and the packaged-app
+    pass.
 - **Delegation stagger** — `acquireDelegationSlot()` spaces same-turn siblings by
   `ATLARIX_DELEGATION_STAGGER_MS` (default 750ms, 0 disables), so the first writes the shared cache
   prefix and the rest read it. **Deliberately NOT gated on `resolveCacheMarkerPlacement`** — that
@@ -147,13 +166,10 @@ queue, not a design doc.
   app and report evidence-backed findings. Gets the requirement, **not the diff** — independence of
   judgment is the point. A scoped `http_request`, not the terminal. Load testing is an explicit
   non-goal.
-- **Network tab** — the remaining half; Console shipped (see In flight). Still blocked on the fact
-  that `browser_view_manager.ts` early-returns on `status < 400`, so successful requests are **never
-  recorded** and there is no data to render. Carries its own decision: `webRequest` gives
-  method/status/resourceType/headers but **no transfer size and no timing breakdown** — duration
-  must be derived from our own start/end timestamps and size read from `content-length` when
-  present. Devtools-grade numbers would need CDP, which takes the debugger exclusively and would
-  reintroduce exactly the conflict just removed.
+- **Network tab — UI only; capture is built.** Both tiers now record (see In flight). What is left
+  is the renderer: rows (method/status/type/duration/size), expand for headers and bodies,
+  per-tab cards, and widening `browser_inspect(mode:"network")` past failures-only with a `tab_id`
+  argument on both modes. Design in `docs/DESIGN_NOTES.md`.
 - **Fork sub-agents** — a worker inheriting the parent's history so it reads the cache prefix
   instead of writing one. Pulled from the 2026-08-15 batch on discovering the prefix is
   `tools → system → messages`: a fork must share the parent's **toolset and system header** or the

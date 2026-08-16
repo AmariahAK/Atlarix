@@ -27,7 +27,17 @@ import {
 import {
   attachNetworkCapture,
   detachNetworkCapture,
+  isTabDegraded,
+  recordFallbackComplete,
+  recordFallbackError,
+  recordFallbackStart,
+  recordInjectedBody,
+  setDegradeListener,
 } from "./browser_network_capture";
+import {
+  NETWORK_HOOK_SCRIPT,
+  tryParseNetworkSentinel,
+} from "@/lib/browser/network-hook";
 
 const logger = log.scope("browser_view");
 
@@ -227,25 +237,45 @@ function browserSession(): Session {
       logger.warn(`[browser] download blocked: ${item.getURL()}`);
       event.preventDefault();
     });
-    // Capture failed (4xx/5xx) responses made by any BROWSER TAB so the agent's
-    // app-verification completion gate can treat them as failures (a page that
-    // renders but whose API calls 500 is still broken). Scoped to browser-tab
-    // webContents and to app-level resource types so favicon/image 404 noise
-    // can't trip the gate. webRequest is otherwise unused, so registering here
-    // clobbers nothing.
+    // ── webRequest: two jobs, deliberately kept apart ──────────────────────
+    //
+    // 1. FAILURES (every tab, always) → the per-window `network-failed` feed
+    //    that `browser_test` and the runtime notice read. Static-asset noise is
+    //    excluded so a missing favicon never reads as a broken app.
+    // 2. FULL INVENTORY (degraded tabs only) → the fallback tier of the Network
+    //    tab. When CDP is live it already has every request with better data, so
+    //    recording here too would double every row.
+    //
+    // `onBeforeRequest` is the only BLOCKING hook of the three — every request in
+    // every browser tab would wait on a main-process round trip. That is too much
+    // to charge ordinary browsing for a path most sessions never take, so it is
+    // installed lazily, the first time any tab actually degrades.
+    setDegradeListener(() => installBlockingFallbackHook(ses));
     ses.webRequest.onCompleted((details) => {
       try {
+        const tabId = tabIdForWebContentsId(details.webContentsId);
+        if (tabId != null && isTabDegraded(tabId)) {
+          recordFallbackComplete(tabId, {
+            id: String(details.id),
+            url: details.url,
+            method: details.method ?? "GET",
+            status: details.statusCode,
+            statusText: details.statusLine,
+            responseHeaders: details.responseHeaders,
+            fromCache: details.fromCache,
+            resourceType: details.resourceType,
+          });
+        }
         const status = details.statusCode ?? 0;
         if (status < 400) return;
         // The session is shared by every window, so find which scope this tab
-        // belongs to — the failure is that window's, and only that window's
-        // completion gate should see it.
+        // belongs to — the failure is that window's, and only that window's.
         const owner = scopeForWebContentsId(details.webContentsId);
         if (!owner) return;
         // Keep document/script/data requests; drop static-asset noise so a
-        // missing favicon/image/font can't trip the gate. (Electron resourceType
-        // literals vary by version, so we EXCLUDE the noisy set rather than match
-        // an allowlist of names that may not exist.)
+        // missing favicon/image/font isn't reported as an app failure. (Electron
+        // resourceType literals vary by version, so we EXCLUDE the noisy set
+        // rather than match an allowlist of names that may not exist.)
         if (NOISY_PREVIEW_RESOURCE_TYPES.has(details.resourceType)) return;
         pushBrowserSurfaceError(owner, {
           type: "network-failed",
@@ -253,6 +283,23 @@ function browserSession(): Session {
           url: details.url,
           statusCode: status,
           timestamp: nowTs(),
+          tabId: tabId ?? undefined,
+        });
+      } catch {
+        /* request logging must never throw */
+      }
+    });
+    // Transport-level failures (DNS, refused, aborted) never reach onCompleted,
+    // so without this the fallback tier would leave them pending forever.
+    ses.webRequest.onErrorOccurred((details) => {
+      try {
+        const tabId = tabIdForWebContentsId(details.webContentsId);
+        if (tabId == null || !isTabDegraded(tabId)) return;
+        recordFallbackError(tabId, {
+          id: String(details.id),
+          url: details.url,
+          method: details.method ?? "GET",
+          errorText: details.error,
         });
       } catch {
         /* request logging must never throw */
@@ -261,6 +308,72 @@ function browserSession(): Session {
   }
   return ses;
 }
+
+/** Guards the lazy install below — the hook must be registered exactly once. */
+let blockingFallbackHookInstalled = false;
+
+/**
+ * Install the blocking `onBeforeRequest` hook, which the fallback tier needs for
+ * two things `onCompleted` cannot give it: when a request STARTED (so a duration
+ * is a measurement rather than a zero) and its upload body.
+ *
+ * Called only once a tab has degraded. It stays installed for the rest of the
+ * session — removing it again would race in-flight requests for no real gain,
+ * since a session that degraded once is likely to again.
+ */
+function installBlockingFallbackHook(ses: Session): void {
+  if (blockingFallbackHookInstalled) return;
+  blockingFallbackHookInstalled = true;
+  logger.info("[browser] a tab degraded off CDP — installing webRequest fallback");
+  ses.webRequest.onBeforeRequest((details, callback) => {
+    // A listener that never calls back stalls the request forever, so the
+    // callback is outside everything that could throw.
+    try {
+      const tabId = tabIdForWebContentsId(details.webContentsId);
+      if (tabId != null && isTabDegraded(tabId)) {
+        recordFallbackStart(tabId, {
+          id: String(details.id),
+          url: details.url,
+          method: details.method ?? "GET",
+          resourceType: details.resourceType,
+          requestBody: uploadDataToText(details.uploadData),
+        });
+      }
+    } catch {
+      /* request logging must never throw */
+    }
+    callback({});
+  });
+}
+
+/**
+ * `uploadData` is a list of raw chunks. Decode the inline ones; a file or blob
+ * chunk has no `bytes`, and saying so beats rendering an empty body as if the
+ * request had sent nothing.
+ */
+export function uploadDataToText(
+  chunks: Electron.UploadData[] | undefined,
+): string | undefined {
+  if (!chunks || chunks.length === 0) return undefined;
+  const parts: string[] = [];
+  for (const chunk of chunks) {
+    if (chunk.bytes && chunk.bytes.length > 0) {
+      parts.push(chunk.bytes.toString("utf8"));
+    } else if (chunk.file) {
+      parts.push(`[file: ${chunk.file}]`);
+    } else {
+      parts.push("[binary upload]");
+    }
+  }
+  const joined = parts.join("");
+  if (!joined) return undefined;
+  return joined.length > UPLOAD_BODY_MAX
+    ? `${joined.slice(0, UPLOAD_BODY_MAX)}…[truncated]`
+    : joined;
+}
+
+/** Request bodies are captured for inspection, not archival. */
+const UPLOAD_BODY_MAX = 4000;
 
 function broadcastState(scope: BrowserScope): void {
   if (scope.window.isDestroyed()) return;
@@ -365,6 +478,16 @@ export function closeActiveBrowserTabIfVisible(scope: BrowserScope): boolean {
   return true;
 }
 
+/**
+ * Bodies come from CDP when it is live, so the page-side wrapper is installed
+ * ONLY on a degraded tab. Injecting it always would wrap `fetch` in every page
+ * the user browses to buy nothing.
+ */
+function injectNetworkHookIfDegraded(id: number, wc: Electron.WebContents): void {
+  if (!isTabDegraded(id)) return;
+  void wc.executeJavaScript(NETWORK_HOOK_SCRIPT, true).catch(() => {});
+}
+
 function wireTabEvents(
   scope: BrowserScope,
   id: number,
@@ -398,6 +521,15 @@ function wireTabEvents(
       level = ev.level;
       message = String(ev.message ?? "");
       sourceUrl = ev.sourceId;
+    }
+    // Injected network sentinel: a response body read inside the page, riding
+    // the console because browser tabs have no preload. It is DATA, not output —
+    // record it against the network log and return, so it never reaches the
+    // console feed the user reads.
+    const capturedBody = tryParseNetworkSentinel(message);
+    if (capturedBody) {
+      recordInjectedBody(id, capturedBody);
+      return;
     }
     // Injected-hook sentinel: a structured error (with stack) from the page's
     // window.onerror / unhandledrejection / fetch wrap. Parse it and RETURN so
@@ -446,6 +578,15 @@ function wireTabEvents(
   wc.on("did-finish-load", () => {
     void wc.executeJavaScript(ERROR_HOOK_SCRIPT, true).catch(() => {});
     void wc.executeJavaScript(CLS_OBSERVER_SCRIPT, true).catch(() => {});
+    injectNetworkHookIfDegraded(id, wc);
+  });
+  // `dom-ready` is the earliest injection point available without a preload,
+  // which browser tabs deliberately do not get. Still after the page's own head
+  // scripts, so the fallback tier misses early requests — CDP does not, because
+  // it injects at document-start. Injecting at both events is idempotent (the
+  // script guards on a window flag) and only widens the window slightly.
+  wc.on("dom-ready", () => {
+    injectNetworkHookIfDegraded(id, wc);
   });
   // Popups: deny new windows; navigate the same tab instead.
   wc.setWindowOpenHandler(({ url }) => {
@@ -478,6 +619,20 @@ function scopeForWebContentsId(id: number | undefined): BrowserScope | null {
   for (const scope of allScopes()) {
     for (const v of scope.tabs.values()) {
       if (!v.webContents.isDestroyed() && v.webContents.id === id) return scope;
+    }
+  }
+  return null;
+}
+
+/**
+ * Our tab id for a webContents id — the network log is keyed by tab, and
+ * session-level webRequest details only carry the webContents.
+ */
+function tabIdForWebContentsId(id: number | undefined): number | null {
+  if (id == null) return null;
+  for (const scope of allScopes()) {
+    for (const [tabId, v] of scope.tabs) {
+      if (!v.webContents.isDestroyed() && v.webContents.id === id) return tabId;
     }
   }
   return null;

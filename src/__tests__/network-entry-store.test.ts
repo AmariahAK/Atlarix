@@ -10,6 +10,8 @@
 import { describe, expect, it } from "vitest";
 import {
   NETWORK_ENTRIES_PER_TAB_MAX,
+  NETWORK_ORPHAN_BODIES_MAX,
+  attachResponseBody,
   beginRequest,
   completeRequest,
   createTabNetworkLog,
@@ -18,6 +20,11 @@ import {
   sizeFromHeaders,
   type NetworkEntry,
 } from "@/lib/browser/network-entry";
+import {
+  NETWORK_BODY_MAX,
+  NETWORK_SENTINEL,
+  tryParseNetworkSentinel,
+} from "@/lib/browser/network-hook";
 
 function started(id: string, over: Partial<NetworkEntry> = {}): NetworkEntry {
   return {
@@ -104,6 +111,116 @@ describe("per-tab network log", () => {
     beginRequest(log, started("skew", { startedAt: 5_000 }));
     const done = completeRequest(log, "skew", { finishedAt: 4_000 });
     expect(done?.durationMs).toBe(0);
+  });
+
+  it("reports NO duration for a request it never saw start", () => {
+    // 0ms would render as a measurement. The honest answer is "unknown".
+    const log = createTabNetworkLog(1);
+    const done = completeRequest(
+      log,
+      "late",
+      { status: 200, finishedAt: 9_000 },
+      { tabId: 1, url: "https://api.test/late", method: "GET", source: "webrequest" },
+    );
+    expect(done?.durationMs).toBeUndefined();
+  });
+});
+
+describe("injected response bodies", () => {
+  function withEntry(id: string, url: string, method = "GET") {
+    const log = createTabNetworkLog(1);
+    beginRequest(log, started(id, { url, method, source: "webrequest" }));
+    completeRequest(log, id, { status: 200 });
+    return log;
+  }
+
+  it("attaches a page-captured body to the matching request", () => {
+    const log = withEntry("r1", "https://api.test/users");
+    const landed = attachResponseBody(log, {
+      method: "get",
+      url: "https://api.test/users",
+      body: '{"ok":true}',
+      truncated: false,
+    });
+    expect(landed).toBe(true);
+    expect(log.entries[0].responseBody).toBe('{"ok":true}');
+    expect(log.orphanBodies.size).toBe(0);
+  });
+
+  it("gives a polled endpoint distinct bodies rather than copies of the first", () => {
+    const log = createTabNetworkLog(1);
+    for (const id of ["p1", "p2"]) {
+      beginRequest(log, started(id, { url: "https://api.test/poll" }));
+      completeRequest(log, id, { status: 200 });
+    }
+    attachResponseBody(log, {
+      method: "GET",
+      url: "https://api.test/poll",
+      body: "second",
+      truncated: false,
+    });
+    attachResponseBody(log, {
+      method: "GET",
+      url: "https://api.test/poll",
+      body: "first",
+      truncated: false,
+    });
+    // Newest-unfilled-first, so the two bodies land on different rows.
+    expect(log.entries.map((e) => e.responseBody)).toEqual(["first", "second"]);
+  });
+
+  it("holds a body that wins the race, and completion claims it", () => {
+    const log = createTabNetworkLog(1);
+    attachResponseBody(log, {
+      method: "POST",
+      url: "https://api.test/save",
+      body: "saved",
+      truncated: true,
+    });
+    expect(log.orphanBodies.size).toBe(1);
+
+    beginRequest(log, started("s1", { url: "https://api.test/save", method: "POST" }));
+    const done = completeRequest(log, "s1", { status: 201 });
+
+    expect(done?.responseBody).toBe("saved");
+    expect(done?.responseBodyTruncated).toBe(true);
+    expect(log.orphanBodies.size).toBe(0);
+  });
+
+  it("bounds unclaimed bodies so page traffic cannot leak memory", () => {
+    const log = createTabNetworkLog(1);
+    for (let i = 0; i < NETWORK_ORPHAN_BODIES_MAX + 25; i++) {
+      attachResponseBody(log, {
+        method: "GET",
+        url: `https://api.test/${i}`,
+        body: "x",
+        truncated: false,
+      });
+    }
+    expect(log.orphanBodies.size).toBe(NETWORK_ORPHAN_BODIES_MAX);
+  });
+});
+
+describe("network sentinel", () => {
+  it("parses a body record and leaves ordinary console output alone", () => {
+    const rec = tryParseNetworkSentinel(
+      `${NETWORK_SENTINEL}{"method":"POST","url":"https://api.test/x","status":201,"body":"{}","truncated":false}`,
+    );
+    expect(rec).toMatchObject({ method: "POST", status: 201, body: "{}" });
+    expect(tryParseNetworkSentinel("just a log line")).toBeNull();
+    expect(tryParseNetworkSentinel(`${NETWORK_SENTINEL}not json`)).toBeNull();
+    // No url means nothing to correlate against — not a usable record.
+    expect(tryParseNetworkSentinel(`${NETWORK_SENTINEL}{"method":"GET"}`)).toBeNull();
+  });
+
+  it("re-clips an oversized body from the page", () => {
+    // The page-side cap runs inside a hostile document, so it is a courtesy.
+    const huge = "a".repeat(NETWORK_BODY_MAX + 500);
+    const rec = tryParseNetworkSentinel(
+      `${NETWORK_SENTINEL}${JSON.stringify({ method: "GET", url: "u", body: huge })}`,
+    );
+    expect(rec?.body).toHaveLength(NETWORK_BODY_MAX);
+    expect(rec?.truncated).toBe(true);
   });
 });
 

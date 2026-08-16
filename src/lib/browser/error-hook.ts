@@ -16,9 +16,11 @@
  * an OBSERVATION feed rather than a failure feed — the agent needs to confirm
  * that something WORKED, not only see that something broke.
  *
- * Only `error` blocks a turn. See `BLOCKING_CONSOLE_LEVELS` in
- * `lib/agent/preview-verify.ts` — that set is the completion gate, and widening
- * capture must never widen it.
+ * NOTHING here blocks a turn. Severity decides how an entry is presented and
+ * whether it is worth naming in the once-per-turn notice — see
+ * `FAILURE_CONSOLE_LEVELS` in `lib/agent/preview-verify.ts`, which is now only a
+ * verdict for `browser_test`, not a gate. The harness cannot tell whose error a
+ * page reported, so it does not get to end a turn over one.
  */
 export type BrowserConsoleLevel = "error" | "warning" | "info" | "log" | "debug";
 

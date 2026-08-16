@@ -23,13 +23,16 @@
 
 import log from "electron-log";
 import {
+  attachResponseBody,
   beginRequest,
   completeRequest,
   createTabNetworkLog,
   flattenHeaders,
+  sizeFromHeaders,
   type NetworkEntry,
   type TabNetworkLog,
 } from "@/lib/browser/network-entry";
+import type { CapturedResponseBody } from "@/lib/browser/network-hook";
 
 const logger = log.scope("browser_network");
 
@@ -62,6 +65,32 @@ async function sendWithTimeout(
 /** Per-window, per-tab logs. Keyed by tab id — never one shared buffer. */
 const logsByTab = new Map<number, TabNetworkLog>();
 
+/**
+ * Fired the first time any tab falls back off CDP.
+ *
+ * The webRequest fallback needs a BLOCKING `onBeforeRequest` hook, which would
+ * tax every request in every tab if it were always registered. This lets the
+ * view manager install it on demand without this module knowing what a session
+ * is.
+ */
+let degradeListener: (() => void) | null = null;
+
+export function setDegradeListener(fn: () => void): void {
+  degradeListener = fn;
+}
+
+function markDegraded(tabLog: TabNetworkLog): void {
+  const first = !tabLog.degraded;
+  tabLog.degraded = true;
+  if (first) {
+    try {
+      degradeListener?.();
+    } catch {
+      /* the fallback installing badly must not break attach */
+    }
+  }
+}
+
 export function networkLogForTab(tabId: number): TabNetworkLog {
   let existing = logsByTab.get(tabId);
   if (!existing) {
@@ -87,6 +116,119 @@ export function clearNetworkLog(tabId: number): void {
 }
 
 /**
+ * Whether this tab is recording through the fallback tier.
+ *
+ * Gated on an EXPLICIT CDP failure rather than on "CDP not live yet", so the two
+ * tiers can never both record the same request. The window between tab creation
+ * and `Network.enable` resolving carries no traffic — `createTab` primes with
+ * `about:blank` before attaching, precisely so that is true.
+ */
+export function isTabDegraded(tabId: number): boolean {
+  return logsByTab.get(tabId)?.degraded === true;
+}
+
+// ── Fallback tier: webRequest inventory + injected bodies ────────────────────
+// Only reached when CDP attach failed, detached, or was disabled by env. Each
+// of these is called from a session-wide webRequest hook, so they must stay
+// cheap and must never throw — a listener that throws is a listener that stops
+// the page loading.
+
+export function recordFallbackStart(
+  tabId: number,
+  req: {
+    id: string;
+    url: string;
+    method: string;
+    resourceType?: string;
+    requestBody?: string;
+  },
+): void {
+  beginRequest(networkLogForTab(tabId), {
+    id: req.id,
+    tabId,
+    url: req.url,
+    method: req.method,
+    resourceType: req.resourceType,
+    requestBody: req.requestBody,
+    startedAt: Date.now(),
+    source: "webrequest",
+  });
+}
+
+export function recordFallbackComplete(
+  tabId: number,
+  res: {
+    id: string;
+    url: string;
+    method: string;
+    status?: number;
+    statusText?: string;
+    responseHeaders?: Record<string, string | string[]>;
+    fromCache?: boolean;
+    resourceType?: string;
+  },
+): void {
+  const headers = flattenHeaders(res.responseHeaders);
+  completeRequest(
+    networkLogForTab(tabId),
+    res.id,
+    {
+      status: res.status,
+      statusText: res.statusText,
+      responseHeaders: headers,
+      // No `encodedDataLength` on this tier — content-length or nothing. An
+      // absent header must read as "unknown", never as a measured zero.
+      size: sizeFromHeaders(headers),
+      fromCache: res.fromCache,
+      resourceType: res.resourceType,
+      url: res.url,
+      finishedAt: Date.now(),
+    },
+    { tabId, url: res.url, method: res.method, source: "webrequest" },
+  );
+}
+
+export function recordFallbackError(
+  tabId: number,
+  err: { id: string; url: string; method: string; errorText?: string },
+): void {
+  completeRequest(
+    networkLogForTab(tabId),
+    err.id,
+    {
+      failed: true,
+      errorText: err.errorText ?? "failed",
+      url: err.url,
+      finishedAt: Date.now(),
+    },
+    { tabId, url: err.url, method: err.method, source: "webrequest" },
+  );
+}
+
+/**
+ * A response body the injected wrapper read inside the page. Attaches to the
+ * matching webRequest entry; if there is none, it is held briefly and then
+ * recorded on its own, because a request only the page saw is still a request.
+ */
+export function recordInjectedBody(
+  tabId: number,
+  captured: CapturedResponseBody,
+): void {
+  const tabLog = networkLogForTab(tabId);
+  if (captured.body === undefined) {
+    // Nothing to attach — a non-textual or unreadable response. webRequest
+    // already has the row; adding a second, emptier one would only mislead.
+    return;
+  }
+  attachResponseBody(tabLog, {
+    method: captured.method,
+    url: captured.url,
+    body: captured.body,
+    truncated: captured.truncated === true,
+  });
+}
+
+/**
  * Attach CDP network capture to a tab.
  *
  * Best-effort and never throws: a tab whose attach fails still browses normally,
@@ -96,7 +238,7 @@ export function clearNetworkLog(tabId: number): void {
 export async function attachNetworkCapture(tabId: number, wc: Wc): Promise<boolean> {
   const tabLog = networkLogForTab(tabId);
   if (!cdpEnabled()) {
-    tabLog.degraded = true;
+    markDegraded(tabLog);
     logger.info(`[network] tab ${tabId}: CDP disabled by env — webRequest fallback`);
     return false;
   }
@@ -105,7 +247,7 @@ export async function attachNetworkCapture(tabId: number, wc: Wc): Promise<boole
     if (wc.debugger.isAttached()) return true;
     wc.debugger.attach("1.3");
   } catch (e) {
-    tabLog.degraded = true;
+    markDegraded(tabLog);
     logger.warn(
       `[network] tab ${tabId}: debugger.attach failed (${e instanceof Error ? e.message : e}) — webRequest fallback`,
     );
@@ -114,7 +256,7 @@ export async function attachNetworkCapture(tabId: number, wc: Wc): Promise<boole
 
   // If the user or anything else takes the debugger, degrade rather than pretend.
   wc.debugger.on("detach", (_event, reason) => {
-    tabLog.degraded = true;
+    markDegraded(tabLog);
     logger.warn(`[network] tab ${tabId}: debugger detached (${reason}) — fallback from here`);
   });
 
@@ -133,7 +275,7 @@ export async function attachNetworkCapture(tabId: number, wc: Wc): Promise<boole
     return true;
   } catch (e) {
     // The spike's headline failure mode. Degrade loudly rather than sit silent.
-    tabLog.degraded = true;
+    markDegraded(tabLog);
     logger.warn(
       `[network] tab ${tabId}: Network.enable failed (${e instanceof Error ? e.message : e}) — webRequest fallback`,
     );

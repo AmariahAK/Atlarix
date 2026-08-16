@@ -19,8 +19,14 @@
  * were split.
  */
 
-/** Which tier produced an entry. Surfaced so the UI can be honest about gaps. */
-export type NetworkSource = "cdp" | "webrequest";
+/**
+ * Which tier produced an entry. Surfaced so the UI can be honest about gaps.
+ *
+ * `injected` is not a third inventory — the page-side `fetch`/XHR wrapper only
+ * ever supplies BODIES, which it attaches to a `webrequest` entry. It appears as
+ * a source only when the wrapper saw a request webRequest did not.
+ */
+export type NetworkSource = "cdp" | "webrequest" | "injected";
 
 export type NetworkEntry = {
   /** CDP `requestId`, or a synthesized id on the fallback tier. Unique per tab. */
@@ -46,6 +52,14 @@ export type NetworkEntry = {
   responseHeaders?: Record<string, string>;
   /** Request payload when the tier could see one. */
   requestBody?: string;
+  /**
+   * Response payload. On the CDP tier this is fetched ON DEMAND and may never be
+   * set; on the fallback tier the injected wrapper supplies it for `fetch`/XHR
+   * only, so a `document` or `script` row legitimately has none.
+   */
+  responseBody?: string;
+  /** True when `responseBody` was cut at the wrapper's cap. */
+  responseBodyTruncated?: boolean;
   /** Transport-level failure (DNS, refused, aborted) — distinct from a 4xx/5xx. */
   failed?: boolean;
   errorText?: string;
@@ -60,6 +74,13 @@ export type NetworkEntry = {
  */
 export const NETWORK_ENTRIES_PER_TAB_MAX = 500;
 
+/**
+ * How many unclaimed response bodies to hold. Small on purpose: an orphan means
+ * the two fallback tiers disagreed about a request, which should be rare, and an
+ * unbounded map here would be a memory leak driven by page traffic.
+ */
+export const NETWORK_ORPHAN_BODIES_MAX = 50;
+
 /** A tab's request log, newest last. */
 export type TabNetworkLog = {
   tabId: number;
@@ -68,10 +89,27 @@ export type TabNetworkLog = {
   pending: Map<string, NetworkEntry>;
   /** True once this tab fell back off CDP — shown in the UI, not hidden. */
   degraded: boolean;
+  /**
+   * Bodies from the injected wrapper that arrived before (or without) the
+   * webRequest entry they belong to, keyed by `METHOD url`. Claimed on
+   * completion. See `attachResponseBody`.
+   */
+  orphanBodies: Map<string, { body: string; truncated: boolean }>;
 };
 
 export function createTabNetworkLog(tabId: number): TabNetworkLog {
-  return { tabId, entries: [], pending: new Map(), degraded: false };
+  return {
+    tabId,
+    entries: [],
+    pending: new Map(),
+    degraded: false,
+    orphanBodies: new Map(),
+  };
+}
+
+/** Correlation key for the injected tier, which has no request id to share. */
+export function bodyKey(method: string, url: string): string {
+  return `${method.toUpperCase()} ${url}`;
 }
 
 /**
@@ -113,16 +151,66 @@ export function completeRequest(
     ...base,
     ...patch,
     finishedAt,
+    // Only a request we actually saw START has a duration. A synthesized entry
+    // would otherwise report 0ms, which reads as a measurement rather than as
+    // the "we joined late" that it is.
     durationMs:
       patch.durationMs ??
-      (base.startedAt ? Math.max(0, finishedAt - base.startedAt) : undefined),
+      (started ? Math.max(0, finishedAt - started.startedAt) : undefined),
   };
+
+  // The injected wrapper resolves its body AFTER the response completes, so it
+  // usually finds this entry already here. It can also win the race, in which
+  // case the body is waiting to be claimed.
+  if (merged.responseBody === undefined && merged.url) {
+    const key = bodyKey(merged.method, merged.url);
+    const orphan = log.orphanBodies.get(key);
+    if (orphan) {
+      log.orphanBodies.delete(key);
+      merged.responseBody = orphan.body;
+      merged.responseBodyTruncated = orphan.truncated;
+    }
+  }
 
   log.entries.push(merged);
   if (log.entries.length > NETWORK_ENTRIES_PER_TAB_MAX) {
     log.entries = log.entries.slice(-NETWORK_ENTRIES_PER_TAB_MAX);
   }
   return merged;
+}
+
+/**
+ * Attach a response body captured page-side to the request it belongs to.
+ *
+ * The injected wrapper has no request id to share with webRequest, so match on
+ * `METHOD url`, newest first, taking the most recent entry that does not already
+ * have a body — a polled endpoint hit ten times should get ten distinct bodies,
+ * not ten copies of the first.
+ *
+ * Returns whether it landed on an entry. When it does not, the body is held for
+ * `completeRequest` to claim rather than dropped: on a page whose requests
+ * webRequest never reported, this is the only record that exists.
+ */
+export function attachResponseBody(
+  log: TabNetworkLog,
+  captured: { method: string; url: string; body: string; truncated: boolean },
+): boolean {
+  const key = bodyKey(captured.method, captured.url);
+  for (let i = log.entries.length - 1; i >= 0; i--) {
+    const entry = log.entries[i];
+    if (entry.responseBody !== undefined) continue;
+    if (bodyKey(entry.method, entry.url) !== key) continue;
+    entry.responseBody = captured.body;
+    entry.responseBodyTruncated = captured.truncated;
+    return true;
+  }
+  log.orphanBodies.set(key, { body: captured.body, truncated: captured.truncated });
+  if (log.orphanBodies.size > NETWORK_ORPHAN_BODIES_MAX) {
+    // Map iterates in insertion order, so this evicts the oldest.
+    const oldest = log.orphanBodies.keys().next();
+    if (!oldest.done) log.orphanBodies.delete(oldest.value);
+  }
+  return false;
 }
 
 /** Header arrays (webRequest) and header strings (CDP) → one flat shape. */
