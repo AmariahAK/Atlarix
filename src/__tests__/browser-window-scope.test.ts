@@ -103,12 +103,12 @@ describe("per-window browser scopes", () => {
   it("REGRESSION: page errors belong to the window that produced them", () => {
     const one = browserScopeForWindow(makeWindow(1));
     const two = browserScopeForWindow(makeWindow(2));
-    one.surfaceErrors.push({
+    one.consoleEntries.push({
       type: "console-error",
       message: "boom in window 1",
       timestamp: 1,
     } as never);
-    expect(two.surfaceErrors).toHaveLength(0);
+    expect(two.consoleEntries).toHaveLength(0);
   });
 
   it("returns the same scope for the same window", () => {

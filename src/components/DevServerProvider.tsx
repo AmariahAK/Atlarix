@@ -16,6 +16,7 @@ import {
 } from '@/atoms/sourceAtoms';
 import { IpcClient } from '@/ipc/ipc_client';
 import { useBrowserErrorListener } from '@/hooks/useBrowserErrorListener';
+import { usePageConsoleListener } from '@/hooks/usePageConsoleListener';
 import { useBrowserPanelRequest } from '@/hooks/useBrowserPanelRequest';
 import { deduplicateErrors, type ParsedError } from '@/lib/devServerErrorParser';
 import { TerminalIntelligence } from '@/lib/terminal-intelligence';
@@ -27,6 +28,10 @@ export function DevServerProvider({ children }: { children: React.ReactNode }) {
     const setBrowserErrors = useSetAtom(browserErrorsAtom);
 
     useBrowserErrorListener();
+    // The page console (every level) is a separate stream from the parsed
+    // build errors above — same tab, different shape. Mounted here so it fills
+    // while the Console tab is closed, exactly like the error listener.
+    usePageConsoleListener();
     // Agent asks for the Browser panel (see useBrowserPanelRequest) — must be
     // mounted here, not in BrowserPanel, since it fires while that panel is shut.
     useBrowserPanelRequest();

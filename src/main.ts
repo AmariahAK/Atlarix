@@ -430,6 +430,12 @@ export async function onReady() {
       // leaving the UI in limbo forever would be worse than showing signed out.
       markStartupAuthResolved();
       SubscriptionManager.broadcastSessionState();
+      // ...and say so UNCONDITIONALLY. The line above early-returns when there
+      // is no session, which is right for a plan broadcast and was exactly what
+      // stranded the UI: a renderer that asked before this point, on a restore
+      // that then failed or found nothing, was never told anything again and sat
+      // on "Restoring your session…" with no way out.
+      SubscriptionManager.broadcastAuthResolved();
     }
   })();
 

@@ -26,7 +26,7 @@ import { cn } from '@/lib/utils';
 import {
     X, Terminal, Wrench,
     Search, Eye,
-    AlertTriangle, Shield, Globe, Code2, FileText, MessageSquare, ListTree, AlarmClock, } from 'lucide-react';
+    SquareTerminal, Shield, Globe, Code2, FileText, MessageSquare, ListTree, AlarmClock, } from 'lucide-react';
 import { TerminalPanel } from './panels/TerminalPanel';
 import { type ParsedError } from '@/lib/devServerErrorParser';
 import { ToolCallCard, ToolStatus } from './ToolCallCard';
@@ -48,7 +48,10 @@ const TAB_ICONS: Record<PanelTab, { icon: React.ElementType; label: string }> = 
     preview: { icon: Eye, label: 'Preview' },
     terminal: { icon: Terminal, label: 'Terminal' },
     automations: { icon: AlarmClock, label: 'Automations' },
-    errors: { icon: AlertTriangle, label: 'Errors' },
+    // The tab ID stays `errors` deliberately — it is persisted in panel state and
+    // listed in useRightPanelContext's tab order. Only the user-facing name moved,
+    // because the tab now shows the page console at every level, not just failures.
+    errors: { icon: SquareTerminal, label: 'Console' },
     permissions: { icon: Shield, label: 'Permissions' },
     search: { icon: Globe, label: 'Search' },
     sources: { icon: Globe, label: 'Sources' },

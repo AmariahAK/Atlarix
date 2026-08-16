@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { FolderOpen, GitBranch, LogOut, Settings, Trash2 } from "lucide-react";
 import { DISCORD_INVITE_URL } from "@/lib/community/discord";
@@ -28,6 +28,14 @@ export default function WelcomeLauncher() {
   const { apps, refreshApps } = useLoadApps();
   const [cloneOpen, setCloneOpen] = useState(false);
   const [showAllRecents, setShowAllRecents] = useState(false);
+  /** Restore has been pending long enough to say so. */
+  const [restoreSlow, setRestoreSlow] = useState(false);
+
+  useEffect(() => {
+    if (authResolved) return;
+    const id = window.setTimeout(() => setRestoreSlow(true), 5_000);
+    return () => window.clearTimeout(id);
+  }, [authResolved]);
 
   const displayName =
     user?.name?.trim() ||
@@ -67,6 +75,23 @@ export default function WelcomeLauncher() {
         <LocalDateTimeClock variant="welcome" className="mb-2" />
         <AtlarixAnimation size="sm" phase="thinking" minimalChrome theme="auto" className="shadow-sm" />
         <p className="text-muted-foreground">Restoring your session…</p>
+        {/*
+          A spinner with no text and no affordance is why a stuck restore went
+          unreported: the user could not tell a slow launch from a broken one,
+          and had nothing to do either way. `useAuth` now guarantees this screen
+          resolves on its own, so this is reassurance plus an early way out —
+          not the recovery mechanism.
+        */}
+        {restoreSlow && (
+          <div className="flex flex-col items-center gap-3">
+            <p className="text-xs text-muted-foreground/70 max-w-xs">
+              Taking longer than usual — still checking with the server.
+            </p>
+            <Button asChild variant="ghost" size="sm">
+              <Link to="/sign-in">Sign in instead</Link>
+            </Button>
+          </div>
+        )}
       </div>
     );
   }

@@ -427,3 +427,46 @@ export const visibleBrowserErrorsAtom = atom((get) => {
   return errors.filter((e) => !dismissed.has(getErrorSignature(e)));
 });
 
+// ═══════════════════════════════════════════════════════════
+// PAGE CONSOLE (every level, from the in-app browser tabs)
+// ═══════════════════════════════════════════════════════════
+// Distinct from `browserErrorsAtom` above, which holds parsed BUILD/dev-server
+// errors grouped by file. This is the page's own console as a chronological
+// stream — a console is not a file tree — and it carries `log`/`info`/`debug`
+// too, so the panel can show that something WORKED rather than only that
+// something broke.
+
+export type PageConsoleEntry =
+  import('@/ipc/utils/browser_view_manager').BrowserSurfaceError;
+
+/** Rolling page-console stream. Capped in the listener, not here. */
+export const pageConsoleAtom = atom<PageConsoleEntry[]>([]);
+
+export type ConsoleLevelFilter = 'problems' | 'all' | 'errors' | 'warnings' | 'logs';
+
+/**
+ * Defaults to `problems` — errors + warnings + load/crash/request failures —
+ * which is exactly what the tab showed before every level was captured. Nothing
+ * changes on screen until the user asks for more.
+ */
+export const consoleLevelFilterAtom = atom<ConsoleLevelFilter>('problems');
+
+export const visiblePageConsoleAtom = atom((get) => {
+  const entries = get(pageConsoleAtom);
+  const filter = get(consoleLevelFilterAtom);
+  if (filter === 'all') return entries;
+  if (filter === 'errors') {
+    return entries.filter((e) => e.level === 'error' || e.type !== 'console-error');
+  }
+  if (filter === 'warnings') return entries.filter((e) => e.level === 'warning');
+  if (filter === 'logs') {
+    return entries.filter(
+      (e) => e.type === 'console-error' && e.level !== 'error' && e.level !== 'warning',
+    );
+  }
+  // 'problems' (default): errors, warnings, and non-console failures.
+  return entries.filter(
+    (e) => e.type !== 'console-error' || e.level === 'error' || e.level === 'warning',
+  );
+});
+

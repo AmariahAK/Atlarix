@@ -21,6 +21,7 @@ import { CLS_OBSERVER_SCRIPT } from "@/lib/browser/visual-lint";
 import {
   ERROR_HOOK_SCRIPT,
   tryParseErrorSentinel,
+  type BrowserConsoleLevel,
   type BrowserSurfaceError,
 } from "@/lib/browser/error-hook";
 
@@ -41,7 +42,10 @@ export type BrowserPanelState = {
   visible: boolean;
 };
 
-export type { BrowserSurfaceError } from "@/lib/browser/error-hook";
+export type {
+  BrowserConsoleLevel,
+  BrowserSurfaceError,
+} from "@/lib/browser/error-hook";
 /** @deprecated back-compat alias — use BrowserSurfaceError. */
 export type PreviewErrorEntry = BrowserSurfaceError;
 
@@ -83,7 +87,18 @@ export type BrowserScope = {
   activeTabId: number | null;
   visible: boolean;
   lastBounds: Rect | null;
-  surfaceErrors: BrowserSurfaceError[];
+  /**
+   * Console-side entries: every console level, plus load/crash events.
+   * Separate from `networkEntries` because a chatty page logging at `info`/`log`
+   * would otherwise evict recorded request failures within seconds — they shared
+   * one 50-entry buffer before the Console tab.
+   */
+  consoleEntries: BrowserSurfaceError[];
+  /** Request failures (4xx/5xx), kept on their own budget. */
+  networkEntries: BrowserSurfaceError[];
+  /** Pending coalesced `browser:console` payload; flushed on a short timer. */
+  consoleFlushQueue: BrowserSurfaceError[];
+  consoleFlushTimer: NodeJS.Timeout | null;
   panelWaiters: Array<() => void>;
   /** True once a panel request went unanswered — the user wants it closed. */
   panelRequestDeclined: boolean;
@@ -108,7 +123,10 @@ export function browserScopeForWindow(win: BrowserWindow): BrowserScope {
     activeTabId: null,
     visible: false,
     lastBounds: null,
-    surfaceErrors: [],
+    consoleEntries: [],
+    networkEntries: [],
+    consoleFlushQueue: [],
+    consoleFlushTimer: null,
     panelWaiters: [],
     panelRequestDeclined: false,
   };
@@ -363,6 +381,7 @@ function wireTabEvents(
   // stack) surface here. Signature differs across Electron majors (positional
   // <35, event object >=35) — handle both.
   wc.on("console-message", (...a: unknown[]) => {
+    // (see normalizeConsoleLevel below for the level mapping)
     let level: string | number | undefined;
     let message = "";
     let sourceUrl: string | undefined;
@@ -384,15 +403,13 @@ function wireTabEvents(
       pushBrowserSurfaceError(scope, { ...rich, url: rich.url ?? sourceUrl, timestamp: nowTs(), tabId: id });
       return;
     }
-    const isError = level === "error" || level === 2;
-    const isWarn = level === "warning" || level === 3;
-    if ((!isError && !isWarn) || !message) return;
+    if (!message) return;
     pushBrowserSurfaceError(scope, {
       type: "console-error",
       message: message.slice(0, 4000),
       url: sourceUrl,
       timestamp: nowTs(),
-      level: isError ? "error" : "warning",
+      level: normalizeConsoleLevel(level),
       tabId: id,
     });
   });
@@ -628,26 +645,75 @@ export function ensureTab(scope: BrowserScope): WebContentsView {
 // rejections additionally carry a STACK via an injected instrumentation hook
 // (ERROR_HOOK_SCRIPT) relayed through the "[[ATLARIX_ERR]]" console sentinel.
 
-const BROWSER_ERROR_BUFFER_MAX = 50;
+/**
+ * Console holds more than the old shared 50 because ordinary `log`/`info` output
+ * is now captured; network keeps its own budget so a noisy page can't push a
+ * recorded 500 out of the buffer.
+ */
+const BROWSER_CONSOLE_BUFFER_MAX = 500;
+const BROWSER_NETWORK_BUFFER_MAX = 200;
 
+/** Coalescing window for the `browser:console` batch channel. */
+const CONSOLE_FLUSH_MS = 100;
+
+/**
+ * Everything captured, console and network together — the shape every existing
+ * caller expects (`preview-verify`'s completion gate, `browser_test`). The split
+ * below is a storage detail; this stays the union so those paths are unchanged.
+ */
 export function getBrowserSurfaceErrors(
   scope: BrowserScope,
 ): BrowserSurfaceError[] {
-  return [...scope.surfaceErrors];
+  return [...scope.consoleEntries, ...scope.networkEntries].sort(
+    (a, b) => a.timestamp - b.timestamp,
+  );
+}
+
+/** Console-side entries only (every level), for `browser_inspect(mode:"console")`. */
+export function getBrowserConsoleEntries(
+  scope: BrowserScope,
+): BrowserSurfaceError[] {
+  return [...scope.consoleEntries];
 }
 
 /** Just the captured failed (4xx/5xx) network responses. */
 export function getBrowserSurfaceNetworkFailures(
   scope: BrowserScope,
 ): BrowserSurfaceError[] {
-  return scope.surfaceErrors.filter((e) => e.type === "network-failed");
+  return [...scope.networkEntries];
 }
 
 export function clearBrowserSurfaceErrors(scope: BrowserScope): void {
-  scope.surfaceErrors = [];
+  scope.consoleEntries = [];
+  scope.networkEntries = [];
+  scope.consoleFlushQueue = [];
+  if (scope.consoleFlushTimer) {
+    clearTimeout(scope.consoleFlushTimer);
+    scope.consoleFlushTimer = null;
+  }
 }
 
-function pushBrowserSurfaceError(
+/** Send whatever is queued on the batch channel and reset the timer. */
+function flushConsoleQueue(scope: BrowserScope): void {
+  if (scope.consoleFlushTimer) {
+    clearTimeout(scope.consoleFlushTimer);
+    scope.consoleFlushTimer = null;
+  }
+  if (scope.consoleFlushQueue.length === 0) return;
+  const batch = scope.consoleFlushQueue;
+  scope.consoleFlushQueue = [];
+  if (!scope.window.isDestroyed()) {
+    safeSend(scope.window.webContents, "browser:console", batch);
+  }
+}
+
+/**
+ * The single record path for everything captured from a browser tab: console at
+ * any level, load failures, renderer crashes, failed requests. Routes to the
+ * console or network buffer, evicts per that buffer's own cap, and fans out to
+ * both IPC channels.
+ */
+export function pushBrowserSurfaceError(
   scope: BrowserScope,
   entry: BrowserSurfaceError,
 ): void {
@@ -666,17 +732,101 @@ function pushBrowserSurfaceError(
       entry.unrelated ??
       (entry.tabId != null && scope.activeTabId != null && entry.tabId !== scope.activeTabId),
   };
-  scope.surfaceErrors.push(stamped);
-  if (scope.surfaceErrors.length > BROWSER_ERROR_BUFFER_MAX) {
-    scope.surfaceErrors = scope.surfaceErrors.slice(-BROWSER_ERROR_BUFFER_MAX);
+  if (stamped.type === "network-failed") {
+    scope.networkEntries.push(stamped);
+    if (scope.networkEntries.length > BROWSER_NETWORK_BUFFER_MAX) {
+      scope.networkEntries = scope.networkEntries.slice(
+        -BROWSER_NETWORK_BUFFER_MAX,
+      );
+    }
+  } else {
+    scope.consoleEntries.push(stamped);
+    if (scope.consoleEntries.length > BROWSER_CONSOLE_BUFFER_MAX) {
+      scope.consoleEntries = scope.consoleEntries.slice(
+        -BROWSER_CONSOLE_BUFFER_MAX,
+      );
+    }
   }
-  if (!scope.window.isDestroyed()) {
+  if (scope.window.isDestroyed()) return;
+
+  // `browser:error` is UNCHANGED: per-entry, error/warning only. Every existing
+  // consumer keeps working exactly as before — widening capture must not change
+  // what they receive.
+  const isNoisyLevel =
+    stamped.type === "console-error" &&
+    stamped.level != null &&
+    stamped.level !== "error" &&
+    stamped.level !== "warning";
+  if (!isNoisyLevel) {
     safeSend(scope.window.webContents, "browser:error", stamped);
+  }
+
+  // `browser:console` carries EVERY level, coalesced. One IPC send per console
+  // call would be hundreds a second on a chatty page — the shape of flood that
+  // has already cost this app a thermal regression once. Errors flush
+  // immediately so a genuine failure still feels instant.
+  scope.consoleFlushQueue.push(stamped);
+  if (stamped.level === "error" || stamped.type !== "console-error") {
+    flushConsoleQueue(scope);
+    return;
+  }
+  if (!scope.consoleFlushTimer) {
+    scope.consoleFlushTimer = setTimeout(
+      () => flushConsoleQueue(scope),
+      CONSOLE_FLUSH_MS,
+    );
+    // Never hold the process open for a console flush.
+    scope.consoleFlushTimer.unref?.();
   }
 }
 
 function nowTs(): number {
   return Date.now();
+}
+
+/**
+ * Normalize a `console-message` level to our own vocabulary.
+ *
+ * Electron emits two shapes: the current event object carries a STRING level,
+ * and the legacy positional signature carries an INTEGER documented as
+ * "0 to 3 … in order it matches verbose, info, warning and error".
+ *
+ * The previous code read the integers as `2 = error` and `3 = warning` — the
+ * inverse of that documented order. It was harmless in practice because
+ * Electron 38 always takes the string branch, but it meant the legacy path would
+ * have marked every warning as blocking and let every real error through the
+ * completion gate. Fixed here rather than carried forward.
+ *
+ * Anything unrecognized falls back to `log`, which is deliberately NON-blocking:
+ * a wrong guess must not be able to trap a turn.
+ */
+export function normalizeConsoleLevel(
+  level: string | number | undefined,
+): BrowserConsoleLevel {
+  if (typeof level === "number") {
+    // EXACT matches only. An open-ended `>= 3` would map any out-of-range
+    // integer to the one blocking level, which is the opposite of the fail-open
+    // rule below — garbage must not be able to trap a turn.
+    if (level === 3) return "error";
+    if (level === 2) return "warning";
+    if (level === 1) return "info";
+    if (level === 0) return "debug"; // verbose
+    return "log";
+  }
+  switch ((level ?? "").toLowerCase()) {
+    case "error":
+      return "error";
+    case "warning":
+    case "warn":
+      return "warning";
+    case "info":
+      return "info";
+    case "debug":
+    case "verbose":
+      return "debug";
+    default:
+      return "log";
+  }
 }
 
 

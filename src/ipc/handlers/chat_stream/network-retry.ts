@@ -4,7 +4,57 @@
  * imports the parent handler.)
  */
 
+/**
+ * Base backoff schedule for the silent mid-stream retry. Always read through
+ * `jitteredDelay()` — never awaited directly.
+ *
+ * This is the ONLY retry on the agent path: `simple-stream-text.ts` sets the AI
+ * SDK's own `maxRetries: 0` whenever tools are present, so there is no second
+ * backoff underneath this one. Don't re-add SDK retries without revisiting the
+ * schedule — the two would multiply.
+ */
 export const RECONNECT_DELAYS_MS = [2000, 5000, 10000];
+
+/** Ceiling on a provider-supplied `Retry-After`, so a hostile or misconfigured
+ * header can't hang the turn. */
+const RETRY_AFTER_CAP_MS = 60_000;
+
+/** Positive-only spread added on top of a `Retry-After`. Small: the server named
+ * a time, we only de-synchronize around it. */
+const RETRY_AFTER_JITTER_MS = 1_000;
+
+/**
+ * The backoff for `attempt`, spread so simultaneous retries don't land together.
+ *
+ * Without this, every client and every one of the (up to 5) concurrent
+ * sub-agents in a turn retries on the identical 2s/5s/10s schedule: one provider
+ * blip becomes a synchronized stampede. For Atlarix Core that stampede lands on
+ * our own proxy, so the unjittered schedule was a self-inflicted load spike.
+ *
+ * Equal jitter (`base/2 + rand(0, base/2)`) rather than full jitter: with only
+ * three attempts, full jitter's near-zero draws would retry almost immediately
+ * and defeat the backoff for the client that drew them. Equal jitter keeps a
+ * `base/2` floor while still spreading arrivals across the window.
+ *
+ * `retryAfter` (429/503) is authoritative — the result is never EARLIER than the
+ * server asked for. Jitter there is additive only.
+ */
+export function jitteredDelay(
+  attempt: number,
+  retryAfter?: number | null,
+): number {
+  if (retryAfter != null && Number.isFinite(retryAfter) && retryAfter >= 0) {
+    const capped = Math.min(retryAfter, RETRY_AFTER_CAP_MS);
+    return Math.round(capped + Math.random() * RETRY_AFTER_JITTER_MS);
+  }
+  const idx = Math.min(
+    Math.max(0, Math.floor(attempt) || 0),
+    RECONNECT_DELAYS_MS.length - 1,
+  );
+  const base = RECONNECT_DELAYS_MS[idx];
+  const half = base / 2;
+  return Math.round(half + Math.random() * half);
+}
 
 /**
  * Distinguish a network/provider mid-stream failure (worth silently retrying)

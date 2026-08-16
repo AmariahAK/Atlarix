@@ -6,7 +6,12 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { subscribeOAuthSuccess, subscribePlanChanged } from './auth-ipc-bridge';
+import {
+    subscribeAuthResolved,
+    subscribeOAuthSuccess,
+    subscribePlanChanged,
+    type AuthResolvedPayload,
+} from './auth-ipc-bridge';
 
 export interface AuthUser {
     id: string;
@@ -80,6 +85,27 @@ export function useAuth() {
         const id = window.setInterval(tick, 250);
         return () => window.clearInterval(id);
     }, [oauthPending, oauthProvider]);
+
+    /**
+     * Last-resort unstick for the launch placeholder.
+     *
+     * `authResolved` gates a neutral "Restoring your session…" screen with no
+     * sign-in affordance. Everything below is arranged so main always answers —
+     * but nothing main sends can rescue a renderer whose IPC threw, or that has
+     * no bridge at all, and those paths used to leave the screen up forever.
+     *
+     * 10s rather than something snappy: too short brings back the signed-out
+     * flash this flag exists to prevent. Firing is safe — a session that resolves
+     * afterwards still arrives on `auth:resolved` and corrects the UI — so the
+     * worst case becomes a brief sign-in screen on a pathological network instead
+     * of a permanent dead end. Local state only: no IPC, so paying it once per
+     * each of this hook's ~22 consumers costs nothing.
+     */
+    useEffect(() => {
+        if (authResolved) return;
+        const id = window.setTimeout(() => setAuthResolved(true), 10_000);
+        return () => window.clearTimeout(id);
+    }, [authResolved]);
 
     // Check for existing session on mount
     useEffect(() => {
@@ -184,12 +210,46 @@ export function useAuth() {
             }
         };
 
+        /**
+         * The startup restore settled. This is the message that was missing:
+         * `broadcastSessionState()` early-returns with no session, so a failed or
+         * empty restore told the renderer nothing and the launch placeholder
+         * stayed up forever.
+         *
+         * Applies the payload directly instead of re-invoking `checkSession()` —
+         * ~22 mounts of this hook would otherwise mean 22 IPC round-trips per
+         * launch. `user: null` is a real answer: signed out, render the sign-in
+         * affordance.
+         */
+        const handleAuthResolved = (data: AuthResolvedPayload) => {
+            setAuthResolved(true);
+            if (!data?.user) return;
+            setUser({
+                id: data.user.id,
+                email: data.user.email ?? '',
+                name: (data.user.name || (data.user.email ?? '').split('@')[0]) || 'User',
+                avatar: data.user.avatar,
+            });
+            const plan = (data.user.effectiveTier ?? data.user.plan ?? data.plan ?? 'free') as UserStatus['plan'];
+            setStatus((prev) => ({
+                plan,
+                isLoggedIn: true,
+                workspaceLimit: prev?.workspaceLimit ?? (plan === 'pro' ? Infinity : 1),
+                currentWorkspaceCount: prev?.currentWorkspaceCount ?? 0,
+                canCreateWorkspace: prev?.canCreateWorkspace ?? true,
+                subscriptionStatus: prev?.subscriptionStatus ?? null,
+                subscriptionEndsAt: prev?.subscriptionEndsAt,
+            }));
+        };
+
         const unsubOAuth = subscribeOAuthSuccess(handleOAuthSuccess);
         const unsubPlan = subscribePlanChanged(handlePlanChanged);
+        const unsubAuthResolved = subscribeAuthResolved(handleAuthResolved);
 
         return () => {
             unsubOAuth();
             unsubPlan();
+            unsubAuthResolved();
         };
     }, []);
 
@@ -198,6 +258,10 @@ export function useAuth() {
         try {
             const ipcRenderer = window.electron?.ipcRenderer;
             if (!ipcRenderer?.invoke) {
+                // No bridge means no answer is ever coming. Leaving `authResolved`
+                // false here parks the launch placeholder permanently; "signed
+                // out, with a way to sign in" is at least recoverable.
+                setAuthResolved(true);
                 setLoading(false);
                 return;
             }
@@ -260,6 +324,11 @@ export function useAuth() {
             }
         } catch (error) {
             console.error('Failed to check session:', error);
+            // A failed check is still an ANSWER — the same reasoning main applies
+            // when it marks the restore resolved in a `finally`. The renderer must
+            // not be stricter than the process it is waiting on: swallowing this
+            // left the launch placeholder up with no error and no sign-in button.
+            setAuthResolved(true);
         } finally {
             setLoading(false);
         }

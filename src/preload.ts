@@ -348,6 +348,7 @@ const validReceiveChannels = [
   "github:flow-error",
   "deep-link-received",
   "plan-changed",              // Realtime plan updates from Supabase
+  "auth:resolved",             // main → renderer: the startup session restore SETTLED (user or null). Unlike plan-changed this always fires — a restore that found nothing is still an answer the renderer needs.
   "oauth-callback-success",    // OAuth callback from main process
   "force-close-detected",
   "db-ready",                  // Main: DB initialized, renderer can show app
@@ -384,8 +385,6 @@ const validReceiveChannels = [
   // Dev server output streaming
   "dev-server:output",       // Live dev server console output
   // Browser console error capture (CDP debugger)
-  "browser-console-error",   // Console errors from Electron debugger
-  "browser-console-cleared", // Console buffer cleared after success (Fix 2: errors not clearing)
   // Smart Agentic Loop (iteration progress)
   "chat:iteration:progress",    // Progress updates (iteration count, tools)
   "chat:iteration:warning",     // Warning: task running long, continue?
@@ -406,6 +405,7 @@ const validReceiveChannels = [
   "plan:file-updated",
   "browser:state-changed", // v11 in-app browser: main → renderer tab/nav state
   "browser:error", // main → renderer: runtime error captured from a browser tab (console/uncaught/load/crash/network)
+  "browser:console", // main → renderer: coalesced BATCH of console entries at EVERY level (the Console tab). `browser:error` stays error/warning-only for its existing consumers.
   "browser:request-panel", // main → renderer: the agent needs the Browser panel open (mirrors the plan-artifact auto-open)
   "chat:background-job-update", // main → renderer: background job started/finished/cancelled
   "automation:run-update", // main → renderer: automation run started/finished (triage feed refresh)

@@ -25,11 +25,12 @@ import {
   getMutationFailureFeedback,
   getUnverifiedEditFeedback,
 } from "@/lib/agent/mutation-verify";
+// `buildRuntimeNotice` (preview-verify) is the non-blocking replacement for the
+// removed browser gates — written and tested, not yet wired here. It must ride an
+// EXISTING continuation and never create one, or it becomes a gate again.
 import {
   ensurePreviewBaseline,
   clearPreviewBaseline,
-  getPreviewRuntimeFeedback,
-  getPreviewVisualFeedback,
 } from "@/lib/agent/preview-verify";
 import { trackTaskStarted, trackTaskCompleted } from "@/main/lib/analytics";
 import { runMidLoopCompaction } from "@/lib/context/mid_loop_compaction";
@@ -702,20 +703,13 @@ export async function runAgentTurn(
       if (gateFeedback == null) {
         gateFeedback = getUnverifiedEditFeedback(rt.streamTurnId);
       }
-      // Preview runtime-error gate: don't let the turn end "done" while the live
-      // preview is white-screening / 500ing (errors observed during THIS turn).
-      if (gateFeedback == null) {
-        gateFeedback = getPreviewRuntimeFeedback(rt.streamTurnId);
-      }
-      // Visual gate (v14.8.6): don't end "done" while the preview renders a blank
-      // white-screen (compiles but shows nothing). Conservative — blank-render only.
-      if (gateFeedback == null) {
-        try {
-          gateFeedback = await getPreviewVisualFeedback(rt.streamTurnId);
-        } catch (visErr) {
-          logger.warn(`${L} preview visual gate failed to run: ${String(visErr)}`);
-        }
-      }
+      // NOTE: the browser runtime and visual GATES used to sit here. Both were
+      // removed — the harness cannot tell whether an error belongs to the app
+      // being built or to a page the agent merely opened, and a wrong block costs
+      // more accuracy than a missed one. What the browser saw is now delivered as
+      // a non-blocking notice (see the round-boundary emit below); the agent reads
+      // the detail itself with browser_inspect, and the user can route entries to
+      // it from the Console/Network tab.
       // v14.8.9 continue-until-done: after the red-verification gates, the
       // plan-completeness gate keeps the turn going while the session plan has
       // steps left. It uses its OWN (higher) cap so it isn't the red gates' 3.

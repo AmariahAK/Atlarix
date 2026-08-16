@@ -55,6 +55,43 @@ export const PLAN_LIMITS = {
     },
 };
 
+/** What `auth:resolved` carries. `user: null` means genuinely signed out. */
+export type AuthResolvedPayload = {
+    user: {
+        id: string;
+        email: string;
+        name?: string;
+        avatar?: string;
+        plan: UserPlan;
+        effectiveTier: UserPlan;
+    } | null;
+    plan: UserPlan;
+};
+
+/**
+ * Shape the restore-settled announcement.
+ *
+ * Pure and exported so the interesting half — that a NULL session still produces
+ * a payload — is testable without an Electron window. A null session returning
+ * nothing at all is exactly what stranded the launch screen.
+ */
+export function buildAuthResolvedPayload(
+    session: UserSession | null | undefined,
+): AuthResolvedPayload {
+    if (!session) return { user: null, plan: 'free' };
+    return {
+        user: {
+            id: session.id,
+            email: session.email,
+            name: session.name,
+            avatar: session.avatar,
+            plan: session.plan,
+            effectiveTier: session.effectiveTier ?? session.plan,
+        },
+        plan: session.plan,
+    };
+}
+
 // ============================================
 // SUBSCRIPTION MANAGER
 // ============================================
@@ -225,6 +262,35 @@ export class SubscriptionManager {
             subscriptionStatus: undefined,
             subscriptionEndsAt: undefined,
         });
+    }
+
+    /**
+     * Announce that the startup session restore has SETTLED, whatever the answer.
+     *
+     * Deliberately separate from `broadcastSessionState()` above, which
+     * early-returns when there is no session. That early return is correct for a
+     * plan broadcast and was the bug for the renderer: a failed or empty restore
+     * produced no message at all, so a renderer that had asked too early sat on
+     * "Restoring your session…" forever with no sign-in button and no error.
+     *
+     * The payload carries the resolved state so the renderer can apply it
+     * directly. `useAuth` is an unshared hook with ~22 consumers, each running
+     * its own `checkSession()`; an event that made them all re-invoke would cost
+     * 22 IPC round-trips per launch.
+     */
+    static broadcastAuthResolved(): void {
+        // NOTE: no `if (!session) return` here, deliberately — that guard on
+        // `broadcastSessionState` above is the whole bug being fixed.
+        const payload = buildAuthResolvedPayload(this.session);
+        try {
+            const { BrowserWindow } = require("electron");
+            for (const win of BrowserWindow.getAllWindows()) {
+                (win as { webContents: { send: (c: string, p: unknown) => void } })
+                    .webContents.send("auth:resolved", payload);
+            }
+        } catch (e) {
+            logger.warn('[SubscriptionManager] auth:resolved broadcast failed', e);
+        }
     }
 
     /** Single place that emits `plan-changed`, so the payload can't drift. */

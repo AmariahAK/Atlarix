@@ -10,16 +10,32 @@
  * - tryParseErrorSentinel — parses that sentinel back into a structured error.
  */
 
-/** A runtime error captured from a browser-tab surface. */
+/**
+ * Console severity. `error` and `warning` were the only levels captured until
+ * the Console tab; `info` / `log` / `debug` arrive now too, so the panel can be
+ * an OBSERVATION feed rather than a failure feed — the agent needs to confirm
+ * that something WORKED, not only see that something broke.
+ *
+ * Only `error` blocks a turn. See `BLOCKING_CONSOLE_LEVELS` in
+ * `lib/agent/preview-verify.ts` — that set is the completion gate, and widening
+ * capture must never widen it.
+ */
+export type BrowserConsoleLevel = "error" | "warning" | "info" | "log" | "debug";
+
+/** A runtime event captured from a browser-tab surface. */
 export type BrowserSurfaceError = {
+  /**
+   * `console-error` predates all-level capture and now covers every console
+   * level — the discriminant is kept because the completion gate keys on it and
+   * narrows by `level`, so widening levels needed no change there. Read it as
+   * "console entry"; `level` carries the severity.
+   */
   type: "console-error" | "load-failed" | "render-gone" | "network-failed";
   message: string;
   url?: string;
   timestamp: number;
-  /** Console severity for `console-error` entries. The Errors tab shows both,
-   * but the agent's completion gate must filter to "error" — React/Next dev mode
-   * emits benign "warning" console output that must NOT block a turn. */
-  level?: "error" | "warning";
+  /** Console severity for `console-error` entries. */
+  level?: BrowserConsoleLevel;
   /** HTTP status for `network-failed` entries (>= 400). */
   statusCode?: number;
   /** Stack trace for uncaught exceptions / unhandled rejections captured by the

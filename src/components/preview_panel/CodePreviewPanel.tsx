@@ -29,6 +29,7 @@ import {
 } from '@/atoms/sourceAtoms';
 import { type ParsedError } from '@/lib/devServerErrorParser';
 import { TerminalPanel } from '@/components/panels/TerminalPanel';
+import { PageConsole } from './PageConsole';
 
 interface CodePreviewPanelProps {
     data: {
@@ -58,16 +59,30 @@ function CodePreviewPanel({ data, activeTab, onClearErrors, onSolveWithAI, onSol
                 <TerminalPanel />
             )}
             {activeTab === 'errors' && (
-                <ErrorsTab
-                    errors={errorsData}
-                    onClear={onClearErrors}
-                    onSolveWithAI={onSolveWithAI}
-                    onSolveAllWithAI={onSolveAllWithAI}
-                    onMarkDone={(error) => {
-                        setDismissedSignatures((prev) => new Set(prev).add(getErrorSignature(error)));
-                        setBrowserErrors((prev) => prev.filter((e) => e.id !== error.id));
-                    }}
-                />
+                /*
+                 * The Console tab holds two streams with genuinely different shapes:
+                 * dev-server/build errors (a set of problems, grouped by file, with
+                 * Fix All) and the page's own console (a chronological event stream).
+                 * Build errors only take space when there are some — otherwise the
+                 * console gets the whole panel.
+                 */
+                <div className="flex flex-col h-full min-h-0 bg-[#1e1e1e]">
+                    {errorsData.length > 0 && (
+                        <div className="flex flex-col min-h-0 max-h-[45%] border-b border-zinc-800">
+                            <ErrorsTab
+                                errors={errorsData}
+                                onClear={onClearErrors}
+                                onSolveWithAI={onSolveWithAI}
+                                onSolveAllWithAI={onSolveAllWithAI}
+                                onMarkDone={(error) => {
+                                    setDismissedSignatures((prev) => new Set(prev).add(getErrorSignature(error)));
+                                    setBrowserErrors((prev) => prev.filter((e) => e.id !== error.id));
+                                }}
+                            />
+                        </div>
+                    )}
+                    <PageConsole />
+                </div>
             )}
             {activeTab === 'permissions' && (
                 <PermissionsTab />

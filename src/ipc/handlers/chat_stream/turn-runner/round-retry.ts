@@ -22,6 +22,7 @@ import {
   RECONNECT_DELAYS_MS,
   isNetworkStreamError,
   isForcedToolChoiceRejection,
+  jitteredDelay,
   retryAfterMs,
   NetworkStreamDisconnectedError,
 } from "@/ipc/handlers/chat_stream/network-retry";
@@ -173,7 +174,7 @@ export async function runStreamRoundWithEmptyOutputRetry(
                   // exhaustion surface a recoverable disconnect ([Reconnect])
                   // instead of a fatal turn end.
                   if (networkAttempt < RECONNECT_DELAYS_MS.length) {
-                    const delay = RECONNECT_DELAYS_MS[networkAttempt];
+                    const delay = jitteredDelay(networkAttempt);
                     networkAttempt++;
                     logger.warn(
                       `[stream] Stalled (no chunks), retrying after ${delay}ms (attempt ${networkAttempt}/${RECONNECT_DELAYS_MS.length})`,
@@ -270,13 +271,10 @@ export async function runStreamRoundWithEmptyOutputRetry(
                   networkAttempt < RECONNECT_DELAYS_MS.length
                 ) {
                   // Honor a provider `Retry-After` (429/503) over the fixed
-                  // backoff — but cap it at 60s so a hostile/misconfigured header
-                  // can't hang the turn.
+                  // backoff; `jitteredDelay` caps it and only ever spreads
+                  // LATER, never earlier than the server asked.
                   const retryAfter = retryAfterMs(err);
-                  const delay =
-                    retryAfter != null
-                      ? Math.min(retryAfter, 60_000)
-                      : RECONNECT_DELAYS_MS[networkAttempt];
+                  const delay = jitteredDelay(networkAttempt, retryAfter);
                   networkAttempt++;
                   logger.warn(
                     `[stream] Network error on attempt ${networkAttempt}/${RECONNECT_DELAYS_MS.length}, retrying after ${delay}ms${

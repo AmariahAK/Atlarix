@@ -296,7 +296,8 @@ export class DevServerManager {
                 logger.log(`✅ Dev server ready at ${detectedUrl}`);
 
                 // Notify callback with direct URL
-                // Browser errors are now captured via Electron's CDP debugger (console_debugger.ts)
+                // Browser errors are captured natively by the browser tabs themselves
+                // (browser_view_manager.ts → `browser:error` / `browser:console`).
                 const callback = this.urlCallbacks.get(workspaceId);
                 if (callback) {
                     callback(detectedUrl);

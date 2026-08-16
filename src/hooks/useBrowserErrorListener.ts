@@ -1,12 +1,25 @@
 /**
  * useBrowserErrorListener
  * =======================
- * Hook to capture browser console errors from the live preview iframe.
- * 
- * Error sources:
- * 1. CDP Debugger (browser-console-error IPC) - Electron's debugger API
- * 2. PostMessage from iframe - Vite/Webpack HMR errors
- * 3. Window error events - Uncaught exceptions
+ * Feeds `browserErrorsAtom` — the PARSED, file-grouped build/dev-server errors
+ * shown at the top of the Console tab, with "Fix All".
+ *
+ * Sources:
+ * 1. `browser:error` (onBrowserSurfaceError) — error/warning entries from the
+ *    in-app browser tabs.
+ * 2. Window `message` / `error` events — dev-server HMR payloads reaching the
+ *    app window.
+ *
+ * NOT the page console. That is a separate chronological stream at every level,
+ * fed by `usePageConsoleListener` from the coalesced `browser:console` channel.
+ * Both render in the same tab; keep them apart, because one is a set of problems
+ * to work through and the other is a sequence of events.
+ *
+ * (A third source, a CDP debugger attached to the APP window, was removed with
+ * the Console tab. It predated v14.15.0's move of the user's app out of an
+ * in-window iframe and into a Browser tab — a separate WebContentsView, so a
+ * separate CDP target it could never see — while still forwarding Atlarix's own
+ * renderer errors to users as errors in their app.)
  */
 
 import { useEffect } from 'react';
@@ -156,58 +169,10 @@ export function useBrowserErrorListener() {
             return {};
         };
 
-        // Listen for CDP debugger console errors (from main process)
-        const handleCDPError = (payload: any) => {
-            console.log('[useBrowserErrorListener] CDP console error:', payload);
-
-            // Filter out internal/library errors
-            if (shouldIgnoreError(payload.message || '', payload.source)) {
-                console.log('[useBrowserErrorListener] Ignoring internal error:', payload.message?.slice(0, 60));
-                return;
-            }
-
-            if (payload.type === 'error' || payload.type === 'warning') {
-                // Extract line number from source if not directly provided
-                const extracted = (!payload.line && payload.source)
-                    ? extractLineNumber(payload.source, payload.stack)
-                    : {};
-
-                const error: BrowserError = {
-                    id: `cdp-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-                    type: 'runtime',
-                    severity: payload.type === 'warning' ? 'warning' : 'error',
-                    framework: 'browser',
-                    actionable: true,
-                    message: payload.message || 'Unknown error',
-                    file: payload.source,
-                    line: payload.line || extracted.line,
-                    column: payload.column || extracted.column,
-                    stack: payload.stack,
-                    timestamp: payload.timestamp || Date.now(),
-                };
-
-                setDismissedSignatures((prev) => {
-                    const next = new Set(prev);
-                    next.delete(getErrorSignature(error));
-                    return next;
-                });
-                setErrors((prev) => {
-                    // Avoid duplicates using normalized comparison
-                    if (isDuplicateError(error, prev)) return prev;
-                    console.log('[useBrowserErrorListener] Adding CDP error:', error.message);
-                    return [...prev, error];
-                });
-            }
-        };
-
-        // Register CDP listener (use type assertion since window.electron type doesn't include .on)
+        // Clear the parsed build errors when a file operation succeeds — anything
+        // still broken is reported again by the next dev-server output.
+        // (Type assertion: window.electron's type doesn't declare `.on`.)
         const ipcRenderer = window.electron?.ipcRenderer as any;
-        ipcRenderer?.on?.('browser-console-error', handleCDPError);
-
-        // ================================================
-        // SIMPLE TODO APPROACH: Clear ALL errors on success signals
-        // Errors that still exist will re-appear naturally
-        // ================================================
         const handleOperationStatus = (payload: any) => {
             // When any file operation completes successfully, clear all browser errors
             // If errors still exist, the browser will report them again
@@ -217,18 +182,6 @@ export function useBrowserErrorListener() {
             }
         };
         ipcRenderer?.on?.('operation-status', handleOperationStatus);
-
-        // ================================================
-        // FIX 2: CDP Console Buffer Cleared (v0.9.15)
-        // When main process clears CDP buffer, reset our dedup tracking
-        // This ensures errors don't re-appear from stale buffer entries
-        // ================================================
-        const handleBufferCleared = () => {
-            console.log('[useBrowserErrorListener] ✅ CDP buffer cleared - resetting error state and dedup tracking');
-            seenErrorHashes.clear(); // Reset deduplication set
-            setErrors([]); // Clear React state
-        };
-        ipcRenderer?.on?.('browser-console-cleared', handleBufferCleared);
 
         const handleMessage = (event: MessageEvent) => {
             // Log all messages for debugging (comment out in production)
@@ -444,9 +397,7 @@ export function useBrowserErrorListener() {
         return () => {
             window.removeEventListener('message', handleMessage);
             window.removeEventListener('error', handleError);
-            ipcRenderer?.removeListener?.('browser-console-error', handleCDPError);
             ipcRenderer?.removeListener?.('operation-status', handleOperationStatus);
-            ipcRenderer?.removeListener?.('browser-console-cleared', handleBufferCleared);
             offPreviewError();
         };
     }, [setErrors, setDismissedSignatures]);

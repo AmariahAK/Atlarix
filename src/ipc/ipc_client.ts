@@ -3650,6 +3650,28 @@ export class IpcClient {
     return typeof off === "function" ? off : () => {};
   }
 
+  /**
+   * Coalesced console entries at EVERY level (the Console tab's source).
+   *
+   * Distinct from `onBrowserSurfaceError`, which stays per-entry and
+   * error/warning-only for its existing consumers. Subscribe to ONE of the two —
+   * both carry error-level entries, so a consumer listening to both renders them
+   * twice.
+   */
+  public onBrowserConsoleBatch(
+    listener: (
+      entries: import("@/ipc/utils/browser_view_manager").BrowserSurfaceError[],
+    ) => void,
+  ): () => void {
+    const off = this.ipcRenderer.on("browser:console", (entries) =>
+      listener(
+        (entries ??
+          []) as import("@/ipc/utils/browser_view_manager").BrowserSurfaceError[],
+      ),
+    );
+    return typeof off === "function" ? off : () => {};
+  }
+
 
   // Background jobs (v14).
   public async backgroundJobsList(

@@ -51,7 +51,6 @@ import {
     isAtlarixPlanRelativePath,
 } from "../../../lib/tasks/plan-sync";
 import { FileUploadsState } from "../../utils/file_uploads_state";
-import { clearAllConsoleBuffers } from "../console_debugger";
 import { readSettings } from "../../../main/settings";
 import { resolveEffectiveWorkMode, isReadOnlyWorkMode } from "@/lib/work-mode";
 import {
@@ -945,12 +944,6 @@ export class PermissionInterceptor extends EventEmitter {
         }
 
         logger.log(`[executeAllOperations] Completed all ${operationsToExecute.length} operations`);
-
-        // ════════════════════════════════════════════════════════════════════
-        // FIX 2 (v0.9.15): Clear CDP console buffers to prevent stale errors
-        // This sends Console.clearMessages via CDP and notifies renderer
-        // ════════════════════════════════════════════════════════════════════
-        clearAllConsoleBuffers();
 
         return results;
     }

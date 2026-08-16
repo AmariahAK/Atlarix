@@ -10,7 +10,6 @@ import { devServerManager, detectFramework } from '@/lib/dev_server_manager';
 import { db } from '@/db';
 import { apps } from '@/db/schema';
 import { eq } from 'drizzle-orm';
-import { attachConsoleDebugger } from './console_debugger';
 import { abortAllStreams } from './chat_stream_handlers';
 
 const logger = log.scope('dev-server-handlers');
@@ -88,11 +87,14 @@ ipcMain.handle(
 
             logger.log(`Starting dev server for workspace ${workspaceId} at ${workspace.path}`);
 
-            // Attach console debugger to capture browser errors via CDP
-            const win = BrowserWindow.getAllWindows()[0];
-            if (win) {
-                attachConsoleDebugger(win);
-            }
+            // (A CDP console debugger used to attach to the APP window here. It
+            // predated v14.15.0, when the user's app moved out of an in-window
+            // iframe and into a Browser tab — a separate WebContentsView, and so a
+            // separate CDP target it could never see. What it did still capture was
+            // Atlarix's OWN renderer console, and its filter only recognised the
+            // dev-server port, so in a packaged build those surfaced to users as
+            // errors in their app. Removed; the browser tabs report their own
+            // console natively via `browser:console`.)
 
             const result = await devServerManager.startServer(
                 workspaceId,
