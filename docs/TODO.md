@@ -1,8 +1,8 @@
 # Atlarix TODO
 
-**Current Version:** v14.30.0 (2026-08-11) — on-device dictation works on Windows and Linux
-(the CPU fallback had never built a session on any platform).
-**Last Updated:** 2026-08-15
+**Current Version:** v14.31.0 (2026-08-16) — a real Network tab, and nothing the browser sees can
+block a turn any more.
+**Last Updated:** 2026-08-16
 
 > **What belongs here:** open work, decisions still owed, and traps worth not rediscovering.
 > **What does not:** shipped narrative → [`docs/CHANGELOG.md`](./CHANGELOG.md). Designed-but-unscheduled
@@ -13,132 +13,24 @@
 
 ## 🔨 In flight — landed, not yet released
 
-Needs a `docs/CHANGELOG.md` section at the next version bump. Both from the 2026-08-15 upstream
-review.
-
-- **Retry jitter** — `RECONNECT_DELAYS_MS` was fixed at 2s/5s/10s, so every client and all 5
-  concurrent sub-agents retried in lockstep; on the Core path that stampede hits our own proxy. Now
-  read through `jitteredDelay()`. A provider `Retry-After` still wins and jitter on it is additive
-  only. **Trap noted at the constant:** `simple-stream-text.ts` sets the SDK's `maxRetries: 0` when
-  tools are present, so ours is the ONLY retry — the two would multiply.
-- **Browser runtime gating REMOVED — a deliberate behavioural change, not a bug fix.** Nothing the
-  browser reports can block a turn any more: not a 4xx/5xx, not a console error, not a failed load,
-  not a dead or blank renderer. **Why:** the harness cannot tell whose error it is. A frontend on
-  `:5173` calling its own API on `:8080` is one app across two origins; a staging URL is the app
-  under test; an embedded third-party script is not. Every rule we could write is wrong in one
-  direction or the other, and a wrong block costs more accuracy than a missed one. The trigger was
-  concrete — the agent opened YouTube to *read* it, Google's logged-out auth probe returned 401, and
-  the gate nagged it to "fix" a third-party auth handshake. It correctly refused, then burned turns
-  arguing with a gate that could not hear it.
-  - `getPreviewRuntimeFeedback` / `getPreviewVisualFeedback` deleted; the gate calls in
-    `run-agent-turn.ts` are gone. `blockingPreviewErrors` → **`runtimeFailuresSince`**, kept because
-    `browser_test` still needs a verdict — but that is the agent *asking*, not the harness overruling.
-    `BLOCKING_CONSOLE_LEVELS` → `FAILURE_CONSOLE_LEVELS`.
-  - `console-capture-gate.test.ts` now asserts the **inverse** of what it asserted this morning, and
-    guards against a gate being reintroduced by checking `run-agent-turn.ts` doesn't import either
-    removed function.
-  - **COST, accepted by the owner:** a Build turn can now end with the app white-screening and
-    nothing stops it. What remains is the project's own checks (`tsc`, lint, tests, stop hooks).
-    **The README's verified-edits wording needs re-reading against this before release.**
-  - **The replacement is wired.** `buildRuntimeNotice()` emits a one-line pointer (counts + "read it
-    with `browser_inspect`"), never the entries — a chatty page costs one line, not hundreds.
-    Delivered **once per turn** on the productive-round path, which is reached only on
-    `finish_reason:"tool-calls"` — a continuation the model already asked for. So it cannot extend a
-    turn: if the model wants to stop, it stops and the notice is simply never sent. Transient
-    steering, request-only, never persisted — the same shape the old gate-nudge used.
-    - **Two traps it had to avoid, both documented in that file:** a per-round nudge previously
-      re-elicited `read_file` on open-weight models until the turn exhausted (hence the once-per-turn
-      flag), and folding a round's native messages into the request *only* silently dropped tool
-      results from persisted history (hence transient-vs-fold being kept distinct).
-  - **STILL OWED:** the user-side half — "Send to Atlarix" on a row/selection/all, an unread badge
-    mirroring automations' `unreadCount`, and a setting for what triggers a notice (no hardcoded
-    severity).
-- **"Restoring your session…" could hang forever.** Reported by a user upgrading from v5–v8; not
-  upgrade-specific once traced. `markStartupAuthResolved()` correctly runs in a `finally`, but the
-  thing that TOLD the renderer — `broadcastSessionState()` — opens with `if (!s) return`, so **the
-  failure case was exactly the case that got no message**. A renderer that asked before the restore
-  settled then waited forever: no sign-in button, no error, no retry. Anyone launching **signed
-  out** could hit it — `initialize()` only sets `session` when a user exists, and
-  `restoreAuthSessionOnStartup` sleeps an unconditional 400ms first; a stale token widens that to
-  seconds, which is why it fired every time for him and intermittently for everyone else.
-  - Fixed with a dedicated **`auth:resolved`** broadcast from the same `finally`, always firing,
-    carrying the user or `null`. A NEW channel deliberately — making `plan-changed` fire on a null
-    session changes its meaning for other consumers. It rides the existing `auth-ipc-bridge`
-    fan-out (ONE IPC listener for all ~22 `useAuth` mounts) and **replays to late subscribers**, so
-    a lazily mounted route can't miss a once-only event.
-  - Also: `checkSession`'s catch and missing-bridge path now set `authResolved` (a failed check is
-    an answer — the renderer must not be stricter than the process it waits on); a 10s local
-    fallback for paths no broadcast can reach; "Taking longer than usual" + a Sign in link at 5s.
-  - **Verified in the packaged app 2026-08-15** — a signed-out cold start logs `No stored session on
-    startup` and lands on a working sign-in screen, zero errors, `--self-test` 8/8.
-  - **Reproduction trap:** turning Wi-Fi off does NOT reproduce it (DNS fails fast, so the restore
-    settles fast). It needs a *black hole* — `/etc/hosts` → `192.0.2.1`, or Network Link Conditioner
-    "100% Loss". And `SUPABASE_URL` can't be overridden at launch: `NEXT_PUBLIC_SUPABASE_URL` is
-    inlined at build time via Vite `define`, so it wins the `||`.
-- **Errors tab → Console (half of Console + Network).** The tab was a *failure feed*: every console
-  message below warning was discarded at capture, so the agent could see that something broke but
-  never confirm that something WORKED. Now every level is captured, console and network get
-  separate ring buffers (500 / 200 — one shared 50-entry buffer would evict a recorded 500 within
-  seconds of a chatty page), and the tab shows the page console as a chronological stream with
-  level filter chips beside the file-grouped build errors. **Default filter is Errors + Warnings —
-  identical to the old view.** `browser_inspect(mode:"console")` gained a `level` filter and no
-  longer returns network failures (it was never a console view).
-  - **Then the gate was removed entirely** — see the Console+Network entry below. Nothing a browser
-    tab reports can end a turn any more.
-  - **Latent bug fixed on the way:** `normalizeConsoleLevel` — the old numeric mapping read
-    Electron's `console-message` integers as `2 = error, 3 = warning`, the inverse of the documented
-    "verbose, info, warning, error" order. Dead on Electron 38 (always the string branch), but on
-    that path every warning would have blocked a turn and every real error sailed through.
-  - **Deleted the Dyad-era CDP path** (`console_debugger.ts` + its two IPC channels). It attached a
-    debugger to the APP window, which since v14.15.0 cannot see the user's app at all — that runs in
-    a Browser tab, a separate `WebContentsView` and so a separate CDP target. Worse than dead: its
-    filter only recognised the **dev-server port**, so in a packaged build Atlarix's own renderer
-    errors were forwarded to users as errors in their app. It also held `webContents.debugger`,
-    blocking the user from opening devtools on the app window.
-  - **OWED: the packaged-app pass.** Confirm all levels appear with working filters, the default
-    view matches the old one, a page logging in a loop neither stalls the UI nor blocks a turn, and
-    devtools now opens on the app window.
-- **Runtime gating removed; network capture built.** Nothing a browser tab reports blocks a turn any
-  more — the harness cannot tell whose error it is (a frontend on `:5173` calling its own API on
-  `:8080` is one app across two origins), and a wrong block costs accuracy. The model gets ONE
-  `systemReminder` pointer per turn naming counts and the read tool, never a dump.
-  - **Capture has two tiers.** CDP (`webContents.debugger` + `Network.enable`) on browser tabs —
-    real timing, transfer size, bodies on demand. On attach failure / detach / `ATLARIX_BROWSER_CDP=0`
-    a tab is marked degraded and records through `webRequest` plus a page-injected `fetch`/XHR
-    wrapper for bodies. Storage is **per tab** (`network-entry.ts`, cap 500).
-  - **Traps encoded, all measured on Electron 38.2.2:** `Network.enable` **hangs forever** on a tab
-    that has never navigated — attach resolves, the command never does, no error — so `createTab`
-    primes `about:blank` first and every CDP command is timeout-wrapped. `closeTab` detaches
-    **before** `webContents.close()`. Response bodies are frequently evicted (4/25 and 9/25 on a
-    heavy page), so "no longer buffered" is its own message, not an empty body.
-  - **`onBeforeRequest` is installed lazily**, on the first tab that degrades. It is the only
-    BLOCKING webRequest hook; always-on would charge every request in every tab a main-process round
-    trip for a path most sessions never take.
-  - **Still owed:** the UI (see Designed), user-side "Send to Atlarix" routing, the unread badge, a
-    setting for what triggers a notice, per-tab cards + navigation separators, and the packaged-app
-    pass.
-- **Sentry native crash: notifications held against GC.** `SIGSEGV / SI_KERNEL / 0x0` in
-  `electron::NotificationPresenter::RemoveNotification` — browser process, unhandled, so it took the
-  whole app down. Fedora 44, Electron 38.2.2, reported on 14.8.13. All three call sites did
-  `const n = new Notification(...); n.show();` and dropped the reference, letting V8 collect the
-  wrapper while the OS notification was still on screen; the resulting teardown races the
-  notification daemon's own. Same double-teardown shape as electron#40461 and electron#43040 — both
-  fixed long before 38, neither guards the GC path. Now one `showDesktopNotification` holds each
-  notification until `close`/`failed`, never calls `close()` itself, and checks `isSupported()`
-  (the Linux-only updater notification skipped that entirely).
-  - **OWED: Linux confirmation.** It reproduces only on Linux, so the fix is reasoned rather than
-    observed. Goes with the other Linux verification items below.
-- **Delegation stagger** — `acquireDelegationSlot()` spaces same-turn siblings by
-  `ATLARIX_DELEGATION_STAGGER_MS` (default 750ms, 0 disables), so the first writes the shared cache
-  prefix and the rest read it. **Deliberately NOT gated on `resolveCacheMarkerPlacement`** — that
-  only reports whether we place EXPLICIT markers (Claude family), while DeepSeek/Z.AI/OpenAI cache
-  prefixes automatically, and those are exactly the Core providers where the saving lands.
+Nothing. v14.31.0 shipped the Console + Network work, the session-restore hang, retry jitter,
+delegation stagger, and the notification crash fix. What each left behind is in the Shipped index;
+what is still owed from them is below, under the machine that can confirm it.
 
 ---
 
 ## 🚧 Needs the Windows machine
 
 The one place several things can only be confirmed. Grouped so a single session clears them all.
+
+### v14.31.0 — the notification crash (LINUX, not Windows)
+- [ ] `SIGSEGV` in `electron::NotificationPresenter::RemoveNotification` — a Sentry report from
+      Fedora 44, fixed by holding each `Notification` until `close`/`failed` instead of dropping the
+      reference at `show()`. **The fix is reasoned, not observed**: it reproduces only on Linux, and
+      only as a race against the notification daemon's own teardown.
+- [ ] Confirm by leaving the app unfocused through several automation runs and turn-done
+      notifications, letting each expire on its own rather than clicking it. Success is the absence
+      of a crash and a clean Sentry week; failure would be another minidump on the same frame.
 
 ### v14.30.0 — on-device voice on the CPU path
 - [ ] Install the release and dictate. **Success is the log**
@@ -177,10 +69,6 @@ queue, not a design doc.
   app and report evidence-backed findings. Gets the requirement, **not the diff** — independence of
   judgment is the point. A scoped `http_request`, not the terminal. Load testing is an explicit
   non-goal.
-- **Network tab — UI only; capture is built.** Both tiers now record (see In flight). What is left
-  is the renderer: rows (method/status/type/duration/size), expand for headers and bodies,
-  per-tab cards, and widening `browser_inspect(mode:"network")` past failures-only with a `tab_id`
-  argument on both modes. Design in `docs/DESIGN_NOTES.md`.
 - **Fork sub-agents** — a worker inheriting the parent's history so it reads the cache prefix
   instead of writing one. Pulled from the 2026-08-15 batch on discovering the prefix is
   `tools → system → messages`: a fork must share the parent's **toolset and system header** or the
@@ -198,6 +86,14 @@ queue, not a design doc.
 
 ## ⏳ Open / deferred
 
+- **OWED from v14.31.0: the packaged-app pass on Console + Network.** Everything below the UI was
+  verified — full suite, and an integration run of the real capture module against youtube.com in
+  Electron 38 (43 rows, all identified; bodies 8/8 on demand; youtube → github grew the log 43 → 105
+  instead of clearing it; clean detach and tab close). **The two panels themselves have only been
+  reasoned about.** Reproduce the original report exactly: open YouTube, confirm the signed-out 401
+  appears in Network and does **not** block the turn; navigate to GitHub and confirm a divider plus
+  two distinct cards; expand a row and pull a body; confirm a page logging in a loop neither stalls
+  the UI nor floods it; confirm the app window's own DevTools still opens.
 - **The CSP does not reach the whisper worker.** `installContentSecurityPolicy()` (`main.ts:304`)
   is enforced on the `file://` document — verified — but a dedicated worker loaded from `file://`
   does **not** inherit it, and `eval()` runs freely inside. So A13/M-6 does not cover
@@ -343,6 +239,7 @@ the trap each release left behind, because those cost time twice.
 
 | Version | Shipped | Trap worth remembering |
 | --- | --- | --- |
+| **v14.31.0** | Network tab; browser runtime gating removed; session-restore hang; notification crash | `Network.enable` **hangs forever** on a tab that has never navigated — attach resolves, the command never does, no error at all; prime `about:blank` first and time-bound every CDP command. A `Notification` you stop referencing after `show()` is collected while the OS is still displaying it, and the teardown races the daemon's — a native `SIGSEGV` no JS handler can see. A broadcast that early-returns on the empty case (`if (!s) return`) can never clear a loading flag, so **the failure case is exactly the case that gets no message**. |
 | **v14.30.0** | on-device dictation on Windows/Linux; ORT served from inside the app | An error names the model that **reported** it, not one that was ever loaded — two diagnoses were wrong before the (device × dtype) matrix settled it. And `postinstall`'s trailing `\|\| true` guards **patch-package**, absent from the pruned tree, not the Electron install; re-parenthesising it broke Windows packaging at tag time. |
 | **v14.29.0** | automated Store submission, WSL Landlock confinement, sandbox path fixes | `latest-mac.yml` is arm64-only by design. Duplicate asset uploads **422 green while keeping the OLD asset** — delete the draft before re-tagging. |
 | **v14.28.0** | MSIX on every tag; Windows sandbox rebuilt on Low IL | AppContainer is deny-by-default on **reads** — the inverted primitive, unfixable per-path. `cargo check --target x86_64-pc-windows-msvc` works from macOS; `cargo build` on `cfg`-gated crates proves nothing. |

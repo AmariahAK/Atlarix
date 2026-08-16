@@ -3,6 +3,57 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
+## [14.31.0] (2026-08-16) — A real Network tab, and the browser stops blocking your turns
+
+**The in-app browser now shows you every request a page made, and it no longer decides on your
+behalf that something is broken.** Those two changes are related: the second is what made the first
+worth building.
+
+**Nothing the browser sees can end a turn any more.** Until now, a failed request or a console error
+in a page could stop the agent from finishing and nag it to fix what it found. The problem is that
+Atlarix cannot tell *whose* error it is. A frontend on `:5173` calling its own API on `:8080` is one
+app across two origins. A staging URL is the app you are testing. An embedded payment script is
+someone else's code until the day it is yours. Every rule we could write is wrong in one direction
+or the other — and in practice it went wrong in the expensive direction: the agent opened YouTube
+simply to read it, Google's signed-out auth check returned a 401, and the agent was told to go fix a
+third-party login handshake. It correctly refused, then spent turns arguing with something that
+could not hear it.
+
+So the agent is now **told**, not blocked. One line per turn — counts and where to look, never the
+entries themselves — and it reads the detail itself if it decides the detail matters.
+**Settings → Browser** controls what it is told: anything recorded (the default), only failures, or
+nothing at all.
+
+- **A Network tab.** Every request each browser tab made: method, status, type, duration, and size,
+  with headers and response bodies when you expand a row. One scrollable card per tab, so what
+  YouTube did and what GitHub did can never be read as the same thing. Bodies are fetched only when
+  you ask for one, and if the browser has already discarded it the tab says so rather than showing
+  you an empty box.
+- **You decide what the agent looks at.** *Send to Atlarix* on a single row, on a whole tab, or on
+  everything currently shown — it is added to your message box behind a separator, so it never eats
+  what you were already typing. Unread badges on Console and Network tell you something arrived
+  without interrupting you.
+- **The Console tab groups by browser tab too**, with a divider showing where the page navigated.
+  Navigating no longer clears anything: the earlier page's output stays, because comparing two loads
+  is often the whole point.
+
+**"Restoring your session…" no longer hangs forever.** If the app started while you were signed out,
+that message could sit on screen indefinitely with no way past it — the sign-in broadcast it was
+waiting on skipped the signed-out case entirely, so the failure path got no message at all. It now
+resolves, with a "Taking longer than usual" note and a sign-in link if it is slow.
+
+**A crash on Linux.** Desktop notifications could take the whole app down — the notification was
+released internally while the system was still showing it. Every notification Atlarix sends is now
+held until it is genuinely finished.
+
+- **Retries no longer arrive in lockstep.** Reconnect delays were fixed at 2s/5s/10s, so every
+  client — and all five of a turn's sub-agents — retried at exactly the same moment. A provider's
+  own `Retry-After` still wins.
+- **Sub-agents start staggered**, so the first one writes the shared prompt cache and the rest read
+  it instead of each paying to write their own.
+- For the agent: `browser_inspect(mode:"network")` now shows every request rather than only
+  failures, and both console and network reads accept a `tab_id`.
+
 ## [14.30.0] (2026-08-11) — On-device dictation works on Windows and Linux
 
 **The free, on-device voice engine now works when your machine falls back to the CPU** —

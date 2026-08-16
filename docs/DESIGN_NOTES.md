@@ -127,9 +127,9 @@ the app.
 
 ## Errors tab → Console + Network
 
-*Recorded 2026-08-15 after an audit. **Both halves have now shipped** (2026-08-16) — see TODO's
-"In flight". What is kept below is the record of what the audit found, the spike that overturned the
-CDP decision, and the reasoning that outlived the implementation.*
+*Recorded 2026-08-15 after an audit. **Both halves shipped in v14.31.0** (2026-08-16). What is kept
+below is the record of what the audit found, the spike that overturned the CDP decision, and the
+reasoning that outlived the implementation.*
 
 ### What actually landed, and the one thing that changed the design
 
