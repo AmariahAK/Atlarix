@@ -69,8 +69,15 @@ describe("per-tab network log", () => {
   });
 
   it("drops a response it cannot attribute at all", () => {
+    // This is the CDP path. A `loadingFinished` with nothing pending is a
+    // request that was already in flight when we attached, and all CDP carries
+    // is a byte count. Synthesizing one produced rows reading
+    // `… GET  undefinedms 14431B` — no URL, no method, no status — sitting in
+    // the list as if they were requests you could act on. Measured against
+    // youtube.com: 2 such rows in 59.
     const log = createTabNetworkLog(1);
     expect(completeRequest(log, "ghost", { status: 200 })).toBeNull();
+    expect(completeRequest(log, "ghost2", { size: 14431 })).toBeNull();
     expect(log.entries).toHaveLength(0);
   });
 

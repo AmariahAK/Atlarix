@@ -353,28 +353,27 @@ function handleCdpEvent(
     return;
   }
 
+  // No fallback record on either of these, deliberately.
+  //
+  // CDP sends `requestWillBeSent` for everything it will later report, so a
+  // finish with nothing pending is a request that was already in flight when we
+  // attached — and all CDP can tell us about it is a byte count. Synthesizing an
+  // entry produced rows reading `… GET  undefinedms 14431B`: no URL, no method,
+  // no status, presented in the list as if it were a request you could act on.
+  // A row that identifies nothing is worse than no row. (Measured against
+  // youtube.com, 2026-08-16: 2 such rows in 59.)
   if (method === "Network.loadingFinished") {
-    completeRequest(
-      tabLog,
-      id,
-      { size: p.encodedDataLength, finishedAt: Date.now() },
-      { tabId, url: "", method: "GET", source: "cdp" },
-    );
+    completeRequest(tabLog, id, { size: p.encodedDataLength, finishedAt: Date.now() });
     return;
   }
 
   if (method === "Network.loadingFailed") {
-    completeRequest(
-      tabLog,
-      id,
-      {
-        failed: true,
-        // A cancelled request is not a fault — pages abort prefetches routinely.
-        errorText: p.canceled ? "canceled" : (p.errorText ?? "failed"),
-        finishedAt: Date.now(),
-      },
-      { tabId, url: "", method: "GET", source: "cdp" },
-    );
+    completeRequest(tabLog, id, {
+      failed: true,
+      // A cancelled request is not a fault — pages abort prefetches routinely.
+      errorText: p.canceled ? "canceled" : (p.errorText ?? "failed"),
+      finishedAt: Date.now(),
+    });
   }
 }
 
