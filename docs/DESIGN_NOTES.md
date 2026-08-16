@@ -127,8 +127,34 @@ the app.
 
 ## Errors tab → Console + Network
 
-*Recorded 2026-08-15 after an audit. **The Console half shipped the same day** — see TODO's
-"In flight". What remains below is the Network half and the record of what the audit found.*
+*Recorded 2026-08-15 after an audit. **Both halves have now shipped** (2026-08-16) — see TODO's
+"In flight". What is kept below is the record of what the audit found, the spike that overturned the
+CDP decision, and the reasoning that outlived the implementation.*
+
+### What actually landed, and the one thing that changed the design
+
+The plan was "upgrade the Errors tab". Testing the shipped Console tab against YouTube changed it
+into something else: Google's logged-out `passive=true` probe returned 401, the completion gate read
+that as "the app you built is broken", and the agent burned turns explaining to a gate that could
+not hear it. **So the gate went, entirely.** The harness cannot tell whose error it is — a frontend
+on `:5173` calling its own API on `:8080` is one app across two origins, a staging URL is the app
+under test, an embedded Stripe script is third-party until it is yours — and every rule we could
+write is wrong in one direction. A wrong block costs accuracy, which is the thing this whole app is
+for.
+
+What replaced it, in both directions:
+
+- **To the model:** one `systemReminder` pointer per turn naming counts and the read tool. Never a
+  dump — a chatty page costs one line, and the cost of watching a noisy tab is constant. What
+  triggers it is `browserRuntimeNotice` in settings, defaulting broad, because no severity policy in
+  the harness can be right for everyone.
+- **To the user:** unread badges and "Send to Atlarix" on a row, a tab, or everything shown. This is
+  the half that actually replaces the gate: when something genuinely IS broken, the person looking
+  at it knows, and the harness does not have to guess.
+
+The reasoning worth keeping: *a guard that cannot be right should inform, not block.* That is the
+same conclusion `atlarix-loop-termination-no-caps` and the v14.8.10 "guards guide via the result
+channel, never dead-end" note reached from different directions.
 
 ### CDP viability spike — RUN 2026-08-16, Electron 38.2.2
 
@@ -216,13 +242,13 @@ Widening *capture* for the UI while leaving the *gate* predicate untouched is th
 `browser_test` reads the same buffer, so a mistake here silently changes when the agent believes it
 is finished.
 
-### Agent side
+### Agent side — DONE
 
-`browser_inspect(mode:"console"|"network")` are failure-only lenses today. They need the same
-all-levels / all-requests view with an explicit failures filter, so the agent can **confirm a
-success** rather than only observe a failure. That gap is also why a QA agent cannot use the
-current Errors tab as its observation channel: it is a failure feed, and QA needs to report what
-worked.
+`browser_inspect(mode:"console"|"network")` were failure-only lenses. Both now show everything with
+an explicit failures filter (`include:"failures"|"all"`), plus `tab_id` on both and `request_id` for
+one row's headers and bodies. The point was never completeness for its own sake: an agent that can
+only see failures can never **confirm a success**, which is also why a QA sub-agent could not have
+used the old Errors tab as its observation channel.
 
 ---
 
