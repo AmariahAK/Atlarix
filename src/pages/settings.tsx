@@ -140,6 +140,40 @@ export default function SettingsPage() {
             <SkillsCard />
           </div>
 
+          {/* Browser — what the in-app browser tells the agent about. */}
+          <div id="browser" className="bg-card rounded-xl shadow-sm p-6 border border-border">
+            <h2 className="text-lg font-medium text-foreground mb-4">Browser</h2>
+            <div className="space-y-3">
+              <label
+                htmlFor="browser-runtime-notice"
+                className="text-sm text-foreground block"
+              >
+                Tell the agent when a page logs something
+              </label>
+              <select
+                id="browser-runtime-notice"
+                value={settings?.browserRuntimeNotice ?? 'any'}
+                onChange={(e) =>
+                  updateSettings({
+                    browserRuntimeNotice: e.target
+                      .value as 'off' | 'failures' | 'any',
+                  })
+                }
+                className="w-full max-w-xs rounded-md border border-border bg-background px-3 py-2 text-sm"
+              >
+                <option value="any">Anything it recorded (default)</option>
+                <option value="failures">Only failures</option>
+                <option value="off">Never</option>
+              </select>
+              <p className="text-xs text-muted-foreground">
+                One line per turn, with counts — never the entries themselves. It
+                never blocks the agent from finishing; it is a pointer the agent
+                may follow or ignore, and you can always send specific entries
+                yourself from the Console and Network tabs.
+              </p>
+            </div>
+          </div>
+
           {/* Integrations */}
           <div id="integrations" className="bg-card rounded-xl shadow-sm p-6 border border-border">
             <h2 className="text-lg font-medium text-foreground mb-4">

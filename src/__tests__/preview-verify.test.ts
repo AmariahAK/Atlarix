@@ -13,6 +13,12 @@ vi.mock("@/ipc/utils/browser_view_manager", () => ({
   getActiveTabView: () => null,
 }));
 
+// What the notice reports is the USER's call, not a constant.
+let mockNoticePolicy: string | undefined;
+vi.mock("@/main/settings", () => ({
+  readSettings: () => ({ browserRuntimeNotice: mockNoticePolicy }),
+}));
+
 import {
   runtimeFailuresSince,
   ensurePreviewBaseline,
@@ -23,7 +29,7 @@ import {
 const err = (
   type: BrowserSurfaceError["type"],
   timestamp: number,
-  level?: "error" | "warning",
+  level?: BrowserSurfaceError["level"],
 ): BrowserSurfaceError => ({ type, message: `${type}@${timestamp}`, timestamp, level });
 
 describe("runtimeFailuresSince", () => {
@@ -60,6 +66,7 @@ describe("runtimeFailuresSince", () => {
 describe("buildRuntimeNotice", () => {
   beforeEach(() => {
     mockErrors = [];
+    mockNoticePolicy = undefined;
     clearPreviewBaseline("t1");
   });
 
@@ -173,5 +180,49 @@ describe("runtimeFailuresSince — unrelated tabs", () => {
       100,
     );
     expect(kept.map((e) => e.message)).toEqual(["new and mine"]);
+  });
+});
+
+describe("the notice policy is a setting, not a constant", () => {
+  beforeEach(() => {
+    mockErrors = [];
+    mockNoticePolicy = undefined;
+    clearPreviewBaseline("t1");
+  });
+
+  it('"off" says nothing at all, however loud the page was', () => {
+    mockNoticePolicy = "off";
+    ensurePreviewBaseline("t1", 0);
+    mockErrors = [
+      err("network-failed", 100),
+      err("console-error", 100, "error"),
+      err("render-gone", 100),
+    ];
+    expect(buildRuntimeNotice("t1")).toBeNull();
+  });
+
+  it('"failures" narrows to faults, dropping ordinary output', () => {
+    mockNoticePolicy = "failures";
+    ensurePreviewBaseline("t1", 0);
+    mockErrors = [err("console-error", 100, "log"), err("console-error", 101, "info")];
+    expect(buildRuntimeNotice("t1")).toBeNull();
+
+    mockErrors = [...mockErrors, err("network-failed", 102)];
+    expect(buildRuntimeNotice("t1")).toContain("1 failed request");
+  });
+
+  it("defaults to broad — the notice is one line either way", () => {
+    // Narrowing buys nothing and costs the model the knowledge that anything
+    // happened. A warning must still be counted by default.
+    ensurePreviewBaseline("t1", 0);
+    mockErrors = [err("console-error", 100, "warning")];
+    expect(buildRuntimeNotice("t1")).toContain("1 other console entry");
+  });
+
+  it("a navigation marker is never counted as something that happened", () => {
+    mockNoticePolicy = "any";
+    ensurePreviewBaseline("t1", 0);
+    mockErrors = [err("navigated", 100)];
+    expect(buildRuntimeNotice("t1")).toBeNull();
   });
 });

@@ -154,6 +154,94 @@ function ConsoleRow({
     );
 }
 
+/**
+ * Split the stream into one group per browser tab, newest activity last.
+ *
+ * Exported for the test that pins it: the whole reason cards exist is that a
+ * second tab's output used to read as this page's failure, and a grouping that
+ * silently drops entries with no `tabId` would reintroduce that by making them
+ * vanish instead.
+ */
+export function groupByTab(
+    entries: PageConsoleEntry[],
+): Array<{ tabId: number | null; label: string; entries: PageConsoleEntry[] }> {
+    const groups = new Map<number | null, PageConsoleEntry[]>();
+    for (const e of entries) {
+        const key = e.tabId ?? null;
+        const list = groups.get(key);
+        if (list) list.push(e);
+        else groups.set(key, [e]);
+    }
+    return [...groups.entries()].map(([tabId, list]) => {
+        // Name the card from the most recent navigation it saw. The entries do
+        // not carry the tab's title, and the last URL it went to is the label a
+        // person actually recognises.
+        const lastNav = [...list].reverse().find((e) => e.type === 'navigated');
+        return {
+            tabId,
+            label: lastNav?.url ?? (tabId == null ? 'Unattributed' : `Tab ${tabId}`),
+            entries: list,
+        };
+    });
+}
+
+function TabConsoleCard({
+    group,
+    onSend,
+}: {
+    group: { tabId: number | null; label: string; entries: PageConsoleEntry[] };
+    onSend: (text: string) => void;
+}) {
+    const [collapsed, setCollapsed] = useState(false);
+    return (
+        <div className="rounded-md border border-border/60 bg-black/20">
+            <div className="flex items-center gap-2 px-2 py-1.5 border-b border-border/40">
+                <button
+                    type="button"
+                    onClick={() => setCollapsed((v) => !v)}
+                    className="shrink-0 text-muted-foreground hover:text-foreground"
+                    aria-label={collapsed ? 'Expand tab' : 'Collapse tab'}
+                >
+                    <ChevronRight
+                        className={cn('h-3.5 w-3.5 transition-transform', !collapsed && 'rotate-90')}
+                    />
+                </button>
+                <span className="text-xs font-medium truncate" title={group.label}>
+                    {group.label}
+                </span>
+                <span className="text-[11px] text-muted-foreground shrink-0">
+                    {group.entries.length}
+                </span>
+                <button
+                    type="button"
+                    onClick={() =>
+                        onSend(
+                            `Console from ${group.label}:\n` +
+                                group.entries
+                                    .filter((e) => e.type !== 'navigated')
+                                    .map(formatConsoleEntry)
+                                    .join('\n'),
+                        )
+                    }
+                    className="ml-auto shrink-0 text-[11px] text-muted-foreground hover:text-foreground"
+                >
+                    Send to Atlarix
+                </button>
+            </div>
+            {!collapsed && (
+                // Bounded per card. The main process already caps each tab, so
+                // this list is short enough not to need virtualizing — and a card
+                // that grows without limit is not a card.
+                <div className="max-h-72 overflow-y-auto">
+                    {group.entries.map((entry, i) => (
+                        <ConsoleRow key={`${entry.timestamp}-${i}`} entry={entry} onSend={onSend} />
+                    ))}
+                </div>
+            )}
+        </div>
+    );
+}
+
 export function PageConsole() {
     const [filter, setFilter] = useAtom(consoleLevelFilterAtom);
     const [entries, setEntries] = useAtom(pageConsoleAtom);
@@ -166,6 +254,8 @@ export function PageConsole() {
     function send(text: string) {
         setChatInput(appendToChatInput(chatInput, text));
     }
+
+    const groups = useMemo(() => groupByTab(visible), [visible]);
 
     const counts = useMemo(() => {
         let errors = 0;
@@ -240,15 +330,30 @@ export function PageConsole() {
                             : `Nothing at this level. ${entries.length} entries hidden by the filter.`}
                     </p>
                 </div>
-            ) : (
-                // Virtualized: a page logging in a loop would otherwise mount
-                // thousands of rows and drop frames.
+            ) : groups.length === 1 ? (
+                // ONE tab: no card. There is nothing to separate, and a frame
+                // around the only thing on screen is chrome for its own sake.
+                // Virtualized, because a page logging in a loop would otherwise
+                // mount thousands of rows and drop frames.
                 <Virtuoso
                     className="flex-1"
                     data={visible}
                     followOutput="smooth"
                     itemContent={(_i, entry) => <ConsoleRow entry={entry} onSend={send} />}
                 />
+            ) : (
+                // SEVERAL tabs: a card each, matching the Network tab. This is
+                // the fix for a second tab's output reading as this page's
+                // failure — the boundary is visual, so it cannot be forgotten.
+                <div className="flex-1 min-h-0 overflow-y-auto p-2 space-y-2">
+                    {groups.map((group) => (
+                        <TabConsoleCard
+                            key={group.tabId ?? 'unattributed'}
+                            group={group}
+                            onSend={send}
+                        />
+                    ))}
+                </div>
             )}
         </div>
     );

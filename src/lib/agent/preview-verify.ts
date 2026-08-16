@@ -21,6 +21,7 @@ import {
   resolveBrowserScope,
   type BrowserSurfaceError,
 } from "@/ipc/utils/browser_view_manager";
+import { readSettings } from "@/main/settings";
 
 /**
  * Console levels that count as a FAILURE for an explicitly-requested verification
@@ -96,6 +97,17 @@ export function clearPreviewBaseline(turnId: string): void {
  * Returns null when nothing was recorded, so a quiet turn adds nothing at all.
  */
 export function buildRuntimeNotice(turnId: string): string | null {
+  // What counts is the USER's call, not a constant here. The harness cannot tell
+  // whose error a page reported, so any severity policy baked into the code is
+  // wrong for someone — a third-party 401 is noise, the same 401 from your own
+  // API is the bug.
+  //
+  // The default is BROAD. The notice is one line of counts either way, so
+  // narrowing it buys nothing and costs the model the knowledge that anything
+  // happened at all; "failures" is there for whoever disagrees.
+  const policy = readSettings().browserRuntimeNotice ?? "any";
+  if (policy === "off") return null;
+
   const baseline = previewBaselineByTurn.get(turnId) ?? 0;
   // One turn belongs to one window; no window id is threaded here, so this
   // resolves the focused/only window — correct for the single-window case a turn
@@ -103,9 +115,15 @@ export function buildRuntimeNotice(turnId: string): string | null {
   const scope = resolveBrowserScope();
   if (!scope) return null;
 
-  const fresh = getBrowserSurfaceErrors(scope).filter(
+  const recorded = getBrowserSurfaceErrors(scope).filter(
     (e) => e.timestamp >= baseline && !e.unrelated && e.type !== "navigated",
   );
+  const fresh =
+    policy === "any"
+      ? recorded
+      : recorded.filter(
+          (e) => e.type !== "console-error" || FAILURE_CONSOLE_LEVELS.has(e.level ?? ""),
+        );
   if (fresh.length === 0) return null;
 
   const failedRequests = fresh.filter((e) => e.type === "network-failed").length;
