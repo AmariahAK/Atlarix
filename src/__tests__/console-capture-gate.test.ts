@@ -49,6 +49,25 @@ describe("no turn-blocking gate remains", () => {
     expect(src).not.toContain("getPreviewRuntimeFeedback");
     expect(src).not.toContain("getPreviewVisualFeedback");
   });
+
+  it("the replacement notice cannot create a continuation, and fires once", async () => {
+    const { readFileSync } = await import("node:fs");
+    const src = readFileSync("src/lib/agent/run-agent-turn.ts", "utf8");
+
+    // Once per turn. The fold path's own comment records why: a per-round
+    // "continue/verify" nudge re-elicited read_file on open-weight models until
+    // the turn exhausted. One notice is context; every round is a loop.
+    expect(src).toContain("runtimeNoticeSent");
+    expect(src).toContain("if (!runtimeNoticeSent)");
+
+    // It must sit on the PRODUCTIVE-round path (reached only on
+    // finish_reason:"tool-calls" — a continuation the model already asked for),
+    // never on the yield/finish path, or it is a gate again under a new name.
+    const noticeAt = src.indexOf("buildRuntimeNotice(rt.streamTurnId)");
+    const gateContinue = src.indexOf("Completion gate not satisfied");
+    expect(noticeAt).toBeGreaterThan(-1);
+    expect(noticeAt).toBeGreaterThan(gateContinue);
+  });
 });
 
 describe("runtimeFailuresSince — browser_test's classifier", () => {

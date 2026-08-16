@@ -25,12 +25,10 @@ import {
   getMutationFailureFeedback,
   getUnverifiedEditFeedback,
 } from "@/lib/agent/mutation-verify";
-// `buildRuntimeNotice` (preview-verify) is the non-blocking replacement for the
-// removed browser gates — written and tested, not yet wired here. It must ride an
-// EXISTING continuation and never create one, or it becomes a gate again.
 import {
   ensurePreviewBaseline,
   clearPreviewBaseline,
+  buildRuntimeNotice,
 } from "@/lib/agent/preview-verify";
 import { trackTaskStarted, trackTaskCompleted } from "@/main/lib/analytics";
 import { runMidLoopCompaction } from "@/lib/context/mid_loop_compaction";
@@ -230,6 +228,14 @@ export async function runAgentTurn(
   // with a yield re-arms the 6-cap indefinitely (observed: 3+ full nudge cycles
   // in a single turn). This bounds the whole turn, not just the streak.
   let planNudgeTotal = 0;
+  /**
+   * ONCE per turn, never per round. The browser notice replaced the removed
+   * runtime gates, and the fold path below records why repetition is dangerous
+   * here: a per-round "continue/verify" nudge was re-eliciting `read_file` on
+   * open-weight models until the turn exhausted. One notice is context; the same
+   * notice every round is a loop.
+   */
+  let runtimeNoticeSent = false;
   let agenticMessages: ModelMessage[] = [...rt.seedMessages];
   const allToolResults: Array<{ tool: string; result: string }> = [];
   let totalToolExecutions = 0;
@@ -824,6 +830,24 @@ export async function runAgentTurn(
         logger.log(
           `${L} Skipping empty tool-results user message (native tools executed in-stream)`,
         );
+      }
+    }
+
+    // What the browser recorded this turn — a POINTER, not a payload, and not a
+    // gate. This rides a continuation the model already asked for (this path is
+    // only reached on finish_reason:"tool-calls"), so it can never extend a turn
+    // the way the removed gates did: if the model wants to stop, it stops and
+    // this is simply never emitted. Transient steering → request only, never
+    // persisted, exactly like the gate-nudge path above.
+    if (!runtimeNoticeSent) {
+      const runtimeNotice = buildRuntimeNotice(rt.streamTurnId);
+      if (runtimeNotice) {
+        agenticMessages.push({
+          role: "user" as const,
+          content: systemReminder(runtimeNotice),
+        });
+        runtimeNoticeSent = true;
+        logger.log(`${L} Browser runtime notice delivered (non-blocking, once per turn)`);
       }
     }
 

@@ -40,12 +40,19 @@ review.
   - **COST, accepted by the owner:** a Build turn can now end with the app white-screening and
     nothing stops it. What remains is the project's own checks (`tsc`, lint, tests, stop hooks).
     **The README's verified-edits wording needs re-reading against this before release.**
-  - **STILL OWED — the replacement.** `buildRuntimeNotice()` is written and tested (a one-line
-    pointer, never a payload) but **not yet wired into the turn**. Until it is, the model gets no
-    browser signal at all. It must ride an EXISTING continuation, never create one, or it is a gate
-    again. Injection has to go through `foldNativeIntoTurn` (`run-agent-turn.ts:275`) — the comment
-    above it records that the old gate-nudge path folded into the request only and silently dropped
-    tool results from persisted history.
+  - **The replacement is wired.** `buildRuntimeNotice()` emits a one-line pointer (counts + "read it
+    with `browser_inspect`"), never the entries — a chatty page costs one line, not hundreds.
+    Delivered **once per turn** on the productive-round path, which is reached only on
+    `finish_reason:"tool-calls"` — a continuation the model already asked for. So it cannot extend a
+    turn: if the model wants to stop, it stops and the notice is simply never sent. Transient
+    steering, request-only, never persisted — the same shape the old gate-nudge used.
+    - **Two traps it had to avoid, both documented in that file:** a per-round nudge previously
+      re-elicited `read_file` on open-weight models until the turn exhausted (hence the once-per-turn
+      flag), and folding a round's native messages into the request *only* silently dropped tool
+      results from persisted history (hence transient-vs-fold being kept distinct).
+  - **STILL OWED:** the user-side half — "Send to Atlarix" on a row/selection/all, an unread badge
+    mirroring automations' `unreadCount`, and a setting for what triggers a notice (no hardcoded
+    severity).
 - **"Restoring your session…" could hang forever.** Reported by a user upgrading from v5–v8; not
   upgrade-specific once traced. `markStartupAuthResolved()` correctly runs in a `finally`, but the
   thing that TOLD the renderer — `broadcastSessionState()` — opens with `if (!s) return`, so **the
