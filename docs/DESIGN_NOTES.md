@@ -130,6 +130,42 @@ the app.
 *Recorded 2026-08-15 after an audit. **The Console half shipped the same day** — see TODO's
 "In flight". What remains below is the Network half and the record of what the audit found.*
 
+### CDP viability spike — RUN 2026-08-16, Electron 38.2.2
+
+Attaching `webContents.debugger` + `Network.enable` to a **browser tab** (never the app window) is
+**viable**. Measured with a cold cache on both sides — separate session partitions, because a shared
+session makes the second load hit a warm HTTP cache and the comparison meaningless (the first
+attempt showed a bogus −76.5% request drop that was entirely cache):
+
+| | plain | CDP attached |
+| --- | --- | --- |
+| requests completed | 29 | **39** |
+| load time | 5337ms | **2467ms** |
+
+Attached saw *more* requests and loaded *faster*, so **no sign of
+[#23035](https://github.com/electron/electron/issues/23035)** ("attach blocks some requests") on
+this version. It survived navigation (`requestWillBeSent` 51 → 172), stayed attached with no
+`detach` event, and closed cleanly. Memory delta was smaller than the plain load's.
+
+**Two findings that change the plan:**
+
+1. **`Network.enable` hangs forever on a tab that has never navigated.** `attach()` succeeds, then
+   the command simply never resolves — no error, no timeout. The target has no renderer to service
+   it. Fix: prime with `about:blank` (or attach after the first load) before enabling. Any
+   implementation MUST wrap `sendCommand` in a timeout — a silent hang here would look exactly like
+   the session-restore bug fixed the same day.
+2. **On-demand body retrieval is unreliable on a heavy page: 4/25 and 9/25 across two runs**, failing
+   with `No resource with given identifier found` — the buffer had already evicted them. The
+   approved choice was "on demand, per row", and on YouTube that means most bodies are gone before
+   anyone asks. YouTube is a worst case (huge, streaming, constant churn) and a typical localhost dev
+   app with a handful of XHRs would fare far better — but the UI must be honest that a body can be
+   unavailable, and if bodies turn out to matter in practice the fix is fetching at
+   `loadingFinished` for `xhr`/`fetch` only, which was the option declined at planning time. **Worth
+   revisiting with real numbers rather than re-arguing.**
+
+Also observed: CDP reported **more** requests than `webRequest` for the same load (47 finished vs 39
+completed), so the two are not interchangeable inventories — CDP sees things webRequest does not.
+
 **Still open — the Network tab.** `webRequest.onCompleted` still early-returns on `status < 400`,
 so successful requests are never recorded and there is nothing to render. The design decision it
 carries: `webRequest` exposes method, status, resourceType and headers, but **no transfer size and
