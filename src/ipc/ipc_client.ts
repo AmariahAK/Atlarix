@@ -62,6 +62,7 @@ import type {
   ProposalResult,
 } from "@/lib/schemas";
 import { showError } from "@/lib/toast";
+import type { BrowserNetworkSnapshot } from "@/lib/browser/network-entry";
 import { classifyContent } from "@/lib/file-content-type";
 import { DeepLinkData } from "./deep_link_data";
 import { getDefaultStore } from "jotai";
@@ -3635,6 +3636,26 @@ export class IpcClient {
 
   public async browserClearErrors(): Promise<void> {
     return this.ipcRenderer.invoke("browser:clear-errors");
+  }
+
+  /**
+   * Every tab's request log, PULLED.
+   *
+   * Deliberately not a push channel: a page load is hundreds of requests, and
+   * streaming each one to the renderer is the flood shape that has already cost
+   * this app a thermal regression. The Network tab polls while it is on screen;
+   * capture in the main process runs either way.
+   */
+  public async browserGetNetwork(): Promise<BrowserNetworkSnapshot> {
+    return this.ipcRenderer.invoke("browser:get-network");
+  }
+
+  /** One response body, on demand. Frequently unavailable — say so, don't fake it. */
+  public async browserGetNetworkBody(
+    tabId: number,
+    requestId: string,
+  ): Promise<{ body: string; base64: boolean } | { unavailable: string }> {
+    return this.ipcRenderer.invoke("browser:get-network-body", tabId, requestId);
   }
 
   public onBrowserSurfaceError(

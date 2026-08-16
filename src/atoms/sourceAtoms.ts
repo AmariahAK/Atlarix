@@ -20,7 +20,7 @@ export type PanelType =
     | 'tools'           // Tool execution activity
     | 'empty';          // No content
 
-export type PanelTab = 'sources' | 'tools' | 'debug' | 'preview' | 'terminal' | 'logs' | 'files' | 'approve' | 'permission' | 'errors' | 'permissions' | 'search' | 'chat' | 'plan' | 'browser' | 'automations';
+export type PanelTab = 'sources' | 'tools' | 'debug' | 'preview' | 'terminal' | 'logs' | 'files' | 'approve' | 'permission' | 'errors' | 'network' | 'permissions' | 'search' | 'chat' | 'plan' | 'browser' | 'automations';
 
 export interface PanelContext {
     type: PanelType;
@@ -441,6 +441,18 @@ export type PageConsoleEntry =
 
 /** Rolling page-console stream. Capped in the listener, not here. */
 export const pageConsoleAtom = atom<PageConsoleEntry[]>([]);
+
+/**
+ * Unread counts for the Console and Network tabs, mirroring automations'
+ * `unreadCount`.
+ *
+ * This is what replaced the completion gate on the USER's side. Nothing blocks a
+ * turn any more, so the way a person finds out something broke is a badge they
+ * can act on — or ignore, which is the whole point. Cleared by RightPanel when
+ * the matching tab is on screen.
+ */
+export const consoleUnreadCountAtom = atom(0);
+export const networkUnreadCountAtom = atom(0);
 
 export type ConsoleLevelFilter = 'problems' | 'all' | 'errors' | 'warnings' | 'logs';
 

@@ -276,3 +276,40 @@ describe("navigation separators", () => {
     expect(batches).toHaveLength(1);
   });
 });
+
+describe("capture with the panel closed", () => {
+  beforeEach(async () => {
+    await new Promise((r) => setTimeout(r, 150));
+    sent.length = 0;
+  });
+
+  /**
+   * A CONSTRAINT to preserve, not a feature to admire.
+   *
+   * `scope.visible` controls only which view paints into the window; the
+   * WebContentsViews keep running, and the listeners live in the main process
+   * rather than in the panel component. This breaks the moment someone "tidies"
+   * a listener into the React tree — at which point closing the right panel would
+   * silently stop recording, and nobody would notice until the data was needed.
+   */
+  it("keeps recording while the right panel is closed", () => {
+    const scope = makeScope();
+    scope.visible = false;
+    scope.activeTabId = 1;
+
+    pushBrowserSurfaceError(scope, {
+      type: "console-error",
+      level: "error",
+      message: "broke while nobody was looking",
+      timestamp: Date.now(),
+      tabId: 1,
+    });
+    pushBrowserSurfaceError(scope, networkFailure(500));
+
+    expect(getBrowserConsoleEntries(scope)).toHaveLength(1);
+    expect(getBrowserSurfaceNetworkFailures(scope)).toHaveLength(1);
+    // And it still reaches the renderer, so the unread badge is right the moment
+    // the panel is reopened rather than starting from zero.
+    expect(sent.filter((s) => s.channel === "browser:console").length).toBeGreaterThan(0);
+  });
+});

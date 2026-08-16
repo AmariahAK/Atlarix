@@ -17,7 +17,7 @@ import { automationsFocusRunIdAtom, automationsUnreadCountAtom } from '@/atoms/a
 import { AutomationsTab } from './automations/AutomationsTab';
 import { IpcClient } from '@/ipc/ipc_client';
 import { useSearch } from '@tanstack/react-router';
-import { rightPanelVisibleAtom, rightPanelWidthAtom, pinnedPanelAtom, rightPanelSuppressAutoOpenAtom } from '@/atoms/sourceAtoms';
+import { rightPanelVisibleAtom, rightPanelWidthAtom, pinnedPanelAtom, rightPanelSuppressAutoOpenAtom, consoleUnreadCountAtom, networkUnreadCountAtom } from '@/atoms/sourceAtoms';
 import { chatInputValueAtom } from '@/atoms/chatAtoms';
 import SourcePreviewPanel from './preview_panel/SourcePreviewPanel';
 import CodePreviewPanel from './preview_panel/CodePreviewPanel';
@@ -26,7 +26,7 @@ import { cn } from '@/lib/utils';
 import {
     X, Terminal, Wrench,
     Search, Eye,
-    SquareTerminal, Shield, Globe, Code2, FileText, MessageSquare, ListTree, AlarmClock, } from 'lucide-react';
+    SquareTerminal, Shield, Globe, Code2, FileText, MessageSquare, ListTree, AlarmClock, ArrowUpDown, } from 'lucide-react';
 import { TerminalPanel } from './panels/TerminalPanel';
 import { type ParsedError } from '@/lib/devServerErrorParser';
 import { ToolCallCard, ToolStatus } from './ToolCallCard';
@@ -41,6 +41,7 @@ import { type PanelTab } from '@/atoms/sourceAtoms';
 import { useWorkspacePlanPanel } from '@/hooks/useWorkspacePlanPanel';
 import { PlanExecutionPanel } from '@/components/preview_panel/PlanExecutionPanel';
 import { BrowserPanel } from '@/components/browser/BrowserPanel';
+import { NetworkPanel } from '@/components/preview_panel/NetworkPanel';
 
 
 // Icon configuration for secondary tabs
@@ -52,6 +53,7 @@ const TAB_ICONS: Record<PanelTab, { icon: React.ElementType; label: string }> = 
     // listed in useRightPanelContext's tab order. Only the user-facing name moved,
     // because the tab now shows the page console at every level, not just failures.
     errors: { icon: SquareTerminal, label: 'Console' },
+    network: { icon: ArrowUpDown, label: 'Network' },
     permissions: { icon: Shield, label: 'Permissions' },
     search: { icon: Globe, label: 'Search' },
     sources: { icon: Globe, label: 'Sources' },
@@ -72,6 +74,8 @@ export function RightPanel() {
     useWorkspacePlanPanel();
     const { context, setActiveTab } = useRightPanelContext();
     const automationsUnread = useAtomValue(automationsUnreadCountAtom);
+    const [consoleUnread, setConsoleUnread] = useAtom(consoleUnreadCountAtom);
+    const [networkUnread, setNetworkUnread] = useAtom(networkUnreadCountAtom);
     const setAutomationsFocusRunId = useSetAtom(automationsFocusRunIdAtom);
     // OS-notification click → open the automations feed at the run.
     useEffect(() => {
@@ -83,6 +87,21 @@ export function RightPanel() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
     const [isVisible, setIsVisible] = useAtom(rightPanelVisibleAtom);
+    // Reading the tab IS acknowledging it. Clearing while the panel is hidden
+    // would drop the badge for something the user never saw, which is the one
+    // way an unread count can lie.
+    useEffect(() => {
+        if (!isVisible) return;
+        if (context.activeTab === 'errors' && consoleUnread > 0) setConsoleUnread(0);
+        if (context.activeTab === 'network' && networkUnread > 0) setNetworkUnread(0);
+    }, [
+        isVisible,
+        context.activeTab,
+        consoleUnread,
+        networkUnread,
+        setConsoleUnread,
+        setNetworkUnread,
+    ]);
     const setSuppressRightAutoOpen = useSetAtom(rightPanelSuppressAutoOpenAtom);
     const [width, setWidth] = useAtom(rightPanelWidthAtom);
     const [_pinnedPanel, _setPinnedPanel] = useAtom(pinnedPanelAtom);
@@ -288,9 +307,15 @@ Please fix these errors in priority order (structural/build errors first, then r
                             const tabConfig = TAB_ICONS[tab];
                             const Icon = tabConfig?.icon || Code2;
                             const label = tabConfig?.label || tab;
-                            const badge = tab === 'automations' && automationsUnread > 0
-                                ? (automationsUnread > 9 ? '9+' : String(automationsUnread))
-                                : null;
+                            // Same badge vocabulary as automations, for the same
+                            // reason: nothing blocks a turn any more, so a count the
+                            // user can act on — or ignore — is how they find out.
+                            const unread =
+                                tab === 'automations' ? automationsUnread
+                                : tab === 'errors' ? consoleUnread
+                                : tab === 'network' ? networkUnread
+                                : 0;
+                            const badge = unread > 0 ? (unread > 9 ? '9+' : String(unread)) : null;
                             return (
                                 <Tooltip key={tab}>
                                     <TooltipTrigger asChild>
@@ -368,6 +393,12 @@ function PanelContent({
         case 'code-preview':
             if (context.activeTab === 'terminal') {
                 return <TerminalPanel />;
+            }
+            if (context.activeTab === 'network') {
+                // `active` drives the poll: the panel reads while it is on screen,
+                // and capture in the main process runs regardless, so nothing is
+                // lost while the user is on another tab.
+                return <NetworkPanel active />;
             }
             if (context.activeTab === 'automations') {
                 return (

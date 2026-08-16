@@ -107,6 +107,24 @@ export function createTabNetworkLog(tabId: number): TabNetworkLog {
   };
 }
 
+/**
+ * What the Network tab reads: one card's worth of state per browser tab.
+ *
+ * Tabs with no activity are included, so an open-but-silent tab reads as
+ * "nothing requested" rather than vanishing — which is the answer when you are
+ * checking whether a call was made at all.
+ */
+export type BrowserNetworkSnapshot = {
+  tabs: Array<{
+    id: number;
+    url: string;
+    title: string;
+    /** True when this tab fell back off CDP — shown in the card, not hidden. */
+    degraded: boolean;
+    entries: NetworkEntry[];
+  }>;
+};
+
 /** Correlation key for the injected tier, which has no request id to share. */
 export function bodyKey(method: string, url: string): string {
   return `${method.toUpperCase()} ${url}`;
@@ -239,4 +257,44 @@ export function sizeFromHeaders(
 export function isFailure(entry: NetworkEntry): boolean {
   if (entry.failed) return true;
   return typeof entry.status === "number" && entry.status >= 400;
+}
+
+/**
+ * One row as text — shared by `browser_inspect(mode:"network")` and the panel's
+ * "Send to Atlarix".
+ *
+ * One formatter on purpose: when the user hands the model a row they are looking
+ * at, the model should receive the row they are looking at. Two formatters drift,
+ * and then the user and the model are discussing different things.
+ */
+export function formatNetworkRow(entry: NetworkEntry): string {
+  const status = entry.failed
+    ? `FAILED ${entry.errorText ?? ""}`.trim()
+    : (entry.status ?? "—");
+  const bits = [
+    entry.resourceType,
+    // Undefined means UNKNOWN, not zero.
+    entry.durationMs != null ? `${entry.durationMs}ms` : null,
+    entry.size != null ? `${entry.size}B` : null,
+    entry.fromCache ? "cached" : null,
+  ].filter(Boolean);
+  return `• [${status}] ${entry.method} ${entry.url}${bits.length ? ` (${bits.join(", ")})` : ""}`;
+}
+
+/** A row plus whatever detail was captured, for the chat hand-off. */
+export function formatNetworkDetail(entry: NetworkEntry): string {
+  const parts = [formatNetworkRow(entry)];
+  if (entry.requestHeaders) {
+    parts.push(`Request headers: ${JSON.stringify(entry.requestHeaders)}`);
+  }
+  if (entry.requestBody) parts.push(`Request body:\n${entry.requestBody}`);
+  if (entry.responseHeaders) {
+    parts.push(`Response headers: ${JSON.stringify(entry.responseHeaders)}`);
+  }
+  if (entry.responseBody !== undefined) {
+    parts.push(
+      `Response body${entry.responseBodyTruncated ? " (truncated)" : ""}:\n${entry.responseBody}`,
+    );
+  }
+  return parts.join("\n");
 }

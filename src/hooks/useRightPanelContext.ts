@@ -44,7 +44,7 @@ import { currentAppAtom, selectedAppIdAtom, selectedWorkspaceInfoAtom } from '@/
 // (see the context memo below), so terminal/preview stay usable.
 const PANEL_TABS: Record<PanelType, PanelTab[]> = {
     'web-search': [],
-    'code-preview': ['browser', 'terminal', 'errors', 'automations'],
+    'code-preview': ['browser', 'terminal', 'errors', 'network', 'automations'],
     'terminal': ['terminal'],
     'files': ['files'],
     'tools': [],  // Deprecated - ThinkingCard handles tools

@@ -279,6 +279,8 @@ const validInvokeChannels = [
   // Runtime errors captured from the browser tabs (Errors tab)
   "browser:get-errors",
   "browser:clear-errors",
+  "browser:get-network",
+  "browser:get-network-body",
   // Background jobs (v14)
   "chat:background-jobs-list",
   "chat:background-job-cancel",

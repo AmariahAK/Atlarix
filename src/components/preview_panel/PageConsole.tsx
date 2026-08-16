@@ -14,7 +14,9 @@ import { useMemo, useState } from 'react';
 import { useAtom, useAtomValue } from 'jotai';
 import { Virtuoso } from 'react-virtuoso';
 import { cn } from '@/lib/utils';
-import { ChevronRight, Trash2 } from 'lucide-react';
+import { ChevronRight, Send, Trash2 } from 'lucide-react';
+import { chatInputValueAtom } from '@/atoms/chatAtoms';
+import { appendToChatInput } from '@/lib/chat/append-to-chat-input';
 import {
     consoleLevelFilterAtom,
     pageConsoleAtom,
@@ -70,7 +72,22 @@ function NavigationSeparator({ entry }: { entry: PageConsoleEntry }) {
     );
 }
 
-function ConsoleRow({ entry }: { entry: PageConsoleEntry }) {
+/** One entry as text for the chat hand-off — the row, as read, plus its stack. */
+export function formatConsoleEntry(entry: PageConsoleEntry): string {
+    const tag = entry.type === 'console-error' ? (entry.level ?? 'log') : entry.type;
+    return (
+        `[${tag}] ${entry.message}${entry.url ? ` (${entry.url})` : ''}` +
+        (entry.stack ? `\n${entry.stack}` : '')
+    );
+}
+
+function ConsoleRow({
+    entry,
+    onSend,
+}: {
+    entry: PageConsoleEntry;
+    onSend: (text: string) => void;
+}) {
     const [expanded, setExpanded] = useState(false);
     const level = levelOf(entry);
     const hasStack = Boolean(entry.stack);
@@ -101,6 +118,15 @@ function ConsoleRow({ entry }: { entry: PageConsoleEntry }) {
                     </span>
                 )}
                 <span className="flex-1 whitespace-pre-wrap break-words">{entry.message}</span>
+                <button
+                    type="button"
+                    onClick={() => onSend(formatConsoleEntry(entry))}
+                    className="shrink-0 text-muted-foreground hover:text-foreground"
+                    title="Send this entry to Atlarix"
+                    aria-label="Send this entry to Atlarix"
+                >
+                    <Send className="h-3 w-3" />
+                </button>
                 {hasStack && (
                     <button
                         type="button"
@@ -132,6 +158,14 @@ export function PageConsole() {
     const [filter, setFilter] = useAtom(consoleLevelFilterAtom);
     const [entries, setEntries] = useAtom(pageConsoleAtom);
     const visible = useAtomValue(visiblePageConsoleAtom);
+    const [chatInput, setChatInput] = useAtom(chatInputValueAtom);
+
+    // "Send to Atlarix" is what replaced the completion gate for the cases where
+    // something genuinely IS broken. The harness cannot tell whose error it is;
+    // the person looking at it can.
+    function send(text: string) {
+        setChatInput(appendToChatInput(chatInput, text));
+    }
 
     const counts = useMemo(() => {
         let errors = 0;
@@ -168,6 +202,23 @@ export function PageConsole() {
                     {counts.warnings > 0 && (
                         <span className="text-yellow-400">{counts.warnings} warnings</span>
                     )}
+                    {visible.length > 0 && (
+                        <button
+                            type="button"
+                            onClick={() =>
+                                send(
+                                    visible
+                                        .filter((e) => e.type !== 'navigated')
+                                        .map(formatConsoleEntry)
+                                        .join('\n'),
+                                )
+                            }
+                            className="hover:text-foreground"
+                            title="Send everything shown to Atlarix"
+                        >
+                            Send all
+                        </button>
+                    )}
                     {entries.length > 0 && (
                         <button
                             type="button"
@@ -196,7 +247,7 @@ export function PageConsole() {
                     className="flex-1"
                     data={visible}
                     followOutput="smooth"
-                    itemContent={(_i, entry) => <ConsoleRow entry={entry} />}
+                    itemContent={(_i, entry) => <ConsoleRow entry={entry} onSend={send} />}
                 />
             )}
         </div>

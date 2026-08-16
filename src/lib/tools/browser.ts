@@ -38,7 +38,11 @@ import {
   getNetworkEntries,
   isTabDegraded,
 } from "@/ipc/utils/browser_network_capture";
-import { isFailure, type NetworkEntry } from "@/lib/browser/network-entry";
+import {
+  formatNetworkRow,
+  isFailure,
+  type NetworkEntry,
+} from "@/lib/browser/network-entry";
 import { runtimeFailuresSince } from "@/lib/agent/preview-verify";
 import { assertUrlAllowed } from "@/lib/security/url-policy";
 import { wrapUntrustedData } from "@/lib/streaming/untrusted-data";
@@ -780,19 +784,12 @@ function inspectConsole(scope: BrowserScope, levelFilter?: string, tabId?: numbe
   };
 }
 
-/** One row, terse enough that a full page load is still readable. */
-function formatNetworkRow(e: NetworkEntry): string {
-  const status = e.failed ? `FAILED ${e.errorText ?? ""}`.trim() : (e.status ?? "—");
-  const bits = [
-    e.resourceType,
-    // Undefined means UNKNOWN, not zero — chunked and compressed responses carry
-    // no content-length on the fallback tier.
-    e.durationMs != null ? `${e.durationMs}ms` : null,
-    e.size != null ? `${e.size}B` : null,
-    e.fromCache ? "cached" : null,
-    e.responseBody !== undefined ? "body captured" : null,
-  ].filter(Boolean);
-  return `• [${status}] ${e.method} ${e.url}${bits.length ? ` (${bits.join(", ")})` : ""} id=${e.id}`;
+/**
+ * The shared row format plus the two things only the agent needs: the `id` to
+ * ask for a body with, and whether one is already held.
+ */
+function agentNetworkRow(e: NetworkEntry): string {
+  return `${formatNetworkRow(e)}${e.responseBody !== undefined ? " (body captured)" : ""} id=${e.id}`;
 }
 
 /**
@@ -825,7 +822,7 @@ async function inspectNetwork(
         error: `No request with id "${opts.requestId}" in tab ${targetId}. List them first with mode:"network".`,
       };
     }
-    const lines = [formatNetworkRow(entry)];
+    const lines = [agentNetworkRow(entry)];
     if (entry.requestHeaders) {
       lines.push(`\nRequest headers:\n${JSON.stringify(entry.requestHeaders, null, 2)}`);
     }
@@ -888,7 +885,7 @@ async function inspectNetwork(
   }
 
   const shown = rows.slice(-NETWORK_ROWS_MAX);
-  const body = shown.map(formatNetworkRow).join("\n");
+  const body = shown.map(agentNetworkRow).join("\n");
   const notes: string[] = [];
   if (shown.length < rows.length) {
     notes.push(`Showing the most recent ${shown.length} of ${rows.length} requests.`);
