@@ -24,6 +24,10 @@ import {
   type BrowserConsoleLevel,
   type BrowserSurfaceError,
 } from "@/lib/browser/error-hook";
+import {
+  attachNetworkCapture,
+  detachNetworkCapture,
+} from "./browser_network_capture";
 
 const logger = log.scope("browser_view");
 
@@ -496,7 +500,24 @@ export function createTab(scope: BrowserScope, url?: string): BrowserPanelState 
 
   setActiveTab(scope, id);
   const target = url && isAllowedBrowserUrl(url) ? url : "https://www.google.com";
-  void view.webContents.loadURL(target);
+
+  // Network capture, best-effort and never blocking the load.
+  //
+  // Ordering matters and was measured: `Network.enable` HANGS FOREVER on a tab
+  // that has never navigated — attach resolves, the command never does, with no
+  // error at all. So prime with about:blank, attach, then navigate. Requests
+  // from `target` onward are captured; nothing is lost, because about:blank
+  // issues none.
+  void view.webContents
+    .loadURL("about:blank")
+    .catch(() => {})
+    .then(() => attachNetworkCapture(id, view.webContents))
+    .catch(() => false)
+    .then(() => view.webContents.loadURL(target))
+    .catch((e) => {
+      logger.warn(`[browser] tab ${id} initial load failed: ${String(e)}`);
+    });
+
   broadcastState(scope);
   return getBrowserPanelState(scope);
 }
@@ -504,6 +525,9 @@ export function createTab(scope: BrowserScope, url?: string): BrowserPanelState 
 export function closeTab(scope: BrowserScope, id: number): BrowserPanelState {
   const view = scope.tabs.get(id);
   if (view) {
+    // Detach BEFORE close: a debugger still attached to a destroyed webContents
+    // is exactly the shape of the native crash we already have open in Sentry.
+    detachNetworkCapture(id, view.webContents);
     if (!scope.window.isDestroyed()) scope.window.contentView.removeChildView(view);
     view.webContents.close();
     scope.tabs.delete(id);
