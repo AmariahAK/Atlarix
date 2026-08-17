@@ -832,14 +832,40 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
         run: |
-          if ! gh release edit "${GITHUB_REF_NAME}" \
-            --repo AmariahAK/atlarix-releases \
-            --notes-file release-notes.md; then
-            gh release create "${GITHUB_REF_NAME}" \
+          set -uo pipefail
+          # RETRY, don't fall through to `create`.
+          #
+          # v14.32.0 shipped with the fallback "See CHANGELOG.md" body because
+          # this raced: `publish-release` had published 11s earlier, `gh release
+          # edit` still answered "release not found", so the old `if ! edit; then
+          # create; fi` took the create path and died on
+          # `HTTP 422: Release.tag_name already exists`.
+          #
+          # Creating can never be right when publish-release is a `needs`
+          # dependency — a release always exists by now, so a failed edit means
+          # the lookup has not caught up, not that anything is missing. The whole
+          # failure was silent where it mattered: the release itself was fine and
+          # complete, only its NOTES were the placeholder, which nothing checks.
+          for attempt in 1 2 3 4 5; do
+            if gh release edit "${GITHUB_REF_NAME}" \
               --repo AmariahAK/atlarix-releases \
-              --notes-file release-notes.md \
-              --title "Atlarix ${GITHUB_REF_NAME}"
+              --notes-file release-notes.md; then
+              echo "Release notes updated on attempt ${attempt}."
+              exit 0
+            fi
+            echo "::warning::gh release edit failed (attempt ${attempt}/5) — retrying in $((attempt * 10))s."
+            sleep $((attempt * 10))
+          done
+          # Only now consider that the release genuinely does not exist.
+          if gh release view "${GITHUB_REF_NAME}" --repo AmariahAK/atlarix-releases >/dev/null 2>&1; then
+            echo "::error::Release ${GITHUB_REF_NAME} EXISTS but its notes could not be updated. The published release is carrying the placeholder body — fix by hand with: gh release edit ${GITHUB_REF_NAME} --repo AmariahAK/atlarix-releases --notes-file release-notes.md"
+            exit 1
           fi
+          echo "::warning::Release ${GITHUB_REF_NAME} not found after retries — creating it."
+          gh release create "${GITHUB_REF_NAME}" \
+            --repo AmariahAK/atlarix-releases \
+            --notes-file release-notes.md \
+            --title "Atlarix ${GITHUB_REF_NAME}"
 
       - name: Post Discord announcement
         env:
