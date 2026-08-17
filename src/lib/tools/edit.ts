@@ -387,10 +387,18 @@ function applyOneReplace(
       hint =
         "\n\nNo similar content found anywhere in the file — old_content may belong to a different file, or the symbol may have been renamed. Search for it (grep) before retrying.";
     }
+    // NOT "must match exactly (whitespace included)" — that was false, and
+    // expensively so. `findReplacement` above has already run the whole cascade,
+    // including `LineTrimmedReplacer`, which compares line by line IGNORING
+    // leading/trailing whitespace. Reaching here means indentation was never the
+    // problem; telling the model it was sent it re-transcribing whitespace for
+    // several retries while the real difference went unexamined. Observed on a
+    // set of near-identical T4 templates, where the actual cause was content
+    // belonging to a sibling file.
     return {
       ok: false,
       error: {
-        error: `Content to replace not found in ${normalizedPath}. old_content must match exactly (whitespace included).${hint}`,
+        error: `Content to replace not found in ${normalizedPath}. Indentation and surrounding whitespace were ALREADY normalised while matching, so this is a content difference, not a formatting one — re-copying the same text with different spacing will fail again.${hint}`,
         operation: "edit_file",
         retry: {
           reason: "no_match",

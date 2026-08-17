@@ -24,9 +24,17 @@ import { upsertWorkspaceFilePermission } from "@/lib/file-permissions-store";
 import {
     getParentDirectory,
     getPathExtension,
+    isFileOperationWithScope,
     isProtectedRelativePath,
     normalizeRelativePath,
 } from "@/lib/file-permission-scope";
+import { runFilePermissionPreflight } from "@/ipc/handlers/file_permission_handlers";
+import { emitFilePermissionActivity } from "@/ipc/handlers/chat_stream/permission-ui";
+import {
+    selectOperationsCoveredByRules,
+    describeSweptOperations,
+    type PendingFileOperation,
+} from "@/lib/tools/permissions/pending-rule-sweep";
 
 const logger = log.scope("permission-handlers");
 
@@ -323,10 +331,87 @@ const executePermissionHandler = async (
 
         // v14.7: executeOperation resolves the (now blocking) waitForApproval
         // directly — the turn continues in-loop with the result.
-        return await interceptor.executeOperation(operationId, {
+        const result = await interceptor.executeOperation(operationId, {
             overrideContent,
         });
+
+        // A rule saved here applies to everything ALREADY WAITING, not just to
+        // the next turn.
+        //
+        // The gate is evaluated when an operation is REQUESTED, but the rule is
+        // written when one is DECIDED — so a batch of edits queued together were
+        // all gated before the rule existed, and nothing went back for them.
+        // Saying "always allow .ts" on the first card left the other four asking,
+        // which is the reported behaviour: "always allow works when it's asked
+        // once, but if a batch of file changes come in a row, all will not work".
+        if (appId != null && isFileScopeApprovalMode(approvalMode)) {
+            await applyNewRuleToPendingOperations(
+                interceptor,
+                appId,
+                chatId,
+                _event.sender,
+            );
+        }
+
+        return result;
     };
+
+/**
+ * Re-run the file gate over every still-pending operation and execute the ones a
+ * newly-saved rule now covers.
+ *
+ * Only ever AUTO-APPROVES — it re-reads the same persisted rules the request path
+ * uses, so it can never approve something a fresh request wouldn't have. A denial
+ * rule is deliberately left alone: the user is mid-decision on this batch, and
+ * silently rejecting queued work is a worse surprise than asking.
+ */
+async function applyNewRuleToPendingOperations(
+    interceptor: PermissionInterceptor,
+    appId: number,
+    chatId: number,
+    sender: Electron.WebContents,
+): Promise<void> {
+    // `getPendingOperations` already filters to status === 'pending', so the one
+    // just executed above is gone from this list by the time we get here.
+    //
+    // Multi-file previews are partitioned by their own path-by-path preflight at
+    // request time, so only single-path file operations are swept here —
+    // re-deriving that partition would duplicate the logic that already ran.
+    const candidates: PendingFileOperation[] = [];
+    for (const pending of interceptor.getPendingOperations()) {
+        const op = pending.request?.operation;
+        if (!op || !isFileOperationWithScope(op)) continue;
+        const preview = pending.request.preview as FileOperationPreview;
+        const rel = preview?.path ? normalizeRelativePath(preview.path) : "";
+        if (!rel) continue;
+        candidates.push({ id: pending.id, operation: op, relativePath: rel });
+    }
+
+    const covered = selectOperationsCoveredByRules(candidates, (operation, rel) =>
+        // The same resolver the request path uses — so this can never approve
+        // something a fresh request would have prompted for.
+        runFilePermissionPreflight(operation, rel, appId).type,
+    );
+    if (covered.length === 0) return;
+
+    logger.log(
+        `[permissions] new rule covers ${covered.length} queued operation(s) for chat ${chatId}`,
+    );
+    for (const { id } of covered) {
+        try {
+            await interceptor.executeOperation(id);
+        } catch (err) {
+            // One failure must not strand the rest of the batch still waiting.
+            logger.error(`[permissions] auto-approve of ${id} failed:`, err);
+        }
+    }
+    emitFilePermissionActivity(
+        sender,
+        chatId,
+        describeSweptOperations(covered.map((c) => c.relativePath)),
+        covered.map((c) => c.relativePath).join(", "),
+    );
+}
 
 ipcMain.handle("execute-permission", executePermissionHandler);
 
