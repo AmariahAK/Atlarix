@@ -176,11 +176,11 @@ incomplete*; the reasoning is in git.
 
 ---
 
-## 🔧 OPEN from the v14.32.0 release — the headless bundle did not publish
+## 🔧 The headless bundle did not publish on v14.32.0 — FIXED, verify on next release
 
-**`Atlarix Headless` failed on the `v14.32.0` tag, twice.** The desktop release is unaffected —
-12 assets, all platforms, published — but `headless-bench` on `atlarix-releases` still holds the
-**v14.31.0** tarball, so the benchmark harness is a release behind.
+**`Atlarix Headless` failed on the `v14.32.0` tag, twice.** The desktop release was unaffected —
+12 assets, all platforms, published — but `headless-bench` on `atlarix-releases` was left holding
+the **v14.31.0** tarball, so the benchmark harness was a release behind.
 
 ```
 Unexpected error fetching GitHub release for tag refs/tags/v14.32.0:
@@ -193,16 +193,21 @@ HttpError: Resource not accessible by personal access token
   repo** and succeeded in the same run, as did all 12 asset uploads.
 - *Not* a config change — headless succeeded on the previous **9** release tags with this config.
 
-**Leading suspect: the floating action tag.** Both workflows use
-`softprops/action-gh-release@v2` — an unpinned major. Nothing on our side changed between
-v14.31.0 (success) and v14.32.0 (failure), which points upstream. Note the error names
-`refs/tags/v14.32.0`, the **raw ref**, not a tag name — and headless is the only caller whose
-`tag_name` (`headless-bench`) differs from the ref, which is plausibly the path that regressed.
+**Cause: the floating action tag.** Both workflows used `softprops/action-gh-release@v2`, an
+unpinned major that now resolves to **v2.6.2** (`3bb1273`). Nothing on our side changed between
+v14.31.0 (success) and v14.32.0 (failure). The error names `refs/tags/v14.32.0` — the **raw ref**,
+not a tag name — and headless is the only caller whose `tag_name` (`headless-bench`) differs from
+the ref it was triggered by, which is the path that resolves the ref.
 
-- [ ] Confirm by pinning `softprops/action-gh-release` to an exact version/SHA in `headless.yml`
-      and re-running. **Pin it in `release.yml` too** — a floating major on the job that publishes
-      releases is the same exposure, and it happens to be the one that still works.
-- [ ] Once fixed, re-run *Atlarix Headless* so `headless-bench` carries 14.32.0.
+**FIXED (2026-08-17):**
+- `headless.yml` no longer uses the action at all. The tag is fixed, the repo is fixed, and the
+  release has existed since v13.7.0 with 35 assets — so `gh release upload … --clobber` says
+  exactly that and cannot decide to look somewhere else. **`--clobber` is load-bearing:** a
+  duplicate asset name otherwise returns 422 that *reads as success while keeping the old file*,
+  which would leave the stable URL serving the previous release silently. The step now reads the
+  assets back to prove the URL moved.
+- `release.yml` keeps the action but **pinned to v2.6.2** — the version it is known to work on.
+  A floating major on the job that publishes releases is the same exposure that just bit.
 
 ## ⚙️ Actions storage — the second billing trap
 
