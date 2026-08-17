@@ -45,6 +45,23 @@ windows. Multiple windows, multiple projects and multiple concurrent sessions wo
 intended. Pressing **Stop** is also now respected across windows: another window can no
 longer resume a chat you just stopped.
 
+**"Always allow" now means it.** If the agent queued several file changes at once, choosing
+*Always allow this file* / *this folder* / *this extension* on one of them left all the others
+still asking — the rule was saved, but nothing went back for the changes already waiting. It
+now clears every queued change the new rule covers, and says how many in one line rather than
+another pile of cards. Denials are never applied this way: if you're part-way through a batch,
+nothing gets silently rejected.
+
+**Approvals no longer scroll out of sight.** A bar above the message box shows what's waiting
+for as long as something is, so a long turn can't bury the approval you're being asked for.
+The cards stay in the conversation where the diffs are — *Review* jumps you to them.
+
+**The agent gets better guidance when an edit doesn't apply.** It was being told its text had
+to match "exactly, whitespace included" — which was never true, since spacing is already
+normalised when matching. That sent it re-typing indentation instead of looking at the real
+difference, which in practice was usually content belonging to a similarly-named file. It's now
+told what actually went wrong.
+
 **In the browser panels:**
 
 - **Sending Console or Network output adds an attachment, not a wall of text.** It used to paste
