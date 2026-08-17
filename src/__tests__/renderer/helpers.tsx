@@ -53,6 +53,9 @@ export interface FakeIpc {
     status: string;
     source?: string;
   }) => void;
+  /** Main REFUSED a dispatch (a dropped system wake) — no stream, no terminal event. */
+  onStreamDropped: (h: Handler<{ chatId: number; reason: string }>) => () => void;
+  emitStreamDropped: (payload: { chatId: number; reason: string }) => void;
 }
 
 export function makeFakeIpc(): FakeIpc {
@@ -63,6 +66,7 @@ export function makeFakeIpc(): FakeIpc {
   const bgJobHandlers = new Set<
     Handler<{ chatId: number; status: string; source?: string }>
   >();
+  const droppedHandlers = new Set<Handler<{ chatId: number; reason: string }>>();
 
   const fake: FakeIpc = {
     getApp: vi.fn(async () => null),
@@ -109,6 +113,13 @@ export function makeFakeIpc(): FakeIpc {
     },
     emitBackgroundJobUpdate: (payload) => {
       for (const h of bgJobHandlers) h(payload);
+    },
+    onStreamDropped: (h) => {
+      droppedHandlers.add(h);
+      return () => droppedHandlers.delete(h);
+    },
+    emitStreamDropped: (payload) => {
+      for (const h of droppedHandlers) h(payload);
     },
   };
 

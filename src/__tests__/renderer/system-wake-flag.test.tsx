@@ -86,6 +86,48 @@ describe("the background-job auto-wake", () => {
     expect(fakeIpc.streamMessage).not.toHaveBeenCalled();
   });
 
+  /**
+   * The refusal has to land somewhere. `isStreaming` is set BEFORE the invoke, so
+   * a window whose wake main refuses would otherwise sit at `isStreaming: true`
+   * for that chat forever — a phantom spinner if it ever opened the chat, and a
+   * local guard stuck permanently in the "don't wake" position.
+   */
+  it("clears its own isStreaming when main refuses the dispatch", async () => {
+    mountHost();
+    getDefaultStore().set(isStreamingByIdAtom, new Map([[CHAT, true]]));
+
+    await act(async () => {
+      (fakeIpc as FakeIpc).emitStreamDropped({
+        chatId: CHAT,
+        reason: "already-streaming",
+      });
+      await Promise.resolve();
+    });
+
+    expect(getDefaultStore().get(isStreamingByIdAtom).get(CHAT)).toBe(false);
+  });
+
+  it("leaves other chats alone when one is refused", async () => {
+    mountHost();
+    getDefaultStore().set(
+      isStreamingByIdAtom,
+      new Map([
+        [CHAT, true],
+        [-99, true],
+      ]),
+    );
+
+    await act(async () => {
+      (fakeIpc as FakeIpc).emitStreamDropped({
+        chatId: CHAT,
+        reason: "user-stopped",
+      });
+      await Promise.resolve();
+    });
+
+    expect(getDefaultStore().get(isStreamingByIdAtom).get(-99)).toBe(true);
+  });
+
   it("ignores a job that is merely running", async () => {
     mountHost();
     await act(async () => {
