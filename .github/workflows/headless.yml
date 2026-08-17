@@ -76,30 +76,46 @@ jobs:
           GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
           REPO: AmariahAK/atlarix-releases
         run: |
-          set -euo pipefail
+          set -uo pipefail
           ls -la dist-headless-tarball/
 
-          # Create the prerelease only if it is genuinely absent. It has existed
-          # since v13.7.0 and holds 35 assets, so this is a cold-start path.
-          if ! gh release view headless-bench --repo "$REPO" >/dev/null 2>&1; then
-            echo "headless-bench not found — creating it."
+          # NO READ ANYWHERE IN THIS STEP. That is the whole fix.
+          #
+          # `RELEASES_TOKEN` can WRITE releases but cannot READ them. Proven on
+          # 2026-08-17 by two independent failures pointing the same way while
+          # every write succeeded:
+          #   * softprops → 403 "Resource not accessible by personal access
+          #     token" on GET release-by-tag;
+          #   * `gh release view headless-bench` → "not found", for a release that
+          #     demonstrably exists and holds 35 assets;
+          #   * meanwhile create-draft, twelve asset uploads and `gh release
+          #     create` (which got as far as 422 "already exists") all worked.
+          # So any create-vs-update decision made by LOOKING FIRST resolves to
+          # "absent" and then dies on the uniqueness constraint — which is
+          # exactly what `announce-release` did to the v14.32.0 release notes.
+          #
+          # Upload straight at the tag instead. `--clobber` is load-bearing:
+          # without it a duplicate asset name returns 422 that reads as SUCCESS
+          # while keeping the OLD file, so the stable URL would go on serving the
+          # previous release with nothing to show for it.
+          if ! gh release upload headless-bench \
+              dist-headless-tarball/atlarix-headless-*.tar.gz \
+              --repo "$REPO" --clobber; then
+            # Only reachable if the release genuinely does not exist — a cold
+            # start. It has existed since v13.7.0, so this is the unlikely path.
+            echo "::warning::Upload failed; attempting to create headless-bench, then retrying."
             gh release create headless-bench \
               --repo "$REPO" \
               --title "Atlarix Headless (bench)" \
               --prerelease \
-              --notes "Prebuilt Electron-free Atlarix headless CLI (linux/amd64) for benchmarking and local testing."
+              --notes "Prebuilt Electron-free Atlarix headless CLI (linux/amd64) for benchmarking and local testing." || true
+            gh release upload headless-bench \
+              dist-headless-tarball/atlarix-headless-*.tar.gz \
+              --repo "$REPO" --clobber
           fi
-
-          # --clobber is load-bearing: without it a duplicate asset name returns
-          # 422 that reads as SUCCESS while KEEPING THE OLD FILE, so the stable
-          # URL would keep serving the previous release with nothing to show for
-          # it. That is exactly how this failure stayed invisible.
-          gh release upload headless-bench \
-            dist-headless-tarball/atlarix-headless-*.tar.gz \
-            --repo "$REPO" --clobber
-
-          # Prove the stable URL actually moved, rather than trusting the upload.
-          VER="$(node -p "require('./package.json').version")"
-          gh release view headless-bench --repo "$REPO" \
-            --json assets \
-            --jq '.assets[] | select(.name=="atlarix-headless-linux-amd64.tar.gz" or .name=="atlarix-headless-'"$VER"'.tar.gz") | "published: \(.name) (\(.size) bytes)"'
+          echo "Uploaded to headless-bench:"
+          ls -1 dist-headless-tarball/atlarix-headless-*.tar.gz
+          # Deliberately NOT reading the release back to confirm — this token
+          # cannot, and a failed verification read would fail a successful
+          # publish. Verify externally: gh release view headless-bench --repo
+          # AmariahAK/atlarix-releases --json assets
