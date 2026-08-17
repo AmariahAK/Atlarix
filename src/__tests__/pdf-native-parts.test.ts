@@ -94,6 +94,18 @@ describe("detectPdfCapability", () => {
   it("resolves a vendor-prefixed id by its tail", () => {
     expect(detectPdfCapability("openrouter", "anthropic/claude-sonnet-4-6")).toBe(true);
   });
+
+  /**
+   * Core is the DEFAULT path and has no catalog rows of its own — `compass` is a
+   * synthetic provider. `resolveReasoningCatalogModelId` hands us the vendor's
+   * bare model id, so the lookup has to fall through the unmatched
+   * `compass:<model>` key to the bare one. Getting this wrong would leave every
+   * Core user silently on text extraction.
+   */
+  it("resolves a Core tier through the bare model id", () => {
+    expect(detectPdfCapability("compass", "gpt-4o")).toBe(true);
+    expect(detectPdfCapability("compass", "gpt-4.1-nano")).toBe(false);
+  });
 });
 
 describe("prepareMessageWithAttachments — PDF parts", () => {
