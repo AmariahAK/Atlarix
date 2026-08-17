@@ -3,6 +3,47 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
+## [14.32.0] (2026-08-17) — Scanned PDFs, cancelled commands, and panels that hand things over
+
+**Four things Atlarix quietly got wrong, and three fixes to the browser panels that shipped last
+release.** The browser fixes all came from using them; the other four came from auditing a backlog
+of ten "worth looking at" items and finding that six of them were already handled.
+
+**A scanned PDF is now readable.** Attached PDFs were always converted to text locally, which works
+for a text document and produces *nothing at all* for a scan or a photographed page — the agent
+would tell you it couldn't read it. Models that accept documents natively now receive the PDF
+itself, so scans, tables and multi-column layouts come through. Everything else is unchanged: if
+your model doesn't take documents, the text extraction runs exactly as before. Which models qualify
+is read per-model from the live catalog rather than assumed per provider — within a single provider
+some models accept documents and some don't.
+
+**Cancelling a command actually stops it.** Every command runs through a shell, so stopping one only
+ever signalled the shell — and whatever it had started kept running. Cancel a dev server and the
+server stayed up, still holding its port, while the app reported it stopped. The whole process tree
+is now taken down, including on quit.
+
+- **A mistyped tool argument no longer wastes a turn.** When a model passed a list where a single
+  value was expected, it got an unhelpful internal error. Unambiguous cases are now simply
+  understood; genuinely ambiguous ones come back naming the parameter and what was expected, so the
+  model can correct itself instead of guessing. This mostly helps smaller and local models.
+- **Reading the same page twice in one turn now costs one fetch**, for 15 minutes, and several
+  sub-agents reading the same URL at once share a single fetch. Web search already worked this way.
+- **Truncated output no longer mangles the last character.** Text cut to fit a budget could split an
+  emoji in half, which in the worst case made a request the provider rejected outright.
+
+**In the browser panels:**
+
+- **Sending Console or Network output adds an attachment, not a wall of text.** It used to paste
+  every line straight into your message box on top of whatever you were typing. Anything substantial
+  now arrives as a named chip — *Network · github.com · 43 requests* — that you can see, remove, and
+  keep while editing the message. Short sends still go inline.
+- **One card per page, not per tab.** A tab you'd navigated from YouTube to GitHub showed a single
+  card *titled* "github.com" that also contained YouTube's output — and "Send to Atlarix" on it sent
+  both. Each page load is now its own card, named after the page that actually produced it, so
+  sending one sends only that page. Navigating still clears nothing.
+- **The Network tab gained the page boundary it never had.** Console at least drew a divider;
+  Network listed every request a tab had ever made in one undifferentiated run.
+
 ## [14.31.0] (2026-08-16) — A real Network tab, and the browser stops blocking your turns
 
 **The in-app browser now shows you every request a page made, and it no longer decides on your

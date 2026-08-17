@@ -1,8 +1,8 @@
 # Atlarix TODO
 
-**Current Version:** v14.31.0 (2026-08-16) — a real Network tab, and nothing the browser sees can
-block a turn any more.
-**Last Updated:** 2026-08-16
+**Current Version:** v14.32.0 (2026-08-17, on `main`, NOT yet tagged) — scanned PDFs, cancelled
+commands that actually stop, and browser panels that hand things over.
+**Last Updated:** 2026-08-17
 
 > **What belongs here:** open work, decisions still owed, and traps worth not rediscovering.
 > **What does not:** shipped narrative → [`docs/CHANGELOG.md`](./CHANGELOG.md). Designed-but-unscheduled
@@ -13,9 +13,16 @@ block a turn any more.
 
 ## 🔨 In flight — landed, not yet released
 
-Nothing. v14.31.0 shipped the Console + Network work, the session-restore hang, retry jitter,
-delegation stagger, and the notification crash fix. What each left behind is in the Shipped index;
-what is still owed from them is below, under the machine that can confirm it.
+**v14.32.0 — four things the agent got wrong, and the browser panels hand things over.** Landed on
+`main`, not yet tagged.
+
+- Native PDF parts (scanned PDFs were unreadable), process-tree kill on cancel, type-coerced tool
+  arguments, a `read_url` cache, and surrogate-safe truncation.
+- Console/Network sends become attachment chips, and both panels group per PAGE LOAD rather than
+  per tab.
+
+**Still owed before the tag:** the packaged-app pass below, and a live PDF check on a real
+PDF-capable model — every PDF test so far is a unit test.
 
 ---
 
@@ -48,6 +55,15 @@ The one place several things can only be confirmed. Grouped so a single session 
 - [ ] `CreateProcessAsUserW` succeeds unprivileged. `ERROR_PRIVILEGE_NOT_HELD (1314)` means the
       probe reports the sandbox unusable and commands run unconfined — then implement Codex's model.
 
+### v14.32.0 — the process-tree kill on Windows
+- [ ] `taskkill /pid <pid> /T /F` replaces the SIGTERM-to-direct-child that left grandchildren
+      running. **Reasoned from documented behaviour, not observed** — same posture as the v14.31.0
+      notification fix. macOS/Linux are covered by a real-process test
+      (`src/__tests__/kill-process-tree.test.ts`), which is skipped on Windows.
+- [ ] Confirm: start a dev server through `run_command`, cancel it, then check Task Manager /
+      `netstat` that no node process survives and the port is free. Failure looks like a port still
+      held after the UI says the command stopped.
+
 ### MSIX / Store build
 - [ ] Run the spike (`docs/MSIX_RUNBOOK.md` §4). **Baseline on Squirrel FIRST** — a failure inside
       MSIX is otherwise unattributable.
@@ -71,10 +87,29 @@ queue, not a design doc.
   non-goal. **Settled 2026-08-17:** coverage workers (QA, implementer) get an enumerated contract in
   the spawn payload and return one validated entry per item — no check-off tool, because self-report
   is unverifiable exactly on the weak models it would be added for.
-- **Smaller upstream-review items** — native PDF parts, `run_command` memory/Job-Object
-  containment, `llama-server` detection (for the true `n_ctx`, not the connection), per-model
-  sampling defaults, chore-model routing, malformed tool-arg handling, a Windows path-validation
-  matrix, nested-repo trust on mid-session clones, approval notifications, a session web-fetch cache.
+- **Smaller upstream-review items — AUDITED 2026-08-17, four of ten were real.** Native PDF parts,
+  the orphaned-grandchildren half of `run_command` containment, malformed tool-arg handling and the
+  `read_url` cache all shipped in v14.32.0. **Deleted:** approval notifications (already shipped —
+  `permissions/handlers.ts:134`). **Shrunk:** `llama-server` is now only about llama-server, since
+  Ollama and LM Studio already resolve their real context windows via
+  `resolve-model-context-limit.ts`; nested-repo trust is prompt-injection weight only, because hooks
+  were deleted and no `.atlarix` file is shell-executed any more. What remains:
+  - **`run_command` memory/CPU containment** (cgroups / Job Objects). The orphan half is done; this
+    is the runaway-build half, and no observed failure yet.
+  - **`llama-server` `/props`** for the true `n_ctx` and chat template. Reachable today as a custom
+    OpenAI-compatible endpoint, just falling back to heuristics — one provider, not a systemic bug.
+  - **Nested-repo trust on mid-session clones** — does a repo cloned mid-session re-trigger
+    authority-file approval? Prompt injection, not RCE.
+- **Needs evidence before it is worth scheduling** (demoted from the list above, so the queue does
+  not imply they are ready):
+  - **Per-model sampling defaults.** The hook already exists — `getTemperature` omits the param for
+    models that reject it and honours a per-model override; everything else gets `0`. Populating
+    overrides needs a model we can show is hurt by `temperature: 0`, which we do not have.
+  - **Windows path-validation matrix** (`\??\`, `\\?\UNC\`, 8.3 names, `C:relative`). We have scar
+    tissue here, but no evidence of an exploitable path — writing the matrix may find nothing.
+- **Chore-model routing stays OPT-IN.** `lib/summarization_model.ts` already offers
+  `"same"` (default) or `"custom"`, and titles + compaction both route through it. Defaulting Core
+  users to Core 1 would silently change what they are paying for; left as the user's explicit choice.
 
 ---
 
@@ -249,6 +284,7 @@ the trap each release left behind, because those cost time twice.
 
 | Version | Shipped | Trap worth remembering |
 | --- | --- | --- |
+| **v14.32.0** | native PDF parts; process-tree kill; type-coerced tool args; `read_url` cache; browser panels per page load | A **provider-level** capability allowlist is wrong wherever a provider's catalog is mixed — OpenAI accepts PDF on 15 of 47 models, Google on 21 of 41 — so gate per MODEL and let unknown fall back to the old path. `proc.killed` only records that YOU signalled; check `exitCode`/`signalCode` for whether it actually died. A test that pins the OLD behaviour (the console card labelled with the *latest* url) will fail the fix and must be rewritten, not deleted — and **verify a new test would have caught the bug**, since these all sat green either way until checked. |
 | **v14.31.0** | Network tab; browser runtime gating removed; session-restore hang; notification crash | `Network.enable` **hangs forever** on a tab that has never navigated — attach resolves, the command never does, no error at all; prime `about:blank` first and time-bound every CDP command. A `Notification` you stop referencing after `show()` is collected while the OS is still displaying it, and the teardown races the daemon's — a native `SIGSEGV` no JS handler can see. A broadcast that early-returns on the empty case (`if (!s) return`) can never clear a loading flag, so **the failure case is exactly the case that gets no message**. |
 | **v14.30.0** | on-device dictation on Windows/Linux; ORT served from inside the app | An error names the model that **reported** it, not one that was ever loaded — two diagnoses were wrong before the (device × dtype) matrix settled it. And `postinstall`'s trailing `\|\| true` guards **patch-package**, absent from the pruned tree, not the Electron install; re-parenthesising it broke Windows packaging at tag time. |
 | **v14.29.0** | automated Store submission, WSL Landlock confinement, sandbox path fixes | `latest-mac.yml` is arm64-only by design. Duplicate asset uploads **422 green while keeping the OLD asset** — delete the draft before re-tagging. |
