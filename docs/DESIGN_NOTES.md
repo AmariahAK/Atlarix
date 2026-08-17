@@ -80,7 +80,30 @@ to it; it never checks anything off.
 
 > **The generalized rule: structure the return, not the work.** Every worker type returns a schema.
 > Only workers whose value is *coverage* (QA, implementer) receive an enumerated task; workers
-> whose value is *discovery* (explorer, architect, fork) receive an objective.
+> whose value is *discovery* (explorer, architect) receive an objective.
+
+**Settled 2026-08-17 — how an item gets marked done.** The alternative on the table was a
+check-off tool the worker calls as it goes. Rejected, and the reason is enforcement rather than
+surface area: a check-off is **self-report**, so a model that forgets the call looks like it skipped
+an item it did, and a model that calls it eagerly marks done what it never touched — and *neither
+mistake is detectable by us*. The return schema is checkable, because the harness still holds the
+contract it sent: the worker must come back with one entry per item
+(`{item, status: pass | fail | blocked | not-reached, evidence}`), and a missing item is a
+validation failure that re-prompts naming exactly what is unaccounted for, not silence the user has
+to notice. `not-reached` is first-class — it is the same "broken vs untested" distinction the
+findings contract already insists on.
+
+The counter, recorded honestly: Anthropic retired TodoWrite because *frontier* models don't need the
+scaffold, and we deliberately target weak and local models that genuinely do drift on a six-item
+list. But a drifting model is precisely the one whose self-reported check-offs cannot be trusted.
+**Build the contract and the validated return, measure on `tests/agent-evals` against a weak model,
+and only if items are being dropped add a per-step `<system-reminder>` restating the contract with
+current per-item status** — a few hundred tokens, needing no cooperation from the model, and no new
+tool.
+
+**What this costs:** live progress. A check-off tool could show "3 of 6" mid-run; a validated return
+accounts for everything at the end. If live progress is wanted, derive it from the activity stream
+that already feeds the per-worker cards rather than from a new tool.
 
 ### Reuse
 
@@ -252,10 +275,40 @@ used the old Errors tab as its observation channel.
 
 ---
 
-## Fork sub-agents
+## Fork sub-agents — CLOSED, the economics do not work
 
-*Recorded 2026-08-15. Scoped for that session's batch, then pulled once the cache constraint became
-clear.*
+*Recorded 2026-08-15, **rejected 2026-08-17** after doing the arithmetic. Kept as a record so the
+idea is not re-derived; the original sketch is preserved below the verdict because the mechanics
+were sound even though the premise was not.*
+
+### Why it was dropped
+
+**The saving was counted once and paid every step.** A cache read is ~0.1× base input, so the note's
+framing — "a fork reads the prefix instead of writing one" — is true of the worker's *first* call
+and irrelevant afterwards. Every subsequent step re-sends the whole message array, so an inherited
+100k-token parent context is billed again on each step of the worker's loop: an 8-step worker pays
+roughly 8 × 10k-equivalent for context it did not ask for. A cold worker's prefix is system + tools
+and grows only by what it chose to read.
+
+Fork therefore only breaks even for a **very short** worker — and a very short worker is exactly the
+case where the parent should have done the work inline rather than delegating. The design collapses
+on its own terms.
+
+**Second, independent problem: the cache hit requires sharing the parent's toolset.** So a fork gets
+`run_command` and the full write surface, and read-only stops being a capability boundary and
+becomes a policy check at the execution funnel. That widens the least-supervised worker to buy a
+discount that the arithmetic says is not there.
+
+### What the real problem was, and the cheaper answer
+
+Workers *do* re-derive context the parent already has — that part was correctly observed. The fix is
+the pattern this app already applies everywhere else: **pointers, not payloads.** The parent writes
+the `prompt` today; what is missing is anything pushing it to hand over the `file:line` facts it has
+already established. Pointers cost a few hundred tokens and let the worker read only what it needs —
+the same reasoning that makes `.atlarix/skills` and project memory an index rather than a payload.
+That is prompt and tool-description work, not a subsystem.
+
+### The original sketch (retained for reference only — not scheduled)
 
 `src/lib/agents/run-subagent.ts` builds `msgs` as a single `{ role: "user", content: prompt }`.
 Workers start cold: they re-derive context the main agent already has, and every worker is a fresh
@@ -306,46 +359,41 @@ fork, and read the `[prompt-cache]` log line already emitted in `simple-stream-t
 should show a large `read=` where a cold scout shows `write=`. Then an `agent-evals` scenario
 asserting a fork sees prior-turn context a cold scout cannot.
 
-### The inversion worth keeping
+### The inversion worth keeping — amended
 
-Fork inherits **everything** for cost and context. The QA agent inherits **deliberately little**
-for independence. Explorer inherits **an objective**. Three deliberate context postures, each with
-a stated reason — that is what makes the worker taxonomy coherent rather than three ad hoc types.
+The original note argued a three-posture taxonomy: fork inherits **everything** for cost, QA
+inherits **deliberately little** for independence, explorer inherits **an objective**. With fork
+dropped, the surviving and sharper distinction is about *input structure*, not inheritance:
+
+> **Enumerated input for workers whose value is coverage (QA, implementer); an objective for
+> workers whose value is discovery (explorer, architect). Structured output for every worker.**
+
+Handing a discovery worker a checklist turns it into a batch reader that cannot tell you about the
+item nobody thought to list.
 
 ---
 
-## Model-context secret redaction
+## Model-context secret redaction — CLOSED, do not re-propose
 
-*Reframed 2026-08-15. Previously deferred behind sandbox read-confinement; it is independent of it.*
+*Reframed 2026-08-15, **rejected 2026-08-17**. Kept only so the argument is not made a third time.*
 
-The old objection was that we can't cater for every secret shape on the planet, and the research
-backs the instinct: generic entropy+regex scanners historically run **>50% false positives**
-(gitleaks ships 150+ patterns and still needs per-rule entropy thresholds and allowlists).
+The reframe was: a repo scanner hunts secrets it has never seen and pays >50% false positives for
+it, but **we hold the user's actual secret values**, so exact-string redaction of those is
+zero-false-positive with no ruleset — with ~20 vendor prefixes (`ghp_`, `sk-ant-`, `AKIA`, …) as a
+second tier.
 
-But that is a repo scanner's problem — hunting secrets it has never seen. **Ours is inverted: we
-already hold the user's actual secrets** in our own credential store (provider API keys, the Core
-token, MCP OAuth tokens, git credentials).
+**Why that was not enough.** The zero-FP claim only covers the secrets we happen to store. Every
+other secret on the user's machine — the ones in their `.env`, their CI config, their shell history
+— is caught only by tier 2, and tier 2 is a hardcoded list: wrong at the edges, needing maintenance
+forever, and *presenting itself as a guarantee it cannot make*. A partial redactor is arguably worse
+than none, because it changes what users believe is safe to hand the agent. The owner's original
+position stands: **we trust the agent and the provider with credentials, and we do not pretend to
+scrub them.** That is also consistent with the deliberate decision at `lib/tools/glob.ts:221` that
+in-workspace files including `.env` are enumerable.
 
-**Three tiers, and only the first two are worth building:**
-
-1. **Known values.** Exact-string redaction of secrets we already hold. Zero false positives, no
-   ruleset to maintain, and it covers precisely the secrets an exfil would target and the ones a
-   user would be angriest to see in a prompt.
-2. **Vendor-structured prefixes.** ~20 patterns, not 150 — `ghp_`, `gho_`, `glpat-`, `sk-ant-`,
-   `sk-`, `AKIA`, `-----BEGIN * PRIVATE KEY-----`. Several are checksummed (GitHub tokens carry a
-   CRC32 in the tail), so they self-validate offline.
-3. **Entropy heuristics.** The >50%-FP tier. Skip it, or make it user-declared — the same posture
-   already chosen for read-deny patterns.
-
-**The standard differs from a scanner's.** A scanner's false positive burns a human triage cycle;
-a redaction false positive means the model sees `[redacted]` where a random-looking string was, and
-can ask. A false *negative* is just today's behaviour, not a regression. The change is monotonic,
-which is exactly why "we can't catch everything" does not block tiers 1 and 2.
-
-**Never verify a candidate by calling the provider** (TruffleHog's approach — it cuts their false
-positives 85–95%). That transmits the user's discovered credential to a third party.
-
-Applies to tool *results*: command output and file reads, before they reach the model.
+Unaffected and still in place: **display- and telemetry-side** redaction — Sentry `beforeSend`, and
+`redactGitUrlCredentials` on git stderr — which scrub values we *do* own on paths that leave the
+user's control.
 
 ---
 

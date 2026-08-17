@@ -296,6 +296,113 @@ function setGlobalWebSearchCached(cacheKey: string, results: SearchResult[]): vo
     }
 }
 
+// ── read_url cache ──────────────────────────────────────────────────────────
+//
+// A research turn reads the same URL more than once — the agent follows a link,
+// comes back to the source to quote it, and up to five sub-agents can be reading
+// the same page concurrently. Every one of those was a fresh fetch.
+//
+// Deliberately SHORTER-lived than the search cache above (15 min vs 1 hour): a
+// result list going stale costs you an out-of-date ranking, but a page body going
+// stale can make the agent quote something that is no longer there. 15 minutes
+// covers a turn without pretending the web stopped moving.
+
+type ReadUrlFetched = { title: string; content: string };
+
+interface ReadUrlCacheEntry {
+    fetched: ReadUrlFetched;
+    timestamp: number;
+    chars: number;
+}
+
+const READ_URL_CACHE = new Map<string, ReadUrlCacheEntry>();
+const READ_URL_IN_FLIGHT = new Map<string, Promise<Awaited<ReturnType<typeof fetchUrlContent>>>>();
+const READ_URL_CACHE_TTL = 15 * 60 * 1000;
+/**
+ * Bounded by CHARACTERS, not entries: page bodies run to hundreds of KB, so an
+ * entry cap that is right for the search cache's short rows would let this one
+ * hold hundreds of megabytes.
+ */
+const READ_URL_CACHE_MAX_CHARS = 4_000_000;
+
+/** `maxLength` is part of the key — it changes what the caller gets back. */
+function readUrlCacheKey(url: string, maxLength: number): string {
+    return `${url.trim()} ${maxLength}`;
+}
+
+function getReadUrlCached(cacheKey: string): ReadUrlFetched | null {
+    const entry = READ_URL_CACHE.get(cacheKey);
+    if (!entry) return null;
+    if (Date.now() - entry.timestamp > READ_URL_CACHE_TTL) {
+        READ_URL_CACHE.delete(cacheKey);
+        return null;
+    }
+    return entry.fetched;
+}
+
+function setReadUrlCached(cacheKey: string, fetched: ReadUrlFetched): void {
+    const chars = fetched.content.length + fetched.title.length;
+    // A single oversized page would evict everything else and still not fit.
+    if (chars > READ_URL_CACHE_MAX_CHARS) return;
+    READ_URL_CACHE.delete(cacheKey); // re-insert so Map order is true LRU-by-write
+    READ_URL_CACHE.set(cacheKey, { fetched, timestamp: Date.now(), chars });
+
+    let total = 0;
+    for (const e of READ_URL_CACHE.values()) total += e.chars;
+    while (total > READ_URL_CACHE_MAX_CHARS) {
+        const oldest = READ_URL_CACHE.keys().next().value;
+        if (!oldest) break;
+        total -= READ_URL_CACHE.get(oldest)?.chars ?? 0;
+        READ_URL_CACHE.delete(oldest);
+    }
+}
+
+/** Test seam — the cache is process-global, so a test that fills it would leak. */
+export function __clearReadUrlCacheForTests(): void {
+    READ_URL_CACHE.clear();
+    READ_URL_IN_FLIGHT.clear();
+}
+
+/**
+ * `fetchUrlContent` with the cache and concurrent-request dedup in front.
+ *
+ * Only SUCCESSES are cached: a transient failure that stuck for 15 minutes would
+ * be worse than the extra fetch, and the agent's natural response to a failed read
+ * is to retry it.
+ *
+ * Exported for the test that pins it — the whole point is the fetch that does NOT
+ * happen, which is invisible from the tool's return value.
+ */
+export async function fetchUrlContentCached(
+    url: string,
+    maxLength: number,
+    timeoutMs: number = FETCH_TIMEOUT_MS,
+): Promise<Awaited<ReturnType<typeof fetchUrlContent>>> {
+    const cacheKey = readUrlCacheKey(url, maxLength);
+
+    const cached = getReadUrlCached(cacheKey);
+    if (cached) {
+        return { ok: true, title: cached.title, content: cached.content };
+    }
+
+    // Five sub-agents reading the same page should produce one fetch, not five.
+    const inFlight = READ_URL_IN_FLIGHT.get(cacheKey);
+    if (inFlight) return inFlight;
+
+    const promise = (async () => {
+        const result = await fetchUrlContent(url, maxLength, timeoutMs);
+        if (result.ok) {
+            setReadUrlCached(cacheKey, { title: result.title, content: result.content });
+        }
+        return result;
+    })().finally(() => {
+        READ_URL_IN_FLIGHT.delete(cacheKey);
+    });
+
+    READ_URL_IN_FLIGHT.set(cacheKey, promise);
+    return promise;
+}
+
 // ═══════════════════════════════════════════════════════════
 // WEB SEARCH - Combined Perplexica + StackSense approach
 // ═══════════════════════════════════════════════════════════
@@ -390,7 +497,7 @@ ToolRegistry.register({
             const siteRoot = detectSiteRootUrl(query);
             if (siteRoot) {
                 const maxLen = searchMode === 'quick' ? 8000 : DEEP_FETCH_MAX;
-                const fetched = await fetchUrlContent(siteRoot, maxLen);
+                const fetched = await fetchUrlContentCached(siteRoot, maxLen);
                 if (!fetched.ok) {
                     return {
                         text: `**No page fetched for site query**\n\n${fetched.error}\n\n_Tried: ${siteRoot}_`,
@@ -654,7 +761,7 @@ ToolRegistry.register({
             FETCH_TIMEOUT_MAX_MS,
             Math.max(1000, (Number(timeout) || 20) * 1000),
         );
-        const fetched = await fetchUrlContent(url, maxLen, timeoutMs);
+        const fetched = await fetchUrlContentCached(url, maxLen, timeoutMs);
         if (!fetched.ok) {
             return fetched.error;
         }

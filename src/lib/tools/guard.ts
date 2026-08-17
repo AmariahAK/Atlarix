@@ -51,6 +51,170 @@ export interface GuardError {
   received?: string[];
 }
 
+/** What a JSON-Schema `type` says a value should be. Anything else is left alone. */
+type CoercibleType = "string" | "number" | "integer" | "boolean" | "array";
+
+function jsonTypeOf(value: unknown): string {
+  if (value === null) return "null";
+  if (Array.isArray(value)) return "array";
+  return typeof value;
+}
+
+/**
+ * Coerce ONE value toward the schema's declared type, or report that it can't be.
+ *
+ * The posture matches `PARAM_ALIASES` above: absorb what the model unambiguously
+ * meant, refuse what would be a guess. We deliberately target weak and local
+ * models, which emit `file_path: ["src/a.ts"]`, `background: "true"` and
+ * `max_length: "500"` regularly — every one of those has exactly one sane
+ * reading, so failing the call teaches the model nothing a retry wouldn't cost.
+ *
+ * A MULTI-element array is the case that must never be coerced: picking
+ * `["a.ts", "b.ts"][0]` would silently edit one file and drop the other, which
+ * is worse than the error. Same for objects — there is no defensible reading.
+ */
+function coerceToSchemaType(
+  value: unknown,
+  type: CoercibleType,
+): { ok: true; value: unknown } | { ok: false } {
+  const actual = jsonTypeOf(value);
+
+  // Unwrap a single-element array for any scalar target, then fall through so
+  // the unwrapped value is itself coerced (`["500"]` → `"500"` → `500`).
+  if (actual === "array" && type !== "array") {
+    const arr = value as unknown[];
+    if (arr.length !== 1) return { ok: false };
+    return coerceToSchemaType(arr[0], type);
+  }
+
+  switch (type) {
+    case "string":
+      if (actual === "string") return { ok: true, value };
+      // A number or boolean rendered as text is lossless and unambiguous.
+      if (actual === "number" || actual === "boolean") {
+        return { ok: true, value: String(value) };
+      }
+      return { ok: false };
+
+    case "number":
+    case "integer": {
+      if (actual === "number") {
+        const n = value as number;
+        if (!Number.isFinite(n)) return { ok: false };
+        if (type === "integer" && !Number.isInteger(n)) return { ok: false };
+        return { ok: true, value: n };
+      }
+      if (actual === "string") {
+        const s = (value as string).trim();
+        if (!s) return { ok: false };
+        const n = Number(s);
+        if (!Number.isFinite(n)) return { ok: false };
+        if (type === "integer" && !Number.isInteger(n)) return { ok: false };
+        return { ok: true, value: n };
+      }
+      return { ok: false };
+    }
+
+    case "boolean": {
+      if (actual === "boolean") return { ok: true, value };
+      if (actual === "string") {
+        const s = (value as string).trim().toLowerCase();
+        if (s === "true") return { ok: true, value: true };
+        if (s === "false") return { ok: true, value: false };
+      }
+      return { ok: false };
+    }
+
+    case "array":
+      if (actual === "array") return { ok: true, value };
+      // A bare scalar where a list was asked for is a list of one. Objects are
+      // not — `{a:1}` could mean the object itself or its values.
+      if (actual === "string" || actual === "number" || actual === "boolean") {
+        return { ok: true, value: [value] };
+      }
+      return { ok: false };
+  }
+}
+
+/** Human-readable rendering of what actually arrived, for the model to diff against. */
+function describeReceived(value: unknown): string {
+  const actual = jsonTypeOf(value);
+  if (actual === "array") {
+    return `an array of ${(value as unknown[]).length}`;
+  }
+  if (actual === "object") return "an object";
+  if (actual === "null") return "null";
+  return `${actual} (${JSON.stringify(value)})`;
+}
+
+export interface CoerceParamTypesResult {
+  args: unknown;
+  /** One entry per parameter that could not be coerced. Empty on success. */
+  invalid: Array<{ key: string; expected: string; received: string }>;
+}
+
+/**
+ * Bring argument types in line with the tool's declared JSON Schema.
+ *
+ * Runs BEFORE the required-field check, because a coerced value must count as
+ * present — and AFTER alias canonicalisation, so `file_path: ["x"]` is first
+ * moved to `path` and only then unwrapped.
+ *
+ * Parameters the schema does not declare, and declared types we do not model
+ * (`object`, unions, `null`), pass through untouched: this narrows behaviour to
+ * exactly the mistakes we can read, rather than policing the whole payload.
+ */
+export function coerceParamTypes(
+  schema: unknown,
+  args: unknown,
+): CoerceParamTypesResult {
+  if (!args || typeof args !== "object" || Array.isArray(args)) {
+    return { args, invalid: [] };
+  }
+  const props = (schema as { properties?: Record<string, unknown> } | null)
+    ?.properties;
+  if (!props || typeof props !== "object") return { args, invalid: [] };
+
+  const a = args as Record<string, unknown>;
+  let out: Record<string, unknown> | null = null;
+  const invalid: CoerceParamTypesResult["invalid"] = [];
+
+  for (const [key, rawProp] of Object.entries(props)) {
+    if (!(key in a)) continue;
+    const value = a[key];
+    // Absent is the required-check's business, not ours.
+    if (value === undefined || value === null) continue;
+
+    const declared = (rawProp as { type?: unknown } | null)?.type;
+    if (typeof declared !== "string") continue;
+    if (
+      declared !== "string" &&
+      declared !== "number" &&
+      declared !== "integer" &&
+      declared !== "boolean" &&
+      declared !== "array"
+    ) {
+      continue;
+    }
+
+    const coerced = coerceToSchemaType(value, declared);
+    if (!coerced.ok) {
+      invalid.push({
+        key,
+        expected: declared,
+        received: describeReceived(value),
+      });
+      continue;
+    }
+    if (coerced.value !== value) {
+      out ??= { ...a };
+      out[key] = coerced.value;
+    }
+  }
+
+  return { args: out ?? args, invalid };
+}
+
 /**
  * Parameter synonyms models emit instead of a schema's canonical name.
  *
@@ -130,7 +294,31 @@ export async function guardToolCall<T>(
   // Fill canonical parameter names from the synonyms models actually emit,
   // BEFORE the required-field check — otherwise a `file_path` call is rejected
   // as missing `path` and the alias never reaches the handler.
-  const args = canonicalizeParamAliases(parametersSchema, rawArgs);
+  const aliased = canonicalizeParamAliases(parametersSchema, rawArgs);
+
+  // Then line the TYPES up with the schema. Also before the required check, so a
+  // coerced value counts as present rather than reading as missing.
+  const { args, invalid } = coerceParamTypes(parametersSchema, aliased);
+  if (invalid.length > 0) {
+    const received =
+      args && typeof args === "object"
+        ? Object.keys(args as Record<string, unknown>)
+        : [];
+    const detail = invalid
+      .map(
+        (p) => `\`${p.key}\` expects ${p.expected} but received ${p.received}`,
+      )
+      .join("; ");
+    return {
+      success: false,
+      error: "INVALID_PARAMS",
+      tool: toolName,
+      // Say what was wrong AND what to send instead: a guard that only reports
+      // costs a round trip the model has to guess its way out of.
+      message: `Wrong parameter type(s): ${detail}. Retry with the declared type — pass a single value, not a list, when the schema asks for one.`,
+      received,
+    };
+  }
 
   const missing = getMissingRequiredParams(parametersSchema, args);
   if (missing.length > 0) {

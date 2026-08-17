@@ -52,6 +52,21 @@ const NATIVE_VISION_PROVIDERS: ReadonlySet<string> = new Set([
 ]);
 
 /**
+ * There is deliberately NO native-provider fast path for PDF, unlike vision.
+ *
+ * Checked against the models.dev snapshot: Anthropic accepts PDF on 15/15
+ * models, but OpenAI on only 15/47 (`gpt-5.2-pro`, `gpt-4.1-nano` and the
+ * embedding/image models do not) and Google on 21/41. A provider-level
+ * allowlist would therefore be wrong for most of two providers' catalogs — and
+ * wrong in the expensive direction, sending megabytes of document to a model
+ * that rejects it.
+ *
+ * The catalog covers all three natives completely, so per-model lookup is both
+ * available and strictly more accurate. Unknown resolves to false, which simply
+ * means the local text extraction runs, exactly as it always has.
+ */
+
+/**
  * Does an OpenRouter-style modality string indicate the model accepts IMAGE
  * input? OpenRouter uses e.g. "text+image->text"; some catalogs say
  * "multimodal". Only the input side (left of "->") matters for vision input.
@@ -75,34 +90,71 @@ function modalityAcceptsImages(modality: string | undefined): boolean {
  * Keys: `${providerId}:${modelId}` and bare `${modelId}`.
  */
 const modelsDevVisionById = new Map<string, boolean>();
+/**
+ * The same registry for PDF-document input, which models.dev declares as its own
+ * `pdf` input modality. Kept as a separate map rather than a field on the vision
+ * one because the two genuinely diverge: plenty of models see images but reject a
+ * document part, and conflating them is what would send a 2 MB PDF to a model
+ * that can only take an image.
+ */
+const modelsDevPdfById = new Map<string, boolean>();
+
+function registerModality(
+  map: Map<string, boolean>,
+  providerId: string,
+  modelId: string,
+  accepts: boolean,
+): void {
+  map.set(`${providerId}:${modelId}`.toLowerCase(), accepts);
+  // Bare id too — callers pass catalog-style ids with or without a vendor
+  // prefix. Never let a false overwrite a true from another provider row.
+  const bare = modelId.toLowerCase();
+  if (accepts || !map.has(bare)) {
+    map.set(bare, accepts);
+  }
+}
 
 export function registerModelsDevVision(
-  entries: Array<{ providerId: string; modelId: string; acceptsImages: boolean }>,
+  entries: Array<{
+    providerId: string;
+    modelId: string;
+    acceptsImages: boolean;
+    /** Optional so an older/partial caller still registers vision correctly. */
+    acceptsPdf?: boolean;
+  }>,
 ): void {
   for (const e of entries) {
-    modelsDevVisionById.set(`${e.providerId}:${e.modelId}`.toLowerCase(), e.acceptsImages);
-    // Bare id too — callers pass catalog-style ids with or without a vendor
-    // prefix. Never let a false overwrite a true from another provider row.
-    const bare = e.modelId.toLowerCase();
-    if (e.acceptsImages || !modelsDevVisionById.has(bare)) {
-      modelsDevVisionById.set(bare, e.acceptsImages);
-    }
+    registerModality(modelsDevVisionById, e.providerId, e.modelId, e.acceptsImages);
+    registerModality(
+      modelsDevPdfById,
+      e.providerId,
+      e.modelId,
+      e.acceptsPdf === true,
+    );
   }
+}
+
+function modalityLookup(
+  map: Map<string, boolean>,
+  builtinProviderId: string | undefined,
+  modelApiId: string,
+): boolean | undefined {
+  const id = modelApiId.toLowerCase();
+  const scoped = builtinProviderId
+    ? map.get(`${builtinProviderId.toLowerCase()}:${id}`)
+    : undefined;
+  if (scoped !== undefined) return scoped;
+  const bare = map.get(id);
+  if (bare !== undefined) return bare;
+  const tail = id.includes("/") ? id.split("/").pop()! : null;
+  return tail ? map.get(tail) : undefined;
 }
 
 function modelsDevVisionFor(
   builtinProviderId: string | undefined,
   modelApiId: string,
 ): boolean | undefined {
-  const id = modelApiId.toLowerCase();
-  const scoped = builtinProviderId
-    ? modelsDevVisionById.get(`${builtinProviderId.toLowerCase()}:${id}`)
-    : undefined;
-  if (scoped !== undefined) return scoped;
-  const bare = modelsDevVisionById.get(id);
-  if (bare !== undefined) return bare;
-  const tail = id.includes("/") ? id.split("/").pop()! : null;
-  return tail ? modelsDevVisionById.get(tail) : undefined;
+  return modalityLookup(modelsDevVisionById, builtinProviderId, modelApiId);
 }
 
 /**
@@ -128,6 +180,28 @@ export function detectVisionCapability(
     if (modalityAcceptsImages(row?.architecture?.modality)) return true;
   }
   return modelsDevVisionFor(builtinProviderId, id) === true;
+}
+
+/**
+ * Does this model accept a native PDF **document** part?
+ *
+ * Mirrors `detectVisionCapability`, and deliberately does NOT reuse it: seeing
+ * images and accepting a document are separate capabilities in every catalog
+ * that reports both, and treating them as one would hand a multi-megabyte PDF to
+ * a model that can only take an image.
+ *
+ * False is the safe answer and the status quo — the caller falls back to the
+ * local text extraction that has always run, so an unknown model loses nothing.
+ * Note this only matters for scanned or layout-heavy PDFs; a text PDF extracts
+ * fine either way.
+ */
+export function detectPdfCapability(
+  builtinProviderId: string | undefined,
+  modelApiId?: string,
+): boolean {
+  const id = (modelApiId ?? "").trim();
+  if (!id) return false;
+  return modalityLookup(modelsDevPdfById, builtinProviderId, id) === true;
 }
 
 /**

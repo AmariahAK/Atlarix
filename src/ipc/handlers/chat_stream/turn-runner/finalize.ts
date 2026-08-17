@@ -486,17 +486,28 @@ export async function handleTurnError(
           return;
         }
         {
-          // Image-content rejection (text-only chat API): surface a friendly
-          // "switch to a vision model" message instead of the raw provider dump.
+          // Image- or PDF-content rejection (text-only chat API): surface a
+          // friendly "switch model" message instead of the raw provider dump.
           // Handled in simple-stream-text's onError for the streaming path; this
           // covers a pre-stream throw that reaches the outer catch.
-          const { isImageContentRejectionError, imageUnsupportedUserMessage } =
-            await import("@/lib/chat/image-embed-gate");
-          if (isImageContentRejectionError(error)) {
+          const {
+            isImageContentRejectionError,
+            imageUnsupportedUserMessage,
+            isPdfContentRejectionError,
+            pdfUnsupportedUserMessage,
+          } = await import("@/lib/chat/image-embed-gate");
+          // PDF first — same ordering reason as the streaming path: a turn can
+          // carry both, and the image matcher would otherwise claim it.
+          const contentRejectionMessage = isPdfContentRejectionError(error)
+            ? pdfUnsupportedUserMessage()
+            : isImageContentRejectionError(error)
+              ? imageUnsupportedUserMessage()
+              : null;
+          if (contentRejectionMessage) {
             safeSend(event.sender, "chat:response:error", {
               chatId: req.chatId,
               streamId,
-              error: `${AI_STREAMING_ERROR_MESSAGE_PREFIX}${imageUnsupportedUserMessage()}`,
+              error: `${AI_STREAMING_ERROR_MESSAGE_PREFIX}${contentRejectionMessage}`,
             });
             safeSend(event.sender, "chat:response:end", {
               chatId: req.chatId,

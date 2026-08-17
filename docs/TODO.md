@@ -68,15 +68,9 @@ queue, not a design doc.
 - **QA sub-agents** — up to 3 declared *surfaces* (web/api/mobile/mcp/cli) that exercise the running
   app and report evidence-backed findings. Gets the requirement, **not the diff** — independence of
   judgment is the point. A scoped `http_request`, not the terminal. Load testing is an explicit
-  non-goal.
-- **Fork sub-agents** — a worker inheriting the parent's history so it reads the cache prefix
-  instead of writing one. Pulled from the 2026-08-15 batch on discovering the prefix is
-  `tools → system → messages`: a fork must share the parent's **toolset and system header** or the
-  cache buys nothing, making it a distinct worker kind and read-only a *policy* question at the
-  tool-execution funnel, not a toolset one.
-- **Model-context secret redaction** — no longer blocked on read-confinement. We already hold the
-  user's real secrets, so exact-value redaction is zero-false-positive with no ruleset; ~20
-  vendor prefixes are tier 2; skip the entropy tier.
+  non-goal. **Settled 2026-08-17:** coverage workers (QA, implementer) get an enumerated contract in
+  the spawn payload and return one validated entry per item — no check-off tool, because self-report
+  is unverifiable exactly on the weak models it would be added for.
 - **Smaller upstream-review items** — native PDF parts, `run_command` memory/Job-Object
   containment, `llama-server` detection (for the true `n_ctx`, not the connection), per-model
   sampling defaults, chore-model routing, malformed tool-arg handling, a Windows path-validation
@@ -188,8 +182,6 @@ v14.28.0), and the **system-scope approval gate** (which also closed M1). **Defe
   taxonomy is done; the flip needs per-automation design to not break legit builds/tests.
 - **Round-tripped auth `state` nonce** — needs confirming the Supabase redirect-URL allowlist
   permits a query param (current gate = flow-must-be-in-progress).
-- **Model-context secret redaction** — unblocked and reframed; see
-  [`docs/DESIGN_NOTES.md`](./DESIGN_NOTES.md).
 - Sandbox **read**-confinement (Windows blocker in the read-deny entry above), **egress** gating,
   and the remaining Mediums (env-var key inheritance, secret-basename list, cross-workspace file
   scope, plaintext-keychain fallback).
@@ -198,6 +190,24 @@ v14.28.0), and the **system-scope approval gate** (which also closed M1). **Defe
 
 ## 📋 Carried / small
 
+- **CLOSED — fork sub-agents. The arithmetic does not work; do not re-propose.** A cache read is
+  ~0.1× base input, but the inherited prefix is re-sent on **every step** of the worker's loop, not
+  just the first — so an 8-step fork pays ~8× the discount it was supposed to save, for context it
+  never asked for. It only breaks even for a very short worker, which is the case where the parent
+  should not have delegated at all. Separately, the cache hit requires sharing the parent's toolset,
+  which hands the least-supervised worker the full write surface. The real problem it targeted —
+  workers re-deriving what the parent knows — is answered by **pointers, not payloads**: prompt and
+  tool-description work pushing the parent to hand over the `file:line` facts it already has. Full
+  reasoning in [`docs/DESIGN_NOTES.md`](./DESIGN_NOTES.md).
+- **CLOSED — model-context secret redaction. Decided twice; do not re-propose.** Rejected in
+  v14.12.0 (owner trusts the agent and the provider with credentials) and again **2026-08-17** on
+  the reframed version. The reframe argued that because we hold the user's real secret *values*,
+  exact-string redaction is zero-false-positive. That is true and still not sufficient: **no list
+  caters for every form a secret takes**, and the tier-2 vendor-prefix set is exactly the kind of
+  hardcoded list this project has repeatedly decided against — it would be wrong at the edges,
+  need maintaining forever, and give the impression of a guarantee it cannot make. Display-side
+  and telemetry-side redaction (Sentry `beforeSend`, git-stderr credential stripping) are a
+  different concern and stay.
 - **CONSIDER (evaluated → CLOSED): `browser-use`.** Python/Playwright (bad Electron fit), its own
   agent loop, and its one good idea (stable element refs) we already have via `browser_inspect`
   snapshot `ref`s. No capability gap.

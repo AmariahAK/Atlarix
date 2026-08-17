@@ -3,11 +3,23 @@
  * graceful fallback, read-length clamps, and the one-shot Cloudflare-challenge
  * retry with a browser User-Agent.
  */
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+
+/**
+ * The read_url cache is only observable through the fetch that does NOT happen,
+ * so the network layer has to be countable.
+ */
+const safeFetchMock = vi.fn();
+vi.mock("@/lib/security/url-policy", () => ({
+  safeFetch: (...args: unknown[]) => safeFetchMock(...args),
+}));
+
 import {
   extractReadableContent,
   clampReadLength,
   fetchWithCfRetry,
+  fetchUrlContentCached,
+  __clearReadUrlCacheForTests,
 } from "@/lib/tools/web";
 
 describe("extractReadableContent (turndown HTML→Markdown)", () => {
@@ -56,6 +68,98 @@ describe("clampReadLength", () => {
   it("clamps to the 50K cap", () => {
     expect(clampReadLength(99_999, 20_000)).toBe(50_000);
     expect(clampReadLength(12_000, 20_000)).toBe(12_000);
+  });
+});
+
+/**
+ * A research turn reads the same URL more than once, and up to five sub-agents
+ * can be reading it at the same moment. Each of those used to be a fresh fetch.
+ */
+describe("read_url cache", () => {
+  function pageResponse(body: string): Response {
+    return {
+      ok: true,
+      status: 200,
+      statusText: "OK",
+      headers: new Headers({ "content-type": "text/html" }),
+      text: async () => body,
+    } as unknown as Response;
+  }
+
+  beforeEach(() => {
+    __clearReadUrlCacheForTests();
+    safeFetchMock.mockReset();
+    safeFetchMock.mockResolvedValue(
+      pageResponse("<html><head><title>Doc</title></head><body><main><p>hello</p></main></body></html>"),
+    );
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    __clearReadUrlCacheForTests();
+  });
+
+  it("serves a repeat read from cache instead of refetching", async () => {
+    const first = await fetchUrlContentCached("https://x.dev/a", 20_000);
+    const second = await fetchUrlContentCached("https://x.dev/a", 20_000);
+    expect(safeFetchMock).toHaveBeenCalledTimes(1);
+    expect(second).toEqual(first);
+  });
+
+  /** `maxLength` changes what the caller gets back, so it is part of the key. */
+  it("refetches when maxLength differs", async () => {
+    await fetchUrlContentCached("https://x.dev/a", 20_000);
+    await fetchUrlContentCached("https://x.dev/a", 5_000);
+    expect(safeFetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("refetches a different URL", async () => {
+    await fetchUrlContentCached("https://x.dev/a", 20_000);
+    await fetchUrlContentCached("https://x.dev/b", 20_000);
+    expect(safeFetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("collapses concurrent reads of the same URL into one fetch", async () => {
+    const [a, b, c] = await Promise.all([
+      fetchUrlContentCached("https://x.dev/a", 20_000),
+      fetchUrlContentCached("https://x.dev/a", 20_000),
+      fetchUrlContentCached("https://x.dev/a", 20_000),
+    ]);
+    expect(safeFetchMock).toHaveBeenCalledTimes(1);
+    expect(a).toEqual(b);
+    expect(b).toEqual(c);
+  });
+
+  /**
+   * A transient failure pinned for 15 minutes would be worse than the extra
+   * fetch — and retrying is exactly what the agent does next.
+   */
+  it("does not cache a failure", async () => {
+    safeFetchMock.mockResolvedValue({
+      ok: false,
+      status: 503,
+      statusText: "Service Unavailable",
+      headers: new Headers(),
+      text: async () => "",
+    } as unknown as Response);
+    const first = await fetchUrlContentCached("https://x.dev/down", 20_000);
+    expect(first.ok).toBe(false);
+    await fetchUrlContentCached("https://x.dev/down", 20_000);
+    expect(safeFetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("refetches once the 15-minute TTL has passed", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-17T10:00:00Z"));
+    await fetchUrlContentCached("https://x.dev/a", 20_000);
+
+    vi.setSystemTime(new Date("2026-08-17T10:14:00Z"));
+    await fetchUrlContentCached("https://x.dev/a", 20_000);
+    expect(safeFetchMock).toHaveBeenCalledTimes(1);
+
+    vi.setSystemTime(new Date("2026-08-17T10:16:00Z"));
+    await fetchUrlContentCached("https://x.dev/a", 20_000);
+    expect(safeFetchMock).toHaveBeenCalledTimes(2);
   });
 });
 

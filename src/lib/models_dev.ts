@@ -143,19 +143,28 @@ function publishVisionModalities(data: ModelsDevData): void {
       providerId: string;
       modelId: string;
       acceptsImages: boolean;
+      acceptsPdf: boolean;
     }> = [];
     for (const [providerId, provider] of Object.entries(data)) {
       if (!provider?.models) continue;
       const atlarixId = REVERSE_PROVIDER_ID_MAP[providerId];
       for (const [modelId, m] of Object.entries(provider.models)) {
-        const acceptsImages = Array.isArray(m.modalities?.input)
-          ? m.modalities.input.some(
-              (mod) => String(mod).toLowerCase() === "image",
-            )
-          : false;
-        entries.push({ providerId, modelId, acceptsImages });
+        const inputs = Array.isArray(m.modalities?.input)
+          ? m.modalities.input.map((mod) => String(mod).toLowerCase())
+          : [];
+        const acceptsImages = inputs.includes("image");
+        // `pdf` is its own declared input modality in the catalog — a model can
+        // see images without accepting a document part, so this is NOT derivable
+        // from the vision flag.
+        const acceptsPdf = inputs.includes("pdf");
+        entries.push({ providerId, modelId, acceptsImages, acceptsPdf });
         if (atlarixId)
-          entries.push({ providerId: atlarixId, modelId, acceptsImages });
+          entries.push({
+            providerId: atlarixId,
+            modelId,
+            acceptsImages,
+            acceptsPdf,
+          });
       }
     }
     registerModelsDevVision(entries);

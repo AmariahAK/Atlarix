@@ -20,6 +20,7 @@ import {
   cancelJobWakeups,
   getJobWakeupRemainingMs,
 } from "@/lib/agent/scheduled-wakeups";
+import { killShellProcess } from "@/ipc/utils/runShellCommand";
 
 export type BackgroundJobStatus =
   | "running"
@@ -491,11 +492,10 @@ export function killBackgroundJob(chatId: number, operationId: string): boolean 
   const job = runningJobsByChat.get(chatId)?.get(operationId);
   if (!job) return false;
   cancelledOps.add(operationId);
-  try {
-    job.proc?.kill("SIGTERM");
-  } catch {
-    /* already gone */
-  }
+  // Via killShellProcess, not proc.kill: the child is the SHELL, and a background
+  // job is precisely the long-lived kind (dev server, watcher, test runner) whose
+  // real process is a grandchild that outlives it.
+  killShellProcess(job.proc);
   return true;
 }
 
@@ -613,11 +613,7 @@ export function clearBackgroundCommandsForChat(chatId: number): void {
 export function killAllBackgroundJobs(): void {
   for (const jobs of runningJobsByChat.values()) {
     for (const job of jobs.values()) {
-      try {
-        job.proc?.kill("SIGTERM");
-      } catch {
-        /* already gone */
-      }
+      killShellProcess(job.proc);
     }
   }
   runningJobsByChat.clear();
@@ -633,8 +629,9 @@ export function killAllBackgroundJobs(): void {
 // promoted to the background it is NOT a background job, so a user cancel could
 // not reach it — the model stream aborted but the child kept running. We track
 // the live foreground child here so the cancel/abort handlers can terminate it.
-// Cross-platform: ChildProcess.kill("SIGTERM") maps to the OS-appropriate
-// terminate on macOS/Linux/Windows (Node handles the per-OS signal).
+// Cross-platform termination goes through `killShellProcess`, which signals the
+// whole process GROUP (POSIX) or walks the tree with `taskkill /T` (Windows) —
+// the child we hold is the shell, not the command the user is waiting on.
 const foregroundProcsByChat = new Map<number, Map<string, ChildProcess>>();
 
 export function registerForegroundProc(
@@ -667,12 +664,8 @@ export function killForegroundCommandsForChat(chatId: number): number {
   if (!m) return 0;
   let killed = 0;
   for (const proc of m.values()) {
-    try {
-      proc.kill("SIGTERM");
-      killed++;
-    } catch {
-      /* already gone */
-    }
+    killShellProcess(proc);
+    killed++;
   }
   foregroundProcsByChat.delete(chatId);
   return killed;

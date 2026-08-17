@@ -66,6 +66,8 @@ import { takeRefreshedPlanLedger } from "@/lib/tasks/plan-ledger-refresh";
 import {
   isImageContentRejectionError,
   imageUnsupportedUserMessage,
+  isPdfContentRejectionError,
+  pdfUnsupportedUserMessage,
 } from "@/lib/chat/image-embed-gate";
 import { sentryCaptureExceptionSafe } from "@/ipc/handlers/chat_stream/sentry-safe";
 import {
@@ -830,7 +832,13 @@ export async function simpleStreamText(
                 // Only Core INFRA errors (reachability / core_unavailable) warrant a
                 // Sentry event; a user running out of credit (402) is expected state.
                 let isCompassInfraError = false;
-                if (isImageContentRejectionError(error)) {
+                if (isPdfContentRejectionError(error)) {
+                  // Checked BEFORE the image matcher: a turn can carry both, and
+                  // the image matcher's broader "unsupported" clauses would
+                  // otherwise claim a document rejection and send the user off
+                  // hunting for a vision model.
+                  message = pdfUnsupportedUserMessage();
+                } else if (isImageContentRejectionError(error)) {
                   // The model's API rejected the embedded image (text-only chat
                   // API, e.g. DeepSeek's "unknown variant image_url"). Replace the
                   // raw JSON deserialize error with a clear, actionable message

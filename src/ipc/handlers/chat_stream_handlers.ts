@@ -65,7 +65,9 @@ import {
   removeAtlarixTags,
   hasUnclosedAtlarixWrite,
   removeThinkingTags,
+  PDF_MIME_TYPE,
 } from "./chat_stream/message-postprocess";
+import { detectPdfCapability } from "@/lib/routing/model-capability-profile";
 export {
   formatMessagesForSummary,
   prepareMessageWithAttachments,
@@ -1806,6 +1808,43 @@ ${componentSnippet}
                 data: f.data,
               }));
           })();
+          // PDFs, unlike images, ARE capability-gated. The image path can send
+          // optimistically because a rejection is cheap and recoverable; a PDF
+          // is megabytes, and a model that cannot take a document part is the
+          // common case, not the exception. Gating on the models.dev `pdf`
+          // input modality means a "no" simply leaves the local text extraction
+          // running — which is what every PDF has always used, and is the right
+          // answer for a text-based one regardless.
+          //
+          // What this buys is the case extraction cannot serve at all: a SCANNED
+          // or image-only PDF, where extraction returns nothing and the tool has
+          // to say so.
+          const lastUserTransportPdfs = ((): Array<{
+            filename: string;
+            mimeType: string;
+            data: string;
+          }> => {
+            if (
+              !detectPdfCapability(
+                modelClient.builtinProviderId,
+                resolveReasoningCatalogModelId(effectiveModel),
+              )
+            ) {
+              return [];
+            }
+            const source =
+              storedFileAttachments.length > 0
+                ? storedFileAttachments
+                : (lastUserTransportMessage?.fileAttachments ?? []);
+            return source
+              .filter((f: { mimeType?: string }) => f.mimeType === PDF_MIME_TYPE)
+              .map((f: { filename: string; mimeType: string; data: string }) => ({
+                filename: f.filename,
+                mimeType: f.mimeType,
+                data: f.data,
+              }));
+          })();
+
           // Edit-resend: ingest was skipped, so the model got NO attachment
           // directive (it had to guess or list). Rebuild the id lines from the
           // persisted attachments of the message being resent.
@@ -1846,7 +1885,8 @@ ${componentSnippet}
             chatMessages.length >= 2 &&
             (attachmentPaths.length > 0 ||
               attachmentInfoForModel.trim().length > 0 ||
-              lastUserTransportImages.length > 0)
+              lastUserTransportImages.length > 0 ||
+              lastUserTransportPdfs.length > 0)
           ) {
             const lastUserIndex = chatMessages.length - 2;
             const lastUserMessage = chatMessages[lastUserIndex];
@@ -1859,6 +1899,7 @@ ${componentSnippet}
                     message: lastUserMessage,
                     attachmentInfoForModel,
                     imageAttachments: lastUserTransportImages,
+                    pdfAttachments: lastUserTransportPdfs,
                   }),
               );
             }

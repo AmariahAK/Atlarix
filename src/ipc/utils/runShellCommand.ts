@@ -169,12 +169,14 @@ function runShellProcess(options: RunShellProcessOptions): Promise<CommandResult
           cwd: cwd || undefined,
           env,
           stdio: ["ignore", "pipe", "pipe"],
+          ...PROCESS_GROUP_SPAWN_OPTIONS,
         })
       : spawn(spawnFile, {
           shell,
           cwd: cwd || undefined,
           env,
           stdio: ["ignore", "pipe", "pipe"],
+          ...PROCESS_GROUP_SPAWN_OPTIONS,
         });
 
     onSpawn?.(proc);
@@ -267,21 +269,99 @@ export function runShellCommandStreaming(
   });
 }
 
-/** Kill a child process (SIGTERM, then SIGKILL after delay). */
-export function killShellProcess(proc: ChildProcess | null | undefined): void {
-  if (!proc || proc.killed) return;
+/**
+ * Spawn options that put the child in its OWN process group.
+ *
+ * Every command runs through a shell, so the process we hold is `sh`/`bash`, not
+ * the thing the user actually started. Signalling that pid alone reaps the shell
+ * and leaves its children running: cancelling `npm run dev` killed the shell and
+ * left node holding the port, which is the bug this exists for.
+ *
+ * `detached` is POSIX-only here. On Windows it would open a new console window,
+ * and it is not how you kill a tree there anyway — `taskkill /T` walks the parent
+ * chain instead (see `killShellProcess`). We never `unref()`, so the child stays
+ * tied to our lifetime exactly as before.
+ */
+const PROCESS_GROUP_SPAWN_OPTIONS: { detached?: boolean } =
+  process.platform === "win32" ? {} : { detached: true };
+
+/**
+ * Signal the whole process GROUP, falling back to the single child.
+ *
+ * A negative pid means "the group" to `process.kill` — available because we
+ * spawned `detached`. ESRCH here just means everything already exited.
+ */
+function signalProcessTree(proc: ChildProcess, signal: NodeJS.Signals): void {
+  const pid = proc.pid;
+  if (pid == null) return;
   try {
-    proc.kill("SIGTERM");
+    process.kill(-pid, signal);
+    return;
+  } catch {
+    /* group gone, or never grouped — fall through to the direct child */
+  }
+  try {
+    proc.kill(signal);
   } catch {
     /* noop */
   }
-  setTimeout(() => {
-    if (proc.killed) return;
+}
+
+/**
+ * Windows has no process groups to signal, so walk the tree with `taskkill /T`.
+ *
+ * NOT VERIFIED ON WINDOWS — reasoned from the documented behaviour of
+ * `taskkill /T /F`, like the v14.31.0 notification fix. Tracked in docs/TODO.md
+ * under the Windows machine.
+ */
+function killProcessTreeWindows(proc: ChildProcess): void {
+  const pid = proc.pid;
+  if (pid == null) return;
+  try {
+    // Fire-and-forget: the exit handlers on `proc` are what actually settle the
+    // command, and a failed taskkill must not throw into a cancel path.
+    spawn("taskkill", ["/pid", String(pid), "/T", "/F"], {
+      stdio: "ignore",
+      windowsHide: true,
+    }).on("error", () => {
+      try {
+        proc.kill("SIGKILL");
+      } catch {
+        /* noop */
+      }
+    });
+  } catch {
     try {
       proc.kill("SIGKILL");
     } catch {
       /* noop */
     }
+  }
+}
+
+/**
+ * Kill a child process AND everything it started (SIGTERM, then SIGKILL after a
+ * grace period).
+ *
+ * The tree matters: without it, cancelling a dev server or a test runner leaves
+ * the real work running — holding its port, writing to the workspace, and
+ * invisible to the user who just pressed stop.
+ */
+export function killShellProcess(proc: ChildProcess | null | undefined): void {
+  if (!proc || proc.killed) return;
+
+  if (process.platform === "win32") {
+    // `/F` is already forceful; there is no graceful-then-forceful pair here.
+    killProcessTreeWindows(proc);
+    return;
+  }
+
+  signalProcessTree(proc, "SIGTERM");
+  setTimeout(() => {
+    // `proc.killed` only records that WE signalled it, not that it died — check
+    // for an exit code/signal, which is what actually says the child is gone.
+    if (proc.exitCode !== null || proc.signalCode !== null) return;
+    signalProcessTree(proc, "SIGKILL");
   }, 2000);
 }
 
