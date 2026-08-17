@@ -62,6 +62,16 @@ normalised when matching. That sent it re-typing indentation instead of looking 
 difference, which in practice was usually content belonging to a similarly-named file. It's now
 told what actually went wrong.
 
+**Finding a workspace.** Past five projects the Recent workspaces list gains a search box and
+scrolls — searching names *and* paths, so two checkouts of the same repo are still tellable
+apart. Below five it's unchanged, since the whole list is already in front of you.
+
+**Reopening a session no longer hijacks the side panel.** It used to jump to the Plan tab and
+force the panel open. That guesses you want to resume the plan when you may just be looking
+something up — and if the session had several plans, only the newest appeared, presented as
+though it were the only one. The plan still loads and the Plan tab now shows a dot, the way
+Console and Network do.
+
 **In the browser panels:**
 
 - **Sending Console or Network output adds an attachment, not a wall of text.** It used to paste
