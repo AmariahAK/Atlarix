@@ -1,6 +1,6 @@
 # Atlarix TODO
 
-**Current Version:** v14.32.0 (2026-08-17, on `main`, NOT yet tagged) — scanned PDFs, cancelled
+**Current Version:** v14.32.0 (2026-08-17) — RELEASED — scanned PDFs, cancelled
 commands that actually stop, and browser panels that hand things over.
 **Last Updated:** 2026-08-17
 
@@ -13,21 +13,11 @@ commands that actually stop, and browser panels that hand things over.
 
 ## 🔨 In flight — landed, not yet released
 
-**v14.32.0 — four things the agent got wrong, and the browser panels hand things over.** Landed on
-`main`, not yet tagged.
-
-- Native PDF parts (scanned PDFs were unreadable), process-tree kill on cancel, type-coerced tool
-  arguments, a `read_url` cache, and surrogate-safe truncation.
-- Console/Network sends become attachment chips, and both panels group per PAGE LOAD rather than
-  per tab. **Verified by hand in the packaged app 2026-08-17 — works.**
-- **System-wake admission control**, after a live two-window freeze (see the trap column).
-
-**Still owed before the tag:**
-- [ ] Re-run the packaged pass for the wake fix — reproduce the incident: window 1 runs a Build
-      turn with a background command, open window 2 on a DIFFERENT project mid-turn, and confirm
-      window 1 finishes with no `superseded_stream` in the log. Then Stop in window 1, let a
-      background job finish, and confirm neither window restarts it.
-- [x] **A live PDF check on a real PDF-capable model — done by hand 2026-08-17, works.**
+Nothing. **v14.32.0 SHIPPED 2026-08-17** — 12 assets across macOS/Linux/Windows, MSIX submitted to
+the Store. Verified by hand before release: Console/Network panels, the live PDF read, and the
+two-window wake fix (two projects open concurrently, **zero** `superseded_stream` in the log).
+What it left behind is in the Shipped index; what is still owed is below, under the machine or the
+job that can confirm it.
 
 ---
 
@@ -185,6 +175,34 @@ incomplete*; the reasoning is in git.
 - **Browser `KEY_ALIASES` / `MODIFIER_TOKENS`** — a closed set from the DOM spec.
 
 ---
+
+## 🔧 OPEN from the v14.32.0 release — the headless bundle did not publish
+
+**`Atlarix Headless` failed on the `v14.32.0` tag, twice.** The desktop release is unaffected —
+12 assets, all platforms, published — but `headless-bench` on `atlarix-releases` still holds the
+**v14.31.0** tarball, so the benchmark harness is a release behind.
+
+```
+Unexpected error fetching GitHub release for tag refs/tags/v14.32.0:
+HttpError: Resource not accessible by personal access token
+```
+
+**What is ruled out:**
+- *Not* a draft-vs-published race — re-run AFTER the release was published, failed identically.
+- *Not* a broken `RELEASES_TOKEN` — `create-draft` uses the **same action, same token, same target
+  repo** and succeeded in the same run, as did all 12 asset uploads.
+- *Not* a config change — headless succeeded on the previous **9** release tags with this config.
+
+**Leading suspect: the floating action tag.** Both workflows use
+`softprops/action-gh-release@v2` — an unpinned major. Nothing on our side changed between
+v14.31.0 (success) and v14.32.0 (failure), which points upstream. Note the error names
+`refs/tags/v14.32.0`, the **raw ref**, not a tag name — and headless is the only caller whose
+`tag_name` (`headless-bench`) differs from the ref, which is plausibly the path that regressed.
+
+- [ ] Confirm by pinning `softprops/action-gh-release` to an exact version/SHA in `headless.yml`
+      and re-running. **Pin it in `release.yml` too** — a floating major on the job that publishes
+      releases is the same exposure, and it happens to be the one that still works.
+- [ ] Once fixed, re-run *Atlarix Headless* so `headless-bench` carries 14.32.0.
 
 ## ⚙️ Actions storage — the second billing trap
 
