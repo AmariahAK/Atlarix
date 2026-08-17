@@ -13,21 +13,19 @@
 
 ## 🔨 In flight — landed, not yet released
 
-**v14.33.0 — automations that actually tell the agent.** Prepared on `main`, NOT yet tagged:
-GitHub was in a major outage (Actions + API `MAJOR_OUTAGE`) when it was cut, so everything local
-was done first and the tag held until Actions came back.
+Nothing. **v14.33.0 SHIPPED 2026-08-17** — automations that actually tell the agent, plus
+`operation:"run"`. 12 assets, both update feeds, MSIX submitted. Both fixes verified by hand in
+the packaged app before release.
 
-- Automation results reach the model; `operation:"run"` fires one on demand. **Both verified by
-  hand in the packaged app.**
-- Release infra from shipping v14.32.0: notes written at creation, headless publishes without a
-  read, `softprops/action-gh-release` pinned.
+**It shipped as a DRAFT first.** `publish-release` PATCHed `draft:false` with a bare
+`curl -sS`, which exits 0 on an HTTP error — GitHub 503'd mid-incident, the step went green,
+every job went green, and the release sat unpublished with all 12 assets attached. Published by
+hand; the step now retries and READS THE RELEASE BACK before passing. Third instance in one day of
+the same class: **a step that reads as success while the thing did not happen.**
 
-**This release is the first real test of two fixes** that have never run on a tag — see the
-headless entry below and the release-notes fix. If the release body comes back at ~560 chars, the
-notes fix did not work.
-
-v14.32.0 shipped 2026-08-17 — 12 assets, MSIX submitted. Verified by hand: Console/Network
-panels, the live PDF read, and the two-window wake fix (**zero** `superseded_stream` in the log).
+**Two previously-unverified fixes are now confirmed:** notes written at creation (body came back
+1,820 chars, not the ~560 placeholder) and the regenerated `RELEASES_TOKEN` (headless resolved
+the release AND an asset id; `headless-bench` serves 14.33.0 again).
 
 ---
 
@@ -186,7 +184,7 @@ incomplete*; the reasoning is in git.
 
 ---
 
-## 🔧 The headless bundle did not publish on v14.32.0 — FIXED, verify on next release
+## ✅ RESOLVED — the headless bundle publishes again (closed at v14.33.0)
 
 **`Atlarix Headless` failed on the `v14.32.0` tag, twice.** The desktop release was unaffected —
 12 assets, all platforms, published — but `headless-bench` on `atlarix-releases` was left holding
