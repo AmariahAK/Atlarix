@@ -220,3 +220,35 @@ describe("automation result delivery", () => {
     expect(takePendingAutomationResults(CHAT)).toContain("green");
   });
 });
+
+/**
+ * Every operation the handler accepts must be ADVERTISED.
+ *
+ * `run` shipped once with the enum and handler in place but no mention in the
+ * description — which makes it not exist, because the description is the only
+ * place the model learns what the tool can do. Same shape as the "Runned <tool>"
+ * label trap: the capability works and is undiscoverable.
+ */
+describe("automations — the description matches the enum", () => {
+  it("advertises every operation the tool accepts", () => {
+    const tool = ToolRegistry.get("automations");
+    expect(tool).toBeTruthy();
+    const description = tool!.description;
+    const accepted = (
+      tool!.parameters as { properties?: { operation?: { enum?: string[] } } }
+    ).properties?.operation?.enum;
+    expect(accepted, "operation should be an enum param").toBeTruthy();
+
+    const undocumented = accepted!.filter((op) => !description.includes(`operation:"${op}"`));
+    expect(
+      undocumented,
+      `these operations are accepted but never described, so the model cannot know they exist: ${undocumented.join(", ")}`,
+    ).toEqual([]);
+  });
+
+  it("tells the model that run targets ONE automation", () => {
+    const description = ToolRegistry.get("automations")!.description;
+    expect(description).toContain('operation:"run"');
+    expect(description).toContain("automation_id");
+  });
+});

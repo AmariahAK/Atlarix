@@ -96,6 +96,7 @@ ToolRegistry.register({
     "operation:\"create\" — name + trigger + run_mode + notify_agent. " +
     "operation:\"update\" — automation_id plus only the fields you are changing. " +
     "operation:\"delete\" — automation_id. " +
+    "operation:\"run\" — automation_id; fire ONE automation now instead of waiting for its trigger. This is how you check the one you just created actually works, so use it right after create rather than telling the user to wait. Behaves like run_command: a quick run returns its outcome inline, a slow one moves to the background and reaches you when it finishes. You always get the result, even when notify_agent is false. " +
     "operation:\"set_notify\" — automation_id + notify_agent; the cheap way to change only who hears about runs. " +
     "\n" +
     "`notify_agent` is REQUIRED on create and is the most important choice you make: " +
