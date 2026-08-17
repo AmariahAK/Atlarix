@@ -819,13 +819,50 @@ jobs:
       - name: Publish draft release
         env:
           RELEASES_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+          RELEASE_ID: ${{ needs.create-draft.outputs.release_id }}
         run: |
-          curl -sS -X PATCH \
+          set -uo pipefail
+          # THIS STEP COULD NOT FAIL, AND THAT IS HOW v14.33.0 SHIPPED AS A DRAFT.
+          #
+          # It was a bare `curl -sS`, which exits 0 on an HTTP error — so a 503
+          # from GitHub returned "No server is currently available", the step went
+          # green, every other job went green, and the release sat unpublished
+          # with all 12 assets attached and nobody able to see it. Nothing else in
+          # the pipeline checks, because publishing IS the last thing.
+          #
+          # So: fail on HTTP error, retry the transient ones, and then CONFIRM the
+          # release actually reads back as published rather than trusting the PATCH.
+          API="https://api.github.com/repos/AmariahAK/atlarix-releases/releases/${RELEASE_ID}"
+          published=""
+          for attempt in 1 2 3 4 5; do
+            if body=$(curl -sS --fail-with-body -X PATCH \
+                -H "Authorization: token $RELEASES_TOKEN" \
+                -H "Accept: application/vnd.github+json" \
+                -H "Content-Type: application/json" \
+                -d '{"draft":false}' "$API"); then
+              published=$(printf '%s' "$body" | grep -o '"draft"[[:space:]]*:[[:space:]]*false' || true)
+              if [ -n "$published" ]; then
+                echo "Published on attempt ${attempt}."
+                break
+              fi
+              echo "::warning::PATCH succeeded but the release still reads as a draft (attempt ${attempt})."
+            else
+              echo "::warning::PATCH failed (attempt ${attempt}/5): ${body}"
+            fi
+            sleep $((attempt * 10))
+          done
+
+          # Read it back independently. A release that is still a draft after this
+          # is invisible to users, which is the whole point of the job.
+          final=$(curl -sS --fail-with-body \
             -H "Authorization: token $RELEASES_TOKEN" \
-            -H "Accept: application/vnd.github+json" \
-            -H "Content-Type: application/json" \
-            -d '{"draft":false}' \
-            "https://api.github.com/repos/AmariahAK/atlarix-releases/releases/${{ needs.create-draft.outputs.release_id }}"
+            -H "Accept: application/vnd.github+json" "$API" || true)
+          if printf '%s' "$final" | grep -q '"draft"[[:space:]]*:[[:space:]]*false'; then
+            echo "Confirmed: release ${RELEASE_ID} is published."
+          else
+            echo "::error::Release ${RELEASE_ID} is STILL A DRAFT after 5 attempts — the assets are attached but nobody can see it. Publish by hand: gh api -X PATCH repos/AmariahAK/atlarix-releases/releases/${RELEASE_ID} -f draft=false"
+            exit 1
+          fi
 
   announce-release:
     needs: [quality, create-draft, build-macos, build-linux, build-windows, publish-release]

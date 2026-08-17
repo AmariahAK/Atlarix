@@ -98,10 +98,26 @@ jobs:
           # without it a duplicate asset name returns 422 that reads as SUCCESS
           # while keeping the OLD file, so the stable URL would go on serving the
           # previous release with nothing to show for it.
-          if ! gh release upload headless-bench \
-              dist-headless-tarball/atlarix-headless-*.tar.gz \
-              --repo "$REPO" --clobber; then
-            echo "::error::Could not upload to headless-bench. If the message above is 'release not found', the release DOES exist (35+ assets since v13.7.0) and RELEASES_TOKEN cannot READ releases in ${REPO}. There is no workflow-side fix — every publish path (gh release upload/edit/view, softprops) resolves the tag first. Grant the token Contents: Read and write on ${REPO}. See docs/TODO.md."
+          # Retry: this upload deletes the previous asset before writing the new
+          # one, so a transient 5xx mid-clobber is a real possibility and is what
+          # failed v14.32.0 and v14.33.0 (HTTP 503 on releases/assets/<id>, during
+          # a GitHub incident). Worth distinguishing from the permission failure
+          # that came before it — that one said "release not found" and no number
+          # of retries would have helped.
+          uploaded=""
+          for attempt in 1 2 3 4 5; do
+            if gh release upload headless-bench \
+                dist-headless-tarball/atlarix-headless-*.tar.gz \
+                --repo "$REPO" --clobber; then
+              uploaded=yes
+              echo "Uploaded on attempt ${attempt}."
+              break
+            fi
+            echo "::warning::Upload failed (attempt ${attempt}/5) — retrying in $((attempt * 10))s."
+            sleep $((attempt * 10))
+          done
+          if [ -z "$uploaded" ]; then
+            echo "::error::Could not upload to headless-bench after 5 attempts. If the message above is 'release not found' (rather than a 5xx), the release DOES exist and RELEASES_TOKEN cannot READ releases in ${REPO} — grant it Contents: Read and write. A 5xx instead means GitHub was unavailable; re-run this workflow. See docs/TODO.md."
             exit 1
           fi
           echo "Uploaded to headless-bench:"
