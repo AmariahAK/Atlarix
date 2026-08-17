@@ -781,7 +781,10 @@ export function InlinePermissionApprovals({ chatId }: { chatId: number }) {
   if (!pending.length) return null;
 
   return (
-    <div className="space-y-0">
+    // Scroll anchor for `PendingApprovalsBar`'s "Review". The bar lives above the
+    // composer because a card scrolls out of view on a long turn; this is how it
+    // brings you back to the diffs, which stay here where the record belongs.
+    <div className="space-y-0" data-permission-approvals={chatId}>
       {filePending.length >= 2 ? (
         <div className="my-2 flex flex-wrap gap-2 rounded-lg border border-border/50 bg-muted/15 px-3 py-2">
           <span className="text-xs text-muted-foreground w-full">

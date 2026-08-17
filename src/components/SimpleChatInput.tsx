@@ -38,6 +38,7 @@ import { cn } from "@/lib/utils";
 import { useAttachments } from "@/hooks/useAttachments";
 import { AttachmentsList } from "@/components/chat/AttachmentsList";
 import { ParkedWaitingChip } from "@/components/chat/ParkedWaitingChip";
+import { PendingApprovalsBar } from "@/components/chat/PendingApprovalsBar";
 import { DragDropOverlay } from "@/components/chat/DragDropOverlay";
 import { useComposerAutocomplete } from "@/components/chat/ComposerAutocomplete";
 import { useLiveTurnTokenUsage } from "@/hooks/useLiveTurnTokenUsage";
@@ -222,6 +223,12 @@ export function SimpleChatInput({ chatId, onSubmit, placeholder = "Continue the 
             {/* A3: calm "parked — will resume automatically" chip (turn ended,
                 background work outstanding). Self-hides when not parked. */}
             <ParkedWaitingChip chatId={chatId} />
+
+            {/* Approvals are ACTIONABLE, so they belong where you are looking. The
+                cards stay inline in the transcript as the record, but on a long
+                turn they scroll away and a pending approval went unnoticed until
+                you scrolled all the way back. Self-hides when nothing is pending. */}
+            <PendingApprovalsBar chatId={chatId} />
 
             <div
                 className={cn(
