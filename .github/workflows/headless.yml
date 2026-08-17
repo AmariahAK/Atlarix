@@ -57,28 +57,49 @@ jobs:
              "dist-headless-tarball/atlarix-headless-linux-amd64.tar.gz"
           ls -la dist-headless-tarball/
 
+      # Plain `gh`, NOT softprops/action-gh-release.
+      #
+      # v14.32.0 broke here, twice: the action called
+      # `GET /releases/tags/refs/tags/v14.32.0` — the raw git REF, not a tag name —
+      # and got 403 "Resource not accessible by personal access token". The same
+      # action, token and target repo succeed in `release.yml`'s create-draft; the
+      # only structural difference is that THIS is the one caller whose `tag_name`
+      # (`headless-bench`) differs from the ref it was triggered by, which is the
+      # path that resolves the ref. It had worked on the previous nine tags, so
+      # the trigger was upstream — an unpinned floating major.
+      #
+      # There is nothing here the action buys us: the tag is fixed, the repo is
+      # fixed, the release already exists. `gh` says exactly that and cannot
+      # decide to look somewhere else.
       - name: Publish to headless-bench prerelease (atlarix-releases)
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: headless-bench
-          name: Atlarix Headless (bench)
-          body: |
-            Prebuilt **Electron-free** Atlarix headless CLI (linux/amd64) for
-            benchmarking and local testing. Rebuilt from the latest `main`.
+        env:
+          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+          REPO: AmariahAK/atlarix-releases
+        run: |
+          set -euo pipefail
+          ls -la dist-headless-tarball/
 
-            - **Stable URL:** `atlarix-headless-linux-amd64.tar.gz` (always the newest)
-            - **Versioned:** `atlarix-headless-<version>.tar.gz`
+          # Create the prerelease only if it is genuinely absent. It has existed
+          # since v13.7.0 and holds 35 assets, so this is a cold-start path.
+          if ! gh release view headless-bench --repo "$REPO" >/dev/null 2>&1; then
+            echo "headless-bench not found — creating it."
+            gh release create headless-bench \
+              --repo "$REPO" \
+              --title "Atlarix Headless (bench)" \
+              --prerelease \
+              --notes "Prebuilt Electron-free Atlarix headless CLI (linux/amd64) for benchmarking and local testing."
+          fi
 
-            Unpack to a dir and run:
-            ```bash
-            node dist-headless/atlarix-headless.mjs \
-              --workspace /path/to/repo --prompt-file task.md \
-              --provider-id openrouter --model deepseek/deepseek-v4-pro \
-              --api-key "$OPENROUTER_API_KEY"
-            ```
-          prerelease: true
-          draft: false
-          files: |
-            dist-headless-tarball/atlarix-headless-*.tar.gz
-          repository: AmariahAK/atlarix-releases
-          token: ${{ secrets.RELEASES_TOKEN }}
+          # --clobber is load-bearing: without it a duplicate asset name returns
+          # 422 that reads as SUCCESS while KEEPING THE OLD FILE, so the stable
+          # URL would keep serving the previous release with nothing to show for
+          # it. That is exactly how this failure stayed invisible.
+          gh release upload headless-bench \
+            dist-headless-tarball/atlarix-headless-*.tar.gz \
+            --repo "$REPO" --clobber
+
+          # Prove the stable URL actually moved, rather than trusting the upload.
+          VER="$(node -p "require('./package.json').version")"
+          gh release view headless-bench --repo "$REPO" \
+            --json assets \
+            --jq '.assets[] | select(.name=="atlarix-headless-linux-amd64.tar.gz" or .name=="atlarix-headless-'"$VER"'.tar.gz") | "published: \(.name) (\(.size) bytes)"'

@@ -150,7 +150,12 @@ jobs:
 
       - name: Create draft release
         id: create_release
-        uses: softprops/action-gh-release@v2
+        # PINNED to v2.6.2 — what `@v2` resolved to on 2026-08-17, and what this
+        # step is known to work on. The floating major is not free: the identical
+        # action in headless.yml started failing that day with a 403 on a call it
+        # had made fine for nine releases, and nothing on our side had changed.
+        # This is the job that publishes releases; it should not move on its own.
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           tag_name: ${{ steps.set_tag.outputs.tag }}
           name: Atlarix ${{ steps.set_tag.outputs.tag }}
