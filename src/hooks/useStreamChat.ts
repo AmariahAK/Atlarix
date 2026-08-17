@@ -417,6 +417,31 @@ export function useStreamChat({
     };
   }, []);
 
+  /**
+   * Main refused a dispatch outright — a system wake at a chat that is already
+   * streaming, or one the user stopped.
+   *
+   * `setIsStreamingById(chatId, true)` happens BEFORE the invoke, so without this
+   * the refusing window would sit at `isStreaming: true` for that chat forever:
+   * a phantom spinner if it ever opened the chat, and a guard permanently stuck
+   * in the "don't wake" position.
+   *
+   * Deliberately NOT routed through the `chat:response:end` handler — that one is
+   * the auto-wake race-closer, so a synthesised end for a refused wake would fire
+   * another wake immediately and rebuild the loop in IPC instead of streams.
+   */
+  useEffect(() => {
+    const unsub = IpcClient.getInstance().onStreamDropped(({ chatId: evChatId }) => {
+      setIsStreamingById((prev) => {
+        if (prev.get(evChatId) !== true) return prev;
+        const next = new Map(prev);
+        next.set(evChatId, false);
+        return next;
+      });
+    });
+    return unsub;
+  }, [setIsStreamingById]);
+
   // v13 7B: waiting-on-command phase events → waiting chip + send/stop flip.
   useEffect(() => {
     const unsub = IpcClient.getInstance().onStreamPhase(
@@ -453,6 +478,7 @@ export function useStreamChat({
       prompt: string;
       chatId: number;
       continueAfterQuestions?: boolean;
+      systemWake?: boolean;
     }) => Promise<unknown>) | null
   >(null);
   /** Chats with an in-flight background-completion wake (avoid double-starting). */
@@ -532,6 +558,14 @@ export function useStreamChat({
         status !== "condition_met"
       )
         return;
+      // These three checks are a cheap LOCAL filter, not the decision.
+      //
+      // This listener keys on the chat id in the EVENT, not the chat this window
+      // is showing, while all three guards read per-window state — a jotai store
+      // and two hook refs. A second window therefore looked up a chat it had never
+      // seen, found nothing, concluded "not streaming", and woke a chat the first
+      // window was mid-turn on. Main now refuses that (`shouldDropSystemWake`);
+      // `systemWake: true` below is what marks the request as refusable.
       const streaming = getDefaultStore().get(isStreamingByIdAtom).get(evChatId) === true;
       if (
         streaming ||
@@ -546,6 +580,7 @@ export function useStreamChat({
           prompt: "",
           chatId: evChatId,
           continueAfterQuestions: true,
+          systemWake: true,
         }),
       ).finally(() => bgWakeInFlightRef.current.delete(evChatId));
     });
@@ -563,6 +598,7 @@ export function useStreamChat({
       onSettled,
       continueAfterQuestions,
       continueInterrupted,
+      systemWake,
       prefillTaskLedger,
       workModeOverride,
     }: {
@@ -577,6 +613,8 @@ export function useStreamChat({
       continueAfterQuestions?: boolean;
       /** Resume an interrupted turn: no new user message; system-reminder directive to the model. */
       continueInterrupted?: boolean;
+      /** The HARNESS started this turn, not the user — main may refuse it. */
+      systemWake?: boolean;
       prefillTaskLedger?: {
         steps: { description: string }[];
         sourcePlanMessageId?: number;
@@ -1348,6 +1386,7 @@ export function useStreamChat({
           appId: streamAppId,
           continueAfterQuestions,
           continueInterrupted,
+          systemWake,
           workspaceSessionId: workspaceSessionId ?? undefined,
           prefillTaskLedger,
           workModeOverride,
@@ -1694,6 +1733,7 @@ export function useStreamChat({
                       prompt: "",
                       chatId: response.chatId,
                       continueAfterQuestions: true,
+                      systemWake: true,
                     }),
                   ).finally(() =>
                     bgWakeInFlightRef.current.delete(response.chatId),

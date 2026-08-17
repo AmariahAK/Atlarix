@@ -1477,11 +1477,45 @@ export class IpcClient {
     const n = (this.pendingStreamDispatch.get(chatId) ?? 1) - 1;
     if (n <= 0) this.pendingStreamDispatch.delete(chatId);
     else this.pendingStreamDispatch.set(chatId, n);
+    const dropped = (result as { dropped?: string } | null | undefined)?.dropped;
+    if (dropped) {
+      // Main refused a system wake (a turn is already live for this chat, or the
+      // user stopped it). No stream started, so no terminal event is coming and
+      // this window would otherwise sit at `isStreaming: true` forever.
+      //
+      // Settled here, on the invoke REPLY, deliberately not through `onEnd`:
+      // `onEnd` is the auto-wake race-closer, so synthesising an end for a
+      // refused wake would immediately fire another wake and trade the stream
+      // loop for an IPC one.
+      this.streamDroppedListeners.forEach((fn) => {
+        try {
+          fn({ chatId, reason: dropped });
+        } catch {
+          /* one bad listener must not strand the rest */
+        }
+      });
+      return;
+    }
     const sid = (result as { streamId?: number } | null | undefined)?.streamId;
     if (typeof sid === "number") {
       const cur = this.currentStreamIdByChat.get(chatId);
       if (cur == null || sid > cur) this.currentStreamIdByChat.set(chatId, sid);
     }
+  }
+
+  /**
+   * Notified when main REFUSES a dispatch outright (a dropped system wake).
+   * Distinct from `onEnd`: nothing ran, and the auto-wake path must not fire.
+   */
+  private streamDroppedListeners = new Set<
+    (e: { chatId: number; reason: string }) => void
+  >();
+
+  public onStreamDropped(
+    fn: (e: { chatId: number; reason: string }) => void,
+  ): () => void {
+    this.streamDroppedListeners.add(fn);
+    return () => this.streamDroppedListeners.delete(fn);
   }
 
   /** True when a chat:response:* event belongs to a superseded stream leg. */
@@ -1518,6 +1552,9 @@ export class IpcClient {
       continueAfterQuestions?: boolean;
       /** Resume an interrupted turn: no new user message; model gets a system-reminder directive. */
       continueInterrupted?: boolean;
+      /** The HARNESS started this turn (background result, scheduled wake, self-correct)
+       *  — main refuses it rather than interrupting a live or user-stopped chat. */
+      systemWake?: boolean;
       workspaceSessionId?: string | null;
       prefillTaskLedger?: {
         steps: { description: string }[];
@@ -1539,6 +1576,7 @@ export class IpcClient {
       onError,
       continueAfterQuestions,
       continueInterrupted,
+      systemWake,
       workspaceSessionId,
       prefillTaskLedger,
       workModeOverride,
@@ -1568,6 +1606,7 @@ export class IpcClient {
               modelOverride: modelOverride ?? undefined,
               continueAfterQuestions: continueAfterQuestions ?? undefined,
               continueInterrupted: continueInterrupted ?? undefined,
+              systemWake: systemWake ?? undefined,
               workspaceSessionId: workspaceSessionId ?? undefined,
               prefillTaskLedger: prefillTaskLedger ?? undefined,
               workModeOverride: workModeOverride ?? undefined,
@@ -1602,6 +1641,7 @@ export class IpcClient {
           modelOverride: modelOverride ?? undefined,
           continueAfterQuestions: continueAfterQuestions ?? undefined,
           continueInterrupted: continueInterrupted ?? undefined,
+          systemWake: systemWake ?? undefined,
           workspaceSessionId: workspaceSessionId ?? undefined,
           prefillTaskLedger: prefillTaskLedger ?? undefined,
           workModeOverride: workModeOverride ?? undefined,

@@ -455,6 +455,10 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         prompt: "",
         chatId,
         continueAfterQuestions: true,
+        // Harness-started, so main refuses it rather than interrupting a live
+        // turn — this bridge is fed by a main event carrying a chat id, so EVERY
+        // open window receives it, including ones with no view of that chat.
+        systemWake: true,
         attachments: [],
       });
     });

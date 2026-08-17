@@ -39,11 +39,20 @@ export interface FakeIpc {
     onEnd: Handler<{ chatId: number; toolId?: string; toolName?: string; status?: "success" | "error" }>,
   ) => () => void;
   onChatActivity: (h: Handler<Record<string, unknown>>) => () => void;
+  /** Background command / sub-agent job status. Drives the auto-wake path. */
+  onBackgroundJobUpdate: (
+    h: Handler<{ chatId: number; status: string; source?: string }>,
+  ) => () => void;
   // ── test drivers ──
   emitStreamPhase: (payload: { chatId: number; phase: string; label: string }) => void;
   emitToolStart: (payload: { chatId: number; toolName: string; toolId?: string; toolArgs?: Record<string, unknown> }) => void;
   emitToolEnd: (payload: { chatId: number; toolId?: string; toolName?: string; status?: "success" | "error" }) => void;
   emitChatActivity: (payload: Record<string, unknown>) => void;
+  emitBackgroundJobUpdate: (payload: {
+    chatId: number;
+    status: string;
+    source?: string;
+  }) => void;
 }
 
 export function makeFakeIpc(): FakeIpc {
@@ -51,6 +60,9 @@ export function makeFakeIpc(): FakeIpc {
   const toolStartHandlers = new Set<Handler<{ chatId: number; toolName: string; toolId?: string; toolArgs?: Record<string, unknown> }>>();
   const toolEndHandlers = new Set<Handler<{ chatId: number; toolId?: string; toolName?: string; status?: "success" | "error" }>>();
   const activityHandlers = new Set<Handler<Record<string, unknown>>>();
+  const bgJobHandlers = new Set<
+    Handler<{ chatId: number; status: string; source?: string }>
+  >();
 
   const fake: FakeIpc = {
     getApp: vi.fn(async () => null),
@@ -91,6 +103,13 @@ export function makeFakeIpc(): FakeIpc {
     emitChatActivity: (payload) => {
       for (const h of activityHandlers) h(payload);
     },
+    onBackgroundJobUpdate: (h) => {
+      bgJobHandlers.add(h);
+      return () => bgJobHandlers.delete(h);
+    },
+    emitBackgroundJobUpdate: (payload) => {
+      for (const h of bgJobHandlers) h(payload);
+    },
   };
 
   // The real IpcClient has a large surface; components under test may touch
@@ -103,7 +122,16 @@ export function makeFakeIpc(): FakeIpc {
       if (prop.startsWith("on") || prop.startsWith("subscribe")) {
         return () => () => {};
       }
-      if (/^(get|list)/.test(prop) && /s$|List|Permissions|Sessions/.test(prop)) {
+      // Anything whose NAME says it returns a collection resolves to [], keyed on
+      // the suffix as well as the prefix: "backgroundJobsList" / "subagentJobsList"
+      // begin with neither get nor list, and a bare undefined had the caller
+      // `.map()` over nothing — an unhandled rejection rather than a visible
+      // failure, so the test passed while logging a crash.
+      //
+      // Deliberately NOT a `Results$` rule: `backgroundHasPendingResults` returns a
+      // BOOLEAN, and `[]` is truthy — it would silently tell every test that a
+      // wake has results to deliver.
+      if (/^(get|list)/.test(prop) || prop.endsWith("List")) {
         return async () => [];
       }
       return async () => undefined;

@@ -43,6 +43,22 @@ export interface ChatStreamParams {
   modelOverride?: { provider: string; name: string };
   /** v3.9: When true, do not add a new user message; use the last user message content (after question answers) as prompt. */
   continueAfterQuestions?: boolean;
+  /**
+   * True when the HARNESS started this turn, not the user — a finished background
+   * job, a sub-agent result, a scheduled self-wake, an auto-self-correct.
+   *
+   * Load-bearing: a system wake must never interrupt a live turn, and must never
+   * resurrect a chat the user stopped. Main enforces both (`shouldDropSystemWake`)
+   * because it is the only side that knows across windows — the renderer's guards
+   * live in a per-window jotai store, so a SECOND window looked up a chat it had
+   * never seen, concluded "not streaming", and woke a chat the first window was
+   * mid-turn on. That produced 80 superseded turns in 6 minutes and a beachball.
+   *
+   * Cannot be inferred, which is why it is explicit: `continueAfterQuestions` is
+   * used by these wakes AND by the genuine `ask_user` answer resume (which SHOULD
+   * supersede), and an empty prompt is likewise ambiguous.
+   */
+  systemWake?: boolean;
   /** Resume an interrupted turn (e.g. after a disconnect): add NO new user message; the
    *  model receives a `<system-reminder>` continuation directive, not a user turn. */
   continueInterrupted?: boolean;

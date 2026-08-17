@@ -87,6 +87,81 @@ export function nextStreamId(): number {
 }
 export const SUPERSEDE_AWAIT_TIMEOUT_MS = 8_000;
 
+// ─── System-wake admission control ─────────────────────────────────────────
+//
+// A system wake (finished background job, sub-agent result, scheduled self-wake,
+// auto-self-correct) exists only to deliver a result to an IDLE chat. It must
+// never interrupt a live turn and never resurrect a chat the user stopped.
+//
+// This has to live in MAIN. The renderer already had all three guards — "is this
+// chat streaming", "is a wake already in flight", "did the user stop this chat" —
+// but every one reads a per-window jotai store or a per-hook `useRef`, while the
+// listener that triggers a wake keys on the chat id carried in the EVENT. So a
+// second window received a job-finished event for a chat it had never seen, found
+// nothing in its own store, concluded "not streaming", and woke a chat the first
+// window was mid-turn on. Main supersedes; the superseded turn's end fires the
+// other window's race-closer; repeat. 80 superseded turns in six minutes, the
+// interval growing each round as the discarded turns lengthened the history.
+//
+// The lesson worth keeping: a decision that is global — may this chat start a
+// turn? — cannot be made from per-window state, however carefully it is guarded.
+
+/**
+ * Chats the user has STOPPED, until they send something with real content.
+ *
+ * Mirrors the renderer latch it now backs (`useStreamChat`), for the reason
+ * recorded there: cancel kills only foreground commands, so a pending background
+ * result is normal right after a Stop — and a wake then started a turn that knew
+ * nothing about the stop, re-read the file it had just edited, took its own change
+ * for the user's, and carried on (observed: as far as `git push`).
+ *
+ * A latch, not a time window: set on a user cancel, cleared only when the user
+ * actually sends something. No interval to tune, no race to lose.
+ */
+const userStoppedChats = new Set<number>();
+
+export function markChatUserStopped(chatId: number): void {
+  userStoppedChats.add(chatId);
+}
+
+/** Called when a request carries real user content — the user is driving again. */
+export function clearChatUserStopped(chatId: number): void {
+  userStoppedChats.delete(chatId);
+}
+
+export function isChatUserStopped(chatId: number): boolean {
+  return userStoppedChats.has(chatId);
+}
+
+/** Why a system wake was refused — surfaced to the caller and the log. */
+export type SystemWakeDropReason = "already-streaming" | "user-stopped";
+
+/**
+ * Should this `chat:stream` request be DROPPED rather than started?
+ *
+ * Pure, and exported for the test that pins it: the whole failure mode was a
+ * guard that looked right and answered from the wrong process.
+ *
+ * Only system wakes are ever dropped. A user turn always proceeds and supersedes
+ * whatever is running — that is the user redirecting the agent, which must keep
+ * working.
+ */
+export function shouldDropSystemWake(
+  req: { systemWake?: boolean },
+  state: { isStreaming: boolean; userStopped: boolean },
+): SystemWakeDropReason | null {
+  if (!req.systemWake) return null;
+  // Streaming first: it is the common case and the more informative reason.
+  if (state.isStreaming) return "already-streaming";
+  if (state.userStopped) return "user-stopped";
+  return null;
+}
+
+/** Is a turn live for this chat? The authoritative, cross-window answer. */
+export function isChatStreamLive(chatId: number): boolean {
+  return activeStreams.has(chatId) || activeStreamRuns.has(chatId);
+}
+
 /** Clear skill file cache when switching workspace (see `loadSkill`). */
 let lastSkillCacheAppId: number | undefined;
 export function getLastSkillCacheAppId(): number | undefined {

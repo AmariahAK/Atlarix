@@ -160,6 +160,10 @@ import {
   getChatStreamHandler,
   setChatStreamHandlerRef,
   SUPERSEDE_AWAIT_TIMEOUT_MS,
+  shouldDropSystemWake,
+  isChatStreamLive,
+  isChatUserStopped,
+  clearChatUserStopped,
 } from "./chat_stream/stream-state";
 import {
   resolveModeChange,
@@ -240,6 +244,39 @@ export function registerChatStreamHandlers() {
     event: Electron.IpcMainInvokeEvent,
     req: ChatStreamParams,
   ) => {
+    // Admission control for SYSTEM wakes, before the supersede below.
+    //
+    // A wake exists to deliver a finished background result to an IDLE chat; if a
+    // turn is already live it drains those results itself via prepareStep. Letting
+    // a wake supersede was what turned two open windows into a runaway: the other
+    // window's guards read its own per-window store, so it happily woke a chat this
+    // one was mid-turn on, and each superseded end triggered the next wake.
+    //
+    // Only wakes are dropped. A user message still supersedes — that is the user
+    // redirecting the agent, and it has to keep working.
+    const wakeDrop = shouldDropSystemWake(req, {
+      isStreaming: isChatStreamLive(req.chatId),
+      userStopped: isChatUserStopped(req.chatId),
+    });
+    if (wakeDrop) {
+      logger.log(
+        `[wake] dropped system wake for chat ${req.chatId}: ${wakeDrop}`,
+      );
+      // Report the CURRENT stream id, not a new one: the renderer keys
+      // late-event filtering on it (`shouldDropStreamEvent`), and minting a
+      // higher id here would make it discard the live turn's real events.
+      return {
+        streamId: activeStreamId.get(req.chatId) ?? 0,
+        dropped: wakeDrop,
+      };
+    }
+
+    // The user is driving again — release the stop latch. Keyed on real content,
+    // so a wake's empty prompt can never clear its own suppression.
+    if (req.prompt.trim().length > 0) {
+      clearChatUserStopped(req.chatId);
+    }
+
     // Bug A (single-flight): supersede any in-flight leg for this chat and AWAIT
     // its real termination before starting a new one. Aborting alone is not
     // enough — it's cooperative, so the old leg can still be mid-tool when the

@@ -19,6 +19,7 @@ import {
   activeStreams,
   lastStreamRequest,
   streamTurnIdByChatId,
+  markChatUserStopped,
   type ChatStreamHandlerFn,
 } from "./stream-state";
 
@@ -31,6 +32,13 @@ export function registerLifecycleHandlers(
 ): void {
   // Handler to cancel an ongoing stream
   ipcMain.handle("chat:cancel", async (event, chatId: number) => {
+    // Latch the stop HERE, in main, not only in the renderer that pressed it.
+    // The end event below goes to `event.sender` alone, so any other window kept
+    // its own "not stopped" view of this chat and would happily wake it when a
+    // background job reported in — restarting the agent the user had just stopped.
+    // Released when the user next sends something with real content.
+    markChatUserStopped(chatId);
+
     const abortController = activeStreams.get(chatId);
 
     if (abortController) {
