@@ -27,7 +27,7 @@ commands that actually stop, and browser panels that hand things over.
       turn with a background command, open window 2 on a DIFFERENT project mid-turn, and confirm
       window 1 finishes with no `superseded_stream` in the log. Then Stop in window 1, let a
       background job finish, and confirm neither window restarts it.
-- [ ] A live PDF check on a real PDF-capable model — every PDF test so far is a unit test.
+- [x] **A live PDF check on a real PDF-capable model — done by hand 2026-08-17, works.**
 
 ---
 
@@ -82,6 +82,15 @@ The one place several things can only be confirmed. Grouped so a single session 
 ---
 
 ## 🧭 Designed — awaiting a session
+
+- **A plan switcher in the Plan panel.** v14.32.0 stopped session restore seizing the panel and
+  gave the tab a badge instead — but the panel still shows only `getLatestPlanArtifact`'s
+  `rows[0]`, the NEWEST plan, with nothing naming which one it is. A session with three plans
+  therefore presents one as though it were *the* plan. Older plans stay reachable as inline cards
+  in the transcript, so nothing is lost; what is missing is the panel saying **which** plan it is
+  showing and letting you switch. Needs `plans:list-by-session` (already exists,
+  `plan_artifact_handlers.ts:93`, currently called by nothing) plus a picker in
+  `PlanExecutionPanel`.
 
 Full reasoning in [`docs/DESIGN_NOTES.md`](./DESIGN_NOTES.md). One line each so this file stays a
 queue, not a design doc.
@@ -176,6 +185,24 @@ incomplete*; the reasoning is in git.
 - **Browser `KEY_ALIASES` / `MODIFIER_TOKENS`** — a closed set from the DOM spec.
 
 ---
+
+## ⚙️ Actions storage — the second billing trap
+
+**2026-08-17: Actions storage hit 100% (0.5 GB account allowance).** Different failure from the
+2026-08 billing block, and it does not look like one — there is no dead workflow, just an email.
+
+**Cause, measured not guessed:** all nine live artifacts were `atlarix-msix-x64`, 163–326 MB each,
+at **14-day** retention — 2.2 GB total. Nothing downloads that artifact (the Store submission
+reads `out/msix/` in the same job), so it was pure hoarding. Cut to 2 days in `msix.yml`.
+
+**The diagnostic**, which is worth keeping because the email doesn't tell you what filled it:
+```
+gh api "repos/AmariahAK/Atlarix/actions/artifacts?per_page=100" \
+  --jq '.artifacts[] | select(.expired==false) | "\((.size_in_bytes/1048576)|floor) MB  \(.name)"' | sort -rn
+```
+- [ ] Delete the existing MSIX artifacts to free the 2.2 GB (owner call — see below).
+- Rule of thumb: an artifact nothing DOWNLOADS is a convenience copy, and its retention should be
+  days, not weeks. `landlock-helper` is the counter-example — it IS consumed, and is already 1 day.
 
 ## 🔜 Blocked on the owner — NOT active work
 

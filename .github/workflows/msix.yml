@@ -255,7 +255,14 @@ jobs:
             out/msix/*.msixupload
             out/msix/layout-${{ inputs.arch }}/AppxManifest.xml
           if-no-files-found: error
-          retention-days: 14
+          # 2 days, not 14. Nothing DOWNLOADS this artifact — the Store submission
+          # below reads `out/msix/` directly in this same job — so it exists only
+          # to hand a human the exact package right after a tag. At ~326 MB a
+          # copy, 14 days meant nine live artifacts and 2.2 GB against a 0.5 GB
+          # account allowance, which is what took Actions storage to 100%.
+          # (The `landlock-helper` artifact is different: it IS consumed by the
+          # Windows job, and is already 1 day.)
+          retention-days: 2
 
       # Submit to the Microsoft Store on release tags. Skipped on manual runs
       # (workflow_dispatch) — a test build must never reach the Store.
