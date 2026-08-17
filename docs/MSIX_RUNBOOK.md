@@ -1,11 +1,24 @@
 # MSIX / Microsoft Store runbook
 
-How to build, sign, install, and spike-test the Atlarix MSIX package.
+How to build, sign, install, and verify the Atlarix MSIX package **by hand**.
 
-The point of this exercise is **step 4 — the behavior spike**. Everything before it
-exists to get an installed package onto a Windows machine so the deep-system
-features can be verified inside the package container, *before* Microsoft is
-involved. If the spike fails, debug it here.
+> ## Read this first
+>
+> **Shipping to the Store is fully automated and is the live path.** Tagging `v*`
+> builds the package, wraps it, and submits it to Partner Center via
+> `scripts/store-submit.mjs` — no human step, no artifact to fetch. The listing is
+> live at <https://apps.microsoft.com/detail/9p3rr11dvzpw> and certification has
+> passed.
+>
+> **So this document is NOT how releases happen**, and it must not be used to infer
+> what CI does — its manual flow predates the automation and has already caused one
+> wrong conclusion about the workflow (2026-08-17: the MSIX artifact was justified
+> as a "manual submission fallback" that no longer exists). **Read
+> `.github/workflows/msix.yml` for what actually runs.**
+>
+> What this document IS for: getting a signed package onto a Windows machine so the
+> deep-system behaviour can be verified **inside the package container** — §4. That
+> verification is still owed (see `docs/TODO.md` → *Needs the Windows machine*).
 
 ---
 
@@ -32,31 +45,51 @@ These live in `build/msix/AppxManifest.template.xml`.
 MSIX packaging needs the Windows SDK's `makeappx.exe`, so it cannot run on macOS.
 `scripts/make-msix.mjs` exits with that message if you try.
 
-**On a release, this is automatic.** Tagging `v*` runs `release.yml`, which calls
-`msix.yml` with `upload_wrapper: true`, so every release produces both a `.msix` and
-the `.msixupload` Store wrapper as a workflow artifact. Two safeguards:
+**On a release, the whole thing is automatic and produces NOTHING to download.**
+Tagging `v*` runs `release.yml`, which calls `msix.yml` with `upload_wrapper: true`;
+the job builds the `.msix`, wraps it as `.msixupload`, and submits it to Partner
+Center in the same job, reading straight from `out/msix/`. Three safeguards:
 
 - `build-msix` is **not** in `publish-release`'s `needs`, so an MSIX failure cannot
   block shipping the `.exe`/`.dmg`/`.deb`.
+- Submission is `continue-on-error: true`, so a Store API outage cannot fail a
+  release either.
 - The package is **not** uploaded to `atlarix-releases`. It is unsigned, and an
   unsigned `.msix` cannot be installed without the signer's certificate — publishing
   one would put a broken download on the public releases page.
 
-**For a test build between releases**, run it manually: Actions → **Atlarix MSIX** →
-*Run workflow*.
+**There is normally no `atlarix-msix-x64` artifact, and its ABSENCE is the success
+signal.** The upload is conditional (v14.32.0):
+
+```yaml
+if: github.event_name == 'workflow_dispatch' || steps.store_submit.outcome == 'failure'
+```
+
+It used to upload on every tag at 14-day retention while nothing ever downloaded it —
+nine copies at 163–326 MB took the account's 0.5 GB Actions storage to 100% and
+tripped an Actions budget that blocked all CI. Retention is now 2 days.
+
+**So you only get an artifact in two cases:**
+
+| Case | Why the artifact exists |
+| --- | --- |
+| Manual run (`workflow_dispatch`) | Nothing submits — the package IS the deliverable, and this is the path for §2–§4 below |
+| Store submission failed on a tag | It is the only copy of a package that already took ~40 min to build |
+
+**For a manual build**, Actions → **Atlarix MSIX** → *Run workflow*.
 - Leave `arch` on `x64`. It is the only valid value: `scripts/win-ci-lib.mjs`
   hardcodes `ARCH = "x64"`.
 - `upload_wrapper` defaults to off for manual runs (a test build doesn't need the
   Store wrapper) and on for release runs.
 
-Either way, download the `atlarix-msix-x64` artifact. It contains:
+The `atlarix-msix-x64` artifact then contains:
 - `Atlarix-<version>-x64.msix` — **unsigned**
-- `Atlarix-<version>-x64.msixupload` — on release runs; this is what Partner Center
-  wants
+- `Atlarix-<version>-x64.msixupload` — only when `upload_wrapper` was on
 - `AppxManifest.xml` — the rendered manifest, so you can confirm the identity values
   without unpacking the package
 
-Then copy it to the Windows machine.
+Then copy it to the Windows machine. **Download it within 2 days** — that is the
+retention now.
 
 The package is unsigned by design: no code-signing private key needs to live in
 GitHub secrets, and Microsoft re-signs at certification anyway. The local
@@ -172,9 +205,16 @@ Common causes:
 
 ---
 
-## 4. The behavior spike — the actual gate
+## 4. The behaviour check — verifying a SHIPPED package
 
 Run the automated probes first, then the three things no probe can cover.
+
+> This was written as a gate to clear *before* submitting to the Store. That gate has
+> been passed: the app is listed, certification succeeded, and submission is
+> automated. What remains is confirming that the deep-system features actually behave
+> inside the package container on real Windows — still outstanding, and tracked in
+> `docs/TODO.md` under *Needs the Windows machine* alongside the Low-IL sandbox,
+> on-device voice, and the `taskkill` process-tree kill.
 
 ### 4a. Baseline on the Squirrel build (do this FIRST)
 
@@ -287,7 +327,8 @@ All items shipped:
 | `build/msix/AppxManifest.template.xml` | manifest; `{{VERSION}}` substituted at build time |
 | `build/msix/assets/` | Store logos (committed; regenerate with `scripts/gen-icons.mjs`) |
 | `scripts/make-msix.mjs` | stages the layout and runs `makeappx pack` |
-| `.github/workflows/msix.yml` | manual CI build |
+| `.github/workflows/msix.yml` | the MSIX build — manual (`workflow_dispatch`) **and** called by `release.yml` on every `v*` tag. **The authority on what CI does; this document is not.** |
+| `scripts/store-submit.mjs` | automated Partner Center submission (Submission API v1) |
 | `src/main/update-helpers.ts` | `chooseUpdaterKind` returns `none` for Store installs |
 | `src/main/self-test.ts` | the spike probes |
 | `src/main.ts` | `IS_MICROSOFT_STORE_BUILD`; skips runtime protocol registration |
