@@ -1,7 +1,7 @@
 # Atlarix TODO
 
-**Current Version:** v14.32.0 (2026-08-17) — RELEASED — scanned PDFs, cancelled
-commands that actually stop, and browser panels that hand things over.
+**Current Version:** v14.33.0 (2026-08-17) — automations that actually tell the agent, and an
+`operation:"run"` to fire one on demand.
 **Last Updated:** 2026-08-17
 
 > **What belongs here:** open work, decisions still owed, and traps worth not rediscovering.
@@ -13,11 +13,21 @@ commands that actually stop, and browser panels that hand things over.
 
 ## 🔨 In flight — landed, not yet released
 
-Nothing. **v14.32.0 SHIPPED 2026-08-17** — 12 assets across macOS/Linux/Windows, MSIX submitted to
-the Store. Verified by hand before release: Console/Network panels, the live PDF read, and the
-two-window wake fix (two projects open concurrently, **zero** `superseded_stream` in the log).
-What it left behind is in the Shipped index; what is still owed is below, under the machine or the
-job that can confirm it.
+**v14.33.0 — automations that actually tell the agent.** Prepared on `main`, NOT yet tagged:
+GitHub was in a major outage (Actions + API `MAJOR_OUTAGE`) when it was cut, so everything local
+was done first and the tag held until Actions came back.
+
+- Automation results reach the model; `operation:"run"` fires one on demand. **Both verified by
+  hand in the packaged app.**
+- Release infra from shipping v14.32.0: notes written at creation, headless publishes without a
+  read, `softprops/action-gh-release` pinned.
+
+**This release is the first real test of two fixes** that have never run on a tag — see the
+headless entry below and the release-notes fix. If the release body comes back at ~560 chars, the
+notes fix did not work.
+
+v14.32.0 shipped 2026-08-17 — 12 assets, MSIX submitted. Verified by hand: Console/Network
+panels, the live PDF read, and the two-window wake fix (**zero** `superseded_stream` in the log).
 
 ---
 

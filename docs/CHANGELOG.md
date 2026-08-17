@@ -3,6 +3,34 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
+## [14.33.0] (2026-08-17) — Automations that actually tell the agent
+
+**Your automations were running and telling nobody.** If an automation was set to notify the
+agent, it ran on schedule, wrote its row into the feed, sent its notification — and the agent
+never heard a word. The result was being recorded correctly all along; nothing was picking it up.
+The next time you opened that workspace and asked a question, the finished run was simply
+missing from what Atlarix knew.
+
+That was the worst kind of silence, because everything visible looked fine: the run happened, the
+feed updated, the notification arrived. Only the part you could not see was broken. A finished run
+now reaches the agent on your next message in that workspace, exactly as background commands and
+sub-agents already did.
+
+Automations still never interrupt you. A finished run waits for the next thing you ask rather
+than starting a turn on its own — an automation cannot decide to spend your credits while you are
+not looking, which is what the *notify the agent* switch has always been for.
+
+**Atlarix can now run an automation on demand.** Ask it to try the automation it just set up and
+it will fire that one immediately instead of waiting for the schedule, so you find out it works
+now rather than tomorrow morning. It behaves like any other command: quick ones report back right
+away, slower ones carry on in the background and tell you when they finish. You always get the
+result of a run you asked for, even for automations set to notify only you.
+
+- Release plumbing, invisible in the app but the reason the last release shipped with placeholder
+  notes: release notes are now written when the release is created rather than edited in
+  afterwards, the benchmark CLI publishes without a lookup it was not permitted to make, and the
+  action that publishes releases is pinned so it cannot change under us.
+
 ## [14.32.0] (2026-08-17) — Scanned PDFs, cancelled commands, and panels that hand things over
 
 **Four things Atlarix quietly got wrong, and three fixes to the browser panels that shipped last
