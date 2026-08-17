@@ -19,10 +19,15 @@ commands that actually stop, and browser panels that hand things over.
 - Native PDF parts (scanned PDFs were unreadable), process-tree kill on cancel, type-coerced tool
   arguments, a `read_url` cache, and surrogate-safe truncation.
 - Console/Network sends become attachment chips, and both panels group per PAGE LOAD rather than
-  per tab.
+  per tab. **Verified by hand in the packaged app 2026-08-17 — works.**
+- **System-wake admission control**, after a live two-window freeze (see the trap column).
 
-**Still owed before the tag:** the packaged-app pass below, and a live PDF check on a real
-PDF-capable model — every PDF test so far is a unit test.
+**Still owed before the tag:**
+- [ ] Re-run the packaged pass for the wake fix — reproduce the incident: window 1 runs a Build
+      turn with a background command, open window 2 on a DIFFERENT project mid-turn, and confirm
+      window 1 finishes with no `superseded_stream` in the log. Then Stop in window 1, let a
+      background job finish, and confirm neither window restarts it.
+- [ ] A live PDF check on a real PDF-capable model — every PDF test so far is a unit test.
 
 ---
 
@@ -284,7 +289,7 @@ the trap each release left behind, because those cost time twice.
 
 | Version | Shipped | Trap worth remembering |
 | --- | --- | --- |
-| **v14.32.0** | native PDF parts; process-tree kill; type-coerced tool args; `read_url` cache; browser panels per page load | A **provider-level** capability allowlist is wrong wherever a provider's catalog is mixed — OpenAI accepts PDF on 15 of 47 models, Google on 21 of 41 — so gate per MODEL and let unknown fall back to the old path. `proc.killed` only records that YOU signalled; check `exitCode`/`signalCode` for whether it actually died. A test that pins the OLD behaviour (the console card labelled with the *latest* url) will fail the fix and must be rewritten, not deleted — and **verify a new test would have caught the bug**, since these all sat green either way until checked. |
+| **v14.32.0** | native PDF parts; process-tree kill; type-coerced tool args; `read_url` cache; browser panels per page load; system-wake admission control | **A decision that is GLOBAL cannot be made from per-window state, however carefully it is guarded.** Three renderer guards (a jotai store + two hook refs) all looked correct and were all blind across windows, while the listener they protected keyed on the chat id in the EVENT — so a second window woke a chat another window was mid-turn on, 84 times in six minutes. Also: the runaway ACCELERATED (0.75s → 6.5s cycles) because each discarded turn lengthened the history — a feedback loop is easier to spot by its changing period than its rate. And a refused dispatch must not settle through `onEnd`, because `onEnd` is the auto-wake itself. A **provider-level** capability allowlist is wrong wherever a provider's catalog is mixed — OpenAI accepts PDF on 15 of 47 models, Google on 21 of 41 — so gate per MODEL and let unknown fall back to the old path. `proc.killed` only records that YOU signalled; check `exitCode`/`signalCode` for whether it actually died. A test that pins the OLD behaviour (the console card labelled with the *latest* url) will fail the fix and must be rewritten, not deleted — and **verify a new test would have caught the bug**, since these all sat green either way until checked. |
 | **v14.31.0** | Network tab; browser runtime gating removed; session-restore hang; notification crash | `Network.enable` **hangs forever** on a tab that has never navigated — attach resolves, the command never does, no error at all; prime `about:blank` first and time-bound every CDP command. A `Notification` you stop referencing after `show()` is collected while the OS is still displaying it, and the teardown races the daemon's — a native `SIGSEGV` no JS handler can see. A broadcast that early-returns on the empty case (`if (!s) return`) can never clear a loading flag, so **the failure case is exactly the case that gets no message**. |
 | **v14.30.0** | on-device dictation on Windows/Linux; ORT served from inside the app | An error names the model that **reported** it, not one that was ever loaded — two diagnoses were wrong before the (device × dtype) matrix settled it. And `postinstall`'s trailing `\|\| true` guards **patch-package**, absent from the pruned tree, not the Electron install; re-parenthesising it broke Windows packaging at tag time. |
 | **v14.29.0** | automated Store submission, WSL Landlock confinement, sandbox path fixes | `latest-mac.yml` is arm64-only by design. Duplicate asset uploads **422 green while keeping the OLD asset** — delete the draft before re-tagging. |

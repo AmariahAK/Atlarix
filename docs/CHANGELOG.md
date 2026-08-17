@@ -31,6 +31,20 @@ is now taken down, including on quit.
 - **Truncated output no longer mangles the last character.** Text cut to fit a budget could split an
   emoji in half, which in the worst case made a request the provider rejected outright.
 
+**A second window could freeze the first one's work.** With two windows open — even on
+completely different projects — a background command finishing in one could restart the turn
+running in the other, over and over. In the report that found this, one project's turn
+restarted 84 times in six minutes, the app beachballed, and the chat filled with empty
+responses; closing the second window fixed it. Each restart also killed the turn before it
+could finish, so it never recovered on its own.
+
+Every window was listening for *every* chat's background jobs, but each could only see its
+own view of what was running — so a window with no knowledge of a chat concluded nothing was
+happening there and restarted it. That decision now happens in one place that can see all
+windows. Multiple windows, multiple projects and multiple concurrent sessions work as
+intended. Pressing **Stop** is also now respected across windows: another window can no
+longer resume a chat you just stopped.
+
 **In the browser panels:**
 
 - **Sending Console or Network output adds an attachment, not a wall of text.** It used to paste
