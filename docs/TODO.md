@@ -193,21 +193,35 @@ HttpError: Resource not accessible by personal access token
   repo** and succeeded in the same run, as did all 12 asset uploads.
 - *Not* a config change — headless succeeded on the previous **9** release tags with this config.
 
-**Cause: the floating action tag.** Both workflows used `softprops/action-gh-release@v2`, an
-unpinned major that now resolves to **v2.6.2** (`3bb1273`). Nothing on our side changed between
-v14.31.0 (success) and v14.32.0 (failure). The error names `refs/tags/v14.32.0` — the **raw ref**,
-not a tag name — and headless is the only caller whose `tag_name` (`headless-bench`) differs from
-the ref it was triggered by, which is the path that resolves the ref.
+### ROOT CAUSE — `RELEASES_TOKEN` cannot READ releases in `atlarix-releases`
 
-**FIXED (2026-08-17):**
-- `headless.yml` no longer uses the action at all. The tag is fixed, the repo is fixed, and the
-  release has existed since v13.7.0 with 35 assets — so `gh release upload … --clobber` says
-  exactly that and cannot decide to look somewhere else. **`--clobber` is load-bearing:** a
-  duplicate asset name otherwise returns 422 that *reads as success while keeping the old file*,
-  which would leave the stable URL serving the previous release silently. The step now reads the
-  assets back to prove the URL moved.
-- `release.yml` keeps the action but **pinned to v2.6.2** — the version it is known to work on.
-  A floating major on the job that publishes releases is the same exposure that just bit.
+**This needs the owner; there is no workflow-side fix.** Proven across three attempts in a
+verification window on 2026-08-17:
+
+| Attempt | Result |
+| --- | --- |
+| `softprops/action-gh-release@v2` | 403 *Resource not accessible by personal access token* on GET release-by-tag |
+| `gh release view headless-bench` | **"release not found"** — for a release holding 35 assets since v13.7.0 |
+| `gh release upload headless-bench --clobber` | **"release not found"** — `upload` resolves the tag first, so it is also a read |
+
+Meanwhile **every WRITE succeeds**: `create-draft` (POST /releases), `gh release create` (reached
+422 *already exists*, so it authenticated fine), and all 12 asset uploads — those use the
+`upload_url` create-draft *returns*, so they never look anything up. That asymmetry is the whole
+diagnosis.
+
+- [ ] **Grant `RELEASES_TOKEN` `Contents: Read and write` on `AmariahAK/atlarix-releases`** (a
+      fine-grained PAT with write but not read produces exactly this). Then re-run *Atlarix
+      Headless* so `headless-bench` carries the current version.
+- My first theory — the unpinned `softprops@v2` floating to v2.6.2 — was **wrong**, and testing it
+  is what surfaced the real cause. Two changes from it were worth keeping anyway:
+  `headless.yml` now uses plain `gh` (no ref-resolution magic, and it fails with a message naming
+  the token), and `release.yml` pins the action to v2.6.2.
+
+**Related, same root cause — the release NOTES.** `announce-release` edited notes in after
+publishing, which is a read, which is why v14.32.0 shipped with the "See CHANGELOG.md"
+placeholder. Fixed properly: `create-draft` now checks out the repo and writes the real changelog
+into the body **at creation time** via `body_path`, so no read is ever needed. **Unverified — it
+only runs on a real tag**, so first proof is the next release.
 
 ## ⚙️ Actions storage — the second billing trap
 

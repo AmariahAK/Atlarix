@@ -148,31 +148,58 @@ jobs:
             echo "tag=${{ inputs.version || 'v0.0.0-manual' }}" >> $GITHUB_OUTPUT
           fi
 
+      # Checkout so the REAL changelog can go into the body at creation time.
+      # `announce-release` used to edit the notes in afterwards, which needs a
+      # READ — and RELEASES_TOKEN cannot read releases, so v14.32.0 shipped with
+      # the "See CHANGELOG.md" placeholder. Writing the body here needs no
+      # lookup at all.
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build release body
+        id: body
+        run: |
+          set -uo pipefail
+          TAG="${{ steps.set_tag.outputs.tag }}"
+          VERSION="${TAG#v}"
+          {
+            echo "## Atlarix ${TAG}"
+            echo ""
+            echo "### Downloads"
+            echo "- **macOS (Apple Silicon)**: \`Atlarix-*-arm64.dmg\`"
+            echo "- **macOS (Intel)**: \`Atlarix-*-x64.dmg\`"
+            echo "- **Windows**: \`Atlarix Setup *.exe\`"
+            echo "- **Linux**: \`.deb\`, \`.rpm\`, or \`.AppImage\`"
+            echo ""
+            echo "### Installation Notes"
+            echo "- **macOS**: Double-click to install — Apple Notarized, no security warnings."
+            echo "- **Linux**: \`chmod +x Atlarix.AppImage && ./Atlarix.AppImage\`"
+            echo ""
+            echo "---"
+            echo ""
+          } > release-body.md
+          chmod +x scripts/ci/extract-changelog.sh
+          ./scripts/ci/extract-changelog.sh "$VERSION" 400 >> release-body.md || true
+          # A missing section must be LOUD: the placeholder body is what shipped
+          # last time and nobody noticed, because the release itself was fine.
+          if [ "$(wc -c < release-body.md)" -lt 700 ]; then
+            echo "::warning::No changelog section found for ${VERSION} — the release body is the bare download list. Expected '## [${VERSION}]' in docs/CHANGELOG.md."
+          fi
+          echo "--- release body ---"
+          cat release-body.md
+
       - name: Create draft release
         id: create_release
         # PINNED to v2.6.2 — what `@v2` resolved to on 2026-08-17, and what this
         # step is known to work on. The floating major is not free: the identical
-        # action in headless.yml started failing that day with a 403 on a call it
-        # had made fine for nine releases, and nothing on our side had changed.
-        # This is the job that publishes releases; it should not move on its own.
+        # action in headless.yml started failing that day, and nothing on our
+        # side had changed. This is the job that publishes releases; it should
+        # not move on its own.
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           tag_name: ${{ steps.set_tag.outputs.tag }}
           name: Atlarix ${{ steps.set_tag.outputs.tag }}
-          body: |
-            ## Atlarix ${{ steps.set_tag.outputs.tag }}
-
-            ### Downloads
-            - **macOS (Apple Silicon)**: `Atlarix-*-arm64.dmg`
-            - **macOS (Intel)**: `Atlarix-*-x64.dmg`
-            - **Windows**: `Atlarix Setup *.exe`
-            - **Linux**: `.deb`, `.rpm`, or `.AppImage`
-
-            ### Installation Notes
-            - **macOS**: Double-click to install — Apple Notarized, no security warnings.
-            - **Linux**: `chmod +x Atlarix.AppImage && ./Atlarix.AppImage`
-
-            See [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md) for details.
+          body_path: release-body.md
           draft: true
           prerelease: false
           generate_release_notes: true
