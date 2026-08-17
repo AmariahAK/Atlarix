@@ -17,7 +17,7 @@ import { automationsFocusRunIdAtom, automationsUnreadCountAtom } from '@/atoms/a
 import { AutomationsTab } from './automations/AutomationsTab';
 import { IpcClient } from '@/ipc/ipc_client';
 import { useSearch } from '@tanstack/react-router';
-import { rightPanelVisibleAtom, rightPanelWidthAtom, pinnedPanelAtom, rightPanelSuppressAutoOpenAtom, consoleUnreadCountAtom, networkUnreadCountAtom } from '@/atoms/sourceAtoms';
+import { rightPanelVisibleAtom, rightPanelWidthAtom, pinnedPanelAtom, rightPanelSuppressAutoOpenAtom, consoleUnreadCountAtom, networkUnreadCountAtom, planUnreadAtom } from '@/atoms/sourceAtoms';
 import { chatInputValueAtom } from '@/atoms/chatAtoms';
 import SourcePreviewPanel from './preview_panel/SourcePreviewPanel';
 import CodePreviewPanel from './preview_panel/CodePreviewPanel';
@@ -76,6 +76,7 @@ export function RightPanel() {
     const automationsUnread = useAtomValue(automationsUnreadCountAtom);
     const [consoleUnread, setConsoleUnread] = useAtom(consoleUnreadCountAtom);
     const [networkUnread, setNetworkUnread] = useAtom(networkUnreadCountAtom);
+    const [planUnread, setPlanUnread] = useAtom(planUnreadAtom);
     const setAutomationsFocusRunId = useSetAtom(automationsFocusRunIdAtom);
     // OS-notification click → open the automations feed at the run.
     useEffect(() => {
@@ -94,6 +95,7 @@ export function RightPanel() {
         if (!isVisible) return;
         if (context.activeTab === 'errors' && consoleUnread > 0) setConsoleUnread(0);
         if (context.activeTab === 'network' && networkUnread > 0) setNetworkUnread(0);
+        if (context.activeTab === 'plan' && planUnread) setPlanUnread(false);
     }, [
         isVisible,
         context.activeTab,
@@ -101,6 +103,8 @@ export function RightPanel() {
         networkUnread,
         setConsoleUnread,
         setNetworkUnread,
+        planUnread,
+        setPlanUnread,
     ]);
     const setSuppressRightAutoOpen = useSetAtom(rightPanelSuppressAutoOpenAtom);
     const [width, setWidth] = useAtom(rightPanelWidthAtom);
@@ -315,7 +319,13 @@ Please fix these errors in priority order (structural/build errors first, then r
                                 : tab === 'errors' ? consoleUnread
                                 : tab === 'network' ? networkUnread
                                 : 0;
-                            const badge = unread > 0 ? (unread > 9 ? '9+' : String(unread)) : null;
+                            // Plan is a "there is one" dot, not a count: a session
+                            // has a plan or it doesn't, and restoring one no longer
+                            // seizes the panel to tell you.
+                            const badge =
+                                tab === 'plan'
+                                    ? (planUnread ? '•' : null)
+                                    : unread > 0 ? (unread > 9 ? '9+' : String(unread)) : null;
                             return (
                                 <Tooltip key={tab}>
                                     <TooltipTrigger asChild>

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { FolderOpen, GitBranch, LogOut, Settings, Trash2 } from "lucide-react";
+import { FolderOpen, GitBranch, LogOut, Search, Settings, Trash2 } from "lucide-react";
 import { DISCORD_INVITE_URL } from "@/lib/community/discord";
 import { IpcClient } from "@/ipc/ipc_client";
 import { PlanLimitError } from "@/lib/plan-limit-error";
@@ -20,14 +20,15 @@ import {
 import { cn } from "@/lib/utils";
 import { LocalDateTimeClock } from "@/components/LocalDateTimeClock";
 
-const RECENT_PREVIEW = 8;
+/** Past this many workspaces the list gains search + scroll instead of a toggle. */
+const RECENT_SEARCH_THRESHOLD = 5;
 
 export default function WelcomeLauncher() {
   const navigate = useNavigate();
   const { user, status, isAuthenticated, authResolved, signOut } = useAuth();
   const { apps, refreshApps } = useLoadApps();
   const [cloneOpen, setCloneOpen] = useState(false);
-  const [showAllRecents, setShowAllRecents] = useState(false);
+  const [recentQuery, setRecentQuery] = useState("");
   /** Restore has been pending long enough to say so. */
   const [restoreSlow, setRestoreSlow] = useState(false);
 
@@ -60,9 +61,24 @@ export default function WelcomeLauncher() {
       .filter((a) => a.path);
   }, [apps]);
 
-  const visibleRecents = showAllRecents
-    ? recentApps
-    : recentApps.slice(0, RECENT_PREVIEW);
+  /**
+   * Search appears only once the list stops being scannable. Below the
+   * threshold every workspace is already on screen, so a search box would be
+   * pure chrome; above it, scrolling alone means hunting.
+   */
+  const isSearchable = recentApps.length > RECENT_SEARCH_THRESHOLD;
+
+  const visibleRecents = useMemo(() => {
+    const q = recentQuery.trim().toLowerCase();
+    if (!isSearchable || !q) return recentApps;
+    // Match on path as well as name: sibling checkouts of the same repo differ
+    // only by directory, which is exactly when search is needed most.
+    return recentApps.filter(
+      (a) =>
+        a.name.toLowerCase().includes(q) ||
+        (a.path ?? "").toLowerCase().includes(q),
+    );
+  }, [recentApps, recentQuery, isSearchable]);
 
   // Auth not known yet — main's session restore is deferred so the window can
   // open instantly even on a network that would otherwise hang it for minutes.
@@ -240,10 +256,44 @@ export default function WelcomeLauncher() {
 
       {recentApps.length > 0 ? (
         <section className="w-full">
-          <h2 className="text-sm font-medium text-muted-foreground mb-2">
-            Recent workspaces
-          </h2>
+          <div className="flex items-center gap-3 mb-2">
+            <h2 className="text-sm font-medium text-muted-foreground">
+              Recent workspaces
+            </h2>
+            {isSearchable ? (
+              <span className="text-xs text-muted-foreground">
+                {recentQuery.trim()
+                  ? `${visibleRecents.length} of ${recentApps.length}`
+                  : recentApps.length}
+              </span>
+            ) : null}
+          </div>
+          {/* Past a handful of projects, scanning the list stops working and a
+              "View all" toggle just makes it longer. Search + scroll replaces
+              both — and stays out of the way entirely below the threshold, where
+              the whole list is already visible. */}
+          {isSearchable ? (
+            <div className="relative mb-2">
+              <Search
+                className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground"
+                aria-hidden
+              />
+              <input
+                type="text"
+                value={recentQuery}
+                onChange={(e) => setRecentQuery(e.target.value)}
+                placeholder="Search workspaces by name or path…"
+                aria-label="Search recent workspaces"
+                className="w-full rounded-md border border-border bg-background/60 pl-8 pr-3 py-1.5 text-sm outline-none focus:ring-1 focus:ring-ring"
+              />
+            </div>
+          ) : null}
           <ul className="border rounded-lg divide-y max-h-64 overflow-y-auto">
+            {visibleRecents.length === 0 ? (
+              <li className="px-4 py-6 text-center text-xs text-muted-foreground">
+                No workspace matches “{recentQuery.trim()}”.
+              </li>
+            ) : null}
             {visibleRecents.map((app) => (
               <li key={app.id} className="flex items-stretch">
                 <button
@@ -279,15 +329,6 @@ export default function WelcomeLauncher() {
               </li>
             ))}
           </ul>
-          {recentApps.length > RECENT_PREVIEW ? (
-            <button
-              type="button"
-              className="text-xs text-primary mt-2 hover:underline"
-              onClick={() => setShowAllRecents((v) => !v)}
-            >
-              {showAllRecents ? "Show less" : "View all"}
-            </button>
-          ) : null}
         </section>
       ) : null}
 

@@ -5,8 +5,7 @@ import {
   workspacePlanPanelAtom,
   pendingProposalsAtom,
   previewTabAtom,
-  rightPanelVisibleAtom,
-  rightPanelSuppressAutoOpenAtom,
+  planUnreadAtom,
 } from "@/atoms/sourceAtoms";
 import { chatMessagesByIdAtom } from "@/atoms/chatAtoms";
 import { IpcClient } from "@/ipc/ipc_client";
@@ -108,11 +107,20 @@ export function useWorkspacePlanPanel(): void {
     const onActivated = (payload: PlanArtifactPayload) => {
       const changes = resolveChanges(messages, payload.content, proposals);
       applyPayloadToPanel(payload, setPanel, changes);
-      // v13.1: surface the Plan tab once when a session with an active plan
-      // loads; other workspace tabs stay clickable (no takeover).
-      getDefaultStore().set(previewTabAtom, "plan");
-      if (!getDefaultStore().get(rightPanelSuppressAutoOpenAtom)) {
-        getDefaultStore().set(rightPanelVisibleAtom, true);
+      // The plan is LOADED but the panel is not seized.
+      //
+      // This used to switch the right panel to Plan and force it open (v13.1,
+      // "surface the Plan tab once when a session with an active plan loads").
+      // Reopening a session is "let me look at this again", not "resume that
+      // plan" — and with several plans in a session only the newest is restored,
+      // so one plan was presented as though it were THE plan with nothing saying
+      // the others existed.
+      //
+      // A badge carries the same information without the takeover: the plan is
+      // here, the transcript still has its inline card, and the tab is one click
+      // away. If the tab is already the one on screen there is nothing unread.
+      if (getDefaultStore().get(previewTabAtom) !== "plan") {
+        getDefaultStore().set(planUnreadAtom, true);
       }
     };
     const onUpdated = (payload: PlanArtifactPayload) => {

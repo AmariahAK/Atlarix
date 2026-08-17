@@ -454,6 +454,21 @@ export const pageConsoleAtom = atom<PageConsoleEntry[]>([]);
 export const consoleUnreadCountAtom = atom(0);
 export const networkUnreadCountAtom = atom(0);
 
+/**
+ * The Plan tab has a plan the user has not looked at yet.
+ *
+ * Reopening a session used to switch the right panel to Plan and force it open.
+ * That reads a "let me look at this again" as "resume that plan", and it is worse
+ * with several plans in a session: only the newest is restored, so ONE plan is
+ * presented as though it were THE plan with nothing saying the others exist —
+ * the same shape as a card labelled with the wrong page.
+ *
+ * A badge says the same thing without taking the surface: the plan is still
+ * there, still in the transcript as an inline card, one click away. Same
+ * vocabulary as Console/Network, cleared by RightPanel when the tab is shown.
+ */
+export const planUnreadAtom = atom(false);
+
 export type ConsoleLevelFilter = 'problems' | 'all' | 'errors' | 'warnings' | 'logs';
 
 /**
