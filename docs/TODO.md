@@ -192,8 +192,14 @@ incomplete*; the reasoning is in git.
 2026-08 billing block, and it does not look like one — there is no dead workflow, just an email.
 
 **Cause, measured not guessed:** all nine live artifacts were `atlarix-msix-x64`, 163–326 MB each,
-at **14-day** retention — 2.2 GB total. Nothing downloads that artifact (the Store submission
-reads `out/msix/` in the same job), so it was pure hoarding. Cut to 2 days in `msix.yml`.
+at **14-day** retention — 2.2 GB total. Nothing downloads that artifact: **Store submission is
+automated and reliable**, running in the same job straight from `out/msix/`.
+
+**Fix:** the upload is now CONDITIONAL — `workflow_dispatch` (where nothing submits, so the
+artifact is the deliverable) **or** `steps.store_submit.outcome == 'failure'` (where it becomes the
+only copy of an already-built package, since submission is `continue-on-error`). In the normal case
+a tag now uploads **nothing**. Retention 14 → 2 days for when it does. The upload step had to move
+*after* submission to read its outcome, and the submit step gained `id: store_submit`.
 
 **The diagnostic**, which is worth keeping because the email doesn't tell you what filled it:
 ```

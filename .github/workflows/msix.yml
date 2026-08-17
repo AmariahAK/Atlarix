@@ -243,31 +243,11 @@ jobs:
           node @nodeArgs
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: Upload MSIX artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: atlarix-msix-${{ inputs.arch }}
-          # The rendered manifest ships alongside so the exact Identity/Publisher
-          # that the local signing certificate must match is verifiable without
-          # unpacking the .msix.
-          path: |
-            out/msix/*.msix
-            out/msix/*.msixupload
-            out/msix/layout-${{ inputs.arch }}/AppxManifest.xml
-          if-no-files-found: error
-          # 2 days, not 14. Nothing DOWNLOADS this artifact — the Store submission
-          # below reads `out/msix/` directly in this same job — so it exists only
-          # to hand a human the exact package right after a tag. At ~326 MB a
-          # copy, 14 days meant nine live artifacts and 2.2 GB against a 0.5 GB
-          # account allowance, which is what took Actions storage to 100%.
-          # (The `landlock-helper` artifact is different: it IS consumed by the
-          # Windows job, and is already 1 day.)
-          retention-days: 2
-
       # Submit to the Microsoft Store on release tags. Skipped on manual runs
       # (workflow_dispatch) — a test build must never reach the Store.
       # Non-fatal: a submission failure must not block the release.
       - name: Submit to Microsoft Store
+        id: store_submit
         if: ${{ github.event_name != 'workflow_dispatch' }}
         continue-on-error: true
         shell: pwsh
@@ -285,6 +265,36 @@ jobs:
           $env:MSIXUPLOAD_PATH = $msixupload
           Write-Host "Submitting $msixupload to Microsoft Store..."
           node scripts/store-submit.mjs
+
+      # Uploaded only when it would actually be USED — see the `if:` below.
+      #
+      # It used to upload on EVERY tag at 14-day retention, and nothing ever
+      # downloaded it: Store submission happens in this same job, directly from
+      # `out/msix/`, and works. Nine copies at 163-326 MB apiece took the
+      # account's 0.5 GB Actions storage to 100% (2026-08-17).
+      - name: Upload MSIX artifact
+        # A manual build never submits (the step above is tag-only), so there the
+        # artifact IS the deliverable. On a tag it appears only when submission
+        # actually failed — that step is `continue-on-error`, so the release
+        # proceeds and this becomes the only copy of an already-built package.
+        # Submission is reliable in practice, so in the normal case this uploads
+        # nothing at all.
+        if: ${{ github.event_name == 'workflow_dispatch' || steps.store_submit.outcome == 'failure' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: atlarix-msix-${{ inputs.arch }}
+          # The rendered manifest ships alongside so the exact Identity/Publisher
+          # that the local signing certificate must match is verifiable without
+          # unpacking the .msix.
+          path: |
+            out/msix/*.msix
+            out/msix/*.msixupload
+            out/msix/layout-${{ inputs.arch }}/AppxManifest.xml
+          if-no-files-found: error
+          # Short by design: this now exists only when submission failed or a
+          # human asked for a build, and either way it is wanted within a day or
+          # two rather than a fortnight.
+          retention-days: 2
 
       - name: Next steps (manual builds only)
         if: ${{ github.event_name == 'workflow_dispatch' }}
