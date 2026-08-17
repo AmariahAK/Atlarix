@@ -832,6 +832,15 @@ jobs:
           #
           # So: fail on HTTP error, retry the transient ones, and then CONFIRM the
           # release actually reads back as published rather than trusting the PATCH.
+          #
+          # `make_latest` is NOT cosmetic and NOT implied by publishing. GitHub picks
+          # /releases/latest by `created_at`, and in THIS repo every release has the
+          # same one — atlarix-releases is a release host with a single commit
+          # (2026-07-26T19:32:39Z), so every tag points at it and every release ties
+          # exactly. v14.33.0 published fine, with all 12 assets, and "Latest" stayed
+          # on v14.32.0: the launchpad, the /releases/latest redirect and the
+          # auto-updater all still served the previous version. Publishing is
+          # therefore NOT the last thing that has to be true — being latest is.
           API="https://api.github.com/repos/AmariahAK/atlarix-releases/releases/${RELEASE_ID}"
           published=""
           for attempt in 1 2 3 4 5; do
@@ -839,7 +848,7 @@ jobs:
                 -H "Authorization: token $RELEASES_TOKEN" \
                 -H "Accept: application/vnd.github+json" \
                 -H "Content-Type: application/json" \
-                -d '{"draft":false}' "$API"); then
+                -d '{"draft":false,"make_latest":"true"}' "$API"); then
               published=$(printf '%s' "$body" | grep -o '"draft"[[:space:]]*:[[:space:]]*false' || true)
               if [ -n "$published" ]; then
                 echo "Published on attempt ${attempt}."
@@ -861,6 +870,21 @@ jobs:
             echo "Confirmed: release ${RELEASE_ID} is published."
           else
             echo "::error::Release ${RELEASE_ID} is STILL A DRAFT after 5 attempts — the assets are attached but nobody can see it. Publish by hand: gh api -X PATCH repos/AmariahAK/atlarix-releases/releases/${RELEASE_ID} -f draft=false"
+            exit 1
+          fi
+
+          # Second read-back, against a DIFFERENT endpoint: does /releases/latest
+          # actually resolve to this release? The one above only proves the release
+          # is visible; this proves it is the one everything downstream fetches.
+          latest_id=$(curl -sS --fail-with-body \
+            -H "Authorization: token $RELEASES_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/AmariahAK/atlarix-releases/releases/latest" \
+            | tr ',' '\n' | grep -m1 '"id"' | tr -dc '0-9' || true)
+          if [ "$latest_id" = "$RELEASE_ID" ]; then
+            echo "Confirmed: /releases/latest resolves to ${RELEASE_ID}."
+          else
+            echo "::error::Release ${RELEASE_ID} is published but /releases/latest still resolves to ${latest_id:-<unknown>} — the launchpad and the auto-updater will keep serving the OLD version. Fix by hand: gh api -X PATCH repos/AmariahAK/atlarix-releases/releases/${RELEASE_ID} -f make_latest=true"
             exit 1
           fi
 

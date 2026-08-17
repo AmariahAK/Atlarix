@@ -23,6 +23,14 @@ every job went green, and the release sat unpublished with all 12 assets attache
 hand; the step now retries and READS THE RELEASE BACK before passing. Third instance in one day of
 the same class: **a step that reads as success while the thing did not happen.**
 
+**Then it published but was not `latest`.** Draft cleared, 12 assets attached — and
+`/releases/latest` still resolved to v14.32.0, so the launchpad, the download redirect and the
+auto-updater all went on serving the previous version. GitHub picks latest by **`created_at`**,
+and `atlarix-releases` is a release host with ONE commit — every tag points at it, so every
+release ties on `created_at` (`2026-07-26T19:32:39Z`) and the tie never broke forward.
+Fixed with `make_latest` on the publish PATCH plus a read-back against `/releases/latest`
+itself. **Publishing is not the last thing that has to be true — being latest is.**
+
 **Two previously-unverified fixes are now confirmed:** notes written at creation (body came back
 1,820 chars, not the ~560 placeholder) and the regenerated `RELEASES_TOKEN` (headless resolved
 the release AND an asset id; `headless-bench` serves 14.33.0 again).
