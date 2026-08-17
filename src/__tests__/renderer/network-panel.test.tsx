@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, waitFor, cleanup, fireEvent, act } from '@testing-library/react';
 import { Provider, createStore } from 'jotai';
 import type { NetworkEntry } from '@/lib/browser/network-entry';
-import { chatInputValueAtom } from '@/atoms/chatAtoms';
+import { attachmentsAtom, chatInputValueAtom } from '@/atoms/chatAtoms';
 
 const browserGetNetwork = vi.fn();
 const browserGetNetworkBody = vi.fn();
@@ -166,6 +166,66 @@ describe('NetworkPanel', () => {
     const value = store.get(chatInputValueAtom);
     expect(value.startsWith('my own question')).toBe(true);
     expect(value).toContain('https://api.test/users');
+  });
+
+  /**
+   * One tab, two pages. Navigating clears nothing (an integration run watched
+   * youtube → github grow one tab's log 43 → 105), and Network had no navigation
+   * marker at all — so a card titled with the tab's CURRENT url listed requests
+   * from every page it had ever visited, and its send shipped all of them.
+   */
+  it('splits one tab into a card per page load', async () => {
+    browserGetNetwork.mockResolvedValue(
+      snapshot([
+        {
+          id: 1,
+          url: 'https://github.com',
+          entries: [
+            entry({ id: 'a', navSeq: 1, pageUrl: 'https://youtube.com', status: 401 }),
+            entry({ id: 'b', navSeq: 2, pageUrl: 'https://github.com', status: 500 }),
+          ],
+        },
+      ]),
+    );
+    render(<NetworkPanel active />);
+
+    await waitFor(() => expect(screen.getByTitle('https://youtube.com')).toBeTruthy());
+    expect(screen.getByTitle('https://github.com')).toBeTruthy();
+    // Two separate sends, so neither can carry the other page's requests.
+    expect(
+      screen.getAllByRole('button', { name: 'Send to Atlarix' }),
+    ).toHaveLength(2);
+  });
+
+  it('sends a whole card as an attachment chip rather than raw text', async () => {
+    const store = createStore();
+    store.set(chatInputValueAtom, 'my own question');
+    // Enough rows to clear the long-paste threshold the composer already uses.
+    const rows = Array.from({ length: 30 }, (_, i) =>
+      entry({ id: `r${i}`, url: `https://api.test/thing/${i}`, status: 500 }),
+    );
+    browserGetNetwork.mockResolvedValue(
+      snapshot([{ id: 1, url: 'https://github.com', entries: rows }]),
+    );
+    render(
+      <Provider store={store}>
+        <NetworkPanel active />
+      </Provider>,
+    );
+
+    await waitFor(() => expect(screen.getByText('/thing/0')).toBeTruthy());
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Send to Atlarix' }));
+    });
+
+    // The composer text is untouched — that is the whole point.
+    expect(store.get(chatInputValueAtom)).toBe('my own question');
+    const attachments = store.get(attachmentsAtom);
+    expect(attachments).toHaveLength(1);
+    expect(attachments[0].textPaste?.displayName).toBe(
+      'Network · github.com · 30 requests',
+    );
+    expect(attachments[0].textPaste?.content).toContain('/thing/29');
   });
 
   it('does not poll while inactive', async () => {

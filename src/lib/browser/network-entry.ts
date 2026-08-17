@@ -26,6 +26,8 @@
  * ever supplies BODIES, which it attaches to a `webrequest` entry. It appears as
  * a source only when the wrapper saw a request webRequest did not.
  */
+import { currentNavigationEpoch } from "@/lib/browser/navigation-epoch";
+
 export type NetworkSource = "cdp" | "webrequest" | "injected";
 
 export type NetworkEntry = {
@@ -66,6 +68,18 @@ export type NetworkEntry = {
   startedAt: number;
   finishedAt?: number;
   source: NetworkSource;
+  /**
+   * Which PAGE LOAD in this tab issued the request — see
+   * `lib/browser/navigation-epoch.ts`.
+   *
+   * Navigating clears nothing (an integration run watched youtube → github grow
+   * the log 43 → 105 rows), and unlike the console stream Network never had a
+   * navigation marker at all, so there was no way to tell which page made a
+   * request except by reading its url. Absent means epoch 0.
+   */
+  navSeq?: number;
+  /** The page loaded when the request started — the label its card carries. */
+  pageUrl?: string;
 };
 
 /**
@@ -136,7 +150,15 @@ export function bodyKey(method: string, url: string): string {
  * scanning the log.
  */
 export function beginRequest(log: TabNetworkLog, entry: NetworkEntry): void {
-  log.pending.set(entry.id, entry);
+  // Stamp the page load at START, not completion: a request in flight across a
+  // navigation belongs to the page that ISSUED it, and by the time it finishes
+  // the tab has already moved on.
+  const epoch = currentNavigationEpoch(entry.tabId);
+  log.pending.set(entry.id, {
+    ...entry,
+    navSeq: entry.navSeq ?? epoch.seq,
+    pageUrl: entry.pageUrl ?? epoch.pageUrl,
+  });
 }
 
 /**

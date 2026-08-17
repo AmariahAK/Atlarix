@@ -38,6 +38,11 @@ import {
   NETWORK_HOOK_SCRIPT,
   tryParseNetworkSentinel,
 } from "@/lib/browser/network-hook";
+import {
+  beginNavigationEpoch,
+  clearNavigationEpoch,
+  currentNavigationEpoch,
+} from "@/lib/browser/navigation-epoch";
 
 const logger = log.scope("browser_view");
 
@@ -610,12 +615,18 @@ function wireTabEvents(
   // `did-navigate` only — `did-navigate-in-page` fires on every SPA route change
   // and would turn the feed into separators.
   wc.on("did-navigate", (_e, url) => {
+    // Bump BEFORE pushing so the marker is the first entry of the NEW page
+    // rather than the last of the old one — it reads as the header of the card
+    // it introduces, which is where a person looks for it.
+    const epoch = beginNavigationEpoch(id, url);
     pushBrowserSurfaceError(scope, {
       type: "navigated",
       message: `Navigated to ${url}`,
       url,
       timestamp: nowTs(),
       tabId: id,
+      navSeq: epoch.seq,
+      pageUrl: epoch.pageUrl,
     });
   });
   wc.on("destroyed", () => {
@@ -701,6 +712,9 @@ export function closeTab(scope: BrowserScope, id: number): BrowserPanelState {
     if (!scope.window.isDestroyed()) scope.window.contentView.removeChildView(view);
     view.webContents.close();
     scope.tabs.delete(id);
+    // Tab ids never repeat, so a retained epoch would leak for the app's life.
+    // Already-recorded entries carry their own stamp, so the cards survive.
+    clearNavigationEpoch(id);
   }
   if (scope.activeTabId === id) {
     scope.activeTabId = scope.tabs.size > 0 ? [...scope.tabs.keys()].pop()! : null;
@@ -930,8 +944,15 @@ export function pushBrowserSurfaceError(
   // browser_inspect and blocked the completion gate for pages the agent never
   // touched. `unrelated` marks them without hiding them, like a plan step's
   // `external` state.
+  // Stamp the page load at RECORD time too. Which page was loaded when an entry
+  // arrived cannot be recovered later, and it is what lets a card be labelled
+  // with the url that actually produced its contents rather than the tab's
+  // latest one.
+  const epoch = entry.tabId != null ? currentNavigationEpoch(entry.tabId) : null;
   const stamped: BrowserSurfaceError = {
     ...entry,
+    navSeq: entry.navSeq ?? epoch?.seq,
+    pageUrl: entry.pageUrl ?? epoch?.pageUrl,
     unrelated:
       entry.unrelated ??
       (entry.tabId != null && scope.activeTabId != null && entry.tabId !== scope.activeTabId),

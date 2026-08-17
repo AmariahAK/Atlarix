@@ -11,12 +11,19 @@
  */
 
 import { useMemo, useState } from 'react';
-import { useAtom, useAtomValue } from 'jotai';
+import { useAtom, useAtomValue, useSetAtom } from 'jotai';
 import { Virtuoso } from 'react-virtuoso';
+import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { ChevronRight, Send, Trash2 } from 'lucide-react';
-import { chatInputValueAtom } from '@/atoms/chatAtoms';
+import { attachmentsAtom, chatInputValueAtom } from '@/atoms/chatAtoms';
 import { appendToChatInput } from '@/lib/chat/append-to-chat-input';
+import {
+    buildBrowserLogAttachment,
+    shouldAttachBrowserLog,
+    upsertBrowserLogAttachment,
+} from '@/lib/chat/browser-log-attachment';
+import { groupByNavigationEpoch } from '@/lib/browser/navigation-epoch';
 import {
     consoleLevelFilterAtom,
     pageConsoleAtom,
@@ -24,6 +31,16 @@ import {
     type ConsoleLevelFilter,
     type PageConsoleEntry,
 } from '@/atoms/sourceAtoms';
+
+/**
+ * Send a chunk of console to chat. `scope` describes WHAT is being sent, so a
+ * substantial send can become a named attachment chip instead of raw text; omit
+ * it and the text always goes inline.
+ */
+type ConsoleSend = (
+    text: string,
+    scope?: { label: string; count: number; scopeKey: string },
+) => void;
 
 const FILTERS: Array<{ id: ConsoleLevelFilter; label: string }> = [
     { id: 'problems', label: 'Problems' },
@@ -86,7 +103,7 @@ function ConsoleRow({
     onSend,
 }: {
     entry: PageConsoleEntry;
-    onSend: (text: string) => void;
+    onSend: ConsoleSend;
 }) {
     const [expanded, setExpanded] = useState(false);
     const level = levelOf(entry);
@@ -120,7 +137,15 @@ function ConsoleRow({
                 <span className="flex-1 whitespace-pre-wrap break-words">{entry.message}</span>
                 <button
                     type="button"
-                    onClick={() => onSend(formatConsoleEntry(entry))}
+                    // A row is usually one line and goes inline, but a stack trace
+                    // can be enormous — the threshold decides, not the affordance.
+                    onClick={() =>
+                        onSend(formatConsoleEntry(entry), {
+                            label: entry.pageUrl ?? entry.url ?? 'console entry',
+                            count: 1,
+                            scopeKey: `${entry.tabId ?? 'none'}:${entry.navSeq ?? 0}:${entry.timestamp}`,
+                        })
+                    }
                     className="shrink-0 text-muted-foreground hover:text-foreground"
                     title="Send this entry to Atlarix"
                     aria-label="Send this entry to Atlarix"
@@ -155,32 +180,70 @@ function ConsoleRow({
 }
 
 /**
- * Split the stream into one group per browser tab, newest activity last.
+ * Split the stream into one card per PAGE LOAD, newest activity last.
  *
- * Exported for the test that pins it: the whole reason cards exist is that a
- * second tab's output used to read as this page's failure, and a grouping that
- * silently drops entries with no `tabId` would reintroduce that by making them
- * vanish instead.
+ * This was one card per TAB, which made the navigation divider decorative and
+ * the label actively wrong: a tab that went youtube.com → github.com produced a
+ * single card TITLED "github.com" that also held YouTube's console, and whose
+ * "Send to Atlarix" shipped both pages. Grouping on `(tabId, navSeq)` — the
+ * epoch stamped in main — means a card's title always names the page that
+ * produced its contents, and a send is scoped to one load.
+ *
+ * Navigating still clears nothing; the earlier page becomes its own card instead
+ * of disappearing, because comparing two loads is often the whole point.
+ *
+ * Exported for the test that pins it: the reason cards exist at all is that one
+ * page's output used to read as another's failure, so a grouping that silently
+ * dropped entries — no `tabId`, or recorded before the first navigation — would
+ * reintroduce exactly that by making them vanish.
  */
 export function groupByTab(
     entries: PageConsoleEntry[],
-): Array<{ tabId: number | null; label: string; entries: PageConsoleEntry[] }> {
-    const groups = new Map<number | null, PageConsoleEntry[]>();
-    for (const e of entries) {
-        const key = e.tabId ?? null;
-        const list = groups.get(key);
-        if (list) list.push(e);
-        else groups.set(key, [e]);
-    }
-    return [...groups.entries()].map(([tabId, list]) => {
-        // Name the card from the most recent navigation it saw. The entries do
-        // not carry the tab's title, and the last URL it went to is the label a
-        // person actually recognises.
-        const lastNav = [...list].reverse().find((e) => e.type === 'navigated');
+): Array<{
+    tabId: number | null;
+    navSeq: number;
+    label: string;
+    entries: PageConsoleEntry[];
+}> {
+    // Effective epoch per entry. The stamp from main is authoritative, but the
+    // console stream also carries `navigated` markers, so when a stamp is absent
+    // — capture that began mid-session, or an entry from an older build — the
+    // boundary is still derivable here. Belt and braces on purpose: "a card never
+    // spans a navigation" should be a property of this function, not a promise
+    // about what some other process remembered to attach.
+    const syntheticByTab = new Map<number | null, number>();
+    const stamped = entries.map((e) => {
+        const tabId = e.tabId ?? null;
+        if (e.navSeq != null) return { entry: e, navSeq: e.navSeq, pageUrl: e.pageUrl };
+        if (e.type === 'navigated') {
+            syntheticByTab.set(tabId, (syntheticByTab.get(tabId) ?? 0) + 1);
+        }
         return {
-            tabId,
-            label: lastNav?.url ?? (tabId == null ? 'Unattributed' : `Tab ${tabId}`),
-            entries: list,
+            entry: e,
+            navSeq: syntheticByTab.get(tabId) ?? 0,
+            pageUrl: e.pageUrl,
+        };
+    });
+
+    return groupByNavigationEpoch(stamped, (s) => ({
+        tabId: s.entry.tabId ?? null,
+        navSeq: s.navSeq,
+        pageUrl: s.pageUrl,
+    }))
+        .map((g) => ({ ...g, entries: g.entries.map((s) => s.entry) }))
+        .map((group) => {
+        // Prefer the stamped page url; fall back to this load's own `navigated`
+        // marker, since capture can begin mid-load and leave the stamp absent
+        // where a marker is present. Then the bare tab number.
+        const markerUrl = group.entries.find((e) => e.type === 'navigated')?.url;
+        return {
+            tabId: group.tabId,
+            navSeq: group.navSeq,
+            label:
+                group.pageUrl ??
+                markerUrl ??
+                (group.tabId == null ? 'Unattributed' : `Tab ${group.tabId}`),
+            entries: group.entries,
         };
     });
 }
@@ -189,8 +252,13 @@ function TabConsoleCard({
     group,
     onSend,
 }: {
-    group: { tabId: number | null; label: string; entries: PageConsoleEntry[] };
-    onSend: (text: string) => void;
+    group: {
+        tabId: number | null;
+        navSeq: number;
+        label: string;
+        entries: PageConsoleEntry[];
+    };
+    onSend: ConsoleSend;
 }) {
     const [collapsed, setCollapsed] = useState(false);
     return (
@@ -214,15 +282,21 @@ function TabConsoleCard({
                 </span>
                 <button
                     type="button"
-                    onClick={() =>
+                    onClick={() => {
+                        const rows = group.entries.filter((e) => e.type !== 'navigated');
                         onSend(
                             `Console from ${group.label}:\n` +
-                                group.entries
-                                    .filter((e) => e.type !== 'navigated')
-                                    .map(formatConsoleEntry)
-                                    .join('\n'),
-                        )
-                    }
+                                rows.map(formatConsoleEntry).join('\n'),
+                            // Scoped to THIS page load, so sending the GitHub card
+                            // can no longer carry the YouTube output that preceded
+                            // it in the same tab.
+                            {
+                                label: group.label,
+                                count: rows.length,
+                                scopeKey: `${group.tabId ?? 'none'}:${group.navSeq}`,
+                            },
+                        );
+                    }}
                     className="ml-auto shrink-0 text-[11px] text-muted-foreground hover:text-foreground"
                 >
                     Send to Atlarix
@@ -247,11 +321,33 @@ export function PageConsole() {
     const [entries, setEntries] = useAtom(pageConsoleAtom);
     const visible = useAtomValue(visiblePageConsoleAtom);
     const [chatInput, setChatInput] = useAtom(chatInputValueAtom);
+    const setAttachments = useSetAtom(attachmentsAtom);
 
     // "Send to Atlarix" is what replaced the completion gate for the cases where
     // something genuinely IS broken. The harness cannot tell whose error it is;
     // the person looking at it can.
-    function send(text: string) {
+    //
+    // Anything substantial arrives as an attachment CHIP rather than raw text:
+    // pasting a busy tab's console into the composer buried whatever the user was
+    // half-way through typing. Short sends stay inline, because a chip around one
+    // console line is bigger than the line.
+    function send(text: string, scope?: { label: string; count: number; scopeKey: string }) {
+        if (scope && shouldAttachBrowserLog(text)) {
+            setAttachments((prev) =>
+                upsertBrowserLogAttachment(
+                    prev,
+                    buildBrowserLogAttachment({
+                        source: 'Console',
+                        label: scope.label,
+                        count: scope.count,
+                        scopeKey: scope.scopeKey,
+                        content: text,
+                    }),
+                ),
+            );
+            toast.success('Added console output to chat');
+            return;
+        }
         setChatInput(appendToChatInput(chatInput, text));
     }
 
@@ -295,14 +391,14 @@ export function PageConsole() {
                     {visible.length > 0 && (
                         <button
                             type="button"
-                            onClick={() =>
-                                send(
-                                    visible
-                                        .filter((e) => e.type !== 'navigated')
-                                        .map(formatConsoleEntry)
-                                        .join('\n'),
-                                )
-                            }
+                            onClick={() => {
+                                const rows = visible.filter((e) => e.type !== 'navigated');
+                                send(rows.map(formatConsoleEntry).join('\n'), {
+                                    label: 'all tabs',
+                                    count: rows.length,
+                                    scopeKey: 'all',
+                                });
+                            }}
                             className="hover:text-foreground"
                             title="Send everything shown to Atlarix"
                         >

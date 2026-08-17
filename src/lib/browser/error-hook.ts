@@ -63,6 +63,17 @@ export type BrowserSurfaceError = {
    * this a second tab's errors are indistinguishable from the agent's own. */
   tabId?: number;
   /**
+   * Which PAGE LOAD within that tab — see `lib/browser/navigation-epoch.ts`.
+   *
+   * `tabId` alone is not enough: navigating deliberately clears nothing, so one
+   * tab that went youtube.com → github.com held both pages' output in a single
+   * card labelled with the later url. Optional because entries recorded before
+   * the first navigation legitimately have none; readers treat absent as 0.
+   */
+  navSeq?: number;
+  /** The url loaded when this was recorded — the label its card carries. */
+  pageUrl?: string;
+  /**
    * True when this error did not come from the tab the agent is working in.
    *
    * The agent's own work happens in ONE tab. Anything the user has open alongside

@@ -14,13 +14,20 @@
  */
 
 import { useMemo, useState } from 'react';
-import { useAtom } from 'jotai';
+import { useAtom, useSetAtom } from 'jotai';
+import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { ChevronRight, RefreshCw, Send } from 'lucide-react';
 import { IpcClient } from '@/ipc/ipc_client';
 import { useBrowserNetwork } from '@/hooks/useBrowserNetwork';
-import { chatInputValueAtom } from '@/atoms/chatAtoms';
+import { attachmentsAtom, chatInputValueAtom } from '@/atoms/chatAtoms';
 import { appendToChatInput } from '@/lib/chat/append-to-chat-input';
+import {
+    buildBrowserLogAttachment,
+    shouldAttachBrowserLog,
+    upsertBrowserLogAttachment,
+} from '@/lib/chat/browser-log-attachment';
+import { groupByNavigationEpoch } from '@/lib/browser/navigation-epoch';
 import {
     formatNetworkDetail,
     formatNetworkRow,
@@ -29,6 +36,16 @@ import {
 } from '@/lib/browser/network-entry';
 
 type Include = 'failures' | 'all';
+
+/**
+ * Send requests to chat. `scope` describes WHAT is being sent, so a substantial
+ * send becomes a named attachment chip instead of raw text; omit it and the text
+ * always goes inline.
+ */
+type NetworkSend = (
+    text: string,
+    scope?: { label: string; count: number; scopeKey: string },
+) => void;
 
 function statusClass(entry: NetworkEntry): string {
     if (entry.failed) return 'text-red-400';
@@ -63,7 +80,7 @@ function NetworkRow({
 }: {
     entry: NetworkEntry;
     tabId: number;
-    onSend: (text: string) => void;
+    onSend: NetworkSend;
 }) {
     const [expanded, setExpanded] = useState(false);
     const [body, setBody] = useState<string | null>(null);
@@ -117,7 +134,15 @@ function NetworkRow({
                 </span>
                 <button
                     type="button"
-                    onClick={() => onSend(formatNetworkDetail(entry))}
+                    // One request is usually short and goes inline, but a row with
+                    // headers plus a fetched body is not — the threshold decides.
+                    onClick={() =>
+                        onSend(formatNetworkDetail(entry), {
+                            label: entry.pageUrl ?? entry.url,
+                            count: 1,
+                            scopeKey: `${tabId}:${entry.navSeq ?? 0}:${entry.id}`,
+                        })
+                    }
                     className="shrink-0 text-muted-foreground hover:text-foreground"
                     title="Send this request to Atlarix"
                     aria-label="Send this request to Atlarix"
@@ -182,9 +207,18 @@ function TabCard({
     include,
     onSend,
 }: {
-    tab: { id: number; url: string; title: string; degraded: boolean; entries: NetworkEntry[] };
+    /** One PAGE LOAD's worth of requests — `key` identifies the (tab, load) pair. */
+    tab: {
+        key: string;
+        id: number;
+        navSeq: number;
+        url: string;
+        title: string;
+        degraded: boolean;
+        entries: NetworkEntry[];
+    };
     include: Include;
-    onSend: (text: string) => void;
+    onSend: NetworkSend;
 }) {
     const [collapsed, setCollapsed] = useState(false);
     const rows = useMemo(
@@ -232,6 +266,14 @@ function TabCard({
                             onSend(
                                 `Requests from ${tab.url || `tab ${tab.id}`}:\n` +
                                     rows.map(formatNetworkRow).join('\n'),
+                                // Scoped to THIS page load, so sending the GitHub
+                                // card can no longer ship the YouTube requests that
+                                // preceded it in the same tab.
+                                {
+                                    label: tab.url || `tab ${tab.id}`,
+                                    count: rows.length,
+                                    scopeKey: tab.key,
+                                },
                             )
                         }
                         className="ml-auto shrink-0 text-[11px] text-muted-foreground hover:text-foreground"
@@ -268,10 +310,76 @@ export function NetworkPanel({ active }: { active: boolean }) {
     const { snapshot, loaded, refresh } = useBrowserNetwork(active);
     const [include, setInclude] = useState<Include>('failures');
     const [chatInput, setChatInput] = useAtom(chatInputValueAtom);
+    const setAttachments = useSetAtom(attachmentsAtom);
 
-    function send(text: string) {
+    // Substantial sends become an attachment chip rather than being pasted over
+    // whatever the user was typing; short ones stay inline. See PageConsole.
+    const send: NetworkSend = (text, scope) => {
+        if (scope && shouldAttachBrowserLog(text)) {
+            setAttachments((prev) =>
+                upsertBrowserLogAttachment(
+                    prev,
+                    buildBrowserLogAttachment({
+                        source: 'Network',
+                        label: scope.label,
+                        count: scope.count,
+                        scopeKey: scope.scopeKey,
+                        content: text,
+                    }),
+                ),
+            );
+            toast.success('Added network requests to chat');
+            return;
+        }
         setChatInput(appendToChatInput(chatInput, text));
-    }
+    };
+
+    /**
+     * One card per PAGE LOAD, not per tab.
+     *
+     * Navigating clears nothing — an integration run watched youtube → github
+     * grow one tab's log from 43 to 105 rows — and Network, unlike Console, never
+     * had even a divider to read the boundary from. So a card was titled with the
+     * tab's CURRENT url while listing requests from every page it had visited.
+     *
+     * A tab with no requests still yields one (empty) card: "nothing requested"
+     * is the answer when you are checking whether a call happened at all.
+     */
+    const loadCards = useMemo(
+        () =>
+            snapshot.tabs.flatMap((tab) => {
+                const groups = groupByNavigationEpoch(tab.entries, (e) => ({
+                    tabId: e.tabId,
+                    navSeq: e.navSeq,
+                    pageUrl: e.pageUrl,
+                }));
+                if (groups.length === 0) {
+                    return [
+                        {
+                            key: `${tab.id}:0`,
+                            id: tab.id,
+                            navSeq: 0,
+                            url: tab.url,
+                            title: tab.title,
+                            degraded: tab.degraded,
+                            entries: [] as NetworkEntry[],
+                        },
+                    ];
+                }
+                return groups.map((g) => ({
+                    key: `${tab.id}:${g.navSeq}`,
+                    id: tab.id,
+                    navSeq: g.navSeq,
+                    // The page that MADE these requests. Falls back to the tab's
+                    // url only for requests recorded before the first navigation.
+                    url: g.pageUrl ?? tab.url,
+                    title: tab.title,
+                    degraded: tab.degraded,
+                    entries: g.entries,
+                }));
+            }),
+        [snapshot],
+    );
 
     const total = snapshot.tabs.reduce((n, t) => n + t.entries.length, 0);
 
@@ -320,8 +428,8 @@ export function NetworkPanel({ active }: { active: boolean }) {
                             means the page has not asked for anything.
                         </p>
                     )}
-                    {snapshot.tabs.map((tab) => (
-                        <TabCard key={tab.id} tab={tab} include={include} onSend={send} />
+                    {loadCards.map((card) => (
+                        <TabCard key={card.key} tab={card} include={include} onSend={send} />
                     ))}
                 </div>
             )}
