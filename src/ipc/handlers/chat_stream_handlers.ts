@@ -92,6 +92,7 @@ import {
 import {
   computeWakePendingResults,
 } from "@/lib/agent/collect-results";
+import { takePendingAutomationResults } from "@/lib/agent/automation-results";
 import {
   AI_STREAMING_ERROR_MESSAGE_PREFIX,
   SAFETY_FILTER_BLOCKED_MESSAGE,
@@ -1458,6 +1459,28 @@ ${componentSnippet}
             };
           };
 
+          // Finished AUTOMATION runs, same drain.
+          //
+          // This loader was missing, and the omission was invisible: automations
+          // record their results (keyed by workspace) and deliberately do NOT
+          // wake a turn, so delivery depends entirely on the next turn draining
+          // them — and the next turn is a NON-wake turn, where only the two
+          // loaders above ran. `computeWakePendingResults` already counted
+          // automations, so the wake path looked complete, but nothing wakes for
+          // an automation by design. Result: `notifyAgent: true` runs finished
+          // `ok` and the model was never told, which is exactly what was
+          // reported.
+          const loadAutomationResultsSection = (): ContextSection | null => {
+            if (wakeHasPendingResults) return null; // collect_results is the drain
+            const pending = takePendingAutomationResults(req.chatId);
+            if (!pending) return null;
+            return {
+              name: "taskProgress",
+              priority: 1.5,
+              content: pending,
+            };
+          };
+
           const contextSectionParams = {
             effectiveWorkMode,
             preflight,
@@ -1495,6 +1518,7 @@ ${componentSnippet}
             memoryMdSection,
             loadBackgroundResultsSection(),
             loadSubagentResultsSection(),
+            loadAutomationResultsSection(),
           ];
           for (const section of loadedSections) {
             if (section) contextSections.push(section);

@@ -134,8 +134,19 @@ async function maybeTellTheAgent(
   automation: { id: string; name: string; notifyAgent: boolean; workspaceId: number | null },
   status: "ok" | "nothing-to-report" | "error",
   body: string,
+  /**
+   * A MANUAL run — the agent asked for this one explicitly, so it is told the
+   * outcome whatever `notifyAgent` says.
+   *
+   * `notifyAgent` governs UNATTENDED fires; its whole point is that an
+   * automation the user did not choose to share cannot spend tokens while nobody
+   * is watching. A run the agent just requested is neither unattended nor
+   * silent, and withholding the result would make "run it and see" useless for
+   * exactly the automations the user triages themselves.
+   */
+  forceNotifyAgent = false,
 ): Promise<void> {
-  if (!automation.notifyAgent || automation.workspaceId == null) return;
+  if ((!automation.notifyAgent && !forceNotifyAgent) || automation.workspaceId == null) return;
   // Nothing to report is not news. Delivering it would train the model to treat
   // automation results as noise, which is exactly what makes a real one get
   // skimmed.
@@ -158,6 +169,8 @@ export async function executeAutomationRun(
   automationId: string,
   triggerContext: string | null,
   deps?: ExecuteRunDeps,
+  /** Set for an agent-requested run: report the outcome regardless of notifyAgent. */
+  opts?: { forceNotifyAgent?: boolean },
 ): Promise<{ runId: string } | null> {
   const automation = await db.query.automations.findFirst({
     where: eq(automations.id, automationId),
@@ -206,7 +219,7 @@ export async function executeAutomationRun(
     } catch (e) {
       logger.warn("automation notification failed:", e);
     }
-    await maybeTellTheAgent(automation, "ok", triggerContext ?? headline);
+    await maybeTellTheAgent(automation, "ok", triggerContext ?? headline, opts?.forceNotifyAgent);
     logger.info(`automation "${automation.name}" fired (notify-only)`);
     return { runId };
   }
@@ -349,6 +362,7 @@ export async function executeAutomationRun(
     automation,
     status,
     runError ?? summary ?? "",
+    opts?.forceNotifyAgent,
   );
   await broadcastRunUpdate(runId);
   try {

@@ -40,6 +40,13 @@ import { pipelineHostIds } from "@/lib/automations/pipeline-hosts";
 
 const logger = log.scope("automations-tool");
 
+/**
+ * How long operation:"run" waits before handing back and letting the result
+ * arrive on its own. Mirrors run_command PROMOTE_AFTER_MS so the model meets one
+ * behaviour, not two.
+ */
+const AUTOMATION_RUN_PROMOTE_AFTER_MS = 15_000;
+
 /** Plain-English trigger, for the approval card and the model's own summary. */
 export function describeTrigger(trigger: AutomationTrigger): string {
   if (trigger.kind === "schedule") return `on the schedule \`${trigger.cron}\``;
@@ -50,7 +57,7 @@ export function describeTrigger(trigger: AutomationTrigger): string {
 }
 
 type AutomationsToolArgs = {
-  operation: "list" | "create" | "update" | "delete" | "set_notify";
+  operation: "list" | "create" | "update" | "delete" | "set_notify" | "run";
   workspaceId?: number;
   automation_id?: string;
   name?: string;
@@ -118,8 +125,9 @@ ToolRegistry.register({
         "update",
         "delete",
         "set_notify",
+        "run",
       ]),
-      automation_id: stringParam("Which automation (update / delete / set_notify)."),
+      automation_id: stringParam("Which automation (update / delete / set_notify / run)."),
       name: stringParam("Short human name, e.g. \"CI failures on main\"."),
       trigger: {
         type: "object",
@@ -181,6 +189,89 @@ ToolRegistry.register({
           : rows.length === 0
             ? "No automations yet. Offer one only if the user has been repeating a check by hand."
             : undefined,
+      };
+    }
+
+    // Fire one NOW. Shaped exactly like `run_command`: if it finishes quickly
+    // you get the outcome inline; if it does not, it moves to the background and
+    // the result reaches you on its own. No new concept to learn.
+    //
+    // Not behind the approval gate below: this changes no configuration, and the
+    // automation it runs was already approved when it was created. Its whole
+    // purpose is "I just made this — does it work?", which a second prompt
+    // defeats.
+    if (args.operation === "run") {
+      if (!args.automation_id) {
+        return {
+          success: false,
+          error: 'operation:"run" requires automation_id (see operation:"list").',
+        };
+      }
+      const existing = await getAutomation(args.automation_id);
+      if (!existing) {
+        return {
+          success: false,
+          error: `No automation with id ${args.automation_id}. Use operation:"list".`,
+        };
+      }
+      if (!existing.enabled) {
+        return {
+          success: false,
+          error: `"${existing.name}" is disabled — enable it with operation:"update" before running it.`,
+        };
+      }
+      const { executeAutomationRun } = await import("@/lib/automations/execute-run");
+      // forceNotifyAgent: you asked for this run, so you hear the outcome even
+      // when notify_agent is false for its unattended fires.
+      const runPromise = executeAutomationRun(
+        args.automation_id,
+        `Manual run requested by the agent (not a scheduled fire).`,
+        undefined,
+        { forceNotifyAgent: true },
+      );
+      let promoteTimer: NodeJS.Timeout | undefined;
+      const finishedInTime = await Promise.race([
+        runPromise.then(
+          () => true,
+          () => true,
+        ),
+        new Promise<boolean>((resolve) => {
+          promoteTimer = setTimeout(() => resolve(false), AUTOMATION_RUN_PROMOTE_AFTER_MS);
+        }),
+      ]);
+      if (promoteTimer) clearTimeout(promoteTimer);
+
+      if (!finishedInTime) {
+        return {
+          success: true,
+          status: "running",
+          message:
+            `"${existing.name}" is still running after ${AUTOMATION_RUN_PROMOTE_AFTER_MS / 1000}s — moved to the background. ` +
+            `Its result reaches you automatically when it finishes; do not poll for it.`,
+        };
+      }
+
+      const result = await runPromise.catch(() => null);
+      if (!result) {
+        return {
+          success: false,
+          error: `"${existing.name}" did not run. It may be disabled, or its workspace is missing.`,
+        };
+      }
+      // Read the recorded outcome rather than reporting "started" as success —
+      // a run that finished with an error is still a finished run.
+      const { db } = await import("@/db");
+      const { automationRuns } = await import("@/db/schema");
+      const { eq } = await import("drizzle-orm");
+      const row = await db.query.automationRuns.findFirst({
+        where: eq(automationRuns.id, result.runId),
+      });
+      return {
+        success: true,
+        run_id: result.runId,
+        status: row?.status ?? "ok",
+        summary: row?.summary ?? null,
+        error: row?.status === "error" ? (row?.summary ?? "run failed") : undefined,
       };
     }
 
