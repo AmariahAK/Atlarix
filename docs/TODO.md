@@ -11,6 +11,57 @@ work mode, per-mode tool reveal, and command output that stops throwing away its
 
 ---
 
+## ▶️ NEXT SESSION — Electron 38 → 43 (owner: do this first)
+
+**Why now:** passkeys. Atlarix's browser tabs cannot do WebAuthn at all, so any site requiring a
+passkey (Touch ID, iCloud Keychain, fingerprint) fails — and it fails *silently*, which reads to the
+user as "Atlarix's browser is broken". Verified 2026-08-18 against the installed typings:
+`electron 38.2.2` has **no `configureWebAuthn` and no WebAuthn API whatsoever**. Not a setting we
+missed; the capability is absent.
+
+**DO NOT "fix" this by loosening the permission handler.** The blanket
+`callback(false)` in `browser_view_manager.ts:237-240` is NOT the cause — WebAuthn is not one of
+Electron's permission types, so that handler never sees the request. Relaxing it would widen real
+permissions and still not deliver passkeys.
+
+**What the upgrade buys:** Electron **v42** added `app.configureWebAuthn()` (e.g.
+`{ touchID: { keychainAccessGroup } }`) plus a `select-webauthn-account` session event for choosing
+between multiple discoverable credentials. Once on ≥42 the passkey work itself is roughly one call.
+
+**Scope honestly: macOS ONLY.** Touch ID + iCloud Keychain. There is **no Windows Hello** support in
+this API, so Windows users gain nothing from it. Plan the messaging accordingly rather than
+announcing "passkeys work".
+
+**Versions:** installed `38.2.2` · latest in the 38 line `38.8.6` · current stable **`43.4.0`**. Five
+majors. Consider landing on 42 or 43 deliberately rather than "latest" — 42 is the floor for the
+feature.
+
+**Why it is a release of its own, not a rider:**
+- **Three ABI-pinned native modules** — `better-sqlite3`, `node-pty`, `keytar`. All rebuild against
+  the new Electron ABI, and `keytar` is what holds credentials on Linux.
+- **Four `patch-package` patches**, one of which un-poisons transformers.js's session chain.
+- **The three OS sandbox helpers are the fragile part** — macOS Seatbelt, Linux Landlock, Windows Low
+  IL. The Windows one **broke git in every shipped release** once already (see the v14.28.0 entry).
+  `npm run check:sandbox` cross-target type-checks them from macOS, but that proves nothing about
+  runtime — this needs the Windows machine, which several other items already do. **Batch them.**
+- **Node pinning interacts:** `msix.yml` pins Node **24** because Node 25 breaks better-sqlite3's
+  `llvm-lib /LTCG:INCREMENTAL` on windows-latest. Re-check that against the new Electron.
+- Gate on `npm run self-test:packaged` (8 probes incl. `sandbox`) on **all three** platforms, not just
+  macOS.
+
+**Companion item, small and independent — worth doing even if the upgrade slips.** Today a passkey
+prompt just hangs. Shim `navigator.credentials` in the injected browser script so the attempt is
+*reported* rather than silent, and surface one line in the tab: this browser cannot do passkeys yet,
+open it in your normal browser. `openExternalUrl` already exists for the hand-off. Converts a mystery
+into a known limitation with an escape hatch.
+
+**Rejected alternative, recorded so it is not re-proposed:** Vault12's `electron-webauthn-mac`
+(open-sourced Jan 2026) is a native addon reaching Apple's `AuthenticationServices` directly and
+would work on Electron 38 — but it is a **fourth** ABI-pinned native module in a build that already
+fights three, and it is still macOS-only. Prefer the platform API.
+
+---
+
 ## 🔨 In flight — landed, not yet released
 
 Nothing. **v14.34.0 SHIPPED 2026-08-18** — see the release record below.
@@ -196,6 +247,11 @@ the release AND an asset id; `headless-bench` serves 14.33.0 again).
 ## 🚧 Needs the Windows machine
 
 The one place several things can only be confirmed. Grouped so a single session clears them all.
+
+**Batch the Electron 38 → 43 upgrade into this session** (see NEXT SESSION at the top). It rebuilds
+three ABI-pinned native modules and revalidates all three sandbox helpers, so it needs exactly the
+Windows verification everything below already needs — doing them separately means booting that
+machine twice.
 
 ### v14.31.0 — the notification crash (LINUX, not Windows)
 - [ ] `SIGSEGV` in `electron::NotificationPresenter::RemoveNotification` — a Sentry report from
