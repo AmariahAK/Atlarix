@@ -39,16 +39,64 @@ describe("formatCommandOutput", () => {
     expect(formatCommandOutput("out", "", 80_000)).toBe("out");
   });
 
-  it("summarizes past the byte cap, leading with errors then warnings", () => {
-    const lines = Array.from({ length: 400 }, (_, i) => `line ${i}`);
-    lines[100] = "ERROR: something failed";
-    lines[200] = "warning: deprecated";
-    const out = formatCommandOutput(lines.join("\n"), "", 500);
-    expect(out).toContain("=== ERRORS ===");
-    expect(out).toContain("ERROR: something failed");
-    expect(out).toContain("=== FIRST 5 LINES ===");
-    expect(out).toContain("=== LAST 5 LINES ===");
-    expect(Buffer.byteLength(out, "utf8")).toBeLessThanOrEqual(500);
+  /**
+   * REWRITTEN, not deleted. The previous version pinned the old shape — errors,
+   * then warnings, then "FIRST 5 LINES", then "LAST 5 LINES" — which is exactly
+   * the behaviour that had to change, so it correctly failed the fix.
+   *
+   * That shape ignored the budget: with the 80,000-byte default it returned about
+   * 550 bytes, under 1% of the allowance, and models responded by declaring the
+   * output truncated and re-running the command redirected to a file. It also
+   * reordered the output, so for anything log-shaped the sequence — which IS the
+   * information — was unreadable.
+   */
+  it("FILLS the byte budget instead of collapsing to a fixed ten lines", () => {
+    const lines = Array.from({ length: 4000 }, (_, i) => `line ${i}`);
+    const out = formatCommandOutput(lines.join("\n"), "", 8000);
+
+    expect(Buffer.byteLength(out, "utf8")).toBeLessThanOrEqual(8000);
+    // The old shape yielded ~13 lines whatever the budget. Using most of an 8 KB
+    // allowance means hundreds.
+    expect(out.split("\n").length).toBeGreaterThan(200);
+    expect(Buffer.byteLength(out, "utf8")).toBeGreaterThan(6000);
+  });
+
+  it("keeps output IN ORDER — head, then a gap notice, then tail", () => {
+    const lines = Array.from({ length: 4000 }, (_, i) => `line ${i}`);
+    const out = formatCommandOutput(lines.join("\n"), "", 2000);
+
+    expect(out.indexOf("line 0")).toBeGreaterThanOrEqual(0);
+    expect(out).toContain("line 3999");
+    // Head strictly before tail, and the gap declared between them.
+    expect(out.indexOf("line 0")).toBeLessThan(out.indexOf("omitted"));
+    expect(out.indexOf("omitted")).toBeLessThan(out.indexOf("line 3999"));
+  });
+
+  it("says HOW MUCH it dropped, so sampled output cannot pass as complete", () => {
+    const lines = Array.from({ length: 4000 }, (_, i) => `line ${i}`);
+    const out = formatCommandOutput(lines.join("\n"), "", 2000);
+    expect(out).toMatch(/omitted \d+ line\(s\) in the middle/);
+  });
+
+  it("surfaces error lines that fell in the omitted middle, labelled as such", () => {
+    // A compile error in the middle of a long build is the one thing worth
+    // breaking order for — but the reader has to be told that is what happened.
+    const lines = Array.from({ length: 4000 }, (_, i) => `line ${i}`);
+    lines[2000] = "ERROR: something failed in the middle";
+    const out = formatCommandOutput(lines.join("\n"), "", 2000);
+
+    expect(out).toContain("ERROR: something failed in the middle");
+    expect(out).toMatch(/error line\(s\) from the omitted middle/);
+    // Appended AFTER the ordered body, not spliced into it.
+    expect(out.indexOf("line 0")).toBeLessThan(
+      out.indexOf("ERROR: something failed in the middle"),
+    );
+  });
+
+  it("adds no gap notice when everything fits", () => {
+    const out = formatCommandOutput("a\nb\nc", "", 80_000);
+    expect(out).toBe("a\nb\nc");
+    expect(out).not.toContain("omitted");
   });
 
   it("counts BYTES, not characters — a multibyte tail is never split mid-rune", () => {

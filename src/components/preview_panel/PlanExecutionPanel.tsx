@@ -6,7 +6,7 @@ import { useSettings } from "@/hooks/useSettings";
 import { settingsPatchForWorkMode } from "@/lib/work-mode";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { ClipboardList, Hammer, CircleCheck, Loader2, Plus } from "lucide-react";
+import { ClipboardList, Hammer, CircleCheck, Loader2 } from "lucide-react";
 import { workspacePlanPanelAtom } from "@/atoms/sourceAtoms";
 import { PlanChangesCard } from "./PlanChangesCard";
 import { CHAT_MESSAGE_MARKDOWN_PROSE } from "@/components/chat/AtlarixMarkdownParser";
@@ -15,8 +15,10 @@ import { cn } from "@/lib/utils";
 import { IpcClient } from "@/ipc/ipc_client";
 import type { PlanArtifactStatus } from "@/db/schema";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { PlanChecklistProgress } from "@/components/chat/PlanArtifactCard";
+import {
+  PlanChecklistProgress,
+  planArtifactTitleFromContent,
+} from "@/components/chat/PlanArtifactCard";
 
 function statusLabel(status: PlanArtifactStatus | null): string {
   if (status === "building") return "Building";
@@ -34,7 +36,6 @@ export function PlanExecutionPanel() {
   const [panel, setPanel] = useAtom(workspacePlanPanelAtom);
   const [draft, setDraft] = useState("");
   const [saving, setSaving] = useState(false);
-  const [quickStep, setQuickStep] = useState("");
   const activeChatId = useAtomValue(activeChatIdAtom);
   const { streamMessage, isStreaming } = useStreamChat();
   const { updateSettings } = useSettings();
@@ -62,26 +63,6 @@ export function PlanExecutionPanel() {
       setSaving(false);
     }
   }, [panel.planId, draft, setPanel]);
-
-  const addQuickStep = useCallback(async () => {
-    const text = quickStep.trim();
-    if (!panel.planId || !text) return;
-    try {
-      const updated = await IpcClient.getInstance().appendPlanArtifactStep(
-        panel.planId,
-        text,
-      );
-      setPanel((prev) => ({
-        ...prev,
-        content: updated.content,
-        planStatus: updated.planStatus,
-      }));
-      setDraft(updated.content);
-      setQuickStep("");
-    } catch (e) {
-      console.error("Failed to add step:", e);
-    }
-  }, [panel.planId, quickStep, setPanel]);
 
   // While building, local edits the user hasn't saved yet aren't visible to the
   // agent until they Save (then the agent re-reads the plan on its next step).
@@ -126,9 +107,30 @@ export function PlanExecutionPanel() {
           <PlanChangesCard changes={panel.changes} />
           <div className="rounded-lg border border-border bg-card overflow-hidden">
             <div className="px-3 py-2 border-b border-border font-medium text-sm flex items-center justify-between gap-2">
-              <span className="flex items-center gap-2">
+              {/*
+                Name the plan, not just its state.
+                The panel shows exactly ONE plan — whichever was last activated,
+                i.e. effectively the newest — and used to head it with the bare
+                word "Plan"/"Building"/"Built". In a session with several plans
+                that presented one as though it were THE plan, with nothing on
+                screen saying which. The title answers that; a switcher is a
+                separate question.
+              */}
+              <span className="flex items-center gap-2 min-w-0">
                 <StatusHeaderIcon status={panel.planStatus} />
-                {panel.planId ? statusLabel(panel.planStatus) : "Plan"}
+                {panel.planId ? (
+                  <span className="flex items-baseline gap-2 min-w-0">
+                    <span className="truncate" title={panel.title ?? undefined}>
+                      {panel.title?.trim() ||
+                        planArtifactTitleFromContent(panel.content ?? "")}
+                    </span>
+                    <span className="text-xs text-muted-foreground font-normal shrink-0">
+                      {statusLabel(panel.planStatus)}
+                    </span>
+                  </span>
+                ) : (
+                  "Plan"
+                )}
               </span>
               {panel.planStatus === "building" ? (
                 <span className="text-xs text-primary font-normal flex items-center gap-1">
@@ -150,31 +152,6 @@ export function PlanExecutionPanel() {
                     onChange={(e) => setDraft(e.target.value)}
                     onBlur={() => void saveDraft()}
                   />
-                  <div className="flex items-center gap-2">
-                    <Input
-                      value={quickStep}
-                      onChange={(e) => setQuickStep(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") {
-                          e.preventDefault();
-                          void addQuickStep();
-                        }
-                      }}
-                      placeholder="Add a step…"
-                      className="h-8 text-sm"
-                    />
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      className="gap-1 shrink-0"
-                      disabled={!quickStep.trim()}
-                      onClick={() => void addQuickStep()}
-                    >
-                      <Plus className="h-3.5 w-3.5" aria-hidden />
-                      Add step
-                    </Button>
-                  </div>
                   {dirtySinceBuild ? (
                     <p className="text-xs text-amber-600 dark:text-amber-400">
                       Unsaved edits — click Save so the agent picks them up on its next step.
@@ -214,16 +191,6 @@ export function PlanExecutionPanel() {
                       >
                         <Hammer className="h-3.5 w-3.5" aria-hidden />
                         Continue build
-                      </Button>
-                    ) : null}
-                    {panel.planStatus === "building" ? (
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="secondary"
-                        onClick={() => void setStatus("built")}
-                      >
-                        Mark built
                       </Button>
                     ) : null}
                   </div>

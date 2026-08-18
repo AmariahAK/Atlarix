@@ -57,6 +57,7 @@ const PLAN: PlanArtifactPayload = {
   sessionId: "sess-1",
   content: "# Plan\n\n- step one",
   planStatus: "plan",
+  title: "Newest plan",
 };
 
 function mountAndActivate(payload: PlanArtifactPayload = PLAN) {
@@ -78,6 +79,7 @@ describe("plan restore", () => {
       content: null,
       planStatus: null,
       sessionId: null,
+      title: null,
       changes: null,
     });
   });

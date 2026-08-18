@@ -14,6 +14,12 @@ export interface QueuedOperation {
     operation: 'run_command' | 'write_file' | 'edit_file' | 'delete_file' | 'rename_file' | 'write_multiple_files' | 'batch_plan' | 'revert_project_snapshot' | 'sandbox_escalation' | 'automation_write' | 'unknown';
     command?: string;
     path?: string;
+    /**
+     * Which sub-agent asked, when the request came from a worker rather than the
+     * main agent. An unlabelled ask from a worker the user did not know was
+     * running is worse than no ask at all.
+     */
+    requestedByAgent?: string;
     /** sandbox_escalation: the path the OS sandbox denied a write to. */
     sandboxDeniedPath?: string;
     /** sandbox_escalation: the folder granted write access on approval. */

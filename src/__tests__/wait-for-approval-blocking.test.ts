@@ -35,3 +35,84 @@ describe("waitForApproval — v14.7 indefinite mid-loop block", () => {
     ).rejects.toThrow();
   });
 });
+
+/**
+ * The ESCALATION lanes had no signal to pass, so Stop could not unwind them.
+ *
+ * `ensureOutsideTargetsGranted` and `maybeEscalateSandboxDenial` call
+ * `waitForApproval` from inside `executeOperation`, several frames beneath the
+ * branch runner that owns the AbortController — so unlike every other caller they
+ * passed nothing and blocked forever.
+ *
+ * Observed: an `edit_file` into the agent-memory directory raised the folder-grant
+ * card and blocked for 10 minutes 18 seconds. Stop did nothing, because nothing was
+ * listening; clicking the card afterwards STILL completed the write, because the
+ * promise had never been cancellable. The turn looked hung and was in fact waiting,
+ * unstoppably.
+ *
+ * The signal now rides on the interceptor, which is per-turn and never reused — the
+ * same lifetime argument as `turnWorkMode`.
+ */
+describe("escalation waits are cancellable by the turn's Stop", () => {
+  const WS = "/tmp/atlarix-escalation-ws";
+
+  it("an outside-folder grant unwinds when the turn aborts", async () => {
+    const ac = new AbortController();
+    const interceptor = new PermissionInterceptor(
+      WS,
+      undefined,
+      undefined,
+      1,
+      "build",
+      ac.signal,
+    ) as unknown as {
+      ensureOutsideTargetsGranted: (
+        operationId: string,
+        paths: string[],
+      ) => Promise<void>;
+    };
+
+    const pending = interceptor.ensureOutsideTargetsGranted("op-esc", [
+      "/tmp/somewhere-else/notes.md",
+    ]);
+    // Nothing has decided yet — this is the state the user sat in for 10 minutes.
+    ac.abort();
+
+    // It must SETTLE. Before the fix this promise never resolved or rejected.
+    await expect(pending).rejects.toThrow();
+  });
+
+  it("still does not resolve on its own while the turn is alive", async () => {
+    const ac = new AbortController();
+    const interceptor = new PermissionInterceptor(
+      WS,
+      undefined,
+      undefined,
+      1,
+      "build",
+      ac.signal,
+    ) as unknown as {
+      ensureOutsideTargetsGranted: (
+        operationId: string,
+        paths: string[],
+      ) => Promise<void>;
+    };
+
+    const pending = interceptor
+      .ensureOutsideTargetsGranted("op-esc-2", ["/tmp/elsewhere/x.md"])
+      .then(() => "settled" as const)
+      .catch(() => "settled" as const);
+
+    const stillWaiting = Symbol("still-waiting");
+    const raced = await Promise.race([
+      pending,
+      new Promise<typeof stillWaiting>((r) =>
+        setTimeout(() => r(stillWaiting), 50),
+      ),
+    ]);
+    // A grant must never expire into a decision — cancellable is not the same as
+    // self-resolving.
+    expect(raced).toBe(stillWaiting);
+    ac.abort();
+  });
+});

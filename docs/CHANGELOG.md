@@ -3,6 +3,115 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
+## [14.34.0] (2026-08-18) — Atlarix tests its own work, and two windows stop fighting over one mode
+
+**Stop now stops, even when Atlarix is waiting on you.** If it asked permission to write somewhere
+outside your project — where it keeps its notes about a project, for instance — the turn would wait
+for your answer, correctly and for as long as it took. But pressing Stop did nothing to that wait,
+and answering the question much later still went ahead with the write. Stop ends it now.
+
+That wait is also easier to notice. It said "Waiting for your approval" while still showing the
+thinking animation, so it read as Atlarix working rather than Atlarix waiting; it now gets the same
+amber timer as a long-running command, and clicking it jumps to the request. And the bar above the
+composer says what is actually being asked — the folder it wants access to — instead of "1 approval
+waiting", which told you nothing about what you were about to allow.
+
+**Command output stopped being thrown away.** When a command produced more output than the
+budget allowed, Atlarix was keeping about thirteen lines of it — roughly 1% of what it was allowed
+to keep — and reordering what survived into an errors-first summary. On a long build or a big
+listing that meant the model saw a scrambled fragment, decided the output was truncated, and went
+off writing the command's output to a temp file to read it back. Two wasted turns to recover
+information that already fit.
+
+It now fills the budget it has — around 1,600 lines instead of 13 on a large build log — keeps it
+in the order it happened, says exactly how many lines were skipped in the middle, and separately
+lists any error lines that fell into the skipped part so a failure buried mid-build is still
+visible.
+
+**"Allow all" now means the rest of the turn.** It used to clear only what was queued at that
+instant, so the next command asked again — and on a turn that runs several tools in a row (each of
+which trips the safety prompt on its own) you ended up clicking it once per command. It now covers
+everything that turn goes on to ask for, and it still saves no permanent rule: it ends when the
+turn ends, so one click can never become a standing grant.
+
+- Removing a workspace no longer warns about deleting files when it isn't going to. Taking a
+  project off the list says what it actually does — it goes off the list along with its saved
+  sessions, and nothing on disk changes. The stronger warning is kept for the one case that really
+  does delete a folder, and it now shows you the path. Both use an in-app dialog rather than the
+  system pop-up that looked like an OS warning.
+- Fixed: on Windows, removing a workspace that Atlarix itself created showed the *reassuring*
+  message and then deleted the folder anyway.
+
+**Atlarix can now QA its own work.** After building something, it can hand a worker the
+requirement and the URL — deliberately *not* the diff — and have it go exercise the running app
+independently. It gets a real terminal and the real browser, because running the thing is the
+whole point: a tester that has to ask someone else to run each command is not testing, it is
+writing a script. What it cannot do is change anything. It has no ability to edit files, and every
+command it runs is confined by the operating system to reading only, so it can run your test suite
+and hit your API but cannot touch your repo.
+
+It reports what it saw, with the evidence: a status code, a console line, a log excerpt. Finding
+nothing is a real result and it is allowed to say so — *"exercised these three things, all
+worked"* is a complete answer. "Broken" and "couldn't reach it" stay separate, because they are
+different problems. Everything it reports is a claim Atlarix then reproduces before acting on it,
+the same way it already reviews a sub-agent's proposed code changes.
+
+If a QA worker needs to run something genuinely risky, **it asks you — and the request says which
+worker is asking.** Sub-agents previously had no way to ask at all, which sounds safe and was
+actually the reason they could not run commands: a worker nobody can hear is either mute or
+unsupervised. Declining affects just that one command; the worker carries on and tries another
+route.
+
+- The plan's name now reaches the model, not just the screen. Storing it fixed the Plan panel and
+  left the agent still reading a heading scraped out of the markdown, so a session resumed a day
+  later showed a correctly-named plan to you and an unnamed one to Atlarix.
+- When Atlarix delegates a plan step, it now marks that step in progress as it hands it over and
+  done once it has reviewed what came back — so the plan reflects the work rather than the intent.
+- Fixed: a sub-agent's browser actions could land in **whichever window you happened to be looking
+  at**, and switch windows mid-task if you did. They now stay in the window that started the work.
+- A workspace agent whose `tools:` list names nothing usable now says so, instead of starting with
+  no tools and no explanation.
+
+**A second window could silently turn the first one read-only.** Atlarix kept exactly one work
+mode for the whole app, and every in-flight turn re-read it on each tool call. So opening a second
+window — in Explore, or just opening it at all on a read-only chat — retuned the sandbox of a turn
+already running in the first window. Commands that were meant to write started failing at the
+operating system, `git` most visibly of all:
+
+```
+error: cannot lock ref 'HEAD': Unable to create '.git/HEAD.lock': Operation not permitted
+```
+
+Nothing on screen said so. The first window still showed **Build** the whole time, because a
+settings change in one window was never announced to the others. It read like a broken repository,
+and it was not.
+
+A turn now carries the mode it started in, from beginning to end. This was not one bug but five
+places that each re-derived the mode from global settings; the worst of them gave *unattended
+automations* Build-mode tool access whenever your saved preference happened to be Build.
+
+**Plans have real names again.** A plan's title used to be spliced into its markdown and scraped
+back out, and the splice was skipped whenever the plan body opened with a heading. Since most
+models open a plan with `## Goal`, most plans lost the name the model gave them and displayed as
+*"Goal"*. Titles are now stored, required when a plan is created, and shown in the Plan panel — so
+a session with several plans says which one you are looking at.
+
+**Every mode now shows the model a smaller tool surface.** Tool instructions had grown to roughly
+7,000 tokens sent on every single turn. Each mode keeps its workhorse tools documented in full and
+binds the rest with a one-line summary plus `tool_help` for the details — about 2,000 tokens back
+per turn, with no tool becoming unavailable and nothing lost to prompt caching. Guidance that
+exists to stop a known mistake is never shortened, because a model about to make that mistake does
+not know to go looking for more.
+
+- A tool call rejected for bad parameters is now written to the log. Three failed edits in one
+  session previously left no trace anywhere, which made them impossible to diagnose.
+- Reviewing a sub-agent's proposals now accepts an id that is missing its `prop_` prefix — the
+  error message printed that id and told the model to use it, then refused it.
+- Marking a plan step done no longer silently does nothing when the model appends a stray
+  character to the step text.
+- The Plan panel drops its *Add step* and *Mark built* buttons: both did what asking the agent
+  already does, and a hand-set status is a state the agent never agreed to.
+
 ## [14.33.0] (2026-08-17) — Automations that actually tell the agent
 
 **Your automations were running and telling nobody.** If an automation was set to notify the

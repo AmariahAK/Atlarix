@@ -8,6 +8,7 @@
  */
 
 import type { ToolSet } from "ai";
+import { BrowserWindow } from "electron";
 import type { WebContents } from "electron";
 import { ToolRegistry } from "@/lib/tools/registry";
 import { normalizeToolInputSchemaForAiSdk } from "@/lib/ai/normalize-tool-schema";
@@ -241,6 +242,17 @@ export function attachDelegationToolsToSet(
           chatId: ctx.chatId,
           turnId: ctx.turnId,
           parentDelegationId: id,
+          // Which window spawned this worker, so a sub-agent's browser calls
+          // target THAT window's tabs.
+          //
+          // `_ownerWindowId` is normally injected at the single tool-execution
+          // funnel (chat_stream/tool-execute.ts), which this delegation wrapper
+          // bypasses. Without it `resolveBrowserScope` silently falls back to the
+          // FOCUSED window and then the first window — so a worker would drive
+          // whichever window the user happened to be looking at, and retarget
+          // mid-task if they switched. That is worse than an error, because
+          // nothing reports it.
+          ownerWindowId: BrowserWindow.fromWebContents(ctx.sender)?.id,
           emitSubagentActivity,
           // Settles the card for a BACKGROUNDED run, which returns long before
           // its sub-agent finishes. This closure outlives the tool call — the

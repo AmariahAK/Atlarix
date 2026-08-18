@@ -96,13 +96,20 @@ export function resolveToolsetForSession(
     candidates = ToolRegistry.getToolsForContext(hasWorkspace);
   }
 
-  // Stage 2 — mode allowlist. v13: progressive reveal is GONE — the surface is
-  // ~22 tools, so every allowlisted tool's schema binds upfront.
+  // Stage 2 — mode allowlist. Every allowlisted tool's NAME and SCHEMA bind
+  // upfront; v14.34's per-mode reveal tiers only the DESCRIPTIONS downstream
+  // (tool-reveal.ts), so nothing here is ever withheld from the model.
   const allNames = new Set(candidates.map((t) => t.name));
   const modeFiltered =
     branch === "ask"
       ? candidates.filter((t) =>
           includeToolForSession(t, {
+            // `loaded` is EVERY candidate, deliberately — this stage withholds
+            // nothing. It is the seam the old ToolSessionLoader used to narrow
+            // the set to core+first-called tools; v14.34's reveal tiers
+            // descriptions instead of withholding tools, because the tool
+            // definitions sit inside the first prompt-cache breakpoint and
+            // growing them mid-session would invalidate the whole prefix.
             loaded: allNames,
             hasWorkspace,
             mode: effectiveWorkMode,

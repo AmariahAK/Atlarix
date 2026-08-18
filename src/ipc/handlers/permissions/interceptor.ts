@@ -53,6 +53,7 @@ import {
 import { FileUploadsState } from "../../utils/file_uploads_state";
 import { readSettings } from "../../../main/settings";
 import { resolveEffectiveWorkMode, isReadOnlyWorkMode } from "@/lib/work-mode";
+import type { WorkMode } from "@/lib/schemas";
 import {
   openTerminalInstance,
   resolveScopeKey,
@@ -143,16 +144,78 @@ export class PermissionInterceptor extends EventEmitter {
     /** One mkdir per interceptor at most. */
     private memoryDirEnsured = false;
 
+    /**
+     * The user pressed "Allow all this turn" — approve everything for the rest of
+     * THIS turn without asking again.
+     *
+     * Lives on the interceptor precisely because the interceptor is per-turn and
+     * is never reused: the blanket therefore expires when the turn does, with no
+     * expiry logic to get wrong and nothing to clean up.
+     *
+     * This exists because a one-shot drain did not match what people meant by it.
+     * "Approve all" cleared the queue, the model issued its next command, and the
+     * prompt came straight back — so on a research turn (`curl`, then `python3`,
+     * then `jq`, each of which trips the danger gate on its FIRST TOKEN) it had to
+     * be pressed once per command. The durable alternative, "Always allow", is
+     * keyed per danger pattern, so for those it means "this exact command" and
+     * never generalises either.
+     *
+     * Deliberately NOT a saved rule. It ends with the turn, so it cannot become a
+     * standing grant nobody remembers agreeing to.
+     */
+    private turnBlanketApproved = false;
+
+    /**
+     * The work mode of the TURN that built this interceptor — not the app's current
+     * one.
+     *
+     * A new interceptor is constructed for every turn (build-branch / ask-branch),
+     * so the turn's mode is a fixed property of the instance. It must NOT be
+     * re-derived from `readSettings()`: `workModePreference` / `selectedChatMode`
+     * are a single app-wide value, so a SECOND WINDOW opening in Ask mode used to
+     * flip this window's in-flight Build turn to a read-only sandbox mid-command —
+     * `git` then failed with "cannot lock ref 'HEAD' … Operation not permitted"
+     * while the UI still said Build.
+     *
+     * `undefined` only for callers that predate this (tests); those fall back to
+     * the old global read so behaviour is unchanged for them.
+     */
+    private turnWorkMode: WorkMode | null = null;
+
+    /**
+     * The abort signal of the TURN that built this interceptor.
+     *
+     * Exists so an approval the interceptor is blocked on can be unwound by Stop.
+     * The two ESCALATION lanes below call `waitForApproval` from inside
+     * `executeOperation`, several frames beneath the branch runner that owns the
+     * AbortController — so unlike every other caller they had no signal to pass and
+     * blocked forever.
+     *
+     * Observed: an `edit_file` into the agent-memory directory (outside the
+     * workspace) raised the folder-grant card and blocked for 10 minutes. Stop did
+     * nothing, because nothing was listening; clicking the card afterwards STILL
+     * completed the write, because the promise had never been cancellable. The turn
+     * looked hung and was in fact waiting, unstoppably.
+     *
+     * Same lifetime reasoning as `turnWorkMode`: one interceptor per turn, never
+     * reused, so the signal cannot outlive the turn it belongs to.
+     */
+    private turnAbortSignal: AbortSignal | null = null;
+
     constructor(
         workspacePath: string,
         workspaceId?: number,
         snapshotTurnId?: string | number,
         activeChatId?: number,
+        turnWorkMode?: WorkMode,
+        turnAbortSignal?: AbortSignal,
     ) {
         super();
         this.workspacePath = workspacePath;
         this.workspaceId = workspaceId ?? null;
         this.activeChatId = activeChatId ?? 0;
+        this.turnWorkMode = turnWorkMode ?? null;
+        this.turnAbortSignal = turnAbortSignal ?? null;
         if (snapshotTurnId !== undefined && snapshotTurnId !== null) {
             this.snapshotTurnId = String(snapshotTurnId);
         }
@@ -197,15 +260,30 @@ export class PermissionInterceptor extends EventEmitter {
         logger.log(`[PermissionInterceptor] Initialized for workspace: ${workspacePath} (id: ${workspaceId}, turn: ${this.snapshotTurnId ?? "none"}, chat: ${this.activeChatId})`);
     }
 
-    /** Live chat mode from settings (never cache on the instance). */
-    private getEffectiveChatMode(): string {
-        return readSettings().selectedChatMode ?? "ask";
+    /**
+     * Approve everything for the remainder of this turn (see `turnBlanketApproved`).
+     * One-way: there is no un-set, because the turn ending is the un-set.
+     */
+    approveRestOfTurn(): void {
+        this.turnBlanketApproved = true;
+        logger.log(
+            `[approveRestOfTurn] chat ${this.activeChatId}: approvals suppressed for the rest of this turn`,
+        );
+    }
+
+    /** Whether the rest-of-turn blanket is active (for logging / tests). */
+    isTurnBlanketApproved(): boolean {
+        return this.turnBlanketApproved;
     }
 
     /**
      * File / batch file operations under `.atlarix/` or `.atlarixignore` auto-approve without user prompt.
      */
     shouldAlwaysAutoApprove(request: PermissionRequest): boolean {
+        // "Allow all this turn" covers everything the turn asks for afterwards —
+        // including dangerous commands, which is the whole point: on the turns
+        // where this button gets pressed, the danger gate is what is firing.
+        if (this.turnBlanketApproved) return true;
         const checkPath = (filePath: string): boolean => {
             try {
                 const rel = this.toWorkspaceRelativePosix(filePath);
@@ -1059,7 +1137,12 @@ export class PermissionInterceptor extends EventEmitter {
 
             let outcome: WaitOutcome;
             try {
-                outcome = await this.waitForApproval(escalationId);
+                // Pass the TURN's signal so Stop can unwind this wait. Without it
+                // the promise was uncancellable: pressing Stop did nothing, and a
+                // click ten minutes later still landed the write.
+                outcome = await this.waitForApproval(escalationId, {
+                    abortSignal: this.turnAbortSignal ?? undefined,
+                });
             } catch {
                 this.pendingOperations.delete(escalationId);
                 throw new Error(`Write to ${example} cancelled.`);
@@ -1459,11 +1542,21 @@ export class PermissionInterceptor extends EventEmitter {
         // Read-only work modes (Explore/Plan/Review) run commands in a read-only
         // sandbox — the OS denies workspace-source writes, replacing the old
         // command-string mutation classifier. Build/Debug get workspace-write.
-        const workMode = resolveEffectiveWorkMode({
-            intentMode: settings.intentMode,
-            workModePreference: settings.workModePreference,
-            selectedChatMode: settings.selectedChatMode ?? "ask",
-        });
+        //
+        // The mode comes from THIS TURN (`turnWorkMode`, set at construction), not
+        // from `readSettings()`. `workModePreference` / `selectedChatMode` are one
+        // app-wide value, so re-reading them here let a second window's mode decide
+        // this window's sandbox: opening an Explore window mid-turn flipped a Build
+        // turn to read-only and `git` died on `.git/HEAD.lock` with the UI still
+        // showing Build. Everything else on `settings` below IS genuinely global.
+        const workMode =
+            this.turnWorkMode ??
+            // Legacy callers (tests) that construct without a turn mode.
+            resolveEffectiveWorkMode({
+                intentMode: settings.intentMode,
+                workModePreference: settings.workModePreference,
+                selectedChatMode: settings.selectedChatMode ?? "ask",
+            });
         // Global settings paths + per-workspace paths the user granted via
         // escalation-on-denial (stored on workspaceFilePermissions/sandbox_path).
         const workspaceGranted =
@@ -1472,11 +1565,24 @@ export class PermissionInterceptor extends EventEmitter {
             ...(cfg?.extraWritablePaths ?? []),
             ...workspaceGranted,
         ];
+        // A preview may NARROW to read-only but never widen. `preview.readOnly` is
+        // how a sub-agent (QA) gets the observe-only profile while borrowing a
+        // Build turn's interceptor — without it the worker would inherit the
+        // turn's workspace-write, which is the opposite of the intended role.
+        const forcedReadOnly = preview?.readOnly === true;
+        const readOnly = isReadOnlyWorkMode(workMode) || forcedReadOnly;
         return {
             workspacePath: this.workspacePath,
             extraWritablePaths: extraWritablePaths.length > 0 ? extraWritablePaths : undefined,
-            enforce: cfg?.enforce === true,
-            readOnly: isReadOnlyWorkMode(workMode),
+            // A read-only profile the CALLER forced must fail rather than run
+            // unconfined when no OS sandbox exists, or "read-only" is only a
+            // suggestion — and the caller is a sub-agent nobody is watching
+            // closely. Deliberately NOT applied to mode-driven read-only: that
+            // would newly refuse every Explore/Plan/Review command on a machine
+            // with no sandbox available, which is a behaviour change nobody asked
+            // for and which the graceful-fallback design chose against.
+            enforce: cfg?.enforce === true || forcedReadOnly,
+            readOnly,
         };
     }
 
@@ -1600,7 +1706,12 @@ export class PermissionInterceptor extends EventEmitter {
 
             let outcome: WaitOutcome;
             try {
-                outcome = await this.waitForApproval(escalationId);
+                // Pass the TURN's signal so Stop can unwind this wait. Without it
+                // the promise was uncancellable: pressing Stop did nothing, and a
+                // click ten minutes later still landed the write.
+                outcome = await this.waitForApproval(escalationId, {
+                    abortSignal: this.turnAbortSignal ?? undefined,
+                });
             } catch {
                 this.pendingOperations.delete(escalationId);
                 return retried; // turn stopped mid-wait

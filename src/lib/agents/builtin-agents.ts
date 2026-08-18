@@ -7,13 +7,17 @@
  * (system prompt, tool-allowlist intersection, model override, write derivation)
  * treats them identically to a hand-authored agent.
  *
- * The three cover the common delegation shapes, blended from opencode's built-ins
+ * These cover the common delegation shapes, blended from opencode's built-ins
  * (explore / plan / build) and Claude Code's example agents:
  *   - explorer   — read-only reconnaissance
  *   - architect  — read-only planning (returns a plan, does not edit)
  *   - implementer — WRITER (lists `edit_file` → returns per-file proposals)
+ *   - qa         — exercises a RUNNING app and reports findings (no `edit_file`)
  * A writer is declared by its toolset: an agent whose `tools` includes `edit_file`
  * (on a build/debug profile) is a writer — see `agentIsWriter` in user-agents.ts.
+ * `qa` is on a build profile for the opposite reason: it needs commands and browser
+ * tools to resolve, while its missing `edit_file` and the forced read-only sandbox
+ * keep it unable to change anything.
  */
 
 import type { UserAgent } from "./user-agents";
@@ -88,6 +92,53 @@ ${OUTSIDE_WORKSPACE_PATHS} ${OUTSIDE_WORKSPACE_WRITES}
 Answer shape (returned to the parent as data): (1) what you changed and why, (2) the
 files you edited with a one-line note each, (3) anything to verify or left incomplete.`;
 
+const QA_PROMPT = `# QA (independent exploratory testing)
+
+You test a RUNNING app and report what you observed. Your final message is returned
+to the parent agent as data — write it for an agent, not a human.
+
+You were given the requirement and how to reach the app, and deliberately NOT the
+diff. That is the point of spawning you: the agent that wrote the code will test the
+happy path it designed. Form your own expectations from the requirement.
+
+## What you can do
+- \`run_command\` runs in a READ-ONLY sandbox with the network on. Test runners, HTTP
+  clients and the project's own CLI all work; \`/tmp\` is writable for scratch files.
+  You CANNOT write to the workspace — that is deliberate, not a bug to work around.
+- The browser tools drive the real page: \`browser_navigate\`, \`browser_inspect\`,
+  \`browser_interact\`, \`browser_find\`, \`browser_tabs\`, and \`browser_test\` for a
+  scripted step sequence with console/network errors reported.
+- \`background_jobs\` reads the dev server's log. Use \`operation:"output"\` with
+  \`mode:"tail"\` — a 500 with an empty body means the trace is in that log.
+- A command that needs the user's approval will ask them, labelled as yours. If they
+  decline, do not retry it — try another route or record that you could not verify it.
+
+## Discipline
+- NO EVIDENCE, NO FINDING. Every claim carries a status code, a console line, a log
+  excerpt or an observed page state. If you cannot show it, do not report it.
+- Finding nothing is a real, good result. "Exercised X, Y and Z — all worked" is a
+  complete answer. Never invent a problem to look thorough.
+- "Broken" and "untested" are different states and must never be merged. If you could
+  not reach something, say NOT REACHED and why.
+- Exercise every item you were given, then go beyond it — the list is a floor, not a
+  ceiling. Unprompted findings are the most valuable thing you produce.
+- You do not fix anything. You have no \`edit_file\`. Report; the parent decides.
+- Do not load-test. Volume is not consent, and numbers off a dev machine are noise.
+
+${OUTSIDE_WORKSPACE_PATHS}
+
+Answer shape — exactly these two sections:
+
+## Coverage
+One line per item you were asked to exercise:
+\`- <item> — PASS | FAIL | BLOCKED | NOT REACHED — <evidence>\`
+
+## Findings
+For each problem, in order of severity:
+Did / Expected / Got / Evidence / Reproduces (yes N/N, no, or once)
+
+Then nothing else. No preamble, no summary paragraph.`;
+
 /** Name → built-in agent. Keys are the selectable `subagent_type` ids. */
 export const BUILTIN_AGENTS: Readonly<Record<string, UserAgent>> = Object.freeze({
   explorer: {
@@ -112,6 +163,33 @@ export const BUILTIN_AGENTS: Readonly<Record<string, UserAgent>> = Object.freeze
     mode: "build",
     tools: ["read_file", "glob", "grep", "edit_file", "web_search", "read_url"],
     systemPrompt: IMPLEMENTER_PROMPT,
+  },
+  qa: {
+    name: "qa",
+    description:
+      "Exploratory QA — exercises a RUNNING app and reports evidence-backed findings. Gets the requirement, not the diff.",
+    // `build` so its commands and browser tools resolve, NOT so it can write:
+    // `tools` has no `edit_file`, and every command it runs is forced into the
+    // read-only sandbox (see subagent-command.ts). A QA worker that could edit
+    // would "fix" what it found, leaving the finding unverifiable and the change
+    // unreviewed.
+    mode: "build",
+    tools: [
+      "read_file",
+      "glob",
+      "grep",
+      "web_search",
+      "read_url",
+      "run_command",
+      "background_jobs",
+      "browser_navigate",
+      "browser_inspect",
+      "browser_interact",
+      "browser_find",
+      "browser_tabs",
+      "browser_test",
+    ],
+    systemPrompt: QA_PROMPT,
   },
 });
 

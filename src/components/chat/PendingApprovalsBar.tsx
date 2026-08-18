@@ -26,22 +26,42 @@ import {
   type QueuedOperation,
 } from "@/atoms/permissionQueueAtom";
 
+/**
+ * What ONE waiting operation is asking for.
+ *
+ * Exported because the inline status pill needs the same sentence: two places
+ * describing the same queue in different words is how one of them ends up wrong.
+ */
+export function describePendingApproval(op: QueuedOperation): string {
+  if (op.operation === "run_command" && op.command) {
+    return `Approve command: ${op.command.slice(0, 60)}`;
+  }
+  // A folder grant carries no `path` and is not a command, so it used to fall
+  // through to the bare "1 approval waiting" — which does not say what to click or
+  // why. Naming the folder is the whole point of the card.
+  if (op.operation === "sandbox_escalation") {
+    const folder = op.sandboxGrantPath ?? op.sandboxDeniedPath;
+    return folder
+      ? `Grant write access: ${folder}`
+      : "Grant write access to a folder outside the workspace";
+  }
+  if (op.path) return `Approve edit: ${op.path}`;
+  return "1 approval waiting";
+}
+
 /** A short, honest description of what is waiting. */
 export function describePending(ops: QueuedOperation[]): string {
   if (ops.length === 0) return "";
-  if (ops.length === 1) {
-    const op = ops[0];
-    if (op.operation === "run_command" && op.command) {
-      return `Approve command: ${op.command.slice(0, 60)}`;
-    }
-    if (op.path) return `Approve edit: ${op.path}`;
-    return "1 approval waiting";
-  }
+  if (ops.length === 1) return describePendingApproval(ops[0]);
   const files = ops.filter((o) => o.path).length;
   const commands = ops.filter((o) => o.operation === "run_command").length;
+  const grants = ops.filter((o) => o.operation === "sandbox_escalation").length;
   const parts: string[] = [];
   if (files > 0) parts.push(`${files} file${files === 1 ? "" : "s"}`);
   if (commands > 0) parts.push(`${commands} command${commands === 1 ? "" : "s"}`);
+  // Counted explicitly: a grant is neither a file nor a command, so a mixed batch
+  // used to report a total that its own breakdown did not account for.
+  if (grants > 0) parts.push(`${grants} folder grant${grants === 1 ? "" : "s"}`);
   const what = parts.length > 0 ? ` (${parts.join(", ")})` : "";
   return `${ops.length} approvals waiting${what}`;
 }
@@ -77,16 +97,23 @@ export function PendingApprovalsBar({ chatId }: { chatId: number }) {
         type="button"
         size="sm"
         className="h-6 shrink-0 px-2 text-[11px]"
-        // One-shot batch approve, matching the inline "Approve all files" button.
-        // It deliberately saves NO rule: the batch can span arbitrary files and
-        // types, and turning one click into that many standing grants is not
-        // something to infer. A durable grant is "Always allow …" on a card,
-        // which now also clears everything else queued that it covers.
+        // Covers the rest of the TURN, not just what is queued right now.
+        //
+        // A one-shot drain did not match what people meant by pressing this: it
+        // cleared the queue, the model issued its next command, and the prompt
+        // came straight back — so a research turn (curl, then python3, then jq,
+        // each of which trips the danger gate on its first token) had to be
+        // approved once per command. "Always allow" does not help there either,
+        // because for a dangerous command it is keyed to that exact command.
+        //
+        // Still saves NO rule: the blanket lives on the per-turn interceptor and
+        // dies with the turn, so one click cannot become a standing grant.
         onClick={() =>
-          void IpcClient.getInstance().executeAllPermissions({ chatId })
+          void IpcClient.getInstance().approveAllForTurn({ chatId })
         }
+        title="Approve these and anything else this turn asks for. Ends when the turn ends."
       >
-        Approve all
+        Allow all this turn
       </Button>
     </div>
   );

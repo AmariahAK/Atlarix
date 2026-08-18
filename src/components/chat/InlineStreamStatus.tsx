@@ -18,6 +18,7 @@ import { IpcClient } from "@/ipc/ipc_client";
 import AtlarixAnimation from "@/components/atlarix/AtlarixAnimation";
 import { ChevronDown, ChevronUp, TimerIcon } from "lucide-react";
 import { getToolActivityLabelWithArgs } from "@/lib/tool-activity-labels";
+import { describePendingApproval } from "@/components/chat/PendingApprovalsBar";
 import { useSettings } from "@/hooks/useSettings";
 import type { WorkMode } from "@/lib/schemas";
 
@@ -253,6 +254,44 @@ export function InlineStreamStatus({
           };
         })()
       : null;
+
+  // A turn blocked on YOUR approval gets the same amber timer pill a blocked
+  // command gets, and for the same reason: the label alone was not enough.
+  //
+  // It already said "Waiting for your approval" below — but wrapped in the pulsing
+  // thinking compass, with no icon and an elapsed borrowed from the whole turn. It
+  // read as work in progress. Observed cost: a folder-grant card went unnoticed for
+  // ten minutes while the turn looked busy. Same shape as the command wait, so the
+  // two are learnable as one thing.
+  if (!waiting && hasPendingApproval) {
+    const pending = getOperationsByStatus(permissionQueue, "pending");
+    return (
+      <div className="mt-1.5 text-xs text-muted-foreground">
+        <button
+          type="button"
+          onClick={() => {
+            const el = document.querySelector(
+              `[data-permission-approvals="${chatId}"]`,
+            );
+            if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+          }}
+          className="flex items-center gap-1.5 rounded-full border border-border bg-muted/40 px-2.5 py-1 hover:bg-muted/70 transition-colors"
+          title="Jump to the approval waiting for you"
+        >
+          <TimerIcon className="h-3 w-3 text-amber-600 dark:text-amber-500" />
+          <span className="font-medium">
+            Waiting for you
+            {turnAgeMs > 0 ? ` · ${formatWaitElapsed(turnAgeMs)}` : ""}
+          </span>
+          <span className="opacity-70">
+            {pending.length === 1
+              ? describePendingApproval(pending[0])
+              : `${pending.length} approvals`}
+          </span>
+        </button>
+      </div>
+    );
+  }
 
   if (waiting) {
     // Persistent waiting chip — the model paused for a long-running command.

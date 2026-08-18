@@ -344,12 +344,15 @@ export const workspacePlanPanelAtom = atom<{
   content: string | null;
   planStatus: "plan" | "building" | "built" | null;
   sessionId: string | null;
+  /** Stored plan name; null on rows predating the title column. */
+  title: string | null;
   changes: PlanChangesPayload | null;
 }>({
   planId: null,
   content: null,
   planStatus: null,
   sessionId: null,
+  title: null,
   changes: null,
 });
 

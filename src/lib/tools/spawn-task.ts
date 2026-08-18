@@ -313,7 +313,7 @@ ToolRegistry.register({
     "WHEN to use it: delegate work that is INDEPENDENT of your current thread or that you'd otherwise run in PARALLEL (several unrelated questions, a broad codebase/web sweep). For a small or single-step scope, just do it inline — spawning a sub-agent adds latency and its own context. " +
     "For independent scopes, issue MULTIPLE task calls in ONE response — they run concurrently (up to 5 per turn). " +
     "By default a sub-agent is READ-ONLY. Set write=true to let it implement a change: it writes NOTHING to disk — every edit comes back as a per-file PROPOSAL you review and accept with the `proposals` tool, which writes its exact bytes through the normal approval gate. Review each diff before accepting; to fix a mostly-right change, accept it then edit_file on top. Works in any workspace, git or not. " +
-    "Optional subagent_type names a built-in agent (explorer = read-only recon, architect = planning, implementer = writer) or a user-defined .atlarix/agents/ agent; a writer agent implies write mode without write=true. " +
+    "Optional subagent_type names a built-in agent (explorer = read-only recon, architect = planning, implementer = writer, qa = exercises a RUNNING app and reports evidence-backed findings) or a user-defined .atlarix/agents/ agent; a writer agent implies write mode without write=true. " +
     "Give every task a short, distinctive `description` — that is the NAME you address it by later, and a name you chose is far easier to get right than a generated id. " +
     "Set background=true to return immediately with a task id; pass task_id later to collect the result. A foreground task still running after 30s is moved to the background automatically, so it never blocks your turn. " +
     "PREFER background=true for ANY long-running delegation — read-only recon/research sweeps AND writer/implementer tasks alike: you can continue other work or end your turn, and each result is delivered to you automatically the moment it finishes (you are auto-woken if your turn ended). Do not idle or poll while waiting. " +
@@ -328,7 +328,7 @@ ToolRegistry.register({
       ),
       prompt: stringParam("Full task prompt for the sub-agent"),
       subagent_type: stringParam(
-        "Optional built-in (explorer=read-only recon, architect=planning, implementer=WRITER) or a .atlarix/agents/ name; omit for the generic read-only scout. Note: a writer type (e.g. implementer) turns on write mode by itself — no write=true needed.",
+        "Optional built-in (explorer=read-only recon, architect=planning, implementer=WRITER, qa=tests a RUNNING app) or a .atlarix/agents/ name; omit for the generic read-only scout. Note: a writer type (e.g. implementer) turns on write mode by itself — no write=true needed. For qa, give it the REQUIREMENT and how to reach the app — never your diff: it exists to form its own expectations, and pasting the diff throws that away.",
       ),
       task_id: stringParam(
         "Resume a prior background task (same sub-agent session)",
@@ -360,6 +360,8 @@ ToolRegistry.register({
     delegationChatMode?: "build" | "plan" | "ask";
     /** Stream wrapper context (register-delegation-tools). */
     parentDelegationId?: string;
+    /** Window that spawned this worker, so its browser calls target that window. */
+    ownerWindowId?: number;
     emitSubagentActivity?: (payload: SubagentActivityEmit) => void;
     /**
      * Called when a BACKGROUNDED run really finishes, so the caller can settle
@@ -498,6 +500,7 @@ ToolRegistry.register({
           turnId: args.turnId,
           delegationChatMode: args.delegationChatMode,
           delegationId: args.parentDelegationId ?? taskId,
+          ownerWindowId: args.ownerWindowId,
           emit: bufferingEmit,
           abortSignal: taskAbort.signal,
         });

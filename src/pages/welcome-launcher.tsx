@@ -14,6 +14,16 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { WelcomeCloneDialog } from "@/components/welcome/WelcomeCloneDialog";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
   openWorkspaceFromDirectoryPicker,
   openWorkspaceFolder,
 } from "@/lib/open-workspace-session";
@@ -23,6 +33,27 @@ import { LocalDateTimeClock } from "@/components/LocalDateTimeClock";
 /** Past this many workspaces the list gains search + scroll instead of a toggle. */
 const RECENT_SEARCH_THRESHOLD = 5;
 
+/**
+ * Does removing this workspace also DELETE its folder?
+ *
+ * Only for the Atlarix-managed clone roots — `delete-app` rm -rf's the folder for
+ * those and leaves every other path alone (`isAtlarixManagedWorkspacePath`, which
+ * lives in main because it needs the home directory).
+ *
+ * Matched on path SEGMENTS with either separator: the previous check was
+ * `includes("/Documents/Atlarix")`, which can never match a Windows path, so a
+ * managed workspace there was described as safe and then had its files deleted.
+ * Over-matching is the safe direction — it shows the stronger confirmation for a
+ * folder that merely happens to be named this, which costs a sentence.
+ */
+export function removalAlsoDeletesFiles(appPath?: string | null): boolean {
+  if (!appPath) return false;
+  const segs = appPath.split(/[\\/]+/).filter(Boolean);
+  const has = (...want: string[]) =>
+    want.every((w) => segs.some((seg) => seg.toLowerCase() === w));
+  return has("atlarix-apps") || has("documents", "atlarix");
+}
+
 export default function WelcomeLauncher() {
   const navigate = useNavigate();
   const { user, status, isAuthenticated, authResolved, signOut } = useAuth();
@@ -31,6 +62,20 @@ export default function WelcomeLauncher() {
   const [recentQuery, setRecentQuery] = useState("");
   /** Restore has been pending long enough to say so. */
   const [restoreSlow, setRestoreSlow] = useState(false);
+  /**
+   * Workspace awaiting a remove confirmation.
+   *
+   * An in-app dialog rather than `window.confirm`: the native one renders as an
+   * OS-chrome modal that reads as an alarming system warning (particularly on
+   * Windows) for what is usually just taking a row off a list — and it blocks the
+   * renderer while it is open.
+   */
+  const [pendingRemoval, setPendingRemoval] = useState<{
+    id: number;
+    name: string;
+    path?: string | null;
+  } | null>(null);
+  const [removing, setRemoving] = useState(false);
 
   useEffect(() => {
     if (authResolved) return;
@@ -142,29 +187,18 @@ export default function WelcomeLauncher() {
     return false;
   };
 
-  const handleDeleteWorkspace = async (
-    appId: number,
-    name: string,
-    appPath?: string | null,
-  ) => {
-    const managedHint =
-      appPath &&
-      (appPath.includes("atlarix-apps") ||
-        appPath.includes(`${"/Documents/"}Atlarix`))
-        ? ` Files at ${appPath} will also be deleted.`
-        : " Project files on disk are kept unless they live under ~/atlarix-apps or ~/Documents/Atlarix.";
-    if (
-      !window.confirm(
-        `Remove “${name}” from Atlarix?${managedHint}`,
-      )
-    ) {
-      return;
-    }
+  const confirmRemove = async () => {
+    if (!pendingRemoval) return;
+    const { id } = pendingRemoval;
+    setRemoving(true);
     try {
-      await IpcClient.getInstance().deleteApp(appId);
+      await IpcClient.getInstance().deleteApp(id);
       await refreshApps();
+      setPendingRemoval(null);
     } catch (e) {
       showError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setRemoving(false);
     }
   };
 
@@ -321,7 +355,11 @@ export default function WelcomeLauncher() {
                   className="px-3 text-muted-foreground hover:text-destructive hover:bg-destructive/10 shrink-0"
                   title="Remove workspace"
                   onClick={() =>
-                    void handleDeleteWorkspace(app.id, app.name, app.path)
+                    setPendingRemoval({
+                      id: app.id,
+                      name: app.name,
+                      path: app.path,
+                    })
                   }
                 >
                   <Trash2 className="h-4 w-4" />
@@ -333,6 +371,75 @@ export default function WelcomeLauncher() {
       ) : null}
 
       <WelcomeCloneDialog open={cloneOpen} onOpenChange={setCloneOpen} />
+
+      {/*
+        Removing a workspace is two very different actions wearing one icon, and
+        the old copy hedged across both — every removal warned about deletion
+        conditions, so taking a project off the list read as though it might erase
+        your code. Say only what this particular removal does.
+      */}
+      <AlertDialog
+        open={pendingRemoval != null}
+        onOpenChange={(open) => {
+          if (!open && !removing) setPendingRemoval(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {pendingRemoval && removalAlsoDeletesFiles(pendingRemoval.path)
+                ? `Delete “${pendingRemoval.name}” and its files?`
+                : `Remove “${pendingRemoval?.name}” from Atlarix?`}
+            </AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-2 text-sm">
+                {pendingRemoval && removalAlsoDeletesFiles(pendingRemoval.path) ? (
+                  <>
+                    <p>
+                      This workspace lives in a folder Atlarix created, so its
+                      files are deleted along with it.
+                    </p>
+                    <pre className="overflow-auto rounded border border-border bg-muted/40 p-2 font-mono text-xs">
+                      {pendingRemoval.path}
+                    </pre>
+                    <p className="text-amber-600 dark:text-amber-500">
+                      This cannot be undone.
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <p>
+                      It comes off this list along with its saved chat sessions.
+                    </p>
+                    <p className="text-muted-foreground">
+                      Nothing on disk changes — your project stays exactly where
+                      it is, and you can open the folder again any time.
+                    </p>
+                  </>
+                )}
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={removing}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={removing}
+              onClick={(e) => {
+                // Keep the dialog up while the removal runs, so a failure can be
+                // reported rather than vanishing with the dialog.
+                e.preventDefault();
+                void confirmRemove();
+              }}
+            >
+              {removing
+                ? "Removing…"
+                : pendingRemoval && removalAlsoDeletesFiles(pendingRemoval.path)
+                  ? "Delete files"
+                  : "Remove"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

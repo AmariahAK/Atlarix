@@ -191,6 +191,24 @@ export const sessionMessages = sqliteTable("session_messages", {
    * the context. Nothing had been summarised; the ruler changed.
    */
   maxTokensUsed: integer("max_tokens_used"),
+  /**
+   * `kind: "plan"` rows only — the plan's name, as the model supplied it.
+   *
+   * Previously a plan had no title column at all: `createPlanArtifact` prepended
+   * the supplied title into `content` as an H1, and every reader scraped it back
+   * out of the markdown. The prepend was guarded on
+   * `!content.trim().startsWith("#")`, which is true of a `## Goal` section
+   * heading as much as of a real title — so any model that opened its plan with
+   * a section heading (the natural shape of a plan document, and what most of
+   * them write) had its title silently DISCARDED, and the scraper then returned
+   * the literal word "Goal" as the plan's name.
+   *
+   * Storing it makes the title data instead of a substring, which deletes the
+   * prepend branch and the scrape for every new row. Nullable, because rows
+   * written before this migration have none — `planArtifactTitleFromContent`
+   * remains as their fallback and only theirs.
+   */
+  title: text("title"),
   createdAt: integer("created_at", { mode: "timestamp" })
     .notNull()
     .default(sql`(unixepoch())`),

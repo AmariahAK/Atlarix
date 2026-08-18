@@ -195,7 +195,13 @@ export async function loadActivePlanSection(
     try {
       taskLedgerBlock = formatPlanChecklistForPrompt(
         parsePlanChecklist(activePlan.content),
-        extractPlanChecklistTitle(activePlan.content),
+        // The STORED title first. Scraping the markdown is the fallback for rows
+        // written before the title column existed, and only for those: the
+        // scrape takes the first non-empty line whatever it is, so a plan that
+        // opens with a `## Goal` section heading used to reach the model named
+        // "Goal". Storing the title fixed the UI; this line is what fixes it for
+        // the agent, which is the half that actually matters on resume.
+        activePlan.title ?? extractPlanChecklistTitle(activePlan.content),
       );
     } catch {
       taskLedgerBlock = null;

@@ -37,6 +37,7 @@ describe("right panel — plan as a coexisting tab", () => {
       content: null,
       planStatus: null,
       sessionId: null,
+      title: null,
       changes: null,
     });
   });
@@ -56,6 +57,7 @@ describe("right panel — plan as a coexisting tab", () => {
       content: "# Plan",
       planStatus: "building",
       sessionId: "s1",
+      title: "Test plan",
       changes: null,
     });
     renderWithProviders(<Probe />);
@@ -73,6 +75,7 @@ describe("right panel — plan as a coexisting tab", () => {
       content: "# Plan",
       planStatus: "building",
       sessionId: "s1",
+      title: "Test plan",
       changes: null,
     });
     renderWithProviders(<Probe />);
@@ -83,6 +86,7 @@ describe("right panel — plan as a coexisting tab", () => {
       content: null,
       planStatus: null,
       sessionId: null,
+      title: null,
       changes: null,
     });
     renderWithProviders(<Probe />);

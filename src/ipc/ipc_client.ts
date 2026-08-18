@@ -1186,12 +1186,6 @@ export class IpcClient {
     return this.ipcRenderer.invoke("plans:set-status", { planId, planStatus });
   }
 
-  public async appendPlanArtifactStep(
-    planId: string,
-    stepText: string,
-  ): Promise<import("./utils/emit_plan_artifact").PlanArtifactPayload> {
-    return this.ipcRenderer.invoke("plans:append-step", { planId, stepText });
-  }
 
   public async getPlanArtifact(
     planId: string,
@@ -2929,6 +2923,25 @@ export class IpcClient {
     chatId: number;
   }): Promise<Array<{ operationId: string; approved: boolean; executedAt?: number; error?: string }>> {
     return this.ipcRenderer.invoke("execute-all-permissions", {
+      chatId,
+    });
+  }
+
+  /**
+   * Approve what is queued AND everything else this turn asks for.
+   *
+   * Distinct from `executeAllPermissions`, which only drains the current queue —
+   * so the next command the model issued prompted again, and a research turn
+   * (curl, then python3, then jq, each dangerous on its first token) had to be
+   * approved once per command. The blanket lives on the per-turn interceptor, so
+   * it expires with the turn and never becomes a saved rule.
+   */
+  public async approveAllForTurn({
+    chatId,
+  }: {
+    chatId: number;
+  }): Promise<Array<{ operationId: string; approved: boolean; executedAt?: number; error?: string }>> {
+    return this.ipcRenderer.invoke("approve-all-for-turn", {
       chatId,
     });
   }

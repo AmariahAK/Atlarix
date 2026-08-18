@@ -2,12 +2,9 @@ import { ipcMain, BrowserWindow } from "electron";
 import log from "electron-log";
 import { createLoggedHandler } from "./safe_handle";
 import {
-  createPlanArtifact,
   getPlanArtifact,
-  listPlanArtifactsForSession,
   setPlanArtifactStatus,
   updatePlanArtifactContent,
-  appendStepToPlanArtifact,
   type PlanArtifactRow,
 } from "@/lib/plans/plan-artifacts";
 import type { PlanArtifactStatus } from "@/db/schema";
@@ -25,6 +22,7 @@ function toPayload(row: PlanArtifactRow): PlanArtifactPayload {
     sessionId: row.sessionId,
     content: row.content,
     planStatus: row.planStatus,
+    title: row.title,
   };
 }
 
@@ -41,19 +39,6 @@ function broadcastPlanEvent(
 
 export function registerPlanArtifactHandlers(): void {
   handle(
-    "plans:create",
-    async (
-      _event,
-      params: { sessionId: string; content: string; title?: string },
-    ): Promise<PlanArtifactPayload> => {
-      const row = await createPlanArtifact(params.sessionId, params.content, params.title);
-      const payload = toPayload(row);
-      broadcastPlanEvent("plan:artifact-updated", payload);
-      return payload;
-    },
-  );
-
-  handle(
     "plans:update",
     async (
       _event,
@@ -68,32 +53,10 @@ export function registerPlanArtifactHandlers(): void {
   );
 
   handle(
-    "plans:append-step",
-    async (
-      _event,
-      params: { planId: string; stepText: string },
-    ): Promise<PlanArtifactPayload> => {
-      const row = await appendStepToPlanArtifact(params.planId, params.stepText);
-      if (!row) throw new Error("Plan artifact not found");
-      const payload = toPayload(row);
-      broadcastPlanEvent("plan:artifact-updated", payload);
-      return payload;
-    },
-  );
-
-  handle(
     "plans:get",
     async (_event, planId: string): Promise<PlanArtifactPayload | null> => {
       const row = await getPlanArtifact(planId);
       return row ? toPayload(row) : null;
-    },
-  );
-
-  handle(
-    "plans:list-by-session",
-    async (_event, sessionId: string): Promise<PlanArtifactPayload[]> => {
-      const rows = await listPlanArtifactsForSession(sessionId);
-      return rows.map(toPayload);
     },
   );
 

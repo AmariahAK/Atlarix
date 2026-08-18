@@ -309,6 +309,14 @@ export async function guardToolCall<T>(
         (p) => `\`${p.key}\` expects ${p.expected} but received ${p.received}`,
       )
       .join("; ");
+    // A rejection here never reaches the permission interceptor, which is the
+    // only other thing that logs a tool call — so without this line a refused
+    // call leaves NO trace at all. Three `edit_file` calls came back
+    // INVALID_PARAMS in one session and the log had nothing to say about any of
+    // them, while every call that succeeded was logged twice.
+    log.warn(
+      `[tool:${toolName}] INVALID_PARAMS (type): ${detail}; received=[${received.join(", ")}]`,
+    );
     return {
       success: false,
       error: "INVALID_PARAMS",
@@ -323,6 +331,9 @@ export async function guardToolCall<T>(
   const missing = getMissingRequiredParams(parametersSchema, args);
   if (missing.length > 0) {
     const received = args && typeof args === "object" ? Object.keys(args as Record<string, unknown>) : [];
+    log.warn(
+      `[tool:${toolName}] INVALID_PARAMS (missing): ${missing.join(", ")}; received=[${received.join(", ")}]`,
+    );
     return {
       success: false,
       error: "INVALID_PARAMS",

@@ -63,7 +63,11 @@ export function InlinePlanArtifactSlot({
     <div className="not-prose my-2 w-full">
       <PlanArtifactCard
         planId={plan.planId}
-        title={planArtifactTitleFromContent(plan.content)}
+        // Stored title first; the markdown scrape is only the fallback for rows
+        // written before the title column existed. That scrape takes the first
+        // non-empty line whatever it is, which is why older plans so often show
+        // as "Goal" — a `## Goal` section heading read as the plan's name.
+        title={plan.title ?? planArtifactTitleFromContent(plan.content)}
         content={plan.content}
         planStatus={plan.planStatus}
         onBuild={onBuild}

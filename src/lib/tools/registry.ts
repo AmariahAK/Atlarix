@@ -217,8 +217,8 @@ export class ToolRegistry {
                 (tool) => !tool.requiresWorkspace
             );
         } else {
-            // Workspace (Build) mode: return all tools for manifest; progressive reveal
-            // filters to loaded+core in chat_stream_handlers when building the tools object
+            // Workspace (Build) mode: the whole context surface. resolve-toolset
+            // narrows it, and tool-reveal.ts tiers the descriptions per mode.
             return this.getAll();
         }
     }
@@ -242,16 +242,6 @@ export class ToolRegistry {
     static getToolsForNoWorkspace(): ToolMetadata[] {
         return this.getAll().filter(
             (tool) => tool.isReadOnly === true && !tool.requiresWorkspace
-        );
-    }
-
-    /**
-     * Get all optional workspace tools (for dynamic loading)
-     * @returns Tools that can be requested via request_tools
-     */
-    static getOptionalWorkspaceTools(): ToolMetadata[] {
-        return this.getAll().filter(
-            (tool) => tool.requiresWorkspace && !tool.isCore
         );
     }
 

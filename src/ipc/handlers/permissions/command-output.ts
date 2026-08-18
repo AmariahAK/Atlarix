@@ -115,26 +115,108 @@ export function formatCommandOutput(
   if (utf8ByteLength(combined) <= maxOutputBytes) return combined;
 
   const lines = combined.split("\n");
-  const errors = lines.filter(
-    (l) =>
-      l.toLowerCase().includes("error") ||
-      l.toLowerCase().includes("failed") ||
-      l.includes("✗") ||
-      l.includes("ERR!"),
-  );
-  const warnings = lines.filter(
-    (l) => l.toLowerCase().includes("warn") || l.includes("⚠"),
+
+  // Fill the budget, head and tail, IN ORDER.
+  //
+  // This used to emit errors → warnings → first 5 lines → last 5 lines, which had
+  // three problems and one that dominated:
+  //
+  //  - It ignored the budget. `max_output_bytes` defaults to 80,000, and the
+  //    fixed 5+5 shape returned about 550 bytes — under 1% of the allowance — so
+  //    a large output was crushed to thirteen lines however much room there was.
+  //    Models responded exactly as you would expect: declaring the output
+  //    truncated and re-running the command redirected to a file, which costs two
+  //    extra turns to recover information that already fit.
+  //  - It REORDERED, so sequence was unreadable: a filtered error block, then the
+  //    head, then the tail. For anything log-shaped, order IS the information.
+  //  - It said nothing about how much was dropped, so "complete" and "sampled"
+  //    looked identical.
+  //
+  // Head and tail both matter and neither is guessable in advance: a compile
+  // error is near the end, a usage banner or a failed first step is at the start.
+  // Split the budget between them and say what fell out of the middle.
+  const dropNoticeFor = (n: number) =>
+    `\n… [omitted ${n} line(s) in the middle; raise max_output_bytes or narrow the command] …\n`;
+
+  /**
+   * Take as many lines as fit, alternating ends so one very long line at the head
+   * cannot starve the tail (or vice versa).
+   */
+  const fill = (budget: number) => {
+    const head: string[] = [];
+    const tail: string[] = [];
+    let used = 0;
+    let lo = 0;
+    let hi = lines.length - 1;
+    let takeHead = true;
+    while (lo <= hi) {
+      const idx = takeHead ? lo : hi;
+      const cost = utf8ByteLength(lines[idx]!) + 1;
+      if (used + cost > budget) break;
+      used += cost;
+      if (takeHead) {
+        head.push(lines[idx]!);
+        lo++;
+      } else {
+        tail.unshift(lines[idx]!);
+        hi--;
+      }
+      takeHead = !takeHead;
+    }
+    return { head, tail, lo, hi };
+  };
+
+  const notableIn = (lo: number, hi: number) =>
+    lines
+      .slice(lo, hi + 1)
+      .filter(
+        (l) =>
+          l.toLowerCase().includes("error") ||
+          l.toLowerCase().includes("failed") ||
+          l.includes("✗") ||
+          l.includes("ERR!"),
+      )
+      .slice(0, 20);
+
+  const errorSection = (notable: string[]) =>
+    notable.length === 0
+      ? ""
+      : `\n\n=== ${notable.length} error line(s) from the omitted middle ===\n` +
+        notable.join("\n");
+
+  // Reserve room for the largest notice this can produce, so adding it later can
+  // never push the result back over the cap.
+  const noticeReserve = Buffer.byteLength(dropNoticeFor(lines.length), "utf8");
+
+  // TWO passes, because the two reservations depend on each other: the error
+  // excerpts come from whatever the middle turns out to be, and reserving room for
+  // them shrinks the body, which grows the middle. Pass 1 finds the omitted range,
+  // pass 2 re-fills with that section's cost held back. One re-pass is enough —
+  // the excerpt list is capped at 20 lines, so it cannot grow without bound.
+  const first = fill(Math.max(0, maxOutputBytes - noticeReserve));
+  if (first.hi < first.lo) {
+    return truncateUtf8([...first.head, ...first.tail].join("\n"), maxOutputBytes);
+  }
+  const section = errorSection(notableIn(first.lo, first.hi));
+  const { head, tail, lo, hi } = fill(
+    Math.max(
+      0,
+      maxOutputBytes - noticeReserve - Buffer.byteLength(section, "utf8"),
+    ),
   );
 
-  let summary = "";
-  if (errors.length > 0) {
-    summary += "=== ERRORS ===\n" + errors.slice(0, 10).join("\n") + "\n\n";
+  const dropped = hi - lo + 1;
+  if (dropped <= 0) {
+    return truncateUtf8([...head, ...tail].join("\n"), maxOutputBytes);
   }
-  if (warnings.length > 0) {
-    summary += "=== WARNINGS ===\n" + warnings.slice(0, 5).join("\n") + "\n\n";
-  }
-  summary += "=== FIRST 5 LINES ===\n" + lines.slice(0, 5).join("\n") + "\n\n";
-  summary += "=== LAST 5 LINES ===\n" + lines.slice(-5).join("\n");
 
-  return truncateUtf8(summary, maxOutputBytes);
+  // Recompute against the FINAL omitted range so the count and the excerpts agree
+  // with the body that is actually being returned.
+  const out =
+    head.join("\n") +
+    dropNoticeFor(dropped) +
+    tail.join("\n") +
+    errorSection(notableIn(lo, hi));
+
+  return truncateUtf8(out, maxOutputBytes);
 }

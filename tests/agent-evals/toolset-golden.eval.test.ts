@@ -57,14 +57,15 @@ const GOLDEN = {
     "browser_inspect", "browser_interact",
     "browser_navigate", "browser_tabs", "compress_context", "glob", "grep", "list_attachments",
     "list_available_mcps", "mcp_call", "read_attachment", "read_file",
-    "read_url", "run_command", "schedule_wakeup", "subagents", "task", "web_search",
+    "read_url", "run_command", "schedule_wakeup", "subagents", "task",
+    "tool_help", "web_search",
   ],
   plan: [
     "ask_user", "automations", "browser_batch", "browser_find", "browser_inspect",
     "browser_interact", "browser_navigate", "browser_tabs",
     "compress_context", "glob", "grep", "list_attachments",
     "list_available_mcps", "mcp_call", "plan", "read_attachment", "read_file",
-    "read_url", "schedule_wakeup", "subagents", "task", "web_search",
+    "read_url", "schedule_wakeup", "subagents", "task", "tool_help", "web_search",
   ],
   build: [
     // Sorted. `browser_test` sits with the rest of the browser_* family now — it was
@@ -74,8 +75,18 @@ const GOLDEN = {
     "browser_navigate", "browser_tabs", "browser_test", "compress_context", "edit_file",
     "glob", "grep", "list_attachments", "list_available_mcps",
     "mcp_call", "plan", "proposals", "read_attachment", "read_file",
-    "read_url", "run_command", "schedule_wakeup", "subagents", "task", "web_search",
+    "read_url", "run_command", "schedule_wakeup", "subagents", "task",
+    "tool_help", "web_search",
   ],
+} as const;
+
+// review and debug were never pinned. They are byte-identical to ask and build
+// respectively (mode-tool-registry: REVIEW_TOOLS mirrors ASK_TOOLS; debug shares
+// build's "*" marker and differs by prompt discipline only) — so pinning them
+// costs nothing and turns "they happen to match" into a contract.
+const GOLDEN_ALIASES = {
+  review: "ask",
+  debug: "build",
 } as const;
 
 const CASES = [
@@ -86,6 +97,16 @@ const CASES = [
     settings: { workModePreference: "plan" } as const,
   },
   { key: "build" as const, mode: "build" as const, settings: undefined },
+  {
+    key: "review" as const,
+    mode: "ask" as const,
+    settings: { workModePreference: "review" } as const,
+  },
+  {
+    key: "debug" as const,
+    mode: "build" as const,
+    settings: { workModePreference: "debug" } as const,
+  },
 ];
 
 describe("toolset golden — resolveToolsetForSession contract (S19)", () => {
@@ -101,7 +122,10 @@ describe("toolset golden — resolveToolsetForSession contract (S19)", () => {
         mode: c.mode,
         ...(c.settings ? { settings: c.settings } : {}),
       });
-      expect(offeredToolNames(`tg-${c.key}`)).toEqual([...GOLDEN[c.key]]);
+      const goldenKey =
+        (GOLDEN_ALIASES as Record<string, keyof typeof GOLDEN>)[c.key] ??
+        (c.key as keyof typeof GOLDEN);
+      expect(offeredToolNames(`tg-${c.key}`)).toEqual([...GOLDEN[goldenKey]]);
     }, 30_000);
   }
 });

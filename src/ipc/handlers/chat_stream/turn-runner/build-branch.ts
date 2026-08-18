@@ -26,7 +26,6 @@ import { getToolActivityLabel } from "@/lib/tool-activity-labels";
 import { ToolRegistry } from "@/lib/tools";
 import { toolExecutionChatMode } from "@/lib/work-mode";
 import { captureSafe } from "@/main/lib/analytics";
-import { readSettings } from "@/main/settings";
 import { type ChatContextReport } from "@/ipc/ipc_types";
 import { getEffectiveModelForOptions } from "@/ipc/utils/get_model_client";
 import { safeSend } from "@/ipc/utils/safe_sender";
@@ -59,6 +58,11 @@ import { shouldUseTextToolFallback } from "@/lib/stream/text-tool-fallback";
 import { getPlanCompletionFeedback } from "@/lib/tasks/plan-completion-gate";
 import { recordToolOnLedger } from "@/lib/tasks/task-ledger";
 import { resolveToolsetForSession } from "@/lib/tools/resolve-toolset";
+import {
+  describeToolForMode,
+  peripheralToolNames,
+  revealSavings,
+} from "@/lib/tools/tool-reveal";
 import { ToolSet, jsonSchema as aiJsonSchema } from "ai";
 import log from "electron-log";
 
@@ -189,6 +193,13 @@ export async function runBuildBranch(
               effectiveAppId ?? undefined,
               streamTurnId,
               req.chatId,
+              // THIS turn's mode, so the command sandbox cannot be retuned by
+              // another window's mode picker mid-turn.
+              effectiveWorkMode,
+              // THIS turn's abort signal, so Stop can unwind an approval the
+              // interceptor is blocked on (the escalation lanes sit too deep to
+              // reach the controller themselves).
+              abortController.signal,
             );
 
             // Register interceptor for IPC handlers (so UI can approve/reject)
@@ -255,7 +266,10 @@ export async function runBuildBranch(
             for (const toolMeta of buildToolsToInclude) {
               const toolName = toolMeta.name;
               tools[toolName] = {
-                description: toolMeta.description,
+                // v14.34 per-mode progressive reveal — see ask-branch and
+                // lib/tools/tool-reveal.ts. Name + schema always bind; only a
+                // peripheral tool's description is trimmed to a pointer.
+                description: describeToolForMode(toolMeta, effectiveWorkMode),
                 inputSchema: aiJsonSchema(
                   sanitizeJsonSchemaForProvider(
                     simplifyToolParametersForProfile(
@@ -360,14 +374,20 @@ export async function runBuildBranch(
                         return stopMsg;
                       }
                     }
-                    // A per-turn workModeOverride (resend/edit, background
-                    // agents) wins over the live persisted preference; only
-                    // fall back to the live re-read (mid-turn picker change)
-                    // when there's no explicit override for this turn.
-                    const buildLiveWorkMode: WorkMode =
-                      req.workModeOverride ??
-                      readSettings().workModePreference ??
-                      effectiveWorkMode;
+                    // THIS turn's mode. `effectiveWorkMode` already folds in
+                    // `req.workModeOverride` (chat_stream_handlers computes it via
+                    // resolveEffectiveWorkMode with the override passed in), so it
+                    // is the whole answer.
+                    //
+                    // It used to re-read `workModePreference` from global settings
+                    // to honour a mid-turn picker change. That setting is ONE
+                    // app-wide value, so it could not tell this window's picker from
+                    // another window's — and a second window opening in Ask mode
+                    // started refusing this Build turn's file writes at
+                    // `edit.ts:727/740`. Same defect as the sandbox one, different
+                    // symptom. Re-supporting mid-turn switching needs a per-chat
+                    // channel, not a global read.
+                    const buildLiveWorkMode: WorkMode = effectiveWorkMode;
                     if (toolName === "compress_context") {
                       // PASS2: Compaction is model-triggered via compress_context.
                       // Emit activity + run compaction here (tool handler has no stream scope).
@@ -524,10 +544,9 @@ export async function runBuildBranch(
                       if (permRequest.operation === "run_command") {
                         const cmdPreview = permRequest.preview as { command?: string };
                         const cmd = cmdPreview.command ?? "";
-                        const gate = runCommandGateResult(
-                          cmd,
-                          readSettings().workModePreference ?? effectiveWorkMode,
-                        );
+                        // This turn's mode — never a global re-read (see
+                        // buildLiveWorkMode above).
+                        const gate = runCommandGateResult(cmd, effectiveWorkMode);
                         if (gate) return gate;
                         const categoryBlock = runCommandCategoryGateToolResult(
                           cmd,
@@ -998,6 +1017,15 @@ export async function runBuildBranch(
             }
 
             logger.log(`Build mode: ${Object.keys(tools).length} tools available`);
+            {
+              const trimmed = peripheralToolNames(buildToolsToInclude, effectiveWorkMode);
+              const { full, bound } = revealSavings(buildToolsToInclude, effectiveWorkMode);
+              logger.log(
+                `[tool-reveal] mode=${effectiveWorkMode} core=${buildToolsToInclude.length - trimmed.length} peripheral=${trimmed.length} ` +
+                  `desc ${full}→${bound} chars (−${full - bound}); pointer=tool_help` +
+                  (trimmed.length > 0 ? ` [${trimmed.join(", ")}]` : ""),
+              );
+            }
 
             const recordBuildToolLedger = (name: string, payload: unknown) => {
               try {
@@ -1261,10 +1289,9 @@ export async function runBuildBranch(
                         if (permRequest.operation === "run_command") {
                           const cmdPreview = permRequest.preview as { command?: string };
                           const cmd = cmdPreview.command ?? "";
-                          const gate = runCommandGateResult(
-                            cmd,
-                            readSettings().workModePreference ?? effectiveWorkMode,
-                          );
+                          // This turn's mode — never a global re-read (see
+                          // buildLiveWorkMode above).
+                          const gate = runCommandGateResult(cmd, effectiveWorkMode);
                           if (gate) {
                             iterationResults.push({ tool: toolCall.toolName, result: gate });
                             continue;

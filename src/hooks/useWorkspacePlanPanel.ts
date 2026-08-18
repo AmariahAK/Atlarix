@@ -66,6 +66,7 @@ function applyPayloadToPanel(
     content: payload.content,
     planStatus: payload.planStatus,
     sessionId: payload.sessionId,
+    title: payload.title,
     changes,
   });
 }
@@ -132,6 +133,7 @@ export function useWorkspacePlanPanel(): void {
           content: payload.content,
           planStatus: payload.planStatus,
           sessionId: payload.sessionId,
+          title: payload.title,
           changes: changes ?? prev.changes,
         };
       });

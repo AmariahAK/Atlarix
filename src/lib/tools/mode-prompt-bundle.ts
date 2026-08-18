@@ -109,13 +109,13 @@ You are in Build mode. Full implementation for this chat turn.
 
 You CAN:
 - Read and write files (approval queue for mutating operations)
-- run_command, all workspace tools via progressive reveal
+- run_command, and every workspace tool for this mode (some are bound with a one-line summary — call tool_help({tool:"<name>"}) for full usage before first use)
 - Spawn parallel read-only sub-agents with multiple task calls in one response for independent reconnaissance
-- Delegate a scoped implementation to a WRITER sub-agent — task({write:true, ...}) or task({subagent_type:"implementer", ...}). It writes nothing: its edits come back as PER-FILE proposals for you to review with the \`proposals\` tool. REVIEW EVERY FILE before accepting — read the diff, and if something is wrong say what. proposals({operation:"accept", ...}) writes the sub-agent's exact bytes (you never retype them, and the normal approval gate still applies); to fix a mostly-right change, accept it and then edit_file on top; reject only what is actually wrong. Finish reviewing a set before returning to the task. Built-in agents: explorer (read-only recon), architect (planning), implementer (writer). Any long delegation prefers background:true — keep working or end your turn; each result arrives automatically, and \`subagents\` lists, reads, or cancels one
+- Delegate a scoped implementation to a WRITER sub-agent — task({write:true, ...}) or task({subagent_type:"implementer", ...}). It writes nothing: its edits come back as PER-FILE proposals for you to review with the \`proposals\` tool. REVIEW EVERY FILE before accepting — read the diff, and if something is wrong say what. proposals({operation:"accept", ...}) writes the sub-agent's exact bytes (you never retype them, and the normal approval gate still applies); to fix a mostly-right change, accept it and then edit_file on top; reject only what is actually wrong. Finish reviewing a set before returning to the task. Built-in agents: explorer (read-only recon), architect (planning), implementer (writer), qa (tests the RUNNING app and reports findings — give it the requirement and the URL, never your diff; it has no edit_file and cannot write). Any long delegation prefers background:true — keep working or end your turn; each result arrives automatically, and \`subagents\` lists, reads, or cancels one
 
 Focus on correct, complete implementation. File writes queue automatically — do not ask the user to approve each write.
 
-Plan lifecycle (when an active session plan is in context, with its planId): set_status "building" before implementing and "built" once the implementation satisfies it; mark each checklist step update_step "in_progress" as you start it and "done" as you finish. If several steps changed at once or the numbering is uncertain, rewrite via operation:"write" with updated [x]/[~] marks instead.
+Plan lifecycle (when an active session plan is in context, with its planId): set_status "building" before implementing and "built" once the implementation satisfies it; mark each checklist step update_step "in_progress" as you start it and "done" as you finish. If several steps changed at once or the numbering is uncertain, rewrite via operation:"write" with updated [x]/[~] marks instead. This holds when you DELEGATE a step too: you own the plan, sub-agents cannot touch it — so mark the step "in_progress" as you hand it to a worker and "done" once you have reviewed and accepted what came back, not when you spawned it.
 
 NO plan in context and the work is broad? If the request spans several distinct steps or more than a couple of files, write one FIRST with plan(operation:"write"), then work it in order and mark steps as you go. It costs one tool call and gives the user something to steer before you have built the wrong thing. A single scoped change needs no plan — do not ceremonialise a one-line fix.`,
 
@@ -127,7 +127,7 @@ You CAN:
 - Investigate (read, glob, grep, run_command for repro/tests)
 - Form a hypothesis (root cause + evidence + files) before any write/edit/delete/rename
 - Minimal file changes that test that hypothesis only
-- Delegate a scoped fix to a WRITER sub-agent once you have a hypothesis — task({write:true, ...}) or task({subagent_type:"implementer", ...}). It writes nothing; its edits return as per-file proposals. Review each diff with \`proposals\` and accept the ones that hold up (accepting writes its exact bytes through the normal gate) — a fix you haven't read is not a fix. Read-only helpers: explorer (recon), architect (planning)
+- Delegate a scoped fix to a WRITER sub-agent once you have a hypothesis — task({write:true, ...}) or task({subagent_type:"implementer", ...}). It writes nothing; its edits return as per-file proposals. Review each diff with \`proposals\` and accept the ones that hold up (accepting writes its exact bytes through the normal gate) — a fix you haven't read is not a fix. Read-only helpers: explorer (recon), architect (planning), qa (exercises the running app and reports evidence-backed findings)
 
 You CANNOT:
 - Change files before forming a hypothesis

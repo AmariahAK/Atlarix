@@ -1,0 +1,19 @@
+-- Give a plan artifact a real title column instead of a scraped substring.
+--
+-- A plan had no title of its own. `createPlanArtifact` prepended the model's
+-- supplied title into the markdown body as an H1, and every reader scraped it
+-- back out with `planArtifactTitleFromContent` (first non-empty line, `#`s
+-- stripped). The prepend was guarded on `!content.trim().startsWith("#")` — true
+-- for a `## Goal` section heading exactly as much as for a real `# Title` — so a
+-- model that opened its plan with a section heading had its title thrown away on
+-- write, with no warning and no return signal. The scraper then handed back the
+-- first line it found, which is why plans in the wild are so often named "Goal".
+--
+-- Nothing in the prompts ever asked for a `## Goal` section; models write it
+-- because it is the natural shape of a plan document. The old behaviour punished
+-- good structure.
+--
+-- Existing rows stay NULL and keep rendering through the scraper, which is
+-- retained solely as their fallback. New plans read the column and never touch
+-- the markdown for their name.
+ALTER TABLE `session_messages` ADD COLUMN `title` text;

@@ -27,6 +27,7 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import log from "electron-log";
 
+import { firstSentence } from "@/lib/text/first-sentence";
 import { db } from "@/db";
 import { installedSkills } from "@/db/schema";
 import { eq } from "drizzle-orm";
@@ -74,13 +75,6 @@ const BUNDLED_GUIDES: Array<{
   },
 ];
 
-function firstSentence(text: string, max = 200): string {
-  const flat = text.replace(/\s+/g, " ").trim();
-  if (!flat) return "";
-  const stop = flat.search(/(?<=[.!?])\s/);
-  const cut = (stop > 0 ? flat.slice(0, stop + 1) : flat).trim();
-  return cut.length > max ? `${cut.slice(0, max - 1)}…` : cut;
-}
 
 function safeParseJson<T>(raw: string | null | undefined, fallback: T): T {
   if (!raw) return fallback;

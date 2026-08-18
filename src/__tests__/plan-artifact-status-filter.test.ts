@@ -21,6 +21,8 @@ type FakeRow = {
   sessionId: string;
   content: string;
   planStatus: string;
+  /** Rows written before the title column carry null; mapRow must tolerate it. */
+  title: string | null;
   createdAt: Date;
 };
 
@@ -50,6 +52,7 @@ function row(id: string, planStatus: string, at: number): FakeRow {
     sessionId: "s",
     content: `# ${id}\n- [ ] step`,
     planStatus,
+    title: null,
     createdAt: new Date(at),
   };
 }

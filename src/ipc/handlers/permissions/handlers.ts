@@ -112,6 +112,28 @@ function sendPanelIntent(intent: string, context: unknown): void {
 }
 
 /**
+ * The live interceptor for a chat, or undefined when no turn is running.
+ *
+ * Exists so a SUB-AGENT can reach the interceptor of the turn that spawned it.
+ * Sub-agents run with no interceptor of their own, which reads as safety and is
+ * actually why they could not run commands at all: a worker with no way to ask is
+ * either mute or unsupervised. Borrowing the parent's is sound because a
+ * sub-agent executes inside the parent turn's tool call — strictly between
+ * `registerInterceptor` and the turn's end — and nothing ever unregisters.
+ *
+ * What comes with it, for free and correctly: the approval card, the danger gate,
+ * the OS sandbox, escalation-on-denial, the terminal tab, output buffering,
+ * background promotion, and Stop-cancellation.
+ *
+ * Do NOT construct a second interceptor for a sub-agent instead. It would not be
+ * in this map, so its cards could never be approved, and registering it would
+ * clobber the parent's entry for that chat.
+ */
+export function getInterceptorForChat(chatId: number): PermissionInterceptor | undefined {
+    return activeInterceptors.get(chatId);
+}
+
+/**
  * Register an interceptor for a chat session
  */
 export function registerInterceptor(chatId: number, interceptor: PermissionInterceptor): void {
@@ -470,6 +492,26 @@ gatedHandle(
             return [];
         }
 
+        return interceptor.executeAllOperations();
+    },
+);
+
+gatedHandle(
+    "approve-all-for-turn",
+    async (
+        _event: IpcMainInvokeEvent,
+        rawPayload: unknown,
+    ): Promise<PermissionResult[]> => {
+        const { chatId } = ChatIdPayloadSchema.parse(rawPayload);
+        const interceptor = activeInterceptors.get(chatId);
+        if (!interceptor) {
+            return [];
+        }
+        // Set the blanket BEFORE draining: an operation that arrives while the
+        // queue is being executed must be covered too, or the race reintroduces
+        // exactly the prompt this is meant to stop.
+        interceptor.approveRestOfTurn();
+        logger.log(`Approving all permissions for the rest of turn on chat ${chatId}`);
         return interceptor.executeAllOperations();
     },
 );

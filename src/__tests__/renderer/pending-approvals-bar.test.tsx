@@ -22,8 +22,10 @@ import { makeFakeIpc, renderWithProviders } from "./helpers";
 
 const fakeIpc = makeFakeIpc() as ReturnType<typeof makeFakeIpc> & {
   executeAllPermissions: ReturnType<typeof vi.fn>;
+  approveAllForTurn: ReturnType<typeof vi.fn>;
 };
 fakeIpc.executeAllPermissions = vi.fn(async () => []);
+fakeIpc.approveAllForTurn = vi.fn(async () => []);
 vi.mock("@/ipc/ipc_client", () => ({
   IpcClient: { getInstance: () => fakeIpc },
 }));
@@ -57,6 +59,7 @@ function seed(ops: QueuedOperation[]) {
 describe("PendingApprovalsBar", () => {
   beforeEach(() => {
     fakeIpc.executeAllPermissions.mockClear();
+    fakeIpc.approveAllForTurn.mockClear();
   });
   afterEach(() => cleanup());
 
@@ -68,19 +71,85 @@ describe("PendingApprovalsBar", () => {
   /** Only PENDING counts — a queued/running op is already being dealt with. */
   it("stays hidden when the queue holds only non-pending operations", () => {
     seed([op({ id: "a", status: "running" }), op({ id: "b", status: "completed" })]);
-    expect(screen.queryByRole("button", { name: "Approve all" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /allow all/i })).toBeNull();
   });
 
   it("appears as soon as something is waiting", () => {
     seed([op({ id: "a", path: "src/a.ts" })]);
-    expect(screen.getByRole("button", { name: "Approve all" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /allow all/i })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Review" })).toBeTruthy();
   });
 
-  it("approves the batch through the same one-shot channel as the inline button", () => {
+  /**
+   * Covers the rest of the TURN, not just what is queued.
+   *
+   * A one-shot drain read as "stop asking me" and behaved as "clear this batch":
+   * the next command prompted again, so a turn full of first-token-dangerous
+   * commands (curl, python3, jq) had to be approved one at a time. The bar now
+   * calls the turn-scoped channel; the inline "Approve all files" button keeps the
+   * one-shot behaviour, because a file batch is a bounded, visible set.
+   */
+  it("approves the rest of the turn, not just the current queue", () => {
     seed([op({ id: "a", path: "src/a.ts" }), op({ id: "b", path: "src/b.ts" })]);
-    fireEvent.click(screen.getByRole("button", { name: "Approve all" }));
-    expect(fakeIpc.executeAllPermissions).toHaveBeenCalledWith({ chatId: CHAT });
+    fireEvent.click(screen.getByRole("button", { name: /allow all/i }));
+    expect(fakeIpc.approveAllForTurn).toHaveBeenCalledWith({ chatId: CHAT });
+    // Not the one-shot drain — that is what made it feel broken.
+    expect(fakeIpc.executeAllPermissions).not.toHaveBeenCalled();
+  });
+});
+
+describe("describePending — folder grants", () => {
+  /**
+   * A folder grant carries no `path` and is not a `run_command`, so it fell through
+   * to the bare "1 approval waiting" — which says neither what is being asked nor
+   * what clicking will do. That copy is why a grant card sat unnoticed for ten
+   * minutes while the turn appeared to be working.
+   */
+  it("names the folder being granted", () => {
+    expect(
+      describePending([
+        op({
+          operation: "sandbox_escalation",
+          sandboxGrantPath: "/Users/x/.atlarix/projects/demo/memory",
+          sandboxGrantKind: "file",
+        }),
+      ]),
+    ).toBe("Grant write access: /Users/x/.atlarix/projects/demo/memory");
+  });
+
+  it("falls back to the denied path when no grant path is given", () => {
+    expect(
+      describePending([
+        op({
+          operation: "sandbox_escalation",
+          sandboxDeniedPath: "/Users/x/elsewhere/file.txt",
+        }),
+      ]),
+    ).toContain("/Users/x/elsewhere/file.txt");
+  });
+
+  it("still says something useful with neither path", () => {
+    const out = describePending([op({ operation: "sandbox_escalation" })]);
+    expect(out).toMatch(/outside the workspace/i);
+    expect(out).not.toBe("1 approval waiting");
+  });
+
+  it("counts grants in a mixed batch, so the breakdown adds up", () => {
+    // Previously a grant was neither a file nor a command, so the total and its
+    // own parenthetical disagreed.
+    const out = describePending([
+      op({ id: "a", path: "src/a.ts" }),
+      op({ id: "b", operation: "run_command", command: "npm test" }),
+      op({
+        id: "c",
+        operation: "sandbox_escalation",
+        sandboxGrantPath: "/tmp/g",
+      }),
+    ]);
+    expect(out).toContain("3 approvals waiting");
+    expect(out).toContain("1 file");
+    expect(out).toContain("1 command");
+    expect(out).toContain("1 folder grant");
   });
 });
 

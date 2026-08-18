@@ -246,6 +246,8 @@ export function isJournalMigrationApplied(
             .get() as unknown
         )
       );
+    case "0073_session_message_plan_title":
+      return columnExists(sqlite, "session_messages", "title");
     default:
       return false;
   }

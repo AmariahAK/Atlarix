@@ -1,8 +1,8 @@
 # Atlarix TODO
 
-**Current Version:** v14.33.0 (2026-08-17) — automations that actually tell the agent, and an
-`operation:"run"` to fire one on demand.
-**Last Updated:** 2026-08-17
+**Current Version:** v14.34.0 (2026-08-18) — Atlarix tests its own work (QA sub-agents), per-turn
+work mode, per-mode tool reveal, and command output that stops throwing away its own budget.
+**Last Updated:** 2026-08-18
 
 > **What belongs here:** open work, decisions still owed, and traps worth not rediscovering.
 > **What does not:** shipped narrative → [`docs/CHANGELOG.md`](./CHANGELOG.md). Designed-but-unscheduled
@@ -13,7 +13,163 @@
 
 ## 🔨 In flight — landed, not yet released
 
-Nothing. **v14.33.0 SHIPPED 2026-08-17** — automations that actually tell the agent, plus
+Nothing. **v14.34.0 SHIPPED 2026-08-18** — see the release record below.
+
+---
+
+### v14.34.0 — what shipped and the traps it left
+
+**Command-output truncation was discarding 99% of its own budget.** `formatCommandOutput`'s
+over-cap path emitted errors → warnings → FIRST 5 LINES → LAST 5 LINES: a **fixed ~13 lines / ~550
+bytes regardless of `max_output_bytes`**, which defaults to 80,000. Measured on a 20k-line build
+log: 13 lines before, **1,671 lines after** (100% of budget). It also REORDERED, so for anything
+log-shaped the sequence — which is the information — was unreadable, and it never said how much it
+dropped, so sampled and complete output looked identical. Observed consequence: a model declared the
+output truncated and re-ran the command redirected to a temp file, costing two turns to recover
+information that already fit. Now head+tail filled to the budget, in order, with an explicit
+`omitted N line(s)` notice and error lines from the omitted middle appended as labelled excerpts.
+**Two-pass fill** is required: the notice and the excerpt reservations depend on each other (holding
+back room for excerpts shrinks the body, which grows the middle they come from).
+
+**"Allow all" was a one-shot queue drain, which is not what anyone read it as.** It cleared what was
+pending, the model issued its next command, and the prompt returned — so a research turn (`curl`,
+then `python3`, then `jq`, each **dangerous on its FIRST TOKEN**) needed one click per command. And
+"Always allow" cannot help there: for a danger match the key is `danger:<id>` and the label is "this
+command", so it never generalises. Now `approve-all-for-turn` sets a blanket on the **per-turn
+interceptor** — which is why it needs no expiry logic and cannot leak: the interceptor is never
+reused, so the blanket dies with the turn. Set BEFORE draining, or an operation arriving mid-drain
+re-raises the prompt. Inline "Approve all files" deliberately stays one-shot (a file batch is a
+bounded, visible set).
+
+**Workspace removal: the copy hedged across two different actions.** `delete-app` only `rm -rf`s the
+folder for Atlarix-managed clone roots and leaves every other path alone — but every removal warned
+about deletion conditions, so taking a project off the list read as though it might erase your code.
+Split into two honest messages, both in an in-app `AlertDialog` (the native `window.confirm` reads as
+an OS-level warning and blocks the renderer). **And the branch was broken on Windows:** the old test
+was `appPath.includes("/Documents/Atlarix")`, which can never match a backslash path — so a managed
+workspace on Windows got the REASSURING copy and then had its files deleted. Now matched on path
+segments with either separator, case-insensitively.
+
+**QA sub-agents — SHIPPED, the design's own "role, not a subsystem" test finally met.** Three
+decisions collapsed it from a subsystem into a role, each recorded because each deletes a limb:
+
+- **Findings are PROSE in a prescribed shape**, not a validated structured return. There is **no
+  schema-validated model output anywhere in this repo** (v13 removed handoff schemas on purpose), so
+  a parser + validator + re-prompt loop would have been the only genuinely new machinery in the
+  batch — and the models likeliest to emit malformed JSON are the weak ones the contract exists for.
+  It also needs **zero rendering**: a worker's final message already renders as markdown in the
+  `SubAgentRunCard` dialog and via `buildDelegationView`. A JSON payload would be a raw blob in
+  both, needing a new `ToolExpandView` kind + a `subagent_findings` event + a reducer branch.
+  **Measure before building the validator** — script a weak model over a multi-item contract and
+  count dropped items.
+- **No `http_request` tool.** Its three justifications were: curl hands over the shell, a native
+  tool returns structured evidence, it can be origin-bound. With the terminal granted and egress
+  unrestricted, 1 and 3 are moot; 2 survives but a command's output is **harness-recorded**, not
+  model-narrated, which is the property the contract needs. QA already reaches HTTP three ways.
+- **No browser gate and no egress grant** — owner's call, treat it as a real agent. Recorded
+  consequence: `browser_interact` has **no approval path at all** in any mode, so `DESIGN_NOTES`'s
+  "destructive interactions go through the existing approval path" describes something that does not
+  exist. And this is the first feature whose actions leave the machine, while our containment story
+  is write-confinement, which says nothing about egress.
+
+**The prerequisite was a channel, not a guard.** Sub-agents had no permission interceptor, which
+reads as safety and was actually why they could not run commands: a worker with no way to ask is
+either mute or unsupervised. They now borrow the interceptor of the turn that spawned them —
+`getInterceptorForChat` — which is sound because a sub-agent runs strictly between
+`registerInterceptor` and the turn's end and nothing ever unregisters. That inherits the card, the
+danger gate, the OS sandbox, escalation-on-denial, the terminal tab and Stop-cancellation with
+**zero new execution code**.
+
+**The trap inside that:** borrowing the parent's interceptor inherits the parent's `turnWorkMode`, so
+a QA worker spawned from a Build turn would have got **workspace-write**. Fixed with
+`preview.readOnly`, a NARROWING-only per-request override. `enforce` is set for the caller-forced
+case (so it fails rather than running unconfined) but **deliberately NOT for mode-driven read-only** —
+that would newly refuse every Explore/Plan/Review command on a machine with no OS sandbox.
+
+**`write:true` cannot turn a `qa` spawn into a writer** — `subagentWillWrite` returns
+`agentIsWriter(agent)` for a NAMED agent and ignores the flag. Non-obvious, load-bearing, now pinned.
+
+**A latent bug fixed on the way:** `resolveBrowserScope` falls back to the FOCUSED window then the
+first window, and the delegation wrapper never injected `_ownerWindowId` — so a sub-agent's browser
+calls silently drove whichever window the user was looking at, and retargeted mid-task if they
+switched. Worse than an error, because nothing reported it.
+
+**Plan title now reaches the MODEL** (`context-sections` ledger + both `readPlan` returns). Storing
+the column fixed the panel and left the agent reading a scraped heading — so the half that mattered
+on resume was still broken. **Delegation now marks plan steps** in_progress on hand-off, done on
+accept.
+
+**QA is NOT advertised in Plan mode**, deliberately: you plan before building, so there is nothing
+running to test. Four advertising sites, not six.
+
+
+**Per-turn work mode, plan titles, per-mode tool reveal.** Landed, full suite green
+(360 files / 3021 tests), NOT yet verified in a packaged app.
+
+- **A per-window decision was being made from GLOBAL state** — the exact mirror of the v14.32.0
+  trap. `buildRunCommandSandbox` re-read `workModePreference` from the one global settings file,
+  so a second window opening in Explore flipped a first window's in-flight Build turn to a
+  read-only sandbox mid-command (`cannot lock ref 'HEAD' … Operation not permitted`). **Five
+  sites, not one**; three of them also ignored `workModeOverride`, which gave unattended
+  automations Build-mode gating. The turn's mode is now a constructor arg on
+  `PermissionInterceptor` and the single source everywhere else.
+- **The trigger was an effect, not a click.** `ChatIntentSelector.tsx:100-106` force-writes the
+  global mode to `ask` whenever the chat chrome is read-only, so *merely opening a window* stomped
+  it. And `settings_handlers` broadcasts nothing, so the first window kept displaying **Build**
+  while running read-only — which is why it read as a git problem.
+- **Plan titles are a stored column** (`0073_session_message_plan_title`). The old code spliced
+  the title into the markdown only when the body did not start with `#` — true of `## Goal` — so
+  the title was discarded for most models and the scraper returned the word "Goal". `title` is now
+  required to CREATE a plan, enforced per-operation inside `writePlan` (the schema's `required`
+  array is tool-wide and would have rejected every `read`/`update_step` call; property-level
+  `required: true` hoists into that same array, so neither could work).
+- **`title` was invisible to every weak model** — `simplifyToolParametersForProfile` keeps only
+  the first THREE optional params, and `title` was fifth. Reordered to `content, title, planId`.
+- **Per-mode tool reveal is back, tiering DESCRIPTIONS not tools.** v13 deleted the old reveal
+  because 22 tools is a small surface — correct about the count, wrong about the cost: the
+  descriptions were ~28k chars ≈ 7k tokens *every turn*. Measured saving now **1,700–2,150
+  tokens/turn** per mode. Names and schemas always bind, so nothing is unreachable and nothing is
+  lost to compaction; the full text arrives via `tool_help` as a tool RESULT, never in the tools
+  array — **the tool definitions live inside the first prompt-cache breakpoint**, so growing them
+  mid-session would invalidate the entire cached prefix. That constraint is what makes the tiering
+  per-MODE rather than a ladder.
+- **A pointer cannot replace a correction.** `capability-trim.eval` caught the tiering stripping
+  `browser_inspect`'s anti-lure wording (v14.8.9, added for an OBSERVED bug). A model about to make
+  the mistake does not know to call `tool_help` first — so descriptions that steer AWAY from a
+  known failure are now in a documented `NEVER_TRIM` set. Add to it only with that justification.
+- Also: guard now logs both `INVALID_PARAMS` paths (three failed `edit_file` calls left NO trace);
+  `proposals` resolves an id missing its `prop_` prefix; `update_step` tolerates trailing junk on
+  `step_text` (narrower than falling back to `step_index`, which would tick the WRONG step — an
+  existing test correctly pinned that and was kept); `toolset-golden` now covers `debug`/`review`.
+- **Dead code removed:** `getEffectiveChatMode` (0 callers, and its "read settings live" comment
+  was the pattern that caused the bug), `getOptionalWorkspaceTools`, `plans:create`,
+  `plans:list-by-session`, `plans:append-step` + its client method, the Plan panel's *Add step* and
+  *Mark built* buttons. The `mode-prompt-bundle` prompt that told Build mode it had "all workspace
+  tools via progressive reveal" was a **live falsehood** since v13 — now describes what happens.
+
+**OWED before release:**
+- [x] **Packaged-app pass — DONE by the owner before the v14.34.0 tag.** The two-window repro, a
+      plan from a `## Goal` model, the weak-model `title` check and a real QA run were all exercised
+      by hand in the packaged app. Recorded because the two prior releases were verified the same way
+      and this project treats "self-test passed" and "someone used it" as different claims.
+- [ ] **Measure contract drift** — script a weak model over a multi-item coverage contract in
+      `tests/agent-evals` and count dropped items. That number, not reasoning, decides whether the
+      validated structured return ever gets built.
+- [ ] **Run the session-load diagnostic** — `ATLARIX_DIAG_SESSION_LOAD=1` (main) +
+      `localStorage["atlarix:diag:session-load"]="1"` (renderer), open the 1.43M-token session,
+      record the four numbers here. Ruled out already: NOT summarisation (zero compaction events in
+      13h of log) and NOT tiktoken (memoised + delta-cached). Prime suspect is
+      `workspace_session_handlers.ts:751` — `parseDisplaySnapshot` per row on the main thread, over
+      a synchronous select with `SESSION_LOAD_MESSAGE_LIMIT = 100_000`. **A loading screen alone
+      cannot fix it**: the overlay exists and cannot paint because nothing yields.
+- [ ] Confirm `[prompt-cache]` still shows large `read=` on later turns in a mode. A `write=` that
+      jumps every turn would mean the tiering is invalidating the prefix.
+
+---
+
+### Previous release — traps worth keeping
+
+**v14.33.0 SHIPPED 2026-08-17** — automations that actually tell the agent, plus
 `operation:"run"`. 12 assets, both update feeds, MSIX submitted. Both fixes verified by hand in
 the packaged app before release.
 

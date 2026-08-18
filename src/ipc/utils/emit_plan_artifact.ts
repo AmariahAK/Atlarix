@@ -7,6 +7,8 @@ export type PlanArtifactPayload = {
   sessionId: string;
   content: string;
   planStatus: PlanArtifactStatus;
+  /** Stored plan name; null on rows predating the title column. */
+  title: string | null;
 };
 
 export function emitPlanArtifactActivated(

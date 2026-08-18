@@ -6,10 +6,14 @@
  *   1. registry metadata   — ToolRegistry (registry.ts): per-tool flags
  *      (isReadOnly / allowInAskMode / requiresWorkspace / isCore / cost)
  *   2. mode allowlist      — THIS FILE: includeToolForSession / allow-sets
- *   3. session loader      — ToolSessionLoader: progressive reveal (core
- *      pre-loaded, others on first call)
+ *   3. description tiering — tool-reveal.ts (v14.34): per-MODE progressive
+ *      reveal. Every allowlisted tool's name + schema still bind; a peripheral
+ *      tool's DESCRIPTION is trimmed to one line plus a `tool_help` pointer.
+ *      (The v13-era `ToolSessionLoader`, which withheld whole tools until first
+ *      call, is gone — it could not survive prompt caching, since the tool
+ *      definitions live inside the first cache breakpoint.)
  *   4. capability trim     — model-capability-profile.ts (v12 2.1): per-model
- *      cap + schema simplification for clearly-weak models. LAST stage; the
+ *      schema simplification for clearly-weak models. LAST stage; the
  *      offered set is what survives all four.
  * Execute-time gating re-checks stage 2 (and the permission layer) — a tool
  * that is not offered can still be DENIED if a model hallucinates a call.
@@ -28,7 +32,7 @@ import {
 
 export type ModeRegistryKey = WorkMode;
 
-/** Documented in registry text when mode is build (all tools via progressive reveal). */
+/** Documented in registry text when mode is build (the whole context surface). */
 export const BUILD_ALLOWLIST_MARKER = "*" as const;
 
 /**
@@ -50,6 +54,10 @@ export const EVERY_MODE_TOOLS = [
   // run commands; Plan CAN delegate read-only recon and web research, so it
   // must be able to list, read, and cancel what it delegated.)
   "subagents",
+  // v14.34: the fetch half of per-mode progressive tool reveal. Must be in
+  // EVERY mode — a peripheral tool's bound description points at it, so a mode
+  // that offered the pointer without the tool would be a dead end.
+  "tool_help",
 ] as const;
 
 function withEveryModeTools(list: readonly string[]): readonly string[] {

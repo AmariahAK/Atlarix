@@ -48,6 +48,7 @@ describe("useWorkspacePlanPanel — no infinite render", () => {
       content: "# Plan\n\n- step one",
       planStatus: "plan",
       sessionId: "sess-1",
+      title: "Test plan",
       changes: null,
     });
     store.set(

@@ -234,6 +234,7 @@ export async function finalizeTurn(
                       sessionId: updated.sessionId,
                       content: updated.content,
                       planStatus: updated.planStatus,
+                      title: updated.title,
                     });
                     logger.info(`[plan-artifact] safety net marked plan ${buildingPlan.id} built`);
                   }

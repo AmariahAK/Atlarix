@@ -93,6 +93,7 @@ describe("listUserAgents", () => {
       "architect",
       "explorer",
       "implementer",
+      "qa",
       "zeta",
     ]);
   });
@@ -102,6 +103,7 @@ describe("listUserAgents", () => {
       "architect",
       "explorer",
       "implementer",
+      "qa",
     ]);
   });
 });

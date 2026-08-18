@@ -9,6 +9,13 @@ export type PlanArtifactRow = {
   sessionId: string;
   content: string;
   planStatus: PlanArtifactStatus;
+  /**
+   * The plan's name as the model supplied it. `null` for rows written before the
+   * title column existed — those still fall back to scraping the markdown
+   * (`planArtifactTitleFromContent`), which is the only thing that fallback is
+   * for now.
+   */
+  title: string | null;
   createdAt: Date;
 };
 
@@ -18,6 +25,7 @@ function mapRow(row: typeof sessionMessages.$inferSelect): PlanArtifactRow {
     sessionId: row.sessionId,
     content: row.content,
     planStatus: (row.planStatus ?? "plan") as PlanArtifactStatus,
+    title: row.title ?? null,
     createdAt: row.createdAt,
   };
 }
@@ -29,19 +37,24 @@ export async function createPlanArtifact(
 ): Promise<PlanArtifactRow> {
   const id = randomUUID();
   const now = new Date();
-  const body =
-    title && !content.trim().startsWith("#")
-      ? `# ${title.trim()}\n\n${content.trim()}`
-      : content.trim();
+  // The title is STORED, not spliced into the markdown.
+  //
+  // This used to prepend `# ${title}` to the body, but only when the body did
+  // not already start with `#` — a guard that could not tell a real H1 title
+  // from a `## Goal` section heading, so it silently dropped the title for every
+  // model that structured its plan with headings. Readers then scraped the first
+  // line back out and displayed "Goal" as the plan's name. Keeping the title as
+  // its own column removes both halves of that round trip.
   const [row] = await db
     .insert(sessionMessages)
     .values({
       id,
       sessionId,
       role: "assistant",
-      content: body,
+      content: content.trim(),
       kind: "plan",
       planStatus: "plan",
+      title: title?.trim() || null,
       createdAt: now,
     })
     .returning();

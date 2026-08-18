@@ -109,6 +109,31 @@ describe("setStepStateInPlanMarkdown", () => {
     expect(res.content).toContain("2. [x] Wire Supabase client");
   });
 
+  it("matches despite trailing junk on step_text (malformed tool arg)", () => {
+    // Observed in the wild: the model sent the step text verbatim plus a stray
+    // "}" of tool-arg spillover. One-directional, unnormalised `includes()`
+    // matched nothing, so the update silently no-op'd and the completion gate
+    // held the turn open on a step that was actually done.
+    const res = setStepStateInPlanMarkdown(
+      PLAN,
+      { stepIndex: 2, stepText: "Wire Supabase client}" },
+      "done",
+    );
+    expect(res.changed).toBe(true);
+    expect(res.step).toMatchObject({ index: 2, state: "done" });
+    expect(res.content).toContain("2. [x] Wire Supabase client");
+  });
+
+  it("still finds by text alone when trailing junk is present", () => {
+    const res = setStepStateInPlanMarkdown(
+      PLAN,
+      { stepText: "Add env vars.," },
+      "todo",
+    );
+    expect(res.changed).toBe(true);
+    expect(res.step).toMatchObject({ index: 3 });
+  });
+
   it("not-found when both are given and the text matches nothing", () => {
     const res = setStepStateInPlanMarkdown(
       PLAN,

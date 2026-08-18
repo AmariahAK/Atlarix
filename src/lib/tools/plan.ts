@@ -108,6 +108,7 @@ async function readPlan(args: PlanToolArgs) {
     return {
       success: true,
       planId: row.id,
+      title: row.title,
       content: row.content,
       planStatus: row.planStatus,
       marker: planArtifactMarker(row.id),
@@ -140,6 +141,9 @@ async function readPlan(args: PlanToolArgs) {
   return {
     success: true,
     planId: row.id,
+    // The plan's name, so a resumed turn knows WHICH plan it is working on
+    // rather than having to infer it from the body.
+    title: row.title,
     content: row.content,
     planStatus: row.planStatus,
     marker: planArtifactMarker(row.id),
@@ -173,6 +177,24 @@ async function writePlan(args: PlanToolArgs) {
       (await getLatestPlanArtifact(sessionId));
     targetId = active && active.planStatus !== "built" ? active.id : null;
   }
+  // A title is required to CREATE a plan, and only to create one — a rewrite of
+  // an existing plan does not rename it.
+  //
+  // Enforced here rather than through the schema's `required` array because that
+  // array is tool-wide: adding "title" to it would reject every
+  // plan({operation:"read"}) / set_status / update_step call before the handler
+  // ran. Property-level `required: true` is no better — normalize-tool-schema
+  // hoists it into the same tool-wide array for the provider. This mirrors the
+  // per-operation checks already used for `content` above and `reason` on
+  // update_step, and returns a retryable tool result rather than a guard
+  // envelope.
+  if (!targetId && !args.title?.trim()) {
+    return {
+      success: false,
+      error:
+        "A `title` is required when creating a plan — a short imperative name for it (e.g. \"Fix cross-window sandbox mode\"), not a section heading like \"Goal\". Retry with title set.",
+    };
+  }
   let row = targetId
     ? await updatePlanArtifactContent(targetId, args.content)
     : null;
@@ -188,6 +210,7 @@ async function writePlan(args: PlanToolArgs) {
     sessionId: row.sessionId,
     content: row.content,
     planStatus: row.planStatus,
+    title: row.title,
   }, args._ownerWindowId);
   // A rewrite changes the counts as much as an update_step does.
   markPlanLedgerDirty(args.chatId, row.content);
@@ -221,6 +244,7 @@ async function setStatus(args: PlanToolArgs) {
     sessionId: row.sessionId,
     content: row.content,
     planStatus: row.planStatus,
+    title: row.title,
   }, args._ownerWindowId);
   return {
     success: true,
@@ -359,6 +383,7 @@ async function updateStep(args: PlanToolArgs) {
     sessionId: updated.sessionId,
     content: updated.content,
     planStatus: updated.planStatus,
+    title: updated.title,
   }, args._ownerWindowId);
   // Refresh the in-context ledger for the rest of THIS turn; without it the
   // step-0 snapshot keeps asserting stale counts for every later step.
@@ -418,6 +443,7 @@ async function appendStep(args: PlanToolArgs) {
     sessionId: row.sessionId,
     content: row.content,
     planStatus: row.planStatus,
+    title: row.title,
   }, args._ownerWindowId);
   const steps = parsePlanChecklist(row.content);
   return {
@@ -432,7 +458,8 @@ ToolRegistry.register({
   name: "plan",
   description:
     "Session implementation plan + LIVE progress ledger (stored in the database, shown as a card in chat). Keep it current: mark a step in_progress when you start it and done when you finish, and consult it before deciding your next action instead of re-deriving progress. For the mutation ops, planId is OPTIONAL — the session's latest plan is assumed. Operations: " +
-    "'write' (create OR update the plan markdown — the CANONICAL way to update progress when several steps changed or you're unsure of numbering: re-emit the full plan with updated [x]/[~]/[!] marks, which is always safe and cannot miss. Include the returned marker comment in your reply so the card renders; pass planId to update a specific plan), " +
+    "'write' (create OR update the plan markdown — the CANONICAL way to update progress when several steps changed or you're unsure of numbering: re-emit the full plan with updated [x]/[~]/[!] marks, which is always safe and cannot miss. Include the returned marker comment in your reply so the card renders; pass planId to update a specific plan. " +
+    "When CREATING a plan you must also pass `title` — a short imperative name for this plan, shown as its heading in the UI and how you tell it apart from other plans in the session. Do not use a section heading like \"Goal\" or \"Overview\"), " +
     "'read' (latest plan, or by planId / status filter — re-read before continuing if the user may have edited the plan), " +
     "'set_status' (plan_status: plan → building → built), " +
     "'update_step' (convenience for marking ONE step: state in_progress|done|todo|blocked|external + step_text (preferred — a unique substring of the step) or step_index. " +
@@ -453,12 +480,13 @@ ToolRegistry.register({
         "update_step",
         "append_step",
       ]),
-      workspaceSessionId: stringParam("Workspace session id (auto-injected)"),
-      planId: {
-        type: "string",
-        description: "Plan artifact id — optional for all ops; when omitted the session's latest plan is used.",
-        required: false,
-      },
+      // ORDER MATTERS for weak models. `simplifyToolParametersForProfile`
+      // (routing/model-capability-profile.ts) keeps the top-level `required`
+      // array plus only the FIRST THREE optional properties, in declaration
+      // order, for any model on a "simplified" schema profile. `title` used to
+      // sit fifth, behind workspaceSessionId/planId/status — so the models most
+      // in need of being told to name their plan never saw the field at all.
+      // content + title + planId is the write path plus plan targeting.
       content: {
         type: "string",
         description: "write: full markdown plan body",
@@ -466,9 +494,16 @@ ToolRegistry.register({
       },
       title: {
         type: "string",
-        description: "write: optional title when creating a new plan",
+        description:
+          "write: REQUIRED when creating a plan. A short imperative name for THIS plan, so it can be told apart from other plans in the same session (e.g. \"Fix cross-window sandbox mode\"). Not a section heading, not \"Goal\", not a restatement of the request.",
         required: false,
       },
+      planId: {
+        type: "string",
+        description: "Plan artifact id — optional for all ops; when omitted the session's latest plan is used.",
+        required: false,
+      },
+      workspaceSessionId: stringParam("Workspace session id (auto-injected)"),
       status: {
         type: "string",
         description: "read: optional filter plan | building | built (latest match)",

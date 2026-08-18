@@ -67,6 +67,27 @@ export const CommandOperationPreviewSchema = z.object({
     max_output_bytes: z.number().optional(),
     /** Set by main when user checked "I understand" for dangerous commands. */
     danger_acknowledged: z.boolean().optional(),
+    /**
+     * Force the READ-ONLY sandbox profile for this one command, regardless of the
+     * turn's work mode.
+     *
+     * The sandbox's read-only-ness is otherwise a property of the TURN
+     * (`turnWorkMode`), which is right for the main agent and wrong for a QA
+     * sub-agent: it borrows the parent turn's interceptor, so on a Build turn it
+     * would inherit workspace-write — the opposite of a worker whose job is to
+     * observe. Writes stay denied by the OS while caches, /tmp and the network
+     * stay available, which is exactly the QA profile.
+     *
+     * Narrowing only. There is deliberately no way to REQUEST write access here;
+     * a preview cannot widen what the turn's mode allows.
+     */
+    readOnly: z.boolean().optional(),
+    /**
+     * Which sub-agent asked, when the request came from a worker rather than the
+     * main agent. Rendered as a chip on the approval card — an unlabelled ask
+     * from a worker the user did not know was running is worse than no ask.
+     */
+    requestedByAgent: z.string().optional(),
 });
 
 export type CommandOperationPreview = z.infer<typeof CommandOperationPreviewSchema>;

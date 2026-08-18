@@ -45,7 +45,8 @@ import {
  * then the agent name, then a substring — with an ambiguity error that LISTS
  * the candidates rather than failing blind. One addressing dialect, not two.
  */
-function resolveSet(
+/** Test seam — the addressing rules are the thing worth pinning, not the tool shell. */
+export function resolveSet(
   chatId: number,
   wanted: string,
 ): { set: ProposalSet } | { error: string } {
@@ -59,6 +60,27 @@ function resolveSet(
   const needle = wanted.toLowerCase();
   const exactName = sets.find((s) => s.agentName.toLowerCase() === needle);
   if (exactName) return { set: exactName };
+
+  // Near-miss on the ID, before falling back to name matching.
+  //
+  // The error below PRINTS the full id and tells the model "use the id of the
+  // one you mean" — and a model that did exactly that, minus the `prop_`
+  // prefix, was still refused, because the only substring pass was over agent
+  // NAMES. An id that is a substring of the real one (or vice versa) is
+  // unambiguous in practice; treat it as the id it obviously is.
+  const idNear = sets.filter((s) => {
+    const id = s.id.toLowerCase();
+    return id.includes(needle) || needle.includes(id);
+  });
+  if (idNear.length === 1) return { set: idNear[0] };
+  if (idNear.length > 1) {
+    return {
+      error:
+        `"${wanted}" matches ${idNear.length} proposal set ids: ` +
+        `${JSON.stringify(idNear.map((s) => ({ id: s.id, agent: s.agentName })))}. ` +
+        "Use the full id of the one you mean.",
+    };
+  }
 
   const partial = sets.filter((s) => s.agentName.toLowerCase().includes(needle));
   if (partial.length === 1) return { set: partial[0] };

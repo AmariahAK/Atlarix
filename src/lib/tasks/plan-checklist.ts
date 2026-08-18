@@ -172,21 +172,45 @@ export function setStepStateInPlanMarkdown(
 ): SetStepStateResult {
   const steps = parsePlanChecklist(content);
   let step: PlanChecklistStep | undefined;
-  const needle = target.stepText?.trim().toLowerCase() || undefined;
+  const rawNeedle = target.stepText?.trim().toLowerCase() || undefined;
+  // Candidate needles, most-faithful first: the text as sent, then the same text
+  // with trailing junk stripped.
+  //
+  // Observed miss: a model sent step_text ending in a stray `}` — the step text
+  // verbatim plus one character of malformed tool-arg spillover. `includes()` is
+  // one-directional and unnormalised, so it matched nothing, the update silently
+  // no-op'd, the completion gate then held the turn open on the unticked step,
+  // and the model took the "rewrite the whole plan" escape the error offers —
+  // losing the record of what had actually been done.
+  //
+  // Only TRAILING punctuation is stripped, and only as a second attempt. That is
+  // deliberately narrower than falling back to `step_index` when the text
+  // matches nothing: a model that names a step which genuinely is not in the
+  // plan still gets not-found, because marking whatever sits at a stale index
+  // would silently tick the WRONG step — worse than not-found, and the reason
+  // the v14.8.10 rule below exists.
+  const needles = rawNeedle
+    ? [rawNeedle, rawNeedle.replace(/[\s"'`)\]}.,;:]+$/, "")].filter(
+        (n, i, all) => n.length > 0 && all.indexOf(n) === i,
+      )
+    : [];
+  const matches = (text: string): boolean =>
+    needles.some((n) => text.includes(n));
+
   if (target.stepIndex != null) {
     step = steps.find((s) => s.index === target.stepIndex);
     // v14.8.10: when BOTH index and text are given and they disagree, the text
     // is the model's intent — the index is its (drifting) bookkeeping. Trusting
     // a mismatched index would silently mark the WRONG step (worse than
     // not-found); fall through to the text match instead.
-    if (step && needle && !step.text.toLowerCase().includes(needle)) {
+    if (step && needles.length > 0 && !matches(step.text.toLowerCase())) {
       step = undefined;
     }
   }
-  if (!step && needle) {
+  if (!step && needles.length > 0) {
     step =
-      steps.find((s) => s.text.toLowerCase() === needle) ??
-      steps.find((s) => s.text.toLowerCase().includes(needle));
+      steps.find((s) => needles.includes(s.text.toLowerCase())) ??
+      steps.find((s) => matches(s.text.toLowerCase()));
   }
   if (!step) return { content, changed: false };
 

@@ -36,7 +36,6 @@ import { getToolActivityLabel } from "@/lib/tool-activity-labels";
 import { ToolRegistry } from "@/lib/tools";
 import { getModeToolAllowSets } from "@/lib/tools/mode-tool-registry";
 import { toolExecutionChatMode } from "@/lib/work-mode";
-import { readSettings } from "@/main/settings";
 import { constructSystemPromptParts } from "@/prompts/system_prompt";
 import { getEffectiveModelForOptions } from "@/ipc/utils/get_model_client";
 import { safeSend } from "@/ipc/utils/safe_sender";
@@ -78,6 +77,11 @@ import {
 import { simplifyToolParametersForProfile } from "@/lib/routing/model-capability-profile";
 import { resolveReasoningCatalogModelId } from "@/lib/routing/reasoning-detector";
 import { resolveToolsetForSession } from "@/lib/tools/resolve-toolset";
+import {
+  describeToolForMode,
+  peripheralToolNames,
+  revealSavings,
+} from "@/lib/tools/tool-reveal";
 
 const logger = log.scope("chat_stream_handlers");
 
@@ -175,6 +179,13 @@ export async function runAskBranch(
               // Build passes its stable stream turn id instead.
               undefined,
               req.chatId,
+              // THIS turn's mode, so the command sandbox cannot be retuned by
+              // another window's mode picker mid-turn.
+              effectiveWorkMode,
+              // THIS turn's abort signal, so Stop can unwind an approval the
+              // interceptor is blocked on (the escalation lanes sit too deep to
+              // reach the controller themselves).
+              abortController.signal,
             );
             registerInterceptor(req.chatId, askPermissionInterceptor);
 
@@ -267,14 +278,17 @@ export async function runAskBranch(
             });
             const askToolsToInclude = askResolved.tools;
             const askCapabilityProfile = askResolved.capabilityProfile;
-            // v13: no progressive reveal — every offered tool's schema is
-            // bound upfront; the manifest lists exactly these names.
+            // v14.34 per-mode progressive reveal: every offered tool's NAME and
+            // SCHEMA still bind upfront (so nothing is unreachable and nothing is
+            // lost across compaction) — only a peripheral tool's DESCRIPTION is
+            // trimmed to one line plus a `tool_help` pointer. The manifest lists
+            // exactly these names either way.
             const askOfferedNames = askToolsToInclude.map((t) => t.name);
 
             const askTools: ToolSet = {};
             for (const tool of askToolsToInclude) {
               askTools[tool.name] = {
-                description: tool.description,
+                description: describeToolForMode(tool, effectiveWorkMode),
                 inputSchema: normalizeToolInputSchemaForAiSdk(
                   simplifyToolParametersForProfile(
                     tool.parameters ??
@@ -347,8 +361,18 @@ export async function runAskBranch(
                       }
                     }
                     const meta = ToolRegistry.get(tool.name);
-                    const liveWorkMode: WorkMode =
-                      readSettings().workModePreference ?? effectiveWorkMode;
+                    // THIS turn's mode. `effectiveWorkMode` already folds in
+                    // `req.workModeOverride`.
+                    //
+                    // This used to read `workModePreference` from global settings
+                    // and — unlike the Build side — never consulted the override at
+                    // all, which made it the worst of the set: an AUTOMATION run
+                    // (which sets workModeOverride:"ask", automations/execute-run.ts)
+                    // resolved to "build" whenever the user's global preference
+                    // happened to be Build, so an unattended read-only run got
+                    // Build-mode tool gating. It also let a second window's mode
+                    // picker deny tools mid-turn in this one.
+                    const liveWorkMode: WorkMode = effectiveWorkMode;
                     const liveAllowedSet =
                       modeAllowlist[liveWorkMode] ?? modeAllowlist.ask;
                     const askAllowed =
@@ -531,6 +555,7 @@ export async function runAskBranch(
                               sessionId: row.sessionId,
                               content: row.content,
                               planStatus: row.planStatus,
+                              title: row.title,
                             });
                           }
                           safeSend(event.sender, "chat:activity", {
@@ -835,6 +860,17 @@ export async function runAskBranch(
             logger.log(
               `Ask tier: ${Object.keys(askTools).length} tools (read-only${effectiveWorkMode === "plan" ? " + Plan tools" : ""}; MCP via list_available_mcps + mcp_call)`,
             );
+            {
+              // A reveal that trims silently reads as "we bound everything" when
+              // it did not. Say what was trimmed and what it bought.
+              const trimmed = peripheralToolNames(askToolsToInclude, effectiveWorkMode);
+              const { full, bound } = revealSavings(askToolsToInclude, effectiveWorkMode);
+              logger.log(
+                `[tool-reveal] mode=${effectiveWorkMode} core=${askToolsToInclude.length - trimmed.length} peripheral=${trimmed.length} ` +
+                  `desc ${full}→${bound} chars (−${full - bound}); pointer=tool_help` +
+                  (trimmed.length > 0 ? ` [${trimmed.join(", ")}]` : ""),
+              );
+            }
 
             let askStreamMessages: ModelMessage[] = [...chatMessages];
             askAgenticRepetition.setEnabled(true);
