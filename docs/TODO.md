@@ -1,8 +1,9 @@
 # Atlarix TODO
 
 **Current Version:** v14.34.0 (2026-08-18) — released. **v14.35.0 is IN FLIGHT, not tagged:**
-Electron 43, Touch ID passkeys, and a dependency/security sweep that took production vulnerabilities
-from 54 to 28.
+Electron 43, Touch ID passkeys, a dependency/security sweep that took production vulnerabilities
+from 54 to 28, the **Dyad-era removal (~30,500 lines)**, a **plan switcher**, **plan-by-title**,
+**automations returning their id**, the **ban system**, and the **whisper-worker CSP**.
 **Last Updated:** 2026-08-19
 
 > **What belongs here:** open work, decisions still owed, and traps worth not rediscovering.
@@ -11,37 +12,70 @@ from 54 to 28.
 > more. Trimmed 2026-08-11, 2026-08-15, and audited against the code 2026-08-19; `git log --
 > docs/TODO.md` has every word.
 
-## What is actually left — audited against the code, 2026-08-19
+## What is actually left — re-audited after the sweep, 2026-08-19 (later)
 
-An open checkbox is not the same as an open task, and this file had been conflating them. Audited
-line by line against the tree; **six entries were already done or obsolete** and are closed above
-with their evidence:
+The Dyad-era removal and five of the six code tasks are DONE (six commits; see
+`CHANGELOG.md`). What the sweep changed about this list:
 
-| Was listed as open | Actually |
-| --- | --- |
-| Delete 2.2 GB of MSIX artifacts | Live API: **1 artifact, 0.00 GB** — retention fix aged it out |
-| OpenRouter `usage.cost` billing A/B | Implemented in `atlarix-proxy/src/cost.ts`, regression-tested both ways; the search fee it was about died with OpenRouter search in v14.35.0 |
-| DB shutdown-race stress test | `DatabaseClosingError` + proxy short-circuit, `db/index.ts:718-760`, covered by `db-closing-guard.test.ts` |
-| `read_url` browser verification | Measured 2026-08-19; only the packaged-tool pass remains |
-| Prompt-cache `read=` check | Listed twice |
-| Per-model sampling / Windows path matrix | Both admitted no evidence; dropped |
+- **~30,500 lines deleted, not ~1,900.** The earlier estimate measured only `src/`. It missed a
+  fourth unreachable cluster, two vendored npm packages, and a 68-spec e2e suite.
+- **`grep -ri dyad src/ shared/` is now 0.** The one remaining reference is `src/pro/LICENSE`
+  (FSL-1.1, Copyright Dyad Tech, Inc.), which covers `search_replace_parser.ts` /
+  `search_replace_processor.ts` — both LIVE. Deleting a licence for code you still ship is not
+  cleanup, so the target has an exception and always did.
 
-**The remaining count, honestly:**
+**Still open:**
 
-- **6 code tasks** — `automations` create returning its id; plan-by-title; the ban system; the
-  whisper-worker CSP; the plan switcher (handler **and** picker — see the correction below); the
-  Console + Network packaged pass owed since v14.31.0.
-- **1 Windows session** — not 13 tasks. Every fix in that section is already shipped; the
+- **1 code task** — the Console + Network packaged pass, owed since v14.31.0. Verification only, no
+  code expected.
+- **1 Windows session** — unchanged; every fix in that section is already shipped and the
   checkboxes are its verification checklist.
-- **2 owner decisions** — the Windows signing cert and the five unused dependencies. (The engine's
-  two user-visible surfaces were traced and decided 2026-08-19; the engine itself is now part of the
-  deletion pass, not a separate question.)
-- **1 deletion pass, ~1,900 lines** — three Dyad-era clusters traced 2026-08-19 and confirmed
-  UNREACHABLE, not merely unused. See *Dyad-era removal*. It is one task, not fifteen.
+- **1 owner decision** — the five unused dependencies (the Windows signing cert is release-infra).
 - **2 release-owed** — a CI-signed build and the Windows/Linux packaged passes.
+- **1 ban-system step that cannot be done from a dev machine** — apply migration
+  `20260819120000_account_bans.sql` to a dev Supabase project and confirm the guard raises when a
+  SIGNED-IN user tries `update users set banned_at = null where id = auth.uid()`. Until that runs,
+  the un-ban guard is asserted but not observed. `docs/BAN_RUNBOOK.md` has the exact check.
+- **1 new finding, NOT fixed** — Anthropic extended thinking appears to have no delivery path. The
+  live reasoning path sets `providerOptions.openrouter` / `google|vertex` / `openai|azure` but never
+  an `anthropic` bucket; Anthropic's `thinking` block only ever went into the inert `dyad-gateway`
+  key. An inert key cannot have been load-bearing, so this pre-dates the sweep — but it means BYOK
+  Anthropic reasoning may never have been requested. Worth measuring against a real key.
+- **1 decision deferred** — the e2e suite's fate. 54 specs remain (14 deleted). 7 use a dead helper
+  but their SUBJECT is live, so they were kept rather than delete real coverage. They are broken, and
+  mostly not by this sweep: the `preview-iframe-element` testid they assert on has not existed in
+  `src` since v14.15.0, and `$dyadUserDataDir` / the engine provider row are gone too. e2e is in NO
+  CI workflow and needs a full package to run, which is why nobody noticed. Repair vs retire is a
+  project, not a deletion pass.
 
-**The rule this audit came from:** before adding a task, check whether an alternative already
-covers it. Four of the six above were work we had already done and then kept describing as pending.
+### Corrections the sweep produced — the manifest was wrong in these places
+
+Recorded because the section's own lesson is *check reachability before scoping*, and the audit
+itself had measured presence one level down:
+
+| Claim | Actually |
+| --- | --- |
+| Three unreachable clusters | **Four.** `src/pro/main` visual editing — 1,101 lines, registered at `ipc_host.ts:41`, zero renderer callers, and 617 of those lines were a test file proving unreachable code still worked |
+| ~1,900 lines | **~30,500** across 146 files |
+| `selectedComponents` "read by nothing on the main side" | It WAS read (`chat_stream_handlers.ts:789`) and did real work; it was dead because the atom was only ever *cleared* |
+| "DO NOT delete `versioned_codebase_context.ts`" | Deleted. The work was real, the callers were not — its only consumer was the engine path, and its matching WRITE half went with it |
+| 8 defensive `auto` sites to sweep | ~12, at different paths — and **most were KEPT**: they catch a stale persisted `selectedModel.provider === "auto"` from before routing was removed, so deleting them would regress an upgrade path. Only 2 were genuinely dead |
+| `layout.tsx`'s Cmd+R effect is "a no-op" | **KEPT.** Its `preventDefault()` runs unconditionally and is what stops Cmd+R reloading the renderer — deleting it would let the shortcut kill a live turn |
+| `dyad-pnpm` shim: keep one release | Moot. `runtimeMode2` has **zero writers** repo-wide, so Docker mode never ran and no such volume could exist |
+| 4 capacitor channels | 6 — `open-ios`/`open-android` were registered by the deleted handler with no callers |
+| `plans:list-by-session` "already exists, called by nothing" | Did not exist. But `listPlanArtifactsForSession` DID, so the handler was a ten-line wrapper; the work was the picker's **pin** |
+| automations id: "the permission envelope is the obstacle" | It is not. `getExecutionResult` → `jsonAfterSuccessfulExec` already existed, and `verified` was the exact precedent |
+| `cleanFullResponse`'s 2 dyad tests die | 0 died — stale test NAMES over `atlarix`-tag bodies. Renamed |
+
+Also found and removed on the way, none of it in the manifest: `isPreviewOpenAtom` (written once,
+read by nothing), the `refresh` suggested action (a user-reachable "Refresh app" button whose handler
+bumped an unread atom), `providerOptions["dyad-gateway"]` (inert — no provider declares it), the
+`atlarix://pro-return` deep link (the last way an `auto` key could be written, so the C5 confirmation
+dialog went with it), and `atlarixProBudget` (schema-only, no readers).
+
+**The lesson, restated:** the first audit checked reachability of *code* but not of *directories*. It
+enumerated `src/` and stopped, so `e2e-tests/`, `packages/` and `src/pro/` were invisible to it —
+three of the four biggest finds. Scope by what the repo contains, not by where you last looked.
 
 ---
 
@@ -636,20 +670,18 @@ machine for the v14.28.0 reasons listed below, which is still the same trip.
 
 ## 🧭 Designed — awaiting a session
 
-- **A plan switcher in the Plan panel.** v14.32.0 stopped session restore seizing the panel and
-  gave the tab a badge instead — but the panel still shows only `getLatestPlanArtifact`'s
-  `rows[0]`, the NEWEST plan, with nothing naming which one it is. A session with three plans
-  therefore presents one as though it were *the* plan. Older plans stay reachable as inline cards
-  in the transcript, so nothing is lost; what is missing is the panel saying **which** plan it is
-  showing and letting you switch. **Corrected 2026-08-19 — the stated premise was wrong.** This claimed
-  `plans:list-by-session` "already exists at `plan_artifact_handlers.ts:93`, called by nothing".
-  That file is 2.4 KB with three handlers and no such channel, and nothing in the tree references
-  it. So this needs the handler AND the picker in `PlanExecutionPanel` — more work than advertised,
-  not a picker over something already built. Pairs with plan-by-title below, same "which plan is
-  this?" problem.
+- [x] **A plan switcher in the Plan panel — DONE.** Handler `plans:list-by-session` (a ten-line
+      wrapper: `listPlanArtifactsForSession` already existed, contrary to both the original claim and
+      its correction) plus the picker, which only renders when a session has more than one plan.
+      **The pin was the actual work.** Plan-artifact ACTIVATION replaces whatever the panel shows, so
+      without `pinnedPlanId` choosing an older plan and then having the agent touch a different one
+      yanked the panel away mid-read — the select would still read one plan's name while the body had
+      become another's. Activation now only raises the unread badge while pinned; "Latest" unpins.
+      `onUpdated` needed no guard, it already ignored other planIds.
 
-Full reasoning in [`docs/DESIGN_NOTES.md`](./DESIGN_NOTES.md). One line each so this file stays a
-queue, not a design doc.
+Full reasoning in [`docs/DESIGN_NOTES.md`](./DESIGN_NOTES.md) — including the ban system's scope
+decision (why BYOK and local models are deliberately outside it), recorded because that will be
+re-litigated. One line each so this file stays a queue, not a design doc.
 
 - **QA sub-agents** — up to 3 declared *surfaces* (web/api/mobile/mcp/cli) that exercise the running
   app and report evidence-backed findings. Gets the requirement, **not the diff** — independence of
@@ -680,40 +712,27 @@ queue, not a design doc.
   `"same"` (default) or `"custom"`, and titles + compaction both route through it. Defaulting Core
   users to Core 1 would silently change what they are paying for; left as the user's explicit choice.
 
-### Owner-requested 2026-08-19 — NOT in the Electron 43 release
+### Owner-requested 2026-08-19 — ALL THREE DONE
 
-Three additions, recorded when raised so they are not lost. None is started.
-
-- **`automations` create must hand back the id, like a background task does.** Today
-  `operation:"create"` returns a `__permission_required` envelope, and the id is generated *after*
-  approval inside `executeAutomationWrite` (`ipc/handlers/permissions/interceptor.ts:1339`), which
-  returns `Promise<void>` and only **logs** it. So the model that just created an automation has no
-  `automation_id` — and the tool's own description tells it to `operation:"run"` the automation
-  right after creating it, which it therefore cannot do without a `list` + match-by-name. Name is
-  not a key: two automations may share one. The fix is to thread the created id back out of
-  `executeAutomationWrite` into the tool result, the same way a background command returns its
-  handle. **The permission envelope is the obstacle** — the tool returns before the write happens,
-  so this needs the post-approval result to reach the model, not just a changed return type.
-- **Address a plan by id OR title.** `plan()` resolves `args.planId`, else falls back to
-  `getLatestPlanArtifact` (`lib/tools/plan.ts:85-100`). `title` has been a stored column since
-  v14.34.0 but is not an addressing key, so a session with several plans can only be navigated by
-  opaque id or by "the newest one". Let `plan({ title })` resolve too. **Decide the ambiguity rule
-  first:** titles are not unique, so two plans with one title must fail loudly with both ids rather
-  than silently picking the newer — that failure mode is what `update_step` already guards against
-  by refusing to tick the wrong step. Pairs with the plan switcher above, which has the same
-  "which plan is this?" problem in the panel.
-- **Ban system — a banned user cannot use the app again.** Server-side enforcement in Supabase (or
-  wherever the account record lives) so a ban survives reinstalling, and the client refuses to
-  proceed rather than merely hiding UI. **Open questions that decide the shape, none answered yet:**
-  what a ban blocks (Core/proxy spend only, or the whole app including BYOK and local models —
-  the app runs offline by design, so a purely client-side check is bypassable); whether it is
-  enforced at the proxy, at sign-in, or both; what the banned user is told; whether it is
-  reversible and by whom; and how it interacts with an already-signed-in session holding a valid
-  JWT — a ban that only takes effect at the next sign-in is not a ban. Closest existing surface is
-  the Supabase auth + proxy metering path (`atlarix-proxy`), and the standing note that Postgres
-  `CREATE FUNCTION` grants `EXECUTE` to `PUBLIC` applies to any RPC added for this.
-
----
+- [x] **`automations` create hands back its id.** `preview.automationId` is set at execute time (the
+      `verified` precedent), reported from `getExecutionResult`'s `automation_write` branch, and
+      carried through BOTH turn branches — ask-branch included, or Ask mode would have been silently
+      left behind. The permission envelope was never the obstacle; that channel already existed.
+- [x] **`plan({ title })` resolves.** Addresses a plan on every op except `write`, where `title` keeps
+      its create-name meaning (making it an addressing key there too would be genuinely ambiguous).
+      Reusing `title` rather than adding a param was forced by
+      `simplifyToolParametersForProfile`, which keeps only the first THREE optional properties — a new
+      field would have been invisible to exactly the models that drop ids. Duplicate titles fail
+      loudly with both ids. A stale title differs by op on purpose: a read says the title is unknown
+      and lists the session's plans; a mutation falls through to the in-flight plan.
+- [x] **Ban system.** Scope: Core spend + the account; BYOK and local models are NOT blocked and the
+      UI says so. Hard stop is the proxy's 403 `account_banned`, folded into `get_credit_balance` so
+      it rides the wallet read and inherits balance-cache's 3s TTL. Reason lives in
+      `public.user_bans` (RLS on, no `authenticated` policy) because `users` rows are pushed to the
+      client by realtime. `guard_users_sensitive_columns` now raises on `banned_at`. Client guard is
+      in the IPC HANDLER, never `useAuth`. `docs/BAN_RUNBOOK.md` has the SQL.
+      **OWED:** apply the migration to a dev project and observe the guard raising — see the top of
+      this file.
 
 ## ⏳ Open / deferred
 
@@ -725,11 +744,19 @@ Three additions, recorded when raised so they are not lost. None is started.
   appears in Network and does **not** block the turn; navigate to GitHub and confirm a divider plus
   two distinct cards; expand a row and pull a body; confirm a page logging in a loop neither stalls
   the UI nor floods it; confirm the app window's own DevTools still opens.
-- **The CSP does not reach the whisper worker.** `installContentSecurityPolicy()` (`main.ts:304`)
-  is enforced on the `file://` document — verified — but a dedicated worker loaded from `file://`
-  does **not** inherit it, and `eval()` runs freely inside. So A13/M-6 does not cover
-  `whisper-worker`, and the `'wasm-unsafe-eval'` in the policy is not what lets ONNX compile. Low
-  urgency (own bundled code, HF fetch only), but the function's comment claims coverage it lacks.
+- [x] **The CSP now reaches the whisper worker — code done, packaged check owed.** A dedicated worker
+      does not inherit its owner document's policy; it takes one from its OWN script response, and the
+      handler matched only `mainFrame`/`subFrame`, so `whisper-worker` ran with no policy and `eval()`
+      was free inside it — while the docstring claimed A13/M-6 coverage. Electron's WebRequest has no
+      `worker` resourceType, so the predicate now also matches `script`/`other` on `file://`. That is
+      safe rather than broad: a CSP header on an ordinary subresource script response is IGNORED —
+      only documents and worker scripts honour their own — so it changes behaviour for workers and
+      nothing else. `'wasm-unsafe-eval'` stays, because it is what lets onnxruntime-web compile.
+      Predicate extracted to `main/csp-policy-target.ts` and tested. **OWED: confirm on-device voice
+      still transcribes in the packaged app**, and `ATLARIX_DEBUG_CSP=1` logs the resourceType that
+      actually matched so the assumption above can be checked rather than trusted. If voice breaks,
+      revert to docstring-only — a blocked worker that also blocks ONNX is worse than the gap.
+
 - **Configurable read-deny patterns, opencode-style** — user-declared only
   (`read: { "<pattern>": "ask" | "allow" | "deny" }`), no defaults; chosen over Codex's model
   because it keeps `lib/tools/glob.ts:221` intact — that line records the deliberate decision that
@@ -833,225 +860,6 @@ be re-learned are in the shipped index at the foot of this file.
   `~/Library/Application Support/Atlarix` is keyed on the app NAME, so chats and workspaces survive.
   Needs a safeStorage re-encryption migration and an upgrade-in-place test on a signed build. Cost of
   waiting is one round of passkey re-registration for early adopters.
-
----
-
-## 🧹 Dyad-era removal — traced 2026-08-19, one deletion pass
-
-Atlarix is a fork, and the fork's dead weight was never measured until now. Traced by
-**reachability, not presence** — the mistake this audit kept making was reading code as live because
-it exists and compiles. Total: **~1,900 lines across three clusters**, all confirmed unreachable.
-
-### 1. The hosted engine — a live toggle wired to a host that does not exist
-
-`get_model_client.ts:170-225` routes to `https://engine.atlarix.dev/v1`, which **does not resolve**
-(DNS failure, probed 2026-08-19). It is Dyad Pro's client half: a gateway that did lazy edits, smart
-file context and web search server-side, keyed by `enable_lazy_edits` / `enable_smart_files_context`
-/ `enable_web_search`. Inherited, not built — `get_model_client.ts:59` still honours `DYAD_ENGINE_URL`
-beside `ATLARIX_ENGINE_URL`.
-
-**Blast radius: 12 source + 3 test files, ~500 lines.** `llm_engine_provider.ts` (204) whole; the
-branch and `atlarixEngineUrl`; four settings (`enableAtlarixPro`, `enableProSmartFilesContextMode`,
-`enableProLazyEditsMode`, `enableProWebSearch`) plus `hasAtlarixProKey`; the toggle in
-`ProviderSettingsPage.tsx`; `main/pro.ts`. Three things make it more than an `rm`:
-
-- `isEngineEnabled` threads into streaming — `chat_stream_handlers.ts` ×4 and
-  `simple-stream-text.ts` ×4, including a requestId prefix.
-- **Two user-visible surfaces need a decision, not deletion:** the TitleBar badge reads
-  "Workspace • Unlimited" when Pro is on (`TitleBar.tsx:197`), and `ChatErrorBox.tsx:136` has an
-  `ExceededBudget:` branch gated on it.
-- `versioned_codebase_context.ts` is NOT a clean delete — the `"dyad-engine"` providerOptions key
-  goes, but its second loop does real work independent of the engine (reading paths named in past
-  assistant turns back out of git at the commit they recorded).
-
-Four orphaned keys are left in users' `settings.json`, the same call as `search_providers`.
-
-**The only decision: stand the host up, or delete the toggle.** Leaving a switch that breaks the app
-is the one option with no case for it.
-
-### 2. The orphaned `/app-details` cluster — 1,406 lines nobody can reach
-
-The route is registered, but **the only `navigate({to:"/app-details"})` in the tree is at line 192
-inside that same page** — a copy-app success handler. No `<Link>`, no sidebar entry, no other import,
-no route restoration. You cannot get in, which is why the owner had never seen it.
-
-| File | Lines |
-| --- | --- |
-| `pages/app-details.tsx` | 687 |
-| `ipc/handlers/app_upgrade_handlers.ts` | 291 |
-| `components/CapacitorControls.tsx` | 258 |
-| `components/AppUpgrades.tsx` | 157 |
-| `routes/app-details.tsx` | 13 |
-
-This kills what looked like the hardest problem. `AppUpgrades` injects
-`@dyad-sh/react-vite-component-tagger` into user apps — an npm package under **Dyad's** org, which
-cannot be renamed, only replaced. Because the panel is unreachable it was never installed into
-anyone's project, so there is no package to publish and no user migration to consent to.
-
-**Also dead with it:** Docker mode. `runtimeMode2` is in the schema but **no UI can set it**, and all
-three read sites default to `"host"` (`app_handlers.ts:117`, `:851`, `:1479`) — so the
-`Dockerfile.dyad` fallback has never executed for anyone. Delete the branches and
-`RuntimeMode2Schema`.
-
-**Survives:** `GitHubConnector.tsx` (980 lines) exports three components and only ONE is live —
-`UnconnectedGitHubConnector`, used by `WelcomeCloneDialog` in `connectOnly` mode as the GitHub
-sign-in step of the clone flow. `GitHubConnector` itself is used only by the orphaned page and
-`ConnectedGitHubConnector` by **nothing**, so most of that file goes too — but trim it, do not delete
-it. The component is Atlarix's own code with zero Dyad naming inside; only the OAuth *app* was Dyad's
-(below). `GitHubIntegration.tsx` is separately live via `settings.tsx`.
-
-### 3. The preview remnant — dead since v14.15.0
-
-Preview was removed when everything unified on the browser, but the wiring stayed:
-`previewModeAtom` is **read and never set**, so `layout.tsx:384`'s `previewMode === "preview"` is
-always true and always calls `refreshAppIframe()` — which increments `previewPanelKeyAtom`, **read by
-nothing**. There is no app iframe anywhere in the tree. `runApp` and `stopApp` have no consumers
-either; only `restartApp` is live (`SuggestedActionButtons`). Delete the no-op refresh, both atoms,
-the dead exports and the `[dyad-proxy-server]started=` parse (`useRunApp.ts:30`).
-
-### 4. What is renamed rather than deleted
-
-With the three clusters gone, **zero `dyad` in our own tree is reachable by deletion alone**. What is
-left splits into two tiers, and neither is the read-both-forever situation it looked like — Atlarix
-was never Dyad on disk (first commit, 2025-12-23, is *"first template version of Atlarix"*). The
-shims guard against EARLY ATLARIX builds: `escape_atlarix_tags.ts` only learned `<atlarix>` on
-**2026-04-18**, so builds before that emitted `<dyad>` tags.
-
-- **Delete outright** — `dyad-engine` strings (die with §1); `[dyad-qa=]` test markers;
-  `LEGACY_DYAD_GITHUB_DEVICE_CLIENT_ID` (`OAUTH_CLIENT_ID` has been a set CI secret since
-  **2026-05-29**, so shipped builds already authorize as Atlarix and never touch it — delete the
-  constant, require the env var in dev); the `<dyad` escape branches in `escape_atlarix_tags.ts` and
-  `cleanFullResponse.ts`, which only affect history stored before 2026-04-18 and whose failure is a
-  tag rendering literally, not data loss.
-- **Migrate then delete** — `dyadTelemetryConsent` / `dyadTelemetryUserId` localStorage keys (read
-  old, write new, unlink old; same shape as `migrateLegacyMemoryMd`); `dyad-pnpm-<appId>`, which is a
-  *removal* list not a read path (`process_manager.ts:103`) — keep deleting both names for one
-  release, then drop the old, since deleting a stale volume is safe by definition.
-
-### The delete manifest — enumerated so next session is a sweep, not a re-derivation
-
-**Files deleted whole (9):**
-
-| File | Lines | Cluster |
-| --- | --- | --- |
-| `src/pages/app-details.tsx` | 687 | orphaned route |
-| `src/ipc/handlers/app_upgrade_handlers.ts` | 291 | orphaned route |
-| `src/components/CapacitorControls.tsx` | 258 | orphaned route |
-| `src/components/AppUpgrades.tsx` | 157 | orphaned route |
-| `src/ipc/handlers/capacitor_handlers.ts` | 139 | orphaned route |
-| `src/routes/app-details.tsx` | 13 | orphaned route |
-| `src/ipc/utils/llm_engine_provider.ts` | 204 | engine |
-| `src/atoms/previewAtoms.ts` | (whole) | `selectedComponents` |
-
-**Symbol-level edits, by file** — this is the part a sweep forgets and the build then hides, because
-an orphaned IPC channel still compiles:
-
-- `src/ipc/ipc_host.ts` — drop imports + calls at **:29/:88** (`registerAppUpgradeHandlers`) and
-  **:30/:89** (`registerCapacitorHandlers`).
-- `src/preload.ts` — drop channels **:135-139**: `get-app-upgrades`, `execute-app-upgrade`,
-  `is-capacitor`, `sync-capacitor`.
-- `src/ipc/ipc_client.ts` — drop `getAppUpgrades` (**:3569**), `executeAppUpgrade` (**:3575**),
-  `isCapacitor` (**:3583**), `syncCapacitor` (**:3587**), and the `selectedComponents` params (5 refs).
-- `src/router.ts` — drop `appDetailsRoute` import + registration (**:8, :16**).
-- `src/components/app-sidebar.tsx` — **:112** `isAppRoute` still tests
-  `pathname.startsWith("/app-details")`; drop that clause, keep the `"/"` test.
-- `src/components/GitHubConnector.tsx` — **TRIM, do not delete.** Keep
-  `UnconnectedGitHubConnector` (the only live export, used by `WelcomeCloneDialog` in `connectOnly`
-  mode). Delete `GitHubConnector` (orphaned-page only) and `ConnectedGitHubConnector` (**no
-  consumers at all**), plus the repo-create / branch-select / auto-sync machinery they own.
-- `src/ipc/handlers/app_handlers.ts` — Docker mode is unsettable, so: delete
-  `executeAppInDocker` (**297-489, 193 lines**) and `stopDockerContainersOnPort` (**501-541, 41
-  lines**); collapse the three `runtimeMode2` branches (**:117, :851, :1479**) to the `host` path;
-  delete the `Dockerfile.atlarix`/`Dockerfile.dyad` selection (**:354-363**) and the
-  `dyad-pnpm-*` mention at **:875**.
-- `src/lib/schemas.ts` — drop `RuntimeMode2Schema` (**:125**) and `runtimeMode2` (**:487**); drop the
-  four engine settings and `hasAtlarixProKey` (9 refs total).
-- `src/ipc/utils/get_model_client.ts` — drop the engine branch (**170-225**), `atlarixEngineUrl`
-  (**:59-61**, which is also where `DYAD_ENGINE_URL` dies), and the `isEngineEnabled` /
-  `isSmartContextEnabled` return fields.
-- `src/ipc/handlers/chat_stream_handlers.ts` — `isEngineEnabled` at **:1064, :1095, :1188, :2000**,
-  the `"dyad-engine"` providerOptions at **:1799**, and the `selectedComponents` param.
-- `src/ipc/handlers/chat_stream/turn-runner/simple-stream-text.ts` — `isEngineEnabled` at **:136,
-  :176, :198, :908** (the last is a requestId prefix).
-- `src/ipc/utils/versioned_codebase_context.ts` — drop the `"dyad-engine"` keys at **:129, :215**.
-  **DO NOT delete the file** — its second loop does real work independent of the engine.
-- `src/app/TitleBar.tsx` — **RESOLVED 2026-08-19: delete `AtlarixProButton` outright** (**:73-77**
-  render site, **:175-200** the component, **:57** `isAtlarixPro`). Not a relabel, which was the
-  guess before it was traced. Two reasons: the button only renders at all when
-  `providerSettings.auto.apiKey` is set (**:57**), which nobody has once the engine host does not
-  resolve, so removing it is invisible to users; and its `onClick` navigates to the **`auto`**
-  provider settings page (**:187**), which dies with the engine. A "Workspace" label that opens
-  settings for a deleted provider is worse than no button.
-- **Sweep the `auto` provider id with it** — it IS the engine's provider slot, and 8 sites handle it
-  defensively: `CompactModelSearch.tsx:104` (skips it), `model-identity-prompt.ts:51`,
-  `resolve-model-context-limit.ts:145`, `language_model_constants.ts:7`
-  (`PROVIDERS_THAT_SUPPORT_THINKING`), `ProviderSettingsPage.tsx:95` (`isAtlarix = provider ===
-  "auto"`), `useSettings.ts:44` (`isPro`), `schemas.ts:529`.
-- `src/components/chat/ChatErrorBox.tsx` — **RESOLVED 2026-08-19, and the two `isAtlarixProEnabled`
-  branches need OPPOSITE treatment. A mechanical "delete every branch that mentions the flag" sweep
-  removes a working feature.**
-  - **:136 `isAtlarixProEnabled && error.includes("ExceededBudget:")` → DELETE THE WHOLE BRANCH.**
-    Dead twice over: the flag is dead, and **nothing in either repo emits `ExceededBudget:`** — that
-    check is the string's only occurrence anywhere. It was LiteLLM's, i.e. the engine's. It also
-    points at an `atlarix.dev/subscription` "credits this month" model that is not current pricing.
-  - **:123 `error.includes("LiteLLM Virtual Key expected")` → DELETE.** Same story, also emitted by
-    nothing.
-  - **:106 `!isAtlarixProEnabled && (Resource has been exhausted | gemini rate-limits | Provider
-    returned error)` → KEEP THE BRANCH, drop only the negated clause.** The flag is always false, so
-    this condition is already effectively unguarded — it is the live BYOK rate-limit troubleshooting
-    link, and deleting it would remove real behaviour.
-  - **No user-facing regression, because the wallet case is already handled upstream and better:**
-    the proxy returns **402 `insufficient_credit`** (`atlarix-proxy/src/server.ts:292, :361`) and
-    `simple-stream-text.ts:882` maps it to `compassExhaustedUserMessage()`. That is the path a Core
-    user on an empty wallet actually takes today.
-- `src/components/SimpleInlineChat.tsx` — **:524** passes `isAtlarixProEnabled={false}`; drop the prop.
-- `src/main/pro.ts`, `src/main/settings.ts`, `src/shims/main-settings-renderer-stub.ts` — settings plumbing.
-- `src/hooks/useRunApp.ts` — drop `refreshAppIframe` (**:222**, a no-op), `runApp`, `stopApp` (no
-  consumers), and the `[dyad-proxy-server]started=` parse (**:29-34**). **Keep `restartApp`** — it is
-  live via `SuggestedActionButtons`.
-- `src/app/layout.tsx` — drop the `previewMode` effect (**:384-397**) and the
-  `selectedComponentsPreviewAtom` wiring (**:21, :252**).
-- `src/atoms/appAtoms.ts` — drop `previewModeAtom` (**:18**) and `previewPanelKeyAtom` (**:31**).
-- `src/hooks/useStreamChat.ts` (4 refs), `src/ipc/ipc_types.ts` (2) — the rest of `selectedComponents`.
-- `src/config/github-oauth.ts` — delete `LEGACY_DYAD_GITHUB_DEVICE_CLIENT_ID` and
-  `isLegacyDyadGithubDeviceClient`; make `OAUTH_CLIENT_ID` required. Also drop its consumer at
-  `src/ipc/handlers/github_handlers.ts:33,40` and the mock in `clone-error-surface.test.ts:39`.
-- `src/hooks/useSettings.ts` — **:11, :13** migrate `dyadTelemetryConsent` / `dyadTelemetryUserId`
-  then delete the constants.
-- `src/ipc/utils/process_manager.ts` — **:103** keep removing `dyad-pnpm-<appId>` for ONE release,
-  then drop.
-- `src/ipc/utils/escape_atlarix_tags.ts` (**:8-9**), `src/ipc/utils/cleanFullResponse.ts` (**:64**),
-  `src/ipc/handlers/testing_chat_handlers.ts` (**:4**) — drop the `dyad` branches.
-
-**Tests:** `src/__tests__/versioned_codebase_context.test.ts` carries **12** `"dyad-engine"` fixtures
-and rewrites with the engine; `readSettings.test.ts` has 4 engine refs;
-`chat_stream_handlers.test.ts` has a `<dyad-custom-action>` fixture. Expect the suite to LOSE tests
-here — that is correct, but check the count moves by the number of deleted cases and no further.
-
-### Sequencing
-
-- [ ] **One deletion pass, ~1,900 lines.** Order: orphaned route cluster first (it is pure deletion
-      and shrinks everything after it), then the engine, then the preview remnant, then the
-      rename/migrate tiers. Do the `GitHubConnector` trim INSIDE this pass — its dead exports are
-      only identifiable while the orphaned page is still there to point at them.
-      **No longer blocked** — both user-visible surfaces were traced and decided 2026-08-19
-      (see above): the TitleBar button is deleted outright, and of `ChatErrorBox`'s two flag
-      branches one is deleted and one is KEPT with its clause dropped.
-      Verify with: `npm run check:ts` + `ts` + `check:lint`, then **grep the tree for `dyad`** — the
-      target is zero outside `docs/` and the one-release `dyad-pnpm` shim — then `npm run package`
-      and `self-test:packaged` 9/9, because this touches `preload.ts` and `ipc_host.ts` and a
-      dropped channel only fails at runtime.
-
-### The lesson this section exists for
-
-Three separate items dissolved on inspection in one session: the engine's host does not resolve, six
-TODO entries were already done, and the "hard boundary" was unreachable UI. **Check reachability
-before scoping, not presence.** A registered route, a compiling component and an exported symbol are
-all evidence of nothing.
-
-- **`selectedComponents` still flows renderer → IPC → `ChatStreamParams` and is read by nothing on
-  the main side.** Same Dyad-era shape; it fed the component tagger from §2, so it goes in the same
-  pass.
 
 ---
 

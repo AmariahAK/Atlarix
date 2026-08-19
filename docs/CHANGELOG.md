@@ -81,6 +81,35 @@ timestamp with no tiebreaker, so reopening a conversation could show a reply abo
 answered — and, less visibly, editing a message could remove the wrong one or leave a stale answer
 behind. Ordering is now exact.
 
+**The Plan panel says which plan it is showing, and lets you switch.** A session can hold several
+plans, but the panel only ever showed the newest one — so one plan was presented as though it were
+*the* plan, with nothing on screen saying the others existed. There is now a list at the top when a
+session has more than one, and picking an older one keeps it on screen: Atlarix starting work on a
+different plan no longer yanks the panel away from what you were reading. Choosing "Latest" hands it
+back to following along.
+
+**Atlarix can now refer to a plan by name.** It could previously only address a plan by an opaque id
+— which weaker models routinely drop — or by "the newest one". It can now say which plan it means. If
+two plans share a name it stops and asks rather than guessing, for the same reason it refuses to tick
+a step it cannot uniquely identify.
+
+**Automations can be tested the moment they are created.** Atlarix's own instructions tell it to run
+a new automation straight away to check it works — but the id it needed to do that was never handed
+back after you approved the creation, so it either gave up or went hunting by name. Names are not
+unique, so that could have run the wrong one. It now gets the id.
+
+**A large amount of dead machinery is gone — about 30,000 lines.** Atlarix began as a fork, and it
+had been carrying whole features that nothing could reach: a hosted AI gateway pointed at a server
+that no longer exists, a project-details screen with no way in, a visual editor for a preview pane
+removed several versions ago, and a container mode that no setting could ever turn on. None of it was
+reachable, so nothing you use changes — but it also means a "Refresh app" button that did nothing,
+and an "Atlarix Pro" toggle that connected to a dead server, are no longer there to click. The
+in-app help bot went with them; the docs, Discord and bug-report routes are unchanged.
+
+**On-device voice dictation now runs under the app's security policy.** It was the one part of
+Atlarix exempt from it, by accident rather than design — the protection is applied to the app's own
+page, and the separate worker that does the transcription did not inherit it.
+
 - Choosing a folder — opening a project, importing one, picking where to save a clone — still asks
   every time; on macOS the picker now starts in Downloads rather than wherever you were last, a
   change that comes from the OS rather than from Atlarix.

@@ -7,7 +7,58 @@ this file carries the reasoning.
 Nothing here is a commitment. An entry graduates to TODO when it becomes active work, and to
 [`docs/CHANGELOG.md`](./CHANGELOG.md) when it ships.
 
-**Last updated:** 2026-08-15
+**Last updated:** 2026-08-19
+
+---
+
+## Account bans — SHIPPED 2026-08-19, recorded for the scope decision
+
+*The reasoning is here rather than in the CHANGELOG because the interesting part is what a ban
+deliberately does NOT do, and that will be re-litigated the first time someone asks why a banned user
+can still use the app with their own key.*
+
+**Scope: Atlarix Core spend + the account. Not BYOK, not local models.**
+
+The tempting version blocks everything. It cannot be built honestly. Atlarix runs offline by design —
+BYOK and Ollama need no server of ours — so a client-side refusal to run a turn with the user's own
+key is bypassable by an older build, a patched build, or simply no network. Shipping it would mean
+claiming an enforcement we do not have, and the first person to notice would be the banned user.
+
+So the line is drawn at what is genuinely server-side:
+
+- **The proxy** returns 403 `account_banned`. Nothing a client does gets past it.
+- **The account** refuses to proceed and offers Sign out.
+
+And the UI says the rest still works, because it does. That is not a loophole being advertised; it is
+the difference between a policy and a bluff.
+
+**Why the check rides `get_credit_balance` rather than being its own RPC.** The proxy already reads
+the wallet on every request. Folding the ban into that read costs zero extra round-trips and inherits
+`balance-cache.ts`'s 3-second TTL, which becomes the honest bound on how fast a ban bites. A separate
+RPC would have doubled the per-request Supabase traffic to answer a question that is almost always
+"no". It is deliberately NOT in `debit_wallet`: tokens already consumed should still be billed, so the
+gate belongs at the start of a call.
+
+**Why "at next sign-in" was never acceptable.** A ban that waits for a re-login is not a ban — a
+signed-in user with a valid JWT could work indefinitely. Two mechanisms close that: the 3s cache TTL
+on the proxy side, and the realtime `postgres_changes` subscription the app already holds on its own
+`users` row, which pushes the flip to a live client. The second was free; the channel existed for
+plan upgrades.
+
+**Why the reason is not on `public.users`.** That row is delivered to the client verbatim by the same
+realtime subscription, and `users` has a "Users can read own data" SELECT policy. A `ban_reason`
+column would have handed every reason straight to the person it was written about. So `banned_at` is
+on `users` (the client must know) and the reason is in `public.user_bans` — RLS on, no policy for
+`authenticated`, so every non-service-role read is denied. This constraint came from the messaging
+decision, not the other way round.
+
+**Why there is no admin UI.** A real one means a new authenticated admin role, its own RLS policies,
+and a surface to maintain — to serve a ban count near zero. Two SQL statements in
+`docs/BAN_RUNBOOK.md` do the same job today. Revisit when the count makes it worth it.
+
+**`isUserBanned` fails OPEN.** It is the UX half; the proxy is the enforcement. Failing closed would
+lock a paying user out of their own API keys because a Supabase read blipped — punishing the wrong
+person for the wrong reason.
 
 ---
 
