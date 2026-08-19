@@ -3,6 +3,7 @@
  * Uses OpenRouter model metadata when the catalog cache is warm; otherwise vendor-prefix heuristics on the model id.
  */
 
+import type { AnthropicProviderOptions } from "@ai-sdk/anthropic";
 import type { GoogleGenerativeAIProviderOptions } from "@ai-sdk/google";
 import type { OpenAIResponsesProviderOptions } from "@ai-sdk/openai";
 import {
@@ -35,6 +36,16 @@ export type ReasoningProviderPatch = {
   openrouter?: Record<string, unknown>;
   google?: GoogleGenerativeAIProviderOptions;
   openai?: OpenAIResponsesProviderOptions;
+  /**
+   * Anthropic's extended thinking. This bucket did not exist, which is why
+   * direct (BYOK) Anthropic never actually requested reasoning: the thinking
+   * block was only ever written into `providerOptions["dyad-gateway"]`, an
+   * identifier no provider in this app declares, so it reached nothing. The
+   * shape difference is the tell — that path emitted snake_case
+   * `budget_tokens` / `include_thoughts` (a gateway wire format) where
+   * `@ai-sdk/anthropic` reads camelCase `budgetTokens`.
+   */
+  anthropic?: AnthropicProviderOptions;
 };
 
 function openRouterRowSuggestsReasoning(row: OpenRouterModelRowExtended | undefined): boolean {
@@ -103,6 +114,7 @@ export function detectReasoningCapability(
   useOpenRouterReasoning: boolean;
   useGoogleThoughts: boolean;
   useOpenAiReasoningSummary: boolean;
+  useAnthropicThinking: boolean;
 } {
   const id = modelApiId.trim();
   const lower = id.toLowerCase();
@@ -131,10 +143,20 @@ export function detectReasoningCapability(
 
   const useOpenAiReasoningSummary = pid === "openai";
 
+  // Direct (BYOK) Anthropic. Catalog-driven rather than a Claude model list, so a
+  // new model needs no code change — and `undefined` (a model newer than the last
+  // models.dev refresh) deliberately reads as FALSE here: `anthropic` is not in
+  // PROVIDERS_THAT_SUPPORT_THINKING, so there is no legacy fallback, and sending
+  // a thinking block Anthropic does not accept is a hard 400. No thinking is the
+  // safe answer for an unknown model.
+  const useAnthropicThinking =
+    pid === "anthropic" && catalogSaysReasons(pid, id) === true;
+
   return {
     useOpenRouterReasoning,
     useGoogleThoughts,
     useOpenAiReasoningSummary,
+    useAnthropicThinking,
   };
 }
 
@@ -215,6 +237,29 @@ export function hasNativeDeepThinkingSupport(
 }
 
 /**
+ * Must `temperature` be omitted from this dispatch?
+ *
+ * Anthropic rejects `temperature != 1` while extended thinking is enabled, and
+ * `getTemperature` defaults to 0 — so requesting thinking without dropping
+ * temperature is a hard 400 on every BYOK Anthropic reasoning turn. Exported and
+ * tested because it is a cross-cutting coupling between two unrelated call sites
+ * (the reasoning patch and the temperature lookup) and would regress silently:
+ * nothing fails locally, every real Anthropic reasoning request fails.
+ *
+ * Omitting rather than forcing 1 is deliberate — it lets Anthropic apply its own
+ * thinking default instead of us asserting a value we only picked to satisfy a
+ * constraint.
+ */
+export function shouldOmitTemperature(
+  providerOptions: Record<string, unknown> | undefined,
+): boolean {
+  const anthropic = providerOptions?.anthropic as
+    | { thinking?: unknown }
+    | undefined;
+  return Boolean(anthropic?.thinking);
+}
+
+/**
  * Build provider option fragments to merge into `streamText` `providerOptions` when thinking tier is active.
  * Caller merges shallowly into existing buckets (e.g. preserve openrouter.plugins).
  */
@@ -257,6 +302,19 @@ export function buildReasoningProviderOptions(
     patch.openai = {
       reasoningSummary: "auto",
     } satisfies OpenAIResponsesProviderOptions;
+  }
+
+  if (cap.useAnthropicThinking) {
+    // Anthropic takes a token BUDGET, not an effort level. `reasoningBudgetTokens`
+    // already guarantees >= 1024 (Anthropic's minimum) and reserves >= 2048 of
+    // output headroom, so the budget is always strictly below max_tokens — which
+    // Anthropic also requires.
+    patch.anthropic = {
+      thinking: {
+        type: "enabled",
+        budgetTokens: reasoningBudgetTokens(effort, maxOutputTokens ?? 32_000),
+      },
+    } satisfies AnthropicProviderOptions;
   }
 
   return patch;

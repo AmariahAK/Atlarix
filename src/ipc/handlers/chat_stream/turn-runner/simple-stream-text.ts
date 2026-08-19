@@ -82,6 +82,7 @@ import {
   detectReasoningCapability,
   resolveReasoningCatalogModelId,
   deriveReasoningCeiling,
+  shouldOmitTemperature,
 } from "@/lib/routing/reasoning-detector";
 import { systemReminder } from "@/lib/streaming/system-reminder";
 import {
@@ -253,6 +254,14 @@ export async function simpleStreamText(
                   modelClient.builtinProviderId === "azure" ? "azure" : "openai";
                 providerOptions[openaiKey] = reasoningPatch.openai;
               }
+              if (reasoningPatch.anthropic) {
+                // Direct Anthropic extended thinking. Merged rather than assigned:
+                // the cache-marker work below also writes providerOptions.anthropic.
+                providerOptions.anthropic = {
+                  ...providerOptions.anthropic,
+                  ...reasoningPatch.anthropic,
+                };
+              }
             }
 
             const isAnthropic = modelClient.builtinProviderId === "anthropic";
@@ -339,9 +348,13 @@ export async function simpleStreamText(
 
             // maxOutputTokens is resolved earlier (hoisted for reasoning-budget
             // scaling) — reused here.
-            const temperature = await preflight.time("temperature", () =>
-              getTemperature(optionsModel),
-            );
+            // Anthropic rejects temperature != 1 while extended thinking is on,
+            // and getTemperature defaults to 0 — see shouldOmitTemperature.
+            const temperature = shouldOmitTemperature(providerOptions)
+              ? undefined
+              : await preflight.time("temperature", () =>
+                  getTemperature(optionsModel),
+                );
 
             ttftStartRef.ms = Date.now();
             // v10.1 perf: time from workspace open to the first prompt dispatch.
