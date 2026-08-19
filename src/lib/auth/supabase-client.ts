@@ -551,6 +551,7 @@ type PlanRowInput = {
     subscription_status?: string | null;
     lemon_subscription_id?: string | null;
     lemon_variant_id?: string | null;
+    banned_at?: string | null;
 };
 
 
@@ -600,8 +601,12 @@ function computeEntitledPlan(row: PlanRowInput): UserPlanDb {
     return tier;
 }
 
+// `banned_at` rides the plan read the app already makes, so the ban costs no
+// extra round-trip. The REASON is deliberately absent: it lives in
+// public.user_bans, which no client can read, because this row is also delivered
+// to the client verbatim by the realtime subscription below.
 const PLAN_ROW_SELECT_BASE =
-    'plan, effective_tier, subscription_ends_at, subscription_status, lemon_subscription_id';
+    'plan, effective_tier, subscription_ends_at, subscription_status, lemon_subscription_id, banned_at';
 const PLAN_ROW_SELECT_WITH_VARIANT = `${PLAN_ROW_SELECT_BASE}, lemon_variant_id`;
 
 async function fetchPlanRowForUser(
@@ -652,6 +657,33 @@ export async function getUserPlan(userId: string): Promise<UserPlanDb> {
     } catch (err) {
         logger.warn('[Supabase] getUserPlan exception:', err);
         return offlinePlanOr('free', userId);
+    }
+}
+
+/**
+ * Is this account banned?
+ *
+ * Reads `users.banned_at` through the same JWT-scoped, RLS-backed path as the
+ * plan. Runs once per real session change (updateSession), not per
+ * `checkSession()` — the renderer's ~22 unshared useAuth consumers all read
+ * main's cached session, and the realtime channel carries later flips, so there
+ * is nothing to poll.
+ *
+ * FAILS OPEN on error, deliberately. This is a client-side UX gate; the
+ * non-bypassable enforcement is the proxy's 403, which no client can talk its way
+ * past. Failing closed here would lock a user out of their own API keys and local
+ * models because Supabase blipped — punishing the wrong thing for the wrong
+ * reason.
+ */
+export async function isUserBanned(userId: string): Promise<boolean> {
+    try {
+        const supabase = getSupabaseClient();
+        const { data, error } = await fetchPlanRowForUser(supabase, userId);
+        if (error || !data) return false;
+        return !!(data as { banned_at?: string | null }).banned_at;
+    } catch (err) {
+        logger.warn('[Supabase] isUserBanned exception:', err);
+        return false;
     }
 }
 
@@ -831,6 +863,14 @@ export interface SubscriptionData {
     subscriptionStatus: 'active' | 'cancelled' | null;
     subscriptionEndsAt: string | null;
     effectiveTier?: 'free' | 'pro';
+    /**
+     * True when this account is banned.
+     *
+     * Carried on the realtime channel, which is what makes a ban take effect on a
+     * SIGNED-IN client rather than only at the next sign-in — a ban that waits for
+     * a re-login is not a ban. The reason is never included.
+     */
+    banned?: boolean;
 }
 
 type SubscriptionChangeCallback = (newData: SubscriptionData, oldData: SubscriptionData) => void;
@@ -867,14 +907,22 @@ export function subscribeToPlanChanges(userEmail: string, callback: Subscription
                 filter: `email=eq.${userEmail}`,
             },
             (payload) => {
-                const newRow = payload.new as { plan: string; subscription_status: string | null; subscription_ends_at: string | null; effective_tier?: string };
-                const oldRow = payload.old as { plan: string; subscription_status: string | null; subscription_ends_at: string | null; effective_tier?: string };
+                type PlanRealtimeRow = {
+                    plan: string;
+                    subscription_status: string | null;
+                    subscription_ends_at: string | null;
+                    effective_tier?: string;
+                    banned_at?: string | null;
+                };
+                const newRow = payload.new as PlanRealtimeRow;
+                const oldRow = payload.old as PlanRealtimeRow;
 
                 const newData: SubscriptionData = {
                     plan: (newRow?.plan || 'free') as 'free' | 'pro',
                     subscriptionStatus: (newRow?.subscription_status || null) as 'active' | 'cancelled' | null,
                     subscriptionEndsAt: newRow?.subscription_ends_at || null,
                     effectiveTier: (newRow?.effective_tier as 'free' | 'pro') || undefined,
+                    banned: !!newRow?.banned_at,
                 };
 
                 const oldData: SubscriptionData = {
@@ -882,19 +930,25 @@ export function subscribeToPlanChanges(userEmail: string, callback: Subscription
                     subscriptionStatus: (oldRow?.subscription_status || null) as 'active' | 'cancelled' | null,
                     subscriptionEndsAt: oldRow?.subscription_ends_at || null,
                     effectiveTier: (oldRow?.effective_tier as 'free' | 'pro') || undefined,
+                    banned: !!oldRow?.banned_at,
                 };
 
                 const materialChange =
                     newData.plan !== oldData.plan ||
                     newData.subscriptionStatus !== oldData.subscriptionStatus ||
                     newData.subscriptionEndsAt !== oldData.subscriptionEndsAt ||
-                    newData.effectiveTier !== oldData.effectiveTier;
+                    newData.effectiveTier !== oldData.effectiveTier ||
+                    // A ban flip is the whole reason this channel matters for
+                    // enforcement: without it a ban would only bite at next
+                    // sign-in, which is not a ban.
+                    newData.banned !== oldData.banned;
 
                 if (materialChange) {
                     logger.log(`[Supabase] Realtime subscription update:`, {
                         plan: `${oldData.plan} → ${newData.plan}`,
                         status: `${oldData.subscriptionStatus} → ${newData.subscriptionStatus}`,
                         endsAt: newData.subscriptionEndsAt,
+                        banned: `${oldData.banned} → ${newData.banned}`,
                     });
                     callback(newData, oldData);
                 }

@@ -288,6 +288,22 @@ export function compassExhaustedUserMessage(_tier?: string): string {
 }
 
 /**
+ * Shown when the proxy refuses a Core request with 403 `account_banned`.
+ *
+ * Neutral, with a route back, and it does NOT carry the reason — the reason lives
+ * in `public.user_bans`, which no client can read. Says what still works, because
+ * it is true: BYOK and local models are outside the ban's scope, and pretending
+ * otherwise would be a claim the app cannot enforce offline.
+ */
+export function accountBannedUserMessage(): string {
+  return (
+    "This account can't access Atlarix Core. If you think this is a mistake, " +
+    "contact support@atlarix.dev. Your own API keys and local models still work — " +
+    "add one in Settings to keep going."
+  );
+}
+
+/**
  * Shown when Atlarix Core fails on OUR side (the proxy returns 503 core_unavailable
  * because a managed provider key is out of credit / rate-limited / down). Neutral
  * by design — the user is never told "we ran out of money"; the owner is alerted

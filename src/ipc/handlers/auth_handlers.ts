@@ -152,12 +152,20 @@ export function registerAuthHandlers() {
     );
 
     // Get current user
+    //
+    // The ban is reported HERE, in main, and never checked in `useAuth`: that hook
+    // is unshared across ~22 consumers that each run their own `checkSession()`,
+    // so a check in the hook fires 22 times per sign-in (the known cause of the
+    // repeated "Enforcing workspace limit" logs). Main holds one cached session
+    // and the realtime channel updates it, so this read is free.
     ipcMain.handle("auth:get-current-user", async () => {
         try {
             const user = SubscriptionManager.getCurrentUser();
             return {
                 success: true,
                 user,
+                /** Banned from Atlarix Core + the account. Reason never leaves the server. */
+                banned: !!user?.banned,
                 isLoggedIn: SubscriptionManager.isLoggedIn(),
                 isPro: SubscriptionManager.isPro(),
                 // False while the deferred startup restore is still running. A

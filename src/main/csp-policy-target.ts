@@ -1,0 +1,37 @@
+/**
+ * Which responses get the app's Content-Security-Policy stamped on them.
+ *
+ * Extracted from `installContentSecurityPolicy` so the rule is testable without
+ * booting Electron — it decides whether the whisper worker runs under a policy
+ * at all, and it was wrong for several releases with a docstring that said
+ * otherwise.
+ */
+
+/** Electron WebRequest resource types this predicate cares about. */
+export type CspResourceType = string;
+
+/**
+ * True when this response should carry the app CSP.
+ *
+ * `file://` only: the in-app browser runs in its own `persist:atlarix-browser`
+ * session and must not be constrained by the app's policy.
+ *
+ * `mainFrame`/`subFrame` are the app document. `script`/`other` are how a
+ * DEDICATED MODULE WORKER's own script arrives — Electron's WebRequest has no
+ * `worker` resourceType — and a worker does not inherit its owner document's
+ * policy, so without these it runs unconstrained. Including them is safe rather
+ * than broad: a CSP header on an ordinary subresource script response is ignored
+ * by the renderer; only documents and worker scripts honour their own.
+ */
+export function isCspPolicyTarget(
+  resourceType: CspResourceType,
+  url: string,
+): boolean {
+  if (!/^file:\/\//i.test(url)) return false;
+  return (
+    resourceType === "mainFrame" ||
+    resourceType === "subFrame" ||
+    resourceType === "script" ||
+    resourceType === "other"
+  );
+}

@@ -45,6 +45,12 @@ export function useAuth() {
      * yet". Starts false and is only ever set true.
      */
     const [authResolved, setAuthResolved] = useState(false);
+    /**
+     * Banned, as resolved by MAIN (auth_handlers). Never computed in this hook —
+     * it is unshared across ~22 consumers, so a check here would run 22× per
+     * sign-in. This only mirrors what main already knows.
+     */
+    const [banned, setBanned] = useState(false);
     const [status, setStatus] = useState<UserStatus | null>(null);
 
     /**
@@ -223,6 +229,10 @@ export function useAuth() {
          */
         const handleAuthResolved = (data: AuthResolvedPayload) => {
             setAuthResolved(true);
+            // Read the ban BEFORE the null-user early return: this same broadcast
+            // is what a live ban flip arrives on, and it is the reason a ban takes
+            // effect now rather than at the next sign-in.
+            setBanned(!!data?.user?.banned);
             if (!data?.user) return;
             setUser({
                 id: data.user.id,
@@ -274,9 +284,12 @@ export function useAuth() {
                     avatar?: string;
                     plan?: string;
                     effectiveTier?: 'free' | 'pro';
+                    banned?: boolean;
                 };
                 isPro?: boolean;
                 authResolved?: boolean;
+                /** Resolved in MAIN — see auth_handlers. Never derived here. */
+                banned?: boolean;
             };
             const result = (await ipcRenderer.invoke('auth:get-current-user')) as GetUserResult | undefined;
 
@@ -284,6 +297,8 @@ export function useAuth() {
             // main's flag. Older handlers omit it — treat that as resolved so a
             // version skew can never leave the account slot blank forever.
             if (result?.user || result?.authResolved !== false) setAuthResolved(true);
+
+            setBanned(!!(result?.banned || result?.user?.banned));
 
             if (result?.user) {
                 setUser({
@@ -465,6 +480,13 @@ export function useAuth() {
          * `!isAuthenticated` alone does not mean signed out during launch.
          */
         authResolved,
+        /**
+         * This account is banned from Atlarix Core and the account itself. BYOK and
+         * local models are unaffected and the UI must say so — the app runs offline
+         * by design, so a client-side block on the user's own key would be a claim
+         * we cannot enforce. The hard stop is the proxy's 403.
+         */
+        banned,
         oauthPending,
         oauthProvider,
         oauthStatusLabel,

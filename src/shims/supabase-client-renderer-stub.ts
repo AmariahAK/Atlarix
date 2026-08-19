@@ -35,6 +35,10 @@ export async function getUserPlan(_userId: string): Promise<UserPlanDb> {
   return "free";
 }
 
+export async function isUserBanned(_userId: string): Promise<boolean> {
+  return false;
+}
+
 export async function getEffectiveTier(
   _userId: string,
   _ownPlan?: UserPlanDb,

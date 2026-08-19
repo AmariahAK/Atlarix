@@ -56,7 +56,7 @@ export function removalAlsoDeletesFiles(appPath?: string | null): boolean {
 
 export default function WelcomeLauncher() {
   const navigate = useNavigate();
-  const { user, status, isAuthenticated, authResolved, signOut } = useAuth();
+  const { user, status, isAuthenticated, authResolved, banned, signOut } = useAuth();
   const { apps, refreshApps } = useLoadApps();
   const [cloneOpen, setCloneOpen] = useState(false);
   const [recentQuery, setRecentQuery] = useState("");
@@ -153,6 +153,36 @@ export default function WelcomeLauncher() {
             </Button>
           </div>
         )}
+      </div>
+    );
+  }
+
+  // Banned: refuse to proceed rather than hiding UI, and say what is actually
+  // true. The scope is Atlarix Core + the account; the user's own API keys and
+  // local models are NOT blocked, because the app runs offline by design and a
+  // client-side block on a key they own would be unenforceable theatre. The hard
+  // stop is the proxy's 403, which is server-side and cannot be talked past.
+  //
+  // The REASON is deliberately absent: it lives in public.user_bans, which no
+  // client can read, so there is nothing here to leak.
+  if (banned) {
+    return (
+      <div
+        data-testid="account-banned"
+        className="flex flex-col items-center justify-center min-h-[60vh] px-6 text-center gap-4"
+      >
+        <LocalDateTimeClock variant="welcome" className="mb-2" />
+        <AtlarixAnimation size="sm" phase="done" minimalChrome theme="auto" className="shadow-sm" />
+        <p className="text-muted-foreground max-w-sm">
+          This account can&apos;t access Atlarix Core.
+        </p>
+        <p className="text-xs text-muted-foreground/70 max-w-sm">
+          If you think this is a mistake, contact{" "}
+          <span className="font-medium">support@atlarix.dev</span>.
+        </p>
+        <Button variant="outline" size="sm" onClick={() => void signOut()}>
+          Sign out
+        </Button>
       </div>
     );
   }

@@ -14,6 +14,7 @@ import {
   reEncryptPlaintextSecretsIfPossible,
 } from "./main/settings";
 import { configureWebAuthn } from "./main/webauthn";
+import { isCspPolicyTarget } from "./main/csp-policy-target";
 import { showDesktopNotification } from "./main/desktop-notification";
 import { IS_TEST_BUILD } from "./ipc/utils/test_utils";
 import {
@@ -292,16 +293,33 @@ if (IS_MICROSOFT_STORE_BUILD) {
 }
 
 /**
- * A13/M-6: apply a Content-Security-Policy to the app's own file:// document.
+ * A13/M-6: apply a Content-Security-Policy to the app's own file:// document
+ * AND to the dedicated workers it spawns.
  * The core protection is `script-src 'self'` — an injected inline script from an
  * XSS in rendered model/tool/web content cannot execute, which is what makes the
  * IPC bridge reachable (H-2). Packaged-only: the dev server needs
  * 'unsafe-inline'/'unsafe-eval' + ws: for HMR, and dev isn't a shipped surface.
- * Scoped to main/sub frames loaded from file:// so it constrains only the app
- * document (the in-app browser uses a separate `persist:atlarix-browser` session
- * and is unaffected). `style-src`/`connect-src` stay permissive enough not to
- * break the UI (Radix/framer inline styles, Supabase/Sentry/provider calls) —
- * TUNE against a packaged smoke-test before relying on it.
+ * Scoped to file:// so it constrains only our own content (the in-app browser
+ * uses a separate `persist:atlarix-browser` session and is unaffected).
+ * `style-src`/`connect-src` stay permissive enough not to break the UI
+ * (Radix/framer inline styles, Supabase/Sentry/provider calls) — TUNE against a
+ * packaged smoke-test before relying on it.
+ *
+ * WORKERS (the gap this used to have, and the reason it now matches `script`):
+ * a dedicated worker does NOT inherit its owner document's CSP — it takes the
+ * policy from its OWN script response. This handler only matched mainFrame /
+ * subFrame, so `whisper-worker` ran with no policy at all and `eval()` was free
+ * inside it, while the docstring claimed A13/M-6 coverage it did not have.
+ *
+ * Electron's WebRequest has no `worker` resourceType, so a module worker's
+ * script arrives as `script` (or `other`). Matching those is safe rather than
+ * broad: a CSP header on an ordinary subresource script response is IGNORED by
+ * the renderer — only documents and worker scripts honour their own response
+ * policy — so widening changes behaviour for workers and nothing else.
+ * `'wasm-unsafe-eval'` stays because it is what lets onnxruntime-web compile its
+ * WASM backend; removing it would break on-device voice, which is worse than the
+ * gap being closed. ATLARIX_DEBUG_CSP=1 logs what actually matched, so the
+ * resourceType can be confirmed on a real packaged run instead of assumed.
  */
 function installContentSecurityPolicy(): void {
   if (!app.isPackaged) return;
@@ -323,11 +341,16 @@ function installContentSecurityPolicy(): void {
     "base-uri 'self'",
     "form-action 'self'",
   ].join("; ");
+  const debugCsp = process.env.ATLARIX_DEBUG_CSP === "1";
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
-    const isAppDocument =
-      (details.resourceType === "mainFrame" || details.resourceType === "subFrame") &&
-      /^file:\/\//i.test(details.url);
-    if (!isAppDocument) {
+    const isOurFileUrl = /^file:\/\//i.test(details.url);
+    const isPolicyTarget = isCspPolicyTarget(details.resourceType, details.url);
+    if (debugCsp && isOurFileUrl) {
+      log.info(
+        `[csp] ${isPolicyTarget ? "APPLY" : "skip "} resourceType=${details.resourceType} url=${details.url.slice(-80)}`,
+      );
+    }
+    if (!isPolicyTarget) {
       callback({ responseHeaders: details.responseHeaders });
       return;
     }

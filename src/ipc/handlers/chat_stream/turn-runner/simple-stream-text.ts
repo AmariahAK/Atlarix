@@ -28,13 +28,7 @@ import {
   reasoningTokensFromAiUsage,
   totalTokensFromAiUsage,
 } from "@/lib/usage/ai-usage";
-import {
-  COMPASS_REACHABILITY_ERROR,
-  compassAuthExpiredUserMessage,
-  compassBadRequestUserMessage,
-  compassExhaustedUserMessage,
-  coreUnavailableUserMessage,
-} from "@/ipc/shared/compass_constants";
+import { classifyCompassFailure } from "@/lib/chat/compass-failure-classifier";
 import {
   getNativeWebSearchSupport,
   reservedNativeToolNames,
@@ -822,29 +816,11 @@ export async function simpleStreamText(
                   logger.error(
                     `[compass] upstream failure status=${statusCode ?? "none"} body=${bodyStr.slice(0, 800)}`,
                   );
-                  if (statusCode === 402 || /insufficient_credit/.test(bodyStr)) {
-                    // The user's own credit is used up (proxy pre-flight reserve gate).
-                    message = compassExhaustedUserMessage();
-                  } else if (statusCode === 503 || /core_unavailable/.test(bodyStr)) {
-                    // Core is down on OUR side; the proxy already alerted the owner.
-                    message = coreUnavailableUserMessage();
-                    isCompassInfraError = true;
-                  } else if (statusCode === 401 || statusCode === 403) {
-                    // The proxy rejected our bearer token. Retrying cannot help and
-                    // "we can't reach Core" sends the user to the wrong place — the
-                    // fix is a fresh session, not a retry.
-                    message = compassAuthExpiredUserMessage();
-                  } else if (statusCode === 400 || statusCode === 422) {
-                    // A genuine request-level problem the proxy passed through
-                    // (context length, an unsupported parameter, a bad tool schema).
-                    // Surface what the provider actually said — it is the only thing
-                    // that makes this diagnosable.
-                    message = compassBadRequestUserMessage(bodyStr);
-                    isCompassInfraError = true;
-                  } else {
-                    message = COMPASS_REACHABILITY_ERROR;
-                    isCompassInfraError = true;
-                  }
+                  // Ordering lives in the classifier, where it is tested — a ban
+                  // arrives as 403 and MUST NOT be reported as an expired session.
+                  const classified = classifyCompassFailure(statusCode, bodyStr);
+                  message = classified.message;
+                  isCompassInfraError = classified.isCompassInfraError;
                 } else {
                   message = modelFailureUserMessage(message);
                 }

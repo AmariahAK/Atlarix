@@ -13,6 +13,7 @@ import log from 'electron-log';
 import {
     getSession,
     getUserPlan,
+    isUserBanned,
     getEffectiveTier,
     invalidatePlanCaches,
     signInWithOAuth,
@@ -39,6 +40,13 @@ export interface UserSession {
     plan: UserPlan;
     /** Effective tier — always equals `plan` since the Team tier was removed. */
     effectiveTier?: UserPlan;
+    /**
+     * True when this account is banned. Scope: Atlarix Core + the account. The
+     * user's own API keys and local models are NOT blocked, and the UI says so —
+     * the app runs offline by design, so claiming otherwise would be a promise we
+     * cannot keep. The hard stop is the proxy's 403.
+     */
+    banned?: boolean;
 }
 
 // ============================================
@@ -64,6 +72,8 @@ export type AuthResolvedPayload = {
         avatar?: string;
         plan: UserPlan;
         effectiveTier: UserPlan;
+        /** Banned from Atlarix Core and the account. Never carries the reason. */
+        banned?: boolean;
     } | null;
     plan: UserPlan;
 };
@@ -87,6 +97,7 @@ export function buildAuthResolvedPayload(
             avatar: session.avatar,
             plan: session.plan,
             effectiveTier: session.effectiveTier ?? session.plan,
+            banned: session.banned ?? false,
         },
         plan: session.plan,
     };
@@ -190,9 +201,13 @@ export class SubscriptionManager {
         // guard covers the rest so identity always survives.
         let plan: UserPlan = 'free';
         let effectiveTier: UserPlan = 'free';
+        let banned = false;
         try {
             plan = await getUserPlan(user.id);
             effectiveTier = await getEffectiveTier(user.id, plan);
+            // Same try block on purpose: identity must survive an entitlement
+            // failure, and `isUserBanned` already fails open on its own errors.
+            banned = await isUserBanned(user.id);
         } catch (err) {
             logger.warn(
                 '[SubscriptionManager] Plan lookup failed — keeping the session, defaulting to free:',
@@ -207,6 +222,7 @@ export class SubscriptionManager {
             avatar,
             plan,
             effectiveTier,
+            banned,
         };
 
         this.cachedWorkspaceCount = null; // Clear cache
@@ -404,7 +420,11 @@ export class SubscriptionManager {
             }
             this.realtimeSubscribedEmail = email;
             this.realtimeCleanup = subscribeToPlanChanges(email, async (newData, oldData) => {
-                const fp = `${newData.plan}|${newData.subscriptionStatus ?? ""}|${newData.subscriptionEndsAt ?? ""}|${newData.effectiveTier ?? ""}`;
+                // `banned` MUST be in the fingerprint: without it a ban landing
+                // within 2s of any other plan write is deduped away and never
+                // reaches the session, which is the one change here that must
+                // never be dropped.
+                const fp = `${newData.plan}|${newData.subscriptionStatus ?? ""}|${newData.subscriptionEndsAt ?? ""}|${newData.effectiveTier ?? ""}|${newData.banned ? "banned" : ""}`;
                 const now = Date.now();
                 if (fp === this.lastPlanFingerprint && now - this.lastPlanFingerprintAt < 2000) {
                     return;
@@ -425,6 +445,7 @@ export class SubscriptionManager {
                         ...this.session,
                         plan: newData.plan,
                         effectiveTier: newData.effectiveTier ?? newData.plan,
+                        banned: newData.banned ?? this.session.banned ?? false,
                     };
 
                     try {
@@ -441,6 +462,17 @@ export class SubscriptionManager {
                         subscriptionStatus: newData.subscriptionStatus,
                         subscriptionEndsAt: newData.subscriptionEndsAt,
                     });
+                    // The plan broadcast carries no ban field, so push the session
+                    // state too — this is what makes a live client react to a ban
+                    // instead of waiting for the next sign-in.
+                    if (newData.banned !== oldData.banned) {
+                        // `broadcastPlanChanged` above carries no ban field, and
+                        // `auth:resolved`'s payload is the one the renderer applies
+                        // DIRECTLY instead of re-invoking checkSession — which
+                        // matters here precisely because useAuth is unshared across
+                        // ~22 consumers.
+                        this.broadcastAuthResolved();
+                    }
                 }
             });
         })();

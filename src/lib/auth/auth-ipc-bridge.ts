@@ -29,6 +29,8 @@ export type AuthResolvedPayload = {
     avatar?: string;
     plan?: "free" | "pro";
     effectiveTier?: "free" | "pro";
+    /** Banned from Atlarix Core + the account. Never carries the reason. */
+    banned?: boolean;
   } | null;
   plan?: "free" | "pro";
 };

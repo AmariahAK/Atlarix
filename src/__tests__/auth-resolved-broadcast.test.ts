@@ -49,6 +49,9 @@ describe("auth:resolved payload", () => {
         avatar: undefined,
         plan: "pro",
         effectiveTier: "pro",
+        // Ban state rides this payload: it is what a live client applies directly
+        // when an account is banned mid-session, rather than at next sign-in.
+        banned: false,
       },
       plan: "pro",
     });
