@@ -555,6 +555,10 @@ export async function runSubagent(
       const rolling = makeRollingEmitter(emit, delegationId, round);
       currentRolling = rolling;
       const stream = streamText({
+        // Same reason as the main turn (see simple-stream-text.ts): ai@7 rejects
+        // system messages inside `messages`, and this shares the very same
+        // cache-breakpoint builder, so it needs the same permission.
+        allowSystemInMessages: true,
         model: modelClient.model,
         abortSignal: args.abortSignal,
         messages: buildStreamMessagesWithCacheBreakpoints({
@@ -580,7 +584,7 @@ export async function runSubagent(
             : undefined,
       } as Parameters<typeof streamText>[0]);
 
-      for await (const part of stream.fullStream) {
+      for await (const part of stream.stream) {
         const p = part as { type: string; text?: string };
         if (p.type === "reasoning-delta" && p.text) {
           rolling.pushReasoning(p.text);

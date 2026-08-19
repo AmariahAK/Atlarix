@@ -1,7 +1,7 @@
 /**
  * v12 0.2 — typed tool outputs (AI SDK v5 `toModelOutput`).
  *
- * Maps selected tool results to `LanguageModelV2ToolResultOutput` so providers
+ * Maps selected tool results to `ToolResultOutput` so providers
  * receive native multimodal tool results instead of JSON-stringified text.
  * Consumers: browser screenshots (browser_inspect mode:"screenshot" /
  * legacy browser_screenshot) and — since W4 (v14.8.11) — user-attached images
@@ -18,7 +18,11 @@
  * raw base64.
  */
 
-import type { LanguageModelV2ToolResultOutput } from "@ai-sdk/provider";
+// v7: the SDK's tool-result union moved to `@ai-sdk/provider-utils` and lost its
+// spec-version prefix. Structurally the same shapes we already emit
+// (`text` | `content` with text/file parts), so this is a name change, not a
+// behaviour one — and being spec-version-agnostic, it survives the next bump.
+import type { ToolResultOutput } from "@ai-sdk/provider-utils";
 import {
   providerSupportsToolMedia,
   detectVisionCapability,
@@ -88,7 +92,7 @@ export function buildToolModelOutput(
   _toolName: string,
   output: unknown,
   ctx: { builtinProviderId?: string; modelApiId?: string },
-): LanguageModelV2ToolResultOutput | undefined {
+): ToolResultOutput | undefined {
   // W4: the shape check IS the gate (a v13.8 comment already called it "the
   // real gate") — the old browser_inspect/browser_screenshot name allowlist
   // kept read_attachment images out of the media path entirely.
@@ -100,7 +104,16 @@ export function buildToolModelOutput(
       type: "content",
       value: [
         { type: "text", text: imageCaption(media) },
-        { type: "media", data: media.data, mediaType: media.mediaType },
+        // v7 replaced the flat `{ type: "media", data, mediaType }` part with a
+        // `file` part whose data is a TAGGED union, so the provider can tell raw
+        // bytes from a URL or an uploaded reference. `{ type: "data" }` is the
+        // base64 case we emit. The older `file-data` spelling still exists but is
+        // deprecated — this is the form to keep.
+        {
+          type: "file",
+          mediaType: media.mediaType,
+          data: { type: "data", data: media.data },
+        },
       ],
     };
   }

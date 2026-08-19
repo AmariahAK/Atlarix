@@ -296,13 +296,22 @@ export function registerMcpHandlers() {
         const client = await mcpManager.getClient(serverId);
         const remoteTools = await client.tools();
         const tools = await Promise.all(
-          Object.entries(remoteTools).map(
-            async ([name, tool]: [string, { description?: string }]) => ({
-              name,
-              description: tool.description ?? null,
-              consent: await getStoredConsent(serverId, name),
-            }),
-          ),
+          // The tuple used to be annotated `[string, { description?: string }]`.
+          // v7's `Tool` is a wide union (executable / provider-defined / dynamic /
+          // approval variants), and a hand-written stand-in no longer matches any
+          // member. Inference reads `description` off the real type, so the
+          // annotation was only ever a way to go stale.
+          Object.entries(remoteTools).map(async ([name, tool]) => ({
+            name,
+            // v7 lets a tool's `description` be a FUNCTION of call context, not just
+            // a string. This list is the consent UI — rendered with no call in
+            // flight — so there is no context to resolve one against. Take the
+            // string form when there is one and fall back to null, which the UI
+            // already handles, rather than inventing a context to invoke it with.
+            description:
+              typeof tool.description === "string" ? tool.description : null,
+            consent: await getStoredConsent(serverId, name),
+          })),
         );
         return { tools };
       } catch (e) {

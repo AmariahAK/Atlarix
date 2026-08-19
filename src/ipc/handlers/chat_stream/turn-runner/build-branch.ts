@@ -281,7 +281,9 @@ export async function runBuildBranch(
                 // v12 0.2: typed tool outputs — screenshots become media
                 // content parts on vision providers; everything else keeps
                 // today's text behavior.
-                toModelOutput: (output: unknown) =>
+                // v7: the callback receives an options OBJECT (toolCallId, input,
+                // output) rather than the bare output. Only `output` is needed here.
+                toModelOutput: ({ output }: { output: unknown }) =>
                   buildToolModelOutput(toolName, output, {
                     builtinProviderId: modelClient.builtinProviderId,
                     modelApiId: resolveReasoningCatalogModelId(effectiveModel),

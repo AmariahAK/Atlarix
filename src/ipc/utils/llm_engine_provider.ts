@@ -8,7 +8,7 @@ import {
 import log from "electron-log";
 import { getExtraProviderOptions } from "./thinking_utils";
 import type { UserSettings } from "../../lib/schemas";
-import { LanguageModelV2, LanguageModelV3 } from "@ai-sdk/provider";
+import type { AtlarixLanguageModel } from "@/ipc/shared/provider-sdk-factories";
 
 const logger = log.scope("llm_engine_provider");
 
@@ -55,7 +55,7 @@ Creates a model for text generation.
   (
     modelId: ExampleChatModelId,
     settings?: ExampleChatSettings,
-  ): LanguageModelV2 | LanguageModelV3;
+  ): AtlarixLanguageModel;
 
   /**
 Creates a chat model for text generation.
@@ -63,7 +63,7 @@ Creates a chat model for text generation.
   chatModel(
     modelId: ExampleChatModelId,
     settings?: ExampleChatSettings,
-  ): LanguageModelV2 | LanguageModelV3;
+  ): AtlarixLanguageModel;
 }
 
 export function createAtlarixEngine(

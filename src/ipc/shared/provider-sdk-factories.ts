@@ -37,7 +37,21 @@ import { createAnthropic } from "@ai-sdk/anthropic";
 import { createGoogleGenerativeAI as createGoogle } from "@ai-sdk/google";
 import { createXai } from "@ai-sdk/xai";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
-import type { LanguageModelV2, LanguageModelV3 } from "@ai-sdk/provider";
+import type { LanguageModel } from "ai";
+
+/**
+ * A constructed model object, whatever provider-SPEC version it implements.
+ *
+ * This used to be spelled `LanguageModelV2 | LanguageModelV3`, which meant every SDK
+ * major turned into a compile error in seven files for no behavioural reason — the
+ * v6→v7 bump alone produced 22 of them, all saying `"v4" is not assignable to "v3"`.
+ * `ai`'s own `LanguageModel` already unions every spec version it accepts, so deferring
+ * to it means the next spec bump costs nothing here.
+ *
+ * `Exclude<…, string>` drops the bare model-id form: these factories return a
+ * constructed model, never an id for the SDK's global registry to resolve.
+ */
+export type AtlarixLanguageModel = Exclude<LanguageModel, string>;
 
 /** The generic wire format — also the fallback for any unmapped `npm`. */
 export const OPENAI_COMPATIBLE_NPM = "@ai-sdk/openai-compatible";
@@ -56,7 +70,7 @@ export interface ProviderFactoryInput {
 
 export type ProviderSdkFactory = (
   input: ProviderFactoryInput,
-) => LanguageModelV2 | LanguageModelV3;
+) => AtlarixLanguageModel;
 
 /**
  * Factories for the SDKs this app actually bundles. Keyed by the exact `npm` string
@@ -126,6 +140,6 @@ export function resolveProviderSdkFactory(
  */
 export function createModelFromCatalog(
   input: ProviderFactoryInput & { npm?: string },
-): LanguageModelV2 | LanguageModelV3 {
+): AtlarixLanguageModel {
   return resolveProviderSdkFactory(input.npm)(input);
 }

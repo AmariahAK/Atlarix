@@ -138,8 +138,16 @@ export interface TurnRuntime {
     onStreamActivityPulse?: () => void;
     sanitizeTextDelta?: (text: string) => string;
   }): Promise<{
-    // ai@6: streamText getters are PromiseLike, not Promise.
-    bundle: { response: PromiseLike<{ messages: ModelMessage[] }> };
+    // ai@6+: streamText getters are PromiseLike, not Promise.
+    //
+    // `responseMessages` is the ACCUMULATED assistant/tool messages for the whole
+    // call. ai@7 deprecated top-level `response` to mean `finalStep.response`, so
+    // reading `response.messages` here silently yielded only the last step —
+    // dropping the native tool exchange whenever the final step was plain text.
+    bundle: {
+      response: PromiseLike<{ messages: ModelMessage[] }>;
+      responseMessages: PromiseLike<ModelMessage[]>;
+    };
     fullResponse: string;
     finishReason: unknown;
     /** Set when the round stalled after completing ≥1 step: resume from these
@@ -499,8 +507,11 @@ export async function runAgentTurn(
         continue;
       }
 
-      const resp = await bundle.response;
-      const respMsgs = resp.messages as ModelMessage[];
+      // ai@7: take the ACCUMULATED response messages, not `response.messages`.
+      // The latter now resolves to the FINAL STEP only, so a turn whose tool call
+      // ran in an earlier step lost its native tool exchange entirely — turn 2
+      // then carried no `role:"tool"` history (caught by native-history B2).
+      const respMsgs = (await bundle.responseMessages) as ModelMessage[];
       finalRoundRespMsgs = respMsgs;
 
       if (

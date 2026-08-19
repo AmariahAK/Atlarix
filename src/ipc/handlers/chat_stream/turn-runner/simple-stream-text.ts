@@ -10,7 +10,7 @@
 
 import log from "electron-log";
 import type { IpcMainInvokeEvent } from "electron";
-import { streamText, stepCountIs } from "ai";
+import { streamText, isStepCount } from "ai";
 import type { ModelMessage, ToolSet } from "ai";
 import type {
   SmartContextMode,
@@ -464,6 +464,23 @@ export async function simpleStreamText(
               otherToolOutput: 0,
             };
             const streamResult = streamText({
+              // ai@7 REJECTS `role: "system"` inside `messages` by default —
+              // "Invalid prompt: System messages are not allowed…" — which failed
+              // 65 evals on the v6→v7 bump. That layout is deliberate, not
+              // incidental: `buildStreamMessagesWithCacheBreakpoints` places the
+              // system header and the per-turn tail as MESSAGES precisely so the
+              // header keeps a stable prefix and the tail stops invalidating the
+              // provider prompt cache every turn (v10.1), with Anthropic
+              // cache-control riding on those parts.
+              //
+              // Re-permitting it keeps that layout byte-for-byte, which is what
+              // makes this safe to verify: `[prompt-cache] read=` must be
+              // unchanged. Moving the header into v7's `instructions` (which does
+              // accept `Array<SystemModelMessage>`, so breakpoints could survive)
+              // is the aligned end state, but it is a prompt-cache change and
+              // belongs in its own commit with its own measurement — not smuggled
+              // into an SDK bump.
+              allowSystemInMessages: true,
               headers: isAnthropic
                 ? {
                   "anthropic-beta": "context-1m-2025-08-07",
@@ -487,7 +504,7 @@ export async function simpleStreamText(
               // spinning unbounded — undefined leaves headless/ask uncapped.
               stopWhen:
                 typeof maxStepsPerRound === "number" && maxStepsPerRound > 0
-                  ? [stepCountIs(maxStepsPerRound)]
+                  ? [isStepCount(maxStepsPerRound)]
                   : [() => false],
               // v12 0.1 close-out: mid-round correction reinject. Repetition
               // corrections are queued inside the SDK's multi-step inner loop
@@ -629,7 +646,10 @@ export async function simpleStreamText(
               providerOptions,
               tools: effectiveTools,
               messages: streamMessages,
-              onStepFinish: async (step) => {
+              // ai@7 renamed these; the old names still work but are deprecated,
+              // and the callback TYPES are identical aliases, so this is a rename
+              // and nothing else.
+              onStepEnd: async (step) => {
                 // Capture this step's native messages for stall-resume BEFORE any
                 // provider-specific early return below.
                 recordStepMessages(
@@ -695,7 +715,7 @@ export async function simpleStreamText(
                   completedStepMessages.push(...fromAbort);
                 }
               },
-              onFinish: (response) => {
+              onEnd: (response) => {
                 const rt = reasoningTokensFromAiUsage(response.usage);
                 if (typeof rt === "number") {
                   ctx.maxReasoningTokensUsed = Math.max(ctx.maxReasoningTokensUsed ?? 0, rt);
@@ -922,10 +942,23 @@ export async function simpleStreamText(
               "chat_stream",
             );
             return {
-              fullStream: streamResult.fullStream,
+              // `fullStream` is the deprecated spelling of `stream` in ai@7 (same
+              // type). Our own bundle key stays `fullStream` so consumers are
+              // untouched — only the SDK-side read moves.
+              fullStream: streamResult.stream,
               usage: streamResult.usage,
               finishReason: streamResult.finishReason,
               response: streamResult.response,
+              /**
+               * ai@7: the ACCUMULATED assistant/tool messages for the whole call.
+               *
+               * `response.messages` used to carry these. In v7 the top-level
+               * `response` is deprecated and resolves to `finalStep.response`, so
+               * it holds only the LAST step's messages — which silently dropped
+               * turn-1's native tool exchange whenever the final step was plain
+               * text, and broke native-history folding (B1/B2) across turns.
+               */
+              responseMessages: streamResult.responseMessages,
               /** Completed-step native messages captured for stall-resume.
                * Snapshot (not live) so a later read can't see post-abort mutation. */
               getResumeMessages: (): ModelMessage[] => completedStepMessages.slice(),

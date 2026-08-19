@@ -97,7 +97,7 @@ export function registerHelpBotHandlers() {
 
         (async () => {
           try {
-            for await (const part of stream.fullStream) {
+            for await (const part of stream.stream) {
               if (abortController.signal.aborted) break;
 
               if (part.type === "text-delta") {

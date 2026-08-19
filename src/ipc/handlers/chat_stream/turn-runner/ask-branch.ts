@@ -298,7 +298,9 @@ export async function runAskBranch(
                   ),
                 ) as never,
                 // v12 0.2: typed tool outputs (screenshot media / text fallback).
-                toModelOutput: (output: unknown) =>
+                // v7: the callback receives an options OBJECT (toolCallId, input,
+                // output) rather than the bare output. Only `output` is needed here.
+                toModelOutput: ({ output }: { output: unknown }) =>
                   buildToolModelOutput(tool.name, output, {
                     builtinProviderId: modelClient.builtinProviderId,
                     modelApiId: resolveReasoningCatalogModelId(effectiveModel),

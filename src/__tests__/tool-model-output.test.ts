@@ -54,10 +54,14 @@ describe("buildToolModelOutput", () => {
         type: "text",
         text: expect.stringContaining("https://example.com/docs"),
       });
+      // ai@7 replaced the flat `media` part with a `file` part whose data is a
+      // TAGGED union, so a provider can tell raw bytes from a URL or an uploaded
+      // reference. Same bytes, same media type — a shape change, not a
+      // capability one.
       expect(value[1]).toEqual({
-        type: "media",
-        data: FAKE_PNG_B64,
+        type: "file",
         mediaType: "image/png",
+        data: { type: "data", data: FAKE_PNG_B64 },
       });
     }
   });
@@ -119,9 +123,9 @@ describe("buildToolModelOutput", () => {
     const value = (out as any).value;
     expect(value[0].text).toContain("diagram.png");
     expect(value[1]).toEqual({
-      type: "media",
-      data: FAKE_PNG_B64,
+      type: "file",
       mediaType: "image/png",
+      data: { type: "data", data: FAKE_PNG_B64 },
     });
   });
 

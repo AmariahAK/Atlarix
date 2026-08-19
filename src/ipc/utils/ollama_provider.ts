@@ -1,7 +1,7 @@
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import type { FetchFunction } from "@ai-sdk/provider-utils";
 import { withoutTrailingSlash } from "@ai-sdk/provider-utils";
-import type { LanguageModelV2, LanguageModelV3 } from "@ai-sdk/provider";
+import type { AtlarixLanguageModel } from "@/ipc/shared/provider-sdk-factories";
 
 type OllamaChatModelId = string;
 
@@ -22,7 +22,7 @@ export interface OllamaProvider {
   (
     modelId: OllamaChatModelId,
     settings?: OllamaChatSettings,
-  ): LanguageModelV2 | LanguageModelV3;
+  ): AtlarixLanguageModel;
 }
 
 export function createOllamaProvider(

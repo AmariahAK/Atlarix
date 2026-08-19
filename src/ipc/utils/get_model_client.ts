@@ -4,7 +4,7 @@ import { createAnthropic } from "@ai-sdk/anthropic";
 import { createXai } from "@ai-sdk/xai";
 import { createVertex as createGoogleVertex } from "@ai-sdk/google-vertex";
 import { createAzure } from "@ai-sdk/azure";
-import { LanguageModelV2, LanguageModelV3 } from "@ai-sdk/provider";
+import type { AtlarixLanguageModel } from "@/ipc/shared/provider-sdk-factories";
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import { OPENROUTER_APP_HEADERS } from "../shared/openrouter_app_headers";
 import {
@@ -64,7 +64,7 @@ export interface ModelClient {
   // ai@6: v3-spec providers are the norm; the two custom V2 adapters
   // (elastic/cohere) run via the SDK's compat wrapper, so both spec
   // versions are valid here.
-  model: LanguageModelV2 | LanguageModelV3;
+  model: AtlarixLanguageModel;
   builtinProviderId?: string;
 }
 
