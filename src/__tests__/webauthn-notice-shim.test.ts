@@ -1,9 +1,16 @@
 /**
  * The passkey notice shim reports, and otherwise keeps its hands off the page.
  *
- * On Windows and Linux there is no WebAuthn support (`app.configureWebAuthn` is
- * macOS-only), so `navigator.credentials.get({publicKey})` returns a promise that
- * never settles and the tab just sits there. This shim makes that visible.
+ * On Windows and Linux the PLATFORM authenticator is unavailable
+ * (`app.configureWebAuthn` is macOS-only), so a request that resolves to it returns
+ * a promise that never settles and the tab just sits there. This shim makes that
+ * visible.
+ *
+ * What it must NOT do is overstate that. ROAMING authenticators — a USB security
+ * key, or a phone over hybrid/QR — go through Chromium and work on every platform,
+ * so a request that explicitly asks for one gets no notice at all. The first
+ * version reported on every `publicKey` call and told those users to go and use a
+ * different browser, which was false.
  *
  * It is injected as a STRING via `executeJavaScript`, which is why it is tested
  * this way: a syntax error inside an injected string does not fail a build, does
@@ -85,6 +92,60 @@ describe("WEBAUTHN_NOTICE_SCRIPT", () => {
     await navigator.credentials.get({ publicKey: { challenge: 2 } });
     await navigator.credentials.create({ publicKey: { challenge: 3 } });
     expect(logged).toHaveLength(1);
+  });
+
+  it("stays SILENT when the site explicitly asks for a roaming authenticator", async () => {
+    // A security key or phone works on every platform, including the ones where
+    // the platform authenticator does not. The first version of this shim reported
+    // regardless and told those users to go and use a different browser.
+    const { logged, navigator } = installShim();
+    await navigator.credentials.create({
+      publicKey: { authenticatorSelection: { authenticatorAttachment: "cross-platform" } },
+    });
+    await navigator.credentials.get({
+      publicKey: { allowCredentials: [{ id: "x", transports: ["usb", "nfc"] }] },
+    });
+    expect(logged).toEqual([]);
+  });
+
+  it("still reports when the platform authenticator is explicitly required", async () => {
+    const { logged, navigator } = installShim();
+    await navigator.credentials.create({
+      publicKey: { authenticatorSelection: { authenticatorAttachment: "platform" } },
+    });
+    expect(logged).toHaveLength(1);
+  });
+
+  it("still reports when the request says NOTHING — it may resolve to the platform", async () => {
+    // Unstated is the common case and the ambiguous one. Silence here would hide a
+    // real dead end, so the shim only goes quiet on an explicit roaming request.
+    const { logged, navigator } = installShim();
+    await navigator.credentials.get({ publicKey: { challenge: 1 } });
+    expect(logged).toHaveLength(1);
+  });
+
+  it("reports when allowCredentials mixes internal with roaming transports", async () => {
+    // One `internal` entry means the platform path is in play, so the notice stands.
+    const { logged, navigator } = installShim();
+    await navigator.credentials.get({
+      publicKey: {
+        allowCredentials: [
+          { id: "a", transports: ["usb"] },
+          { id: "b", transports: ["internal"] },
+        ],
+      },
+    });
+    expect(logged).toHaveLength(1);
+  });
+
+  it("does not promise that passkeys are unavailable outright", async () => {
+    // The message must not tell a Windows/Linux user to leave: a security key or
+    // phone may still work, and only the DEVICE-STORED passkey is unavailable.
+    const { logged, navigator } = installShim();
+    await navigator.credentials.get({ publicKey: { challenge: 1 } });
+    const parsed = tryParseErrorSentinel(logged[0]!)!;
+    expect(parsed.message).toMatch(/stored on this device/i);
+    expect(parsed.message).toMatch(/security key|phone/i);
   });
 
   it("stays silent for password and federated credentials, which are unaffected", async () => {

@@ -9,14 +9,21 @@
 nothing at all — the page would ask, and Atlarix's browser would sit there, which looked like the
 browser was broken rather than like a feature that was missing. It now uses Touch ID properly. To be
 precise about what that means: these passkeys live in this Mac's Secure Enclave and are not synced
-through iCloud Keychain, and Windows and Linux have no equivalent yet. On those, a passkey prompt now
-tells you it cannot work here and to open the page in your normal browser, instead of hanging with no
-explanation. If a site offers several saved accounts, Atlarix declines rather than guessing which one
-you meant.
+through iCloud Keychain. Windows and Linux have no equivalent for a passkey stored on the device, but
+a security key or your phone still works there — and if a site asks for one of those, Atlarix now
+stays out of the way entirely. Where a device-stored passkey genuinely can't be used, it says so
+instead of hanging with no explanation. When a site has several passkeys saved, it asks which account
+you want rather than giving up.
 
 **The browser underneath is five major versions newer.** Atlarix was running a Chromium that stopped
 receiving security fixes some time ago. It now runs the current one, which also starts faster — the
 app boots from a prebuilt snapshot and caches its startup scripts as compiled bytecode.
+
+**A large amount of machinery underneath is now current.** The AI toolkit Atlarix uses to talk to
+every model provider, the build system, and the type checker all moved up a major version — around
+fifteen packages in total. None of it changes what the app does, which is the point: it keeps Atlarix
+on versions that still receive fixes, and it removed a handful of quiet faults on the way, including
+one where a scheduled automation could never have found the helper it needed to run.
 
 **Fewer ways to be attacked through a file you were sent.** Production security advisories went from
 54 to 28, and the two most severe are gone. The spreadsheet reader was the notable one: the library

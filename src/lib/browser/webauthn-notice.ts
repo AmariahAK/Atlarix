@@ -23,11 +23,23 @@
  */
 import { ERROR_SENTINEL } from "./error-hook";
 
-/** How the limitation is described, in one line, to both the user and the model. */
+/**
+ * How the limitation is described, in one line, to both the user and the model.
+ *
+ * Says DEVICE-STORED deliberately. The first version of this said "Passkey sign-in
+ * is not available… open this page in your normal browser", which is FALSE on
+ * Windows and Linux: only the PLATFORM authenticator needs the macOS-only
+ * `app.configureWebAuthn`. Roaming authenticators — a USB security key, or a phone
+ * over the hybrid/QR flow — go through Chromium and should work there already
+ * (Electron's own `select-webauthn-account` docs note the event "may also fire on
+ * other platforms when a roaming FIDO2 authenticator returns multiple discoverable
+ * credentials"). Telling those users to leave was steering them off a path that
+ * works.
+ */
 export const WEBAUTHN_UNSUPPORTED_MESSAGE =
-  "Passkey sign-in is not available in Atlarix's browser on this platform " +
-  "(Touch ID is macOS-only). Open this page in your normal browser to use a " +
-  "passkey, or choose another sign-in method.";
+  "A passkey stored on this device can't be used in Atlarix's browser here " +
+  "(that needs Touch ID, which is macOS-only). A security key or your phone may " +
+  "still work — otherwise open this page in your normal browser.";
 
 /**
  * Injected per document, exactly like ERROR_HOOK_SCRIPT, and injected ONLY where
@@ -40,6 +52,13 @@ export const WEBAUTHN_UNSUPPORTED_MESSAGE =
  *   and a flood would push real errors out of the buffer),
  * - only for `publicKey` requests — `navigator.credentials` also serves password
  *   and federated credentials, which are unaffected and must stay silent,
+ * - and only when the request could ACTUALLY be blocked. A site that explicitly
+ *   asks for a roaming authenticator should succeed on every platform, so a notice
+ *   there is pure noise. `create()` states that as
+ *   `authenticatorSelection.authenticatorAttachment`; `get()` has no such field, so
+ *   the equivalent signal is `allowCredentials` whose transports are all non-
+ *   `internal` (usb / nfc / ble / hybrid). Anything unstated stays reported,
+ *   because an unstated request MAY resolve to the platform authenticator.
  * - the original method is called with the original arguments and its result
  *   returned untouched, so the page's behaviour is unchanged,
  * - the whole thing is wrapped so a failure here can never break the page.
@@ -65,12 +84,37 @@ export const WEBAUTHN_NOTICE_SCRIPT = `(() => {
         }));
       } catch (e) {}
     }
+    // True when the site has SAID it wants a roaming authenticator (security key
+    // or phone). Those work here, so stay quiet. Unstated => still reported,
+    // because it may resolve to the platform authenticator, which does not.
+    function wantsRoamingOnly(pk) {
+      try {
+        var sel = pk.authenticatorSelection;
+        if (sel && sel.authenticatorAttachment) {
+          return sel.authenticatorAttachment === "cross-platform";
+        }
+        var allow = pk.allowCredentials;
+        if (allow && allow.length) {
+          // Every listed credential must declare transports, none of them
+          // "internal" — one internal entry means the platform path is in play.
+          return allow.every(function (c) {
+            return (
+              c && c.transports && c.transports.length &&
+              c.transports.indexOf("internal") === -1
+            );
+          });
+        }
+      } catch (e) {}
+      return false;
+    }
     ["get", "create"].forEach(function (name) {
       var original = creds[name];
       if (typeof original !== "function") return;
       creds[name] = function (options) {
         // Only a WebAuthn request; password/federated credentials are unaffected.
-        if (options && options.publicKey) report();
+        if (options && options.publicKey && !wantsRoamingOnly(options.publicKey)) {
+          report();
+        }
         return original.apply(creds, arguments);
       };
     });

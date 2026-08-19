@@ -14,15 +14,41 @@ from 54 to 28.
 
 ## 🔨 In flight — landed, not yet released
 
-**v14.35.0 is unreleased and untagged, and the `migration` branch now sits on top of it** with the
-four spec-line majors. Decide at merge whether they ship as ONE release or whether the branch takes
-its own version — neither has shipped, so either is honest.
+**v14.35.0 is unreleased and untagged, and now contains everything below** — the Electron 43 work
+AND the four spec-line majors, merged fast-forward from `migration` and shipping as ONE release.
 
 **Electron 43 + passkeys + the dependency/security sweep.** Full suite green, and
 **`self-test:packaged` PASSES 9/9 on macOS** — including the new `sqlite` probe reporting
 `better-sqlite3 ok (sqlite 3.53.2, ABI 148)`, which is the Electron 43 native rebuild proving itself
 in the packaged app. **Still owed: a CI-SIGNED build (local packages are ad-hoc signed, so passkeys
 cannot be exercised here at all), and Windows + Linux.**
+
+### Passkeys, corrected — the notice was wrong on Windows and Linux
+
+Shipped on `main` after the merge. The v14.35.0 implementation told every Windows/Linux user
+"Passkey sign-in is not available… open this page in your normal browser", **which is false.**
+
+**Only the PLATFORM authenticator needs the macOS-only `app.configureWebAuthn`.** Roaming
+authenticators — a USB security key, or a phone over the hybrid/QR flow — go through Chromium and
+work on every platform; Electron's own `select-webauthn-account` docs say the event "may also fire on
+other platforms when a roaming FIDO2 authenticator returns multiple discoverable credentials". The
+notice was steering users off a path that works.
+
+- The message now says a passkey **stored on this device** is unavailable and that a security key or
+  phone may still work.
+- It is **suppressed entirely** for a request that explicitly asks for roaming —
+  `authenticatorSelection.authenticatorAttachment === "cross-platform"` on `create()`, or an
+  `allowCredentials` list whose transports are all non-`internal` on `get()`. **Anything UNSTATED is
+  still reported**, because an unstated request may resolve to the platform authenticator; going
+  quiet there would hide a real dead end.
+- The chooser no longer declines. Several credentials now raise a native `dialog.showMessageBox`
+  list (`displayName` → `name` → positional). **The callback contract is the dangerous part** —
+  Electron holds the credential request open until it runs, exactly once, so it fires from a
+  `finally` and a dialog that throws declines rather than hanging. That is the same failure class as
+  the approval card that hung a turn for ten minutes, so it is pinned by its own test.
+
+**Still not verifiable locally:** ad-hoc-signed builds strip the entitlement, so all of this needs a
+CI-signed build plus the Windows/Linux machine.
 
 ### `migration` branch — the spec-line majors (4 commits, all green)
 
@@ -86,8 +112,14 @@ It also found dead code 5.x accepted for years:
 isolated probe rather than trusted — as worded it would have implied a `number | null` atom read is
 always null, i.e. a jotai/TS7 fault across hundreds of call sites instead of one redundant operator.
 
-**Owed before merge:** CI must resolve the **win32 and linux** TS 7 platform binaries (only
-darwin-arm64 is proven), plus the usual Windows/Linux packaged pass.
+**Owed:** CI must resolve the **win32 and linux** TS 7 platform binaries (only darwin-arm64 is
+proven), plus the usual Windows/Linux packaged pass.
+
+**New warning to deal with before it becomes an error:** vite 8 prints
+*"Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned
+to become the default"* — `vitest.config.ts` uses ESM syntax while being loaded as CommonJS. Harmless
+today, fatal when that default flips. Fix is a `.mjs` extension or `"type": "module"`; both touch how
+every config in the repo is loaded, so it wants its own change rather than a drive-by.
 
 ### Electron 38 → 43 — what was actually true
 
@@ -314,14 +346,18 @@ chat-stream path (`ipc_client.ts:458`) is easy to miss and delivers the same eve
   Surfaced as `stream-transport-contract.eval` flaking under load while passing in isolation.
 
 **OWED before release:**
-- [ ] **Packaged-app pass on macOS.** `self-test:packaged` must report **9 probes** including the new
-      `sqlite` one. Then LAUNCH the app normally — the self-test never reaches `whenReady`, so it
-      cannot tell you `configureWebAuthn` worked; a window appearing at all is the check that the
-      SIGTRAP is gone. Then a real passkey on a SIGNED build (Touch ID cannot be exercised from
-      `npm start`; read `main.log` for `[webauthn] Touch ID configured` before blaming the site,
-      because a failure here looks identical to the old bug).
-- [ ] **Windows + Linux** — the same self-test, plus the passkey NOTICE appearing instead of a hang.
-      Batch with everything else already waiting on that machine.
+- [x] **Packaged-app pass on macOS — DONE.** `self-test:packaged` reports **9/9** including the new
+      `sqlite` probe (`better-sqlite3 ok (sqlite 3.53.2, ABI 148)`), re-confirmed after each
+      migration commit, and the app launches normally, so the SIGTRAP is gone.
+- [ ] **A real passkey, on a CI-SIGNED build.** Still owed and NOT doable here: `postPackage`
+      ad-hoc re-signs local darwin builds, which strips entitlements and hardened runtime, so
+      `configureWebAuthn` fails locally BY DESIGN. Read `main.log` for `[webauthn] Touch ID
+      configured` before blaming the site — a failure looks identical to the old bug.
+- [ ] **Windows + Linux** — the same self-test, plus the passkey notice being **ACCURATE**, which is
+      the real check now: it must NOT appear for a request that explicitly asks for a roaming
+      authenticator, because a USB security key or a phone over hybrid/QR should simply WORK there.
+      Verify one actually does. Only the PLATFORM authenticator is macOS-only. Batch with everything
+      else already waiting on that machine.
 - [ ] Confirm `[prompt-cache]` still shows large `read=` on later turns.
 
 ---
@@ -533,7 +569,7 @@ machine for the v14.28.0 reasons listed below, which is still the same trip.
 
 ### Windows sandbox (Low IL) — from the v14.28.0 rebuild
 - [ ] `run_command` must succeed with git under Low IL. **This is the whole point.**
-- [ ] `--self-test` → **8 probes** including `sandbox`; confirm an **info**-level
+- [ ] `--self-test` → **9 probes** (was 8 before the `sqlite` probe) including `sandbox`; confirm an **info**-level
       `Sandboxing run_command` line (it was `debug`, so only failure was ever visible).
 - [ ] `CreateProcessAsUserW` succeeds unprivileged. `ERROR_PRIVILEGE_NOT_HELD (1314)` means the
       probe reports the sandbox unusable and commands run unconfined — then implement Codex's model.

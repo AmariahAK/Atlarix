@@ -13,7 +13,13 @@
  *   envelopes by the browser tools, with the origin disclosed to the model.
  */
 
-import { WebContentsView, BrowserWindow, session, type Session } from "electron";
+import {
+  WebContentsView,
+  BrowserWindow,
+  dialog,
+  session,
+  type Session,
+} from "electron";
 
 import log from "electron-log";
 import { safeSend } from "./safe_sender";
@@ -249,22 +255,45 @@ function browserSession(): Session {
     // WebAuthn is not an Electron permission type, which is why a passkey request
     // used to hang with nothing to deny or allow.
     //
-    // One credential is answered directly; more than one needs the USER, and there
-    // is no chooser UI yet, so the callback is invoked with `null` to decline
-    // rather than silently picking an identity on their behalf. Declining is
-    // recoverable (the site offers another method); signing in as the wrong
-    // account is not. The log line is what makes the case visible if it turns out
-    // to be common enough to deserve a picker.
-    ses.on("select-webauthn-account", (_event, details, callback) => {
+    // One credential is answered directly; more than one asks the USER, because
+    // signing in as the wrong account is not recoverable the way cancelling is.
+    // This previously declined outright — a dead end, and now a worse one: the
+    // event also fires for ROAMING authenticators on Windows and Linux, so a
+    // security key holding two credentials could never be used.
+    //
+    // THE CONTRACT: Electron holds the credential request open until `callback`
+    // runs, and it must run EXACTLY ONCE. A missed call is an indefinite hang —
+    // the same failure class as the approval card that hung a turn for ten
+    // minutes — so it is invoked from `finally`, and a dialog that throws
+    // declines rather than leaving the page waiting forever.
+    ses.on("select-webauthn-account", async (_event, details, callback) => {
       const accounts = details.accounts ?? [];
-      if (accounts.length === 1) {
-        callback(accounts[0]!.credentialId);
-        return;
+      let chosen: string | null = null;
+      try {
+        if (accounts.length === 1) {
+          chosen = accounts[0]!.credentialId;
+        } else if (accounts.length > 1) {
+          const labels = accounts.map(
+            (a, i) => a.displayName || a.name || `Account ${i + 1}`,
+          );
+          const { response } = await dialog.showMessageBox({
+            type: "question",
+            title: "Choose an account",
+            message: `Sign in to ${details.relyingPartyId}`,
+            detail: "This site has more than one passkey saved here.",
+            buttons: [...labels, "Cancel"],
+            cancelId: labels.length,
+            defaultId: 0,
+            noLink: true,
+          });
+          chosen = response < labels.length ? accounts[response]!.credentialId : null;
+        }
+      } catch (e) {
+        logger.warn(`[browser] passkey chooser failed, declining: ${e}`);
+        chosen = null;
+      } finally {
+        callback(chosen);
       }
-      logger.warn(
-        `[browser] passkey: ${accounts.length} credentials for ${details.relyingPartyId} — declined (no chooser UI yet)`,
-      );
-      callback(null);
     });
     // ── webRequest: two jobs, deliberately kept apart ──────────────────────
     //
