@@ -61,6 +61,7 @@
     "check": "npm run check:ts && npm run check:lint",
     "check:ts": "node node_modules/typescript/lib/tsc.js -p tsconfig.app.json --noEmit",
     "check:lint": "oxlint src",
+    "verify:ban-guard": "node scripts/verify-ban-guard.mjs",
     "check:sandbox": "node scripts/check-sandbox-helpers.mjs"
   },
   "keywords": [

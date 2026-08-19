@@ -102,8 +102,23 @@ silently drops the `team_id` / `effective_tier` membership checks.
 
 ## Verifying the guard actually holds
 
-Worth doing once on a dev project after any change to that trigger. As a
-**signed-in test user** (not service role):
+**Locally, any time:**
+
+```bash
+npm run verify:ban-guard
+```
+
+It extracts the trigger from the migration (never a copy — see the warning above),
+loads it into a throwaway schema on a local Postgres with controllable
+`auth.role()` / `auth.uid()` stubs, and asserts both directions: `authenticated`
+cannot clear its own `banned_at`, and `service_role` still can. Skips with exit 0
+when there is no local Postgres, so it is a tool rather than a gate.
+
+It proves the trigger clause and the `is_admin` bypass. It does **not** prove
+Supabase's real RLS wiring, which is what the production check below is for.
+
+**On a real project**, after any change to that trigger. As a **signed-in test
+user** (not service role):
 
 ```sql
 update public.users set banned_at = null where id = auth.uid();
