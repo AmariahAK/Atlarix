@@ -39,6 +39,7 @@ describe("right panel — plan as a coexisting tab", () => {
       sessionId: null,
       title: null,
       changes: null,
+      pinnedPlanId: null,
     });
   });
 
@@ -59,6 +60,7 @@ describe("right panel — plan as a coexisting tab", () => {
       sessionId: "s1",
       title: "Test plan",
       changes: null,
+      pinnedPlanId: null,
     });
     renderWithProviders(<Probe />);
     expect(captured?.tabs).toContain("plan");
@@ -77,6 +79,7 @@ describe("right panel — plan as a coexisting tab", () => {
       sessionId: "s1",
       title: "Test plan",
       changes: null,
+      pinnedPlanId: null,
     });
     renderWithProviders(<Probe />);
     expect(captured?.tabs).toContain("plan");
@@ -88,6 +91,7 @@ describe("right panel — plan as a coexisting tab", () => {
       sessionId: null,
       title: null,
       changes: null,
+      pinnedPlanId: null,
     });
     renderWithProviders(<Probe />);
     expect(captured?.tabs).not.toContain("plan");

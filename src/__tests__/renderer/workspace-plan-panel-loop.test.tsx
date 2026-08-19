@@ -50,6 +50,7 @@ describe("useWorkspacePlanPanel — no infinite render", () => {
       sessionId: "sess-1",
       title: "Test plan",
       changes: null,
+      pinnedPlanId: null,
     });
     store.set(
       chatMessagesByIdAtom,

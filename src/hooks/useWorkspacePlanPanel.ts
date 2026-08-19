@@ -61,14 +61,16 @@ function applyPayloadToPanel(
   ) => void,
   changes: PlanChangesPayload | null,
 ): void {
-  setPanel({
+  setPanel((prev) => ({
     planId: payload.planId,
     content: payload.content,
     planStatus: payload.planStatus,
     sessionId: payload.sessionId,
     title: payload.title,
     changes,
-  });
+    // A pin belongs to the user, not to the payload — carry it across.
+    pinnedPlanId: prev.pinnedPlanId,
+  }));
 }
 
 /**
@@ -106,6 +108,16 @@ export function useWorkspacePlanPanel(): void {
 
   useEffect(() => {
     const onActivated = (payload: PlanArtifactPayload) => {
+      // A user-pinned plan is not replaced by an activation for a different one:
+      // the panel would otherwise be yanked away mid-read the moment the agent
+      // touched another plan. The badge below still says something happened.
+      const pinned = getDefaultStore().get(workspacePlanPanelAtom).pinnedPlanId;
+      if (pinned && pinned !== payload.planId) {
+        if (getDefaultStore().get(previewTabAtom) !== "plan") {
+          getDefaultStore().set(planUnreadAtom, true);
+        }
+        return;
+      }
       const changes = resolveChanges(messages, payload.content, proposals);
       applyPayloadToPanel(payload, setPanel, changes);
       // The plan is LOADED but the panel is not seized.
@@ -135,6 +147,7 @@ export function useWorkspacePlanPanel(): void {
           sessionId: payload.sessionId,
           title: payload.title,
           changes: changes ?? prev.changes,
+          pinnedPlanId: prev.pinnedPlanId,
         };
       });
     };

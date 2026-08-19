@@ -1176,6 +1176,13 @@ export class IpcClient {
     return this.ipcRenderer.invoke("plans:get", planId);
   }
 
+  /** Every plan in a session, newest first — the Plan panel's switcher. */
+  public async listPlanArtifactsForSession(
+    sessionId: string,
+  ): Promise<import("./utils/emit_plan_artifact").PlanArtifactPayload[]> {
+    return this.ipcRenderer.invoke("plans:list-by-session", sessionId);
+  }
+
   public onPlanFileUpdated(
     handler: (payload: { workspacePath: string; mtime: number | null }) => void,
   ): () => void {

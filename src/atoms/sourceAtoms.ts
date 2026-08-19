@@ -347,6 +347,15 @@ export const workspacePlanPanelAtom = atom<{
   /** Stored plan name; null on rows predating the title column. */
   title: string | null;
   changes: PlanChangesPayload | null;
+  /**
+   * Set when the USER picked a plan in the panel's switcher.
+   *
+   * Load-bearing: plan-artifact activation otherwise replaces whatever the panel
+   * is showing, so choosing an older plan and then having the agent touch a
+   * different one would yank the panel away mid-read. While pinned, activation
+   * only raises the unread badge. Cleared by choosing "Latest".
+   */
+  pinnedPlanId: string | null;
 }>({
   planId: null,
   content: null,
@@ -354,6 +363,7 @@ export const workspacePlanPanelAtom = atom<{
   sessionId: null,
   title: null,
   changes: null,
+  pinnedPlanId: null,
 });
 
 

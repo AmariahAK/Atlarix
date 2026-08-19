@@ -3,6 +3,7 @@ import log from "electron-log";
 import { createLoggedHandler } from "./safe_handle";
 import {
   getPlanArtifact,
+  listPlanArtifactsForSession,
   setPlanArtifactStatus,
   updatePlanArtifactContent,
   type PlanArtifactRow,
@@ -49,6 +50,22 @@ export function registerPlanArtifactHandlers(): void {
       const payload = toPayload(row);
       broadcastPlanEvent("plan:artifact-updated", payload);
       return payload;
+    },
+  );
+
+  // Every plan in a session, newest first, for the panel's switcher. The panel
+  // used to render only getLatestPlanArtifact's first row with nothing naming
+  // which plan it was, so a session with three plans presented one as though it
+  // were THE plan.
+  handle(
+    "plans:list-by-session",
+    async (
+      _event,
+      sessionId: string,
+    ): Promise<PlanArtifactPayload[]> => {
+      if (!sessionId?.trim()) return [];
+      const rows = await listPlanArtifactsForSession(sessionId);
+      return rows.map(toPayload);
     },
   );
 

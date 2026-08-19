@@ -14,6 +14,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 import { IpcClient } from "@/ipc/ipc_client";
 import type { PlanArtifactStatus } from "@/db/schema";
+import type { PlanArtifactPayload } from "@/ipc/utils/emit_plan_artifact";
 import { Button } from "@/components/ui/button";
 import {
   PlanChecklistProgress,
@@ -36,6 +37,7 @@ export function PlanExecutionPanel() {
   const [panel, setPanel] = useAtom(workspacePlanPanelAtom);
   const [draft, setDraft] = useState("");
   const [saving, setSaving] = useState(false);
+  const [sessionPlans, setSessionPlans] = useState<PlanArtifactPayload[]>([]);
   const activeChatId = useAtomValue(activeChatIdAtom);
   const { streamMessage, isStreaming } = useStreamChat();
   const { updateSettings } = useSettings();
@@ -43,6 +45,55 @@ export function PlanExecutionPanel() {
   useEffect(() => {
     setDraft(panel.content ?? "");
   }, [panel.planId, panel.content]);
+
+  // The session's other plans, so the panel can say which one it is showing and
+  // let you move between them. Older plans were always reachable as inline cards
+  // in the transcript; what was missing was naming and switching.
+  useEffect(() => {
+    const sessionId = panel.sessionId;
+    if (!sessionId) {
+      setSessionPlans([]);
+      return;
+    }
+    let cancelled = false;
+    void IpcClient.getInstance()
+      .listPlanArtifactsForSession(sessionId)
+      .then((rows) => {
+        if (!cancelled) setSessionPlans(rows);
+      })
+      .catch(() => {
+        if (!cancelled) setSessionPlans([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // planStatus/planId are in the deps so a new plan or a status change refreshes
+    // the list without polling.
+  }, [panel.sessionId, panel.planId, panel.planStatus]);
+
+  const selectPlan = useCallback(
+    async (planId: string) => {
+      // "" is the Latest option: unpin and let activation drive the panel again.
+      if (!planId) {
+        setPanel((prev) => ({ ...prev, pinnedPlanId: null }));
+        return;
+      }
+      const row = await IpcClient.getInstance().getPlanArtifact(planId);
+      if (!row) return;
+      setPanel((prev) => ({
+        ...prev,
+        planId: row.planId,
+        content: row.content,
+        planStatus: row.planStatus,
+        sessionId: row.sessionId,
+        title: row.title,
+        // Pin it, or the next plan-artifact activation would switch away from
+        // the plan the user just chose to look at.
+        pinnedPlanId: row.planId,
+      }));
+    },
+    [setPanel],
+  );
 
   const saveDraft = useCallback(async () => {
     if (!panel.planId || !draft.trim()) return;
@@ -108,13 +159,11 @@ export function PlanExecutionPanel() {
           <div className="rounded-lg border border-border bg-card overflow-hidden">
             <div className="px-3 py-2 border-b border-border font-medium text-sm flex items-center justify-between gap-2">
               {/*
-                Name the plan, not just its state.
-                The panel shows exactly ONE plan — whichever was last activated,
-                i.e. effectively the newest — and used to head it with the bare
-                word "Plan"/"Building"/"Built". In a session with several plans
-                that presented one as though it were THE plan, with nothing on
-                screen saying which. The title answers that; a switcher is a
-                separate question.
+                Name the plan, not just its state — and let the user move between
+                them. The panel used to head the single last-activated (i.e.
+                newest) plan with the bare word "Plan"/"Building"/"Built", so a
+                session with three plans presented one as though it were THE
+                plan. The title says which; the switcher below reaches the others.
               */}
               <span className="flex items-center gap-2 min-w-0">
                 <StatusHeaderIcon status={panel.planStatus} />
@@ -139,6 +188,32 @@ export function PlanExecutionPanel() {
                 </span>
               ) : null}
             </div>
+            {sessionPlans.length > 1 ? (
+              <div className="px-3 py-2 border-b border-border flex items-center gap-2">
+                <label
+                  htmlFor="plan-switcher"
+                  className="text-xs text-muted-foreground shrink-0"
+                >
+                  Showing
+                </label>
+                <select
+                  id="plan-switcher"
+                  data-testid="plan-switcher"
+                  className="flex-1 min-w-0 text-xs bg-muted/30 border border-border rounded-md px-2 py-1"
+                  value={panel.pinnedPlanId ?? ""}
+                  onChange={(e) => void selectPlan(e.target.value)}
+                >
+                  <option value="">Latest ({sessionPlans.length} plans)</option>
+                  {sessionPlans.map((p) => (
+                    <option key={p.planId} value={p.planId}>
+                      {(p.title?.trim() ||
+                        planArtifactTitleFromContent(p.content ?? "")) +
+                        ` — ${statusLabel(p.planStatus)}`}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ) : null}
             <div className="px-3 py-3 space-y-3">
               {panel.planId ? (
                 <>

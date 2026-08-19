@@ -191,6 +191,7 @@ const validInvokeChannels = [
   "workspace-snapshot:get-metadata",
   "plans:update",
   "plans:get",
+  "plans:list-by-session",
   "plans:set-status",
   // Dialog
   "dialog:openDirectory",

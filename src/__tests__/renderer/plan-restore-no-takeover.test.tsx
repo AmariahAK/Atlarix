@@ -81,6 +81,7 @@ describe("plan restore", () => {
       sessionId: null,
       title: null,
       changes: null,
+      pinnedPlanId: null,
     });
   });
 
@@ -114,5 +115,68 @@ describe("plan restore", () => {
       fireActivated?.(PLAN);
     });
     expect(store.get(planUnreadAtom)).toBe(false);
+  });
+
+  /**
+   * The switcher's pin. Without it, picking an older plan and then having the
+   * agent touch a different one would yank the panel away mid-read — the panel
+   * would silently become a different plan than the one that is selected.
+   */
+  describe("a user-pinned plan", () => {
+    const seedPinned = () => {
+      const { store } = renderWithProviders(<Probe />);
+      store.set(workspacePlanPanelAtom, {
+        planId: "plan-chosen",
+        content: "# Chosen\n\n- kept",
+        planStatus: "built",
+        sessionId: "sess-1",
+        title: "Chosen plan",
+        changes: null,
+        pinnedPlanId: "plan-chosen",
+      });
+      return store;
+    };
+
+    it("is NOT replaced when a different plan is activated", () => {
+      const store = seedPinned();
+      act(() => {
+        fireActivated?.(PLAN);
+      });
+      const state = store.get(workspacePlanPanelAtom);
+      expect(state.planId).toBe("plan-chosen");
+      expect(state.content).toContain("kept");
+    });
+
+    it("still badges the tab, so the activation is not silent", () => {
+      const store = seedPinned();
+      store.set(previewTabAtom, "browser");
+      store.set(planUnreadAtom, false);
+      act(() => {
+        fireActivated?.(PLAN);
+      });
+      expect(store.get(planUnreadAtom)).toBe(true);
+    });
+
+    it("IS updated when the activation is for the pinned plan itself", () => {
+      const store = seedPinned();
+      act(() => {
+        fireActivated?.({
+          planId: "plan-chosen",
+          sessionId: "sess-1",
+          content: "# Chosen\n\n- refreshed",
+          planStatus: "built",
+          title: "Chosen plan",
+        });
+      });
+      expect(store.get(workspacePlanPanelAtom).content).toContain("refreshed");
+    });
+
+    it("survives an activation rather than being cleared by it", () => {
+      const store = seedPinned();
+      act(() => {
+        fireActivated?.(PLAN);
+      });
+      expect(store.get(workspacePlanPanelAtom).pinnedPlanId).toBe("plan-chosen");
+    });
   });
 });
