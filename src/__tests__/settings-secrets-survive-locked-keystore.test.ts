@@ -23,9 +23,10 @@ let userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), "atlarix-settings-"));
 let keystoreReadable = true;
 
 vi.mock("@/paths/paths", () => ({ getUserDataPath: () => userDataDir }));
-// The real module short-circuits encryption under IS_TEST_BUILD; force the
-// shipped encrypted path so this test exercises what users actually run.
-vi.mock("@/ipc/utils/test_utils", () => ({ IS_TEST_BUILD: false }));
+// This test used to force IS_TEST_BUILD=false so it exercised the shipped
+// encrypted path rather than the build flag's plaintext short-circuit. That flag
+// is gone — encryption is now unconditional — so the shipped path IS the default
+// and no mock is needed. The assertions below are unchanged.
 
 /** Stand-in for the OS keystore — reversible, and lockable on demand. */
 const fakeSafeStorage = {

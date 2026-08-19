@@ -85,8 +85,6 @@ const RENDERER_ONLY_PACKAGES = new Set([
   "zrender",
 ]);
 
-const isEndToEndTestBuild = process.env.E2E_TEST_BUILD === "true";
-
 /**
  * Linux icon theme map for the deb/rpm makers.
  *
@@ -277,7 +275,7 @@ const config: ForgeConfig = {
 
     // osxSign must not be set on win32/linux — packager may invoke codesign and fail silently when quiet:true.
     osxSign:
-      isEndToEndTestBuild || process.platform !== "darwin"
+      process.platform !== "darwin"
         ? undefined
         : {
             identity: "Developer ID Application: Amariah Kamau (7VWW7N9R87)",
@@ -739,7 +737,11 @@ const config: ForgeConfig = {
       [FuseV1Options.RunAsNode]: false,
       [FuseV1Options.EnableCookieEncryption]: true,
       [FuseV1Options.EnableNodeOptionsEnvironmentVariable]: false,
-      [FuseV1Options.EnableNodeCliInspectArguments]: isEndToEndTestBuild,
+      // Hard false. This used to be `isEndToEndTestBuild`, i.e. a build-time env
+      // var could ship a package with --inspect enabled. Nothing sets that var
+      // any more (the Playwright suite that did is gone), and no shipped build
+      // should ever want it.
+      [FuseV1Options.EnableNodeCliInspectArguments]: false,
       [FuseV1Options.EnableEmbeddedAsarIntegrityValidation]: true,
       [FuseV1Options.OnlyLoadAppFromAsar]: true,
     }),

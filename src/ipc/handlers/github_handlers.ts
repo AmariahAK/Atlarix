@@ -26,7 +26,6 @@ import type {
 } from "@/ipc/ipc_types";
 import { eq } from "drizzle-orm";
 import log from "electron-log";
-import { IS_TEST_BUILD } from "../utils/test_utils";
 import path from "node:path"; // ← ADD THIS
 import {
   getGithubDeviceFlowClientId,
@@ -41,22 +40,13 @@ function resolveGithubClientId(): string {
   return getGithubDeviceFlowClientId();
 }
 
-// Use test server URLs when in test mode
-
-const TEST_SERVER_BASE = "http://localhost:3500";
-
-const GITHUB_DEVICE_CODE_URL = IS_TEST_BUILD
-  ? `${TEST_SERVER_BASE}/github/login/device/code`
-  : "https://github.com/login/device/code";
-const GITHUB_ACCESS_TOKEN_URL = IS_TEST_BUILD
-  ? `${TEST_SERVER_BASE}/github/login/oauth/access_token`
-  : "https://github.com/login/oauth/access_token";
-const GITHUB_API_BASE = IS_TEST_BUILD
-  ? `${TEST_SERVER_BASE}/github/api`
-  : "https://api.github.com";
-const GITHUB_GIT_BASE = IS_TEST_BUILD
-  ? `${TEST_SERVER_BASE}/github/git`
-  : "https://github.com";
+// Fixed endpoints. These used to be redirectable to a local test server by
+// setting E2E_TEST_BUILD=true at build time — an env var that could point the
+// device-flow and token endpoints at another host. The suite that needed it is
+// gone, so they are constants.
+const GITHUB_DEVICE_CODE_URL = "https://github.com/login/device/code";
+const GITHUB_ACCESS_TOKEN_URL = "https://github.com/login/oauth/access_token";
+const GITHUB_API_BASE = "https://api.github.com";
 
 const GITHUB_SCOPES = "repo,user,workflow"; // Define the scopes needed
 
@@ -620,9 +610,7 @@ async function handlePushToGithub(
     const branch = app.githubBranch || "main";
 
     // Set up remote URL with token
-    const remoteUrl = IS_TEST_BUILD
-      ? `${GITHUB_GIT_BASE}/${app.githubOrg}/${app.githubRepo}.git`
-      : `https://${accessToken}:x-oauth-basic@github.com/${app.githubOrg}/${app.githubRepo}.git`;
+    const remoteUrl = `https://${accessToken}:x-oauth-basic@github.com/${app.githubOrg}/${app.githubRepo}.git`;
     // Set or update remote URL using git config
     await gitSetRemoteUrl({
       path: appPath,
@@ -839,9 +827,7 @@ export async function handleCloneRepoFromUrl(
       isSsh || !isGithub
         ? parsed.url
         : accessToken
-          ? IS_TEST_BUILD
-            ? `${GITHUB_GIT_BASE}/${owner}/${repoName}.git`
-            : `https://${accessToken}:x-oauth-basic@github.com/${owner}/${repoName}.git`
+          ? `https://${accessToken}:x-oauth-basic@github.com/${owner}/${repoName}.git`
           : `https://github.com/${owner}/${repoName}.git`;
 
     sendProgress({ step: "cloning", message: "Cloning repository…", progress: 15 });

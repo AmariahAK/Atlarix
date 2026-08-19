@@ -10,7 +10,6 @@ import {
 } from "../lib/schemas";
 import { v4 as uuidv4 } from "uuid";
 import log from "electron-log";
-import { IS_TEST_BUILD } from "@/ipc/utils/test_utils";
 
 const logger = log.scope("settings");
 
@@ -359,7 +358,6 @@ export function writeSettings(settings: Partial<UserSettings>): void {
 
 /** True when OS-backed secret encryption is active (else keys persist plaintext). */
 export function isSecretEncryptionAvailable(): boolean {
-  if (IS_TEST_BUILD) return true;
   return getSafeStorage()?.isEncryptionAvailable() === true;
 }
 
@@ -396,7 +394,7 @@ let warnedPlaintextSecret = false;
 
 export function encrypt(data: string): Secret {
   const safeStorage = getSafeStorage();
-  if (safeStorage?.isEncryptionAvailable() && !IS_TEST_BUILD) {
+  if (safeStorage?.isEncryptionAvailable()) {
     return {
       value: safeStorage.encryptString(data).toString("base64"),
       encryptionType: "electron-safe-storage",
@@ -406,7 +404,7 @@ export function encrypt(data: string): Secret {
   // keyring) — the secret is persisted in cleartext. Warn once so this degraded
   // mode is visible in logs rather than silent. (Test builds intentionally use
   // plaintext and are not warned.)
-  if (!IS_TEST_BUILD && !warnedPlaintextSecret) {
+  if (!warnedPlaintextSecret) {
     warnedPlaintextSecret = true;
     logger.warn(
       "safeStorage/OS encryption is unavailable — provider keys and OAuth tokens are being stored WITHOUT encryption (plaintext at rest). Install a system keyring (e.g. gnome-keyring / libsecret) to enable encryption.",

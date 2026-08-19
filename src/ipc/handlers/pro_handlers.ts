@@ -2,7 +2,6 @@ import log from "electron-log";
 import { createLoggedHandler } from "./safe_handle";
 import { readSettings } from "../../main/settings"; // Assuming settings are read this way
 import { UserBudgetInfo, UserBudgetInfoSchema } from "../ipc_types";
-import { IS_TEST_BUILD } from "../utils/test_utils";
 import { z } from "zod";
 
 export const UserInfoResponseSchema = z.object({
@@ -17,16 +16,6 @@ const handle = createLoggedHandler(logger);
 
 /** Shared fetch for use by other handlers (e.g. MCP free-tier limit). */
 export async function fetchUserBudget(): Promise<UserBudgetInfo | null> {
-  if (IS_TEST_BUILD) {
-    const resetDate = new Date();
-    resetDate.setDate(resetDate.getDate() + 30);
-    return {
-      usedCredits: 100,
-      totalCredits: 1000,
-      budgetResetDate: resetDate,
-      redactedUserId: "<redacted-user-id-testing>",
-    };
-  }
   const settings = readSettings();
   const apiKey = settings.providerSettings?.auto?.apiKey?.value;
   if (!apiKey) return null;
@@ -55,17 +44,6 @@ export async function fetchUserBudget(): Promise<UserBudgetInfo | null> {
 
 export function registerProHandlers() {
   handle("get-user-budget", async (): Promise<UserBudgetInfo | null> => {
-    if (IS_TEST_BUILD) {
-      // Return mock budget data for E2E tests instead of spamming the API
-      const resetDate = new Date();
-      resetDate.setDate(resetDate.getDate() + 30); // Reset in 30 days
-      return {
-        usedCredits: 100,
-        totalCredits: 1000,
-        budgetResetDate: resetDate,
-        redactedUserId: "<redacted-user-id-testing>",
-      };
-    }
     logger.info("Attempting to fetch user budget information.");
     try {
       const userBudgetInfo = await fetchUserBudget();

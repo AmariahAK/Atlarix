@@ -16,7 +16,6 @@ import {
 import { configureWebAuthn } from "./main/webauthn";
 import { isCspPolicyTarget } from "./main/csp-policy-target";
 import { showDesktopNotification } from "./main/desktop-notification";
-import { IS_TEST_BUILD } from "./ipc/utils/test_utils";
 import {
   isNewer,
   shouldRunNotifyOnlyCheck,
@@ -728,7 +727,6 @@ function registerUpdateStatusIpc(): void {
  * Notify-only update check (all platforms). Complements electron-updater silent install.
  */
 async function checkForUpdatesNotify(): Promise<void> {
-  if (IS_TEST_BUILD) return;
   try {
     const currentVersion = app.getVersion();
     const res = await fetch(ATLARIX_RELEASES_API, {
@@ -778,11 +776,6 @@ export async function onFirstRunMaybe(settings: UserSettings) {
     await promptMoveToApplicationsFolder();
     writeSettings({
       hasRunBefore: true,
-    });
-  }
-  if (IS_TEST_BUILD) {
-    writeSettings({
-      isTestMode: true,
     });
   }
 }
@@ -1069,10 +1062,6 @@ function safeIsInApplicationsFolder(): boolean {
  * applications folder.
  */
 async function promptMoveToApplicationsFolder(): Promise<void> {
-  // Why not in e2e tests?
-  // There's no way to stub this dialog in time, so we just skip it
-  // in e2e testing mode.
-  if (IS_TEST_BUILD) return;
   if (process.platform !== "darwin") return;
   if (app.isInApplicationsFolder()) return;
   logger.log("Prompting user to move to applications folder");

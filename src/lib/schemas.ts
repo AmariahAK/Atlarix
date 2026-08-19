@@ -485,7 +485,6 @@ export const UserSettingsSchema = z.object({
   ////////////////////////////////
   // E2E TESTING ONLY.
   ////////////////////////////////
-  isTestMode: z.boolean().optional(),
 
   ////////////////////////////////
   // DEPRECATED.

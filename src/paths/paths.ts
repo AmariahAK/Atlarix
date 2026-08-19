@@ -1,7 +1,6 @@
 import path from "node:path";
 import os from "node:os";
 import fs from "node:fs";
-import { IS_TEST_BUILD } from "../ipc/utils/test_utils";
 
 /**
  * Gets the full path for an app.
@@ -17,22 +16,12 @@ export function getAtlarixAppPath(appPath: string): string {
   }
 
   const appName = appPath;
-  const legacyDefault = IS_TEST_BUILD
-    ? (() => {
-        const electron = getElectron();
-        return electron ? path.join(electron.app.getPath("userData"), "atlarix-apps", appName) : null;
-      })()
-    : path.join(os.homedir(), "atlarix-apps", appName);
+  const legacyDefault = path.join(os.homedir(), "atlarix-apps", appName);
 
-  const candidates = IS_TEST_BUILD
-    ? (() => {
-        const electron = getElectron();
-        return electron ? [path.join(electron.app.getPath("userData"), "atlarix-apps", appName)] : [];
-      })()
-    : [
-        path.join(os.homedir(), "Documents", "Atlarix", appName),
-        path.join(os.homedir(), "atlarix-apps", appName),
-      ];
+  const candidates = [
+    path.join(os.homedir(), "Documents", "Atlarix", appName),
+    path.join(os.homedir(), "atlarix-apps", appName),
+  ];
 
   for (const candidate of candidates) {
     if (fs.existsSync(candidate)) {
@@ -89,12 +78,10 @@ export function getUserDataPath(): string {
 export function isAtlarixManagedWorkspacePath(absolutePath: string): boolean {
   if (!path.isAbsolute(absolutePath)) return false;
   const normalized = path.resolve(absolutePath);
-  const roots = IS_TEST_BUILD
-    ? []
-    : [
-        path.join(os.homedir(), "atlarix-apps"),
-        path.join(os.homedir(), "Documents", "Atlarix"),
-      ];
+  const roots = [
+    path.join(os.homedir(), "atlarix-apps"),
+    path.join(os.homedir(), "Documents", "Atlarix"),
+  ];
   return roots.some(
     (root) => normalized === root || normalized.startsWith(`${root}${path.sep}`),
   );
