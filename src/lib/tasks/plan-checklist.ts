@@ -241,18 +241,38 @@ export function formatPlanChecklistForPrompt(
 ): string | null {
   if (steps.length === 0) return null;
   const done = steps.filter((s) => s.state === "done").length;
-  const inProgress = steps.find((s) => s.state === "in_progress");
+  // EVERY in-progress step, not just the first.
+  //
+  // This used to be `.find()`, and `pending` covers only `todo` — so a model that
+  // started several steps saw the extras NOWHERE: not done, not "In progress"
+  // (one line only), not "Remaining". With all six in progress the block read
+  // "0/6 steps done" plus a single in-progress line, which is indistinguishable
+  // from a wiped plan. Observed live: the model concluded "the plan ledger has
+  // been reset again", re-emitted the plan via plan(write) — which re-marked them
+  // in_progress rather than done — and looped, while the completion gate
+  // separately listed all three as unaccounted for. The two signals contradicted
+  // each other because only one of them could count.
+  const inProgress = steps.filter((s) => s.state === "in_progress");
   const blocked = steps.filter((s) => s.state === "blocked");
   const external = steps.filter((s) => s.state === "external");
   const pending = steps.filter((s) => s.state === "todo");
 
   const lines: string[] = [];
   const head = title?.trim() ? `${title.trim()} — ` : "";
+  // Spell out in-progress in the header too, so "0/N done" is never bare: a
+  // count of zero with no explanation is what read as "the plan was reset".
+  const progressNote = inProgress.length ? ` · ${inProgress.length} in progress` : "";
   const externalNote = external.length ? ` · ${external.length} needs the user` : "";
   lines.push(
-    `[Session plan] ${head}${done}/${steps.length} steps done${externalNote}.`,
+    `[Session plan] ${head}${done}/${steps.length} steps done${progressNote}${externalNote}.`,
   );
-  if (inProgress) lines.push(`In progress: ${inProgress.index}. ${inProgress.text}`);
+  if (inProgress.length) {
+    lines.push(
+      `In progress (mark each done when it is finished): ${inProgress
+        .map((s) => `${s.index}. ${s.text}`)
+        .join("; ")}`,
+    );
+  }
   if (pending.length) {
     lines.push(`Remaining: ${pending.map((s) => `${s.index}. ${s.text}`).join("; ")}`);
   }

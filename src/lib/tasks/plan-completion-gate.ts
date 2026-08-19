@@ -36,7 +36,17 @@ export async function getPlanCompletionFeedback(
 ): Promise<string | null> {
   if (!sessionId) return null;
   try {
-    const row = await getLatestPlanArtifact(sessionId);
+    // Building-first, then latest — the SAME selection as loadActivePlanSection
+    // (the in-context ledger) and resolvePlanId (what update_step writes to).
+    //
+    // This read plain `getLatestPlanArtifact(sessionId)`, so in a session holding a
+    // `building` plan plus a newer one it nudged about a DIFFERENT plan than the
+    // one the model could see and mark. That is the "updating one plan while
+    // reading another's progress" disagreement plan.ts warns about, arriving
+    // through the third reader nobody had aligned.
+    const row =
+      (await getLatestPlanArtifact(sessionId, "building")) ??
+      (await getLatestPlanArtifact(sessionId));
     if (!row?.content?.trim()) return null;
     const steps = parsePlanChecklist(row.content);
     if (steps.length === 0) return null;

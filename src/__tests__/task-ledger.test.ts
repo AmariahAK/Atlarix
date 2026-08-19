@@ -28,7 +28,12 @@ describe("A1 — formatPlanChecklistForPrompt", () => {
     expect(block).toContain("[Session plan]");
     expect(block).toContain("Build the auth flow");
     expect(block).toContain("1/4 steps done");
-    expect(block).toContain("In progress: 2. Wire the login handler");
+    // Assert the SUBSTANCE, not the label: the in-progress step must be named on
+    // an in-progress line. The label gained "(mark each done when it is finished)"
+    // when the formatter started listing every in-progress step instead of only
+    // the first — a plan with several underway used to hide all but one.
+    expect(block).toContain("In progress");
+    expect(block).toContain("2. Wire the login handler");
     expect(block).toContain("Add session cookies");
     expect(block).toContain("Write tests");
     // Discipline line so the model updates rather than re-derives.

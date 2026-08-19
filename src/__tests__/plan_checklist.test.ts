@@ -312,4 +312,57 @@ describe("formatPlanChecklistForPrompt", () => {
       "All steps are marked done",
     );
   });
+
+  /**
+   * Several steps in progress at once — the shape that made a live session loop.
+   *
+   * `inProgress` was a `.find()`, and `pending` covers only `todo`, so every
+   * in-progress step after the first appeared NOWHERE in the block. With all of
+   * them in progress it read "0/N steps done" plus one line, which a model cannot
+   * tell apart from a plan that was wiped. Observed: it decided "the plan ledger
+   * has been reset again", re-emitted the plan with plan(write) — re-marking them
+   * in_progress, not done — and repeated, while the completion gate listed all of
+   * them as unaccounted for. Two signals, only one of which could count.
+   */
+  describe("multiple steps in progress", () => {
+    const threeInProgress = () =>
+      parsePlanChecklist(
+        "1. [~] Append quotes\n2. [~] Update badges\n3. [~] Update About\n4. [x] Dedup\n",
+      );
+
+    it("lists EVERY in-progress step, not just the first", () => {
+      const out = formatPlanChecklistForPrompt(threeInProgress())!;
+      expect(out).toContain("1. Append quotes");
+      expect(out).toContain("2. Update badges");
+      expect(out).toContain("3. Update About");
+    });
+
+    it("counts them in the header so a low done-count is never bare", () => {
+      const out = formatPlanChecklistForPrompt(threeInProgress())!;
+      expect(out).toContain("1/4 steps done · 3 in progress");
+    });
+
+    it("0/N done never reads as an empty plan", () => {
+      const out = formatPlanChecklistForPrompt(
+        parsePlanChecklist("1. [~] a\n2. [~] b\n"),
+      )!;
+      // The exact string that was indistinguishable from a wiped ledger.
+      expect(out).toContain("0/2 steps done · 2 in progress");
+      expect(out).toContain("1. a");
+      expect(out).toContain("2. b");
+    });
+
+    it("tells the model what to DO with an in-progress step", () => {
+      // It had been marking work in_progress and never returning to close it.
+      expect(formatPlanChecklistForPrompt(threeInProgress())!).toContain(
+        "mark each done when it is finished",
+      );
+    });
+
+    it("does not claim nothing is left while steps are in progress", () => {
+      const out = formatPlanChecklistForPrompt(threeInProgress())!;
+      expect(out).not.toContain("No step is left for you");
+      expect(out).not.toContain("All steps are marked done");
+    });
+  });
 });
