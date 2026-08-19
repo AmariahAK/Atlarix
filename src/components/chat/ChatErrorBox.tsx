@@ -23,11 +23,9 @@ const COMPASS_REACHABILITY_MARKER = "trouble reaching Atlarix Core";
 export function ChatErrorBox({
   onDismiss,
   error,
-  isAtlarixProEnabled,
 }: {
   onDismiss: () => void;
   error: string;
-  isAtlarixProEnabled: boolean;
 }) {
   // Atlarix Core credit used up (PAYG) — top up, or switch to a BYOK model,
   // without losing the chat.
@@ -99,14 +97,10 @@ export function ChatErrorBox({
   // Important, this needs to come after the "free quota tier" check
   // because it also includes this URL in the error message
   //
-  // Sometimes Atlarix Pro can return rate limit errors and we do not want to
-  // show the upgrade to Atlarix Pro link in that case because they are
-  // already on the Atlarix Pro plan.
   if (
-    !isAtlarixProEnabled &&
-    (error.includes("Resource has been exhausted") ||
-      error.includes("https://ai.google.dev/gemini-api/docs/rate-limits") ||
-      error.includes("Provider returned error"))
+    error.includes("Resource has been exhausted") ||
+    error.includes("https://ai.google.dev/gemini-api/docs/rate-limits") ||
+    error.includes("Provider returned error")
   ) {
     return (
       <ChatErrorContainer onDismiss={onDismiss}>
@@ -120,35 +114,6 @@ export function ChatErrorBox({
     );
   }
 
-  if (error.includes("LiteLLM Virtual Key expected")) {
-    return (
-      <ChatInfoContainer onDismiss={onDismiss}>
-        <span>
-          Looks like you don't have a valid Atlarix Pro key.{" "}
-          <UpgradeButton>
-            Upgrade to Atlarix Pro
-          </UpgradeButton>{" "}
-          today.
-        </span>
-      </ChatInfoContainer>
-    );
-  }
-  if (isAtlarixProEnabled && error.includes("ExceededBudget:")) {
-    return (
-      <ChatInfoContainer onDismiss={onDismiss}>
-        <span>
-          You have used all of your Atlarix AI credits this month.{" "}
-          <ExternalLink
-            href="https://atlarix.dev/subscription?utm_source=atlarix-app&utm_medium=app&utm_campaign=exceeded-budget-error"
-            variant="primary"
-          >
-            Reload or upgrade your subscription
-          </ExternalLink>{" "}
-          and get more AI credits
-        </span>
-      </ChatInfoContainer>
-    );
-  }
   // This is a very long list of model fallbacks that clutters the error message.
   //
   // We are matching "Fallbacks=[{" and not just "Fallbacks=" because the fallback

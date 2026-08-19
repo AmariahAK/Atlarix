@@ -1,4 +1,3 @@
-import { v4 as uuidv4 } from "uuid";
 import { ipcMain } from "electron";
 import {
   ModelMessage,
@@ -80,7 +79,6 @@ import { FileUploadsState } from "../utils/file_uploads_state";
 import { extractMentionedContext } from "../utils/mention_apps";
 import { parseContextMentions } from "@/shared/parse_mention_apps";
 
-import { isTurboEditsV2Enabled } from "@/lib/schemas";
 import {
   takePendingBackgroundCommandResults,
   listBackgroundJobs,
@@ -488,7 +486,6 @@ export function registerChatStreamHandlers() {
         });
 
         const fileUploadsState = FileUploadsState.getInstance();
-        let engineRequestId: string | undefined;
         const { isStreamTransportId, getStreamTransportAppId } = await import("@/lib/chat/stream-transport");
 
         if (!isStreamTransportId(req.chatId)) {
@@ -944,9 +941,6 @@ ${componentSnippet}
         }
       }
 
-      // Generate requestId early so it can be saved with the message
-      engineRequestId = uuidv4();
-
       // Add a placeholder assistant message immediately
       // For ephemeral chats, we'll use a placeholder ID
       // (v12 3.1: monotonic counter — Date.now() collided in-millisecond.
@@ -1061,9 +1055,6 @@ ${componentSnippet}
         // `modelClient` is `let` (not destructured const) so the mid-stream
         // tier-escalation guard can rebind it when Auto-routing decides a
         // tool-heavy turn deserves `balanced` or `thinking` halfway through.
-        // `isEngineEnabled` / `isSmartContextEnabled` stay tied to the initial
-        // client because they encode capabilities used during system-prompt
-        // assembly and would be unsafe to flip mid-turn.
         // v12 S18: the context-window lookup depends only on `effectiveModel`
         // — start it CONCURRENTLY with model-client creation and await it at
         // its original use site below (the [budget] log). The noop catch only
@@ -1092,7 +1083,6 @@ ${componentSnippet}
             chatId: req.chatId,
           });
         }
-        const isEngineEnabled = initialModelClientBundle.isEngineEnabled;
         // Native extended-thinking/reasoning turns on whenever the selected
         // model + gateway support it (the fast/balanced/thinking tiers are gone;
         // a model now delivers its full capability).
@@ -1183,14 +1173,6 @@ ${componentSnippet}
               dirs: contextMentions.dirs,
             })
           : "";
-
-        const isDeepContextEnabled =
-          isEngineEnabled &&
-          settings.enableProSmartFilesContextMode &&
-          // Anything besides balanced will use deep context.
-          settings.proSmartContextOption !== "balanced" &&
-          !mentionedContextBlock;
-        logger.log(`isDeepContextEnabled: ${isDeepContextEnabled}`);
 
         const otherAppsCodebaseInfo = mentionedContextBlock;
         if (otherAppsCodebaseInfo) {
@@ -1367,7 +1349,6 @@ ${componentSnippet}
               effectiveWorkMode: modeBlockKey,
               contextSize,
               userPrompt,
-              enableTurboEditsV2: isTurboEditsV2Enabled(settings),
               hasAnsweredQuestions: updatedChat?.hasAnsweredQuestions ?? false,
               hasWorkspace,
               ...promptIdentityOpts,
@@ -1792,17 +1773,6 @@ ${componentSnippet}
               ),
             };
 
-            // Only include providerOptions if we have actual commit hash values
-            // (ephemeral/incognito messages don't have these)
-            if (msg.sourceCommitHash || msg.commitHash) {
-              baseMsg.providerOptions = {
-                "dyad-engine": {
-                  ...(msg.sourceCommitHash && { sourceCommitHash: msg.sourceCommitHash }),
-                  ...(msg.commitHash && { commitHash: msg.commitHash }),
-                },
-              };
-            }
-
             return [baseMsg as ModelMessage];
           });
 
@@ -1992,13 +1962,8 @@ ${componentSnippet}
           const simpleStreamTextDeps: SimpleStreamTextDeps = {
             req,
             settings,
-            updatedChat,
             effectiveAppId,
             effectiveModel,
-            appPath,
-            engineRequestId,
-            isEngineEnabled,
-            isDeepContextEnabled,
             enableNativeReasoning,
             forceCollectOnWake,
             proactiveContextReminderForStream,

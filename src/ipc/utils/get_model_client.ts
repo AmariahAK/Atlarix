@@ -41,7 +41,6 @@ import log from "electron-log";
 import { getLanguageModelProviders } from "../shared/language_model_helpers";
 import { getProviderApiKey } from "../shared/provider_api_keys";
 import { LanguageModelProvider } from "../ipc_types";
-import { createAtlarixEngine } from "./llm_engine_provider";
 import {
   getCompassMasterApiKey,
   getCoreModelIdForCoreTier,
@@ -54,11 +53,6 @@ import { LM_STUDIO_BASE_URL } from "./lm_studio_utils";
 import { createOllamaProvider } from "./ollama_provider";
 import { trackLocalModelConnected } from "@/main/lib/analytics";
 import { getOllamaApiUrl } from "../handlers/local_model_ollama_handler";
-import { hasNativeDeepThinkingSupport } from "../../lib/routing/reasoning-detector";
-
-/** Primary: `ATLARIX_ENGINE_URL`. Deprecated alias: `DYAD_ENGINE_URL`. */
-const atlarixEngineUrl =
-  process.env.ATLARIX_ENGINE_URL ?? process.env.DYAD_ENGINE_URL;
 
 export interface ModelClient {
   // ai@6: v3-spec providers are the norm; the two custom V2 adapters
@@ -109,14 +103,10 @@ export async function getModelClient(
   _options?: GetModelClientOptions,
 ): Promise<{
   modelClient: ModelClient;
-  isEngineEnabled?: boolean;
-  isSmartContextEnabled?: boolean;
   /** True when the selected provider had no usable key and we fell back to Atlarix Core. */
   fellBackToCore?: boolean;
 }> {
   const allProviders = await getLanguageModelProviders();
-
-  const atlarixProApiKey = settings.providerSettings?.auto?.apiKey?.value;
 
   if (model.provider === "auto") {
     throw new Error(
@@ -164,67 +154,6 @@ export async function getModelClient(
       logger.warn(
         `No usable API key for ${model.provider} and no Core model is configured — cannot fall back.`,
       );
-    }
-  }
-
-  // Handle Atlarix Pro override (Compass uses its own managed key, never the engine proxy)
-  if (
-    model.provider !== "compass" &&
-    atlarixProApiKey &&
-    settings.enableAtlarixPro
-  ) {
-    // Check if the selected provider supports Atlarix Pro (has a gateway prefix) OR
-    // we're using local engine.
-    // IMPORTANT: some providers like OpenAI have an empty string gateway prefix,
-    // so we do a nullish and not a truthy check here.
-    if (providerConfig.gatewayPrefix != null || atlarixEngineUrl) {
-      const enableSmartFilesContext = settings.enableProSmartFilesContextMode;
-      const includeExtendedThinking = hasNativeDeepThinkingSupport(
-        model,
-        model.provider,
-        settings,
-      );
-      const provider = createAtlarixEngine({
-        apiKey: atlarixProApiKey,
-        baseURL: atlarixEngineUrl ?? "https://engine.atlarix.dev/v1",
-        originalProviderId: model.provider,
-        includeExtendedThinking,
-        atlarixEngineOptions: {
-          enableLazyEdits:
-            settings.selectedChatMode === "ask"
-              ? false
-              : settings.enableProLazyEditsMode &&
-              settings.proLazyEditsMode !== "v2",
-          enableSmartFilesContext,
-          enableWebSearch: settings.enableProWebSearch,
-        },
-        settings,
-      });
-
-      logger.info(
-        `\x1b[1;97;44m Using Atlarix Pro API key for model: ${model.name} \x1b[0m`,
-      );
-
-      logger.info(
-        `\x1b[1;30;42m Using Atlarix Pro engine: ${atlarixEngineUrl ?? "<prod>"} \x1b[0m`,
-      );
-
-      const modelName = model.name.split(":free")[0];
-      const autoModelClient = {
-        model: provider(`${providerConfig.gatewayPrefix || ""}${modelName}`),
-        builtinProviderId: model.provider,
-      };
-
-      return {
-        modelClient: autoModelClient,
-        isEngineEnabled: true,
-        isSmartContextEnabled: enableSmartFilesContext,
-      };
-    } else {
-      logger.warn(
-        `Atlarix Pro enabled, but provider ${model.provider} does not have a gateway prefix defined. Falling back to direct provider connection.`,
-      );
-      // Fall through to regular provider logic if gateway prefix is missing
     }
   }
 

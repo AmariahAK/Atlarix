@@ -41,7 +41,6 @@ export function useSettings() {
       processSettingsForTelemetry(userSettings);
       if (!isInitialLoad && appVersion) {
         posthog.capture("app_ui_ready", {
-          isPro: Boolean(userSettings.providerSettings?.auto?.apiKey?.value),
           appVersion,
         });
         isInitialLoad = true;

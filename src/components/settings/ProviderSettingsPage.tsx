@@ -9,8 +9,6 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { } from "@/components/ui/accordion";
 
 import { Button } from "@/components/ui/button";
-import { Switch } from "@/components/ui/switch";
-import { showError } from "@/lib/toast";
 import { IpcClient } from "@/ipc/ipc_client";
 import {
   UserSettings,
@@ -36,9 +34,8 @@ import { LocalProviderModelSelector } from "./LocalProviderModelSelector";
 function supportsTokenBudget(
   providerId: string,
   providerData: { type?: string } | undefined,
-  isAtlarix: boolean,
 ): boolean {
-  if (isAtlarix || providerId === COMPASS_PROVIDER_ID) return false;
+  if (providerId === COMPASS_PROVIDER_ID) return false;
   return providerData?.type === "cloud";
 }
 
@@ -92,22 +89,15 @@ export function ProviderSettingsPage({ provider }: ProviderSettingsPageProps) {
   const supportsCustomModels =
     providerData?.type === "custom" || providerData?.type === "cloud";
 
-  const isAtlarix = provider === "auto";
-
   const [apiKeyInput, setApiKeyInput] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const router = useRouter();
 
-  // Use fetched data (or defaults for Atlarix)
-  const providerDisplayName = isAtlarix
-    ? "Atlarix"
-    : (providerData?.name ?? "Unknown Provider");
-  const providerWebsiteUrl = isAtlarix
-    ? "https://atlarix.dev/settings"
-    : providerData?.websiteUrl;
-  const hasFreeTier = isAtlarix ? false : providerData?.hasFreeTier;
-  const envVarName = isAtlarix ? undefined : providerData?.envVarName;
+  const providerDisplayName = providerData?.name ?? "Unknown Provider";
+  const providerWebsiteUrl = providerData?.websiteUrl;
+  const hasFreeTier = providerData?.hasFreeTier;
+  const envVarName = providerData?.envVarName;
 
   // Use provider ID (which is the 'provider' prop)
   const userApiKey = settings?.providerSettings?.[provider]?.apiKey?.value;
@@ -183,9 +173,6 @@ export function ProviderSettingsPage({ provider }: ProviderSettingsPageProps) {
           },
         },
       };
-      if (isAtlarix) {
-        settingsUpdate.enableAtlarixPro = true;
-      }
       await updateSettings(settingsUpdate);
       setApiKeyInput(""); // Clear input on success
       // Optionally show a success message
@@ -220,19 +207,6 @@ export function ProviderSettingsPage({ provider }: ProviderSettingsPageProps) {
     }
   };
 
-  // --- Toggle Atlarix Pro Handler ---
-  const handleToggleAtlarixPro = async (enabled: boolean) => {
-    setIsSaving(true);
-    try {
-      await updateSettings({
-        enableAtlarixPro: enabled,
-      });
-    } catch (error: any) {
-      showError(`Error toggling Atlarix Pro: ${error}`);
-    } finally {
-      setIsSaving(false);
-    }
-  };
 
   // Effect to clear input error when input changes
   useEffect(() => {
@@ -287,7 +261,7 @@ export function ProviderSettingsPage({ provider }: ProviderSettingsPageProps) {
   }
 
   // Handle case where provider is not found (e.g., invalid ID in URL)
-  if (!providerData && !isAtlarix) {
+  if (!providerData) {
     return (
       <div className="min-h-screen px-8 py-4">
         <div className="max-w-4xl mx-auto">
@@ -332,7 +306,6 @@ export function ProviderSettingsPage({ provider }: ProviderSettingsPageProps) {
           isLoading={settingsLoading}
           hasFreeTier={hasFreeTier}
           providerWebsiteUrl={providerWebsiteUrl}
-          isAtlarix={isAtlarix}
           onBackClick={() => router.history.back()}
         />
 
@@ -391,31 +364,14 @@ export function ProviderSettingsPage({ provider }: ProviderSettingsPageProps) {
                   onApiKeyInputChange={setApiKeyInput}
                   onSaveKey={handleSaveKey}
                   onDeleteKey={handleDeleteKey}
-                  isAtlarix={isAtlarix}
                   updateSettings={updateSettings}
                 />
-                {supportsTokenBudget(provider, providerData, isAtlarix) && (
+                {supportsTokenBudget(provider, providerData) && (
                   <TokenBudgetInput providerId={provider} />
                 )}
               </>
             )}
           </>
-        )}
-
-        {isAtlarix && !settingsLoading && (
-          <div className="mt-6 flex items-center justify-between p-4 bg-(--background-lightest) rounded-lg border">
-            <div>
-              <h3 className="font-medium">Enable Atlarix Pro</h3>
-              <p className="text-sm text-gray-600 dark:text-gray-400">
-                Toggle to enable Atlarix Pro
-              </p>
-            </div>
-            <Switch
-              checked={settings?.enableAtlarixPro}
-              onCheckedChange={handleToggleAtlarixPro}
-              disabled={isSaving}
-            />
-          </div>
         )}
 
         {supportsCustomModels && providerData && provider !== "compass" && (

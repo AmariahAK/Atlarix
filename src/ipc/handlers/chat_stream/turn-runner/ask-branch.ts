@@ -903,7 +903,6 @@ export async function runAskBranch(
                         effectiveModel,
                         req.chatId,
                       ),
-                      enableTurboEditsV2: false,
                       hasWorkspace,
                       registeredToolNames: askOfferedNames,
                       ...promptIdentityOpts,

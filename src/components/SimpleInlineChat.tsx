@@ -521,7 +521,6 @@ export function SimpleInlineChat({
                     <div data-testid="chat-error-bottom">
                         <ChatErrorBox
                             error={error}
-                            isAtlarixProEnabled={false}
                             onDismiss={() => {
                                 setErrorById((prev) => {
                                     const next = new Map(prev);

@@ -4,7 +4,6 @@ import { OPENAI_COMPATIBLE_NPM } from "./provider-sdk-factories";
 export const PROVIDERS_THAT_SUPPORT_THINKING: string[] = [
   "google",
   "vertex",
-  "auto",
   // Open-weight reasoners: DeepSeek (deepseek-reasoner), Qwen3 thinking,
   // MiniMax M2.x thinking modes.
   "deepseek",

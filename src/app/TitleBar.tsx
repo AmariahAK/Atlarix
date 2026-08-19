@@ -1,7 +1,4 @@
-import { useRouter } from "@tanstack/react-router";
 import { useSettings } from "@/hooks/useSettings";
-import { Button } from "@/components/ui/button";
-import { providerSettingsRoute } from "@/routes/settings/providers/$provider";
 import { cn } from "@/lib/utils";
 import { useDeepLink } from "@/contexts/DeepLinkContext";
 import { useEffect, useState } from "react";
@@ -12,7 +9,7 @@ import { IpcClient } from "@/ipc/ipc_client";
 
 export const TitleBar = () => {
 
-  const { settings, refreshSettings } = useSettings();
+  const { refreshSettings } = useSettings();
   const [isSuccessDialogOpen, setIsSuccessDialogOpen] = useState(false);
   const [showWindowControls, setShowWindowControls] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -54,9 +51,6 @@ export const TitleBar = () => {
     handleDeepLink();
   }, [lastDeepLink?.timestamp]);
 
-  const isAtlarixPro = !!settings?.providerSettings?.auto?.apiKey?.value;
-  const isAtlarixProEnabled = Boolean(settings?.enableAtlarixPro);
-
   return (
     <>
       {/* Fix: Finding 1 — fullscreen: collapse drag region so it does not steal clicks */}
@@ -69,12 +63,6 @@ export const TitleBar = () => {
         )}
       >
         {!isFullscreen ? <div className="flex-1" /> : null}
-
-        {isAtlarixPro ? (
-          <div className={cn(isFullscreen && "pointer-events-auto no-app-region-drag")}>
-            <AtlarixProButton isAtlarixProEnabled={isAtlarixProEnabled} />
-          </div>
-        ) : null}
 
         {showWindowControls ? (
           <div className={cn("ml-auto", isFullscreen && "pointer-events-auto")}>
@@ -172,30 +160,4 @@ function WindowsControls() {
   );
 }
 
-export function AtlarixProButton({
-  isAtlarixProEnabled,
-}: {
-  isAtlarixProEnabled: boolean;
-}) {
-  const { navigate } = useRouter();
-  return (
-    <Button
-      data-testid="title-bar-atlarix-pro-button"
-      onClick={() => {
-        navigate({
-          to: providerSettingsRoute.id,
-          params: { provider: "auto" },
-        });
-      }}
-      variant="outline"
-      className={cn(
-        "hidden @2xl:block ml-1 no-app-region-drag h-7 bg-primary text-primary-foreground text-xs px-2 pt-1 pb-1",
-        !isAtlarixProEnabled && "bg-muted text-muted-foreground",
-      )}
-      size="sm"
-    >
-      {isAtlarixProEnabled ? "Workspace • Unlimited" : "Workspace"}
-    </Button>
-  );
-}
 

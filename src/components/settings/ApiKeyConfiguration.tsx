@@ -27,7 +27,6 @@ interface ApiKeyConfigurationProps {
   onApiKeyInputChange: (value: string) => void;
   onSaveKey: (value: string) => Promise<void>;
   onDeleteKey: () => Promise<void>;
-  isAtlarix: boolean;
   updateSettings: (settings: Partial<UserSettings>) => Promise<UserSettings>;
 }
 
@@ -43,7 +42,6 @@ export function ApiKeyConfiguration({
   onApiKeyInputChange,
   onSaveKey,
   onDeleteKey,
-  isAtlarix: _isAtlarix,
   updateSettings,
 }: ApiKeyConfigurationProps) {
   // Special handling for Azure OpenAI which requires environment variables

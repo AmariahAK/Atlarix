@@ -13,7 +13,6 @@ import type { IpcMainInvokeEvent } from "electron";
 import { streamText, isStepCount } from "ai";
 import type { ModelMessage, ToolSet } from "ai";
 import type {
-  SmartContextMode,
   UserSettings,
   LargeLanguageModel,
 } from "@/lib/schemas";
@@ -46,18 +45,11 @@ import {
 } from "@/ipc/utils/no_usable_model_output";
 import { safeSend } from "@/ipc/utils/safe_sender";
 import { bucketNativeTokensByTool } from "@/lib/ai/native-history";
-import {
-  getExtraProviderOptions,
-  getReasoningEffort,
-} from "@/ipc/utils/thinking_utils";
+import { getReasoningEffort } from "@/ipc/utils/thinking_utils";
 import {
   getMaxTokensWithFloor,
   getTemperature,
 } from "@/ipc/utils/token_utils";
-import {
-  processChatMessagesWithVersionedFiles as getVersionedFiles,
-  type VersionedFiles,
-} from "@/ipc/utils/versioned_codebase_context";
 import {
   isNetworkStreamError,
   isForcedToolChoiceRejection,
@@ -95,7 +87,6 @@ import {
   buildReasoningProviderOptions,
   detectReasoningCapability,
   resolveReasoningCatalogModelId,
-  resolveCapabilityProviderId,
   deriveReasoningCeiling,
 } from "@/lib/routing/reasoning-detector";
 import { systemReminder } from "@/lib/streaming/system-reminder";
@@ -115,7 +106,6 @@ export interface SimpleStreamTextArgs {
   /** PASS8 A5: prepended as a system-role message so the static `system`
    * field stays cache-eligible across turns. */
   dynamicSystemTail?: string;
-  dyadDisableFiles?: boolean;
   /** Per-round abort signal — stall watchdog aborts this round only, leaving
    * the shared turn controller usable for a retry. */
   abortSignalOverride?: AbortSignal;
@@ -128,13 +118,8 @@ export interface SimpleStreamTextArgs {
 export interface SimpleStreamTextDeps {
   req: ChatStreamParams;
   settings: UserSettings;
-  updatedChat: any;
   effectiveAppId: number | undefined;
   effectiveModel: LargeLanguageModel;
-  appPath: string;
-  engineRequestId: string | undefined;
-  isEngineEnabled: boolean | undefined;
-  isDeepContextEnabled: boolean | undefined;
   enableNativeReasoning: boolean;
   forceCollectOnWake: boolean;
   proactiveContextReminderForStream: string | undefined;
@@ -159,7 +144,6 @@ export async function simpleStreamText(
     tools,
     systemPromptOverride = deps.systemPrompt,
     dynamicSystemTail,
-    dyadDisableFiles = false,
     repetition,
     abortSignalOverride,
     maxStepsPerRound,
@@ -168,13 +152,8 @@ export async function simpleStreamText(
   const {
     req,
     settings,
-    updatedChat,
     effectiveAppId,
     effectiveModel,
-    appPath,
-    engineRequestId,
-    isEngineEnabled,
-    isDeepContextEnabled,
     enableNativeReasoning,
     proactiveContextReminderForStream,
     modeReanchorNote,
@@ -195,26 +174,7 @@ export async function simpleStreamText(
             // drained (or vice versa, leaving them undelivered).
             const forceCollectOnWake =
               deps.forceCollectOnWake && !ctx.forcedToolChoiceRejected;
-            if (isEngineEnabled) {
-              logger.log(
-                "sending AI request to engine with request id:",
-                engineRequestId,
-              );
-            } else {
-              logger.log("sending AI request");
-            }
-            let versionedFiles: VersionedFiles | undefined;
-            if (isDeepContextEnabled) {
-              versionedFiles = await preflight.time("versioned-files", () =>
-                getVersionedFiles({
-                  chatMessages,
-                  appPath,
-                }),
-              );
-            }
-            const smartContextMode: SmartContextMode = isDeepContextEnabled
-              ? "deep"
-              : "balanced";
+            logger.log("sending AI request");
             const optionsModel = getEffectiveModelForOptions(settings);
             const thinkingTier = enableNativeReasoning;
             // Resolve the max output tokens ONCE — reused to scale the reasoning
@@ -225,29 +185,11 @@ export async function simpleStreamText(
                 reasoningCapable: enableNativeReasoning,
               }),
             );
-            const providerOptions: Record<string, any> = {
-              "dyad-engine": {
-                dyadAppId: effectiveAppId ?? updatedChat.app?.id,
-                dyadRequestId: engineRequestId,
-                dyadDisableFiles,
-                dyadSmartContextMode: smartContextMode,
-                dyadVersionedFiles: versionedFiles,
-              },
-              // Capability resolution keys off the VENDOR, not the synthetic
-              // `compass`: Core has no catalog row of its own, and reasoning
-              // behaviour belongs to whoever actually serves the request.
-              "dyad-gateway": getExtraProviderOptions(
-                effectiveModel
-                  ? resolveCapabilityProviderId(effectiveModel)
-                  : modelClient.builtinProviderId,
-                settings,
-                thinkingTier,
-                maxOutputTokens,
-                effectiveModel
-                  ? resolveReasoningCatalogModelId(effectiveModel)
-                  : undefined,
-              ),
-            };
+            // Per-provider buckets only. The two Dyad-era keys that used to open
+            // this object (`dyad-engine`, `dyad-gateway`) were addressed to the
+            // hosted engine and its upstream gateway; with that provider deleted
+            // no provider declares either identifier, so nothing read them.
+            const providerOptions: Record<string, any> = {};
 
             // OpenRouter provider-routing pin (benchmarks: lock one provider +
             // quantization so the backend is identical across harnesses).
@@ -905,16 +847,13 @@ export async function simpleStreamText(
                 } else {
                   message = modelFailureUserMessage(message);
                 }
-                const requestIdPrefix = isEngineEnabled
-                  ? `[Request ID: ${engineRequestId}] `
-                  : "";
                 logger.error(
-                  `AI stream text error for request: ${requestIdPrefix} errorMessage=${errorMessage} error=`,
+                  `AI stream text error for request: errorMessage=${errorMessage} error=`,
                   error,
                 );
                 if (modelClient.builtinProviderId === "compass" && isCompassInfraError) {
                   sentryCaptureExceptionSafe(
-                    new Error(`${requestIdPrefix}${message}`.slice(0, 500)),
+                    new Error(message.slice(0, 500)),
                     {
                       tags: { feature: "compass", source: "main_stream" },
                       extra: { chatId: req.chatId },
@@ -926,7 +865,7 @@ export async function simpleStreamText(
                 safeSend(event.sender, "chat:response:error", {
                   chatId: req.chatId,
                   streamId,
-                  error: `${AI_STREAMING_ERROR_MESSAGE_PREFIX}${requestIdPrefix}${message}`,
+                  error: `${AI_STREAMING_ERROR_MESSAGE_PREFIX}${message}`,
                 });
                 // Clean up the abort controller
                 if (activeStreamId.get(req.chatId) === streamId) activeStreams.delete(req.chatId);

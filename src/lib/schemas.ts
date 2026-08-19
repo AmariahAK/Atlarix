@@ -265,13 +265,6 @@ export const DBConnectionStoredSchema = z.object({
   workspaceId: z.number().nullable().optional(),
 });
 
-export const SmartContextModeSchema = z.enum([
-  "balanced",
-  "conservative",
-  "deep",
-]);
-export type SmartContextMode = z.infer<typeof SmartContextModeSchema>;
-
 /**
  * Zod schema for user settings
  */
@@ -368,7 +361,6 @@ export const UserSettingsSchema = z.object({
       cachedAt: z.number(),
     })
     .optional(),
-  enableAtlarixPro: z.boolean().optional(),
   lastShownReleaseNotesVersion: z.string().optional(),
   // `maxChatTurnsInContext` + `enableContextAutoSummarize` REMOVED (v14.18.0).
   // They configured a fixed 11-turn history cap that deleted older messages
@@ -404,11 +396,6 @@ export const UserSettingsSchema = z.object({
    * single toggle raises it to the model's max reasoning ("high") on demand.
    */
   deepThinking: z.boolean().optional(),
-  enableProLazyEditsMode: z.boolean().optional(),
-  proLazyEditsMode: z.enum(["off", "v1", "v2"]).optional(),
-  enableProSmartFilesContextMode: z.boolean().optional(),
-  enableProWebSearch: z.boolean().optional(),
-  proSmartContextOption: SmartContextModeSchema.optional(),
   enableSupabaseWriteSqlMigration: z.boolean().optional(),
   selectedChatMode: ChatModeSchema.optional(),
   /** @deprecated Ignored — unified runtime always enables delegation. */
@@ -517,22 +504,6 @@ export const UserSettingsSchema = z.object({
  * Type derived from the UserSettingsSchema
  */
 export type UserSettings = z.infer<typeof UserSettingsSchema>;
-
-export function isAtlarixProEnabled(settings: UserSettings): boolean {
-  return settings.enableAtlarixPro === true && hasAtlarixProKey(settings);
-}
-
-export function hasAtlarixProKey(settings: UserSettings): boolean {
-  return !!settings.providerSettings?.auto?.apiKey?.value;
-}
-
-export function isTurboEditsV2Enabled(settings: UserSettings): boolean {
-  return Boolean(
-    isAtlarixProEnabled(settings) &&
-    settings.enableProLazyEditsMode === true &&
-    settings.proLazyEditsMode === "v2",
-  );
-}
 
 // Define interfaces for the props
 export interface SecurityRisk {

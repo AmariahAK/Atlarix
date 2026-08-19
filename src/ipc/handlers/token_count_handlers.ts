@@ -17,7 +17,6 @@ import {
 } from "@/lib/ai/native-history";
 import { createLoggedHandler } from "./safe_handle";
 import { readSettings } from "@/main/settings";
-import { isTurboEditsV2Enabled } from "@/lib/schemas";
 import { getStreamTransport, isStreamTransportId } from "@/lib/chat/stream-transport";
 import { sliceFromLastCompactionSummary } from "@/lib/context/compaction";
 
@@ -94,7 +93,7 @@ function sumRows(rows: TokenCountMessageRow[]): RowTokens {
 // PASS8 E1: System-prompt token estimate cache.
 // ═══════════════════════════════════════════════════════════════════
 // The system prompt only varies meaningfully per dispatch by chatMode +
-// contextSize + turboEditsV2 + a date stamp + app version. The base
+// contextSize + a date stamp + app version. The base
 // (AGENTS.md + tool_contract + mode block + runtime identity) is
 // stable for the whole session. Recomputing the full estimate on every
 // keystroke-driven count-tokens IPC call was responsible for ~5-15ms of
@@ -117,13 +116,11 @@ function systemPromptCacheKey(args: {
   chatMode: "build" | "ask";
   effectiveWorkMode?: ModeSystemKey;
   contextSize: number;
-  turboEditsV2: boolean;
 }): SystemPromptCacheKey {
   return [
     args.chatMode,
     args.effectiveWorkMode ?? "legacy",
     args.contextSize,
-    args.turboEditsV2 ? "turbo" : "noturbo",
   ].join(":");
 }
 
@@ -131,7 +128,6 @@ function getOrComputeSystemPromptTokens(args: {
   chatMode: "build" | "ask";
   effectiveWorkMode?: ModeSystemKey;
   contextSize: number;
-  turboEditsV2: boolean;
 }): number {
   const key = systemPromptCacheKey(args);
   const cached = SYSTEM_PROMPT_TOKEN_CACHE.get(key);
@@ -143,7 +139,6 @@ function getOrComputeSystemPromptTokens(args: {
     chatMode: args.chatMode,
     effectiveWorkMode: args.effectiveWorkMode,
     contextSize: args.contextSize,
-    enableTurboEditsV2: args.turboEditsV2,
     hasWorkspace: true,
   });
   const tokens = estimateTokens(systemPrompt);
@@ -295,7 +290,6 @@ async function computeTokenCountResult(
     chatMode: cacheChatMode,
     effectiveWorkMode: tokenWorkMode,
     contextSize,
-    turboEditsV2: isTurboEditsV2Enabled(settings),
   });
 
   // The tool buckets are carved OUT of message history, never added on top:

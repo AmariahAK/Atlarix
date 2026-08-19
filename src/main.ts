@@ -13,7 +13,6 @@ import {
   writeSettings,
   reEncryptPlaintextSecretsIfPossible,
 } from "./main/settings";
-import { handleAtlarixProReturn } from "./main/pro";
 import { configureWebAuthn } from "./main/webauthn";
 import { showDesktopNotification } from "./main/desktop-notification";
 import { IS_TEST_BUILD } from "./ipc/utils/test_utils";
@@ -1658,54 +1657,6 @@ function handleDeepLinkReturn(url: string) {
 
   // TODO: Phase 4.5 - Removed Neon/Supabase OAuth (deleted integrations)
   // If you need these later, rebuild oauth.atlarix.dev service
-
-  // atlarix://pro-return?key=123
-  if (parsed.hostname === "pro-return") {
-    const apiKey = parsed.searchParams.get("key");
-    if (!apiKey) {
-      dialog.showErrorBox("Invalid URL", "Expected key");
-      return;
-    }
-    // C5 (security review): a crafted `atlarix://pro-return?key=<attacker>` link
-    // must NOT silently write an API key + enable Pro (that would reroute all the
-    // user's AI calls through the attacker's gateway). Require an explicit native
-    // confirmation before applying anything. Surface the window so it's seen.
-    if (mainWindow) {
-      mainWindow.show();
-      mainWindow.focus();
-    }
-    const confirm = mainWindow
-      ? dialog.showMessageBox(mainWindow, {
-          type: "warning",
-          buttons: ["Connect Atlarix Pro", "Cancel"],
-          defaultId: 1,
-          cancelId: 1,
-          title: "Connect Atlarix Pro?",
-          message: "Connect Atlarix Pro with a new API key from this link?",
-          detail:
-            "This routes your AI requests through the Atlarix Pro gateway using a key delivered by the link you just opened. Only continue if you just completed an Atlarix Pro checkout. If you didn't expect this, click Cancel.",
-        })
-      : dialog.showMessageBox({
-          type: "warning",
-          buttons: ["Connect Atlarix Pro", "Cancel"],
-          defaultId: 1,
-          cancelId: 1,
-          title: "Connect Atlarix Pro?",
-          message: "Connect Atlarix Pro with a new API key from this link?",
-          detail:
-            "This routes your AI requests through the Atlarix Pro gateway using a key delivered by the link you just opened. Only continue if you just completed an Atlarix Pro checkout. If you didn't expect this, click Cancel.",
-        });
-    confirm
-      .then(({ response }) => {
-        if (response !== 0) return; // Cancel / dismissed
-        handleAtlarixProReturn({ apiKey });
-        mainWindow?.webContents.send("deep-link-received", {
-          type: parsed.hostname,
-        });
-      })
-      .catch((err) => log.error("pro-return confirmation failed:", err));
-    return;
-  }
   // atlarix://add-mcp-server?name=Chrome%20DevTools&config=eyJjb21tYW5kIjpudWxsLCJ0eXBlIjoic3RkaW8ifQ%3D%3D
   if (parsed.hostname === "add-mcp-server") {
     const name = parsed.searchParams.get("name");

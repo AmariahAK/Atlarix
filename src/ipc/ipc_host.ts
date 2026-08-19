@@ -28,7 +28,6 @@ import { registerDisplaySnapshotHandlers } from "./handlers/display_snapshot_han
 import { registerProHandlers } from "./handlers/pro_handlers";
 import { registerAppEnvVarsHandlers } from "./handlers/app_env_vars_handlers";
 import { registerPortalHandlers } from "./handlers/portal_handlers";
-import { registerHelpBotHandlers } from "./handlers/help_bot_handlers";
 import { registerMcpHandlers } from "./handlers/mcp_handlers";
 import { registerMcpOAuthHandlers } from "./handlers/mcp_oauth_handlers";
 import { registerBrowserHandlers } from "./handlers/browser_handlers";
@@ -85,7 +84,6 @@ export function registerIpcHandlers() {
   registerProHandlers();
   registerAppEnvVarsHandlers();
   registerPortalHandlers();
-  registerHelpBotHandlers();
   registerMcpHandlers();
   registerMcpOAuthHandlers();
   registerSkillsHandlers();

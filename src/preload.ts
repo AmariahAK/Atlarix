@@ -166,9 +166,6 @@ const validInvokeChannels = [
   "notify:turn-done",
   // Help
   "take-screenshot",
-  // Help bot
-  "help:chat:start",
-  "help:chat:cancel",
   // adding app to favorite
   "add-to-favorite",
   "github:clone-repo-from-url",
@@ -342,9 +339,6 @@ const validReceiveChannels = [
   "db-ready",                  // Main: DB initialized, renderer can show app
   "apps:status-changed",       // Main: workspace folder presence changed (focus refresh)
   // Help bot
-  "help:chat:response:chunk",
-  "help:chat:response:end",
-  "help:chat:response:error",
   // MCP consent request from main to renderer
   "command-permission-blocked",
   "file-permission-blocked",

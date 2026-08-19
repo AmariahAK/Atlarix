@@ -205,8 +205,6 @@ export interface ConstructSystemPromptParams {
     contextSize?: number;
     /** v2.1: When set, use as base (project instruction precedence already applied). */
     optionalProjectInstructions?: string;
-    /** Legacy: unused in builder, kept for call-site compatibility. */
-    enableTurboEditsV2?: boolean;
     /** @deprecated Legacy flag; clarifying `<questions>` blocks are no longer used. */
     hasAnsweredQuestions?: boolean;
     /** Resolved model for this turn (after Auto routing). Drives workstation identity block. */

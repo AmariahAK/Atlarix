@@ -663,12 +663,6 @@ export type RevertVersionResponse =
   | { successMessage: string }
   | { warningMessage: string };
 
-// --- Help Bot Types ---
-export interface StartHelpChatParams {
-  sessionId: string;
-  message: string;
-}
-
 // --- Workspace session persistence ---
 export interface WorkspaceChatSession {
   id: string;

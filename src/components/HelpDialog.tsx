@@ -16,13 +16,10 @@ import {
   SendIcon,
   ImagePlusIcon,
   XIcon,
-  SparklesIcon,
   MessageSquare,
 } from "lucide-react";
 import { IpcClient } from "@/ipc/ipc_client";
 import { useState, useEffect, useRef } from "react";
-import { HelpBotDialog } from "./HelpBotDialog";
-import { useSettings } from "@/hooks/useSettings";
 import { useAuth } from "@/lib/auth/useAuth";
 import { DISCORD_INVITE_URL } from "@/lib/community/discord";
 
@@ -34,7 +31,6 @@ interface HelpDialogProps {
 export function HelpDialog({ isOpen, onClose }: HelpDialogProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [showBugForm, setShowBugForm] = useState(false);
-  const [isHelpBotOpen, setIsHelpBotOpen] = useState(false);
   const [bugFormData, setBugFormData] = useState({
     email: "",
     subject: "",
@@ -42,9 +38,7 @@ export function HelpDialog({ isOpen, onClose }: HelpDialogProps) {
   });
   const [attachments, setAttachments] = useState<File[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const { settings } = useSettings();
   const { user } = useAuth();
-  const isAtlarixProUser = settings?.providerSettings?.["auto"]?.apiKey?.value;
 
   // Auto-fill email if user is logged in
   useEffect(() => {
@@ -267,25 +261,7 @@ System Info:
           If you need help or want to report an issue, here are some options:
         </DialogDescription>
         <div className="flex flex-col space-y-4 w-full">
-          {isAtlarixProUser ? (
-            <div className="flex flex-col space-y-2">
-              <Button
-                variant="default"
-                onClick={() => {
-                  setIsHelpBotOpen(true);
-                }}
-                className="w-full py-6 border-primary/50 shadow-sm shadow-primary/10 transition-all hover:shadow-md hover:shadow-primary/15"
-              >
-                <SparklesIcon className="mr-2 h-5 w-5" /> Chat with Atlarix help
-                bot (Pro)
-              </Button>
-              <p className="text-sm text-muted-foreground px-2">
-                Opens an in-app help chat assistant that searches through
-                Atlarix's docs.
-              </p>
-            </div>
-          ) : (
-            <div className="flex flex-col space-y-2">
+          <div className="flex flex-col space-y-2">
               <Button
                 variant="outline"
                 onClick={() => {
@@ -297,11 +273,10 @@ System Info:
               >
                 <BookOpenIcon className="mr-2 h-5 w-5" /> Open Docs
               </Button>
-              <p className="text-sm text-muted-foreground px-2">
-                Get help with common questions and issues.
-              </p>
-            </div>
-          )}
+            <p className="text-sm text-muted-foreground px-2">
+              Get help with common questions and issues.
+            </p>
+          </div>
 
           <div className="flex flex-col space-y-2">
             <Button
@@ -331,10 +306,6 @@ System Info:
           </div>
         </div>
       </DialogContent>
-      <HelpBotDialog
-        isOpen={isHelpBotOpen}
-        onClose={() => setIsHelpBotOpen(false)}
-      />
     </Dialog>
   );
 }
