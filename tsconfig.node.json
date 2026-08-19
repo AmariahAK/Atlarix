@@ -8,7 +8,11 @@
     "esModuleInterop": true,
     "noImplicitAny": true,
     "sourceMap": true,
-    "baseUrl": ".",
+    // TypeScript 7 removed `baseUrl`. This project declared no `paths`, so it was
+    // only enabling root-relative bare specifiers — which nothing under `src`
+    // uses (the `@/*` alias lives in tsconfig.app.json). Dropped rather than
+    // translated to `"paths": {"*": ["./*"]}`, which would re-enable a resolution
+    // mode no import depends on.
     "outDir": "dist",
     "moduleResolution": "bundler",
     "resolveJsonModule": true

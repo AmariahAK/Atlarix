@@ -9,7 +9,7 @@
     }
   ],
   "compilerOptions": {
-    "baseUrl": ".",
+    // Removed for TypeScript 7 (see tsconfig.app.json). `paths` below is relative.
     "paths": {
       "@/*": ["./src/*"]
     },

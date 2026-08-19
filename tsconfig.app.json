@@ -22,7 +22,10 @@
     "noFallthroughCasesInSwitch": true,
     "noUncheckedSideEffectImports": true,
     // import
-    "baseUrl": ".",
+    // TypeScript 7 REMOVED `baseUrl`. Nothing is lost here: the `paths` values
+    // are already written relative (`./src/*`), and TS resolves those against the
+    // tsconfig's own directory. The bundler never consulted this anyway — Vite
+    // defines the same `@` alias itself in `resolve.alias`.
     "paths": {
       "@/*": ["./src/*"]
     }

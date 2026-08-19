@@ -375,7 +375,10 @@ export function useStreamChat({
   if (hasChatId) {
     const activeChatId = useAtomValue(activeChatIdAtom);
     const selectedChatId = useAtomValue(selectedChatIdAtom);
-    chatId = (activeChatId ?? selectedChatId ?? undefined) ?? undefined;
+    // The trailing `?? undefined` was dead: the inner chain already yields
+    // `number | undefined`, so the outer operator could never change the result.
+    // TypeScript 7 rejects it (TS2871); 5.x accepted it silently.
+    chatId = activeChatId ?? selectedChatId ?? undefined;
   }
   let { refreshProposal } = hasChatId ? useProposal(chatId) : useProposal();
   // PASS8 E3: Shared context-only token count (dedup'd via React Query key).
