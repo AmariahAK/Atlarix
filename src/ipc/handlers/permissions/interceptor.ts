@@ -838,6 +838,7 @@ export class PermissionInterceptor extends EventEmitter {
         newContent?: string;
         command?: string;
         verified?: boolean;
+        automationId?: string;
     } {
         const operation = this.pendingOperations.get(operationId);
 
@@ -936,6 +937,19 @@ export class PermissionInterceptor extends EventEmitter {
             }
             if (path) {
                 return { success: true, path };
+            }
+            // A created automation's id only exists after approval, so hand it
+            // back here — the tool's own description tells the model to run the
+            // automation next, and name is not a key (two may share one).
+            if (operation.request.operation === "automation_write") {
+                const autoPreview = operation.request
+                    .preview as AutomationOperationPreview;
+                return {
+                    success: true,
+                    ...(autoPreview.automationId
+                        ? { automationId: autoPreview.automationId }
+                        : {}),
+                };
             }
             return { success: true };
         }
@@ -1337,6 +1351,10 @@ export class PermissionInterceptor extends EventEmitter {
         if (preview.action === "create") {
             if (this.workspaceId == null) throw new Error("Workspace required");
             const { id } = await svc.createAutomation(this.workspaceId, input);
+            // Stash the new id on the preview so getExecutionResult can report it
+            // back to the model (same mechanism as `verified` for file writes).
+            // Logging it alone left the model unable to run what it just created.
+            preview.automationId = id;
             logger.log(`[automation] created ${id} (${input.name})`);
             return;
         }

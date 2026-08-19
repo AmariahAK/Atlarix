@@ -738,6 +738,11 @@ export async function runAskBranch(
                               // a command card (Ask mode is read-only: run_command only).
                               ...(execResult.command ? { command: execResult.command } : {}),
                               ...(execResult.exitCode !== undefined ? { exitCode: execResult.exitCode } : {}),
+                              // A created automation's id only exists after approval;
+                              // hand it back so the model can run what it just made.
+                              ...(execResult.automationId
+                                ? { automation_id: execResult.automationId }
+                                : {}),
                             });
                           } else {
                             const execResultRejected = askPermissionInterceptor.getExecutionResult(operationId);

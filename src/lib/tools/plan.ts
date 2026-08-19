@@ -15,6 +15,7 @@ import {
   createPlanArtifact,
   getLatestPlanArtifact,
   getPlanArtifact,
+  listPlanArtifactsForSession,
   updatePlanArtifactContent,
   appendStepToPlanArtifact,
   setPlanArtifactStatus,
@@ -81,16 +82,84 @@ async function resolveSessionId(args: PlanToolArgs): Promise<string | null> {
 const NO_SESSION_ERROR =
   "No workspace session for this chat — start a new chat in this workspace and retry.";
 
+/** A title matched more than one plan; the caller must disambiguate by id. */
+type TitleAmbiguity = { ambiguous: true; message: string };
+
+/**
+ * Resolve a plan by TITLE within a session.
+ *
+ * Titles are not unique, so two matches must fail LOUDLY with both ids rather
+ * than silently picking the newer one — the same guarantee `update_step` already
+ * makes when it refuses to tick a step it cannot match uniquely. Silently
+ * choosing would mean the model updates one plan while reading another's
+ * progress, which is the exact disagreement `resolvePlanId`'s building-first
+ * ordering exists to prevent.
+ *
+ * Matching is trimmed and case-insensitive: the model is recalling a name it
+ * wrote earlier in the turn, not quoting a primary key.
+ */
+async function resolvePlanIdByTitle(
+  sessionId: string,
+  rawTitle: string,
+): Promise<string | null | TitleAmbiguity> {
+  const wanted = rawTitle.trim().toLowerCase();
+  if (!wanted) return null;
+  const rows = await listPlanArtifactsForSession(sessionId);
+  const matches = rows.filter(
+    (r) => (r.title ?? "").trim().toLowerCase() === wanted,
+  );
+  if (matches.length === 0) return null;
+  if (matches.length > 1) {
+    return {
+      ambiguous: true,
+      message:
+        `${matches.length} plans in this session are titled "${rawTitle.trim()}": ` +
+        matches.map((m) => `${m.id} (${m.planStatus})`).join(", ") +
+        ". Re-issue the call with planId set to the one you mean.",
+    };
+  }
+  return matches[0].id;
+}
+
+/**
+ * Narrow `resolvePlanId`'s three-way result into an id or the tool result to
+ * return. Kept explicit so an ambiguous title can never be silently treated as
+ * "no plan" and turned into a create.
+ */
+function planIdOrFailure(
+  resolved: string | null | TitleAmbiguity,
+  noneError: string,
+): { id: string; failure?: undefined } | { id?: undefined; failure: { success: false; error: string } } {
+  if (resolved && typeof resolved === "object") {
+    return { failure: { success: false, error: resolved.message } };
+  }
+  if (!resolved) return { failure: { success: false, error: noneError } };
+  return { id: resolved };
+}
+
 /**
  * Resolve the plan artifact id to operate on. v14.8.7 §A1(a): planId is now
  * OPTIONAL for the mutation ops — when omitted we target the session's latest
  * plan. Threading the id was the top failure mode (weak models drop it), so one
  * call can mark a step without first re-reading the plan to recover the id.
  */
-async function resolvePlanId(args: PlanToolArgs): Promise<string | null> {
+async function resolvePlanId(
+  args: PlanToolArgs,
+): Promise<string | null | TitleAmbiguity> {
   if (args.planId) return args.planId;
   const sessionId = await resolveSessionId(args);
   if (!sessionId) return null;
+  // `title` addresses a plan on the NON-write ops (on `write` it names a plan
+  // being created, which is a different meaning — see writePlan). Slotted in
+  // BETWEEN planId and the positional fallback so the explicit id always wins
+  // and the fallback ordering below is untouched.
+  if (args.title?.trim()) {
+    const byTitle = await resolvePlanIdByTitle(sessionId, args.title);
+    if (byTitle && typeof byTitle === "object") return byTitle;
+    if (byTitle) return byTitle;
+    // No title match falls through to the positional plan rather than erroring:
+    // a model that passes a stale title still gets the plan it is working on.
+  }
   // Match loadActivePlanSection's selection EXACTLY (building-first, then
   // latest). It builds the in-context ledger from the "building" row; if this
   // resolved to a different row the model would be updating one plan while
@@ -117,6 +186,37 @@ async function readPlan(args: PlanToolArgs) {
   const sessionId = await resolveSessionId(args);
   if (!sessionId) {
     return { success: false, error: NO_SESSION_ERROR };
+  }
+  // Address by title when given one. A session with several plans could
+  // otherwise only be navigated by opaque id or by "the newest one".
+  if (args.title?.trim()) {
+    const byTitle = await resolvePlanIdByTitle(sessionId, args.title);
+    if (byTitle && typeof byTitle === "object") {
+      return { success: false, error: byTitle.message };
+    }
+    if (byTitle) {
+      const titled = await getPlanArtifact(byTitle);
+      if (titled) {
+        return {
+          success: true,
+          planId: titled.id,
+          title: titled.title,
+          content: titled.content,
+          planStatus: titled.planStatus,
+          marker: planArtifactMarker(titled.id),
+        };
+      }
+    } else {
+      const known = await listPlanArtifactsForSession(sessionId);
+      return {
+        success: true,
+        content: null,
+        message: known.length
+          ? `No plan titled "${args.title.trim()}" in this session. Plans here: ` +
+            known.map((r) => `"${r.title ?? "(untitled)"}" (${r.id})`).join(", ")
+          : "No plan in this session yet.",
+      };
+    }
   }
   const filter = args.status as PlanArtifactStatus | undefined;
   const row = await getLatestPlanArtifact(sessionId, filter);
@@ -233,10 +333,12 @@ async function setStatus(args: PlanToolArgs) {
   if (!allowed.includes(next)) {
     return { success: false, error: "plan_status must be plan, building, or built." };
   }
-  const planId = await resolvePlanId(args);
-  if (!planId) {
-    return { success: false, error: "No plan to update — create one with plan({ operation: 'write' }) first." };
-  }
+  const resolved = planIdOrFailure(
+    await resolvePlanId(args),
+    "No plan to update — create one with plan({ operation: 'write' }) first.",
+  );
+  if (resolved.failure) return resolved.failure;
+  const planId = resolved.id;
   const row = await setPlanArtifactStatus(planId, next);
   if (!row) return { success: false, error: "Plan not found." };
   broadcastPlanArtifactUpdated({
@@ -311,13 +413,12 @@ async function updateStep(args: PlanToolArgs) {
         "If you're stuck rather than handing it over, use state 'blocked' instead.",
     };
   }
-  const planId = await resolvePlanId(args);
-  if (!planId) {
-    return {
-      success: false,
-      error: "No plan to update — create one with plan({ operation: 'write' }) first.",
-    };
-  }
+  const resolvedPlan = planIdOrFailure(
+    await resolvePlanId(args),
+    "No plan to update — create one with plan({ operation: 'write' }) first.",
+  );
+  if (resolvedPlan.failure) return resolvedPlan.failure;
+  const planId = resolvedPlan.id;
   const row = await getPlanArtifact(planId);
   if (!row) {
     return {
@@ -432,10 +533,12 @@ async function appendStep(args: PlanToolArgs) {
   if (!args.step_text?.trim()) {
     return { success: false, error: "step_text is required for operation 'append_step'." };
   }
-  const planId = await resolvePlanId(args);
-  if (!planId) {
-    return { success: false, error: "No plan to append to — create one with plan({ operation: 'write' }) first." };
-  }
+  const resolvedAppend = planIdOrFailure(
+    await resolvePlanId(args),
+    "No plan to append to — create one with plan({ operation: 'write' }) first.",
+  );
+  if (resolvedAppend.failure) return resolvedAppend.failure;
+  const planId = resolvedAppend.id;
   const row = await appendStepToPlanArtifact(planId, args.step_text);
   if (!row) return { success: false, error: "Plan not found." };
   broadcastPlanArtifactUpdated({
@@ -460,7 +563,7 @@ ToolRegistry.register({
     "Session implementation plan + LIVE progress ledger (stored in the database, shown as a card in chat). Keep it current: mark a step in_progress when you start it and done when you finish, and consult it before deciding your next action instead of re-deriving progress. For the mutation ops, planId is OPTIONAL — the session's latest plan is assumed. Operations: " +
     "'write' (create OR update the plan markdown — the CANONICAL way to update progress when several steps changed or you're unsure of numbering: re-emit the full plan with updated [x]/[~]/[!] marks, which is always safe and cannot miss. Include the returned marker comment in your reply so the card renders; pass planId to update a specific plan. " +
     "When CREATING a plan you must also pass `title` — a short imperative name for this plan, shown as its heading in the UI and how you tell it apart from other plans in the session. Do not use a section heading like \"Goal\" or \"Overview\"), " +
-    "'read' (latest plan, or by planId / status filter — re-read before continuing if the user may have edited the plan), " +
+    "'read' (latest plan, or by planId / title / status filter — re-read before continuing if the user may have edited the plan), " +
     "'set_status' (plan_status: plan → building → built), " +
     "'update_step' (convenience for marking ONE step: state in_progress|done|todo|blocked|external + step_text (preferred — a unique substring of the step) or step_index. " +
     "Use 'external' for a step only the USER can do — a dashboard action, a purchase, hardware you don't have, a manual check — with a required `reason` saying what they must do; you are then DONE with that step and must not re-attempt it. " +
@@ -495,7 +598,8 @@ ToolRegistry.register({
       title: {
         type: "string",
         description:
-          "write: REQUIRED when creating a plan. A short imperative name for THIS plan, so it can be told apart from other plans in the same session (e.g. \"Fix cross-window sandbox mode\"). Not a section heading, not \"Goal\", not a restatement of the request.",
+          "write: REQUIRED when creating a plan. A short imperative name for THIS plan, so it can be told apart from other plans in the same session (e.g. \"Fix cross-window sandbox mode\"). Not a section heading, not \"Goal\", not a restatement of the request. " +
+          "On every OTHER operation title instead ADDRESSES a plan by name, so you can say which plan you mean without carrying its id. planId wins if you pass both; if two plans share the title the call fails and names both ids.",
         required: false,
       },
       planId: {

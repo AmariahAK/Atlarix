@@ -149,7 +149,16 @@ export const AutomationOperationPreviewSchema = z.object({
     /** Present for create/update; absent for delete. */
     runMode: z.enum(["notify-only", "read-only"]).optional(),
     notifyAgent: z.boolean().optional(),
-    /** update/delete only — which automation is being changed. */
+    /**
+     * Which automation this operation concerns.
+     *
+     * Set UP FRONT for update/delete. For create it is filled in at EXECUTE time
+     * by `executeAutomationWrite`, because the id does not exist until after the
+     * user approves — the same stash-on-the-preview trick `verified` uses below,
+     * so the (sync) `getExecutionResult` can hand it back to the model. Without
+     * it the model cannot `operation:"run"` the automation it just created, which
+     * is exactly what the tool description tells it to do next.
+     */
     automationId: z.string().optional(),
     /** update only: a short "was → now" per changed field, so the card shows the delta. */
     changes: z.array(z.string()).optional(),

@@ -640,6 +640,7 @@ export async function runBuildBranch(
                         newContent?: string;
                         command?: string;
                         verified?: boolean;
+                        automationId?: string;
                       }) => {
                         if (!permRequest) return "";
                         pushWrittenPaths();
@@ -723,7 +724,18 @@ export async function runBuildBranch(
                                     ?.workingDirectory,
                                 ),
                               }
-                            : {};
+                            : permRequest.operation === "automation_write"
+                              ? {
+                                  // The id only exists after approval. The tool
+                                  // description tells the model to run the
+                                  // automation it just created, and name is not a
+                                  // key — two automations may share one — so
+                                  // without this it could only guess via `list`.
+                                  ...(execResult.automationId
+                                    ? { automation_id: execResult.automationId }
+                                    : {}),
+                                }
+                              : {};
                         const hasCompilationErrors =
                           /error:|Error:|ERROR:|failed to|Failed to|Cannot find|cannot find|is not defined|is not a function|SyntaxError|TypeError|ReferenceError/i.test(
                             output,

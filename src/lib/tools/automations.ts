@@ -93,7 +93,7 @@ ToolRegistry.register({
   description:
     "Standing background watches on a schedule, a GitHub event, or an MCP tool poll — the thing to reach for when the user keeps checking something by hand. " +
     "operation:\"list\" — every automation in this workspace with its trigger, runMode, notifyAgent and last run. Free; start here. " +
-    "operation:\"create\" — name + trigger + run_mode + notify_agent. " +
+    "operation:\"create\" — name + trigger + run_mode + notify_agent. Once the user approves, the result hands back `automation_id` — use that id to run it, not a name (two automations may share one). " +
     "operation:\"update\" — automation_id plus only the fields you are changing. " +
     "operation:\"delete\" — automation_id. " +
     "operation:\"run\" — automation_id; fire ONE automation now instead of waiting for its trigger. This is how you check the one you just created actually works, so use it right after create rather than telling the user to wait. Behaves like run_command: a quick run returns its outcome inline, a slow one moves to the background and reaches you when it finishes. You always get the result, even when notify_agent is false. " +
