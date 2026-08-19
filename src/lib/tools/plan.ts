@@ -17,6 +17,7 @@ import {
   getPlanArtifact,
   listPlanArtifactsForSession,
   updatePlanArtifactContent,
+  withPlanArtifactLock,
   appendStepToPlanArtifact,
   setPlanArtifactStatus,
   planArtifactMarker,
@@ -129,7 +130,9 @@ async function resolvePlanIdByTitle(
 function planIdOrFailure(
   resolved: string | null | TitleAmbiguity,
   noneError: string,
-): { id: string; failure?: undefined } | { id?: undefined; failure: { success: false; error: string } } {
+):
+  | { id: string; failure?: undefined }
+  | { id?: undefined; failure: { success: false; error: string } } {
   if (resolved && typeof resolved === "object") {
     return { failure: { success: false, error: resolved.message } };
   }
@@ -173,7 +176,8 @@ async function resolvePlanId(
 async function readPlan(args: PlanToolArgs) {
   if (args.planId) {
     const row = await getPlanArtifact(args.planId);
-    if (!row) return { success: true, content: null, message: "Plan not found." };
+    if (!row)
+      return { success: true, content: null, message: "Plan not found." };
     return {
       success: true,
       planId: row.id,
@@ -213,7 +217,9 @@ async function readPlan(args: PlanToolArgs) {
         content: null,
         message: known.length
           ? `No plan titled "${args.title.trim()}" in this session. Plans here: ` +
-            known.map((r) => `"${r.title ?? "(untitled)"}" (${r.id})`).join(", ")
+            known
+              .map((r) => `"${r.title ?? "(untitled)"}" (${r.id})`)
+              .join(", ")
           : "No plan in this session yet.",
       };
     }
@@ -236,7 +242,11 @@ async function readPlan(args: PlanToolArgs) {
         };
       }
     }
-    return { success: true, content: null, message: "No plan in this session yet." };
+    return {
+      success: true,
+      content: null,
+      message: "No plan in this session yet.",
+    };
   }
   return {
     success: true,
@@ -256,7 +266,10 @@ async function writePlan(args: PlanToolArgs) {
     return { success: false, error: NO_SESSION_ERROR };
   }
   if (!args.content?.trim()) {
-    return { success: false, error: "Plan content is required for operation 'write'." };
+    return {
+      success: false,
+      error: "Plan content is required for operation 'write'.",
+    };
   }
   // Rewriting the plan is the documented escape hatch when a step can't be
   // matched — so it has to actually be safe. Without a planId this used to
@@ -292,7 +305,7 @@ async function writePlan(args: PlanToolArgs) {
     return {
       success: false,
       error:
-        "A `title` is required when creating a plan — a short imperative name for it (e.g. \"Fix cross-window sandbox mode\"), not a section heading like \"Goal\". Retry with title set.",
+        'A `title` is required when creating a plan — a short imperative name for it (e.g. "Fix cross-window sandbox mode"), not a section heading like "Goal". Retry with title set.',
     };
   }
   let row = targetId
@@ -305,13 +318,16 @@ async function writePlan(args: PlanToolArgs) {
   if (!row) {
     return { success: false, error: "Failed to create plan." };
   }
-  broadcastPlanArtifactUpdated({
-    planId: row.id,
-    sessionId: row.sessionId,
-    content: row.content,
-    planStatus: row.planStatus,
-    title: row.title,
-  }, args._ownerWindowId);
+  broadcastPlanArtifactUpdated(
+    {
+      planId: row.id,
+      sessionId: row.sessionId,
+      content: row.content,
+      planStatus: row.planStatus,
+      title: row.title,
+    },
+    args._ownerWindowId,
+  );
   // A rewrite changes the counts as much as an update_step does.
   markPlanLedgerDirty(args.chatId, row.content);
   const steps = parsePlanChecklist(row.content);
@@ -331,7 +347,10 @@ async function setStatus(args: PlanToolArgs) {
   const allowed: PlanArtifactStatus[] = ["plan", "building", "built"];
   const next = args.plan_status as PlanArtifactStatus;
   if (!allowed.includes(next)) {
-    return { success: false, error: "plan_status must be plan, building, or built." };
+    return {
+      success: false,
+      error: "plan_status must be plan, building, or built.",
+    };
   }
   const resolved = planIdOrFailure(
     await resolvePlanId(args),
@@ -341,13 +360,16 @@ async function setStatus(args: PlanToolArgs) {
   const planId = resolved.id;
   const row = await setPlanArtifactStatus(planId, next);
   if (!row) return { success: false, error: "Plan not found." };
-  broadcastPlanArtifactUpdated({
-    planId: row.id,
-    sessionId: row.sessionId,
-    content: row.content,
-    planStatus: row.planStatus,
-    title: row.title,
-  }, args._ownerWindowId);
+  broadcastPlanArtifactUpdated(
+    {
+      planId: row.id,
+      sessionId: row.sessionId,
+      content: row.content,
+      planStatus: row.planStatus,
+      title: row.title,
+    },
+    args._ownerWindowId,
+  );
   return {
     success: true,
     planId: row.id,
@@ -419,121 +441,143 @@ async function updateStep(args: PlanToolArgs) {
   );
   if (resolvedPlan.failure) return resolvedPlan.failure;
   const planId = resolvedPlan.id;
-  const row = await getPlanArtifact(planId);
-  if (!row) {
-    return {
-      success: false,
-      error:
-        "Plan not found. Use the planId from the active session plan in context, or plan({ operation: 'read' }) to find it.",
-    };
-  }
-  const result = setStepStateInPlanMarkdown(
-    row.content,
-    { stepIndex: args.step_index ?? undefined, stepText: args.step_text ?? undefined },
-    args.state as PlanStepState,
-    externalReason,
-  );
-  if (!result.step) {
-    const steps = parsePlanChecklist(row.content);
-    // A miss used to return success:false into silence, and nothing anywhere
-    // counted it — which is why diagnosing one took reading three DB rows.
-    //
-    // It matters because of what happens NEXT: the completion gate holds the
-    // turn open on the unticked step, and the error below (correctly) offers
-    // "rewrite the whole plan" as the way out. The model takes it, and the
-    // record of what was actually done is gone. So the miss is the first domino
-    // and it has to be visible.
-    //
-    // Matching is `text.includes(needle)`, one direction, no normalisation — so
-    // a paraphrase, a longer description, or a character the model can't
-    // reproduce byte-exactly (backticks, ×, µ, emoji) all miss. Log the needle
-    // to learn WHICH of those it is before choosing a fix.
-    logger.warn(
-      `[plan] update_step found no match in plan ${planId} — ` +
-        `step_index=${args.step_index ?? "none"} step_text=${JSON.stringify(args.step_text ?? null)} ` +
-        `(${steps.length} step(s) in plan)`,
+  // SERIALISED, and the read below happens INSIDE the lock.
+  //
+  // A model can emit several update_step calls in one step. All of them used to
+  // read the same snapshot, flip their own step, and write the whole document
+  // back — so the last write won and the rest were lost, reverting steps to
+  // `todo`. Re-reading here is the half that makes the lock worth having: a
+  // transform built from a body fetched before the lock is stale by definition.
+  return withPlanArtifactLock(planId, async () => {
+    const row = await getPlanArtifact(planId);
+    if (!row) {
+      return {
+        success: false,
+        error:
+          "Plan not found. Use the planId from the active session plan in context, or plan({ operation: 'read' }) to find it.",
+      };
+    }
+    const result = setStepStateInPlanMarkdown(
+      row.content,
+      {
+        stepIndex: args.step_index ?? undefined,
+        stepText: args.step_text ?? undefined,
+      },
+      args.state as PlanStepState,
+      externalReason,
     );
-    return {
-      success: false,
-      error:
-        steps.length === 0
-          ? "The plan has no checklist steps yet — rewrite it with operation:'write' using numbered '1. [ ] …' items."
-          : `Step not found in plan checklist. Current steps: ${formatStepsForError(steps)}. ` +
-            "Retry with step_index (the number shown above) — that is exact. Or step_text: a distinctive phrase " +
-            "COPIED from the step, not paraphrased. Rewriting the whole plan with operation:'write' also works, but it " +
-            "loses the record of what was already marked, so try the two precise options first.",
-    };
-  }
-  if (!result.changed) {
-    // Report progress here TOO. This branch fires exactly when the model is
-    // re-marking something it already marked — i.e. when it has lost track — so
-    // omitting the counts left it with no way to correct itself, and it would
-    // keep re-marking and rewriting the plan trying to force agreement.
-    const steps = parsePlanChecklist(row.content);
+    if (!result.step) {
+      const steps = parsePlanChecklist(row.content);
+      // A miss used to return success:false into silence, and nothing anywhere
+      // counted it — which is why diagnosing one took reading three DB rows.
+      //
+      // It matters because of what happens NEXT: the completion gate holds the
+      // turn open on the unticked step, and the error below (correctly) offers
+      // "rewrite the whole plan" as the way out. The model takes it, and the
+      // record of what was actually done is gone. So the miss is the first domino
+      // and it has to be visible.
+      //
+      // Matching is `text.includes(needle)`, one direction, no normalisation — so
+      // a paraphrase, a longer description, or a character the model can't
+      // reproduce byte-exactly (backticks, ×, µ, emoji) all miss. Log the needle
+      // to learn WHICH of those it is before choosing a fix.
+      logger.warn(
+        `[plan] update_step found no match in plan ${planId} — ` +
+          `step_index=${args.step_index ?? "none"} step_text=${JSON.stringify(args.step_text ?? null)} ` +
+          `(${steps.length} step(s) in plan)`,
+      );
+      return {
+        success: false,
+        error:
+          steps.length === 0
+            ? "The plan has no checklist steps yet — rewrite it with operation:'write' using numbered '1. [ ] …' items."
+            : `Step not found in plan checklist. Current steps: ${formatStepsForError(steps)}. ` +
+              "Retry with step_index (the number shown above) — that is exact. Or step_text: a distinctive phrase " +
+              "COPIED from the step, not paraphrased. Rewriting the whole plan with operation:'write' also works, but it " +
+              "loses the record of what was already marked, so try the two precise options first.",
+      };
+    }
+    if (!result.changed) {
+      // Report progress here TOO. This branch fires exactly when the model is
+      // re-marking something it already marked — i.e. when it has lost track — so
+      // omitting the counts left it with no way to correct itself, and it would
+      // keep re-marking and rewriting the plan trying to force agreement.
+      const steps = parsePlanChecklist(row.content);
+      const done = steps.filter((s) => s.state === "done").length;
+      return {
+        success: true,
+        planId: row.id,
+        step: result.step,
+        progress: `${done}/${steps.length} steps done`,
+        message: "Step already in that state — no change needed.",
+      };
+    }
+    const updated = await updatePlanArtifactContent(planId, result.content);
+    if (!updated) return { success: false, error: "Plan not found." };
+    broadcastPlanArtifactUpdated(
+      {
+        planId: updated.id,
+        sessionId: updated.sessionId,
+        content: updated.content,
+        planStatus: updated.planStatus,
+        title: updated.title,
+      },
+      args._ownerWindowId,
+    );
+    // Refresh the in-context ledger for the rest of THIS turn; without it the
+    // step-0 snapshot keeps asserting stale counts for every later step.
+    markPlanLedgerDirty(args.chatId, updated.content);
+    const steps = parsePlanChecklist(updated.content);
     const done = steps.filter((s) => s.state === "done").length;
+    const actionable = steps.filter((s) =>
+      isActionableStepState(s.state),
+    ).length;
+    if (args.state === "external") {
+      // Logged for the same reason the update_step MISS is logged below: `external`
+      // releases the completion gate, so if a model starts using it to dodge work
+      // this line is the only place that shows it.
+      logger.info(
+        `[plan] step ${result.step?.index ?? "?"} marked EXTERNAL in plan ${planId} — ` +
+          `reason=${JSON.stringify(externalReason ?? null)} ` +
+          `(${actionable} actionable step(s) left)`,
+      );
+    }
+    const progress =
+      `${done}/${steps.length} steps done` +
+      (actionable === 0
+        ? ", none left for you"
+        : `, ${actionable} left for you`);
     return {
       success: true,
-      planId: row.id,
+      planId: updated.id,
       step: result.step,
-      progress: `${done}/${steps.length} steps done`,
-      message: "Step already in that state — no change needed.",
+      progress,
+      // `message` is REQUIRED, not decoration: isToolResultEnvelopeObject
+      // (answer-display.ts:164) only recognises a tool result when `success` is
+      // accompanied by one of result/error/message/cost. Without it this shape was
+      // unrecognised, so a model that echoed it into its visible reply had the raw
+      // JSON rendered to the user verbatim instead of stripped. It also gives the
+      // tool card something to say beyond "Done".
+      message:
+        `Step ${result.step?.index ?? ""} → ${result.step?.state ?? "updated"} (${progress}).`.replace(
+          "  ",
+          " ",
+        ) +
+        // Say it explicitly at the moment it becomes true. The gate no longer nudges
+        // here, so this result is where the model learns it may stop.
+        (actionable === 0
+          ? " Nothing actionable remains — verify what you did, tell the user what's theirs, and end your turn."
+          : ""),
     };
-  }
-  const updated = await updatePlanArtifactContent(planId, result.content);
-  if (!updated) return { success: false, error: "Plan not found." };
-  broadcastPlanArtifactUpdated({
-    planId: updated.id,
-    sessionId: updated.sessionId,
-    content: updated.content,
-    planStatus: updated.planStatus,
-    title: updated.title,
-  }, args._ownerWindowId);
-  // Refresh the in-context ledger for the rest of THIS turn; without it the
-  // step-0 snapshot keeps asserting stale counts for every later step.
-  markPlanLedgerDirty(args.chatId, updated.content);
-  const steps = parsePlanChecklist(updated.content);
-  const done = steps.filter((s) => s.state === "done").length;
-  const actionable = steps.filter((s) => isActionableStepState(s.state)).length;
-  if (args.state === "external") {
-    // Logged for the same reason the update_step MISS is logged below: `external`
-    // releases the completion gate, so if a model starts using it to dodge work
-    // this line is the only place that shows it.
-    logger.info(
-      `[plan] step ${result.step?.index ?? "?"} marked EXTERNAL in plan ${planId} — ` +
-        `reason=${JSON.stringify(externalReason ?? null)} ` +
-        `(${actionable} actionable step(s) left)`,
-    );
-  }
-  const progress =
-    `${done}/${steps.length} steps done` +
-    (actionable === 0 ? ", none left for you" : `, ${actionable} left for you`);
-  return {
-    success: true,
-    planId: updated.id,
-    step: result.step,
-    progress,
-    // `message` is REQUIRED, not decoration: isToolResultEnvelopeObject
-    // (answer-display.ts:164) only recognises a tool result when `success` is
-    // accompanied by one of result/error/message/cost. Without it this shape was
-    // unrecognised, so a model that echoed it into its visible reply had the raw
-    // JSON rendered to the user verbatim instead of stripped. It also gives the
-    // tool card something to say beyond "Done".
-    message:
-      `Step ${result.step?.index ?? ""} → ${result.step?.state ?? "updated"} (${progress}).`.replace(
-        "  ",
-        " ",
-      ) +
-      // Say it explicitly at the moment it becomes true. The gate no longer nudges
-      // here, so this result is where the model learns it may stop.
-      (actionable === 0
-        ? " Nothing actionable remains — verify what you did, tell the user what's theirs, and end your turn."
-        : ""),
-  };
+  });
 }
 
 async function appendStep(args: PlanToolArgs) {
   if (!args.step_text?.trim()) {
-    return { success: false, error: "step_text is required for operation 'append_step'." };
+    return {
+      success: false,
+      error: "step_text is required for operation 'append_step'.",
+    };
   }
   const resolvedAppend = planIdOrFailure(
     await resolvePlanId(args),
@@ -543,13 +587,16 @@ async function appendStep(args: PlanToolArgs) {
   const planId = resolvedAppend.id;
   const row = await appendStepToPlanArtifact(planId, args.step_text);
   if (!row) return { success: false, error: "Plan not found." };
-  broadcastPlanArtifactUpdated({
-    planId: row.id,
-    sessionId: row.sessionId,
-    content: row.content,
-    planStatus: row.planStatus,
-    title: row.title,
-  }, args._ownerWindowId);
+  broadcastPlanArtifactUpdated(
+    {
+      planId: row.id,
+      sessionId: row.sessionId,
+      content: row.content,
+      planStatus: row.planStatus,
+      title: row.title,
+    },
+    args._ownerWindowId,
+  );
   const steps = parsePlanChecklist(row.content);
   return {
     success: true,
@@ -564,7 +611,7 @@ ToolRegistry.register({
   description:
     "Session implementation plan + LIVE progress ledger (stored in the database, shown as a card in chat). Keep it current: mark a step in_progress when you start it and done when you finish, and consult it before deciding your next action instead of re-deriving progress. For the mutation ops, planId is OPTIONAL — the session's latest plan is assumed. Operations: " +
     "'write' (create OR update the plan markdown — the CANONICAL way to update progress when several steps changed or you're unsure of numbering: re-emit the full plan with updated [x]/[~]/[!] marks, which is always safe and cannot miss. Include the returned marker comment in your reply so the card renders; pass planId to update a specific plan. " +
-    "When CREATING a plan you must also pass `title` — a short imperative name for this plan, shown as its heading in the UI and how you tell it apart from other plans in the session. Do not use a section heading like \"Goal\" or \"Overview\"), " +
+    'When CREATING a plan you must also pass `title` — a short imperative name for this plan, shown as its heading in the UI and how you tell it apart from other plans in the session. Do not use a section heading like "Goal" or "Overview"), ' +
     "'read' (latest plan, or by planId / title / status filter — re-read before continuing if the user may have edited the plan), " +
     "'set_status' (plan_status: plan → building → built), " +
     "'update_step' (convenience for marking ONE step: state in_progress|done|todo|blocked|external + step_text (preferred — a unique substring of the step) or step_index. " +
@@ -600,19 +647,21 @@ ToolRegistry.register({
       title: {
         type: "string",
         description:
-          "write: REQUIRED when creating a plan. A short imperative name for THIS plan, so it can be told apart from other plans in the same session (e.g. \"Fix cross-window sandbox mode\"). Not a section heading, not \"Goal\", not a restatement of the request. " +
+          'write: REQUIRED when creating a plan. A short imperative name for THIS plan, so it can be told apart from other plans in the same session (e.g. "Fix cross-window sandbox mode"). Not a section heading, not "Goal", not a restatement of the request. ' +
           "On every OTHER operation title instead ADDRESSES a plan by name, so you can say which plan you mean without carrying its id. planId wins if you pass both; if two plans share the title the call fails and names both ids.",
         required: false,
       },
       planId: {
         type: "string",
-        description: "Plan artifact id — optional for all ops; when omitted the session's latest plan is used.",
+        description:
+          "Plan artifact id — optional for all ops; when omitted the session's latest plan is used.",
         required: false,
       },
       workspaceSessionId: stringParam("Workspace session id (auto-injected)"),
       status: {
         type: "string",
-        description: "read: optional filter plan | building | built (latest match)",
+        description:
+          "read: optional filter plan | building | built (latest match)",
         required: false,
       },
       plan_status: {

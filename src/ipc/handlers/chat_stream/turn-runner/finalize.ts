@@ -209,8 +209,10 @@ export async function finalizeTurn(
               try {
                 const {
                   getLatestPlanArtifact,
+                  getPlanArtifact,
                   setPlanArtifactStatus,
                   updatePlanArtifactContent,
+                  withPlanArtifactLock,
                 } = await import("@/lib/plans/plan-artifacts");
                 // Genuinely "building" only. `status` is a real filter now, so
                 // this no longer falls back to the newest plan of any status —
@@ -222,10 +224,18 @@ export async function finalizeTurn(
                   const { markAllChecklistStepsDone } = await import(
                     "@/lib/tasks/plan-checklist"
                   );
-                  const closed = markAllChecklistStepsDone(buildingPlan.content);
-                  if (closed.changed) {
-                    await updatePlanArtifactContent(buildingPlan.id, closed.content);
-                  }
+                  // Under the per-plan lock, re-reading the body inside it. This
+                  // runs at turn end, exactly when the model's last update_step
+                  // calls may still be in flight — closing out a snapshot fetched
+                  // before them would silently revert those marks.
+                  await withPlanArtifactLock(buildingPlan.id, async () => {
+                    const fresh = await getPlanArtifact(buildingPlan.id);
+                    if (!fresh) return;
+                    const closed = markAllChecklistStepsDone(fresh.content);
+                    if (closed.changed) {
+                      await updatePlanArtifactContent(buildingPlan.id, closed.content);
+                    }
+                  });
                   const updated = await setPlanArtifactStatus(buildingPlan.id, "built");
                   if (updated) {
                     const { emitPlanArtifactUpdated } = await import("@/ipc/utils/emit_plan_artifact");

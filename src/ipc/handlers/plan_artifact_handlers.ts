@@ -6,6 +6,7 @@ import {
   listPlanArtifactsForSession,
   setPlanArtifactStatus,
   updatePlanArtifactContent,
+  withPlanArtifactLock,
   type PlanArtifactRow,
 } from "@/lib/plans/plan-artifacts";
 import type { PlanArtifactStatus } from "@/db/schema";
@@ -45,7 +46,12 @@ export function registerPlanArtifactHandlers(): void {
       _event,
       params: { planId: string; content: string },
     ): Promise<PlanArtifactPayload> => {
-      const row = await updatePlanArtifactContent(params.planId, params.content);
+      // Serialised against the agent's own writes. The user editing the plan
+      // while a turn marks steps is a genuine two-writer case; whoever is second
+      // should land after the first, not on top of a stale body.
+      const row = await withPlanArtifactLock(params.planId, () =>
+        updatePlanArtifactContent(params.planId, params.content),
+      );
       if (!row) throw new Error("Plan artifact not found");
       const payload = toPayload(row);
       broadcastPlanEvent("plan:artifact-updated", payload);

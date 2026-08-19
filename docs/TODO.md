@@ -913,6 +913,28 @@ v14.28.0), and the **system-scope approval gate** (which also closed M1). **Defe
 
 ---
 
+## ⚠️ `withLock` serialises TWO callers, not N — found 2026-08-20, NOT fixed
+
+`src/ipc/utils/lock_utils.ts` awaits only the ONE lock it observed:
+
+```ts
+const existingLock = locks.get(lockId);
+if (existingLock) await existingLock;
+const { release } = acquireLock(lockId);   // both waiters reach here together
+```
+
+With three contenders, B and C both await A's promise, both wake when A releases,
+and **both acquire** — C's `locks.set` simply overwrites B's. So it is a
+"wait for the one in flight" helper, correct for two callers and silently not a
+mutex beyond that.
+
+Found while fixing the plan lost-update race, which is why plan writes use their
+own FIFO chain (`withPlanArtifactLock`) rather than this. **Not changed here**: its
+callers are app lifecycle paths (`app_handlers`) and altering shared locking
+semantics deserves its own pass with its own verification, not a rider on a plan
+fix. Whether those paths ever see three concurrent callers is the open question —
+if they do, they have the same lost-update shape.
+
 ## 🔎 Found while probing the packaged build (2026-08-19) — NOT fixed, both pre-existing
 
 Surfaced by a Sentry issue that turned out to be self-inflicted (a `pkill` + relaunch collided a boot

@@ -61,6 +61,51 @@ export async function createPlanArtifact(
   return mapRow(row);
 }
 
+/**
+ * Per-plan write serialiser.
+ *
+ * THE BUG THIS EXISTS FOR (observed live, 2026-08-19/20):
+ * every plan mutation is read-whole-document -> transform in JS -> write whole
+ * document, and `updatePlanArtifactContent` is a blind `SET content = ?` with no
+ * version check. A model can emit several `update_step` calls in ONE step, so
+ * three arrived concurrently, all read the SAME snapshot, each flipped its own
+ * step, and each wrote the full body. Last write won: two updates were lost, and
+ * the steps came back not merely unticked but reverted to `todo`, because the
+ * winning snapshot predated their `in_progress` marks too. Each call cheerfully
+ * reported "1/6 steps done" — all three computing 0 + 1 from the same base.
+ *
+ * That is a lost-update race, and it is why marking several steps "went one by
+ * one": only the last one survived.
+ *
+ * A FIFO chain rather than `withLock` from ipc/utils: that helper awaits only the
+ * ONE lock it observed, so with three contenders B and C both wake when A
+ * releases and both acquire — it serialises two callers, not N. (Its existing
+ * app-lifecycle callers are a separate question; see docs/TODO.md.)
+ *
+ * Correctness depends on the caller re-reading the row INSIDE the callback. The
+ * lock alone does not help a transform that closed over a stale snapshot.
+ */
+const planWriteQueue = new Map<string, Promise<unknown>>();
+
+export function withPlanArtifactLock<T>(
+  planId: string,
+  fn: () => Promise<T>,
+): Promise<T> {
+  const previous = planWriteQueue.get(planId) ?? Promise.resolve();
+  // `.then(fn, fn)` so one caller's rejection cannot strand the queue.
+  const run = previous.then(fn, fn);
+  const tail = run.then(
+    () => {},
+    () => {},
+  );
+  planWriteQueue.set(planId, tail);
+  void tail.then(() => {
+    // Drop the key once this is the last writer, so the map cannot grow forever.
+    if (planWriteQueue.get(planId) === tail) planWriteQueue.delete(planId);
+  });
+  return run;
+}
+
 export async function updatePlanArtifactContent(
   planId: string,
   content: string,
@@ -68,7 +113,9 @@ export async function updatePlanArtifactContent(
   const [row] = await db
     .update(sessionMessages)
     .set({ content: content.trim() })
-    .where(and(eq(sessionMessages.id, planId), eq(sessionMessages.kind, "plan")))
+    .where(
+      and(eq(sessionMessages.id, planId), eq(sessionMessages.kind, "plan")),
+    )
     .returning();
   return row ? mapRow(row) : null;
 }
@@ -82,15 +129,19 @@ export async function appendStepToPlanArtifact(
   planId: string,
   stepText: string,
 ): Promise<PlanArtifactRow | null> {
-  const existing = await getPlanArtifact(planId);
-  if (!existing) return null;
-  const clean = stepText
-    .trim()
-    .replace(/^[-*+]\s*/, "") // strip a leading bullet if the caller added one
-    .replace(/^\[[ x~!]?\]\s*/i, ""); // strip a leading checkbox too
-  if (!clean) return existing;
-  const content = `${existing.content.trimEnd()}\n- [ ] ${clean}\n`;
-  return updatePlanArtifactContent(planId, content);
+  // Read INSIDE the lock: appending to a body fetched before the lock would drop
+  // whatever a concurrent update_step had just written.
+  return withPlanArtifactLock(planId, async () => {
+    const existing = await getPlanArtifact(planId);
+    if (!existing) return null;
+    const clean = stepText
+      .trim()
+      .replace(/^[-*+]\s*/, "") // strip a leading bullet if the caller added one
+      .replace(/^\[[ x~!]?\]\s*/i, ""); // strip a leading checkbox too
+    if (!clean) return existing;
+    const content = `${existing.content.trimEnd()}\n- [ ] ${clean}\n`;
+    return updatePlanArtifactContent(planId, content);
+  });
 }
 
 export async function setPlanArtifactStatus(
@@ -100,14 +151,21 @@ export async function setPlanArtifactStatus(
   const [row] = await db
     .update(sessionMessages)
     .set({ planStatus })
-    .where(and(eq(sessionMessages.id, planId), eq(sessionMessages.kind, "plan")))
+    .where(
+      and(eq(sessionMessages.id, planId), eq(sessionMessages.kind, "plan")),
+    )
     .returning();
   return row ? mapRow(row) : null;
 }
 
-export async function getPlanArtifact(planId: string): Promise<PlanArtifactRow | null> {
+export async function getPlanArtifact(
+  planId: string,
+): Promise<PlanArtifactRow | null> {
   const row = await db.query.sessionMessages.findFirst({
-    where: and(eq(sessionMessages.id, planId), eq(sessionMessages.kind, "plan")),
+    where: and(
+      eq(sessionMessages.id, planId),
+      eq(sessionMessages.kind, "plan"),
+    ),
   });
   return row ? mapRow(row) : null;
 }
@@ -118,7 +176,12 @@ export async function listPlanArtifactsForSession(
   const rows = await db
     .select()
     .from(sessionMessages)
-    .where(and(eq(sessionMessages.sessionId, sessionId), eq(sessionMessages.kind, "plan")))
+    .where(
+      and(
+        eq(sessionMessages.sessionId, sessionId),
+        eq(sessionMessages.kind, "plan"),
+      ),
+    )
     .orderBy(desc(sessionMessages.createdAt));
   return rows.map(mapRow);
 }
