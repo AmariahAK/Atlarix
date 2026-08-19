@@ -43,10 +43,8 @@ import {
   processCounter,
   removeAppIfCurrentProcess,
   stopAppByInfo,
-  removeDockerVolumesForApp,
 } from "../utils/process_manager";
 import { getEnvVar } from "../utils/read_env";
-import { readSettings } from "../../main/settings";
 
 import killPort from "kill-port";
 import util from "util";
@@ -113,26 +111,13 @@ async function executeApp({
     proxyWorker.terminate();
     proxyWorker = null;
   }
-  const settings = readSettings();
-  const runtimeMode = settings.runtimeMode2 ?? "host";
-
-  if (runtimeMode === "docker") {
-    await executeAppInDocker({
-      appPath,
-      appId,
-      event,
-      installCommand,
-      startCommand,
-    });
-  } else {
-    await executeAppLocalNode({
-      appPath,
-      appId,
-      event,
-      installCommand,
-      startCommand,
-    });
-  }
+  await executeAppLocalNode({
+    appPath,
+    appId,
+    event,
+    installCommand,
+    startCommand,
+  });
 }
 
 async function executeAppLocalNode({
@@ -204,7 +189,6 @@ Details: ${details || "n/a"}
   runningApps.set(appId, {
     process: spawnedProcess,
     processId: currentProcessId,
-    isDocker: false,
   });
 
   listenToProcess({
@@ -294,200 +278,6 @@ function listenToProcess({
   });
 }
 
-async function executeAppInDocker({
-  appPath,
-  appId,
-  event,
-  installCommand,
-  startCommand,
-}: {
-  appPath: string;
-  appId: number;
-  event: Electron.IpcMainInvokeEvent;
-  installCommand?: string | null;
-  startCommand?: string | null;
-}): Promise<void> {
-  const containerName = `atlarix-app-${appId}`;
-
-  // First, check if Docker is available
-  try {
-    await new Promise<void>((resolve, reject) => {
-      const checkDocker = spawn("docker", ["--version"], { stdio: "pipe" });
-      checkDocker.on("close", (code) => {
-        if (code === 0) {
-          resolve();
-        } else {
-          reject(new Error("Docker is not available"));
-        }
-      });
-      checkDocker.on("error", () => {
-        reject(new Error("Docker is not available"));
-      });
-    });
-  } catch {
-    throw new Error(
-      "Docker is required but not available. Please install Docker Desktop and ensure it's running.",
-    );
-  }
-
-  // Stop and remove any existing container with the same name
-  try {
-    await new Promise<void>((resolve) => {
-      const stopContainer = spawn("docker", ["stop", containerName], {
-        stdio: "pipe",
-      });
-      stopContainer.on("close", () => {
-        const removeContainer = spawn("docker", ["rm", containerName], {
-          stdio: "pipe",
-        });
-        removeContainer.on("close", () => resolve());
-        removeContainer.on("error", () => resolve()); // Container might not exist
-      });
-      stopContainer.on("error", () => resolve()); // Container might not exist
-    });
-  } catch (error) {
-    logger.info(
-      `Docker container ${containerName} not found. Ignoring error: ${error}`,
-    );
-  }
-
-  // Prefer Dockerfile.atlarix; fall back to legacy Dockerfile.dyad for existing workspaces.
-  const dockerfileAtlarix = path.join(appPath, "Dockerfile.atlarix");
-  const dockerfileLegacy = path.join(appPath, "Dockerfile.dyad");
-  let dockerfileName: "Dockerfile.atlarix" | "Dockerfile.dyad";
-  if (fs.existsSync(dockerfileAtlarix)) {
-    dockerfileName = "Dockerfile.atlarix";
-  } else if (fs.existsSync(dockerfileLegacy)) {
-    dockerfileName = "Dockerfile.dyad";
-  } else {
-    dockerfileName = "Dockerfile.atlarix";
-    const dockerfileContent = `FROM node:22-alpine
-
-# Install pnpm
-RUN npm install -g pnpm
-`;
-
-    try {
-      await fsPromises.writeFile(dockerfileAtlarix, dockerfileContent, "utf-8");
-    } catch (error) {
-      logger.error(`Failed to create Dockerfile for app ${appId}:`, error);
-      throw new Error(`Failed to create Dockerfile: ${error}`);
-    }
-  }
-
-  // Build the Docker image
-  const buildProcess = spawn(
-    "docker",
-    ["build", "-f", dockerfileName, "-t", `atlarix-app-${appId}`, "."],
-    {
-      cwd: appPath,
-      stdio: "pipe",
-    },
-  );
-
-  let buildError = "";
-  buildProcess.stderr?.on("data", (data) => {
-    buildError += data.toString();
-  });
-
-  await new Promise<void>((resolve, reject) => {
-    buildProcess.on("close", (code) => {
-      if (code === 0) {
-        resolve();
-      } else {
-        reject(new Error(`Docker build failed: ${buildError}`));
-      }
-    });
-    buildProcess.on("error", (err) => {
-      reject(new Error(`Docker build process error: ${err.message}`));
-    });
-  });
-
-  // Run the Docker container
-  const port = getAppPort(appId);
-  const process = spawn(
-    "docker",
-    [
-      "run",
-      "--rm",
-      "--name",
-      containerName,
-      "-p",
-      `${port}:${port}`,
-      "-v",
-      `${appPath}:/app`,
-      "-v",
-      `atlarix-pnpm-${appId}:/app/.pnpm-store`,
-      "-e",
-      "PNPM_STORE_PATH=/app/.pnpm-store",
-      "-w",
-      "/app",
-      `atlarix-app-${appId}`,
-      "sh",
-      "-c",
-      getCommand({ appId, installCommand, startCommand }),
-    ],
-    {
-      stdio: "pipe",
-      detached: false,
-    },
-  );
-
-  // Check if process spawned correctly
-  if (!process.pid) {
-    // Attempt to capture any immediate errors if possible
-    let errorOutput = "";
-    let spawnErr: any = null;
-    process.stderr?.on("data", (data) => (errorOutput += data.toString()));
-    await new Promise<void>((resolve) => {
-      process.once("error", (err) => {
-        spawnErr = err;
-        resolve();
-      });
-    }); // Wait for error event
-
-    const details = [
-      spawnErr?.message ? `message=${spawnErr.message}` : null,
-      spawnErr?.code ? `code=${spawnErr.code}` : null,
-      spawnErr?.errno ? `errno=${spawnErr.errno}` : null,
-      spawnErr?.syscall ? `syscall=${spawnErr.syscall}` : null,
-      spawnErr?.path ? `path=${spawnErr.path}` : null,
-      spawnErr?.spawnargs
-        ? `spawnargs=${JSON.stringify(spawnErr.spawnargs)}`
-        : null,
-    ]
-      .filter(Boolean)
-      .join(", ");
-
-    logger.error(
-      `Failed to spawn Docker container for app ${appId}. ${details}\nSTDERR:\n${errorOutput || "(empty)"
-      }`,
-    );
-
-    throw new Error(
-      `Failed to spawn Docker container for app ${appId}.
-Details: ${details || "n/a"}
-STDERR:
-${errorOutput || "(empty)"}`,
-    );
-  }
-
-  // Increment the counter and store the process reference with its ID
-  const currentProcessId = processCounter.increment();
-  runningApps.set(appId, {
-    process,
-    processId: currentProcessId,
-    isDocker: true,
-    containerName,
-  });
-
-  listenToProcess({
-    process,
-    appId,
-    event,
-  });
-}
-
 // Helper to kill process on a specific port (cross-platform, using kill-port)
 async function killProcessOnPort(port: number): Promise<void> {
   try {
@@ -497,48 +287,6 @@ async function killProcessOnPort(port: number): Promise<void> {
   }
 }
 
-// Helper to stop any Docker containers publishing a given host port
-async function stopDockerContainersOnPort(port: number): Promise<void> {
-  try {
-    // List container IDs that publish the given port
-    const list = spawn("docker", ["ps", "--filter", `publish=${port}`, "-q"], {
-      stdio: "pipe",
-    });
-
-    let stdout = "";
-    list.stdout?.on("data", (data) => {
-      stdout += data.toString();
-    });
-
-    await new Promise<void>((resolve) => {
-      list.on("close", () => resolve());
-      list.on("error", () => resolve());
-    });
-
-    const containerIds = stdout
-      .split("\n")
-      .map((s) => s.trim())
-      .filter(Boolean);
-
-    if (containerIds.length === 0) {
-      return;
-    }
-
-    // Stop each container best-effort
-    await Promise.all(
-      containerIds.map(
-        (id) =>
-          new Promise<void>((resolve) => {
-            const stop = spawn("docker", ["stop", id], { stdio: "pipe" });
-            stop.on("close", () => resolve());
-            stop.on("error", () => resolve());
-          }),
-      ),
-    );
-  } catch (e) {
-    logger.warn(`Failed stopping Docker containers on port ${port}: ${e}`);
-  }
-}
 
 export function registerAppHandlers() {
   handle("apps:touch-last-opened", async (_, appId: number) => {
@@ -847,9 +595,6 @@ export function registerAppHandlers() {
 
           // Remove node_modules if requested
           if (removeNodeModules) {
-            const settings = readSettings();
-            const runtimeMode = settings.runtimeMode2 ?? "host";
-
             const nodeModulesPath = path.join(appPath, "node_modules");
             logger.log(
               `Removing node_modules for app ${appId} at ${nodeModulesPath}`,
@@ -862,24 +607,6 @@ export function registerAppHandlers() {
               logger.log(`Successfully removed node_modules for app ${appId}`);
             } else {
               logger.log(`No node_modules directory found for app ${appId}`);
-            }
-
-            // If running in Docker mode, also remove container volumes so deps reinstall freshly
-            if (runtimeMode === "docker") {
-              logger.log(
-                `Docker mode detected for app ${appId}. Removing Docker pnpm volumes (atlarix + legacy dyad names if present)...`,
-              );
-              try {
-                await removeDockerVolumesForApp(appId);
-                logger.log(
-                  `Removed Docker pnpm volumes for app ${appId} (atlarix-pnpm-${appId} / legacy dyad-pnpm-*).`,
-                );
-              } catch (e) {
-                // Best-effort cleanup; log and continue
-                logger.warn(
-                  `Failed to remove Docker volumes for app ${appId}. Continuing: ${e}`,
-                );
-              }
             }
           }
 
@@ -1475,10 +1202,5 @@ function getCommand({
 }
 
 async function cleanUpPort(port: number) {
-  const settings = readSettings();
-  if (settings.runtimeMode2 === "docker") {
-    await stopDockerContainersOnPort(port);
-  } else {
-    await killProcessOnPort(port);
-  }
+  await killProcessOnPort(port);
 }

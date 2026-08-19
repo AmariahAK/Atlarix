@@ -132,13 +132,7 @@ const validInvokeChannels = [
   "rename-branch",
   "clear-session-data",
   "get-user-budget",
-  "get-app-upgrades",
-  "execute-app-upgrade",
   "respond-mode-change",
-  "is-capacitor",
-  "sync-capacitor",
-  "open-ios",
-  "open-android",
   "restart-atlarix",
   "portal:migrate-create",
   // MCP

@@ -5,7 +5,6 @@ import { settingsRoute } from "./routes/settings";
 import { providerSettingsRoute } from "./routes/settings/providers/$provider";
 import { mcpSettingsRoute } from "./routes/settings/mcp";
 import { skillsSettingsRoute } from "./routes/settings/skills";
-import { appDetailsRoute } from "./routes/app-details";
 import { toolsRoute } from "./routes/tools";
 import { signInRoute } from "./routes/sign-in";
 import { accountSettingsRoute } from "./routes/account";
@@ -13,7 +12,6 @@ import { accountSettingsRoute } from "./routes/account";
 const routeTree = rootRoute.addChildren([
   homeRoute,
   toolsRoute,
-  appDetailsRoute,
   signInRoute,
   accountSettingsRoute,
   settingsRoute.addChildren([providerSettingsRoute, mcpSettingsRoute, skillsSettingsRoute]),

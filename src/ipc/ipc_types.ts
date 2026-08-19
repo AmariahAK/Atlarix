@@ -587,14 +587,6 @@ export interface ComponentSelection {
   columnNumber: number;
 }
 
-export interface AppUpgrade {
-  id: string;
-  title: string;
-  description: string;
-  manualUpgradeUrl: string;
-  isNeeded: boolean;
-}
-
 export interface EnvVar {
   key: string;
   value: string;

@@ -247,13 +247,10 @@ export function WelcomeCloneDialog({
               {!isAuthenticated ? (
                 <UnconnectedGitHubConnector
                   appId={null}
-                  folderName={appName.trim() || "cloned-repo"}
                   settings={settings}
                   refreshSettings={() => {
                     void refreshSettings();
                   }}
-                  handleRepoSetupComplete={() => {}}
-                  connectOnly
                 />
               ) : loadingRepos ? (
                 <p className="text-sm text-muted-foreground">Loading repositories…</p>

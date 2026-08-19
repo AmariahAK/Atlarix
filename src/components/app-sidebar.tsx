@@ -107,9 +107,7 @@ export function AppSidebar() {
   }, [hoverState, toggleSidebar, state, setHoverState, isDropdownOpen]);
 
   const routerState = useRouterState();
-  const isAppRoute =
-    routerState.location.pathname === "/" ||
-    routerState.location.pathname.startsWith("/app-details");
+  const isAppRoute = routerState.location.pathname === "/";
   const isSettingsRoute = routerState.location.pathname.startsWith("/settings");
 
   let selectedItem: string | null = null;

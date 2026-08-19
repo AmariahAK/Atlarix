@@ -122,8 +122,6 @@ export type VertexProviderSetting = z.infer<typeof VertexProviderSettingSchema>;
 
 export const RuntimeModeSchema = z.enum(["web-sandbox", "local-node", "unset"]);
 
-export const RuntimeMode2Schema = z.enum(["host", "docker"]);
-
 // v12 0.1: "agent" remains ONLY so legacy persisted settings parse — the agent
 // chat-mode path was deleted and readSettings coerces "agent" → "build"
 // (custom-command modeOverrides coerce too). Do not dispatch on "agent".
@@ -484,7 +482,6 @@ export const UserSettingsSchema = z.object({
     .optional(),
   enableAutoUpdate: z.boolean(),
   releaseChannel: ReleaseChannelSchema,
-  runtimeMode2: RuntimeMode2Schema.optional(),
   customNodePath: z.string().optional().nullable(),
   isRunning: z.boolean().optional(),
   lastKnownPerformance: z

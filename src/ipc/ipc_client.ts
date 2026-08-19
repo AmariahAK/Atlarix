@@ -32,7 +32,6 @@ import type {
   CopyAppParams,
   App,
   ComponentSelection,
-  AppUpgrade,
   GetAppEnvVarsParams,
   SetAppEnvVarsParams,
   UpdateChatParams,
@@ -3564,36 +3563,6 @@ export class IpcClient {
   // Method to get user budget information
   public async getUserBudget(): Promise<UserBudgetInfo | null> {
     return this.ipcRenderer.invoke("get-user-budget");
-  }
-
-  public async getAppUpgrades(params: {
-    appId: number;
-  }): Promise<AppUpgrade[]> {
-    return this.ipcRenderer.invoke("get-app-upgrades", params);
-  }
-
-  public async executeAppUpgrade(params: {
-    appId: number;
-    upgradeId: string;
-  }): Promise<void> {
-    return this.ipcRenderer.invoke("execute-app-upgrade", params);
-  }
-
-  // Capacitor methods
-  public async isCapacitor(params: { appId: number }): Promise<boolean> {
-    return this.ipcRenderer.invoke("is-capacitor", params);
-  }
-
-  public async syncCapacitor(params: { appId: number }): Promise<void> {
-    return this.ipcRenderer.invoke("sync-capacitor", params);
-  }
-
-  public async openIos(params: { appId: number }): Promise<void> {
-    return this.ipcRenderer.invoke("open-ios", params);
-  }
-
-  public async openAndroid(params: { appId: number }): Promise<void> {
-    return this.ipcRenderer.invoke("open-android", params);
   }
 
   public async cloneRepoFromUrl(
