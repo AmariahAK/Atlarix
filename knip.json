@@ -18,7 +18,6 @@
     "src/**/*.{ts,tsx}"
   ],
   "ignore": [
-    "e2e-tests/**",
     "**/*.d.ts",
     "src/**/*.test.{ts,tsx}",
     "src/shims/**"

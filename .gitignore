@@ -24,8 +24,6 @@ lerna-debug.log*
 # dist
 dist/
 
-# playwright
-playwright-report/
 test-results/
 
 # Diagnostic reports (https://nodejs.org/api/report.html)

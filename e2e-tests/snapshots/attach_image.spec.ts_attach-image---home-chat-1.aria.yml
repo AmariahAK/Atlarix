@@ -1,7 +1,0 @@
-- paragraph: "[dump]"
-- paragraph: "Attachments:"
-- list:
-  - listitem: logo.png (image/png)
-- paragraph: "[[atlarix-dump-path=*]]"
-- button "Retry":
-  - img

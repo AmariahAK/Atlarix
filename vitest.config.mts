@@ -60,14 +60,12 @@ const sharedExclude = [
   "**/cypress/**",
   "**/.{idea,git,cache,output,temp}/**",
   "**/{karma,rollup,vite,vitest,jest,ava,babel,nyc,cypress,tsup,build,eslint,prettier}.config.*",
-  "**/e2e-tests/**",
   "**/scaffold/**",
 ];
 
 /**
  * Vitest does not read tsconfig `paths` for Vite resolution. Map `@/*` like the app
- * build so unit tests and any Playwright-adjacent imports under `src/` resolve.
- * E2E specs live under `e2e-tests/` and are run by Playwright, not Vitest.
+ * build so unit tests resolve the same way the app does.
  *
  * v10.1: multi-project — the original node project for unit/main-process tests,
  * plus a jsdom project for renderer/component tests under `src/__tests__/renderer/`.

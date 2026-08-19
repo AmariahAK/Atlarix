@@ -1,6 +1,5 @@
 {
   "ignorePatterns": [
-    "e2e-tests/fixtures/**/*",
     "tests/fixtures/**/*"
   ],
   "rules": {
