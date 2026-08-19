@@ -38,7 +38,6 @@ export interface ChatStreamParams {
     data: string; // Base64 encoded file data
     attachmentType: "upload-to-codebase" | "chat-context"; // FileAttachment type
   }>;
-  selectedComponents?: ComponentSelection[];
   /** v3.6: Override model for this message only (e.g. when user clicks Override in Auto routing preview). */
   modelOverride?: { provider: string; name: string };
   /** v3.9: When true, do not add a new user message; use the last user message content (after question answers) as prompt. */
@@ -578,14 +577,6 @@ export const UserBudgetInfoSchema = z.object({
 });
 export type UserBudgetInfo = z.infer<typeof UserBudgetInfoSchema>;
 
-export interface ComponentSelection {
-  id: string;
-  name: string;
-  runtimeId?: string; // Unique runtime ID for duplicate components
-  relativePath: string;
-  lineNumber: number;
-  columnNumber: number;
-}
 
 export interface EnvVar {
   key: string;
@@ -821,37 +812,6 @@ export interface SelectNodeFolderResult {
   path: string | null;
   canceled?: boolean;
   selectedPath: string | null;
-}
-
-export interface VisualEditingChange {
-  componentId: string;
-  componentName: string;
-  relativePath: string;
-  lineNumber: number;
-  styles: {
-    margin?: { left?: string; right?: string; top?: string; bottom?: string };
-    padding?: { left?: string; right?: string; top?: string; bottom?: string };
-    dimensions?: { width?: string; height?: string };
-    border?: { width?: string; radius?: string; color?: string };
-    backgroundColor?: string;
-    text?: {
-      fontSize?: string;
-      fontWeight?: string;
-      color?: string;
-      fontFamily?: string;
-    };
-  };
-  textContent?: string;
-}
-
-export interface ApplyVisualEditingChangesParams {
-  appId: number;
-  changes: VisualEditingChange[];
-}
-
-export interface AnalyseComponentParams {
-  appId: number;
-  componentId: string;
 }
 
 /** Discord invite API (main process) — metadata for Community dialog. */

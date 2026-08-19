@@ -783,56 +783,6 @@ export function registerChatStreamHandlers() {
         userDisplayContent = req.displayPrompt ?? req.prompt;
         userPrompt = req.prompt;
       }
-      const componentsToProcess =
-        req.continueAfterQuestions || req.continueInterrupted
-          ? []
-          : (req.selectedComponents || []);
-
-      if (componentsToProcess.length > 0) {
-        userPrompt += "\n\nSelected components:\n";
-        userDisplayContent += "\n\nSelected components:\n";
-
-        for (const component of componentsToProcess) {
-          let componentSnippet = "[component snippet not available]";
-          try {
-            const componentFileContent = await readFile(
-              path.join(resolveAppPath(chat.app.path), component.relativePath),
-              "utf8",
-            );
-            const lines = componentFileContent.split(/\r?\n/);
-            const selectedIndex = component.lineNumber - 1;
-
-            // Let's get one line before and three after for context.
-            const startIndex = Math.max(0, selectedIndex - 1);
-            const endIndex = Math.min(lines.length, selectedIndex + 4);
-
-            const snippetLines = lines.slice(startIndex, endIndex);
-            const selectedLineInSnippetIndex = selectedIndex - startIndex;
-
-            if (snippetLines[selectedLineInSnippetIndex]) {
-              snippetLines[selectedLineInSnippetIndex] =
-                `${snippetLines[selectedLineInSnippetIndex]} // <-- EDIT HERE`;
-            }
-
-            componentSnippet = snippetLines.join("\n");
-          } catch (err) {
-            logger.error(
-              `Error reading selected component file content: ${err}`,
-            );
-          }
-
-          const componentBlock = `\n${componentsToProcess.length > 1 ? `${componentsToProcess.indexOf(component) + 1}. ` : ""}Component: ${component.name} (file: ${component.relativePath})
-
-Snippet:
-\`\`\`
-${componentSnippet}
-\`\`\`
-`;
-          userPrompt += componentBlock;
-          userDisplayContent += componentBlock;
-        }
-      }
-
       // v14.8.11 (W9): every live chat is a negative-id stream-transport chat —
       // renderer, headless CLI, and evals all mint them. The legacy positive-id
       // DB-chat branches were deleted; this invariant fails loudly if one ever

@@ -152,25 +152,6 @@ function RestartButton() {
   );
 }
 
-function RefreshButton() {
-  const { refreshAppIframe } = useRunApp();
-  const posthog = usePostHog();
-
-  const onClick = useCallback(() => {
-    posthog.capture("action_refresh");
-    refreshAppIframe();
-  }, [posthog, refreshAppIframe]);
-
-  return (
-    <SuggestionButton
-      onClick={onClick}
-      tooltipText="Refresh the application preview"
-    >
-      Refresh app
-    </SuggestionButton>
-  );
-}
-
 function KeepGoingButton() {
   const { streamMessage } = useStreamChat();
   const chatId = useAtomValue(selectedChatIdAtom);
@@ -203,8 +184,6 @@ export function mapActionToButton(action: SuggestedAction) {
       return <RebuildButton />;
     case "restart":
       return <RestartButton />;
-    case "refresh":
-      return <RefreshButton />;
     case "keep-going":
       return <KeepGoingButton />;
     default:

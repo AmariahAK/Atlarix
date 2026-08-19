@@ -35,7 +35,6 @@ import { registerBackgroundHandlers } from "./handlers/background_handlers";
 import { registerAutomationHandlers } from "./handlers/automation_handlers";
 import { registerVoiceHandlers } from "./handlers/voice_handlers";
 import { registerSkillsHandlers } from "./handlers/skills_handlers";
-import { registerVisualEditingHandlers } from "../pro/main/ipc/handlers/visual_editing_handlers";
 import { registerFolderDialogHandler } from "./handlers/atlarix_handlers";
 import { registerSearxngHandlers } from "./handlers/searxng_handlers";
 import { registerFileHandlers } from "./handlers/file_handlers";
@@ -87,7 +86,6 @@ export function registerIpcHandlers() {
   registerMcpHandlers();
   registerMcpOAuthHandlers();
   registerSkillsHandlers();
-  registerVisualEditingHandlers();
   // Atlarix handlers
   registerFolderDialogHandler();
   registerSearxngHandlers();

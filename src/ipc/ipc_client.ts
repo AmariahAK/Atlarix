@@ -31,7 +31,6 @@ import type {
   UserBudgetInfo,
   CopyAppParams,
   App,
-  ComponentSelection,
   GetAppEnvVarsParams,
   SetAppEnvVarsParams,
   UpdateChatParams,
@@ -44,8 +43,6 @@ import type {
   CloneRepoParams,
   GithubCloneProgress,
   SelectNodeFolderResult,
-  ApplyVisualEditingChangesParams,
-  AnalyseComponentParams,
   DiscordInviteInfoResult,
   PlanUpdatePayload,
   SkillRegistryIndex,
@@ -1518,7 +1515,6 @@ export class IpcClient {
       /** User-visible message text (optional; defaults to `prompt`). */
       displayPrompt?: string;
       pasteAttachments?: import("./ipc_types").PasteAttachmentMeta[];
-      selectedComponents?: ComponentSelection[];
       chatId: number;
       redo?: boolean;
       attachments?: FileAttachment[];
@@ -1548,7 +1544,6 @@ export class IpcClient {
       chatId,
       redo,
       attachments,
-      selectedComponents,
       appId,
       modelOverride,
       onUpdate,
@@ -1580,7 +1575,6 @@ export class IpcClient {
               pasteAttachments: pasteAttachments ?? undefined,
               chatId,
               redo,
-              selectedComponents,
               appId: appId ?? undefined,
               attachments: fileDataArray,
               modelOverride: modelOverride ?? undefined,
@@ -1616,7 +1610,6 @@ export class IpcClient {
           pasteAttachments: pasteAttachments ?? undefined,
           chatId,
           redo,
-          selectedComponents,
           appId: appId ?? undefined,
           modelOverride: modelOverride ?? undefined,
           continueAfterQuestions: continueAfterQuestions ?? undefined,
@@ -3551,19 +3544,6 @@ export class IpcClient {
   // --- Help bot ---
   public async takeScreenshot(): Promise<void> {
     await this.ipcRenderer.invoke("take-screenshot");
-  }
-
-  // --- Visual Editing ---
-  public async applyVisualEditingChanges(
-    changes: ApplyVisualEditingChangesParams,
-  ): Promise<void> {
-    await this.ipcRenderer.invoke("apply-visual-editing-changes", changes);
-  }
-
-  public async analyzeComponent(
-    params: AnalyseComponentParams,
-  ): Promise<{ isDynamic: boolean; hasStaticText: boolean }> {
-    return this.ipcRenderer.invoke("analyze-component", params);
   }
 
   // Provider API Key Management

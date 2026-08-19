@@ -1,6 +1,5 @@
 import { atom } from "jotai";
 
-export const isPreviewOpenAtom = atom(true);
 export const activeSettingsSectionAtom = atom<string | null>(
   "general-settings",
 );

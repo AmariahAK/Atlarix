@@ -5,10 +5,8 @@ import { DeepLinkProvider } from "../contexts/DeepLinkContext";
 import { Toaster, toast } from "sonner";
 import { TitleBar } from "./TitleBar";
 import { useEffect, useCallback, useRef, type ReactNode } from "react";
-import { useRunApp } from "@/hooks/useRunApp";
 import { useAtomValue, useSetAtom, useAtom, getDefaultStore } from "jotai";
 import {
-  previewModeAtom,
   selectedAppIdAtom,
   pendingWorkspaceAppIdAtom,
   selectedWorkspaceInfoAtom,
@@ -18,7 +16,6 @@ import {
 } from "@/atoms/appAtoms";
 import { useSettings } from "@/hooks/useSettings";
 import type { ZoomLevel } from "@/lib/schemas";
-import { selectedComponentsPreviewAtom } from "@/atoms/previewAtoms";
 import { chatInputValueAtom, activeChatIdAtom, selectedChatIdAtom } from "@/atoms/chatAtoms";
 import { useNavigate } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
@@ -245,12 +242,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   useAIPanelListener();
   // One-time nudge when Atlarix Core credit drops below $1 (PAYG low-balance warning).
   useLowBalanceNudge();
-  const { refreshAppIframe } = useRunApp();
-  const previewMode = useAtomValue(previewModeAtom);
   const { settings } = useSettings();
-  const setSelectedComponentsPreview = useSetAtom(
-    selectedComponentsPreviewAtom,
-  );
   const setChatInput = useSetAtom(chatInputValueAtom);
   const selectedAppId = useAtomValue(selectedAppIdAtom);
   const setSelectedAppId = useSetAtom(selectedAppIdAtom);
@@ -375,30 +367,23 @@ export default function RootLayout({ children }: { children: ReactNode }) {
 
     return () => { };
   }, [settings?.zoomLevel]);
-  // Global keyboard listener for refresh events
+  // Swallow Ctrl/Cmd+R. There is no app iframe to refresh any more (preview was
+  // removed in v14.15.0), but the preventDefault is load-bearing on its own: it
+  // stops the shortcut reloading the renderer, which would kill a live turn.
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      // Check for Ctrl+R (Windows/Linux) or Cmd+R (macOS)
       if (event.key === "r" && (event.ctrlKey || event.metaKey)) {
-        event.preventDefault(); // Prevent default browser refresh
-        if (previewMode === "preview") {
-          refreshAppIframe(); // Use our custom refresh function instead
-        }
+        event.preventDefault();
       }
     };
-
-    // Add event listener to document
     document.addEventListener("keydown", handleKeyDown);
-
-    // Cleanup function to remove event listener
     return () => {
       document.removeEventListener("keydown", handleKeyDown);
     };
-  }, [refreshAppIframe, previewMode]);
+  }, []);
 
   useEffect(() => {
     setChatInput("");
-    setSelectedComponentsPreview([]);
   }, [selectedAppId]);
 
   // Fix: Finding 4 — models.dev background refresh (non-blocking notice)

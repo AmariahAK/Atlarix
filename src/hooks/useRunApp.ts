@@ -5,7 +5,6 @@ import {
   appOutputAtom,
   appUrlAtom,
   currentAppAtom,
-  previewPanelKeyAtom,
   previewErrorMessageAtom,
   selectedAppIdAtom,
 } from "@/atoms/appAtoms";
@@ -20,18 +19,17 @@ export function useRunApp() {
   const [app, setApp] = useAtom(currentAppAtom);
   const setAppOutput = useSetAtom(appOutputAtom);
   const [, setAppUrlObj] = useAtom(appUrlAtom);
-  const setPreviewPanelKey = useSetAtom(previewPanelKeyAtom);
   const appId = useAtomValue(selectedAppIdAtom);
   const setPreviewErrorMessage = useSetAtom(previewErrorMessageAtom);
 
   const processProxyServerOutput = (output: AppOutput) => {
-    const matchesProxyServerStart =
-      output.message.includes("[atlarix-preview-proxy]started=[") ||
-      output.message.includes("[dyad-proxy-server]started=[");
+    const matchesProxyServerStart = output.message.includes(
+      "[atlarix-preview-proxy]started=[",
+    );
     if (matchesProxyServerStart) {
       // Extract both proxy URL and original URL using regex
       const proxyUrlMatch = output.message.match(
-        /\[(?:atlarix-preview-proxy|dyad-proxy-server)\]started=\[(.*?)\]/,
+        /\[atlarix-preview-proxy\]started=\[(.*?)\]/,
       );
       const originalUrlMatch = output.message.match(/original=\[(.*?)\]/);
 
@@ -73,81 +71,6 @@ export function useRunApp() {
     },
     [setAppOutput],
   );
-  const runApp = useCallback(
-    async (appId: number) => {
-      setLoading(true);
-      try {
-        const ipcClient = IpcClient.getInstance();
-        console.debug("Running app", appId);
-
-        // Clear the URL and add restart message
-        setAppUrlObj((prevAppUrlObj) => {
-          if (prevAppUrlObj?.appId !== appId) {
-            return { appUrl: null, appId: null, originalUrl: null };
-          }
-          return prevAppUrlObj; // No change needed
-        });
-
-        setAppOutput((prev) => [
-          ...prev,
-          {
-            message: "Trying to restart app...",
-            type: "stdout",
-            appId,
-            timestamp: Date.now(),
-          },
-        ]);
-        const app = await ipcClient.getApp(appId);
-        setApp(app);
-        await ipcClient.runApp(appId, processAppOutput);
-        setPreviewErrorMessage(undefined);
-      } catch (error) {
-        console.error(`Error running app ${appId}:`, error);
-        setPreviewErrorMessage(
-          error instanceof Error
-            ? { message: error.message, source: "atlarix-app" }
-            : {
-                message: error?.toString() || "Unknown error",
-                source: "atlarix-app",
-              },
-        );
-      } finally {
-        setLoading(false);
-      }
-    },
-    [processAppOutput],
-  );
-
-  const stopApp = useCallback(async (appId: number) => {
-    if (appId === null) {
-      return;
-    }
-
-    setLoading(true);
-    try {
-      const ipcClient = IpcClient.getInstance();
-      await ipcClient.stopApp(appId);
-
-      setPreviewErrorMessage(undefined);
-    } catch (error) {
-      console.error(`Error stopping app ${appId}:`, error);
-      setPreviewErrorMessage(
-        error instanceof Error
-          ? { message: error.message, source: "atlarix-app" }
-          : {
-              message: error?.toString() || "Unknown error",
-              source: "atlarix-app",
-            },
-      );
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  const onHotModuleReload = useCallback(() => {
-    setPreviewPanelKey((prevKey) => prevKey + 1);
-  }, [setPreviewPanelKey]);
-
   const restartApp = useCallback(
     async ({
       removeNodeModules = false,
@@ -178,21 +101,7 @@ export function useRunApp() {
 
         const app = await ipcClient.getApp(appId);
         setApp(app);
-        await ipcClient.restartApp(
-          appId,
-          (output) => {
-            // Handle HMR updates before processing
-            if (
-              output.message.includes("hmr update") &&
-              output.message.includes("[vite]")
-            ) {
-              onHotModuleReload();
-            }
-            // Process normally (including input requests)
-            processAppOutput(output);
-          },
-          removeNodeModules,
-        );
+        await ipcClient.restartApp(appId, processAppOutput, removeNodeModules);
       } catch (error) {
         console.error(`Error restarting app ${appId}:`, error);
         setPreviewErrorMessage(
@@ -204,31 +113,15 @@ export function useRunApp() {
               },
         );
       } finally {
-        setPreviewPanelKey((prevKey) => prevKey + 1);
         setLoading(false);
       }
     },
-    [
-      appId,
-      setApp,
-      setAppOutput,
-      setAppUrlObj,
-      setPreviewPanelKey,
-      processAppOutput,
-      onHotModuleReload,
-    ],
+    [appId, setApp, setAppOutput, setAppUrlObj, processAppOutput],
   );
-
-  const refreshAppIframe = useCallback(async () => {
-    setPreviewPanelKey((prevKey) => prevKey + 1);
-  }, [setPreviewPanelKey]);
 
   return {
     loading,
-    runApp,
-    stopApp,
     restartApp,
     app,
-    refreshAppIframe,
   };
 }

@@ -8,8 +8,6 @@ const validInvokeChannels = [
   "voice:transcribe-cloud",
   "voice:list-transcription-providers",
   "voice:log",
-  "analyze-component",
-  "apply-visual-editing-changes",
   "get-language-models",
   "get-language-models-by-providers",
   "create-custom-language-model",

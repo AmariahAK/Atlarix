@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef } from "react";
 import { toast } from "sonner";
 import type {
-  ComponentSelection,
   Message,
   FileAttachment,
 } from "@/ipc/ipc_types";
@@ -92,7 +91,7 @@ import {
   type QueuedOperation,
 } from "@/atoms/permissionQueueAtom";
 import { IpcClient } from "@/ipc/ipc_client";
-import { compassUsageBumpAtom, isPreviewOpenAtom } from "@/atoms/viewAtoms";
+import { compassUsageBumpAtom } from "@/atoms/viewAtoms";
 import type { ChatResponseEnd } from "@/ipc/ipc_types";
 import { useQueryClient } from "@tanstack/react-query";
 import { invalidateAppQuery } from "./useLoadApp";
@@ -116,7 +115,6 @@ import { useVersions } from "./useVersions";
 import { useChats } from "./useChats";
 import { showExtraFilesToast, showError } from "@/lib/toast";
 import { useProposal } from "./useProposal";
-import { useRunApp } from "./useRunApp";
 import { useContextTokenCount } from "./useCountTokens";
 import { useUserBudgetInfo } from "./useUserBudgetInfo";
 import { usePostHog } from "posthog-js/react";
@@ -341,7 +339,6 @@ export function useStreamChat({
   const setIsStreamingById = useSetAtom(isStreamingByIdAtom);
   const errorById = useAtomValue(chatErrorByIdAtom);
   const setErrorById = useSetAtom(chatErrorByIdAtom);
-  const setIsPreviewOpen = useSetAtom(isPreviewOpenAtom);
   const [selectedAppId] = useAtom(selectedAppIdAtom);
   const queryClient = useQueryClient();
   const { refreshChats } = useChats(selectedAppId);
@@ -353,7 +350,6 @@ export function useStreamChat({
 
   const setStreamCountById = useSetAtom(chatStreamCountByIdAtom);
   const { refreshVersions } = useVersions(selectedAppId);
-  const { refreshAppIframe } = useRunApp();
   const { refetchUserBudget } = useUserBudgetInfo();
   const { settings } = useSettings();
   const setRecentStreamChatIds = useSetAtom(recentStreamChatIdsAtom);
@@ -596,7 +592,6 @@ export function useStreamChat({
       chatId,
       redo,
       attachments,
-      selectedComponents,
       modelOverride,
       onSettled,
       continueAfterQuestions,
@@ -609,7 +604,6 @@ export function useStreamChat({
       chatId: number;
       redo?: boolean;
       attachments?: FileAttachment[];
-      selectedComponents?: ComponentSelection[];
       modelOverride?: { provider: string; name: string };
       onSettled?: () => void;
       /** v3.9: Continue after clarifying questions (no new user message). */
@@ -1381,7 +1375,6 @@ export function useStreamChat({
           displayPrompt,
           pasteAttachments:
             pasteAttachments.length > 0 ? pasteAttachments : undefined,
-          selectedComponents: selectedComponents ?? [],
           chatId,
           redo,
           attachments: fileAttachments,
@@ -1563,10 +1556,6 @@ export function useStreamChat({
               thEnd.pending.clear();
             }
 
-            if (response.updatedFiles) {
-              setIsPreviewOpen(true);
-              refreshAppIframe();
-            }
             if (response.extraFiles) {
               showExtraFilesToast({
                 files: response.extraFiles,
@@ -2280,7 +2269,6 @@ export function useStreamChat({
       setLiveToolInputByChatId,
       setResponseDoneAnimation,
       setIsStreamingById,
-      setIsPreviewOpen,
       selectedAppId,
       refetchUserBudget,
       settings,
