@@ -56,6 +56,20 @@ export const mainRollupExternals: readonly string[] = [
   // the app self-contained instead of relying on `rg` being on the user's PATH.
   "@vscode/ripgrep",
   "better-sqlite3",
+  // node-cron FORKS a sibling `daemon.js`, locating it with `import.meta.url` —
+  // a file lookup that can never work from inside a bundle, let alone an asar.
+  // It also crashed the packaged app outright under Vite 8: node-cron publishes
+  // both `import` and `require` conditions, Vite 5 took the CJS one (which uses
+  // `__dirname`), and Vite 8 takes the ESM one and compiles `import.meta.url`
+  // down to `{}.url` — i.e. `undefined` — in a CJS build. Two UNGUARDED
+  // top-level `fileURLToPath(undefined)` calls, so the main process died before
+  // any window appeared ("A JavaScript error occurred in the main process").
+  //
+  // Other bundled packages hit the same transform but all guard it
+  // (`typeof {}.url === "string" ? … : __dirname`), which is why only this one
+  // was fatal. Externalising is the right fix regardless of Vite version: it is
+  // a runtime dependency with a side file it must resolve on disk.
+  "node-cron",
   "keytar",
   "mysql2",
   "pg",
