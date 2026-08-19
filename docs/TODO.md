@@ -33,8 +33,9 @@ with their evidence:
   Console + Network packaged pass owed since v14.31.0.
 - **1 Windows session** — not 13 tasks. Every fix in that section is already shipped; the
   checkboxes are its verification checklist.
-- **3 owner decisions** — the Dyad hosted engine (its host does not resolve), the Windows signing
-  cert, and the five unused dependencies.
+- **2 owner decisions** — the Windows signing cert and the five unused dependencies. (The engine's
+  two user-visible surfaces were traced and decided 2026-08-19; the engine itself is now part of the
+  deletion pass, not a separate question.)
 - **1 deletion pass, ~1,900 lines** — three Dyad-era clusters traced 2026-08-19 and confirmed
   UNREACHABLE, not merely unused. See *Dyad-era removal*. It is one task, not fifteen.
 - **2 release-owed** — a CI-signed build and the Windows/Linux packaged passes.
@@ -974,10 +975,35 @@ an orphaned IPC channel still compiles:
   :176, :198, :908** (the last is a requestId prefix).
 - `src/ipc/utils/versioned_codebase_context.ts` — drop the `"dyad-engine"` keys at **:129, :215**.
   **DO NOT delete the file** — its second loop does real work independent of the engine.
-- `src/app/TitleBar.tsx` — the Pro badge, 6 refs. **User-visible: needs the owner's call** (drop to
-  a plain "Workspace" label is the obvious answer).
-- `src/components/chat/ChatErrorBox.tsx` — 4 refs incl. the `ExceededBudget:` branch at **:136**.
-  **User-visible: needs the owner's call** on whether that error can still arrive by another route.
+- `src/app/TitleBar.tsx` — **RESOLVED 2026-08-19: delete `AtlarixProButton` outright** (**:73-77**
+  render site, **:175-200** the component, **:57** `isAtlarixPro`). Not a relabel, which was the
+  guess before it was traced. Two reasons: the button only renders at all when
+  `providerSettings.auto.apiKey` is set (**:57**), which nobody has once the engine host does not
+  resolve, so removing it is invisible to users; and its `onClick` navigates to the **`auto`**
+  provider settings page (**:187**), which dies with the engine. A "Workspace" label that opens
+  settings for a deleted provider is worse than no button.
+- **Sweep the `auto` provider id with it** — it IS the engine's provider slot, and 8 sites handle it
+  defensively: `CompactModelSearch.tsx:104` (skips it), `model-identity-prompt.ts:51`,
+  `resolve-model-context-limit.ts:145`, `language_model_constants.ts:7`
+  (`PROVIDERS_THAT_SUPPORT_THINKING`), `ProviderSettingsPage.tsx:95` (`isAtlarix = provider ===
+  "auto"`), `useSettings.ts:44` (`isPro`), `schemas.ts:529`.
+- `src/components/chat/ChatErrorBox.tsx` — **RESOLVED 2026-08-19, and the two `isAtlarixProEnabled`
+  branches need OPPOSITE treatment. A mechanical "delete every branch that mentions the flag" sweep
+  removes a working feature.**
+  - **:136 `isAtlarixProEnabled && error.includes("ExceededBudget:")` → DELETE THE WHOLE BRANCH.**
+    Dead twice over: the flag is dead, and **nothing in either repo emits `ExceededBudget:`** — that
+    check is the string's only occurrence anywhere. It was LiteLLM's, i.e. the engine's. It also
+    points at an `atlarix.dev/subscription` "credits this month" model that is not current pricing.
+  - **:123 `error.includes("LiteLLM Virtual Key expected")` → DELETE.** Same story, also emitted by
+    nothing.
+  - **:106 `!isAtlarixProEnabled && (Resource has been exhausted | gemini rate-limits | Provider
+    returned error)` → KEEP THE BRANCH, drop only the negated clause.** The flag is always false, so
+    this condition is already effectively unguarded — it is the live BYOK rate-limit troubleshooting
+    link, and deleting it would remove real behaviour.
+  - **No user-facing regression, because the wallet case is already handled upstream and better:**
+    the proxy returns **402 `insufficient_credit`** (`atlarix-proxy/src/server.ts:292, :361`) and
+    `simple-stream-text.ts:882` maps it to `compassExhaustedUserMessage()`. That is the path a Core
+    user on an empty wallet actually takes today.
 - `src/components/SimpleInlineChat.tsx` — **:524** passes `isAtlarixProEnabled={false}`; drop the prop.
 - `src/main/pro.ts`, `src/main/settings.ts`, `src/shims/main-settings-renderer-stub.ts` — settings plumbing.
 - `src/hooks/useRunApp.ts` — drop `refreshAppIframe` (**:222**, a no-op), `runApp`, `stopApp` (no
@@ -1008,8 +1034,9 @@ here — that is correct, but check the count moves by the number of deleted cas
       and shrinks everything after it), then the engine, then the preview remnant, then the
       rename/migrate tiers. Do the `GitHubConnector` trim INSIDE this pass — its dead exports are
       only identifiable while the orphaned page is still there to point at them.
-      **Blocked only on the owner's call on the two user-visible surfaces** (TitleBar badge,
-      `ChatErrorBox` budget branch).
+      **No longer blocked** — both user-visible surfaces were traced and decided 2026-08-19
+      (see above): the TitleBar button is deleted outright, and of `ChatErrorBox`'s two flag
+      branches one is deleted and one is KEPT with its clause dropped.
       Verify with: `npm run check:ts` + `ts` + `check:lint`, then **grep the tree for `dyad`** — the
       target is zero outside `docs/` and the one-release `dyad-pnpm` shim — then `npm run package`
       and `self-test:packaged` 9/9, because this touches `preload.ts` and `ipc_host.ts` and a
