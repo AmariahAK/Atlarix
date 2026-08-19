@@ -126,7 +126,7 @@ jobs:
       # NOTE: the agent-evals vitest project is a LOCAL gate — its harness needs
       # a Node-ABI better-sqlite3 (tests/infra) plus a git-mock server and the
       # fake-LLM server that aren't provisioned on CI runners. It self-skips when
-      # tests/infra's native binary is absent (see vitest.config.ts), so CI runs
+      # tests/infra's native binary is absent (see vitest.config.mts), so CI runs
       # the node + renderer projects here; run `npm test` locally for the evals.
       - name: Tests (vitest)
         run: npm test

@@ -14,8 +14,9 @@ from 54 to 28.
 
 ## 🔨 In flight — landed, not yet released
 
-**v14.35.0 is unreleased and untagged, and now contains everything below** — the Electron 43 work
-AND the four spec-line majors, merged fast-forward from `migration` and shipping as ONE release.
+**v14.35.0 is unreleased and untagged, and now contains everything below** — the Electron 43 work,
+the four spec-line majors (merged fast-forward from `migration`), the passkey correction, and the
+browser-backed web search, all shipping as ONE release.
 
 **Electron 43 + passkeys + the dependency/security sweep.** Full suite green, and
 **`self-test:packaged` PASSES 9/9 on macOS** — including the new `sqlite` probe reporting
@@ -805,37 +806,45 @@ gh api "repos/AmariahAK/Atlarix/actions/artifacts?per_page=100" \
 - Rule of thumb: an artifact nothing DOWNLOADS is a convenience copy, and its retention should be
   days, not weeks. `landlock-helper` is the counter-example — it IS consumed, and is already 1 day.
 
-## 🌐 Core web search is DEAD, measured — the case for the browser tier
+## 🌐 Core web search — FIXED by the browser tier (shipped, v14.35.0)
 
-**Measured 2026-08-19, not estimated.** `native_web_search.ts` calls Core's search "a deliberate
-quality trade". It is not a trade any more; the client chain returns **nothing**:
+**Measured 2026-08-19, not estimated — before and after, same three developer queries, same minute:**
 
-| Tier | Result |
-| --- | --- |
-| DDG Instant Answer API (the "always works" floor) | **0 results** for both dev queries tried — it is an instant-ANSWER API (Wikipedia abstracts), never a web search |
-| `search.disroot.org`, `searx.tiekoetter.com`, `priv.au`, `search.sapti.me` | **HTTP 429** |
-| `searx.be` | HTTP 200 carrying a **"Verifying your browser…"** JS challenge → parses to 0 results |
+| Tier | `electron 43 breaking changes` | `better-sqlite3 electron abi rebuild` | `vite 8 esm require condition` |
+| --- | --- | --- | --- |
+| **Browser (Brave, real Chromium)** | **24** | **29** | **25** |
+| Public SearxNG (all 5 instances) | 0 | 0 | 0 |
+| DDG Instant Answer API | 0 | 0 | 0 |
 
-So any Core user without Docker + self-hosted SearxNG gets an empty `web_search`. **Fix that comment
-when the tier lands** — it currently tells the next reader the opposite of what is true.
+The tiers below the browser did not degrade — they returned **nothing at all**. DDG's is an
+instant-ANSWER API (Wikipedia abstracts), never a web search; four public SearxNG instances answer
+HTTP 429 and `searx.be` serves a "Verifying your browser…" challenge. Every one of those is an
+"is this a real browser?" check, and Atlarix ships a real Chromium.
 
-**Why the in-app browser is the answer, and not a paid search API.** Every failure above is a
-"is this a real browser?" check, and we ship a real Chromium with a persistent profile. Plain-fetch
-scraping does not rescue it — DDG returns HTTP 202 + an anomaly page on both `html.` and `lite.`
-endpoints. **Brave** served a full 208 KB results page with 54 organic anchors to a plain `curl`,
-has an independent ~30B-page index, and has an official API ($5/1,000 requests, $5/month free
-credits) — so if scraping ever becomes untenable there is a sanctioned path to the SAME results.
-That escape hatch is the reason to prefer Brave over DDG, which has no search API at all.
+**What shipped:** `lib/search/browser-search.ts` (one hidden reusable `BrowserWindow`, own `persist:`
+partition, sandboxed, serialized, 12s nav timeout, 60s idle teardown) as **tier 0 of `smartSearch`**,
+plus `lib/browser/search-results.ts` for extraction. The `web_search` signature, result shape and
+rendering are unchanged, and `native_web_search.ts`'s "deliberate quality trade" comment is corrected.
 
-**Shape, decided with the owner 2026-08-19:** scope by TIER, not by provider —
-`provider-native → browser → SearxNG → DDG`. Core lands on the browser tier because it has nothing
-native, and so does every BYOK provider without native search (Ollama, LM Studio, Groq, …) for the
-same reason and with no provider check, which is what `reservedNativeToolNames` already does. A
-hidden `BrowserWindow({show:false})`, results read from the **a11y tree** rather than CSS classes
-(markup churns; the a11y tree does not — `lib/browser/a11y-snapshot.ts` already exists). The same
-backend fixes `read_url`, which is plain fetch + regex HTML-stripping today and therefore returns
-junk for every JS-rendered page. Headless stubs Electron, so the existing chain stays as its
-fallback. Its own release, AFTER the `migration` branch.
+**Three things the original plan got wrong, recorded so they are not re-proposed:**
+- **Not the a11y tree.** `A11yElement` carries `role`, `name` and `text` but **no `href`** — and the
+  URL is the entire point of a search result. Extraction is structural instead: off-host anchors,
+  plausible title length, outside `nav`/`header`/`footer`/`aside`, de-duplicated to the TIGHTEST
+  anchor around each URL (a wrapper anchor swallows the site label and breadcrumb).
+- **One reused window, never one per query.** A window destroyed and immediately recreated on the
+  same `persist:` partition failed the next load with `ERR_FAILED (-2)`; the reused window ran three
+  consecutive queries clean. Reuse is load-bearing, not an optimisation.
+- **A hidden window is still an OPEN window.** `window-all-closed` — which quits the app on Windows
+  and Linux — fires only when every window has closed, so the search window now tears itself down as
+  soon as no other window remains. Without that the app keeps running after the user closes it.
+
+- [ ] **Owner call: does SearxNG stay?** The numbers say the public-instance tier never once
+  contributed a result. Recommendation: **keep self-hosted SearxNG** (a user who runs one gets an
+  unmetered, private index and it costs us a config read), **keep DDG as the headless floor** — the
+  headless build stubs Electron and has no browser at all — and **drop the five hardcoded public
+  instances**, which are pure latency: five HTTP requests, five failures, on the way to every miss.
+- [ ] `read_url` is still plain fetch + regex HTML-stripping, so it returns junk for any JS-rendered
+  page. The same hidden window fixes it. **Not** done here — separate change, separate verification.
 
 ---
 
@@ -847,8 +856,8 @@ fallback. Its own release, AFTER the `migration` branch.
 - **Billing A/B:** confirm OpenRouter `usage.cost` includes the ~$0.005 search fee so the wallet
   debit = `ceil(cost × 1.4)`; else add a proxy surcharge in `atlarix-proxy/src/server.ts`.
 - **DB shutdown-race stress-verification** on a packaged build (guard committed, not stress-tested).
-- **Dependency deprecation triage** — now scheduled as the **`migration` branch**, cut from
-  post-release `main`, NOT run in parallel: Electron 43 and the spec-line majors both rewrite
+- **Dependency deprecation triage** — ~~scheduled~~ **DONE and merged** (see the `migration` branch
+  section above); kept here only for the reasoning, which still applies to the next such batch: Electron 43 and the spec-line majors both rewrite
   `package-lock.json`, and a lockfile conflict is not hand-mergeable — you regenerate, which
   re-resolves everything and invalidates the verification on both sides. Four independently
   revertable commits so a bad one costs that commit, not the branch: (1) `ai@6→7` + the 11 provider

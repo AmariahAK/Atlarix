@@ -3,7 +3,7 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
-## [14.35.0] (2026-08-19) — passkeys on your Mac, a browser five versions newer, and a much smaller attack surface
+## [14.35.0] (2026-08-19) — web search that actually finds things, passkeys on your Mac, and a browser five versions newer
 
 **Passkeys work in Atlarix's browser on macOS.** Signing in to a site with Touch ID used to do
 nothing at all — the page would ask, and Atlarix's browser would sit there, which looked like the
@@ -14,6 +14,15 @@ a security key or your phone still works there — and if a site asks for one of
 stays out of the way entirely. Where a device-stored passkey genuinely can't be used, it says so
 instead of hanging with no explanation. When a site has several passkeys saved, it asks which account
 you want rather than giving up.
+
+**Web search works again.** If you use Atlarix's own AI (Core) and asked it to search the web, it
+was very likely finding nothing — not fewer results, none. The free services it fell back on have
+quietly stopped being usable for this: one of them only ever returned encyclopaedia summaries rather
+than search results, and the rest now refuse requests that don't come from a real browser. Atlarix
+*is* a real browser, so it now searches with the one it already ships, invisibly and in the
+background. On three ordinary programming questions that previously returned nothing at all, it
+returned 24, 29 and 25 results. This is not the AI browsing on your behalf and it never opens a tab
+you can see — it is the search underneath, doing what it always claimed to.
 
 **The browser underneath is five major versions newer.** Atlarix was running a Chromium that stopped
 receiving security fixes some time ago. It now runs the current one, which also starts faster — the

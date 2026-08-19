@@ -82,11 +82,13 @@ export function getNativeWebSearchSupport(
       // DashScope-native calls, Moonshot's is explicitly not production-ready,
       // MiniMax has none).
       //
-      // Returning null drops Core to the client `web_search` tool (SearxNG → DDG)
-      // plus the in-app browser, the same chain every provider without native
-      // search already uses. A proxy-side paid search API is the planned
-      // replacement; until then this is a deliberate quality trade, not an
-      // oversight.
+      // Returning null drops Core to the client `web_search` tool, which is no
+      // longer a downgrade: its top tier runs the query through Atlarix's own
+      // Chromium (`lib/search/browser-search.ts`). Measured 2026-08-19 on the same
+      // three developer queries, that tier returned 24 / 29 / 25 results where the
+      // DDG Instant API and all five public SearxNG instances returned 0 — the
+      // failures below it are all "is this a real browser?" checks, and a real
+      // browser is what Atlarix ships.
       return null;
     default:
       return null;
