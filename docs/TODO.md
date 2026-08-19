@@ -14,11 +14,80 @@ from 54 to 28.
 
 ## 🔨 In flight — landed, not yet released
 
+**v14.35.0 is unreleased and untagged, and the `migration` branch now sits on top of it** with the
+four spec-line majors. Decide at merge whether they ship as ONE release or whether the branch takes
+its own version — neither has shipped, so either is honest.
+
 **Electron 43 + passkeys + the dependency/security sweep.** Full suite green, and
 **`self-test:packaged` PASSES 9/9 on macOS** — including the new `sqlite` probe reporting
 `better-sqlite3 ok (sqlite 3.53.2, ABI 148)`, which is the Electron 43 native rebuild proving itself
 in the packaged app. **Still owed: a CI-SIGNED build (local packages are ad-hoc signed, so passkeys
 cannot be exercised here at all), and Windows + Linux.**
+
+### `migration` branch — the spec-line majors (4 commits, all green)
+
+Cut from post-v14.35.0 `main`, one revertable commit each. Suite stayed at the pre-migration
+baseline (369 files / 3105 tests) through all four; `self-test:packaged` 9/9 after each of the two
+that could break packaging.
+
+**`ai@6→7` + 11 providers (v3→v4 spec) + `zod@3→4`.** Gated on a spike first, because ai@7 and every
+v4 provider are ESM-ONLY with no `require` condition while we externalise them and `require()` from a
+CJS main bundle: `require(esm)` works under Electron 43's Node 24 (no top-level await in the graph),
+proven by loading the real packages before migrating anything.
+
+- **22 of the compile errors were one mistake repeated** — seven files spelled the model type
+  `LanguageModelV2 | LanguageModelV3`, a union needing a hand-edit every SDK major. `ai` exports a
+  version-agnostic `LanguageModel`; there is now one `AtlarixLanguageModel` alias and the next spec
+  bump costs nothing.
+- **THE ONE THAT WOULD HAVE SHIPPED SILENTLY: `response.messages` became final-step-only.**
+  `bundle.response` is deprecated in v7 and resolves to `finalStep.response`, so any turn whose tool
+  call ran in an EARLIER step lost its entire native tool exchange, and the next turn carried no
+  `role:"tool"` history. Same types, same shape — it fails only across turns, and only the
+  native-history evals caught it. Use v7's accumulated **`responseMessages`**.
+- **v7 rejects `role:"system"` inside `messages`** (65 evals). That placement is deliberate — it IS
+  the v10.1 prompt-cache layout. Re-permitted with `allowSystemInMessages: true` so the layout stays
+  byte-identical and measurable. Moving it into v7's `instructions` (which accepts
+  `Array<SystemModelMessage>`, so breakpoints could survive) is the aligned end state and needs its
+  own commit plus its own `[prompt-cache] read=` measurement.
+- Smaller: `toModelOutput` takes an options object and its result type moved to `provider-utils`; the
+  tool-image part is now a tagged `{type:"file", data:{type:"data"}}`; a tool `description` can be a
+  FUNCTION of call context. `usage` is cumulative now — checked, and it only moves a BYOK *estimate*
+  and a display figure, since the Core wallet is debited at the proxy; no double-count, and it fixes
+  an under-count. zod 4 was a non-event (all four `z.record()` sites already pass two args).
+
+**`vite@5→8` + `vitest@3→4`.** I first capped this at vite 6 by REASONING that vite 7+ ship no
+`require` condition and forge's plugin is CJS — and that was wrong, because I never tested it.
+`require("vite")` resolves at 8.2.1 under both system and Electron Node, and both of forge's interop
+shapes hold (`loadConfigFromFile` named; `__importDefault(...).default.build`, the namespace having
+no `__esModule` so the helper wraps correctly). **Measure the thing; do not infer it from a manifest.**
+
+- **The `overrides` had to go first** — exact pins on `vitest`/`vite-node` made the install fail with
+  `EOVERRIDE`, which was the lucky outcome: a RANGE there would have silently held vitest at 3 and
+  the upgrade would have "succeeded" while changing nothing. `vite-node` does not exist in vitest 4.
+- **`vitest` + `@vitest/ui` stay EXACT** — their peer link is an exact version, not a range.
+- **The packaged gate caught a launch crash everything else missed.** Tests, all three type projects,
+  lint and `PACKAGE EXIT=0` were green, and the app still died before drawing a window:
+  `fileURLToPath(undefined)`. `node-cron` publishes both conditions; vite 5 took the CJS one (which
+  uses `__dirname`), vite 8 takes the ESM one and compiles `import.meta.url` to **`{}.url`** —
+  undefined in a CJS build. Five other bundled packages hit the same transform and survived because
+  they guard it (`typeof {}.url === "string" ? … : __dirname`, or a try/catch); only node-cron did
+  not. **Externalised, which is right regardless of bundler:** it FORKS a sibling `daemon.js` located
+  via `import.meta.url`, a disk lookup that cannot work inside an asar — so that path was already
+  broken quietly and vite 8 merely made it loud.
+- Fell out of the churn: dropping vitest 3 pruned a TRANSITIVE `@types/babel__traverse` our own
+  source relied on (`visual_editing_utils.ts` imports `@babel/traverse` directly). Now declared.
+
+**`typescript@5.9→7`** — the native Go port, platform binaries as optionalDependencies.
+`lib/tsc.js` survives as a shim so all three type-check scripts are unchanged; `lib/typescript.js`
+(the JS API) is gone, which nothing here imports, and knip ships its own TS 7. **`baseUrl` is
+removed** — harmless, since `paths` were already relative and Vite defines the `@` alias itself.
+It also found dead code 5.x accepted for years:
+`(activeChatId ?? selectedChatId ?? undefined) ?? undefined`. That diagnostic was VERIFIED with an
+isolated probe rather than trusted — as worded it would have implied a `number | null` atom read is
+always null, i.e. a jotai/TS7 fault across hundreds of call sites instead of one redundant operator.
+
+**Owed before merge:** CI must resolve the **win32 and linux** TS 7 platform binaries (only
+darwin-arm64 is proven), plus the usual Windows/Linux packaged pass.
 
 ### Electron 38 → 43 — what was actually true
 
