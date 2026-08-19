@@ -7,13 +7,15 @@ import { findScenarioId, handleScenarioChatCompletion } from "./scenario";
 let globalCounter = 0;
 
 export const createChatCompletionHandler =
-  (prefix: string) => async (req: Request, res: Response) => {
+  () => async (req: Request, res: Response) => {
     const { stream = false, messages = [] } = req.body;
     console.log("* Received messages", messages);
 
     // Agent-eval scenarios: `sc=<id>` in any message routes the request to a
-    // registered multi-turn script (see scenario.ts). Everything below (tc=,
-    // [429], [dump], …) is untouched for e2e.
+    // registered multi-turn script (see scenario.ts). Everything below
+    // ([429], [dump], [increment], …) is the canned fallback for non-scenario
+    // requests. The `tc=` fixture loader that used to live here belonged to the
+    // Playwright suite and went with it — it read e2e-tests/fixtures.
     const scenarioId = findScenarioId(messages);
     if (scenarioId) {
       return handleScenarioChatCompletion(scenarioId, req, res);
@@ -69,14 +71,14 @@ ATLARIX_ATTACHMENT_0
     ) {
       // Fix errors in create-ts-errors.md and introduce a new error
       messageContent = `
-<dyad-write path="src/bad-file.ts" description="Fix 2 errors and introduce a new error.">
+<atlarix-write path="src/bad-file.ts" description="Fix 2 errors and introduce a new error.">
 // Import doesn't exist
 // import NonExistentClass from 'non-existent-class';
 
 
 const x = new Object();
 x.nonExistentMethod2();
-</dyad-write>
+</atlarix-write>
 
       `;
     }
@@ -89,14 +91,14 @@ x.nonExistentMethod2();
     ) {
       // Fix errors in create-ts-errors.md and introduce a new error
       messageContent = `
-<dyad-write path="src/bad-file.ts" description="Fix remaining error.">
+<atlarix-write path="src/bad-file.ts" description="Fix remaining error.">
 // Import doesn't exist
 // import NonExistentClass from 'non-existent-class';
 
 
 const x = new Object();
 x.toString(); // replaced with existing method
-</dyad-write>
+</atlarix-write>
 
       `;
     }
@@ -115,10 +117,10 @@ x.toString(); // replaced with existing method
     ) {
       messageContent = `
       Fixing the error...
-      <dyad-write path="src/pages/Index.tsx">
+      <atlarix-write path="src/pages/Index.tsx">
       
 
-import { MadeWithAtlarix } from "@/components/made-with-dyad";
+import { MadeWithAtlarix } from "@/components/made-with-atlarix";
 
 const Index = () => {
   return (
@@ -133,45 +135,9 @@ const Index = () => {
 
 export default Index;
 
-      </dyad-write>
+      </atlarix-write>
       `;
     }
-    if (
-      lastMessage &&
-      typeof lastMessage.content === "string" &&
-      lastMessage.content.startsWith(
-        "There was an issue with the following `dyad-search-replace` tags.",
-      )
-    ) {
-      if (lastMessage.content.includes("Make sure you use `dyad-read`")) {
-        // Fix errors in create-ts-errors.md and introduce a new error
-        messageContent =
-          `
-<dyad-read path="src/pages/Index.tsx"></dyad-read>
-
-<dyad-search-replace path="src/pages/Index.tsx">
-<<<<<<< SEARCH
-        // STILL Intentionally DO NOT MATCH ANYTHING TO TRIGGER FALLBACK
-        <h1 className="text-4xl font-bold mb-4">Welcome to Your Blank App</h1>
-=======
-        <h1 className="text-4xl font-bold mb-4">Welcome to the UPDATED App</h1>
->>>>>>> REPLACE
-</dyad-search-replace>
-` +
-          "\n\n" +
-          generateDump(req);
-      } else {
-        // Fix errors in create-ts-errors.md and introduce a new error
-        messageContent =
-          `
-<dyad-write path="src/pages/Index.tsx" description="Rewrite file.">
-// FILE IS REPLACED WITH FALLBACK WRITE.
-</dyad-write>` +
-          "\n\n" +
-          generateDump(req);
-      }
-    }
-
     console.error("LASTMESSAGE", lastMessage);
     // Check if the last message is "[dump]" to write messages to file and return path
     if (
@@ -186,64 +152,9 @@ export default Index;
       messageContent = generateDump(req);
     }
 
-    if (
-      lastMessage &&
-      typeof lastMessage.content === "string" &&
-      lastMessage.content.startsWith("/security-review")
-    ) {
-      messageContent = fs.readFileSync(
-        path.join(
-          __dirname,
-          "..",
-          "..",
-          "..",
-          "e2e-tests",
-          "fixtures",
-          "security-review",
-          "findings.md",
-        ),
-        "utf-8",
-      );
-      messageContent += "\n\n" + generateDump(req);
-    }
-
     if (lastMessage && lastMessage.content === "[increment]") {
       globalCounter++;
       messageContent = `counter=${globalCounter}`;
-    }
-
-    // Check if the last message starts with "tc=" to load test case file
-    if (
-      lastMessage &&
-      lastMessage.content &&
-      typeof lastMessage.content === "string" &&
-      lastMessage.content.startsWith("tc=")
-    ) {
-      const testCaseName = lastMessage.content.slice(3).split("[")[0].trim(); // Remove "tc=" prefix
-      console.error(`* Loading test case: ${testCaseName}`);
-      const testFilePath = path.join(
-        __dirname,
-        "..",
-        "..",
-        "..",
-        "e2e-tests",
-        "fixtures",
-        prefix,
-        `${testCaseName}.md`,
-      );
-
-      try {
-        if (fs.existsSync(testFilePath)) {
-          messageContent = fs.readFileSync(testFilePath, "utf-8");
-          console.log(`* Loaded test case: ${testCaseName}`);
-        } else {
-          console.error(`* Test case file not found: ${testFilePath}`);
-          messageContent = `Error: Test case file not found: ${testCaseName}.md`;
-        }
-      } catch (error) {
-        console.error(`* Error reading test case file: ${error}`);
-        messageContent = `Error: Could not read test case file: ${testCaseName}.md`;
-      }
     }
 
     if (
@@ -252,7 +163,7 @@ export default Index;
       typeof lastMessage.content === "string" &&
       lastMessage.content.trim().endsWith("[[STRING_TO_BE_FINISHED]]")
     ) {
-      messageContent = `[[STRING_IS_FINISHED]]";</dyad-write>\nFinished writing file.`;
+      messageContent = `[[STRING_IS_FINISHED]]";</atlarix-write>\nFinished writing file.`;
       messageContent += "\n\n" + generateDump(req);
     }
     const isToolCall = !!(

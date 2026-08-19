@@ -36,8 +36,8 @@ export function createStreamChunk(
 }
 
 export const CANNED_MESSAGE = `
-  <dyad-write path="file1.txt">
+  <atlarix-write path="file1.txt">
   A file (2)
-  </dyad-write>
+  </atlarix-write>
   More
   EOM`;

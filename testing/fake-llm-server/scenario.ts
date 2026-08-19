@@ -30,8 +30,6 @@ export type ScenarioResponse =
       };
     }
   | { kind: "tool_call"; calls: Array<{ name: string; args: unknown }> }
-  /** Streams a fixture file from e2e-tests/fixtures/<name>.md (atlarix-* XML tags parsed app-side). */
-  | { kind: "fixture"; name: string }
   | { kind: "error"; status: number; message?: string }
   /**
    * v14.8.7: emit one chunk (so the stream "started") then HANG — never ends.
@@ -109,20 +107,6 @@ export function findScenarioId(messages: any[]): string | null {
   for (const message of [...(messages ?? [])].reverse()) {
     const match = messageText(message).match(SCENARIO_ID_RE);
     if (match && scenarios.has(match[1])) return match[1];
-  }
-  return null;
-}
-
-function resolveFixturePath(name: string): string | null {
-  // Works from both the repo root (vitest, cwd=Atlarix) and the built server
-  // (npm start, cwd=testing/fake-llm-server). No __dirname: undefined in ESM
-  // transforms.
-  const candidates = [
-    path.resolve(process.cwd(), "e2e-tests", "fixtures", `${name}.md`),
-    path.resolve(process.cwd(), "..", "..", "e2e-tests", "fixtures", `${name}.md`),
-  ];
-  for (const candidate of candidates) {
-    if (fs.existsSync(candidate)) return candidate;
   }
   return null;
 }
@@ -258,17 +242,6 @@ export function handleScenarioChatCompletion(
     case "tool_call":
       streamToolCalls(res, response.calls);
       return;
-    case "fixture": {
-      const fixturePath = resolveFixturePath(response.name);
-      if (!fixturePath) {
-        res.status(500).json({
-          error: { message: `Scenario fixture not found: ${response.name}.md` },
-        });
-        return;
-      }
-      streamText(res, fs.readFileSync(fixturePath, "utf-8"));
-      return;
-    }
     case "stall": {
       // Emit one delta (so hasReceivedChunk flips → the idle budget applies),
       // then hang: never write another chunk and never end. The client's stall

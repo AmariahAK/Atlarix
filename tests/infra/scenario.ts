@@ -29,10 +29,6 @@ export function scenario(id: string) {
       responses.push({ kind: "tool_call", calls });
       return builder;
     },
-    fixture(name: string) {
-      responses.push({ kind: "fixture", name });
-      return builder;
-    },
     error(status: number, message?: string) {
       responses.push({ kind: "error", status, message });
       return builder;

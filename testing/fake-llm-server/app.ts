@@ -118,19 +118,19 @@ export function createApp() {
   ["lmstudio", "gateway", "engine", "ollama", "azure"].forEach((provider) => {
     app.post(
       `/${provider}/v1/chat/completions`,
-      createChatCompletionHandler(provider),
+      createChatCompletionHandler(),
     );
   });
 
   // Azure-specific endpoints (Azure client uses different URL patterns)
-  app.post("/azure/chat/completions", createChatCompletionHandler("azure"));
+  app.post("/azure/chat/completions", createChatCompletionHandler());
   app.post(
     "/azure/openai/deployments/:deploymentId/chat/completions",
-    createChatCompletionHandler("azure"),
+    createChatCompletionHandler(),
   );
 
   // Default test provider handler:
-  app.post("/v1/chat/completions", createChatCompletionHandler("."));
+  app.post("/v1/chat/completions", createChatCompletionHandler());
 
   // GitHub API Mock Endpoints
   console.log("Setting up GitHub mock endpoints");

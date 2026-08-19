@@ -33,13 +33,13 @@ let rememberedOrigin = null; // e.g. "http://localhost:5173"
 }
 
 /* ---------------------- HTML injection: REMOVED -------------------------
- * This proxy used to inject stacktrace.js, html-to-image, and four `dyad-*.js`
+ * This proxy used to inject stacktrace.js, html-to-image, and four fork-era
  * client scripts (error shim, component selector, screenshot, visual editor) into
  * every proxied HTML response.
  *
  * All of it was dead. Those scripts communicate by posting message types
- * (`window-error`, `build-error-report`, `dyad-component-selected`,
- * `dyad-screenshot-response`, `dyad-text-updated`, …) and NOTHING in `src/` has
+ * (`window-error`, `build-error-report`, plus component-selected /
+ * screenshot-response / text-updated variants) and NOTHING in `src/` has
  * listened for any of them since the preview surface was removed in v14.15.0 and
  * the app unified on the Browser tab.
  *

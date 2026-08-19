@@ -114,6 +114,6 @@ describe("agent-evals harness probe", () => {
     });
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.choices[0].message.content).toContain("dyad-write");
+    expect(body.choices[0].message.content).toContain("atlarix-write");
   });
 });

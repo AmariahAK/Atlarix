@@ -14,8 +14,6 @@
   "scripts": {
     "clean": "rimraf out scaffold/node_modules",
     "start": "electron-forge start",
-    "dev:engine": "cross-env ATLARIX_ENGINE_URL=http://localhost:8080/v1 npm start",
-    "staging:engine": "cross-env ATLARIX_ENGINE_URL=https://staging---dyad-llm-engine-kq7pivehnq-uc.a.run.app/v1 npm start",
     "package": "npm run clean && cross-env NODE_OPTIONS=--max-old-space-size=8192 electron-forge package",
     "package:verify": "npm run package && npm run measure-package-size",
     "self-test:packaged": "node scripts/run-packaged-self-test.mjs",
