@@ -367,21 +367,6 @@ export default function RootLayout({ children }: { children: ReactNode }) {
 
     return () => { };
   }, [settings?.zoomLevel]);
-  // Swallow Ctrl/Cmd+R. There is no app iframe to refresh any more (preview was
-  // removed in v14.15.0), but the preventDefault is load-bearing on its own: it
-  // stops the shortcut reloading the renderer, which would kill a live turn.
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "r" && (event.ctrlKey || event.metaKey)) {
-        event.preventDefault();
-      }
-    };
-    document.addEventListener("keydown", handleKeyDown);
-    return () => {
-      document.removeEventListener("keydown", handleKeyDown);
-    };
-  }, []);
-
   useEffect(() => {
     setChatInput("");
   }, [selectedAppId]);

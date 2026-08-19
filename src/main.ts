@@ -1178,7 +1178,28 @@ function setMainApplicationMenu(): void {
       ],
     },
     { role: "editMenu" },
-    { role: "viewMenu" },
+    {
+      // Explicit View submenu rather than `role: "viewMenu"`, which ships Reload
+      // (Cmd+R) and Force Reload (Cmd+Shift+R). Reloading the renderer mid-turn
+      // tears down a live stream, and there is nothing in this app a reload is
+      // the right answer to — the in-app browser has its own reload control, and
+      // a genuinely wedged window can be closed. So the accelerator is simply not
+      // bound, instead of being bound and then fought by a keydown handler in the
+      // renderer (which is what used to happen, and left the behaviour depending
+      // on which of the two won).
+      //
+      // DevTools stays: it is the only way to inspect the app's own window.
+      label: "View",
+      submenu: [
+        { role: "toggleDevTools" as const },
+        { type: "separator" as const },
+        { role: "resetZoom" as const },
+        { role: "zoomIn" as const },
+        { role: "zoomOut" as const },
+        { type: "separator" as const },
+        { role: "togglefullscreen" as const },
+      ],
+    },
     { role: "windowMenu" },
     {
       role: "help",
