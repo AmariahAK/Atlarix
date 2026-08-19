@@ -112,7 +112,6 @@ function parseRawPieces(segment: string): RawPiece[] {
     "atlarix-mcp-tool-result",
     "atlarix-write",
     "atlarix-edit",
-    "atlarix-search-replace",
     "atlarix-read",
     "atlarix-output",
     "atlarix-command",

@@ -6,7 +6,6 @@ import { AtlarixWrite } from "./AtlarixWrite";
 import { AtlarixRename } from "./AtlarixRename";
 import { AtlarixDelete } from "./AtlarixDelete";
 import { AtlarixEdit } from "./AtlarixEdit";
-import { AtlarixSearchReplace } from "./AtlarixSearchReplace";
 import { AtlarixCodebaseContext } from "./AtlarixCodebaseContext";
 import { AtlarixThink } from "./AtlarixThink";
 import { CodeHighlight } from "./CodeHighlight";
@@ -255,7 +254,6 @@ function preprocessUnclosedTags(content: string): {
     "atlarix-chat-summary",
     "atlarix-sources",
     "atlarix-edit",
-    "atlarix-search-replace",
     "atlarix-codebase-context",
     "atlarix-web-search-result",
     "atlarix-web-search",
@@ -330,7 +328,6 @@ const REGEX_CUSTOM_TAG_NAMES = [
   "atlarix-chat-summary",
   "atlarix-sources",
   "atlarix-edit",
-  "atlarix-search-replace",
   "atlarix-codebase-context",
   "atlarix-web-search-result",
   "atlarix-web-search",
@@ -613,21 +610,6 @@ function renderCustomTag(
         >
           {content}
         </AtlarixEdit>
-      );
-
-    case "atlarix-search-replace":
-      return (
-        <AtlarixSearchReplace
-          node={{
-            properties: {
-              path: attributes.path || "",
-              description: attributes.description || "",
-              state: getState({ isStreaming, inProgress }),
-            },
-          }}
-        >
-          {content}
-        </AtlarixSearchReplace>
       );
 
     case "atlarix-codebase-context":

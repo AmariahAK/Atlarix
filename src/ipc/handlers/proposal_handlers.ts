@@ -18,7 +18,6 @@ import {
   getAtlarixDeleteTags,
   getAtlarixChatSummaryTag,
   getAtlarixCommandTags,
-  getAtlarixSearchReplaceTags,
 } from "../utils/atlarix_tag_parser";
 import log from "electron-log";
 import {
@@ -158,14 +157,11 @@ const getProposalHandler = async (
         const proposalTitle = getAtlarixChatSummaryTag(messageContent);
 
         const proposalWriteFiles = getAtlarixWriteTags(messageContent);
-        const proposalSearchReplaceFiles =
-          getAtlarixSearchReplaceTags(messageContent);
         const proposalRenameFiles = getAtlarixRenameTags(messageContent);
         const proposalDeleteFiles = getAtlarixDeleteTags(messageContent);
 
         const filesChanged = [
           ...proposalWriteFiles
-            .concat(proposalSearchReplaceFiles)
             .map((tag) => ({
               name: path.basename(tag.path),
               path: tag.path,
