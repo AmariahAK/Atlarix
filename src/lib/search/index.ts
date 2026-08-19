@@ -4,28 +4,27 @@
  * Smart search for Atlarix, in tiers.
  *
  * Tier 0: Atlarix's own Chromium - the only one that passes a bot check
- * Tier 1: SearxNG (self-hosted)  - unlimited when the user runs one
- * Tier 2: Public SearxNG         - mostly rate-limited in practice
- * Tier 3: DDG Instant API        - an instant-ANSWER API, NOT a web search
+ * Tier 1: SearxNG (self-hosted)  - unmetered and private, when the user runs one
+ * Tier 2: DDG Instant API        - an instant-ANSWER API, NOT a web search
  *
  * The last line is not a criticism, it is the measurement. On 2026-08-19, three
  * ordinary developer queries run through every tier within the same minute:
  *
- *   tier 0 (browser)  24 / 29 / 25 results
- *   tier 2 (public)    0 /  0 /  0   - all five instances failed every query
- *   tier 3 (DDG)       0 /  0 /  0
+ *   browser         24 / 29 / 25 results
+ *   public SearxNG   0 /  0 /  0   - all five instances failed every query
+ *   DDG              0 /  0 /  0
  *
- * That is why tier 0 exists. The tiers below it stay because HEADLESS stubs
- * Electron and has no browser at all, so they are its only search.
+ * That is why tier 0 exists. The public-SearxNG tier was DELETED on the strength
+ * of those numbers: it never contributed a result and cost five HTTP requests on
+ * the way to every miss. The two tiers left below the browser stay because
+ * HEADLESS stubs Electron and has no browser at all, so they are its only search.
  */
 
 export { searchDDGInstant } from './duckduckgo';
 export {
     searchSearxng,
-    searchPublicSearxng,
     getSearxngURL,
     isSearxngEnabled,
-    PUBLIC_SEARXNG_INSTANCES,
     stripSiteOperators,
 } from './searxng';
 
@@ -46,7 +45,7 @@ export async function smartSearch(
     query: string,
     limit: number = 10
 ): Promise<UnifiedSearchResult[]> {
-    const { searchSearxng, searchPublicSearxng, stripSiteOperators } = await import('./searxng');
+    const { searchSearxng, stripSiteOperators } = await import('./searxng');
     const { searchDDGInstant } = await import('./duckduckgo');
     const { getSearxngConfig } = await import('./config');
 
@@ -101,14 +100,7 @@ export async function smartSearch(
         console.log('[SmartSearch] SearxNG returned 0 results, falling back...');
     }
 
-    // Tier 2: Public SearxNG instances
-    console.log('[SmartSearch] Trying public SearxNG instances');
-    const publicResults = await searchPublicSearxng(effectiveQuery, undefined, limit);
-    if (publicResults.length > 0) {
-        return publicResults;
-    }
-
-    // Tier 3: DuckDuckGo Instant API (always works)
+    // Tier 2: DuckDuckGo Instant API — the floor, and headless's last resort
     console.log('[SmartSearch] Falling back to DDG Instant API');
     return searchDDGInstant(effectiveQuery, limit);
 }

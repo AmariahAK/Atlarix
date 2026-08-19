@@ -33,9 +33,9 @@ export const TOOL_RECOVERY_HINTS: Record<string, string> = {
   list_available_mcps:
     "MCP servers are configured per workspace in Settings → Tools & MCP.",
   web_search:
-    "Retry with a shorter, keyword-style query. If search is unavailable, tell the user they can enable SearxNG (Settings → Search) or a search MCP.",
+    "Retry with a shorter, keyword-style query. If search stays unavailable, tell the user they can connect a search/web MCP in Settings → Tools & MCP.",
   read_url:
-    "Check the URL is complete (https://…). For paywalled/JS-heavy pages, try web_search for the same content instead.",
+    "Check the URL is complete (https://…). JS-heavy pages are handled — read_url renders them in a real browser when a plain fetch comes back empty. A paywall or a login wall is not something to work around: say the page is not publicly readable.",
   read_attachment:
     "Call list_attachments to see valid attachment ids for this chat.",
   // `target:"preview"` was REMOVED with the Preview pane in v14.15.0 — the app you

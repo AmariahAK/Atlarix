@@ -54,9 +54,12 @@ POINTER to it with its section list, not its body, so `read_file` it before chan
 or making a design decision.
 
 Durable facts you learn go into per-note **agent memory** (v14.23.0), not a single file:
-one fact per note plus one line in `MEMORY.md`, under `~/.atlarix/projects/<slug>/memory/`
-(outside the repo, per-developer, never committed). Your context carries only the index.
-Read `guides/memory` before writing one. Optional — never at the cost of the task.
+one fact per note plus one line in `MEMORY.md`. The `## Project memory` line in your
+context gives that directory's absolute path, and it is the only one — never derive it
+from the project's name and never go hunting for it, because the store is keyed by a hash
+and any directory you find that way is a stale copy. Outside the repo, per-developer,
+never committed; your context carries only the index. Read `guides/memory` before writing
+one. Optional — never at the cost of the task.
 
 ## Context layers
 

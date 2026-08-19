@@ -2,7 +2,7 @@
  * Atlarix Web Tools
  * ================
  * Combines Perplexica + StackSense approaches:
- * - 3-tier smart search: SearxNG > Public SearxNG > DDG Instant
+ * - Tiered smart search: Atlarix's own Chromium > self-hosted SearxNG > DDG Instant
  * - Parallel async searches across StackOverflow, GitHub, Reddit, MDN (StackSense)
  * - URL content extraction with summaries (Perplexica)
  * - Rich previews for inline reading
@@ -18,12 +18,21 @@ import {
 import { smartSearch } from "../search";
 import { wrapUntrustedData } from "../streaming/untrusted-data";
 import { extractDomain } from "@/lib/format-url";
-import { safeFetch } from "../security/url-policy";
+import { assertUrlAllowed, safeFetch } from "../security/url-policy";
 
 import TurndownService from "turndown";
 
+/**
+ * Shown only when a search fails or returns nothing — never in the tool
+ * description, which is loaded every turn inside the first prompt-cache
+ * breakpoint. Recovery advice belongs where recovery is happening.
+ *
+ * It no longer mentions SearxNG: search runs through Atlarix's own Chromium, so
+ * there is nothing for the user to install. A search/web MCP stays, because that
+ * is still a real thing they can add and it depends on nothing we ship.
+ */
 const WEB_SEARCH_SETUP_HINT =
-  "\n\n**Search setup:** For more reliable results, enable **SearxNG** in Settings → Search (Docker auto-setup), or configure a **search MCP** server. Atlarix cannot enable these automatically.";
+  "\n\n**If this keeps coming up empty:** search already runs through Atlarix's own browser, so there is nothing to install — try rephrasing as keywords rather than a question. If one site or domain is consistently thin, the user can connect a **search/web MCP** in Settings → Tools & MCP.";
 
 /** Default read budget per page (v13.1: raised from 5K — modern docs need more). */
 const READ_URL_DEFAULT_MAX = 20_000;
@@ -146,32 +155,234 @@ interface SearchResult {
     metadata: Record<string, any>;
 }
 
+/**
+ * `read_url`'s own cookie jar — never search's (`persist:atlarix-search`). An
+ * arbitrary page must not be able to read the engine's cookies.
+ */
+const READER_PARTITION = "persist:atlarix-reader";
+
+/**
+ * Statuses where rendering the page in a real browser plausibly changes the
+ * answer: a bot wall (403), a rate limit (429), or a challenge served as
+ * "unavailable" (503). All three are the "is this a real browser?" question that
+ * `fetchWithCfRetry`'s one-shot User-Agent retry tries and often fails to answer —
+ * when that retry also fails, its 403 lands here.
+ *
+ * Deliberately not 401 or 404. A login wall is not something to work around, and
+ * a browser renders a 404 page just as faithfully as fetch does.
+ */
+const BROWSER_ESCALATION_STATUSES = new Set([403, 429, 503]);
+/**
+ * An HTML document that extracts to less than this is not a document.
+ *
+ * Measured: excalidraw.com yielded 69 chars ("You need to enable JavaScript to run
+ * this app"), play.vuejs.org yielded 18. react.dev yielded 17,682 and
+ * sqliteonline.com 17,133, both from a plain fetch.
+ */
+const JS_SHELL_MAX_TEXT_CHARS = 500;
+/** A shell with its bundle inlined rather than linked — big file, no prose. */
+const JS_SHELL_MIN_HTML_BYTES = 20_000;
+/** A shell that LINKS its bundle. This is the common shape, and it is tiny. */
+const EXTERNAL_SCRIPT_RE = /<script[^>]+\bsrc\s*=/i;
+/**
+ * Covers the paint poll below (3s) with margin, and nothing more.
+ *
+ * Measured against a Cloudflare-walled page: the challenge navigates while the
+ * script is running, which destroys the JS context so `executeJavaScript` never
+ * settles — this timeout is the only thing that ends it. Every second here is a
+ * second added to a read that is already failing, so it is kept tight.
+ */
+const BROWSER_EXTRACT_TIMEOUT_MS = 5_000;
+/**
+ * Below this, a page that has BEEN RENDERED has no readable text at all.
+ *
+ * Applied only on the escalation path — a page that fetched cleanly is never
+ * second-guessed, so a short-but-complete page like example.com is unaffected.
+ * Measured: g2.com rendered to the single word "Browse", and play.vuejs.org to
+ * its own title. Returning those as a successful read hands the model six
+ * characters labelled as the page's content, which it will then repeat. "This
+ * page is not readable" is the true answer and the more useful one.
+ */
+const POST_RENDER_MIN_CHARS = 200;
+
+/**
+ * Post-JavaScript HTML, plus the title the framework actually set.
+ *
+ * `did-finish-load` fires when the bundle has loaded, which for a client-rendered
+ * app is BEFORE it has painted anything — grabbing the DOM there would return the
+ * same empty shell that made the fetch path fail. So poll briefly for text to
+ * appear instead of guessing at a fixed sleep. A page that genuinely has almost no
+ * text costs the full wait, which is acceptable on a path only reached after a
+ * plain fetch already failed.
+ */
+const READER_HTML_SCRIPT = `(async () => {
+  const textLen = () => ((document.body && document.body.innerText) || "").trim().length;
+  for (let i = 0; i < 12 && textLen() < 200; i++) {
+    await new Promise((r) => setTimeout(r, 250));
+  }
+  return {
+    html: document.documentElement ? document.documentElement.outerHTML : "",
+    title: document.title || "",
+  };
+})()`;
+
+/**
+ * Render `url` in the shared hidden window and hand back its rendered HTML.
+ *
+ * ONLY the acquisition of the HTML changes — the caller feeds this to the same
+ * `extractReadableContent()` the fetch path uses, so a page produces identical
+ * Markdown whichever route reached it.
+ *
+ * Imported dynamically: `headless-page` touches `electron` at module scope, and
+ * `web.ts` is loaded in places (tests, the headless build) that have no real one.
+ * Returns `null` for every failure — unavailable, blocked, timed out — so the
+ * caller keeps whatever the fetch gave it.
+ */
+async function fetchViaBrowser(
+    url: string,
+    navTimeoutMs: number,
+): Promise<{ html: string; title: string } | null> {
+    // SSRF: the browser path does not go through `safeFetch`, so it does not
+    // inherit its policy check. Without this, "read this URL" is a port scanner
+    // against localhost and the cloud metadata endpoint. No `allowLoopback` —
+    // that is `browser.ts`'s posture, because its job is your own dev server.
+    try {
+        await assertUrlAllowed(url);
+    } catch {
+        return null;
+    }
+    try {
+        const { withHiddenPage } = await import("@/lib/browser/headless-page");
+        const out = await withHiddenPage(
+            url,
+            {
+                partition: READER_PARTITION,
+                navTimeoutMs,
+                extractTimeoutMs: BROWSER_EXTRACT_TIMEOUT_MS,
+            },
+            async (wc) =>
+                (await wc.executeJavaScript(READER_HTML_SCRIPT, true)) as {
+                    html: string;
+                    title: string;
+                } | null,
+        );
+        return out && typeof out.html === "string" && out.html ? out : null;
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * True when a fetch produced HTML that is all shell and no document.
+ *
+ * SIZE ALONE IS THE WRONG TEST, and the first version of this got it wrong.
+ * "Large HTML, tiny extraction" only catches a shell that inlines its bundle;
+ * the ordinary shape is a *small* `index.html` that LINKS one. Measured, a 20 KB
+ * floor let excalidraw.com (69 chars of extracted text) and play.vuejs.org (18)
+ * through as if they had been read successfully.
+ *
+ * So the question is not how big the file is, it is whether the page said its
+ * content comes from somewhere we did not go. Either shape qualifies — an
+ * external script tag, or a body big enough to be hiding an inline bundle.
+ *
+ * The `<script src=` half is also what keeps a genuinely small page out of it:
+ * example.com extracts to 183 chars and is complete, and it loads no scripts, so
+ * it is never escalated.
+ *
+ * Non-HTML is exempt outright: there is nothing a renderer adds to JSON or text.
+ */
+function looksLikeJsShell(html: string, contentType: string, extracted: string): boolean {
+    if (!contentType.includes("text/html")) return false;
+    if (extracted.length >= JS_SHELL_MAX_TEXT_CHARS) return false;
+    return html.length >= JS_SHELL_MIN_HTML_BYTES || EXTERNAL_SCRIPT_RE.test(html);
+}
+
+function truncateForRead(content: string, maxLength: number): string {
+    return content.length > maxLength
+        ? content.substring(0, maxLength) + "\n\n... [Content truncated]"
+        : content;
+}
+
+/**
+ * Fetch first, browser on failure.
+ *
+ * Browser-ALWAYS was rejected: deep `web_search` fetches up to five URLs
+ * concurrently while the hidden window serializes, which would turn one round of
+ * parallel requests into five sequential page loads. The browser is the exception
+ * path, and `shouldEscalate` below is what keeps it exceptional.
+ */
 async function fetchUrlContent(
     url: string,
     maxLength: number,
     timeoutMs: number = FETCH_TIMEOUT_MS,
+    userAgent: string = 'Atlarix/1.0 (Web Reader)',
 ): Promise<{ ok: true; title: string; content: string } | { ok: false; error: string }> {
+    /**
+     * Last resort: render the page and extract from the rendered DOM.
+     *
+     * `best` is whatever the fetch already produced, so a render that comes back
+     * worse can never downgrade a result — it can only add.
+     */
+    const viaBrowser = async (
+        fallbackError: string,
+        best = "",
+    ): Promise<{ ok: true; title: string; content: string } | { ok: false; error: string }> => {
+        const rendered = await fetchViaBrowser(url, timeoutMs);
+        const content = rendered
+            ? extractReadableContent(rendered.html, "text/html")
+            : "";
+        const winner = content.trim().length > best.trim().length ? content : best;
+
+        if (winner.trim().length < POST_RENDER_MIN_CHARS) {
+            return {
+                ok: false,
+                error: winner.trim()
+                    ? "This page has no readable text — it was rendered in a real browser and still produced almost nothing, which means an app, a canvas, or a login or bot wall rather than a document. It is not publicly readable as text."
+                    : fallbackError ||
+                      "This page has no readable text, even rendered in a real browser.",
+            };
+        }
+        return {
+            ok: true,
+            title:
+                rendered?.title ||
+                (rendered ? extractTitle(rendered.html) : "") ||
+                "Web Page",
+            content: truncateForRead(winner, maxLength),
+        };
+    };
+
     try {
         const response = await fetchWithCfRetry(
             (headers) => safeFetch(url, { headers }, { timeoutMs }),
             {
-                'User-Agent': 'Atlarix/1.0 (Web Reader)',
+                'User-Agent': userAgent,
                 'Accept': 'text/html,application/xhtml+xml,text/plain',
             },
         );
 
         if (!response.ok) {
-            return { ok: false, error: `Failed to fetch URL: ${response.status} ${response.statusText}` };
+            const error = `Failed to fetch URL: ${response.status} ${response.statusText}`;
+            if (!BROWSER_ESCALATION_STATUSES.has(response.status)) return { ok: false, error };
+            return viaBrowser(error);
         }
 
         const contentType = response.headers.get('content-type') || '';
         const text = await response.text();
-        let content = extractReadableContent(text, contentType);
-        if (content.length > maxLength) {
-            content = content.substring(0, maxLength) + '\n\n... [Content truncated]';
+        const content = extractReadableContent(text, contentType);
+
+        // Escalate on a shell, handing over what the fetch already produced so the
+        // render can only improve on it.
+        if (looksLikeJsShell(text, contentType, content)) {
+            return viaBrowser("", content);
         }
+
         const title = extractTitle(text);
-        return { ok: true, title: title || 'Web Page', content };
+        return {
+            ok: true,
+            title: title || 'Web Page',
+            content: truncateForRead(content, maxLength),
+        };
     } catch (error) {
         return { ok: false, error: `Failed to read URL: ${error}` };
     }
@@ -385,7 +596,12 @@ export async function fetchUrlContentCached(
     url: string,
     maxLength: number,
     timeoutMs: number = FETCH_TIMEOUT_MS,
+    userAgent?: string,
 ): Promise<Awaited<ReturnType<typeof fetchUrlContent>>> {
+    // The User-Agent is deliberately NOT part of the key. It only labels which
+    // caller asked; the page it comes back with is the same one. Keying on it would
+    // give read_url and deep search separate caches, which is the sharing this
+    // wrapper exists to provide.
     const cacheKey = readUrlCacheKey(url, maxLength);
 
     const cached = getReadUrlCached(cacheKey);
@@ -398,7 +614,7 @@ export async function fetchUrlContentCached(
     if (inFlight) return inFlight;
 
     const promise = (async () => {
-        const result = await fetchUrlContent(url, maxLength, timeoutMs);
+        const result = await fetchUrlContent(url, maxLength, timeoutMs, userAgent);
         if (result.ok) {
             setReadUrlCached(cacheKey, { title: result.title, content: result.content });
         }
@@ -417,10 +633,15 @@ export async function fetchUrlContentCached(
 
 ToolRegistry.register({
     name: "web_search",
-    description: // Absorbs the `webResearchRules` block that used to sit in the system prompt for
-// every web-capable mode. Conditional here, and next to the call.
-        "Search the web — facts, version checks, error strings, single-query lookups. Set `deep: true` for multi-source synthesis: it fetches full content from the top results and combines them with citations. Use that for broad or comparative topics; plain web_search for a quick fact. " +
-        "If this returns nothing or errors, the user can enable **SearxNG** (Settings → Search, Docker) or a **search MCP** — tell them, because Atlarix cannot enable either automatically.",
+    // Absorbs the `webResearchRules` block that used to sit in the system prompt for
+    // every web-capable mode. Conditional here, and next to the call.
+    //
+    // Deliberately carries NO setup or recovery advice: this string is loaded every
+    // turn inside the first prompt-cache breakpoint, so guidance for the rare empty
+    // result would be billed on every turn that never sees one. That lives in
+    // WEB_SEARCH_SETUP_HINT, which is appended to the failure paths instead.
+    description:
+        "Search the web — facts, version checks, error strings, single-query lookups. Set `deep: true` for multi-source synthesis: it fetches full content from the top results and combines them with citations. Use that for broad or comparative topics; plain web_search for a quick fact.",
     requiresWorkspace: false,
     isCore: true,
     isReadOnly: true,
@@ -554,35 +775,25 @@ ToolRegistry.register({
                 .filter(r => r.url && r.url.startsWith('http'))
                 .slice(0, searchMode === 'comprehensive' ? 5 : 3);
 
+            // Through `fetchUrlContentCached`, not an inline fetch: that is what gives
+            // these pages the JS-shell escalation, the 15-minute cache and the
+            // in-flight dedup that the duplicated fetch never had. Still
+            // `allSettled` over the whole set, so the parallelism is unchanged.
             const fetchedContent = await Promise.allSettled(
                 urlsToFetch.map(async (result) => {
-                    try {
-                        const response = await fetchWithCfRetry(
-                            (headers) =>
-                                safeFetch(result.url, {
-                                    headers,
-                                    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-                                }),
-                            {
-                                'User-Agent': 'Atlarix/1.0 (Web Research)',
-                                'Accept': 'text/html,application/xhtml+xml,text/plain',
-                            },
-                        );
-
-                        if (!response.ok) return null;
-
-                        const text = await response.text();
-                        const content = extractReadableContent(text, response.headers.get('content-type') || '');
-
-                        return {
-                            title: result.title,
-                            url: result.url,
-                            source: result.source,
-                            content: content.substring(0, DEEP_FETCH_MAX)
-                        };
-                    } catch {
-                        return null;
-                    }
+                    const fetched = await fetchUrlContentCached(
+                        result.url,
+                        DEEP_FETCH_MAX,
+                        FETCH_TIMEOUT_MS,
+                        'Atlarix/1.0 (Web Research)',
+                    );
+                    if (!fetched.ok) return null;
+                    return {
+                        title: result.title,
+                        url: result.url,
+                        source: result.source,
+                        content: fetched.content,
+                    };
                 })
             );
 
@@ -642,17 +853,12 @@ ToolRegistry.register({
 
             if (is403Error) {
                 return {
-                    text: `⚠️ **API Rate Limit Reached**
+                    text: `⚠️ **The search engine refused this request** (rate-limited or blocked).
 
-You've hit the daily search limit for the public API.
+Search runs through Atlarix's own browser, so there is nothing to install — this is the engine throttling, not a missing setup step.
 
-**Solution:** Enable SearxNG for unlimited searches!
-
-1. Go to **Settings** → **Search**
-2. Click "Auto-Setup SearxNG" (uses Docker)
-3. Enjoy unlimited web searches!
-
-_SearxNG is a privacy-respecting meta-search engine that aggregates results from multiple sources without rate limits._`,
+- Wait a moment and retry, or rephrase as keywords rather than a question.
+- If a particular site or domain is consistently unreachable this way, a **search/web MCP** can be connected in **Settings → Tools & MCP**.`,
                     sources: []
                 };
             }
@@ -680,31 +886,21 @@ async function runDeepSearch(query: string, maxSources: number = 3) {
         .filter((r) => r.url && r.url.startsWith("http"))
         .slice(0, cap);
 
+    // See the note in `web_search` — same reason, same wrapper, still parallel.
     const fetchedContent = await Promise.allSettled(
         topUrls.map(async (result) => {
-            try {
-                const response = await fetchWithCfRetry(
-                    (headers) =>
-                        safeFetch(result.url, {
-                            headers,
-                            signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-                        }),
-                    {
-                        "User-Agent": "Atlarix/1.0 (Deep Search)",
-                        Accept: "text/html,application/xhtml+xml,text/plain",
-                    },
-                );
-                if (!response.ok) return null;
-                const text = await response.text();
-                const content = extractReadableContent(text, response.headers.get("content-type") || "");
-                return {
-                    title: result.title,
-                    url: result.url,
-                    content: content.substring(0, DEEP_FETCH_MAX),
-                };
-            } catch {
-                return null;
-            }
+            const fetched = await fetchUrlContentCached(
+                result.url,
+                DEEP_FETCH_MAX,
+                FETCH_TIMEOUT_MS,
+                "Atlarix/1.0 (Deep Search)",
+            );
+            if (!fetched.ok) return null;
+            return {
+                title: result.title,
+                url: result.url,
+                content: fetched.content,
+            };
         })
     );
 
@@ -745,7 +941,7 @@ async function runDeepSearch(query: string, maxSources: number = 3) {
 ToolRegistry.register({
     name: "read_url",
     description:
-        "Fetch and read content from a URL — use it when the user gives you a specific URL, or to confirm a primary source. Extracts main content and provides a clean, readable summary. Prefer this (and web_search) over opening browser_navigate for plain content/reading — reserve the browser for interactive pages.",
+        "Fetch and read content from a URL — use it when the user gives you a specific URL, or to confirm a primary source. Extracts the main content as Markdown, and renders the page in a real browser when a plain fetch comes back empty, so JavaScript-heavy pages work. Prefer this (and web_search) over opening browser_navigate for plain content/reading — reserve the browser tools for pages you need to interact with.",
     requiresWorkspace: false,
     isCore: true,
     isReadOnly: true, // Safe for Ask mode - only reads URL content
@@ -1143,10 +1339,10 @@ class WebSearchAggregator {
     }
 
     async searchGeneral(query: string, limit: number): Promise<SearchResult[]> {
-        // 3-tier smart search: SearxNG (self-hosted) > Public SearxNG > DDG Instant API
-        // Falls back automatically through the tiers
+        // Tiered smart search: Atlarix's own Chromium > self-hosted SearxNG > DDG
+        // Instant. Falls back automatically through the tiers.
         try {
-            console.log('[WebSearch] Using 3-tier smart search for general');
+            console.log('[WebSearch] Using tiered smart search for general');
             const results = await smartSearch(query, limit);
             return results.map((r, idx) => ({
                 ...r,

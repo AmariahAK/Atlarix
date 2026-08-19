@@ -3,11 +3,13 @@
  * ==================================
  * When the active model's provider ships a built-in web-search tool, Atlarix
  * passes that tool at dispatch instead of the client-side `web_search`
- * implementation — provider-grade results + citations, no SearxNG needed.
+ * implementation — provider-grade results + citations.
  *
- * Chain: provider-native → client `web_search` (SearxNG → public SearxNG →
- * DDG) → search MCPs. The client tool stays the universal fallback for
- * providers without native search (Ollama, LM Studio, Groq, … and now Core).
+ * Chain: provider-native → client `web_search` (Atlarix's own Chromium →
+ * self-hosted SearxNG → DDG) → search MCPs. The client tool stays the universal
+ * fallback for providers without native search (Ollama, LM Studio, Groq, … and
+ * now Core), and since v14.35.0 its top tier is a real browser, so "no native
+ * search" is no longer the same as "no good search".
  *
  * Atlarix Core is deliberately NOT in the native list any more: it routes to the
  * four provider clouds directly, and none of them offers agentic search over a

@@ -12,6 +12,10 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 const safeFetchMock = vi.fn();
 vi.mock("@/lib/security/url-policy", () => ({
   safeFetch: (...args: unknown[]) => safeFetchMock(...args),
+  // Also mocked, though nothing here escalates: a partial module mock would leave
+  // `assertUrlAllowed` undefined, so the first test that DID escalate would fail
+  // on a TypeError rather than on the behaviour it was written to check.
+  assertUrlAllowed: async (u: string) => new URL(u),
 }));
 
 import {

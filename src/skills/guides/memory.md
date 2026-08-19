@@ -7,10 +7,16 @@ note — the index in your context is enough to *read* one.
 ## Where it lives
 
 ```
-<memory dir>/                 (path shown in your context; outside the repo, per-project)
+<memory dir>/                 absolute path is on the `## Project memory` line in your context
   MEMORY.md                   the index — ONE line per note
   <note-name>.md              one note = one fact
 ```
+
+**Use that path verbatim.** Do not derive it from the project's name and do not go looking
+for it with `find` or `ls`. The directory is keyed by a hash of the workspace path, so the
+human-readable guess is simply a different directory — and if one exists on disk it is a
+leftover that Atlarix reclaims and deletes at the start of a turn. A session that reads
+one spends the rest of itself editing notes that then vanish mid-task.
 
 It is **not** in the workspace, so notes are never committed and never shared. Each
 project resolves to its own directory; you cannot see another project's notes.

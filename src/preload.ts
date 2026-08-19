@@ -214,12 +214,6 @@ const validInvokeChannels = [
   "searxng:get-config",
   "searxng:set-config",
   "searxng:delete-config",
-  // SearxNG Auto-Setup
-  "searxng:check-docker",
-  "searxng:check-status",
-  "searxng:setup",
-  "searxng:stop",
-  "searxng:logs",
   // Test-only channels
   // Permission system (Build mode)
   "execute-permission",

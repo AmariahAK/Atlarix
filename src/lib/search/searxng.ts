@@ -46,15 +46,12 @@ export interface SearchResult {
     metadata?: Record<string, any>;
 }
 
-// Public SearxNG instances (curated, reliable)
-// These can be used as fallback when no self-hosted instance is available
-export const PUBLIC_SEARXNG_INSTANCES = [
-    'https://searx.be',
-    'https://search.disroot.org',
-    'https://searx.tiekoetter.com',
-    'https://priv.au',
-    'https://search.sapti.me'
-];
+// The five curated public instances that used to live here were DELETED in
+// v14.35.0. Measured 2026-08-19 on three ordinary developer queries: every one of
+// them failed every query — four answer HTTP 429 and searx.be serves a "Verifying
+// your browser…" challenge — while the browser tier returned 24/29/25 results for
+// the same queries. They were five HTTP requests and five failures on the way to
+// every miss. Only a SearxNG the USER runs is reachable now.
 
 // Simple cache
 const cache = new Map<string, { data: SearchResult[]; timestamp: number }>();
@@ -297,27 +294,4 @@ export async function searchSearxng(
     return results.slice(0, limit);
 }
 
-/**
- * Search using a public SearxNG instance (fallback)
- */
-export async function searchPublicSearxng(
-    query: string,
-    opts?: SearxngSearchOptions,
-    limit: number = 10
-): Promise<SearchResult[]> {
-    // Try public instances in order
-    for (const instance of PUBLIC_SEARXNG_INSTANCES) {
-        try {
-            const results = await searchSearxng(query, opts, limit, instance);
-            if (results.length > 0) {
-                return results;
-            }
-        } catch {
-            console.log(`[SearxNG] Public instance ${instance} failed, trying next...`);
-        }
-    }
-
-    console.log('[SearxNG] All public instances failed');
-    return [];
-}
 

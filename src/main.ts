@@ -72,7 +72,7 @@ import { registerWorkspaceWindowIpc } from "./main/workspace_window_ipc";
 import { cleanupOrphanedUserData } from "./main/startup/cleanup-orphaned-userdata";
 import { registerIpcHandlers } from "./ipc/ipc_host";
 import { killAllPtys } from "./lib/pty/pty-session-manager";
-import { shutdownBrowserSearch } from "./lib/search/browser-search";
+import { shutdownHiddenPages } from "./lib/browser/headless-page";
 import { __setDevCoreKeyProvider } from "./ipc/shared/compass_constants";
 import { getDevCoreApiKey, getDevCoreModelId } from "./ipc/utils/dev_core_env";
 
@@ -1872,8 +1872,8 @@ app.on("will-quit", () => {
   }
   // v10: tear down interactive terminal shells.
   killAllPtys();
-  // Release the hidden search window, if a `web_search` left one warm.
-  shutdownBrowserSearch();
+  // Release any hidden window `web_search` or `read_url` left warm.
+  shutdownHiddenPages();
   analyticsShutdown();
 
   // Stop the periodic update re-check.

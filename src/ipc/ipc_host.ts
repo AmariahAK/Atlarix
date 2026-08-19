@@ -41,7 +41,6 @@ import { registerSkillsHandlers } from "./handlers/skills_handlers";
 import { registerVisualEditingHandlers } from "../pro/main/ipc/handlers/visual_editing_handlers";
 import { registerFolderDialogHandler } from "./handlers/atlarix_handlers";
 import { registerSearxngHandlers } from "./handlers/searxng_handlers";
-import { registerSearxngSetupHandlers, registerSearxngAutoStop } from "./handlers/searxng_setup_handlers";
 import { registerFileHandlers } from "./handlers/file_handlers";
 import { registerAuthHandlers } from "./handlers/auth_handlers";
 import { registerCodebaseSearchHandlers } from "./handlers/codebase_search_handlers";
@@ -98,8 +97,6 @@ export function registerIpcHandlers() {
   // Atlarix handlers
   registerFolderDialogHandler();
   registerSearxngHandlers();
-  registerSearxngSetupHandlers();
-  registerSearxngAutoStop(); // Auto-stop Docker container when app quits
   registerFileHandlers(); // File read/write for live code editor
   registerAuthHandlers(); // OAuth & user plan management
   registerCodebaseSearchHandlers(); // Codebase semantic search

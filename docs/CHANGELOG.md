@@ -24,6 +24,21 @@ background. On three ordinary programming questions that previously returned not
 returned 24, 29 and 25 results. This is not the AI browsing on your behalf and it never opens a tab
 you can see — it is the search underneath, doing what it always claimed to.
 
+**And it can now read pages that need a browser to make sense.** Asking Atlarix to read a specific
+page used to fetch the raw file and nothing more, so a modern site that builds itself after loading
+came back as an empty frame, and a site that screens out non-browsers came back as a refusal. It now
+tries the quick way first and falls back to actually rendering the page when that returns nothing
+useful — so documentation sites, dashboards and anything behind a bot check read properly. The quick
+path is still the normal one, which matters: a deep search reads several pages at once, and rendering
+every one of them would have made it several times slower for no benefit. Pages it reads are also
+shared and cached across a single question now, so the same link is never fetched twice.
+
+**Setting up web search is no longer a thing you can do wrong.** The old settings page walked you
+through installing a search engine in Docker — a whole flow, for a fallback that measurably returned
+nothing. It is gone. Search needs no setup at all now. If you already run your own search server,
+there is a single field to point Atlarix at it, and it checks the address actually answers before
+saving, rather than letting you save one that quietly never works.
+
 **The browser underneath is five major versions newer.** Atlarix was running a Chromium that stopped
 receiving security fixes some time ago. It now runs the current one, which also starts faster — the
 app boots from a prebuilt snapshot and caches its startup scripts as compiled bytecode.
@@ -56,7 +71,10 @@ your repo, and the path was only ever shown once at least one note existed — s
 had no idea where to write the first one and guessed, leaving notes in a folder nothing would ever
 read again. It kept guessing, because the real folder stayed empty. Atlarix is now told the exact
 folder from the start, and any notes stranded by the old behaviour are moved into the right place
-the next time you open that project, with the stray folder cleared away.
+the next time you open that project, with the stray folder cleared away. It also no longer goes
+looking for that folder on its own: it was told where its notes live and then searched anyway, found
+an old stray copy, and spent the rest of the session editing notes that were about to be tidied away
+underneath it.
 
 **Messages can no longer come back in the wrong order.** Anything written in the same second shared a
 timestamp with no tiebreaker, so reopening a conversation could show a reply above the question it

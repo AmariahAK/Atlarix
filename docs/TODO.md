@@ -806,7 +806,7 @@ gh api "repos/AmariahAK/Atlarix/actions/artifacts?per_page=100" \
 - Rule of thumb: an artifact nothing DOWNLOADS is a convenience copy, and its retention should be
   days, not weeks. `landlock-helper` is the counter-example — it IS consumed, and is already 1 day.
 
-## 🌐 Core web search — FIXED by the browser tier (shipped, v14.35.0)
+## 🌐 Core web search + `read_url` — FIXED by the browser tier (shipped, v14.35.0)
 
 **Measured 2026-08-19, not estimated — before and after, same three developer queries, same minute:**
 
@@ -838,13 +838,55 @@ rendering are unchanged, and `native_web_search.ts`'s "deliberate quality trade"
   and Linux — fires only when every window has closed, so the search window now tears itself down as
   soon as no other window remains. Without that the app keeps running after the user closes it.
 
-- [ ] **Owner call: does SearxNG stay?** The numbers say the public-instance tier never once
-  contributed a result. Recommendation: **keep self-hosted SearxNG** (a user who runs one gets an
-  unmetered, private index and it costs us a config read), **keep DDG as the headless floor** — the
-  headless build stubs Electron and has no browser at all — and **drop the five hardcoded public
-  instances**, which are pure latency: five HTTP requests, five failures, on the way to every miss.
-- [ ] `read_url` is still plain fetch + regex HTML-stripping, so it returns junk for any JS-rendered
-  page. The same hidden window fixes it. **Not** done here — separate change, separate verification.
+**SearxNG teardown — DECIDED and DONE (owner call, 2026-08-19).** Kept self-hosted SearxNG and DDG
+(the headless build stubs Electron, has no browser, and would otherwise have nothing that returns
+results); dropped everything that existed to prop up a tier the browser made unnecessary:
+`searxng_setup_handlers.ts` (314 LOC of Docker orchestration, including its own `will-quit` container
+stop), `SearxngSetup.tsx` (333), the five hardcoded `PUBLIC_SEARXNG_INSTANCES` and
+`searchPublicSearxng()`, tier 2 of `smartSearch`, five preload channels. `SearchSettings.tsx` became
+the plain URL field its own comment had been promising since v13 — Test-and-Save against the
+health-check, because a URL saved without being reached is how a user gets a silently dead tier.
+`search_providers` (bundled migration `0021`, hash-verified) is left ORPHANED on purpose: migrations
+are append-only and a `DROP TABLE` is real risk for zero user benefit.
+
+**`read_url` through the browser — DONE.** Fetch first, browser on failure. Browser-ALWAYS was
+rejected on measurement, not taste: deep `web_search` fetches up to five URLs *concurrently* while
+the hidden window serializes, so routing everything through it turns one parallel round into five
+sequential page loads. Escalation is therefore narrow — 403/429/503 (the bot-wall family, where
+`fetchWithCfRetry`'s one-shot UA retry has already failed), or HTML over 20 KB that extracts to under
+500 chars, which is a client-rendered shell. Never 401 or 404: a login wall is not to be worked
+around, and a browser renders a 404 as faithfully as fetch does.
+
+Four things worth keeping:
+- **The window machinery is now shared.** `lib/browser/headless-page.ts` owns the reused window, the
+  serialized queue, the nav timeout, the idle teardown and the last-window watch; search and
+  `read_url` both consume it, on **separate `persist:` partitions** so an arbitrary page cannot read
+  the engine's cookies.
+- **`did-finish-load` is too early for a client-rendered page** — the bundle has loaded but nothing
+  has painted, so grabbing the DOM there returns the same shell the fetch already had. The extractor
+  polls up to 3s for text to appear instead of guessing a sleep.
+- **The browser path does not go through `safeFetch`, so it does not inherit its SSRF policy.**
+  `assertUrlAllowed` is called explicitly before every load, WITHOUT `allowLoopback` — that is
+  `browser.ts`'s posture, whose job is your own dev server. Without it, "read this URL" is a port
+  scanner against localhost and the metadata endpoint. Pinned by tests, on the browser path.
+- **Deep search's two inline fetch blocks now go through `fetchUrlContentCached`**, which is what
+  makes the fix reach deep search at all, and hands those paths the 15-minute cache and in-flight
+  dedup they never had. The User-Agent is parameterized but deliberately kept OUT of the cache key:
+  it labels the caller, not the page.
+- [ ] Owed, needs the packaged app: a live `read_url` against a JS-rendered SPA and a
+  Cloudflare-walled page, and a timing check that `web_search deep:true` over 5 URLs has NOT become
+  serial — that is the specific regression the fetch-first design exists to avoid.
+
+**Memory-location prompting — FIXED (2026-08-19).** Observed in another project: the agent ran `find`
+for its memory directory, latched onto a stale guessed copy, and then hit `file_not_found` mid-session
+when `adoptMisplacedMemoryDir` reclaimed it — having had the correct absolute path in its context the
+whole time. The reclaim code was working; the prompting was not. `AGENTS.md` was publishing the
+*fillable template* `~/.atlarix/projects/<slug>/memory/`, which is exactly the shape a model completes
+with the human-readable basename, and `guides/memory` said the path was "shown in your context"
+without ever saying it was the only one. Both now say: use the path on the `## Project memory` line
+verbatim, never derive it, never search for it. This is the same treatment `loadWorkspaceRootSection`
+already gives the workspace root — for the same observed failure of an agent hunting for a path it had
+been given — which memory never got.
 
 ---
 
