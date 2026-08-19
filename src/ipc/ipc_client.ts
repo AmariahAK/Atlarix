@@ -309,14 +309,31 @@ export class IpcClient {
     }
   >;
   private mcpConsentHandlers: Map<string, (payload: any) => void>;
-  private permissionHandlers: Map<number, (payload: any) => void>;
+  /**
+   * Chat-scoped subscriber SETS, not single handlers — `InlinePermissionApprovals`
+   * is rendered per ASSISTANT MESSAGE (`AssistantMessageBody.tsx`), so a chat has as
+   * many live subscribers as it has messages, and `permission-request` additionally
+   * has a second, unrelated subscriber in `useStreamChat`.
+   *
+   * As one-slot Maps these silently lost events: `set()` meant last-registration-wins,
+   * and the unsubscribe returned to an OLD instance did `delete(chatId)` — removing
+   * whichever handler happened to hold the slot rather than its own. An unmounting
+   * message could therefore leave a chat with NO handler at all. Observed as a turn
+   * hanging forever on an outside-workspace write: the `sandbox_escalation` card never
+   * reached the screen, so nothing could approve it and only Stop recovered.
+   *
+   * `userQuestionHandlers` and `mcpConsentHandlers` are deliberately NOT sets:
+   * `onUserQuestionRequest` is subscribed only from `useStreamChat` (one per chat) and
+   * `mcpConsentHandlers` has no subscriber outside this file, so neither can collide.
+   */
+  private permissionHandlers: Map<number, Set<(payload: any) => void>>;
   private commandPermissionBlockedHandlers: Map<
     number,
-    (payload: { chatId: number; category?: string; message?: string }) => void
+    Set<(payload: { chatId: number; category?: string; message?: string }) => void>
   >;
   private filePermissionBlockedHandlers: Map<
     number,
-    (payload: { chatId: number; message?: string }) => void
+    Set<(payload: { chatId: number; message?: string }) => void>
   >;
   private userQuestionHandlers: Map<number, (payload: any) => void>;
   private modeChangeHandler: ((payload: { chatId: number; requestedMode: string; reason: string }) => void) | null = null;
@@ -436,12 +453,16 @@ export class IpcClient {
           return;
         }
 
-        // Handle permission-request type
+        // Handle permission-request type. Second delivery path (in-band on the chat
+        // stream rather than the dedicated channel) — it must fan out to every
+        // subscriber exactly like the one above, or the same card goes missing here.
         if ("type" in data && (data as any).type === "permission-request") {
-          const handler = this.permissionHandlers.get(chatId);
-          if (handler) {
-            handler(data);
-          }
+          this.notifyChatSubscribers(
+            this.permissionHandlers,
+            chatId,
+            data,
+            "permission-request",
+          );
           return;
         }
 
@@ -714,14 +735,23 @@ export class IpcClient {
       if (handler) handler(payload);
     });
 
-    // Permission request from main (Build mode tools needing approval)
+    // Permission request from main (Build mode tools needing approval).
+    // EVERY subscriber gets it — a chat has one per rendered assistant message plus
+    // useStreamChat's, and they render different things (the approval card vs the
+    // FileProposal list). Delivering to only one is how an approval card went missing
+    // and hung a turn indefinitely.
     this.ipcRenderer.on("permission-request", (payload: any) => {
       if (payload && typeof payload === "object" && "chatId" in payload) {
         const { chatId } = payload;
-        const handler = this.permissionHandlers.get(chatId);
-        if (handler) {
-          handler(payload);
-        } else {
+        const delivered = this.notifyChatSubscribers(
+          this.permissionHandlers,
+          chatId,
+          payload,
+          "permission-request",
+        );
+        // Worth keeping loud. This exact line names the failure in one step when a
+        // turn is stuck waiting for a card that never appeared.
+        if (!delivered) {
           console.warn(`[IPC] No permission handler for chat ${chatId}`);
         }
       }
@@ -730,16 +760,24 @@ export class IpcClient {
     this.ipcRenderer.on("command-permission-blocked", (payload: any) => {
       if (payload && typeof payload === "object" && "chatId" in payload) {
         const { chatId } = payload as { chatId: number };
-        const handler = this.commandPermissionBlockedHandlers.get(chatId);
-        handler?.(payload);
+        this.notifyChatSubscribers(
+          this.commandPermissionBlockedHandlers,
+          chatId,
+          payload,
+          "command-permission-blocked",
+        );
       }
     });
 
     this.ipcRenderer.on("file-permission-blocked", (payload: any) => {
       if (payload && typeof payload === "object" && "chatId" in payload) {
         const { chatId } = payload as { chatId: number };
-        const handler = this.filePermissionBlockedHandlers.get(chatId);
-        handler?.(payload);
+        this.notifyChatSubscribers(
+          this.filePermissionBlockedHandlers,
+          chatId,
+          payload,
+          "file-permission-blocked",
+        );
       }
     });
 
@@ -3007,8 +3045,66 @@ export class IpcClient {
   }
 
   /**
-   * Register a handler for permission request events for a specific chat
-   * Returns unsubscribe function
+   * Add `handler` to a chat's subscriber set and return an unsubscribe that removes
+   * ONLY that handler, dropping the chat's entry once the set empties.
+   *
+   * Shared by the three chat-scoped registries with multiple live subscribers, so the
+   * add/remove halves cannot drift apart — the bug being fixed was precisely an
+   * unsubscribe that did not match its own registration. Mirrors `onTerminalOutput`
+   * below, which has always had the correct shape.
+   */
+  /**
+   * Deliver one event to every subscriber of a chat, isolating throws.
+   *
+   * Per-handler try/catch matters more than usual here: these registries carry the
+   * APPROVAL card, and one subscriber throwing must not stop the others from
+   * rendering it — a swallowed exception that skips the remaining handlers looks
+   * exactly like the missing-card hang this whole change exists to fix. Matches the
+   * `terminal-output` dispatch below.
+   *
+   * Returns whether anything was delivered, so callers can log the empty case.
+   */
+  private notifyChatSubscribers<T>(
+    registry: Map<number, Set<(payload: T) => void>>,
+    chatId: number,
+    payload: T,
+    label: string,
+  ): boolean {
+    const handlers = registry.get(chatId);
+    if (!handlers || handlers.size === 0) return false;
+    for (const handler of handlers) {
+      try {
+        handler(payload);
+      } catch (err) {
+        console.error(`[IPC] ${label} handler threw:`, err);
+      }
+    }
+    return true;
+  }
+
+  private addChatSubscriber<T>(
+    registry: Map<number, Set<(payload: T) => void>>,
+    chatId: number,
+    handler: (payload: T) => void,
+  ): () => void {
+    let handlers = registry.get(chatId);
+    if (!handlers) {
+      handlers = new Set();
+      registry.set(chatId, handlers);
+    }
+    handlers.add(handler);
+    return () => {
+      const set = registry.get(chatId);
+      if (!set) return;
+      set.delete(handler);
+      if (set.size === 0) registry.delete(chatId);
+    };
+  }
+
+  /**
+   * Register a handler for permission request events for a specific chat.
+   * Returns unsubscribe function. Several handlers per chat is NORMAL — see the
+   * `permissionHandlers` declaration for why.
    */
   public onPermissionRequest(
     chatId: number,
@@ -3019,10 +3115,7 @@ export class IpcClient {
       request: any;
     }) => void
   ): () => void {
-    this.permissionHandlers.set(chatId, handler);
-    return () => {
-      this.permissionHandlers.delete(chatId);
-    };
+    return this.addChatSubscriber(this.permissionHandlers, chatId, handler);
   }
 
   public onCommandPermissionBlocked(
@@ -3033,20 +3126,22 @@ export class IpcClient {
       message?: string;
     }) => void,
   ): () => void {
-    this.commandPermissionBlockedHandlers.set(chatId, handler);
-    return () => {
-      this.commandPermissionBlockedHandlers.delete(chatId);
-    };
+    return this.addChatSubscriber(
+      this.commandPermissionBlockedHandlers,
+      chatId,
+      handler,
+    );
   }
 
   public onFilePermissionBlocked(
     chatId: number,
     handler: (payload: { chatId: number; message?: string }) => void,
   ): () => void {
-    this.filePermissionBlockedHandlers.set(chatId, handler);
-    return () => {
-      this.filePermissionBlockedHandlers.delete(chatId);
-    };
+    return this.addChatSubscriber(
+      this.filePermissionBlockedHandlers,
+      chatId,
+      handler,
+    );
   }
 
   /**

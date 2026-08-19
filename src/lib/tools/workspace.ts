@@ -21,6 +21,7 @@ import path from "path";
 
 import { extractTextFromPdfBuffer } from "@/lib/attachment-pdf-extract";
 import { extractCsvFromBuffer } from "@/lib/attachment-csv-extract";
+import { extractTextFromXlsx } from "@/lib/attachment-xlsx-extract";
 import {
     extractTextFromPptxBuffer,
     extractTextFromOdtBuffer,
@@ -332,66 +333,6 @@ async function extractTextFromDocx(buffer: Buffer): Promise<{ text: string; para
     } catch (err) {
         logger.warn(`mammoth failed: ${err}`);
         return { text: "", paragraphs: 0, success: false };
-    }
-}
-
-async function extractTextFromXlsx(buffer: Buffer): Promise<{
-    text: string;
-    sheets: number;
-    rows: number;
-    success: boolean;
-    table: import("@/lib/attachment-csv-extract").CsvTableData | null;
-    sheetName?: string;
-}> {
-    try {
-        const XLSX = await import("xlsx");
-        const workbook = XLSX.read(buffer, { type: "buffer" });
-        let allText = "";
-        let totalRows = 0;
-
-        for (const sheetName of workbook.SheetNames) {
-            const sheet = workbook.Sheets[sheetName];
-            const csv = XLSX.utils.sheet_to_csv(sheet);
-            allText += `[Sheet: ${sheetName}]\n${csv}\n\n`;
-            const range = XLSX.utils.decode_range(sheet["!ref"] || "A1");
-            totalRows += range.e.r - range.s.r + 1;
-        }
-
-        // Structured table from the first sheet for the renderer card.
-        let table = null;
-        const firstSheetName = workbook.SheetNames[0];
-        const firstSheet = firstSheetName ? workbook.Sheets[firstSheetName] : undefined;
-        if (firstSheet) {
-            const matrix = XLSX.utils.sheet_to_json<unknown[]>(firstSheet, {
-                header: 1,
-                raw: false,
-                defval: "",
-            }) as unknown as string[][];
-            if (matrix.length > 0) {
-                const MAX_ROWS = 200;
-                const MAX_COLS = 50;
-                const totalColumns = matrix.reduce((m, r) => Math.max(m, r.length), 0);
-                table = {
-                    headers: (matrix[0] ?? []).slice(0, MAX_COLS).map(String),
-                    rows: matrix.slice(1, 1 + MAX_ROWS).map((r) => r.slice(0, MAX_COLS).map(String)),
-                    totalRows: matrix.length - 1,
-                    totalColumns,
-                    truncated: matrix.length - 1 > MAX_ROWS || totalColumns > MAX_COLS,
-                };
-            }
-        }
-
-        return {
-            text: allText.trim(),
-            sheets: workbook.SheetNames.length,
-            rows: totalRows,
-            success: Boolean(allText.trim().length > 0),
-            table,
-            sheetName: firstSheetName,
-        };
-    } catch (err) {
-        logger.warn(`xlsx failed: ${err}`);
-        return { text: "", sheets: 0, rows: 0, success: false, table: null };
     }
 }
 

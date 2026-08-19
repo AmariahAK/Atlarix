@@ -281,8 +281,29 @@ const config: ForgeConfig = {
         ? undefined
         : {
             identity: "Developer ID Application: Amariah Kamau (7VWW7N9R87)",
-            optionsForFile: () => ({
-              entitlements: "./entitlements.plist",
+            // Per-file, NOT one entitlements set for the whole bundle. @electron/osx-sign
+            // calls this for every path it signs — helper apps, the frameworks, and every
+            // nested binary (ripgrep's `rg`, node-pty's `spawn-helper`) — and
+            // `keychain-access-groups` must reach ONLY the top-level app bundle.
+            //
+            // Signing a nested helper with a keychain access group it is not provisioned
+            // for yields a binary that `codesign -v` reports as "valid on disk" and as
+            // satisfying its Designated Requirement, and that the kernel then SIGKILLs on
+            // exec — exit 137, no output, no stderr, nothing in the system log. It cost a
+            // packaging cycle to find; `self-test:packaged` reported it as `ripgrep: FAIL`.
+            //
+            // `!filePath.includes(".app/")` is osx-sign's OWN test for the top-level
+            // bundle (see its `preAutoEntitlements` guard): every nested path sits under
+            // `Atlarix.app/`, while the bundle itself merely ends with `.app`. Note a
+            // helper bundle also ends with `.app`, so `endsWith` would be wrong here.
+            //
+            // Signing a bundle applies its entitlements to that bundle's main executable,
+            // which is the process that calls `app.configureWebAuthn()` — so the app gets
+            // the group and nothing else does.
+            optionsForFile: (filePath: string) => ({
+              entitlements: filePath.includes(".app/")
+                ? "./entitlements.plist"
+                : "./entitlements.mac.plist",
               "entitlements-inherit": "./entitlements.plist",
               "hardened-runtime": true,
             }),

@@ -87,6 +87,57 @@ export const DEFAULT_PROBES: SelfTestProbe[] = [
     },
   },
   {
+    // better-sqlite3 is the ONLY dependency genuinely pinned to the Electron ABI
+    // — `@lydell/node-pty` is N-API and ships prebuilds, so `pty-spawn` above
+    // passes whatever Electron we are on and proves nothing about the rebuild.
+    // Without this probe an ABI mismatch (or a prune that loses the unpacked
+    // `.node`) reaches the user as a blank window at first launch, because the
+    // DB opens before anything is rendered.
+    //
+    // Proven by the 38 -> 43 upgrade: better-sqlite3 12.4.1 does not COMPILE
+    // against V8 15 (`External::New` gained a required tag,
+    // `PropertyCallbackInfo::This()` was removed), so this is a live failure
+    // mode, not a hypothetical one.
+    //
+    // Uses a THROWAWAY database in tmp: the self-test deliberately runs without
+    // the app's DB (no window, no GPU, no migrations), and opening the real one
+    // here would take its lock and run migrations outside the app's own ordering.
+    name: "sqlite",
+    run: async () => {
+      const os = await import("node:os");
+      const fsp = await import("node:fs/promises");
+      const path = await import("node:path");
+      const { default: Database } = await import("better-sqlite3");
+
+      const dir = await fsp.mkdtemp(path.join(os.tmpdir(), "atlarix-selftest-db-"));
+      const file = path.join(dir, "probe.db");
+      try {
+        const db = new Database(file);
+        try {
+          // Round-trip real data: loading the binding is not the same as it
+          // working, and a half-broken build can import and then fail to query.
+          db.pragma("journal_mode = WAL");
+          db.exec("CREATE TABLE probe (id INTEGER PRIMARY KEY, v TEXT NOT NULL)");
+          db.prepare("INSERT INTO probe (v) VALUES (?)").run(MARK);
+          const row = db.prepare("SELECT v FROM probe WHERE id = 1").get() as
+            | { v?: string }
+            | undefined;
+          if (row?.v !== MARK) {
+            throw new Error(`round-trip returned ${JSON.stringify(row)}`);
+          }
+          const sqlite = db.prepare("SELECT sqlite_version() AS v").get() as {
+            v: string;
+          };
+          return `better-sqlite3 ok (sqlite ${sqlite.v}, ABI ${process.versions.modules})`;
+        } finally {
+          db.close();
+        }
+      } finally {
+        await fsp.rm(dir, { recursive: true, force: true });
+      }
+    },
+  },
+  {
     // Worker resolves from app.asar.unpacked/.vite/build (the ast-grep-class bug).
     name: "proxy-worker",
     run: async () => {

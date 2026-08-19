@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+  <!--
+    Entitlements for the TOP-LEVEL app bundle ONLY (macOS).
+
+    Identical to entitlements.plist plus `keychain-access-groups`, and the split
+    exists because that one key CANNOT be applied to every binary in the bundle.
+
+    WHY, recorded because the failure is completely opaque: `optionsForFile` used
+    to return one entitlements file for every path @electron/osx-sign visits,
+    which includes nested helper binaries like ripgrep's `rg` and node-pty's
+    `spawn-helper`. Signing `rg` with a keychain access group it is not
+    provisioned for produces a binary that `codesign -v` calls "valid on disk"
+    and that "satisfies its Designated Requirement" — and that the kernel then
+    SIGKILLs on exec (exit 137) with no output, no stderr and nothing in the
+    system log. The self-test caught it as `ripgrep: FAIL`.
+
+    So: this file for the app bundle (codesign applies a bundle's entitlements to
+    its main executable, which is the process that calls app.configureWebAuthn),
+    and entitlements.plist for everything else, including the inherit case.
+
+    The access group MUST stay byte-identical to the `keychainAccessGroup` passed
+    in src/main/webauthn.ts — a mismatch fails at credential-creation time, not at
+    launch. Shape is <TEAM_ID>.<CFBundleIdentifier>.webauthn; the team id is the
+    one in forge.config.ts's signing identity, and the bundle id is
+    `com.electron.atlarix`, @electron/packager's DEFAULT because packagerConfig
+    sets no `appBundleId`. Renaming that bundle id is its own release — see
+    docs/TODO.md — so this string changes only when that does.
+  -->
+  <dict>
+    <key>com.apple.security.cs.allow-jit</key>
+    <true/>
+    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+    <true/>
+    <key>com.apple.security.cs.allow-dyld-environment-variables</key>
+    <true/>
+    <!-- Retain user-granted folder access across launches in signed builds so
+         the macOS folder-access prompt isn't repeated. Inert on win/linux. -->
+    <key>com.apple.security.files.user-selected.read-write</key>
+    <true/>
+    <key>com.apple.security.files.bookmarks.app-scope</key>
+    <true/>
+    <!-- WebAuthn / passkeys (Electron >= 42, macOS only). Touch ID credentials
+         are stored under this keychain access group. -->
+    <key>keychain-access-groups</key>
+    <array>
+      <string>7VWW7N9R87.com.electron.atlarix.webauthn</string>
+    </array>
+  </dict>
+</plist>

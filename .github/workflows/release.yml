@@ -81,9 +81,14 @@ jobs:
       - name: Install ripgrep
         run: sudo apt-get update && sudo apt-get install -y ripgrep
 
+      # Node 20 went EOL in April 2026, and `engines.node` is ">=24". The build
+      # jobs below already run 24/25; this one lagged because it only type-checks
+      # and tests. Kept at 24 rather than 25: `build-windows` and `msix` pin 24
+      # because Node 25 breaks better-sqlite3's `llvm-lib /LTCG:INCREMENTAL` on
+      # windows-latest, so 24 is the version every job can agree on.
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
 
       # postinstall builds electron; not needed for type/lint/tests

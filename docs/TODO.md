@@ -1,8 +1,9 @@
 # Atlarix TODO
 
-**Current Version:** v14.34.0 (2026-08-18) — Atlarix tests its own work (QA sub-agents), per-turn
-work mode, per-mode tool reveal, and command output that stops throwing away its own budget.
-**Last Updated:** 2026-08-18
+**Current Version:** v14.34.0 (2026-08-18) — released. **v14.35.0 is IN FLIGHT, not tagged:**
+Electron 43, Touch ID passkeys, and a dependency/security sweep that took production vulnerabilities
+from 54 to 28.
+**Last Updated:** 2026-08-19
 
 > **What belongs here:** open work, decisions still owed, and traps worth not rediscovering.
 > **What does not:** shipped narrative → [`docs/CHANGELOG.md`](./CHANGELOG.md). Designed-but-unscheduled
@@ -11,64 +12,252 @@ work mode, per-mode tool reveal, and command output that stops throwing away its
 
 ---
 
-## ▶️ NEXT SESSION — Electron 38 → 43 (owner: do this first)
-
-**Why now:** passkeys. Atlarix's browser tabs cannot do WebAuthn at all, so any site requiring a
-passkey (Touch ID, iCloud Keychain, fingerprint) fails — and it fails *silently*, which reads to the
-user as "Atlarix's browser is broken". Verified 2026-08-18 against the installed typings:
-`electron 38.2.2` has **no `configureWebAuthn` and no WebAuthn API whatsoever**. Not a setting we
-missed; the capability is absent.
-
-**DO NOT "fix" this by loosening the permission handler.** The blanket
-`callback(false)` in `browser_view_manager.ts:237-240` is NOT the cause — WebAuthn is not one of
-Electron's permission types, so that handler never sees the request. Relaxing it would widen real
-permissions and still not deliver passkeys.
-
-**What the upgrade buys:** Electron **v42** added `app.configureWebAuthn()` (e.g.
-`{ touchID: { keychainAccessGroup } }`) plus a `select-webauthn-account` session event for choosing
-between multiple discoverable credentials. Once on ≥42 the passkey work itself is roughly one call.
-
-**Scope honestly: macOS ONLY.** Touch ID + iCloud Keychain. There is **no Windows Hello** support in
-this API, so Windows users gain nothing from it. Plan the messaging accordingly rather than
-announcing "passkeys work".
-
-**Versions:** installed `38.2.2` · latest in the 38 line `38.8.6` · current stable **`43.4.0`**. Five
-majors. Consider landing on 42 or 43 deliberately rather than "latest" — 42 is the floor for the
-feature.
-
-**Why it is a release of its own, not a rider:**
-- **Three ABI-pinned native modules** — `better-sqlite3`, `node-pty`, `keytar`. All rebuild against
-  the new Electron ABI, and `keytar` is what holds credentials on Linux.
-- **Four `patch-package` patches**, one of which un-poisons transformers.js's session chain.
-- **The three OS sandbox helpers are the fragile part** — macOS Seatbelt, Linux Landlock, Windows Low
-  IL. The Windows one **broke git in every shipped release** once already (see the v14.28.0 entry).
-  `npm run check:sandbox` cross-target type-checks them from macOS, but that proves nothing about
-  runtime — this needs the Windows machine, which several other items already do. **Batch them.**
-- **Node pinning interacts:** `msix.yml` pins Node **24** because Node 25 breaks better-sqlite3's
-  `llvm-lib /LTCG:INCREMENTAL` on windows-latest. Re-check that against the new Electron.
-- Gate on `npm run self-test:packaged` (8 probes incl. `sandbox`) on **all three** platforms, not just
-  macOS.
-
-**Companion item, small and independent — worth doing even if the upgrade slips.** Today a passkey
-prompt just hangs. Shim `navigator.credentials` in the injected browser script so the attempt is
-*reported* rather than silent, and surface one line in the tab: this browser cannot do passkeys yet,
-open it in your normal browser. `openExternalUrl` already exists for the hand-off. Converts a mystery
-into a known limitation with an escape hatch.
-
-**Rejected alternative, recorded so it is not re-proposed:** Vault12's `electron-webauthn-mac`
-(open-sourced Jan 2026) is a native addon reaching Apple's `AuthenticationServices` directly and
-would work on Electron 38 — but it is a **fourth** ABI-pinned native module in a build that already
-fights three, and it is still macOS-only. Prefer the platform API.
-
----
-
 ## 🔨 In flight — landed, not yet released
 
-Nothing. **v14.34.0 SHIPPED 2026-08-18** — see the release record below.
+**Electron 43 + passkeys + the dependency/security sweep.** Full suite green, and
+**`self-test:packaged` PASSES 9/9 on macOS** — including the new `sqlite` probe reporting
+`better-sqlite3 ok (sqlite 3.53.2, ABI 148)`, which is the Electron 43 native rebuild proving itself
+in the packaged app. **Still owed: a CI-SIGNED build (local packages are ad-hoc signed, so passkeys
+cannot be exercised here at all), and Windows + Linux.**
+
+### Electron 38 → 43 — what was actually true
+
+Landed on **43.4.1** (Chromium 150, Node 24.18.1), not 42. The stated reason for the upgrade was
+passkeys; the stronger one is that **38 and 40 are both EOL** — supported majors are 41/42/43 — so
+we were shipping an unpatched Chromium. 43 also brings a Node startup snapshot for the main process
+and V8 bytecode caching for preloads, for free.
+
+**The old entry here was wrong in three places, and each error inflated the estimate. Corrected:**
+
+- **There are not three ABI-pinned native modules; there is ONE.** `keytar` is not a dependency at
+  all (credentials go through Electron `safeStorage`), and `@lydell/node-pty` is **N-API** —
+  `nm` on the prebuilt `pty.node` shows `Napi::` symbols — so it is ABI-stable and never rebuilds.
+  Only **better-sqlite3** does.
+- **The OS sandbox helpers are NOT an Electron-ABI risk.** Both Rust crates are standalone `[[bin]]`
+  executables; nothing links them to the Node ABI. They still need the Windows machine, for the
+  v14.28.0 reasons, but not for this.
+- **The `postinstall` landmine was already defused.** E42 stopped RUNNING the download from
+  postinstall, but `install.js` still exists and is still the `install-electron` bin in 43.4.1, so
+  `node node_modules/electron/install.js` works untouched. What did go is
+  `ELECTRON_SKIP_BINARY_DOWNLOAD`, which we never used. **Do not touch `postinstall`** — the trailing
+  `\|\| true` is still load-bearing for `patch-package`.
+
+**What actually broke, in order:**
+
+1. **`node-abi@3.77.0` does not know Electron 41, 42 or 43** — `getAbi` throws
+   *"Could not detect abi for version 43.4.1"*, which is what `@electron/rebuild` surfaces. Fixed by
+   refreshing the lockfile entry to **3.94.0**, still inside `@electron/rebuild`'s `^3.45.0` range.
+   No `@electron/rebuild` major needed.
+2. **better-sqlite3 12.4.1 does not COMPILE against V8 15** — 14 errors: `External::New` gained a
+   required `ExternalPointerTypeTag`, `PropertyCallbackInfo<Value>::This()` was removed,
+   `SetNativeDataProperty` became ambiguous. **12.11.1 builds clean** (verified: ABI 148), so the
+   13.x major was avoided and drizzle compatibility never came into it.
+
+**Trap for the next person: rebuilding in place breaks the test suite.** `@electron/rebuild` against
+Electron writes ABI 148 into `node_modules`, and vitest runs under system Node — every DB test then
+fails with a NODE_MODULE_VERSION mismatch. `npm rebuild better-sqlite3` restores the Node build. CI
+never sees this because forge rebuilds the PACKAGED tree, not the repo's own `node_modules`.
+
+**Also: the `@electron/rebuild` CLI is broken on Node 25** (yargs ESM interop). Irrelevant to CI —
+forge calls the rebuild API, not the CLI — but it will waste ten minutes if you reach for
+`npx @electron/rebuild` to debug.
+
+**API breakage across 39→43: none.** No `clearStorageData({quotas})`, `showHiddenFiles`, `toBitmap`,
+`--host-rules`, `createFromNamedImage`, offscreen rendering or `MimeHandlerView` detection. The E40
+renderer-clipboard deprecation does not apply — every `clipboard` import is main-side.
+
+**Two behaviour changes to confirm by hand, not fix:**
+- E43 dialogs now default `defaultPath` to **Downloads** instead of last-used. We set no
+  `defaultPath` anywhere, so this is purely the OS default changing under the clone dialog.
+- E42 moved macOS notifications to `UNNotification`, which **requires code signing to display**.
+  Signed releases are fine; an unsigned `npm start` silently shows none. Do not re-diagnose that as
+  a regression.
+
+### Passkeys — shipped, macOS only
+
+`app.configureWebAuthn({ touchID })` in `main/webauthn.ts`, called as the FIRST thing INSIDE
+`app.whenReady()`, plus the matching `keychain-access-groups` entitlement.
+
+**THE TRAP, and it would have bricked every macOS launch.** Electron's docs say to call
+`configureWebAuthn` "early (before showing notifications)", which reads as "before `whenReady`". Do
+that and the process dies instantly with **SIGTRAP / exit 133** — `EXC_BREAKPOINT` on the main
+thread, **no exception, no log line, nothing a JS `try/catch` can see**, so the app just fails to
+start. "Early" means early WITHIN the ready phase. Proven both ways against a minimal Electron app:
+before-ready exits 133 silently, after-ready returns cleanly. Nothing is lost by waiting — a browser
+tab cannot request a credential until a window exists, which is necessarily after ready.
+
+**THE SECOND TRAP, from the same feature and just as silent: the entitlement cannot go on every
+binary.** `forge.config.ts`'s `optionsForFile` returned ONE entitlements file for every path
+@electron/osx-sign visits, which includes nested helpers — ripgrep's `rg`, node-pty's
+`spawn-helper`. Signing `rg` with a keychain access group it is not provisioned for produces a binary
+that `codesign -v` calls **"valid on disk"** and that **"satisfies its Designated Requirement"**, and
+that the kernel then **SIGKILLs on exec (exit 137)** with no output, no stderr and nothing in the
+system log. `self-test:packaged` reported it as `ripgrep: FAIL`.
+
+Split into two plists: `entitlements.mac.plist` (base + `keychain-access-groups`) for the TOP-LEVEL
+bundle only, `entitlements.plist` (base) for everything else and for the inherit case. The selector
+is `!filePath.includes(".app/")` — osx-sign's own test for the top-level bundle. **`endsWith(".app")`
+would be wrong**, because a helper bundle ends with `.app` too. Signing a bundle applies its
+entitlements to that bundle's main executable, which is the process that calls `configureWebAuthn`,
+so the app gets the group and nothing else does.
+
+**What a LOCAL package can and cannot prove here.** `forge.config.ts`'s `postPackage` hook ad-hoc
+re-signs the whole bundle on non-CI darwin builds (`codesign --force --deep --sign -`), because
+`packageAfterPrune` strips files after packager signs and would otherwise leave an invalid signature.
+So a local build ends up `flags=0x2(adhoc)` with **no entitlements and no hardened runtime on the app
+bundle** — meaning **passkeys cannot work on a local build no matter how correct the code is**, and
+`configureWebAuthn` will report failure there. Do not read that as a bug. What IS verified locally is
+the A/B on the helper: with the group on every file, `rg` was SIGKILLed; with it scoped away, `rg`
+runs and carries only the base entitlements. The main app actually receiving the group is reasoned
+from osx-sign's own top-level test and stays **unverified until a CI-signed build**.
+
+**It was `self-test:packaged` that caught it**, and only because the call sat at module scope where
+the self-test path reaches it. Note the corollary: now that the call lives inside `whenReady`, the
+self-test **no longer exercises it at all** (`--self-test` runs its probes and exits without ever
+reaching ready). So the packaged self-test can never again catch a regression here — that needs a
+real launch, which is what the manual pass below is for. **The old entry's scope claim was wrong:** Electron's
+docs are explicit that Touch ID credentials are **device-bound to the Secure Enclave and are NOT
+synced through iCloud Keychain**. Release notes must say "Touch ID on this Mac", never "passkeys
+sync".
+
+- `select-webauthn-account` is a **Session** event, handled in `browser_view_manager`. One credential
+  is answered directly; several **decline** with `callback(null)` rather than picking an identity for
+  the user, and log it. A chooser is the follow-up if the log says it happens.
+- Windows and Linux get `WEBAUTHN_NOTICE_SCRIPT`, which reports the attempt through the EXISTING
+  `[[ATLARIX_ERR]]` console sentinel — no new IPC event, no reducer branch, no rendering. It does
+  **not** reject the call: nothing can tell whether some future Electron would have satisfied it, and
+  breaking a path that might work to report one that might not is a bad trade.
+- **The bundle id is `com.electron.atlarix`** — @electron/packager's default, because `packagerConfig`
+  never set `appBundleId`, confirmed against a packaged `Info.plist`. It is now baked into a signed
+  entitlement and the keychain group holding users' passkeys. Kept deliberately; see the rename item
+  under "Blocked on the owner".
+
+### Dependency + security sweep
+
+**54 production vulnerabilities → 28. Both criticals gone; 22 highs → 6.** Everything in-range plus
+three deliberate moves; every MAJOR held for the `migration` branch.
+
+- **`xlsx` replaced.** Abandoned on npm at 0.18.5 with unfixable prototype-pollution + ReDoS, and it
+  parses attacker-supplied files. Now `read-excel-file` (.xlsx) + `papaparse` (CSV) — both read-only,
+  both published within the last two weeks, 2.7 MB against 7.5 MB. **The CDN pin was never an
+  option:** `verify-npm-lock-registry.mjs` hard-fails on any `resolved` URL outside registry.npmjs.org.
+  Extraction moved out of `lib/tools/workspace.ts` into `lib/attachment-xlsx-extract.ts` with the
+  other `attachment-*-extract` modules, so it can be tested without importing the tool registry, and
+  the row/column capping both paths had duplicated is now one shared helper.
+  - **Two real behaviour differences, both caught by the new tests, not by review.** papaparse's
+    delimiter auto-detection is **wrong when `skipEmptyLines` is false** — a trailing newline (i.e.
+    almost every CSV) skews the heuristic and a `;`/tab file parses as ONE column, silently, with
+    `success: true`. Detection now runs as its own pass. And `Papa.unparse` **quotes** whitespace
+    cells, so the old text-based `!csv.trim()` emptiness check stopped firing; it is now checked on
+    the matrix. `newline: "\n"` is set because unparse defaults to CRLF and SheetJS emitted LF.
+- **`drizzle-orm` 0.41 → 0.45.2** for the identifier-escaping advisory. Honest scope: our identifiers
+  are static schema names, never user-controlled, so real exposure was low. **`drizzle-kit` stays at
+  0.30.6** — no schema changed here. **Bump it before the next schema change**, or `db:generate` will
+  be running against a mismatched pair.
+- **`oxlint` 1.14 → 1.79** (CI gates on it) found one new error: a type declaration for
+  `wink-bm25-text-search`, a package deleted in the retrieval teardown and imported by nothing.
+  Deleted rather than patched.
+- **Accepted, with reasons rather than a shrug.** `@huggingface/transformers` → `onnxruntime-node` →
+  `adm-zip` → `sharp` has no fix and is the deliberately-pinned voice stack. `shepherd.js` →
+  `deepmerge-ts` (stack exhaustion on recursive merges) needs a major; checked the call site rather
+  than assuming — tour options are static literals in `TourManager.tsx`, so no attacker- or
+  model-controlled object reaches the merge. Both revisit on the `migration` branch.
+- **`patch-package` is down from four patches to two, and now runs CLEAN.** The `tr46` and
+  `whatwg-url` patches only swapped Node's deprecated builtin `punycode` for the userland package;
+  upstream has since done that itself (`tr46@6` requires `punycode/` natively, `whatwg-url@16` does
+  not use it at all). They started FAILING rather than merely being redundant, because the `jsdom`
+  update hoisted the new versions to the top of `node_modules` while the patches targeted 5.0.0 /
+  0.0.3 — which now survive only as dev-only copies nested under forge's `node-fetch@2`, where the
+  sole symptom is a deprecation warning at package time. Deleted rather than re-targeted at the
+  nested path. The forge patch was also regenerated at 7.11.2 (content byte-identical) so its
+  standing filename warning can no longer hide a real patch error — which is exactly how these two
+  went unnoticed.
+- CI `quality` and `headless` jobs were on **Node 20, EOL since April 2026**, while `engines.node` says
+  `>=24`. Raised to 24. Build jobs stay 24/25 as they were — Node 25 still breaks better-sqlite3's
+  `llvm-lib /LTCG:INCREMENTAL` on windows-latest.
+
+### The two-directory memory bug, and the approval card that never rendered
+
+Found while testing the packaged build: a turn hung ten minutes on an `edit_file` and only Stop
+recovered it. Two independent defects, one explaining the other.
+
+**Agent memory had a deadlock that guaranteed the first note went to the wrong place.** The absolute
+store path is published in exactly ONE place — `loadMemoryMdSection` — which began
+`if (!memory) return null`, and `readMemoryIndex` returns null when `notes.length === 0`. Meanwhile
+`skills/guides/memory.md` tells the agent the directory is *"path shown in your context"*. So on a
+workspace with no notes the context said nothing, the skill pointed at nothing, and the agent
+invented `~/.atlarix/projects/<basename>/memory/` — the human-readable guess. Notes landed outside
+the store, which kept the store empty, which kept the section hidden. **Self-perpetuating: the first
+note could never be written correctly**, and every attempt sat outside the sandbox grant so it raised
+an approval prompt too.
+
+Confirmed on this machine — `projects/wisdom-drop/memory/` held three real notes while
+`projects/Users-…-wisdom-drop-1upmb8f/memory/` (created by the app on 2026-08-04) was empty. **Not a
+slug-scheme change:** `git log` shows the hash has been in `workspaceSlug` since `agent-memory.ts`
+was born in v14.23.0, and `memoryDirFor` is the only code that builds those paths — the plain
+directory was made by the agent with a shell `mkdir`.
+
+Fixed at both ends: the empty state now names the absolute directory in one line (short on purpose —
+this renders every turn), and `adoptMisplacedMemoryDir` moves stranded notes into the real store.
+It **moves rather than copies**, which is also what closes the cross-contamination risk: two
+workspaces can share a basename, and once the directory is claimed there is nothing left for a
+second to adopt. Guards: never touch a store that already has notes; never adopt a directory stamped
+for another workspace; **read the destination back and verify the count BEFORE deleting** — a partial
+copy that removed its source would lose notes with no original left. A `.workspace` stamp makes
+ownership a fact rather than an inference from then on.
+
+**The approval card never rendered, and three registries shared the fault.** `permissionHandlers`,
+`commandPermissionBlockedHandlers` and `filePermissionBlockedHandlers` were `Map<number, handler>` —
+ONE slot per chat — while `InlinePermissionApprovals` is rendered **per assistant message**
+(`AssistantMessageBody.tsx:653`). So a chat has as many subscribers as it has messages, and
+`permission-request` has a second, unrelated one in `useStreamChat`. Two failures followed:
+`set()` meant last-registration-wins, and the unsubscribe returned to an OLD registration did
+`delete(chatId)` — removing whichever handler held the slot rather than its own, so an unmounting
+message could leave the chat with **no handler at all**.
+
+The main process was blameless throughout: it buffered, emitted and forwarded to every window. Note
+also that `useStreamChat`'s handler filters `previews.filter(p => p.path)`, and a `sandbox_escalation`
+preview carries `deniedPath`/`grantPath` but **no `path`** — the `path: 'N/A'` in the log — so even
+holding the slot it renders nothing. Converted all three to `Map<number, Set<…>>` with a shared
+`addChatSubscriber`/`notifyChatSubscribers` pair, copying `onTerminalOutput`, which has always had
+the right shape in the same file. **`userQuestionHandlers` and `mcpConsentHandlers` deliberately
+left alone** — one subscriber each, so no collision. **Four dispatch sites, not one:** the in-band
+chat-stream path (`ipc_client.ts:458`) is easy to miss and delivers the same event.
+
+### Two bugs found on the way, both silent-wrong-answer class
+
+- **grep could not search four of our own source files.** A literal NUL byte used as a string
+  separator (`web.ts`, `sessionAtoms.ts`, `useAttachments.ts`, `agentic-loop-repetition.ts`) makes
+  ripgrep treat the file as binary. In a RECURSIVE search — the only kind this tool does — ripgrep
+  **silently skips** such files; the `binary file matches` notice is only printed for files named
+  explicitly on the command line. So grep answered "No matches" for every symbol in all four, and
+  `git diff` showed three of them as `Bin` too, meaning code review could not see them either.
+  Fixed at both ends: the separators are now written `\u0000`, and `grep` passes `--binary` and
+  parses the notice into a flagged result instead of dropping it for having no `:<line>:`. **Do not
+  re-introduce a raw NUL** — there is a comment at each site saying so.
+- **Session messages could render out of order.** `session_messages.created_at` defaults to
+  `unixepoch()` — **whole seconds** — and three queries in `workspace_session_handlers.ts` ordered on
+  it with no tiebreak (or with `asc(id)`, a random UUID). Ties are therefore undefined, which meant a
+  reload could show the assistant's reply ABOVE the question it answered; worse, the two DELETE paths
+  (excess-trim and edit-rewind) sliced on that order, so a tie could delete the wrong message or
+  leave a stale answer under an edited question. All three now tiebreak on SQLite's `rowid`, which is
+  actual insertion order — `id` is deterministic but WRONG, and the new test pins that distinction.
+  Surfaced as `stream-transport-contract.eval` flaking under load while passing in isolation.
+
+**OWED before release:**
+- [ ] **Packaged-app pass on macOS.** `self-test:packaged` must report **9 probes** including the new
+      `sqlite` one. Then LAUNCH the app normally — the self-test never reaches `whenReady`, so it
+      cannot tell you `configureWebAuthn` worked; a window appearing at all is the check that the
+      SIGTRAP is gone. Then a real passkey on a SIGNED build (Touch ID cannot be exercised from
+      `npm start`; read `main.log` for `[webauthn] Touch ID configured` before blaming the site,
+      because a failure here looks identical to the old bug).
+- [ ] **Windows + Linux** — the same self-test, plus the passkey NOTICE appearing instead of a hang.
+      Batch with everything else already waiting on that machine.
+- [ ] Confirm `[prompt-cache]` still shows large `read=` on later turns.
 
 ---
 
-### v14.34.0 — what shipped and the traps it left
+### Previous release — v14.34.0, and the traps it left
 
 **Command-output truncation was discarding 99% of its own budget.** `formatCommandOutput`'s
 over-cap path emitted errors → warnings → FIRST 5 LINES → LAST 5 LINES: a **fixed ~13 lines / ~550
@@ -248,10 +437,12 @@ the release AND an asset id; `headless-bench` serves 14.33.0 again).
 
 The one place several things can only be confirmed. Grouped so a single session clears them all.
 
-**Batch the Electron 38 → 43 upgrade into this session** (see NEXT SESSION at the top). It rebuilds
-three ABI-pinned native modules and revalidates all three sandbox helpers, so it needs exactly the
-Windows verification everything below already needs — doing them separately means booting that
-machine twice.
+**The Electron 43 release is now the reason to book this session** (see In flight, top). Its
+Windows-side asks are: `self-test:packaged` reporting **9 probes** including the new `sqlite` one
+(the only genuinely ABI-pinned module, and the one nothing used to cover), and a passkey site
+showing the NOTICE instead of hanging. Note the correction — the upgrade does **not** revalidate the
+sandbox helpers, which are standalone Rust binaries with no Node ABI coupling; those need this
+machine for the v14.28.0 reasons listed below, which is still the same trip.
 
 ### v14.31.0 — the notification crash (LINUX, not Windows)
 - [ ] `SIGSEGV` in `electron::NotificationPresenter::RemoveNotification` — a Sentry report from
@@ -342,6 +533,39 @@ queue, not a design doc.
 - **Chore-model routing stays OPT-IN.** `lib/summarization_model.ts` already offers
   `"same"` (default) or `"custom"`, and titles + compaction both route through it. Defaulting Core
   users to Core 1 would silently change what they are paying for; left as the user's explicit choice.
+
+### Owner-requested 2026-08-19 — NOT in the Electron 43 release
+
+Three additions, recorded when raised so they are not lost. None is started.
+
+- **`automations` create must hand back the id, like a background task does.** Today
+  `operation:"create"` returns a `__permission_required` envelope, and the id is generated *after*
+  approval inside `executeAutomationWrite` (`ipc/handlers/permissions/interceptor.ts:1339`), which
+  returns `Promise<void>` and only **logs** it. So the model that just created an automation has no
+  `automation_id` — and the tool's own description tells it to `operation:"run"` the automation
+  right after creating it, which it therefore cannot do without a `list` + match-by-name. Name is
+  not a key: two automations may share one. The fix is to thread the created id back out of
+  `executeAutomationWrite` into the tool result, the same way a background command returns its
+  handle. **The permission envelope is the obstacle** — the tool returns before the write happens,
+  so this needs the post-approval result to reach the model, not just a changed return type.
+- **Address a plan by id OR title.** `plan()` resolves `args.planId`, else falls back to
+  `getLatestPlanArtifact` (`lib/tools/plan.ts:85-100`). `title` has been a stored column since
+  v14.34.0 but is not an addressing key, so a session with several plans can only be navigated by
+  opaque id or by "the newest one". Let `plan({ title })` resolve too. **Decide the ambiguity rule
+  first:** titles are not unique, so two plans with one title must fail loudly with both ids rather
+  than silently picking the newer — that failure mode is what `update_step` already guards against
+  by refusing to tick the wrong step. Pairs with the plan switcher above, which has the same
+  "which plan is this?" problem in the panel.
+- **Ban system — a banned user cannot use the app again.** Server-side enforcement in Supabase (or
+  wherever the account record lives) so a ban survives reinstalling, and the client refuses to
+  proceed rather than merely hiding UI. **Open questions that decide the shape, none answered yet:**
+  what a ban blocks (Core/proxy spend only, or the whole app including BYOK and local models —
+  the app runs offline by design, so a purely client-side check is bypassable); whether it is
+  enforced at the proxy, at sign-in, or both; what the banned user is told; whether it is
+  reversible and by whom; and how it interacts with an already-signed-in session holding a valid
+  JWT — a ban that only takes effect at the next sign-in is not a ban. Closest existing surface is
+  the Supabase auth + proxy metering path (`atlarix-proxy`), and the standing note that Postgres
+  `CREATE FUNCTION` grants `EXECUTE` to `PUBLIC` applies to any RPC added for this.
 
 ---
 
@@ -437,9 +661,10 @@ Meanwhile **every WRITE succeeds**: `create-draft` (POST /releases), `gh release
 `upload_url` create-draft *returns*, so they never look anything up. That asymmetry is the whole
 diagnosis.
 
-- [ ] **Grant `RELEASES_TOKEN` `Contents: Read and write` on `AmariahAK/atlarix-releases`** (a
-      fine-grained PAT with write but not read produces exactly this). Then re-run *Atlarix
-      Headless* so `headless-bench` carries the current version.
+- [x] **Grant `RELEASES_TOKEN` `Contents: Read and write` on `AmariahAK/atlarix-releases`** — done;
+      the v14.34.0 release record has the read confirmed working (headless resolved the release AND
+      an asset id, and `headless-bench` serves the current version again). Closed 2026-08-19; it had
+      been left unticked under a heading already marked RESOLVED.
 - My first theory — the unpinned `softprops@v2` floating to v2.6.2 — was **wrong**, and testing it
   is what surfaced the real cause. Two changes from it were worth keeping anyway:
   `headless.yml` now uses plain `gh` (no ref-resolution magic, and it fails with a message naming
@@ -475,6 +700,40 @@ gh api "repos/AmariahAK/Atlarix/actions/artifacts?per_page=100" \
 - Rule of thumb: an artifact nothing DOWNLOADS is a convenience copy, and its retention should be
   days, not weeks. `landlock-helper` is the counter-example — it IS consumed, and is already 1 day.
 
+## 🌐 Core web search is DEAD, measured — the case for the browser tier
+
+**Measured 2026-08-19, not estimated.** `native_web_search.ts` calls Core's search "a deliberate
+quality trade". It is not a trade any more; the client chain returns **nothing**:
+
+| Tier | Result |
+| --- | --- |
+| DDG Instant Answer API (the "always works" floor) | **0 results** for both dev queries tried — it is an instant-ANSWER API (Wikipedia abstracts), never a web search |
+| `search.disroot.org`, `searx.tiekoetter.com`, `priv.au`, `search.sapti.me` | **HTTP 429** |
+| `searx.be` | HTTP 200 carrying a **"Verifying your browser…"** JS challenge → parses to 0 results |
+
+So any Core user without Docker + self-hosted SearxNG gets an empty `web_search`. **Fix that comment
+when the tier lands** — it currently tells the next reader the opposite of what is true.
+
+**Why the in-app browser is the answer, and not a paid search API.** Every failure above is a
+"is this a real browser?" check, and we ship a real Chromium with a persistent profile. Plain-fetch
+scraping does not rescue it — DDG returns HTTP 202 + an anomaly page on both `html.` and `lite.`
+endpoints. **Brave** served a full 208 KB results page with 54 organic anchors to a plain `curl`,
+has an independent ~30B-page index, and has an official API ($5/1,000 requests, $5/month free
+credits) — so if scraping ever becomes untenable there is a sanctioned path to the SAME results.
+That escape hatch is the reason to prefer Brave over DDG, which has no search API at all.
+
+**Shape, decided with the owner 2026-08-19:** scope by TIER, not by provider —
+`provider-native → browser → SearxNG → DDG`. Core lands on the browser tier because it has nothing
+native, and so does every BYOK provider without native search (Ollama, LM Studio, Groq, …) for the
+same reason and with no provider check, which is what `reservedNativeToolNames` already does. A
+hidden `BrowserWindow({show:false})`, results read from the **a11y tree** rather than CSS classes
+(markup churns; the a11y tree does not — `lib/browser/a11y-snapshot.ts` already exists). The same
+backend fixes `read_url`, which is plain fetch + regex HTML-stripping today and therefore returns
+junk for every JS-rendered page. Headless stubs Electron, so the existing chain stays as its
+fallback. Its own release, AFTER the `migration` branch.
+
+---
+
 ## 🔜 Blocked on the owner — NOT active work
 
 - **Windows code-signing / cert** — C6 auto-update signing + native-sandbox CI (release-infra, no
@@ -483,7 +742,24 @@ gh api "repos/AmariahAK/Atlarix/actions/artifacts?per_page=100" \
 - **Billing A/B:** confirm OpenRouter `usage.cost` includes the ~$0.005 search fee so the wallet
   debit = `ceil(cost × 1.4)`; else add a proxy surcharge in `atlarix-proxy/src/server.ts`.
 - **DB shutdown-race stress-verification** on a packaged build (guard committed, not stress-tested).
-- **Dependency deprecation triage** — its own release; roadmap, not queue. See below.
+- **Dependency deprecation triage** — now scheduled as the **`migration` branch**, cut from
+  post-release `main`, NOT run in parallel: Electron 43 and the spec-line majors both rewrite
+  `package-lock.json`, and a lockfile conflict is not hand-mergeable — you regenerate, which
+  re-resolves everything and invalidates the verification on both sides. Four independently
+  revertable commits so a bad one costs that commit, not the branch: (1) `ai@6→7` + the 11 provider
+  packages (v3→v4 spec) **with zod 3→4 as one unit** — tool schemas are the coupling; (2) `vite` 5→8
+  + `@vitejs/plugin-react` 6; (3) `vitest` 3→4 + happy-dom 20; (4) TypeScript 5.9→7, the likeliest to
+  drop since its payoff is compile speed, not capability. Also pick up `shepherd.js` 14→15 there.
+- **Rename the macOS bundle identifier — its own release, and NOT a rider.** It ships as
+  `com.electron.atlarix`, @electron/packager's default (`packagerConfig` never set `appBundleId`),
+  and passkeys have now baked it into a signed `keychain-access-groups` entitlement. **The risk is
+  why it is separate:** macOS ties `safeStorage`'s keychain ACL to the app's designated requirement,
+  which includes the bundle id — so a rename can leave every user's stored provider keys and Supabase
+  session undecryptable, which is exactly the failure v14.27.0 was about. It also resets TCC
+  folder-access grants and orphans the Launch Services `atlarix://` registration. What is NOT at risk:
+  `~/Library/Application Support/Atlarix` is keyed on the app NAME, so chats and workspaces survive.
+  Needs a safeStorage re-encryption migration and an upgrade-in-place test on a signed build. Cost of
+  waiting is one round of passkey re-registration for early adopters.
 
 ---
 
@@ -528,6 +804,13 @@ v14.28.0), and the **system-scope approval gate** (which also closed M1). **Defe
 
 ## 📋 Carried / small
 
+- **Five direct dependencies that nothing imports** (knip, report-only): `axios`, `bluebird`,
+  `ignore`, `@mixmark-io/domino`, `@types/node-cron`. Pre-existing, and **not simply removable** —
+  `axios` is the clearest case: no source file imports it, but our direct range is what dragged
+  `posthog-node`'s copy up to the patched 1.19.0, so deleting the entry would hand version choice
+  back to posthog-node and could resolve BELOW the SSRF fix. Assess all five together on the
+  `migration` branch, with that floor effect checked per package, rather than pruning one at a time.
+
 - **CLOSED — fork sub-agents. The arithmetic does not work; do not re-propose.** A cache read is
   ~0.1× base input, but the inherited prefix is re-sent on **every step** of the worker's loop, not
   just the first — so an 8-step fork pays ~8× the discount it was supposed to save, for context it
@@ -558,12 +841,14 @@ v14.28.0), and the **system-scope approval gate** (which also closed M1). **Defe
 - `.gitignore`-render profiler (v14.8.10 §3.4); Atlarix GitHub account for contributor credit
   (owner action, code done); user-message multimodal parts for HISTORICAL turns (current/edited
   turns embed since v14.8.11; history round-trips via `read_attachment`).
-- **Dependency deprecation triage (own session).** Scoped, not a blanket zero-warnings chase.
-  Constraints: the AI SDK stack must stay on MATCHING majors — currently **`ai@6` + v3-spec
-  providers** (`@ai-sdk/anthropic@3.x`, openai 3.x, openai-compatible 2.x) since v13.3. Also zod
-  mid-v4; **4** patch-package patches (the newest un-poisons transformers.js's session chain);
-  ABI-pinned better-sqlite3/node-pty/keytar. Worklist = `npm outdated` (direct) + `npm audit` + own
-  deprecated-API usage + CI action EOLs; leave pinned/transitive with a note.
+- **Dependency deprecation triage — SUPERSEDED**, half done and half rescheduled. The in-range sweep
+  and the security work landed in v14.35.0 (54 → 28 advisories); the spec-line majors are now the
+  **`migration` branch** described under "Blocked on the owner". Constraints that still hold: the AI
+  SDK stack must stay on MATCHING majors — currently **`ai@6` + v3-spec providers**
+  (`@ai-sdk/anthropic@3.x`, openai 3.x, openai-compatible 2.x) since v13.3 — and zod moves WITH them.
+  Corrected from the old text: there are **2** patch-package patches, not 4 (see the release record),
+  and the only ABI-pinned native module is **better-sqlite3** — `node-pty` is N-API and `keytar` is
+  not a dependency at all.
 
 ---
 

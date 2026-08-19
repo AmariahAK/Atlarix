@@ -1,7 +1,14 @@
 import type { ToolExpandView } from "@/lib/chat/tool-expand-view";
 import { ToolFileRow } from "./ToolFileRow";
 
-function matchLabel(n: number, symbol?: { name: string }): string {
+function matchLabel(
+  n: number,
+  symbol?: { name: string },
+  binary?: boolean,
+): string {
+  // ripgrep found the pattern but will not print lines from a file holding a
+  // NUL byte. Say that, rather than a match count for matches nobody can see.
+  if (binary) return "-- binary · matched";
   const matches = `${n} match${n === 1 ? "" : "es"}`;
   return symbol ? `${symbol.name} · ${matches}` : `-- ${matches}`;
 }
@@ -23,7 +30,7 @@ export function ToolMatchListExpand({
             key={f.path}
             fileName={f.fileName}
             directory={f.directory}
-            trailing={matchLabel(f.matchCount, f.enclosingSymbol)}
+            trailing={matchLabel(f.matchCount, f.enclosingSymbol, f.binary)}
           />
         ))}
       </div>

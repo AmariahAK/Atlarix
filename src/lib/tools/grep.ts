@@ -30,7 +30,19 @@ type GrepGroup = {
   matches: { line: number; content: string }[];
   /** Workspace-relative path (set for display). */
   relFile?: string;
+  /**
+   * The pattern matched, but the file holds a NUL byte so ripgrep will not print
+   * the lines. Reported rather than dropped — see `--binary` in `buildArgs`.
+   */
+  binary?: boolean;
 };
+
+/**
+ * ripgrep's binary-file notice: `<path>: binary file matches (found "\0" byte …)`.
+ * A path, a COLON-SPACE, and no line number — which is why the match regex below
+ * (which requires `:<digits>:`) can never claim it.
+ */
+const BINARY_MATCH_RE = /^((?:[A-Za-z]:)?[^:]*): binary file matches\b/;
 
 /** Exported for tests: Windows output shapes are unreachable from a POSIX runner. */
 export function parseGrepOutput(output: string): GrepGroup[] {
@@ -40,6 +52,22 @@ export function parseGrepOutput(output: string): GrepGroup[] {
 
   for (const line of lines) {
     if (!line.includes(":")) continue;
+
+    // A file whose matches cannot be shown is still a file that MATCHED. Left
+    // unparsed this line was dropped by the `if (!m) continue` below for having
+    // no `:<line>:`, so grep answered "No matches" for a file it had just been
+    // told about — the same silent wrong answer the drive-letter comment guards
+    // against. Four files in this repo were invisible to grep this way.
+    const bin = BINARY_MATCH_RE.exec(line);
+    if (bin?.[1]) {
+      if (current) {
+        groups.push(current);
+        current = null;
+      }
+      groups.push({ file: bin[1], matches: [], binary: true });
+      continue;
+    }
+
     // A Windows drive letter carries its own colon, so a plain `split(":")` tore
     // `C:\repo\pkg\loader.go:3:text` into file="C", lineNum="\repo\pkg\loader.go"
     // — `parseInt` returned NaN and the match was DISCARDED. Since ripgrep is
@@ -85,6 +113,15 @@ async function runRipgrepSearch(args: {
   // is treated as a pattern, not a flag.
   const buildArgs = (extra: string[]) => [
     "-n",
+    // Without this, a RECURSIVE search skips any file containing a NUL byte and
+    // says nothing at all — the notice below is only printed for files named
+    // explicitly on the command line, which is not how this tool searches. So a
+    // source file with one stray NUL (a separator written as a literal instead
+    // of the escape `\u0000` — there were four in this repo) was unsearchable,
+    // and grep reported it as having no matches. `--binary` reports instead of
+    // skipping; it does NOT dump binary content, just one `binary file matches`
+    // line per file.
+    "--binary",
     "-C",
     String(contextLines),
     ...(caseSensitive ? [] : ["-i"]),
@@ -147,9 +184,24 @@ function formatGrepGroupsForDisplay(
   const maxBytes = Math.min(500_000, Math.max(1024, opts?.maxBytes ?? 24_000));
   if (groups.length === 0) return `No matches for "${query}".`;
   const total = groups.reduce((s, g) => s + g.matches.length, 0);
-  let out = `${total} match(es) for "${query}" across ${groups.length} file(s):\n\n`;
+  // Binary files are counted separately: they matched, but contributed no lines,
+  // so folding them into `total` would claim matches that are not shown below.
+  const binaryCount = groups.filter((g) => g.binary).length;
+  const shownFiles = groups.length - binaryCount;
+  let out = `${total} match(es) for "${query}" across ${shownFiles} file(s)`;
+  out += binaryCount
+    ? `, plus ${binaryCount} binary file(s) that matched:\n\n`
+    : `:\n\n`;
   for (const g of groups) {
     out += `${g.relFile ?? g.file}\n`;
+    if (g.binary) {
+      // Says what happened AND what to do about it — a dead end the model cannot
+      // act on is barely better than the silent skip this replaced.
+      out +=
+        `  matched, but this file contains a NUL byte so ripgrep will not print` +
+        ` its lines. Read the file directly to see the match.\n\n`;
+      continue;
+    }
     for (const m of g.matches.slice(0, perFile)) {
       out += `  ${m.line}: ${m.content}\n`;
     }
@@ -253,6 +305,18 @@ ToolRegistry.register({
       let kept = 0;
       const trimmed: GrepGroup[] = [];
       for (const g of groups) {
+        // A binary group carries no lines, so it neither spends the budget nor
+        // may be cut off by it — dropping it here would restore the silent skip
+        // that `--binary` was added to end.
+        if (g.binary) {
+          trimmed.push({
+            file: g.file,
+            matches: [],
+            binary: true,
+            relFile: path.relative(searchRoot, g.file).replace(/\\/g, "/"),
+          });
+          continue;
+        }
         if (kept >= maxResults) break;
         const slice = g.matches.slice(0, Math.max(0, maxResults - kept));
         trimmed.push({
@@ -281,6 +345,7 @@ ToolRegistry.register({
           groups: trimmed.map((g) => ({
             file: g.file,
             matchCount: g.matches.length,
+            ...(g.binary ? { binary: true } : {}),
           })),
         },
       };

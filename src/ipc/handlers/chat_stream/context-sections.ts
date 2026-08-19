@@ -305,6 +305,8 @@ export async function loadMemoryMdSection(
       isAgentMemoryDisabled,
       readMemoryIndex,
       migrateLegacyMemoryMd,
+      adoptMisplacedMemoryDir,
+      memoryDirFor,
       memoryIndexPathFor,
       listMemoryNoteSizes,
       planMemoryCompaction,
@@ -317,9 +319,37 @@ export async function loadMemoryMdSection(
       const { readMemoryMd } = await import("@/lib/project-memory");
       const legacy = await readMemoryMd(appPath);
       if (legacy) await migrateLegacyMemoryMd(appPath, legacy);
+      // Reclaim notes an earlier agent wrote to a guessed, human-readable path (see
+      // the empty-state note below for how that happened). Also idempotent.
+      await adoptMisplacedMemoryDir(appPath);
       return readMemoryIndex(appPath);
     });
-    if (!memory) return null;
+
+    // No notes yet — still NAME THE DIRECTORY.
+    //
+    // Returning null here is what created the two-directory bug. This section is the
+    // only place the absolute memory path is published, and `guides/memory` tells the
+    // agent the path is "shown in your context" — so on a workspace with no notes the
+    // context said nothing, the skill pointed at nothing, and the agent invented a
+    // path (`~/.atlarix/projects/<basename>/memory/`, the obvious human-readable
+    // guess). Its notes landed outside the store, which kept the store empty, which
+    // kept this section hidden: the FIRST note could never be written to the right
+    // place. Worse, every such write is outside the sandbox grant, so it raised an
+    // approval prompt on every single note.
+    //
+    // One line, and only until a note exists — the populated branch below takes over
+    // from then on. Deliberately short: this renders on every turn, and a paragraph
+    // here is a paragraph on every request (the v14.25.0 payload-instead-of-index
+    // mistake).
+    if (!memory) {
+      return {
+        name: "projectKnowledge",
+        priority: 3.9,
+        content:
+          `## Project memory — no notes yet, store at ${memoryDirFor(appPath)}` +
+          `\nOptional: if you learn something durable that the code does NOT already record, you may add a note — one fact per file, plus one line in MEMORY.md, in that exact directory and nowhere else (create it if absent). Never interrupt the user's task to do it. The convention is the \`guides/memory\` entry under "Skills available".`,
+      };
+    }
 
     // Memory compacts, it is never capped — so the signal has to reach the agent on a
     // turn where it happens to be writing a note AND on one where it isn't. The

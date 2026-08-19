@@ -38,6 +38,8 @@ import {
   NETWORK_HOOK_SCRIPT,
   tryParseNetworkSentinel,
 } from "@/lib/browser/network-hook";
+import { WEBAUTHN_NOTICE_SCRIPT } from "@/lib/browser/webauthn-notice";
+import { isWebAuthnAvailable } from "@/main/webauthn";
 import {
   beginNavigationEpoch,
   clearNavigationEpoch,
@@ -241,6 +243,28 @@ function browserSession(): Session {
     ses.on("will-download", (event, item) => {
       logger.warn(`[browser] download blocked: ${item.getURL()}`);
       event.preventDefault();
+    });
+    // Passkeys: the site offered more than one discoverable credential and macOS
+    // is asking which to use. NOT reachable through the permission handler above —
+    // WebAuthn is not an Electron permission type, which is why a passkey request
+    // used to hang with nothing to deny or allow.
+    //
+    // One credential is answered directly; more than one needs the USER, and there
+    // is no chooser UI yet, so the callback is invoked with `null` to decline
+    // rather than silently picking an identity on their behalf. Declining is
+    // recoverable (the site offers another method); signing in as the wrong
+    // account is not. The log line is what makes the case visible if it turns out
+    // to be common enough to deserve a picker.
+    ses.on("select-webauthn-account", (_event, details, callback) => {
+      const accounts = details.accounts ?? [];
+      if (accounts.length === 1) {
+        callback(accounts[0]!.credentialId);
+        return;
+      }
+      logger.warn(
+        `[browser] passkey: ${accounts.length} credentials for ${details.relyingPartyId} — declined (no chooser UI yet)`,
+      );
+      callback(null);
     });
     // ── webRequest: two jobs, deliberately kept apart ──────────────────────
     //
@@ -493,6 +517,19 @@ function injectNetworkHookIfDegraded(id: number, wc: Electron.WebContents): void
   void wc.executeJavaScript(NETWORK_HOOK_SCRIPT, true).catch(() => {});
 }
 
+/**
+ * Report passkey attempts on platforms where they cannot succeed.
+ *
+ * Injected only where `configureWebAuthn` did NOT take (Windows, Linux, or an
+ * Electron older than 42) — where it did, passkeys work and a notice would be a
+ * lie. Checked per injection rather than cached at module load so a failed
+ * configure at boot is reflected here.
+ */
+function injectWebAuthnNoticeIfUnsupported(wc: Electron.WebContents): void {
+  if (isWebAuthnAvailable()) return;
+  void wc.executeJavaScript(WEBAUTHN_NOTICE_SCRIPT, true).catch(() => {});
+}
+
 function wireTabEvents(
   scope: BrowserScope,
   id: number,
@@ -583,6 +620,7 @@ function wireTabEvents(
   wc.on("did-finish-load", () => {
     void wc.executeJavaScript(ERROR_HOOK_SCRIPT, true).catch(() => {});
     void wc.executeJavaScript(CLS_OBSERVER_SCRIPT, true).catch(() => {});
+    injectWebAuthnNoticeIfUnsupported(wc);
     injectNetworkHookIfDegraded(id, wc);
   });
   // `dom-ready` is the earliest injection point available without a preload,
@@ -591,6 +629,12 @@ function wireTabEvents(
   // it injects at document-start. Injecting at both events is idempotent (the
   // script guards on a window flag) and only widens the window slightly.
   wc.on("dom-ready", () => {
+    // Earliest reachable point without a preload, which matters more here than
+    // for the network hook: the shim must be in place BEFORE the page's own
+    // script calls navigator.credentials, or the attempt goes unreported. Also
+    // injected on did-finish-load so a slow/failed dom-ready still gets it; the
+    // script guards on a window flag, so twice is free.
+    injectWebAuthnNoticeIfUnsupported(wc);
     injectNetworkHookIfDegraded(id, wc);
   });
   // Popups: deny new windows; navigate the same tab instead.

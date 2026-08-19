@@ -191,6 +191,108 @@ export async function migrateLegacyMemoryMd(
   }
 }
 
+/**
+ * Records which workspace owns a project directory, so ownership stops being an
+ * inference. Written on adoption; checked before adopting anything.
+ */
+const WORKSPACE_STAMP_FILE = ".workspace";
+
+/**
+ * Reclaim notes an agent wrote to a GUESSED memory directory.
+ *
+ * The store is keyed by `workspaceSlug()`, which appends a hash. But until the fix in
+ * `context-sections.ts`, the absolute path was published to the agent only once notes
+ * already existed — so on a fresh workspace the agent had nothing to go on and wrote
+ * to the obvious human-readable guess, `~/.atlarix/projects/<basename>/memory/`. Those
+ * notes were then invisible to `readMemoryIndex`, which kept the real store empty,
+ * which kept the path unpublished. This adopts them.
+ *
+ * Unlike `migrateLegacyMemoryMd`, which copies and leaves the original alone, this
+ * MOVES: the source is Atlarix's own guessed directory, not a file in the user's repo,
+ * and leaving a second store behind is what caused the confusion. Removing it also
+ * closes the only cross-contamination risk — two workspaces can share a basename
+ * (`/a/api`, `/b/api`), and once the directory is claimed there is nothing left for a
+ * second one to adopt. The exposure reduces to "the first claimer might be the wrong
+ * project", bounded by notes being advisory background, never authoritative.
+ *
+ * Deletion happens ONLY after the copy is read back and verified. Idempotent, and safe
+ * to call on every turn.
+ */
+export async function adoptMisplacedMemoryDir(
+  workspacePath: string,
+): Promise<boolean> {
+  try {
+    const target = memoryDirFor(workspacePath);
+    // Guard 1: never touch a store that already holds notes.
+    if ((await listNoteFiles(target)).length > 0) return false;
+
+    const candidateRoot = path.join(
+      globalAtlarixRoot(),
+      "projects",
+      path.basename(path.resolve(workspacePath)),
+    );
+    const candidate = path.join(candidateRoot, "memory");
+    // Guard 2: a workspace whose basename already yields the real slug has no
+    // separate candidate — comparing resolved paths avoids adopting from itself.
+    if (path.resolve(candidate) === path.resolve(target)) return false;
+
+    // Guard 3: something to adopt.
+    const notes = await listNoteFiles(candidate);
+    if (notes.length === 0) return false;
+
+    // Guard 4: don't steal a directory another workspace has already claimed.
+    try {
+      const stamp = (
+        await fs.readFile(path.join(candidateRoot, WORKSPACE_STAMP_FILE), "utf8")
+      ).trim();
+      if (stamp && stamp !== path.resolve(workspacePath)) {
+        logger.warn(
+          `[agent-memory] not adopting ${candidate} — stamped for a different workspace (${stamp})`,
+        );
+        return false;
+      }
+    } catch {
+      /* unstamped: legacy directory, fair to claim */
+    }
+
+    await fs.mkdir(target, { recursive: true });
+    const copy = [...notes, MEMORY_INDEX_FILE];
+    for (const name of copy) {
+      try {
+        await fs.copyFile(path.join(candidate, name), path.join(target, name));
+      } catch {
+        // MEMORY.md may legitimately be absent; a missing NOTE is a real failure and
+        // is caught by the read-back below rather than trusted here.
+      }
+    }
+
+    // VERIFY BEFORE DELETING. A partial copy that then removed the source would lose
+    // notes with no original to recover from.
+    const landed = await listNoteFiles(target);
+    if (landed.length !== notes.length) {
+      logger.warn(
+        `[agent-memory] adoption incomplete (${landed.length}/${notes.length}) — leaving ${candidate} in place`,
+      );
+      return false;
+    }
+
+    await fs.writeFile(
+      path.join(path.dirname(target), WORKSPACE_STAMP_FILE),
+      `${path.resolve(workspacePath)}\n`,
+      "utf8",
+    );
+    await fs.rm(candidateRoot, { recursive: true, force: true });
+    logger.info(
+      `[agent-memory] adopted ${notes.length} note(s): ${candidate} → ${target} (source removed)`,
+    );
+    return true;
+  } catch (e) {
+    // Memory is optional; never block a turn on it.
+    logger.warn("[agent-memory] adoption failed (non-fatal):", e);
+    return false;
+  }
+}
+
 /** Append one line to the index, creating it if absent. No-op when already present. */
 export async function appendIndexLine(
   workspacePath: string,

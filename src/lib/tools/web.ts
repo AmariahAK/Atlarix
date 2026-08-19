@@ -325,9 +325,17 @@ const READ_URL_CACHE_TTL = 15 * 60 * 1000;
  */
 const READ_URL_CACHE_MAX_CHARS = 4_000_000;
 
-/** `maxLength` is part of the key — it changes what the caller gets back. */
+/**
+ * `maxLength` is part of the key — it changes what the caller gets back.
+ *
+ * The separator MUST stay written as the escape `\u0000`, never pasted in as a
+ * literal NUL byte: ripgrep classifies any file containing one as BINARY and
+ * prints "binary file matches" instead of match lines, which `parseGrepOutput`
+ * (grep.ts) drops for having no `:<line>:` — so the agent's own grep silently
+ * reported "no matches" for every symbol in this file.
+ */
 function readUrlCacheKey(url: string, maxLength: number): string {
-    return `${url.trim()} ${maxLength}`;
+    return `${url.trim()}\u0000${maxLength}`;
 }
 
 function getReadUrlCached(cacheKey: string): ReadUrlFetched | null {

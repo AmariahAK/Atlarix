@@ -37,9 +37,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Node 20 is EOL; `engines.node` is ">=24". Matches the quality job.
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
 
       # Headless bundle is pure-JS esbuild; native deps are packed inside Docker

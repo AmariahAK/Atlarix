@@ -207,6 +207,12 @@ export type ToolExpandMatchEntry = {
   matchCount: number;
   /** Enclosing function/class of the file's top match (grep symbol annotation). */
   enclosingSymbol?: { name: string; kind: string };
+  /**
+   * ripgrep matched but would not print the lines (the file holds a NUL byte).
+   * The row must say so rather than borrow the `matchCount: n || 1` fallback,
+   * which would show "1 match" for a match nobody can see.
+   */
+  binary?: boolean;
 };
 
 export type ToolExpandView =
@@ -444,7 +450,10 @@ function buildMatchListFromGroups(
           : "";
     if (!filePath) continue;
     const n = matchCountFromGroup(go);
-    totalMatches += n;
+    const binary = go.binary === true;
+    // A binary group reports no lines, so counting it would inflate the header
+    // with matches the list cannot show.
+    if (!binary) totalMatches += n;
     const { fileName, directory } = splitPathForDisplay(filePath);
     const sym = go.enclosingSymbol;
     const enclosingSymbol =
@@ -458,8 +467,9 @@ function buildMatchListFromGroups(
       path: filePath,
       fileName,
       directory,
-      matchCount: n || 1,
+      matchCount: binary ? 0 : n || 1,
       ...(enclosingSymbol ? { enclosingSymbol } : {}),
+      ...(binary ? { binary: true } : {}),
     });
   }
 

@@ -150,7 +150,14 @@ export async function persistEditedSessionMessageById(
     .select({ id: sessionMessages.id })
     .from(sessionMessages)
     .where(eq(sessionMessages.sessionId, target.sessionId))
-    .orderBy(asc(sessionMessages.createdAt), asc(sessionMessages.id));
+    // `created_at` defaults to `unixepoch()` — WHOLE SECONDS — so any two rows
+    // written in the same second tie, and a tie here decides which rows get
+    // DELETED by the rewind below. The old tiebreak was `asc(id)`, and `id` is a
+    // random UUID: deterministic, but unrelated to insertion order, so an
+    // assistant reply written in the same second as the message being edited
+    // could sort BEFORE it and survive the rewind — a stale answer left under an
+    // edited question. SQLite's `rowid` is the actual insertion order.
+    .orderBy(asc(sessionMessages.createdAt), sql`rowid asc`);
   const targetPos = allRows.findIndex((r) => r.id === sessionRowId);
   const deleteIds = allRows.slice(targetPos + 1).map((r) => r.id);
 
@@ -176,7 +183,10 @@ async function trimSessionMessagesIfNeeded(sessionId: string): Promise<void> {
     .select({ id: sessionMessages.id })
     .from(sessionMessages)
     .where(eq(sessionMessages.sessionId, sessionId))
-    .orderBy(asc(sessionMessages.createdAt));
+    // Same second-granularity tie as above, and here the order picks which rows
+    // are DELETED as excess — an undefined tie can drop a newer message and keep
+    // an older one. `rowid` is insertion order.
+    .orderBy(asc(sessionMessages.createdAt), sql`rowid asc`);
 
   if (rows.length > SESSION_STORE_MESSAGE_MAX) {
     const excess = rows.length - SESSION_STORE_MESSAGE_MAX;
@@ -740,7 +750,14 @@ export function registerWorkspaceSessionHandlers(): void {
             .select()
             .from(sessionMessages)
             .where(eq(sessionMessages.sessionId, sessionId))
-            .orderBy(desc(sessionMessages.createdAt))
+            // DESC + `.limit()` takes the NEWEST `limit` rows, then the caller
+            // reverses. Without a tiebreak the newest-N cut AND the final display
+            // order are both undefined among rows sharing a second (`created_at`
+            // is `unixepoch()`, whole seconds) — which is how a session could
+            // reload showing the assistant's reply ABOVE the question it answers.
+            // Caught by `stream-transport-contract.eval` flaking under load;
+            // `rowid` is SQLite's insertion order, so it breaks the tie correctly.
+            .orderBy(desc(sessionMessages.createdAt), sql`rowid desc`)
             .limit(limit),
         {
           sink: (line) => logger.info(line),

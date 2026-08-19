@@ -3,6 +3,56 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
+## [14.35.0] (2026-08-19) — passkeys on your Mac, a browser five versions newer, and a much smaller attack surface
+
+**Passkeys work in Atlarix's browser on macOS.** Signing in to a site with Touch ID used to do
+nothing at all — the page would ask, and Atlarix's browser would sit there, which looked like the
+browser was broken rather than like a feature that was missing. It now uses Touch ID properly. To be
+precise about what that means: these passkeys live in this Mac's Secure Enclave and are not synced
+through iCloud Keychain, and Windows and Linux have no equivalent yet. On those, a passkey prompt now
+tells you it cannot work here and to open the page in your normal browser, instead of hanging with no
+explanation. If a site offers several saved accounts, Atlarix declines rather than guessing which one
+you meant.
+
+**The browser underneath is five major versions newer.** Atlarix was running a Chromium that stopped
+receiving security fixes some time ago. It now runs the current one, which also starts faster — the
+app boots from a prebuilt snapshot and caches its startup scripts as compiled bytecode.
+
+**Fewer ways to be attacked through a file you were sent.** Production security advisories went from
+54 to 28, and the two most severe are gone. The spreadsheet reader was the notable one: the library
+Atlarix used to open `.xlsx` and CSV attachments has been abandoned by its author with two unfixable
+flaws, and that code runs on files other people send you. It has been replaced with two maintained,
+read-only libraries, and spreadsheet reading now has real test coverage it never had before.
+
+**Searching your own code stopped quietly missing files.** If a file contained a certain invisible
+character, Atlarix's search skipped it silently and reported no matches — so the code was there, the
+search said it wasn't, and nothing indicated a file had been skipped. Four files in Atlarix's own
+source were affected. Search now reports such files instead of ignoring them.
+
+**Approval requests can no longer disappear.** When Atlarix asked to write somewhere outside your
+project, the request could be raised without ever drawing the card that lets you answer it — so the
+turn sat there working on nothing, for as long as you let it, and Stop was the only way out. The
+request now reaches every part of the screen that needs it. The same fault was quietly swallowing
+the "command blocked" and "file blocked" notices, so those appear now too.
+
+**Atlarix stops losing its own project notes.** Its memory lives in a per-project folder outside
+your repo, and the path was only ever shown once at least one note existed — so on a new project it
+had no idea where to write the first one and guessed, leaving notes in a folder nothing would ever
+read again. It kept guessing, because the real folder stayed empty. Atlarix is now told the exact
+folder from the start, and any notes stranded by the old behaviour are moved into the right place
+the next time you open that project, with the stray folder cleared away.
+
+**Messages can no longer come back in the wrong order.** Anything written in the same second shared a
+timestamp with no tiebreaker, so reopening a conversation could show a reply above the question it
+answered — and, less visibly, editing a message could remove the wrong one or leave a stale answer
+behind. Ordering is now exact.
+
+- Choosing a folder — opening a project, importing one, picking where to save a clone — still asks
+  every time; on macOS the picker now starts in Downloads rather than wherever you were last, a
+  change that comes from the OS rather than from Atlarix.
+- Desktop notifications now require the app to be signed in order to appear, which affects
+  development builds only — released builds are signed.
+
 ## [14.34.0] (2026-08-18) — Atlarix tests its own work, and two windows stop fighting over one mode
 
 **Stop now stops, even when Atlarix is waiting on you.** If it asked permission to write somewhere
