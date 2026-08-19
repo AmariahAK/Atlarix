@@ -11,6 +11,31 @@ Nothing here is a commitment. An entry graduates to TODO when it becomes active 
 
 ---
 
+## The e2e suite — RETIRED 2026-08-19, and why not repaired
+
+*Recorded so "we should bring back e2e" starts from the measurement rather than the instinct.*
+
+**The measurement:** of the 68 `getByTestId` values the suite referenced, **60 no longer existed in
+`src`** — 88%. Not peripheral ones: `chat-input-container`, `messages-list`, `chat-mode-selector`,
+`approve-proposal-button`, `copy-message-button`. It encoded the Dyad-era app model (apps with preview
+iframes) rather than workspaces, and `preview-iframe-element` — the element four specs asserted on —
+had not existed since **v14.15.0**.
+
+So it was not a broken suite; it was a suite for a different application. Repair meant rewriting 54
+specs against the current UI, which is days of work whose output a fresh suite would supersede anyway.
+
+**The root cause is the part worth keeping: it was never in CI.** `grep -rn e2e .github/workflows`
+returned nothing. Running it required a full `npm run package` first, so nobody ran it locally either.
+A suite that nothing executes cannot fail, so it rots silently while continuing to look like coverage —
+which is worse than no coverage, because it answers "are we covered?" with a yes. That is the same
+concern as *Suite sensitivity* below, arrived at from the opposite direction.
+
+**If a future suite is written:** wire it into CI on day one, before writing the second spec. Coverage
+that is not executed on every push is a liability with a plausible face. `git log` has the old suite if
+its scenarios are useful as a starting list.
+
+---
+
 ## Account bans — SHIPPED 2026-08-19, recorded for the scope decision
 
 *The reasoning is here rather than in the CHANGELOG because the interesting part is what a ban

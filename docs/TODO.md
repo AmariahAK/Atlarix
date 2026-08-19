@@ -24,6 +24,17 @@ The Dyad-era removal and five of the six code tasks are DONE (six commits; see
   `search_replace_processor.ts` — both LIVE. Deleting a licence for code you still ship is not
   cleanup, so the target has an exception and always did.
 
+**Second follow-up pass, same day — all five loose ends closed.** Six more commits: Cmd+R unbound at
+the menu (it was bound by `role: "viewMenu"` all along, so the renderer handler was fighting a menu
+item); the search-replace path deleted with `src/pro/LICENSE`, which is what finally made `grep dyad`
+reachable rather than the target being wrong; the e2e suite retired (60 of its 68 testids no longer
+existed — 88%); `IS_TEST_BUILD` swept; Anthropic extended thinking actually requested; and a
+re-runnable ban-guard proof. Plus the launchpad SEO fix. Details in `CHANGELOG.md`.
+
+**`grep -rni dyad` is now ZERO across all tracked code outside `docs/`.** The remaining hits are
+archived opencode benchmark transcripts and one base64 lockfile integrity hash that happens to contain
+the substring.
+
 **Still open:**
 
 - **1 code task** — the Console + Network packaged pass, owed since v14.31.0. Verification only, no
@@ -36,21 +47,24 @@ The Dyad-era removal and five of the six code tasks are DONE (six commits; see
   checkboxes are its verification checklist.
 - **1 owner decision** — the five unused dependencies (the Windows signing cert is release-infra).
 - **2 release-owed** — a CI-signed build and the Windows/Linux packaged passes.
-- **1 ban-system step that cannot be done from a dev machine** — apply migration
-  `20260819120000_account_bans.sql` to a dev Supabase project and confirm the guard raises when a
-  SIGNED-IN user tries `update users set banned_at = null where id = auth.uid()`. Until that runs,
-  the un-ban guard is asserted but not observed. `docs/BAN_RUNBOOK.md` has the exact check.
-- **1 new finding, NOT fixed** — Anthropic extended thinking appears to have no delivery path. The
-  live reasoning path sets `providerOptions.openrouter` / `google|vertex` / `openai|azure` but never
-  an `anthropic` bucket; Anthropic's `thinking` block only ever went into the inert `dyad-gateway`
-  key. An inert key cannot have been load-bearing, so this pre-dates the sweep — but it means BYOK
-  Anthropic reasoning may never have been requested. Worth measuring against a real key.
-- **1 decision deferred** — the e2e suite's fate. 54 specs remain (14 deleted). 7 use a dead helper
-  but their SUBJECT is live, so they were kept rather than delete real coverage. They are broken, and
-  mostly not by this sweep: the `preview-iframe-element` testid they assert on has not existed in
-  `src` since v14.15.0, and `$dyadUserDataDir` / the engine provider row are gone too. e2e is in NO
-  CI workflow and needs a full package to run, which is why nobody noticed. Repair vs retire is a
-  project, not a deletion pass.
+- **1 verification owed on the Anthropic fix — it is BELIEVED fixed, not OBSERVED fixed.** The
+  capability branch, the SDK-shaped `budgetTokens` and the temperature omission are covered by 12
+  tests (verified sensitive: removing the branch fails 5, reverting the temperature omission fails 1).
+  But there is no Anthropic key here and the failure mode is a provider-side **400**, so the request
+  has never actually been sent. **The check:** one reasoning prompt on a Claude model with a real BYOK
+  Anthropic key — confirm no 400, and that thinking parts stream. If it 400s, suspect temperature:
+  Anthropic accepts only `1` with thinking on, and `getTemperature` defaults to `0`, which is exactly
+  why `shouldOmitTemperature` exists.
+- **RESOLVED — the e2e suite is retired.** 60 of its 68 testids no longer existed in `src` (88%),
+  including `chat-input-container`, `messages-list` and `chat-mode-selector` — it tested a different
+  application. Deleted with playwright.config, merge.config, three npm scripts, two devDeps and eight
+  config references. A future suite should be written fresh against the workspace UI **and wired into
+  CI on day one**: never being in CI is why this one rotted unnoticed since v14.15.0.
+- **RESOLVED — the ban guard is observed, not asserted.** `npm run verify:ban-guard` extracts the
+  trigger from the migration (never a copy) and proves both directions on a local Postgres:
+  `authenticated` cannot clear its own `banned_at`, `service_role` still can. Verified the check
+  itself catches both a deleted clause AND a present-but-unenforced one (`is_admin := true`). It does
+  not prove Supabase's real RLS wiring — `docs/BAN_RUNBOOK.md` keeps the production check.
 
 ### Corrections the sweep produced — the manifest was wrong in these places
 
@@ -898,6 +912,22 @@ v14.28.0), and the **system-scope approval gate** (which also closed M1). **Defe
   scope, plaintext-keychain fallback).
 
 ---
+
+## 🔎 Found while probing the packaged build (2026-08-19) — NOT fixed, both pre-existing
+
+Surfaced by a Sentry issue that turned out to be self-inflicted (a `pkill` + relaunch collided a boot
+with a shutdown in one process, via the single-instance handoff). The collision was mine; these two are
+not:
+
+- **A `DatabaseClosingError` escapes as an unhandled rejection.** Three boot tasks caught it and logged
+  "non-fatal" — the `db-closing-guard` doing its job. One left a floating promise, so it reached Sentry
+  as `onunhandledrejection`, `handled = no`, and paged the owner. The guard is right; one boot task
+  needs a `.catch`. Any user who quits during startup activity can hit it.
+- **Local packaged builds report `environment=production` to Sentry.** A `npm run package` + launch on
+  a developer machine fires high-priority production alerts on the `atlarix` project — which is exactly
+  what happened. `app.isPackaged` is true for a local ad-hoc build, so it is the wrong discriminator
+  for "production". Worth gating the DSN on something else (a CI-injected marker, or the signing
+  identity) so developer runs stop polluting the signal.
 
 ## 📋 Carried / small
 

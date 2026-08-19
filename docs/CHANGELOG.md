@@ -81,6 +81,29 @@ timestamp with no tiebreaker, so reopening a conversation could show a reply abo
 answered — and, less visibly, editing a message could remove the wrong one or leave a stale answer
 behind. Ordering is now exact.
 
+**Reasoning on your own Anthropic key was never actually being requested.** If you used a Claude
+model with your own API key and turned on deep thinking, Atlarix asked for it in a place nothing was
+listening — so you paid for a thinking model and got a non-thinking answer. It now asks properly.
+Worth being straight about the limits of this one: it is fixed by inspection and covered by tests, but
+we have no Anthropic key here to send a real request with, so it has not been watched working.
+
+**Cmd+R no longer reloads the app.** It was never meant to: reloading mid-turn throws away whatever
+the agent was doing. The shortcut simply does nothing now.
+
+**A large amount of dead machinery is gone.** Atlarix began as a fork, and it had been carrying whole
+features nothing could reach: a hosted AI gateway pointed at a server that no longer exists, a
+project-details screen with no way in, a visual editor for a preview pane removed several versions
+ago, a container mode no setting could turn on, and an edit format only that dead gateway ever
+produced. None of it was reachable, so nothing you use changes — but a "Refresh app" button that did
+nothing, and an "Atlarix Pro" toggle wired to a dead server, are no longer there to click. The in-app
+help bot went with them; docs, Discord and bug reports are unchanged.
+
+**One build setting could have weakened four protections at once.** A flag meant for the old automated
+test suite, when switched on at build time, would store your API keys unencrypted while still
+reporting them as encrypted, send GitHub sign-in to a different address, skip signing the app, and
+ship it with a debug port open. The test suite that needed it is gone, and so is the flag — all four
+are now unconditional.
+
 **The Plan panel says which plan it is showing, and lets you switch.** A session can hold several
 plans, but the panel only ever showed the newest one — so one plan was presented as though it were
 *the* plan, with nothing on screen saying the others existed. There is now a list at the top when a
