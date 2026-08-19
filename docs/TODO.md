@@ -8,7 +8,39 @@ from 54 to 28.
 > **What belongs here:** open work, decisions still owed, and traps worth not rediscovering.
 > **What does not:** shipped narrative → [`docs/CHANGELOG.md`](./CHANGELOG.md). Designed-but-unscheduled
 > work → [`docs/DESIGN_NOTES.md`](./DESIGN_NOTES.md). Both get a one-line pointer here and nothing
-> more. Trimmed 2026-08-11 and again 2026-08-15; `git log -- docs/TODO.md` has every word.
+> more. Trimmed 2026-08-11, 2026-08-15, and audited against the code 2026-08-19; `git log --
+> docs/TODO.md` has every word.
+
+## What is actually left — audited against the code, 2026-08-19
+
+An open checkbox is not the same as an open task, and this file had been conflating them. Audited
+line by line against the tree; **six entries were already done or obsolete** and are closed above
+with their evidence:
+
+| Was listed as open | Actually |
+| --- | --- |
+| Delete 2.2 GB of MSIX artifacts | Live API: **1 artifact, 0.00 GB** — retention fix aged it out |
+| OpenRouter `usage.cost` billing A/B | Implemented in `atlarix-proxy/src/cost.ts`, regression-tested both ways; the search fee it was about died with OpenRouter search in v14.35.0 |
+| DB shutdown-race stress test | `DatabaseClosingError` + proxy short-circuit, `db/index.ts:718-760`, covered by `db-closing-guard.test.ts` |
+| `read_url` browser verification | Measured 2026-08-19; only the packaged-tool pass remains |
+| Prompt-cache `read=` check | Listed twice |
+| Per-model sampling / Windows path matrix | Both admitted no evidence; dropped |
+
+**The remaining count, honestly:**
+
+- **6 code tasks** — `automations` create returning its id; plan-by-title; the ban system; the
+  whisper-worker CSP; the plan switcher (handler **and** picker — see the correction below); the
+  Console + Network packaged pass owed since v14.31.0.
+- **1 Windows session** — not 13 tasks. Every fix in that section is already shipped; the
+  checkboxes are its verification checklist.
+- **3 owner decisions** — the Dyad hosted engine (its host does not resolve), the Windows signing
+  cert, and the five unused dependencies.
+- **1 deletion pass, ~1,900 lines** — three Dyad-era clusters traced 2026-08-19 and confirmed
+  UNREACHABLE, not merely unused. See *Dyad-era removal*. It is one task, not fifteen.
+- **2 release-owed** — a CI-signed build and the Windows/Linux packaged passes.
+
+**The rule this audit came from:** before adding a task, check whether an alternative already
+covers it. Four of the six above were work we had already done and then kept describing as pending.
 
 ---
 
@@ -359,7 +391,6 @@ chat-stream path (`ipc_client.ts:458`) is easy to miss and delivers the same eve
       authenticator, because a USB security key or a phone over hybrid/QR should simply WORK there.
       Verify one actually does. Only the PLATFORM authenticator is macOS-only. Batch with everything
       else already waiting on that machine.
-- [ ] Confirm `[prompt-cache]` still shows large `read=` on later turns.
 
 ---
 
@@ -541,7 +572,11 @@ the release AND an asset id; `headless-bench` serves 14.33.0 again).
 
 ## 🚧 Needs the Windows machine
 
-The one place several things can only be confirmed. Grouped so a single session clears them all.
+**Every fix below is ALREADY SHIPPED.** This section is one session's verification checklist, not a
+backlog — `taskkill /T` is in `runShellCommand.ts:311`, the notification hold-until-`close`/`failed`
+in `desktop-notification.ts:81`, the Low-IL sandbox in `native/atlarix-sandbox/`, voice q4 since
+v14.30.0. Counting these lines as open tasks is what made this queue read three times its real size.
+Grouped so a single trip clears them all.
 
 **The Electron 43 release is now the reason to book this session** (see In flight, top). Its
 Windows-side asks are: `self-test:packaged` reporting **9 probes** including the new `sqlite` one
@@ -585,8 +620,10 @@ machine for the v14.28.0 reasons listed below, which is still the same trip.
       held after the UI says the command stopped.
 
 ### MSIX / Store build
-- [ ] Run the spike (`docs/MSIX_RUNBOOK.md` §4). **Baseline on Squirrel FIRST** — a failure inside
-      MSIX is otherwise unattributable.
+- [ ] Run the §4 behaviour check (`docs/MSIX_RUNBOOK.md`). **Baseline on Squirrel FIRST** — a failure
+      inside MSIX is otherwise unattributable. Not to be confused with the packaging spike, which RAN
+      on 2026-08-07 (`497cf5c9` built the probes, `14a53900` removed the dead code they found); §4 is
+      the deep-system behaviour inside a real package container, and only real Windows can run it.
 - [x] **A Squirrel → Store reinstall keeps the user's data** — verified by hand 2026-08-12.
       `userData` does not diverge in the package container, so **no migration is needed** and it is
       safe to tell users to reinstall from the Store (the 2026-08 outreach email does). Checked
@@ -603,9 +640,12 @@ machine for the v14.28.0 reasons listed below, which is still the same trip.
   `rows[0]`, the NEWEST plan, with nothing naming which one it is. A session with three plans
   therefore presents one as though it were *the* plan. Older plans stay reachable as inline cards
   in the transcript, so nothing is lost; what is missing is the panel saying **which** plan it is
-  showing and letting you switch. Needs `plans:list-by-session` (already exists,
-  `plan_artifact_handlers.ts:93`, currently called by nothing) plus a picker in
-  `PlanExecutionPanel`.
+  showing and letting you switch. **Corrected 2026-08-19 — the stated premise was wrong.** This claimed
+  `plans:list-by-session` "already exists at `plan_artifact_handlers.ts:93`, called by nothing".
+  That file is 2.4 KB with three handlers and no such channel, and nothing in the tree references
+  it. So this needs the handler AND the picker in `PlanExecutionPanel` — more work than advertised,
+  not a picker over something already built. Pairs with plan-by-title below, same "which plan is
+  this?" problem.
 
 Full reasoning in [`docs/DESIGN_NOTES.md`](./DESIGN_NOTES.md). One line each so this file stays a
 queue, not a design doc.
@@ -629,13 +669,12 @@ queue, not a design doc.
     OpenAI-compatible endpoint, just falling back to heuristics — one provider, not a systemic bug.
   - **Nested-repo trust on mid-session clones** — does a repo cloned mid-session re-trigger
     authority-file approval? Prompt injection, not RCE.
-- **Needs evidence before it is worth scheduling** (demoted from the list above, so the queue does
-  not imply they are ready):
-  - **Per-model sampling defaults.** The hook already exists — `getTemperature` omits the param for
-    models that reject it and honours a per-model override; everything else gets `0`. Populating
-    overrides needs a model we can show is hurt by `temperature: 0`, which we do not have.
-  - **Windows path-validation matrix** (`\??\`, `\\?\UNC\`, 8.3 names, `C:relative`). We have scar
-    tissue here, but no evidence of an exploitable path — writing the matrix may find nothing.
+- **DROPPED 2026-08-19 — no evidence, no observed failure.** Per-model sampling defaults (the
+  `getTemperature` hook already exists; populating it needs a model we can show is hurt by
+  `temperature: 0`, which we do not have) and the Windows path-validation matrix (scar tissue, but
+  no exploitable path, and writing it "may find nothing" by its own admission). Both said outright
+  they were not ready; carrying them made the queue longer without making it truer. Recover from
+  git if evidence ever appears.
 - **Chore-model routing stays OPT-IN.** `lib/summarization_model.ts` already offers
   `"same"` (default) or `"custom"`, and titles + compaction both route through it. Defaulting Core
   users to Core 1 would silently change what they are paying for; left as the user's explicit choice.
@@ -698,10 +737,6 @@ Three additions, recorded when raised so they are not lost. None is started.
   are both cheap; **Windows Low IL cannot** — MIC is `NO_WRITE_UP`, so reads up are allowed by
   design, and the AppContainer that *could* deny reads is exactly why it broke. Scope as tool-level
   everywhere + sandbox-level on macOS/Linux + a documented Windows gap.
-- **Landlock `ABI::V5` (`IoctlDev`)** once there's a compatibility test for device ioctls.
-- **`proxy-worker` self-test probe can't run from source:** `start_proxy_server.ts:30` resolves
-  `__dirname/../../worker` — right when packaged, wrong under vitest. Covered meanwhile by
-  `src/__tests__/proxy-passthrough.test.ts`.
 - **Packaging registry (deliberately deferred).** `runNpmInstall` (`forge.config.ts`) spawns npm
   with no `--registry`, in `buildPath` outside the project, so a custom global registry wins and
   `packageAfterPrune` dies with `E401`. Until it lands, `npm run package` needs
@@ -734,54 +769,6 @@ incomplete*; the reasoning is in git.
 
 ---
 
-## ✅ RESOLVED — the headless bundle publishes again (closed at v14.33.0)
-
-**`Atlarix Headless` failed on the `v14.32.0` tag, twice.** The desktop release was unaffected —
-12 assets, all platforms, published — but `headless-bench` on `atlarix-releases` was left holding
-the **v14.31.0** tarball, so the benchmark harness was a release behind.
-
-```
-Unexpected error fetching GitHub release for tag refs/tags/v14.32.0:
-HttpError: Resource not accessible by personal access token
-```
-
-**What is ruled out:**
-- *Not* a draft-vs-published race — re-run AFTER the release was published, failed identically.
-- *Not* a broken `RELEASES_TOKEN` — `create-draft` uses the **same action, same token, same target
-  repo** and succeeded in the same run, as did all 12 asset uploads.
-- *Not* a config change — headless succeeded on the previous **9** release tags with this config.
-
-### ROOT CAUSE — `RELEASES_TOKEN` cannot READ releases in `atlarix-releases`
-
-**This needs the owner; there is no workflow-side fix.** Proven across three attempts in a
-verification window on 2026-08-17:
-
-| Attempt | Result |
-| --- | --- |
-| `softprops/action-gh-release@v2` | 403 *Resource not accessible by personal access token* on GET release-by-tag |
-| `gh release view headless-bench` | **"release not found"** — for a release holding 35 assets since v13.7.0 |
-| `gh release upload headless-bench --clobber` | **"release not found"** — `upload` resolves the tag first, so it is also a read |
-
-Meanwhile **every WRITE succeeds**: `create-draft` (POST /releases), `gh release create` (reached
-422 *already exists*, so it authenticated fine), and all 12 asset uploads — those use the
-`upload_url` create-draft *returns*, so they never look anything up. That asymmetry is the whole
-diagnosis.
-
-- [x] **Grant `RELEASES_TOKEN` `Contents: Read and write` on `AmariahAK/atlarix-releases`** — done;
-      the v14.34.0 release record has the read confirmed working (headless resolved the release AND
-      an asset id, and `headless-bench` serves the current version again). Closed 2026-08-19; it had
-      been left unticked under a heading already marked RESOLVED.
-- My first theory — the unpinned `softprops@v2` floating to v2.6.2 — was **wrong**, and testing it
-  is what surfaced the real cause. Two changes from it were worth keeping anyway:
-  `headless.yml` now uses plain `gh` (no ref-resolution magic, and it fails with a message naming
-  the token), and `release.yml` pins the action to v2.6.2.
-
-**Related, same root cause — the release NOTES.** `announce-release` edited notes in after
-publishing, which is a read, which is why v14.32.0 shipped with the "See CHANGELOG.md"
-placeholder. Fixed properly: `create-draft` now checks out the repo and writes the real changelog
-into the body **at creation time** via `body_path`, so no read is ever needed. **Unverified — it
-only runs on a real tag**, so first proof is the next release.
-
 ## ⚙️ Actions storage — the second billing trap
 
 **2026-08-17: Actions storage hit 100% (0.5 GB account allowance).** Different failure from the
@@ -802,102 +789,31 @@ a tag now uploads **nothing**. Retention 14 → 2 days for when it does. The upl
 gh api "repos/AmariahAK/Atlarix/actions/artifacts?per_page=100" \
   --jq '.artifacts[] | select(.expired==false) | "\((.size_in_bytes/1048576)|floor) MB  \(.name)"' | sort -rn
 ```
-- [ ] Delete the existing MSIX artifacts to free the 2.2 GB (owner call — see below).
+- [x] **DONE — verified 2026-08-19 against the live API: 1 artifact, 0.00 GB.** `5e6f4f8c` cut
+  retention 14d → 2d and `dc39de61` uploads the MSIX only when it would be used, so the backlog
+  aged out on its own; no manual deletion was needed.
 - Rule of thumb: an artifact nothing DOWNLOADS is a convenience copy, and its retention should be
   days, not weeks. `landlock-helper` is the counter-example — it IS consumed, and is already 1 day.
 
-## 🌐 Core web search + `read_url` — FIXED by the browser tier (shipped, v14.35.0)
+## 🌐 Core web search + `read_url` — SHIPPED v14.35.0, one item left
 
-**Measured 2026-08-19, not estimated — before and after, same three developer queries, same minute:**
+Measured 2026-08-19: browser tier **24 / 29 / 25** results on three developer queries where DDG and
+all five public SearxNG instances returned **0 / 0 / 0** — the lower tiers had not degraded, they
+returned nothing. Docker auto-setup and the public tier deleted (~980 LOC); self-hosted SearxNG and
+DDG kept because headless stubs Electron and would otherwise have no search at all. `read_url` now
+fetches first and renders only on failure. Full narrative in `CHANGELOG.md`; the traps that must not
+be re-learned are in the shipped index at the foot of this file.
 
-| Tier | `electron 43 breaking changes` | `better-sqlite3 electron abi rebuild` | `vite 8 esm require condition` |
-| --- | --- | --- | --- |
-| **Browser (Brave, real Chromium)** | **24** | **29** | **25** |
-| Public SearxNG (all 5 instances) | 0 | 0 | 0 |
-| DDG Instant Answer API | 0 | 0 | 0 |
-
-The tiers below the browser did not degrade — they returned **nothing at all**. DDG's is an
-instant-ANSWER API (Wikipedia abstracts), never a web search; four public SearxNG instances answer
-HTTP 429 and `searx.be` serves a "Verifying your browser…" challenge. Every one of those is an
-"is this a real browser?" check, and Atlarix ships a real Chromium.
-
-**What shipped:** `lib/search/browser-search.ts` (one hidden reusable `BrowserWindow`, own `persist:`
-partition, sandboxed, serialized, 12s nav timeout, 60s idle teardown) as **tier 0 of `smartSearch`**,
-plus `lib/browser/search-results.ts` for extraction. The `web_search` signature, result shape and
-rendering are unchanged, and `native_web_search.ts`'s "deliberate quality trade" comment is corrected.
-
-**Three things the original plan got wrong, recorded so they are not re-proposed:**
-- **Not the a11y tree.** `A11yElement` carries `role`, `name` and `text` but **no `href`** — and the
-  URL is the entire point of a search result. Extraction is structural instead: off-host anchors,
-  plausible title length, outside `nav`/`header`/`footer`/`aside`, de-duplicated to the TIGHTEST
-  anchor around each URL (a wrapper anchor swallows the site label and breadcrumb).
-- **One reused window, never one per query.** A window destroyed and immediately recreated on the
-  same `persist:` partition failed the next load with `ERR_FAILED (-2)`; the reused window ran three
-  consecutive queries clean. Reuse is load-bearing, not an optimisation.
-- **A hidden window is still an OPEN window.** `window-all-closed` — which quits the app on Windows
-  and Linux — fires only when every window has closed, so the search window now tears itself down as
-  soon as no other window remains. Without that the app keeps running after the user closes it.
-
-**SearxNG teardown — DECIDED and DONE (owner call, 2026-08-19).** Kept self-hosted SearxNG and DDG
-(the headless build stubs Electron, has no browser, and would otherwise have nothing that returns
-results); dropped everything that existed to prop up a tier the browser made unnecessary:
-`searxng_setup_handlers.ts` (314 LOC of Docker orchestration, including its own `will-quit` container
-stop), `SearxngSetup.tsx` (333), the five hardcoded `PUBLIC_SEARXNG_INSTANCES` and
-`searchPublicSearxng()`, tier 2 of `smartSearch`, five preload channels. `SearchSettings.tsx` became
-the plain URL field its own comment had been promising since v13 — Test-and-Save against the
-health-check, because a URL saved without being reached is how a user gets a silently dead tier.
-`search_providers` (bundled migration `0021`, hash-verified) is left ORPHANED on purpose: migrations
-are append-only and a `DROP TABLE` is real risk for zero user benefit.
-
-**`read_url` through the browser — DONE.** Fetch first, browser on failure. Browser-ALWAYS was
-rejected on measurement, not taste: deep `web_search` fetches up to five URLs *concurrently* while
-the hidden window serializes, so routing everything through it turns one parallel round into five
-sequential page loads. Escalation is therefore narrow — 403/429/503 (the bot-wall family, where
-`fetchWithCfRetry`'s one-shot UA retry has already failed), or HTML over 20 KB that extracts to under
-500 chars, which is a client-rendered shell. Never 401 or 404: a login wall is not to be worked
-around, and a browser renders a 404 as faithfully as fetch does.
-
-Four things worth keeping:
-- **The window machinery is now shared.** `lib/browser/headless-page.ts` owns the reused window, the
-  serialized queue, the nav timeout, the idle teardown and the last-window watch; search and
-  `read_url` both consume it, on **separate `persist:` partitions** so an arbitrary page cannot read
-  the engine's cookies.
-- **`did-finish-load` is too early for a client-rendered page** — the bundle has loaded but nothing
-  has painted, so grabbing the DOM there returns the same shell the fetch already had. The extractor
-  polls up to 3s for text to appear instead of guessing a sleep.
-- **The browser path does not go through `safeFetch`, so it does not inherit its SSRF policy.**
-  `assertUrlAllowed` is called explicitly before every load, WITHOUT `allowLoopback` — that is
-  `browser.ts`'s posture, whose job is your own dev server. Without it, "read this URL" is a port
-  scanner against localhost and the metadata endpoint. Pinned by tests, on the browser path.
-- **Deep search's two inline fetch blocks now go through `fetchUrlContentCached`**, which is what
-  makes the fix reach deep search at all, and hands those paths the 15-minute cache and in-flight
-  dedup they never had. The User-Agent is parameterized but deliberately kept OUT of the cache key:
-  it labels the caller, not the page.
-- [ ] Owed, needs the packaged app: a live `read_url` against a JS-rendered SPA and a
-  Cloudflare-walled page, and a timing check that `web_search deep:true` over 5 URLs has NOT become
-  serial — that is the specific regression the fetch-first design exists to avoid.
-
-**Memory-location prompting — FIXED (2026-08-19).** Observed in another project: the agent ran `find`
-for its memory directory, latched onto a stale guessed copy, and then hit `file_not_found` mid-session
-when `adoptMisplacedMemoryDir` reclaimed it — having had the correct absolute path in its context the
-whole time. The reclaim code was working; the prompting was not. `AGENTS.md` was publishing the
-*fillable template* `~/.atlarix/projects/<slug>/memory/`, which is exactly the shape a model completes
-with the human-readable basename, and `guides/memory` said the path was "shown in your context"
-without ever saying it was the only one. Both now say: use the path on the `## Project memory` line
-verbatim, never derive it, never search for it. This is the same treatment `loadWorkspaceRootSection`
-already gives the workspace root — for the same observed failure of an agent hunting for a path it had
-been given — which memory never got.
-
----
+- [ ] Exercise `read_url` through the **packaged app's own tool** against a JS-rendered SPA and a
+      bot-walled page. The mechanism itself is already measured (2026-08-19, under Electron against
+      real sites: excalidraw 69 → 722 chars, g2.com 0 → 251, react.dev and sqliteonline unchanged and
+      never rendered, five parallel fetches 624ms) — what is untested is the path through a real turn.
 
 ## 🔜 Blocked on the owner — NOT active work
 
 - **Windows code-signing / cert** — C6 auto-update signing + native-sandbox CI (release-infra, no
   cert). OAuth `state` nonce / PKCE stays **not doing** (attempted v14.12.0, broke sign-in,
   reverted; the flow-in-progress gate stays).
-- **Billing A/B:** confirm OpenRouter `usage.cost` includes the ~$0.005 search fee so the wallet
-  debit = `ceil(cost × 1.4)`; else add a proxy surcharge in `atlarix-proxy/src/server.ts`.
-- **DB shutdown-race stress-verification** on a packaged build (guard committed, not stress-tested).
 - **Dependency deprecation triage** — ~~scheduled~~ **DONE and merged** (see the `migration` branch
   section above); kept here only for the reasoning, which still applies to the next such batch: Electron 43 and the spec-line majors both rewrite
   `package-lock.json`, and a lockfile conflict is not hand-mergeable — you regenerate, which
@@ -919,18 +835,196 @@ been given — which memory never got.
 
 ---
 
-## 🔎 Recorded — not scheduled
+## 🧹 Dyad-era removal — traced 2026-08-19, one deletion pass
 
-- **The Dyad-era hosted-engine subsystem is orthogonal to the current architecture, and whether it
-  is still a product is an OWNER decision.** `get_model_client.ts:170-221` branches to
-  `createAtlarixEngine` at `https://engine.atlarix.dev/v1` whenever `settings.enableAtlarixPro` is
-  set — still live user-facing UI at `ProviderSettingsPage.tsx:414`. Hanging off it:
-  `llm_engine_provider.ts`, lazy edits, smart-files context, deep context, and the git-history half
-  of `versioned_codebase_context.ts` (kept because its second loop does real work — reading paths
-  named in past assistant turns back out of git at the commit they recorded). None of it relates to
-  Core-as-prepaid-wallet-through-the-proxy. Not a coding-session call.
+Atlarix is a fork, and the fork's dead weight was never measured until now. Traced by
+**reachability, not presence** — the mistake this audit kept making was reading code as live because
+it exists and compiles. Total: **~1,900 lines across three clusters**, all confirmed unreachable.
+
+### 1. The hosted engine — a live toggle wired to a host that does not exist
+
+`get_model_client.ts:170-225` routes to `https://engine.atlarix.dev/v1`, which **does not resolve**
+(DNS failure, probed 2026-08-19). It is Dyad Pro's client half: a gateway that did lazy edits, smart
+file context and web search server-side, keyed by `enable_lazy_edits` / `enable_smart_files_context`
+/ `enable_web_search`. Inherited, not built — `get_model_client.ts:59` still honours `DYAD_ENGINE_URL`
+beside `ATLARIX_ENGINE_URL`.
+
+**Blast radius: 12 source + 3 test files, ~500 lines.** `llm_engine_provider.ts` (204) whole; the
+branch and `atlarixEngineUrl`; four settings (`enableAtlarixPro`, `enableProSmartFilesContextMode`,
+`enableProLazyEditsMode`, `enableProWebSearch`) plus `hasAtlarixProKey`; the toggle in
+`ProviderSettingsPage.tsx`; `main/pro.ts`. Three things make it more than an `rm`:
+
+- `isEngineEnabled` threads into streaming — `chat_stream_handlers.ts` ×4 and
+  `simple-stream-text.ts` ×4, including a requestId prefix.
+- **Two user-visible surfaces need a decision, not deletion:** the TitleBar badge reads
+  "Workspace • Unlimited" when Pro is on (`TitleBar.tsx:197`), and `ChatErrorBox.tsx:136` has an
+  `ExceededBudget:` branch gated on it.
+- `versioned_codebase_context.ts` is NOT a clean delete — the `"dyad-engine"` providerOptions key
+  goes, but its second loop does real work independent of the engine (reading paths named in past
+  assistant turns back out of git at the commit they recorded).
+
+Four orphaned keys are left in users' `settings.json`, the same call as `search_providers`.
+
+**The only decision: stand the host up, or delete the toggle.** Leaving a switch that breaks the app
+is the one option with no case for it.
+
+### 2. The orphaned `/app-details` cluster — 1,406 lines nobody can reach
+
+The route is registered, but **the only `navigate({to:"/app-details"})` in the tree is at line 192
+inside that same page** — a copy-app success handler. No `<Link>`, no sidebar entry, no other import,
+no route restoration. You cannot get in, which is why the owner had never seen it.
+
+| File | Lines |
+| --- | --- |
+| `pages/app-details.tsx` | 687 |
+| `ipc/handlers/app_upgrade_handlers.ts` | 291 |
+| `components/CapacitorControls.tsx` | 258 |
+| `components/AppUpgrades.tsx` | 157 |
+| `routes/app-details.tsx` | 13 |
+
+This kills what looked like the hardest problem. `AppUpgrades` injects
+`@dyad-sh/react-vite-component-tagger` into user apps — an npm package under **Dyad's** org, which
+cannot be renamed, only replaced. Because the panel is unreachable it was never installed into
+anyone's project, so there is no package to publish and no user migration to consent to.
+
+**Also dead with it:** Docker mode. `runtimeMode2` is in the schema but **no UI can set it**, and all
+three read sites default to `"host"` (`app_handlers.ts:117`, `:851`, `:1479`) — so the
+`Dockerfile.dyad` fallback has never executed for anyone. Delete the branches and
+`RuntimeMode2Schema`.
+
+**Survives:** `GitHubConnector.tsx` (980 lines) exports three components and only ONE is live —
+`UnconnectedGitHubConnector`, used by `WelcomeCloneDialog` in `connectOnly` mode as the GitHub
+sign-in step of the clone flow. `GitHubConnector` itself is used only by the orphaned page and
+`ConnectedGitHubConnector` by **nothing**, so most of that file goes too — but trim it, do not delete
+it. The component is Atlarix's own code with zero Dyad naming inside; only the OAuth *app* was Dyad's
+(below). `GitHubIntegration.tsx` is separately live via `settings.tsx`.
+
+### 3. The preview remnant — dead since v14.15.0
+
+Preview was removed when everything unified on the browser, but the wiring stayed:
+`previewModeAtom` is **read and never set**, so `layout.tsx:384`'s `previewMode === "preview"` is
+always true and always calls `refreshAppIframe()` — which increments `previewPanelKeyAtom`, **read by
+nothing**. There is no app iframe anywhere in the tree. `runApp` and `stopApp` have no consumers
+either; only `restartApp` is live (`SuggestedActionButtons`). Delete the no-op refresh, both atoms,
+the dead exports and the `[dyad-proxy-server]started=` parse (`useRunApp.ts:30`).
+
+### 4. What is renamed rather than deleted
+
+With the three clusters gone, **zero `dyad` in our own tree is reachable by deletion alone**. What is
+left splits into two tiers, and neither is the read-both-forever situation it looked like — Atlarix
+was never Dyad on disk (first commit, 2025-12-23, is *"first template version of Atlarix"*). The
+shims guard against EARLY ATLARIX builds: `escape_atlarix_tags.ts` only learned `<atlarix>` on
+**2026-04-18**, so builds before that emitted `<dyad>` tags.
+
+- **Delete outright** — `dyad-engine` strings (die with §1); `[dyad-qa=]` test markers;
+  `LEGACY_DYAD_GITHUB_DEVICE_CLIENT_ID` (`OAUTH_CLIENT_ID` has been a set CI secret since
+  **2026-05-29**, so shipped builds already authorize as Atlarix and never touch it — delete the
+  constant, require the env var in dev); the `<dyad` escape branches in `escape_atlarix_tags.ts` and
+  `cleanFullResponse.ts`, which only affect history stored before 2026-04-18 and whose failure is a
+  tag rendering literally, not data loss.
+- **Migrate then delete** — `dyadTelemetryConsent` / `dyadTelemetryUserId` localStorage keys (read
+  old, write new, unlink old; same shape as `migrateLegacyMemoryMd`); `dyad-pnpm-<appId>`, which is a
+  *removal* list not a read path (`process_manager.ts:103`) — keep deleting both names for one
+  release, then drop the old, since deleting a stale volume is safe by definition.
+
+### The delete manifest — enumerated so next session is a sweep, not a re-derivation
+
+**Files deleted whole (9):**
+
+| File | Lines | Cluster |
+| --- | --- | --- |
+| `src/pages/app-details.tsx` | 687 | orphaned route |
+| `src/ipc/handlers/app_upgrade_handlers.ts` | 291 | orphaned route |
+| `src/components/CapacitorControls.tsx` | 258 | orphaned route |
+| `src/components/AppUpgrades.tsx` | 157 | orphaned route |
+| `src/ipc/handlers/capacitor_handlers.ts` | 139 | orphaned route |
+| `src/routes/app-details.tsx` | 13 | orphaned route |
+| `src/ipc/utils/llm_engine_provider.ts` | 204 | engine |
+| `src/atoms/previewAtoms.ts` | (whole) | `selectedComponents` |
+
+**Symbol-level edits, by file** — this is the part a sweep forgets and the build then hides, because
+an orphaned IPC channel still compiles:
+
+- `src/ipc/ipc_host.ts` — drop imports + calls at **:29/:88** (`registerAppUpgradeHandlers`) and
+  **:30/:89** (`registerCapacitorHandlers`).
+- `src/preload.ts` — drop channels **:135-139**: `get-app-upgrades`, `execute-app-upgrade`,
+  `is-capacitor`, `sync-capacitor`.
+- `src/ipc/ipc_client.ts` — drop `getAppUpgrades` (**:3569**), `executeAppUpgrade` (**:3575**),
+  `isCapacitor` (**:3583**), `syncCapacitor` (**:3587**), and the `selectedComponents` params (5 refs).
+- `src/router.ts` — drop `appDetailsRoute` import + registration (**:8, :16**).
+- `src/components/app-sidebar.tsx` — **:112** `isAppRoute` still tests
+  `pathname.startsWith("/app-details")`; drop that clause, keep the `"/"` test.
+- `src/components/GitHubConnector.tsx` — **TRIM, do not delete.** Keep
+  `UnconnectedGitHubConnector` (the only live export, used by `WelcomeCloneDialog` in `connectOnly`
+  mode). Delete `GitHubConnector` (orphaned-page only) and `ConnectedGitHubConnector` (**no
+  consumers at all**), plus the repo-create / branch-select / auto-sync machinery they own.
+- `src/ipc/handlers/app_handlers.ts` — Docker mode is unsettable, so: delete
+  `executeAppInDocker` (**297-489, 193 lines**) and `stopDockerContainersOnPort` (**501-541, 41
+  lines**); collapse the three `runtimeMode2` branches (**:117, :851, :1479**) to the `host` path;
+  delete the `Dockerfile.atlarix`/`Dockerfile.dyad` selection (**:354-363**) and the
+  `dyad-pnpm-*` mention at **:875**.
+- `src/lib/schemas.ts` — drop `RuntimeMode2Schema` (**:125**) and `runtimeMode2` (**:487**); drop the
+  four engine settings and `hasAtlarixProKey` (9 refs total).
+- `src/ipc/utils/get_model_client.ts` — drop the engine branch (**170-225**), `atlarixEngineUrl`
+  (**:59-61**, which is also where `DYAD_ENGINE_URL` dies), and the `isEngineEnabled` /
+  `isSmartContextEnabled` return fields.
+- `src/ipc/handlers/chat_stream_handlers.ts` — `isEngineEnabled` at **:1064, :1095, :1188, :2000**,
+  the `"dyad-engine"` providerOptions at **:1799**, and the `selectedComponents` param.
+- `src/ipc/handlers/chat_stream/turn-runner/simple-stream-text.ts` — `isEngineEnabled` at **:136,
+  :176, :198, :908** (the last is a requestId prefix).
+- `src/ipc/utils/versioned_codebase_context.ts` — drop the `"dyad-engine"` keys at **:129, :215**.
+  **DO NOT delete the file** — its second loop does real work independent of the engine.
+- `src/app/TitleBar.tsx` — the Pro badge, 6 refs. **User-visible: needs the owner's call** (drop to
+  a plain "Workspace" label is the obvious answer).
+- `src/components/chat/ChatErrorBox.tsx` — 4 refs incl. the `ExceededBudget:` branch at **:136**.
+  **User-visible: needs the owner's call** on whether that error can still arrive by another route.
+- `src/components/SimpleInlineChat.tsx` — **:524** passes `isAtlarixProEnabled={false}`; drop the prop.
+- `src/main/pro.ts`, `src/main/settings.ts`, `src/shims/main-settings-renderer-stub.ts` — settings plumbing.
+- `src/hooks/useRunApp.ts` — drop `refreshAppIframe` (**:222**, a no-op), `runApp`, `stopApp` (no
+  consumers), and the `[dyad-proxy-server]started=` parse (**:29-34**). **Keep `restartApp`** — it is
+  live via `SuggestedActionButtons`.
+- `src/app/layout.tsx` — drop the `previewMode` effect (**:384-397**) and the
+  `selectedComponentsPreviewAtom` wiring (**:21, :252**).
+- `src/atoms/appAtoms.ts` — drop `previewModeAtom` (**:18**) and `previewPanelKeyAtom` (**:31**).
+- `src/hooks/useStreamChat.ts` (4 refs), `src/ipc/ipc_types.ts` (2) — the rest of `selectedComponents`.
+- `src/config/github-oauth.ts` — delete `LEGACY_DYAD_GITHUB_DEVICE_CLIENT_ID` and
+  `isLegacyDyadGithubDeviceClient`; make `OAUTH_CLIENT_ID` required. Also drop its consumer at
+  `src/ipc/handlers/github_handlers.ts:33,40` and the mock in `clone-error-surface.test.ts:39`.
+- `src/hooks/useSettings.ts` — **:11, :13** migrate `dyadTelemetryConsent` / `dyadTelemetryUserId`
+  then delete the constants.
+- `src/ipc/utils/process_manager.ts` — **:103** keep removing `dyad-pnpm-<appId>` for ONE release,
+  then drop.
+- `src/ipc/utils/escape_atlarix_tags.ts` (**:8-9**), `src/ipc/utils/cleanFullResponse.ts` (**:64**),
+  `src/ipc/handlers/testing_chat_handlers.ts` (**:4**) — drop the `dyad` branches.
+
+**Tests:** `src/__tests__/versioned_codebase_context.test.ts` carries **12** `"dyad-engine"` fixtures
+and rewrites with the engine; `readSettings.test.ts` has 4 engine refs;
+`chat_stream_handlers.test.ts` has a `<dyad-custom-action>` fixture. Expect the suite to LOSE tests
+here — that is correct, but check the count moves by the number of deleted cases and no further.
+
+### Sequencing
+
+- [ ] **One deletion pass, ~1,900 lines.** Order: orphaned route cluster first (it is pure deletion
+      and shrinks everything after it), then the engine, then the preview remnant, then the
+      rename/migrate tiers. Do the `GitHubConnector` trim INSIDE this pass — its dead exports are
+      only identifiable while the orphaned page is still there to point at them.
+      **Blocked only on the owner's call on the two user-visible surfaces** (TitleBar badge,
+      `ChatErrorBox` budget branch).
+      Verify with: `npm run check:ts` + `ts` + `check:lint`, then **grep the tree for `dyad`** — the
+      target is zero outside `docs/` and the one-release `dyad-pnpm` shim — then `npm run package`
+      and `self-test:packaged` 9/9, because this touches `preload.ts` and `ipc_host.ts` and a
+      dropped channel only fails at runtime.
+
+### The lesson this section exists for
+
+Three separate items dissolved on inspection in one session: the engine's host does not resolve, six
+TODO entries were already done, and the "hard boundary" was unreachable UI. **Check reachability
+before scoping, not presence.** A registered route, a compiling component and an exported symbol are
+all evidence of nothing.
+
 - **`selectedComponents` still flows renderer → IPC → `ChatStreamParams` and is read by nothing on
-  the main side.** Same Dyad-era shape; unpicking it belongs with the decision above.
+  the main side.** Same Dyad-era shape; it fed the component tagger from §2, so it goes in the same
+  pass.
 
 ---
 
@@ -994,9 +1088,11 @@ v14.28.0), and the **system-scope approval gate** (which also closed M1). **Defe
 - **No test measures whether our own suite is sensitive** — no mutation testing, no eval where the
   fixture's suite is deliberately wrong, so "tests pass" is a claim about the suite, not the change.
   Two clean instances in v14.30.0; see [`docs/DESIGN_NOTES.md`](./DESIGN_NOTES.md).
-- `.gitignore`-render profiler (v14.8.10 §3.4); Atlarix GitHub account for contributor credit
-  (owner action, code done); user-message multimodal parts for HISTORICAL turns (current/edited
-  turns embed since v14.8.11; history round-trips via `read_attachment`).
+- Atlarix GitHub account for contributor credit (owner action, code done); user-message multimodal
+  parts for HISTORICAL turns (current/edited turns embed since v14.8.11; history round-trips via
+  `read_attachment`). **Dropped 2026-08-19:** the `.gitignore`-render profiler (v14.8.10 §3.4) — six
+  releases old with no observed problem; and the `proxy-worker`-from-source self-test gap, which is
+  a known limitation with a stated substitute (`proxy-passthrough.test.ts`), not a task.
 - **Dependency deprecation triage — SUPERSEDED**, half done and half rescheduled. The in-range sweep
   and the security work landed in v14.35.0 (54 → 28 advisories); the spec-line majors are now the
   **`migration` branch** described under "Blocked on the owner". Constraints that still hold: the AI
