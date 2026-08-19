@@ -459,7 +459,9 @@ async function updateStep(args: PlanToolArgs) {
         steps.length === 0
           ? "The plan has no checklist steps yet — rewrite it with operation:'write' using numbered '1. [ ] …' items."
           : `Step not found in plan checklist. Current steps: ${formatStepsForError(steps)}. ` +
-            "Retry with step_text (a unique substring of the step) — or rewrite the whole plan with operation:'write' and updated [x]/[~] marks (always safe).",
+            "Retry with step_index (the number shown above) — that is exact. Or step_text: a distinctive phrase " +
+            "COPIED from the step, not paraphrased. Rewriting the whole plan with operation:'write' also works, but it " +
+            "loses the record of what was already marked, so try the two precise options first.",
     };
   }
   if (!result.changed) {

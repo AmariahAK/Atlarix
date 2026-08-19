@@ -194,8 +194,37 @@ export function setStepStateInPlanMarkdown(
         (n, i, all) => n.length > 0 && all.indexOf(n) === i,
       )
     : [];
-  const matches = (text: string): boolean =>
-    needles.some((n) => text.includes(n));
+  // Second pass, only after every faithful attempt has missed: compare with
+  // markdown formatting removed and whitespace collapsed.
+  //
+  // Observed miss (live, 2026-08-19): the plan stored
+  //   `**1. Append 15 quotes to \`upcoming-quotes.json\`** — insert before …`
+  // and the model sent
+  //   `Append 15 quotes to upcoming-quotes.json`
+  // Same words, no backticks. `includes()` is byte-exact, so it matched nothing,
+  // the model was told "rewrite the whole plan with operation:'write'", it did —
+  // re-marking finished steps as in_progress — and the plan never closed. The
+  // needle is formatting the model cannot be expected to reproduce: it is writing
+  // prose about a step, not quoting markdown.
+  //
+  // Safe to widen only this far: it removes formatting characters and collapses
+  // whitespace runs. No word is added, removed or reordered, so it cannot turn
+  // step 1's text into step 2's. Anything stronger (fuzzy distance, word-subset)
+  // could, and would risk ticking the WRONG step — the failure the v14.8.10 rule
+  // below exists to prevent.
+  const normalizeForMatch = (text: string): string =>
+    text
+      .replace(/[`*_~]/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
+  const normalizedNeedles = needles
+    .map(normalizeForMatch)
+    .filter((n) => n.length > 0);
+  const matches = (text: string): boolean => {
+    if (needles.some((n) => text.includes(n))) return true;
+    const normalizedText = normalizeForMatch(text);
+    return normalizedNeedles.some((n) => normalizedText.includes(n));
+  };
 
   if (target.stepIndex != null) {
     step = steps.find((s) => s.index === target.stepIndex);

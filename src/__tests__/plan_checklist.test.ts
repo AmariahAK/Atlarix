@@ -314,6 +314,67 @@ describe("formatPlanChecklistForPrompt", () => {
   });
 
   /**
+   * The FIRST domino of that same live loop, from the log:
+   *
+   *   [plan] update_step found no match in plan 2f3403bb… — step_index=none
+   *   step_text="Append 15 quotes to upcoming-quotes.json" (6 step(s) in plan)
+   *
+   * The stored step was ``**1. Append 15 quotes to `upcoming-quotes.json`** — …``.
+   * Same words; the model just did not reproduce the backticks. `includes()` is
+   * byte-exact, so the update was rejected, the error offered "rewrite the whole
+   * plan", and the rewrite re-marked finished steps as in_progress.
+   */
+  describe("markdown formatting in step text", () => {
+    const REAL_PLAN =
+      "- [~] **1. Append 15 quotes to `upcoming-quotes.json`** — insert before the closing `]`.\n" +
+      "- [~] **2. Update README badges** — \"quotes queued\" 150 → 180.\n" +
+      "- [x] **3. Full dedup sweep** — dedupe duplicate quote lines.\n";
+
+    it("matches the exact needle that was rejected live", () => {
+      const out = setStepStateInPlanMarkdown(
+        REAL_PLAN,
+        { stepText: "Append 15 quotes to upcoming-quotes.json" },
+        "done",
+      );
+      expect(out.changed).toBe(true);
+      expect(out.step?.index).toBe(1);
+      expect(out.content).toContain("[x] **1. Append 15 quotes");
+    });
+
+    it("matches when the model drops bold markers", () => {
+      const out = setStepStateInPlanMarkdown(
+        REAL_PLAN,
+        { stepText: "2. Update README badges" },
+        "done",
+      );
+      expect(out.changed).toBe(true);
+      expect(out.step?.index).toBe(2);
+    });
+
+    it("still ticks the RIGHT step — normalising must not widen across steps", () => {
+      const out = setStepStateInPlanMarkdown(
+        REAL_PLAN,
+        { stepText: "Update README badges" },
+        "done",
+      );
+      expect(out.step?.index).toBe(2);
+      // Step 1 must remain untouched.
+      expect(out.content).toContain("[~] **1. Append 15 quotes");
+    });
+
+    it("a genuinely absent step is still not-found", () => {
+      // The guarantee that matters: widening must not become "tick something".
+      const out = setStepStateInPlanMarkdown(
+        REAL_PLAN,
+        { stepText: "Deploy to production" },
+        "done",
+      );
+      expect(out.changed).toBe(false);
+      expect(out.step).toBeUndefined();
+    });
+  });
+
+  /**
    * Several steps in progress at once — the shape that made a live session loop.
    *
    * `inProgress` was a `.find()`, and `pending` covers only `todo`, so every
