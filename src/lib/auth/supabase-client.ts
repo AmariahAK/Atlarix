@@ -601,12 +601,22 @@ function computeEntitledPlan(row: PlanRowInput): UserPlanDb {
     return tier;
 }
 
-// `banned_at` rides the plan read the app already makes, so the ban costs no
-// extra round-trip. The REASON is deliberately absent: it lives in
-// public.user_bans, which no client can read, because this row is also delivered
-// to the client verbatim by the realtime subscription below.
+/**
+ * Columns this MUST NOT grow casually.
+ *
+ * `banned_at` was added here to make the ban check ride the plan read "at no
+ * extra round-trip". It cost far more than a round-trip: the app ships
+ * independently of the database, the migration creating that column had not been
+ * applied, and PostgREST answers an unknown column with an error — so EVERY plan
+ * read failed, `getUserPlan` fell back to `offlinePlanOr('free')`, and every user
+ * silently became free. It failed as a `warn`, behind a graceful-looking
+ * fallback.
+ *
+ * Naming a column here is a BREAKING CHANGE until its migration is deployed. Any
+ * new column belongs in its own query that tolerates absence (see `isUserBanned`).
+ */
 const PLAN_ROW_SELECT_BASE =
-    'plan, effective_tier, subscription_ends_at, subscription_status, lemon_subscription_id, banned_at';
+    'plan, effective_tier, subscription_ends_at, subscription_status, lemon_subscription_id';
 const PLAN_ROW_SELECT_WITH_VARIANT = `${PLAN_ROW_SELECT_BASE}, lemon_variant_id`;
 
 async function fetchPlanRowForUser(
@@ -678,7 +688,19 @@ export async function getUserPlan(userId: string): Promise<UserPlanDb> {
 export async function isUserBanned(userId: string): Promise<boolean> {
     try {
         const supabase = getSupabaseClient();
-        const { data, error } = await fetchPlanRowForUser(supabase, userId);
+        // Its OWN narrow query, deliberately not folded into the plan read. The
+        // plan read is load-bearing for entitlement; this one is not, so it must
+        // not be able to break it. Costs one extra round-trip per session
+        // establish (updateSession, not per checkSession) — a price worth paying
+        // to keep a non-essential column out of an essential query.
+        const { data, error } = await supabase
+            .from('users')
+            .select('banned_at')
+            .eq('id', userId)
+            .maybeSingle();
+        // Fails open on ANY error, including "column does not exist" before the
+        // migration is deployed. A ban is enforced server-side by the proxy; this
+        // is only the UX half, so a failure here must never lock anyone out.
         if (error || !data) return false;
         return !!(data as { banned_at?: string | null }).banned_at;
     } catch (err) {
