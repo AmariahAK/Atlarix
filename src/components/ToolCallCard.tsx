@@ -1,7 +1,7 @@
 /**
  * Tool Call Card Component (Enhanced)
  * ====================================
- * Hybrid UI: Dyad clarity + StackSense status + Aurora colors
+ * Hybrid UI: clarity + StackSense status + Aurora colors
  * - Collapsible by default
  * - Status indicators with animated states
  * - Auto-expand on errors

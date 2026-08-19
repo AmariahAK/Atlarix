@@ -210,11 +210,6 @@ export const GithubUserSchema = z.object({
   email: z.string(),
 });
 
-export const AtlarixProBudgetSchema = z.object({
-  budgetResetAt: z.string(),
-  maxBudget: z.number(),
-});
-
 export const GlobPathSchema = z.object({
   globPath: z.string(),
 });
@@ -496,7 +491,6 @@ export const UserSettingsSchema = z.object({
   // DEPRECATED.
   ////////////////////////////////
   enableProSaverMode: z.boolean().optional(),
-  atlarixProBudget: AtlarixProBudgetSchema.optional(),
   runtimeMode: RuntimeModeSchema.optional(),
 });
 

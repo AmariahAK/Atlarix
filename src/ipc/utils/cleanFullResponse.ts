@@ -61,10 +61,10 @@ export function stripPartialQuestionsBlockForDisplay(text: string): string {
 }
 
 export function cleanFullResponse(text: string): string {
-  // Replace < characters inside dyad-* / atlarix-* tag attributes with fullwidth less-than sign ＜
+  // Replace < characters inside atlarix-* tag attributes with fullwidth less-than sign ＜
   // This prevents parsing issues when attributes contain HTML tags like <a> or <div>
   let cleaned = text.replace(
-    /<(?:dyad|atlarix)-[^<>]*(?:"[^"]*"[^<>]*)*>/g,
+    /<atlarix-[^<>]*(?:"[^"]*"[^<>]*)*>/g,
     (match: string) => {
     // Find all attribute values (within quotes) and replace < with ＜ and > with ＞
     const processedMatch = match.replace(

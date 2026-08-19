@@ -185,10 +185,11 @@ export async function simpleStreamText(
                 reasoningCapable: enableNativeReasoning,
               }),
             );
-            // Per-provider buckets only. The two Dyad-era keys that used to open
-            // this object (`dyad-engine`, `dyad-gateway`) were addressed to the
-            // hosted engine and its upstream gateway; with that provider deleted
-            // no provider declares either identifier, so nothing read them.
+            // Per-provider buckets only. Two inherited keys used to open this
+            // object, addressed to the removed hosted engine and its upstream
+            // gateway; no provider declared either identifier, so nothing read
+            // them. Reasoning options now go in the real per-provider buckets
+            // below (openrouter / google|vertex / openai|azure).
             const providerOptions: Record<string, any> = {};
 
             // OpenRouter provider-routing pin (benchmarks: lock one provider +

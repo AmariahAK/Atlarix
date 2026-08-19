@@ -7,16 +7,15 @@ import { type UserSettings } from "@/lib/schemas";
 import { usePostHog } from "posthog-js/react";
 import { useAppVersion } from "./useAppVersion";
 
+// localStorage mirrors settings.json, which is the source of truth for consent.
+// The fork-era key names were unlinked on every settings load for many releases, so
+// that migration has already run everywhere; a stale one now simply reads as "no
+// consent", which fails closed.
 const TELEMETRY_CONSENT_KEY = "atlarixTelemetryConsent";
-const TELEMETRY_CONSENT_KEY_LEGACY = "dyadTelemetryConsent";
 const TELEMETRY_USER_ID_KEY = "atlarixTelemetryUserId";
-const TELEMETRY_USER_ID_KEY_LEGACY = "dyadTelemetryUserId";
 
 export function isTelemetryOptedIn() {
-  return (
-    window.localStorage.getItem(TELEMETRY_CONSENT_KEY) === "opted_in" ||
-    window.localStorage.getItem(TELEMETRY_CONSENT_KEY_LEGACY) === "opted_in"
-  );
+  return window.localStorage.getItem(TELEMETRY_CONSENT_KEY) === "opted_in";
 }
 
 let isInitialLoad = false;
@@ -113,19 +112,15 @@ function processSettingsForTelemetry(settings: UserSettings) {
       TELEMETRY_CONSENT_KEY,
       settings.telemetryConsent,
     );
-    window.localStorage.removeItem(TELEMETRY_CONSENT_KEY_LEGACY);
   } else {
     window.localStorage.removeItem(TELEMETRY_CONSENT_KEY);
-    window.localStorage.removeItem(TELEMETRY_CONSENT_KEY_LEGACY);
   }
   if (settings.telemetryUserId) {
     window.localStorage.setItem(
       TELEMETRY_USER_ID_KEY,
       settings.telemetryUserId,
     );
-    window.localStorage.removeItem(TELEMETRY_USER_ID_KEY_LEGACY);
   } else {
     window.localStorage.removeItem(TELEMETRY_USER_ID_KEY);
-    window.localStorage.removeItem(TELEMETRY_USER_ID_KEY_LEGACY);
   }
 }

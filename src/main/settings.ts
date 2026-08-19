@@ -129,14 +129,6 @@ export function readSettings(): UserSettings {
       ...DEFAULT_SETTINGS,
       ...rawSettings,
     };
-    // Migrate legacy settings key (written once on next save via normal paths)
-    const legacy = combinedSettings as UserSettings & {
-      dyadProBudget?: unknown;
-    };
-    if (legacy.dyadProBudget != null && legacy.atlarixProBudget == null) {
-      legacy.atlarixProBudget = legacy.dyadProBudget as UserSettings["atlarixProBudget"];
-    }
-    delete legacy.dyadProBudget;
     // v11: persisted pre-Core selections (`compass-*`) normalize to `core-N`
     // so the picker shows the new names (resolution also aliases at runtime).
     if (combinedSettings.selectedModel?.provider === "compass") {

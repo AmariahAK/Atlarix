@@ -47,7 +47,7 @@ AFTER TAG
     expect(result).toBe(expected);
   });
 
-  it("should handle other dyad tag types", () => {
+  it("should handle other atlarix tag types", () => {
     const input = `<atlarix-rename from="src/<old>.tsx" to="src/<new>.tsx"></atlarix-rename>`;
     const expected = `<atlarix-rename from="src/＜old＞.tsx" to="src/＜new＞.tsx"></atlarix-rename>`;
 
@@ -63,7 +63,7 @@ AFTER TAG
     expect(result).toBe(expected);
   });
 
-  it("should not affect content outside dyad tags", () => {
+  it("should not affect content outside atlarix tags", () => {
     const input = `Some text with <regular> HTML tags. <atlarix-write path="test.tsx" description="With <nested> tags.">content</atlarix-write> More <html> here.`;
     const expected = `Some text with <regular> HTML tags. <atlarix-write path="test.tsx" description="With ＜nested＞ tags.">content</atlarix-write> More <html> here.`;
 

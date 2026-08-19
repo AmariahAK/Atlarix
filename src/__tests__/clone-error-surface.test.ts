@@ -36,7 +36,6 @@ vi.mock("@/main/settings", () => ({
 
 vi.mock("@/config/github-oauth", () => ({
   getGithubDeviceFlowClientId: () => "client-id",
-  isLegacyDyadGithubDeviceClient: () => false,
   looksLikeInvalidGithubOAuthClientId: () => false,
 }));
 

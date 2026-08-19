@@ -520,9 +520,6 @@ export class PageObject {
     await this.page.getByTestId("preview-more-options-button").click();
   }
 
-  async clickPreviewRefresh() {
-    await this.page.getByTestId("preview-refresh-button").click();
-  }
 
   async clickPreviewNavigateBack() {
     await this.page.getByTestId("preview-navigate-back-button").click();
@@ -536,18 +533,7 @@ export class PageObject {
     await this.page.getByTestId("preview-open-browser-button").click();
   }
 
-  async clickPreviewAnnotatorButton() {
-    await this.page
-      .getByTestId("preview-annotator-button")
-      .click({ timeout: Timeout.EXTRA_LONG });
-  }
 
-  async waitForAnnotatorMode() {
-    // Wait for the annotator toolbar to be visible
-    await expect(this.page.getByRole("button", { name: "Select" })).toBeVisible(
-      { timeout: Timeout.MEDIUM },
-    );
-  }
 
   async clickAnnotatorSubmit() {
     await this.page.getByRole("button", { name: "Add to Chat" }).click();
@@ -564,11 +550,6 @@ export class PageObject {
     return this.page.getByTestId("preview-iframe-element");
   }
 
-  expectPreviewIframeIsVisible() {
-    return expect(this.getPreviewIframeElement()).toBeVisible({
-      timeout: Timeout.LONG,
-    });
-  }
 
   async clickFixErrorWithAI() {
     await this.page.getByRole("button", { name: "Fix error with AI" }).click();
@@ -903,11 +884,6 @@ export class PageObject {
     });
   }
 
-  async expectNoAppUpgrades() {
-    await expect(this.page.getByTestId("no-app-upgrades-needed")).toBeVisible({
-      timeout: Timeout.LONG,
-    });
-  }
 
   async clickAppDetailsRenameAppButton() {
     await this.page.getByTestId("app-details-rename-app-button").click();
@@ -1111,10 +1087,6 @@ export const test = base.extend<{
       process.env.OLLAMA_HOST = "http://localhost:3500/ollama";
       process.env.LM_STUDIO_BASE_URL_FOR_TESTING =
         "http://localhost:3500/lmstudio";
-      process.env.ATLARIX_ENGINE_URL = "http://localhost:3500/engine/v1";
-      process.env.DYAD_ENGINE_URL = process.env.ATLARIX_ENGINE_URL;
-      process.env.ATLARIX_GATEWAY_URL = "http://localhost:3500/gateway/v1";
-      process.env.DYAD_GATEWAY_URL = process.env.ATLARIX_GATEWAY_URL;
       process.env.E2E_TEST_BUILD = "true";
       if (!electronConfig.showSetupScreen) {
         // This is just a hack to avoid the AI setup screen.

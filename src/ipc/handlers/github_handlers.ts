@@ -30,19 +30,11 @@ import { IS_TEST_BUILD } from "../utils/test_utils";
 import path from "node:path"; // ← ADD THIS
 import {
   getGithubDeviceFlowClientId,
-  isLegacyDyadGithubDeviceClient,
   looksLikeInvalidGithubOAuthClientId,
 } from "@/config/github-oauth";
 import { startWorkspaceSession } from "./workspace_session_handlers";
 
 const logger = log.scope("github_handlers");
-
-if (isLegacyDyadGithubDeviceClient()) {
-  logger.warn(
-    "[GitHub] Using legacy Dyad OAuth client — GitHub will show “Authorize Dyad”. " +
-      "Set OAUTH_CLIENT_ID to an OAuth app named Atlarix (Device Flow enabled).",
-  );
-}
 
 // --- GitHub Device Flow Constants ---
 function resolveGithubClientId(): string {

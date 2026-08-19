@@ -5,18 +5,22 @@
  * not from Atlarix UI. Register an app named **Atlarix** and set `OAUTH_CLIENT_ID`:
  * https://github.com/settings/applications/new → enable Device Flow.
  *
- * Legacy Dyad client ID is kept only as a dev fallback until CI uses the Atlarix app.
+ * `OAUTH_CLIENT_ID` is REQUIRED. It has been a set CI secret since 2026-05-29, so
+ * every shipped build already authorizes as Atlarix; the inherited fork-era client id
+ * that used to serve as a dev fallback is gone. Missing it now fails loudly in dev
+ * rather than silently showing the user another vendor's name on the consent screen.
  */
-export const LEGACY_DYAD_GITHUB_DEVICE_CLIENT_ID = "Ov23liWV2HdC0RBLecWx";
 
 /** Read at call time — not module load — so preload-env runs first. */
 export function getGithubDeviceFlowClientId(): string {
   const fromEnv = process.env.OAUTH_CLIENT_ID?.trim();
-  return fromEnv || LEGACY_DYAD_GITHUB_DEVICE_CLIENT_ID;
-}
-
-export function isLegacyDyadGithubDeviceClient(): boolean {
-  return getGithubDeviceFlowClientId() === LEGACY_DYAD_GITHUB_DEVICE_CLIENT_ID;
+  if (!fromEnv) {
+    throw new Error(
+      "OAUTH_CLIENT_ID is not set. Register a GitHub OAuth app named Atlarix with " +
+        "Device Flow enabled and set OAUTH_CLIENT_ID in your .env.",
+    );
+  }
+  return fromEnv;
 }
 
 /** GitHub OAuth App client IDs are short public strings (often `Ov23li…`), not 40-char hex secrets. */

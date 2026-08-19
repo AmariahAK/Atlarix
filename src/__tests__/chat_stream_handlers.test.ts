@@ -962,8 +962,8 @@ describe("removeAtlarixTags", () => {
     expect(result).toBe("");
   });
 
-  it("should return the same text when no dyad tags are present", () => {
-    const text = "This is a regular text without any dyad tags.";
+  it("should return the same text when no atlarix tags are present", () => {
+    const text = "This is a regular text without any atlarix tags.";
     const result = removeAtlarixTags(text);
     expect(result).toBe(text);
   });
@@ -986,13 +986,13 @@ describe("removeAtlarixTags", () => {
     expect(result).toBe("Before text  After text");
   });
 
-  it("should remove multiple different dyad tags", () => {
+  it("should remove multiple different atlarix tags", () => {
     const text = `Start <atlarix-write path="file1.js">code here</atlarix-write> middle <atlarix-delete path="file2.js"></atlarix-delete> end <atlarix-rename from="old.js" to="new.js"></atlarix-rename> finish`;
     const result = removeAtlarixTags(text);
     expect(result).toBe("Start  middle  end  finish");
   });
 
-  it("should remove dyad tags with multiline content", () => {
+  it("should remove atlarix tags with multiline content", () => {
     const text = `Before
 <atlarix-write path="src/component.tsx" description="A React component">
 import React from 'react';
@@ -1008,13 +1008,13 @@ After`;
     expect(result).toBe("Before\n\nAfter");
   });
 
-  it("should handle dyad tags with complex attributes", () => {
+  it("should handle atlarix tags with complex attributes", () => {
     const text = `Text <atlarix-write path="src/file.js" description="Complex component with quotes" version="1.0">const x = "hello world";</atlarix-write> more text`;
     const result = removeAtlarixTags(text);
     expect(result).toBe("Text  more text");
   });
 
-  it("should remove dyad tags and trim whitespace", () => {
+  it("should remove atlarix tags and trim whitespace", () => {
     const text = `  <atlarix-write path="file.js">code</atlarix-write>  `;
     const result = removeAtlarixTags(text);
     expect(result).toBe("");
@@ -1029,19 +1029,19 @@ const component = <Component />;
     expect(result).toBe("");
   });
 
-  it("should handle self-closing dyad tags", () => {
+  it("should handle self-closing atlarix tags", () => {
     const text = `Before <atlarix-delete path="file.js" /> After`;
     const result = removeAtlarixTags(text);
     expect(result).toBe('Before <atlarix-delete path="file.js" /> After');
   });
 
-  it("should handle malformed dyad tags gracefully", () => {
+  it("should handle malformed atlarix tags gracefully", () => {
     const text = `Before <atlarix-write path="file.js">unclosed tag After`;
     const result = removeAtlarixTags(text);
     expect(result).toBe('Before <atlarix-write path="file.js">unclosed tag After');
   });
 
-  it("should handle dyad tags with special characters in content", () => {
+  it("should handle atlarix tags with special characters in content", () => {
     const text = `<atlarix-write path="file.js">
 const regex = /<div[^>]*>.*?</div>/g;
 const special = "Special chars: @#$%^&*()[]{}|\\";
@@ -1050,16 +1050,10 @@ const special = "Special chars: @#$%^&*()[]{}|\\";
     expect(result).toBe("");
   });
 
-  it("should handle multiple dyad tags of the same type", () => {
+  it("should handle multiple atlarix tags of the same type", () => {
     const text = `<atlarix-write path="file1.js">code1</atlarix-write> between <atlarix-write path="file2.js">code2</atlarix-write>`;
     const result = removeAtlarixTags(text);
     expect(result).toBe("between");
-  });
-
-  it("should handle dyad tags with custom tag names", () => {
-    const text = `Before <dyad-custom-action param="value">content</dyad-custom-action> After`;
-    const result = removeAtlarixTags(text);
-    expect(result).toBe("Before  After");
   });
 
   it("preserves pasted text and terminal attachment bodies in ask mode", () => {
@@ -1076,7 +1070,7 @@ const special = "Special chars: @#$%^&*()[]{}|\\";
 
 describe("hasUnclosedAtlarixWrite", () => {
   it("should return false when there are no atlarix-write tags", () => {
-    const text = "This is just regular text without any dyad tags.";
+    const text = "This is just regular text without any atlarix tags.";
     const result = hasUnclosedAtlarixWrite(text);
     expect(result).toBe(false);
   });

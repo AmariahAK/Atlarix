@@ -3,7 +3,7 @@
  * real HTTP round-trip.
  *
  * The proxy used to buffer every HTML response and splice six `<script>` tags into
- * `<head>` (stacktrace.js, html-to-image, and four `dyad-*.js` clients). That
+ * `<head>` (stacktrace.js, html-to-image, and four injected client scripts). That
  * apparatus was dead — nothing in `src/` had listened for the messages those
  * scripts post since the preview surface was removed in v14.15.0 — and two of the
  * libraries were never declared dependencies, so it logged ENOENT on every start

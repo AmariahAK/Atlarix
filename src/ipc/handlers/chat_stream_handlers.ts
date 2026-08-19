@@ -1109,7 +1109,7 @@ export function registerChatStreamHandlers() {
         // A `files: any[]` used to be declared here, set to `[]`, walked to mark
         // "selected components" focused (a loop over an empty array), and then
         // threaded through both branches into `simpleStreamText` and out as
-        // `dyadFiles`. Its own comment said "kept for backward compatibility".
+        // the legacy files field. Its own comment said "kept for backward compatibility".
         const codebaseInfo = ""; // Diagram context injected via systemPrompt instead
 
         // Parse @file:/@dir: mentions and build a scoped context block

@@ -182,11 +182,10 @@ export function removeProblemReportTags(text: string): string {
 }
 
 export function removeAtlarixTags(text: string): string {
-  const legacyDyadBlock = /<dyad-[^>]*>[\s\S]*?<\/dyad-[^>]*>/g;
   // Keep user paste/terminal attachments — ask mode needs these bodies for the model.
   const atlarixBlock =
     /<atlarix-(?!text-attachment|terminal-attachment)[^>]*>[\s\S]*?<\/atlarix-[^>]*>/g;
-  return text.replace(legacyDyadBlock, "").replace(atlarixBlock, "").trim();
+  return text.replace(atlarixBlock, "").trim();
 }
 
 export function hasUnclosedAtlarixWrite(text: string): boolean {
