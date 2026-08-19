@@ -27,7 +27,11 @@ The Dyad-era removal and five of the six code tasks are DONE (six commits; see
 **Still open:**
 
 - **1 code task** — the Console + Network packaged pass, owed since v14.31.0. Verification only, no
-  code expected.
+  code expected. **Not attemptable headlessly:** it needs a workspace open, a browser tab driven by
+  hand, and a live turn (so an API key and a model). The packaged build itself is verified —
+  `self-test:packaged` **9/9** on 2026-08-19, including the `sqlite` probe, after all six commits.
+  That matters most for commits 1 and 3, which dropped IPC channels: a dropped channel still
+  compiles and only fails at runtime, and nothing failed.
 - **1 Windows session** — unchanged; every fix in that section is already shipped and the
   checkboxes are its verification checklist.
 - **1 owner decision** — the five unused dependencies (the Windows signing cert is release-infra).
@@ -752,10 +756,18 @@ re-litigated. One line each so this file stays a queue, not a design doc.
       safe rather than broad: a CSP header on an ordinary subresource script response is IGNORED —
       only documents and worker scripts honour their own — so it changes behaviour for workers and
       nothing else. `'wasm-unsafe-eval'` stays, because it is what lets onnxruntime-web compile.
-      Predicate extracted to `main/csp-policy-target.ts` and tested. **OWED: confirm on-device voice
-      still transcribes in the packaged app**, and `ATLARIX_DEBUG_CSP=1` logs the resourceType that
-      actually matched so the assumption above can be checked rather than trusted. If voice breaks,
-      revert to docstring-only — a blocked worker that also blocks ONNX is worse than the gap.
+      Predicate extracted to `main/csp-policy-target.ts` and tested.
+      **MEASURED on a packaged build, 2026-08-19** (`ATLARIX_DEBUG_CSP=1`): `file://` scripts report
+      `resourceType=script` (5 stamped on boot) and the document reports `mainFrame`; `stylesheet`,
+      `font` and `media` are correctly skipped. The app booted and rendered with those 5 scripts
+      stamped and **zero CSP violations or errors**, which is the empirical form of the claim above —
+      a CSP header on an ordinary subresource script is ignored, or the app would not have started.
+      **STILL OWED, one click:** the whisper worker only spawns when a composer MOUNTS with the local
+      provider, so it needs a workspace open. The probe account is free-tier and already at its
+      1-workspace limit (`PlanLimitError`), so the worker never loaded. Open an existing workspace in
+      the packaged app, confirm dictation still transcribes, and check the log for a
+      `[csp] APPLY resourceType=script … whisper-worker` line. If ONNX fails to compile, revert to
+      docstring-only — a blocked worker that also blocks WASM is worse than the gap.
 
 - **Configurable read-deny patterns, opencode-style** — user-declared only
   (`read: { "<pattern>": "ask" | "allow" | "deny" }`), no defaults; chosen over Codex's model
