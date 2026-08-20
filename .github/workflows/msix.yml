@@ -95,7 +95,18 @@ env:
 
 jobs:
   msix:
-    runs-on: windows-latest
+    # PINNED, not `windows-latest`. GitHub's windows-latest image moved to Visual
+    # Studio Enterprise 2026 (v18.8.2), and @electron/node-gyp@10.2.0-electron.1
+    # only knows VS up to 2022 (v17): it parses the instance, logs
+    # "unsupported version: 18", falls through every older check and reports
+    # "Could not find any Visual Studio installation to use" on a machine with a
+    # brand-new one. better-sqlite3's rebuild then fails and the job dies.
+    #
+    # Nothing in this repo changed — v14.34.0 built on the same code. Un-pin when
+    # @electron/node-gyp (via @electron/rebuild) learns VS 2026, and verify by the
+    # ABSENCE of "unsupported version: 18" in the gyp log, not by the build passing
+    # (a passing build proves the toolchain was found, not which one).
+    runs-on: windows-2022
     timeout-minutes: 120
     steps:
       - name: Checkout code
