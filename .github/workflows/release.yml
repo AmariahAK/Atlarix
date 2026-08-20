@@ -296,7 +296,27 @@ jobs:
           # verifier can't. Only x64 CI runners can execute an arm64 bin natively,
           # so run the self-test only when the build arch matches the runner.
           if [ "${{ matrix.arch }}" = "$(node -p process.arch)" ]; then
-            node scripts/run-packaged-self-test.mjs --arch=${{ matrix.arch }}
+            # On failure, dump what a SIGNED build can fail on and a local build
+            # cannot: the signature and the entitlements actually applied, plus
+            # anything the kernel said. v14.35.0's arm64 build died in 75ms having
+            # printed nothing, and none of this was recoverable after the fact —
+            # the app is deleted with the runner. An entitlement the binary is not
+            # provisioned for is SIGKILLed on exec while `codesign -v` still
+            # reports it valid, so `codesign -v` alone proves nothing here.
+            if ! node scripts/run-packaged-self-test.mjs --arch=${{ matrix.arch }}; then
+              APP="out/Atlarix-darwin-${{ matrix.arch }}/Atlarix.app"
+              echo "::group::signature + entitlements (${APP})"
+              codesign -dv --verbose=4 "$APP" 2>&1 || true
+              echo "--- entitlements applied to the app bundle:"
+              codesign -d --entitlements - --xml "$APP" 2>&1 | plutil -convert xml1 -o - - 2>/dev/null ||                 codesign -d --entitlements - "$APP" 2>&1 || true
+              echo "--- a nested helper, which must NOT carry keychain-access-groups:"
+              codesign -d --entitlements - "$APP/Contents/Resources/app.asar.unpacked/node_modules/@vscode/ripgrep/bin/rg" 2>&1 || true
+              echo "::endgroup::"
+              echo "::group::kernel + launch log"
+              log show --last 10m --predicate 'process == "Atlarix" OR sender == "kernel" OR sender == "AMFI"' --style compact 2>&1 | grep -iE "atlarix|amfi|entitle|killed" | tail -60 || true
+              echo "::endgroup::"
+              exit 1
+            fi
           else
             echo "::notice::skipping self-test — build arch ${{ matrix.arch }} != runner $(node -p process.arch)"
           fi

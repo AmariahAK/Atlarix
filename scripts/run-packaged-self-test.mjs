@@ -77,4 +77,32 @@ if (result.error) {
   console.error(`[self-test] launch error:`, result.error.message);
   process.exit(1);
 }
+
+// A SIGNAL is not an exit code, and conflating them hides the worst failures.
+//
+// This used to be a bare `process.exit(result.status ?? 1)`. When the packaged app
+// is killed by the kernel — an entitlement it is not provisioned for, a broken
+// signature, a dyld failure — `status` is null and `signal` carries the truth. The
+// old line turned that into a plain "exit 1" with no probe output, which reads
+// exactly like a failing probe. It cost a long investigation on the v14.35.0
+// release: the app died in 75ms having printed nothing, and the log could not say
+// why. Both silent-kill traps this project already knows about land here
+// (configureWebAuthn before whenReady = SIGTRAP/133, a keychain access group on a
+// binary that is not provisioned for it = SIGKILL/137), so this is the one place
+// that must name them.
+if (result.signal) {
+  console.error(
+    `[self-test] the app was KILLED by ${result.signal} before finishing — ` +
+      `no probe output means it never reached JS.\n` +
+      `[self-test] On macOS this is almost always the signature or the entitlements, ` +
+      `not the probes: an entitlement the binary is not provisioned for is SIGKILLed ` +
+      `on exec while \`codesign -v\` still calls it valid. Check with:\n` +
+      `[self-test]   codesign -d --entitlements - "<Atlarix.app>"\n` +
+      `[self-test]   log show --last 5m --predicate 'sender == "kernel"' | grep -i atlarix`,
+  );
+  process.exit(1);
+}
+if (result.status !== 0) {
+  console.error(`[self-test] app exited ${result.status} without passing`);
+}
 process.exit(result.status ?? 1);

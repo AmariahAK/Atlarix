@@ -272,6 +272,62 @@ absence. Getting the deployed-schema check back needs a real database, not a fil
 
 Cheap standing check: for every repo-relative path a test reads, `git ls-files --error-unmatch` it.
 
+## 🔴 v14.35.0 FAILED TO SHIP on the first tag — two independent regressions, 2026-08-20
+
+The tag built, `quality` and `create-draft` went green, Linux and macOS-x64 uploaded, and **three of
+six build jobs failed**. Nothing was published. Draft deleted and re-tagged rather than shipped
+partial — a release with no Apple Silicon build and no `latest-mac.yml` would have broken macOS
+auto-update for everyone.
+
+### 1. Windows + MSIX: node-gyp could not find Visual Studio — DIAGNOSED AND FIXED
+
+`@electron/node-gyp@10.2.0-electron.1`'s `find-visualstudio.js` calls `execFile` with **no
+`maxBuffer`**, so Node's 1 MB default applies. `findNewVSUsingSetupModule` runs
+`Get-VSSetupInstance | ConvertTo-Json -Depth 3`, which serialises every VS instance *and its full
+package list* — on windows-latest (VS 2022 Enterprise) that exceeds 1 MB, `execFile` rejects with
+`ERR_CHILD_PROCESS_STDIO_MAXBUFFER`, the check returns null, every later check also fails, and
+node-gyp reports **"Could not find any Visual Studio installation to use"** on a machine that plainly
+has one. It took out `build-windows` and `build-msix`, both at better-sqlite3's rebuild.
+
+Fixed with a third patch-package patch raising `maxBuffer` to 64 MB. **Corrected a wrong first
+guess:** this is NOT better-sqlite3 12.11.1 pulling a newer node-gyp — `git log -S'@electron/node-gyp'`
+shows that dependency unchanged since the initial commit. It is the runner's VS package list crossing
+1 MB, which makes it a latent bug that would have fired on any release from here.
+
+**The `VCINSTALLDIR` route was considered and rejected:** `findVSFromSpecifiedLocation` gates on that
+env var and would skip PowerShell entirely, but it also needs `VSCMD_VER`, i.e. a real VS Developer
+Command Prompt — a third-party action in the release workflow. Patching the actual defect is smaller
+and in our control. **Drop the patch when upstream adds a maxBuffer.**
+
+### 2. macOS arm64: the SIGNED app will not launch — NOT yet diagnosed
+
+`self-test:packaged` launched the Developer-ID-signed arm64 build and it **died in 75 ms having
+printed nothing**. v14.34.0's identical step passed **8/8**, so it is a v14.35.0 regression.
+
+Prime suspect is the passkey entitlement: `entitlements.mac.plist` — carrying
+`keychain-access-groups: 7VWW7N9R87.com.electron.atlarix.webauthn` — **did not exist at v14.34.0**.
+This is the first CI-signed build to apply it, and it is exactly the documented failure mode that
+SIGKILLed `rg`: an entitlement the binary is not provisioned for is killed on exec while
+`codesign -v` still calls it valid. Electron 38 → 43 is the other candidate. **No probe output means
+it never reached JS**, which rules out anything in our own startup path — including
+`configureWebAuthn`, which `--self-test` never reaches (it exits before `whenReady`).
+
+Two diagnostics added rather than guessing:
+- **`run-packaged-self-test.mjs` was throwing the evidence away.** `process.exit(result.status ?? 1)`
+  turns a signal-kill (`status: null`) into a plain exit 1, which reads exactly like a failing probe.
+  It now names the signal and points at `codesign -d --entitlements`. **A signal is not an exit code**,
+  and conflating them hid the worst class of failure this project has.
+- The macOS job now dumps the applied entitlements, a nested helper's entitlements, and the kernel /
+  AMFI log on failure. None of it was recoverable afterwards — the app dies with the runner.
+
+### 3. macOS x64 "success" is not evidence, and that is by design
+
+The x64 job never launches the packaged app: the self-test is gated on
+`matrix.arch == process.arch` because an arm64 runner cannot execute an x64 binary natively, and it
+prints a `::notice::` when it skips. So **only the arm64 job ever executes a signed build**, and x64
+uploads assets nothing has launched even once. Deliberate and documented — but worth knowing that
+"build-macos (x64): success" carries no runtime signal at all.
+
 ## 🪤 Traps worth not rediscovering
 
 Grouped by where they bite. Each is the one sentence that would have saved the time; the long form is

@@ -1,0 +1,26 @@
+diff --git a/node_modules/@electron/node-gyp/lib/find-visualstudio.js b/node_modules/@electron/node-gyp/lib/find-visualstudio.js
+index 1b5ddf3..43e3e08 100644
+--- a/node_modules/@electron/node-gyp/lib/find-visualstudio.js
++++ b/node_modules/@electron/node-gyp/lib/find-visualstudio.js
+@@ -583,7 +583,20 @@ class VisualStudioFinder {
+   }
+ 
+   async execFile (exec, args) {
+-    return await execFile(exec, args, { encoding: 'utf8' })
++    // PATCHED (Atlarix): raise maxBuffer off Node's 1 MB default.
++    //
++    // findNewVSUsingSetupModule runs `Get-VSSetupInstance | ConvertTo-Json -Depth 3`,
++    // which serialises every VS instance AND its full package list. On a GitHub
++    // windows-latest runner (VS 2022 Enterprise, thousands of packages) that JSON
++    // exceeds 1 MB, so execFile rejects with ERR_CHILD_PROCESS_STDIO_MAXBUFFER, the
++    // check returns null, every later check also fails, and node-gyp reports
++    // "Could not find any Visual Studio installation to use" on a machine that
++    // plainly has one. That took out build-windows AND build-msix on the v14.35.0
++    // tag, both at better-sqlite3's rebuild.
++    //
++    // Upstream node-gyp has since added a maxBuffer here; @electron/node-gyp
++    // 10.2.0-electron.1 has not. Drop this patch when it does.
++    return await execFile(exec, args, { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 })
+   }
+ }
+ 
