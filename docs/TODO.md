@@ -273,23 +273,39 @@ auto-update for everyone.
 
 ### 1. Windows + MSIX: node-gyp could not find Visual Studio — DIAGNOSED AND FIXED
 
-`@electron/node-gyp@10.2.0-electron.1`'s `find-visualstudio.js` calls `execFile` with **no
-`maxBuffer`**, so Node's 1 MB default applies. `findNewVSUsingSetupModule` runs
-`Get-VSSetupInstance | ConvertTo-Json -Depth 3`, which serialises every VS instance *and its full
-package list* — on windows-latest (VS 2022 Enterprise) that exceeds 1 MB, `execFile` rejects with
-`ERR_CHILD_PROCESS_STDIO_MAXBUFFER`, the check returns null, every later check also fails, and
-node-gyp reports **"Could not find any Visual Studio installation to use"** on a machine that plainly
-has one. It took out `build-windows` and `build-msix`, both at better-sqlite3's rebuild.
+**Two latent defects in `@electron/node-gyp@10.2.0-electron.1`, both surfacing at once**, because
+this is the FIRST release in which Windows CI has ever had to compile `better-sqlite3` from source.
 
-Fixed with a third patch-package patch raising `maxBuffer` to 64 MB. **Corrected a wrong first
-guess:** this is NOT better-sqlite3 12.11.1 pulling a newer node-gyp — `git log -S'@electron/node-gyp'`
-shows that dependency unchanged since the initial commit. It is the runner's VS package list crossing
-1 MB, which makes it a latent bug that would have fired on any release from here.
+**Why it is new, since nothing in the toolchain moved:** v14.34.0 built green on the *same*
+`windows-2025-vs2026` image and **never ran the VS finder at all** — `grep -c "find VS"` on its log
+is **0** — because better-sqlite3 arrived as a PREBUILT binary. Electron 43 (ABI 148) with
+better-sqlite3 12.11.1 has no prebuild, so it compiles, which invokes the finder, which has been
+broken all along.
 
-**The `VCINSTALLDIR` route was considered and rejected:** `findVSFromSpecifiedLocation` gates on that
-env var and would skip PowerShell entirely, but it also needs `VSCMD_VER`, i.e. a real VS Developer
-Command Prompt — a third-party action in the release workflow. Patching the actual defect is smaller
-and in our control. **Drop the patch when upstream adds a maxBuffer.**
+1. **`execFile` with no `maxBuffer`** → Node's 1 MB default. `findNewVSUsingSetupModule` runs
+   `Get-VSSetupInstance | ConvertTo-Json -Depth 3`, serialising every VS instance *and its full
+   package list*; that exceeds 1 MB, `execFile` rejects with `ERR_CHILD_PROCESS_STDIO_MAXBUFFER`,
+   and the check returns null. **Fixed** by a patch-package patch raising it to 64 MB — and without
+   it the log could not say what was actually wrong.
+2. **No VS >= 18 support.** With the query no longer truncated the finder parses the instance and
+   logs `unsupported version: 18` / `invalid versionYear: undefined`, falls through every older
+   check, and reports "Could not find any Visual Studio installation to use". **NOT fixed** —
+   worked around by pinning to `windows-2022`.
+
+**TWO wrong guesses were made and corrected on the way, both stated confidently first:** that
+better-sqlite3 12.11.1 pulled a newer node-gyp (`git log -S'@electron/node-gyp'` shows that
+dependency unchanged since the initial commit), and that GitHub's image had "moved to VS 2026" (it
+had VS 2026 two days earlier and built fine). The lesson is the cheap one: **check whether the code
+path ran at all before theorising about why it failed.**
+
+- [ ] **Un-pin Windows from `windows-2022`.** It is on GitHub's deprecation path and much colder
+      (~5 min of setup, and the build step ran ~2.4x the v14.34.0 baseline of 7m41s), so the pin
+      buys one release. The fix is to extend the existing patch so version 18 maps to year 2026, in
+      the same `find-visualstudio.js`. Verify by the **absence** of `unsupported version: 18` in the
+      gyp log, not by the build passing — a passing build proves a toolchain was found, not which one.
+- **The `VCINSTALLDIR` route was considered and rejected:** `findVSFromSpecifiedLocation` gates on
+  that env var and would skip PowerShell entirely, but it also needs `VSCMD_VER`, i.e. a real VS
+  Developer Command Prompt — a third-party action in the release workflow.
 
 ### 2. macOS arm64: the SIGNED app would not launch — DIAGNOSED AND RESOLVED by removing the feature
 

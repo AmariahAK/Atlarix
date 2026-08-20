@@ -615,17 +615,28 @@ jobs:
   build-windows:
     needs: [quality, create-draft, build-linux]
     if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
-    # PINNED, not `windows-latest`. GitHub's windows-latest image moved to Visual
-    # Studio Enterprise 2026 (v18.8.2), and @electron/node-gyp@10.2.0-electron.1
-    # only knows VS up to 2022 (v17): it parses the instance, logs
-    # "unsupported version: 18", falls through every older check and reports
-    # "Could not find any Visual Studio installation to use" on a machine with a
-    # brand-new one. better-sqlite3's rebuild then fails and the job dies.
+    # PINNED, not `windows-latest` — a STOPGAP, and it is on a deprecation path.
     #
-    # Nothing in this repo changed — v14.34.0 built on the same code. Un-pin when
-    # @electron/node-gyp (via @electron/rebuild) learns VS 2026, and verify by the
-    # ABSENCE of "unsupported version: 18" in the gyp log, not by the build passing
-    # (a passing build proves the toolchain was found, not which one).
+    # `windows-latest` resolves to `windows-2025-vs2026`, whose only Visual Studio
+    # is 2026 (v18.8.2). @electron/node-gyp@10.2.0-electron.1 knows VS up to 2022
+    # (v17) only: it finds the instance, logs "unsupported version: 18", falls
+    # through every older check, and reports "Could not find any Visual Studio
+    # installation to use" on a machine with a brand-new one.
+    #
+    # WHY THIS IS NEW, since the image is not: v14.34.0 built green on the SAME
+    # vs2026 image and never ran the VS finder at all (`grep -c "find VS"` on its
+    # log is 0), because better-sqlite3 came from a PREBUILT binary. Electron 43
+    # (ABI 148) with better-sqlite3 12.11.1 has no prebuild, so Windows now
+    # compiles from source — the first time this pipeline has invoked that finder,
+    # which is why two latent defects in it surfaced at once (the 1 MB maxBuffer,
+    # patched, and no VS>=18 support, unpatched).
+    #
+    # THE REAL FIX is to teach the patched find-visualstudio.js that version 18 is
+    # year 2026 and go back to `windows-latest`: this image is much colder (~5 min
+    # of setup before the build step) and GitHub is retiring windows-2022, so the
+    # pin buys one release. Verify the un-pin by the ABSENCE of "unsupported
+    # version: 18" in the gyp log, not by the build passing — a passing build
+    # proves a toolchain was found, not which one.
     runs-on: windows-2022
     timeout-minutes: 180
     steps:
