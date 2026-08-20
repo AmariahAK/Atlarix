@@ -518,6 +518,29 @@ place our write-confinement story stops answering the question.
 
 ---
 
+## Permission surface — the audit's answer, kept after the report was deleted
+
+`docs/PERMISSION_SURFACE_AUDIT_v14.26.0.md` was report-only and said of itself "deleted once
+acted on". Both of its findings are now settled, so the file is gone (recover from git if the
+working is ever wanted). What must not be re-derived:
+
+- **The surface is layered, not duplicated.** Four duplication hypotheses went in and all four
+  were refuted by the code: every mechanism answers a question no other one answers, and where
+  two gates look alike the modules' own headers say which is the boundary and which is UX. The
+  owner's question was "are we overcomplicating this by copying Codex and Claude Code", and the
+  honest answer was no. Do not re-open it without new evidence.
+- **`guard.ts` is not a permission mechanism at all** — schema validation, a `TOOL_ERROR` catch,
+  Sentry breadcrumbs and `canonicalizeParamAliases`. It passes `__permission_required` through
+  untouched and decides nothing about access. The name and its folder invite exactly this
+  confusion, which is why it is written down.
+- **Complexity is concentrated, not spread**: `interceptor.ts` is still 2,127 lines, ~40% of the
+  surface in one file. If anything here is overcomplicated it is that file's internal structure,
+  and deleting *modules* cannot touch it. Not a task — there is no observed failure — but it is
+  where to look first if one appears.
+- The audit's other finding (`ask` rules compiled, matched, logged and never enforced) **was
+  acted on in v14.26.0**: there is no `ask` list any more, and a file containing that key is
+  warned about rather than silently ignored (`lib/tools/permissions/ruleset.ts:17`).
+
 ## Smaller items from the 2026-08-15 upstream review
 
 Noted, not scheduled. Sources: opencode `v1.18.17`, claude-code `v2.1.229` / `232` / `233`.

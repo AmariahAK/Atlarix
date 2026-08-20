@@ -35,7 +35,7 @@ any repo size. The agent has a workspace. You have control.
 
 **Open ecosystem (source / installers / registries):** community **Agent Behaviors** live in [AmariahAK/atlarix-skills](https://github.com/AmariahAK/atlarix-skills); the **MCP marketplace index** is [AmariahAK/atlarix-mcps](https://github.com/AmariahAK/atlarix-mcps); official desktop builds are published from [AmariahAK/atlarix-releases](https://github.com/AmariahAK/atlarix-releases). The Atlarix app itself is proprietary.
 
-Release notes: **[docs/CHANGELOG.md](docs/CHANGELOG.md)** (current: 14.0+). Older entries: **[docs/CHANGELOG_PREVIOUS.md](docs/CHANGELOG_PREVIOUS.md)**.
+Release notes: **[docs/CHANGELOG.md](docs/CHANGELOG.md)** (current: 14.25+). Older entries: **[docs/CHANGELOG_PREVIOUS.md](docs/CHANGELOG_PREVIOUS.md)**.
 
 ---
 
@@ -123,7 +123,7 @@ _MiniMax-M3 (fp8) · **single attempt (k=1)** · native function-calling · matc
 
 Releases are built from **this repository** via GitHub Actions ([**Atlarix CI**](.github/workflows/release.yml)). Pushes to **`main`** and pull requests run typecheck, lint, and tests; pushing a **version tag** (`vX.Y.Z`) runs those checks first, then the full macOS/Linux/Windows build and publish to [atlarix-releases](https://github.com/AmariahAK/atlarix-releases).
 
-1. Bump **`package.json` `version`** and add a section to [`docs/CHANGELOG.md`](docs/CHANGELOG.md) (9.0+). Archive older sections to [`docs/CHANGELOG_PREVIOUS.md`](docs/CHANGELOG_PREVIOUS.md) when the main file grows too long.
+1. Bump **`package.json` `version`** and add a section to [`docs/CHANGELOG.md`](docs/CHANGELOG.md). Archive older sections to [`docs/CHANGELOG_PREVIOUS.md`](docs/CHANGELOG_PREVIOUS.md) when the main file grows too long — keep roughly the last ten releases. Only the CURRENT version's section is read by the release tooling, so archiving is safe.
 2. Refresh the bundled model catalog: `npm run models:snapshot` (writes `build/models-snapshot.json.gz`) and commit it. This is the offline floor for the model picker — a stale snapshot self-heals on first successful refresh, so this is a nice-to-have, not a blocker.
 3. Commit, tag, and push:
    ```bash
@@ -132,7 +132,7 @@ Releases are built from **this repository** via GitHub Actions ([**Atlarix CI**]
    ```
 4. **Actions → Release** builds macOS/Linux/Windows assets and publishes when green.
 
-See [`.github/workflows/release.yml`](.github/workflows/release.yml) and [docs/CREDENTIALS_SETUP.md](docs/CREDENTIALS_SETUP.md) for secrets and migration bundling (`npm run db:bundle-sql` after Drizzle changes).
+See [`.github/workflows/release.yml`](.github/workflows/release.yml) for the secrets each job needs, and run `npm run db:bundle-sql` after any Drizzle change so the migration bundle ships.
 
 ### Headless agent (benchmarking / CI)
 
