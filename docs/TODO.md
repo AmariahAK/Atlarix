@@ -1,6 +1,7 @@
 # Atlarix TODO
 
-**Current version:** v14.35.0 — Electron 43, browser-backed web search, the
+**Current version:** v14.35.0 — **RELEASED 2026-08-20** (12 assets, `/releases/latest` verified).
+Electron 43, browser-backed web search, the
 spec-line majors, 54 → 28 advisories, the Dyad-era removal (~30,500 lines), plan switcher +
 plan-by-title, automations returning their id, the ban system, the whisper-worker CSP, and four
 plan-tracking fixes.
@@ -353,42 +354,39 @@ prints a `::notice::` when it skips. So **only the arm64 job ever executes a sig
 uploads assets nothing has launched even once. Deliberate and documented — but worth knowing that
 "build-macos (x64): success" carries no runtime signal at all.
 
-## 🪟 The packaged self-test does not EXIT on Windows — bounded 2026-08-20, root cause OPEN
+## 🪟 The packaged self-test did not EXIT on Windows — FIXED 2026-08-20 (`app.exit`)
 
-Third Windows problem on the v14.35.0 tag, and the only one still unexplained. It is **CI-only** —
-the shipped app is meant to keep running — but it cost a 22-minute hang and a cancelled release run.
+Third Windows problem on the v14.35.0 tag, CI-only, and it cost a 22-minute hang plus a cancelled
+release run. **`process.exit(code)` does not reliably terminate Electron's main process.** The app
+printed `PASSED (9/9 probes)` and kept running. `app.exit(code)` before it fixed it: the Windows job
+now completes in ~10.5 min and the release published.
 
-**What the log establishes** (not inference): the Squirrel maker is fine (79s, vs 69s at v14.34.0);
-the packaged app launched with `--self-test`, printed **`PASSED (9/9 probes)`**, then kept doing
-normal app work (`pro_handlers` budget fetch 3s later) and never exited.
+**MY TWO-PROCESS THEORY WAS WRONG, and the pid stamp is what disproved it.** The log appeared to
+contain both self-test output and a full `onReady()` boot, which looked impossible in one process, so
+I concluded there were two and wrote down two candidate mechanisms (a fork booting as an app; the
+hidden web-search window blocking `window-all-closed`). Stamping `process.pid` on every line showed:
 
-**The part that does not add up.** That same window contains a full `onReady()` boot — migrations,
-automations runner, SubscriptionManager, auto-updater. `onReady()` is called from exactly ONE place,
-inside `if (!IS_SELF_TEST)` (`main.ts:1516`). A process printing `[self-test]` output cannot also
-have `IS_SELF_TEST === false`. So there were **two processes**, and the second — booting as a full
-app and never exiting — plausibly held the inherited stdio so `spawnSync` could not return.
+- `pid=1452` = the harness's own **unit tests** under vitest (`ok-a`/`ok-b`/`boom`/`after`), never the app.
+- `pid=972` = the packaged app, emitting all 9 probes — **twice**.
 
-**Two candidate mechanisms, neither confirmed. Do not pick one without evidence:**
-1. A forked child re-launching `atlarix.exe` that boots as an app rather than a worker.
-   `RunAsNode` is fused **off**, so `ELECTRON_RUN_AS_NODE` is inert and such a fork would boot the
-   whole app. If this is it, it could affect real users too, not just CI.
-2. `lib/browser/headless-page.ts:183` creates a `show: false` window for browser-backed web search
-   — new in v14.35.0 — and its own docstring warns "**a hidden window is still an OPEN window**",
-   which blocks `window-all-closed` so the app will not quit.
+One app process. The duplication is the runner: `stdio: "inherit"` shows the lines live, and then it
+dumps the Windows file sink ("--- captured output ---"). `[self-test]` lines go to BOTH, electron-log
+lines only to stdout — which is exactly why probes appeared twice and `main onReady started` once, and
+why it read as two boots. **Neither candidate mechanism was real.** Both are withdrawn.
 
-**Bounded rather than guessed at**, three changes that are correct regardless of cause:
-- **`app.exit(code)`** before `process.exit(code)` in the self-test path. Electron documents
-  `app.exit` as the way to terminate main; `process.exit` can leave the app alive with pending handles.
-- **A hard deadline** in `run-packaged-self-test.mjs` (`ATLARIX_SELF_TEST_DEADLINE_MS`, default 240s)
-  via `spawnSync`'s `timeout` + SIGKILL. Per-probe timeouts already existed; nothing bounded the
-  PROCESS, so a failure to terminate was unbounded. **A diagnostic must never be able to hang CI.**
-  The ETIMEDOUT branch had to be ordered BEFORE the generic `result.error` branch — spawnSync reports
-  a timeout AS an error, so the generic one shadowed it (caught by testing the path, not by reading).
-- **`process.pid` stamped on every `[self-test]` line**, which is what makes the two-process question
-  answerable on the next run instead of another round of inference.
+**Still genuinely open, but no longer harmful:** `onReady()` runs in the `--self-test` process even
+though it is called only inside `if (!IS_SELF_TEST)` (`main.ts:1516`). Worth understanding — a
+self-test that boots the whole app is testing more than it claims to — but `app.exit()` now terminates
+it either way.
 
-- [ ] **Root-cause it.** The next Windows run either shows one pid throughout (and the two-process
-      reading is wrong) or two (and mechanism 1 or 2 is real). Read that before theorising.
+- [ ] **Work out why `onReady()` runs under `--self-test`.** Not a hang risk any more; it is a
+      correctness question about what the probes actually exercise. Start from the transitive imports
+      in `main/self-test.ts`, which pull in app subsystems (`runShellCommand`, `wrap-command`,
+      `start_proxy_server`) and may carry boot side effects.
+
+**The durable lesson, third instance today:** identify the writer before theorising about the
+behaviour. One `process.pid` in the log format answered in one run what three rounds of reasoning got
+wrong.
 
 ## 🪤 Traps worth not rediscovering
 
@@ -403,6 +401,10 @@ in `git log -- docs/TODO.md` and `CHANGELOG.md`.
   "valid on disk" and says it satisfies its Designated Requirement. Two plists: the group goes on the
   **top-level bundle only**, selected by `!filePath.includes(".app/")` (osx-sign's own test).
   `endsWith(".app")` is wrong — a helper bundle ends with `.app` too.
+- **`process.exit()` does not reliably terminate Electron's main process** — use `app.exit(code)`.
+  The packaged `--self-test` printed PASSED and then ran on for 22 minutes on Windows CI. Also: a
+  diagnostic must carry a HARD process deadline, not just per-probe timeouts, or a failure to
+  terminate is unbounded.
 - **A restricted entitlement needs an embedded provisioning profile, or the kernel SIGKILLs the app
   on exec — while `codesign -v` still calls it valid.** `keychain-access-groups` is one. Signing
   succeeds, the signature IS valid, and AMFI refuses the exec anyway, because codesign validates the
