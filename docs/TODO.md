@@ -353,6 +353,43 @@ prints a `::notice::` when it skips. So **only the arm64 job ever executes a sig
 uploads assets nothing has launched even once. Deliberate and documented — but worth knowing that
 "build-macos (x64): success" carries no runtime signal at all.
 
+## 🪟 The packaged self-test does not EXIT on Windows — bounded 2026-08-20, root cause OPEN
+
+Third Windows problem on the v14.35.0 tag, and the only one still unexplained. It is **CI-only** —
+the shipped app is meant to keep running — but it cost a 22-minute hang and a cancelled release run.
+
+**What the log establishes** (not inference): the Squirrel maker is fine (79s, vs 69s at v14.34.0);
+the packaged app launched with `--self-test`, printed **`PASSED (9/9 probes)`**, then kept doing
+normal app work (`pro_handlers` budget fetch 3s later) and never exited.
+
+**The part that does not add up.** That same window contains a full `onReady()` boot — migrations,
+automations runner, SubscriptionManager, auto-updater. `onReady()` is called from exactly ONE place,
+inside `if (!IS_SELF_TEST)` (`main.ts:1516`). A process printing `[self-test]` output cannot also
+have `IS_SELF_TEST === false`. So there were **two processes**, and the second — booting as a full
+app and never exiting — plausibly held the inherited stdio so `spawnSync` could not return.
+
+**Two candidate mechanisms, neither confirmed. Do not pick one without evidence:**
+1. A forked child re-launching `atlarix.exe` that boots as an app rather than a worker.
+   `RunAsNode` is fused **off**, so `ELECTRON_RUN_AS_NODE` is inert and such a fork would boot the
+   whole app. If this is it, it could affect real users too, not just CI.
+2. `lib/browser/headless-page.ts:183` creates a `show: false` window for browser-backed web search
+   — new in v14.35.0 — and its own docstring warns "**a hidden window is still an OPEN window**",
+   which blocks `window-all-closed` so the app will not quit.
+
+**Bounded rather than guessed at**, three changes that are correct regardless of cause:
+- **`app.exit(code)`** before `process.exit(code)` in the self-test path. Electron documents
+  `app.exit` as the way to terminate main; `process.exit` can leave the app alive with pending handles.
+- **A hard deadline** in `run-packaged-self-test.mjs` (`ATLARIX_SELF_TEST_DEADLINE_MS`, default 240s)
+  via `spawnSync`'s `timeout` + SIGKILL. Per-probe timeouts already existed; nothing bounded the
+  PROCESS, so a failure to terminate was unbounded. **A diagnostic must never be able to hang CI.**
+  The ETIMEDOUT branch had to be ordered BEFORE the generic `result.error` branch — spawnSync reports
+  a timeout AS an error, so the generic one shadowed it (caught by testing the path, not by reading).
+- **`process.pid` stamped on every `[self-test]` line**, which is what makes the two-process question
+  answerable on the next run instead of another round of inference.
+
+- [ ] **Root-cause it.** The next Windows run either shows one pid throughout (and the two-process
+      reading is wrong) or two (and mechanism 1 or 2 is real). Read that before theorising.
+
 ## 🪤 Traps worth not rediscovering
 
 Grouped by where they bite. Each is the one sentence that would have saved the time; the long form is

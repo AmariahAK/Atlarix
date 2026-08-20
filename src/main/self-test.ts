@@ -464,7 +464,14 @@ export async function runSelfTest(probes: SelfTestProbe[] = DEFAULT_PROBES): Pro
   const results: SelfTestReport["results"] = [];
   const fs = await import("node:fs");
   const outFile = process.env.ATLARIX_SELF_TEST_OUT;
+  // The pid is on EVERY line deliberately. On the v14.35.0 Windows run this log
+  // contained self-test output AND a full `onReady()` boot — which is impossible in
+  // one process, since onReady is only called inside `if (!IS_SELF_TEST)`. Two
+  // processes was the only consistent reading, and it could not be confirmed from
+  // the log because nothing identified the writer. Now it does.
+  const pid = process.pid;
   const emit = (line: string) => {
+    line = line.replace("[self-test]", `[self-test pid=${pid}]`);
     // eslint-disable-next-line no-console
     console.log(line);
     if (outFile) {

@@ -60,7 +60,31 @@ if (platform === "linux" && isCI) {
 }
 
 console.log(`[self-test] launching: ${cmd} ${args.join(" ")}`);
-const result = spawnSync(cmd, args, { stdio: "inherit", env });
+/**
+ * HARD DEADLINE. A diagnostic must never be able to hang CI.
+ *
+ * On the v14.35.0 Windows release run the packaged app printed `PASSED (9/9)` and
+ * then simply did not exit — it kept doing normal app work and sat there for 22
+ * minutes until the job was cancelled by hand, on a step that normally takes
+ * seconds. Per-probe timeouts already existed (PROBE_TIMEOUT_MS); what was missing
+ * was any bound on the PROCESS, so a failure to terminate was unbounded.
+ *
+ * `spawnSync`'s `timeout` sends `killSignal` when it expires, which is exactly the
+ * behaviour wanted: the probes get generous room (9 probes x 45s worst case is
+ * theoretical; observed is ~6s), and anything past that is a defect worth failing
+ * on rather than waiting out. On Windows SIGKILL maps to TerminateProcess.
+ *
+ * Note this bounds the CHILD only. If a grandchild inherits stdio and outlives it,
+ * spawnSync can still wait on the pipe — which is a candidate explanation for the
+ * hang itself, and why the pid is now stamped on every self-test line.
+ */
+const DEADLINE_MS = Number(process.env.ATLARIX_SELF_TEST_DEADLINE_MS ?? 240_000);
+const result = spawnSync(cmd, args, {
+  stdio: "inherit",
+  env,
+  timeout: DEADLINE_MS,
+  killSignal: "SIGKILL",
+});
 
 // GUI-subsystem Windows exe detaches stdout — surface the file sink.
 if (fs.existsSync(outFile)) {
@@ -73,6 +97,20 @@ if (fs.existsSync(outFile)) {
   }
 }
 
+// Distinguish OUR deadline from a kernel kill: `spawnSync` reports the timeout as
+// an ETIMEDOUT error alongside the signal it sent, and conflating "we gave up" with
+// "the OS refused to run it" would send the next person down the entitlements path
+// for no reason.
+if (result.error && result.error.code === "ETIMEDOUT") {
+  console.error(
+    `[self-test] TIMED OUT after ${DEADLINE_MS}ms and was killed.\n` +
+      `[self-test] The probes above show how far it got. If they all PASSED, the app ` +
+      `finished its work and then failed to EXIT — look for a process still alive ` +
+      `(the pid on each line identifies the writer), an open window blocking ` +
+      `window-all-closed, or a forked child holding stdio.`,
+  );
+  process.exit(1);
+}
 if (result.error) {
   console.error(`[self-test] launch error:`, result.error.message);
   process.exit(1);

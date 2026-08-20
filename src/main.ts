@@ -230,9 +230,18 @@ if (IS_SELF_TEST) {
     try {
       const { runSelfTest } = await import("./main/self-test");
       const { code } = await runSelfTest();
+      // `app.exit()`, not `process.exit()`. Electron documents app.exit as the way
+      // to terminate the main process; process.exit can leave the app alive when
+      // handles are pending, and on the v14.35.0 Windows run the packaged app
+      // printed PASSED (9/9) and then kept running for 22 minutes until CI was
+      // cancelled. Both are called: app.exit for the Electron path, process.exit
+      // immediately after as the backstop, since neither costs anything once the
+      // report is printed.
+      app.exit(code);
       process.exit(code);
     } catch (e) {
       logger.error("self-test harness crashed:", e);
+      app.exit(1);
       process.exit(1);
     }
   })();
