@@ -1,10 +1,12 @@
 /**
  * Passkey attempts become VISIBLE where passkeys cannot work.
  *
- * On macOS the app configures Touch ID (`main/webauthn.ts`) and passkeys work. On
- * Windows and Linux there is no equivalent — `app.configureWebAuthn` is macOS-only
- * and there is no Windows Hello support in the API — so a site calling
- * `navigator.credentials.get({publicKey})` gets a promise that never settles. The
+ * No platform authenticator is available on ANY platform: Windows and Linux never
+ * had one (the API has no Windows Hello support), and macOS's was removed because
+ * the `keychain-access-groups` entitlement it needs is provisioned — without an
+ * embedded profile the kernel SIGKILLs the signed app. So a site calling
+ * `navigator.credentials.get({publicKey})` and resolving to a platform
+ * authenticator gets a promise that never settles. The
  * tab just sits there, which reads as "Atlarix's browser is broken" rather than
  * "this browser cannot do passkeys". A silent hang is the worst shape of a missing
  * feature: nothing to see, nothing to act on.
@@ -26,20 +28,26 @@ import { ERROR_SENTINEL } from "./error-hook";
 /**
  * How the limitation is described, in one line, to both the user and the model.
  *
- * Says DEVICE-STORED deliberately. The first version of this said "Passkey sign-in
- * is not available… open this page in your normal browser", which is FALSE on
- * Windows and Linux: only the PLATFORM authenticator needs the macOS-only
- * `app.configureWebAuthn`. Roaming authenticators — a USB security key, or a phone
- * over the hybrid/QR flow — go through Chromium and should work there already
- * (Electron's own `select-webauthn-account` docs note the event "may also fire on
- * other platforms when a roaming FIDO2 authenticator returns multiple discoverable
- * credentials"). Telling those users to leave was steering them off a path that
- * works.
+ * Two earlier versions of this were WRONG in opposite directions, which is why the
+ * wording is this specific:
+ *
+ *  - "Passkey sign-in is not available… open this page in your normal browser" was
+ *    false, because only the PLATFORM authenticator was ever unavailable. It steered
+ *    users off a path that works.
+ *  - The replacement blamed Touch ID being "macOS-only", which stopped being true
+ *    the moment the Touch ID authenticator was removed from macOS too.
+ *
+ * So it now describes the REQUEST rather than the platform, and it ends with an
+ * instruction instead of a refusal. Roaming authenticators — a security key, or a
+ * phone over the hybrid/QR flow — go through Chromium on every platform, and that
+ * phone is where the user's synced passkey already lives. Naming the actual
+ * Chromium affordance ("use a phone or tablet") matters: "use your phone" is advice,
+ * the quoted label is something the user can find on screen.
  */
 export const WEBAUTHN_UNSUPPORTED_MESSAGE =
-  "A passkey stored on this device can't be used in Atlarix's browser here " +
-  "(that needs Touch ID, which is macOS-only). A security key or your phone may " +
-  "still work — otherwise open this page in your normal browser.";
+  "This site asked for a passkey stored on this device, which Atlarix's browser " +
+  "can't provide. Choose \"use a phone or tablet\" and scan the QR code with the " +
+  "device holding your passkey, or use a security key — both work here.";
 
 /**
  * Injected per document, exactly like ERROR_HOOK_SCRIPT, and injected ONLY where

@@ -1,6 +1,6 @@
 # Atlarix TODO
 
-**Current version:** v14.35.0 — Electron 43, Touch ID passkeys, browser-backed web search, the
+**Current version:** v14.35.0 — Electron 43, browser-backed web search, the
 spec-line majors, 54 → 28 advisories, the Dyad-era removal (~30,500 lines), plan switcher +
 plan-by-title, automations returning their id, the ban system, the whisper-worker CSP, and four
 plan-tracking fixes.
@@ -23,11 +23,6 @@ plan-tracking fixes.
 
 These are trips and clicks, not tasks. Each fix is already shipped.
 
-- [ ] **Console + Network packaged pass** — owed since v14.31.0. Needs a workspace open, a
-      hand-driven browser tab and a live turn. Reproduce the original report: YouTube's signed-out
-      401 appears in Network and does **not** block the turn; navigating to GitHub gives a divider
-      plus two distinct cards; expand a row and pull a body; a page logging in a loop neither stalls
-      nor floods the UI; the app window's own DevTools still opens.
 - [ ] **Anthropic extended thinking — BELIEVED fixed, not OBSERVED fixed.** The capability branch,
       the SDK-shaped `budgetTokens` and the temperature omission are covered by 12 tests (verified
       sensitive), but there is no Anthropic key here and the failure mode is a provider-side **400**,
@@ -35,11 +30,6 @@ These are trips and clicks, not tasks. Each fix is already shipped.
       a real BYOK key — no 400, and thinking parts stream. If it 400s, suspect temperature:
       Anthropic accepts only `1` with thinking on and `getTemperature` defaults to `0`, which is
       exactly why `shouldOmitTemperature` exists.
-- [ ] **The authenticated ban deny-path.** As a signed-in test user (**not** service role):
-      `update public.users set banned_at = null where id = auth.uid();` must error with
-      `users.banned_at is managed by Atlarix`. A service-role probe cannot stand in — `service_role`
-      is precisely the branch that bypasses the guard. Everything else about bans is verified live
-      (banned → gate appeared on a live session in ~1s → lifted → `pro/pro`, audit row closed).
 - [ ] **Whisper-worker dictation under the new CSP.** The worker only spawns when a composer mounts
       with the local provider, so it needs a workspace open. Confirm dictation still transcribes and
       the log carries `[csp] APPLY resourceType=script … whisper-worker`. If ONNX fails to compile,
@@ -47,10 +37,11 @@ These are trips and clicks, not tasks. Each fix is already shipped.
 - [ ] **`read_url` through a real turn** against a JS-rendered SPA and a bot-walled page. The
       mechanism is measured (excalidraw 69 → 722 chars, g2.com 0 → 251, five parallel fetches 624ms);
       what is untested is the path through the packaged app's own tool.
-- [ ] **A real passkey on a CI-SIGNED build.** Not doable locally by design: `postPackage` ad-hoc
-      re-signs darwin builds, stripping entitlements and hardened runtime, so `configureWebAuthn`
-      fails locally. Read `main.log` for `[webauthn] Touch ID configured` before blaming the site — a
-      failure looks identical to the old bug.
+- [ ] **Drive a passkey sign-in by hand in the packaged browser** — a security key, and the
+      "use a phone or tablet" QR flow. This is now the WHOLE passkey story (the device-stored
+      authenticator is gone, below), so it is promoted from a fallback check to the first thing to
+      verify. Success is a completed sign-in; failure is the notice firing when it should not, or a
+      roaming request being reported as unsupported.
 - [ ] **CI must resolve the win32 + linux TypeScript 7 platform binaries.** Only darwin-arm64 is
       proven.
 - [ ] **Confirm `[prompt-cache]` still shows a large `read=` on later turns in a mode.** A `write=`
@@ -66,9 +57,9 @@ what made this queue read three times its real size.
       (the only genuinely ABI-pinned module, and the one nothing used to cover), and a passkey site
       showing the notice instead of hanging. The upgrade does **not** revalidate the sandbox helpers —
       standalone Rust binaries, no Node ABI coupling — but they need this machine anyway, below.
-- [ ] **Passkey notice ACCURACY**, which is the real check now: it must **not** appear for a request
-      that explicitly asks for a roaming authenticator, because a USB key or a phone over hybrid/QR
-      should simply work. Verify one actually does. Only the PLATFORM authenticator is macOS-only.
+- [ ] **Passkey notice ACCURACY** — it must **not** appear for a request that explicitly asks for a
+      roaming authenticator, because a security key or a phone over hybrid/QR works on every
+      platform. Verify one actually does.
 - [ ] **Windows sandbox (Low IL, v14.28.0)** — `run_command` must succeed with git under Low IL;
       that is the whole point. Confirm an **info**-level `Sandboxing run_command` line (it was
       `debug`, so only failure was ever visible). `CreateProcessAsUserW` must succeed unprivileged —
@@ -139,9 +130,10 @@ what made this queue read three times its real size.
   confirmed against a packaged `Info.plist`. **The risk:** macOS ties `safeStorage`'s keychain ACL to
   the app's designated requirement, which includes the bundle id — so a rename can leave every user's
   stored provider keys and Supabase session undecryptable, which is exactly the failure v14.27.0 was
-  about. It also orphans every registered passkey (v14.35.0 baked the id into a signed
-  `keychain-access-groups` entitlement), resets TCC folder grants, and orphans the Launch Services
-  `atlarix://` registration. **Not at risk:** `~/Library/Application Support/Atlarix` is keyed on the
+  about. It also resets TCC folder grants and orphans the Launch Services `atlarix://` registration.
+  **No longer orphans passkeys** — the `keychain-access-groups` entitlement that baked the bundle id
+  into a signed entitlement has been removed (below), so this rename got cheaper. It should still
+  come BEFORE any Apple portal work, or that work gets done twice. **Not at risk:** `~/Library/Application Support/Atlarix` is keyed on the
   app NAME, so chats and workspaces survive. Needs a `safeStorage` re-encryption migration and an
   upgrade-in-place test on a **signed** build. Cost of waiting is one round of passkey re-registration.
 - **Two removable dependencies** — `@types/node-cron` (node-cron@4 ships its own types, so this is a
@@ -299,7 +291,7 @@ env var and would skip PowerShell entirely, but it also needs `VSCMD_VER`, i.e. 
 Command Prompt — a third-party action in the release workflow. Patching the actual defect is smaller
 and in our control. **Drop the patch when upstream adds a maxBuffer.**
 
-### 2. macOS arm64: the SIGNED app will not launch — NOT yet diagnosed
+### 2. macOS arm64: the SIGNED app would not launch — DIAGNOSED AND RESOLVED by removing the feature
 
 `self-test:packaged` launched the Developer-ID-signed arm64 build and it **died in 75 ms having
 printed nothing**. v14.34.0's identical step passed **8/8**, so it is a v14.35.0 regression.
@@ -319,6 +311,23 @@ Two diagnostics added rather than guessing:
   and conflating them hid the worst class of failure this project has.
 - The macOS job now dumps the applied entitlements, a nested helper's entitlements, and the kernel /
   AMFI log on failure. None of it was recoverable afterwards — the app dies with the runner.
+
+**RESOLVED 2026-08-20.** The diagnostic ran and said `SIGKILL`, with a valid Developer ID signature
+(`flags=0x10000(runtime)`) carrying `keychain-access-groups`. That entitlement is **provisioned**:
+outside the App Store it needs an embedded provisioning profile authorising the group, and without
+one AMFI kills the process on exec. Same rule that killed `rg`; scoping the group to the top-level
+bundle moved the victim rather than removing the requirement.
+
+**The feature was removed rather than provisioned, and not as a compromise.** Electron's own docs:
+credentials are stored in the app's keychain group, "bound to this device's Secure Enclave", with a
+per-`session` secret "so that credentials created in one partition are not visible to another", and
+"not synced via iCloud Keychain". So it could never use a passkey the user already had — it enrolled
+a NEW one, Mac-bound, unsynced, visible only inside Atlarix's browser partition. A user would have
+had a passkey that works nowhere else. Full reasoning in `DESIGN_NOTES.md`.
+
+What shipped instead: the `select-webauthn-account` chooser (the fix for the actual hang) plus a
+notice naming the roaming path. `entitlements.mac.plist`, `src/main/webauthn.ts` and the
+`configureWebAuthn` call are gone; `optionsForFile` is back to one entitlements file.
 
 ### 3. macOS x64 "success" is not evidence, and that is by design
 
@@ -341,9 +350,15 @@ in `git log -- docs/TODO.md` and `CHANGELOG.md`.
   "valid on disk" and says it satisfies its Designated Requirement. Two plists: the group goes on the
   **top-level bundle only**, selected by `!filePath.includes(".app/")` (osx-sign's own test).
   `endsWith(".app")` is wrong — a helper bundle ends with `.app` too.
-- **A local package is ad-hoc signed, so passkeys can NEVER work locally.** `postPackage` re-signs
-  with `--force --deep --sign -` (because `packageAfterPrune` strips files after packager signs), so
-  the bundle ends up `flags=0x2(adhoc)` with no entitlements and no hardened runtime. Not a bug.
+- **A restricted entitlement needs an embedded provisioning profile, or the kernel SIGKILLs the app
+  on exec — while `codesign -v` still calls it valid.** `keychain-access-groups` is one. Signing
+  succeeds, the signature IS valid, and AMFI refuses the exec anyway, because codesign validates the
+  signature and AMFI validates the *authorisation*. Two different gates. Cost v14.35.0 two tags.
+- **A local package is ad-hoc signed, so NO entitlement can be tested locally.** `postPackage`
+  re-signs with `--force --deep --sign -` (because `packageAfterPrune` strips files after packager
+  signs), so the bundle ends up `flags=0x2(adhoc)` with no entitlements and no hardened runtime.
+  `self-test:packaged` is 9/9 here either way, which is precisely how the entitlement above reached
+  a tag. Only a CI-signed build can falsify anything in this area.
 - **`better-sqlite3` is the ONLY ABI-pinned native module.** `node-pty` is N-API (`Napi::` symbols in
   the prebuilt `pty.node`), and `keytar` is not a dependency at all. It needs **12.11.1** — 12.4.1
   does not compile against V8 15 (`External::New` gained a required tag, `This()` was removed).

@@ -3,17 +3,20 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
-## [14.35.0] (2026-08-20) — web search that actually finds things, passkeys on your Mac, and a browser five versions newer
+## [14.35.0] (2026-08-20) — web search that actually finds things, passkey sign-in that stops hanging, and a browser five versions newer
 
-**Passkeys work in Atlarix's browser on macOS.** Signing in to a site with Touch ID used to do
-nothing at all — the page would ask, and Atlarix's browser would sit there, which looked like the
-browser was broken rather than like a feature that was missing. It now uses Touch ID properly. To be
-precise about what that means: these passkeys live in this Mac's Secure Enclave and are not synced
-through iCloud Keychain. Windows and Linux have no equivalent for a passkey stored on the device, but
-a security key or your phone still works there — and if a site asks for one of those, Atlarix now
-stays out of the way entirely. Where a device-stored passkey genuinely can't be used, it says so
-instead of hanging with no explanation. When a site has several passkeys saved, it asks which account
-you want rather than giving up.
+**Signing in with a passkey no longer hangs the page.** If a site offered you more than one saved
+passkey, Atlarix's browser had nothing listening for the question — so the page simply waited, for
+ever, which read as the browser being broken rather than as a feature being unfinished. Later it
+refused outright, which was worse: a security key holding two credentials could never be used at
+all. Now it asks which account you want, and a security key with several credentials works.
+
+**And when a site asks for a passkey Atlarix can't provide, it tells you what will work.** Atlarix's
+browser has no authenticator of its own on any platform, so a site asking specifically for a passkey
+*stored on this device* can't be satisfied here. Instead of a silent wait you now get a note saying
+to choose "use a phone or tablet" and scan the QR code with the device your passkey is on, or to use
+a security key. Both of those go through the browser normally, and the passkey on your phone is the
+same one you set up elsewhere.
 
 **Web search works again.** If you use Atlarix's own AI (Core) and asked it to search the web, it
 was very likely finding nothing — not fewer results, none. The free services it fell back on have

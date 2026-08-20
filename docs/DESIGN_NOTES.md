@@ -518,6 +518,56 @@ place our write-confinement story stops answering the question.
 
 ---
 
+## Passkeys — why Electron's Touch ID authenticator was removed, and what parity would take
+
+**Do not rebuild this from the same premise.** The premise was: "the built-in browser should behave
+like a browser, so a user who set up a passkey on a site can just sign in." Electron's
+`app.configureWebAuthn({ touchID })` does not do that, and cannot.
+
+Electron's own documentation, quoted because the wording is the whole argument: credentials are
+"stored in the macOS keychain and bound to this device's Secure Enclave", Electron "generates and
+persists a per-`session` metadata secret so that credentials created in one partition are not
+visible to another", and they are "device-bound and are **not** synced via iCloud Keychain".
+
+So the API enrols a **new** credential that is Mac-bound, unsynced, and scoped to Atlarix's browser
+partition. It cannot read a passkey the user already has, and a passkey created through it works
+nowhere else — not Safari, not their phone, not after they replace the machine. A user would
+reasonably believe they had set up a passkey for the site and then find it does not exist anywhere
+but inside Atlarix. That is a worse outcome than not offering it.
+
+**It also could not ship.** `keychain-access-groups` is a provisioned entitlement; without an
+embedded provisioning profile the kernel SIGKILLs the signed app on exec while `codesign -v` reports
+it valid. It killed the signed v14.35.0 macOS build twice. See `docs/TODO.md`.
+
+**Why Brave can and we cannot.** Brave does not store that passkey either — it calls Apple's
+`AuthenticationServices` system provider, so macOS puts the credential in iCloud Keychain, shows its
+own Touch ID sheet, and syncs it. Two things block that path for us, and the second decides it:
+
+1. Using the system provider for **someone else's** relying party needs
+   `com.apple.developer.web-browser.public-key-credential` — a requested, browser-vendor entitlement,
+   not a portal toggle. (For a domain you own, Associated Domains suffices; that is not our case.)
+2. **Electron exposes no such hook at all.** Its only WebAuthn entry point is `configureWebAuthn`.
+   So even with Apple's grant there is nowhere to plug it in without upstream Electron work.
+
+A native addon does not route around either: the gate is on the API's browser mode, and a
+dependency cannot grant an entitlement. Overriding `navigator.credentials` from a preload and
+proxying to a native module would mean shipping credential-API interception on arbitrary
+third-party sites and reimplementing a spec browsers implement natively — enormous scope, and a
+serious attack surface exactly where getting it subtly wrong hands over someone's login.
+
+**What is actually reachable, and what shipped:** the roaming path. A security key, or the
+hybrid/QR flow where the user scans with the phone that already holds the iCloud-synced passkey —
+the *same* credential Brave would have used. Both go through Chromium on every platform and need no
+entitlement. The work that made that usable is the `select-webauthn-account` chooser: WebAuthn is
+not an Electron permission type, so a multi-credential request had nothing listening and the page
+hung for ever, and declining outright meant a security key holding two credentials could never be
+used. **That chooser is the feature. Do not remove it as passkey dead code.**
+
+**A trap in the adjacent copy:** npm packages exist for macOS Touch ID (`LocalAuthentication`
+wrappers). They prompt for a fingerprint and report success. That is not a WebAuthn assertion — it
+produces no signed challenge, so the site has nothing to verify. "Touch ID worked" and "the user
+proved possession of a credential the site trusts" are different claims.
+
 ## Permission surface — the audit's answer, kept after the report was deleted
 
 `docs/PERMISSION_SURFACE_AUDIT_v14.26.0.md` was report-only and said of itself "deleted once

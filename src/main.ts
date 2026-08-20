@@ -13,7 +13,6 @@ import {
   writeSettings,
   reEncryptPlaintextSecretsIfPossible,
 } from "./main/settings";
-import { configureWebAuthn } from "./main/webauthn";
 import { isCspPolicyTarget } from "./main/csp-policy-target";
 import { showDesktopNotification } from "./main/desktop-notification";
 import {
@@ -1507,18 +1506,6 @@ if (!gotTheLock) {
     );
   }
   app.whenReady().then(() => {
-    // Passkeys. FIRST thing after ready, and it MUST be after ready: calling
-    // `app.configureWebAuthn()` before `whenReady` kills the process with SIGTRAP
-    // (exit 133) — no exception, no log line, nothing a JS try/catch can see, so
-    // the app simply fails to launch. Electron's docs say to call it "early",
-    // which means early WITHIN the ready phase, not before it. Caught by
-    // `self-test:packaged`; verified against a minimal Electron app, where
-    // before-ready exits 133 and after-ready returns cleanly.
-    //
-    // Nothing is lost by waiting: a browser tab cannot issue a credential
-    // request until a window exists, which is necessarily after ready.
-    configureWebAuthn();
-
     // A20/L-5: if the OS keystore is back (e.g. keyring now installed), upgrade
     // any secrets written in plaintext-fallback mode to encrypted at rest.
     try {

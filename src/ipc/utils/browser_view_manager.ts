@@ -45,7 +45,6 @@ import {
   tryParseNetworkSentinel,
 } from "@/lib/browser/network-hook";
 import { WEBAUTHN_NOTICE_SCRIPT } from "@/lib/browser/webauthn-notice";
-import { isWebAuthnAvailable } from "@/main/webauthn";
 import {
   beginNavigationEpoch,
   clearNavigationEpoch,
@@ -547,15 +546,21 @@ function injectNetworkHookIfDegraded(id: number, wc: Electron.WebContents): void
 }
 
 /**
- * Report passkey attempts on platforms where they cannot succeed.
+ * Report passkey attempts that resolve to a PLATFORM authenticator, and say what
+ * does work instead.
  *
- * Injected only where `configureWebAuthn` did NOT take (Windows, Linux, or an
- * Electron older than 42) — where it did, passkeys work and a notice would be a
- * lie. Checked per injection rather than cached at module load so a failed
- * configure at boot is reflected here.
+ * Unconditional now, on every platform. It used to be gated on whether
+ * `configureWebAuthn` had taken, which was only ever true on macOS; that
+ * authenticator has been removed, because the `keychain-access-groups` entitlement
+ * it needs is provisioned and the kernel SIGKILLed the signed build without a
+ * profile. So the gate had exactly one outcome and the condition was noise.
+ *
+ * A platform authenticator is therefore unavailable everywhere — but a ROAMING one
+ * is not, which is why the script itself stays silent for a request that explicitly
+ * asks for `cross-platform`, and why the message names the phone and the security
+ * key rather than telling the user to give up.
  */
-function injectWebAuthnNoticeIfUnsupported(wc: Electron.WebContents): void {
-  if (isWebAuthnAvailable()) return;
+function injectWebAuthnNotice(wc: Electron.WebContents): void {
   void wc.executeJavaScript(WEBAUTHN_NOTICE_SCRIPT, true).catch(() => {});
 }
 
@@ -649,7 +654,7 @@ function wireTabEvents(
   wc.on("did-finish-load", () => {
     void wc.executeJavaScript(ERROR_HOOK_SCRIPT, true).catch(() => {});
     void wc.executeJavaScript(CLS_OBSERVER_SCRIPT, true).catch(() => {});
-    injectWebAuthnNoticeIfUnsupported(wc);
+    injectWebAuthnNotice(wc);
     injectNetworkHookIfDegraded(id, wc);
   });
   // `dom-ready` is the earliest injection point available without a preload,
@@ -663,7 +668,7 @@ function wireTabEvents(
     // script calls navigator.credentials, or the attempt goes unreported. Also
     // injected on did-finish-load so a slow/failed dom-ready still gets it; the
     // script guards on a window flag, so twice is free.
-    injectWebAuthnNoticeIfUnsupported(wc);
+    injectWebAuthnNotice(wc);
     injectNetworkHookIfDegraded(id, wc);
   });
   // Popups: deny new windows; navigate the same tab instead.

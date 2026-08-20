@@ -279,29 +279,23 @@ const config: ForgeConfig = {
         ? undefined
         : {
             identity: "Developer ID Application: Amariah Kamau (7VWW7N9R87)",
-            // Per-file, NOT one entitlements set for the whole bundle. @electron/osx-sign
-            // calls this for every path it signs — helper apps, the frameworks, and every
-            // nested binary (ripgrep's `rg`, node-pty's `spawn-helper`) — and
-            // `keychain-access-groups` must reach ONLY the top-level app bundle.
+            // ONE entitlements file for every path, which is where this started.
             //
-            // Signing a nested helper with a keychain access group it is not provisioned
-            // for yields a binary that `codesign -v` reports as "valid on disk" and as
-            // satisfying its Designated Requirement, and that the kernel then SIGKILLs on
-            // exec — exit 137, no output, no stderr, nothing in the system log. It cost a
-            // packaging cycle to find; `self-test:packaged` reported it as `ripgrep: FAIL`.
+            // It briefly split in two so `keychain-access-groups` could reach ONLY
+            // the top-level bundle, for the Touch ID authenticator. That
+            // entitlement is gone: it is PROVISIONED, so without an embedded
+            // provisioning profile the kernel SIGKILLs the binary on exec while
+            // `codesign -v` still reports it valid — and it killed the signed
+            // v14.35.0 macOS build outright. See docs/DESIGN_NOTES.md.
             //
-            // `!filePath.includes(".app/")` is osx-sign's OWN test for the top-level
-            // bundle (see its `preAutoEntitlements` guard): every nested path sits under
-            // `Atlarix.app/`, while the bundle itself merely ends with `.app`. Note a
-            // helper bundle also ends with `.app`, so `endsWith` would be wrong here.
-            //
-            // Signing a bundle applies its entitlements to that bundle's main executable,
-            // which is the process that calls `app.configureWebAuthn()` — so the app gets
-            // the group and nothing else does.
-            optionsForFile: (filePath: string) => ({
-              entitlements: filePath.includes(".app/")
-                ? "./entitlements.plist"
-                : "./entitlements.mac.plist",
+            // THE LESSON OUTLIVES THE FEATURE, so keep it in view before adding any
+            // restricted entitlement here: @electron/osx-sign calls this for every
+            // path it signs, nested helpers included (`rg`, `spawn-helper`), and a
+            // restricted entitlement on one of those produces a binary that
+            // `codesign -v` calls valid and the kernel refuses to exec — no output,
+            // no stderr, nothing in the system log.
+            optionsForFile: () => ({
+              entitlements: "./entitlements.plist",
               "entitlements-inherit": "./entitlements.plist",
               "hardened-runtime": true,
             }),

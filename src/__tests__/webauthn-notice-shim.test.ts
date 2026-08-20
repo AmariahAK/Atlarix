@@ -1,10 +1,11 @@
 /**
  * The passkey notice shim reports, and otherwise keeps its hands off the page.
  *
- * On Windows and Linux the PLATFORM authenticator is unavailable
- * (`app.configureWebAuthn` is macOS-only), so a request that resolves to it returns
- * a promise that never settles and the tab just sits there. This shim makes that
- * visible.
+ * The PLATFORM authenticator is unavailable on EVERY platform: Windows and Linux
+ * never had one, and macOS's was removed because the `keychain-access-groups`
+ * entitlement it needs is provisioned and the kernel SIGKILLed the signed build
+ * without a profile. A request that resolves to it returns a promise that never
+ * settles and the tab just sits there. This shim makes that visible.
  *
  * What it must NOT do is overstate that. ROAMING authenticators — a USB security
  * key, or a phone over hybrid/QR — go through Chromium and work on every platform,
@@ -73,6 +74,31 @@ describe("WEBAUTHN_NOTICE_SCRIPT", () => {
     // `warning`, not `error`: the PAGE did nothing wrong, and this must not read
     // as a page fault in the Errors tab.
     expect(parsed!.level).toBe("warning");
+  });
+
+  /**
+   * The MESSAGE, pinned — it has been wrong twice, in opposite directions.
+   *
+   * v1 said "not available… open this page in your normal browser", which steered
+   * users off the roaming path that works. v2 blamed Touch ID being "macOS-only",
+   * which stopped being true when the Touch ID authenticator was removed from
+   * macOS. Both were plausible sentences that shipped, so the wording is asserted
+   * rather than left to review.
+   */
+  it("names the path that WORKS instead of refusing", () => {
+    const m = WEBAUTHN_UNSUPPORTED_MESSAGE;
+    // The affordance the user has to find on screen, quoted as Chromium labels it —
+    // "use your phone" is advice, this is a thing they can click.
+    expect(m).toMatch(/use a phone or tablet/i);
+    expect(m).toMatch(/security key/i);
+    expect(m).toMatch(/QR/);
+  });
+
+  it("does not blame macOS or send the user to another browser", () => {
+    const m = WEBAUTHN_UNSUPPORTED_MESSAGE;
+    // Both were true of an earlier version and are false now.
+    expect(m).not.toMatch(/macOS|Touch ID/i);
+    expect(m).not.toMatch(/normal browser|another browser/i);
   });
 
   it("does NOT interfere — the original call still runs and its result passes through", async () => {
