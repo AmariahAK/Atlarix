@@ -21,6 +21,7 @@ import {
   buildContinuationPrompt,
 } from "@/lib/streaming/continuation-handler";
 import { systemReminder } from "@/lib/streaming/system-reminder";
+import { currentPlanLedger } from "@/lib/tasks/plan-ledger-refresh";
 import {
   getMutationFailureFeedback,
   getUnverifiedEditFeedback,
@@ -499,7 +500,7 @@ export async function runAgentTurn(
               attemptCount: stallResumeAttempts,
               maxAttempts: MAX_STALL_RESUME_ATTEMPTS,
               lastContent: stripThinkBlocks(fullResponse),
-              taskLedger: rt.taskLedger,
+              taskLedger: currentPlanLedger(rt.chatId) ?? rt.taskLedger,
             }),
           },
         ];
@@ -532,7 +533,7 @@ export async function runAgentTurn(
               attemptCount: streamContinuationAttempts,
               maxAttempts: rt.maxContinuationAttempts,
               lastContent: stripThinkBlocks(fullResponse),
-              taskLedger: rt.taskLedger,
+              taskLedger: currentPlanLedger(rt.chatId) ?? rt.taskLedger,
             }),
           },
         ];
@@ -774,7 +775,7 @@ export async function runAgentTurn(
       });
       agenticIteration++;
       logger.log(
-        `${L} ${usePlanGate ? "Plan not complete" : "Completion gate not satisfied"} — nudge ${gateStreak + 1}/${gateCap}; continuing`,
+        `${L} ${usePlanGate ? "Plan not complete" : "Completion gate not satisfied"} — nudge ${gateStreak + 1} of ${gateCap} allowed; continuing`,
       );
       continue;
     }

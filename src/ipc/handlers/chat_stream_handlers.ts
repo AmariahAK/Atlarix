@@ -116,6 +116,7 @@ import type { StoredFileAttachment } from "../ipc_types";
 import {
   unregisterLedgerPlanUiNotifier,
 } from "@/lib/tasks/task-ledger";
+import { clearPlanLedgerRefresh } from "@/lib/tasks/plan-ledger-refresh";
 import { type ContextSection } from "@/lib/context/ContextAssembler";
 import { ContextBudgetTracker } from "@/lib/context/context-budget-tracker";
 import {
@@ -1436,6 +1437,14 @@ export function registerChatStreamHandlers() {
             loadMemoryMdSection(contextSectionParams),
           ]);
           // loadActivePlanSection is the sole writer of taskLedgerBlock.
+          //
+          // Drop any ledger the PREVIOUS turn rendered first. The refresh module
+          // keeps its newest block until the end of a turn (so a round boundary
+          // gets fresh counts instead of this frozen snapshot), and this preflight
+          // is the once-per-turn seam where that stickiness has to end — a block
+          // left over from the last turn would otherwise outrank the row we just
+          // read.
+          clearPlanLedgerRefresh(req.chatId);
           taskLedgerBlock = activePlanResult.taskLedgerBlock;
           const loadedSections = [
             // Cheap + synchronous: the absolute workspace path, so the model

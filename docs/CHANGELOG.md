@@ -116,6 +116,20 @@ back to following along.
 two plans share a name it stops and asks rather than guessing, for the same reason it refuses to tick
 a step it cannot uniquely identify.
 
+**Steps now stay ticked.** Marking several steps done at once could silently lose most of them —
+each mark rewrote the whole plan from a copy read moments earlier, so the last one to finish erased
+the others and those steps reverted to unstarted. Marking a step could also be refused outright when
+its text contained formatting (bold, backticks, a symbol like ×), because the match had to be
+character-for-character. And a plan whose steps were all *in progress* displayed as "0 of 6 done"
+with no mention of the six underway, which is indistinguishable from a plan that has been wiped.
+Together those three made Atlarix distrust its own checklist: it would conclude the tracker was
+broken, rewrite the plan from scratch, and lose the record of what it had already finished.
+
+The last piece of the same problem: on a long task Atlarix works in several passes, and at the start
+of each new pass it was handed the step counts from the *beginning* of the whole task rather than
+the current ones. So it could tick three steps, then immediately be told only one was done, and
+start arguing with a stale number instead of carrying on.
+
 **Automations can be tested the moment they are created.** Atlarix's own instructions tell it to run
 a new automation straight away to check it works — but the id it needed to do that was never handed
 back after you approved the creation, so it either gave up or went hunting by name. Names are not

@@ -3,8 +3,9 @@
 **Current Version:** v14.34.0 (2026-08-18) — released. **v14.35.0 is IN FLIGHT, not tagged:**
 Electron 43, Touch ID passkeys, a dependency/security sweep that took production vulnerabilities
 from 54 to 28, the **Dyad-era removal (~30,500 lines)**, a **plan switcher**, **plan-by-title**,
-**automations returning their id**, the **ban system**, and the **whisper-worker CSP**.
-**Last Updated:** 2026-08-19
+**automations returning their id**, the **ban system**, the **whisper-worker CSP**, and **four plan-
+tracking fixes** (steps stay ticked).
+**Last Updated:** 2026-08-20
 
 > **What belongs here:** open work, decisions still owed, and traps worth not rediscovering.
 > **What does not:** shipped narrative → [`docs/CHANGELOG.md`](./CHANGELOG.md). Designed-but-unscheduled
@@ -37,6 +38,10 @@ the substring.
 
 **Still open:**
 
+- **RESOLVED — all four plan-tracking bugs.** The lost-update race (serialised writes, re-read inside
+  the lock), the byte-exact `step_text` match, the ledger hiding every in-progress step but the first,
+  and the round-boundary stale ledger (below). The fourth was the one the owner reported as
+  "notifications saying 1/6"; the other three were found underneath it.
 - **1 code task** — the Console + Network packaged pass, owed since v14.31.0. Verification only, no
   code expected. **Not attemptable headlessly:** it needs a workspace open, a browser tab driven by
   hand, and a live turn (so an API key and a model). The packaged build itself is verified —
@@ -912,6 +917,34 @@ v14.28.0), and the **system-scope approval gate** (which also closed M1). **Defe
   scope, plaintext-keychain fallback).
 
 ---
+
+## 🧮 The plan ledger went stale at the ROUND boundary — found and FIXED 2026-08-20
+
+The fourth and last of the plan-tracking bugs, and the one the owner actually reported: **"the
+notifications were wrong saying it did 1/6"**.
+
+`markPlanLedgerDirty` / `takeRefreshedPlanLedger` was a take-once queue, which fixed later **steps**
+but not later **rounds**. `run-agent-turn` re-enters the stream once per agentic round — completion-gate
+nudge, stall resume, stream continuation — and each round is a fresh `streamText`, so `prepareStep` sees
+`stepNumber === 0` again. That branch used the frozen turn-start `taskLedgerBlock` unconditionally, and
+the queue had already been drained by an earlier step, so there was nothing left to override it with.
+The two `buildContinuationPrompt` call sites had the same shape.
+
+Observed in the log: a turn that began at 1/6 marked steps 1–3 done, hit the gate, and was handed
+`[Session plan] 1/6 steps done` again on the next round. The model read that as the plan having been
+reset, abandoned `update_step`, and rewrote the whole plan to force agreement — **exactly the loop the
+refresh module exists to prevent**, arriving through the round boundary instead of the step boundary.
+
+Fix: the newest rendered block is now sticky for the turn and served at every round boundary
+(`currentPlanLedger`), while the take-once flag still governs mid-round steps so an unchanged ledger is
+not restated every step. The stickiness is turn-scoped by `clearPlanLedgerRefresh` in stream preflight
+— which had **no production caller at all** before this, so the map also leaked an entry per chat.
+6 new tests, verified sensitive: reverting to take-once fails exactly the two round-boundary ones.
+
+**A diagnostic trap worth keeping.** The neighbouring log line read
+`Plan not complete — nudge 1/6; continuing`, where `1/6` is the *nudge budget* (`gateStreak+1/gateCap`)
+and `gateCap` happens to be 6. Next to a 6-step plan that is indistinguishable from a step count, and
+it cost real time to separate. It now reads `nudge 1 of 6 allowed`.
 
 ## ⚠️ `withLock` serialises TWO callers, not N — found 2026-08-20, NOT fixed
 

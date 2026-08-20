@@ -48,7 +48,10 @@ import {
   isNetworkStreamError,
   isForcedToolChoiceRejection,
 } from "@/ipc/handlers/chat_stream/network-retry";
-import { takeRefreshedPlanLedger } from "@/lib/tasks/plan-ledger-refresh";
+import {
+  currentPlanLedger,
+  takeRefreshedPlanLedger,
+} from "@/lib/tasks/plan-ledger-refresh";
 import {
   isImageContentRejectionError,
   imageUnsupportedUserMessage,
@@ -511,14 +514,21 @@ export async function simpleStreamText(
                 // slot (just before the mode re-anchor) — carries the active goal
                 // (in-progress step) so mode+goal are both freshly re-asserted.
                 const modeReanchor = stepNumber === 0 ? modeReanchorNote : null;
-                // Step 0 carries the turn-start snapshot. On LATER steps a
-                // refreshed block appears only when the plan actually changed
-                // mid-turn (take-once) — otherwise the ledger would keep
-                // asserting turn-start counts for the whole turn while the model
-                // marks steps done, which reads to the model as a broken tracker.
+                // Step 0 carries the turn-start snapshot ONLY on the turn's
+                // first round. run-agent-turn re-enters the stream per agentic
+                // round (gate nudge, stall resume, continuation), and each round
+                // restarts `stepNumber` at 0 — so serving `taskLedgerBlock`
+                // unconditionally here re-asserted turn-start counts after the
+                // model had already marked steps done, which reads to it as the
+                // plan having been reset. currentPlanLedger returns null until
+                // the plan is actually mutated, so round 1 is unchanged.
+                //
+                // On LATER steps within a round a refreshed block appears only
+                // when the plan changed (take-once), so an unchanged ledger is
+                // not restated every step.
                 const taskLedger =
                   stepNumber === 0
-                    ? taskLedgerBlock
+                    ? (currentPlanLedger(req.chatId) ?? taskLedgerBlock)
                     : takeRefreshedPlanLedger(req.chatId);
                 // #12: targeted empty-output nudge (take-once), set by the retry.
                 const emptyOutputNudge = ctx.pendingEmptyOutputNudge;
