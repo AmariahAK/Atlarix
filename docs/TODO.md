@@ -952,6 +952,25 @@ not restated every step. The stickiness is turn-scoped by `clearPlanLedgerRefres
 and `gateCap` happens to be 6. Next to a 6-step plan that is indistinguishable from a step count, and
 it cost real time to separate. It now reads `nudge 1 of 6 allowed`.
 
+## 🔁 Sign out while banned did nothing — FIXED 2026-08-20
+
+Reported by the owner during the ban system's own end-to-end verification. `useAuth.signOut`
+cleared `user` and `status` and left `banned` true; `welcome-launcher.tsx` tests
+`if (banned)` BEFORE `if (!isAuthenticated)`, so a successful sign-out re-rendered the same
+dead-end screen and the only way out was restarting the app (where `banned` starts false).
+
+**Not a separate banned sign-out path.** The banned screen already calls the same
+`signOut()` the sidebar and account-settings dialogs call — the shared function was simply
+incomplete. One line (`setBanned(false)`), 5 tests, verified sensitive.
+
+**DEFERRED, and it belongs to [[the unshared-hook hazard]]:** `SubscriptionManager.signOut()`
+does NOT broadcast `auth:resolved`, so only the `useAuth` instance that initiated the sign-out
+updates — a second window keeps a stale session until it re-checks. `broadcastAuthResolved()`
+already has no null-session guard (deliberately, that guard was the v14.35.0-era bug), so the
+fix is one call plus making `handleAuthResolved` clear `user`/`status` on a null user instead
+of early-returning. Not done here: shared auth plumbing, hours before a tag. Do it with the
+rest of the unshared-hook work.
+
 ## 💥 The ban migration would have broken every client write to `users` — caught 2026-08-20
 
 Found while applying it, by diffing the body against the migration history instead of trusting the

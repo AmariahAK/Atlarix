@@ -423,6 +423,17 @@ export function useAuth() {
             await ipcRenderer.invoke('auth:sign-out', { removeLocalData });
             setUser(null);
             setStatus(null);
+            // Clear the ban too, or the Sign out button on the banned screen does
+            // nothing: welcome-launcher tests `if (banned)` BEFORE
+            // `if (!isAuthenticated)`, so a stuck `true` re-renders the same screen
+            // after a successful sign-out and the only way out is restarting the
+            // app (where `banned` starts false). Reported live 2026-08-20.
+            //
+            // Clearing it locally cannot let a banned user do anything: they are
+            // signed out, so Core has no session, and the proxy's 403 is the
+            // enforcement either way. If the same banned account signs back in, the
+            // next `auth:resolved` / checkSession re-establishes it.
+            setBanned(false);
         } catch (error) {
             console.error('Sign out error:', error);
         }
@@ -481,10 +492,16 @@ export function useAuth() {
          */
         authResolved,
         /**
-         * This account is banned from Atlarix Core and the account itself. BYOK and
-         * local models are unaffected and the UI must say so — the app runs offline
-         * by design, so a client-side block on the user's own key would be a claim
-         * we cannot enforce. The hard stop is the proxy's 403.
+         * This account is banned. The gate that reads this sits in front of the
+         * LAUNCHER (`pages/welcome-launcher.tsx`), so nothing in the client works
+         * while it is true — BYOK and local models included. An earlier version of
+         * this comment claimed they were unaffected and that the UI said so; that
+         * was only ever true of the in-turn 403 message, never of the launcher
+         * screen (corrected 2026-08-20, see docs/BAN_RUNBOOK.md).
+         *
+         * The hard stop is still the proxy's 403: the client gate is bypassable by
+         * an older build or no network, which is why we do not invest in
+         * client-side blocking beyond refusing to proceed.
          */
         banned,
         oauthPending,

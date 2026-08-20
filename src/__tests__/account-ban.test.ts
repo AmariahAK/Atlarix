@@ -1,10 +1,14 @@
 /**
  * Ban plumbing, main side.
  *
- * SCOPE, stated once because the tests encode it: a ban blocks Atlarix Core and
- * the account. It does NOT block the user's own API keys or local models — the app
- * runs offline by design, so a client-side block on a key the user owns is
- * unenforceable. The hard stop is the proxy's 403; everything here is the UX half.
+ * SCOPE, stated once because the tests encode it: the hard stop is the proxy's 403,
+ * which is server-side and cannot be talked past; everything here is the UX half.
+ *
+ * The IN-TURN message (accountBannedUserMessage, shown when a Core request 403s)
+ * does correctly say BYOK and local models still work, and the tests below hold it
+ * to that. The LAUNCHER gate is broader — it blocks opening a workspace at all, so
+ * nothing in the client works while banned. Corrected 2026-08-20 after seeing it
+ * live; see docs/BAN_RUNBOOK.md and src/__tests__/renderer/banned-sign-out.test.tsx.
  *
  * The two things that would quietly break the feature:
  *   - the realtime fingerprint deduping a ban flip away (a ban landing within 2s

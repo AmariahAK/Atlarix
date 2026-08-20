@@ -3,7 +3,7 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
-## [14.35.0] (2026-08-19) — web search that actually finds things, passkeys on your Mac, and a browser five versions newer
+## [14.35.0] (2026-08-20) — web search that actually finds things, passkeys on your Mac, and a browser five versions newer
 
 **Passkeys work in Atlarix's browser on macOS.** Signing in to a site with Touch ID used to do
 nothing at all — the page would ask, and Atlarix's browser would sit there, which looked like the
@@ -152,6 +152,12 @@ page, and the separate worker that does the transcription did not inherit it.
   change that comes from the OS rather than from Atlarix.
 - Desktop notifications now require the app to be signed in order to appear, which affects
   development builds only — released builds are signed.
+
+**Accounts can be suspended.** If an account is suspended, Atlarix says so plainly, points
+to support@atlarix.dev, and offers to sign out — it does not fail with a confusing error or
+pretend to be broken. The reason is never sent to the app, and a suspended account cannot
+lift its own suspension. Nothing about this affects anyone whose account is in good
+standing.
 
 ## [14.34.0] (2026-08-18) — Atlarix tests its own work, and two windows stop fighting over one mode
 
