@@ -1,5 +1,5 @@
 /**
- * Every column the plan read names must exist in the deployed schema.
+ * Every column the plan read names must exist in the schema history.
  *
  * THE BUG THIS EXISTS FOR
  * -----------------------
@@ -14,31 +14,84 @@
  * silently became FREE: a paid account read as free, workspace limits kicked in,
  * and the only evidence was a `warn` behind a fallback that looks deliberate.
  *
- * Naming a column in that query is therefore a BREAKING CHANGE until its
- * migration is deployed, and the failure is quiet. This test makes it loud at
- * build time instead: the select is checked against the audited production
- * schema, which is the closest thing in-repo to what the client will actually
- * talk to.
+ * WHY THIS READS MIGRATIONS AND NOT THE AUDIT SNAPSHOT
+ * ---------------------------------------------------
+ * The first version read `supabase/audit/prod_schema.sql`, and that was wrong
+ * twice over:
  *
- * If this fails after you add a column: the fix is NOT to update the audit file.
- * It is to deploy the migration first, or to read the column in its own query
- * that tolerates absence (see `isUserBanned`).
+ *   1. **It is gitignored**, so the test passed on the author's machine and could
+ *      only ever fail in CI — which is exactly what it did, on the release run,
+ *      with `ENOENT`. A test whose fixture is not in the repo is not a test.
+ *   2. **The snapshot is STALE.** Proved the same day: it predates
+ *      `20260714130000_pricing_reframe_teardown.sql`, which dropped `team_id` and
+ *      `has_db_studio_legacy`. A body copied from it nearly shipped a migration
+ *      that would have broken every client write to `public.users`. So it was
+ *      never the reliable proxy for production it was described as.
+ *
+ * The migrations ARE committed, and they are the source of truth for what the
+ * schema is — the same conclusion the ban migration arrived at the hard way.
+ *
+ * HONEST ABOUT WHAT THIS NO LONGER CATCHES
+ * ----------------------------------------
+ * The original bug was a column that existed **in a migration** but was not
+ * **deployed**. Deriving from migrations cannot see that, so this check is
+ * strictly weaker than the snapshot pretended to be: it catches a typo, a renamed
+ * column, and a column that no migration ever creates — not an undeployed one.
+ * The undeployed case is held by two other things, and they are the real defence:
+ * the runbook discipline of deploying before shipping the read, and the
+ * `isUserBanned` pattern of querying a new column in its own request that
+ * tolerates absence. If you want the deployed-schema check back, it has to query
+ * a real database, not a file.
  */
 import { describe, expect, it } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 
-const AUDIT = path.join(process.cwd(), "supabase", "audit", "prod_schema.sql");
+const MIGRATIONS = path.join(process.cwd(), "supabase", "migrations");
 const CLIENT = path.join(process.cwd(), "src", "lib", "auth", "supabase-client.ts");
 
-/** Column names on public.users, as the audited production schema declares them. */
-function auditedUsersColumns(): Set<string> {
-  const sql = fs.readFileSync(AUDIT, "utf8");
-  const start = sql.indexOf('CREATE TABLE IF NOT EXISTS "public"."users"');
-  expect(start, "public.users not found in the audit schema").toBeGreaterThan(-1);
-  const body = sql.slice(start, sql.indexOf(");", start));
-  const cols = new Set<string>();
-  for (const m of body.matchAll(/^\s{4}"([a-z_]+)"\s/gim)) cols.add(m[1]);
+/**
+ * Column names on `public.users`, replayed from the migrations in deployment
+ * order (filenames are timestamps, so lexical order IS deployment order).
+ *
+ * Line-oriented with a tracked ALTER TABLE target rather than statement-split on
+ * `;`, because the early migrations wrap their ALTERs in `DO $$ … $$;` blocks
+ * containing semicolons — splitting on those would attribute a column to the
+ * wrong table, which is the one mistake that would make this test lie.
+ */
+function migratedUsersColumns(): Set<string> {
+  // `public.users` itself predates the migrations (Supabase creates it), so `id`
+  // and `email` appear in no ADD COLUMN. Declared here rather than inferred,
+  // because inferring "it must exist since policies reference it" is how a typo
+  // gets waved through.
+  const cols = new Set<string>(["id", "email"]);
+
+  const files = fs
+    .readdirSync(MIGRATIONS)
+    .filter((f) => f.endsWith(".sql"))
+    .sort();
+  expect(files.length, "no migrations found").toBeGreaterThan(0);
+
+  for (const file of files) {
+    const sql = fs.readFileSync(path.join(MIGRATIONS, file), "utf8");
+    let targetIsUsers = false;
+    for (const raw of sql.split(/\r?\n/)) {
+      const line = raw.trim();
+      const alter = line.match(/^ALTER\s+TABLE\s+(?:ONLY\s+)?(?:public\.)?"?(\w+)"?/i);
+      if (alter) targetIsUsers = alter[1].toLowerCase() === "users";
+      if (!targetIsUsers) continue;
+      for (const m of line.matchAll(
+        /ADD\s+COLUMN\s+(?:IF\s+NOT\s+EXISTS\s+)?"?([a-z_]+)"?/gi,
+      )) {
+        cols.add(m[1].toLowerCase());
+      }
+      for (const m of line.matchAll(
+        /DROP\s+COLUMN\s+(?:IF\s+EXISTS\s+)?"?([a-z_]+)"?/gi,
+      )) {
+        cols.delete(m[1].toLowerCase());
+      }
+    }
+  }
   return cols;
 }
 
@@ -58,19 +111,28 @@ describe("PLAN_ROW_SELECT_BASE", () => {
     expect(cols).toContain("effective_tier");
   });
 
-  it("names ONLY columns that exist in the deployed schema", () => {
-    const audited = auditedUsersColumns();
-    // Sanity: the parse found a real table, not an empty set.
-    expect(audited.has("plan")).toBe(true);
-    expect(audited.has("email")).toBe(true);
+  it("replays the migrations into a plausible users table", () => {
+    const cols = migratedUsersColumns();
+    // Sanity, so a parse that silently matched nothing cannot pass the real
+    // assertion below by returning an empty set.
+    expect(cols.has("plan"), "plan missing — the migration replay found nothing").toBe(true);
+    expect(cols.has("effective_tier")).toBe(true);
+    expect(cols.has("banned_at")).toBe(true);
+    // And the teardown's DROPs must be honoured, or the replay is add-only and
+    // would happily approve a column that no longer exists.
+    expect(cols.has("team_id"), "team_id was DROPPED by 20260714130000").toBe(false);
+    expect(cols.has("has_db_studio_legacy")).toBe(false);
+  });
 
-    const missing = planSelectColumns().filter((c) => !audited.has(c));
+  it("names ONLY columns some migration creates", () => {
+    const known = migratedUsersColumns();
+    const missing = planSelectColumns().filter((c) => !known.has(c));
     expect(
       missing,
-      `these columns are selected but absent from supabase/audit/prod_schema.sql: ` +
-        `${missing.join(", ")}. A plan read that names an undeployed column makes ` +
-        `EVERY user read as free. Deploy the migration first, or query the column ` +
-        `separately in a way that tolerates absence.`,
+      `these columns are selected but no migration creates them: ${missing.join(", ")}. ` +
+        `A plan read that names a column the database does not have makes EVERY user ` +
+        `read as free. Add the migration AND deploy it first, or query the column ` +
+        `separately in a way that tolerates absence (see isUserBanned).`,
     ).toEqual([]);
   });
 
@@ -78,6 +140,6 @@ describe("PLAN_ROW_SELECT_BASE", () => {
     const src = fs.readFileSync(CLIENT, "utf8");
     const m = src.match(/PLAN_ROW_SELECT_WITH_VARIANT = `\$\{PLAN_ROW_SELECT_BASE\}, ([a-z_]+)`/);
     expect(m, "PLAN_ROW_SELECT_WITH_VARIANT not found").toBeTruthy();
-    expect(auditedUsersColumns().has(m![1])).toBe(true);
+    expect(migratedUsersColumns().has(m![1])).toBe(true);
   });
 });

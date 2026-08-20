@@ -253,6 +253,25 @@ approval, MCP description wrapping + OAuth-URL validation, the universal write-c
 
 ---
 
+## 🧪 A test whose fixture is not in the repo — caught by CI 2026-08-20
+
+`plan-row-select-columns-exist.test.ts` read `supabase/audit/prod_schema.sql`, which is **gitignored**
+(`.gitignore:14`). So it passed on the author's machine and could only ever fail in CI — which it did,
+on the release run, with `ENOENT`. **A test whose fixture is not tracked is not a test**, and nothing
+local can tell you: `npm test` is green either way.
+
+It now replays `public.users` from the **migrations**, which are committed and are the source of truth
+anyway — the same conclusion the ban migration reached the hard way the same day, since that snapshot
+is also *stale* (it predates the pricing-reframe teardown).
+
+**Say the weakening out loud:** the original bug was a column that existed in a migration but was not
+DEPLOYED, and a migration replay cannot see that. This now catches a typo, a rename, and a column no
+migration creates — not an undeployed one. That case is held by the runbook discipline of deploying
+first and by the `isUserBanned` pattern of querying a new column in its own request that tolerates
+absence. Getting the deployed-schema check back needs a real database, not a file.
+
+Cheap standing check: for every repo-relative path a test reads, `git ls-files --error-unmatch` it.
+
 ## 🪤 Traps worth not rediscovering
 
 Grouped by where they bite. Each is the one sentence that would have saved the time; the long form is
