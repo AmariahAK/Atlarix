@@ -157,14 +157,19 @@ export default function WelcomeLauncher() {
     );
   }
 
-  // Banned: refuse to proceed rather than hiding UI, and say what is actually
-  // true. The scope is Atlarix Core + the account; the user's own API keys and
-  // local models are NOT blocked, because the app runs offline by design and a
-  // client-side block on a key they own would be unenforceable theatre. The hard
-  // stop is the proxy's 403, which is server-side and cannot be talked past.
+  // Banned: refuse to proceed rather than hiding UI. The hard stop is the proxy's
+  // 403, which is server-side and cannot be talked past; this screen is the
+  // client refusing to pretend otherwise.
   //
   // The REASON is deliberately absent: it lives in public.user_bans, which no
   // client can read, so there is nothing here to leak.
+  //
+  // NOTE ON SCOPE: the message says the account is banned, not that Core is
+  // unavailable, because this gate sits in front of the LAUNCHER — a banned user
+  // cannot open a workspace at all, so in the client nothing works, BYOK and
+  // local models included. The proxy's 403 is still the only enforcement that
+  // survives an old build or no network (see docs/BAN_RUNBOOK.md); the wording
+  // here just stops claiming a narrower scope than this screen actually has.
   if (banned) {
     return (
       <div
@@ -174,7 +179,7 @@ export default function WelcomeLauncher() {
         <LocalDateTimeClock variant="welcome" className="mb-2" />
         <AtlarixAnimation size="sm" phase="done" minimalChrome theme="auto" className="shadow-sm" />
         <p className="text-muted-foreground max-w-sm">
-          This account can&apos;t access Atlarix Core.
+          This account has been banned.
         </p>
         <p className="text-xs text-muted-foreground/70 max-w-sm">
           If you think this is a mistake, contact{" "}

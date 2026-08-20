@@ -14,16 +14,23 @@ statement instead of a new authenticated admin role plus its RLS policies.
   and the reserve path.
 - The client refuses to proceed and offers only Sign out.
 
-**NOT blocked, and the UI says so:**
+**What the client gate actually does — corrected 2026-08-20 after seeing it live.**
 
-- The user's own API keys (BYOK).
-- Local models (Ollama, LM Studio).
+The gate sits in front of the **launcher** (`pages/welcome-launcher.tsx`), so a banned
+user cannot open a workspace at all: in the client, nothing works, BYOK and local
+models included. An earlier version of this document claimed BYOK and local models
+kept working and that the UI said so — that was true of the in-turn message
+(`accountBannedUserMessage`, shown when a Core request 403s) but never of the launcher
+screen, which offers only Sign out. The screen now says "This account has been banned."
+rather than naming Core, so it no longer implies a narrower scope than it has.
 
-That is not an oversight. Atlarix runs offline by design, so a client-side block on
-a key the user owns is bypassable by an older build or no network at all. We enforce
-what we can actually enforce and claim nothing more. Do not "fix" this by adding a
-client-side block on BYOK — it would be theatre, and it would punish someone whose
-Supabase read merely failed.
+**What that does NOT change: the proxy is still the only enforcement that counts.**
+Atlarix runs offline by design, so the client gate is bypassable by an older build or
+no network — a determined banned user with their own API key can still run the app.
+That is why the hard stop lives at the proxy, server-side, and why we do not invest in
+client-side blocking beyond refusing to proceed. Do not add a BYOK *key* block: it
+would be theatre, and it would punish someone whose Supabase read merely failed
+(which is why `isUserBanned` fails OPEN).
 
 ## Timing
 
