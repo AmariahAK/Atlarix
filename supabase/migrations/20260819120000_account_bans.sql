@@ -65,12 +65,24 @@ REVOKE ALL ON SEQUENCE public.user_bans_id_seq FROM authenticated;
 -- USING (auth.uid() = id), so without this the first thing a banned user could
 -- do is `update users set banned_at = null where id = auth.uid()`.
 --
--- The body below is the LIVE function (supabase/audit/prod_schema.sql) with one
--- clause added. It is reproduced in full rather than patched because this
--- function has been replaced three times (20260602120000, 20260602140000,
--- 20260710120000, 20260714130000) and CREATE OR REPLACE takes a whole body —
--- copying an older version would silently drop the team_id / effective_tier
--- membership checks.
+-- WHERE THIS BODY CAME FROM, AND THE MISTAKE THAT NEARLY SHIPPED:
+-- It is the body from 20260714130000_pricing_reframe_teardown.sql — the NEWEST
+-- migration that defines this function — with one clause added.
+--
+-- The first draft copied it from supabase/audit/prod_schema.sql instead, because
+-- an earlier comment here said to. That snapshot is STALE: it predates the
+-- pricing-reframe teardown, which DROPPED public.team_members, public.teams,
+-- users.team_id and users.has_db_studio_legacy. A body referencing those still
+-- CREATEs without complaint (plpgsql resolves record fields at RUNTIME, not at
+-- definition time) and then raises `record "new" has no field
+-- "has_db_studio_legacy"` on the first client UPDATE to public.users — i.e. it
+-- would have broken every authenticated write to that table in production, from a
+-- migration that applied cleanly.
+--
+-- So: the source of truth for a CREATE OR REPLACE body is the newest MIGRATION
+-- that defines it, never an audit snapshot. This function has now been replaced
+-- five times and CREATE OR REPLACE takes a whole body, so starting from any older
+-- copy silently reverts whatever the newer ones changed.
 CREATE OR REPLACE FUNCTION public.guard_users_sensitive_columns()
 RETURNS TRIGGER
 LANGUAGE plpgsql
@@ -81,7 +93,6 @@ DECLARE
   jwt_role text := COALESCE(auth.role(), '');
   is_admin boolean := jwt_role = 'service_role'
     OR current_user IN ('postgres', 'supabase_admin', 'service_role');
-  allowed_leave_tier text;
 BEGIN
   IF is_admin THEN
     RETURN NEW;
@@ -114,47 +125,14 @@ BEGIN
   IF NEW.customer_portal_url IS DISTINCT FROM OLD.customer_portal_url THEN
     RAISE EXCEPTION 'users.customer_portal_url is managed by billing webhook';
   END IF;
-  IF NEW.has_db_studio_legacy IS DISTINCT FROM OLD.has_db_studio_legacy THEN
-    RAISE EXCEPTION 'users.has_db_studio_legacy is managed by billing webhook';
-  END IF;
   -- NEW: a ban is set and lifted by us, never by the account it applies to.
   IF NEW.banned_at IS DISTINCT FROM OLD.banned_at THEN
     RAISE EXCEPTION 'users.banned_at is managed by Atlarix';
   END IF;
 
-  -- team_id / effective_tier: allow only validated team membership flows
-  IF NEW.team_id IS DISTINCT FROM OLD.team_id THEN
-    IF NEW.team_id IS NOT NULL THEN
-      IF NOT EXISTS (
-        SELECT 1
-        FROM public.team_members tm
-        WHERE tm.team_id = NEW.team_id
-          AND tm.user_id = NEW.id
-          AND tm.status = 'active'
-      ) THEN
-        RAISE EXCEPTION 'users.team_id can only change when you are an active member of that team';
-      END IF;
-    ELSE
-      IF OLD.team_id IS NULL THEN
-        RAISE EXCEPTION 'users.team_id cannot be cleared without leaving a team';
-      END IF;
-      allowed_leave_tier := COALESCE(OLD.plan, 'free');
-      IF NEW.effective_tier IS DISTINCT FROM allowed_leave_tier THEN
-        RAISE EXCEPTION 'users.effective_tier must match your own plan when leaving a team';
-      END IF;
-    END IF;
-  ELSIF NEW.effective_tier IS DISTINCT FROM OLD.effective_tier THEN
-    IF NEW.team_id IS NOT NULL THEN
-      IF NOT EXISTS (
-        SELECT 1
-        FROM public.team_members tm
-        WHERE tm.team_id = NEW.team_id
-          AND tm.user_id = NEW.id
-          AND tm.status = 'active'
-      ) THEN
-        RAISE EXCEPTION 'users.effective_tier cannot change without active team membership';
-      END IF;
-    ELSE
+  -- Team removed: effective_tier must equal the user's own billed plan.
+  IF NEW.effective_tier IS DISTINCT FROM OLD.effective_tier THEN
+    IF NEW.effective_tier IS DISTINCT FROM COALESCE(NEW.plan, OLD.plan, 'free') THEN
       RAISE EXCEPTION 'users.effective_tier is managed by billing webhook';
     END IF;
   END IF;

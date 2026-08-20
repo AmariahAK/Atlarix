@@ -94,11 +94,20 @@ guard, the first thing a banned user could do is
 `banned_at`, alongside the billing columns it already protects. `service_role`
 bypasses it, which is what makes the SQL above work.
 
-**If you ever edit that trigger:** copy the body from
-`supabase/audit/prod_schema.sql`, never from the original
-`20260602120000_users_billing_column_protection.sql`. It has been replaced four
-times, and `CREATE OR REPLACE` takes a whole body — starting from an old copy
-silently drops the `team_id` / `effective_tier` membership checks.
+**If you ever edit that trigger:** copy the body from **the newest migration that
+defines it** — currently `20260714130000_pricing_reframe_teardown.sql` — and never
+from `supabase/audit/prod_schema.sql`. That audit snapshot is **stale**: it predates
+the pricing-reframe teardown, which dropped `public.team_members`, `public.teams`,
+`users.team_id` and `users.has_db_studio_legacy`.
+
+This is not a style note. The ban migration's first draft was built from that
+snapshot, and it would have **broken every authenticated write to `public.users` in
+production**: plpgsql resolves record fields at RUNTIME, so a body referencing
+`NEW.has_db_studio_legacy` applies cleanly and then raises
+`record "new" has no field "has_db_studio_legacy"` on the first client `UPDATE`.
+Caught before applying, by diffing against the migration instead of trusting the
+snapshot. The function has now been replaced five times, and `CREATE OR REPLACE`
+takes a whole body.
 
 ## Verifying the guard actually holds
 
@@ -113,6 +122,13 @@ loads it into a throwaway schema on a local Postgres with controllable
 `auth.role()` / `auth.uid()` stubs, and asserts both directions: `authenticated`
 cannot clear its own `banned_at`, and `service_role` still can. Skips with exit 0
 when there is no local Postgres, so it is a tool rather than a gate.
+
+**Its scratch `users` table mirrors the live column set, and must keep doing so.**
+The first version invented `team_id`, `has_db_studio_legacy` and a `team_members`
+table, so it passed a body that could not run in production — a fixture more
+generous than production verifies nothing. With the real columns it fails loudly on
+exactly that (`record "new" has no field …`), which is how the stale body above was
+caught.
 
 It proves the trigger clause and the `is_admin` bypass. It does **not** prove
 Supabase's real RLS wiring, which is what the production check below is for.

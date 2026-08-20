@@ -754,8 +754,14 @@ re-litigated. One line each so this file stays a queue, not a design doc.
       `public.user_bans` (RLS on, no `authenticated` policy) because `users` rows are pushed to the
       client by realtime. `guard_users_sensitive_columns` now raises on `banned_at`. Client guard is
       in the IPC HANDLER, never `useAuth`. `docs/BAN_RUNBOOK.md` has the SQL.
-      **OWED:** apply the migration to a dev project and observe the guard raising — see the top of
-      this file.
+      **APPLIED to production 2026-08-20** (`supabase db push`; it was the only unapplied migration).
+      Verified after: `banned_at` present and null, the owner's row still reads `pro/pro`, an anon
+      INSERT into `user_bans` is refused `42501`, and `get_credit_balance()` still executes cleanly
+      (`not_authenticated` with no JWT) — so replacing that hot-path RPC broke nothing.
+      **The migration was WRONG when written, and applying it as drafted would have caused an
+      outage** — see the section below. **Still owed:** the authenticated deny-path check from
+      `docs/BAN_RUNBOOK.md`, which needs a signed-in test user (a service-role probe cannot stand in,
+      because `service_role` is exactly the branch that bypasses the guard).
 
 ## ⏳ Open / deferred
 
@@ -946,6 +952,37 @@ not restated every step. The stickiness is turn-scoped by `clearPlanLedgerRefres
 and `gateCap` happens to be 6. Next to a 6-step plan that is indistinguishable from a step count, and
 it cost real time to separate. It now reads `nudge 1 of 6 allowed`.
 
+## 💥 The ban migration would have broken every client write to `users` — caught 2026-08-20
+
+Found while applying it, by diffing the body against the migration history instead of trusting the
+snapshot it was copied from. **`supabase/audit/prod_schema.sql` is STALE** — it predates
+`20260714130000_pricing_reframe_teardown.sql`, which **dropped `public.team_members`, `public.teams`,
+`users.team_id` and `users.has_db_studio_legacy`**. The drafted
+`guard_users_sensitive_columns()` body referenced all four.
+
+Why it would have shipped green: **plpgsql resolves record fields at RUNTIME, not at definition
+time.** `CREATE OR REPLACE` succeeds, the migration reports success, and then the FIRST authenticated
+`UPDATE` on `public.users` raises `record "new" has no field "has_db_studio_legacy"`. Every client
+write to that table, from a migration that applied cleanly.
+
+Three corrections, all landed:
+
+1. The guard body is now taken from **the newest migration that defines it** (`20260714130000`) plus
+   the one `banned_at` clause. The migration's own comment previously said to copy from
+   `prod_schema.sql`; that instruction was the cause, and it is now reversed in both the migration
+   and `docs/BAN_RUNBOOK.md`.
+2. **`scripts/verify-ban-guard.mjs` was verifying a fiction.** Its scratch `users` table invented
+   `team_id` and `has_db_studio_legacy` and created a `team_members` table, so it passed a body that
+   could not run in production. **A fixture more generous than production verifies nothing.** The
+   column list now mirrors the live table, and the check was confirmed to FAIL on exactly this
+   (`record "new" has no field …`) before being restored.
+3. `prod_schema.sql` is not regenerable here (`supabase db dump` needs Docker). Treat it as an
+   archived snapshot, never as the source of truth for a `CREATE OR REPLACE` body.
+
+**The general rule:** the source of truth for a replaced function is the newest MIGRATION that
+defines it. An audit snapshot, a docstring, or an older migration will each silently revert whatever
+came after it — and for a plpgsql body the revert is invisible until a real row goes through.
+
 ## ⚠️ `withLock` serialises TWO callers, not N — found 2026-08-20, NOT fixed
 
 `src/ipc/utils/lock_utils.ts` awaits only the ONE lock it observed:
@@ -986,12 +1023,25 @@ not:
 
 ## 📋 Carried / small
 
-- **Five direct dependencies that nothing imports** (knip, report-only): `axios`, `bluebird`,
-  `ignore`, `@mixmark-io/domino`, `@types/node-cron`. Pre-existing, and **not simply removable** —
-  `axios` is the clearest case: no source file imports it, but our direct range is what dragged
-  `posthog-node`'s copy up to the patched 1.19.0, so deleting the entry would hand version choice
-  back to posthog-node and could resolve BELOW the SSRF fix. Assess all five together on the
-  `migration` branch, with that floor effect checked per package, rather than pruning one at a time.
+- **The "five unused dependencies" are really two — AUDITED 2026-08-20.** knip reports five because
+  no source file `import`s them, and for three of them that is a **false positive by construction**:
+  - **`axios`, `bluebird`, `@mixmark-io/domino` — MUST STAY.** They are listed in
+    `mainRollupExternals` (`vite.main.config.mts:105-107`) because Rollup leaves them as bare
+    `require()`s in the main bundle (transitive requires from `posthog-node` and `turndown`), and the
+    `package.json` entry is what makes `packageAfterPrune`'s slimming (`keepRoots ∩ fullDeps`) keep
+    them. Removing the entry ships a packaged app that **crashes at boot with "Cannot find module"** —
+    the comment above that list records having already been bitten by exactly this. On top of it,
+    `axios`'s direct range is what drags `posthog-node`'s copy up to the patched 1.19.0, so deleting
+    it could resolve BELOW the SSRF fix.
+  - **`@types/node-cron` — removable.** `node-cron@4` ships its own types
+    (`"types": "./dist/node-cron.d.ts"`), so the `@types` package is a dead v3 stub. devDep, zero risk.
+  - **`ignore` — removable.** Nothing imports it, it is not a main external, and `isomorphic-git`
+    carries its own `ignore@5` in a separate tree, so dropping our `ignore@7` root cannot lower it.
+    Added in the fork era (`e900b590`, v5.0.0).
+
+  The lesson generalises: on this project "nothing imports it" is not the same as "nothing needs it",
+  because the packaging pipeline requires bare-`require()` runtime deps to be declared. Check
+  `mainRollupExternals` before believing knip.
 
 - **CLOSED — fork sub-agents. The arithmetic does not work; do not re-propose.** A cache read is
   ~0.1× base input, but the inherited prefix is re-sent on **every step** of the worker's loop, not

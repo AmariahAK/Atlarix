@@ -121,7 +121,7 @@ function main() {
   console.log("[ban-guard] extracted guard_users_sensitive_columns() from the migration");
 
   // Everything lives in a throwaway schema, and `search_path` points the trigger's
-  // unqualified `users` / `team_members` references at it.
+  // unqualified `users` reference at it.
   psql(`drop schema if exists ${SCHEMA} cascade;`);
   psql(`
     create schema ${SCHEMA};
@@ -133,13 +133,20 @@ function main() {
     create function auth_role() returns text language sql stable as $fn$ select role from ${SCHEMA}._ctx $fn$;
     create function auth_uid() returns uuid language sql stable as $fn$ select uid from ${SCHEMA}._ctx $fn$;
 
+    -- THIS COLUMN LIST MIRRORS THE LIVE public.users AND MUST STAY THAT WAY.
+    -- The first version of this script invented team_id, has_db_studio_legacy and
+    -- a team_members table, so it cheerfully verified a trigger body that CANNOT
+    -- RUN in production: 20260714130000 dropped all three. plpgsql resolves record
+    -- fields at runtime, so the bad body created fine and would have raised
+    -- 'record "new" has no field "has_db_studio_legacy"' on the first real client
+    -- UPDATE. A fixture more generous than production verifies nothing — with the
+    -- real column set, such a body fails the assertion below instead.
     create table users(
       id uuid primary key, email text not null, plan text default 'free',
-      effective_tier text default 'free', team_id uuid, subscription_status text,
+      effective_tier text default 'free', subscription_status text,
       subscription_ends_at timestamptz, lemon_customer_id text,
       lemon_subscription_id text, lemon_variant_id text, customer_portal_url text,
-      has_db_studio_legacy boolean default false, banned_at timestamptz);
-    create table team_members(team_id uuid, user_id uuid, status text);
+      banned_at timestamptz);
     insert into users(id, email, banned_at) values ('${UID}', 'banned@example.test', now());
   `);
 
