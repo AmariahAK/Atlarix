@@ -338,6 +338,25 @@ what made this queue read three times its real size.
 
 ## ⚠️ Known and NOT fixed — deliberately, with reasons
 
+- **Windows: the packaged app does not exit after `--self-test`. ROOT CAUSE UNIDENTIFIED.** It prints
+  `PASSED (9/9 probes)` and then keeps running until something kills it. A SECOND process boots the
+  app for real — `db-migrate` applying migrations, the Squirrel updater (`Can not find Squirrel`),
+  automations, Supabase, the budget fetch — which is only possible with `IS_SELF_TEST` false, so it is
+  not the process the runner launched. **This is NOT new:** the identical second-process boot appears
+  in the v14.35.0 Windows log, which SUCCEEDED, so the boot is long-standing and something else
+  regressed between 08-20 and 08-22. Ruled out by reading the code: the `proxy-worker` probe uses a
+  `worker_threads` Worker (in-process, and it terminates it), nothing calls `app.relaunch()` or
+  re-executes `process.execPath` on this path, and the v14.36.0 `main.ts` changes are all behind
+  `IS_SELF_TEST` guards that provably still short-circuit. Not reproducible on macOS.
+  **Mitigated, not fixed** (v14.36.0): `run-packaged-self-test.mjs` now takes its verdict from the
+  probe REPORT in the file sink rather than from process termination, kills the process tree, and
+  prints a loud warning. A failing probe, a launch error, a signal kill, a non-zero exit, or no report
+  at all still fail the build — only "everything passed but it would not exit" is downgraded. It cost
+  two full release runs before that change.
+  **Where to look next:** a Windows machine, `atlarix.exe --self-test` from a terminal, and Process
+  Explorer to see what the parent of the second process actually is. That single observation is worth
+  more than any further code reading.
+
 - **`withLock` serialises TWO callers, not N.** `src/ipc/utils/lock_utils.ts` awaits only the one
   lock it observed, so with three contenders B and C both wake on A's release and **both acquire** —
   C's `locks.set` overwrites B's. Correct for two callers, silently not a mutex beyond that. Found
