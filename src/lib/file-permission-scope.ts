@@ -43,13 +43,17 @@ export type FilePermissionGate =
  * rather than a constant in the product.
  */
 
+/**
+ * Operations the per-file / per-directory / per-extension scope rules apply to.
+ *
+ * Keyed on PERMISSION OPERATION, not tool name — a request is built fresh each
+ * turn and never persisted, so an operation with no producer is unreachable and
+ * does not belong here. `write_file`, `replace_code`, `insert_code`,
+ * `delete_lines` and `write_multiple_files` were all removed on that basis: every
+ * file mutation has gone through `edit_file` since v13.8.
+ */
 export const FILE_OPS_WITH_SCOPE = new Set([
-  "write_file",
   "edit_file",
-  "replace_code",
-  "insert_code",
-  "delete_lines",
-  "write_multiple_files",
   "delete_file",
   "rename_file",
 ]);

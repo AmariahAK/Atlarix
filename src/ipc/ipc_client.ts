@@ -1804,8 +1804,34 @@ export class IpcClient {
     return typeof unsubscribe === "function" ? unsubscribe : () => {};
   }
 
+  /**
+   * Run the diagnostics checks. Returns the structured report; the pasteable text
+   * comes from `copyDoctorReport` so the redaction stays in main, next to the data
+   * it protects.
+   */
+  public async runDoctor(): Promise<import("@/main/doctor").DoctorReport> {
+    return this.ipcRenderer.invoke("doctor:run");
+  }
+
+  /** The last report as redacted text, ready to paste to support. */
+  public async copyDoctorReport(): Promise<string> {
+    return this.ipcRenderer.invoke("doctor:copy-report");
+  }
+
   public async renameWorkspaceSession(sessionId: string, title: string) {
     return this.ipcRenderer.invoke("sessions:rename", sessionId, title);
+  }
+
+  /**
+   * Stamp the session's work mode. Call this only on a DELIBERATE pick while the
+   * session is active — never on open, or a session written before the column
+   * existed would silently acquire whatever the global preference happened to be.
+   */
+  public async setWorkspaceSessionWorkMode(
+    sessionId: string,
+    workMode: import("@/lib/schemas").WorkMode,
+  ) {
+    return this.ipcRenderer.invoke("sessions:set-work-mode", sessionId, workMode);
   }
 
   public async deleteWorkspaceSession(

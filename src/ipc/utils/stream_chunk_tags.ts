@@ -8,6 +8,10 @@ import { isNoUsableModelOutputError } from "../utils/no_usable_model_output";
 import { cleanFullResponse } from "../utils/cleanFullResponse";
 import { escapeAtlarixTags } from "../utils/escape_atlarix_tags";
 import { isStreamDebugLoggingEnabled } from "@/lib/stream/stream-debug";
+import {
+  ProviderFinishReasonError,
+  errorShapedFinishReason,
+} from "../utils/provider_finish_error";
 
 const logger = log.scope("stream-chunk-tags");
 
@@ -320,6 +324,20 @@ export async function processStreamChunks({
       if (part.type === "finish-step") {
         // Safety: never let a missed tool-result keep the stall guard off.
         toolExecutionInFlight = 0;
+        // An error the provider delivered as a SUCCESSFUL finish (HTTP 200, clean
+        // stream, `finish_reason: "network_error"`). Throwing here is what arms
+        // the existing mid-stream retry — without it the round ends quietly and
+        // a truncated answer looks exactly like the model yielding, because the
+        // mapped `finishReason` has already lost the evidence.
+        const rawFinishFail = errorShapedFinishReason(
+          (part as { rawFinishReason?: unknown }).rawFinishReason,
+        );
+        if (rawFinishFail) {
+          logger.warn(
+            `[stream] chat ${chatId} finish-step carried a provider error as its finish reason: ${rawFinishFail}`,
+          );
+          throw new ProviderFinishReasonError(rawFinishFail);
+        }
         // Gemini grounding backup path: groundingChunks in providerMetadata.
         const meta = (part as { providerMetadata?: Record<string, unknown> })
           .providerMetadata;
@@ -332,6 +350,18 @@ export async function processStreamChunks({
       }
 
       if (part.type === "finish") {
+        // Same check as `finish-step` above: a round with one step reports only
+        // `finish`, so guarding just the step part would miss the single-step
+        // case entirely — which is the common shape for a short answer.
+        const rawFinishFail = errorShapedFinishReason(
+          (part as { rawFinishReason?: unknown }).rawFinishReason,
+        );
+        if (rawFinishFail) {
+          logger.warn(
+            `[stream] chat ${chatId} finish carried a provider error as its finish reason: ${rawFinishFail}`,
+          );
+          throw new ProviderFinishReasonError(rawFinishFail);
+        }
         finishReason =
           typeof (part as { finishReason?: string }).finishReason === "string"
             ? (part as { finishReason?: string }).finishReason

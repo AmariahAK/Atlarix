@@ -8,12 +8,14 @@ import type { NavigateOptions } from "@tanstack/react-router";
 import { IpcClient } from "@/ipc/ipc_client";
 import { attachWorkspaceToChat } from "@/lib/chat-workspace-binding";
 import {
+  activeSessionWorkModeAtom,
   activeWorkspaceSessionIdAtom,
   chatIdToSessionIdAtom,
   sessionIdToChatIdAtom,
   loadedSessionResumeAtom,
   workspaceSessionsRefreshAtom,
 } from "@/atoms/sessionAtoms";
+import type { WorkMode } from "@/lib/schemas";
 import {
   activeChatIdAtom,
   chatMessagesByIdAtom,
@@ -35,6 +37,31 @@ import { clearChatAtomsForChat } from "@/lib/chat/clear-chat-atoms";
  * and the other open sessions. Called whenever a workspace conversation becomes
  * active so concurrent/background sessions stay reachable via the tab strip.
  */
+/**
+ * Activate a session and hydrate the work mode it stores.
+ *
+ * One function because the two must not drift: an activation that sets the id
+ * without the mode leaves the previous session's mode showing on the chip AND
+ * driving the next turn — which is the bug this whole change exists to end, just
+ * relocated from global settings to a stale atom.
+ *
+ * `workMode` is `undefined` when the caller has no row to read from (the
+ * streaming fast path). That is NOT the same as `null`: `null` means the session
+ * genuinely has no stored mode and should resolve from the global preference,
+ * while `undefined` means "unknown, leave what is there" — a streaming session
+ * was activated moments ago and its atom is already correct.
+ */
+export function activateWorkspaceSession(
+  sessionId: string,
+  workMode?: WorkMode | null,
+): void {
+  const store = getDefaultStore();
+  store.set(activeWorkspaceSessionIdAtom, sessionId);
+  if (workMode !== undefined) {
+    store.set(activeSessionWorkModeAtom, workMode);
+  }
+}
+
 export function registerOpenChatTab(tab: {
   chatId: number;
   appId: number | null;
@@ -160,7 +187,10 @@ export async function startNewWorkspaceConversation(
       name,
       path: workspacePath,
     });
-    store.set(activeWorkspaceSessionIdAtom, sessionId);
+    // A brand-new session has no stored mode: `null` so it resolves from the
+    // global preference, and so the mode of whatever session you were just in
+    // does not follow you into a fresh chat.
+    activateWorkspaceSession(sessionId, null);
     store.set(loadedSessionResumeAtom, false);
     store.set(loadedSessionTruncatedAtom, false);
     store.set(sessionIdToChatIdAtom, (prev) => {
@@ -207,7 +237,7 @@ export type OpenWorkspaceFolderOptions = {
 
 async function resolveSessionAndChat(
   workspaceAppId: number,
-): Promise<{ sessionId: string; chatId: number }> {
+): Promise<{ sessionId: string; chatId: number; workMode: WorkMode | null }> {
   const ipc = IpcClient.getInstance();
   const store = getDefaultStore();
   const sessionToChat = store.get(sessionIdToChatIdAtom);
@@ -220,9 +250,12 @@ async function resolveSessionAndChat(
 
   if (sorted.length > 0) {
     const sessionId = sorted[0].id;
+    // The row we already fetched carries the mode — no second round trip, and no
+    // window where the id is active but the mode is still the previous session's.
+    const workMode = (sorted[0].workMode ?? null) as WorkMode | null;
     const existingChatId = sessionToChat.get(sessionId);
     if (existingChatId != null) {
-      return { sessionId, chatId: existingChatId };
+      return { sessionId, chatId: existingChatId, workMode };
     }
     const { chatId } = await ipc.allocateSessionTransport(sessionId);
     store.set(sessionIdToChatIdAtom, (prev) => {
@@ -235,7 +268,7 @@ async function resolveSessionAndChat(
       next.set(chatId, sessionId);
       return next;
     });
-    return { sessionId, chatId };
+    return { sessionId, chatId, workMode };
   }
 
   const { sessionId, chatId } =
@@ -250,7 +283,10 @@ async function resolveSessionAndChat(
     next.set(chatId, sessionId);
     return next;
   });
-  return { sessionId, chatId };
+  // A session created a moment ago has no stored mode, so it resolves from the
+  // global preference. Explicit `null` rather than leaving the atom alone: the
+  // previous session's mode must not carry into a brand-new one.
+  return { sessionId, chatId, workMode: null };
 }
 
 export type OpenWorkspaceByAppIdOptions = {
@@ -281,7 +317,7 @@ export async function openWorkspaceByAppId(
     }
 
     const folderPath = options.folderPath?.trim() || app.path?.trim() || "";
-    const { sessionId, chatId } = await resolveSessionAndChat(appId);
+    const { sessionId, chatId, workMode } = await resolveSessionAndChat(appId);
 
     const store = getDefaultStore();
     attachWorkspaceToChat(chatId, appId, {
@@ -294,7 +330,7 @@ export async function openWorkspaceByAppId(
       name: app.name,
       path: folderPath || app.path || "",
     });
-    store.set(activeWorkspaceSessionIdAtom, sessionId);
+    activateWorkspaceSession(sessionId, workMode);
     store.set(loadedSessionResumeAtom, false);
     store.set(activeChatIdAtom, chatId);
     store.set(selectedChatIdAtom, chatId);
@@ -351,14 +387,16 @@ export async function openWorkspaceFolder(
     await IpcClient.getInstance().touchAppLastOpened(imported.appId);
 
     const app = await IpcClient.getInstance().getApp(imported.appId);
-    const { sessionId, chatId } = await resolveSessionAndChat(imported.appId);
+    const { sessionId, chatId, workMode } = await resolveSessionAndChat(
+      imported.appId,
+    );
 
     const store = getDefaultStore();
     attachWorkspaceToChat(chatId, imported.appId, {
       name: app.name,
       path: app.path ?? folderPath,
     });
-    store.set(activeWorkspaceSessionIdAtom, sessionId);
+    activateWorkspaceSession(sessionId, workMode);
     store.set(loadedSessionResumeAtom, false);
     store.set(activeChatIdAtom, chatId);
     store.set(selectedChatIdAtom, chatId);

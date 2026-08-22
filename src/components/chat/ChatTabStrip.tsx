@@ -5,11 +5,13 @@
  * in the chat atoms keyed by chatId), so a second session never hides the
  * first. A live dot marks tabs that are currently streaming.
  */
-import { useAtom, useAtomValue, useSetAtom } from "jotai";
+import { getDefaultStore, useAtom, useAtomValue, useSetAtom } from "jotai";
 import { X } from "lucide-react";
 import {
   activeChatIdAtom,
+  chatMessagesByIdAtom,
   selectedChatIdAtom,
+  isStreamingByIdAtom,
   isStreamingForChatAtom,
   openChatTabsAtom,
   type OpenChatTab,
@@ -21,6 +23,9 @@ import {
 } from "@/atoms/appAtoms";
 import { activeWorkspaceSessionIdAtom, chatIdToSessionIdAtom } from "@/atoms/sessionAtoms";
 import { removeOpenChatTab } from "@/lib/open-workspace-session";
+import { hydrateSessionIntoChat } from "@/lib/chat/hydrate-session-into-chat";
+import { isChatEvicted } from "@/lib/chat/clear-chat-atoms";
+import { showError } from "@/lib/toast";
 import { cn } from "@/lib/utils";
 
 export function ChatTabStrip() {
@@ -53,6 +58,34 @@ export function ChatTabStrip() {
         });
       }
     }
+
+    /**
+     * Bring the session back if its renderer state is gone.
+     *
+     * This function used to flip ids and nothing else, which quietly made the
+     * atoms the only copy of a background session's history — so nothing could
+     * ever be freed without turning a tab switch into an empty chat. Activation
+     * being re-loadable is what makes cold-session eviction possible at all.
+     *
+     * Two conditions, and the second is the subtle one: `evicted` matters even
+     * when the messages ARE present, because a background stream repopulates them
+     * (main sends the whole list per chunk) without rebuilding the per-message
+     * display atoms — so the history would come back rendering its earlier turns
+     * stripped of their tool cards.
+     *
+     * Never for a streaming chat: the read would land on top of the live turn.
+     */
+    if (!sessionId) return;
+    const store = getDefaultStore();
+    if (store.get(isStreamingByIdAtom).get(chatId) === true) return;
+    const hasMessages = (store.get(chatMessagesByIdAtom).get(chatId)?.length ?? 0) > 0;
+    if (hasMessages && !isChatEvicted(chatId)) return;
+    void hydrateSessionIntoChat({ sessionId, chatId }).catch((e) => {
+      // Leave the tab switched — the user asked for it — but say so, because the
+      // alternative is a chat that silently renders empty.
+      console.error("Failed to restore session for tab switch:", e);
+      showError("Could not load this session's history. Try reopening it.");
+    });
   };
 
   const closeTab = (e: React.MouseEvent, chatId: number) => {

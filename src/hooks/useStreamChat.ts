@@ -107,6 +107,7 @@ import {
 import { collectPasteAttachmentsFromFileAttachments } from "@/lib/chat/paste-attachment-meta";
 import { buildPromptWithTextPastes } from "@/lib/chat/text-paste-attachment";
 import {
+  activeSessionWorkModeAtom,
   activeWorkspaceSessionIdAtom,
   chatIdToSessionIdAtom,
   workspaceSessionsRefreshAtom,
@@ -1371,6 +1372,23 @@ export function useStreamChat({
           }
         }
 
+        /**
+         * The active session's stored mode — but ONLY when this turn belongs to
+         * that session.
+         *
+         * A background chat streaming while you look at another session must not
+         * inherit the mode of the one on screen; that would be the same
+         * scope-confusion bug in a new place. When it does not match we send no
+         * override and main resolves from the global preference, which is exactly
+         * what happened before sessions owned a mode.
+         */
+        const modeStore = getDefaultStore();
+        const sessionWorkMode =
+          workspaceSessionId != null &&
+          workspaceSessionId === modeStore.get(activeWorkspaceSessionIdAtom)
+            ? modeStore.get(activeSessionWorkModeAtom)
+            : null;
+
         IpcClient.getInstance().streamMessage(promptForModel, {
           displayPrompt,
           pasteAttachments:
@@ -1385,7 +1403,15 @@ export function useStreamChat({
           systemWake,
           workspaceSessionId: workspaceSessionId ?? undefined,
           prefillTaskLedger,
-          workModeOverride,
+          // The SESSION's mode, unless the caller named one for this turn only
+          // (edit/resend, the plan panel, an automation).
+          //
+          // Sending it every turn is the point: without an override main falls
+          // back to the GLOBAL `workModePreference`, which is a per-session
+          // decision made from app-wide state — the same shape as the v14.32.0
+          // and v14.34.0 bugs. A session with no stored mode still sends nothing
+          // and still resolves from the global, exactly as before.
+          workModeOverride: workModeOverride ?? sessionWorkMode ?? undefined,
           onUpdate: (updatedMessages: Message[]) => {
             // v11.1: no freeze-baseline clamp — the turn ends at ask_user, so
             // there is no speculative streaming to suppress while pending.

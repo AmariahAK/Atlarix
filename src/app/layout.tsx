@@ -21,6 +21,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAIPanelListener } from "@/hooks/useAIPanelListener";
 import { useLowBalanceNudge } from "@/hooks/useCreditBalance";
+import { useEvictColdChatState } from "@/hooks/useEvictColdChatState";
 import { useLocation } from "@tanstack/react-router";
 import { SimpleInlineChat } from "@/components/SimpleInlineChat";
 import { ChatTabStrip } from "@/components/chat/ChatTabStrip";
@@ -242,6 +243,10 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   useAIPanelListener();
   // One-time nudge when Atlarix Core credit drops below $1 (PAYG low-balance warning).
   useLowBalanceNudge();
+  // Free a chat's renderer state once it is neither on screen nor streaming.
+  // Mounted here, once, because it keys off the ACTIVE chat — one owner, not a
+  // per-component effect racing itself.
+  useEvictColdChatState();
   const { settings } = useSettings();
   const setChatInput = useSetAtom(chatInputValueAtom);
   const selectedAppId = useAtomValue(selectedAppIdAtom);

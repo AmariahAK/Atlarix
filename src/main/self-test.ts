@@ -26,6 +26,14 @@ export interface SelfTestReport {
   results: { name: string; ok: boolean; detail: string; ms: number }[];
 }
 
+/**
+ * CI budget. Generous on purpose: a packaged probe on a cold Windows runner is
+ * slow, and a false FAIL there costs a release.
+ *
+ * The in-app doctor passes its own, much smaller budget — 45s per check is
+ * unusable in front of a person watching a spinner, and the checks it runs are
+ * network calls and a sqlite round trip rather than a cold native spawn.
+ */
 const PROBE_TIMEOUT_MS = 45_000;
 
 function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
@@ -460,10 +468,24 @@ export const DEFAULT_PROBES: SelfTestProbe[] = [
   },
 ];
 
-export async function runSelfTest(probes: SelfTestProbe[] = DEFAULT_PROBES): Promise<SelfTestReport> {
+export async function runSelfTest(
+  probes: SelfTestProbe[] = DEFAULT_PROBES,
+  opts?: {
+    /** Per-probe budget. Defaults to the CI-sized `PROBE_TIMEOUT_MS`. */
+    timeoutMs?: number;
+    /**
+     * Suppress the `ATLARIX_SELF_TEST_OUT` side-channel. The in-app doctor shares
+     * this runner but must never append to the file a CI self-test is reading —
+     * that file is a build artefact, and interleaving a user's diagnostic run
+     * into it would make a green CI log unreadable.
+     */
+    noOutFile?: boolean;
+  },
+): Promise<SelfTestReport> {
   const results: SelfTestReport["results"] = [];
   const fs = await import("node:fs");
-  const outFile = process.env.ATLARIX_SELF_TEST_OUT;
+  const timeoutMs = opts?.timeoutMs ?? PROBE_TIMEOUT_MS;
+  const outFile = opts?.noOutFile ? undefined : process.env.ATLARIX_SELF_TEST_OUT;
   // The pid is on EVERY line deliberately. On the v14.35.0 Windows run this log
   // contained self-test output AND a full `onReady()` boot — which is impossible in
   // one process, since onReady is only called inside `if (!IS_SELF_TEST)`. Two
@@ -486,7 +508,7 @@ export async function runSelfTest(probes: SelfTestProbe[] = DEFAULT_PROBES): Pro
   for (const probe of probes) {
     const t0 = Date.now();
     try {
-      const detail = (await withTimeout(probe.run(), PROBE_TIMEOUT_MS, probe.name)) ?? "";
+      const detail = (await withTimeout(probe.run(), timeoutMs, probe.name)) ?? "";
       const ms = Date.now() - t0;
       results.push({ name: probe.name, ok: true, detail, ms });
       emit(`[self-test] ${probe.name}: OK (${ms}ms) ${detail}`);

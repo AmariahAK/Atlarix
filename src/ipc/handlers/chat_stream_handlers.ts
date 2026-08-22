@@ -138,6 +138,7 @@ import {
   setCompassContextWindow,
 } from "../utils/token_utils";
 import {
+  isReadOnlyWorkMode,
   resolveEffectiveWorkMode,
 } from "../../lib/work-mode";
 import { getToolActivityLabel } from "../../lib/tool-activity-labels";
@@ -1964,8 +1965,28 @@ export function registerChatStreamHandlers() {
 
           ctx.filesWrittenInThisExchange = [];
 
-          // Ask mode with workspace: read-only tools + ATLARIX_PLAN writes (approval) + exploration
-          if (settings.selectedChatMode === "ask" && effectiveApp) {
+          /**
+           * Which turn runner? Answered from the WORK MODE, not from the persisted
+           * `selectedChatMode`.
+           *
+           * It used to read `settings.selectedChatMode === "ask"`, and
+           * `chatModeForWorkMode` maps everything except `build` to "ask" — so
+           * **debug ran through the ask branch**, which sets `singleRound: true`.
+           * Debug kept the SDK's inner multi-step loop but lost the OUTER agentic
+           * loop and the completion gates, and three places in this codebase say
+           * that is wrong: `mode-tool-registry` ("debug = full surface, differs from
+           * build by prompt discipline only"), `isReadOnlyWorkMode` (debug is not
+           * read-only), and `run-agent-turn`, which says "Build/debug: run the
+           * completion gates before ending".
+           *
+           * Fixed HERE rather than in the mapping for two reasons. Anyone already on
+           * Debug has `selectedChatMode: "ask"` persisted, so a mapping-only fix
+           * would do nothing for them until they re-picked a mode. And the real
+           * question is "is this mode read-only?" — `selectedChatMode` was a proxy
+           * for it, and deriving the decision from the work mode leaves one source
+           * of truth instead of two that can disagree.
+           */
+          if (isReadOnlyWorkMode(effectiveWorkMode) && effectiveApp) {
             // Ask/explore arm extracted to ./chat_stream/turn-runner/ask-branch.
             const askBranchDeps: AskBranchDeps = {
               req,

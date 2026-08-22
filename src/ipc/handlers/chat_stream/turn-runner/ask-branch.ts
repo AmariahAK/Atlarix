@@ -37,6 +37,7 @@ import { ToolRegistry } from "@/lib/tools";
 import { getModeToolAllowSets } from "@/lib/tools/mode-tool-registry";
 import { toolExecutionChatMode } from "@/lib/work-mode";
 import { constructSystemPromptParts } from "@/prompts/system_prompt";
+import { memoryDirFor } from "@/lib/agent-memory";
 import { getEffectiveModelForOptions } from "@/ipc/utils/get_model_client";
 import { safeSend } from "@/ipc/utils/safe_sender";
 import { estimateTokens, getContextWindow } from "@/ipc/utils/token_utils";
@@ -595,9 +596,6 @@ export async function runAskBranch(
                         const filePref = await applyFileScopePreflightInStream(
                           permRequest,
                           effectiveAppId,
-                          req.chatId,
-                          event.sender,
-                          askPermissionInterceptor,
                           (label, detail) =>
                             emitFilePermissionActivity(event.sender, req.chatId, label, detail),
                           (message) =>
@@ -703,10 +701,8 @@ export async function runAskBranch(
                             const execResult = askPermissionInterceptor.getExecutionResult(operationId);
                             logger.log(`[Ask Mode] Permission approved: ${operationId}`);
 
-                            const preview = permRequest.preview as { path?: string; paths?: string[] };
-                            if (permRequest.operation === "write_multiple_files" && preview.paths?.length) {
-                              ctx.filesWrittenInThisExchange.push(...preview.paths);
-                            } else if (preview.path) {
+                            const preview = permRequest.preview as { path?: string };
+                            if (preview.path) {
                               ctx.filesWrittenInThisExchange.push(preview.path);
                             }
 
@@ -731,7 +727,7 @@ export async function runAskBranch(
 
                             return JSON.stringify({
                               success: true,
-                              message: `Successfully ${(permRequest.operation === "write_file" || permRequest.operation === "edit_file") ? "wrote" : "executed"} ${(permRequest.preview as { path?: string }).path || "operation"}`,
+                              message: `Successfully ${permRequest.operation === "edit_file" ? "wrote" : "executed"} ${(permRequest.preview as { path?: string }).path || "operation"}`,
                               path: execResult.path,
                               output: execResult.output,
                               // Persist the command + exit code so the thread renders
@@ -909,6 +905,13 @@ export async function runAskBranch(
                         req.chatId,
                       ),
                       hasWorkspace,
+                      // Ask/Explore rebuilds its own header rather than going through
+                      // `buildSystemPromptWithProjectInstructions`, so it has to
+                      // resolve this itself — otherwise the memory location is
+                      // published in Build and Debug but silently missing in exactly
+                      // the read-only modes where an agent is most likely to go
+                      // looking for it. That is how it shipped broken the first time.
+                      memoryDir: appPath ? memoryDirFor(appPath) : undefined,
                       registeredToolNames: askOfferedNames,
                       ...promptIdentityOpts,
                     });

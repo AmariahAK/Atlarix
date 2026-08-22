@@ -7,6 +7,216 @@ main changelog grows unwieldy — the release tooling only ever reads the CURREN
 out of `CHANGELOG.md` (`scripts/ci/extract-changelog.sh`), so archiving older ones is safe and does
 not touch release notes.
 
+## [14.25.0] (2026-08-04) — The context meter stops lying, and skills stop shouting
+
+Two halves of the same problem: Atlarix pushed content at the model and then misreported
+what it had pushed.
+
+**The token popover now counts what the model actually holds.** It was reading each
+message's display prose and ignoring `modelContent` — the native tool history, where every
+file body, grep hit and command output lives. In a coding session that is most of the
+context, so "Message History" undercounted structurally. Two of its five rows (`Codebase`,
+`Mentioned files`) were also hardcoded to zero: one a leftover from the retrieval teardown,
+the other never wired. The breakdown is now seven rows that partition the real total —
+**Conversation, Files read, Search results, Other tool output, Skills & instructions,
+System prompt, Current input** — and they sum to it. Tool traffic is carved *out of*
+history rather than added on top, because tool results already are history.
+
+- **A staleness bug that fixed itself only on the next message.** The delta cache keyed on
+  "highest message id already counted", but an assistant row is pushed when the turn starts
+  and mutated as it goes — its `modelContent` is stamped on at finalize. So the first
+  mid-stream count froze that row, and the post-stream refetch returned the same number
+  because the id had not moved. The newest row is never cached now.
+- **"Pruned at last dispatch" showed nothing, ever.** `ContextAssembler`'s budget is
+  unbounded (`remaining = Infinity`, no caller can pass one), so its trim report is always
+  empty. Actual pruning happens in `pruneContextSectionsForBudget`, which silently blanked
+  section content. It now reports what it dropped or trimmed, and the panel says so.
+
+**Skills are an index, not a payload.** Marketplace SKILL.md bodies were pasted into every
+dispatch — 10 skills / 6 KB each / 24 KB total, roughly 6k tokens a turn whether or not the
+task touched any of them — and repo skills under `.atlarix/skills/` went in whole with no
+cap at all. Now one line per skill (name, description, path); the agent reads the file with
+`read_file` when a line applies. Cost scales with the *number* of skills, not their size.
+
+- **Nothing is truncated any more.** `cap()` used to cut a body mid-file, the 11th skill
+  vanished without a trace, and even the names summary stopped at 10. A truncated
+  instruction is worse than an absent one — the model cannot tell it is reading a fragment.
+  Every skill gets an index line, however many there are and however large they get.
+- **The index can no longer be outranked.** `installedSkills` had no budget-pruning rule at
+  all, so under pressure Atlarix blanked project memory and the session summary while 24 KB
+  of skill bodies survived untouched.
+- **`compatibleModes: [Debug]` now works.** The frontmatter parser accepted only
+  JSON-quoted arrays; bare and single-quoted flow sequences threw, fell through to scalar,
+  and left `modes` unset — which the loader reads as "applies in every mode". A Debug-only
+  skill silently became a load-everywhere skill, the exact inverse of its author's intent.
+- **A pointer that pointed nowhere.** The memory section told the agent the convention lived
+  in the `guides/memory` skill, but nothing could resolve that name. Bundled guides are in
+  the index now, with a real path.
+- MCP was already on-demand (`list_available_mcps` → `mcp_call`, names only in the prompt)
+  and is unchanged.
+
+**Writer sub-agents inherit the accuracy base.** A sub-agent gets no AGENTS.md — its whole
+system prompt is a small skill file — so the reuse-first ladder and the
+never-cut-corners-on-validation rule were missing from the actor most likely to over-build:
+narrow scope, no view of what already exists in the codebase. Both now come from one shared
+fragment rendered into AGENTS.md and `subagent-writer.md`, so the two copies cannot drift.
+The read-only scout is unchanged; it writes no code.
+
+**Atlarix is the Private AI Workstation.** The site's own metadata had said so for a while
+whilst every visible line still read "the open-weight frontier harness". Open-weight is
+demoted rather than deleted — it remains a true statement about Core's catalog. Privacy is
+now stated precisely instead of broadly: your code stays on your machine, nothing indexes
+your repo, no embeddings, no file-content telemetry; local models and your own keys reach
+only the endpoint you chose; **Atlarix Core routes through our authenticated proxy — not
+logged, not retained — to the provider that serves the model, under their data policy.**
+
+- Three claims were wrong as written and are fixed: the FAQ's "nothing is sent to Atlarix
+  servers unless you use a cloud model" (Core is the default and does transit the proxy),
+  Security's unqualified "processes code locally", and Status's "there is no hosted service
+  to go down".
+- The analytics consent modal promised "no personal info — anonymous" while Settings
+  correctly said signed-in telemetry carries your email and name. The modal now matches.
+- **Onboarding:** the first-run wizard leads with the new line and offers **Clone repo…**
+  beside **Open folder…** — telling a new user to clone "from the welcome screen" meant
+  finishing setup before they could start, the dead end that lost an onboarding review in
+  14.24.0.
+
+**The meter is live, and its own arithmetic adds up.** The seven rows sat frozen until a
+turn ended — structurally, not for want of a refetch: mid-turn a turn's tool results live
+only in main and aren't stamped onto the assistant message until the turn finalizes, so
+re-querying returned identical numbers every time. Main now pushes per-tool attribution on
+the existing live-usage channel as each step lands, and **Files read** climbs while the
+agent is still reading. The card's **Total is now the sum of its rows** rather than the
+provider's separately-measured figure, which is why it read 41,492 across seven rows above
+a Total of 48,107; the provider's number keeps driving the ring and appears as its own
+labelled line.
+
+**"activeSkill (truncated)" was a lie on every single turn.** The flag compared the trimmed
+skill text against the untrimmed original, and every mode-skill file ends with a newline —
+so it fired always, while the 8,000-token ceiling it reports is never reached by a 3 KB mode
+skill. A warning that is always on teaches you to ignore the one time it matters. The
+footnote also prints human labels now instead of internal section names.
+
+**Cross-workspace edits.** Reads already reached anywhere; `run_command` writes could
+escalate, grant a folder and remember it; but `edit_file` hard-threw at the boundary —
+*after* you had read and approved the diff — telling you to re-import the folder as the
+project. The two lanes kept **disjoint grant lists** and never consulted each other. Now
+there is one list: grant a folder once, from the approval card or **Settings → Workflow →
+Folders outside this workspace**, and it covers both file edits and sandboxed commands.
+Grants are per workspace, at directory granularity, and revoking takes effect on the next
+write rather than the next session. Every individual change still asks — a grant removes the
+outer wall, not the approval.
+
+- A granted folder gives Atlarix **files, not authority**: no project instructions, skills,
+  hooks or permission rules are ever loaded from it.
+- Deny rules in `.atlarix/permissions.json` match the raw tool argument, so a rule like
+  `edit_file(src/**)` will not cover an absolute path in a granted folder — write those as
+  absolute globs.
+
+**Security fixes this surfaced.**
+
+- **`.atlarix/hooks/` was blanket auto-approved — live in every prior version, no granted
+  folder required.** `hooks.json` is handed to `/bin/sh -c` before and after every tool
+  call, so the agent could write itself arbitrary shell with no approval card ever shown.
+  The existing carve-out protected `atlarix.md` and `permissions.json` on precisely this
+  reasoning and had missed the one directory that executes.
+- **Nothing outside the workspace is blanket auto-approved any more,** whatever it is named.
+  The `.atlarix/**` allowance matched on a substring, and an outside path renders as `../…`
+  — which also meant the agent-memory directory's writes were landing with no card at all.
+- **Extension rules no longer reach outside the workspace.** An "always allow `.ts`" granted
+  for one project matched any `.ts` file anywhere by extension alone.
+- **A cross-folder write can no longer damage in-workspace revert data.** Snapshots stage the
+  whole batch in one `git add`, which aborts entirely on an out-of-repo path — so one
+  granted-folder file used to silently discard the pre-write snapshot of every in-workspace
+  file beside it, and Revert then reported success having restored fewer.
+
+**Build offers a plan when you didn't bring one.** Starting a broad piece of work with no
+structure meant the agent free-ran through a dozen files and you only saw the shape at the
+end. Build now writes a plan first when a request spans several steps or more than a couple
+of files — and explicitly doesn't for a one-line fix. Debug does the same, but only *after*
+the hypothesis: planning a bug you haven't diagnosed just commits you to a guess.
+
+**The prompt called Debug mode "Fix".** The mode picker says Debug; the prompt's own label
+map said Fix, and the mode header interpolates it — so the shipped prompt read "You are in
+Fix mode (the UI labels it Fix…)", asserting something about the UI that was false, and a
+user asking to switch to Debug was naming a mode the model had another word for. An earlier
+pass had consolidated the prompt's *internal* copies onto one map without noticing that map
+was itself a rival to the UI's. Labels now come from the same function the picker renders,
+and a parity test covers every mode.
+
+**A `cd` no longer grants anything.** A model that wrote `cd /some/path &&` had that path
+regex-matched out of its own command string and silently added to the session's writable
+roots — an invisible, permanent grant derived from text the model produced — and the command
+then ran with the OS sandbox switched off entirely. No comparable harness does this: Claude
+Code moves the working directory only through the user's `/cd` and grants roots only through
+`/add-dir`, opencode raises its `external_directory` permission for outside paths a command
+touches, Codex lets its sandbox hold the line wherever the command chdir's to, and Cursor uses
+configured workspace roots. Scope now comes only from the explicit folder grants above. A cwd
+outside the workspace asks for that folder once, exactly like a cross-repo edit.
+
+- **The sandbox is widened, not dropped.** It still comes off for a genuine installer
+  (`brew install`, `sudo`, `npm -g`) whose writes nobody can enumerate — but a command that is
+  system-scope *only* because it touches an outside path now stays sandboxed, with the granted
+  folder passed in. An approved `cd` used to mean unrestricted write access to the whole disk.
+- **The agent is told a `cd` didn't stick.** Nothing said so, so a model that prefixed one
+  carried on believing it had moved and every relative path afterwards resolved somewhere
+  else — in one real run it went hunting for the user's project files inside the installed
+  application bundle. The command result now states the working directory is unchanged and
+  names it. (Claude Code shipped the same fix for the same failure.)
+- **Built-in guides are labelled as app-internal.** They are listed with an absolute path
+  inside the application so `read_file` can reach them, which is what invited that `cd` in the
+  first place; they now sit under their own heading that says they are read-only app resources,
+  not part of any project, and never a place to work.
+
+**Looking at a sibling project just works.** `glob({path: "../telios"})` returned a tool
+error while the byte-identical absolute path was accepted — reads have always been allowed
+anywhere, so the rejection was a spelling rule, not a boundary. An agent asked to take a look
+at a neighbouring repo hit the error and then spent `pwd`, `ls ..` and a `find` rediscovering
+a path it could have used from the start. `../` now resolves the way the shell would, in
+`glob`, `grep` and `read_file` alike. grep in particular used to treat `../sibling` as a
+workspace glob and quietly match nothing — a silent wrong answer, worse than the error. A `..`
+hidden inside a glob *pattern* is still refused, an absolute path that lost its leading slash
+is still treated as the typo it is, and **writing** to a sibling still requires the folder
+grant.
+
+**Mid-task compaction, confirmed.** A long turn that crosses **90%** of the model's real
+context window compacts between tool rounds and carries on — measured against the true window
+rather than the per-dispatch limit, so a 1M-context model doesn't summarise early. A failing
+summarizer is non-fatal by design: the history passes through untouched rather than aborting
+the turn. The threshold had been written out three times; it now has one source.
+
+**The app no longer looks like it logs you out and back in on launch.** Since the window
+stopped waiting for the session restore — which fixed multi-minute launches on captive-portal
+and VPN networks, reported as "the app doesn't open" — the renderer had no way to tell "signed
+out" from "not known yet". It mounted with no user, rendered the sign-in screen, and flipped to
+the account a few seconds later. Main now reports whether the startup restore has actually
+settled, and until it has, the account slot and the welcome screen hold a neutral state instead
+of offering to sign you in. Older builds never showed this because they blocked the window
+until auth was known; this keeps the instant start and drops the flash.
+
+**Eleven renderer IPC subscriptions were dead.** They were written Electron-style as
+`(event, payload)` while the preload bridge forwards only the payload, so `payload` was
+always `undefined` and every guard failed silently: streaming phase/status, stream pulse,
+live tool-input progress, write previews, partial-reset, models.dev status, fullscreen
+changes, plan file sync, autonomous session completion, terminal-instance updates, and
+open-workspace-from-CLI. All eleven are fixed, and the bridge's listener type now takes a
+single argument so the mistake is a compile error instead of a silent no-op.
+
+**Deleted:** `src/lib/providers/base-provider.ts` (a dead port of a pre-Atlarix Python
+agent — an abstract class nobody extended and a system prompt nobody sent; only its `Tool`
+type was live, now in the registry), `src/lib/skills/installed-skills.ts`, the orphaned
+`skills:get-active-for-session` IPC handler, and the unreachable repo-skill `priority`
+branch.
+
+Tests: `token-bucket-attribution` (8), `skill-index-no-bodies` (11), `granted-folders` (11),
+`auto-approve-boundaries` (8), `agent-memory-writable` (7), `shared-prompt-fragments` (7),
+`ipc-listener-arity` (6), `mode-label-parity` (9), `active-skill-truncation` (5),
+`plan-first-nudge` (5), `cd-grants-nothing` (9), `mid-loop-compaction-threshold` (7),
+live-bucket cases added to `live-turn-token-usage`, and `priority-skill-mode-match`
+rewritten against index lines (12), `sibling-project-reads` (6),
+`startup-auth-resolution` (7). Full suite 297 files / 2405 tests green; tsc (app, main,
+tests) and oxlint clean.
+
 ## [14.24.0] (2026-07-31) — Clone works, and says so when it can't
 
 A reviewer installed Atlarix on a fresh Linux VM, opened **Clone repo**, pasted a public GitHub

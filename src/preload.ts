@@ -58,9 +58,20 @@ const validInvokeChannels = [
   "sessions:resolve-for-transport",
   "sessions:create",
   "sessions:rename",
+  "sessions:set-work-mode",
   "sessions:delete",
   "sessions:get",
   "sessions:generate-title",
+  // Rehydrates the revert-turn affordance after a relaunch. It was MISSING, and
+  // its caller (SimpleInlineChat's `rehydrateSnapshots`) swallows errors — so the
+  // feature silently never worked across restarts, which is the exact thing its
+  // own comment says it was added to fix.
+  "sessions:snapshot-turn-ids",
+  // Diagnostics. EVERY new invoke channel has to be listed here or the renderer
+  // throws "Invalid channel: <name>" at runtime — the handler being registered in
+  // `ipc_host` is not enough, and nothing at build time catches the omission.
+  "doctor:run",
+  "doctor:copy-report",
   "messages:add",
   "messages:mark-complete",
   "messages:save-display-snapshot",

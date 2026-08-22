@@ -5,7 +5,7 @@
  * (`runToolExecute`) so ask+build, native AND text-tool paths are all
  * covered uniformly:
  *
- *   { "deny": ["run_command(rm *)", "write_file(.env*)", "browser_*"] }
+ *   { "deny": ["run_command(rm *)", "edit_file(.env*)", "browser_*"] }
  *
  * Pattern syntax: `tool_name(glob-over-target)` or a bare tool-name glob.
  * The match target is the command string for run_command/run_tests, the

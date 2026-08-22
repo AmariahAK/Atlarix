@@ -33,6 +33,14 @@ export function scenario(id: string) {
       responses.push({ kind: "error", status, message });
       return builder;
     },
+    /**
+     * A 200 response whose finish reason IS the error — the silent-truncation
+     * case. Script a real response next to assert the retry recovers.
+     */
+    finishReasonError(reason = "network_error", preText?: string) {
+      responses.push({ kind: "finish_reason", reason, preText });
+      return builder;
+    },
     /** Emit one chunk then hang — drives the idle-stall watchdog (§A stall-resume). */
     stall(preText?: string) {
       responses.push({ kind: "stall", preText });

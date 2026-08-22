@@ -3,6 +3,11 @@ import {
   parseMcpToolKey,
   processStreamChunks,
 } from "@/ipc/utils/stream_chunk_tags";
+import { isNetworkStreamError } from "@/ipc/handlers/chat_stream/network-retry";
+import {
+  ProviderFinishReasonError,
+  errorShapedFinishReason,
+} from "@/ipc/utils/provider_finish_error";
 
 describe("parseMcpToolKey", () => {
   it("splits server__tool composite keys", () => {
@@ -349,6 +354,135 @@ describe("processStreamChunks", () => {
     );
     expect(fullResponse).toContain(
       '<atlarix-mcp-tool-result server="brave" tool="search">',
+    );
+  });
+});
+
+/**
+ * A provider error delivered as a SUCCESSFUL finish: HTTP 200, a well-formed
+ * stream, and `finish_reason: "network_error"`. Before this, nothing threw — so
+ * the retry never armed, the SDK mapped the value to "unknown", and the turn
+ * ended on the structural yield proxy with a truncated answer and no error.
+ */
+describe("errorShapedFinishReason", () => {
+  it("flags provider error reasons", () => {
+    for (const raw of [
+      "network_error",
+      "network-error",
+      "NETWORK ERROR",
+      "upstream_error",
+      "error",
+      "timeout",
+      "request_timeout",
+      "service_unavailable",
+      "overloaded",
+      "resource_exhausted",
+      "connection_reset",
+      "stream_interrupted",
+    ]) {
+      expect(errorShapedFinishReason(raw), raw).not.toBeNull();
+    }
+  });
+
+  // The deny-list direction matters: a false positive retries a COMPLETED
+  // answer, doubling cost and re-running its tools. `length` and
+  // `content_filter` are deterministic outcomes with their own handling, so a
+  // retry would hit the identical wall.
+  it("leaves good and deterministic reasons alone", () => {
+    for (const raw of [
+      "stop",
+      "end_turn",
+      "tool_calls",
+      "tool-calls",
+      "length",
+      "max_tokens",
+      "content_filter",
+      "unknown",
+      "",
+      "   ",
+    ]) {
+      expect(errorShapedFinishReason(raw), raw).toBeNull();
+    }
+  });
+
+  it("ignores non-strings", () => {
+    for (const raw of [undefined, null, 3, {}, []]) {
+      expect(errorShapedFinishReason(raw)).toBeNull();
+    }
+  });
+});
+
+describe("processStreamChunks + a provider error in the finish reason", () => {
+  type FullStream = Parameters<typeof processStreamChunks>[0]["fullStream"];
+
+  const run = (parts: unknown[]) => {
+    async function* gen() {
+      for (const p of parts) yield p;
+    }
+    return processStreamChunks({
+      fullStream: gen() as unknown as FullStream,
+      fullResponse: "",
+      abortController: new AbortController(),
+      chatId: -1,
+      processResponseChunkUpdate: async ({ fullResponse }) => fullResponse,
+    });
+  };
+
+  it("throws on a finish-step carrying an error reason", async () => {
+    await expect(
+      run([
+        { type: "text-delta", text: "partial answ" },
+        { type: "finish-step", rawFinishReason: "network_error" },
+      ]),
+    ).rejects.toThrow(ProviderFinishReasonError);
+  });
+
+  // A single-step round reports only `finish` — the common shape for a short
+  // answer — so guarding `finish-step` alone would miss it entirely.
+  it("throws on a one-step round that reports only `finish`", async () => {
+    await expect(
+      run([
+        { type: "text-delta", text: "partial answ" },
+        { type: "finish", finishReason: "unknown", rawFinishReason: "network_error" },
+      ]),
+    ).rejects.toThrow(/Provider finish_reason: network_error/);
+  });
+
+  it("keeps the raw string on the error for the log and breadcrumb", async () => {
+    await expect(
+      run([{ type: "finish", rawFinishReason: "upstream_failure" }]),
+    ).rejects.toMatchObject({
+      name: "ProviderFinishReasonError",
+      rawFinishReason: "upstream_failure",
+    });
+  });
+
+  it("does NOT throw on an ordinary finish", async () => {
+    const { fullResponse } = await run([
+      { type: "text-delta", text: "done." },
+      { type: "finish", finishReason: "stop", rawFinishReason: "stop" },
+    ]);
+    expect(fullResponse).toContain("done.");
+  });
+
+  // A provider that sends no raw reason at all must behave exactly as before.
+  it("does NOT throw when rawFinishReason is absent", async () => {
+    const { finishReason } = await run([
+      { type: "text-delta", text: "done." },
+      { type: "finish", finishReason: "stop" },
+    ]);
+    expect(finishReason).toBe("stop");
+  });
+
+  // The whole point of throwing: the existing silent-retry path only arms for
+  // errors `isNetworkStreamError` recognizes. If this ever returns false the
+  // fix is inert — the turn would still end quietly, just with a stack.
+  it("is classified retryable, so the existing backoff arms", () => {
+    expect(isNetworkStreamError(new ProviderFinishReasonError("network_error"))).toBe(
+      true,
+    );
+    expect(isNetworkStreamError(new ProviderFinishReasonError("upstream_failure"))).toBe(
+      true,
     );
   });
 });

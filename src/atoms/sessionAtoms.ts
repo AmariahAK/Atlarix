@@ -3,6 +3,23 @@ import { isStreamingByIdAtom } from "@/atoms/chatAtoms";
 
 export const activeWorkspaceSessionIdAtom = atom<string | null>(null);
 
+/**
+ * The active session's stored work mode, or `null` when it has none.
+ *
+ * Hydrated when a session is activated and written when the user picks a mode in
+ * it. `null` is meaningful — it means "this session has never had a mode chosen,
+ * resolve from the global preference" — so it must never be collapsed to a
+ * default here. `resolveEffectiveWorkMode` already treats an absent value that
+ * way, which is what keeps every pre-existing session behaving as it does today.
+ *
+ * Deliberately keyed on nothing: it tracks the ACTIVE session only. A per-chat
+ * map would be a second source of truth for something the DB already owns, and
+ * the one thing this change is trying to end is a mode with two owners.
+ */
+export const activeSessionWorkModeAtom = atom<
+  import("@/lib/schemas").WorkMode | null
+>(null);
+
 /** True when UI shows history from a loaded session but model context is empty. */
 export const loadedSessionResumeAtom = atom<boolean>(false);
 

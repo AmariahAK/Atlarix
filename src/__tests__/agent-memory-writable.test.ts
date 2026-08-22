@@ -84,7 +84,10 @@ describe("agent memory is writable through the approval gate", () => {
       shouldAlwaysAutoApprove: (r: unknown) => boolean;
     };
     const silent = i.shouldAlwaysAutoApprove({
-      operation: "write_file",
+      // `edit_file`, not the retired `write_file`: it is the only operation that
+      // writes file content now, and asking about a name with no producer would
+      // have this assert the fail-closed default instead of the rule it is about.
+      operation: "edit_file",
       preview: { path: path.join(memoryDirFor(ws), "some-fact.md") },
     });
     expect(silent).toBe(false);
@@ -97,7 +100,7 @@ describe("agent memory is writable through the approval gate", () => {
     };
     expect(
       i.shouldAlwaysAutoApprove({
-        operation: "write_file",
+        operation: "edit_file",
         preview: { path: path.join(ws, ".atlarix", "plans", "current.md") },
       }),
     ).toBe(true);

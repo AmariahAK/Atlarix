@@ -8,8 +8,13 @@
 
 import { useEffect, useState } from "react";
 import { useSettings } from "@/hooks/useSettings";
-import { useAtomValue } from "jotai";
+import { useAtom, useAtomValue } from "jotai";
 import { selectedChatIdAtom } from "@/atoms/chatAtoms";
+import {
+  activeSessionWorkModeAtom,
+  activeWorkspaceSessionIdAtom,
+} from "@/atoms/sessionAtoms";
+import { IpcClient } from "@/ipc/ipc_client";
 import { resolveChatWorkspaceAppId } from "@/lib/chat-workspace-binding";
 import { cn } from "@/lib/utils";
 import {
@@ -73,6 +78,8 @@ export function ChatIntentSelector() {
   const selectedChatId = useAtomValue(selectedChatIdAtom);
   const workspaceAppId = resolveChatWorkspaceAppId(selectedChatId);
   const { settings, updateSettings } = useSettings();
+  const activeSessionId = useAtomValue(activeWorkspaceSessionIdAtom);
+  const [sessionWorkMode, setSessionWorkMode] = useAtom(activeSessionWorkModeAtom);
 
   const [showFirstTime, setShowFirstTime] = useState(() => {
     if (typeof window === "undefined") return false;
@@ -84,7 +91,12 @@ export function ChatIntentSelector() {
       ? "build"
       : settings?.selectedChatMode ?? "ask";
 
+  // The SESSION's mode wins when it has one; otherwise the global preference,
+  // which is what every session written before the column existed still uses.
+  // Same precedence as `resolveEffectiveWorkMode` on the main side, so the chip
+  // shows the mode the next turn will actually run in.
   const workMode: WorkMode =
+    sessionWorkMode ??
     settings?.workModePreference ??
     (effectivePermission === "ask" ? "ask" : "build");
 
@@ -121,10 +133,27 @@ export function ChatIntentSelector() {
     }
     // Picking a mode clears any stale selected sub-agent (agents are task-tool
     // targets, not modes; the picker no longer sets one).
+    //
+    // The global write STAYS: it is the default for the next NEW session, which
+    // is what makes the picker still feel sticky when you start a fresh chat.
     updateSettings({
       ...settingsPatchForWorkMode(mode),
       selectedAgent: "",
     });
+    // And the session gets it too, so this choice survives being reopened from a
+    // window whose global preference has since moved on. Optimistic: the atom is
+    // set before the write lands, because the chip must not lag a click.
+    if (activeSessionId) {
+      setSessionWorkMode(mode);
+      void IpcClient.getInstance()
+        .setWorkspaceSessionWorkMode(activeSessionId, mode)
+        .catch((e) => {
+          // A failed stamp is not worth interrupting the turn for — the global
+          // write above already applies — but it must not be silent, or a
+          // session would quietly keep resolving from the global forever.
+          console.warn("[work-mode] failed to persist session mode:", e);
+        });
+    }
   };
 
   const WorkIcon =

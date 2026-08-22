@@ -2,14 +2,11 @@
  * File-scope permission preflight for chat stream handlers (mirrors run_command gate placement).
  */
 
-import type { WebContents } from "electron";
 import type { FileOperationPreview, PermissionRequest } from "@/lib/tools/permissions/schema";
 import { normalizeRelativePath } from "@/lib/file-permission-scope";
-import type { PermissionInterceptor } from "./permissions/interceptor";
 import {
   extractRelativePathsFromPreview,
   isFileOperationWithScope,
-  partitionWriteMultipleFilesPreview,
   runFilePermissionPreflight,
   type FilePermissionPreflight,
 } from "./file_permission_handlers";
@@ -20,12 +17,16 @@ export type FilePreflightStreamResult = {
   permRequest: PermissionRequest;
 };
 
+/**
+ * `chatId`, `sender` and `interceptor` used to be parameters here. They existed
+ * only for the `write_multiple_files` partition path (it pre-executed the
+ * auto-allowed half through the interceptor and narrated the rest), and that path
+ * is gone. An unused `interceptor` argument on a permission function reads as if
+ * approval still flows through here, which is worse than a shorter signature.
+ */
 export async function applyFileScopePreflightInStream(
   permRequest: PermissionRequest,
   effectiveAppId: number | null | undefined,
-  chatId: number,
-  sender: WebContents,
-  interceptor: PermissionInterceptor,
   emitActivity: (label: string, detail: string) => void,
   emitBlocked: (message: string) => void,
 ): Promise<FilePreflightStreamResult> {
@@ -33,70 +34,13 @@ export async function applyFileScopePreflightInStream(
     return { earlyReturn: null, skipPermissionWait: false, permRequest };
   }
 
-  if (permRequest.operation === "write_multiple_files" && Array.isArray(permRequest.preview)) {
-    const previews = permRequest.preview as FileOperationPreview[];
-    const part = partitionWriteMultipleFilesPreview(previews, effectiveAppId);
-    for (const a of part.autoAllowActivities) {
-      emitActivity(a.label, a.path);
-    }
-    for (const a of part.autoDenyActivities) {
-      emitActivity(a.label, a.path);
-      emitBlocked(`Edit blocked (${a.path}) — change in Settings`);
-    }
-    if (part.autoAllow.length) {
-      await interceptor.preExecuteWritePreviews(part.autoAllow);
-    }
-    if (!part.prompt.length) {
-      if (part.autoDeny.length && !part.autoAllow.length) {
-        return {
-          earlyReturn: JSON.stringify({
-            success: false,
-            error: "All file writes were blocked by workspace file permissions.",
-            operation: "write_multiple_files",
-          }),
-          skipPermissionWait: false,
-          permRequest,
-        };
-      }
-      return {
-        earlyReturn: JSON.stringify({
-          success: true,
-          message: `Wrote ${part.autoAllow.length} file(s)`,
-          operation: "write_multiple_files",
-        }),
-        skipPermissionWait: false,
-        permRequest,
-      };
-    }
-    const enrichedPrompt = part.prompt.map((p) => {
-      if (!p?.path?.trim()) return p;
-      const pre = runFilePermissionPreflight(
-        "write_file",
-        normalizeRelativePath(p.path),
-        effectiveAppId,
-      );
-      if (pre.type !== "prompt") return p;
-      return {
-        ...p,
-        isProtectedFile: pre.isProtected,
-        isDeleteOrRename: pre.isDeleteOrRename,
-        canAlwaysAllowFile: pre.canAlwaysAllowFile,
-        canAlwaysAllowDirectory: pre.canAlwaysAllowDirectory,
-        canAlwaysAllowExtension: pre.canAlwaysAllowExtension,
-        fileParentDir: pre.parentDir,
-        fileExtension: pre.extension,
-      };
-    });
-    const nextRequest: PermissionRequest = {
-      ...permRequest,
-      preview: enrichedPrompt,
-    };
-    return {
-      earlyReturn: null,
-      skipPermissionWait: false,
-      permRequest: enrichFilePermissionRequest(nextRequest, effectiveAppId),
-    };
-  }
+  // The `write_multiple_files` branch that stood here — partition into
+  // auto-allow / auto-deny / prompt, then re-buffer an ARRAY preview — is gone
+  // with the rest of that cluster (v14.36.0). No tool has emitted the operation
+  // since write_file folded into edit_file, so the only thing it could produce
+  // was a card that showed one file's diff while approving every write in the
+  // batch. Single-file requests fall through to the path below, which is what
+  // every real request has taken for several releases.
 
   const preview = permRequest.preview as FileOperationPreview;
   const paths = extractRelativePathsFromPreview(permRequest.operation, permRequest.preview);
@@ -145,7 +89,6 @@ export function enrichFilePermissionRequest(
   pre?: FilePermissionPreflight,
 ): PermissionRequest {
   if (!isFileOperationWithScope(permRequest.operation)) return permRequest;
-  if (permRequest.operation === "write_multiple_files") return permRequest;
 
   const preview = permRequest.preview as FileOperationPreview;
   const resolved =

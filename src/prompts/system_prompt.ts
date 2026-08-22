@@ -28,6 +28,7 @@ import {
 } from "../lib/tools/mode-tool-registry";
 import { renderModePromptBundle } from "../lib/tools/mode-prompt-bundle";
 import { getAppVersion } from "../lib/app-version";
+import { memoryDirFor } from "../lib/agent-memory";
 import { getAcceptableShell } from "../lib/shell/resolve-shell";
 import { readSettings } from "../main/settings";
 import { buildProjectDocsPromptHint } from "../lib/project-memory";
@@ -216,6 +217,16 @@ export interface ConstructSystemPromptParams {
     registeredToolNames?: readonly string[];
     /** When true, workspace MCP/skills lines are appended to tools_registry. */
     hasWorkspace?: boolean;
+    /**
+     * Absolute path to this workspace's memory store, published in the runtime
+     * identity block. Omitted for chat-only (no workspace, no store).
+     *
+     * PATH ONLY — never the note count. This lands in `stableHeader`, which is the
+     * prompt-cache prefix; the path is stable per workspace but the count changes
+     * on every note written, exactly like the `freemem()` case the device line
+     * deliberately excludes below.
+     */
+    memoryDir?: string;
 }
 
 /**
@@ -253,6 +264,7 @@ export const constructSystemPromptParts = ({
     labelWithProvider,
     registeredToolNames,
     hasWorkspace,
+    memoryDir,
 }: ConstructSystemPromptParams): SystemPromptParts => {
     const headless = process.env.ATLARIX_HEADLESS === "1";
     const baseRaw =
@@ -321,10 +333,15 @@ In user-visible text, tool summaries, and markdown replies, prefer short ASCII m
                   labelWithProvider:
                       labelWithProvider ?? identity?.labelWithProvider,
                   appVersion,
+                  memoryDir,
               })
             : `# Atlarix runtime identity
 You run inside **Atlarix** ([atlarix.dev](https://atlarix.dev)) — an agent workstation built by **NorahLabs** ([norahlabs.com](https://norahlabs.com/)).
-- **App version:** \`${appVersion}\`
+- **App version:** \`${appVersion}\`${
+                  memoryDir
+                      ? `\n- **Project memory (the only store):** \`${memoryDir}\` — read and write notes there and nowhere else; do not search for another location.`
+                      : ""
+              }
 - If asked who built Atlarix, say **NorahLabs** ([norahlabs.com](https://norahlabs.com/)). State the app version exactly as **${appVersion}**. Do not say you have no version or that you were created by an unnamed "development team."`;
 
     // Device capability — CORES + TOTAL RAM only (fixed per machine, so this
@@ -361,12 +378,24 @@ This machine has **${cpuCount} CPU cores** and **${totalMemGb} GB RAM**. Dev ser
     const contextBudgetInfo = `# Context budget
 Your context window this session is **${contextSize.toLocaleString("en-US")} tokens**. You are warned explicitly when it is close to full, and older turns are summarised for you — so a long thread is not a full one.`;
 
+    /**
+     * Identity FIRST — who the model is, and where its memory lives.
+     *
+     * It used to sit fifth, after AGENTS.md and the tool contract, which put it
+     * ~94% of the way through a 14k-character header. That is orienting
+     * information arriving after all the procedure, and it showed: a model that
+     * had the memory path in context still spent ~15 tool calls running `find`
+     * for it, then answered from a stale copy. Orientation before procedure.
+     *
+     * Everything else keeps its order, and the set is unchanged — so this costs
+     * one cache-prefix invalidation on first use and nothing after.
+     */
     const stableHeader = [
+        runtimeIdentity,
         base.trim(),
         toolContract,
         outputStyleRule,
         modeBundle,
-        runtimeIdentity,
         deviceInfo,
         contextBudgetInfo,
     ].filter((s) => s.length > 0).join("\n\n");
@@ -460,6 +489,12 @@ export async function buildSystemPromptWithProjectInstructions(params: {
         providerBrand,
         labelWithProvider,
         hasWorkspace: hasWorkspace ?? true,
+        // Resolved here rather than passed in: this wrapper is the one entry point
+        // that already knows the workspace path, and deriving it keeps every caller
+        // from having to remember. `memoryDirFor` is the same resolver the memory
+        // reader/writer use, so the path published to the model and the path the
+        // store actually lives at cannot drift.
+        memoryDir: workspacePath ? memoryDirFor(workspacePath) : undefined,
         registeredToolNames,
     });
 }

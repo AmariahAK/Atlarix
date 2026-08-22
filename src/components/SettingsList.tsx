@@ -17,6 +17,7 @@ const settingsItems = [
   { id: "mcp", label: "MCP Servers" },
   { id: "skills", label: "Skills" },
   { id: "integrations", label: "Integrations" },
+  { id: "diagnostics", label: "Diagnostics" },
   { id: "community", label: "Community" },
   { id: "danger-zone", label: "Danger Zone" },
 ];

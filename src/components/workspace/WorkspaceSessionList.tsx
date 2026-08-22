@@ -4,7 +4,7 @@ import { Loader2, MessageSquare, MoreHorizontal } from "lucide-react";
 import { getDefaultStore, useAtomValue, useSetAtom } from "jotai";
 import { useNavigate } from "@tanstack/react-router";
 import { IpcClient } from "@/ipc/ipc_client";
-import type { Message, WorkspaceChatSession } from "@/ipc/ipc_types";
+import type { WorkspaceChatSession } from "@/ipc/ipc_types";
 import {
   activeWorkspaceSessionIdAtom,
   loadedSessionResumeAtom,
@@ -17,15 +17,13 @@ import {
   workspaceSessionLoadingAtom,
   workspaceSessionLoadingLabelAtom,
 } from "@/atoms/sessionAtoms";
-import { SESSION_LOAD_MESSAGE_LIMIT, SESSION_LOAD_OVERLAY_DELAY_MS } from "@/constants/session_constants";
+import { SESSION_LOAD_OVERLAY_DELAY_MS } from "@/constants/session_constants";
 import {
   activeChatIdAtom,
-  chatMessagesByIdAtom,
   isStreamingByIdAtom,
   selectedChatIdAtom,
-  turnSnapshotTurnIdByMessageIdAtom,
 } from "@/atoms/chatAtoms";
-import { buildRevertSnapshotMap } from "@/lib/chat/revert-snapshot-rehydrate";
+import { hydrateSessionIntoChat } from "@/lib/chat/hydrate-session-into-chat";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -38,69 +36,19 @@ import { cn } from "@/lib/utils";
 import { appsListAtom } from "@/atoms/appAtoms";
 import { attachWorkspaceToChat } from "@/lib/chat-workspace-binding";
 import {
+  activateWorkspaceSession,
   registerOpenChatTab,
   removeOpenChatTab,
   startNewWorkspaceConversation,
   updateOpenChatTabTitleForSession,
 } from "@/lib/open-workspace-session";
+import type { WorkMode } from "@/lib/schemas";
 import { showInfo } from "@/lib/toast";
 import {
-  diagSpan,
-  diagSpanSync,
   diagStopwatch,
   sessionLoadDiagEnabled,
 } from "@/lib/diag/session-load-diag";
-import type { DisplaySnapshotV1 } from "@/lib/chat/display-snapshot";
 import { shouldUseStreamingSessionFastPath } from "@/lib/chat/activity-stream";
-import { attachmentInfoFromStoredFile, hydrateAttachmentStoreFromMessages } from "@/lib/attachment-persistence";
-import type { PasteAttachmentMeta, StoredFileAttachment } from "@/ipc/ipc_types";
-
-let displayMessageId = -10000;
-
-function sessionMessagesToUiMessages(
-  sessionId: string,
-  chatId: number,
-  messages: {
-    id: string;
-    role: string;
-    content: string;
-    status?: "complete" | "interrupted" | "waiting";
-    createdAt: Date;
-    displaySnapshot?: DisplaySnapshotV1 | null;
-    modelContent?: string | null;
-    pasteAttachments?: PasteAttachmentMeta[] | null;
-    fileAttachments?: StoredFileAttachment[] | null;
-    maxTokensUsed?: number | null;
-  }[],
-): Message[] {
-  return messages
-    .filter((m) => m.role === "user" || m.role === "assistant")
-    .map((m) => ({
-      id: displayMessageId--,
-      // v12 0.4-C2: keep the DB row UUID — edits target the row directly.
-      sessionRowId: m.id,
-      role: m.role as "user" | "assistant",
-      content: m.content,
-      chatId,
-      createdAt: m.createdAt,
-      ...(m.status === "interrupted" ? { interrupted: true } : {}),
-      ...(m.status === "waiting" ? { waiting: true } : {}),
-      ...(m.modelContent ? { modelContent: m.modelContent } : {}),
-      // The provider's real token total for this turn — the meter prefers it
-      // over its own estimate, so it has to survive the round trip.
-      ...(m.maxTokensUsed != null ? { maxTokensUsed: m.maxTokensUsed } : {}),
-      ...(m.pasteAttachments?.length
-        ? { pasteAttachments: m.pasteAttachments }
-        : {}),
-      ...(m.fileAttachments?.length
-        ? {
-            fileAttachments: m.fileAttachments,
-            attachments: m.fileAttachments.map(attachmentInfoFromStoredFile),
-          }
-        : {}),
-      ...(m.displaySnapshot ? { displaySnapshot: m.displaySnapshot } : {}),
-    }));
-}
 
 export function WorkspaceSessionList({
   workspaceId,
@@ -133,8 +81,6 @@ export function WorkspaceSessionList({
   const backgroundStreamingSessionIds = useAtomValue(
     backgroundStreamingSessionIdsAtom,
   );
-  const setMessagesById = useSetAtom(chatMessagesByIdAtom);
-  const setTurnSnapshotMap = useSetAtom(turnSnapshotTurnIdByMessageIdAtom);
   const setActiveChatId = useSetAtom(activeChatIdAtom);
   const activeChatIdValue = useAtomValue(activeChatIdAtom);
   const setSelectedChatId = useSetAtom(selectedChatIdAtom);
@@ -175,7 +121,16 @@ export function WorkspaceSessionList({
             ? { name: workspaceApp.name, path: workspaceApp.path ?? undefined }
             : undefined,
         );
-        setActiveSessionId(sessionId);
+        // No DB read on this path (reloading would clobber the live stream), so
+        // take the mode from the list rows already loaded. If the session is not
+        // in that list, pass `undefined` — "unknown, leave what is there" —
+        // rather than `null`, which would assert it has no stored mode and
+        // silently drop one it may have.
+        const listed = sessions.find((s) => s.id === sessionId);
+        activateWorkspaceSession(
+          sessionId,
+          listed ? ((listed.workMode ?? null) as WorkMode | null) : undefined,
+        );
         setLoadedTruncated(false);
         setChatIdToSessionId((prev) => {
           const next = new Map(prev);
@@ -223,14 +178,6 @@ export function WorkspaceSessionList({
     // have to account for it or something unmeasured is eating the time.
     const loadWatch = diagStopwatch("renderer: TOTAL handleSelectSession");
     try {
-      const { session, messages, truncated } = await diagSpan(
-        "renderer: sessions:get IPC (incl. main→renderer clone)",
-        () =>
-          IpcClient.getInstance().getWorkspaceSession(sessionId, {
-            limit: SESSION_LOAD_MESSAGE_LIMIT,
-          }),
-        { count: (r) => r.messages.length },
-      );
       let chatId = sessionIdToChatId.get(sessionId);
       if (chatId == null) {
         ({ chatId } =
@@ -249,54 +196,20 @@ export function WorkspaceSessionList({
           ? { name: workspaceApp.name, path: workspaceApp.path ?? undefined }
           : undefined,
       );
-      const uiMessages = diagSpanSync(
-        "renderer: sessionMessagesToUiMessages",
-        () => sessionMessagesToUiMessages(session.id, chatId!, messages),
-        { count: (m) => m.length },
-      );
-      hydrateAttachmentStoreFromMessages(uiMessages);
-      // Ids only. This used to ship content + modelContent + displaySnapshot BACK
-      // to main — bytes main had just read out of SQLite for `sessions:get`. Main
-      // joins the bodies from its own rows now; everything the transport needs
-      // (including `maxTokensUsed`, the token meter's ground truth on reload) comes
-      // from the DB rather than a round trip.
-      await diagSpan(
-        "renderer: sessions:hydrate-transport IPC (ids only)",
-        () =>
-          IpcClient.getInstance().hydrateSessionTransport(
-            chatId!,
-            session.id,
-            uiMessages.map((m) => ({
-              id: m.id,
-              sessionRowId: m.sessionRowId ?? null,
-            })),
-          ),
-        { count: (r) => r.hydrated },
-      );
-      setMessagesById((prev) => {
-        const next = new Map(prev);
-        next.set(chatId, uiMessages);
-        return next;
+      // The read, the shaping, the transport hydration and the display
+      // rehydration all live in one place now, because the tab strip needs the
+      // identical sequence to bring a cold session back.
+      const { session, truncated } = await hydrateSessionIntoChat({
+        sessionId,
+        chatId,
       });
-      // Rehydrate revert-turn checkpoints so the affordance survives a restart.
-      const restoredSnapshots = buildRevertSnapshotMap(messages, uiMessages);
-      if (restoredSnapshots.size > 0) {
-        setTurnSnapshotMap((prev) => {
-          const next = new Map(prev);
-          for (const [id, sid] of restoredSnapshots) next.set(id, sid);
-          return next;
-        });
-      }
-      const { replaceDisplayHydrationForChat } = await import(
-        "@/lib/chat/apply-stream-display-hydration"
+      // The session row is right here, so the mode is hydrated in the same beat
+      // as the id — an activation that sets one without the other leaves the
+      // PREVIOUS session's mode both on the chip and driving the next turn.
+      activateWorkspaceSession(
+        session.id,
+        (session.workMode ?? null) as WorkMode | null,
       );
-      // Re-parses every assistant message's raw content on top of the snapshot it
-      // already has (threadFromSnapshot → buildCompletedStreamThreadFromAssistantContent),
-      // then does the snapshot pass a second time in applyStreamDisplayHydration.
-      diagSpanSync("renderer: replaceDisplayHydrationForChat", () =>
-        replaceDisplayHydrationForChat(chatId!, uiMessages),
-      );
-      setActiveSessionId(session.id);
       setLoadedTruncated(Boolean(truncated));
       // Only a genuinely prior-launch session is "restored" — a session opened
       // earlier this launch (already in sessionIdToChatId) is a silent switch.

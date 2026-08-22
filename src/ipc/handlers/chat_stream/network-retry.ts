@@ -4,6 +4,8 @@
  * imports the parent handler.)
  */
 
+import { ProviderFinishReasonError } from "@/ipc/utils/provider_finish_error";
+
 /**
  * Base backoff schedule for the silent mid-stream retry. Always read through
  * `jitteredDelay()` — never awaited directly.
@@ -67,6 +69,16 @@ export function jitteredDelay(
 export function isNetworkStreamError(err: unknown): boolean {
   if (!err) return false;
   if ((err as { name?: string })?.name === "AbortError") return false;
+  // A provider error delivered as a successful finish reason (HTTP 200, clean
+  // stream, `finish_reason: "network_error"`). Recognized by CLASS rather than
+  // left to the message regex below: that regex happens to match "network_error"
+  // today, which would make this work by coincidence and break the moment a
+  // provider spells it "upstream_failure".
+  if (
+    err instanceof ProviderFinishReasonError ||
+    (err as { name?: string })?.name === "ProviderFinishReasonError"
+  )
+    return true;
   if ((err as { name?: string })?.name === "APICallError") {
     // Don't blindly retry EVERY APICallError — a deterministic 4xx (400 bad
     // request, 401/403 auth, 404, 422) fails identically on retry and just

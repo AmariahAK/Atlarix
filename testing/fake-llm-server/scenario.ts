@@ -36,7 +36,15 @@ export type ScenarioResponse =
    * Drives the idle-stall watchdog (stream_chunk_tags) → continue-from-partial
    * resume. Pair with a short ATLARIX_TEST_STALL_MS so the watchdog fires fast.
    */
-  | { kind: "stall"; preText?: string };
+  | { kind: "stall"; preText?: string }
+  /**
+   * HTTP 200, a well-formed stream, and an ERROR as the finish reason
+   * (`finish_reason: "network_error"`) — the failure is in the body, not the
+   * transport, so nothing at the HTTP layer can see it. Drives the
+   * rawFinishReason guard in stream_chunk_tags → the existing silent retry.
+   * Script a real response after it to assert the retry succeeds.
+   */
+  | { kind: "finish_reason"; reason: string; preText?: string };
 
 export interface Scenario {
   id: string;
@@ -242,6 +250,22 @@ export function handleScenarioChatCompletion(
     case "tool_call":
       streamToolCalls(res, response.calls);
       return;
+    case "finish_reason": {
+      // Deliberately a COMPLETE, well-formed stream: headers, a delta, a final
+      // chunk, `[DONE]`. Everything is right except the reason — which is the
+      // whole point, since a client that only inspects the transport sees a
+      // clean success and silently truncates the turn.
+      res.setHeader("Content-Type", "text/event-stream");
+      res.setHeader("Cache-Control", "no-cache");
+      res.setHeader("Connection", "keep-alive");
+      res.write(createStreamChunk("", "assistant"));
+      res.write(createStreamChunk(response.preText ?? "Partial answ"));
+      res.write(
+        createStreamChunk("", "assistant", true, undefined, response.reason),
+      );
+      res.end();
+      return;
+    }
     case "stall": {
       // Emit one delta (so hasReceivedChunk flips → the idle budget applies),
       // then hang: never write another chunk and never end. The client's stall

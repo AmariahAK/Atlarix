@@ -23,7 +23,6 @@ type HunkSelection = { selected: number[]; total: number };
 const FILE_OPERATIONS = new Set([
   "write_file",
   "edit_file",
-  "write_multiple_files",
   "delete_file",
   "rename_file",
   "batch_plan",
@@ -42,22 +41,19 @@ function queueEntryFromPermission(
   request: { operation: string; preview: unknown },
 ): Omit<QueuedOperation, "timestamp"> {
   const preview = request.preview as Record<string, unknown>;
-  const files = Array.isArray(request.preview) ? request.preview : null;
 
-  if (request.operation === "write_multiple_files" && files?.length) {
-    const first = files[0] as { path?: string; content?: string; oldContent?: string };
-    return {
-      id: operationId,
-      operation: "write_multiple_files",
-      path: first.path,
-      content: first.content,
-      oldContent: first.oldContent,
-      description: `${files.length} files`,
-      preview: JSON.stringify(request.preview, null, 2).slice(0, 800),
-      status: "pending",
-    };
-  }
-
+  // There is no multi-file branch here any more. `write_multiple_files` carried an
+  // ARRAY preview, and this function took `files[0]` for path/content — so the
+  // card rendered ONE file's diff while approving wrote all of them, and
+  // `permissions/handlers.ts` read `.path` off the array, got `undefined`, and
+  // saved no rule at all: "Always allow this file" was a no-op that looked like
+  // it worked. It was also unreachable (no tool has emitted that operation since
+  // write_file folded into edit_file), which is why it could be deleted rather
+  // than repaired.
+  //
+  // The invariant it violated still applies to every card below: an "always"
+  // option must describe exactly what the grant covers, and must be WITHHELD
+  // when the contents cannot be fully shown.
   return {
     id: operationId,
     operation: (request.operation as QueuedOperation["operation"]) || "unknown",

@@ -237,9 +237,12 @@ describe("granted folders — blast radius", () => {
       }),
     ).toEqual(["/a/old.ts", "/b/new.ts"]);
 
+    // An array preview yields every entry as a target regardless of the
+    // operation name — a fail-closed shape rule, not support for a specific op
+    // (`write_multiple_files`, the only one that sent arrays, was removed).
     expect(
       i.targetPathsForOperation({
-        operation: "write_multiple_files",
+        operation: "some_future_batch_op",
         preview: [{ path: "/a/1.ts" }, { path: "/a/2.ts" }],
       }),
     ).toEqual(["/a/1.ts", "/a/2.ts"]);

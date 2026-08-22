@@ -33,6 +33,7 @@ import {
   sessionLoadDiagEnabled,
 } from "@/lib/diag/session-load-diag";
 import { requireAuthSession } from "@/lib/auth/require_auth_session";
+import { WorkModeSchema, type WorkMode } from "@/lib/schemas";
 import {
   createStreamTransport,
   deleteStreamTransport,
@@ -53,6 +54,13 @@ export type ChatSessionRow = {
   title: string;
   /** "auto" = generated and may be regenerated; "user" = typed, never touched. */
   titleSource: "auto" | "user";
+  /**
+   * The mode this session runs in, or `null` for a session written before the
+   * column existed. `null` is not a default to be filled in on read — it means
+   * "resolve from the global preference", which is what those sessions have
+   * always done. See `chat_sessions.work_mode` in the schema.
+   */
+  workMode: WorkMode | null;
   createdAt: Date;
   updatedAt: Date;
 };
@@ -97,6 +105,7 @@ function mapSession(row: typeof chatSessions.$inferSelect): ChatSessionRow {
     workspaceId: row.workspaceId,
     title: row.title,
     titleSource: (row.titleSource ?? "auto") as "auto" | "user",
+    workMode: (row.workMode ?? null) as WorkMode | null,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
@@ -693,6 +702,32 @@ export function registerWorkspaceSessionHandlers(): void {
         .update(chatSessions)
         // A hand-typed name is the user's and must never be regenerated over.
         .set({ title: trimmed, titleSource: "user", updatedAt: new Date() })
+        .where(eq(chatSessions.id, sessionId))
+        .returning();
+      if (!row) throw new Error("Session not found");
+      return mapSession(row);
+    },
+  );
+
+  /**
+   * Stamp the session's work mode.
+   *
+   * Called when the user picks a mode while this session is active — a
+   * deliberate choice, which is the only thing that should write here. Opening a
+   * session must NOT call this: a legacy session would then acquire whatever the
+   * global preference happened to be at that moment, which is a mode nobody
+   * chose for it.
+   */
+  handle(
+    "sessions:set-work-mode",
+    async (_event, sessionId: string, workMode: WorkMode) => {
+      const parsed = WorkModeSchema.safeParse(workMode);
+      if (!parsed.success) {
+        throw new Error(`Invalid work mode: ${String(workMode)}`);
+      }
+      const [row] = await db
+        .update(chatSessions)
+        .set({ workMode: parsed.data, updatedAt: new Date() })
         .where(eq(chatSessions.id, sessionId))
         .returning();
       if (!row) throw new Error("Session not found");

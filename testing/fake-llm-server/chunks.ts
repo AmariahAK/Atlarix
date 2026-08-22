@@ -12,6 +12,12 @@ export function createStreamChunk(
     completion_tokens: number;
     total_tokens: number;
   },
+  /**
+   * Overrides the final chunk's `finish_reason`. Real gateways sometimes answer
+   * HTTP 200 with a well-formed stream whose finish reason IS the error
+   * (`"network_error"`), which is a failure the transport cannot show.
+   */
+  finishReason?: string,
 ) {
   const chunk: any = {
     id: `chatcmpl-${Date.now()}`,
@@ -22,7 +28,7 @@ export function createStreamChunk(
       {
         index: 0,
         delta: isLast ? {} : { content, role },
-        finish_reason: isLast ? "stop" : null,
+        finish_reason: isLast ? (finishReason ?? "stop") : null,
       },
     ],
   };

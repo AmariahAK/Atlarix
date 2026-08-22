@@ -129,15 +129,43 @@ describe("resolveMaxOutputBytes", () => {
 
 describe("targetPathsForOperation", () => {
   it("collects the single path for ordinary file operations", () => {
-    for (const op of [
-      "write_file",
-      "edit_file",
-      "replace_code",
-      "insert_code",
-      "delete_lines",
-      "delete_file",
-    ]) {
+    for (const op of ["edit_file", "delete_file"]) {
       expect(targetPathsForOperation(req(op, { path: "src/a.ts" }))).toEqual([
+        "src/a.ts",
+      ]);
+    }
+  });
+
+  /**
+   * The `default` branch fails CLOSED, and that is the point of it.
+   *
+   * It used to `break` with nothing pushed — which sounds harmless and is the
+   * opposite: this file's header states that a path missing from the list is a
+   * path that is never gated, so an unrecognized operation had its targets checked
+   * against nothing. It never bit only because every operation happened to be
+   * listed, which made removing the dead ones (`write_file`, `replace_code`,
+   * `insert_code`, `delete_lines` — no producer since v13.8) a fail-open change
+   * waiting to happen.
+   */
+  it("still yields targets for an operation the switch does not know", () => {
+    expect(
+      targetPathsForOperation(req("some_future_file_op", { path: "src/a.ts" })),
+    ).toEqual(["src/a.ts"]);
+  });
+
+  it("yields both endpoints for an unknown operation that renames", () => {
+    expect(
+      targetPathsForOperation(
+        req("some_future_move_op", { fromPath: "a.ts", toPath: "b.ts" }),
+      ),
+    ).toEqual(["a.ts", "b.ts"]);
+  });
+
+  // The removed names are no longer special-cased, but they are still gated —
+  // by the fail-closed default rather than by a label of their own.
+  it("still gates the retired operation names via that default", () => {
+    for (const op of ["write_file", "replace_code", "insert_code", "delete_lines"]) {
+      expect(targetPathsForOperation(req(op, { path: "src/a.ts" })), op).toEqual([
         "src/a.ts",
       ]);
     }
@@ -170,10 +198,15 @@ describe("targetPathsForOperation", () => {
     ).toEqual(["a.ts", "b.ts", "c.ts"]);
   });
 
-  it("reads an array preview as write_multiple_files", () => {
+  // Keyed on SHAPE, not on an operation name. `write_multiple_files` (the only
+  // op that ever sent an array) is gone, and the branch stays because it fails
+  // CLOSED: an array that fell through to the per-operation switch would yield
+  // no targets, and no targets means the containment check has nothing to check.
+  // So this deliberately passes an operation name the switch does not know.
+  it("reads ANY array preview as a list of targets, whatever the operation", () => {
     expect(
       targetPathsForOperation(
-        req("write_multiple_files", [{ path: "a.ts" }, { path: "b.ts" }]),
+        req("some_future_batch_op", [{ path: "a.ts" }, { path: "b.ts" }]),
       ),
     ).toEqual(["a.ts", "b.ts"]);
   });

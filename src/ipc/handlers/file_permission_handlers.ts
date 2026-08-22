@@ -7,7 +7,6 @@ import log from "electron-log";
 import type { FileOperationPreview } from "@/lib/tools/permissions/schema";
 import {
   isFileOperationWithScope,
-  normalizeRelativePath,
   resolveFilePermissionGate,
   type FilePermissionDecision,
   type FileScopeType,
@@ -44,7 +43,12 @@ export function extractRelativePathsFromPreview(
   operation: string,
   preview: unknown,
 ): string[] {
-  if (operation === "write_multiple_files" && Array.isArray(preview)) {
+  // Keyed on the SHAPE, not on an operation name. It used to read
+  // `operation === "write_multiple_files"`, which is gone — but the branch stays
+  // generic rather than being deleted, because these paths feed permission
+  // checks: an array preview that fell through would extract NO paths and the
+  // caller would check nothing. Fail closed on a shape we do not recognize.
+  if (Array.isArray(preview)) {
     return (preview as FileOperationPreview[])
       .map((p) => p?.path)
       .filter((p): p is string => Boolean(p?.trim()));
@@ -99,50 +103,6 @@ export function runFilePermissionPreflight(
     canAlwaysAllowFile: gate.canAlwaysAllowFile,
     canAlwaysAllowDirectory: gate.canAlwaysAllowDirectory,
     canAlwaysAllowExtension: gate.canAlwaysAllowExtension,
-  };
-}
-
-export type MultiFilePartition = {
-  autoAllow: FileOperationPreview[];
-  autoDeny: FileOperationPreview[];
-  prompt: FileOperationPreview[];
-  autoAllowActivities: Array<{ label: string; path: string }>;
-  autoDenyActivities: Array<{ label: string; path: string }>;
-};
-
-export function partitionWriteMultipleFilesPreview(
-  previews: FileOperationPreview[],
-  appId: number | null | undefined,
-): MultiFilePartition {
-  const autoAllow: FileOperationPreview[] = [];
-  const autoDeny: FileOperationPreview[] = [];
-  const prompt: FileOperationPreview[] = [];
-  const autoAllowActivities: Array<{ label: string; path: string }> = [];
-  const autoDenyActivities: Array<{ label: string; path: string }> = [];
-
-  for (const p of previews) {
-    if (!p?.path?.trim()) {
-      prompt.push(p);
-      continue;
-    }
-    const pre = runFilePermissionPreflight("write_file", normalizeRelativePath(p.path), appId);
-    if (pre.type === "auto_allow") {
-      autoAllow.push(p);
-      autoAllowActivities.push({ label: pre.label, path: p.path });
-    } else if (pre.type === "auto_deny") {
-      autoDeny.push(p);
-      autoDenyActivities.push({ label: pre.label, path: p.path });
-    } else {
-      prompt.push(p);
-    }
-  }
-
-  return {
-    autoAllow,
-    autoDeny,
-    prompt,
-    autoAllowActivities,
-    autoDenyActivities,
   };
 }
 

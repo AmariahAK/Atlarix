@@ -591,6 +591,33 @@ working is ever wanted). What must not be re-derived:
   acted on in v14.26.0**: there is no `ask` list any more, and a file containing that key is
   warned about rather than silently ignored (`lib/tools/permissions/ruleset.ts:17`).
 
+## An "always allow" must describe exactly what it grants — 2026-08-21
+
+Adopted from Claude Code v2.1.236 ("display text and 'don't ask again' options now always match what
+a grant would cover, and 'don't ask again' is withheld when contents cannot be fully displayed"),
+because we had the same defect in a path that happened to be unreachable.
+
+`write_multiple_files` carried an ARRAY preview. `queueEntryFromPermission` took `files[0]` for the
+path and content, so the card rendered ONE file's diff while approving executed every write in the
+batch; and `permissions/handlers.ts` read `.path` off that same array, got `undefined`, and saved
+**no rule at all** — so "Always allow this file" was a no-op that looked like it had worked. It was
+deleted rather than repaired because no tool has emitted that operation since `write_file` folded
+into `edit_file` (reachability, not presence, is what made deletion the right answer).
+
+**The standing rules, for whatever batch operation comes next:**
+
+1. The diff shown and the grant offered must describe the SAME thing. If a request covers N targets,
+   show N, or say "+N more, not shown" and drop the always-allow.
+2. Withhold "always" whenever the contents cannot be fully displayed. A grant the user could not read
+   is not consent.
+3. Derive a saved rule's path from the entry actually being decided, never from `preview.path` on a
+   shape that may not have one. A rule that silently fails to save is worse than no button: the user
+   believes the decision is recorded and it is not.
+4. Where a preview shape feeds a CONTAINMENT check rather than a card, key the branch on the shape and
+   keep it — `targetPathsForOperation` and `extractRelativePathsFromPreview` both retain their
+   array branches for exactly this reason. An unrecognized array falling through to a per-operation
+   switch extracts no targets, and no targets means the check passes by having nothing to check.
+
 ## Smaller items from the 2026-08-15 upstream review
 
 Noted, not scheduled. Sources: opencode `v1.18.17`, claude-code `v2.1.229` / `232` / `233`.
@@ -624,10 +651,21 @@ Noted, not scheduled. Sources: opencode `v1.18.17`, claude-code `v2.1.229` / `23
   regularly — worth confirming a schema rejection returns a correctable tool error rather than
   killing the turn. Our stated principle already covers it: guards guide via the result channel,
   never dead-end.
-- **Windows path-validation matrix.** Upstream just closed an NTLM credential-leak vector where the
-  NT `\??\` device prefix bypassed UNC validation. We have scar tissue here (drive-letter colon,
-  `\\?\`) — worth a dedicated test matrix: `\??\`, `\\?\UNC\`, 8.3 short names (`PROGRA~1`),
-  `C:relative`.
+- **Windows path-validation matrix — RESOLVED as "not doing", 2026-08-21.** Upstream (Claude Code
+  v2.1.234) closed an NTLM credential-leak vector where the NT `\??\` device prefix bypassed UNC
+  validation, and this note proposed a matrix of our own: `\??\`, `\\?\UNC\`, 8.3 short names
+  (`PROGRA~1`), `C:relative`.
+  It was built — a guard in `resolveToolTargetPath`, covering all four file tools at one choke point —
+  and removed the same day on the owner's call. The finding was real: `read_file` auto-allows any
+  absolute path with no approval card, and `path.isAbsolute` is true for `\\host\share\x` on Windows.
+  The reasons against: it is Windows-only, needs an attacker-reachable SMB host, and above all it is
+  **partial** — `run_command` can still reach a UNC path, and closing that needs the sandbox, which on
+  Windows is Low IL (`NO_WRITE_UP`, reads up permitted by design). opencode has no such guard either;
+  its only UNC handling is case-normalisation for display paths.
+  **What still stands:** `safeRelativePathUnderWorkspace` has rejected UNC on the RELATIVE branch for
+  years and is untouched — only the absolute branch is unguarded. The 8.3-short-name and `C:relative`
+  cases were never examined at all. Re-open with the read-deny work, which would cover both tools at
+  once rather than half of one.
 - **Nested-repo trust.** Upstream fixed nested git repos inheriting trust from a parent directory.
   Our re-entry path is the clone dialog: the agent clones a repo into the workspace, and that repo
   ships `.atlarix/hooks.json`, which is `/bin/sh -c`'d on every tool call. The original hole was

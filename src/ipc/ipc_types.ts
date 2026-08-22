@@ -659,6 +659,12 @@ export interface WorkspaceChatSession {
   id: string;
   workspaceId: number;
   title: string;
+  /**
+   * This session's work mode, or `null` when it has never had one picked — in
+   * which case the global preference applies, exactly as it did before sessions
+   * owned their mode. Never collapse the null to a default on read.
+   */
+  workMode?: "ask" | "plan" | "build" | "debug" | "review" | null;
   createdAt: Date;
   updatedAt: Date;
 }

@@ -565,9 +565,6 @@ export async function runBuildBranch(
                       const filePref = await applyFileScopePreflightInStream(
                         permRequest,
                         effectiveAppId,
-                        req.chatId,
-                        event.sender,
-                        permissionInterceptor,
                         (label, detail) =>
                           emitFilePermissionActivity(event.sender, req.chatId, label, detail),
                         (message) =>
@@ -608,10 +605,8 @@ export async function runBuildBranch(
 
                       const pushWrittenPaths = () => {
                         if (!permRequest) return;
-                        const preview = permRequest.preview as { path?: string; paths?: string[]; content?: string };
-                        if (permRequest.operation === "write_multiple_files" && preview.paths?.length) {
-                          ctx.filesWrittenInThisExchange.push(...preview.paths);
-                        } else if (preview.path) {
+                        const preview = permRequest.preview as { path?: string; content?: string };
+                        if (preview.path) {
                           ctx.filesWrittenInThisExchange.push(preview.path);
                           // The write LANDED, so the agent's view of this file is current
                           // again — refresh the read record. Without this, every edit in a
@@ -651,8 +646,7 @@ export async function runBuildBranch(
                         // its prior failure.
                         if (
                           execResult.path &&
-                          (permRequest.operation === "write_file" ||
-                            permRequest.operation === "edit_file")
+                          permRequest.operation === "edit_file"
                         ) {
                           if (execResult.verified === false) {
                             recordUnverifiedEdit(streamTurnId, execResult.path);
@@ -679,10 +673,7 @@ export async function runBuildBranch(
                         // diff from those args (see buildDiffView). We send only tiny
                         // line COUNTS so the collapsed summary stays accurate without
                         // costing transcript tokens.
-                        const isFileWrite =
-                          permRequest.operation === "write_file" ||
-                          permRequest.operation === "edit_file" ||
-                          permRequest.operation === "write_multiple_files";
+                        const isFileWrite = permRequest.operation === "edit_file";
                         const displayFields: Record<string, unknown> = isFileWrite
                           ? (() => {
                               const oldC =
@@ -764,10 +755,7 @@ export async function runBuildBranch(
                         const failedExit =
                           typeof execResult.exitCode === "number" && execResult.exitCode !== 0;
                         const verb =
-                          permRequest.operation === "write_file" ||
-                          permRequest.operation === "edit_file"
-                            ? "wrote"
-                            : "executed";
+                          permRequest.operation === "edit_file" ? "wrote" : "executed";
                         const target =
                           (permRequest.preview as { path?: string }).path || "operation";
                         return JSON.stringify({
@@ -1328,9 +1316,6 @@ export async function runBuildBranch(
                         const filePref = await applyFileScopePreflightInStream(
                           permRequest,
                           effectiveAppId,
-                          req.chatId,
-                          event.sender,
-                          permissionInterceptor,
                           (label, detail) =>
                             emitFilePermissionActivity(event.sender, req.chatId, label, detail),
                           (message) =>
@@ -1373,10 +1358,8 @@ export async function runBuildBranch(
                         permissionInterceptor.bufferOperation(operationId, permRequest, skipPermissionWait);
                         const pushAgenticWrittenPaths = () => {
                           if (!permRequest) return;
-                          const preview = permRequest.preview as { path?: string; paths?: string[] };
-                          if (permRequest.operation === "write_multiple_files" && preview.paths?.length) {
-                            ctx.filesWrittenInThisExchange.push(...preview.paths);
-                          } else if (preview.path) {
+                          const preview = permRequest.preview as { path?: string };
+                          if (preview.path) {
                             ctx.filesWrittenInThisExchange.push(preview.path);
                           }
                         };

@@ -129,6 +129,25 @@ export const chatSessions = sqliteTable("chat_sessions", {
    * keep/revert approval gate across app restarts. Null for normal sessions.
    */
   agentMeta: text("agent_meta"),
+  /**
+   * The work mode this session runs in — Explore / Plan / Build / Debug / Review.
+   *
+   * The mode used to live ONLY in global settings, so reopening a session you had
+   * been planning in, from a window whose global preference was Build, silently
+   * made the next turn a Build turn: writes allowed on a thread you were only
+   * exploring. Two sessions open at once could not disagree, which is the same
+   * global-vs-scoped confusion that caused the v14.32.0 and v14.34.0 bugs. The
+   * session is the honest owner — it is what the user thinks they are choosing a
+   * mode FOR.
+   *
+   * NULL means "no stored mode", which is every row written before this column
+   * existed. Those keep resolving from the global preference exactly as they did,
+   * and the first deliberate pick inside the session stamps it here. Defaulting
+   * them on open instead would hand every old session a mode it was never given.
+   */
+  workMode: text("work_mode", {
+    enum: ["ask", "plan", "build", "debug", "review"],
+  }),
   createdAt: integer("created_at", { mode: "timestamp" })
     .notNull()
     .default(sql`(unixepoch())`),

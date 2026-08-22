@@ -21,7 +21,7 @@ import { SettingsWorkspaceNav } from "@/components/settings/SettingsWorkspaceNav
 import { useTheme } from "@/contexts/ThemeContext";
 import { SearchSettings } from "@/components/settings/SearchSettings";
 import { VoiceInputSettings } from "@/components/settings/VoiceInputSettings";
-import { UpdateDiagnostics } from "@/components/settings/UpdateDiagnostics";
+import { DiagnosticsPanel } from "@/components/settings/DiagnosticsPanel";
 import { useLanguageModelProviders } from "@/hooks/useLanguageModelProviders";
 import { WorkspaceTerminalPermissions } from "@/components/settings/WorkspaceTerminalPermissions";
 import {
@@ -38,7 +38,6 @@ import {
 import { useNavigate } from "@tanstack/react-router";
 import { Server, ChevronRight, Sparkles } from "lucide-react";
 import { useAuth } from "@/lib/auth/useAuth";
-import { triggerUpgrade } from "@/hooks/useUpgrade";
 import { ProviderSettingsGrid } from "@/components/ProviderSettings";
 
 
@@ -175,6 +174,13 @@ export default function SettingsPage() {
           </div>
 
           {/* Integrations */}
+          {/* Diagnostics — the in-app doctor. `UpdateDiagnostics` lives INSIDE it
+              (it used to sit in General), so everything about "is this install
+              healthy" is in one place instead of two. */}
+          <div id="diagnostics" className="bg-card rounded-xl shadow-sm p-6 border border-border">
+            <DiagnosticsPanel />
+          </div>
+
           <div id="integrations" className="bg-card rounded-xl shadow-sm p-6 border border-border">
             <h2 className="text-lg font-medium text-foreground mb-4">
               Integrations
@@ -277,18 +283,19 @@ function McpServersCard() {
 
 function SkillsCard() {
   const navigate = useNavigate();
-  const { status, loading } = useAuth();
+  const { status } = useAuth();
   const plan = status?.plan ?? "free";
   const isPaid = plan === "pro";
   return (
     <button
       type="button"
+      // Free tier opens the page too — it explains that Skills are a Pro
+      // feature, exactly like the MCP marketplace tab does. Clicking a
+      // settings row must never open a checkout on its own; upgrading stays
+      // an explicit choice the user makes from the notice inside. There is no
+      // `loading` guard any more either: the row navigates on every tier, so
+      // swallowing a click while auth resolves only made it feel broken.
       onClick={() => {
-        if (loading) return;
-        if (!isPaid) {
-          void triggerUpgrade();
-          return;
-        }
         navigate({ to: "/settings/skills" });
       }}
       className="w-full text-left flex items-center justify-between p-4 rounded-lg border border-border bg-card/50 hover:bg-card hover:shadow-md transition-all cursor-pointer group"
@@ -302,7 +309,7 @@ function SkillsCard() {
           <p className="text-sm text-muted-foreground">
             {isPaid
               ? "Browse the registry and install skills for the current workspace (10 max)."
-              : "Upgrade to Pro to unlock Skills."}
+              : "Agent Behaviors from the skills registry — a Pro feature."}
           </p>
         </div>
       </div>
@@ -397,7 +404,6 @@ export function GeneralSettings({ appVersion }: { appVersion: string | null }) {
           </Select>
         </div>
         <CliLauncherSettings />
-        <UpdateDiagnostics />
         <div className="pt-4 border-t border-border mt-4">
           <Button variant="outline" size="sm" onClick={handleRestartOnboarding}>
             Restart onboarding guide

@@ -225,6 +225,45 @@ const IS_MICROSOFT_STORE_BUILD = process.windowsStore === true;
  */
 const IS_SELF_TEST =
   process.argv.includes("--self-test") || process.env.ATLARIX_SELF_TEST === "1";
+
+/**
+ * `--doctor`: the same checks the in-app Diagnostics panel runs, printed to the
+ * terminal so support can ask for them without walking someone through the UI —
+ * which is exactly the situation where the UI may be the thing that is broken.
+ *
+ * Unlike `--self-test` this WAITS for `app.whenReady()`. The self-test's probes
+ * are deliberately lifecycle-free, but the doctor reads the credential store and
+ * the account, and `safeStorage` is not usable before ready. It still takes no
+ * single-instance lock and opens no window: this is a report, not a session.
+ */
+const IS_DOCTOR_CLI = process.argv.includes("--doctor");
+if (IS_DOCTOR_CLI && !IS_SELF_TEST) {
+  void (async () => {
+    let code = 1;
+    try {
+      await app.whenReady();
+      const { runDoctor } = await import("./main/doctor");
+      const { formatDoctorReport } = await import("./main/doctor-report");
+      const report = await runDoctor();
+      // Redacted, like the in-app copy button: a terminal report gets pasted into
+      // the same issue trackers, so it gets the same treatment.
+      // eslint-disable-next-line no-console
+      console.log(formatDoctorReport(report));
+      // A WARN is not a failure — an offline model catalog still leaves a working
+      // app — so only a hard failure makes this exit non-zero.
+      code = report.rows.some((r) => !r.ok && r.severity === "fail") ? 1 : 0;
+    } catch (e) {
+      logger.error("doctor crashed:", e);
+      // eslint-disable-next-line no-console
+      console.error(e instanceof Error ? e.message : String(e));
+    }
+    // `app.exit()`, not `process.exit()` alone — the v14.35.0 trap where a
+    // packaged `--self-test` printed its report and then ran for 22 minutes.
+    app.exit(code);
+    process.exit(code);
+  })();
+}
+
 if (IS_SELF_TEST) {
   void (async () => {
     try {
@@ -483,10 +522,53 @@ export async function onReady() {
   } catch (e) {
     logger.error("Database initialization failed:", e);
     const msg = e instanceof Error ? e.message : String(e);
-    dialog.showErrorBox(
-      "Database Error",
-      `Atlarix could not initialize its database. Please restart the app.\n\n${msg}`,
+
+    // `showErrorBox` cannot carry buttons, and without buttons this screen was a
+    // dead end: the app quits, so Settings (and the Diagnostics panel) are
+    // unreachable, and the old copy told the user to restart — which cannot help,
+    // because `initializeDatabase` already retried once and deleted the sqlite
+    // files before retrying. Classifying the failure is what makes an action
+    // possible; see `database-init-failure.ts` for why the branches differ.
+    const { describeDatabaseInitFailure } = await import(
+      "./main/database-init-failure"
     );
+    const advice = describeDatabaseInitFailure(e);
+    logger.error(`[db-init] classified as: ${advice.kind}`);
+
+    // The raw error stays in the dialog. Classification adds a headline; it never
+    // replaces the detail, which is what turns a support thread into one message.
+    const detail = `${advice.headline}\n\n(${advice.likelyCause})\n\n${msg}`;
+    const buttons = [advice.primaryActionLabel, "Show logs", "Quit"];
+    let choice = buttons.length - 1;
+    try {
+      choice = dialog.showMessageBoxSync({
+        type: "error",
+        title: advice.title,
+        message: advice.title,
+        detail,
+        buttons,
+        defaultId: 0,
+        cancelId: buttons.length - 1,
+        noLink: true,
+      });
+    } catch (dialogErr) {
+      // Never let the failure HANDLER be the thing that crashes the quit path.
+      logger.error("[db-init] failed to show the failure dialog:", dialogErr);
+    }
+
+    try {
+      if (choice === 0) {
+        // The homepage: installers live there, and there is no /download route.
+        void shell.openExternal("https://atlarix.dev");
+      } else if (choice === 1) {
+        // Reveals the file rather than opening it, so the folder (and the rotated
+        // logs beside it) is what the user can attach to a report.
+        shell.showItemInFolder(log.transports.file.getFile().path);
+      }
+    } catch (actionErr) {
+      logger.error("[db-init] failure-dialog action failed:", actionErr);
+    }
+
     app.quit();
     return;
   }
@@ -518,9 +600,24 @@ export async function onReady() {
   }
 
   app.on("browser-window-focus", () => {
-    void import("./ipc/utils/workspace_path_status_broadcast").then((m) =>
-      m.broadcastWorkspacePathStatusesIfChanged(),
-    );
+    // The `.catch` is not defensive padding: this broadcast reads the `apps` table,
+    // and `db` throws `DatabaseClosingError` once a quit is under way. Focus events
+    // fire during teardown, so without a handler that rejection floated — reaching
+    // Sentry as `handled = no` and paging the owner for an entirely expected
+    // shutdown race. The guard in `db/index.ts` is right; this caller was the one
+    // missing a handler, which is why the fix is here and not there.
+    void import("./ipc/utils/workspace_path_status_broadcast")
+      .then((m) => m.broadcastWorkspacePathStatusesIfChanged())
+      .catch((err: unknown) => {
+        if ((err as { name?: string })?.name === "DatabaseClosingError") {
+          logger.debug(
+            "[workspace-path-status] skipped — database closing (expected during quit)",
+          );
+          return;
+        }
+        // Anything else is a real failure and stays visible.
+        logger.warn("[workspace-path-status] broadcast failed:", err);
+      });
   });
 
   // Power events. `prevent-app-suspension` (held while a stream runs, see
@@ -1478,13 +1575,14 @@ nativeTheme.on("updated", () => {
 // Under --self-test the probes run above and process.exit — never acquire the lock
 // (it would collide with a running copy) or boot the app.
 const singleInstanceData = { argv: process.argv, cwd: process.cwd() };
-const gotTheLock = IS_SELF_TEST
-  ? false
-  : app.isPackaged
-    ? app.requestSingleInstanceLock(singleInstanceData)
-    : true;
+const gotTheLock =
+  IS_SELF_TEST || IS_DOCTOR_CLI
+    ? false
+    : app.isPackaged
+      ? app.requestSingleInstanceLock(singleInstanceData)
+      : true;
 
-if (!IS_SELF_TEST) {
+if (!IS_SELF_TEST && !IS_DOCTOR_CLI) {
 
 if (!gotTheLock) {
   logger.warn(
@@ -1532,7 +1630,7 @@ if (!gotTheLock) {
     });
   });
 }
-} // end if (!IS_SELF_TEST)
+} // end if (!IS_SELF_TEST && !IS_DOCTOR_CLI)
 
 // macOS: open folder via dock drop or `open -a Atlarix /path`
 app.on("open-file", (event, filePath) => {

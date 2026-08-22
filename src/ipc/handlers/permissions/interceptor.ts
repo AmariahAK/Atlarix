@@ -317,11 +317,7 @@ export class PermissionInterceptor extends EventEmitter {
         };
 
         switch (request.operation) {
-            case "write_file":
             case "edit_file":
-            case "replace_code":
-            case "insert_code":
-            case "delete_lines":
             case "delete_file": {
                 const preview = request.preview as FileOperationPreview;
                 if (preview?.path && checkPreApprovedPath(preview.path)) return true;
@@ -336,13 +332,6 @@ export class PermissionInterceptor extends EventEmitter {
                         checkPath(preview.fromPath) &&
                         checkPath(preview.toPath),
                 );
-            }
-            case "write_multiple_files": {
-                const previews = request.preview as FileOperationPreview[];
-                if (!Array.isArray(previews) || previews.length === 0) return false;
-                // If all paths are pre-approved, auto-approve
-                if (previews.every((p) => p?.path && checkPreApprovedPath(p.path))) return true;
-                return previews.every((p) => p?.path && checkPath(p.path));
             }
             case "batch_plan": {
                 const batch = request.preview as BatchPlanPreview;
@@ -456,16 +445,6 @@ export class PermissionInterceptor extends EventEmitter {
      */
     generateOperationId(): string {
         return `op_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
-    }
-
-    /** Pre-execute writes for batch auto-allow paths (file scope preflight). */
-    async preExecuteWritePreviews(previews: FileOperationPreview[]): Promise<void> {
-        if (!previews.length) return;
-        await this.executeWriteMultipleFiles({
-            __permission_required: true,
-            operation: "write_multiple_files",
-            preview: previews,
-        });
     }
 
     /**
@@ -641,13 +620,9 @@ export class PermissionInterceptor extends EventEmitter {
         // composed partial content instead of the full proposal. Persisted on
         // the preview so result reporting + per-turn revert reflect what was
         // actually written.
-        const CONTENT_WRITE_OPS = new Set([
-            "write_file",
-            "edit_file",
-            "replace_code",
-            "insert_code",
-            "delete_lines",
-        ]);
+        // One entry, because one operation writes content: the surgical names were
+        // all folded into `edit_file` in v13.8 and none has had a producer since.
+        const CONTENT_WRITE_OPS = new Set(["edit_file"]);
         if (
             typeof options?.overrideContent === "string" &&
             CONTENT_WRITE_OPS.has(request.operation)
@@ -684,12 +659,6 @@ export class PermissionInterceptor extends EventEmitter {
             );
 
             switch (request.operation) {
-                case "write_file":
-                    await this.executeWriteFile(request);
-                    break;
-                case "write_multiple_files":
-                    await this.executeWriteMultipleFiles(request);
-                    break;
                 case "delete_file":
                     await this.executeDeleteFile(request);
                     break;
@@ -699,11 +668,10 @@ export class PermissionInterceptor extends EventEmitter {
                 case "run_command":
                     await this.executeRunCommand(operationId, request);
                     break;
-                // Surgical edit tools - they all produce preview.content with full file
+                // `edit_file` produces preview.content with the full file, whichever
+                // operation the model asked for — create, overwrite or surgical
+                // replace — so one executor covers them all.
                 case "edit_file":
-                case "replace_code":
-                case "insert_code":
-                case "delete_lines":
                     await this.executeWriteFile(request);
                     break;
                 // Parent-aggregated: execute each sub-operation in order (v2.2)
@@ -744,12 +712,11 @@ export class PermissionInterceptor extends EventEmitter {
 
             // v13.8: write_file folded into edit_file (operation:"write"), so the
             // ATLARIX_PLAN.md / .atlarixignore detection keys off any content write.
-            if (this.workspaceId && (CONTENT_WRITE_OPS.has(request.operation) || request.operation === "write_multiple_files")) {
-                const previews = Array.isArray(request.preview)
-                    ? (request.preview as FileOperationPreview[])
-                    : preview?.path
-                        ? [preview as FileOperationPreview]
-                        : [];
+            if (this.workspaceId && CONTENT_WRITE_OPS.has(request.operation)) {
+                // Always a single preview now — the array shape belonged to
+                // `write_multiple_files`, which no tool emits. Kept as a list so
+                // the loop below reads the same.
+                const previews = preview?.path ? [preview as FileOperationPreview] : [];
                 let sawPlanWrite = false;
                 let sawIgnoreWrite = false;
                 for (const p of previews) {
@@ -1423,40 +1390,6 @@ export class PermissionInterceptor extends EventEmitter {
         }
     }
 
-    private async executeWriteMultipleFiles(request: PermissionRequest): Promise<void> {
-        const previews = request.preview as FileOperationPreview[];
-
-        await this.maybeCaptureWorkspaceSnapshot(
-            previews.map((p) => this.toWorkspaceRelativePosix(p.path)),
-        );
-
-        const relPaths: string[] = [];
-        for (const preview of previews) {
-            const fullPath = this.resolvePathWithinWorkspace(preview.path);
-            const rel = this.toWorkspaceRelativePosix(preview.path);
-            if (isAtlarixPlanRelativePath(rel)) {
-                const { archiveCurrentPlan } = await import("@/lib/tasks/plan-sync");
-                await archiveCurrentPlan(this.workspacePath, rel);
-            }
-            await fs.mkdir(path.dirname(fullPath), { recursive: true });
-            await fs.writeFile(fullPath, preview.content || "", "utf-8");
-            logger.log(`Wrote file: ${fullPath}`);
-            relPaths.push(rel);
-            if (isAtlarixPlanRelativePath(rel)) {
-                await refreshPlanLedgerFromWrittenFile({
-                workspaceId: this.workspaceId,
-                workspacePath: this.workspacePath,
-                activeChatId: this.activeChatId,
-                fullPath,
-                rel,
-            });
-            }
-        }
-        if (this.snapshotTurnId && relPaths.length > 0) {
-            appendLedgerFilesWritten(this.snapshotTurnId, relPaths);
-        }
-    }
-
     private async executeDeleteFile(request: PermissionRequest): Promise<void> {
         const preview = request.preview as FileOperationPreview;
         await this.maybeCaptureWorkspaceSnapshot([this.toWorkspaceRelativePosix(preview.path)]);
@@ -1509,7 +1442,12 @@ export class PermissionInterceptor extends EventEmitter {
                 await this.executeRunCommand(subId, cmdRequest);
             } else if ("path" in op && typeof op.path === "string") {
                 const filePreview = op as FileOperationPreview;
-                const opType = filePreview.type === "delete" ? "delete_file" : filePreview.type === "rename" ? "rename_file" : "write_file";
+                // "edit_file", not the old "write_file": this label is synthetic — it
+                // is built here to choose an executor and is never gated or
+                // persisted (`executeWriteFile` reads the preview, never
+                // `request.operation`) — but it must still name an operation that
+                // exists, or the next reader has to work out whether it is real.
+                const opType = filePreview.type === "delete" ? "delete_file" : filePreview.type === "rename" ? "rename_file" : "edit_file";
                 const fileRequest: PermissionRequest = {
                     __permission_required: true,
                     operation: opType,

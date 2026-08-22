@@ -36,6 +36,22 @@ export interface OpenChatTab {
 }
 export const openChatTabsAtom = atom<OpenChatTab[]>([]);
 
+/**
+ * Chats whose renderer state was EVICTED while they were cold, and which have not
+ * been reloaded since.
+ *
+ * Needed because a background stream repopulates `chatMessagesByIdAtom` on its
+ * own (main sends the whole message list on every chunk, not a delta) — but it
+ * does NOT rebuild the per-message display atoms that hold frozen tool cards and
+ * inline timelines, because only the full session load runs
+ * `replaceDisplayHydrationForChat`. So "are the messages there?" is not a
+ * sufficient test for "is this chat whole": a background-streamed evicted chat
+ * would come back looking complete and render its earlier turns stripped of
+ * their tool UI. Membership here is the honest signal, and it is cleared when a
+ * chat is genuinely reloaded.
+ */
+export const evictedChatIdsAtom = atom<Set<number>>(new Set<number>());
+
 export const isStreamingByIdAtom = atom<Map<number, boolean>>(new Map());
 export const chatInputValueAtom = atom<string>("");
 

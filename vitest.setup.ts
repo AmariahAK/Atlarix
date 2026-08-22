@@ -56,6 +56,13 @@ try {
 vi.mock("electron", () => {
   const app = {
     getPath: vi.fn((name: string) => `/tmp/atlarix-vitest/${String(name)}`),
+    // Anything that reports the environment it ran in needs these — the
+    // diagnostics report stamps version/platform/packaged onto every run. Without
+    // them the failure is "app.getVersion is not a function" from deep inside
+    // unrelated code, which is the same shape as the getFocusedWindow story below.
+    getVersion: vi.fn(() => "0.0.0-test"),
+    isPackaged: false,
+    exit: vi.fn(),
   };
   const ipcMain = {
     handle: vi.fn(),

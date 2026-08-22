@@ -11,7 +11,7 @@ export type OperationStatus = 'pending' | 'queued' | 'running' | 'completed' | '
 
 export interface QueuedOperation {
     id: string;
-    operation: 'run_command' | 'write_file' | 'edit_file' | 'delete_file' | 'rename_file' | 'write_multiple_files' | 'batch_plan' | 'revert_project_snapshot' | 'sandbox_escalation' | 'automation_write' | 'unknown';
+    operation: 'run_command' | 'edit_file' | 'delete_file' | 'rename_file' | 'batch_plan' | 'revert_project_snapshot' | 'sandbox_escalation' | 'automation_write' | 'unknown';
     command?: string;
     path?: string;
     /**

@@ -513,12 +513,17 @@ export function SkillsSettingsPage() {
           </p>
         ) : null}
 
-        {/* Tier gate */}
+        {/* Tier gate — informational, mirroring the MCP marketplace tab. Landing
+            here on Free must never trigger a checkout; upgrading is an explicit
+            click on the button below. */}
         {!authLoading && !isPaid ? (
-          <div className="rounded-xl border border-border bg-card p-6 space-y-3">
-            <div className="font-semibold text-lg">Upgrade required</div>
-            <p className="text-sm text-muted-foreground">
-              Skills are available on <span className="font-medium">Pro</span>.
+          <div className="rounded-lg border border-amber-500/40 bg-amber-500/5 p-6 space-y-3 text-sm">
+            <div className="font-medium text-foreground">Skills are a Pro feature</div>
+            <p className="text-muted-foreground">
+              Installing Agent Behaviors from the{" "}
+              <span className="font-medium">skills registry</span> requires Pro. On Free, the agent
+              still reads project instructions from <code>.atlarix/atlarix.md</code> and any
+              behaviors you commit under <code>.atlarix/skills/</code> in the repo itself.
             </p>
             <div className="flex flex-wrap gap-2">
               <Button

@@ -1,0 +1,21 @@
+-- Give a session its own work mode, instead of borrowing the global preference.
+--
+-- The mode (Explore / Plan / Build / Debug / Review) lived only in settings, so
+-- it belonged to the APP rather than to the conversation. Reopening a session you
+-- had been planning in, from a window whose global preference was Build, silently
+-- made the next turn a Build turn — writes allowed on a thread you were only
+-- exploring, with nothing on screen having changed. Two sessions open at once
+-- could not disagree about their mode at all.
+--
+-- This is the same global-vs-scoped confusion behind the v14.32.0 and v14.34.0
+-- bugs (a global decision made from per-window state, then its exact mirror). The
+-- session is the honest owner: it is what the user thinks they are picking a mode
+-- FOR. Reading it per turn also means the stream handler stops re-reading a
+-- global for a per-session decision, which is what closes the class rather than
+-- one more instance of it.
+--
+-- Existing rows stay NULL and keep resolving from the global preference exactly
+-- as they do today; the first deliberate mode pick inside a session stamps it
+-- here. Stamping every old session on open instead would hand each of them a mode
+-- it was never actually given.
+ALTER TABLE `chat_sessions` ADD COLUMN `work_mode` text;

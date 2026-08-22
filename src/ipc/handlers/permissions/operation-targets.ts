@@ -34,7 +34,11 @@ export function targetPathsForOperation(request: PermissionRequest): string[] {
     if (typeof p === "string" && p.trim()) out.push(p);
   };
 
-  // An array preview is `write_multiple_files` — every entry is a target.
+  // Any array preview: every entry is a target. This was written for
+  // `write_multiple_files`, which no longer exists, and it stays because it fails
+  // CLOSED — an unrecognized array shape that fell through to the switch below
+  // would yield NO targets, and no targets means the containment check passes by
+  // having nothing to check.
   if (Array.isArray(request.preview)) {
     for (const p of request.preview as FileOperationPreview[]) push(p?.path);
     return out;
@@ -42,11 +46,7 @@ export function targetPathsForOperation(request: PermissionRequest): string[] {
 
   const preview = request.preview as FileOperationPreview | undefined;
   switch (request.operation) {
-    case "write_file":
     case "edit_file":
-    case "replace_code":
-    case "insert_code":
-    case "delete_lines":
     case "delete_file":
       push(preview?.path);
       break;
@@ -67,6 +67,25 @@ export function targetPathsForOperation(request: PermissionRequest): string[] {
       break;
     }
     default:
+      /**
+       * Fail CLOSED on an operation this switch does not know.
+       *
+       * This used to `break` with nothing pushed, which sounds harmless and is the
+       * opposite: per this file's own header, a path missing from the list is a
+       * path that is never gated — so an unrecognized operation got its targets
+       * checked against nothing and sailed through containment. The only reason it
+       * never bit is that every operation happened to be listed.
+       *
+       * Pushing the generic preview fields instead means a new operation is gated
+       * by default and someone has to opt it OUT, which is the right direction for
+       * a security funnel. It also lets the dead `write_file` / `replace_code` /
+       * `insert_code` / `delete_lines` labels go (no producer has emitted them
+       * since `write_file` folded into `edit_file`) without that removal quietly
+       * becoming a fail-open change.
+       */
+      push(preview?.path);
+      push(preview?.fromPath);
+      push(preview?.toPath);
       break;
   }
   return out;

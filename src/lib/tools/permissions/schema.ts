@@ -190,19 +190,25 @@ export const ProjectRevertPreviewSchema = z.object({
 // ════════════════════════════════════════════════════════════════════════════
 
 export const PermissionOperationType = z.enum([
-    "write_file",
-    "write_multiple_files",
+    // No "write_file", "replace_code", "insert_code", "delete_lines",
+    // "edit_file_section" or "batch_refactor": every file mutation has gone through
+    // `edit_file` since v13.8, and none of these has a producer any more (measured:
+    // `edit_file` is emitted at 26 live sites, each of these at zero). Their DISPLAY
+    // entries live on in tool-activity-labels / tool-expand-view /
+    // stream-tool-display, because sessions persisted before v13.8 still contain
+    // tool calls under those names and must keep rendering.
+    // No "write_multiple_files": every mutation goes through `edit_file`, and the
+    // batch permission path it fed was reachable only from itself (v14.36.0
+    // removal). Its DISPLAY entries live on in tool-activity-labels /
+    // tool-expand-view / stream-tool-display, because sessions persisted before
+    // the removal still render cards under that name.
     "delete_file",
     "rename_file",
     "run_command",
-    "batch_refactor",
     // Parent-aggregated: one approval for a full plan (v2.2)
     "batch_plan",
     // Surgical edit tools (unified edit_file + legacy names)
     "edit_file",
-    "replace_code",
-    "insert_code",
-    "delete_lines",
     // Restore plan from SQLite snapshot (v5.0 project memory)
     "revert_project_snapshot",
     // Sandbox write-denial escalation (grant a denied path + retry sandboxed)
