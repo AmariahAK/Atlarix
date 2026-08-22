@@ -424,6 +424,44 @@ what made this queue read three times its real size.
 
 ## 🧭 Designed — awaiting a session
 
+- **The catalog lags the vendor, and nothing dynamically covers the gap — for BYOK or for Core.**
+  Found 2026-08-22 while checking whether Core could move `core-1` from GLM-5.2 to 5.3.
+  **GLM-5.3 is live on the DIRECT pay-per-token endpoint** (`api.z.ai/api/paas/v4`, `created`
+  2026-08-13, newest of 9 ids) and genuinely callable on our key — a live request returned
+  `finish_reason: "tool_calls"` with a well-formed native tool call, plus
+  `prompt_tokens_details.cached_tokens` and `completion_tokens_details.reasoning_tokens`. It is **not**
+  in models.dev's `zai` row, which still stops at `glm-5.2` (2026-06-16); `zhipuai` stops there too,
+  while 18 GATEWAY ids (`openrouter` as `z-ai/glm-5.3`, `vercel`, `requesty`, `kilo`, `venice`, …)
+  already carry it. So the direct rows are the stragglers, not the catalog as a whole.
+  **Core was deliberately NOT bumped** — owner's call, and the reason is a wallet effect, not a
+  cosmetic one: `atlarix-releases/scripts/pick-core-model.mjs` reports `✗ NOT in models.dev — no
+  price row, so this would bill at the RESERVE`, i.e. **every request bills at its worst-case reserve
+  instead of actual cost, silently, with nothing erroring.** That script already exists for exactly
+  this case (its header: "a vendor can ship a model before models.dev indexes it — that is exactly the
+  case where you would otherwise paste an id that quietly bills at the reserve"), and it confirmed the
+  rollback target exists (`z-ai/glm-5.3` is on OpenRouter). Re-run
+  `ZHIPU_API_KEY=… node scripts/pick-core-model.mjs zai glm-5.3` and flip `core-models.json` when its
+  first line turns ✓ — the config block it emits is the whole edit.
+  **MEASURE THE LAG FIRST — that number decides whether any of this gets built.** 5.3 hit the API
+  2026-08-13; record the date models.dev adds it under `zai`. Days means waiting is the right answer
+  for ever and this item closes. Weeks, repeatedly, means the fallback has to become real.
+  **The crux, if it does:** the provider's own `/models` cannot supply the missing half. It is
+  OpenAI-compatible, so a row is `{id, object, created, owned_by}` — **ids and entitlement, never
+  price or context window.** So "consult the live API" fixes existence checks and nothing about
+  billing. A real fix needs a price source, which leaves: an explicit per-model price override in
+  `core-models.json` for the gap window (Core only, and someone has to remember to remove it); or
+  treating a missing row as **unknown** rather than worst-case and saying so in the UI — which is the
+  honest option and the one that also serves **BYOK**, where the user picks any id their own key
+  exposes and we have no say in whether the catalog knows it. Today both paths silently degrade:
+  Core to reserve billing, BYOK to fallback limits (`source=fallback`) with a wrong token meter.
+  Constraint that must survive any change: the catalog is a **union floor that never shrinks**, so
+  waiting can never break `glm-5.2`.
+- **Cached input is not credited on the zai tier** — separate, pre-existing, and true on 5.2 as much
+  as 5.3. The live 5.3 response reported cache hits at `prompt_tokens_details.cached_tokens`, but the
+  zai route carries `cacheHitField: null` (only `deepseek` sets one, `prompt_cache_hit_tokens`). So
+  prompt-cache savings on GLM are measured by the provider and discarded by us. Small, and money in
+  the user's favour to fix.
+
 - **Streaming "jumps" are LAYOUT, not pacing — do not touch the pacer.** Reported as "smooth then
   jumped then smooth", and narrowed with the owner to "the tools & some reads & thoughts".
   `useSmoothStreamedContent` is **already adaptive**: `rate = min(MAX_CPS, BASE_CPS + backlog /
