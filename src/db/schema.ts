@@ -945,3 +945,67 @@ export const automationRunsRelations = relations(automationRuns, ({ one }) => ({
     references: [chatSessions.id],
   }),
 }));
+
+// --- Edit stats -------------------------------------------------------------
+// How much the agent has actually written, per workspace and per model.
+//
+// A daily ROLLUP rather than a row per edit: the counts are gross and only ever
+// accumulate, so there is nothing a per-edit history would let us compute that a
+// sum over these rows does not — and this shape stays bounded for the life of the
+// install with no pruning job, and never puts a file path on disk.
+export const editStats = sqliteTable(
+  "edit_stats",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    workspaceId: integer("workspace_id")
+      .notNull()
+      .references(() => apps.id, { onDelete: "cascade" }),
+    /**
+     * LOCAL calendar day, `YYYY-MM-DD`.
+     *
+     * Text, and local rather than UTC, because this column exists to be grouped by
+     * and shown to a person: "today" has to mean the user's today. A UTC bucket
+     * silently moves work done in the evening into tomorrow for most of the world.
+     */
+    day: text("day").notNull(),
+    /**
+     * The provider as DISPATCHED — `compass` for Atlarix Core, the vendor id for
+     * BYOK. This is the whole discriminator behind "DeepSeek V4 Pro (Core)" vs
+     * "DeepSeek V4 Pro (deepseek)": the two are the same model reached two ways,
+     * and nothing else in the row can tell them apart.
+     */
+    provider: text("provider").notNull(),
+    /**
+     * The RESOLVED model id, never a Core tier id.
+     *
+     * Storing `core-3` would mean every past row silently relabels itself the next
+     * time the Core lineup is repointed — last month's DeepSeek work would start
+     * claiming to be whatever model took that slot. Resolving once, at write time,
+     * makes each row permanently true.
+     */
+    modelId: text("model_id").notNull(),
+    linesAdded: integer("lines_added").notNull().default(0),
+    linesRemoved: integer("lines_removed").notNull().default(0),
+    /** Accepted write operations, so an average edit size is derivable. */
+    edits: integer("edits").notNull().default(0),
+    updatedAt: integer("updated_at", { mode: "timestamp" })
+      .notNull()
+      .default(sql`(unixepoch())`),
+  },
+  (table) => [
+    unique("edit_stats_bucket_unique").on(
+      table.workspaceId,
+      table.day,
+      table.provider,
+      table.modelId,
+    ),
+    index("edit_stats_workspace_idx").on(table.workspaceId),
+  ],
+);
+
+export const editStatsRelations = relations(editStats, ({ one }) => ({
+  workspace: one(apps, {
+    fields: [editStats.workspaceId],
+    references: [apps.id],
+  }),
+}));

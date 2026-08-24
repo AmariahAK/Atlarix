@@ -142,6 +142,22 @@ html[data-fullscreen="true"] #layout-main-content-container {
   --chart-4: #D97706;
   --chart-5: #F43F5E;
 
+  /*
+   * Contribution-calendar ramp — SEQUENTIAL (magnitude): one hue, monotone in
+   * lightness, light->dark on the light surface. Measured OKLab L, not eyeballed:
+   * 0.937 / 0.905 / 0.773 / 0.596 / 0.432 — strictly decreasing.
+   *
+   * Level 0 is "nothing happened" and is a neutral, not the palest green, so an
+   * empty day never reads as a faint amount of work. Levels 1-2 sit under 3:1 on
+   * the surface, which is what a sequential heatmap is FOR (the low end recedes);
+   * the per-cell tooltip and aria-label carry the values that the colour cannot.
+   */
+  --calendar-0: #EAEAEA;
+  --calendar-1: #A7F3D0;
+  --calendar-2: #34D399;
+  --calendar-3: #059669;
+  --calendar-4: #065F46;
+
   --radius: 0.625rem;
 
   /* Sidebar */
@@ -222,6 +238,20 @@ html[data-fullscreen="true"] #layout-main-content-container {
   --chart-4: #D97706;
   --chart-5: #F43F5E;
 
+  /*
+   * Same ramp, ANCHOR FLIPPED for the dark surface: dark->light, so "more" is still
+   * the step furthest from the background. Measured OKLab L on #162419:
+   * 0.298 / 0.344 / 0.533 / 0.696 / 0.845 — strictly increasing.
+   *
+   * Chosen for this surface rather than derived by inverting the light ramp; an
+   * automatic flip lands the low end on colours that vanish into the card.
+   */
+  --calendar-0: #1E3325;
+  --calendar-1: #0E4429;
+  --calendar-2: #12805A;
+  --calendar-3: #10B981;
+  --calendar-4: #6EE7B7;
+
   /* Sidebar */
   --sidebar: #0F1A14;
   --sidebar-foreground: #ECFDF5;
@@ -271,6 +301,11 @@ html[data-fullscreen="true"] #layout-main-content-container {
   --color-chart-3: var(--chart-3);
   --color-chart-4: var(--chart-4);
   --color-chart-5: var(--chart-5);
+  --color-calendar-0: var(--calendar-0);
+  --color-calendar-1: var(--calendar-1);
+  --color-calendar-2: var(--calendar-2);
+  --color-calendar-3: var(--calendar-3);
+  --color-calendar-4: var(--calendar-4);
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);

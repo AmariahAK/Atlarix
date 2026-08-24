@@ -16,6 +16,7 @@ import { showError, showSuccess } from '@/lib/toast';
 import { triggerUpgrade } from '@/hooks/useUpgrade';
 import { SettingsWorkspaceNav } from '@/components/settings/SettingsWorkspaceNav';
 import { AtlarixCoreUsageCard } from '@/components/settings/AtlarixCoreUsageCard';
+import { EditStatsCard } from '@/components/settings/EditStatsCard';
 import { LogOut } from 'lucide-react';
 
 function getInvoke(): ((channel: string, ...args: unknown[]) => Promise<unknown>) | null {
@@ -130,6 +131,8 @@ export function AccountSettings() {
             </div>
           </CardContent>
         </Card>
+
+        <EditStatsCard />
 
         {/* Subscription Card */}
         <Card>

@@ -65,6 +65,10 @@ import {
 } from "@/lib/tools/tool-reveal";
 import { ToolSet, jsonSchema as aiJsonSchema } from "ai";
 import log from "electron-log";
+import {
+  resolveEditStatsModel,
+  dispatchedModelIdentity,
+} from "@/lib/stats/edit-stats";
 
 const logger = log.scope("chat_stream_handlers");
 
@@ -200,6 +204,15 @@ export async function runBuildBranch(
               // interceptor is blocked on (the escalation lanes sit too deep to
               // reach the controller themselves).
               abortController.signal,
+              // THIS turn's model, so what it writes is attributed to it. Taken from
+              // the client that actually DISPATCHED: when the selected provider has
+              // no usable key the turn silently falls back to Atlarix Core, and
+              // `effectiveModel` still names the original choice — crediting that
+              // would put Core's work under the user's own key.
+              resolveEditStatsModel(
+                effectiveModel,
+                dispatchedModelIdentity(modelClient),
+              ),
             );
 
             // Register interceptor for IPC handlers (so UI can approve/reject)

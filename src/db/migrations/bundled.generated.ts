@@ -78,6 +78,7 @@ import raw_71_0071_automation_notify_agent from "../../../drizzle/0071_automatio
 import raw_72_0072_automation_pipeline_trigger from "../../../drizzle/0072_automation_pipeline_trigger.sql?raw";
 import raw_73_0073_session_message_plan_title from "../../../drizzle/0073_session_message_plan_title.sql?raw";
 import raw_74_0074_chat_session_work_mode from "../../../drizzle/0074_chat_session_work_mode.sql?raw";
+import raw_75_0075_edit_stats from "../../../drizzle/0075_edit_stats.sql?raw";
 
 export type BundledMigration = {
   name: string;
@@ -163,6 +164,7 @@ export const BUNDLED_MIGRATIONS: BundledMigration[] = [
   { name: "0072_automation_pipeline_trigger", sql: raw_72_0072_automation_pipeline_trigger as string, drizzleHash: "38d2cdf1f97d68f25b85e37e4bf52a2a2fa177d9cb191f0ccfa1181b3dc18a69", when: 1783540020000 },
   { name: "0073_session_message_plan_title", sql: raw_73_0073_session_message_plan_title as string, drizzleHash: "3c0fa28c86554795eb9ed3a89e74042673d81af500c91dfa48f834dcf405c9fb", when: 1787040000000 },
   { name: "0074_chat_session_work_mode", sql: raw_74_0074_chat_session_work_mode as string, drizzleHash: "87db11f64675a975b53cbda70d9c80d985612978dd52c129aa7acdbb81d784bc", when: 1787270400000 },
+  { name: "0075_edit_stats", sql: raw_75_0075_edit_stats as string, drizzleHash: "9fff7ef68fdf9a652b0083ebcde1d263c0ea5f5cc13bd21776037f4622a0948b", when: 1787616000000 },
 ];
 
 /** Map Drizzle __drizzle_migrations.hash → migration tag for bridge. */
@@ -242,4 +244,5 @@ export const DRIZZLE_HASH_TO_NAME: Record<string, string> = {
   "38d2cdf1f97d68f25b85e37e4bf52a2a2fa177d9cb191f0ccfa1181b3dc18a69": "0072_automation_pipeline_trigger",
   "3c0fa28c86554795eb9ed3a89e74042673d81af500c91dfa48f834dcf405c9fb": "0073_session_message_plan_title",
   "87db11f64675a975b53cbda70d9c80d985612978dd52c129aa7acdbb81d784bc": "0074_chat_session_work_mode",
+  "9fff7ef68fdf9a652b0083ebcde1d263c0ea5f5cc13bd21776037f4622a0948b": "0075_edit_stats",
 };

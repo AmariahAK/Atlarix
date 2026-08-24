@@ -250,6 +250,8 @@ export function isJournalMigrationApplied(
       return columnExists(sqlite, "session_messages", "title");
     case "0074_chat_session_work_mode":
       return columnExists(sqlite, "chat_sessions", "work_mode");
+    case "0075_edit_stats":
+      return tableExists(sqlite, "edit_stats");
     default:
       return false;
   }

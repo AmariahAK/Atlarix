@@ -3608,6 +3608,13 @@ export class IpcClient {
     return this.ipcRenderer.invoke("compass:get-tier-catalog");
   }
 
+  /** Lines the agent has written, aggregated per workspace and per model. */
+  public async getEditStatsSummary(): Promise<
+    import("@/ipc/ipc_types").EditStatsSummary
+  > {
+    return this.ipcRenderer.invoke("edit-stats:summary");
+  }
+
   // ── v11 in-app browser (WebContentsView panel) ──────────────────────────
 
   public async getBrowserState(): Promise<

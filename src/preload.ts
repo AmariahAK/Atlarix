@@ -191,6 +191,7 @@ const validInvokeChannels = [
   "openrouter:remove-favorite",
   "openrouter:is-favorited",
   "compass:is-build-configured",
+  "edit-stats:summary",
   // Models.dev (dynamic model catalog)
   "models-dev:refresh",
   // Codebase search

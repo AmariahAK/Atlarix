@@ -12,6 +12,10 @@ import * as fsSync from "node:fs";
 import * as path from "path";
 import { assertRealpathContained as assertRealpathContainedShared } from "@/lib/security/realpath-contain";
 import { recordMutationOutcome } from "@/lib/agent/mutation-verify";
+import {
+    computeLineDelta,
+    recordEditStatsSafely,
+} from "@/lib/stats/edit-stats";
 import { wrapUntrustedData } from "@/lib/streaming/untrusted-data";
 import log from "electron-log";
 import { EventEmitter } from "events";
@@ -132,6 +136,19 @@ export class PermissionInterceptor extends EventEmitter {
     /** Active chat id for plan-ledger attribution (Build / Ask stream). */
     private activeChatId: number;
 
+    /**
+     * The model driving THIS turn, for attributing what it writes (edit stats).
+     *
+     * Per-turn for the same reason `turnWorkMode` and `turnAbortSignal` are: one
+     * interceptor is built per turn and never reused, so a model recorded here
+     * cannot outlive the turn that chose it, and another window switching models
+     * mid-turn cannot retag work this turn is still doing.
+     *
+     * `name` is stored RESOLVED by the caller — for Atlarix Core that means the
+     * vendor model the tier currently routes to, never `core-N`.
+     */
+    private turnModel: { provider: string; name: string } | null = null;
+
     /** When run_command uses an absolute cwd outside workspace, we allow file ops under that path for this session */
     private allowedRoots: Set<string> = new Set();
 
@@ -209,6 +226,7 @@ export class PermissionInterceptor extends EventEmitter {
         activeChatId?: number,
         turnWorkMode?: WorkMode,
         turnAbortSignal?: AbortSignal,
+        turnModel?: { provider: string; name: string } | null,
     ) {
         super();
         this.workspacePath = workspacePath;
@@ -216,6 +234,7 @@ export class PermissionInterceptor extends EventEmitter {
         this.activeChatId = activeChatId ?? 0;
         this.turnWorkMode = turnWorkMode ?? null;
         this.turnAbortSignal = turnAbortSignal ?? null;
+        this.turnModel = turnModel ?? null;
         if (snapshotTurnId !== undefined && snapshotTurnId !== null) {
             this.snapshotTurnId = String(snapshotTurnId);
         }
@@ -709,6 +728,34 @@ export class PermissionInterceptor extends EventEmitter {
             }
 
             const preview = request.preview as FileOperationPreview;
+
+            // Edit stats: count what LANDED, from the same LCS diff the approval card
+            // drew. `preview.content` already carries the per-hunk override applied at
+            // the top of this method, so a partial acceptance counts the hunks the user
+            // kept rather than the ones the model proposed.
+            //
+            // Recorded here, in the single place every accepted write passes through —
+            // user-approved, silently auto-approved, per-hunk, sub-agent, and the ask
+            // branch all reach this method. Counting at the tool instead would miss
+            // every path that does not return through it, and counting only where a
+            // card was shown would miss the auto-approved ones entirely.
+            if (
+                this.workspaceId != null &&
+                this.turnModel &&
+                CONTENT_WRITE_OPS.has(request.operation) &&
+                preview?.path
+            ) {
+                recordEditStatsSafely({
+                    workspaceId: this.workspaceId,
+                    provider: this.turnModel.provider,
+                    modelId: this.turnModel.name,
+                    delta: computeLineDelta(
+                        preview.type,
+                        preview.oldContent,
+                        preview.content,
+                    ),
+                });
+            }
 
             // v13.8: write_file folded into edit_file (operation:"write"), so the
             // ATLARIX_PLAN.md / .atlarixignore detection keys off any content write.

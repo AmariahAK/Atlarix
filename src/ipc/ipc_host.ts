@@ -20,6 +20,7 @@ import { registerLanguageModelHandlers } from "./handlers/language_model_handler
 import { registerProviderApiKeyHandlers } from "./handlers/provider_api_key_handlers";
 import { registerOpenRouterFavoritesHandlers } from "./handlers/openrouter_favorites_handlers";
 import { registerCompassHandlers } from "./handlers/compass_handlers";
+import { registerEditStatsHandlers } from "./handlers/edit_stats_handlers";
 import { registerReleaseNoteHandlers } from "./handlers/release_note_handlers";
 import { registerImportHandlers } from "./handlers/import_handlers";
 import { registerSessionHandlers } from "./handlers/session_handlers";
@@ -77,6 +78,7 @@ export function registerIpcHandlers() {
   registerProviderApiKeyHandlers();
   registerOpenRouterFavoritesHandlers();
   registerCompassHandlers();
+  registerEditStatsHandlers();
   registerReleaseNoteHandlers();
   registerImportHandlers();
   registerRemoteSshHandlers();
