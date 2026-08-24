@@ -3,6 +3,41 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
+## [14.37.0] (2026-08-24) — Deep thinking on Atlarix Core, web search that finds what you asked for, and a record of what the agent has written
+
+**Deep thinking works on Atlarix Core.** The toggle was missing for every Core model while the same
+model on your own API key had it — and underneath that, it was reaching the provider for neither.
+Atlarix now asks each model what reasoning control it actually supports and sends that control on
+every route, so turning Deep thinking on genuinely asks for the model's maximum instead of changing
+nothing. On Core it also stops asking for one notch less than the model offers.
+
+**Web search finds what you asked for.** Searches were being cut down to six keywords before they
+left the app — an exact phrase in quotes was broken apart, an author's name at the end was dropped,
+and what reached the search engine was a fragment. Deep search made it worse by always searching
+developer sites and ranking ordinary web results last, so asking about a book returned
+programming pages. Searches now go out as written, deep search looks where the question points, and
+a search that found pages can no longer come back empty because a relevance filter disliked all of
+them.
+
+**You can see how much the agent has written for you.** Settings → your profile now shows lines
+added and removed per project, which model did the writing, and a contribution calendar of your
+daily activity. It tells Atlarix Core apart from the same model on your own key, and it counts what
+was actually applied — including when you accept only some hunks of a change. It records edits the
+agent makes through its file tools; changes made by commands it runs are not included, and the card
+says so. Everything stays on your computer.
+
+**Tool cards stop showing each other's results.** When the agent ran two searches at once, one
+card could display the other's results while the other reported nothing found. The searches
+themselves were always correct and so was the agent's reading of them — only the transcript was
+wrong, which made it look as though the agent had invented an answer. A search that genuinely finds
+nothing now says which query came up empty instead of just "Done".
+
+**The work-mode chip tells the truth.** It could show one mode while the picker beside it showed
+another, and Shift+Tab announced a mode change that never took effect for sessions with their own
+mode — the toast appeared, the next turn ran in the old mode. Both controls now read and write the
+same place. A turn keeps the mode it started in, so while one is running the chip shows the mode
+that turn is actually using and the picker marks your new choice as applying to the next message.
+
 ## [14.36.0] (2026-08-22) — Diagnostics you can run yourself, a database error that tells you what to do, and Debug that finally works like Build
 
 **Debug mode now gets the full working loop it was always meant to have.** Debug has always been a
