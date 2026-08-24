@@ -8,13 +8,12 @@
 
 import { useEffect, useState } from "react";
 import { useSettings } from "@/hooks/useSettings";
-import { useAtom, useAtomValue } from "jotai";
-import { selectedChatIdAtom } from "@/atoms/chatAtoms";
+import { useAtomValue } from "jotai";
 import {
-  activeSessionWorkModeAtom,
-  activeWorkspaceSessionIdAtom,
-} from "@/atoms/sessionAtoms";
-import { IpcClient } from "@/ipc/ipc_client";
+  selectedChatIdAtom,
+  isStreamingByIdAtom,
+  turnWorkModeByChatIdAtom,
+} from "@/atoms/chatAtoms";
 import { resolveChatWorkspaceAppId } from "@/lib/chat-workspace-binding";
 import { cn } from "@/lib/utils";
 import {
@@ -43,10 +42,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import type { WorkMode } from "@/lib/schemas";
-import {
-  labelForWorkMode,
-  settingsPatchForWorkMode,
-} from "@/lib/work-mode";
+import { labelForWorkMode } from "@/lib/work-mode";
+import { useWorkModeSelection } from "@/hooks/useWorkModeSelection";
 
 const HAS_SEEN_INTENT_KEY = "atlarix.hasSeenIntentExplanation";
 
@@ -78,27 +75,19 @@ export function ChatIntentSelector() {
   const selectedChatId = useAtomValue(selectedChatIdAtom);
   const workspaceAppId = resolveChatWorkspaceAppId(selectedChatId);
   const { settings, updateSettings } = useSettings();
-  const activeSessionId = useAtomValue(activeWorkspaceSessionIdAtom);
-  const [sessionWorkMode, setSessionWorkMode] = useAtom(activeSessionWorkModeAtom);
 
   const [showFirstTime, setShowFirstTime] = useState(() => {
     if (typeof window === "undefined") return false;
     return !window.localStorage.getItem(HAS_SEEN_INTENT_KEY);
   });
 
-  const effectivePermission =
-    settings?.selectedChatMode === "agent"
-      ? "build"
-      : settings?.selectedChatMode ?? "ask";
-
-  // The SESSION's mode wins when it has one; otherwise the global preference,
-  // which is what every session written before the column existed still uses.
-  // Same precedence as `resolveEffectiveWorkMode` on the main side, so the chip
-  // shows the mode the next turn will actually run in.
-  const workMode: WorkMode =
-    sessionWorkMode ??
-    settings?.workModePreference ??
-    (effectivePermission === "ask" ? "ask" : "build");
+  // The SESSION's mode wins when it has one; otherwise the global preference, which
+  // is what every session written before the column existed still uses. Shared with
+  // the composer footer (`resolveSelectedWorkMode`) so the two can never disagree —
+  // they did, and that is what made a mid-turn switch look broken.
+  // Shared with the Shift+Tab cycle (`useWorkModeSelection`) — one read, one write,
+  // so the two controls cannot disagree about the mode or about what picking one does.
+  const { workMode, setWorkMode: applyWorkMode } = useWorkModeSelection();
 
   /** Chat-only (no workspace): read-only chrome — Ask only. */
   const isReadOnlyChatChrome = workspaceAppId == null;
@@ -131,33 +120,26 @@ export function ChatIntentSelector() {
     if (isReadOnlyChatChrome && mode !== "ask") {
       return;
     }
-    // Picking a mode clears any stale selected sub-agent (agents are task-tool
-    // targets, not modes; the picker no longer sets one).
-    //
-    // The global write STAYS: it is the default for the next NEW session, which
-    // is what makes the picker still feel sticky when you start a fresh chat.
-    updateSettings({
-      ...settingsPatchForWorkMode(mode),
-      selectedAgent: "",
-    });
-    // And the session gets it too, so this choice survives being reopened from a
-    // window whose global preference has since moved on. Optimistic: the atom is
-    // set before the write lands, because the chip must not lag a click.
-    if (activeSessionId) {
-      setSessionWorkMode(mode);
-      void IpcClient.getInstance()
-        .setWorkspaceSessionWorkMode(activeSessionId, mode)
-        .catch((e) => {
-          // A failed stamp is not worth interrupting the turn for — the global
-          // write above already applies — but it must not be silent, or a
-          // session would quietly keep resolving from the global forever.
-          console.warn("[work-mode] failed to persist session mode:", e);
-        });
-    }
+    applyWorkMode(mode);
   };
 
   const WorkIcon =
     WORK_MODES.find((w) => w.value === workMode)?.icon ?? MessageCircle;
+
+  // A live turn keeps the mode it was dispatched with — picking a new one here
+  // applies to your NEXT message. Say so, rather than letting the picker and the
+  // footer silently disagree about which mode is in force.
+  const isStreamingById = useAtomValue(isStreamingByIdAtom);
+  const turnWorkModeByChatId = useAtomValue(turnWorkModeByChatIdAtom);
+  const runningWorkMode =
+    selectedChatId != null && isStreamingById.get(selectedChatId) === true
+      ? turnWorkModeByChatId.get(selectedChatId)
+      : undefined;
+  const appliesNextTurn =
+    runningWorkMode != null && runningWorkMode !== workMode;
+  const triggerLabel = appliesNextTurn
+    ? `${labelForWorkMode(workMode)} · next turn`
+    : labelForWorkMode(workMode);
 
   const dismissFirstTime = () => {
     setShowFirstTime(false);
@@ -211,11 +193,13 @@ export function ChatIntentSelector() {
                     size="sm"
                   >
                     <WorkIcon className="h-3.5 w-3.5 shrink-0" />
-                    <SelectValue>{labelForWorkMode(workMode)}</SelectValue>
+                    <SelectValue>{triggerLabel}</SelectValue>
                   </MiniSelectTrigger>
                 </TooltipTrigger>
                 <TooltipContent>
-                  {"Work mode: tool surface per mode. Open for Ask, Plan, Build, Debug, Review."}
+                  {appliesNextTurn
+                    ? `This turn is running in ${labelForWorkMode(runningWorkMode!)} and keeps that mode until it finishes. ${labelForWorkMode(workMode)} applies to your next message.`
+                    : "Work mode: tool surface per mode. Open for Ask, Plan, Build, Debug, Review."}
                 </TooltipContent>
               </Tooltip>
               <SelectContent

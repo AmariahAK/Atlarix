@@ -25,7 +25,8 @@ import { IpcClient } from "@/ipc/ipc_client";
 import { showInfo } from "@/lib/toast";
 import type { PanelTab } from "@/atoms/sourceAtoms";
 import { useSettings } from "@/hooks/useSettings";
-import { labelForWorkMode, settingsPatchForWorkMode } from "@/lib/work-mode";
+import { labelForWorkMode } from "@/lib/work-mode";
+import { useWorkModeSelection } from "@/hooks/useWorkModeSelection";
 import type { WorkMode } from "@/lib/schemas";
 
 const WORK_MODE_CYCLE: WorkMode[] = ["ask", "plan", "build", "debug", "review"];
@@ -49,6 +50,7 @@ export function usePanelShortcuts() {
 
   const selectedAppId = useAtomValue(selectedAppIdAtom);
   const { settings, updateSettings } = useSettings();
+  const { workMode, setWorkMode } = useWorkModeSelection();
 
   useEffect(() => {
     const openRightPanel = () => {
@@ -101,12 +103,17 @@ export function usePanelShortcuts() {
           showInfo("Work modes are available in workspace chats.");
           return;
         }
-        const current: WorkMode =
-          settings?.workModePreference ??
-          (settings?.selectedChatMode === "ask" ? "ask" : "build");
-        const idx = WORK_MODE_CYCLE.indexOf(current);
+        // Cycle from — and write to — the SAME place the picker uses.
+        //
+        // This read the global preference alone and wrote only the global, while the
+        // picker reads `session ?? global` and writes both. In any session with a
+        // stored mode that made the chord a no-op with a toast: the cycle started
+        // from the wrong mode, and because a turn dispatches with
+        // `workModeOverride ?? sessionWorkMode`, the mode the next turn actually ran
+        // in never changed. The visible chip not moving was the honest symptom.
+        const idx = WORK_MODE_CYCLE.indexOf(workMode);
         const next = WORK_MODE_CYCLE[(idx + 1) % WORK_MODE_CYCLE.length];
-        void updateSettings(settingsPatchForWorkMode(next));
+        setWorkMode(next);
         showInfo(`Mode: ${labelForWorkMode(next)}`);
         return;
       }
@@ -156,6 +163,11 @@ export function usePanelShortcuts() {
     setModelSheetOpen,
     orderedTabs,
     selectedAppId,
+    // The chord reads `workMode` when it fires, so the listener must be rebound when
+    // it changes — otherwise the cycle steps from whatever the mode was when the
+    // effect last ran and appears to stick.
+    workMode,
+    setWorkMode,
     settings?.workModePreference,
     settings?.selectedChatMode,
     updateSettings,

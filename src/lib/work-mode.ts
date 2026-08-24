@@ -53,6 +53,48 @@ export function settingsPatchForWorkMode(mode: WorkMode): {
 }
 
 /**
+ * The mode the NEXT message will run in, as the composer should show it.
+ *
+ * ONE rule, in one place, because having two was the bug: `ChatIntentSelector`
+ * resolved `session ?? global`, while the footer beside it resolved the global
+ * ALONE — it was never updated when sessions gained their own mode in v14.36.0. A
+ * session whose mode differed from the global therefore showed one mode in the
+ * picker and a different one in the footer, with no way to tell which was in force.
+ *
+ * Mirrors `resolveEffectiveWorkMode`'s precedence on the main side, which is what
+ * actually decides the turn.
+ */
+export function resolveSelectedWorkMode(params: {
+  sessionWorkMode?: WorkMode | null;
+  workModePreference?: WorkMode | null;
+  selectedChatMode?: "ask" | "build" | "agent" | null;
+}): WorkMode {
+  if (params.sessionWorkMode) return params.sessionWorkMode;
+  if (params.workModePreference) return params.workModePreference;
+  const chatMode =
+    params.selectedChatMode === "agent" ? "build" : params.selectedChatMode ?? "ask";
+  return chatMode === "ask" ? "ask" : "build";
+}
+
+/**
+ * What the composer should DISPLAY as the mode in force.
+ *
+ * While a turn streams that is the mode the turn was dispatched with — it is fixed
+ * for the life of the turn and cannot be retargeted mid-flight, deliberately, so a
+ * picker click can never revoke a live turn's write permission. Showing the newly
+ * picked mode there would name a mode the turn is not running in.
+ *
+ * `runningWorkMode` should be passed only while a turn is actually live; a stale
+ * value from a finished turn must not be displayed as current.
+ */
+export function resolveDisplayedWorkMode(params: {
+  selected: WorkMode;
+  runningWorkMode?: WorkMode | null;
+}): WorkMode {
+  return params.runningWorkMode ?? params.selected;
+}
+
+/**
  * Resolved work mode for prompts, tool allowlists, and activity labels.
  * - Manual UI selection (Explore / Plan / Build / Debug / Review): uses `workModePreference` (all five).
  * - Legacy Auto intent: collapses to ask or build from `selectedChatMode` only.

@@ -53,6 +53,25 @@ export const openChatTabsAtom = atom<OpenChatTab[]>([]);
 export const evictedChatIdsAtom = atom<Set<number>>(new Set<number>());
 
 export const isStreamingByIdAtom = atom<Map<number, boolean>>(new Map());
+
+/**
+ * The work mode each chat's RUNNING turn was dispatched with.
+ *
+ * A turn's mode is fixed at dispatch and cannot change mid-flight — deliberately, so
+ * a picker click in one window can never revoke a live turn's write permission (the
+ * v14.36.0 defect). That makes the picker and the running turn two different facts,
+ * and the composer needs both: it shows what the turn IS running as while offering
+ * the mode your next message will use.
+ *
+ * Written at dispatch and NOT cleared at stream end. Consumers pair it with
+ * `isStreamingForChatAtom` and ignore it when no turn is live, so a leftover entry
+ * can never be shown as if it were current — and the next dispatch overwrites it.
+ * That keeps the write to one site instead of every one of the five places a stream
+ * can end, any one of which could be missed.
+ */
+export const turnWorkModeByChatIdAtom = atom<
+  Map<number, import("@/lib/schemas").WorkMode>
+>(new Map());
 export const chatInputValueAtom = atom<string>("");
 
 

@@ -24,12 +24,19 @@ import {
   chatMessagesByIdAtom,
   selectedChatIdAtom,
   liveTurnUsageByChatIdAtom,
+  isStreamingByIdAtom,
+  turnWorkModeByChatIdAtom,
 } from "@/atoms/chatAtoms";
+import { activeSessionWorkModeAtom } from "@/atoms/sessionAtoms";
 import { rightPanelVisibleAtom, modelSheetOpenAtom } from "@/atoms/sourceAtoms";
 import { NoWorkspaceBanner } from "./chat/NoWorkspaceBanner";
 import { CompactModelSearch } from "./CompactModelSearch";
 import type { WorkMode } from "@/lib/schemas";
-import { labelForWorkMode } from "@/lib/work-mode";
+import {
+  labelForWorkMode,
+  resolveSelectedWorkMode,
+  resolveDisplayedWorkMode,
+} from "@/lib/work-mode";
 import { TokenCircle } from "./chat/TokenCircle";
 import { useCompactionTokenVisuals } from "@/hooks/useCompactionTokenVisuals";
 import { selectionUsesCompass } from "@/hooks/useCompassSendGate";
@@ -66,13 +73,34 @@ export function ChatInputControls({ chatId }: { chatId?: number }) {
   const { pulse, flashSuccess } = useCompactionTokenVisuals(chatId ?? null);
   const creditBalance = useCreditBalance();
 
-  const effectivePermission =
-    settings?.selectedChatMode === "agent"
-      ? "build"
-      : settings?.selectedChatMode ?? "build";
-  const workMode: WorkMode =
-    settings?.workModePreference ??
-    (effectivePermission === "ask" ? "ask" : "build");
+  // ONE shared rule with the picker beside it (`resolveSelectedWorkMode`). This used
+  // to resolve the global preference ALONE — left behind when sessions gained their
+  // own mode in v14.36.0 — so the footer and the picker could name different modes
+  // with nothing to say which was in force.
+  const sessionWorkMode = useAtomValue(activeSessionWorkModeAtom);
+  const selectedWorkMode: WorkMode = resolveSelectedWorkMode({
+    sessionWorkMode,
+    workModePreference: settings?.workModePreference,
+    selectedChatMode: settings?.selectedChatMode,
+  });
+
+  // While a turn is live the footer names the mode that turn is RUNNING in, which is
+  // fixed at dispatch and cannot be retargeted mid-flight. The picker goes on showing
+  // the selected mode (tagged "next turn" when they differ), so both statements on
+  // screen are true at the same time instead of contradicting each other.
+  const isStreamingById = useAtomValue(isStreamingByIdAtom);
+  const turnWorkModeByChatId = useAtomValue(turnWorkModeByChatIdAtom);
+  const isStreamingHere =
+    threadChatId != null && isStreamingById.get(threadChatId) === true;
+  const runningWorkMode =
+    isStreamingHere && threadChatId != null
+      ? turnWorkModeByChatId.get(threadChatId)
+      : undefined;
+
+  const workMode: WorkMode = resolveDisplayedWorkMode({
+    selected: selectedWorkMode,
+    runningWorkMode,
+  });
   const workLabel = labelForWorkMode(workMode);
 
   const boundAppId =
