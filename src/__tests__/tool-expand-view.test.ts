@@ -227,6 +227,40 @@ describe("buildToolExpandView", () => {
     }
   });
 
+  it("names the query when a search found nothing, instead of 'Done'", () => {
+    // An empty `sources` array used to fall past every branch to the generic tail,
+    // which printed a bare "Done" — indistinguishable from a card that simply failed
+    // to render, and the least informative thing a finished search could say.
+    const raw = JSON.stringify({
+      success: true,
+      result: { text: "**No results found**", sources: [] },
+    });
+    const view = buildToolExpandView(
+      "web_search",
+      { query: '"the impeded stream is the one that sings" Wendell Berry' },
+      raw,
+      "done",
+    );
+    expect(view.kind).toBe("text");
+    if (view.kind === "text") {
+      expect(view.body).toContain("No results for");
+      expect(view.body).toContain("Wendell Berry");
+    }
+  });
+
+  it("leaves an unrecognised envelope to the generic handling", () => {
+    // Only an explicit empty `sources` array means "this search found nothing" — a
+    // payload without the field could be anything, and mislabelling it as an empty
+    // search would be a different kind of wrong answer.
+    const view = buildToolExpandView(
+      "web_search",
+      { query: "react hooks" },
+      JSON.stringify({ success: true, result: { text: "something else" } }),
+      "done",
+    );
+    expect(view.kind === "text" && view.body.startsWith("No results")).toBe(false);
+  });
+
   it("formats list_available_mcps as mcp_servers", () => {
     const raw = JSON.stringify({
       success: true,

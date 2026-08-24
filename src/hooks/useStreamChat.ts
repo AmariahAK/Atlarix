@@ -9,11 +9,14 @@ import {
   normalizeChatActivityPayload,
   upsertActivityStreamItem,
 } from "@/lib/chat-activity-normalize";
+import { resolveEffectiveWorkMode } from "@/lib/work-mode";
+import { findToolActivityResult } from "@/lib/chat/find-tool-activity-result";
 import {
   chatErrorByIdAtom,
   chatMessagesByIdAtom,
   chatStreamCountByIdAtom,
   isStreamingByIdAtom,
+  turnWorkModeByChatIdAtom,
   recentStreamChatIdsAtom,
   lastTurnHadToolCallsByChatIdAtom,
   lastReasoningTokensByChatIdAtom,
@@ -191,24 +194,18 @@ function resolveThoughtContentForPersist(
   return pickBestThoughtContent(undefined, fromRaw, fromMessage);
 }
 
+/** Reads the live activity list; the pairing rule itself lives in the pure module. */
 function findLatestToolActivityResult(
   chatId: number,
   toolName: string,
+  toolCallId?: string,
 ): { resultText?: string; detail?: string } {
-  const normalized = toolName.trim();
-  if (!normalized) return {};
-  const activities = getDefaultStore().get(activityStreamItemsAtom);
-  for (let i = activities.length - 1; i >= 0; i--) {
-    const item = activities[i]!;
-    if (item.chatId != null && item.chatId !== chatId) continue;
-    if (item.type !== "tool_use") continue;
-    const name = (item.toolName ?? item.label ?? "").trim();
-    if (name !== normalized) continue;
-    const resultText = item.resultText?.trim();
-    const detail = item.detail?.trim();
-    if (resultText || detail) return { resultText, detail };
-  }
-  return {};
+  return findToolActivityResult(
+    getDefaultStore().get(activityStreamItemsAtom),
+    chatId,
+    toolName,
+    toolCallId,
+  );
 }
 
 /**
@@ -1197,9 +1194,13 @@ export function useStreamChat({
               end.toolName?.trim() ||
               end.toolId?.trim() ||
               "";
-            const activityResult = registryName
-              ? findLatestToolActivityResult(chatId, registryName)
-              : {};
+            // The call id first: `chat:tool:end` carries it, and it is the only thing
+            // that tells two concurrent calls of one tool apart.
+            const endCallId = (end.toolCallId ?? popped?.toolCallId)?.trim();
+            const activityResult =
+              registryName || endCallId
+                ? findLatestToolActivityResult(chatId, registryName, endCallId)
+                : {};
             getDefaultStore().set(streamThreadByChatIdAtom, (prev) => {
               const n = new Map(prev);
               const cur = n.get(chatId) ?? [];
@@ -1388,6 +1389,30 @@ export function useStreamChat({
           workspaceSessionId === modeStore.get(activeWorkspaceSessionIdAtom)
             ? modeStore.get(activeSessionWorkModeAtom)
             : null;
+
+        // Remember what THIS turn dispatched with, so the composer can show the mode
+        // the turn is actually running in while the picker offers the next one.
+        // Mirrors the override sent below — the same expression, so the two cannot
+        // drift apart and claim different modes for one turn.
+        // Resolved to a CONCRETE mode, by the same precedence main uses
+        // (`resolveEffectiveWorkMode`). Storing only the override would leave the
+        // common case blank — a session with no stored mode dispatches with no
+        // override — and the composer would then fall back to the global preference,
+        // which is the very value a mid-turn switch has just changed. That is the
+        // bug, not a gap in it.
+        modeStore.set(turnWorkModeByChatIdAtom, (prev) => {
+          const next = new Map(prev);
+          next.set(
+            chatId,
+            resolveEffectiveWorkMode({
+              workModeOverride: workModeOverride ?? sessionWorkMode ?? undefined,
+              intentMode: settings?.intentMode,
+              workModePreference: settings?.workModePreference,
+              selectedChatMode: settings?.selectedChatMode ?? "ask",
+            }),
+          );
+          return next;
+        });
 
         IpcClient.getInstance().streamMessage(promptForModel, {
           displayPrompt,

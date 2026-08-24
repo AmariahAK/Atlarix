@@ -626,6 +626,28 @@ function buildWebSearchResultsView(
   return { kind: "search_results", query, results };
 }
 
+/**
+ * The "no results" card. Only for a payload that really IS a search result — an
+ * explicit empty `sources` array — so a malformed or unrecognised envelope still
+ * falls through to the generic handling rather than being mislabelled as an empty
+ * search.
+ */
+function buildEmptyWebSearchView(
+  payload: Record<string, unknown>,
+  args?: unknown,
+): Extract<ToolExpandView, { kind: "text" }> | null {
+  if (!Array.isArray(payload.sources) || payload.sources.length > 0) return null;
+  let query = "";
+  if (args && typeof args === "object") {
+    const a = args as Record<string, unknown>;
+    if (typeof a.query === "string") query = a.query.trim();
+  }
+  return {
+    kind: "text",
+    body: query ? `No results for "${query}"` : "No results",
+  };
+}
+
 function buildCommandOutputView(
   payload: Record<string, unknown>,
   plainText?: string,
@@ -1055,6 +1077,12 @@ export function buildToolExpandView(
   if (WEB_SEARCH_TOOLS.has(toolName)) {
     const search = buildWebSearchResultsView(payload, args);
     if (search) return search;
+    // A search that found nothing is a RESULT, and the card should say which query
+    // came up empty. Falling through here reached the generic tail and printed a bare
+    // "Done" — the least informative thing a finished search could possibly say, and
+    // indistinguishable from a card that simply failed to render.
+    const empty = buildEmptyWebSearchView(payload, args);
+    if (empty) return empty;
   }
 
   if (PLAN_TOOLS.has(toolName)) {
