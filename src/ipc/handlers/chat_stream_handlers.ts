@@ -102,9 +102,13 @@ import {
 import {
   resolveReasoningCatalogModelId,
   resolveCapabilityProviderId,
+  resolveDispatchCapabilityProviderId,
   hasNativeDeepThinkingSupport,
 } from "@/lib/routing/reasoning-detector";
-import { catalogSaysReasons } from "@/lib/routing/model-reasoning-profile";
+import {
+  catalogSaysReasons,
+  resolveReasoningRequest,
+} from "@/lib/routing/model-reasoning-profile";
 import { enforceContextBudget } from "@/lib/routing/tier_context_budget";
 import { AttachmentStore } from "../../lib/attachment-store";
 import {
@@ -1043,9 +1047,36 @@ export function registerChatStreamHandlers() {
           modelClient.builtinProviderId,
           settings,
         );
+        // Say WHY, not just whether. A hidden Deep-thinking toggle has three very
+        // different causes — the model declares no reasoning, it declares reasoning
+        // but no control to change, or models.dev has no row for it at all (a real
+        // case: a Core model live on a vendor's own API before the catalog lists it).
+        // Only the last one is a bug on our side, and without the resolved vendor +
+        // catalog id in the log there is no way to tell them apart from a report.
+        const reasoningCapabilityProvider = resolveDispatchCapabilityProviderId(
+          effectiveModel,
+          modelClient.builtinProviderId,
+        );
+        const reasoningCatalogModelId =
+          resolveReasoningCatalogModelId(effectiveModel);
         logger.log(
           `[stream:${req.chatId}] model=${effectiveModel.provider}/${effectiveModel.name} ` +
-          `reasoning=${enableNativeReasoning}`,
+          `reasoning=${enableNativeReasoning} ` +
+          `wire=${modelClient.builtinProviderId ?? "?"} ` +
+          `vendor=${reasoningCapabilityProvider ?? "?"}/${reasoningCatalogModelId} ` +
+          `catalog=${
+            catalogSaysReasons(
+              reasoningCapabilityProvider,
+              reasoningCatalogModelId,
+            ) ?? "miss"
+          } ` +
+          `control=${
+            resolveReasoningRequest({
+              providerId: reasoningCapabilityProvider,
+              modelId: reasoningCatalogModelId,
+              deepThinking: !!settings.deepThinking,
+            }).kind
+          }`,
         );
 
         // FIX 5: log the true context window for this dispatch. The first

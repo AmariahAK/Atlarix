@@ -17,7 +17,7 @@ import { CORE_TIER_ROWS } from "../../shared/compass_product_copy";
 import {
   getCoreModelOverrideId,
   getCoreTierRouting,
-} from "./core-model-override-store";
+} from "@/ipc/shared/core-model-override-store";
 import { getCoreProxyBaseUrl } from "./core_proxy";
 
 export const COMPASS_PROVIDER_ID = "compass";

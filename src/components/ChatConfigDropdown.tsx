@@ -22,7 +22,6 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { SlidersHorizontal, Cpu, Brain, Mic } from "lucide-react";
-import { isReasoningCapableModel } from "@/lib/routing/reasoning-detector";
 import { useAtlarixCoreCatalog } from "@/hooks/useAtlarixCoreCatalog";
 import { resolveModelDisplayLabel } from "@/lib/resolve-model-display-label";
 import {
@@ -57,9 +56,25 @@ export function ChatConfigDropdown({
 }) {
   const modelDisplayName = useModelDisplayName();
   const { settings, updateSettings } = useSettings();
+  const { data: modelsByProviders } = useLanguageModelsByProviders();
   // Only offer "deep thinking" for models that can actually reason (opencode's
   // capability gate) — otherwise the toggle would be a no-op.
-  const reasoningCapable = isReasoningCapableModel(settings?.selectedModel);
+  //
+  // The answer is RESOLVED IN MAIN and read off the model row here. Calling the
+  // capability gate directly from the renderer looked equivalent and was not: the
+  // models.dev reasoning registry and the Core tier→vendor routing map are both
+  // main-process module state, so in here every lookup missed and the gate fell
+  // through to a provider allowlist containing no `compass` — hiding the toggle for
+  // the entire Atlarix Core lineup while the same model on BYOK showed it.
+  //
+  // Undefined (query still loading, or a model not in the list) hides the row rather
+  // than guessing: a toggle that appears and then vanishes is worse than one that
+  // arrives a moment late, and a wrong guess offers a control that does nothing.
+  const reasoningCapable =
+    settings?.selectedModel != null &&
+    modelsByProviders?.[settings.selectedModel.provider]?.find(
+      (m) => m.apiName === settings.selectedModel.name,
+    )?.supportsDeepThinking === true;
   const deepThinking = !!settings?.deepThinking;
   const voiceProvider = settings?.voiceTranscriptionProvider ?? "local";
   const voiceMode = settings?.voiceInputMode ?? "dictate";

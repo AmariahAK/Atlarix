@@ -8,6 +8,18 @@
  *
  * Default `null` → no override; `getOpenRouterModelIdForCoreTier` falls back to
  * the build-time env (`ATLARIX_CORE_MODEL_1..4`).
+ *
+ * IMPORT THIS BY ITS `@/ipc/shared/...` ALIAS, ALWAYS. It holds module-level mutable
+ * state, and a module reached by two different specifiers can be bundled TWICE — at
+ * which point `setCoreModelRouting` writes one copy while `getCoreTierRouting` reads
+ * the other, and every Core tier silently resolves to nothing. That exact
+ * alias-vs-relative split duplicated a singleton once before (v14.13.2), and the two
+ * importers here were on opposite styles until 2026-08-24: `compass_constants.ts`
+ * reached it relatively, `core-model-overrides.ts` by alias.
+ *
+ * MAIN-PROCESS STATE. Only main ever writes it, so a renderer reading it gets an
+ * empty map for every tier — which is how the Deep-thinking toggle came to be hidden
+ * for the whole Core lineup. Resolve Core capability in main and ship the answer.
  */
 
 let CORE_MODEL_OVERRIDES: Record<string, string> | null = null;

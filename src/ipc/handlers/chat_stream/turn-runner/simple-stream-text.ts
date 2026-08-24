@@ -39,7 +39,10 @@ import {
 } from "@/ipc/utils/no_usable_model_output";
 import { safeSend } from "@/ipc/utils/safe_sender";
 import { bucketNativeTokensByTool } from "@/lib/ai/native-history";
-import { getReasoningEffort } from "@/ipc/utils/thinking_utils";
+import {
+  getExtraProviderOptions,
+  getReasoningEffort,
+} from "@/ipc/utils/thinking_utils";
 import {
   getMaxTokensWithFloor,
   getTemperature,
@@ -84,6 +87,7 @@ import {
   buildReasoningProviderOptions,
   detectReasoningCapability,
   resolveReasoningCatalogModelId,
+  resolveDispatchCapabilityProviderId,
   deriveReasoningCeiling,
   shouldOmitTemperature,
 } from "@/lib/routing/reasoning-detector";
@@ -95,6 +99,21 @@ import {
 import type { StreamTurnContext } from "@/ipc/handlers/chat_stream/turn-context";
 
 const logger = log.scope("chat_stream_handlers");
+
+/**
+ * The `providerOptions` key an OpenAI-compatible client reads.
+ *
+ * The SDK accepts its own provider name AND the camelCase form of it, but treats the
+ * raw form as DEPRECATED whenever the two differ — which they do for any id carrying
+ * a hyphen. Our own provider ids (`compass`, `deepseek`, `qwen`, `minimax`) are all
+ * single words and unaffected, but a user's custom provider is commonly named
+ * `my-proxy`, and that is exactly the case that would start warning and, if the
+ * deprecation is ever enforced, stop being read at all.
+ */
+function providerOptionsBucketName(providerId: string): string {
+  const camel = providerId.replace(/[-_](\w)/g, (_, c: string) => c.toUpperCase());
+  return camel === providerId ? providerId : camel;
+}
 
 export interface SimpleStreamTextArgs {
   chatMessages: ModelMessage[];
@@ -223,6 +242,15 @@ export async function simpleStreamText(
             // Reasoning / native thoughts only for the thinking context tier (dynamic per model).
             if (thinkingTier) {
               const catalogModelId = resolveReasoningCatalogModelId(effectiveModel);
+              // Capability keys off the VENDOR serving the request; the buckets below
+              // key off the WIRE provider. For Atlarix Core those differ (`compass` on
+              // the wire, whatever core-models.json routes to underneath).
+              const capabilityProviderId = resolveDispatchCapabilityProviderId(
+                effectiveModel,
+                modelClient.builtinProviderId,
+              );
+              // Wire provider: this classifies which native request SHAPE the route
+              // accepts, not who serves the model.
               const cap = detectReasoningCapability(
                 catalogModelId,
                 modelClient.builtinProviderId,
@@ -264,6 +292,51 @@ export async function simpleStreamText(
                   ...providerOptions.anthropic,
                   ...reasoningPatch.anthropic,
                 };
+              }
+
+              // OpenAI-COMPATIBLE clients — Atlarix Core (`compass`) and every
+              // open-weight BYOK provider (deepseek / qwen / minimax / …), all built
+              // by `createOpenAICompatible({ name: <provider id> })`.
+              //
+              // These have no bucket above, and this is the link that was missing:
+              // `resolveReasoningRequest` has always resolved the right per-model
+              // control (effort / toggle / budget / none, from what the model itself
+              // declares) but its output was only ever read as a boolean "can this
+              // model reason", never placed in a request. So the Deep-thinking toggle
+              // moved nothing on the wire for any of these providers.
+              //
+              // The bucket name must be the WIRE provider — the SDK reads
+              // `providerOptions[<its own name>]` — while the capability lookup uses
+              // the vendor. `reasoningEffort` is translated to `reasoning_effort` by
+              // the SDK; `thinking` passes through into the body untouched.
+              //
+              // Skipped when a native patch above already claimed this route: those
+              // SDKs take reasoning in their OWN shape, and adding a second,
+              // differently-shaped instruction to the same bucket can only contradict
+              // the first (OpenRouter's `reasoning` object beside a bare
+              // `reasoning_effort`, a `thinking` block inside Google's options).
+              const handledNatively =
+                Boolean(reasoningPatch.openrouter) ||
+                Boolean(reasoningPatch.google) ||
+                Boolean(reasoningPatch.openai) ||
+                Boolean(reasoningPatch.anthropic);
+              if (modelClient.builtinProviderId && !handledNatively) {
+                const compatibleReasoning = getExtraProviderOptions(
+                  capabilityProviderId,
+                  settings,
+                  true,
+                  maxOutputTokens,
+                  catalogModelId,
+                );
+                if (Object.keys(compatibleReasoning).length > 0) {
+                  const bucket = providerOptionsBucketName(
+                    modelClient.builtinProviderId,
+                  );
+                  providerOptions[bucket] = {
+                    ...providerOptions[bucket],
+                    ...compatibleReasoning,
+                  };
+                }
               }
             }
 

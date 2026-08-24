@@ -161,16 +161,24 @@ export function detectReasoningCapability(
 }
 
 /**
- * Renderer-safe capability gate for the "Deep thinking" toggle: whether the given
- * model can reason at all. Superset of the native-provider check plus the
- * gateway-thinking providers (deepseek/qwen/minimax/google/vertex/auto). Does not
- * need `builtinProviderId`, so the UI can call it from the model in settings.
+ * Capability gate for the "Deep thinking" toggle: whether the given model can reason
+ * at all. Superset of the native-provider check plus the gateway-thinking providers
+ * (deepseek/qwen/minimax/google/vertex/auto). Does not need `builtinProviderId`, so
+ * it can be answered from the model in settings alone.
+ *
+ * CALL THIS IN MAIN, NEVER IN THE RENDERER — despite containing no Node imports.
+ * It reads two registries that are module-level state written only by main-process
+ * code: the models.dev reasoning profiles (`models_dev.ts`) and the Core tier→vendor
+ * routing map (`core-model-overrides.ts`). In a renderer both are permanently empty,
+ * so this returned a provider-allowlist guess for every model — which is how the
+ * whole Atlarix Core lineup ended up with no Deep-thinking toggle while the same
+ * models on BYOK had one. The renderer reads `supportsDeepThinking`, stamped onto
+ * each model by `getLanguageModelsByProviders`.
  */
 export function isReasoningCapableModel(
   model: LargeLanguageModel | undefined | null,
 ): boolean {
   if (!model) return false;
-  const provider = model.provider ?? "";
 
   // Per-model catalog answer wins where we have one: a provider allowlist showed the
   // toggle for every model of a "thinking" provider, including ones that don't reason
@@ -184,13 +192,53 @@ export function isReasoningCapableModel(
   }
 
   // Catalog miss → legacy behaviour, so a newly released model isn't hidden.
-  if (PROVIDERS_THAT_SUPPORT_THINKING.includes(provider)) return true;
-  const cap = detectReasoningCapability(catalogModelId, provider);
-  return (
-    cap.useOpenRouterReasoning ||
-    cap.useGoogleThoughts ||
-    cap.useOpenAiReasoningSummary
-  );
+  //
+  // Asked of the VENDOR as well as the raw provider. Both lines below used to read
+  // `model.provider` only, which for Atlarix Core is the synthetic `compass` — a name
+  // no capability table has ever contained, and one `detectReasoningCapability` can
+  // only answer for a slashed OpenRouter id (a direct-routed tier's id is bare). Every
+  // direct-routed Core model therefore failed this fallback and the Deep-thinking
+  // toggle was hidden for the whole lineup, while the same model on BYOK matched
+  // `deepseek` here and showed it.
+  //
+  // Both are consulted rather than one replacing the other: the vendor answers "is
+  // this model a reasoner", the raw provider answers "does this route carry reasoning"
+  // — and a Core tier still routed through OpenRouter only satisfies the second. On a
+  // catalog miss the permissive answer is the right one, per the convention above.
+  if (PROVIDERS_THAT_SUPPORT_THINKING.includes(capabilityProvider)) return true;
+  const offersAChannel = (providerId: string): boolean => {
+    const cap = detectReasoningCapability(catalogModelId, providerId);
+    return (
+      cap.useOpenRouterReasoning ||
+      cap.useGoogleThoughts ||
+      cap.useOpenAiReasoningSummary
+    );
+  };
+  return offersAChannel(capabilityProvider) || offersAChannel(model.provider ?? "");
+}
+
+/**
+ * The provider id a DISPATCH should use for capability lookups.
+ *
+ * Dispatch keys off the wire provider (`modelClient.builtinProviderId`); capability
+ * keys off the vendor actually serving the request. Those differ for exactly one
+ * provider — Atlarix Core, whose wire id is the synthetic `compass` and whose vendor
+ * comes from `core-models.json`. Everything else is identity.
+ *
+ * Deliberately requires BOTH arguments rather than reading the model alone: when a
+ * turn falls back to Core for want of an API key (`fellBackToCore`), the wire id is
+ * `compass` while `effectiveModel` still names the user's original selection, so
+ * resolving from the model alone would look up a model that is not answering. In that
+ * mismatch we keep `compass`, which resolves to no reasoning — the honest answer,
+ * since we cannot know which tier took the turn from here.
+ */
+export function resolveDispatchCapabilityProviderId(
+  effectiveModel: LargeLanguageModel,
+  builtinProviderId: string | undefined,
+): string | undefined {
+  if (builtinProviderId !== "compass") return builtinProviderId;
+  if (effectiveModel.provider !== "compass") return builtinProviderId;
+  return resolveCapabilityProviderId(effectiveModel);
 }
 
 /**
@@ -203,10 +251,24 @@ export function deriveReasoningCeiling(
   effectiveModel: LargeLanguageModel,
   builtinProviderId: string | undefined,
 ): "high" | "max" {
+  const capabilityProviderId = resolveDispatchCapabilityProviderId(
+    effectiveModel,
+    builtinProviderId,
+  );
   // Native budget-token providers (deepseek/qwen/minimax/google/vertex/auto).
-  if (builtinProviderId && PROVIDERS_THAT_SUPPORT_THINKING.includes(builtinProviderId)) {
+  // Keyed on the VENDOR: a Core tier serving DeepSeek can exceed effort-"high" for
+  // the same reason BYOK DeepSeek can — it is the same model — but under the wire
+  // id `compass` it used to be told its ceiling was "high", so Deep ON asked for one
+  // notch less than the model actually offers.
+  if (
+    capabilityProviderId &&
+    PROVIDERS_THAT_SUPPORT_THINKING.includes(capabilityProviderId)
+  ) {
     return "max";
   }
+  // The WIRE provider here on purpose: this call classifies which request SHAPE the
+  // route accepts (OpenRouter's reasoning object, Google's thinkingConfig, …), not
+  // who serves the model.
   const cap = detectReasoningCapability(
     resolveReasoningCatalogModelId(effectiveModel),
     builtinProviderId,
@@ -226,13 +288,28 @@ export function hasNativeDeepThinkingSupport(
   builtinProviderId: string | undefined,
   settings: UserSettings,
 ): boolean {
+  const capabilityProviderId = resolveDispatchCapabilityProviderId(
+    effectiveModel,
+    builtinProviderId,
+  );
   const catalogModelId = resolveReasoningCatalogModelId(effectiveModel);
+  // Wire provider: which native request shape (if any) this route accepts.
   const cap = detectReasoningCapability(catalogModelId, builtinProviderId);
   const reasoningPatch = buildReasoningProviderOptions(cap, true);
   if (Object.keys(reasoningPatch).length > 0) {
     return true;
   }
-  const gateway = getExtraProviderOptions(builtinProviderId, settings, true);
+  // `modelId` is load-bearing: without it `getExtraProviderOptions` cannot consult the
+  // model's own catalog profile and answers `unknown` for everything, which then falls
+  // to a provider allowlist that has never contained `compass`. That is why Core turns
+  // reported `reasoning=false` even for a model that declares an effort channel.
+  const gateway = getExtraProviderOptions(
+    capabilityProviderId,
+    settings,
+    true,
+    undefined,
+    catalogModelId,
+  );
   return Object.keys(gateway).length > 0;
 }
 

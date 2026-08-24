@@ -24,6 +24,7 @@ import {
   COMPASS_PROVIDER_ID,
   getCompassSyntheticModels,
 } from "./compass_constants";
+import { isReasoningCapableModel } from "@/lib/routing/reasoning-detector";
 
 /**
  * Fetches language model providers from both the database (custom) and hardcoded constants (cloud),
@@ -336,6 +337,39 @@ export async function getLanguageModelsByProviders(): Promise<
     modelsByProvider[provider.id] = models;
   }
 
+  return stampDeepThinkingSupport(modelsByProvider);
+}
+
+/**
+ * Answer "can this model reason?" HERE, in main, and ship the answer.
+ *
+ * The Deep-thinking toggle is gated from the renderer, which has neither input it
+ * needs: `registerModelsDevReasoning` is called from `models_dev.ts` (a main-only
+ * module — it imports `node:fs` and `electron`), and the Core tier→vendor routing map
+ * is written only by `core-model-overrides.ts` (likewise main-only, with a build-time
+ * env fallback that Vite defines for the main bundle alone). In the renderer both
+ * lookups returned empty for EVERY model, so the gate always fell through to the
+ * legacy `PROVIDERS_THAT_SUPPORT_THINKING` allowlist — which is why Atlarix Core, a
+ * synthetic provider no allowlist names, never showed the toggle while the very same
+ * model on BYOK did.
+ *
+ * Riding this payload rather than a new IPC channel is deliberate: the picker and
+ * `useAtlarixCoreCatalog` already read it, and it is already invalidated on
+ * `core-models:changed` and provider CRUD — so a Core lineup change updates the
+ * toggle with no extra wiring, and no channel needs allowlisting in `preload.ts`.
+ */
+function stampDeepThinkingSupport(
+  modelsByProvider: Record<string, LanguageModel[]>,
+): Record<string, LanguageModel[]> {
+  for (const [providerId, models] of Object.entries(modelsByProvider)) {
+    modelsByProvider[providerId] = models.map((model) => ({
+      ...model,
+      supportsDeepThinking: isReasoningCapableModel({
+        name: model.apiName,
+        provider: providerId,
+      }),
+    }));
+  }
   return modelsByProvider;
 }
 

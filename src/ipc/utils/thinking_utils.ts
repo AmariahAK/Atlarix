@@ -86,7 +86,7 @@ export function getExtraProviderOptions(
   if (providerId === "openai") {
     // OpenAI's reasoning API is effort-only.
     const effort = getReasoningEffort(settings, "high");
-    return { reasoning_effort: effort === "max" ? "high" : effort };
+    return { reasoningEffort: effort === "max" ? "high" : effort };
   }
 
   const deepThinking = !!settings?.deepThinking;
@@ -103,7 +103,16 @@ export function getExtraProviderOptions(
       return { thinking: { type: resolved.enabled ? "enabled" : "disabled" } };
     case "effort":
       // Guaranteed to be a value the model listed.
-      return { reasoning_effort: resolved.effort };
+      //
+      // camelCase ON PURPOSE — this is not a wire field, it is the
+      // `@ai-sdk/openai-compatible` provider option, and the SDK maps it to the
+      // request body's `reasoning_effort`. Sending snake_case here looks right and
+      // silently does nothing: the SDK spreads the provider bucket into the body and
+      // THEN writes `reasoning_effort: compatibleOptions.reasoningEffort ?? undefined`
+      // over the top, so a snake_case key we supplied is overwritten with `undefined`
+      // and dropped entirely by JSON.stringify. See the body assembly in
+      // @ai-sdk/openai-compatible's `getArgs`.
+      return { reasoningEffort: resolved.effort };
     case "budget":
       return {
         thinking: {

@@ -80,13 +80,22 @@ describe("provider param wiring receives the resolved effort + scaled budget", (
     expect(deep).toBeLessThan(64_000); // output reserve preserved
   });
 
-  it("OpenAI reasoning_effort follows the toggle and never exceeds 'high'", () => {
+  // camelCase `reasoningEffort` is the PROVIDER OPTION, which the SDK maps to the
+  // body's `reasoning_effort`. Asserting the snake_case spelling here passed while the
+  // value never reached a request: @ai-sdk/openai-compatible spreads the provider
+  // bucket into the body and then writes `reasoning_effort:
+  // compatibleOptions.reasoningEffort ?? undefined` over the top, so a snake_case key
+  // is overwritten with undefined and dropped by JSON.stringify.
+  it("effort follows the toggle, never exceeds 'high', and uses the SDK's key", () => {
     expect(
-      (getExtraProviderOptions("openai", settings(false), true) as any).reasoning_effort,
+      (getExtraProviderOptions("openai", settings(false), true) as any).reasoningEffort,
     ).toBe("medium");
     expect(
-      (getExtraProviderOptions("openai", settings(true), true) as any).reasoning_effort,
+      (getExtraProviderOptions("openai", settings(true), true) as any).reasoningEffort,
     ).toBe("high");
+    expect(
+      (getExtraProviderOptions("openai", settings(true), true) as any).reasoning_effort,
+    ).toBeUndefined();
   });
 
   it("budget provider (deepseek): scaled thinking budget, deep > base", () => {

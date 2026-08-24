@@ -502,6 +502,17 @@ export type LanguageModel =
     contextWindow?: number;
     temperature?: number;
     dollarSigns?: number;
+    /**
+     * Whether the Deep-thinking toggle should be offered for this model.
+     *
+     * Resolved in MAIN and shipped on this payload, like `supportsToolChoice` below.
+     * The renderer cannot work it out for itself: both inputs — the models.dev
+     * reasoning registry and the Core tier→vendor routing map — are module-level
+     * state written only in the main process, so every renderer-side lookup came back
+     * empty and the toggle fell through to a provider allowlist that has never
+     * contained `compass`.
+     */
+    supportsDeepThinking?: boolean;
     type: "custom";
   }
   | {
@@ -517,6 +528,8 @@ export type LanguageModel =
     /** Real USD price per 1M tokens from the models.dev catalog (when known). */
     cost?: { input: number; output: number };
     supportsToolChoice?: boolean;
+    /** See the `custom` variant above — resolved in main, never in the renderer. */
+    supportsDeepThinking?: boolean;
     type: "local" | "cloud";
   };
 
@@ -830,3 +843,37 @@ export type DiscordInviteInfoResult =
       presenceCount?: number;
     }
   | { ok: false };
+
+/** One aggregated row of the edit-stats rollup. */
+export interface EditStatsBucket {
+  linesAdded: number;
+  linesRemoved: number;
+  edits: number;
+}
+
+export interface EditStatsWorkspaceRow extends EditStatsBucket {
+  workspaceId: number;
+  name: string;
+  path: string;
+}
+
+export interface EditStatsModelRow extends EditStatsBucket {
+  /** `compass` means the turn ran on Atlarix Core; anything else is the user's key. */
+  provider: string;
+  /** Resolved model id — never a `core-N` tier id. */
+  modelId: string;
+}
+
+/** One day of the contribution calendar. */
+export interface EditStatsDayRow extends EditStatsBucket {
+  /** LOCAL calendar day, `YYYY-MM-DD` — the day the work actually happened. */
+  day: string;
+}
+
+export interface EditStatsSummary {
+  totals: EditStatsBucket;
+  byWorkspace: EditStatsWorkspaceRow[];
+  byModel: EditStatsModelRow[];
+  /** Ascending by day. Days with no activity are ABSENT, not zero rows. */
+  byDay: EditStatsDayRow[];
+}
