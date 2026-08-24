@@ -440,7 +440,7 @@ const RELEVANCE_STOP_WORDS = new Set([
     'of', 'with', 'by', 'from', 'is', 'are', 'was', 'were', 'be', 'been',
 ]);
 
-function filterRelevantResults(
+export function filterRelevantResults(
     results: SearchResult[],
     query: string,
     maxResults: number
@@ -460,11 +460,23 @@ function filterRelevantResults(
         return { r, relevanceScore };
     });
 
-    return scored
+    const ranked = scored
+        .slice()
+        .sort((a, b) => b.relevanceScore - a.relevanceScore)
+        .map(x => x.r);
+
+    const passing = scored
         .filter(x => x.relevanceScore > 0.25)
         .sort((a, b) => b.relevanceScore - a.relevanceScore)
-        .map(x => x.r)
-        .slice(0, maxResults);
+        .map(x => x.r);
+
+    // A search that FOUND pages must never report none. This bar is token overlap
+    // against the whole query, judged on a title and a short snippet — so a long
+    // quoted question can score every genuine hit below 0.25 and empty the result
+    // set, which is what produced "0 results" and bare "Done" cards for searches the
+    // engine had answered with 25 hits. When the bar rejects everything, fall back to
+    // the same list ordered by relevance: best-effort ranking beats a false negative.
+    return (passing.length > 0 ? passing : ranked).slice(0, maxResults);
 }
 
 function dedupeSearchResultsByUrl(results: SearchResult[]): SearchResult[] {
@@ -691,7 +703,7 @@ ToolRegistry.register({
             if (!query || query === "") {
                 return { text: "⚠️ web_search({ deep: true }) requires a query.", sources: [] };
             }
-            return runDeepSearch(query, args.max_sources ?? 3);
+            return runDeepSearch(query, args.max_sources ?? 3, sources);
         }
 
         // Validate query parameter
@@ -877,10 +889,21 @@ Search runs through Atlarix's own browser, so there is nothing to install — th
 // (Standalone deep_search tool removed in Pass 7; routed via web_search.)
 // ═══════════════════════════════════════════════════════════
 
-async function runDeepSearch(query: string, maxSources: number = 3) {
+async function runDeepSearch(
+    query: string,
+    maxSources: number = 3,
+    /**
+     * Same default as the quick path (`general`). This used to be hardcoded to
+     * `"all"`, which pulled in StackOverflow / GitHub / MDN / Reddit for EVERY deep
+     * search and — under the old ranking — put them ahead of the open web, so a deep
+     * search on any non-code topic came back as developer-site content. Deep is a
+     * depth setting, not a subject matter one.
+     */
+    sources: string = "general",
+) {
     const aggregator = new WebSearchAggregator();
     const cap = Math.max(1, Math.min(maxSources, 5));
-    const searchResults = await aggregator.search(query, "all", cap);
+    const searchResults = await aggregator.search(query, sources, cap);
 
     const topUrls = searchResults.sources
         .filter((r) => r.url && r.url.startsWith("http"))
@@ -981,24 +1004,75 @@ ToolRegistry.register({
 // HELPER CLASSES - Combined StackSense + Perplexica approach
 // ═══════════════════════════════════════════════════════════
 
+/**
+ * Keyword reduction for the SITE-SCOPED searchers (StackSense approach).
+ *
+ * NOT for the open web. This shrinks a query to at most six keywords, which is the
+ * right idea when asking StackOverflow or MDN about an error string, and destructive
+ * for anything written as prose. A real example from a user session:
+ *
+ *   "The mystery of human existence lies not in just staying alive, but in finding
+ *    something to live for" Dostoevsky Brothers Karamazov
+ *      → `"the mystery human existence lies not`
+ *
+ * — the phrase shredded, the author dropped, and a dangling unclosed quote sent to
+ * the engine, which returned nothing. `runSearchMerged` now gives the general web the
+ * RAW query and keeps this for the site-scoped sources only.
+ *
+ * Quoted spans survive whole even here: a `"…"` phrase is an explicit instruction to
+ * match exactly, and no keyword heuristic may overrule it. They are also exempt from
+ * the six-keyword budget, so a quote plus its author cannot push the author out.
+ *
+ * Exported for the test that pins the phrase rule.
+ */
+/**
+ * Did the caller actually ask for developer sources?
+ *
+ * Only then should StackOverflow / MDN / GitHub outrank the open web. `all` used to
+ * land in that branch, which ranked `general` LAST — so a deep search for literary
+ * quotes came back as developer-site pages and every real web result was dropped by
+ * the result cap. "All sources" is a request for breadth, not a statement that the
+ * question is about code; unspecified means the same.
+ *
+ * Exported for the test that pins the ranking.
+ */
+export function requestedDeveloperSources(requested: readonly string[]): boolean {
+    return requested.some(
+        (s) => s === 'stackoverflow' || s === 'github' || s === 'mdn',
+    );
+}
+
+export function optimizeSearchQueryKeywords(rawQuery: string): string {
+    const stopWords = new Set([
+        'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
+        'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'were', 'been',
+        'be', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would',
+        'should', 'could', 'may', 'might', 'can', 'my', 'your', 'i', 'you',
+        'what', 'how', 'why', 'when', 'where', 'which', 'who'
+    ]);
+
+    const parts = rawQuery.match(/"[^"]*"|\S+/g) ?? [];
+    const quoted: string[] = [];
+    const loose: string[] = [];
+    for (const part of parts) {
+        if (part.startsWith('"') && part.endsWith('"') && part.length > 1) {
+            quoted.push(part);
+        } else {
+            loose.push(part.toLowerCase());
+        }
+    }
+
+    const keywords = loose.filter(w => !stopWords.has(w) && w.length > 2);
+    const optimized = [...quoted, ...keywords.slice(0, 6)].join(' ').trim();
+    return optimized || rawQuery;
+}
+
 class WebSearchAggregator {
     private timeout = 10000;
 
-    /**
-     * Optimize search query by extracting keywords (StackSense approach)
-     */
+    /** Site-scoped searchers only — see `optimizeSearchQueryKeywords`. */
     private optimizeQuery(rawQuery: string): string {
-        const stopWords = new Set([
-            'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
-            'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'were', 'been',
-            'be', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would',
-            'should', 'could', 'may', 'might', 'can', 'my', 'your', 'i', 'you',
-            'what', 'how', 'why', 'when', 'where', 'which', 'who'
-        ]);
-
-        const words = rawQuery.toLowerCase().split(/\s+/);
-        const keywords = words.filter(w => !stopWords.has(w) && w.length > 2);
-        return keywords.slice(0, 6).join(' ') || rawQuery;
+        return optimizeSearchQueryKeywords(rawQuery);
     }
 
     /**
@@ -1056,6 +1130,30 @@ class WebSearchAggregator {
         return promise;
     }
 
+    /**
+     * General web search on the RAW query, falling back to the keyword reduction
+     * only when the raw query finds nothing.
+     *
+     * This keeps whatever value the old heuristic had — rescuing an over-long,
+     * chatty question that no engine matches verbatim — without letting it damage
+     * the far more common case of a precise query. The second round trip is only
+     * paid on a search that already failed, so nothing that works today gets slower.
+     */
+    private async searchGeneralWithFallback(
+        rawQuery: string,
+        optimizedQuery: string,
+        numResults: number,
+    ): Promise<SearchResult[]> {
+        const direct = await this.searchGeneral(rawQuery, numResults);
+        if (direct.length > 0) return direct;
+        const trimmedRaw = rawQuery.trim();
+        if (!optimizedQuery || optimizedQuery.trim() === trimmedRaw) return direct;
+        console.log(
+            `[WebSearch] raw query found nothing — retrying with keywords: "${optimizedQuery}"`,
+        );
+        return this.searchGeneral(optimizedQuery, numResults);
+    }
+
     private async runSearchMerged(
         query: string,
         sourcesStr: string,
@@ -1088,7 +1186,11 @@ class WebSearchAggregator {
             tasks.push(this.searchMDN(optimizedQuery, numResults));
         }
         if (sourcesToSearch.includes('general')) {
-            tasks.push(this.searchGeneral(optimizedQuery, numResults));
+            // The RAW query. The open web is the one source that can honour a phrase,
+            // an author name, or an error message exactly as written — handing it the
+            // six-keyword reduction is what made a quote lookup return SEO pages, and
+            // an exact-phrase lookup return nothing at all.
+            tasks.push(this.searchGeneralWithFallback(query, optimizedQuery, numResults));
         }
 
         const resultsArrays = await Promise.allSettled(tasks);
@@ -1107,9 +1209,13 @@ class WebSearchAggregator {
         const deduped = dedupeSearchResultsByUrl(allResults);
         const relevant = filterRelevantResults(deduped, query, numResults);
 
-        const isGeneralFocused = requestedSources.includes('general') &&
-            !requestedSources.includes('all') &&
-            requestedSources.length <= 2;
+        // Developer sources outrank the open web ONLY when the caller explicitly asked
+        // for developer sources. `all` used to fall into that branch, which ranked
+        // `general` LAST — so a deep search for literary quotes returned StackOverflow,
+        // MDN and GitHub pages and dropped every real web result at the `slice` below.
+        // "All sources" is a request for breadth, not a statement that the question is
+        // about code, and unspecified means the same.
+        const isGeneralFocused = !requestedDeveloperSources(requestedSources);
 
         const sourcePriority: Record<string, number> = isGeneralFocused ? {
             'general': 5,
