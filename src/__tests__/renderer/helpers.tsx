@@ -56,7 +56,28 @@ export interface FakeIpc {
   /** Main REFUSED a dispatch (a dropped system wake) — no stream, no terminal event. */
   onStreamDropped: (h: Handler<{ chatId: number; reason: string }>) => () => void;
   emitStreamDropped: (payload: { chatId: number; reason: string }) => void;
+  /**
+   * An operation is waiting for approval. Modelled explicitly (the Proxy's
+   * catch-all returns a no-op unsubscribe and never fires) because the handler
+   * has side effects worth pinning — it used to seize the right panel.
+   */
+  onPermissionRequest: (
+    chatId: number,
+    h: Handler<PermissionRequestPayload>,
+  ) => () => void;
+  emitPermissionRequest: (payload: PermissionRequestPayload) => void;
 }
+
+export type PermissionRequestPayload = {
+  chatId: number;
+  type: "permission-request";
+  operationId: string;
+  request: {
+    __permission_required: true;
+    operation: string;
+    preview: unknown;
+  };
+};
 
 export function makeFakeIpc(): FakeIpc {
   const phaseHandlers = new Set<Handler<{ chatId: number; phase: string; label: string }>>();
@@ -67,6 +88,7 @@ export function makeFakeIpc(): FakeIpc {
     Handler<{ chatId: number; status: string; source?: string }>
   >();
   const droppedHandlers = new Set<Handler<{ chatId: number; reason: string }>>();
+  const permissionHandlers = new Set<Handler<PermissionRequestPayload>>();
 
   const fake: FakeIpc = {
     getApp: vi.fn(async () => null),
@@ -120,6 +142,13 @@ export function makeFakeIpc(): FakeIpc {
     },
     emitStreamDropped: (payload) => {
       for (const h of droppedHandlers) h(payload);
+    },
+    onPermissionRequest: (_chatId, h) => {
+      permissionHandlers.add(h);
+      return () => permissionHandlers.delete(h);
+    },
+    emitPermissionRequest: (payload) => {
+      for (const h of permissionHandlers) h(payload);
     },
   };
 

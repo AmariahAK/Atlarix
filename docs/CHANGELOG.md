@@ -12,6 +12,13 @@ holding error messages and file paths. Later summaries were compressing damage r
 conversation. Each summary is now handed forward intact and updated in place, so a session that has
 been running all day still knows the task it started with.
 
+**The right panel stops reopening itself.** Every time the agent asked to run a command or edit a
+file, the panel yanked itself open — even when there was nothing new waiting, which is why closing it
+never stuck and why it often opened onto an empty list. The panel was left over from when approvals
+were shown there; they now appear in the conversation itself, on the card for the turn that asked,
+with a bar above the message box when something is waiting. Approving works exactly as before — the
+panel is simply no longer dragged along with it, and stays wherever you put it.
+
 ---
 
 ## [14.37.0] (2026-08-24) — Deep thinking on Atlarix Core, web search that finds what you asked for, and a record of what the agent has written
