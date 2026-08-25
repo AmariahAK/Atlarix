@@ -3,6 +3,17 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
+## [Unreleased]
+
+**Long conversations stop forgetting what they were for.** When a chat runs long enough to be
+summarized more than once, each new summary was rebuilt from a mangled copy of the previous one —
+flattened onto a single line and cut off partway through, which reliably threw away the sections
+holding error messages and file paths. Later summaries were compressing damage rather than the
+conversation. Each summary is now handed forward intact and updated in place, so a session that has
+been running all day still knows the task it started with.
+
+---
+
 ## [14.37.0] (2026-08-24) — Deep thinking on Atlarix Core, web search that finds what you asked for, and a record of what the agent has written
 
 **Deep thinking works on Atlarix Core.** The toggle was missing for every Core model while the same
