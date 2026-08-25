@@ -644,6 +644,19 @@ what made this queue read three times its real size.
 
 ## 🧭 Designed — awaiting a session
 
+- **A `review-posted` automation event — closes the PR-review loop from this side.** One value added
+  to `GithubTriggerEventSchema` (`src/lib/automations/types.ts`, today `new-pr` / `review-requested`
+  / `ci-failed`) plus a poll branch in `src/lib/automations/pollers/github.ts`: a reviewer posts a
+  review → the pipeline trigger fires → Atlarix reads the review comments via the GitHub API → the
+  agent fixes them → pushes. **Works with ANY reviewer** — CodeRabbit, Cursor Bugbot, a human — so it
+  has standalone value today and does not wait on
+  [atlarix-reviewer](https://github.com/AmariahAK/atlarix-reviewer) shipping. That is the whole
+  design: the two products are *composable*, not coupled, and the loop closes through GitHub's public
+  review API rather than a private wire. The reverse direction (Atlarix writing a context payload for
+  the bot to judge) was **cut** — it is unproven, no competitor has it, and a persuasive case for your
+  own code handed to your own reviewer defeats the reason to have a separate reviewer at all.
+  Reasoning in that repo's `docs/atlarix-pr-bot-spec.md` §5 and §16.
+
 - **The catalog lags the vendor, and nothing dynamically covers the gap — for BYOK or for Core.**
   Found 2026-08-22 while checking whether Core could move `core-1` from GLM-5.2 to 5.3.
   **GLM-5.3 is live on the DIRECT pay-per-token endpoint** (`api.z.ai/api/paas/v4`, `created`
