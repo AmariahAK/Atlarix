@@ -121,12 +121,23 @@ _MiniMax-M3 (fp8) · **single attempt (k=1)** · native function-calling · matc
 
 ## Deployment & CI/CD
 
-Releases are built from **this repository** via GitHub Actions ([**Atlarix CI**](.github/workflows/release.yml)). Pushes to **`main`** and pull requests run typecheck, lint, and tests; pushing a **version tag** (`vX.Y.Z`) runs those checks first, then the full macOS/Linux/Windows build and publish to [atlarix-releases](https://github.com/AmariahAK/atlarix-releases).
+Releases are built from **this repository** via GitHub Actions ([**Atlarix CI**](.github/workflows/release.yml)). Pushes to **`main`** or **`dev`** and pull requests run typecheck, lint, and tests; pushing a **version tag** (`vX.Y.Z`) runs those checks first, then the full macOS/Linux/Windows build and publish to [atlarix-releases](https://github.com/AmariahAK/atlarix-releases).
+
+### Branches
+
+**`dev` is the working branch; `main` is the release branch.** Day-to-day work lands on `dev`, which runs
+the same quality gate as `main` — typecheck, lint, the Rust sandbox cross-target check, tests, and the
+dead-code report. When a release is ready, merge `dev` into `main`, **wait for CI to go green**, and only
+then tag. Nothing else can fire from a branch push: every build and publish job is gated on a `v*` tag.
+
+`main` remains GitHub's default branch, because the release tooling, the [atlarix-releases](https://github.com/AmariahAK/atlarix-releases) repo, and clone URLs all assume it — so new pull requests open against `main` and want retargeting to `dev`. This split is a **convention held by CI and discipline, not an enforced gate**: branch protection needs GitHub Pro on a private repository, and this one is on the free plan.
 
 1. Bump **`package.json` `version`** and add a section to [`docs/CHANGELOG.md`](docs/CHANGELOG.md). Archive older sections to [`docs/CHANGELOG_PREVIOUS.md`](docs/CHANGELOG_PREVIOUS.md) when the main file grows too long — keep roughly the last ten releases. Only the CURRENT version's section is read by the release tooling, so archiving is safe.
 2. Refresh the bundled model catalog: `npm run models:snapshot` (writes `build/models-snapshot.json.gz`) and commit it. This is the offline floor for the model picker — a stale snapshot self-heals on first successful refresh, so this is a nice-to-have, not a blocker.
-3. Commit, tag, and push:
+3. Merge `dev` into `main`, push, and **wait for the `quality` run to go green** — then tag:
    ```bash
+   git checkout main && git merge --no-ff dev && git push origin main
+   # wait for Actions -> Atlarix CI to pass on main
    git tag vX.Y.Z
    git push origin vX.Y.Z
    ```
