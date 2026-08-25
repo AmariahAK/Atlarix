@@ -201,6 +201,24 @@ BEGIN
     RETURN jsonb_build_object('ok', false, 'error', 'missing_user');
   END IF;
 
+  -- THE BAN GATE. Not optional, and the reason it lives HERE rather than in the
+  -- debit: 20260819120000_account_bans.sql folded the hard stop into
+  -- `get_credit_balance` precisely so it "rides the wallet read the proxy
+  -- ALREADY makes on every request" and cannot be skipped. A service balance
+  -- read without it would be the one path around the entire ban system — a
+  -- banned account could keep spending through the reviewer.
+  --
+  -- Same error string as the owner-scoped RPC on purpose: the proxy already maps
+  -- 'account_banned' to its `Banned` class and a 403, so both callers behave
+  -- identically without that handling being written twice.
+  --
+  -- Before the wallet upsert, mirroring get_credit_balance: a banned account
+  -- should not even get a row created.
+  IF EXISTS (SELECT 1 FROM users WHERE id = p_user_id AND banned_at IS NOT NULL) THEN
+    RETURN jsonb_build_object('ok', false, 'error', 'account_banned');
+  END IF;
+
+  INSERT INTO credit_wallet (user_id) VALUES (p_user_id) ON CONFLICT (user_id) DO NOTHING;
   SELECT balance_cents INTO bal FROM credit_wallet WHERE user_id = p_user_id;
   RETURN jsonb_build_object('ok', true, 'balance_cents', COALESCE(bal, 0));
 END;
