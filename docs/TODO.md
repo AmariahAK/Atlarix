@@ -1216,11 +1216,12 @@ is *what happens when the list is incomplete*; the reasoning is in git and `DESI
 
 - **Collaborative agent (the "team + @atlarix" direction).** NOT a Slack/Discord clone — real-time
   chat and calls are a money pit and teams already have those. Two pieces instead: (a) **`@atlarix`
-  bots inside the tools teams already use** — Slack, Discord, GitHub issues — extending the existing
-  `@atlarix review` bot: mention it, it picks up the task, works in a real Atlarix workspace, posts
-  the result back (near-zero switching cost; how Devin and Copilot-in-Slack win). (b) A **shared,
-  observable agent session** — a war room where teammates watch one run live, drop steering comments,
-  approve actions and hand off, tied to the Workforce tier. The chat shell is not the differentiator;
+  bots inside the tools teams already use** — Slack, Discord, GitHub issues — the same shape the PR
+  reviewer takes on GitHub ([`atlarix-pr-bot-spec.md`](./atlarix-pr-bot-spec.md)): mention it, it
+  picks up the task, works in a real Atlarix workspace, posts the result back (near-zero switching
+  cost; how Devin and Copilot-in-Slack win). (b) A **shared, observable agent session** — a war room
+  where teammates watch one run live, drop steering comments, approve actions and hand off, tied to
+  the Workforce tier. The chat shell is not the differentiator;
   the shared *agent* session is. Capture, don't build yet.
 
 ---
