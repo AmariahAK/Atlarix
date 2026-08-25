@@ -155,6 +155,29 @@ REVOKE INSERT, UPDATE, DELETE ON public.review_jobs FROM authenticated, anon;
 REVOKE INSERT, UPDATE, DELETE ON public.review_history FROM authenticated, anon;
 REVOKE SELECT ON public.review_jobs FROM authenticated, anon;
 
+-- EXPLICIT GRANTS. Do not rely on whatever ALTER DEFAULT PRIVILEGES happens to
+-- be configured — measured on a fresh instance, a newly created table lands with
+-- `service_role=Dxtm` (TRUNCATE/REFERENCES/TRIGGER/MAINTAIN) and NO
+-- SELECT/INSERT/UPDATE/DELETE for anyone.
+--
+-- Two things break silently without these:
+--   * The worker cannot read or claim its own queue — it connects with the
+--     service key and every `review_jobs` statement is permission-denied.
+--   * The RLS SELECT policies above are UNREACHABLE. A policy filters rows a
+--     role may already read; with no table-level SELECT there is nothing to
+--     filter, so the account page could never load a customer's installs or
+--     history however correct the policy is.
+GRANT SELECT, INSERT, UPDATE ON public.review_jobs TO service_role;
+GRANT SELECT, INSERT, UPDATE ON public.github_installs TO service_role;
+GRANT SELECT, INSERT ON public.review_history TO service_role;
+
+-- Read-only for the owner; RLS narrows these to their own rows.
+GRANT SELECT ON public.github_installs TO authenticated;
+GRANT SELECT ON public.review_history TO authenticated;
+
+-- No DELETE anywhere on purpose: jobs are marked `superseded` rather than
+-- removed, and an uninstall sets `removed_at`, so history stays resolvable.
+
 -- ---------------------------------------------------------------------------
 -- get_credit_balance_service(user_id) — service-role only.
 -- ---------------------------------------------------------------------------
