@@ -75,7 +75,7 @@ Retrieval is **purely lexical — no index, no embeddings, no map tool, no backg
 ### AI Agents & Modes
 
 - **Work modes:** Explore, Plan, Build, Debug, Review.
-- **Atlarix Core:** Four managed cloud models — **Core 1** (fastest) through **Core 4** (most capable). Every plan gets all four; Core is **pay-as-you-go** from a prepaid credit balance (top up from $10), the same on Free and Pro.
+- **Atlarix Core:** Four managed cloud models — **Core 1** (fastest) through **Core 4** (most capable). Every plan gets all four. Pro includes Core for everyday work and draws on a prepaid credit balance beyond that; Free draws on that balance from the start (top up from $10).
 
 ### Workspace Tools & Extensions
 
@@ -195,9 +195,19 @@ After `npm install`, **`postinstall`** runs `patch-package` and the Electron ins
 | Tier      | Price   | Workspaces | Highlights |
 |-----------|---------|------------|------------|
 | **Free**  | $0      | 1          | All four Core models (pay-as-you-go credits); your own API keys and local models free; core tools; **1** MCP server per workspace (manual config); **2** automations per workspace |
-| **Pro**   | $19/mo  | Unlimited  | Everything in Free + Agent Behaviors + MCP marketplace + one-click OAuth connectors; **10** MCP servers and **10** automations per workspace |
+| **Pro**   | $19/mo  | Unlimited  | Everything in Free + **Atlarix Core included for everyday work** + Agent Behaviors + MCP marketplace + one-click OAuth connectors; **10** MCP servers and **10** automations per workspace |
 
-No plan bundles AI. **Atlarix Core is pay-as-you-go on every plan** — top up a prepaid credit balance (from **$10**) and it's metered as you go (each new account gets a one-time **$1** trial credit); **your own API keys and local models are free on every plan**. Only the workstation features differ by tier. See [docs/compass-limits.md](docs/compass-limits.md).
+**Every plan runs every model.** All four Core models are available on Free and Pro alike, and **your own API keys and local models are free on every plan**.
+
+**Pro includes Atlarix Core for everyday work**, and heavier use draws on pay-as-you-go credit you top up, metered as you go. Free uses that same credit from the start (each new account gets a one-time **$1** trial credit; top-ups start at **$10**). See [docs/compass-limits.md](docs/compass-limits.md).
+
+### Atlarix Reviewer — a separate product
+
+**$19 per developer / month.** A GitHub App that reviews every pull request on the repositories you choose and posts its findings as review comments — file, line, what is wrong, and the fix. It never writes to your code, and it never executes, builds or tests it.
+
+Reviews run on Atlarix Core and are **included for everyday reviewing**, the same way Pro works; heavier use draws on the same pay-as-you-go credit, metered per review. Your account page itemises what reviewing has spent separately from the app.
+
+Pro and Reviewer are **separate subscriptions** — holding one does not include the other.
 
 ---
 

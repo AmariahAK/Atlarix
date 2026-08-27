@@ -34,8 +34,36 @@ export function GitHubIntegration() {
 
   const isConnected = !!settings?.githubAccessToken;
 
+  /**
+   * THE DISCONNECTED STATE IS NOT NOTHING.
+   *
+   * This returned `null`, while the settings page rendered a sentence about
+   * disconnecting UNDERNEATH it, unconditionally. So anyone who had not connected
+   * saw help text describing a button that was not on the screen.
+   *
+   * The sentence was also wrong in a way that outlasted the missing button: it
+   * said "GitHub sign-in is saved on this Mac", conflating this with signing into
+   * your Atlarix account using GitHub. They are unrelated credentials — you can be
+   * signed in through GitHub OAuth and have no `githubAccessToken` at all, which
+   * is exactly the state that produced the report.
+   *
+   * Settings can only DISCONNECT: the device-code flow is offered when you clone
+   * a repository from GitHub (`WelcomeCloneDialog`), so the honest empty state
+   * says where it comes from rather than offering a button that is not here.
+   */
   if (!isConnected) {
-    return null;
+    return (
+      <div>
+        <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300">
+          GitHub Integration
+        </h3>
+        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+          Not connected. Atlarix asks for access when you clone a repository from GitHub, and
+          saves it on this Mac from then on. This is separate from signing in to your Atlarix
+          account with GitHub.
+        </p>
+      </div>
+    );
   }
 
   return (
@@ -45,7 +73,8 @@ export function GitHubIntegration() {
           GitHub Integration
         </h3>
         <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-          Your account is connected to GitHub.
+          Connected, and saved on this Mac until you disconnect. Disconnect to use a different
+          GitHub account.
         </p>
       </div>
 
