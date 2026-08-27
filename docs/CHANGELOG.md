@@ -3,6 +3,27 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
+## [14.38.2] (2026-08-27) — Your plan updates when you come back, and Settings stops describing a button that is not there
+
+**Upgrading shows up straight away.** Buying Pro happens in a browser, so you leave Atlarix and
+come back — and until now, coming back quickly refreshed nothing. The app only re-checked your plan
+if it had sat unfocused for a full minute first, which the actual upgrade flow is faster than. It now
+re-checks every time you return to the window.
+
+**Settings no longer describes a Disconnect button that is not on the screen.** Integrations showed
+a line about disconnecting GitHub whether or not there was anything connected, and it called it
+"GitHub sign-in" — which is a different thing from signing in to Atlarix with GitHub. You can be
+signed in that way and have no GitHub connection at all, which is what made it confusing. It now
+says which one it means, and says when there is nothing connected.
+
+**Your account page lists the repositories the reviewer covers.** It used to say "selected
+repositories" and stop, because the repository names were never stored — only the fact that a
+selection existed. Existing installations fill in the next time you add or remove a repository.
+
+**Groundwork you will not see.** The app no longer holds a permanently open connection to our
+database watching for plan changes; it asks when there is a reason to. That connection was doing
+almost all of the work on our database and delivering an event most accounts never fire.
+
 ## [14.38.1] (2026-08-27) — The usage bar says a percentage, and two startup bugs
 
 **The usage bar shows a share, not a dollar figure.** v14.38.0 rendered your included usage as

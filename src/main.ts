@@ -1546,6 +1546,19 @@ const createWindow = () => {
       clearTimeout(supabaseIdleTimer);
       supabaseIdleTimer = null;
     }
+    /**
+     * UNCONDITIONAL, and that is the fix.
+     *
+     * This whole block used to sit behind `if (!supabaseBgPaused) return;`, so a plan
+     * refresh only happened if the window had first blurred for a full 60 seconds. The
+     * one flow that matters — click Upgrade, pay in the browser, alt-tab straight back —
+     * is FASTER than that, so it refreshed nothing and the user stared at their old plan.
+     *
+     * `refreshPlanFromServer` throttles itself, so firing on every focus is one read per
+     * 15s at worst. That is the replacement for the realtime channel that was costing
+     * 93.5% of database execution time.
+     */
+    void SubscriptionManager.refreshPlanFromServer();
     if (!supabaseBgPaused) return;
     supabaseBgPaused = false;
     setAutoRefresh(true);

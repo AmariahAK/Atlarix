@@ -895,6 +895,53 @@ export interface SubscriptionData {
     banned?: boolean;
 }
 
+/**
+ * Read the plan row for an email, ONCE.
+ *
+ * WHY THIS REPLACED A REALTIME SUBSCRIPTION. The always-open plan-change channel cost
+ * 93.5% of this project's total database execution time — 7.3M `realtime.list_changes`
+ * calls polling the WAL — to deliver an event most accounts never fire. Measured
+ * 2026-08-27 with `supabase inspect db calls`.
+ *
+ * The flow it existed for argues against it: a plan change happens in a BROWSER, on
+ * atlarix.dev or Lemon Squeezy, so the user necessarily leaves the app and comes back.
+ * A read on window focus catches that at least as well as a socket, and costs one query
+ * per focus instead of a poller that never sleeps.
+ *
+ * The ban case is not weakened in the way it looks. A ban is enforced SERVER-SIDE on
+ * every request (`entitlement.ts` maps `account_banned` to a hard stop), so the channel
+ * was only ever updating the UI faster — it was never what stopped a banned account
+ * spending.
+ */
+export async function fetchPlanSnapshot(userEmail: string): Promise<SubscriptionData | null> {
+    try {
+        const { data, error } = await getSupabaseClient()
+            .from('users')
+            .select('plan, subscription_status, subscription_ends_at, effective_tier, banned_at')
+            .eq('email', userEmail)
+            .maybeSingle();
+        if (error || !data) return null;
+        const row = data as {
+            plan?: string | null;
+            subscription_status?: string | null;
+            subscription_ends_at?: string | null;
+            effective_tier?: string | null;
+            banned_at?: string | null;
+        };
+        return {
+            plan: (row.plan as 'free' | 'pro') ?? 'free',
+            subscriptionStatus: (row.subscription_status as 'active' | 'cancelled' | null) ?? null,
+            subscriptionEndsAt: row.subscription_ends_at ?? null,
+            effectiveTier: (row.effective_tier as 'free' | 'pro') || undefined,
+            banned: Boolean(row.banned_at),
+        };
+    } catch {
+        // Never throws. A failed read means "no news", and the 30-minute TTL on
+        // `_tierCache` still bounds how stale the cached answer can get.
+        return null;
+    }
+}
+
 type SubscriptionChangeCallback = (newData: SubscriptionData, oldData: SubscriptionData) => void;
 let planSubscription: any = null;
 

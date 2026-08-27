@@ -1,12 +1,10 @@
 # Atlarix TODO
 
-**Current version:** v14.38.1 — **RELEASED 2026-08-27.** 12 assets, `/releases/latest`
-verified, draft=false, all 10 CI jobs green, release body carries the changelog prose, and
-the packaged `--doctor` returned **9/9 OK**.
-
-**v14.38.2 — STAGED, NOT TAGGED.** `0a6e8e2e` is on `main`: the Settings → Integrations
-fix, plus the README / `compass-limits.md` / Terms / help-doc corrections. Owner deferred
-the tag to a later session. Cutting it is a release-flow run, nothing more.
+**Current version:** v14.38.2 — **SHIPPING 2026-08-27.** The Settings → Integrations fix,
+the doc corrections, the connected-repositories list, the navbar label, and the realtime
+teardown: the always-open plan-change channel was 93.5% of database execution time and is
+replaced by a read on window focus — which also fixes the upgrade flow the old handler
+missed entirely (it only refreshed after a 60s idle-out).
 
 **Previous:** v14.38.0 (2026-08-27) · v14.37.0 (2026-08-24) · v14.36.0 (2026-08-22) ·
 v14.35.0 (2026-08-20). Full narrative for every one of them is in
@@ -104,6 +102,9 @@ always-open channel per signed-in desktop app, watching `users` for plan changes
 by email. The WAL poll runs on the Realtime service's own tick, so its cost is driven by
 Realtime being *enabled with a subscription* rather than by how many clients connect.
 
+**RESOLVED in v14.38.2** — the subscription is gone, replaced by a focus read. What follows
+is the reasoning, kept because the measurement is worth not repeating.
+
 **Not a bug, and partly mitigated already** — `pauseRealtime()` closes the channel when
 the window is idle. The open question is whether a persistent channel is worth 93% of DB
 time for a plan change that a focus-time re-read would also catch. Decide before there
@@ -115,7 +116,7 @@ the money. The Free plan has no scheduled backups and no PITR. Either accept tha
 explicitly, or take periodic `pg_dump`s somewhere. An unbacked ledger is a worse risk than
 anything above.
 
-### 2. Cut v14.38.2
+### 2. Cut v14.38.2 — DONE 2026-08-27
 
 `0a6e8e2e` is on `main` and untagged. Standard flow: changelog heading FIRST (the awk in
 `extract-changelog.sh` must match, or the body silently degrades to a download list), local
