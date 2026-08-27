@@ -123,6 +123,15 @@ describe("describeIncludedUsage gives the bar a scale", () => {
   it("does not round a nearly-empty allowance up to a turn count", () => {
     expect(describeIncludedUsage(3)).not.toMatch(/about \d+ more turns/i);
   });
+
+  it("stops counting once the number stops being an answer", () => {
+    // A comped or internal account carries a balance in the millions of cents.
+    // "About 20000000 more turns" does not tell anyone whether that is a lot —
+    // it just reads as a bug.
+    const text = describeIncludedUsage(100_000_000);
+    expect(text).not.toMatch(/\d{5}/);
+    expect(text).toMatch(/more than you are likely to use/i);
+  });
 });
 
 describe("formatCents", () => {

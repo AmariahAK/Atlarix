@@ -138,9 +138,17 @@ export const USAGE_LABELS = {
  */
 const CENTS_PER_TURN_ESTIMATE = 5;
 
+/**
+ * Above this the estimate stops being an answer. A number in the tens of
+ * thousands does not tell anyone "is that a lot?" — it just looks like a bug,
+ * and comped or internal accounts genuinely carry balances this size.
+ */
+const TURNS_BEYOND_COUNTING = 2_000;
+
 export function describeIncludedUsage(grantedCents: number): string {
   if (grantedCents <= 0) return "Used up for this month";
   const turns = Math.round(grantedCents / CENTS_PER_TURN_ESTIMATE / 10) * 10;
+  if (turns > TURNS_BEYOND_COUNTING) return "More than you are likely to use";
   return turns >= 10
     ? `About ${turns} more turns of everyday work`
     : "Nearly used up for this month";

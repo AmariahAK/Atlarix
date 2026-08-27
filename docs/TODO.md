@@ -852,6 +852,71 @@ what made this queue read three times its real size.
   flow-in-progress gate stays. Revisiting needs confirmation that the Supabase redirect-URL
   allowlist permits a query param.
 
+## 🔐 A security pass over the WHOLE topology — owner's ask, 2026-08-27
+
+> *"make sure we are secure so … the pr bot and the systems we have are secure and won't be hacked
+> or get stolen data."* Scoped deliberately: the 2026-07 audits covered the DESKTOP APP and the
+> Supabase project. Since then two things went live that were not in that scope — a **public GitHub
+> App with write access to customers' pull requests**, and a **money path anyone on the internet can
+> POST to**. Neither has ever been audited.
+
+**Where the real exposure is, ranked by what an attacker actually gets:**
+
+- **`REVIEWER_SERVICE_TOKEN` bills any account.** The proxy TRUSTS the `x-atlarix-account-id` header
+  on the service path (a PR webhook fires with nobody signed in, so `auth.uid()` is null and no
+  owner-scoped RPC works). A leaked token therefore lets the holder spend any customer's wallet.
+  The cross-check exists and is unused: the reviewer already resolves the account from
+  `github_installs`, so the proxy could verify the claimed account actually owns an installation.
+  Cheap, and it turns a bearer secret into a bearer secret **plus** a consistency check.
+- **The reviewer holds a Supabase `service_role` key**, which bypasses RLS on every table including
+  `credit_wallet`. The honest claim today is "it holds one and never uses it to move money"; a
+  Postgres role scoped to its four tables and its RPCs would make the boundary real rather than
+  behavioural. Now **five** RPCs with `refund_grant_service`, so the scope widens the longer it waits.
+- **The model reads attacker-authored text.** A pull request's diff, title and body are written by
+  whoever opened it, and on a public repo that is anyone. Prompt injection aimed at the reviewer is
+  the obvious attack and there is no boundary marking that content as untrusted today. The
+  containment that limits the blast radius is real and worth stating: the write client posts
+  `event: "COMMENT"` only, so the worst outcome is a wrong or hostile REVIEW, not a push. Verify that
+  is still true, and that no tool the reviewer holds can reach the wallet or another repo.
+- **`handle-lemon-webhook` is `verify_jwt: false` by necessity** — LemonSqueezy sends no JWT — so the
+  HMAC is the only thing standing between the internet and the credit ledger. It is verified against
+  the raw body in constant time, which is right; what is unaudited is everything downstream of a
+  VALID signature, now including the refund paths that MOVE MONEY BACK. A replayed refund, a forged
+  `custom_data.supabase_user_id`, an invoice id reused as a ref across accounts.
+- **`bind-github-install` is the account-takeover surface** and was tested against a real attacker
+  account (forged codes refused at every layer). The one layer NOT covered is a VALID code from an
+  account that does not administer the target → `installation_not_yours`. `atlarix-agent` can do it.
+- **Secrets inventory across FOUR deployment targets** — Railway (reviewer + proxy), Supabase edge
+  functions, GitHub Actions, and the App's private key on the owner's disk. There is no rotation
+  story for any of them and no record of which are recoverable if leaked. The App private key is the
+  worst one: it authenticates as the bot to every installation.
+
+**Do it the way 2026-07 was done** — parallel agents per surface, findings written to a document,
+then remediate Critical→Low with a coverage table, per
+[[atlarix-security-fix-all-findings]]. **Do not push that document public.** Note what the earlier
+audits already settled so they are not re-litigated: model-context secret redaction is CLOSED
+(decided twice), and `.env` inside a workspace is deliberately enumerable.
+
+## 📚 The docs are stale — owner's ask, 2026-08-27
+
+> Same class of problem the pricing copy had, and found the same way: the site said Pro was
+> pay-as-you-go while the account page said Pro included Core, and both shipped.
+
+- **Already fixed in the v14.38.0 sweep, so start from what is left:** `guideDocs.ts:36,251` and
+  `helpDocs.ts:259` ("Both Free and Pro pay the same way"), `PricingPage` FAQ + meta, and the
+  `PricingTiers` "no plan bundles AI" callout.
+- **Read `ALL_DOCS` end to end against what the app does now.** `src/data/helpDocs.ts` +
+  `guideDocs.ts` are the in-app error buttons' destinations, so a stale doc is reached by someone who
+  is already stuck. The v14.35.0 Dyad-era removal alone deleted ~30,500 lines; anything describing
+  retrieval, indexing or the old panel-based approvals is describing software that no longer exists.
+- **The blog posts are dated artifacts and should NOT be rewritten** — `blogPostContent.ts` carries
+  pricing tables that were true when published. Leave them; the fix for a stale post is a new post.
+- **Atlarix's own `README.md` and `docs/` too**, not just the site: the README's feature list is the
+  most-read description of the product and nothing verifies it against the code.
+- **The check that would stop it recurring:** every claim about pricing or plans now has ONE home
+  (`src/shared/billing_copy.ts` and the launchpad's `src/data/products.ts`). Route the docs through
+  those rather than restating them, and the next change propagates instead of drifting.
+
 ## 🧭 Designed — awaiting a session
 
 ### atlarix-launchpad: the site sells one product and we now have two
