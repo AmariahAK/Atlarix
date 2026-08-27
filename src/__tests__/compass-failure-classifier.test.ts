@@ -11,6 +11,7 @@
  */
 import { describe, it, expect } from "vitest";
 import { classifyCompassFailure } from "@/lib/chat/compass-failure-classifier";
+import { CORE_EXHAUSTED_MARKER, CORE_REACHABILITY_MARKER } from "@/shared/billing_copy";
 
 describe("classifyCompassFailure", () => {
   it("a 403 account_banned is a BAN, not an expired session", () => {
@@ -31,7 +32,11 @@ describe("classifyCompassFailure", () => {
 
   it("402 insufficient_credit says top up, not banned", () => {
     const { message } = classifyCompassFailure(402, '{"error":"insufficient_credit"}');
-    expect(message).toMatch(/credit is used up/i);
+    // Asserted through the MARKER the error box matches on, not a hand-typed
+    // phrase: this test previously pinned a substring of copy that lives in
+    // another module, so rewording that copy failed here for a reason the
+    // failure message could not explain.
+    expect(message).toContain(CORE_EXHAUSTED_MARKER);
     expect(message).not.toContain("support@atlarix.dev");
   });
 
@@ -57,7 +62,7 @@ describe("classifyCompassFailure", () => {
 
   it("anything unrecognised degrades to reachability, flagged as ours", () => {
     const { message, isCompassInfraError } = classifyCompassFailure(undefined, "");
-    expect(message).toMatch(/trouble reaching Atlarix Core/i);
+    expect(message).toContain(CORE_REACHABILITY_MARKER);
     expect(isCompassInfraError).toBe(true);
   });
 });

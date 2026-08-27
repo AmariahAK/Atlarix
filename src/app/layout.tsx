@@ -28,6 +28,7 @@ import { ChatTabStrip } from "@/components/chat/ChatTabStrip";
 import { RightPanel } from "@/components/RightPanel";
 import { WorkspaceNotFoundBanner } from "@/components/WorkspaceNotFoundBanner";
 import { UpdateBanner } from "@/components/UpdateBanner";
+import WhatsNewPanel from "@/components/WhatsNewPanel";
 import { AnalyticsConsentModal } from "@/components/AnalyticsConsentModal";
 import {
   sourceListAtom,
@@ -496,6 +497,11 @@ export default function RootLayout({ children }: { children: ReactNode }) {
               {rightPanelVisible && isOnChatPage && showWorkspaceChrome && (
                 <RightPanel />
               )}
+              {/* Bottom-left "what's new". Inside this container, not `fixed` on
+                  the window, so it sits within the sidebar and the layout's own
+                  margins rather than floating over the title bar. Renders nothing
+                  unless there is an undismissed note. */}
+              <WhatsNewPanel />
             </div>
             <Toaster richColors />
           </SidebarProvider>

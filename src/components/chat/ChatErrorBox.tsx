@@ -1,5 +1,4 @@
 import { IpcClient } from "@/ipc/ipc_client";
-import { triggerUpgrade } from "@/hooks/useUpgrade";
 import {
   X,
   ExternalLink as ExternalLinkIcon,
@@ -10,15 +9,20 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { openSettingsSection } from "@/lib/open-settings-section";
 import { AI_STREAMING_ERROR_MESSAGE_PREFIX } from "@/shared/texts";
+import {
+  CORE_EXHAUSTED_MARKER,
+  CORE_REACHABILITY_MARKER,
+} from "@/shared/billing_copy";
 
 /** Open Settings → AI so the user can switch provider / model or add an API key. */
 function openAiSettings() {
   openSettingsSection("ai");
 }
 
-/** Stable phrases emitted by the Compass token-pool guard (see compass_constants.ts). */
-const COMPASS_EXHAUSTED_MARKER = "Atlarix Core credit is used up";
-const COMPASS_REACHABILITY_MARKER = "trouble reaching Atlarix Core";
+// The markers are IMPORTED, not re-declared. They used to be typed out here as
+// substrings of copy that lives elsewhere, so rewording that copy silently
+// deleted the "Top up credit" button from the error that most needs it — nothing
+// failed, nothing logged, the button was just gone.
 
 export function ChatErrorBox({
   onDismiss,
@@ -29,7 +33,7 @@ export function ChatErrorBox({
 }) {
   // Atlarix Core credit used up (PAYG) — top up, or switch to a BYOK model,
   // without losing the chat.
-  if (error.includes(COMPASS_EXHAUSTED_MARKER)) {
+  if (error.includes(CORE_EXHAUSTED_MARKER)) {
     return (
       <ChatInfoContainer onDismiss={onDismiss}>
         <span>{error.replace(AI_STREAMING_ERROR_MESSAGE_PREFIX, "")}</span>
@@ -42,7 +46,7 @@ export function ChatErrorBox({
   }
 
   // Transient: couldn't reach Atlarix Core — retry or switch provider.
-  if (error.includes(COMPASS_REACHABILITY_MARKER)) {
+  if (error.includes(CORE_REACHABILITY_MARKER)) {
     return (
       <ChatInfoContainer onDismiss={onDismiss}>
         <span>{error.replace(AI_STREAMING_ERROR_MESSAGE_PREFIX, "")}</span>
@@ -53,16 +57,17 @@ export function ChatErrorBox({
     );
   }
 
+  // A THIRD-PARTY provider's free tier, not ours. This used to offer "Access with
+  // Atlarix Pro", which was wrong on both counts: buying Pro does nothing about
+  // Google's quota, and Pro does not gate AI in the first place. The two things
+  // that actually work are Atlarix Core and another model.
   if (error.includes("doesn't have a free quota tier")) {
     return (
       <ChatErrorContainer onDismiss={onDismiss}>
         {error}
-        <span className="ml-1">
-          <UpgradeButton>
-            Access with Atlarix Pro
-          </UpgradeButton>
-        </span>{" "}
-        or switch to another model.
+        <div className="mt-2 space-y-2 space-x-2">
+          <SwitchProviderButton>Choose another model</SwitchProviderButton>
+        </div>
       </ChatErrorContainer>
     );
   }
@@ -168,26 +173,6 @@ function ExternalLink({
     >
       <span>{children}</span>
       {iconElement}
-    </a>
-  );
-}
-
-/**
- * Upgrade button that opens LemonSqueezy checkout (requires sign-in)
- */
-function UpgradeButton({ children }: { children: React.ReactNode }) {
-  const baseClasses =
-    "cursor-pointer inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium shadow-sm focus:outline-none focus:ring-2";
-  const primaryClasses =
-    "bg-blue-600 text-white hover:bg-blue-700 focus:ring-blue-500";
-
-  return (
-    <a
-      className={`${baseClasses} ${primaryClasses}`}
-      onClick={() => triggerUpgrade()}
-    >
-      <span>{children}</span>
-      <CircleArrowUp size={18} />
     </a>
   );
 }

@@ -2,11 +2,14 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useCreditBalance } from "@/hooks/useCreditBalance";
-import {
-  ATLARIX_CORE_CATEGORY_LABEL,
-  formatCompassSubscriptionTier,
-} from "@/shared/compass_product_copy";
+import { formatCompassSubscriptionTier } from "@/shared/compass_product_copy";
 import { useAuth } from "@/lib/auth/useAuth";
+import { CreditSplitBar } from "./CreditSplitBar";
+import {
+  CORE_PAYMENT_SUMMARY,
+  NEGATIVE_BALANCE_EXPLAINER,
+  formatCents,
+} from "@/shared/billing_copy";
 
 type AtlarixCoreUsageCardProps = {
   className?: string;
@@ -35,7 +38,8 @@ export function AtlarixCoreUsageCard({
   className = "",
   showIntro = true,
 }: AtlarixCoreUsageCardProps) {
-  const { balanceCents, loading, error, needsSignIn } = useCreditBalance();
+  const { balanceCents, grantedCents, purchasedCents, loading, error, needsSignIn } =
+    useCreditBalance();
   const { status } = useAuth();
   // Additive tally — tap $20 then $10 → a running $30 total; custom adds any amount.
   const [tallyCents, setTallyCents] = useState(0);
@@ -45,8 +49,7 @@ export function AtlarixCoreUsageCard({
   const [topUpError, setTopUpError] = useState<string | null>(null);
 
   const tier = status?.plan ?? null;
-  const balanceLabel =
-    typeof balanceCents === "number" ? `$${(balanceCents / 100).toFixed(2)}` : null;
+  const balanceLabel = typeof balanceCents === "number" ? formatCents(balanceCents) : null;
   // A negative balance means a prior refund was clawed back after the credit had
   // already been spent — the reserve gate blocks Core until a top-up covers it.
   const balanceIsNegative = typeof balanceCents === "number" && balanceCents < 0;
@@ -120,11 +123,7 @@ export function AtlarixCoreUsageCard({
   return (
     <div className={`space-y-3 rounded-lg border border-border p-4 ${className}`}>
       {showIntro ? (
-        <p className="text-xs text-muted-foreground leading-relaxed">
-          {ATLARIX_CORE_CATEGORY_LABEL} is pay-as-you-go — you're metered per use from a
-          prepaid credit balance. Top up any time. Your own API keys and local models are
-          always free.
-        </p>
+        <p className="text-xs text-muted-foreground leading-relaxed">{CORE_PAYMENT_SUMMARY}</p>
       ) : null}
 
       <div className="flex items-center justify-between text-sm gap-2">
@@ -161,10 +160,15 @@ export function AtlarixCoreUsageCard({
         )}
       </div>
 
+      {/* The split sits directly under the total it explains. It draws nothing
+          when the server reported no split, or when there is nothing to spend. */}
+      {!loading && !error && !needsSignIn ? (
+        <CreditSplitBar grantedCents={grantedCents} purchasedCents={purchasedCents} />
+      ) : null}
+
       {balanceIsNegative ? (
         <p className="text-xs text-muted-foreground leading-relaxed">
-          A prior refund was applied, so your balance is negative. Top up to restore a
-          positive balance before using {ATLARIX_CORE_CATEGORY_LABEL}.
+          {NEGATIVE_BALANCE_EXPLAINER}
         </p>
       ) : null}
 

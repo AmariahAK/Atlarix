@@ -1,6 +1,11 @@
 # Atlarix TODO
 
-**Current version:** v14.37.0 — **RELEASING 2026-08-24**. Deep thinking on Atlarix Core (and on the
+**Current version:** v14.38.0 — **BUILDING 2026-08-27**. One home for every sentence the app says
+about money, the allowance-vs-credit split surfaced (the data was already there and being thrown
+away three times), the refund path the subscription wallet shipped without, browser tools that work
+against localhost with the right panel closed, and a small what's-new panel fed from
+`atlarix-releases/updates.json`.
+**Previous:** v14.37.0 — RELEASED 2026-08-24. Deep thinking on Atlarix Core (and on the
 wire for every OpenAI-compatible provider), lines-written stats per workspace with a contribution
 calendar, web-search query fidelity, tool cards that keep their own results, and a mode chip that
 stops contradicting itself.
@@ -13,7 +18,7 @@ Electron 43, browser-backed web search, the
 spec-line majors, 54 → 28 advisories, the Dyad-era removal (~30,500 lines), plan switcher +
 plan-by-title, automations returning their id, the ban system, the whisper-worker CSP, and four
 plan-tracking fixes.
-**Last updated:** 2026-08-24
+**Last updated:** 2026-08-27
 
 > **What belongs here:** open work, decisions still owed, and traps worth not rediscovering.
 > **What does not:** shipped narrative → [`CHANGELOG.md`](./CHANGELOG.md). Design prose →
@@ -25,6 +30,120 @@ plan-tracking fixes.
 > operative sentence; `git log -- docs/TODO.md` has every word of the long form. The failure mode
 > being corrected is a queue that reads three times its real size, so genuinely open work hides
 > inside finished work. Previously trimmed 2026-08-11 and 2026-08-15.
+
+---
+
+## 🚀 Shipped in v14.38.0 (2026-08-27)
+
+> The customer-facing half of the pricing change, which shipped its backend on 2026-08-26 and none
+> of its front. Plus two unrelated defects that were cheap while the same files were open.
+
+### Refunds — the money path the subscription wallet shipped without
+
+- **Nothing handled a subscription refund at all.** `order_refunded` bails on
+  `if (kind !== 'credit')` and `subscription_payment_refunded` had no case, so it hit `default:` and
+  was 200-ACKed in silence. Refunding a Pro month left the tier active AND left the allowance in the
+  wallet. The four policy decisions are recorded in the pricing section below; the shape follows
+  from them.
+- **A refund of a FEE is not a refund of CREDIT, and conflating them moves the wrong money.** $19
+  bought entitlement plus an allowance, not $19 of credit — so a subscription refund claws back the
+  GRANT (proportionally to the refunded fraction of the invoice, floored at what is left) and never
+  touches purchased credit. A top-up refund does the opposite: it claws back exactly
+  `refunded_amount` from purchased credit, and is ALLOWED to drive it negative.
+- **`refunded_amount`, not `subtotal`.** LemonSqueezy supports partial refunds and `subtotal` is what
+  the order was WORTH; reading it clawed back $50 on a $10 refund. `subtotal` survives as the
+  fallback because it is right for a full refund and an older payload may not carry the newer field.
+- **`credit_transactions.kind` is CHECK-constrained**, so `grant_refund` needed the constraint
+  widened or the insert would raise 23514 on a path whose whole job is to move money back quietly.
+  Same trap as `review_history.kind` on 2026-08-26. `credit_grants.cents` additionally carries
+  `CHECK (cents >= 0)`, so the floor at zero is enforced by the schema as well as by policy.
+- **A refund RESOLVES THE ACCOUNT FROM THE SUBSCRIPTION ROW ONLY** — no `custom_data` fallback,
+  unlike `subscription_payment_success`. The asymmetry is deliberate: granting to the wrong account
+  on a bad guess costs us a month's allowance, while taking from the wrong account costs a customer
+  theirs.
+- **The pure half is now testable.** `supabase/functions/_shared/refund-math.ts` holds the product
+  classification, the refund fraction and — the reason it exists — `invoiceIds`, because on a
+  payment/refund event `data.id` is the INVOICE and the subscription is
+  `attributes.subscription_id`. Reading the wrong one does not throw; it silently addresses a
+  subscription that does not exist and logs "unknown subscription" for a customer who is very much
+  known. 21 tests, verified sensitive by mutation.
+- **STILL OWED, and it gates the whole thing: `subscription_payment_refunded` must be ticked in the
+  LemonSqueezy webhook settings.** If it is not subscribed the branch never fires no matter what is
+  written — exactly how the `subscription_payment_success` gap survived. Apply
+  `20260827120000_refund_paths.sql` BEFORE deploying the function, or the branch calls an RPC that
+  does not exist.
+
+### The app stops talking like Pro gates AI
+
+- **One module, five call sites.** `src/shared/billing_copy.ts`; the copy moved out of
+  `ipc/shared/compass_constants.ts`, which reads env vars and resolves tier ids — so every renderer
+  that wanted one sentence was importing the Core routing table across a layer boundary.
+- **The markers are now IMPORTED, not re-declared.** `ChatErrorBox` decided which buttons to show by
+  searching the streamed error for a substring it typed out itself, so rewording the copy silently
+  deleted the "Top up credit" button from the error that most needs it. A test asserts each marker
+  is genuinely present in the message it claims to match, end to end through the classifier.
+- **A third party's free-tier error was selling Atlarix Pro.** Wrong twice: buying Pro does nothing
+  about Google's quota, and Pro does not gate AI. Now offers Core or another model.
+- **Nothing about a balance names a tier.** A 402 means the SPENDABLE total is zero — both halves
+  gone — so there is no distinction left to draw, and naming Pro would tell a Free user about an
+  allowance they never had. A test asserts no message about money says "upgrade".
+- **The allowance is never published in dollars**, asserted by test. Denominating it prices our own
+  cost structure and invites the "$19 for $10" comparison.
+
+### The allowance split, which the app already had and discarded
+
+- `get_credit_balance` has returned `granted_cents` and `purchased_cents` since 2026-08-26 and
+  **three separate call sites cast them away** — `auth_handlers.ts`, `useCreditBalance` and
+  `doctor.ts`. So the one number the app could not show was which half of a balance expires. Pure
+  client change; no migration, no new channel.
+- **Two sub-numbers, NOT per product** — identical to the web account card and for its reason:
+  `spend_from_wallet` deliberately spills allowances across products, so "Reviewer allowance: $10" is
+  not a statement about what reviews can consume. What is true, and what the reader needs, is which
+  part expires.
+- **Null is not zero.** An older server that returns only a total renders as "no split known" rather
+  than as an empty allowance, which is a different and alarming claim.
+- `--doctor` now reports the split too, because the two fail for different reasons: an allowance at
+  zero on a paid plan mid-period is a grant that did not renew, and that looks identical to an empty
+  wallet if you only print the total.
+- **A second nudge at the moment the month's usage runs out** — the balance changes character there,
+  from something that resets to money the user paid, and it is the only reason the halves are tracked
+  separately at all.
+
+### Browser tools against a localhost dev server — the guard existed and never ran
+
+- **Reported as: pointing the agent at localhost did nothing until the right panel was opened by
+  hand.** The URL was never the problem — `browser.ts` passes `allowLoopback: true` explicitly.
+- **`setActiveTab` and `setVisible` only attached the `WebContentsView` when `scope.visible`.** With
+  the panel shut the view was created and navigated but never attached to a window, and an unattached
+  view has no layout viewport: the document lays out at zero width and every geometry answer is
+  plausible and wrong.
+- **`fallbackBounds` was written for exactly this** — its docblock describes the 0x0 layout viewport
+  — but it was only applied on the attach path, so it could not run on the one path it existed for.
+- **Now always attached and always sized; `View.setVisible` decides whether it is DRAWN.** That keeps
+  the reason the conditional existed (a drawn view with no React chrome is a bare browser slab over
+  half the app) and drops the consequence nobody wanted. `requestBrowserPanel`'s docblock claimed
+  "the browser tools work fine with the panel shut"; that claim is now true.
+- **`backgroundThrottling: false` on the tab**, which was missing and is a second cause regardless:
+  Chromium throttles hidden pages hard, and an SPA that finishes hydrating in a rAF callback would
+  never finish. 6 regression tests, all 6 confirmed failing against the old code.
+
+### A what's-new panel, fed from atlarix-releases
+
+- **Fetched, not bundled** — a note shipped inside a release only reaches people who have already
+  updated, which is backwards for telling somebody an update exists. `updates.json` sits beside
+  `core-models.json` and copies that fetcher wholesale, including the `?t=` cache-bust (the raw
+  CDN serves a stale body for minutes) and the never-throws contract.
+- **No bundled fallback, unlike core-models**, because a missing model map breaks dispatch and a
+  missing note breaks nothing. **An empty panel is worse than no panel**: a blank card with a close
+  button reads as a bug.
+- **Dismissal is keyed on the ENTRY ID, not the app version**, so editing a note's text does not
+  resurface it and a new note does. `UpdateBanner`'s
+  `atlarix_update_banner_dismissed_${version}` is the precedent.
+- **The link is validated as https in MAIN**, not at the click — the renderer would otherwise hand an
+  arbitrary string from a remote JSON to `openExternalUrl` on a user gesture.
+- Deliberately not the update banner: that says a NEWER version exists, this says something about the
+  version you are running. They can co-exist, and `update-helpers.ts` documents that this codebase has
+  been bitten once by two update surfaces firing together.
 
 ---
 

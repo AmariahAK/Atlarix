@@ -59,6 +59,7 @@ import {
 import { resolveSystemPath } from "./lib/resolve-path";
 import { warmOpenRouterModelCache } from "./lib/routing/tier-context-limits";
 import { warmCoreModelOverrides } from "./lib/routing/core-model-overrides";
+import { warmWhatsNew } from "./main/whats-new";
 import { seedEphemeralCounterFromSessions } from "./ipc/handlers/workspace_session_handlers";
 import { isNoUsableModelOutputError } from "./ipc/utils/no_usable_model_output";
 import { isStreamStopAbort } from "./lib/stream/stream-stop-sentinels";
@@ -647,6 +648,11 @@ export async function onReady() {
   // disk cache so the warm below + the first stream see last-known-good ids, then
   // refreshes from the network in the background. Must run before the cache warm.
   warmCoreModelOverrides();
+
+  // The bottom-left "what's new" note. Same mechanism as the line above and
+  // deliberately so: a note bundled into a release only reaches people who have
+  // already updated. Never throws; renders nothing if the fetch fails.
+  warmWhatsNew();
 
   // Warm the OpenRouter model catalog so per-model context limits resolve via
   // `resolveModelContextLimit` without a cold first turn.

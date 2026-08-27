@@ -5,6 +5,35 @@
 
 ## [Unreleased]
 
+**Atlarix Core comes with Pro now, and the app finally says so.** Pro includes Atlarix Core for
+everyday work, but the app still spoke as though a plan was the thing standing between you and a
+model — running low on credit offered to sell you an upgrade you may already have had, and a
+third-party provider's own free-tier limit suggested buying Atlarix Pro, which would not have helped
+at all. Every message about money now comes from one place and talks about your balance rather than
+your plan.
+
+**You can see which half of your balance expires.** Settings shows what is included this month
+separately from credit you bought, with roughly how many turns of everyday work the included part is
+worth. The included part resets when your plan renews; credit you paid for never expires. Atlarix has
+been told both numbers for a while and was throwing one of them away.
+
+**A refunded month is actually a refunded month.** Refunding a subscription used to leave the plan
+active and the included usage sitting in the balance, because the app was never told about it.
+Refunds now end the subscription straight away and return the usage that came with it — the part you
+have already spent is not chased, reviews already posted are not withdrawn, and credit you bought
+separately is never touched. Partial refunds return a proportional amount instead of everything.
+
+**Browser tools work on a local dev server with the panel closed.** Pointing the agent at
+`localhost` did nothing useful until you opened the right panel by hand: the page was being loaded
+into a browser view that had never been given a size, so it laid out at zero width and every answer
+the agent got back about it was wrong in a way that looked plausible. The view is now always sized,
+and the panel only decides whether you can see it.
+
+**A small note in the corner when something ships.** A dismissible panel at the bottom left, with a
+line about what changed and a link to the full changelog. It stays dismissed, and a new note brings
+it back — one note at a time, no badges, no counts.
+
+
 **Long conversations stop forgetting what they were for.** When a chat runs long enough to be
 summarized more than once, each new summary was rebuilt from a mangled copy of the previous one —
 flattened onto a single line and cut off partway through, which reliably threw away the sections

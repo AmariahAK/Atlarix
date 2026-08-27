@@ -1,6 +1,7 @@
 import { useAtlarixCoreCatalog } from "@/hooks/useAtlarixCoreCatalog";
 import { ATLARIX_CORE_CATEGORY_LABEL } from "@/shared/compass_product_copy";
 import { AtlarixCoreUsageCard } from "@/components/settings/AtlarixCoreUsageCard";
+import { CORE_PAYMENT_SUMMARY } from "@/shared/billing_copy";
 
 export function CompassProviderSettings() {
   const { data: catalog = [] } = useAtlarixCoreCatalog();
@@ -20,9 +21,8 @@ export function CompassProviderSettings() {
   return (
     <div className="mt-6 space-y-6">
       <p className="text-sm text-muted-foreground">
-        <strong>{ATLARIX_CORE_CATEGORY_LABEL}</strong> models are pay-as-you-go —
-        metered per use from your prepaid credit balance (no API key needed). Every
-        plan can use all Core models; top up your balance any time below.
+        <strong>{ATLARIX_CORE_CATEGORY_LABEL}</strong> models need no API key. Every plan
+        can use all of them. {CORE_PAYMENT_SUMMARY}
       </p>
 
       <div className="space-y-4">

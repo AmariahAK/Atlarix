@@ -981,6 +981,14 @@ export function registerAppHandlers() {
     return { version: app.getVersion() };
   });
 
+  // The bottom-left "what's new" note. Main resolves it because the fetch, the
+  // cache and the validation all live there; the renderer only decides whether
+  // this particular note has already been dismissed.
+  ipcMain.handle("whats-new:get", async () => {
+    const { getWhatsNewEntry } = await import("../../main/whats-new");
+    return getWhatsNewEntry();
+  });
+
   ipcMain.handle(
     "get-sentry-config",
     async (): Promise<{

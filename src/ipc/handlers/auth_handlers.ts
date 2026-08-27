@@ -333,10 +333,38 @@ export function registerAuthHandlers() {
                 const supabase = getSupabaseClient();
                 const { data, error } = await supabase.rpc("get_credit_balance");
                 if (error) return { ok: false, error: error.message, balanceCents: 0 };
-                const row = data as { ok?: boolean; balance_cents?: number } | null;
-                return { ok: row?.ok !== false, balanceCents: Number(row?.balance_cents ?? 0) };
+                // THE SPLIT, WHICH USED TO BE THROWN AWAY HERE. The RPC has
+                // returned `granted_cents` and `purchased_cents` since the
+                // subscription allowance shipped, and this cast named neither —
+                // so the one number the app could not show was which half of a
+                // balance expires. `balance_cents` remains the SPENDABLE total
+                // (allowance + purchased) and is still what every gate reads.
+                //
+                // Null, not 0, when the halves are absent: an older server that
+                // returns only the total must render as "no split known" rather
+                // than as "your allowance is zero", which is a different and
+                // alarming claim.
+                const row = data as {
+                    ok?: boolean;
+                    balance_cents?: number;
+                    granted_cents?: number;
+                    purchased_cents?: number;
+                } | null;
+                const half = (v: unknown) => (typeof v === "number" ? v : null);
+                return {
+                    ok: row?.ok !== false,
+                    balanceCents: Number(row?.balance_cents ?? 0),
+                    grantedCents: half(row?.granted_cents),
+                    purchasedCents: half(row?.purchased_cents),
+                };
             } catch (error) {
-                return { ok: false, error: error instanceof Error ? error.message : "Unknown error", balanceCents: 0 };
+                return {
+                    ok: false,
+                    error: error instanceof Error ? error.message : "Unknown error",
+                    balanceCents: 0,
+                    grantedCents: null,
+                    purchasedCents: null,
+                };
             }
         }),
     );
