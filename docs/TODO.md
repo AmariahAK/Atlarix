@@ -458,6 +458,97 @@ what each one was. Kept here only for the standing lesson each one carries:
   removed on the owner's call (see the decision record above); the observation stands, and any future
   read-deny work inherits it.
 
+## 💵 Pricing — SETTLED 2026-08-26, and the code that implements it
+
+> Owner decisions, recorded so they are not re-argued. The reframe's rule survives intact: **never
+> ship a tier whose fee is fully consumed by bundled inference.** What changed is that the fee now
+> includes *some* inference, because the old shape asked for two purchases before a new user's first
+> agent turn — and that is where the funnel was dying. 108 users at the time of this decision.
+
+- **Atlarix Pro stays $19/mo** and now includes a **$10 monthly Core allowance**, PAYG on top. Price
+  deliberately unchanged: $19 was picked to sit under Cursor/Windsurf at $20, and raising it in the
+  same breath as improving it turns a clear win into an ambiguous one. **If more revenue per user is
+  wanted, the lever is the allowance size, not the sticker** — the sticker is what people compare.
+- **The maths, so the allowance is never resized by feel.** $19 less LemonSqueezy's ~7.5% nets
+  ~$17.58. $10 of allowance is metered at +40%, so it buys ~$7.14 of real inference: **~59% margin if
+  a subscriber spends every cent**, higher in practice because most do not. That breakage IS the
+  business. $13 would be 44%, $15 would be 36%.
+- **Do NOT publish the $10 figure.** Say "includes Core for everyday work". Denominating an allowance
+  in dollars publishes your cost structure and invites the $19-for-$10 comparison; nobody else in the
+  market does it.
+- **Atlarix Reviewer is $19/dev/mo, unlimited repos, OSS free.** Per developer is what the whole
+  market does (CodeRabbit ~$24 Pro, Greptile ~$30, Bugbot ~$40) and **nobody charges per repo** —
+  per-repo punishes microservice teams, who have the most PRs and the most to gain, and creates an
+  incentive to install on one repo and skip the rest. It is also safe: a dev's PR output is bounded by
+  being human (~10/month regardless of repo count), so unlimited repos costs nothing.
+- **v1 is one subscription per bound installation account, not a seat count.** `github_installs`
+  already ties an installation to exactly one account, so this needs no seat detection, no LS quantity
+  API and no reconciliation job. Seats become an upgrade when a team asks for one invoice.
+- **Pro and Reviewer are separate products** — different buyers, different units, and bundling gives
+  away the second to someone who already wanted both (spec §10 says the same from the product side).
+  Link them with a discount, not inclusion.
+- **The two are billed through ONE wallet**, and that is what the `credit_grants` table below exists
+  for.
+
+**Built 2026-08-26, APPLIED AND DEPLOYED (verified 2026-08-27):**
+
+> `supabase migration list --linked` shows `20260826130000` / `140000` / `150000` with local ==
+> remote on `oubgrpkqyyjwytspycpd`; `supabase functions list` shows `bind-github-install` ACTIVE v1,
+> `create-checkout` v26, `cancel-subscription` v25 and `handle-lemon-webhook` **v43 with
+> `verify_jwt: false`** — the one setting a deploy can silently re-arm, checked and correct.
+> The launchpad `/login` → `/reviewer/setup` → `/account` pages shipped the same day.
+
+- `supabase/migrations/20260826130000_subscription_credit_grants.sql` — `credit_grants`
+  (one row per user × product), `spend_from_wallet`, `wallet_spendable`,
+  `grant_monthly_credit_service`, `clear_monthly_grant_service`, and grant-first rewrites of
+  `debit_wallet` / `debit_wallet_service` / both balance reads.
+- `supabase/migrations/20260826140000_reviewer_subscriptions.sql` — `reviewer_subscriptions`,
+  `upsert_reviewer_subscription_service`, `reviewer_entitlement_service`, and `not_subscribed` added
+  to `review_history`'s CHECK.
+- `create-checkout` gained a `mode: "reviewer"`; `handle-lemon-webhook` gained
+  `subscription_payment_success`, product classification, and allowance grant/clear on both products.
+- Reviewer repo: an entitlement gate ahead of the wallet check, `last_error` cleared on success, and
+  `installation_repositories` no longer confusable with an install removal.
+
+**Traps found while building it, worth not rediscovering:**
+
+- **`balance_cents` in every RPC result now means SPENDABLE total** (allowances + purchased), not the
+  purchased column. That is what makes the change need no client edits: the proxy's pre-flight gate,
+  the app's balance display, `--doctor` and the low-balance nudge all read that one key through an
+  RPC, and nothing anywhere reads `credit_wallet` directly. Verified across all three repos before
+  relying on it.
+- **An allowance is SET, not added, so `(kind, ref)` idempotency cannot protect it.** That index makes
+  repeated INSERTs safe, which assumes deltas add up. A replayed grant has to be refused *before* any
+  arithmetic — hence `credit_grants.ref`, checked first.
+- **One `granted_cents` column cannot serve two products.** With SET semantics, whichever subscription
+  renews second silently wipes the other's allowance. Caught while wiring the reviewer, before it
+  shipped; the per-(user, product) row makes it structurally impossible.
+- **`users.plan` could not hold the reviewer entitlement.** `users_plan_check` and
+  `users_effective_tier_check` pin it to ('free','pro'), and the same pair is typed in five more
+  places. But the real reason is that Reviewer is not a rung on that ladder — it is held with Pro,
+  without Pro, or alone — so a tier column would force a fake ordering.
+- **`subscription_payment_success` carries a different payload shape.** Its object is an INVOICE, so
+  `event.data.id` is the invoice id and the subscription comes from
+  `attributes.subscription_id`. The `subscriptionId` every other case uses is the wrong value here.
+  The invoice id turns out to be the ideal per-period grant ref.
+- **A missing `switch` case is completely silent.** `default:` logs and 200-ACKs, which is right for
+  LemonSqueezy (a 4xx retries forever) and is exactly why the absent
+  `subscription_payment_success` branch went unnoticed while the event was already subscribed on the
+  LS side. If a paid behaviour does not fire, look for a missing case first.
+- **`review_history.kind` is CHECK-constrained**, so the worker's new `not_subscribed` outcome needed
+  the constraint widened or the insert would have raised 23514 on a path whose whole job is to decline
+  quietly.
+
+**How to apply the NEXT one, because this is not `db push`.** The local migration history is not in
+sync with hosted, so migrations go through the SQL editor and `supabase migration list --linked` is
+how you confirm one landed. **Re-check `verify_jwt` on `handle-lemon-webhook` after every deploy** —
+`supabase/config.toml` declares no `[functions.*]` section, so that setting lives only in the
+dashboard and a deploy can re-enable it, which would break every webhook (LemonSqueezy sends no JWT).
+
+**What this shipped WITHOUT, and it is a money path: refunds.** See the refund section below.
+
+---
+
 ## ✅ Verification owed — code done, no code expected
 
 These are trips and clicks, not tasks. Each fix is already shipped.
@@ -643,6 +734,178 @@ what made this queue read three times its real size.
   allowlist permits a query param.
 
 ## 🧭 Designed — awaiting a session
+
+### atlarix-launchpad: the site sells one product and we now have two
+
+> Owner's ask, 2026-08-26. Measured before writing this, because the gap is wider than "add a login
+> link": **the marketing site does not mention the reviewer anywhere.** Every match for
+> "Atlarix Reviewer" / "pull-request review" in `src/` is in the account pages built today. There is
+> no product page, no nav entry, no pricing row, and no link to the GitHub App — which is now PUBLIC
+> and installable, so the thing exists and the site says otherwise.
+
+- **Sign in is effectively hidden.** `/account` is linked from exactly ONE place (`Footer.tsx`, in the
+  Product column) and `/login` from nowhere at all. A returning customer has to scroll to the footer
+  or know the URL. It needs a header affordance.
+  **But do NOT make the header session-aware to do it** — `useAuth` in `Header.tsx` mounts the Supabase
+  client on all ~40 prerendered marketing pages and adds a signed-out→signed-in hydration flash to
+  every one. A static "Sign in" / "Account" link costs nothing and `/account` already redirects to
+  `/login?next=/account` on its own.
+- **There is no signup, conceptually.** OAuth creates the account on first sign-in, so no separate flow
+  is needed — but nothing on the site *invites* it. One label doing both ("Sign in" is enough; avoid
+  "Sign up" as a second entry point that leads to the same two buttons).
+- **The reviewer needs somewhere to live.** At minimum a section or page covering: what it does, that
+  it never executes code (this is the differentiator and it is already written in the App
+  description and `SECURITY.md` — reuse, don't rewrite), the install link
+  `https://github.com/apps/atlarixagent/installations/new`, and $19/dev/mo with OSS free.
+- **Pricing page covers Free vs Pro only, and has ZERO purchase CTAs** (`grep -cE "onClick|checkout|Subscribe|Buy"` → 0; the only call to action on the whole page is a Download link). Now that
+  `create-checkout` works from the browser and `/account` can buy, the pricing table can actually sell
+  rather than describe. It also needs a Reviewer column or its own row.
+- **The FAQ is already stale on the thing we just changed.** `PricingPage.tsx:25` still says Pro is for
+  "unlimited workspaces, automations, and the marketplace" — that predates Pro including a monthly Core
+  allowance, and it is the same wrong framing being fixed inside the app. Fix both from one source of
+  words, or they will drift again.
+- **Sequencing note:** the LemonSqueezy post-purchase buttons already point at `/reviewer/setup`, and
+  that page is live — so the funnel works for anyone who reaches a checkout. This work is about people
+  who arrive at the *site* first, which is most of them.
+
+### Core under concurrency — mostly SOLVED already; here is what actually remains
+
+> Raised by the owner 2026-08-26 ("Core may need to cater for multiple instances at the exact same
+> time, multiple users, and be secure"). Checked rather than assumed: `atlarix-proxy` already handles
+> this deliberately, and its own header says so. Recording the residuals so nobody rebuilds what
+> exists.
+
+**What is already true, and should not be re-solved.** `balance-cache.ts` keys on `userId`
+(`Map<string, Entry>`), so there is no cross-user read. It holds a **reservation** per in-flight call
+at worst-case cost, which is precisely what stops an 8–12 call fan-out all clearing a gate only one
+of them could afford. And correctness never depends on the cache: Postgres stays the sole authority,
+every debit is JWT-scoped + RLS-backed and idempotent on the generation id. The file's own claim —
+extra replicas make it *less effective, never incorrect* — holds up. `spend_from_wallet` takes
+`FOR UPDATE` on the grant row, so simultaneous debits for one user serialise rather than race.
+
+**Residual 1 — multi-replica overspend, bounded and cheap.** Each replica has its own cache and its
+own reserves, so worst case is roughly one reserve of overspend per replica per user. At Core prices
+that is cents, and the file already names the fix (swap the Map for Redis; the narrow
+`tryReserve`/`release`/`settle`/`invalidate` interface exists for exactly that). **Not worth doing
+until there is a second replica.**
+
+**Residual 2 — the reviewer's cost attribution genuinely BREAKS on a second replica.** Unlike the
+above, this one goes from exact to wrong. `ReviewQueue.spendSince` reconstructs a review's cost from
+a `(source, repo, since-claimed)` ledger window, which is exact only because `startWorker` awaits
+`runJob` and one replica is therefore strictly sequential. Two replicas reviewing the same repo would
+each attribute the other's spend to itself. The fix is not a cleverer window — it is for the proxy to
+return the debited amount on the response. **Do this BEFORE scaling the reviewer, not after.**
+
+**Residual 3 — the service path bills whatever the header names.** A pull-request webhook fires with
+nobody signed in, so `auth.uid()` is null and no owner-scoped RPC will work; the reviewer therefore
+authenticates with a service token and passes `x-atlarix-account-id`. The proxy TRUSTS that header.
+That is a deliberate, documented trade (the alternative was putting the reviewer inside the metering
+boundary, which is worse), but it means **a leaked `REVIEWER_SERVICE_TOKEN` lets the holder bill any
+account.** Worth noting the cross-check that is available and unused: the reviewer already resolves
+the account from `github_installs` itself, so the proxy could verify the claimed account actually owns
+an installation rather than taking the header's word. Cheap, and it turns a bearer secret into a
+bearer secret plus a consistency check. Pairs with the existing "scope the reviewer's Postgres role"
+item.
+
+**What would change the picture:** any of these becoming real needs a *measurement* first — the
+Supabase request count is the tell, and the 2026-08-26 lesson was that 704 requests/hour looked like
+the website and was actually a 5-second poll. Do not scale on a hunch.
+
+### The app still talks like Pro gates AI. It does not any more.
+
+> Owner's ask, 2026-08-26, and it follows directly from the pricing change: **Pro
+> now INCLUDES a monthly Core allowance**, so the tier is no longer the thing
+> standing between a user and a model. Most of the app's paywall language predates
+> that and is now either wrong or actively discouraging. The framing to land on is
+> that Free is a real product and Pro is prepaid AI — which is close to "Pro is
+> arguably free", since the fee largely buys the credit back.
+
+- **Rewrite the warnings, do not just soften them.** The distinction that matters
+  to a user is no longer *free vs pro* but **allowance left / credit left /
+  neither**. Two messages replace most of what is there: **"Your monthly Pro
+  usage is used up"** (allowance spent, purchased credit still available or not)
+  and **"Your top-up is used up"** (both gone). Neither should mention tiers.
+  Audit every gate before rewriting: `useUpgrade`/`triggerUpgrade`, the PAYG
+  error UX in `simple-stream-text.ts`'s `onError` (402 / 503 mapping),
+  `useLowBalanceNudge`'s toast, `AtlarixCoreUsageCard`'s copy, and the
+  `--doctor` line in `src/main/doctor.ts:128`. **The trap:** these are separate
+  copies of the same idea in five places, which is exactly how they came to
+  disagree in the first place — put the message in one module and have all five
+  read it.
+- **A usage bar in account settings, and the data already exists.**
+  `get_credit_balance` now returns `granted_cents` and `purchased_cents`
+  alongside the total, and the desktop app currently **throws both away** —
+  `auth_handlers.ts` reads only `balance_cents`. So the bar is a client change,
+  not a backend one: allowance consumed out of the month's grant, with purchased
+  credit shown separately because it does not reset. **Do not render one merged
+  number** — that is the mistake `/account` on the web deliberately avoids, and
+  the reason is that a single total hides which half expires. The launchpad's
+  `CreditCard.tsx` is the reference for the wording.
+- **Show what the allowance is worth in real terms.** Measured on live data: app
+  turns cost **2–29c each**, so a $10 monthly grant is roughly 200 turns. A bar
+  with no scale invites "is that a lot?"; a bar that says "about 200 turns of
+  everyday work" answers it.
+
+### A small closable "what's new" panel, bottom-left
+
+> Also the owner's ask, 2026-08-26, and deliberately modest: **the website
+> changelog does the real work**, so this is a pointer, not a second changelog.
+
+- Bottom-left, dismissible, and **stays dismissed** — a panel that returns on
+  every launch is an advert. Key the dismissal on the version or entry id it
+  showed, so a NEW entry can surface again without re-showing an old one.
+- **Content we control, fetched not bundled.** Bundling means a note only reaches
+  users who already updated, which is backwards for telling people an update
+  exists. `atlarix-releases` already publishes assets the app reads
+  (`ATLARIX_CORE_MODELS_URL` is the precedent for a remotely-controlled JSON),
+  so a small `updates.json` beside it fits the pattern with no new
+  infrastructure. Note the existing catalog trap applies: **ship an offline
+  fallback and never let a fetch failure block or blank the UI** — an empty
+  panel is better than a spinner, and no panel is better than an empty one.
+- Keep it to a line or two plus a link to `/changelog`. The moment it wants
+  scrolling it has become the changelog, and there already is one.
+- **Not a notification system.** No badges, no unread counts, no server-side
+  targeting. Those are a product; this is a footnote.
+
+- **A refund path that understands GRANTED credit — POLICY SETTLED 2026-08-27, owner's four
+  decisions. Do not re-argue these.**
+
+  **Today's behaviour, measured:** `order_refunded` bails on `if (kind !== 'credit')` and
+  `subscription_payment_refunded` has **no case at all**, so it hits `default:` and 200-ACKs.
+  Refund a Pro month right now and the customer keeps Pro *and* keeps the allowance.
+
+  1. **A refund of PURCHASED credit claws back the full refunded amount, even if already spent.**
+     `credit_wallet.balance_cents` may go negative; that is not a new hazard, it is the existing
+     documented design (`credit_wallet_service` has no floor, and `spend_from_wallet`'s own comment
+     says that column "is allowed to go slightly negative … the proxy's pre-flight gate is what
+     stops runaway spend"). Floor-at-zero would make buy → burn → refund free.
+  2. **A GRANT is floored at zero, never negative.** `credit_grants.cents` never goes below zero
+     today and must not start: a negative grant silently eats NEXT month's allowance, punishing a
+     future period for a past one.
+  3. **A refunded subscription month drops the tier IMMEDIATELY**, unlike a cancellation (which
+     rightly runs to period end). A refund is the statement "this month did not happen"; leaving Pro
+     active for a month you were paid nothing for is the strictly worse error.
+  4. **Reviewer refunds are prorated-forward, never retroactive.** Reviews already posted cannot be
+     un-posted, so the delivered work is never clawed back. `reviewer_subscriptions.status` is free
+     text and `reviewer_entitlement_service` only accepts `('active','on_trial','cancelled')`, so
+     `'refunded'` de-entitles with no CHECK to widen. It must NOT map to `'cancelled'` — that status
+     stays entitled to period end.
+
+  **The fee is not credit.** $19 bought entitlement plus a $10 allowance, so a Pro refund claws back
+  the *grant* (proportionally to the refunded fraction of the invoice), never purchased credit —
+  that is the user's own money from a different transaction.
+
+  **Two traps carried over:** the refund event's object is a subscription INVOICE, so `event.data.id`
+  is the invoice id and the subscription is `attributes.subscription_id` (same shape trap as
+  `subscription_payment_success`); and `credit_transactions.kind` is CHECK-constrained, so a
+  `grant_refund` ledger row needs the constraint widened or the insert raises 23514 on a path whose
+  whole job is to move money back quietly. Partial refunds are real — LemonSqueezy carries
+  `refunded_amount` on both the order and the invoice object, which is the field to read rather than
+  `subtotal`.
+
+  **Owner action that gates the whole thing:** `subscription_payment_refunded` must be ticked in the
+  LemonSqueezy webhook settings. If it is not subscribed the branch never fires no matter what is
+  written — exactly how the `subscription_payment_success` gap survived.
 
 - **A `review-posted` automation event — closes the PR-review loop from this side.** One value added
   to `GithubTriggerEventSchema` (`src/lib/automations/types.ts`, today `new-pr` / `review-requested`

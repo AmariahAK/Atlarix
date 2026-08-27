@@ -5,12 +5,22 @@ import { getAuthedUser, json, corsHeaders } from "../_shared/auth.ts";
 // custom_data.supabase_user_id is set from the VERIFIED JWT — so the webhook can
 // trust it to resolve the account to entitle (this is the server half of SB-07).
 //
-// Two modes:
+// Three modes:
 //   subscription (default) -> Atlarix Pro monthly (LEMONSQUEEZY_PRO_VARIANT_ID).
 //   credit                 -> PAYG top-up: the single "Atlarix Core Credit" product
 //                             (LEMONSQUEEZY_CREDIT_VARIANT_ID) with a per-checkout
 //                             custom_price = the app-chosen amount (>= $10). One
 //                             product covers every top-up amount.
+//   reviewer               -> Atlarix Reviewer monthly (LEMONSQUEEZY_REVIEWER_VARIANT_ID).
+//                             A SEPARATE product from Pro, not an upgrade of it: the
+//                             two are independent subscriptions on one account and one
+//                             wallet, so `kind` has to reach the webhook intact or a
+//                             Reviewer payment gets entitled as Pro.
+//
+// NOTE for callers: this is a THREE-value enum now, but the parse below still
+// defaults anything unrecognised to "subscription". That is deliberate — an older
+// client that sends no mode must keep buying Pro — and it is also why a typo in
+// `mode` silently sells the wrong product. Send an exact value.
 
 const DEFAULT_STORE_ID = "236920";
 const MIN_TOPUP_CENTS = 1000; // $10 minimum top-up
@@ -22,6 +32,32 @@ function envTrim(key: string): string | undefined {
 
 function proVariantId(): string | null {
   return envTrim("LEMONSQUEEZY_PRO_VARIANT_ID") ?? envTrim("LEMONSQUEEZY_VARIANT_ID") ?? null;
+}
+
+/** Where a finished checkout should send the buyer back to. */
+const DEFAULT_RETURN_ORIGIN = "https://www.atlarix.dev";
+
+/**
+ * Post-purchase destination, per mode.
+ *
+ * WHY THIS IS SET PER CHECKOUT RATHER THAN ON THE VARIANT. Setting
+ * `redirect_url` on a LemonSqueezy variant applies it to every purchase of that
+ * product and REPLACES the confirmation modal for all of them. Setting it here
+ * leaves the variants at `redirect_url: null`, so any other route to a purchase
+ * — a direct store link, a future pricing-page button — still gets the modal
+ * configured in LemonSqueezy. We only override the checkouts we created and
+ * therefore know how to follow up on.
+ *
+ * The reviewer goes to /reviewer/setup rather than /account deliberately: paying
+ * is not the last step for that product, installing the App on a repository is,
+ * and a page can detect whether that already happened, list what is connected,
+ * and be revisited from the receipt email. A modal can do none of those.
+ */
+function returnUrlFor(mode: string): string {
+  const origin = (envTrim("ACCOUNT_RETURN_ORIGIN") ?? DEFAULT_RETURN_ORIGIN).replace(/\/+$/, "");
+  if (mode === "reviewer") return `${origin}/reviewer/setup?purchase=reviewer`;
+  if (mode === "credit") return `${origin}/account?purchase=credit`;
+  return `${origin}/account?purchase=pro`;
 }
 
 Deno.serve(async (req) => {
@@ -36,7 +72,7 @@ Deno.serve(async (req) => {
   let amountCents = 0;
   try {
     const body = await req.json();
-    if (body?.mode === "credit") mode = "credit";
+    if (body?.mode === "credit" || body?.mode === "reviewer") mode = body.mode;
     if (typeof body?.amount_cents === "number") amountCents = Math.floor(body.amount_cents);
   } catch {
     // default to subscription
@@ -45,6 +81,8 @@ Deno.serve(async (req) => {
   const apiKey = envTrim("LEMONSQUEEZY_API_KEY");
   if (!apiKey) return json({ error: "billing_not_configured" }, 500);
   const storeId = envTrim("LEMONSQUEEZY_STORE_ID") ?? DEFAULT_STORE_ID;
+
+  const returnUrl = returnUrlFor(mode);
 
   const attributes: Record<string, unknown> = {
     checkout_data: {
@@ -56,6 +94,17 @@ Deno.serve(async (req) => {
         kind: mode,
       },
     },
+    product_options: {
+      // Send the buyer back to us instead of leaving them on LemonSqueezy with
+      // no way home. This matters far more in a browser than in the desktop app,
+      // where checkout opens in an external tab the app never sees.
+      redirect_url: returnUrl,
+      // The same destination on the emailed receipt — a second route back for
+      // anyone who closed the tab before the redirect landed. For the reviewer
+      // that email is the only remaining prompt to finish installing the App.
+      receipt_button_text: mode === "reviewer" ? "Finish setup" : "Go to your account",
+      receipt_link_url: returnUrl,
+    },
   };
 
   let variantId: string | null;
@@ -66,7 +115,13 @@ Deno.serve(async (req) => {
       return json({ error: "amount_below_minimum", min_cents: MIN_TOPUP_CENTS }, 400);
     }
     // Per-checkout price override — one credit product, app-chosen amount.
+    // NOT set for either subscription mode: a subscription's price is the
+    // product's price, and overriding it per checkout would let the caller
+    // choose what to pay every month.
     attributes.custom_price = amountCents;
+  } else if (mode === "reviewer") {
+    variantId = envTrim("LEMONSQUEEZY_REVIEWER_VARIANT_ID") ?? null;
+    if (!variantId) return json({ error: "checkout_not_configured_for_reviewer" }, 500);
   } else {
     variantId = proVariantId();
     if (!variantId) return json({ error: "checkout_not_configured_for_pro" }, 500);

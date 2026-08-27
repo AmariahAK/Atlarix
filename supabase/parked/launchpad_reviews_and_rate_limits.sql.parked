@@ -1,0 +1,139 @@
+-- PARKED — NOT APPLIED, and deliberately OUT of supabase/migrations/.
+--
+-- WHY. The launchpad site has no review-submission UI. Nothing in src/ imports
+-- the Supabase client, nothing calls submit-review, and the landing page's
+-- testimonials are static (src/data/testimonials.ts, hand-curated). So this
+-- whole flow — two tables, four edge functions, three secrets and a pg_cron
+-- schedule — is unreachable infrastructure from an earlier iteration.
+--
+-- Running it would add an anon-INSERTable table to the project that holds
+-- credit_wallet, in exchange for a feature no page can reach. Not worth the
+-- blast radius. It sits here rather than in migrations/ because a file in
+-- migrations/ is a statement of intent to apply, and someone's db push
+-- eventually would.
+--
+-- Bring it back only alongside a real submission UI, and re-read the grants
+-- section when you do.
+
+-- Launchpad community-review inbox, consolidated into the APP project.
+--
+-- WHY THIS MOVED. The launchpad site lived on its own Supabase project while
+-- auth, credit_wallet and github_installs live here. That made /login impossible
+-- to write against a single client, which is what blocks anyone but the owner
+-- from onboarding to the PR reviewer (spec §10 step 4). One project, one auth
+-- surface. The old project (wwhhtmtfqnhiratjptba, Lovable-generated, a different
+-- Supabase account) is being deleted; its six migrations are consolidated here.
+--
+-- NOT MOVED, deliberately:
+--   * rate_limits ROWS — 24-hour sliding-window state, worthless once stale.
+--   * the `videos` bucket's SQL — the bucket and its four objects were created
+--     through the Storage API and verified serving; there is nothing to declare.
+--   * delete-old-videos — a spent one-shot whose hardcoded list names files that
+--     were already deleted.
+--
+-- The landing page's testimonials are STATIC (src/data/testimonials.ts,
+-- hand-curated). This table is a write-only submission inbox the site never
+-- reads, so it starts empty without affecting anything rendered.
+
+-- ---------------------------------------------------------------------------
+-- reviews — community submissions, awaiting moderation
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.reviews (
+  id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  name         text NOT NULL,
+  title        text,
+  company      text,
+  email        text NOT NULL DEFAULT '',
+  rating       integer NOT NULL CHECK (rating >= 1 AND rating <= 5),
+  message      text NOT NULL CHECK (char_length(message) <= 500),
+  -- Defaults to FALSE: a submission is pending until moderated. The original
+  -- migration defaulted TRUE and was corrected later; the corrected state is
+  -- what lands here.
+  approved     boolean DEFAULT false,
+  submitted_at timestamptz DEFAULT now(),
+  created_at   timestamptz DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_reviews_created_at ON public.reviews (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_reviews_approved   ON public.reviews (approved);
+CREATE INDEX IF NOT EXISTS idx_reviews_pending_submitted
+  ON public.reviews (submitted_at) WHERE approved IS NULL OR approved = false;
+
+ALTER TABLE public.reviews ENABLE ROW LEVEL SECURITY;
+
+-- Read is narrowed to APPROVED rows, so the anon key cannot enumerate pending
+-- submissions (which carry submitter email addresses).
+DROP POLICY IF EXISTS "Anyone can read approved reviews" ON public.reviews;
+CREATE POLICY "Anyone can read approved reviews" ON public.reviews
+  FOR SELECT USING (approved = true);
+
+DROP POLICY IF EXISTS "Anyone can insert reviews" ON public.reviews;
+CREATE POLICY "Anyone can insert reviews" ON public.reviews
+  FOR INSERT WITH CHECK (true);
+
+-- ---------------------------------------------------------------------------
+-- rate_limits — submission throttle state, service-role only
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.rate_limits (
+  id         uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  identifier text NOT NULL,
+  endpoint   text NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_rate_limits_lookup
+  ON public.rate_limits (identifier, endpoint, created_at DESC);
+
+ALTER TABLE public.rate_limits ENABLE ROW LEVEL SECURITY;
+
+-- USING (false) matches no row for any policy-bound role. service_role bypasses
+-- RLS, so the edge function still reads and writes; nothing else can.
+DROP POLICY IF EXISTS "Service role only" ON public.rate_limits;
+CREATE POLICY "Service role only" ON public.rate_limits
+  FOR ALL USING (false);
+
+-- ---------------------------------------------------------------------------
+-- EXPLICIT TABLE GRANTS. Not optional and not inherited.
+--
+-- Measured on this project's own reviewer tables: a fresh table lands with
+-- service_role=Dxtm — TRUNCATE/REFERENCES/TRIGGER/MAINTAIN and NO
+-- SELECT/INSERT/UPDATE/DELETE for anyone. That makes the RLS policies above
+-- UNREACHABLE rather than merely wrong: a policy narrows rows a role may
+-- ALREADY read, so with no table-level SELECT there is nothing to narrow.
+-- ---------------------------------------------------------------------------
+GRANT SELECT, INSERT ON public.reviews TO anon, authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.reviews TO service_role;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.rate_limits TO service_role;
+
+-- ---------------------------------------------------------------------------
+-- Opportunistic cleanup of stale throttle rows, fired per INSERT statement.
+-- ---------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.cleanup_old_rate_limits()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  DELETE FROM public.rate_limits WHERE created_at < now() - interval '24 hours';
+  RETURN NEW;
+END;
+$$;
+
+-- CREATE OR REPLACE FUNCTION re-adds the default PUBLIC EXECUTE grant on EVERY
+-- run, and revoking from authenticated/anon does NOT remove it. This is the same
+-- hole that made credit_wallet_service anon-callable in v14.11.0. The revoke has
+-- to follow the final definition, not precede it.
+REVOKE ALL ON FUNCTION public.cleanup_old_rate_limits() FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.cleanup_old_rate_limits() FROM anon, authenticated;
+
+DROP TRIGGER IF EXISTS cleanup_rate_limits_trigger ON public.rate_limits;
+CREATE TRIGGER cleanup_rate_limits_trigger
+AFTER INSERT ON public.rate_limits
+FOR EACH STATEMENT
+EXECUTE FUNCTION public.cleanup_old_rate_limits();
+
+COMMENT ON TABLE public.reviews IS
+  'Community review submissions from atlarix.dev. Write-only inbox; the landing page renders static curated testimonials, not these rows.';
+COMMENT ON TABLE public.rate_limits IS
+  'Sliding-window submission throttle for the launchpad edge functions. Rows are disposable.';
