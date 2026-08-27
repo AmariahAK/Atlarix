@@ -127,15 +127,21 @@ const coreCheck: DoctorCheck = {
       ok?: boolean;
       balance_cents?: number;
       granted_cents?: number;
+      granted_total_cents?: number;
       purchased_cents?: number;
     } | null;
     const cents = Number(row?.balance_cents ?? 0);
     if (row?.ok === false) {
       throw new Error("Signed in, but the account is not in good standing.");
     }
+    // Reported as CONSUMED, matching the card. "$0.27 of $1,000,000.00 used" says
+    // whether the allowance is being drawn down; "$999,999.73 included" does not,
+    // and the difference is the whole reason the period total exists.
     const split =
       typeof row?.granted_cents === "number" && typeof row?.purchased_cents === "number"
-        ? ` (${formatCents(row.granted_cents)} included this month, ${formatCents(row.purchased_cents)} purchased)`
+        ? typeof row?.granted_total_cents === "number" && row.granted_total_cents > 0
+          ? ` (${formatCents(row.granted_total_cents - row.granted_cents)} of ${formatCents(row.granted_total_cents)} included used, ${formatCents(row.purchased_cents)} purchased)`
+          : ` (no allowance this period, ${formatCents(row.purchased_cents)} purchased)`
         : "";
     if (cents <= 0) {
       throw new Error(

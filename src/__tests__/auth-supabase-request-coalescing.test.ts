@@ -86,6 +86,58 @@ describe("auth IPC coalescing — one Supabase call per burst", () => {
     for (const r of results) expect(r.balanceCents).toBe(1234);
   });
 
+  it("carries the FULL balance shape through, including the period total", async () => {
+    // Nothing tested this before: every mock in this file was two-key
+    // `{ok, balance_cents}` and every assertion read only `balanceCents`. So the
+    // handler could silently drop the split — which is exactly the bug that
+    // shipped, twice, for `granted_cents`.
+    rpc.mockResolvedValueOnce({
+      data: {
+        ok: true,
+        balance_cents: 2200,
+        granted_cents: 740,
+        granted_total_cents: 1000,
+        purchased_cents: 1460,
+      },
+      error: null,
+    });
+
+    const handler = latestHandler("auth:get-credit-balance");
+    const r = (await handler({})) as {
+      balanceCents: number;
+      grantedCents: number | null;
+      grantedTotalCents: number | null;
+      purchasedCents: number | null;
+    };
+
+    expect(r.balanceCents).toBe(2200);
+    expect(r.grantedCents).toBe(740);
+    expect(r.grantedTotalCents).toBe(1000);
+    expect(r.purchasedCents).toBe(1460);
+    // The number the card actually renders: $2.60 of $10.00 used.
+    expect(r.grantedTotalCents! - r.grantedCents!).toBe(260);
+  });
+
+  it("reports an absent split as NULL, never as zero", async () => {
+    // A server older than this client returns only the total. Coalescing the
+    // missing halves to 0 would render "$0.00 of $0.00 used" — a confident claim
+    // that the allowance is empty, from a server that said nothing about it.
+    rpc.mockResolvedValueOnce({ data: { ok: true, balance_cents: 500 }, error: null });
+
+    const handler = latestHandler("auth:get-credit-balance");
+    const r = (await handler({})) as {
+      balanceCents: number;
+      grantedCents: number | null;
+      grantedTotalCents: number | null;
+      purchasedCents: number | null;
+    };
+
+    expect(r.balanceCents).toBe(500);
+    expect(r.grantedCents).toBeNull();
+    expect(r.grantedTotalCents).toBeNull();
+    expect(r.purchasedCents).toBeNull();
+  });
+
   it("does NOT cache the balance past settlement — a later read is fresh", async () => {
     rpc.mockResolvedValueOnce({ data: { ok: true, balance_cents: 500 }, error: null });
     rpc.mockResolvedValueOnce({ data: { ok: true, balance_cents: 2000 }, error: null });

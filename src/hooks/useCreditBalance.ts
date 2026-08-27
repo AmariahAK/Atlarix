@@ -20,6 +20,13 @@ export interface CreditBalanceState {
    * must not be rendered as "your allowance is empty".
    */
   grantedCents: number | null;
+  /**
+   * What the period GRANTED, so consumption is `grantedTotalCents -
+   * grantedCents`. Without it the card can only show what the two halves are
+   * worth side by side, which answers "what is my balance made of" when the
+   * question being asked is "how much of my included usage have I spent".
+   */
+  grantedTotalCents: number | null;
   /** The part the user PAID for, which never expires. Null as above. */
   purchasedCents: number | null;
   loading: boolean;
@@ -54,6 +61,7 @@ export function useCreditBalance(): CreditBalanceState {
   const bump = useAtomValue(compassUsageBumpAtom);
   const [balanceCents, setBalanceCents] = useState<number | null>(null);
   const [grantedCents, setGrantedCents] = useState<number | null>(null);
+  const [grantedTotalCents, setGrantedTotalCents] = useState<number | null>(null);
   const [purchasedCents, setPurchasedCents] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -68,6 +76,7 @@ export function useCreditBalance(): CreditBalanceState {
       if (!invoke) {
         setBalanceCents(null);
         setGrantedCents(null);
+        setGrantedTotalCents(null);
         setPurchasedCents(null);
         setError("Credit balance is unavailable in this environment.");
         return;
@@ -77,6 +86,7 @@ export function useCreditBalance(): CreditBalanceState {
             ok: boolean;
             balanceCents: number;
             grantedCents?: number | null;
+            grantedTotalCents?: number | null;
             purchasedCents?: number | null;
             error?: string;
           }
@@ -84,6 +94,7 @@ export function useCreditBalance(): CreditBalanceState {
       if (!result?.ok) {
         setBalanceCents(null);
         setGrantedCents(null);
+        setGrantedTotalCents(null);
         setPurchasedCents(null);
         if (result?.error) {
           setError(result.error);
@@ -95,10 +106,14 @@ export function useCreditBalance(): CreditBalanceState {
       }
       setBalanceCents(Number(result.balanceCents ?? 0));
       setGrantedCents(typeof result.grantedCents === "number" ? result.grantedCents : null);
+      setGrantedTotalCents(
+        typeof result.grantedTotalCents === "number" ? result.grantedTotalCents : null,
+      );
       setPurchasedCents(typeof result.purchasedCents === "number" ? result.purchasedCents : null);
     } catch (e) {
       setBalanceCents(null);
       setGrantedCents(null);
+      setGrantedTotalCents(null);
       setPurchasedCents(null);
       setError(e instanceof Error ? e.message : "Could not load credit balance");
     } finally {
@@ -110,7 +125,16 @@ export function useCreditBalance(): CreditBalanceState {
     void refetch();
   }, [refetch, bump]);
 
-  return { balanceCents, grantedCents, purchasedCents, loading, error, needsSignIn, refetch };
+  return {
+    balanceCents,
+    grantedCents,
+    grantedTotalCents,
+    purchasedCents,
+    loading,
+    error,
+    needsSignIn,
+    refetch,
+  };
 }
 
 /**

@@ -38,8 +38,15 @@ export function AtlarixCoreUsageCard({
   className = "",
   showIntro = true,
 }: AtlarixCoreUsageCardProps) {
-  const { balanceCents, grantedCents, purchasedCents, loading, error, needsSignIn } =
-    useCreditBalance();
+  const {
+    balanceCents,
+    grantedCents,
+    grantedTotalCents,
+    purchasedCents,
+    loading,
+    error,
+    needsSignIn,
+  } = useCreditBalance();
   const { status } = useAuth();
   // Additive tally — tap $20 then $10 → a running $30 total; custom adds any amount.
   const [tallyCents, setTallyCents] = useState(0);
@@ -163,7 +170,11 @@ export function AtlarixCoreUsageCard({
       {/* The split sits directly under the total it explains. It draws nothing
           when the server reported no split, or when there is nothing to spend. */}
       {!loading && !error && !needsSignIn ? (
-        <CreditSplitBar grantedCents={grantedCents} purchasedCents={purchasedCents} />
+        <CreditSplitBar
+          grantedCents={grantedCents}
+          grantedTotalCents={grantedTotalCents}
+          purchasedCents={purchasedCents}
+        />
       ) : null}
 
       {balanceIsNegative ? (

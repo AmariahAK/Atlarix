@@ -348,6 +348,7 @@ export function registerAuthHandlers() {
                     ok?: boolean;
                     balance_cents?: number;
                     granted_cents?: number;
+                    granted_total_cents?: number;
                     purchased_cents?: number;
                 } | null;
                 const half = (v: unknown) => (typeof v === "number" ? v : null);
@@ -355,6 +356,10 @@ export function registerAuthHandlers() {
                     ok: row?.ok !== false,
                     balanceCents: Number(row?.balance_cents ?? 0),
                     grantedCents: half(row?.granted_cents),
+                    // What the PERIOD granted, so the card can show consumption
+                    // rather than composition. `granted_cents` is what is LEFT of
+                    // it; consumed is the difference.
+                    grantedTotalCents: half(row?.granted_total_cents),
                     purchasedCents: half(row?.purchased_cents),
                 };
             } catch (error) {
@@ -363,6 +368,7 @@ export function registerAuthHandlers() {
                     error: error instanceof Error ? error.message : "Unknown error",
                     balanceCents: 0,
                     grantedCents: null,
+                    grantedTotalCents: null,
                     purchasedCents: null,
                 };
             }

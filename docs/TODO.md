@@ -766,6 +766,54 @@ what made this queue read three times its real size.
       notifications expire rather than clicking them; success is a clean Sentry week.
 - [ ] Linux voice, never tested, now on the same WebGPU-first path.
 
+## 🩺 `--doctor` blames the database for a failure the database row disproves
+
+Seen on the packaged v14.38.0 build, 2026-08-27, and pre-existing (the code is
+v14.36.0's):
+
+```
+WARN  Your API keys (0ms)
+      Could not read your saved keys — the local database is unavailable.
+      Fix the Local database row first...
+OK    Local database (11ms)   better-sqlite3 ok (sqlite 3.53.2, ABI 148)
+```
+
+Both rows are in the same report. The instruction it gives cannot be followed,
+because the row it points at is green.
+
+**The bug is the catch, not the check.** `doctor.ts:238-245` wraps
+`import("../ipc/shared/provider_api_keys")` and rewrites ANY failure as "the
+local database is unavailable" — a guess that was right for the native-ABI case
+it was written for and is wrong for every other. `0ms` says the import threw
+immediately, so it is not a database timeout at all; and because the catch
+discards the original error, **the real cause is unknowable from the report**.
+A diagnostic that destroys its own evidence is worse than one that says nothing.
+
+**THE REAL CAUSE, found in the packaged app's own log the same run:**
+
+```
+[warn] (settings) Could not decrypt one or more stored secrets right now
+       ... Error: safeStorage cannot be used before app is ready
+```
+
+So provider keys genuinely cannot be read — but because `safeStorage` is being
+touched before `app.whenReady()`, not because SQLite is down. Two bugs stacked:
+a startup-ordering fault in settings, and a catch that reports it as something
+else entirely. The second is what made the first take a packaged run to find.
+
+**Fix, in order:** (1) do not touch `safeStorage` before the app is ready — the
+warning says the values are KEPT, so this is an ordering fault rather than data
+loss, and its own text already tells the user not to re-enter anything; (2) keep
+doctor's friendly sentence but append the actual error and stop asserting a cause
+the report can contradict. Reproduce with
+`out/Atlarix-darwin-arm64/Atlarix.app/Contents/MacOS/atlarix --doctor`.
+
+**Also seen once and NOT reproducible:** the Core check timed out at 12s on the
+first run after packaging, then passed in 1.7s on the second. Cold session
+refresh, most likely. Worth a second look only if it recurs on a warm run.
+
+---
+
 ## ⚠️ Known and NOT fixed — deliberately, with reasons
 
 - **Windows: the packaged app does not exit after `--self-test`. ROOT CAUSE UNIDENTIFIED.** It prints

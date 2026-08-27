@@ -1,81 +1,96 @@
 import { USAGE_LABELS, describeIncludedUsage, formatCents } from "@/shared/billing_copy";
 
 /**
- * The Atlarix Core balance, split into the half that expires and the half that
- * does not.
+ * How much of this month's included usage has been spent, and what purchased
+ * credit is left beside it.
  *
- * WHY TWO SUB-NUMBERS AND NOT PER PRODUCT. The obvious design — "Pro allowance
- * $8, Reviewer allowance $10" — would be misleading rather than merely
- * incomplete, because `spend_from_wallet` deliberately spills allowances across
- * products: a review may be paid for out of the Pro allowance once the Reviewer
- * one is gone. So "Reviewer allowance: $10" is not a statement about what
- * reviews can consume. What IS true, and what matters to the reader, is which
- * part expires. Identical reasoning, and identical labels, to the web account
- * page's card — the two are the same fact shown to the same person.
+ * WHY IT IS A METER AND NOT A SPLIT. The first version drew the two halves of the
+ * balance side by side — allowance remaining next to credit remaining — which is
+ * the COMPOSITION of what is left. On a real account that rendered as
+ * "$999,999.73 included / $1,000,000.67 credit" and answered nothing anybody
+ * asks. The question is "how much of my included usage have I used", and a bar
+ * implies consumption whatever you put in it, so the honest fix was to make it
+ * mean that.
  *
- * WHY NOT `components/ui/progress.tsx`. That one is single-segment: one track,
- * one fill. A stacked bar with two meanings is not a value it can express, and
- * bending it into one would leave a shared primitive owning a billing concept.
+ * That needed a database change, not a CSS one: `credit_grants` stored only what
+ * REMAINS, so the period's original amount did not exist client-side at all.
+ * `granted_total_cents` is that number; consumed is the difference.
  *
- * RENDERS NOTHING when the server reported no split. Absent is not zero — an
- * older server that returns only a total must not be drawn as an empty
- * allowance, which is a different and alarming claim.
+ * PURCHASED CREDIT IS NOT IN THE BAR. It has no denominator — it is money the
+ * user added, not an allotment they are working through — so drawing it as a
+ * proportion of anything would invent a budget that does not exist.
+ *
+ * TWO SUB-NUMBERS, NEVER PER PRODUCT. `spend_from_wallet` deliberately spills
+ * allowances across products, so "Reviewer allowance: $10" would not be a
+ * statement about what reviews can consume. Same rule as the web account card.
  */
 export function CreditSplitBar({
   grantedCents,
+  grantedTotalCents,
   purchasedCents,
 }: {
   grantedCents: number | null;
+  grantedTotalCents: number | null;
   purchasedCents: number | null;
 }) {
-  if (grantedCents == null || purchasedCents == null) return null;
+  // Absent is not zero. An older server that reports no split must render as
+  // nothing rather than as an empty allowance, which is a different claim.
+  const hasAllowance =
+    grantedCents != null && grantedTotalCents != null && grantedTotalCents > 0;
+  const hasPurchased = purchasedCents != null;
+  if (!hasAllowance && !hasPurchased) return null;
 
-  // A negative wallet (a refund clawed back after the credit was spent) has no
-  // sensible bar: the fill would be a negative width. The card's own
-  // negative-balance explainer is the right surface for that state.
-  const granted = Math.max(0, grantedCents);
-  const purchased = Math.max(0, purchasedCents);
-  const total = granted + purchased;
-  if (total <= 0) return null;
-
-  const grantedPct = (granted / total) * 100;
+  let meter: { used: number; total: number; remaining: number; pct: number } | null = null;
+  if (hasAllowance) {
+    const total = Math.max(0, grantedTotalCents);
+    // Clamped to the total: a refund keeps the invariant, but a hand-edited row
+    // should degrade to a full bar rather than a negative width.
+    const remaining = Math.min(Math.max(0, grantedCents), total);
+    const used = total - remaining;
+    meter = { used, total, remaining, pct: (used / total) * 100 };
+  }
 
   return (
-    <div className="space-y-2">
-      <div
-        className="flex h-2 w-full overflow-hidden rounded-full bg-muted"
-        role="img"
-        aria-label={`${USAGE_LABELS.included}: ${formatCents(granted)}. ${USAGE_LABELS.purchased}: ${formatCents(purchased)}.`}
-      >
-        {/* Two segments of one bar, not two bars: the point is that they are one
-            spendable balance, and that only one of them survives the month. */}
-        <div className="h-full bg-primary" style={{ width: `${grantedPct}%` }} />
-        <div className="h-full bg-primary/35" style={{ width: `${100 - grantedPct}%` }} />
-      </div>
+    <div className="space-y-3">
+      {meter ? (
+        <div className="space-y-1.5">
+          <div className="flex items-baseline justify-between gap-3 text-xs">
+            <span className="text-muted-foreground">{USAGE_LABELS.included}</span>
+            <span className="tabular-nums text-foreground">
+              <span className="font-medium">{formatCents(meter.used)}</span>
+              <span className="text-muted-foreground"> of {formatCents(meter.total)} used</span>
+            </span>
+          </div>
 
-      <div className="flex justify-between gap-4 text-xs">
-        <div className="min-w-0">
-          <div className="flex items-center gap-1.5">
-            <span className="h-2 w-2 shrink-0 rounded-full bg-primary" aria-hidden />
-            <span className="text-foreground font-medium tabular-nums">
-              {formatCents(granted)}
-            </span>
+          <div
+            className="h-2 w-full overflow-hidden rounded-full bg-muted"
+            role="img"
+            aria-label={`${USAGE_LABELS.included}: ${formatCents(meter.used)} of ${formatCents(meter.total)} used, ${formatCents(meter.remaining)} remaining.`}
+          >
+            <div className="h-full bg-primary" style={{ width: `${meter.pct}%` }} />
           </div>
-          <div className="text-muted-foreground">{USAGE_LABELS.included}</div>
-          {/* A bar with no scale invites "is that a lot?". */}
-          <div className="text-muted-foreground/80">{describeIncludedUsage(granted)}</div>
-        </div>
-        <div className="min-w-0 text-right">
-          <div className="flex items-center justify-end gap-1.5">
-            <span className="text-foreground font-medium tabular-nums">
-              {formatCents(purchased)}
-            </span>
-            <span className="h-2 w-2 shrink-0 rounded-full bg-primary/35" aria-hidden />
+
+          <div className="flex items-baseline justify-between gap-3 text-xs text-muted-foreground">
+            <span>{USAGE_LABELS.includedHint}</span>
+            {/* Applied to what REMAINS — "is that a lot?" is a question about
+                what is left, not about what is gone. Its own cap is what keeps a
+                comped account from reading "About 20000000 more turns". */}
+            <span>{describeIncludedUsage(meter.remaining)}</span>
           </div>
-          <div className="text-muted-foreground">{USAGE_LABELS.purchased}</div>
-          <div className="text-muted-foreground/80">{USAGE_LABELS.purchasedHint}</div>
         </div>
-      </div>
+      ) : null}
+
+      {hasPurchased ? (
+        <div className="flex items-baseline justify-between gap-3 border-t border-border pt-2 text-xs">
+          <span className="text-muted-foreground">
+            {USAGE_LABELS.purchased}
+            <span className="text-muted-foreground/70"> · {USAGE_LABELS.purchasedHint}</span>
+          </span>
+          <span className="font-medium tabular-nums text-foreground">
+            {formatCents(purchasedCents)}
+          </span>
+        </div>
+      ) : null}
     </div>
   );
 }
