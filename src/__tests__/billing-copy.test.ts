@@ -8,6 +8,7 @@ import {
   PRO_SUMMARY,
   allowanceUsedUpNudge,
   coreExhaustedUserMessage,
+  describeAllowanceUsed,
   describeIncludedUsage,
   formatCents,
   lowBalanceNudge,
@@ -145,5 +146,37 @@ describe("formatCents", () => {
     expect(formatCents(0)).toBe("$0.00");
     expect(formatCents(1900)).toBe("$19.00");
     expect(formatCents(5)).toBe("$0.05");
+  });
+});
+
+describe("describeAllowanceUsed — a share, never a dollar figure", () => {
+  it("never prints the allowance in dollars", () => {
+    // This is the rule at the top of billing_copy, and the first usage bar broke
+    // it: it read "$0.42 of $1,000,000.00 used", which publishes the very number
+    // the module says not to publish.
+    for (const [used, total] of [[300, 1000], [1, 1000], [0, 1000], [1000, 1000]]) {
+      expect(describeAllowanceUsed(used, total)).not.toMatch(/\$/);
+    }
+  });
+
+  it("rounds to a whole percent", () => {
+    expect(describeAllowanceUsed(300, 1000)).toBe("30% used");
+    expect(describeAllowanceUsed(1000, 1000)).toBe("100% used");
+  });
+
+  it("says <1% rather than 0% once anything has been spent", () => {
+    // Rounding real usage down to zero tells someone their metered account is
+    // not being metered. The comped account this was found on sits here.
+    expect(describeAllowanceUsed(42, 100_000_000)).toBe("<1% used");
+    expect(describeAllowanceUsed(0, 1000)).toBe("0% used");
+  });
+
+  it("cannot exceed 100% or go negative", () => {
+    expect(describeAllowanceUsed(2000, 1000)).toBe("100% used");
+    expect(describeAllowanceUsed(-5, 1000)).toBe("0% used");
+  });
+
+  it("says nothing at all when there is no allowance to describe", () => {
+    expect(describeAllowanceUsed(0, 0)).toBe("");
   });
 });

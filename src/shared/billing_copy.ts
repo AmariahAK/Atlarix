@@ -145,6 +145,26 @@ const CENTS_PER_TURN_ESTIMATE = 5;
  */
 const TURNS_BEYOND_COUNTING = 2_000;
 
+/**
+ * How much of the month's included usage has gone, as a PERCENTAGE.
+ *
+ * A percentage and not "$3 of $10", which is what this file's own rule at the
+ * top forbids — printing the allowance in dollars publishes our cost structure
+ * and invites the "$19 for $10" comparison. The first version of the usage bar
+ * did exactly that; a share of the whole says the same thing to the reader and
+ * nothing at all to a competitor.
+ *
+ * `<1%` rather than `0%` once anything has been spent: rounding real usage down
+ * to zero tells someone their metered account is not being metered.
+ */
+export function describeAllowanceUsed(usedCents: number, totalCents: number): string {
+  if (totalCents <= 0) return "";
+  const pct = (Math.max(0, usedCents) / totalCents) * 100;
+  if (pct <= 0) return "0% used";
+  if (pct < 1) return "<1% used";
+  return `${Math.min(100, Math.round(pct))}% used`;
+}
+
 export function describeIncludedUsage(grantedCents: number): string {
   if (grantedCents <= 0) return "Used up for this month";
   const turns = Math.round(grantedCents / CENTS_PER_TURN_ESTIMATE / 10) * 10;

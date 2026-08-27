@@ -56,10 +56,24 @@ export function AtlarixCoreUsageCard({
   const [topUpError, setTopUpError] = useState<string | null>(null);
 
   const tier = status?.plan ?? null;
-  const balanceLabel = typeof balanceCents === "number" ? formatCents(balanceCents) : null;
+  // THE HEADLINE IS PURCHASED CREDIT, not the spendable total.
+  //
+  // The total merges two things a reader cannot act on together: money they
+  // bought, which never expires, and an allowance that resets. Adding them
+  // produced "$2,000,000.40" on an account whose actual credit is half that,
+  // and the sum answers no question — the allowance is spent first anyway, so
+  // this number is exactly what is left once it runs out.
+  //
+  // Falls back to the total when the server reports no split, because a
+  // headline of "$0.00" on an account with a balance would be worse than a
+  // slightly broad one.
+  const headlineCents = purchasedCents ?? balanceCents;
+  const balanceLabel = typeof headlineCents === "number" ? formatCents(headlineCents) : null;
   // A negative balance means a prior refund was clawed back after the credit had
   // already been spent — the reserve gate blocks Core until a top-up covers it.
-  const balanceIsNegative = typeof balanceCents === "number" && balanceCents < 0;
+  // Against the headline, which is now purchased credit — that is the column a
+  // refund can drive below zero. An allowance is floored at zero by the schema.
+  const balanceIsNegative = typeof headlineCents === "number" && headlineCents < 0;
   const tallyLabel = `$${(tallyCents / 100).toFixed(2)}`;
 
   const addToTally = (cents: number) => {
@@ -145,7 +159,7 @@ export function AtlarixCoreUsageCard({
       </div>
 
       <div className="flex items-center justify-between text-sm gap-2">
-        <span className="text-muted-foreground shrink-0">Credit balance</span>
+        <span className="text-muted-foreground shrink-0">Your credit</span>
         {loading ? (
           <span className="text-muted-foreground">…</span>
         ) : error ? (
@@ -170,11 +184,7 @@ export function AtlarixCoreUsageCard({
       {/* The split sits directly under the total it explains. It draws nothing
           when the server reported no split, or when there is nothing to spend. */}
       {!loading && !error && !needsSignIn ? (
-        <CreditSplitBar
-          grantedCents={grantedCents}
-          grantedTotalCents={grantedTotalCents}
-          purchasedCents={purchasedCents}
-        />
+        <CreditSplitBar grantedCents={grantedCents} grantedTotalCents={grantedTotalCents} />
       ) : null}
 
       {balanceIsNegative ? (

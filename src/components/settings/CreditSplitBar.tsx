@@ -1,4 +1,8 @@
-import { USAGE_LABELS, describeIncludedUsage, formatCents } from "@/shared/billing_copy";
+import {
+  USAGE_LABELS,
+  describeAllowanceUsed,
+  describeIncludedUsage,
+} from "@/shared/billing_copy";
 
 /**
  * How much of this month's included usage has been spent, and what purchased
@@ -16,9 +20,16 @@ import { USAGE_LABELS, describeIncludedUsage, formatCents } from "@/shared/billi
  * REMAINS, so the period's original amount did not exist client-side at all.
  * `granted_total_cents` is that number; consumed is the difference.
  *
- * PURCHASED CREDIT IS NOT IN THE BAR. It has no denominator — it is money the
- * user added, not an allotment they are working through — so drawing it as a
- * proportion of anything would invent a budget that does not exist.
+ * A PERCENTAGE, NOT DOLLARS. The first version read "$0.42 of $1,000,000.00
+ * used", which broke this file's own rule against printing the allowance in
+ * dollars — that publishes our cost structure and invites the "$19 for $10"
+ * comparison. A share of the whole tells the reader the same thing and a
+ * competitor nothing.
+ *
+ * PURCHASED CREDIT IS NOT HERE AT ALL. It has no denominator — it is money the
+ * user added, not an allotment they are working through — so it belongs beside
+ * the card's headline as a plain figure, not inside a meter that would invent a
+ * budget nobody agreed to.
  *
  * TWO SUB-NUMBERS, NEVER PER PRODUCT. `spend_from_wallet` deliberately spills
  * allowances across products, so "Reviewer allowance: $10" would not be a
@@ -27,28 +38,20 @@ import { USAGE_LABELS, describeIncludedUsage, formatCents } from "@/shared/billi
 export function CreditSplitBar({
   grantedCents,
   grantedTotalCents,
-  purchasedCents,
 }: {
   grantedCents: number | null;
   grantedTotalCents: number | null;
-  purchasedCents: number | null;
 }) {
   // Absent is not zero. An older server that reports no split must render as
   // nothing rather than as an empty allowance, which is a different claim.
-  const hasAllowance =
-    grantedCents != null && grantedTotalCents != null && grantedTotalCents > 0;
-  const hasPurchased = purchasedCents != null;
-  if (!hasAllowance && !hasPurchased) return null;
+  if (grantedCents == null || grantedTotalCents == null || grantedTotalCents <= 0) return null;
 
-  let meter: { used: number; total: number; remaining: number; pct: number } | null = null;
-  if (hasAllowance) {
-    const total = Math.max(0, grantedTotalCents);
-    // Clamped to the total: a refund keeps the invariant, but a hand-edited row
-    // should degrade to a full bar rather than a negative width.
-    const remaining = Math.min(Math.max(0, grantedCents), total);
-    const used = total - remaining;
-    meter = { used, total, remaining, pct: (used / total) * 100 };
-  }
+  const total = Math.max(0, grantedTotalCents);
+  // Clamped to the total: a refund keeps the invariant, but a hand-edited row
+  // should degrade to a full bar rather than a negative width.
+  const remaining = Math.min(Math.max(0, grantedCents), total);
+  const used = total - remaining;
+  const meter = { used, total, remaining, pct: (used / total) * 100 };
 
   return (
     <div className="space-y-3">
@@ -56,18 +59,23 @@ export function CreditSplitBar({
         <div className="space-y-1.5">
           <div className="flex items-baseline justify-between gap-3 text-xs">
             <span className="text-muted-foreground">{USAGE_LABELS.included}</span>
-            <span className="tabular-nums text-foreground">
-              <span className="font-medium">{formatCents(meter.used)}</span>
-              <span className="text-muted-foreground"> of {formatCents(meter.total)} used</span>
+            <span className="font-medium tabular-nums text-foreground">
+              {describeAllowanceUsed(meter.used, meter.total)}
             </span>
           </div>
 
           <div
-            className="h-2 w-full overflow-hidden rounded-full bg-muted"
+            className="h-2 w-full overflow-hidden rounded-full border border-border bg-muted/60"
             role="img"
-            aria-label={`${USAGE_LABELS.included}: ${formatCents(meter.used)} of ${formatCents(meter.total)} used, ${formatCents(meter.remaining)} remaining.`}
+            aria-label={`${USAGE_LABELS.included}: ${describeAllowanceUsed(meter.used, meter.total)}.`}
           >
-            <div className="h-full bg-primary" style={{ width: `${meter.pct}%` }} />
+            {/* A visible minimum. At 0.00004% the fill is sub-pixel and the bar
+                reads as an empty gap rather than as a meter that is barely
+                touched — which is a different statement. */}
+            <div
+              className="h-full rounded-full bg-primary"
+              style={{ width: meter.pct > 0 ? `${Math.max(meter.pct, 1.5)}%` : "0%" }}
+            />
           </div>
 
           <div className="flex items-baseline justify-between gap-3 text-xs text-muted-foreground">
@@ -80,17 +88,6 @@ export function CreditSplitBar({
         </div>
       ) : null}
 
-      {hasPurchased ? (
-        <div className="flex items-baseline justify-between gap-3 border-t border-border pt-2 text-xs">
-          <span className="text-muted-foreground">
-            {USAGE_LABELS.purchased}
-            <span className="text-muted-foreground/70"> · {USAGE_LABELS.purchasedHint}</span>
-          </span>
-          <span className="font-medium tabular-nums text-foreground">
-            {formatCents(purchasedCents)}
-          </span>
-        </div>
-      ) : null}
     </div>
   );
 }

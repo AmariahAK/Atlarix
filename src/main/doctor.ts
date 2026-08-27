@@ -26,7 +26,7 @@ import {
   runSelfTest,
   type SelfTestProbe,
 } from "./self-test";
-import { formatCents } from "@/shared/billing_copy";
+import { describeAllowanceUsed, formatCents } from "@/shared/billing_copy";
 
 const logger = log.scope("doctor");
 
@@ -140,7 +140,7 @@ const coreCheck: DoctorCheck = {
     const split =
       typeof row?.granted_cents === "number" && typeof row?.purchased_cents === "number"
         ? typeof row?.granted_total_cents === "number" && row.granted_total_cents > 0
-          ? ` (${formatCents(row.granted_total_cents - row.granted_cents)} of ${formatCents(row.granted_total_cents)} included used, ${formatCents(row.purchased_cents)} purchased)`
+          ? ` (${describeAllowanceUsed(row.granted_total_cents - row.granted_cents, row.granted_total_cents)} of this month's included usage, ${formatCents(row.purchased_cents)} purchased)`
           : ` (no allowance this period, ${formatCents(row.purchased_cents)} purchased)`
         : "";
     if (cents <= 0) {
