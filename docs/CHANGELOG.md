@@ -3,7 +3,7 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
-## [Unreleased]
+## [14.38.0] (2026-08-27) — Atlarix Core included with Pro, refunds that mean it, and browser tools that work on localhost
 
 **Atlarix Core comes with Pro now, and the app finally says so.** Pro includes Atlarix Core for
 everyday work, but the app still spoke as though a plan was the thing standing between you and a
