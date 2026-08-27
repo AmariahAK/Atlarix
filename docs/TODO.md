@@ -34,6 +34,44 @@ plan-tracking fixes.
 
 ---
 
+## 🧾 Staged for the next release — the bar says a percentage
+
+### The dollar figure was the bug, not the arithmetic
+
+- **The meter shipped reading "$0.42 of $1,000,000.00 used", and `billing_copy.ts` forbids exactly
+  that.** The rule at the top of that module — never publish the allowance in dollars, because
+  denominating it prices our own cost structure and invites the "$19 for $10" comparison — was
+  written in the same version that broke it, in the first thing that rendered the number. A share of
+  the whole says the same thing to a customer and nothing to a competitor.
+- **`<1% used`, never `0% used`, once anything has been spent.** Rounding real usage down to zero
+  tells someone their metered account is not being metered, and a comped account sits precisely
+  there.
+- **The fill has a visible minimum (1.5%) and the track has a border.** At 0.00004% the fill was
+  sub-pixel, so the bar read as an untouched meter — a different statement from barely touched — and
+  without a border it did not read as a bar at all.
+- **The headline is PURCHASED CREDIT, both surfaces.** The spendable total merges money that never
+  expires with an allowance that resets, and the sum answers nothing: the allowance is spent first,
+  so purchased credit is exactly what is left once it runs out. Falls back to the total when a
+  deployment reports no split — "$0.00" on an account with a balance is worse than a broad number.
+
+### The account page splits what CAN be split, and refuses the rest
+
+- **`get_credit_breakdown`** (`20260827160000_credit_breakdown.sql`), a SECOND RPC rather than more
+  keys on `get_credit_balance` — that one is on the proxy's hot path before every request and must
+  stay one cheap row. This one runs when a human opens the page. **Applied and verified live.**
+- **Per-product ALLOWANCE is real; per-product CREDIT is not, and the difference is load-bearing.**
+  `credit_grants` is one row per (user, product), so "Atlarix Reviewer · 30% used" describes a row
+  that exists. `credit_wallet` is a SINGLE shared balance and `spend_from_wallet` deliberately lets
+  one product's allowance pay for the other — so splitting the headline per product would claim a
+  boundary the wallet does not have. A lie with money attached.
+- **So the per-product number is SPEND.** Every debit already carries a `source` written at the point
+  it happens, which makes "Atlarix Reviewer: $1.24" recorded fact rather than a derived guess, and it
+  answers the actual question: which product is consuming the money.
+- **Fails soft to `unavailable`.** A deployment without the RPC renders the page it rendered
+  yesterday rather than an error. Launchpad pushed 2026-08-27.
+
+---
+
 ## 🚀 Shipped in v14.38.0 (2026-08-27)
 
 ### The usage bar: consumption, not composition — added after the packaged pass
