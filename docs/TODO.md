@@ -57,30 +57,11 @@ NEXT change is made.
 
 ## 🔜 Next session — the queue, in order
 
-### 1. Connected repositories names the scope but cannot name the repos
+### 1. Connected repositories — SHIPPED 2026-08-27
 
-The account page renders **"AmariahAK · selected repositories"** and stops there. It is not
-a rendering bug: **`github_installs` has no repository column at all** — the columns are
-`installation_id, user_id, account_login, repository_selection, removed_at, created_at,
-updated_at`. `repository_selection` is only ever `all` | `selected`, so the page has
-nothing to list.
-
-**The data already arrives and is discarded.** `installation_repositories.added` carries
-`repositories_added[]` with full names, and the webhook (`src/github/webhook.ts:138-148`)
-reads only `installation.repository_selection` off it. The owner's own delivery log shows
-two such events on 2026-08-27.
-
-**Two routes, and the cheap one is probably right:**
-- **Store them.** A `github_install_repos` child table (or a `text[]` column) written on
-  `installation` and `installation_repositories` events. Uses data already in hand, needs
-  no token at read time, and survives the service being down. Must handle `.removed` too,
-  or the list rots into a lie.
-- **Fetch live** via `GET /installation/repositories` with the installation token. Always
-  accurate, but needs a server endpoint, a token mint per page load, and it fails when the
-  reviewer is down — for a panel that is decoration.
-
-Prefer storing. **Whichever route: a stale repo list is worse than the current honest
-vagueness**, because it tells someone a repo is covered when it is not.
+`atlarix-reviewer@09f6ff3` + migration `20260827180000`. The covered set is recorded
+from the webhooks that always carried it and the account page lists it. See 1b for why
+existing installs still read empty.
 
 ### 1b. The repository list is live but the EXISTING installs are empty
 
@@ -100,6 +81,39 @@ is the honest thing for it to say. Two ways out:
 - **Proper, if it ever matters at scale:** a one-time backfill calling
   `GET /installation/repositories` per install with an installation token and applying it
   with `mode: 'set'`. Needs the App private key, which lives in Railway, not locally.
+
+### 1c. Supabase load is Realtime WAL polling, not API traffic — MEASURED 2026-08-27
+
+Asked because the dashboard read "243 requests / last 60 minutes". **That number is not
+the problem** — it is ~4/min, in the exact hour we ran a migration push, ~8
+`supabase db query --linked` calls and repeated account-page loads. The two Postgres
+errors in the same window match a malformed query run by hand
+(`review_jobs.status` — the column is `state`).
+
+**What `supabase inspect db calls --linked` actually shows** (cumulative, `pg_stat_statements`):
+
+| Query | Calls | % exec time |
+| --- | --- | --- |
+| `realtime.list_changes(...)` ×3 variants | **7,323,466** | **93.5%** |
+| `SHOW transaction_read_only` | 78,043 | 0.0% |
+| `users WHERE email = $1` (PostgREST) | 19,747 | 0.0% |
+
+**93.5% of all database execution time — over 9 hours of CPU — is Realtime polling the
+WAL replication slot.** The source is `SubscriptionManager.setupRealtimeSubscription`: an
+always-open channel per signed-in desktop app, watching `users` for plan changes, keyed
+by email. The WAL poll runs on the Realtime service's own tick, so its cost is driven by
+Realtime being *enabled with a subscription* rather than by how many clients connect.
+
+**Not a bug, and partly mitigated already** — `pauseRealtime()` closes the channel when
+the window is idle. The open question is whether a persistent channel is worth 93% of DB
+time for a plan change that a focus-time re-read would also catch. Decide before there
+are many signed-in clients, because this is the line item that grows with users.
+
+**Separately, and more urgent than any of it: `LAST BACKUP: No backups`.** This project
+holds `credit_wallet`, `credit_grants` and the append-only `credit_transactions` ledger —
+the money. The Free plan has no scheduled backups and no PITR. Either accept that
+explicitly, or take periodic `pg_dump`s somewhere. An unbacked ledger is a worse risk than
+anything above.
 
 ### 2. Cut v14.38.2
 
@@ -496,39 +510,6 @@ audits already settled so they are not re-litigated: model-context secret redact
 
 ## 🧭 Designed — awaiting a session
 
-### atlarix-launchpad: the site sells one product and we now have two
-
-> Owner's ask, 2026-08-26. Measured before writing this, because the gap is wider than "add a login
-> link": **the marketing site does not mention the reviewer anywhere.** Every match for
-> "Atlarix Reviewer" / "pull-request review" in `src/` is in the account pages built today. There is
-> no product page, no nav entry, no pricing row, and no link to the GitHub App — which is now PUBLIC
-> and installable, so the thing exists and the site says otherwise.
-
-- **Sign in is effectively hidden.** `/account` is linked from exactly ONE place (`Footer.tsx`, in the
-  Product column) and `/login` from nowhere at all. A returning customer has to scroll to the footer
-  or know the URL. It needs a header affordance.
-  **But do NOT make the header session-aware to do it** — `useAuth` in `Header.tsx` mounts the Supabase
-  client on all ~40 prerendered marketing pages and adds a signed-out→signed-in hydration flash to
-  every one. A static "Sign in" / "Account" link costs nothing and `/account` already redirects to
-  `/login?next=/account` on its own.
-- **There is no signup, conceptually.** OAuth creates the account on first sign-in, so no separate flow
-  is needed — but nothing on the site *invites* it. One label doing both ("Sign in" is enough; avoid
-  "Sign up" as a second entry point that leads to the same two buttons).
-- **The reviewer needs somewhere to live.** At minimum a section or page covering: what it does, that
-  it never executes code (this is the differentiator and it is already written in the App
-  description and `SECURITY.md` — reuse, don't rewrite), the install link
-  `https://github.com/apps/atlarixagent/installations/new`, and $19/dev/mo with OSS free.
-- **Pricing page covers Free vs Pro only, and has ZERO purchase CTAs** (`grep -cE "onClick|checkout|Subscribe|Buy"` → 0; the only call to action on the whole page is a Download link). Now that
-  `create-checkout` works from the browser and `/account` can buy, the pricing table can actually sell
-  rather than describe. It also needs a Reviewer column or its own row.
-- **The FAQ is already stale on the thing we just changed.** `PricingPage.tsx:25` still says Pro is for
-  "unlimited workspaces, automations, and the marketplace" — that predates Pro including a monthly Core
-  allowance, and it is the same wrong framing being fixed inside the app. Fix both from one source of
-  words, or they will drift again.
-- **Sequencing note:** the LemonSqueezy post-purchase buttons already point at `/reviewer/setup`, and
-  that page is live — so the funnel works for anyone who reaches a checkout. This work is about people
-  who arrive at the *site* first, which is most of them.
-
 ### Core under concurrency — mostly SOLVED already; here is what actually remains
 
 > Raised by the owner 2026-08-26 ("Core may need to cater for multiple instances at the exact same
@@ -571,229 +552,6 @@ item.
 **What would change the picture:** any of these becoming real needs a *measurement* first — the
 Supabase request count is the tell, and the 2026-08-26 lesson was that 704 requests/hour looked like
 the website and was actually a 5-second poll. Do not scale on a hunch.
-
-### The app still talks like Pro gates AI. It does not any more.
-
-> Owner's ask, 2026-08-26, and it follows directly from the pricing change: **Pro
-> now INCLUDES a monthly Core allowance**, so the tier is no longer the thing
-> standing between a user and a model. Most of the app's paywall language predates
-> that and is now either wrong or actively discouraging. The framing to land on is
-> that Free is a real product and Pro is prepaid AI — which is close to "Pro is
-> arguably free", since the fee largely buys the credit back.
-
-- **Rewrite the warnings, do not just soften them.** The distinction that matters
-  to a user is no longer *free vs pro* but **allowance left / credit left /
-  neither**. Two messages replace most of what is there: **"Your monthly Pro
-  usage is used up"** (allowance spent, purchased credit still available or not)
-  and **"Your top-up is used up"** (both gone). Neither should mention tiers.
-  Audit every gate before rewriting: `useUpgrade`/`triggerUpgrade`, the PAYG
-  error UX in `simple-stream-text.ts`'s `onError` (402 / 503 mapping),
-  `useLowBalanceNudge`'s toast, `AtlarixCoreUsageCard`'s copy, and the
-  `--doctor` line in `src/main/doctor.ts:128`. **The trap:** these are separate
-  copies of the same idea in five places, which is exactly how they came to
-  disagree in the first place — put the message in one module and have all five
-  read it.
-- **A usage bar in account settings, and the data already exists.**
-  `get_credit_balance` now returns `granted_cents` and `purchased_cents`
-  alongside the total, and the desktop app currently **throws both away** —
-  `auth_handlers.ts` reads only `balance_cents`. So the bar is a client change,
-  not a backend one: allowance consumed out of the month's grant, with purchased
-  credit shown separately because it does not reset. **Do not render one merged
-  number** — that is the mistake `/account` on the web deliberately avoids, and
-  the reason is that a single total hides which half expires. The launchpad's
-  `CreditCard.tsx` is the reference for the wording.
-- **Show what the allowance is worth in real terms.** Measured on live data: app
-  turns cost **2–29c each**, so a $10 monthly grant is roughly 200 turns. A bar
-  with no scale invites "is that a lot?"; a bar that says "about 200 turns of
-  everyday work" answers it.
-
-### A small closable "what's new" panel, bottom-left
-
-> Also the owner's ask, 2026-08-26, and deliberately modest: **the website
-> changelog does the real work**, so this is a pointer, not a second changelog.
-
-- Bottom-left, dismissible, and **stays dismissed** — a panel that returns on
-  every launch is an advert. Key the dismissal on the version or entry id it
-  showed, so a NEW entry can surface again without re-showing an old one.
-- **Content we control, fetched not bundled.** Bundling means a note only reaches
-  users who already updated, which is backwards for telling people an update
-  exists. `atlarix-releases` already publishes assets the app reads
-  (`ATLARIX_CORE_MODELS_URL` is the precedent for a remotely-controlled JSON),
-  so a small `updates.json` beside it fits the pattern with no new
-  infrastructure. Note the existing catalog trap applies: **ship an offline
-  fallback and never let a fetch failure block or blank the UI** — an empty
-  panel is better than a spinner, and no panel is better than an empty one.
-- Keep it to a line or two plus a link to `/changelog`. The moment it wants
-  scrolling it has become the changelog, and there already is one.
-- **Not a notification system.** No badges, no unread counts, no server-side
-  targeting. Those are a product; this is a footnote.
-
-- **A refund path that understands GRANTED credit — POLICY SETTLED 2026-08-27, owner's four
-  decisions. Do not re-argue these.**
-
-  **Today's behaviour, measured:** `order_refunded` bails on `if (kind !== 'credit')` and
-  `subscription_payment_refunded` has **no case at all**, so it hits `default:` and 200-ACKs.
-  Refund a Pro month right now and the customer keeps Pro *and* keeps the allowance.
-
-  1. **A refund of PURCHASED credit claws back the full refunded amount, even if already spent.**
-     `credit_wallet.balance_cents` may go negative; that is not a new hazard, it is the existing
-     documented design (`credit_wallet_service` has no floor, and `spend_from_wallet`'s own comment
-     says that column "is allowed to go slightly negative … the proxy's pre-flight gate is what
-     stops runaway spend"). Floor-at-zero would make buy → burn → refund free.
-  2. **A GRANT is floored at zero, never negative.** `credit_grants.cents` never goes below zero
-     today and must not start: a negative grant silently eats NEXT month's allowance, punishing a
-     future period for a past one.
-  3. **A refunded subscription month drops the tier IMMEDIATELY**, unlike a cancellation (which
-     rightly runs to period end). A refund is the statement "this month did not happen"; leaving Pro
-     active for a month you were paid nothing for is the strictly worse error.
-  4. **Reviewer refunds are prorated-forward, never retroactive.** Reviews already posted cannot be
-     un-posted, so the delivered work is never clawed back. `reviewer_subscriptions.status` is free
-     text and `reviewer_entitlement_service` only accepts `('active','on_trial','cancelled')`, so
-     `'refunded'` de-entitles with no CHECK to widen. It must NOT map to `'cancelled'` — that status
-     stays entitled to period end.
-
-  **The fee is not credit.** $19 bought entitlement plus a $10 allowance, so a Pro refund claws back
-  the *grant* (proportionally to the refunded fraction of the invoice), never purchased credit —
-  that is the user's own money from a different transaction.
-
-  **Two traps carried over:** the refund event's object is a subscription INVOICE, so `event.data.id`
-  is the invoice id and the subscription is `attributes.subscription_id` (same shape trap as
-  `subscription_payment_success`); and `credit_transactions.kind` is CHECK-constrained, so a
-  `grant_refund` ledger row needs the constraint widened or the insert raises 23514 on a path whose
-  whole job is to move money back quietly. Partial refunds are real — LemonSqueezy carries
-  `refunded_amount` on both the order and the invoice object, which is the field to read rather than
-  `subtotal`.
-
-  **Owner action that gates the whole thing:** `subscription_payment_refunded` must be ticked in the
-  LemonSqueezy webhook settings. If it is not subscribed the branch never fires no matter what is
-  written — exactly how the `subscription_payment_success` gap survived.
-
-- **A `review-posted` automation event — closes the PR-review loop from this side.** One value added
-  to `GithubTriggerEventSchema` (`src/lib/automations/types.ts`, today `new-pr` / `review-requested`
-  / `ci-failed`) plus a poll branch in `src/lib/automations/pollers/github.ts`: a reviewer posts a
-  review → the pipeline trigger fires → Atlarix reads the review comments via the GitHub API → the
-  agent fixes them → pushes. **Works with ANY reviewer** — CodeRabbit, Cursor Bugbot, a human — so it
-  has standalone value today and does not wait on
-  [atlarix-reviewer](https://github.com/AmariahAK/atlarix-reviewer) shipping. That is the whole
-  design: the two products are *composable*, not coupled, and the loop closes through GitHub's public
-  review API rather than a private wire. The reverse direction (Atlarix writing a context payload for
-  the bot to judge) was **cut** — it is unproven, no competitor has it, and a persuasive case for your
-  own code handed to your own reviewer defeats the reason to have a separate reviewer at all.
-  Reasoning in that repo's `docs/atlarix-pr-bot-spec.md` §5 and §16.
-
-- **The catalog lags the vendor, and nothing dynamically covers the gap — for BYOK or for Core.**
-  Found 2026-08-22 while checking whether Core could move `core-1` from GLM-5.2 to 5.3.
-  **GLM-5.3 is live on the DIRECT pay-per-token endpoint** (`api.z.ai/api/paas/v4`, `created`
-  2026-08-13, newest of 9 ids) and genuinely callable on our key — a live request returned
-  `finish_reason: "tool_calls"` with a well-formed native tool call, plus
-  `prompt_tokens_details.cached_tokens` and `completion_tokens_details.reasoning_tokens`. It is **not**
-  in models.dev's `zai` row, which still stops at `glm-5.2` (2026-06-16); `zhipuai` stops there too,
-  while 18 GATEWAY ids (`openrouter` as `z-ai/glm-5.3`, `vercel`, `requesty`, `kilo`, `venice`, …)
-  already carry it. So the direct rows are the stragglers, not the catalog as a whole.
-  **Core was deliberately NOT bumped** — owner's call, and the reason is a wallet effect, not a
-  cosmetic one: `atlarix-releases/scripts/pick-core-model.mjs` reports `✗ NOT in models.dev — no
-  price row, so this would bill at the RESERVE`, i.e. **every request bills at its worst-case reserve
-  instead of actual cost, silently, with nothing erroring.** That script already exists for exactly
-  this case (its header: "a vendor can ship a model before models.dev indexes it — that is exactly the
-  case where you would otherwise paste an id that quietly bills at the reserve"), and it confirmed the
-  rollback target exists (`z-ai/glm-5.3` is on OpenRouter). Re-run
-  `ZHIPU_API_KEY=… node scripts/pick-core-model.mjs zai glm-5.3` and flip `core-models.json` when its
-  first line turns ✓ — the config block it emits is the whole edit.
-  **MEASURE THE LAG FIRST — that number decides whether any of this gets built.** 5.3 hit the API
-  2026-08-13; record the date models.dev adds it under `zai`. Days means waiting is the right answer
-  for ever and this item closes. Weeks, repeatedly, means the fallback has to become real.
-  **The crux, if it does:** the provider's own `/models` cannot supply the missing half. It is
-  OpenAI-compatible, so a row is `{id, object, created, owned_by}` — **ids and entitlement, never
-  price or context window.** So "consult the live API" fixes existence checks and nothing about
-  billing. A real fix needs a price source, which leaves: an explicit per-model price override in
-  `core-models.json` for the gap window (Core only, and someone has to remember to remove it); or
-  treating a missing row as **unknown** rather than worst-case and saying so in the UI — which is the
-  honest option and the one that also serves **BYOK**, where the user picks any id their own key
-  exposes and we have no say in whether the catalog knows it. Today both paths silently degrade:
-  Core to reserve billing, BYOK to fallback limits (`source=fallback`) with a wrong token meter.
-  Constraint that must survive any change: the catalog is a **union floor that never shrinks**, so
-  waiting can never break `glm-5.2`.
-- **Cached input is not credited on the zai tier** — separate, pre-existing, and true on 5.2 as much
-  as 5.3. The live 5.3 response reported cache hits at `prompt_tokens_details.cached_tokens`, but the
-  zai route carries `cacheHitField: null` (only `deepseek` sets one, `prompt_cache_hit_tokens`). So
-  prompt-cache savings on GLM are measured by the provider and discarded by us. Small, and money in
-  the user's favour to fix.
-
-- **Streaming "jumps" are LAYOUT, not pacing — do not touch the pacer.** Reported as "smooth then
-  jumped then smooth", and narrowed with the owner to "the tools & some reads & thoughts".
-  `useSmoothStreamedContent` is **already adaptive**: `rate = min(MAX_CPS, BASE_CPS + backlog /
-  CATCHUP_SECONDS)`, where the backlog term self-tunes to the provider's real arrival rate with no
-  per-provider knowledge — which its docblock rejects deliberately, since with 4,400+ models such a
-  table is wrong the day a provider changes infrastructure. The "~50 ms" is the renderer's flush
-  interval UPSTREAM of the pacer, not a pacing knob. **Nothing there needs to become dynamic; it
-  already is, and tuning those constants cannot fix what is being seen.**
-  What is actually unpaced: the pacer has ONE consumer (`AssistantMessageBody.tsx:115`, assistant
-  prose). Tool activity renders through `StreamThreadItemView` as cards inserted at full height — a
-  layout insertion no reveal rate can smooth. And `InlineThoughtBlock` auto-collapses when streaming
-  ends (`if (!isStreaming && !keepOpenAfterStream) setOpen(false)`), so everything below jumps up:
-  **the single best match for smooth → jumped → smooth, and the place to start.**
-  Candidate fixes are reserved height / transition on insert, and not collapsing while content is
-  still arriving below. This is the most reflow-sensitive code in the renderer — it already produced
-  one "scratchy rendering" regression — so do it with the packaged app open.
-
-
-- **QA sub-agents, remaining half.** Shipped as a role. Still owed: **measure contract drift** —
-  script a weak model over a multi-item coverage contract in `tests/agent-evals` and count dropped
-  items. That number, not reasoning, decides whether a validated structured return is ever built.
-  Recorded consequence of the no-gate decision: `browser_interact` has **no approval path in any
-  mode**, so `DESIGN_NOTES`'s "destructive interactions go through the existing approval path"
-  describes something that does not exist — and this is the first feature whose actions leave the
-  machine, while our containment story is write-confinement, which says nothing about egress.
-- **Run the session-load diagnostic** — `ATLARIX_DIAG_SESSION_LOAD=1` (main) +
-  `localStorage["atlarix:diag:session-load"]="1"` (renderer), open the 1.43M-token session, record
-  the four numbers. Ruled out: summarisation (zero compaction events in 13h of log) and tiktoken
-  (memoised + delta-cached). Prime suspect `workspace_session_handlers.ts:751` —
-  `parseDisplaySnapshot` per row on the main thread over a synchronous select with
-  `SESSION_LOAD_MESSAGE_LIMIT = 100_000`. **A loading screen alone cannot fix it**: the overlay
-  exists and cannot paint because nothing yields.
-- **Configurable read-deny patterns, opencode-style** — user-declared only, no defaults; chosen over
-  Codex's model because it keeps `lib/tools/glob.ts:221` intact (the deliberate decision that
-  in-workspace files, `.env` included, are enumerable).
-  **Take Claude Code v2.1.236's SEMANTICS — they are the hard part, and they are now shipped
-  upstream:** a wildcard deny (`**/.env`) takes **precedence inside allowed read regions**, covers a
-  matched **directory's contents**, and **cannot be bypassed by renaming** the denied file. That last
-  one is the trap: a deny evaluated on the path as written is defeated by `mv .env x && cat x`, so it
-  has to be enforced on the RESOLVED target. (The non-local-root guard added 2026-08-21 sits in
-  `resolveToolTargetPath`, which is the same choke point this would use.)
-  **The caveat dominates the estimate:** a deny-read is only real if `run_command` cannot `cat` the
-  file. macOS Seatbelt and Linux Landlock
-  are cheap; **Windows Low IL cannot** — MIC is `NO_WRITE_UP`, so reads up are allowed by design, and
-  the AppContainer that *could* deny reads is exactly why it broke. Scope as tool-level everywhere +
-  sandbox-level on macOS/Linux + a documented Windows gap.
-- **Sub-agent results still don't *continue* in the timeline.** They render correctly; what remains
-  is placement (round-panel cards behind an expand affordance rather than resolving inline).
-  Direction: weave settled `subagent` items via `weaveIpcItemsIntoParts`, collapse the panel once all
-  agents settle. **Why it keeps being skipped:** its entire value is visual placement, in the most
-  reflow-sensitive code in the renderer — `AssistantMessageBody`'s sticky-agents / seam-offset /
-  synthesized-round interaction, which already produced one "scratchy rendering" regression. Land it
-  in a session that starts with the packaged app open.
-- **`run_command` memory/CPU containment** (cgroups / Job Objects) — the orphan half is done; this is
-  the runaway-build half, and there is no observed failure yet.
-- **`llama-server` `/props`** for the true `n_ctx` and chat template. Reachable today as a custom
-  OpenAI-compatible endpoint, just falling back to heuristics. One provider, not a systemic bug.
-- **Nested-repo trust on mid-session clones** — does a repo cloned mid-session re-trigger
-  authority-file approval? Prompt-injection weight only: hooks were deleted and no `.atlarix` file is
-  shell-executed any more.
-- **Packaging registry (deliberately deferred).** `runNpmInstall` (`forge.config.ts`) spawns npm with
-  no `--registry`, in `buildPath` outside the project, so a custom global registry wins and
-  `packageAfterPrune` dies with `E401`. Until it lands, `npm run package` needs
-  `npm_config_registry=https://registry.npmjs.org/`. Held pending the owner's account migration.
-- **Chore-model routing stays OPT-IN.** `lib/summarization_model.ts` already offers `"same"`
-  (default) or `"custom"`, and titles + compaction both route through it. Defaulting Core users to
-  Core 1 would silently change what they are paying for.
-- **No test measures whether our own suite is sensitive** — no mutation testing, no eval where the
-  fixture's suite is deliberately wrong, so "tests pass" is a claim about the suite, not the change.
-  Two clean instances in v14.30.0; see `DESIGN_NOTES.md`.
-- **User-message multimodal parts for HISTORICAL turns** — current and edited turns embed since
-  v14.8.11; history round-trips via `read_attachment`.
-- **A future e2e suite must be wired into CI on day one.** Never being in CI is why the last one
-  rotted unnoticed since v14.15.0 until 88% of its selectors were dead. Write it fresh against the
-  workspace UI; see `DESIGN_NOTES.md` for why it was retired rather than repaired.
 
 ## 🔐 Security follow-ups — owner-triaged, deferred
 
