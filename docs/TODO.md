@@ -82,6 +82,25 @@ two such events on 2026-08-27.
 Prefer storing. **Whichever route: a stale repo list is worse than the current honest
 vagueness**, because it tells someone a repo is covered when it is not.
 
+### 1b. The repository list is live but the EXISTING installs are empty
+
+Shipped 2026-08-27 (`atlarix-reviewer@09f6ff3`, migration `20260827180000`). Verified in
+production: the column exists, the RPC is service-role gated, and both live installs read
+`repo_count: 0`.
+
+**That zero is correct and expected — and it will not fix itself.** The list is populated
+by `installation` / `installation_repositories` webhooks, and both existing installs were
+created BEFORE the code that records them. `installation_repositories.added` is a DELTA,
+so nothing replays history.
+
+Until then the account page falls back to the old "selected repositories" wording, which
+is the honest thing for it to say. Two ways out:
+- **Trivial:** add or remove one repository in the GitHub App's install settings. That
+  fires the event and the list fills for that install.
+- **Proper, if it ever matters at scale:** a one-time backfill calling
+  `GET /installation/repositories` per install with an installation token and applying it
+  with `mode: 'set'`. Needs the App private key, which lives in Railway, not locally.
+
 ### 2. Cut v14.38.2
 
 `0a6e8e2e` is on `main` and untagged. Standard flow: changelog heading FIRST (the awk in
