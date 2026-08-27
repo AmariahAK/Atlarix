@@ -3,6 +3,33 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
+## [14.38.1] (2026-08-27) — The usage bar says a percentage, and two startup bugs
+
+**The usage bar shows a share, not a dollar figure.** v14.38.0 rendered your included usage as
+"$0.42 of $1,000,000.00 used". It now reads as a percentage, and never prints what the allowance
+is worth — that is a number about our pricing, not about your month. Below one percent it says so
+rather than rounding down to zero, because a metered account that reports zero usage looks like an
+account nobody is metering.
+
+**Settings leads with the credit you bought.** The headline used to add together money that never
+expires and an allowance that resets when your plan renews, which answered nothing: the allowance is
+spent first, so the credit you bought is exactly what is left once it runs out. Those are now two
+separate lines saying two separate things.
+
+**Your account page can tell the two products apart.** atlarix.dev shows how much of each plan's
+included usage you have spent, and what Atlarix and Atlarix Reviewer each consumed over the last
+thirty days. Not a separate balance per product — there is one balance, and either product can draw
+on it — but a truthful record of where it went.
+
+**Atlarix no longer warns you about your keychain on every launch.** A startup step read your
+settings a moment before the app was ready to decrypt them, and the app reported that as your
+operating system's keystore being unavailable. Nothing was ever wrong and nothing was ever lost.
+
+**`--doctor` stops telling healthy machines to reinstall.** The diagnostics run reported "the local
+database is unavailable" under Your API keys whenever anything at all went wrong there — including a
+bug in the diagnostics itself, which never opened the database — while the Local database row said
+OK in the same report. It now opens the database and names the actual problem.
+
 ## [14.38.0] (2026-08-27) — Atlarix Core included with Pro, refunds that mean it, and browser tools that work on localhost
 
 **Atlarix Core comes with Pro now, and the app finally says so.** Pro includes Atlarix Core for
