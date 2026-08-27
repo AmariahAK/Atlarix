@@ -8,7 +8,7 @@
  *    relocates the confusion, which is the failure mode this whole feature exists
  *    to fix.
  */
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { DOCTOR_CHECKS, runDoctor, type DoctorCheck } from "@/main/doctor";
 
 describe("the doctor's check list", () => {
@@ -132,5 +132,40 @@ describe("runDoctor", () => {
     const report = await runDoctor(exploding);
     expect(report.rows).toHaveLength(1);
     expect(report.rows[0].ok).toBe(false);
+  });
+});
+
+/**
+ * The provider-keys row must name the cause it actually hit.
+ *
+ * THE BUG THIS LOCKS DOWN. It used to be a bare `catch {}` that answered "the local
+ * database is unavailable" for every possible failure — and the Local database row's
+ * remediation is "reinstall Atlarix". So a packaged `--doctor` on a healthy machine
+ * told the user to reinstall, over a defect in the CLI path itself (`--doctor` never
+ * called `initializeDatabase()`), while the sqlite row said OK three lines below.
+ *
+ * Two rows contradicting each other is the signature, and a check that names one
+ * cause for every failure will mislead again.
+ */
+describe("the provider-keys check", () => {
+  it("reports the underlying error rather than blaming the database", async () => {
+    const check = DOCTOR_CHECKS.find((c) => c.name === "provider-keys");
+    expect(check).toBeDefined();
+
+    vi.doMock("@/ipc/shared/provider_api_keys", () => ({
+      getProviderApiKey: async () => undefined,
+      getConfiguredProviders: async () => {
+        throw new Error("Database not initialized. Call initializeDatabase() first.");
+      },
+    }));
+    vi.resetModules();
+    const { DOCTOR_CHECKS: fresh } = await import("@/main/doctor");
+    const providerKeys = fresh.find((c) => c.name === "provider-keys")!;
+
+    await expect(providerKeys.run()).rejects.toThrow(/Database not initialized/);
+    await expect(providerKeys.run()).rejects.not.toThrow(/local database is unavailable/);
+
+    vi.doUnmock("@/ipc/shared/provider_api_keys");
+    vi.resetModules();
   });
 });

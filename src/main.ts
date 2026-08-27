@@ -243,6 +243,24 @@ if (IS_DOCTOR_CLI && !IS_SELF_TEST) {
     let code = 1;
     try {
       await app.whenReady();
+      /**
+       * The doctor opens the database itself. It takes no single-instance lock and
+       * opens no window, so it never runs the normal startup path that calls this —
+       * which meant the provider-keys check hit an uninitialised handle and reported
+       * "the local database is unavailable" on a perfectly healthy machine, next to
+       * a `Local database: OK` row from a probe that opens its own connection.
+       *
+       * `initializeDatabase()` is idempotent (`if (_db) return _db`), so this cannot
+       * conflict with the startup path if it is also running.
+       */
+      try {
+        initializeDatabase();
+      } catch (e) {
+        // Non-fatal on purpose: a dead database is exactly when someone runs this,
+        // and every other row still has something to say. The provider-keys row
+        // will now report the real reason rather than guessing at one.
+        logger.warn("doctor: database unavailable, continuing:", e);
+      }
       const { runDoctor } = await import("./main/doctor");
       const { formatDoctorReport } = await import("./main/doctor-report");
       const report = await runDoctor();

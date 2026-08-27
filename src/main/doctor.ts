@@ -245,9 +245,23 @@ const providerKeysCheck: DoctorCheck = {
       const mod = await import("../ipc/shared/provider_api_keys");
       getProviderApiKey = mod.getProviderApiKey;
       providers = await mod.getConfiguredProviders();
-    } catch {
+    } catch (err) {
+      /**
+       * NAME THE ACTUAL CAUSE. This used to be a bare `catch {}` that answered
+       * "the local database is unavailable" for every possible failure — and the
+       * Local database row's own remediation is "reinstall Atlarix". So the one
+       * tool that exists to diagnose a broken install told healthy users to
+       * reinstall, over a defect in this CLI path: `--doctor` never called
+       * `initializeDatabase()`, so the shared handle threw "Database not
+       * initialized" while the sqlite row (a lifecycle-free self-test probe that
+       * opens its own connection) reported OK in the same report.
+       *
+       * Two rows contradicting each other is what made it findable, and a check
+       * that names one cause for every failure will mislead again.
+       */
+      const detail = err instanceof Error ? err.message : String(err);
       throw new Error(
-        "Could not read your saved keys — the local database is unavailable. Fix the Local database row first; this check says nothing about whether your keys are valid.",
+        `Could not read your saved keys: ${detail}. This check says nothing about whether your keys are valid.`,
       );
     }
     if (providers.length === 0) {
