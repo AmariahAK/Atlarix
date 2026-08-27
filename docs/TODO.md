@@ -1,6 +1,7 @@
 # Atlarix TODO
 
-**Current version:** v14.38.0 — **BUILDING 2026-08-27**. One home for every sentence the app says
+**Current version:** v14.38.0 — **RELEASED 2026-08-27** (12 assets, `/releases/latest` verified,
+draft=false, headless green, release body carries the changelog prose). One home for every sentence the app says
 about money, the allowance-vs-credit split surfaced (the data was already there and being thrown
 away three times), the refund path the subscription wallet shipped without, browser tools that work
 against localhost with the right panel closed, and a small what's-new panel fed from
@@ -34,6 +35,31 @@ plan-tracking fixes.
 ---
 
 ## 🚀 Shipped in v14.38.0 (2026-08-27)
+
+### The usage bar: consumption, not composition — added after the packaged pass
+
+- **Reported from the packaged build.** The bar drew the allowance beside the purchased credit —
+  the COMPOSITION of what is left — which rendered as "$999,999.73 included / $1,000,000.67 credit"
+  and answered nothing. A bar implies consumption whatever you put in it.
+- **Consumption is not derivable from a balance**, so this started in Postgres.
+  `credit_grants.total_cents` records what the period GRANTED; `cents` keeps meaning what is left;
+  consumed is the difference. `20260827140000_grant_period_total.sql`.
+- **The invariant `total_cents >= cents` is what makes the subtraction safe**, and the refund path
+  is where it nearly broke: reducing the total by the amount REQUESTED rather than the amount TAKEN
+  turns a 50% refund of an 80%-spent period into "$8.00 of $5.00 used". Reducing both by `taken`
+  also leaves consumed unchanged, which is the truth — a refund does not un-spend anything.
+  **Verified against the live database inside a rollback**, all four write paths.
+- **Backfilled from the LEDGER, not from `cents`.** The easy default claims every existing
+  subscriber consumed nothing — wrong on every account that has spent anything, including the one
+  this was reported from ($1,000,000.00 granted vs $999,999.73 left, recovered correctly).
+- **Additive at the RPC.** `balance_cents` / `granted_cents` / `purchased_cents` keep their exact
+  meanings, and both money paths that read this row (`atlarix-proxy/src/entitlement.ts`,
+  `atlarix-reviewer/src/jobs/queue.ts`) parse it through a plain cast with no runtime validator and
+  touch only `balance_cents`. Checked in both services rather than assumed.
+- **First test anywhere that constructs a balance row with the split.** Every existing mock was
+  two-key `{ok, balance_cents}` asserting only `balanceCents` — precisely how the handler came to
+  drop `granted_cents` silently, twice.
+
 
 > The customer-facing half of the pricing change, which shipped its backend on 2026-08-26 and none
 > of its front. Plus two unrelated defects that were cheap while the same files were open.
