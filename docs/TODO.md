@@ -433,14 +433,31 @@ warm run. (Separately: three Core 503s on 2026-08-27 — watched, not diagnosed.
 
 ## 🔜 Blocked on the owner — not active work
 
-- **Windows code-signing cert** — C6 auto-update signing + native-sandbox CI. Release infra, no cert.
-  The Windows helper sign step is wired; set the secret to enable.
-- **Atlarix GitHub account** for contributor credit (owner action; code done).
+- **Windows code-signing cert** — native-sandbox CI, and the only real fix for the C6 residual on
+  direct-download Windows. Release infra, no cert. The helper sign step is wired; set the secret.
 - OAuth `state` nonce / PKCE stays **not doing** — attempted v14.12.0, broke sign-in, reverted. The
   flow-in-progress gate stays. Revisiting needs confirmation that the Supabase redirect-URL
   allowlist permits a query param.
 
-## 🔐 Security — the REVIEWER is done (2026-08-28). The rest of the topology is not.
+## 🔐 Security — reviewer and money path DONE (2026-08-28). The app has one open fix.
+
+**Three documents, all deliberately OUTSIDE every repository** (these repos flip public for CI):
+`../SECURITY_AUDIT_reviewer_2026-08-28.md`, `../SECURITY_AUDIT_app_supabase_2026-08-28.md`,
+`../SECURITY_SECRETS_2026-08-28.md`.
+
+**Open, and the only one:** the `users` INSERT policy constrains identity but not privilege, so an
+account whose row is missing could insert itself as `plan='pro'`. Migration written and NOT
+applied — `supabase/migrations/20260828090000_users_insert_policy_cannot_set_privileges.sql`. It is
+production RLS on the signup path; run it by hand in the SQL editor.
+
+**Secrets: there is now a leak-response note**, not a rotation schedule — the question it answers
+is "this key just leaked, now what", which nothing answered before. Three credentials matter:
+the **GitHub App private key** (every installation; GitHub allows two keys, so rotation is
+zero-downtime), **`AZURE_AD_CLIENT_SECRET`** (publishes to the Store — load-bearing for update
+integrity precisely BECAUSE C6 was closed on the Store's behalf), and the **Supabase
+`service_role`** (four consumers, so rolling it needs an order).
+
+### Lessons kept from the reviewer audit — and what is still unaudited
 
 Owner scoped the pass to **`atlarix-reviewer` only**, audited by hand. Five findings, all
 five fixed in `atlarix-reviewer@edc457e`. **The write-up lives at
@@ -586,6 +603,22 @@ approval, MCP description wrapping + OAuth-URL validation, the universal write-c
 
 ## 💤 CLOSED — do not re-propose
 
+- **C6 — auto-update signature verification. CLOSED for the path that matters, 2026-08-28.**
+  Verified in `src/main.ts`: `chooseUpdaterKind` returns **`"none"`** for an MSIX install, and the
+  Microsoft Store signs and delivers that package itself. Most users are on the Store, so C6 does
+  not apply to them and the owner closed it.
+  **The residual, recorded so it is not mistaken for zero:** direct-download Windows (Squirrel, and
+  those builds are unsigned) and Linux AppImage still auto-update with nothing verifying the
+  binary. The real fix there remains a code-signing cert and an out-of-band AppImage signature.
+  **And not to be overrated either:** assets come from GitHub over HTTPS, so "intercept the
+  download" needs a broken TLS chain. A signature defends against a compromised RELEASE CHANNEL,
+  which is a narrower threat than the original framing implied.
+  **One consequence to hold on to:** closing C6 on the Store's behalf makes
+  `AZURE_AD_CLIENT_SECRET` load-bearing for update integrity — it publishes to the listing. See
+  the secrets note.
+- **Atlarix GitHub account for contributor credit. CLOSED, owner's call 2026-08-28.** Purely
+  cosmetic attribution, one more account to hold and secure, and the code side needs nothing.
+
 - **Renaming the macOS bundle identifier. Owner's call, 2026-08-28: NEVER doing it.** It ships as
   `com.electron.atlarix` (@electron/packager's default) and it stays that way. The reason to stop
   proposing it: macOS ties `safeStorage`'s keychain ACL to the app's designated requirement, which
@@ -620,6 +653,37 @@ approval, MCP description wrapping + OAuth-URL validation, the universal write-c
 ---
 
 ## 🪤 Traps worth not rediscovering
+
+### A failed CI check suite silently SKIPS the Railway deploy
+
+**Found 2026-08-28, and it had been happening since 2026-08-25 with nothing saying so.**
+`atlarix-proxy` had not deployed for three days. `/health` answered, `/v1/models` returned the
+right lineup — and both were lies about the build, because `/v1/models` is served from
+`core-models.json` fetched at runtime, not from the code. The deployed commit was `78ac05c`.
+
+The reason is exact, and Railway will tell you if you ask:
+
+```
+railway api 'query { deployment(id: "<id>") { meta } }'
+  -> skippedReason: CI check suite failed
+```
+
+**The chain: the GitHub Actions budget block fails CI on every PRIVATE repo →
+Railway sees a failed check suite → it SKIPS the deploy.** Status reads `SKIPPED`, not `FAILED`,
+and nothing surfaces it. So the Actions budget problem is not only about red badges; it silently
+stops shipping.
+
+**Two consequences for the flow:**
+- **Flip the repo public BEFORE the push, not after.** Railway evaluates the check suite as it
+  lands; a CI run that goes green later does not retrigger the deploy.
+- `railway redeploy` **redeploys the last deployment's commit**, which is the OLD one — it looks
+  like it worked and changes nothing. `railway up` deploys the working tree and is the way out.
+
+**And the general lesson, which is the expensive half:** `/health` returning `ok` proves a process
+is running, not that it is running YOUR code. Verify a deploy by the BEHAVIOUR the change
+introduced — a new endpoint, a new header, a new refusal — or by reading the deployed commit
+(`railway status --json`, `meta.commitHash`). I claimed the account-binding gate was live on the
+strength of `/health` and `/v1/models`; it was not, for three hours.
 
 Grouped by where they bite. Each is the one sentence that would have saved the time; the long form is
 in `git log -- docs/TODO.md` and `CHANGELOG.md`.
