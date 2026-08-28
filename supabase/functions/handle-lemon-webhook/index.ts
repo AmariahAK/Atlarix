@@ -3,6 +3,7 @@ import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import {
     creditClawbackCents,
     grantClawbackCents,
+    incrementalClawbackCents,
     invoiceIds,
     productOf as classifyProduct,
     refundFraction,
@@ -205,11 +206,48 @@ async function refundGrant(
     ref: string,
 ): Promise<void> {
     if (cents <= 0) return;
+
+    // `cents` is the CUMULATIVE clawback for this invoice — `refundFraction`
+    // divides LemonSqueezy's running `refunded_amount` by the total — so it must
+    // not be handed straight to a primitive whose replay protection is
+    // `ON CONFLICT (kind, ref) DO NOTHING`. That dedupe is right for a delta and
+    // wrong for a running total: it made every partial refund after the first a
+    // no-op. Same defect as the credit path; see `incrementalClawbackCents`.
+    const { data: priorRows, error: priorErr } = await supabase
+        .from('credit_transactions')
+        .select('delta_cents, ref')
+        .eq('user_id', userId)
+        .eq('kind', 'grant_refund');
+    if (priorErr) {
+        console.error(`[Webhook] could not read prior ${product} clawbacks: ${priorErr.message}`);
+        return;
+    }
+    // `refund_grant_service` stores the ref as `<product>:<ref>`, so the product
+    // is part of the match — a Pro and a Reviewer refund on one invoice are
+    // genuinely separate clawbacks and must not cancel each other out.
+    const prefix = `${product}:${ref}`;
+    const alreadyTaken = (priorRows ?? [])
+        .filter((r) => {
+            const rowRef = String((r as { ref?: unknown }).ref ?? '');
+            return rowRef === prefix || rowRef.startsWith(`${prefix}:`);
+        })
+        .reduce((sum, r) => sum + Math.abs(Number((r as { delta_cents?: unknown }).delta_cents) || 0), 0);
+
+    const increment = incrementalClawbackCents(cents, alreadyTaken);
+    if (increment <= 0) {
+        console.log(
+            `[Webhook] ${product} clawback for ${ref}: ${cents}c cumulative, ${alreadyTaken}c already taken — nothing to do`,
+        );
+        return;
+    }
+
     const { data, error } = await supabase.rpc('refund_grant_service', {
         p_user_id: userId,
         p_product: product,
-        p_cents: cents,
-        p_ref: ref,
+        p_cents: increment,
+        // The cumulative total rides in the ref, so replaying this exact event
+        // still collides while a genuine further refund carries a new total.
+        p_ref: `${ref}:${cents}`,
     });
     const row = data as
         | { ok?: boolean; error?: string; taken_cents?: number; shortfall_cents?: number }
@@ -228,7 +266,7 @@ async function refundGrant(
     // credit was consumed" is a real business fact and silence would hide it.
     const shortfall = row?.shortfall_cents ?? 0;
     console.log(
-        `[Webhook] ${product} allowance clawback took ${row?.taken_cents ?? 0}c of ${cents}c` +
+        `[Webhook] ${product} allowance clawback took ${row?.taken_cents ?? 0}c of ${increment}c` +
             (shortfall > 0 ? ` (${shortfall}c had already been spent)` : ''),
     );
 }
@@ -433,22 +471,58 @@ serve(async (req: Request) => {
                     break;
                 }
                 const orderId = String(event.data?.id ?? '');
+                // CUMULATIVE, not this refund's own amount — see incrementalClawbackCents.
                 const refundedCents = creditClawbackCents(data ?? {});
                 if (!customUserId || !orderId || refundedCents <= 0) {
                     console.log('[Webhook] refund missing user/order/amount; skipping');
                     break;
                 }
+
+                // WHAT HAVE WE ALREADY TAKEN FOR THIS ORDER? Filtered in memory
+                // rather than with a `like` prefix, because order ids are bare
+                // numbers: `ref LIKE '12%'` also matches order 1234, and a
+                // clawback that reads another order's history is worse than the
+                // bug being fixed. A user's refund rows are few.
+                const { data: priorRows, error: priorErr } = await supabase
+                    .from('credit_transactions')
+                    .select('delta_cents, ref')
+                    .eq('user_id', customUserId)
+                    .eq('kind', 'refund');
+                if (priorErr) {
+                    console.error('[Webhook] could not read prior clawbacks:', priorErr);
+                    return jsonResponse({ error: 'Wallet refund failed' }, 500);
+                }
+                const alreadyTaken = (priorRows ?? [])
+                    .filter((r) => {
+                        const ref = String((r as { ref?: unknown }).ref ?? '');
+                        // Legacy rows are the bare order id; new ones carry the
+                        // cumulative total they applied.
+                        return ref === orderId || ref.startsWith(`${orderId}:`);
+                    })
+                    .reduce((sum, r) => sum + Math.abs(Number((r as { delta_cents?: unknown }).delta_cents) || 0), 0);
+
+                const clawback = incrementalClawbackCents(refundedCents, alreadyTaken);
+                if (clawback <= 0) {
+                    console.log(
+                        `[Webhook] order ${orderId}: ${refundedCents}c refunded, ${alreadyTaken}c already taken — nothing to do`,
+                    );
+                    break;
+                }
+
                 const { error: refundErr } = await supabase.rpc('credit_wallet_service', {
                     p_user_id: customUserId,
-                    p_cents: -Math.round(refundedCents),
+                    p_cents: -clawback,
                     p_kind: 'refund',
-                    p_ref: orderId,
+                    // The cumulative total is IN the ref, so a replay of this exact
+                    // event still collides and does nothing, while a genuine second
+                    // partial refund carries a new total and gets through.
+                    p_ref: `${orderId}:${Math.round(refundedCents)}`,
                 });
                 if (refundErr) {
                     console.error('[Webhook] refund clawback failed:', refundErr);
                     return jsonResponse({ error: 'Wallet refund failed' }, 500);
                 }
-                console.log(`[Webhook] clawed back ${refundedCents}c from ${customUserId} (order ${orderId})`);
+                console.log(`[Webhook] clawed back ${clawback}c from ${customUserId} (order ${orderId}, ${refundedCents}c refunded in total)`);
                 break;
             }
 

@@ -136,3 +136,40 @@ export function invoiceIds(event: {
     subscriptionId: String(event.data?.attributes?.subscription_id ?? ""),
   };
 }
+
+/**
+ * How much MORE to claw back, given a CUMULATIVE refunded total.
+ *
+ * THE BUG THIS EXISTS FOR, found auditing the money path 2026-08-28.
+ *
+ * LemonSqueezy supports partial refunds — a merchant can "issue multiple refunds
+ * until the remainder is zero" — and `order_refunded` fires on each one, with
+ * `refunded_amount` carrying the RUNNING TOTAL refunded so far, not that
+ * refund's own amount.
+ *
+ * Both clawback paths fed that running total into `credit_wallet_service` /
+ * `refund_grant_service` under a ref keyed on the order or invoice, where
+ * `ON CONFLICT (kind, ref) DO NOTHING` treats a second arrival as a webhook
+ * replay. So only the FIRST partial refund on an order ever moved money. Refund
+ * $5 and then $5 more on a $20 top-up and the customer has been paid $10 while
+ * keeping $5 of spendable credit.
+ *
+ * It is the same mistake the grants already carry a warning about — "an
+ * allowance is SET, not added, so (kind, ref) idempotency cannot protect it" —
+ * arriving from the other direction: a cumulative TOTAL pushed through an
+ * ADDITIVE primitive. Replay-dedupe is correct for a delta and wrong for a
+ * running total, and the two are indistinguishable at the call site.
+ *
+ * So the caller reads what it has already taken for that order and passes it in.
+ * A replay of the same event yields 0; a genuine second partial refund yields
+ * only the new part; a payload that somehow reports LESS than we already took
+ * yields 0 rather than handing money back.
+ */
+export function incrementalClawbackCents(
+  cumulativeCents: number,
+  alreadyTakenCents: number,
+): number {
+  if (!Number.isFinite(cumulativeCents) || cumulativeCents <= 0) return 0;
+  if (!Number.isFinite(alreadyTakenCents) || alreadyTakenCents < 0) alreadyTakenCents = 0;
+  return Math.max(0, Math.round(cumulativeCents) - Math.round(alreadyTakenCents));
+}

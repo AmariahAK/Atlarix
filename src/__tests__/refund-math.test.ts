@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   creditClawbackCents,
+  incrementalClawbackCents,
   grantClawbackCents,
   invoiceIds,
   productOf,
@@ -146,5 +147,39 @@ describe("creditClawbackCents", () => {
   it("never returns a negative — the caller negates it, and two negations pay the refund out", () => {
     expect(creditClawbackCents({ refunded_amount: -500 })).toBe(0);
     expect(creditClawbackCents({ refunded_amount: -500, subtotal: 5000 })).toBe(5000);
+  });
+});
+
+/**
+ * Partial refunds. LemonSqueezy sends `refunded_amount` as a RUNNING TOTAL and
+ * fires `order_refunded` on every partial refund — so the clawback has to be the
+ * difference, not the total, or the `(kind, ref)` replay dedupe silently drops
+ * every refund after the first.
+ */
+describe("incrementalClawbackCents", () => {
+  it("takes the whole amount when nothing has been taken yet", () => {
+    expect(incrementalClawbackCents(500, 0)).toBe(500);
+  });
+
+  it("takes only the NEW part of a second partial refund", () => {
+    // $5 refunded, then $5 more: the event says 1000 cumulative and 500 is gone.
+    expect(incrementalClawbackCents(1000, 500)).toBe(500);
+  });
+
+  it("takes nothing when the same event is replayed", () => {
+    // This is what makes the fix safe: replay protection now comes from the
+    // arithmetic, not only from the unique index.
+    expect(incrementalClawbackCents(1000, 1000)).toBe(0);
+  });
+
+  it("never hands money BACK when the payload reports less than we took", () => {
+    // A corrected or out-of-order payload must not become a credit.
+    expect(incrementalClawbackCents(500, 1000)).toBe(0);
+  });
+
+  it("treats junk as nothing to do", () => {
+    expect(incrementalClawbackCents(Number.NaN, 0)).toBe(0);
+    expect(incrementalClawbackCents(-100, 0)).toBe(0);
+    expect(incrementalClawbackCents(500, Number.NaN)).toBe(500);
   });
 });
