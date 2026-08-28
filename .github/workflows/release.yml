@@ -129,6 +129,19 @@ jobs:
       - name: Type check sandbox helpers (cross-target)
         run: npm run check:sandbox
 
+      # The edge functions are the money path and were type-checked by NOTHING.
+      # `type ServiceClient = ReturnType<typeof createClient>` resolved the schema
+      # generic to `never`, so every .rpc() call was already an error — 23 of them
+      # sitting in handle-lemon-webhook, which is exactly the noise floor that
+      # hides a real one.
+      - name: Setup Deno
+        uses: denoland/setup-deno@v1
+        with:
+          deno-version: v2.x
+
+      - name: Type check Supabase edge functions
+        run: npm run check:functions
+
       # NOTE: the agent-evals vitest project is a LOCAL gate — its harness needs
       # a Node-ABI better-sqlite3 (tests/infra) plus a git-mock server and the
       # fake-LLM server that aren't provisioned on CI runners. It self-skips when

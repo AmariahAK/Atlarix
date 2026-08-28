@@ -1,4 +1,4 @@
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import {
     creditClawbackCents,
@@ -90,7 +90,23 @@ function productOf(kind: string, variantId: string): 'pro' | 'reviewer' {
     return classifyProduct(kind, variantId, REVIEWER_VARIANT_ID);
 }
 
-type ServiceClient = ReturnType<typeof createClient>;
+/**
+ * The service-role client, typed loosely ON PURPOSE.
+ *
+ * This was `ReturnType<typeof createClient>`, which reads like the obvious thing
+ * and is not: with no Database generic supplied, the schema parameter resolves to
+ * `never`, so `supabase.rpc(name, args)` is typed to accept `undefined` args and
+ * EVERY call in this file was a type error. Twenty-one of them, plus two on
+ * `.from()` rows — which is why nothing here was ever type-checked: the noise
+ * floor was so high that a real error could not be seen.
+ *
+ * The honest fix is generated Database types (`supabase gen types`), which would
+ * check the RPC names and argument shapes for real. Until this project generates
+ * them for the functions directory, a permissive alias is better than a broken
+ * one: it makes `deno check` meaningful again, so the NEXT mistake is visible.
+ */
+// deno-lint-ignore no-explicit-any
+type ServiceClient = SupabaseClient<any, any, any>;
 
 /**
  * Write the Reviewer entitlement. Never touches public.users — the reviewer is a
