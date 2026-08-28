@@ -24,7 +24,6 @@ const invalidatePlanCaches = vi.fn();
 vi.mock("@/lib/auth/supabase-client", () => ({
   fetchPlanSnapshot: (...a: unknown[]) => fetchPlanSnapshot(...(a as [])),
   invalidatePlanCaches: () => invalidatePlanCaches(),
-  subscribeToPlanChanges: () => () => {},
   getSupabaseClient: () => ({}),
 }));
 

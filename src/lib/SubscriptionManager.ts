@@ -145,9 +145,9 @@ export class SubscriptionManager {
                 if (session) {
                     // A routine hourly TOKEN_REFRESHED for the SAME already-loaded
                     // user changes nothing about the plan — skip the users-table
-                    // re-reads it would otherwise trigger (the realtime sub catches
-                    // real plan changes). Only the token rotated, which supabase-js
-                    // manages internally.
+                    // re-reads it would otherwise trigger (a real plan change is
+                    // caught by the focus refresh). Only the token rotated, which
+                    // supabase-js manages internally.
                     if (event === 'TOKEN_REFRESHED' && this.session?.id === session.user.id) {
                         return;
                     }
@@ -155,11 +155,6 @@ export class SubscriptionManager {
                 } else {
                     this.session = null;
                     invalidatePlanCaches();
-                    if (this.realtimeCleanup) {
-                        this.realtimeCleanup();
-                        this.realtimeCleanup = null;
-                    }
-                    this.realtimeSubscribedEmail = null;
                     this.lastPlanFingerprint = "";
                     this.lastPlanFingerprintAt = 0;
                     // Drop the offline entitlement too — a signed-out machine must
@@ -364,48 +359,9 @@ export class SubscriptionManager {
         }
     }
 
-    /**
-     * Setup realtime subscription for plan changes
-     */
-    private static realtimeCleanup: (() => void) | null = null;
-    private static realtimeSetupPromise: Promise<void> | null = null;
-    private static realtimeSubscribedEmail: string | null = null;
-    private static realtimePausedEmail: string | null = null;
+    /** Dedupe state for `applyPlanChange` — see the fingerprint comment there. */
     private static lastPlanFingerprint = "";
     private static lastPlanFingerprintAt = 0;
-
-    /**
-     * Idle-pause: close the always-open plan-change realtime channel when the
-     * main window is hidden/blurred so its keepalive stops pinging Supabase. The
-     * subscribed email is remembered for resume. No-op if already closed.
-     */
-    static pauseRealtime(): void {
-        /* No channel to pause since the realtime plan subscription was removed. Kept
-           as a no-op so main.ts's idle handling needs no change and any future
-           background work has an obvious hook. */
-        if (this.realtimeCleanup) {
-            this.realtimePausedEmail = this.realtimeSubscribedEmail;
-            this.realtimeCleanup();
-            this.realtimeCleanup = null;
-            this.realtimeSubscribedEmail = null;
-            logger.log('[SubscriptionManager] Realtime paused (window idle)');
-        }
-    }
-
-    /**
-     * Resume on window focus: reopen the channel and drop cached plan state so a
-     * plan change that happened while idle (and thus missed the closed channel) is
-     * picked up on the next read. No-op if not signed in or already open.
-     */
-    static async resumeRealtime(): Promise<void> {
-        const email = this.realtimePausedEmail ?? this.session?.email ?? null;
-        this.realtimePausedEmail = null;
-        if (email && !this.realtimeCleanup) {
-            invalidatePlanCaches();
-            await this.refreshPlanFromServer(0);
-            logger.log('[SubscriptionManager] Realtime resumed (window focus)');
-        }
-    }
 
     /*
      * REMOVED: `setupRealtimeSubscription`.
@@ -631,11 +587,6 @@ export class SubscriptionManager {
         await signOut();
         this.session = null;
         invalidatePlanCaches();
-        if (this.realtimeCleanup) {
-            this.realtimeCleanup();
-            this.realtimeCleanup = null;
-        }
-        this.realtimeSubscribedEmail = null;
         this.lastPlanFingerprint = "";
         this.lastPlanFingerprintAt = 0;
     }

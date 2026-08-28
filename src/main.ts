@@ -1511,10 +1511,13 @@ const createWindow = () => {
   mainWindow.on("enter-full-screen", broadcastFullscreen);
   mainWindow.on("leave-full-screen", broadcastFullscreen);
 
-  // Idle-pause Supabase background activity (realtime keepalive + auth
-  // auto-refresh) when the window is backgrounded for a while, so the app stops
-  // pinging Supabase while the user isn't using it. Debounced (60s) so a quick
-  // alt-tab doesn't churn the connection.
+  // Idle-pause Supabase auth auto-refresh when the window is backgrounded for a
+  // while, so the app stops pinging Supabase while the user isn't using it.
+  // Debounced (60s) so a quick alt-tab doesn't churn the connection.
+  //
+  // The realtime keepalive this used to pause as well is gone — see the removal
+  // note in SubscriptionManager. Token refresh is the only background Supabase
+  // traffic the app has left.
   let supabaseIdleTimer: ReturnType<typeof setTimeout> | null = null;
   let supabaseBgPaused = false;
   const SUPABASE_IDLE_DELAY_MS = 60_000;
@@ -1537,7 +1540,6 @@ const createWindow = () => {
       supabaseIdleTimer = null;
       if (supabaseBgPaused) return;
       supabaseBgPaused = true;
-      SubscriptionManager.pauseRealtime();
       setAutoRefresh(false);
     }, SUPABASE_IDLE_DELAY_MS);
   });
@@ -1562,7 +1564,6 @@ const createWindow = () => {
     if (!supabaseBgPaused) return;
     supabaseBgPaused = false;
     setAutoRefresh(true);
-    void SubscriptionManager.resumeRealtime();
   });
 
   mainWindow.webContents.on("render-process-gone", (_event, details) => {
