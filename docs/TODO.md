@@ -654,6 +654,23 @@ approval, MCP description wrapping + OAuth-URL validation, the universal write-c
 
 ## 🪤 Traps worth not rediscovering
 
+### Deleting railway.toml FLIPS the builder — an 8-minute outage
+
+Migrating to `.railway/railway.ts` on 2026-08-28, the toml was deleted. It contained
+`builder = "nixpacks"` while the SERVICE's persisted setting was **RAILPACK** — the file had been
+overriding it at every deploy. Deleting it flipped the builder. Build succeeded, healthcheck
+passed, and every Supabase call then failed with **"Node.js detected but native WebSocket not
+found"**, because it is a different runtime image. Every Core request 502'd for eight minutes.
+
+**`railway config pull` captures what the SERVICE holds, not what a file was OVERRIDING.** The
+pulled config said RAILPACK — accurate about the service, wrong about production. `startCommand`,
+`healthcheckPath` and `healthcheckTimeout` were null on the service too and lived only in the toml.
+**Diff the toml against the pulled file by hand before deleting it.**
+
+**And the debugging lesson, which cost more than the fix:** I chased the npm dependency I had just
+added, then the Node version, because both changed in the same window. Neither was it. **When
+something breaks right after a migration, suspect what was REMOVED before what was added.**
+
 ### A failed CI check suite silently SKIPS the Railway deploy
 
 **Found 2026-08-28, and it had been happening since 2026-08-25 with nothing saying so.**
