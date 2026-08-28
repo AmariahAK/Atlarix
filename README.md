@@ -62,7 +62,7 @@ Release notes: **[docs/CHANGELOG.md](docs/CHANGELOG.md)** (current: 14.25+). Old
 - **Prompt caching:** Dispatches are cache-friendly out of the box — Anthropic API key turns place `cache_control` breakpoints over the stable system header and conversation history, cutting repeat-turn input cost and latency.
 - **Real terminal:** User terminal tabs are full interactive shells (xterm.js + PTY) — Tab completion, arrows, colors, vim/top. Tabs and scrollback **persist across app restarts**, and tab labels track the shell's live cwd. Agent commands run separately with captured output and approvals.
 
-**Providers:** **Atlarix Core** (managed open-weight models, Core 1–4) plus your own API keys across 145+ providers (OpenAI, Anthropic, Gemini, and more) and local models (Ollama, LM Studio).
+**Providers:** **Atlarix Core** (managed open-weight models, configured remotely rather than pinned to a release) plus your own API keys across 145+ providers (OpenAI, Anthropic, Gemini, and more) and local models (Ollama, LM Studio).
 
 ---
 
@@ -75,7 +75,7 @@ Retrieval is **purely lexical — no index, no embeddings, no map tool, no backg
 ### AI Agents & Modes
 
 - **Work modes:** Explore, Plan, Build, Debug, Review.
-- **Atlarix Core:** Four managed cloud models — **Core 1** (fastest) through **Core 4** (most capable). Every plan gets all four. Pro includes Core for everyday work and draws on a prepaid credit balance beyond that; Free draws on that balance from the start (top up from $10).
+- **Atlarix Core:** Managed cloud models, named in the picker by what they actually are. The lineup is configured remotely ([`core-models.json`](https://github.com/AmariahAK/atlarix-releases/blob/main/core-models.json)) rather than fixed in a release, so it changes without an app update — today it is **GLM 5.3** and **DeepSeek V4 Pro**. Every plan can use every Core model; there is no tier gating and no model is reserved for a paid plan. Pro includes Core for everyday work and draws on a prepaid credit balance beyond that; Free draws on that balance from the start (top up from $10).
 
 ### Workspace Tools & Extensions
 
@@ -194,10 +194,10 @@ After `npm install`, **`postinstall`** runs `patch-package` and the Electron ins
 
 | Tier      | Price   | Workspaces | Highlights |
 |-----------|---------|------------|------------|
-| **Free**  | $0      | 1          | All four Core models (pay-as-you-go credits); your own API keys and local models free; core tools; **1** MCP server per workspace (manual config); **2** automations per workspace |
+| **Free**  | $0      | 1          | Every Core model (pay-as-you-go credits); your own API keys and local models free; core tools; **1** MCP server per workspace (manual config); **2** automations per workspace |
 | **Pro**   | $19/mo  | Unlimited  | Everything in Free + **Atlarix Core included for everyday work** + Agent Behaviors + MCP marketplace + one-click OAuth connectors; **10** MCP servers and **10** automations per workspace |
 
-**Every plan runs every model.** All four Core models are available on Free and Pro alike, and **your own API keys and local models are free on every plan**.
+**Every plan runs every model.** Every Core model is available on Free and Pro alike — the lineup is configured remotely, so it is whatever `core-models.json` currently names rather than a fixed count — and **your own API keys and local models are free on every plan**.
 
 **Pro includes Atlarix Core for everyday work**, and heavier use draws on pay-as-you-go credit you top up, metered as you go. Free uses that same credit from the start (each new account gets a one-time **$1** trial credit; top-ups start at **$10**). See [docs/compass-limits.md](docs/compass-limits.md).
 

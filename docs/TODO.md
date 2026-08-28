@@ -1,5 +1,13 @@
 # Atlarix TODO
 
+**Unreleased on `main`, untagged:** the realtime scaffolding v14.38.2 left behind is deleted
+(~150 lines that could not run — `realtimeCleanup` is never assigned, so `pauseRealtime()` was
+a permanent no-op), and the README stops claiming four Core models. Owner green-lights the
+release; nothing is tagged. Out-of-band the same day, needing no app release:
+Core 1 -> **GLM 5.3** (`atlarix-releases@0db87cb`, identical pricing to 5.2 so the metering
+maths does not move), the reviewer's idle poll 120/hr -> ~15/hr, the reviewer security pass,
+and the proxy's service-path account check.
+
 **Current version:** v14.38.2 — **SHIPPING 2026-08-27.** The Settings → Integrations fix,
 the doc corrections, the connected-repositories list, the navbar label, and the realtime
 teardown: the always-open plan-change channel was 93.5% of database execution time and is
@@ -10,7 +18,7 @@ missed entirely (it only refreshed after a 60s idle-out).
 v14.35.0 (2026-08-20). Full narrative for every one of them is in
 [`CHANGELOG.md`](./CHANGELOG.md).
 
-**Last updated:** 2026-08-27
+**Last updated:** 2026-08-28
 
 > **What belongs here:** open work, decisions still owed, and traps worth not
 > rediscovering.
@@ -80,47 +88,58 @@ is the honest thing for it to say. Two ways out:
   `GET /installation/repositories` per install with an installation token and applying it
   with `mode: 'set'`. Needs the App private key, which lives in Railway, not locally.
 
-### 1c. Supabase load is Realtime WAL polling, not API traffic — MEASURED 2026-08-27
+### 1c. Supabase load — CLOSED 2026-08-28. Both polls are gone.
 
-Asked because the dashboard read "243 requests / last 60 minutes". **That number is not
-the problem** — it is ~4/min, in the exact hour we ran a migration push, ~8
-`supabase db query --linked` calls and repeated account-page loads. The two Postgres
-errors in the same window match a malformed query run by hand
-(`review_jobs.status` — the column is `state`).
+Realtime first (v14.38.2), then the one underneath it. Cumulative
+`realtime.list_changes` went 7,323,466 -> 7,324,770 in a day: the fire is out and the 93.5%
+still on the dashboard is history, because `pg_stat_statements` has not been reset since
+2026-01-14.
 
-**What `supabase inspect db calls --linked` actually shows** (cumulative, `pg_stat_statements`):
+**What was left was the REVIEWER, and its own comment undercounted it by 2x.** The
+`IDLE_POLL_MS` note said "`claim()` is one PostgREST select". The idle path is TWO —
+`reclaimStale()` runs whenever `claim()` comes back empty, which on an empty queue is every
+tick. Measured three times, longest window 600s: **2.00 calls/min, 120/hour**, forever,
+against a `review_jobs` table that has held **seven jobs in its lifetime**. Fixed in
+`atlarix-reviewer@5db86b4`: 5-minute interval, reclaim every 4th idle pass (STALE_CLAIM_MS is
+20 min, so that cadence loses nothing). **120/hr -> ~15/hr.**
 
-| Query | Calls | % exec time |
-| --- | --- | --- |
-| `realtime.list_changes(...)` ×3 variants | **7,323,466** | **93.5%** |
-| `SHOW transaction_read_only` | 78,043 | 0.0% |
-| `users WHERE email = $1` (PostgREST) | 19,747 | 0.0% |
+**The measurement trap, for next time.** `pg_stat_statements` has NO per-request counter.
+`select set_config('search_path'...)` looks like one and is not — it fires per CONNECTION, and
+PostgREST pools, so it did not move at all across a 600s window in which 20 REST queries ran.
+The numerator is measurable this way; the denominator is not. For "what fraction of our
+traffic is X" the only honest source is the dashboard's **Logs Explorer on `edge_logs`,
+grouped by `request.path`** — which needs a Management API token the CLI keeps in the login
+keychain.
 
-**93.5% of all database execution time — over 9 hours of CPU — is Realtime polling the
-WAL replication slot.** The source is `SubscriptionManager.setupRealtimeSubscription`: an
-always-open channel per signed-in desktop app, watching `users` for plan changes, keyed
-by email. The WAL poll runs on the Realtime service's own tick, so its cost is driven by
-Realtime being *enabled with a subscription* rather than by how many clients connect.
-
-**RESOLVED in v14.38.2** — the subscription is gone, replaced by a focus read. What follows
-is the reasoning, kept because the measurement is worth not repeating.
-
-**Not a bug, and partly mitigated already** — `pauseRealtime()` closes the channel when
-the window is idle. The open question is whether a persistent channel is worth 93% of DB
-time for a plan change that a focus-time re-read would also catch. Decide before there
-are many signed-in clients, because this is the line item that grows with users.
-
-**Separately, and more urgent than any of it: `LAST BACKUP: No backups`.** This project
-holds `credit_wallet`, `credit_grants` and the append-only `credit_transactions` ledger —
-the money. The Free plan has no scheduled backups and no PITR. Either accept that
-explicitly, or take periodic `pg_dump`s somewhere. An unbacked ledger is a worse risk than
-anything above.
+**Still open, and still the biggest risk here: `LAST BACKUP: No backups`.** Confirmed again
+2026-08-28 via `supabase backups list` — `pitr_enabled: false`, `backups: []` — on the project
+holding `credit_wallet`, `credit_grants` and the append-only `credit_transactions` ledger.
+Owner chose Cloudflare R2; see the backup section.
 
 ### 2. Cut v14.38.2 — DONE 2026-08-27
 
 `0a6e8e2e` is on `main` and untagged. Standard flow: changelog heading FIRST (the awk in
 `extract-changelog.sh` must match, or the body silently degrades to a download list), local
 gate incl. `check:sandbox`, push, flip the repo public, tag, wait green, flip back private.
+
+### 2b. Money-DB backups — IN PROGRESS 2026-08-28, blocked on the owner
+
+Owner chose **Cloudflare R2** over a Supabase Pro upgrade. What is owed by them, because none
+of it can be done from here: a personal Cloudflare account (**R2 requires a card on file even
+on the free tier** — usage stays $0 inside 10 GB / 1M Class A / 10M Class B, and a nightly
+ledger dump is single-digit MB), a bucket, a bucket-scoped Object Read & Write token, the
+Supabase **session-pooler** URI on **port 5432** (transaction mode on 6543 does not work with
+`pg_dump`), and an `age` keypair whose PUBLIC half is all the service ever sees.
+
+Shape agreed: a separate `atlarix-backup` repo on its own Railway cron service, `postgres:17-alpine`
+(the server is **17.6**; a mismatched `pg_dump` refuses), `pg_dump --schema=public` PLUS a
+data-only dump of `auth.users` — credit rows key on `auth.users.id`, so without it a restore
+cannot map wallets to people. **Deliberately NOT inside `atlarix-reviewer`:** that process
+ingests pull-request text written by strangers, and a full Postgres connection string is
+exactly what `atlarix-proxy/src/entitlement.ts`'s header warns against putting there.
+
+**A restore rehearsal is part of the work, not a follow-up.** A backup that has never been
+restored is not a backup.
 
 ### 3. One non-owner run of the reviewer, end to end
 
@@ -240,7 +259,7 @@ how you confirm one landed. **Re-check `verify_jwt` on `handle-lemon-webhook` af
 `supabase/config.toml` declares no `[functions.*]` section, so that setting lives only in the
 dashboard and a deploy can re-enable it, which would break every webhook (LemonSqueezy sends no JWT).
 
-**What this shipped WITHOUT, and it is a money path: refunds.** See the refund section below.
+**Refunds shipped in v14.38.0** and there is no longer a refund section below. Kept as a pointer because this paragraph is where someone reading the credit-grant work will look for it: the traps are in the shipped index, and `refund_grant_service` is the fifth service RPC.
 
 ---
 
@@ -436,50 +455,46 @@ warm run. (Separately: three Core 503s on 2026-08-27 — watched, not diagnosed.
   flow-in-progress gate stays. Revisiting needs confirmation that the Supabase redirect-URL
   allowlist permits a query param.
 
-## 🔐 A security pass over the WHOLE topology — owner's ask, 2026-08-27
+## 🔐 Security — the REVIEWER is done (2026-08-28). The rest of the topology is not.
 
-> *"make sure we are secure so … the pr bot and the systems we have are secure and won't be hacked
-> or get stolen data."* Scoped deliberately: the 2026-07 audits covered the DESKTOP APP and the
-> Supabase project. Since then two things went live that were not in that scope — a **public GitHub
-> App with write access to customers' pull requests**, and a **money path anyone on the internet can
-> POST to**. Neither has ever been audited.
+Owner scoped the pass to **`atlarix-reviewer` only**, audited by hand. Five findings, all
+five fixed in `atlarix-reviewer@edc457e`. **The write-up lives at
+`../SECURITY_AUDIT_reviewer_2026-08-28.md` — OUTSIDE every repository, on purpose:** the
+reviewer and proxy repos get flipped public to run CI past the Actions budget block, so a
+repo whose visibility toggles is not a home for a live exploit write-up. That is a general
+rule now, not a one-off.
 
-**Where the real exposure is, ranked by what an attacker actually gets:**
+**The two that mattered, kept here because they are lessons, not history:**
 
-- **`REVIEWER_SERVICE_TOKEN` bills any account.** The proxy TRUSTS the `x-atlarix-account-id` header
-  on the service path (a PR webhook fires with nobody signed in, so `auth.uid()` is null and no
-  owner-scoped RPC works). A leaked token therefore lets the holder spend any customer's wallet.
-  The cross-check exists and is unused: the reviewer already resolves the account from
-  `github_installs`, so the proxy could verify the claimed account actually owns an installation.
-  Cheap, and it turns a bearer secret into a bearer secret **plus** a consistency check.
-- **The reviewer holds a Supabase `service_role` key**, which bypasses RLS on every table including
-  `credit_wallet`. The honest claim today is "it holds one and never uses it to move money"; a
-  Postgres role scoped to its four tables and its RPCs would make the boundary real rather than
-  behavioural. Now **five** RPCs with `refund_grant_service`, so the scope widens the longer it waits.
-- **The model reads attacker-authored text.** A pull request's diff, title and body are written by
-  whoever opened it, and on a public repo that is anyone. Prompt injection aimed at the reviewer is
-  the obvious attack and there is no boundary marking that content as untrusted today. The
-  containment that limits the blast radius is real and worth stating: the write client posts
-  `event: "COMMENT"` only, so the worst outcome is a wrong or hostile REVIEW, not a push. Verify that
-  is still true, and that no tool the reviewer holds can reach the wallet or another repo.
-- **`handle-lemon-webhook` is `verify_jwt: false` by necessity** — LemonSqueezy sends no JWT — so the
-  HMAC is the only thing standing between the internet and the credit ledger. It is verified against
-  the raw body in constant time, which is right; what is unaudited is everything downstream of a
-  VALID signature, now including the refund paths that MOVE MONEY BACK. A replayed refund, a forged
-  `custom_data.supabase_user_id`, an invoice id reused as a ref across accounts.
-- **`bind-github-install` is the account-takeover surface** and was tested against a real attacker
-  account (forged codes refused at every layer). The one layer NOT covered is a VALID code from an
-  account that does not administer the target → `installation_not_yours`. `atlarix-agent` can do it.
-- **Secrets inventory across FOUR deployment targets** — Railway (reviewer + proxy), Supabase edge
-  functions, GitHub Actions, and the App's private key on the owner's disk. There is no rotation
-  story for any of them and no record of which are recoverable if leaked. The App private key is the
-  worst one: it authenticates as the bot to every installation.
+- **A comment claiming a boundary is not a boundary.** `tools.ts` said there was "no way to
+  read outside the repository under review". `fileAt` built its URL with `encodeURI`, which
+  leaves `/` `.` `?` `#` alone **by design** — it encodes a URL, not a path segment — and
+  `fetch` normalises dot segments like any URL parser. `../../../<org>/<private>/contents/.env`
+  reached that file with the installation token attached, and the review is posted as a PUBLIC
+  comment, so read and exfiltrate were the same action. **When a comment asserts containment,
+  go and try the thing it says is impossible.**
+- **Ask who is allowed to spend, not just who is allowed to speak.** An `@atlarixagent`
+  mention re-runs a paid review, and the only filter was "not a bot" — so on a public repo any
+  GitHub account could drain a paying customer's wallet by commenting in a loop. The fix was
+  already in the payload: `author_association`. **`CONTRIBUTOR` is deliberately NOT in the
+  allowed set** — on a public repo that status is earned by one merged PR and never expires,
+  which makes it a permanent licence to spend someone else's money.
+- Two smaller ones worth the habit: untrusted blocks could close their own delimiters (fixed
+  with a per-prompt nonce — the attacker writes their text before the nonce exists), and
+  installation tokens were minted for the WHOLE installation when a review needs one repo.
 
-**Do it the way 2026-07 was done** — parallel agents per surface, findings written to a document,
-then remediate Critical→Low with a coverage table, per
-[[atlarix-security-fix-all-findings]]. **Do not push that document public.** Note what the earlier
-audits already settled so they are not re-litigated: model-context secret redaction is CLOSED
-(decided twice), and `.env` inside a workspace is deliberately enumerable.
+**Still NOT audited, and unchanged since the ask:** `handle-lemon-webhook` downstream of a
+valid signature (replayed refunds, forged `custom_data.supabase_user_id`, an invoice id reused
+as a ref across accounts), `bind-github-install`'s one uncovered layer (a VALID code from an
+account that does not administer the target), and the **secrets inventory across four
+deployment targets** with no rotation story — the App private key being the worst, since it
+authenticates as the bot to every installation.
+
+**Closed by this pass:** the proxy's service path no longer takes `x-atlarix-account-id` on
+trust (`atlarix-proxy@1fae9a0`), so a leaked `REVIEWER_SERVICE_TOKEN` reaches only accounts
+that actually installed the App. Verified read-only and NOT to be re-litigated: all ten
+`*_service` DEFINER RPCs are `service_role`-only, RLS is on for all ten public tables, and
+`review_jobs` has RLS with zero policies (deny-all except service_role, correct by design).
 
 ## 📚 The docs are stale — owner's ask, 2026-08-27
 
@@ -491,8 +506,9 @@ audits already settled so they are not re-litigated: model-context secret redact
   `guideDocs.ts`, `helpDocs.ts`, `PricingTiers.tsx` or `PricingPage.tsx`. The app repo's
   `README.md` and `docs/compass-limits.md` carried the same stale claim and were corrected in
   `0a6e8e2e`; `Terms.tsx` and the credits help doc now state the allowance/credit shape.
-- **Left over, small:** `guideDocs.ts:241,246` still describe Core as flatly pay-as-you-go
-  without mentioning the included allowance. Not false the way the old copy was — incomplete.
+- **DONE 2026-08-28** (`atlarix-launchpad@72d04b6`). The Core guide embeds `CORE_EXPLAINER`
+  from `products.ts` verbatim rather than restating it, which is the check that stops the
+  next change leaving a fourth copy behind.
 - **Reviewer's billing was undocumented everywhere and now is not.** It grants the SAME
   monthly allowance as Pro (`MONTHLY_GRANT_CENTS`) and debits the same meter; the Terms, the
   credits doc, the README and `REVIEWER.included` all say so. No dollar figures, per
@@ -503,8 +519,17 @@ audits already settled so they are not re-litigated: model-context secret redact
   retrieval, indexing or the old panel-based approvals is describing software that no longer exists.
 - **The blog posts are dated artifacts and should NOT be rewritten** — `blogPostContent.ts` carries
   pricing tables that were true when published. Leave them; the fix for a stale post is a new post.
-- **Atlarix's own `README.md` and `docs/` too**, not just the site: the README's feature list is the
-  most-read description of the product and nothing verifies it against the code.
+- **The README was advertising twice the product that exists.** "Four managed cloud models —
+  Core 1 (fastest) through Core 4 (most capable). Every plan gets all four", in three places,
+  when `core-models.json` configures TWO and an unconfigured slot reads as empty everywhere.
+  Fixed 2026-08-28 by describing the lineup as remotely configured rather than restating a
+  count that drifts; the same sentence was in `atlarix-releases/README.md` and moved too.
+  **The general form: a doc that states a NUMBER the config decides will be wrong eventually.**
+- **Coverage added 2026-08-28:** deep thinking and voice input, neither documented anywhere.
+  **Passkeys deliberately NOT documented** — the device-stored authenticator is gone and the
+  roaming flow has never been driven by hand, so anything written would describe unverified
+  behaviour. An undocumented feature is a gap; a documented one that does not work is a
+  support ticket.
 - **The check that would stop it recurring:** every claim about pricing or plans now has ONE home
   (`src/shared/billing_copy.ts` and the launchpad's `src/data/products.ts`). Route the docs through
   those rather than restating them, and the next change propagates instead of drifting.
