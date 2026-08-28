@@ -879,7 +879,21 @@ jobs:
     secrets: inherit
 
   publish-release:
-    needs: [quality, create-draft, build-macos, build-linux, build-windows]
+    # build-msix IS REQUIRED. Owner's rule, 2026-08-28: the MSIX ships on EVERY
+    # release, and it is never described as optional.
+    #
+    # It was absent from this list, and v14.38.3 is what that costs: the MSIX job
+    # failed on an npm publication race, `publish-release` did not care, and the
+    # desktop release went out while Store users — the MAJORITY of users — got
+    # nothing. The run was green apart from one job nobody was gated on, so the
+    # gap announced itself to no one.
+    #
+    # The trade this accepts, stated so it is a choice rather than an accident: a
+    # Store or Azure outage now blocks the desktop publish too. That is the
+    # correct direction. A release that reaches some platforms and silently skips
+    # the biggest one is not a release, and the recovery is a job re-run rather
+    # than a new tag.
+    needs: [quality, create-draft, build-macos, build-linux, build-windows, build-msix]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v')
     steps:

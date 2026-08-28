@@ -1,7 +1,8 @@
 # Atlarix TODO
 
 **Current version:** v14.38.3 — **RELEASED 2026-08-28.** 12 assets, draft=false, body carries the
-changelog. MSIX built and **submitted to the Microsoft Store** on a re-run — see the trap below.
+changelog. MSIX built and **submitted to the Microsoft Store** on a re-run, and is now REQUIRED by
+`publish-release` so it can never be skipped again — see the trap below.
 Launchpad caught up TWO releases (it was still on 14.38.1).
 
 Shipped out-of-band the same day, needing no release: **Core 1 → GLM 5.3**, the reviewer security
@@ -714,10 +715,18 @@ root resolves its semver range to whatever is newest at that instant — meaning
 was shipping versions nobody tested, since `npm test` runs against the lockfile. Fixed on `dev`
 (`61d519f8`): each root installs as `name@version` read from `package-lock.json`.
 
-**Two things worth keeping from the diagnosis:** MSIX is NOT in `publish-release`'s `needs`, so it
-failing does not block the desktop release — check it separately or you will not notice. And when a
-build breaks right after unrelated changes, get the publication timestamp before suspecting your own
-diff: `npm view <pkg> time --json`.
+**THE MSIX SHIPS ON EVERY RELEASE. It is not optional and must never be described as such.**
+Owner's rule, 2026-08-28. It was absent from `publish-release`'s `needs`, which is why v14.38.3
+published to macOS, Linux and Windows while Store users — the MAJORITY of users — got nothing, off
+a run that looked green. `build-msix` is now in that `needs` list, so a release cannot publish
+without it. The trade is deliberate: a Store outage now blocks the desktop publish too, and that is
+the right direction — a release that reaches some platforms and silently skips the biggest one is
+not a release. Recovery is a job re-run, not a new tag.
+
+**And the diagnostic habit:** when a build breaks right after unrelated changes, get the
+publication timestamp before suspecting your own diff — `npm view <pkg> time --json`. It cost one
+command here and would otherwise have cost a Windows build cycle chasing two innocent
+dependencies.
 
 ### A failed CI check suite silently SKIPS the Railway deploy
 
