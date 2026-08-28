@@ -527,9 +527,57 @@ const config: ForgeConfig = {
       );
       // ────────────────────────────────────────────────────────────────────
 
+      /**
+       * PIN EVERY ROOT TO THE VERSION THE LOCKFILE ALREADY RESOLVED.
+       *
+       * This install runs with `--no-package-lock`, so a bare `name` resolves
+       * that package's semver range to whatever is NEWEST at this instant. Two
+       * problems follow, and only the second one is loud:
+       *
+       *   1. The packaged app ships versions nobody tested. `npm test` ran
+       *      against the lockfile; the binary gets whatever npm felt like.
+       *      That is a reproducibility hole and a supply-chain one — an
+       *      unpinned newest-version install straight into a shipped artifact.
+       *   2. It races publication. v14.38.3's MSIX build failed with
+       *      `notarget @ai-sdk/openai@4.0.51` — a version published SEVEN
+       *      SECONDS earlier, picked up from the packument before its tarball
+       *      had propagated to that runner's CDN edge.
+       *
+       * The lockfile is the version we tested, so install exactly that. A root
+       * with no lockfile entry keeps the old behaviour and says so, rather than
+       * failing a release over a package we cannot pin.
+       */
+      const pinnedRoots: string[] = (() => {
+        try {
+          const lock = JSON.parse(
+            fs.readFileSync(path.join(process.cwd(), "package-lock.json"), "utf8"),
+          ) as { packages?: Record<string, { version?: string }> };
+          const packages = lock.packages ?? {};
+          return toInstall.map((name) => {
+            const version = packages[`node_modules/${name}`]?.version;
+            if (!version) {
+              console.warn(
+                `[packageAfterPrune] "${name}" has no package-lock entry — installing UNPINNED (npm will take newest)`,
+              );
+              return name;
+            }
+            return `${name}@${version}`;
+          });
+        } catch (e) {
+          console.warn(
+            `[packageAfterPrune] could not read package-lock.json (${
+              e instanceof Error ? e.message : String(e)
+            }) — installing every root unpinned`,
+          );
+          return toInstall;
+        }
+      })();
+
       if (toInstall.length > 0) {
         console.log(
-          `[packageAfterPrune] npm install (${toInstall.length} roots) — may take several minutes on Windows CI`,
+          `[packageAfterPrune] npm install (${toInstall.length} roots, ${
+            pinnedRoots.filter((r) => r.includes("@", 1)).length
+          } pinned from package-lock) — may take several minutes on Windows CI`,
         );
         // Omit dev + optional deps so nested tooling (Playwright, typings, etc.) does not land in the packaged app.
         const commands = [
@@ -542,7 +590,7 @@ const config: ForgeConfig = {
           "--no-audit",
           "--no-fund",
           ...npmTargetPlatformArgs(platform, arch),
-          ...toInstall,
+          ...pinnedRoots,
         ];
         await runNpmInstall(buildPath, commands);
       }
