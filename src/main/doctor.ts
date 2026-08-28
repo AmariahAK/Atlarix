@@ -26,6 +26,7 @@ import {
   runSelfTest,
   type SelfTestProbe,
 } from "./self-test";
+import { describeAllowanceUsed, formatCents } from "@/shared/billing_copy";
 
 const logger = log.scope("doctor");
 
@@ -97,7 +98,7 @@ const coreCheck: DoctorCheck = {
   title: "Atlarix Core",
   what: "Signed in, and our proxy is reachable.",
   remediation:
-    "If it says signed out, sign in from the sidebar. If the balance is $0.00, top up from Account. If the proxy is unreachable, check a VPN or corporate proxy — your own API keys and local models keep working either way.",
+    "If it says signed out, sign in from the sidebar. If the balance is $0.00, top up from Account. If you are on a paid plan and the included usage reads $0.00 mid-period, the monthly grant did not renew — that is a billing problem, not an empty wallet. If the proxy is unreachable, check a VPN or corporate proxy — your own API keys and local models keep working either way.",
   docPath: "help/ai-rate-limit",
   severityWhenFailed: "warn",
   run: async () => {
@@ -117,18 +118,37 @@ const coreCheck: DoctorCheck = {
     if (error) {
       throw new Error(`Signed in, but the balance could not be read: ${error.message}`);
     }
-    const row = data as { ok?: boolean; balance_cents?: number } | null;
+    // `balance_cents` is the SPENDABLE total — the month's included usage plus
+    // purchased credit. The split is reported alongside it because the two fail
+    // for different reasons: an allowance at zero on a paid plan mid-period is a
+    // grant that did not renew, which looks identical to an empty wallet if you
+    // only print the total.
+    const row = data as {
+      ok?: boolean;
+      balance_cents?: number;
+      granted_cents?: number;
+      granted_total_cents?: number;
+      purchased_cents?: number;
+    } | null;
     const cents = Number(row?.balance_cents ?? 0);
-    const dollars = (cents / 100).toFixed(2);
     if (row?.ok === false) {
       throw new Error("Signed in, but the account is not in good standing.");
     }
+    // Reported as CONSUMED, matching the card. "$0.27 of $1,000,000.00 used" says
+    // whether the allowance is being drawn down; "$999,999.73 included" does not,
+    // and the difference is the whole reason the period total exists.
+    const split =
+      typeof row?.granted_cents === "number" && typeof row?.purchased_cents === "number"
+        ? typeof row?.granted_total_cents === "number" && row.granted_total_cents > 0
+          ? ` (${describeAllowanceUsed(row.granted_total_cents - row.granted_cents, row.granted_total_cents)} of this month's included usage, ${formatCents(row.purchased_cents)} purchased)`
+          : ` (no allowance this period, ${formatCents(row.purchased_cents)} purchased)`
+        : "";
     if (cents <= 0) {
       throw new Error(
-        `Reachable, but the credit balance is $${dollars} — Core requests will be refused until you top up.`,
+        `Reachable, but the spendable balance is ${formatCents(cents)}${split} — Core requests will be refused until you top up.`,
       );
     }
-    return `signed in, proxy reachable, balance $${dollars}`;
+    return `signed in, proxy reachable, balance ${formatCents(cents)}${split}`;
   },
 };
 
@@ -225,9 +245,23 @@ const providerKeysCheck: DoctorCheck = {
       const mod = await import("../ipc/shared/provider_api_keys");
       getProviderApiKey = mod.getProviderApiKey;
       providers = await mod.getConfiguredProviders();
-    } catch {
+    } catch (err) {
+      /**
+       * NAME THE ACTUAL CAUSE. This used to be a bare `catch {}` that answered
+       * "the local database is unavailable" for every possible failure — and the
+       * Local database row's own remediation is "reinstall Atlarix". So the one
+       * tool that exists to diagnose a broken install told healthy users to
+       * reinstall, over a defect in this CLI path: `--doctor` never called
+       * `initializeDatabase()`, so the shared handle threw "Database not
+       * initialized" while the sqlite row (a lifecycle-free self-test probe that
+       * opens its own connection) reported OK in the same report.
+       *
+       * Two rows contradicting each other is what made it findable, and a check
+       * that names one cause for every failure will mislead again.
+       */
+      const detail = err instanceof Error ? err.message : String(err);
       throw new Error(
-        "Could not read your saved keys — the local database is unavailable. Fix the Local database row first; this check says nothing about whether your keys are valid.",
+        `Could not read your saved keys: ${detail}. This check says nothing about whether your keys are valid.`,
       );
     }
     if (providers.length === 0) {

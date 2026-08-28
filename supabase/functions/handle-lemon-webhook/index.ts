@@ -1,19 +1,59 @@
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
+import {
+    creditClawbackCents,
+    grantClawbackCents,
+    incrementalClawbackCents,
+    invoiceIds,
+    productOf as classifyProduct,
+    refundFraction,
+} from '../_shared/refund-math.ts';
 
 /**
  * LemonSqueezy Webhook Handler
  * ============================
- * Two responsibilities under the PAYG reframe:
- *   1. subscription_* events -> Atlarix Pro entitlement on public.users.
- *   2. order_created / order_refunded for the "Atlarix Core Credit" product ->
+ * Responsibilities:
+ *   1. Pro subscription_* events -> entitlement on public.users, plus that
+ *      product's monthly Core allowance in public.credit_grants.
+ *   2. Reviewer subscription_* events -> entitlement in
+ *      public.reviewer_subscriptions, plus its own allowance in
+ *      public.credit_grants. A SEPARATE product: it must never touch users.plan.
+ *   3. order_created / order_refunded for the "Atlarix Core Credit" product ->
  *      credit / claw back the PAYG wallet (public.credit_wallet).
+ *   4. subscription_payment_refunded -> drop the entitlement immediately and
+ *      claw back that period's allowance, proportionally on a partial refund.
+ *
+ * REFUNDS ARE TWO DIFFERENT OPERATIONS SHARING A WORD. A credit top-up refund
+ * returns money the customer spent ON CREDIT, so the clawback is the credit
+ * itself and it may drive the wallet negative. A subscription refund returns a
+ * FEE — which bought entitlement plus an allowance, not $19 of credit — so it
+ * claws back the GRANT, floored at zero, and never touches purchased credit.
+ * Getting that backwards would either let buy-burn-refund run free or take money
+ * the customer actually paid for.
+ *
+ * ENTITLEMENT AND ALLOWANCE ARE TWO WRITES, and both are needed. The
+ * subscription row says a customer MAY be served; the allowance is what PAYS for
+ * the inference. Writing only the first is how a subscriber who has just paid
+ * $19 gets told to top up their wallet.
  *
  * IMPORTANT: publicly accessible (LemonSqueezy sends no Supabase auth token); we
  * verify the HMAC signature instead. The account to mutate is always resolved
  * from the TRUSTED supabase_user_id our create-checkout edge function embeds in
  * the checkout custom_data (server-set from the caller's JWT), never the
  * attacker-controlled payload email (SB-07).
+ *
+ * TWO PRODUCTS ON ONE WEBHOOK — the trap this file now has to avoid. Every
+ * subscription event arrives on the same endpoint and looks alike. Until
+ * 2026-08-26 every subscription path hardcoded 'pro' while reading `variant_id`
+ * and never comparing it, so a Reviewer payment would have granted Pro. The
+ * classification below is therefore the first thing every subscription case does.
+ *
+ * AND NOTE the `default:` case: an unhandled event is logged and 200-ACKed. That
+ * is correct for LemonSqueezy (a 4xx makes it retry forever) but it means a
+ * MISSING branch is completely silent. That is exactly how the absence of
+ * `subscription_payment_success` went unnoticed — the event was subscribed on the
+ * LS side and the monthly grant simply never renewed, with nothing logged as
+ * wrong. If a new paid behaviour does not fire, check for a missing case first.
  */
 
 const WEBHOOK_SECRET = Deno.env.get('LEMONSQUEEZY_WEBHOOK_SECRET');
@@ -21,6 +61,273 @@ const SUPABASE_URL = Deno.env.get('SUPABASE_URL');
 // New API-key system: prefer the secret key; fall back to the auto-injected legacy service_role.
 const SUPABASE_SERVICE_KEY =
     Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? Deno.env.get('NEXT_PUBLIC_SUPABASE_SECRET_KEY');
+
+const REVIEWER_VARIANT_ID = Deno.env.get('LEMONSQUEEZY_REVIEWER_VARIANT_ID')?.trim() || null;
+
+/**
+ * Cents of Core credit included per paid month, per product.
+ *
+ * These are the numbers the pricing rests on, so they are worth stating: at the
+ * +40% metered rate $10 of allowance costs ~$7.14 of real inference, against
+ * ~$17.58 net of LemonSqueezy's fee — about 59% margin if a subscriber spends
+ * every cent, and more in practice because most do not. Raising either of these
+ * is a direct cut to that margin.
+ */
+const MONTHLY_GRANT_CENTS: Record<'pro' | 'reviewer', number> = {
+    pro: 1000,
+    reviewer: 1000,
+};
+
+/**
+ * Which product is this subscription event about?
+ *
+ * The rule itself lives in `_shared/refund-math.ts` so the unit suite can reach
+ * it — this binds it to the env var. Getting it wrong is not cosmetic: until
+ * 2026-08-26 every subscription path hardcoded 'pro' while reading `variant_id`
+ * and never comparing it, so a Reviewer payment would have granted Pro.
+ */
+function productOf(kind: string, variantId: string): 'pro' | 'reviewer' {
+    return classifyProduct(kind, variantId, REVIEWER_VARIANT_ID);
+}
+
+/**
+ * The service-role client, typed loosely ON PURPOSE.
+ *
+ * This was `ReturnType<typeof createClient>`, which reads like the obvious thing
+ * and is not: with no Database generic supplied, the schema parameter resolves to
+ * `never`, so `supabase.rpc(name, args)` is typed to accept `undefined` args and
+ * EVERY call in this file was a type error. Twenty-one of them, plus two on
+ * `.from()` rows — which is why nothing here was ever type-checked: the noise
+ * floor was so high that a real error could not be seen.
+ *
+ * The honest fix is generated Database types (`supabase gen types`), which would
+ * check the RPC names and argument shapes for real. Until this project generates
+ * them for the functions directory, a permissive alias is better than a broken
+ * one: it makes `deno check` meaningful again, so the NEXT mistake is visible.
+ */
+// deno-lint-ignore no-explicit-any
+type ServiceClient = SupabaseClient<any, any, any>;
+
+/**
+ * Write the Reviewer entitlement. Never touches public.users — the reviewer is a
+ * separate product, not a tier, so `plan` and `effective_tier` stay out of it.
+ */
+async function applyReviewerSubscription(
+    supabase: ServiceClient,
+    args: {
+        userId: string | null;
+        subscriptionId: string;
+        variantId: string;
+        status: string;
+        periodEnd: string | null;
+    },
+): Promise<boolean> {
+    const { data, error } = await supabase.rpc('upsert_reviewer_subscription_service', {
+        p_user_id: args.userId,
+        p_lemon_subscription_id: args.subscriptionId,
+        p_lemon_variant_id: args.variantId || null,
+        p_status: args.status,
+        p_current_period_end: args.periodEnd,
+    });
+    const row = data as { ok?: boolean; error?: string } | null;
+    if (error || row?.ok === false) {
+        console.error(
+            `[Webhook] reviewer upsert failed (sub ${args.subscriptionId}): ${error?.message ?? row?.error}`,
+        );
+        return false;
+    }
+    console.log(`[Webhook] reviewer subscription ${args.subscriptionId} -> ${args.status}`);
+    return true;
+}
+
+/**
+ * Apply one paid month's Core allowance for one product.
+ *
+ * `ref` must be stable per BILLING PERIOD and unique across periods — it is what
+ * makes a redelivered webhook a no-op rather than a second month of free credit.
+ * The allowance is SET rather than added, so a wrong ref is not a rounding error:
+ * too-unique double-grants, too-stable never renews.
+ *
+ * Per-product because a customer can hold both subscriptions, and a shared
+ * allowance would mean whichever renewed second wiped the other's.
+ */
+async function grantMonth(
+    supabase: ServiceClient,
+    userId: string | null,
+    product: 'pro' | 'reviewer',
+    ref: string,
+): Promise<void> {
+    if (!userId) {
+        console.error(`[Webhook] cannot grant ${product} credit without a resolved user id`);
+        return;
+    }
+    const { data, error } = await supabase.rpc('grant_monthly_credit_service', {
+        p_user_id: userId,
+        p_product: product,
+        p_cents: MONTHLY_GRANT_CENTS[product],
+        p_ref: ref,
+    });
+    const row = data as { ok?: boolean; error?: string; duplicate?: boolean } | null;
+    if (error || row?.ok === false) {
+        // Logged, not fatal: the subscription state is already correct, and a
+        // 4xx/5xx here would make LemonSqueezy retry the WHOLE event. The grant
+        // is idempotent, so a redelivery repairs it.
+        console.error(
+            `[Webhook] ${product} grant failed for ${userId}: ${error?.message ?? row?.error}`,
+        );
+        return;
+    }
+    console.log(
+        `[Webhook] ${product} grant ${row?.duplicate ? 'already applied' : 'applied'} ref=${ref}`,
+    );
+}
+
+/** Drop a product's allowance when its subscription ends. The other product's is untouched. */
+async function clearGrant(
+    supabase: ServiceClient,
+    userId: string,
+    product: 'pro' | 'reviewer',
+    ref: string,
+): Promise<void> {
+    const { data, error } = await supabase.rpc('clear_monthly_grant_service', {
+        p_user_id: userId,
+        p_product: product,
+        p_ref: ref,
+    });
+    const row = data as { ok?: boolean; error?: string } | null;
+    if (error || row?.ok === false) {
+        console.error(
+            `[Webhook] clearing ${product} allowance failed for ${userId}: ${error?.message ?? row?.error}`,
+        );
+    }
+}
+
+/**
+ * Claw back allowance on a REFUNDED subscription period.
+ *
+ * Distinct from `clearGrant` because a refund can be partial and a cancellation
+ * cannot: `clear_monthly_grant_service` always zeroes and files the row as an
+ * expiry, which would erase the only ledger signal that separates churn from a
+ * refund. This takes an amount, floors at what is left, and files `grant_refund`.
+ *
+ * NEVER touches purchased credit. The $19 bought entitlement plus an allowance;
+ * it did not buy $19 of credit, so the user's own topped-up money is not ours to
+ * take back on a subscription refund.
+ */
+async function refundGrant(
+    supabase: ServiceClient,
+    userId: string,
+    product: 'pro' | 'reviewer',
+    cents: number,
+    ref: string,
+): Promise<void> {
+    if (cents <= 0) return;
+
+    // `cents` is the CUMULATIVE clawback for this invoice — `refundFraction`
+    // divides LemonSqueezy's running `refunded_amount` by the total — so it must
+    // not be handed straight to a primitive whose replay protection is
+    // `ON CONFLICT (kind, ref) DO NOTHING`. That dedupe is right for a delta and
+    // wrong for a running total: it made every partial refund after the first a
+    // no-op. Same defect as the credit path; see `incrementalClawbackCents`.
+    const { data: priorRows, error: priorErr } = await supabase
+        .from('credit_transactions')
+        .select('delta_cents, ref')
+        .eq('user_id', userId)
+        .eq('kind', 'grant_refund');
+    if (priorErr) {
+        console.error(`[Webhook] could not read prior ${product} clawbacks: ${priorErr.message}`);
+        return;
+    }
+    // `refund_grant_service` stores the ref as `<product>:<ref>`, so the product
+    // is part of the match — a Pro and a Reviewer refund on one invoice are
+    // genuinely separate clawbacks and must not cancel each other out.
+    const prefix = `${product}:${ref}`;
+    const alreadyTaken = (priorRows ?? [])
+        .filter((r) => {
+            const rowRef = String((r as { ref?: unknown }).ref ?? '');
+            return rowRef === prefix || rowRef.startsWith(`${prefix}:`);
+        })
+        .reduce((sum, r) => sum + Math.abs(Number((r as { delta_cents?: unknown }).delta_cents) || 0), 0);
+
+    const increment = incrementalClawbackCents(cents, alreadyTaken);
+    if (increment <= 0) {
+        console.log(
+            `[Webhook] ${product} clawback for ${ref}: ${cents}c cumulative, ${alreadyTaken}c already taken — nothing to do`,
+        );
+        return;
+    }
+
+    const { data, error } = await supabase.rpc('refund_grant_service', {
+        p_user_id: userId,
+        p_product: product,
+        p_cents: increment,
+        // The cumulative total rides in the ref, so replaying this exact event
+        // still collides while a genuine further refund carries a new total.
+        p_ref: `${ref}:${cents}`,
+    });
+    const row = data as
+        | { ok?: boolean; error?: string; taken_cents?: number; shortfall_cents?: number }
+        | null;
+    if (error || row?.ok === false) {
+        // Logged, not fatal — same reasoning as grantMonth. A 4xx/5xx makes
+        // LemonSqueezy retry the WHOLE event, and the entitlement half of a
+        // refund matters more than the allowance half.
+        console.error(
+            `[Webhook] ${product} allowance clawback failed for ${userId}: ${error?.message ?? row?.error}`,
+        );
+        return;
+    }
+    // A shortfall is an ordinary outcome, not an error: the month's allowance was
+    // already spent. It is worth a line, because "we refunded a month whose
+    // credit was consumed" is a real business fact and silence would hide it.
+    const shortfall = row?.shortfall_cents ?? 0;
+    console.log(
+        `[Webhook] ${product} allowance clawback took ${row?.taken_cents ?? 0}c of ${increment}c` +
+            (shortfall > 0 ? ` (${shortfall}c had already been spent)` : ''),
+    );
+}
+
+/**
+ * End a Pro subscription on public.users, and hand back the account id.
+ *
+ * Extracted because `subscription_expired` and a refunded Pro month do the same
+ * two-step dance — read the id BEFORE the update, because afterwards the row no
+ * longer carries a way back from this subscription to the account, and the
+ * allowance still has to be dealt with. Two copies of that ordering is how the
+ * second one eventually forgets it.
+ *
+ * `status` differs on purpose: 'expired' is a subscription that ran its course,
+ * 'refunded' is one that was undone. Both drop the tier; only the ledger and the
+ * support conversation can tell them apart later.
+ */
+async function endProSubscription(
+    supabase: ServiceClient,
+    subscriptionId: string,
+    status: 'expired' | 'refunded',
+): Promise<{ userId: string | null; failed: boolean }> {
+    const { data: row } = await supabase
+        .from('users')
+        .select('id')
+        .eq('lemon_subscription_id', subscriptionId)
+        .maybeSingle();
+
+    const { error } = await supabase
+        .from('users')
+        .update({
+            plan: 'free',
+            effective_tier: 'free',
+            subscription_status: status,
+            subscription_ends_at: null,
+            updated_at: new Date().toISOString(),
+        })
+        .eq('lemon_subscription_id', subscriptionId);
+
+    if (error) {
+        console.error('[Webhook] update error:', error);
+        return { userId: (row?.id as string | undefined) ?? null, failed: true };
+    }
+    return { userId: (row?.id as string | undefined) ?? null, failed: false };
+}
 
 // HMAC-SHA256 signature verification
 async function verifySignature(payload: string, signature: string | null): Promise<boolean> {
@@ -160,33 +467,85 @@ serve(async (req: Request) => {
 
             // Refund of a credit top-up -> claw back the credited amount. Idempotent
             // on ('refund', order_id), distinct from the ('topup', order_id) row.
+            //
+            // READ `refunded_amount`, NOT `subtotal`. LemonSqueezy supports partial
+            // refunds, and `subtotal` is what the order was WORTH, not what was
+            // given back — so a $10 refund on a $50 order would have clawed back
+            // the whole $50. `subtotal` stays as the fallback because it is the
+            // right answer for a full refund and an older payload may not carry
+            // the newer field; failing closed here would leave a refunded order
+            // still spendable, which is the worse direction.
+            //
+            // The clawback is ALLOWED to drive the wallet negative. That is not an
+            // oversight: `credit_wallet_service` has no floor and never has, and
+            // flooring at zero would make buy -> burn -> refund free. A negative
+            // balance simply means they must top back up past zero before Core
+            // serves them again, which the proxy's pre-flight gate enforces.
             case 'order_refunded': {
                 if (kind !== 'credit') {
                     console.log('[Webhook] order_refunded is not a credit order; skipping');
                     break;
                 }
                 const orderId = String(event.data?.id ?? '');
-                const subtotalCents = Number(data?.subtotal ?? 0);
-                if (!customUserId || !orderId || !Number.isFinite(subtotalCents) || subtotalCents <= 0) {
+                // CUMULATIVE, not this refund's own amount — see incrementalClawbackCents.
+                const refundedCents = creditClawbackCents(data ?? {});
+                if (!customUserId || !orderId || refundedCents <= 0) {
                     console.log('[Webhook] refund missing user/order/amount; skipping');
                     break;
                 }
+
+                // WHAT HAVE WE ALREADY TAKEN FOR THIS ORDER? Filtered in memory
+                // rather than with a `like` prefix, because order ids are bare
+                // numbers: `ref LIKE '12%'` also matches order 1234, and a
+                // clawback that reads another order's history is worse than the
+                // bug being fixed. A user's refund rows are few.
+                const { data: priorRows, error: priorErr } = await supabase
+                    .from('credit_transactions')
+                    .select('delta_cents, ref')
+                    .eq('user_id', customUserId)
+                    .eq('kind', 'refund');
+                if (priorErr) {
+                    console.error('[Webhook] could not read prior clawbacks:', priorErr);
+                    return jsonResponse({ error: 'Wallet refund failed' }, 500);
+                }
+                const alreadyTaken = (priorRows ?? [])
+                    .filter((r) => {
+                        const ref = String((r as { ref?: unknown }).ref ?? '');
+                        // Legacy rows are the bare order id; new ones carry the
+                        // cumulative total they applied.
+                        return ref === orderId || ref.startsWith(`${orderId}:`);
+                    })
+                    .reduce((sum, r) => sum + Math.abs(Number((r as { delta_cents?: unknown }).delta_cents) || 0), 0);
+
+                const clawback = incrementalClawbackCents(refundedCents, alreadyTaken);
+                if (clawback <= 0) {
+                    console.log(
+                        `[Webhook] order ${orderId}: ${refundedCents}c refunded, ${alreadyTaken}c already taken — nothing to do`,
+                    );
+                    break;
+                }
+
                 const { error: refundErr } = await supabase.rpc('credit_wallet_service', {
                     p_user_id: customUserId,
-                    p_cents: -Math.round(subtotalCents),
+                    p_cents: -clawback,
                     p_kind: 'refund',
-                    p_ref: orderId,
+                    // The cumulative total is IN the ref, so a replay of this exact
+                    // event still collides and does nothing, while a genuine second
+                    // partial refund carries a new total and gets through.
+                    p_ref: `${orderId}:${Math.round(refundedCents)}`,
                 });
                 if (refundErr) {
                     console.error('[Webhook] refund clawback failed:', refundErr);
                     return jsonResponse({ error: 'Wallet refund failed' }, 500);
                 }
-                console.log(`[Webhook] clawed back ${subtotalCents}c from ${customUserId} (order ${orderId})`);
+                console.log(`[Webhook] clawed back ${clawback}c from ${customUserId} (order ${orderId}, ${refundedCents}c refunded in total)`);
                 break;
             }
 
             // -----------------------------------------------------------------
-            // Atlarix Pro subscription lifecycle. Only one paid plan now: 'pro'.
+            // Subscription lifecycle — Pro on public.users, Reviewer on
+            // public.reviewer_subscriptions. Classify FIRST; the two products
+            // arrive on this same endpoint looking almost identical.
             // -----------------------------------------------------------------
             case 'subscription_created':
             case 'subscription_updated': {
@@ -195,6 +554,33 @@ serve(async (req: Request) => {
                 const endsAt = data?.ends_at || null;
                 const variantId = data?.variant_id?.toString() ?? '';
                 const isActive = ['active', 'on_trial'].includes(status);
+
+                if (productOf(kind, variantId) === 'reviewer') {
+                    const ok = await applyReviewerSubscription(supabase, {
+                        userId: customUserId || null,
+                        subscriptionId,
+                        variantId,
+                        status,
+                        periodEnd: isActive ? renewsAt : (endsAt || renewsAt),
+                    });
+                    // A 500 here is deliberate: unlike the allowance, this write IS
+                    // the entitlement, so letting LemonSqueezy retry is the only
+                    // thing standing between a paying customer and a dead bot.
+                    if (!ok) return jsonResponse({ error: 'Reviewer entitlement write failed' }, 500);
+
+                    // The subscription entitles; the allowance PAYS. Without this
+                    // a subscriber with an empty wallet would be told to top up —
+                    // having just paid $19 for reviews.
+                    if (isActive && customUserId) {
+                        await grantMonth(
+                            supabase,
+                            customUserId,
+                            'reviewer',
+                            `${subscriptionId}:${renewsAt ?? endsAt ?? 'initial'}`,
+                        );
+                    }
+                    break;
+                }
 
                 // Resolve target by trusted id, else by existing subscription link.
                 let existingUser: { id: string } | null = null;
@@ -248,6 +634,12 @@ serve(async (req: Request) => {
                         })
                         .eq('lemon_subscription_id', subscriptionId);
                     if (error) console.error('[Webhook] expired update error:', error);
+                    // Same reasoning as the subscription_expired case: Pro ended,
+                    // so the allowance ends. `existingUser` was resolved above,
+                    // before the update wiped the link.
+                    if (existingUser?.id) {
+                        await clearGrant(supabase, existingUser.id, 'pro', `${subscriptionId}:expired`);
+                    }
                     break;
                 }
 
@@ -299,13 +691,206 @@ serve(async (req: Request) => {
                         return jsonResponse({ error: 'Database update error' }, 500);
                     }
                 }
+
+                // The FIRST period's grant. Renewals come through
+                // subscription_payment_success; without this the first month
+                // would be the only one a subscriber did not get credit for.
+                if (isActive) {
+                    const targetId = existingUser?.id ?? customUserId;
+                    await grantMonth(
+                        supabase,
+                        targetId || null,
+                        'pro',
+                        `${subscriptionId}:${renewsAt ?? endsAt ?? 'initial'}`,
+                    );
+                }
                 console.log(`[Webhook] processed ${eventName} for ${customerEmail}`);
+                break;
+            }
+
+            // -----------------------------------------------------------------
+            // The monthly heartbeat. THIS is what renews the Pro Core grant and
+            // extends the Reviewer period; without it a subscriber is credited
+            // once at signup and never again.
+            //
+            // PAYLOAD SHAPE DIFFERS FROM EVERY OTHER CASE. This event's object is
+            // a subscription INVOICE, so `event.data.id` is the invoice id, not
+            // the subscription id — the `subscriptionId` computed at the top of
+            // this handler is the wrong value here and must not be used. The
+            // subscription comes from `attributes.subscription_id`, and the
+            // invoice id is exactly the stable per-period grant reference we
+            // need.
+            // -----------------------------------------------------------------
+            case 'subscription_payment_success': {
+                const { invoiceId, subscriptionId: subId } = invoiceIds(event);
+                const variantId = data?.variant_id?.toString() ?? '';
+                if (!subId) {
+                    console.error('[Webhook] payment_success without subscription_id; ignoring');
+                    break;
+                }
+
+                if (productOf(kind, variantId) === 'reviewer') {
+                    const { data: row } = await supabase
+                        .from('reviewer_subscriptions')
+                        .select('user_id, current_period_end')
+                        .eq('lemon_subscription_id', subId)
+                        .maybeSingle();
+                    if (!row) {
+                        console.error(`[Webhook] payment_success for unknown reviewer sub ${subId}`);
+                        break;
+                    }
+                    // Renewal payment: the row stays active. The authoritative
+                    // period end arrives on the subscription_updated that
+                    // accompanies a renewal, so this only refreshes the status.
+                    await applyReviewerSubscription(supabase, {
+                        userId: row.user_id as string,
+                        subscriptionId: subId,
+                        variantId,
+                        status: 'active',
+                        periodEnd: null,
+                    });
+                    await grantMonth(
+                        supabase,
+                        row.user_id as string,
+                        'reviewer',
+                        invoiceId || `${subId}:unknown-invoice`,
+                    );
+                    break;
+                }
+
+                const { data: u } = await supabase
+                    .from('users')
+                    .select('id')
+                    .eq('lemon_subscription_id', subId)
+                    .maybeSingle();
+                const targetId = u?.id ?? customUserId;
+                if (!targetId) {
+                    console.error(`[Webhook] payment_success for unknown Pro sub ${subId}`);
+                    break;
+                }
+                // Invoice id as the ref: one invoice per billing period, stable
+                // across redeliveries of that invoice, distinct across periods.
+                await grantMonth(supabase, targetId, 'pro', invoiceId || `${subId}:unknown-invoice`);
+                break;
+            }
+
+            // -----------------------------------------------------------------
+            // A subscription month given back.
+            //
+            // SAME PAYLOAD TRAP AS payment_success: the object is a subscription
+            // INVOICE, so `event.data.id` is the invoice id and the subscription
+            // is `attributes.subscription_id`. The `subscriptionId` computed at
+            // the top of this handler is the WRONG value here.
+            //
+            // WHAT A REFUND ACTUALLY RETURNS. A fee, not credit. $19 bought
+            // entitlement plus an allowance; it did not buy $19 of credit. So the
+            // clawback comes out of the GRANT, proportionally to how much of the
+            // invoice was refunded, and purchased credit is never touched — that
+            // is the user's own money from an unrelated transaction.
+            //
+            // AND THE TIER DROPS IMMEDIATELY, unlike a cancellation. A
+            // cancellation rightly runs to period end because the customer paid
+            // for the rest of the period; a refund is the statement that this
+            // month did not happen. Leaving Pro active for a month we were paid
+            // nothing for is the strictly worse error.
+            //
+            // Reviewer is prorated-forward only: a posted review cannot be
+            // unposted, so nothing already delivered is ever clawed back.
+            // -----------------------------------------------------------------
+            case 'subscription_payment_refunded': {
+                const { invoiceId, subscriptionId: subId } = invoiceIds(event);
+                const variantId = data?.variant_id?.toString() ?? '';
+                if (!subId) {
+                    console.error('[Webhook] payment_refunded without subscription_id; ignoring');
+                    break;
+                }
+
+                const product = productOf(kind, variantId);
+
+                // How much of the period was given back. A refund event carries no
+                // custom_data, so this and the product classification both ride on
+                // the invoice's own fields.
+                const { fraction, assumedFull } = refundFraction(data ?? {});
+                if (assumedFull) {
+                    console.warn(
+                        `[Webhook] refund amounts unreadable on invoice ${invoiceId}; treating as full`,
+                    );
+                }
+                const clawbackCents = grantClawbackCents(MONTHLY_GRANT_CENTS[product], fraction);
+                const refundRef = `${invoiceId || subId}:refund`;
+
+                // RESOLVE FROM THE SUBSCRIPTION ROW ONLY — no custom_data fallback,
+                // unlike payment_success. A refund event carries no custom_data in
+                // practice, and the asymmetry is deliberate: granting to the wrong
+                // account on a bad guess costs us a month's allowance, while TAKING
+                // from the wrong account costs a customer theirs. If we cannot name
+                // the subscriber with certainty, we take nothing and say so.
+                if (product === 'reviewer') {
+                    const { data: row } = await supabase
+                        .from('reviewer_subscriptions')
+                        .select('user_id')
+                        .eq('lemon_subscription_id', subId)
+                        .maybeSingle();
+                    const revUser = (row?.user_id as string | undefined) ?? null;
+                    if (!revUser) {
+                        console.error(`[Webhook] payment_refunded for unknown reviewer sub ${subId}`);
+                        break;
+                    }
+                    await refundGrant(supabase, revUser, 'reviewer', clawbackCents, refundRef);
+                    // 'refunded' de-entitles on its own: reviewer_entitlement_service
+                    // only treats ('active','on_trial','cancelled') as entitled. It
+                    // must NOT be written as 'cancelled' — that status deliberately
+                    // keeps access to the period end, which is the opposite of this.
+                    await applyReviewerSubscription(supabase, {
+                        userId: revUser,
+                        subscriptionId: subId,
+                        variantId,
+                        status: 'refunded',
+                        periodEnd: null,
+                    });
+                    console.log(
+                        `[Webhook] reviewer subscription ${subId} refunded (${Math.round(fraction * 100)}% of the period)`,
+                    );
+                    break;
+                }
+
+                const ended = await endProSubscription(supabase, subId, 'refunded');
+                if (ended.failed) {
+                    return jsonResponse({ error: 'Database error' }, 500);
+                }
+                if (!ended.userId) {
+                    // The tier update matched no row, so nothing was downgraded and
+                    // there is no account to take an allowance from. Same reasoning
+                    // as the reviewer branch above.
+                    console.error(`[Webhook] payment_refunded for unknown Pro sub ${subId}`);
+                    break;
+                }
+                await refundGrant(supabase, ended.userId, 'pro', clawbackCents, refundRef);
+                console.log(
+                    `[Webhook] Pro subscription ${subId} refunded (${Math.round(fraction * 100)}% of the period)`,
+                );
                 break;
             }
 
             case 'subscription_cancelled': {
                 const endsAt = data?.ends_at || null;
                 const variantId = data?.variant_id?.toString() ?? '';
+
+                if (productOf(kind, variantId) === 'reviewer') {
+                    // Cancelled, not gone: reviewer_entitlement_service treats
+                    // 'cancelled' as entitled until current_period_end, because
+                    // the customer paid for the rest of the period.
+                    await applyReviewerSubscription(supabase, {
+                        userId: customUserId || null,
+                        subscriptionId,
+                        variantId,
+                        status: 'cancelled',
+                        periodEnd: endsAt,
+                    });
+                    console.log(`[Webhook] reviewer cancelled, access until: ${endsAt}`);
+                    break;
+                }
+
                 // Keep Pro until subscription_ends_at.
                 await supabase
                     .from('users')
@@ -318,24 +903,48 @@ serve(async (req: Request) => {
                         updated_at: new Date().toISOString(),
                     })
                     .eq('lemon_subscription_id', subscriptionId);
+                // The grant is deliberately NOT cleared here. They keep Pro to
+                // the period end, so they keep the allowance they paid for; it
+                // goes on subscription_expired.
                 console.log(`[Webhook] processed ${eventName}, access until: ${endsAt}`);
                 break;
             }
 
             case 'subscription_expired': {
-                const { error } = await supabase
-                    .from('users')
-                    .update({
-                        plan: 'free',
-                        effective_tier: 'free',
-                        subscription_status: 'expired',
-                        subscription_ends_at: null,
-                        updated_at: new Date().toISOString(),
-                    })
-                    .eq('lemon_subscription_id', subscriptionId);
-                if (error) {
-                    console.error('[Webhook] update error:', error);
+                const variantId = data?.variant_id?.toString() ?? '';
+
+                if (productOf(kind, variantId) === 'reviewer') {
+                    // Read the account BEFORE marking expired, so the allowance
+                    // can still be cleared afterwards.
+                    const { data: revRow } = await supabase
+                        .from('reviewer_subscriptions')
+                        .select('user_id')
+                        .eq('lemon_subscription_id', subscriptionId)
+                        .maybeSingle();
+                    await applyReviewerSubscription(supabase, {
+                        userId: customUserId || null,
+                        subscriptionId,
+                        variantId,
+                        status: 'expired',
+                        periodEnd: null,
+                    });
+                    const revUser = (revRow?.user_id as string | undefined) ?? customUserId;
+                    if (revUser) {
+                        await clearGrant(supabase, revUser, 'reviewer', `${subscriptionId}:expired`);
+                    }
+                    console.log(`[Webhook] reviewer subscription expired`);
+                    break;
+                }
+
+                const expiring = await endProSubscription(supabase, subscriptionId, 'expired');
+                if (expiring.failed) {
                     return jsonResponse({ error: 'Database error' }, 500);
+                }
+
+                // Pro is over, so the allowance goes with it. Purchased credit is
+                // untouched — that is the user's money and it never expires.
+                if (expiring.userId) {
+                    await clearGrant(supabase, expiring.userId, 'pro', `${subscriptionId}:expired`);
                 }
                 console.log(`[Webhook] processed ${eventName}`);
                 break;

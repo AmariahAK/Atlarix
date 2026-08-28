@@ -66,6 +66,75 @@ export function sliceFromLastCompactionSummary<
   return messages;
 }
 
+/** Closes a summary body. Written by the compactor, stripped on the way back in. */
+const COMPACTION_SUMMARY_SUFFIX = "[END COMPACTION]";
+
+/**
+ * How many times this conversation has been summarized. Generation 1 is the
+ * first pass; each later pass folds the previous summary forward rather than
+ * restating it. Written into the marker line as ` gen=N`, which `startsWith`
+ * matching ignores — so `isCompactionSummaryMessage`,
+ * `sliceFromLastCompactionSummary` and every already-persisted row keep working.
+ * A legacy marker with no `gen=` reads as generation 1.
+ */
+export type PriorCompactionSummary = {
+  summaryText: string;
+  compactionGeneration: number;
+};
+
+const GENERATION_RE = /^\[COMPACTION MARKER\]\s*gen=(\d+)/;
+
+/**
+ * Split the previous compaction summary out of a message list.
+ *
+ * WHY THIS EXISTS. `CONTEXT_COMPACTION_SYSTEM` promises the model that when a
+ * PRIOR SUMMARY is supplied it should "update it by preserving still-true
+ * details, removing stale ones, and merging in new facts", and
+ * `buildCompactionUserPromptPrefix` has a whole branch for that. None of it ever
+ * ran: the only resolver was a `return null` stub and no caller passed a prior
+ * summary. The previous summary DID still reach the next pass — the dispatch
+ * slice keeps the marker — but as an ordinary message, so it was unlabelled and
+ * then flattened and cut at 2,000 chars like any other line. Generation 3 was
+ * compressing a truncated, structureless read of generation 2, and a long
+ * session's `## Goal` drifted toward whatever it was doing an hour ago.
+ *
+ * Pulling it out here means the summarizers hand it to the prompt builder as a
+ * labelled prior summary (which budgets 12,000 chars for it) instead of feeding
+ * it through the per-message truncator.
+ */
+export function extractPriorSummary<
+  T extends { role: string; content?: string | null },
+>(messages: T[]): { prior: PriorCompactionSummary | null; rest: T[] } {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const content = messages[i]?.content;
+    // `role === "user"` matches sliceFromLastCompactionSummary exactly. If the
+    // two disagreed about which row is the summary — say an assistant quoted
+    // the marker back — dispatch would slice from one place and the summarizer
+    // would fold in another.
+    if (messages[i]?.role !== "user") continue;
+    if (!isCompactionSummaryMessage(content)) continue;
+
+    const generation = Number(GENERATION_RE.exec(content!)?.[1] ?? 1);
+    let body = content!.slice(COMPACTION_SUMMARY_PREFIX.length);
+    // Drop the `gen=N` token when present, then the newline the marker adds.
+    body = body.replace(/^\s*gen=\d+/, "").replace(/^\r?\n/, "");
+    const end = body.lastIndexOf(COMPACTION_SUMMARY_SUFFIX);
+    if (end !== -1) body = body.slice(0, end);
+
+    const summaryText = body.trim();
+    if (!summaryText) return { prior: null, rest: messages };
+
+    return {
+      prior: {
+        summaryText,
+        compactionGeneration: Number.isFinite(generation) ? generation : 1,
+      },
+      rest: [...messages.slice(0, i), ...messages.slice(i + 1)],
+    };
+  }
+  return { prior: null, rest: messages };
+}
+
 interface MessageForCompaction {
   id: number;
   role: string;
@@ -352,11 +421,16 @@ function stripMediaFromMessages(
 
 async function summarizeMessages(
   messages: MessageForCompaction[],
-  priorSummary?: { summaryText: string; compactionGeneration: number } | null,
 ): Promise<string | null> {
   if (messages.length === 0) return null;
 
-  const formatted = messages
+  // The previous summary is already sitting in this list (dispatch slices from
+  // the marker, it does not drop it). Lift it out so it reaches the prompt as a
+  // labelled PRIOR SUMMARY instead of being flattened and cut to 2,000 chars.
+  const { prior, rest } = extractPriorSummary(messages);
+  if (rest.length === 0) return null;
+
+  const formatted = rest
     .map(
       (m) =>
         `${m.role === "user" ? "User" : "Assistant"}: ${(m.content || "")
@@ -365,7 +439,7 @@ async function summarizeMessages(
     )
     .join("\n\n");
 
-  const userPrompt = buildCompactionUserPromptPrefix(priorSummary ?? undefined) + formatted;
+  const userPrompt = buildCompactionUserPromptPrefix(prior ?? undefined) + formatted;
 
   try {
     const settings = readSettings();
@@ -430,7 +504,14 @@ const FORCE_COMPACT_MIN_HISTORY_TOKENS = 8_000;
 export async function runSteppedCompaction(
   messages: MessageForCompaction[],
   tierLimit: number,
-  providerId?: string,
+  /**
+   * Currently unread. Its only consumer was `getContextSummaryForProvider`, a
+   * `return null` stub deleted with the summary-chaining fix — the prior summary
+   * comes out of `messages` now, not out of a per-provider store. Kept because
+   * both call sites and the existing tests pass it positionally; drop it (and
+   * shift `opts` up) if nothing claims it.
+   */
+  _providerId?: string,
   opts?: {
     /**
      * Model-initiated calls: skip the 60% usage gate (the model asked for
@@ -552,8 +633,11 @@ export async function runSteppedCompaction(
       headMessages.length > 0 &&
       headMessages.length < modelContext.length - 2
     ) {
-      const existing = await getContextSummaryForProvider(providerId);
-      let summary = await summarizeMessages(headMessages, existing);
+      // The generation the NEXT marker carries: one past whatever the head's
+      // prior summary claims (1 when there isn't one, so the first is gen=1).
+      const priorGeneration =
+        extractPriorSummary(headMessages).prior?.compactionGeneration ?? 0;
+      let summary = await summarizeMessages(headMessages);
 
       // v11.1 guard: a runaway summary defeats the purpose — cap it at 25%
       // of the budget (rare; generateText maxTokens already bounds it).
@@ -573,7 +657,7 @@ export async function runSteppedCompaction(
         const summaryMsg: MessageForCompaction = {
           id: -Date.now(),
           role: "user",
-          content: `${COMPACTION_SUMMARY_PREFIX}\n${summary}\n[END COMPACTION]`,
+          content: `${COMPACTION_SUMMARY_PREFIX} gen=${priorGeneration + 1}\n${summary}\n${COMPACTION_SUMMARY_SUFFIX}`,
         };
 
         const tailMessages = tailStartId
@@ -602,16 +686,6 @@ export async function runSteppedCompaction(
     usageRatio,
     compactionApplied: strategy !== "none",
   };
-}
-
-// ═══════════════════════════════════════════════════════════════
-// CONTEXT SUMMARY DB (for nested summaries)
-// ═══════════════════════════════════════════════════════════════
-
-async function getContextSummaryForProvider(
-  _providerId?: string,
-): Promise<{ summaryText: string; compactionGeneration: number } | null> {
-  return null;
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -718,12 +792,20 @@ export async function summarizeMessagesWithCompactionPrompt(params: {
   /** v10: when set, summarization tokens count toward this chat's turn usage. */
   chatId?: number;
 }): Promise<string | null> {
-  const { messages, priorSummary } = params;
+  const { messages } = params;
   if (messages.length === 0) return null;
+
+  // Same reason as `summarizeMessages`: lift the previous summary out of the
+  // transcript so it is handed over as a labelled prior summary rather than
+  // truncated inline. An explicit `priorSummary` param still wins when a caller
+  // supplies one.
+  const { prior, rest } = extractPriorSummary(messages);
+  const priorSummary = params.priorSummary ?? prior;
+  if (rest.length === 0) return null;
 
   // Reuse this file's pruner (needs ids; synthesize ordinals).
   const { messages: forSummary } = pruneToolOutputs(
-    messages.map((m, i) => ({ id: i, role: m.role, content: m.content || "" })),
+    rest.map((m, i) => ({ id: i, role: m.role, content: m.content || "" })),
     HEAD_TOOL_TOKENS,
   );
 

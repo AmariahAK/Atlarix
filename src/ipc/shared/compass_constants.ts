@@ -19,6 +19,7 @@ import {
   getCoreTierRouting,
 } from "@/ipc/shared/core-model-override-store";
 import { getCoreProxyBaseUrl } from "./core_proxy";
+import { coreExhaustedUserMessage } from "@/shared/billing_copy";
 
 export const COMPASS_PROVIDER_ID = "compass";
 
@@ -280,72 +281,34 @@ export function isCompassBuildConfigured(): boolean {
   return !!getCoreProxyBaseUrl() || !!getCompassMasterApiKey();
 }
 
-export const COMPASS_REACHABILITY_ERROR =
-  "We're currently having trouble reaching Atlarix Core. Please retry or switch to another provider in Settings.";
+/**
+ * User-facing Core failure copy MOVED to `src/shared/billing_copy.ts` on
+ * 2026-08-27.
+ *
+ * It lived here because this is where Core lives, but this module reads env
+ * vars, resolves tier ids and holds the routing table — so every renderer that
+ * wanted one sentence imported all of that with it, from `src/ipc/` across the
+ * layer boundary. The copy now sits beside the rest of the billing copy, which
+ * is also the only way the five places that said the same thing differently
+ * could be made to agree.
+ *
+ * Re-exported here so existing importers keep working; new code should import
+ * from `@/shared/billing_copy` directly.
+ */
+export {
+  COMPASS_REACHABILITY_ERROR,
+  accountBannedUserMessage,
+  compassAuthExpiredUserMessage,
+  compassBadRequestUserMessage,
+  coreUnavailableUserMessage,
+} from "@/shared/billing_copy";
 
+/**
+ * @deprecated Use `coreExhaustedUserMessage` from `@/shared/billing_copy`.
+ * The `tier` argument was never read — an artefact of when running out of credit
+ * was believed to be a tier-specific event. It is not: a 402 means the spendable
+ * total is zero, which looks identical on every plan.
+ */
 export function compassExhaustedUserMessage(_tier?: string): string {
-  return "Your Atlarix Core credit is used up. Top up your balance in Settings to continue, or add your own API keys in Settings.";
-}
-
-/**
- * Shown when the proxy refuses a Core request with 403 `account_banned`.
- *
- * Neutral, with a route back, and it does NOT carry the reason — the reason lives
- * in `public.user_bans`, which no client can read. Says what still works, because
- * it is true: BYOK and local models are outside the ban's scope, and pretending
- * otherwise would be a claim the app cannot enforce offline.
- */
-export function accountBannedUserMessage(): string {
-  return (
-    "This account can't access Atlarix Core. If you think this is a mistake, " +
-    "contact support@atlarix.dev. Your own API keys and local models still work — " +
-    "add one in Settings to keep going."
-  );
-}
-
-/**
- * Shown when Atlarix Core fails on OUR side (the proxy returns 503 core_unavailable
- * because a managed provider key is out of credit / rate-limited / down). Neutral
- * by design — the user is never told "we ran out of money"; the owner is alerted
- * separately by the proxy.
- */
-export function coreUnavailableUserMessage(): string {
-  return "This Atlarix Core model is temporarily unavailable. Atlarix has been informed and is working on it — we apologise for the inconvenience. In the meantime, pick another Core model above, or add your own API key in Settings.";
-}
-
-/**
- * The proxy rejected our bearer token (401/403). Core authenticates as the user with
- * their Supabase JWT, so this is an expired or invalidated session — not an outage.
- *
- * Split out of the reachability catch-all because the two need OPPOSITE actions:
- * "retry or switch provider" is advice that cannot work here, and a user following
- * it just retries into the same wall.
- */
-export function compassAuthExpiredUserMessage(): string {
-  return "Your Atlarix session has expired, so Core couldn't authorize this request. Sign in again from Settings and resend — your BYOK models are unaffected.";
-}
-
-/**
- * A request-level rejection the proxy passed through untouched (400/422): context
- * length exceeded, an unsupported parameter, a malformed tool schema.
- *
- * These used to render as "trouble reaching Atlarix Core", which hid the one piece
- * of information that makes them fixable. The provider's own text is included —
- * truncated, since some vendors echo a large chunk of the request back.
- */
-export function compassBadRequestUserMessage(detail?: string): string {
-  const trimmed = (detail ?? "").trim();
-  // Prefer the vendor's `error.message` when the body is the usual JSON envelope;
-  // the raw envelope is noise to a user.
-  let reason = trimmed;
-  if (trimmed.startsWith("{")) {
-    try {
-      const parsed = JSON.parse(trimmed) as { error?: { message?: unknown } };
-      if (typeof parsed?.error?.message === "string") reason = parsed.error.message;
-    } catch {
-      /* not JSON after all — fall back to the raw text */
-    }
-  }
-  const suffix = reason ? ` The model reported: "${reason.slice(0, 300)}"` : "";
-  return `Atlarix Core rejected this request.${suffix} This is usually a problem with the request itself rather than an outage — try again, and if it repeats, switch Core model or use your own API key in Settings.`;
+  return coreExhaustedUserMessage();
 }

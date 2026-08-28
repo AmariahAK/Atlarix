@@ -105,12 +105,10 @@ export function getSupabaseClient(): SupabaseClient {
                 // that existing error handling actually reachable.
                 fetch: fetchWithTimeout,
             },
-            // Idle-chatter reduction: the always-open plan-change realtime channel
-            // is the dominant background pinger. Halve its keepalive (default 25s →
-            // 60s); it's ALSO closed on window-idle (SubscriptionManager.pauseRealtime).
-            realtime: {
-                heartbeatIntervalMs: 60_000,
-            },
+            // No `realtime` options: nothing subscribes to a channel any more, so
+            // supabase-js never opens the socket those options would configure.
+            // Tuning a keepalive for a connection that is never made is a setting
+            // that reads as protection and provides none.
         });
 
         logger.log('[Supabase] Client initialized with secure storage');
@@ -895,96 +893,49 @@ export interface SubscriptionData {
     banned?: boolean;
 }
 
-type SubscriptionChangeCallback = (newData: SubscriptionData, oldData: SubscriptionData) => void;
-let planSubscription: any = null;
-
 /**
- * Subscribe to realtime subscription changes for the current user
- * Called after user logs in to detect Pro upgrades AND cancellations
+ * Read the plan row for an email, ONCE.
+ *
+ * WHY THIS REPLACED A REALTIME SUBSCRIPTION. The always-open plan-change channel cost
+ * 93.5% of this project's total database execution time — 7.3M `realtime.list_changes`
+ * calls polling the WAL — to deliver an event most accounts never fire. Measured
+ * 2026-08-27 with `supabase inspect db calls`.
+ *
+ * The flow it existed for argues against it: a plan change happens in a BROWSER, on
+ * atlarix.dev or Lemon Squeezy, so the user necessarily leaves the app and comes back.
+ * A read on window focus catches that at least as well as a socket, and costs one query
+ * per focus instead of a poller that never sleeps.
+ *
+ * The ban case is not weakened in the way it looks. A ban is enforced SERVER-SIDE on
+ * every request (`entitlement.ts` maps `account_banned` to a hard stop), so the channel
+ * was only ever updating the UI faster — it was never what stopped a banned account
+ * spending.
  */
-export function subscribeToPlanChanges(userEmail: string, callback: SubscriptionChangeCallback): () => void {
-    const supabase = getSupabaseClient();
-
-    // Unsubscribe from any existing subscription
-    if (planSubscription) {
-        supabase.removeChannel(planSubscription);
+export async function fetchPlanSnapshot(userEmail: string): Promise<SubscriptionData | null> {
+    try {
+        const { data, error } = await getSupabaseClient()
+            .from('users')
+            .select('plan, subscription_status, subscription_ends_at, effective_tier, banned_at')
+            .eq('email', userEmail)
+            .maybeSingle();
+        if (error || !data) return null;
+        const row = data as {
+            plan?: string | null;
+            subscription_status?: string | null;
+            subscription_ends_at?: string | null;
+            effective_tier?: string | null;
+            banned_at?: string | null;
+        };
+        return {
+            plan: (row.plan as 'free' | 'pro') ?? 'free',
+            subscriptionStatus: (row.subscription_status as 'active' | 'cancelled' | null) ?? null,
+            subscriptionEndsAt: row.subscription_ends_at ?? null,
+            effectiveTier: (row.effective_tier as 'free' | 'pro') || undefined,
+            banned: Boolean(row.banned_at),
+        };
+    } catch {
+        // Never throws. A failed read means "no news", and the 30-minute TTL on
+        // `_tierCache` still bounds how stale the cached answer can get.
+        return null;
     }
-
-    const channelId = `user-plan-${Buffer.from(userEmail, "utf8")
-        .toString("base64")
-        .replace(/\+/g, "-")
-        .replace(/\//g, "_")
-        .replace(/=+$/, "")
-        .slice(0, 48)}`;
-    logger.log(`[Supabase] Setting up realtime subscription for plan changes (${channelId})`);
-
-    planSubscription = supabase
-        .channel(channelId)
-        .on(
-            'postgres_changes',
-            {
-                event: 'UPDATE',
-                schema: 'public',
-                table: 'users',
-                filter: `email=eq.${userEmail}`,
-            },
-            (payload) => {
-                type PlanRealtimeRow = {
-                    plan: string;
-                    subscription_status: string | null;
-                    subscription_ends_at: string | null;
-                    effective_tier?: string;
-                    banned_at?: string | null;
-                };
-                const newRow = payload.new as PlanRealtimeRow;
-                const oldRow = payload.old as PlanRealtimeRow;
-
-                const newData: SubscriptionData = {
-                    plan: (newRow?.plan || 'free') as 'free' | 'pro',
-                    subscriptionStatus: (newRow?.subscription_status || null) as 'active' | 'cancelled' | null,
-                    subscriptionEndsAt: newRow?.subscription_ends_at || null,
-                    effectiveTier: (newRow?.effective_tier as 'free' | 'pro') || undefined,
-                    banned: !!newRow?.banned_at,
-                };
-
-                const oldData: SubscriptionData = {
-                    plan: (oldRow?.plan || 'free') as 'free' | 'pro',
-                    subscriptionStatus: (oldRow?.subscription_status || null) as 'active' | 'cancelled' | null,
-                    subscriptionEndsAt: oldRow?.subscription_ends_at || null,
-                    effectiveTier: (oldRow?.effective_tier as 'free' | 'pro') || undefined,
-                    banned: !!oldRow?.banned_at,
-                };
-
-                const materialChange =
-                    newData.plan !== oldData.plan ||
-                    newData.subscriptionStatus !== oldData.subscriptionStatus ||
-                    newData.subscriptionEndsAt !== oldData.subscriptionEndsAt ||
-                    newData.effectiveTier !== oldData.effectiveTier ||
-                    // A ban flip is the whole reason this channel matters for
-                    // enforcement: without it a ban would only bite at next
-                    // sign-in, which is not a ban.
-                    newData.banned !== oldData.banned;
-
-                if (materialChange) {
-                    logger.log(`[Supabase] Realtime subscription update:`, {
-                        plan: `${oldData.plan} → ${newData.plan}`,
-                        status: `${oldData.subscriptionStatus} → ${newData.subscriptionStatus}`,
-                        endsAt: newData.subscriptionEndsAt,
-                        banned: `${oldData.banned} → ${newData.banned}`,
-                    });
-                    callback(newData, oldData);
-                }
-            }
-        )
-        .subscribe((status) => {
-            logger.log(`[Supabase] Realtime subscription status: ${status}`);
-        });
-
-    return () => {
-        if (planSubscription) {
-            supabase.removeChannel(planSubscription);
-            planSubscription = null;
-            logger.log('[Supabase] Unsubscribed from plan changes');
-        }
-    };
 }

@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef } from "react";
-import { toast } from "sonner";
 import type {
   Message,
   FileAttachment,
@@ -796,40 +795,57 @@ export function useStreamChat({
 
             const allProposals = [...fileProposals, ...commandProposals];
 
-            // Add to pending proposals (with deduplication)
+            // Add to pending proposals (with deduplication).
+            //
+            // The updater is now PURE. The sound used to live inside it, along
+            // with a toast, and a React state updater may be invoked more than
+            // once for the same update — so both could fire twice for one
+            // approval. Effects belong out here, where they run once.
+            let added = 0;
+            let hadPendingAlready = false;
+
             setPendingProposals((prev) => {
               // Deduplicate by operation ID - don't re-add if already exists
               const existingIds = new Set(prev.map(p => p.id));
               const newProposals = allProposals.filter(p => !existingIds.has(p.id));
 
+              added = newProposals.length;
+              hadPendingAlready = prev.length > 0;
+
               if (newProposals.length === 0) {
                 return prev; // No new proposals to add
               }
 
-              const combined = [...prev, ...newProposals];
-
-              if (newProposals.length > 0) {
-                if (prev.length > 0) {
-                  playRemaining();
-                } else {
-                  playNotify();
-                }
-                const tab = getDefaultStore().get(previewTabAtom);
-                if (tab !== "permissions") {
-                  toast("Approval needed", {
-                    description: `${newProposals.length} pending action(s) — open Permissions to review.`,
-                    action: {
-                      label: "Review",
-                      onClick: () => setPreviewTab("permissions"),
-                    },
-                  });
-                }
-              }
-
-              return combined;
+              return [...prev, ...newProposals];
             });
 
-            setRightPanelVisible(true);
+            if (added > 0) {
+              if (hadPendingAlready) playRemaining();
+              else playNotify();
+            }
+
+            // NOTHING OPENS THE RIGHT PANEL HERE ANY MORE.
+            //
+            // This used to call `setRightPanelVisible(true)` unconditionally,
+            // outside the updater — so it fired even when the updater had
+            // early-returned with nothing added, which is every redelivered
+            // permission and every operation the converter above yields no
+            // proposals for (batch_plan, automation_write,
+            // revert_project_snapshot: no `path`, and not `run_command`). The
+            // panel reopened on each one, so closing it never stuck and it
+            // showed an empty list when it did.
+            //
+            // And the panel could not have helped anyway: RightPanel filters
+            // "permissions" out of its tab list entirely. Approvals moved INLINE
+            // — `InlinePermissionApprovals` renders the cards, and
+            // `PendingApprovalsBar` sits above the composer, self-hides when
+            // nothing is pending, and jumps you to the card. A toast here was a
+            // fourth notification for the same event whose "Review" button
+            // switched to a tab that no longer renders.
+            //
+            // `pendingProposalsAtom` is still populated above: it has a live
+            // reader in `useWorkspacePlanPanel`. This removes an unreachable
+            // surface, not a data path.
           }
         );
 

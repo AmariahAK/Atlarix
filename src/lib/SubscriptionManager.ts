@@ -145,9 +145,9 @@ export class SubscriptionManager {
                 if (session) {
                     // A routine hourly TOKEN_REFRESHED for the SAME already-loaded
                     // user changes nothing about the plan — skip the users-table
-                    // re-reads it would otherwise trigger (the realtime sub catches
-                    // real plan changes). Only the token rotated, which supabase-js
-                    // manages internally.
+                    // re-reads it would otherwise trigger (a real plan change is
+                    // caught by the focus refresh). Only the token rotated, which
+                    // supabase-js manages internally.
                     if (event === 'TOKEN_REFRESHED' && this.session?.id === session.user.id) {
                         return;
                     }
@@ -155,11 +155,6 @@ export class SubscriptionManager {
                 } else {
                     this.session = null;
                     invalidatePlanCaches();
-                    if (this.realtimeCleanup) {
-                        this.realtimeCleanup();
-                        this.realtimeCleanup = null;
-                    }
-                    this.realtimeSubscribedEmail = null;
                     this.lastPlanFingerprint = "";
                     this.lastPlanFingerprintAt = 0;
                     // Drop the offline entitlement too — a signed-out machine must
@@ -254,7 +249,9 @@ export class SubscriptionManager {
 
         // Subscribe to realtime plan changes for instant Pro activation
         if (user.email) {
-            await this.setupRealtimeSubscription(user.email);
+            // Was: open a realtime channel. Now a single read on sign-in, with focus
+            // refreshes after it — see refreshPlanFromServer for the measurement.
+            await this.refreshPlanFromServer(0);
         }
     }
 
@@ -362,64 +359,33 @@ export class SubscriptionManager {
         }
     }
 
-    /**
-     * Setup realtime subscription for plan changes
-     */
-    private static realtimeCleanup: (() => void) | null = null;
-    private static realtimeSetupPromise: Promise<void> | null = null;
-    private static realtimeSubscribedEmail: string | null = null;
-    private static realtimePausedEmail: string | null = null;
+    /** Dedupe state for `applyPlanChange` — see the fingerprint comment there. */
     private static lastPlanFingerprint = "";
     private static lastPlanFingerprintAt = 0;
 
-    /**
-     * Idle-pause: close the always-open plan-change realtime channel when the
-     * main window is hidden/blurred so its keepalive stops pinging Supabase. The
-     * subscribed email is remembered for resume. No-op if already closed.
+    /*
+     * REMOVED: `setupRealtimeSubscription`.
+     *
+     * It opened an always-open Supabase realtime channel on `users` per signed-in app,
+     * and that channel was the reason `realtime.list_changes` accounted for 93.5% of
+     * this project's total database execution time — 7.3 MILLION WAL polls, measured
+     * 2026-08-27 with `supabase inspect db calls` — to deliver an event most accounts
+     * never fire.
+     *
+     * Replaced by `refreshPlanFromServer` on window focus, which is a better fit for
+     * the flow: a plan change happens in a BROWSER, so the user necessarily leaves and
+     * comes back. It also fixes a case the channel missed — the focus handler only
+     * resumed realtime after a 60s idle-out, so upgrading and alt-tabbing straight back
+     * refreshed nothing.
+     *
+     * A ban is unaffected in the way that matters: `entitlement.ts` hard-stops a banned
+     * caller on EVERY request server-side, so the channel only ever made the UI react
+     * sooner — it was never what stopped a banned account spending.
      */
-    static pauseRealtime(): void {
-        if (this.realtimeCleanup) {
-            this.realtimePausedEmail = this.realtimeSubscribedEmail;
-            this.realtimeCleanup();
-            this.realtimeCleanup = null;
-            this.realtimeSubscribedEmail = null;
-            logger.log('[SubscriptionManager] Realtime paused (window idle)');
-        }
-    }
 
-    /**
-     * Resume on window focus: reopen the channel and drop cached plan state so a
-     * plan change that happened while idle (and thus missed the closed channel) is
-     * picked up on the next read. No-op if not signed in or already open.
-     */
-    static async resumeRealtime(): Promise<void> {
-        const email = this.realtimePausedEmail ?? this.session?.email ?? null;
-        this.realtimePausedEmail = null;
-        if (email && !this.realtimeCleanup) {
-            invalidatePlanCaches();
-            await this.setupRealtimeSubscription(email);
-            logger.log('[SubscriptionManager] Realtime resumed (window focus)');
-        }
-    }
-
-    private static async setupRealtimeSubscription(email: string): Promise<void> {
-        if (this.realtimeSubscribedEmail === email && this.realtimeCleanup) {
-            return;
-        }
-        if (this.realtimeSetupPromise) {
-            await this.realtimeSetupPromise;
-            if (this.realtimeSubscribedEmail === email && this.realtimeCleanup) {
-                return;
-            }
-        }
-        this.realtimeSetupPromise = (async () => {
-            const { subscribeToPlanChanges } = await import("./auth/supabase-client");
-            if (this.realtimeCleanup) {
-                this.realtimeCleanup();
-                this.realtimeCleanup = null;
-            }
-            this.realtimeSubscribedEmail = email;
-            this.realtimeCleanup = subscribeToPlanChanges(email, async (newData, oldData) => {
+    /** @internal Shared by the focus refresh below. */
+    private static async applyPlanChange(newData: any, oldData: any): Promise<void> {
+        {
                 // `banned` MUST be in the fingerprint: without it a ban landing
                 // within 2s of any other plan write is deduped away and never
                 // reaches the session, which is the one change here that must
@@ -474,13 +440,66 @@ export class SubscriptionManager {
                         this.broadcastAuthResolved();
                     }
                 }
-            });
-        })();
-        try {
-            await this.realtimeSetupPromise;
-        } finally {
-            this.realtimeSetupPromise = null;
         }
+    }
+
+    /**
+     * Re-read the plan and apply any change — the replacement for the realtime channel.
+     *
+     * WHY THIS EXISTS. The always-open plan-change subscription cost 93.5% of the
+     * project's total database execution time (7.3M `realtime.list_changes` WAL polls,
+     * measured 2026-08-27) to deliver an event most accounts never fire.
+     *
+     * A plan change happens in a BROWSER — atlarix.dev or Lemon Squeezy — so the user
+     * necessarily leaves the app and comes back. Reading on focus catches the flow that
+     * actually matters, and it catches it in the case the old code MISSED: the focus
+     * handler only resumed realtime if it had first idled out after a 60s blur, so
+     * upgrading and alt-tabbing straight back refreshed nothing at all.
+     *
+     * Throttled, because focus fires on every window switch and this is a network read.
+     */
+    private static lastPlanRefreshAt = 0;
+    private static planRefreshInFlight: Promise<void> | null = null;
+    static async refreshPlanFromServer(minIntervalMs = 15_000): Promise<void> {
+        const email = this.session?.email;
+        if (!email) return;
+        if (this.planRefreshInFlight) return this.planRefreshInFlight;
+        const now = Date.now();
+        if (now - this.lastPlanRefreshAt < minIntervalMs) return;
+        this.lastPlanRefreshAt = now;
+
+        this.planRefreshInFlight = (async () => {
+            try {
+                const { fetchPlanSnapshot } = await import("./auth/supabase-client");
+                const next = await fetchPlanSnapshot(email);
+                if (!next) return;
+                const prev = {
+                    plan: this.session?.plan ?? "free",
+                    subscriptionStatus: null,
+                    subscriptionEndsAt: null,
+                    effectiveTier: this.session?.effectiveTier,
+                    banned: this.session?.banned ?? false,
+                };
+                // Compare before doing any work: focus fires constantly and an
+                // unchanged plan must not broadcast, or every window switch would
+                // churn ~22 unshared useAuth consumers.
+                const changed =
+                    next.plan !== prev.plan ||
+                    next.effectiveTier !== prev.effectiveTier ||
+                    Boolean(next.banned) !== Boolean(prev.banned);
+                // The cache is dropped either way. "Unchanged" here means unchanged
+                // versus the SESSION, and the tier cache can still be stale for
+                // reasons the session does not track.
+                invalidatePlanCaches();
+                if (changed) await this.applyPlanChange(next, prev as any);
+            } catch (e) {
+                // Never throws: this runs on window focus and must not surface there.
+                logger.warn("[SubscriptionManager] plan refresh failed (non-fatal)", e);
+            } finally {
+                this.planRefreshInFlight = null;
+            }
+        })();
+        return this.planRefreshInFlight;
     }
 
     // ========================================
@@ -568,11 +587,6 @@ export class SubscriptionManager {
         await signOut();
         this.session = null;
         invalidatePlanCaches();
-        if (this.realtimeCleanup) {
-            this.realtimeCleanup();
-            this.realtimeCleanup = null;
-        }
-        this.realtimeSubscribedEmail = null;
         this.lastPlanFingerprint = "";
         this.lastPlanFingerprintAt = 0;
     }

@@ -69,10 +69,3 @@ export async function handleAuthCallback(_url: string): Promise<{
     error: new Error("Supabase client is only available in the main process"),
   };
 }
-
-export function subscribeToPlanChanges(
-  _userEmail: string,
-  _callback: (plan: string) => void,
-): () => void {
-  return () => {};
-}

@@ -201,11 +201,12 @@ export default function SettingsPage() {
               <p className="text-xs text-muted-foreground">
                 When enabled, every commit made through Atlarix will include a Co-authored-by trailer for atlarix-agent.
               </p>
-            </div>
+              {/* Inside the list, and its own copy lives with it. The sentence
+                  that used to sit here rendered unconditionally while the
+                  component returned null when disconnected, so it described a
+                  button that was not on the screen. */}
               <GitHubIntegration />
-              <p className="text-xs text-muted-foreground">
-                GitHub sign-in is saved on this Mac until you disconnect. Use disconnect to connect a different GitHub account.
-              </p>
+            </div>
           </div>
 
           {/* Community — below Integrations, above the Danger Zone. */}

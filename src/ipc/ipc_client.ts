@@ -1316,6 +1316,25 @@ export class IpcClient {
     };
   }
 
+  /**
+   * The "what's new" note, resolved in main from the hosted updates.json.
+   * Returns null when there is nothing to show — which includes every failure
+   * mode, because a panel that cannot say anything should not appear.
+   */
+  public async getWhatsNew(): Promise<import("@/main/whats-new").WhatsNewEntry | null> {
+    try {
+      return (await this.ipcRenderer.invoke("whats-new:get")) ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** The hosted note changed (hourly refresh, or a manual one). */
+  public onWhatsNewChanged(handler: () => void): () => void {
+    const off = this.ipcRenderer.on("whats-new:changed", () => handler());
+    return typeof off === "function" ? off : () => {};
+  }
+
   /** Fix: Finding 1 — Electron fullscreen enter/leave */
   public onWindowFullscreenChanged(
     handler: (payload: { fullscreen: boolean }) => void,

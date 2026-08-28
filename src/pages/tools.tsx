@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { useAtlarixCoreCatalog } from "@/hooks/useAtlarixCoreCatalog";
 import { cn } from "@/lib/utils";
+import { CORE_PAYMENT_SUMMARY } from "@/shared/billing_copy";
 
 type Category =
   | "all"
@@ -347,7 +348,7 @@ export default function ToolsPage() {
         <div className="rounded-lg border border-border bg-muted/30 p-4 text-sm">
           <p className="font-medium text-foreground mb-1">Models</p>
           <p className="text-muted-foreground mb-2">
-            Free and Pro both run every Atlarix Core model plus BYOK and local. Atlarix Core is pay-as-you-go — top up credit, metered per use.
+            {CORE_PAYMENT_SUMMARY} Every plan runs every Core model, plus your own keys and local models.
             Pro adds unlimited workspaces, the Agent Behaviors &amp; MCP marketplaces, one-click connectors, and higher MCP &amp; automation capacity.
           </p>
           {/* The live lineup, so this card states what is ACTUALLY configured rather

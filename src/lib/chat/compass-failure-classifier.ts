@@ -18,9 +18,9 @@ import {
   accountBannedUserMessage,
   compassAuthExpiredUserMessage,
   compassBadRequestUserMessage,
-  compassExhaustedUserMessage,
+  coreExhaustedUserMessage,
   coreUnavailableUserMessage,
-} from "@/ipc/shared/compass_constants";
+} from "@/shared/billing_copy";
 
 export interface CompassFailureClassification {
   message: string;
@@ -37,7 +37,7 @@ export function classifyCompassFailure(
     return { message: accountBannedUserMessage(), isCompassInfraError: false };
   }
   if (statusCode === 402 || /insufficient_credit/.test(bodyStr)) {
-    return { message: compassExhaustedUserMessage(), isCompassInfraError: false };
+    return { message: coreExhaustedUserMessage(), isCompassInfraError: false };
   }
   if (statusCode === 503 || /core_unavailable/.test(bodyStr)) {
     return { message: coreUnavailableUserMessage(), isCompassInfraError: true };

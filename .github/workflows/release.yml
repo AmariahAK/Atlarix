@@ -1,4 +1,4 @@
-# Quality checks on main/PR; full release build on version tags (v*).
+# Quality checks on main/dev/PR; full release build on version tags (v*).
 # Credentials are read from GitHub repository secrets and embedded at build time via Vite define.
 # See README "Deployment (CI / GitHub Actions)" for the list of required secrets.
 
@@ -6,7 +6,13 @@ name: Atlarix CI
 
 on:
   push:
-    branches: [main]
+    # `dev` is the working branch, `main` is the release branch. Both run the
+    # `quality` job and NOTHING else: every other job in this file is gated on
+    # `startsWith(github.ref, 'refs/tags/v')` or workflow_dispatch, so a push to
+    # either branch cannot build or publish a release. Without `dev` here the
+    # working branch would run zero CI, which would make it LESS safe than main
+    # and defeat the point of having it.
+    branches: [main, dev]
     tags:
       - "v*"
   pull_request:
@@ -122,6 +128,19 @@ jobs:
 
       - name: Type check sandbox helpers (cross-target)
         run: npm run check:sandbox
+
+      # The edge functions are the money path and were type-checked by NOTHING.
+      # `type ServiceClient = ReturnType<typeof createClient>` resolved the schema
+      # generic to `never`, so every .rpc() call was already an error — 23 of them
+      # sitting in handle-lemon-webhook, which is exactly the noise floor that
+      # hides a real one.
+      - name: Setup Deno
+        uses: denoland/setup-deno@v1
+        with:
+          deno-version: v2.x
+
+      - name: Type check Supabase edge functions
+        run: npm run check:functions
 
       # NOTE: the agent-evals vitest project is a LOCAL gate — its harness needs
       # a Node-ABI better-sqlite3 (tests/infra) plus a git-mock server and the

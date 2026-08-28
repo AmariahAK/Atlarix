@@ -1,6 +1,21 @@
 # Atlarix Core billing & plan limits (pay-as-you-go credit wallet)
 
-> **v14.11.0 — pricing reframe.** No plan bundles AI. **Atlarix Core is pay-as-you-go on
+> **v14.38.0 — SUPERSEDES the note below on one point.** A subscription now carries a
+> monthly **Atlarix Core allowance**, so "no plan bundles AI" is no longer true. Both
+> **Pro** and **Atlarix Reviewer** grant one — `MONTHLY_GRANT_CENTS` in
+> [`supabase/functions/handle-lemon-webhook/index.ts`](../supabase/functions/handle-lemon-webhook/index.ts)
+> — written to `credit_grants`, **one row per `(user, product)`**, by
+> [`20260826130000_subscription_credit_grants.sql`](../supabase/migrations/20260826130000_subscription_credit_grants.sql).
+> `spend_from_wallet` spends the allowance FIRST and the purchased wallet after, and it
+> deliberately lets one product's allowance pay for the other — so there is no per-product
+> balance, only per-product **spend**, recorded via the ledger's `source` column.
+> The wallet, the ledger and the RPC surface below are otherwise unchanged.
+>
+> **NEVER PUBLISH THE ALLOWANCE IN DOLLARS** in customer-facing copy — see the rule at the
+> top of [`src/shared/billing_copy.ts`](../src/shared/billing_copy.ts). Percentages only.
+>
+> **v14.11.0 — pricing reframe (HISTORICAL; the "no plan bundles AI" line is superseded
+> above).** No plan bundles AI. **Atlarix Core is pay-as-you-go on
 > every tier**, billed from a prepaid **credit wallet** (a dollar balance in cents), not a
 > monthly token allowance. The earlier `compass_tokens` monthly-allowance pool and the
 > **Team / Workforce** tier were removed. Tiers are now **Free** and **Pro** only.

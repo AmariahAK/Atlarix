@@ -9,9 +9,11 @@ import {
   COMPACTION_SUMMARY_PREFIX,
   isCompactionSummaryMessage,
   sliceFromLastCompactionSummary,
+  extractPriorSummary,
   runSteppedCompaction,
   countMessagesTokens,
 } from "@/lib/context/compaction";
+import { buildCompactionUserPromptPrefix } from "@/prompts/context_compaction_prompt";
 
 describe("isContextOverflowError", () => {
   it.each([
@@ -109,6 +111,120 @@ describe("durable compaction summary slicing", () => {
       { role: "user", content: "q" },
     ];
     expect(sliceFromLastCompactionSummary(messages)).toBe(messages);
+  });
+});
+
+/**
+ * The prior-summary chain. `CONTEXT_COMPACTION_SYSTEM` promises to "update the
+ * PRIOR SUMMARY, removing stale details" and `buildCompactionUserPromptPrefix`
+ * has a branch for it — but nothing ever supplied one (the resolver was a
+ * `return null` stub), so the previous summary arrived as an ordinary message
+ * and got flattened and cut at 2,000 chars with everything else. These pin the
+ * repair: it comes out labelled, whole, and generation-tagged.
+ */
+describe("compaction summary chaining", () => {
+  /** A realistic marker body — the seven sections the compaction prompt asks for. */
+  const SECTIONS = [
+    "## Goal",
+    "## Constraints & Preferences",
+    "## Progress",
+    "## Key Decisions",
+    "## Next Steps",
+    "## Critical Context",
+    "## Relevant Files",
+  ];
+  const realisticSummary = SECTIONS.map(
+    (h) => `${h}\n- ${h.replace("## ", "")} detail. ${"x".repeat(400)}`,
+  ).join("\n\n");
+
+  const marker = (text: string, gen?: number) => ({
+    role: "user",
+    content: `${COMPACTION_SUMMARY_PREFIX}${gen ? ` gen=${gen}` : ""}\n${text}\n[END COMPACTION]`,
+  });
+
+  it("lifts the LAST summary out and returns the rest without it", () => {
+    const messages = [
+      marker("first pass", 1),
+      { role: "user", content: "mid turn" },
+      marker("second pass", 2),
+      { role: "assistant", content: "recent reply" },
+    ];
+    const { prior, rest } = extractPriorSummary(messages);
+    expect(prior?.summaryText).toBe("second pass");
+    expect(prior?.compactionGeneration).toBe(2);
+    expect(rest).toHaveLength(3);
+    expect(rest.some((m) => m.content.includes("second pass"))).toBe(false);
+    // The older marker is left alone — only the newest is lifted.
+    expect(rest[0].content).toContain("first pass");
+  });
+
+  it("strips the marker wrapper, leaving only the summary body", () => {
+    const { prior } = extractPriorSummary([marker(realisticSummary, 3)]);
+    expect(prior?.summaryText).toBe(realisticSummary);
+    expect(prior?.summaryText).not.toContain(COMPACTION_SUMMARY_PREFIX);
+    expect(prior?.summaryText).not.toContain("[END COMPACTION]");
+    expect(prior?.summaryText).not.toContain("gen=");
+  });
+
+  it("reads a legacy marker (no gen= token) as generation 1", () => {
+    const { prior } = extractPriorSummary([marker("older session")]);
+    expect(prior?.compactionGeneration).toBe(1);
+    expect(prior?.summaryText).toBe("older session");
+  });
+
+  it("returns no prior when the history has never been compacted", () => {
+    const messages = [{ role: "user", content: "a" }];
+    const { prior, rest } = extractPriorSummary(messages);
+    expect(prior).toBeNull();
+    expect(rest).toBe(messages);
+  });
+
+  it("ignores an assistant message that merely quotes the marker", () => {
+    const messages = [
+      { role: "assistant", content: `${COMPACTION_SUMMARY_PREFIX} quoted back` },
+    ];
+    // Same rule sliceFromLastCompactionSummary applies: only user rows count.
+    expect(extractPriorSummary(messages).prior).toBeNull();
+  });
+
+  /**
+   * THE ACTUAL DEFECT. Before the fix the prior summary went through the
+   * per-message formatter — `.replace(/\n/g, " ").slice(0, 2000)` — so a
+   * seven-section summary reached the next pass as one line, cut off partway
+   * through. A test that only asserted "a prior summary was passed" would have
+   * gone green against the broken code; these assert it arrives INTACT.
+   */
+  it("delivers the prior summary to the prompt whole, not flattened or cut at 2,000 chars", () => {
+    const { prior } = extractPriorSummary([marker(realisticSummary, 2)]);
+    const prompt = buildCompactionUserPromptPrefix(prior ?? undefined);
+
+    expect(realisticSummary.length).toBeGreaterThan(2000); // guards the premise
+    for (const heading of SECTIONS) {
+      expect(prompt).toContain(heading);
+    }
+    expect(prompt).toContain("PRIOR SUMMARY (generation 2)");
+    // Newlines survive: a flattened summary would have collapsed these.
+    expect(prompt).toContain("\n## Relevant Files");
+  });
+
+  it("omits the prior-summary section entirely on a first compaction", () => {
+    const prompt = buildCompactionUserPromptPrefix(undefined);
+    expect(prompt).not.toContain("PRIOR SUMMARY");
+  });
+
+  it("keeps a gen=-tagged marker readable by the slicer and the recognizer", () => {
+    // Back-compat pin: both match on startsWith, so adding ` gen=N` to the
+    // marker line must not break dispatch slicing or any persisted row.
+    const tagged = marker("second pass", 2);
+    expect(isCompactionSummaryMessage(tagged.content)).toBe(true);
+
+    const sliced = sliceFromLastCompactionSummary([
+      { role: "user", content: "ancient" },
+      tagged,
+      { role: "assistant", content: "after" },
+    ]);
+    expect(sliced).toHaveLength(2);
+    expect(sliced[0].content).toContain("second pass");
   });
 });
 

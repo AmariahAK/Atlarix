@@ -2,11 +2,14 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useCreditBalance } from "@/hooks/useCreditBalance";
-import {
-  ATLARIX_CORE_CATEGORY_LABEL,
-  formatCompassSubscriptionTier,
-} from "@/shared/compass_product_copy";
+import { formatCompassSubscriptionTier } from "@/shared/compass_product_copy";
 import { useAuth } from "@/lib/auth/useAuth";
+import { CreditSplitBar } from "./CreditSplitBar";
+import {
+  CORE_PAYMENT_SUMMARY,
+  NEGATIVE_BALANCE_EXPLAINER,
+  formatCents,
+} from "@/shared/billing_copy";
 
 type AtlarixCoreUsageCardProps = {
   className?: string;
@@ -35,7 +38,15 @@ export function AtlarixCoreUsageCard({
   className = "",
   showIntro = true,
 }: AtlarixCoreUsageCardProps) {
-  const { balanceCents, loading, error, needsSignIn } = useCreditBalance();
+  const {
+    balanceCents,
+    grantedCents,
+    grantedTotalCents,
+    purchasedCents,
+    loading,
+    error,
+    needsSignIn,
+  } = useCreditBalance();
   const { status } = useAuth();
   // Additive tally — tap $20 then $10 → a running $30 total; custom adds any amount.
   const [tallyCents, setTallyCents] = useState(0);
@@ -45,11 +56,24 @@ export function AtlarixCoreUsageCard({
   const [topUpError, setTopUpError] = useState<string | null>(null);
 
   const tier = status?.plan ?? null;
-  const balanceLabel =
-    typeof balanceCents === "number" ? `$${(balanceCents / 100).toFixed(2)}` : null;
+  // THE HEADLINE IS PURCHASED CREDIT, not the spendable total.
+  //
+  // The total merges two things a reader cannot act on together: money they
+  // bought, which never expires, and an allowance that resets. Adding them
+  // produced "$2,000,000.40" on an account whose actual credit is half that,
+  // and the sum answers no question — the allowance is spent first anyway, so
+  // this number is exactly what is left once it runs out.
+  //
+  // Falls back to the total when the server reports no split, because a
+  // headline of "$0.00" on an account with a balance would be worse than a
+  // slightly broad one.
+  const headlineCents = purchasedCents ?? balanceCents;
+  const balanceLabel = typeof headlineCents === "number" ? formatCents(headlineCents) : null;
   // A negative balance means a prior refund was clawed back after the credit had
   // already been spent — the reserve gate blocks Core until a top-up covers it.
-  const balanceIsNegative = typeof balanceCents === "number" && balanceCents < 0;
+  // Against the headline, which is now purchased credit — that is the column a
+  // refund can drive below zero. An allowance is floored at zero by the schema.
+  const balanceIsNegative = typeof headlineCents === "number" && headlineCents < 0;
   const tallyLabel = `$${(tallyCents / 100).toFixed(2)}`;
 
   const addToTally = (cents: number) => {
@@ -120,11 +144,7 @@ export function AtlarixCoreUsageCard({
   return (
     <div className={`space-y-3 rounded-lg border border-border p-4 ${className}`}>
       {showIntro ? (
-        <p className="text-xs text-muted-foreground leading-relaxed">
-          {ATLARIX_CORE_CATEGORY_LABEL} is pay-as-you-go — you're metered per use from a
-          prepaid credit balance. Top up any time. Your own API keys and local models are
-          always free.
-        </p>
+        <p className="text-xs text-muted-foreground leading-relaxed">{CORE_PAYMENT_SUMMARY}</p>
       ) : null}
 
       <div className="flex items-center justify-between text-sm gap-2">
@@ -139,7 +159,7 @@ export function AtlarixCoreUsageCard({
       </div>
 
       <div className="flex items-center justify-between text-sm gap-2">
-        <span className="text-muted-foreground shrink-0">Credit balance</span>
+        <span className="text-muted-foreground shrink-0">Your credit</span>
         {loading ? (
           <span className="text-muted-foreground">…</span>
         ) : error ? (
@@ -161,10 +181,15 @@ export function AtlarixCoreUsageCard({
         )}
       </div>
 
+      {/* The split sits directly under the total it explains. It draws nothing
+          when the server reported no split, or when there is nothing to spend. */}
+      {!loading && !error && !needsSignIn ? (
+        <CreditSplitBar grantedCents={grantedCents} grantedTotalCents={grantedTotalCents} />
+      ) : null}
+
       {balanceIsNegative ? (
         <p className="text-xs text-muted-foreground leading-relaxed">
-          A prior refund was applied, so your balance is negative. Top up to restore a
-          positive balance before using {ATLARIX_CORE_CATEGORY_LABEL}.
+          {NEGATIVE_BALANCE_EXPLAINER}
         </p>
       ) : null}
 

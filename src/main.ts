@@ -59,6 +59,7 @@ import {
 import { resolveSystemPath } from "./lib/resolve-path";
 import { warmOpenRouterModelCache } from "./lib/routing/tier-context-limits";
 import { warmCoreModelOverrides } from "./lib/routing/core-model-overrides";
+import { warmWhatsNew } from "./main/whats-new";
 import { seedEphemeralCounterFromSessions } from "./ipc/handlers/workspace_session_handlers";
 import { isNoUsableModelOutputError } from "./ipc/utils/no_usable_model_output";
 import { isStreamStopAbort } from "./lib/stream/stream-stop-sentinels";
@@ -242,6 +243,24 @@ if (IS_DOCTOR_CLI && !IS_SELF_TEST) {
     let code = 1;
     try {
       await app.whenReady();
+      /**
+       * The doctor opens the database itself. It takes no single-instance lock and
+       * opens no window, so it never runs the normal startup path that calls this —
+       * which meant the provider-keys check hit an uninitialised handle and reported
+       * "the local database is unavailable" on a perfectly healthy machine, next to
+       * a `Local database: OK` row from a probe that opens its own connection.
+       *
+       * `initializeDatabase()` is idempotent (`if (_db) return _db`), so this cannot
+       * conflict with the startup path if it is also running.
+       */
+      try {
+        initializeDatabase();
+      } catch (e) {
+        // Non-fatal on purpose: a dead database is exactly when someone runs this,
+        // and every other row still has something to say. The provider-keys row
+        // will now report the real reason rather than guessing at one.
+        logger.warn("doctor: database unavailable, continuing:", e);
+      }
       const { runDoctor } = await import("./main/doctor");
       const { formatDoctorReport } = await import("./main/doctor-report");
       const report = await runDoctor();
@@ -647,6 +666,11 @@ export async function onReady() {
   // disk cache so the warm below + the first stream see last-known-good ids, then
   // refreshes from the network in the background. Must run before the cache warm.
   warmCoreModelOverrides();
+
+  // The bottom-left "what's new" note. Same mechanism as the line above and
+  // deliberately so: a note bundled into a release only reaches people who have
+  // already updated. Never throws; renders nothing if the fetch fails.
+  warmWhatsNew();
 
   // Warm the OpenRouter model catalog so per-model context limits resolve via
   // `resolveModelContextLimit` without a cold first turn.
@@ -1487,10 +1511,13 @@ const createWindow = () => {
   mainWindow.on("enter-full-screen", broadcastFullscreen);
   mainWindow.on("leave-full-screen", broadcastFullscreen);
 
-  // Idle-pause Supabase background activity (realtime keepalive + auth
-  // auto-refresh) when the window is backgrounded for a while, so the app stops
-  // pinging Supabase while the user isn't using it. Debounced (60s) so a quick
-  // alt-tab doesn't churn the connection.
+  // Idle-pause Supabase auth auto-refresh when the window is backgrounded for a
+  // while, so the app stops pinging Supabase while the user isn't using it.
+  // Debounced (60s) so a quick alt-tab doesn't churn the connection.
+  //
+  // The realtime keepalive this used to pause as well is gone — see the removal
+  // note in SubscriptionManager. Token refresh is the only background Supabase
+  // traffic the app has left.
   let supabaseIdleTimer: ReturnType<typeof setTimeout> | null = null;
   let supabaseBgPaused = false;
   const SUPABASE_IDLE_DELAY_MS = 60_000;
@@ -1513,7 +1540,6 @@ const createWindow = () => {
       supabaseIdleTimer = null;
       if (supabaseBgPaused) return;
       supabaseBgPaused = true;
-      SubscriptionManager.pauseRealtime();
       setAutoRefresh(false);
     }, SUPABASE_IDLE_DELAY_MS);
   });
@@ -1522,10 +1548,22 @@ const createWindow = () => {
       clearTimeout(supabaseIdleTimer);
       supabaseIdleTimer = null;
     }
+    /**
+     * UNCONDITIONAL, and that is the fix.
+     *
+     * This whole block used to sit behind `if (!supabaseBgPaused) return;`, so a plan
+     * refresh only happened if the window had first blurred for a full 60 seconds. The
+     * one flow that matters — click Upgrade, pay in the browser, alt-tab straight back —
+     * is FASTER than that, so it refreshed nothing and the user stared at their old plan.
+     *
+     * `refreshPlanFromServer` throttles itself, so firing on every focus is one read per
+     * 15s at worst. That is the replacement for the realtime channel that was costing
+     * 93.5% of database execution time.
+     */
+    void SubscriptionManager.refreshPlanFromServer();
     if (!supabaseBgPaused) return;
     supabaseBgPaused = false;
     setAutoRefresh(true);
-    void SubscriptionManager.resumeRealtime();
   });
 
   mainWindow.webContents.on("render-process-gone", (_event, details) => {

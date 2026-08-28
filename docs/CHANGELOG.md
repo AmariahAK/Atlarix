@@ -3,6 +3,125 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
+## [14.38.3] (2026-08-28) — Core 1 is GLM 5.3, and the dead half of the realtime teardown is gone
+
+**Atlarix Core 1 now runs GLM 5.3.** It reached you without this release — the Core lineup is
+configured remotely, so the model changed the moment the config did. Same 1M context, same price,
+and reasoning effort scales to what the model supports. Recorded here so the history is complete.
+
+**Housekeeping this release actually ships.** v14.38.2 removed the always-open Supabase realtime
+channel but left everything that supported it. Because nothing assigns `realtimeCleanup` any more,
+`pauseRealtime()` had become a permanent no-op and `resumeRealtime()`'s guard permanently true —
+about 150 lines that read as working code and could not run. `git grep` finds presence; tracing the
+producers finds reachability, and the answer for all of it was deletion.
+
+One deliberate behaviour change comes with it: a window focus that happens while offline now keeps
+the cached plan rather than dropping it. A failed read is "no news", not "assume nothing", and the
+30-minute tier TTL still bounds how stale it can get.
+
+Two dependencies removed. `@types/node-cron` was worse than unused — node-cron 4.6 ships its own
+types, so a v3 stub was shadowing them and anything touching that API was being checked against the
+wrong shape.
+
+**Not in the app, shipped the same day:** the Reviewer's security pass (five findings), the proxy
+learning to report what each call cost, a refund bug where partial refunds after the first clawed
+back nothing, and nightly encrypted backups of the billing database.
+
+## [14.38.2] (2026-08-27) — Your plan updates when you come back, and Settings stops describing a button that is not there
+
+**Upgrading shows up straight away.** Buying Pro happens in a browser, so you leave Atlarix and
+come back — and until now, coming back quickly refreshed nothing. The app only re-checked your plan
+if it had sat unfocused for a full minute first, which the actual upgrade flow is faster than. It now
+re-checks every time you return to the window.
+
+**Settings no longer describes a Disconnect button that is not on the screen.** Integrations showed
+a line about disconnecting GitHub whether or not there was anything connected, and it called it
+"GitHub sign-in" — which is a different thing from signing in to Atlarix with GitHub. You can be
+signed in that way and have no GitHub connection at all, which is what made it confusing. It now
+says which one it means, and says when there is nothing connected.
+
+**Your account page lists the repositories the reviewer covers.** It used to say "selected
+repositories" and stop, because the repository names were never stored — only the fact that a
+selection existed. Existing installations fill in the next time you add or remove a repository.
+
+**Groundwork you will not see.** The app no longer holds a permanently open connection to our
+database watching for plan changes; it asks when there is a reason to. That connection was doing
+almost all of the work on our database and delivering an event most accounts never fire.
+
+## [14.38.1] (2026-08-27) — The usage bar says a percentage, and two startup bugs
+
+**The usage bar shows a share, not a dollar figure.** v14.38.0 rendered your included usage as
+"$0.42 of $1,000,000.00 used". It now reads as a percentage, and never prints what the allowance
+is worth — that is a number about our pricing, not about your month. Below one percent it says so
+rather than rounding down to zero, because a metered account that reports zero usage looks like an
+account nobody is metering.
+
+**Settings leads with the credit you bought.** The headline used to add together money that never
+expires and an allowance that resets when your plan renews, which answered nothing: the allowance is
+spent first, so the credit you bought is exactly what is left once it runs out. Those are now two
+separate lines saying two separate things.
+
+**Your account page can tell the two products apart.** atlarix.dev shows how much of each plan's
+included usage you have spent, and what Atlarix and Atlarix Reviewer each consumed over the last
+thirty days. Not a separate balance per product — there is one balance, and either product can draw
+on it — but a truthful record of where it went.
+
+**Atlarix no longer warns you about your keychain on every launch.** A startup step read your
+settings a moment before the app was ready to decrypt them, and the app reported that as your
+operating system's keystore being unavailable. Nothing was ever wrong and nothing was ever lost.
+
+**`--doctor` stops telling healthy machines to reinstall.** The diagnostics run reported "the local
+database is unavailable" under Your API keys whenever anything at all went wrong there — including a
+bug in the diagnostics itself, which never opened the database — while the Local database row said
+OK in the same report. It now opens the database and names the actual problem.
+
+## [14.38.0] (2026-08-27) — Atlarix Core included with Pro, refunds that mean it, and browser tools that work on localhost
+
+**Atlarix Core comes with Pro now, and the app finally says so.** Pro includes Atlarix Core for
+everyday work, but the app still spoke as though a plan was the thing standing between you and a
+model — running low on credit offered to sell you an upgrade you may already have had, and a
+third-party provider's own free-tier limit suggested buying Atlarix Pro, which would not have helped
+at all. Every message about money now comes from one place and talks about your balance rather than
+your plan.
+
+**You can see which half of your balance expires.** Settings shows what is included this month
+separately from credit you bought, with roughly how many turns of everyday work the included part is
+worth. The included part resets when your plan renews; credit you paid for never expires. Atlarix has
+been told both numbers for a while and was throwing one of them away.
+
+**A refunded month is actually a refunded month.** Refunding a subscription used to leave the plan
+active and the included usage sitting in the balance, because the app was never told about it.
+Refunds now end the subscription straight away and return the usage that came with it — the part you
+have already spent is not chased, reviews already posted are not withdrawn, and credit you bought
+separately is never touched. Partial refunds return a proportional amount instead of everything.
+
+**Browser tools work on a local dev server with the panel closed.** Pointing the agent at
+`localhost` did nothing useful until you opened the right panel by hand: the page was being loaded
+into a browser view that had never been given a size, so it laid out at zero width and every answer
+the agent got back about it was wrong in a way that looked plausible. The view is now always sized,
+and the panel only decides whether you can see it.
+
+**A small note in the corner when something ships.** A dismissible panel at the bottom left, with a
+line about what changed and a link to the full changelog. It stays dismissed, and a new note brings
+it back — one note at a time, no badges, no counts.
+
+
+**Long conversations stop forgetting what they were for.** When a chat runs long enough to be
+summarized more than once, each new summary was rebuilt from a mangled copy of the previous one —
+flattened onto a single line and cut off partway through, which reliably threw away the sections
+holding error messages and file paths. Later summaries were compressing damage rather than the
+conversation. Each summary is now handed forward intact and updated in place, so a session that has
+been running all day still knows the task it started with.
+
+**The right panel stops reopening itself.** Every time the agent asked to run a command or edit a
+file, the panel yanked itself open — even when there was nothing new waiting, which is why closing it
+never stuck and why it often opened onto an empty list. The panel was left over from when approvals
+were shown there; they now appear in the conversation itself, on the card for the turn that asked,
+with a bar above the message box when something is waiting. Approving works exactly as before — the
+panel is simply no longer dragged along with it, and stays wherever you put it.
+
+---
+
 ## [14.37.0] (2026-08-24) — Deep thinking on Atlarix Core, web search that finds what you asked for, and a record of what the agent has written
 
 **Deep thinking works on Atlarix Core.** The toggle was missing for every Core model while the same

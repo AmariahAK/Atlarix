@@ -21,6 +21,7 @@ type SafeStorageApi = {
 
 let safeStorageCache: SafeStorageApi | null | undefined;
 let safeStorageTestOverride: SafeStorageApi | null | undefined;
+let appReadyTestOverride: boolean | null = null;
 
 const requireElectron = createRequire(
   typeof import.meta.url === "string"
@@ -32,6 +33,49 @@ const requireElectron = createRequire(
 export function __injectSafeStorageForTests(api: SafeStorageApi | null | undefined): void {
   safeStorageTestOverride = api;
   safeStorageCache = undefined;
+}
+
+/**
+ * A read that happened before the app was ready — which is NOT a keystore failure.
+ *
+ * `resolveSystemPath()` runs at module scope in `src/main.ts`, before
+ * `app.whenReady()`, and it reads `customNodePath` — a PLAINTEXT field. Getting it
+ * costs a full `readSettings()`, which decrypts every stored secret on the way past,
+ * and Electron refuses `safeStorage` before ready. So every single launch logged a
+ * warning telling the user their OS keystore might be busy, when nothing was wrong
+ * and nothing was lost: `readSettings` does not cache, so the next read (after ready)
+ * decrypts fine.
+ *
+ * Distinguished rather than silenced, because the two are genuinely different events
+ * and only one of them is worth telling a user about. The warning that fires for a
+ * real keystore failure is carefully worded and stays exactly as it is.
+ */
+export class SafeStorageNotReadyError extends Error {
+  constructor() {
+    super("safeStorage was read before the app was ready");
+    this.name = "SafeStorageNotReadyError";
+  }
+}
+
+/**
+ * `true` / `false` when Electron can be asked, `null` when it cannot — headless CI and
+ * the tsx benchmarks import this module with no Electron at all. A `null` is treated as
+ * ready by every caller: refusing to decrypt because we could not find `app` would
+ * break the environments this lazy-load exists to support.
+ */
+function isElectronAppReady(): boolean | null {
+  if (safeStorageTestOverride !== undefined) return appReadyTestOverride;
+  try {
+    const electron = requireElectron("electron") as typeof import("electron");
+    return electron.app?.isReady() ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** @internal Vitest — simulate a pre-ready main process alongside an injected safeStorage. */
+export function __injectAppReadyForTests(ready: boolean | null): void {
+  appReadyTestOverride = ready;
 }
 
 /** Lazy-load Electron safeStorage so headless CI (tsx benchmarks) can import readSettings. */
@@ -98,6 +142,19 @@ export function readSettings(): UserSettings {
   const onDecryptFailure = (err: unknown) => {
     if (decryptFailureLogged) return;
     decryptFailureLogged = true;
+    // A pre-ready read is not a keystore problem and must not be reported as one.
+    // Nothing was lost — `readSettings` does not cache, so the caller that ran
+    // before `app.whenReady()` got the plaintext fields it wanted and the next
+    // read decrypts normally. Kept at debug rather than dropped, because "the
+    // secrets came back empty" is still worth being able to see in a log when
+    // chasing something else.
+    if (err instanceof SafeStorageNotReadyError) {
+      logger.debug(
+        "settings: read before the app was ready, so stored secrets were not decrypted. " +
+          "Nothing is wrong and nothing was written — the next read gets them.",
+      );
+      return;
+    }
     // Deliberately NOT "re-enter your API keys": that advice was wrong often
     // enough to be harmful. The most common cause is the OS keystore being busy
     // for a moment around launch, and the stored ciphertext is preserved on
@@ -421,6 +478,12 @@ export function decrypt(data: Secret): string {
     const safeStorage = getSafeStorage();
     if (!safeStorage) {
       throw new Error("Electron safeStorage is unavailable");
+    }
+    // Checked BEFORE the call rather than by matching on Electron's error text: the
+    // string is not ours and a future Electron may reword it, at which point a
+    // message-matching version of this would quietly go back to alarming everyone.
+    if (isElectronAppReady() === false) {
+      throw new SafeStorageNotReadyError();
     }
     return safeStorage.decryptString(Buffer.from(data.value, "base64"));
   }

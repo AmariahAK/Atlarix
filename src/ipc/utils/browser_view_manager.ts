@@ -750,6 +750,12 @@ export function createTab(scope: BrowserScope, url?: string): BrowserPanelState 
       contextIsolation: true,
       nodeIntegration: false,
       webSecurity: true,
+      // A tab the agent is driving with the panel closed is a hidden page, and
+      // Chromium throttles hidden pages hard — timers clamped, rAF paused. An
+      // SPA that finishes hydrating in a rAF callback would then never finish,
+      // and the tool would read a half-built DOM and call it the page. This is
+      // an agent surface, not a background tab we are being polite about.
+      backgroundThrottling: false,
     },
   });
   const id = nextTabId++;
@@ -802,18 +808,42 @@ export function closeTab(scope: BrowserScope, id: number): BrowserPanelState {
   return getBrowserPanelState(scope);
 }
 
+/**
+ * Attach the active tab and give it a size, whether or not the panel is open.
+ *
+ * THE BUG THIS FIXES, and it is worth stating because the guard against it was
+ * already written and simply never ran. `fallbackBounds` exists (see its
+ * docblock) because "a view whose rect doesn't intersect the window gets a 0x0
+ * layout viewport, so the document lays out at zero width and every geometry
+ * answer is plausible but wrong". But bounds were only ever applied while
+ * ATTACHING, and attaching only happened when `scope.visible` — so with the
+ * right panel closed the view was never attached at all, which is the same
+ * failure one step worse. The agent's browser tools reported an empty or
+ * unusable page against a local dev server until the user opened the panel by
+ * hand, and `requestBrowserPanel`'s claim that "the browser tools work fine with
+ * the panel shut" was simply false.
+ *
+ * So: always attached, always sized, and `View.setVisible` decides whether it is
+ * DRAWN. That separation is the whole point — a laid-out page the compositor
+ * skips is what an agent needs, while a drawn one with no chrome around it is
+ * the bare browser slab over half the app that made this conditional in the
+ * first place.
+ */
+function attachActive(scope: BrowserScope, view: WebContentsView): void {
+  scope.window.contentView.addChildView(view);
+  view.setBounds(boundsFor(scope));
+  view.setVisible(scope.visible);
+}
+
 export function setActiveTab(scope: BrowserScope, id: number): void {
   const view = scope.tabs.get(id);
   if (!view || scope.window.isDestroyed()) return;
-  // Detach all, then attach the active one (single visible surface).
+  // Detach all, then attach the active one (single surface).
   for (const [, v] of scope.tabs) {
     scope.window.contentView.removeChildView(v);
   }
   scope.activeTabId = id;
-  if (scope.visible) {
-    scope.window.contentView.addChildView(view);
-    view.setBounds(boundsFor(scope));
-  }
+  attachActive(scope, view);
   broadcastState(scope);
 }
 
@@ -849,8 +879,12 @@ export function reload(scope: BrowserScope): void {
 
 export function setBounds(scope: BrowserScope, rect: Rect): void {
   scope.lastBounds = rect;
+  // No `scope.visible` guard any more: the view is always attached, so a fresh
+  // rect is always worth applying. It only ever arrives from a mounted panel
+  // anyway, and gating it here meant the LAST reported rect was discarded on the
+  // way to a closed panel and had to be re-derived on reopen.
   const view = getActiveTabView(scope);
-  if (view && scope.visible) view.setBounds(rect);
+  if (view) view.setBounds(rect);
   // Wake anything waiting for the panel to actually be on screen.
   const waiters = scope.panelWaiters;
   scope.panelWaiters = [];
@@ -862,12 +896,19 @@ export function setBounds(scope: BrowserScope, rect: Rect): void {
  * panel on its Browser tab, exactly like a plan artifact does, and wait briefly
  * for it to report bounds.
  *
- * Why not just `setVisible(true)`: that attaches the raw `WebContentsView` over
- * the window with no tab strip and no URL bar, because the React chrome isn't
+ * Why not just `setVisible(true)`: that DRAWS the `WebContentsView` over the
+ * window with no tab strip and no URL bar, because the React chrome isn't
  * mounted. With the right panel closed that renders as a bare browser slab
  * covering half the app — which is what a user actually sees, and it looks
  * broken. `setVisible` stays the RENDERER's call (panel mount/unmount); agent
  * code asks for the panel and lets the UI drive visibility.
+ *
+ * The tools genuinely do work with the panel shut — but only since the view
+ * started being ATTACHED regardless of visibility (see `attachActive`). Before
+ * that this docblock made the claim and the code did not support it: an
+ * unattached view has no layout viewport, so the page laid out at zero width and
+ * every answer about it was plausible and wrong. Opening the panel by hand was
+ * the only fix, which is exactly how the bug was reported.
  */
 export async function requestBrowserPanel(
   scope: BrowserScope,
@@ -904,12 +945,11 @@ export function setVisible(scope: BrowserScope, nextVisible: boolean): void {
     if (nextVisible) createTab(scope);
     return;
   }
-  if (nextVisible) {
-    scope.window.contentView.addChildView(view);
-    view.setBounds(boundsFor(scope));
-  } else {
-    scope.window.contentView.removeChildView(view);
-  }
+  // Hiding the panel no longer DETACHES the view — it stops drawing it. A
+  // detached view has no layout viewport, and the agent's browser tools go on
+  // working while the panel is shut; they were the casualty of the old
+  // remove-on-hide. See `attachActive`.
+  attachActive(scope, view);
   broadcastState(scope);
 }
 
