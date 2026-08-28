@@ -435,21 +435,6 @@ warm run. (Separately: three Core 503s on 2026-08-27 — watched, not diagnosed.
 
 - **Windows code-signing cert** — C6 auto-update signing + native-sandbox CI. Release infra, no cert.
   The Windows helper sign step is wired; set the secret to enable.
-- **Rename the macOS bundle identifier — its own release, NEVER a rider.** It ships as
-  `com.electron.atlarix`, @electron/packager's default (`packagerConfig` never set `appBundleId`),
-  confirmed against a packaged `Info.plist`. **The risk:** macOS ties `safeStorage`'s keychain ACL to
-  the app's designated requirement, which includes the bundle id — so a rename can leave every user's
-  stored provider keys and Supabase session undecryptable, which is exactly the failure v14.27.0 was
-  about. It also resets TCC folder grants and orphans the Launch Services `atlarix://` registration.
-  **No longer orphans passkeys** — the `keychain-access-groups` entitlement that baked the bundle id
-  into a signed entitlement has been removed (below), so this rename got cheaper. It should still
-  come BEFORE any Apple portal work, or that work gets done twice. **Not at risk:** `~/Library/Application Support/Atlarix` is keyed on the
-  app NAME, so chats and workspaces survive. Needs a `safeStorage` re-encryption migration and an
-  upgrade-in-place test on a **signed** build. Cost of waiting is one round of passkey re-registration.
-- **Two removable dependencies** — `@types/node-cron` (node-cron@4 ships its own types, so this is a
-  dead v3 stub) and `ignore` (nothing imports it; `isomorphic-git` carries its own v5 in a separate
-  tree, so dropping our v7 root cannot lower it; added in the fork era, `e900b590`). **`axios`,
-  `bluebird` and `@mixmark-io/domino` are NOT removable** — see the packaging trap below.
 - **Atlarix GitHub account** for contributor credit (owner action; code done).
 - OAuth `state` nonce / PKCE stays **not doing** — attempted v14.12.0, broke sign-in, reverted. The
   flow-in-progress gate stays. Revisiting needs confirmation that the Supabase redirect-URL
@@ -600,6 +585,14 @@ approval, MCP description wrapping + OAuth-URL validation, the universal write-c
   fallback.
 
 ## 💤 CLOSED — do not re-propose
+
+- **Renaming the macOS bundle identifier. Owner's call, 2026-08-28: NEVER doing it.** It ships as
+  `com.electron.atlarix` (@electron/packager's default) and it stays that way. The reason to stop
+  proposing it: macOS ties `safeStorage`'s keychain ACL to the app's designated requirement, which
+  includes the bundle id, so a rename can leave every existing user's stored provider keys and
+  Supabase session **undecryptable** — the exact failure v14.27.0 existed to fix — and separately
+  resets TCC folder grants and orphans the `atlarix://` registration. The upside was cosmetic.
+  A cosmetic identifier is not worth a migration that can lock users out of their own keys.
 
 - **Fork sub-agents. The arithmetic does not work.** A cache read is ~0.1× base input, but the
   inherited prefix is re-sent on **every step** of the worker's loop — an 8-step fork pays ~8× the
