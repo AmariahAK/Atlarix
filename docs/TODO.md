@@ -1,14 +1,14 @@
 # Atlarix TODO
 
-**Unreleased on `main`, untagged:** the realtime scaffolding v14.38.2 left behind is deleted
-(~150 lines that could not run — `realtimeCleanup` is never assigned, so `pauseRealtime()` was
-a permanent no-op), and the README stops claiming four Core models. Owner green-lights the
-release; nothing is tagged. Out-of-band the same day, needing no app release:
-Core 1 -> **GLM 5.3** (`atlarix-releases@0db87cb`, identical pricing to 5.2 so the metering
-maths does not move), the reviewer's idle poll 120/hr -> ~15/hr, the reviewer security pass,
-and the proxy's service-path account check.
+**Current version:** v14.38.3 — **RELEASED 2026-08-28.** 12 assets, draft=false, body carries the
+changelog. MSIX built and **submitted to the Microsoft Store** on a re-run — see the trap below.
+Launchpad caught up TWO releases (it was still on 14.38.1).
 
-**Current version:** v14.38.2 — **SHIPPING 2026-08-27.** The Settings → Integrations fix,
+Shipped out-of-band the same day, needing no release: **Core 1 → GLM 5.3**, the reviewer security
+pass, the proxy's account-binding gate and per-call cost header, the partial-refund fix, nightly
+encrypted money-DB backups, and the `users` INSERT policy.
+
+**Previous:** v14.38.2 (2026-08-27) — The Settings → Integrations fix,
 the doc corrections, the connected-repositories list, the navbar label, and the realtime
 teardown: the always-open plan-change channel was 93.5% of database execution time and is
 replaced by a read on window focus — which also fixes the upgrade flow the old handler
@@ -700,6 +700,24 @@ pulled config said RAILPACK — accurate about the service, wrong about producti
 **And the debugging lesson, which cost more than the fix:** I chased the npm dependency I had just
 added, then the Node version, because both changed in the same window. Neither was it. **When
 something breaks right after a migration, suspect what was REMOVED before what was added.**
+
+### The MSIX build races npm publication — `--no-package-lock` installs "whatever is newest"
+
+v14.38.3's MSIX job failed with `notarget @ai-sdk/openai@4.0.51` against a version published
+**seven seconds earlier** (17:29:01Z published, 17:29:08Z failed): npm saw it in the packument and
+the tarball had not reached that runner's CDN edge. **Re-running the job fixed it**, which is the
+tell for this class — a build that fails on a specific version number and passes unchanged minutes
+later is a propagation race, not a broken dependency.
+
+**But the race is the symptom.** `packageAfterPrune` installs with `--no-package-lock`, so every
+root resolves its semver range to whatever is newest at that instant — meaning the packaged binary
+was shipping versions nobody tested, since `npm test` runs against the lockfile. Fixed on `dev`
+(`61d519f8`): each root installs as `name@version` read from `package-lock.json`.
+
+**Two things worth keeping from the diagnosis:** MSIX is NOT in `publish-release`'s `needs`, so it
+failing does not block the desktop release — check it separately or you will not notice. And when a
+build breaks right after unrelated changes, get the publication timestamp before suspecting your own
+diff: `npm view <pkg> time --json`.
 
 ### A failed CI check suite silently SKIPS the Railway deploy
 
