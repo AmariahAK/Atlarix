@@ -3,6 +3,30 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
+## [14.38.3] (2026-08-28) — Core 1 is GLM 5.3, and the dead half of the realtime teardown is gone
+
+**Atlarix Core 1 now runs GLM 5.3.** It reached you without this release — the Core lineup is
+configured remotely, so the model changed the moment the config did. Same 1M context, same price,
+and reasoning effort scales to what the model supports. Recorded here so the history is complete.
+
+**Housekeeping this release actually ships.** v14.38.2 removed the always-open Supabase realtime
+channel but left everything that supported it. Because nothing assigns `realtimeCleanup` any more,
+`pauseRealtime()` had become a permanent no-op and `resumeRealtime()`'s guard permanently true —
+about 150 lines that read as working code and could not run. `git grep` finds presence; tracing the
+producers finds reachability, and the answer for all of it was deletion.
+
+One deliberate behaviour change comes with it: a window focus that happens while offline now keeps
+the cached plan rather than dropping it. A failed read is "no news", not "assume nothing", and the
+30-minute tier TTL still bounds how stale it can get.
+
+Two dependencies removed. `@types/node-cron` was worse than unused — node-cron 4.6 ships its own
+types, so a v3 stub was shadowing them and anything touching that API was being checked against the
+wrong shape.
+
+**Not in the app, shipped the same day:** the Reviewer's security pass (five findings), the proxy
+learning to report what each call cost, a refund bug where partial refunds after the first clawed
+back nothing, and nightly encrypted backups of the billing database.
+
 ## [14.38.2] (2026-08-27) — Your plan updates when you come back, and Settings stops describing a button that is not there
 
 **Upgrading shows up straight away.** Buying Pro happens in a browser, so you leave Atlarix and

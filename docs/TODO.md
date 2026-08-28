@@ -581,6 +581,36 @@ item.
 Supabase request count is the tell, and the 2026-08-26 lesson was that 704 requests/hour looked like
 the website and was actually a 5-second poll. Do not scale on a hunch.
 
+## ☁️ Cloudflare on the free tier — surveyed 2026-08-28, none of it started
+
+> The account is the owner's **PERSONAL** Cloudflare (`amariah.abish@gmail.com`), created for the
+> R2 backups. The `wrangler` setup on this machine belongs to SpacInsider — **never do Atlarix work
+> through the work account.** None of the below needs `wrangler`; it is dashboard plus DNS.
+
+Ranked by what they actually buy, cheapest first. Already in use: **R2**, holding the nightly
+encrypted money-DB backups.
+
+- **1. Turnstile on signup — the one with a number attached.** `claim_signup_credit()` grants
+  **$1 per ACCOUNT**, and its only guard is `(kind, ref = user_id)` — one per account, not one per
+  person. Measured 2026-08-28: **23 claims, $23 given away.** Nothing stops disposable-email
+  farming. It costs nothing until someone notices and then scales linearly, which is the shape of
+  problem worth pre-empting rather than watching. Turnstile is free with unlimited challenges and
+  unlimited siteverify (20 widgets), and **works without moving DNS**, so it can be tried on its
+  own.
+- **2. Move `atlarix.dev` DNS to Cloudflare.** Currently Namecheap BasicDNS
+  (`dns1/dns2.registrar-servers.com`). Free brings the Free Managed Ruleset (deployed by default),
+  DDoS absorption, CDN caching — ~35 prerendered static pages is close to the ideal case — and it
+  stops the origin being directly addressable.
+- **3. Put the proxy behind a Cloudflare-proxied hostname — ON ITS OWN, never bundled.**
+  `atlarix-production.up.railway.app` resolves straight to `69.46.46.95`, so the money endpoint's
+  origin is public. An `api.atlarix.dev` CNAME would hide it, absorb DDoS and allow a rate-limit
+  rule (Free includes them, with limits).
+  **The caveat travels with the recommendation:** Cloudflare in front of a streaming SSE endpoint
+  can buffer or time out and break token streaming for every desktop user. Do it alone, and make a
+  real streaming turn the acceptance test — not `/health`, which would pass either way.
+- **Explicitly NOT worth it:** Workers, Pages, Zero Trust, Images. No current need, and each is
+  another moving part with its own failure modes.
+
 ## 🔐 Security follow-ups — owner-triaged, deferred
 
 The v14.8.12 review document was deleted once acted on (`b48002a6`). Fixed by v14.8.13: compound
