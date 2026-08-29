@@ -3,7 +3,9 @@
  */
 export const DEEP_LINK_PROTOCOL = "atlarix";
 export const AUTH_CALLBACK_PATH = "/auth/callback";
-export const AUTH_CALLBACK_URL = `${DEEP_LINK_PROTOCOL}://${AUTH_CALLBACK_PATH}`;
+// Must stay byte-identical to the main-process constant, which must itself be
+// byte-identical to a Supabase Redirect URLs entry. See supabase-client.ts.
+export const AUTH_CALLBACK_URL = `${DEEP_LINK_PROTOCOL}://auth/callback`;
 
 export function getSupabaseClient(): never {
   throw new Error("Supabase client is only available in the main process");

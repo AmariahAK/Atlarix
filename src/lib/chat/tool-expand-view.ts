@@ -707,8 +707,34 @@ function buildDiffView(
         : undefined;
   const argOld = typeof a.old_content === "string" ? a.old_content : undefined;
 
+  /**
+   * `edit_file` also takes a MULTI-edit array — `edits: [{old_content, new_content}]`
+   * (see the tool's schema in lib/tools/edit.ts). Nothing here used to read it, so
+   * an edit sent that way arrived with both contents empty, which then made the
+   * operation heuristic below guess "create" and render an existing file as a new,
+   * one-line one. Observed 2026-08-29 on a 16-line edit to an existing Go file.
+   *
+   * Joining the spans is an approximation for N>1 — exact for the common single
+   * edit, and for several it still shows the real before/after text instead of
+   * nothing. The authoritative line COUNTS come from the payload either way.
+   */
+  const argEdits = Array.isArray(a.edits)
+    ? (a.edits as unknown[]).filter(
+        (e): e is { old_content?: unknown; new_content?: unknown } =>
+          !!e && typeof e === "object",
+      )
+    : [];
+  const joinEdits = (key: "old_content" | "new_content"): string | undefined => {
+    if (argEdits.length === 0) return undefined;
+    const parts = argEdits
+      .map((e) => (typeof e[key] === "string" ? (e[key] as string) : ""))
+      .filter((v) => v.length > 0);
+    return parts.length > 0 ? parts.join("\n") : undefined;
+  };
+
   const oldContent =
     argOld ??
+    joinEdits("old_content") ??
     (typeof payload.oldContent === "string"
       ? payload.oldContent
       : typeof payload.old_content === "string"
@@ -716,6 +742,7 @@ function buildDiffView(
         : "");
   const newContent =
     argNew ??
+    joinEdits("new_content") ??
     (typeof payload.newContent === "string"
       ? payload.newContent
       : typeof payload.new_content === "string"
@@ -732,11 +759,31 @@ function buildDiffView(
     ? (a.precomputed_hunks as DiffHunk[])
     : undefined;
 
+  /**
+   * What the card SAYS happened.
+   *
+   * `edit_file`'s own enum is `write | replace | merge` (lib/tools/edit.ts), and
+   * none of those matched here — so the tool's own answer was discarded on every
+   * edit and the operation was guessed from whether `oldContent` happened to be
+   * non-empty. When it wasn't, an ordinary edit to a long-existing file rendered
+   * as **Create · (new file)**. That is the worst direction for this label to be
+   * wrong in: a create is the thing you skim past.
+   *
+   * `replace` and `merge` both REQUIRE an existing file, so they are always an
+   * update. Only `write` is genuinely ambiguous — it creates or fully overwrites —
+   * so it alone still consults the content.
+   */
   const operationRaw = payload.operation ?? payload.type ?? a.operation;
   const operation: "create" | "update" | "delete" =
     operationRaw === "create" || operationRaw === "delete"
       ? operationRaw
-      : oldContent ? "update" : "create";
+      : operationRaw === "replace" ||
+          operationRaw === "merge" ||
+          operationRaw === "update"
+        ? "update"
+        : oldContent
+          ? "update"
+          : "create";
 
   // Prefer the precise line counts the backend sent (cheap numbers), falling
   // back to a line-delta estimate from whatever content we have.

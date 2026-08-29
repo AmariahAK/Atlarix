@@ -72,3 +72,54 @@ describe("parseSandboxDenialsFromOutput", () => {
     });
   });
 });
+
+/**
+ * The two spellings that actually occurred, verbatim from
+ * `~/Library/Logs/Atlarix/main.log` on 2026-08-29.
+ *
+ * Both were missed before — one on a capital `O`, one on word order — and because
+ * nothing was attributed, the grant card never appeared and an agent spent six
+ * turns diagnosing a boundary nobody told it about. These are the regression.
+ */
+describe("real-world denial spellings", () => {
+  it("catches zsh's phrase-then-path form", () => {
+    const out = parseSandboxDenialsFromOutput(
+      "zsh:1: operation not permitted: /Users/amariah/.docker/buildx/activity/.writetest",
+    );
+    expect(out.map((d) => d.deniedPath)).toEqual([
+      "/Users/amariah/.docker/buildx/activity/.writetest",
+    ]);
+  });
+
+  it("catches a lowercase phrase after the path, with anything in front", () => {
+    // buildx's own wording. The previous pattern required `: ` immediately before
+    // the path, which this shape does not have.
+    const out = parseSandboxDenialsFromOutput(
+      "ERROR: failed to write /Users/amariah/.docker/buildx/activity/.tmp-abc: operation not permitted",
+    );
+    expect(out.map((d) => d.deniedPath)).toEqual([
+      "/Users/amariah/.docker/buildx/activity/.tmp-abc",
+    ]);
+  });
+
+  it("grants the PARENT directory, not the temp file itself", () => {
+    // A timestamp file is a different name every run; granting it would fix
+    // nothing. `sandboxGrantPath` is what makes the grant durable.
+    const [d] = parseSandboxDenialsFromOutput(
+      "zsh:1: operation not permitted: /Users/amariah/.docker/buildx/activity/.writetest",
+    );
+    expect(d!.grantPath).toBe("/Users/amariah/.docker/buildx/activity");
+  });
+
+  it("does NOT match a path fragment inside a larger token", () => {
+    // The boundary guard. Without it `relative/path` yielded `/path`, and the user
+    // would be asked to grant a directory nothing mentioned.
+    expect(parseSandboxDenialsFromOutput("relative/path: operation not permitted")).toEqual([]);
+  });
+
+  it("still says nothing about prose that merely contains the phrase", () => {
+    expect(
+      parseSandboxDenialsFromOutput("a log line about permission denied policies"),
+    ).toEqual([]);
+  });
+});

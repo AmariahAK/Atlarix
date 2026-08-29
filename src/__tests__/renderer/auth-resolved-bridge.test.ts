@@ -12,6 +12,7 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { AuthResolvedPayload } from "@/lib/auth/auth-ipc-bridge";
 
 type Handler = (...args: unknown[]) => void;
 const handlers = new Map<string, Handler>();
@@ -75,6 +76,29 @@ describe("auth:resolved fan-out", () => {
     // its own "Restoring your session…" up indefinitely.
     expect(late).toHaveLength(1);
     expect((late[0] as { plan: string }).plan).toBe("pro");
+  });
+
+  it("a later sign-in overwrites the cached signed-out payload — the replay hazard", async () => {
+    // The sequence that matters, not just the single payload above: launch signed
+    // out (null), then sign in (user). A component mounting after the sign-in must
+    // be replayed the USER.
+    //
+    // This only holds because main now broadcasts `auth:resolved` on sign-in as
+    // well (SubscriptionManager.updateSession) — `oauth-callback-success` is a
+    // different channel and never touched this cache. Without it the replay stays
+    // null forever, and since the renderer now CLEARS on a null user, a late mount
+    // would sign itself out of a live session.
+    const { subscribeAuthResolved } = await loadBridge();
+    subscribeAuthResolved(() => {});
+
+    emitResolved({ user: null, plan: "free" });
+    emitResolved({ user: { id: "u1", email: "a@b.c" }, plan: "pro" });
+
+    const late: AuthResolvedPayload[] = [];
+    subscribeAuthResolved((d) => late.push(d));
+
+    expect(late).toHaveLength(1);
+    expect(late[0].user).toMatchObject({ id: "u1", email: "a@b.c" });
   });
 
   it("treats a missing payload as signed out rather than dropping the event", async () => {

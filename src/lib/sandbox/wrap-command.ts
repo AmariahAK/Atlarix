@@ -134,6 +134,12 @@ const TOOLCHAIN_DIR_ENV_VARS = [
   "XDG_DATA_HOME", // freedesktop data root
   "XDG_STATE_HOME", // freedesktop state root
   "XDG_CONFIG_HOME", // freedesktop config root
+  // buildx's state dir. Deliberately NOT `DOCKER_CONFIG`: that points at the
+  // whole Docker config directory, which holds `config.json` — registry
+  // credentials and credential-helper configuration. Granting it would make the
+  // sandbox a credential-tamper surface for the sake of a timestamp file. Same
+  // sub-path discipline as `.local/share` and `.nuget/packages` below.
+  "BUILDX_CONFIG",
 ] as const;
 
 /**
@@ -158,6 +164,14 @@ export const HOME_CACHE_DIRS: readonly (readonly string[])[] = [
   [".m2"],
   [".gem"],
   [".nuget", "packages"],
+  // Docker Desktop's buildx writes an activity timestamp under
+  // `~/.docker/buildx/activity/` on EVERY build and ABORTS the build if it
+  // cannot — so without this, `docker build` / `docker compose build` simply does
+  // not work under the sandbox. Observed 2026-08-29 as an unattributable
+  // "operation not permitted" that cost an agent six turns.
+  //
+  // The parent `~/.docker` is deliberately NOT granted: `config.json` lives there.
+  [".docker", "buildx"],
   [".local", "share"],
   [".local", "state"],
   ["go", "pkg"],
@@ -187,6 +201,23 @@ export const MACOS_CACHE_DIRS: readonly (readonly string[])[] = [
  * redirected AppData is followed instead of guessed — the same reason the Rust
  * helper resolves LocalLow via `SHGetKnownFolderPath`.
  */
+/**
+ * buildx's state dir when `DOCKER_CONFIG` is redirected but `BUILDX_CONFIG` is not.
+ *
+ * Neither layer above covers this case on its own: the env layer only sees
+ * `BUILDX_CONFIG` (usually unset), and the curated `$HOME/.docker/buildx` entry is
+ * the wrong path once `DOCKER_CONFIG` moves. buildx resolves its own default as
+ * `$DOCKER_CONFIG/buildx`, so follow that rather than guessing — the same reason
+ * `windowsCacheDirs()` reads `LOCALAPPDATA` instead of composing from `homedir()`.
+ *
+ * Returns nothing when `DOCKER_CONFIG` is unset, because the curated entry already
+ * covers the default and a duplicate would just be de-duped.
+ */
+export function dockerBuildxDirs(): string[] {
+  const cfg = process.env.DOCKER_CONFIG;
+  return cfg && cfg.length > 0 ? [path.join(cfg, "buildx")] : [];
+}
+
 export function windowsCacheDirs(): string[] {
   const local = process.env.LOCALAPPDATA;
   const roaming = process.env.APPDATA;
@@ -244,6 +275,7 @@ function defaultWritablePaths(
       ? MACOS_CACHE_DIRS.map((segments) => path.join(home, ...segments))
       : []),
     ...(process.platform === "win32" ? windowsCacheDirs() : []),
+    ...dockerBuildxDirs(),
     ...extra,
   ];
   const seen = new Set<string>();
@@ -569,15 +601,71 @@ export function sandboxGrantPath(deniedPath: string): string {
   return parent;
 }
 
+/**
+ * Every phrase below is matched CASE-INSENSITIVELY, and both orderings of
+ * path-and-phrase are covered. Neither was true, and it cost a real failure:
+ * Docker's buildx denial printed `zsh:1: operation not permitted: /Users/…` and
+ * `failed to write /Users/…: operation not permitted`, and both were missed — on a
+ * capital `O` and on word order. Nothing downstream fired, so an agent spent six
+ * turns diagnosing a boundary nobody told it about (2026-08-29).
+ *
+ * Widening these does NOT widen what can be granted: `parseSandboxDenialsFromOutput`
+ * keeps only absolute paths, and `sandboxGrantPath` refuses to hand back a broad
+ * root. A false positive costs an unnecessary grant CARD, which the user declines;
+ * a false negative costs the whole feedback path, which is what happened.
+ */
+const DENIAL_PHRASE = "(?:operation not permitted|permission denied)";
+
 const DENIAL_PATTERNS: RegExp[] = [
   // Node/libuv: `EACCES: permission denied, open '/path'` / `EPERM: …, mkdir 'C:\path'`
-  /E(?:PERM|ACCES):[^,\n]*,\s*\w+\s+['"]([^'"\n]+)['"]/g,
+  /E(?:PERM|ACCES):[^,\n]*,\s*\w+\s+['"]([^'"\n]+)['"]/gi,
   // GNU coreutils: `cannot create directory ‘/path’: Permission denied` (straight
   // or fancy ‘ ’ quotes — include BOTH U+2018 and U+2019).
-  /cannot (?:create|touch|remove|open)[^'‘’"\n]*['‘’"]([^'‘’"\n]+)['‘’"]:\s*Permission denied/g,
-  // BSD/macOS + generic: `mkdir: /path: Operation not permitted` / `: /path: Permission denied`
-  /:\s*((?:\/|[A-Za-z]:\\)[^:\n]+):\s*(?:Operation not permitted|Permission denied)/g,
+  new RegExp(
+    `cannot (?:create|touch|remove|open)[^'‘’"\n]*['‘’"]([^'‘’"\n]+)['‘’"]:\\s*${DENIAL_PHRASE}`,
+    "gi",
+  ),
+  // PATH then phrase, anchored on the path so ANYTHING may precede it:
+  // `mkdir: /path: Operation not permitted`, and equally
+  // `failed to write /path: operation not permitted`. Replaces a pattern that
+  // required `: ` immediately before the path, which the second shape does not have.
+  // The leading boundary is load-bearing: without it `relative/path: operation not
+  // permitted` matched the SUBSTRING `/path` and would have raised a grant card for
+  // a directory nobody mentioned. `m` so a path at the start of a line still counts.
+  new RegExp(
+    `(?:^|[\\s'"(=])((?:\\/|[A-Za-z]:\\\\)[^\\s'"]*?):\\s*${DENIAL_PHRASE}`,
+    "gim",
+  ),
+  // PHRASE then path — zsh's spelling: `zsh:1: operation not permitted: /path`.
+  new RegExp(`${DENIAL_PHRASE}:\\s*((?:\\/|[A-Za-z]:\\\\)[^\\s'"]+)`, "gi"),
 ];
+
+/**
+ * Should this finished command go through the denial-escalation path, and may it
+ * be re-run afterwards?
+ *
+ * Pure and exported because it IS the new logic, and it used to live inline in a
+ * `.then()` closure where nothing could reach it.
+ *
+ * Two rules:
+ *  - **The exit code is not proof that nothing was denied.** A pipeline reports the
+ *    LAST command's status, so `docker build … | tail -40` exits 0 while the build
+ *    died on a denied write. Gating on failure alone made the escalation unreachable
+ *    exactly when it was needed (observed 2026-08-29).
+ *  - **A command that reported success is never re-run.** The grant is persisted and
+ *    the model is told; re-running could repeat side effects the command already
+ *    applied. A FAILED command carries no such risk, and retrying it is the point.
+ */
+export function sandboxEscalationDecision(result: {
+  success: boolean;
+  stdout?: string;
+  stderr?: string;
+}): { escalate: boolean; allowRetry: boolean } {
+  if (!result.success) return { escalate: true, allowRetry: true };
+  const denied =
+    parseSandboxDenialsFromOutput(`${result.stderr ?? ""}\n${result.stdout ?? ""}`).length > 0;
+  return { escalate: denied, allowRetry: false };
+}
 
 /**
  * Best-effort extraction of sandbox WRITE denials from a failed command's output.

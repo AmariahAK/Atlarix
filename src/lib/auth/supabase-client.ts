@@ -22,8 +22,27 @@ const logger = log.scope('supabase');
 
 // Deep link protocol for OAuth callback
 export const DEEP_LINK_PROTOCOL = 'atlarix';
+// Inbound spelling: what `new URL(...).pathname` reads as when the OS hands us
+// `atlarix://auth/callback` (hostname `auth`, pathname `/callback`) OR the
+// three-slash `atlarix:///auth/callback` (empty hostname, pathname
+// `/auth/callback`). main.ts accepts both.
 export const AUTH_CALLBACK_PATH = '/auth/callback';
-export const AUTH_CALLBACK_URL = `${DEEP_LINK_PROTOCOL}://${AUTH_CALLBACK_PATH}`;
+/**
+ * OUTBOUND: the `redirectTo` handed to Supabase.
+ *
+ * This must be BYTE-IDENTICAL to an entry in the project's Auth → URL
+ * Configuration → Redirect URLs list. GoTrue compiles each entry into a glob
+ * and matches the requested redirect as a literal string; there is no URL
+ * normalisation, so a slash count that differs is simply not a match.
+ *
+ * It used to be built as `${DEEP_LINK_PROTOCOL}://${AUTH_CALLBACK_PATH}`, which
+ * concatenates to `atlarix:///auth/callback` — THREE slashes — and does not
+ * match the allowlisted `atlarix://auth/callback`. A redirect that does not
+ * match is not rejected: GoTrue silently substitutes the Site URL, so the
+ * browser lands on https://www.atlarix.dev and the desktop app never receives
+ * a deep link at all. The failure looks like "sign-in does nothing".
+ */
+export const AUTH_CALLBACK_URL = `${DEEP_LINK_PROTOCOL}://auth/callback`;
 
 // ============================================
 // SUPABASE CLIENT
@@ -173,7 +192,11 @@ export async function signInWithOAuth(provider: OAuthProvider): Promise<{ error:
         return { error: new Error('Supabase is not configured. Add NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY to .env (see .env.example).') };
     }
     try {
-        logger.log(`[Supabase] Starting OAuth with ${provider}`);
+        // Log the redirect we ask for. It is not a secret, and it is the one
+        // value that makes an allowlist mismatch diagnosable: a redirect Supabase
+        // does not recognise is silently REPLACED with the Site URL, so without
+        // this line the failure has no fingerprint anywhere.
+        logger.log(`[Supabase] Starting OAuth with ${provider}, redirectTo=${AUTH_CALLBACK_URL}`);
 
         const { data, error } = await supabase.auth.signInWithOAuth({
             provider,

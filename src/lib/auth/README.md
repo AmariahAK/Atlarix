@@ -70,7 +70,57 @@ protocols: [
 ],
 ```
 
-### 4. Backend Integration
+### 4. Supabase Redirect URLs — the setting that breaks sign-in silently
+
+Supabase Dashboard → **Authentication → URL Configuration → Redirect URLs** must contain,
+byte for byte:
+
+```
+atlarix://auth/callback
+```
+
+**Why byte for byte.** GoTrue compiles each entry into a glob (separators `.` and `/`) and
+matches the requested `redirect_to` as a literal string. There is no URL normalisation, so
+`atlarix:///auth/callback` (three slashes) does **not** match `atlarix://auth/callback`.
+
+**And a non-match is not an error.** GoTrue substitutes the **Site URL** instead. The
+symptom is that sign-in opens the browser, the user completes it, the browser lands on
+`https://www.atlarix.dev`, and the desktop app is never launched — with nothing logged
+anywhere that names a redirect. If sign-in "does nothing", check this list first.
+
+Releases up to and including **v14.38.3 send the three-slash spelling**
+(`atlarix:///auth/callback` — `AUTH_CALLBACK_URL` was built by concatenating
+`AUTH_CALLBACK_PATH`, which already carries a leading slash). Those builds stay broken
+until they update, so the allowlist needs a second entry covering them:
+
+```
+atlarix://auth/callback        <- what the app sends from v14.38.4 on
+atlarix://*/auth/callback      <- covers v14.38.3 and earlier
+```
+
+**The three-slash string cannot be entered literally** — the dashboard's validator rejects
+a URL with an empty host ("Please provide a valid URL"). `atlarix://*/auth/callback` is the
+way in: GoTrue's `*` matches a sequence of non-separator characters *including the empty
+one*, so it matches the empty host, while `/` remains a separator it will not cross.
+
+Verified 2026-08-29 against `gobwas/glob` compiled the way GoTrue compiles it
+(`glob.Compile(uri, '.', '/')`):
+
+| pattern | `atlarix:///auth/callback` | `atlarix://auth/callback` | `atlarix://mcp/oauth/callback` |
+| --- | --- | --- | --- |
+| `atlarix://auth/callback` | no | **match** | no |
+| `atlarix://*/auth/callback` | **match** | no | no |
+| `atlarix://**` | match | match | match |
+
+Neither pattern covers the other, so **keep both**. And do not reach for `atlarix://**`:
+it also makes `atlarix://mcp/oauth/callback` a legal OAuth redirect target, which is the
+MCP handler's deep link, not an auth one.
+
+`supabase/config.toml` does **not** hold this list. Its `[auth]` block is the *local dev*
+stack's config (`site_url = "http://127.0.0.1:3000"`), so `supabase config push` would
+overwrite the hosted Site URL with localhost. Edit the hosted list in the dashboard.
+
+### 5. Backend Integration
 
 The backend API at `atlarix-api.fly.dev` handles:
 - Token exchange (authorization code → access token)

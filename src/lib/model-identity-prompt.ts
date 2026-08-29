@@ -94,6 +94,27 @@ export function buildWorkstationIdentityBlock(args: {
    * line in `system_prompt.ts`).
    */
   memoryDir?: string;
+  /**
+   * Absolute path of the open workspace — the agent's project root.
+   *
+   * A missing FACT, not a guard. `tool_contract` tells the agent an absolute path
+   * is the only spelling that reaches outside the workspace, while the prompt gave
+   * it no root to build one from — so an agent needing one had to guess.
+   *
+   * How that surfaced: on 2026-08-29 an agent in `/Users/…/Github/supabase-auth`
+   * spent six tool calls against `/Users/…/Github/supabase-auth-jdv5y5`, inverting
+   * the memory directory back into a path — `workspaceSlug()` renders the workspace
+   * path with `/` → `-` and appends a hash, so the store name reads like a project
+   * path with a suffix, and it was the only absolute path in the prompt naming the
+   * project. **Model-dependent, and the logs say so:** DeepSeek V4 Pro ran 7 turns
+   * across three workspaces with no memory store and never did this; the one
+   * inversion was `openrouter/openrouter/free`. That is why the fix is this line
+   * and NOT defensive prose on the memory line — a weak inference is not worth
+   * paying for in the cache prefix on every turn of every user.
+   *
+   * Stable per workspace, like `memoryDir`, so this stays cache-prefix safe.
+   */
+  workspaceRoot?: string;
 }): string {
   const { modelDisplayName, providerBrand, appVersion } = args;
   const selfLabel =
@@ -105,6 +126,10 @@ You are **${modelDisplayName}**, running inside **Atlarix** — an agent worksta
 Refer to yourself as **${selfLabel}**.
 Do not call yourself "Atlarix AI" or claim to be a product of Atlarix — Atlarix is the workstation you run inside, not your maker or your name. Never reference internal model-routing tier names; you are simply the model named above.
 **App shell version:** \`${appVersion}\`${
+    args.workspaceRoot
+      ? `\n**Workspace root:** \`${args.workspaceRoot}\` — the open project, and the absolute path to build any other from.`
+      : ""
+  }${
     args.memoryDir
       ? `\n**Project memory (the only store):** \`${args.memoryDir}\` — read and write notes there and nowhere else; do not search for another location.`
       : ""

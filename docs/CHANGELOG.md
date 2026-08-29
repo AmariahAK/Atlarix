@@ -3,6 +3,34 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
+## [14.38.4] (2026-08-29) — Sign-in works again, and signing out no longer leaves a window signed in
+
+**Signing in works again.** Sign-in would open your browser, complete, and then land you on
+atlarix.dev with the app none the wiser — no error, nothing to retry. The address Atlarix asked for
+on the way back had one slash too many and stopped matching what the server would accept, so the
+server quietly substituted the website. It now asks for the right one.
+
+**Signing out signs you out everywhere.** With two windows open, signing out of one left the other
+showing your account until you restarted the app. Signing IN had the same gap in reverse: only the
+window you started from noticed. Both now reach every window.
+
+**Docker builds run again.** Any `docker build` or `docker compose build` failed with an
+unattributable "operation not permitted", because Docker writes a small timestamp file outside the
+folders Atlarix lets commands write to — and gives up entirely when it can't.
+
+**And when something else is denied, Atlarix now offers to grant it.** It already could, but only
+when the command reported failure. A command that hid its own failure — anything ending in `| tail`,
+`| head`, `| grep` — slipped past, so you got a confusing error instead of a "grant this folder?"
+prompt. Two spellings of the underlying message were also going unrecognised.
+
+**Edits are no longer labelled as new files.** An edit to an existing file could show as
+"Create · new file" with a single blank line, while the summary beside it correctly said +16. The
+count was right; the card was reading the change wrongly.
+
+**The agent is told your project's location.** It was never given the absolute path of the open
+project, so when it needed one it inferred it — and could infer a folder that does not exist, then
+spend several steps discovering that.
+
 ## [14.38.3] (2026-08-28) — Core 1 is GLM 5.3, and the dead half of the realtime teardown is gone
 
 **Atlarix Core 1 now runs GLM 5.3.** It reached you without this release — the Core lineup is

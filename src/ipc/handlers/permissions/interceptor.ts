@@ -42,6 +42,7 @@ import {
 } from "@/lib/file-permissions-store";
 import {
     parseSandboxDenialsFromOutput,
+    sandboxEscalationDecision,
     sandboxGrantPath,
 } from "@/lib/sandbox/wrap-command";
 import { describeSandboxFailureContext } from "@/lib/sandbox/sandbox-failure-context";
@@ -1670,9 +1671,23 @@ export class PermissionInterceptor extends EventEmitter {
             workingDir: string;
             sandboxOpts: SandboxRunOptions | undefined;
             operationId: string;
+            /**
+             * Re-run the command after a grant.
+             *
+             * TRUE for a failed command — that is the whole point, and re-running
+             * something that already reported failure is safe.
+             *
+             * FALSE when the command exited 0 while printing a denial (a pipeline
+             * swallowing the exit code, e.g. `docker build … | tail -40`). There the
+             * command told us it SUCCEEDED, and re-running it could apply its side
+             * effects twice. The grant is still persisted and the model is told to
+             * re-run — a decision it can make with the command in front of it, which
+             * this code cannot.
+             */
+            allowRetry: boolean;
         },
     ): Promise<CommandResult | null> {
-        const { commandToRun, workingDir, sandboxOpts, operationId } = ctx;
+        const { commandToRun, workingDir, sandboxOpts, operationId, allowRetry } = ctx;
         if (!sandboxOpts) return null; // no sandbox applied → nothing to grant
 
         const granted = new Set(sandboxOpts.extraWritablePaths ?? []);
@@ -1736,6 +1751,22 @@ export class PermissionInterceptor extends EventEmitter {
                 ...current,
                 extraWritablePaths: [...(current.extraWritablePaths ?? []), denial.grantPath],
             };
+
+            if (!allowRetry) {
+                // The command reported SUCCESS while printing a denial. The grant is
+                // persisted and applies from the next run; re-running here could
+                // duplicate whatever the command already did. Tell the model, in the
+                // result it is about to read, and let it decide.
+                return {
+                    ...result,
+                    stdout:
+                        `${result.stdout ?? ""}\n\n[atlarix] This command exited 0 but its output ` +
+                        `reported a denied write to ${denial.deniedPath}. That is the write-confining ` +
+                        `sandbox, and ${denial.grantPath} is now granted for this workspace — but the ` +
+                        `command was NOT re-run, because it reported success and re-running it could ` +
+                        `repeat what it already did. Re-run it if the denial mattered.`,
+                };
+            }
 
             retried = await this.runSandboxedOnce(commandToRun, workingDir, current, operationId);
             if (retried.success) return retried;
@@ -1875,14 +1906,28 @@ export class PermissionInterceptor extends EventEmitter {
         if (preview.isDangerous) {
             logger.warn(`[DANGEROUS-COMMAND-AUDIT] User approved dangerous command | command="${commandToRun}" | cwd="${workingDir}" | explanation="${preview.dangerExplanation ?? 'N/A'}" | timestamp=${new Date().toISOString()}`);
         }
-        if (preview.systemScopeInteractive === true) {
-            logger.warn(`[SYSTEM-SCOPE-AUDIT] User approved a system-scope command (runs unsandboxed) | command="${commandToRun}" | cwd="${workingDir}" | explanation="${preview.systemScopeExplanation ?? 'N/A'}" | timestamp=${new Date().toISOString()}`);
-        }
-
         // Per-OS write-confining sandbox (workspace + caches writable, network on).
         // Applies to agent run_command only — never the user's PTY tabs.
-        // An interactively-approved system-scope command runs unsandboxed (see builder).
+        // An interactively-approved system-scope command MAY run unsandboxed — see
+        // the builder for the one case that does not.
         const sandboxOpts = this.buildRunCommandSandbox(preview);
+
+        // Audited from the decision that was actually made, never re-derived.
+        //
+        // This line used to say "runs unsandboxed" for every system-scope approval,
+        // while the builder additionally keeps the sandbox ON when a command is
+        // system-scope only by PATH (the boundary stays, the roots widen). Both
+        // spellings appeared in one log a millisecond apart, the audit claiming the
+        // opposite of what happened — and an audit line is what gets read after an
+        // incident. It also now covers the other ways the sandbox legitimately
+        // comes off (ATLARIX_DISABLE_SANDBOX, sandboxRunCommand: false, no
+        // workspace), which the old wording never described.
+        if (preview.systemScopeInteractive === true) {
+            const sandboxState = sandboxOpts
+                ? "SANDBOXED (writable roots widened for the approved path)"
+                : "UNSANDBOXED";
+            logger.warn(`[SYSTEM-SCOPE-AUDIT] User approved a system-scope command | sandbox=${sandboxState} | command="${commandToRun}" | cwd="${workingDir}" | explanation="${preview.systemScopeExplanation ?? 'N/A'}" | timestamp=${new Date().toISOString()}`);
+        }
 
         this.emitTerminalOutput({
             operationId,
@@ -1980,13 +2025,21 @@ export class PermissionInterceptor extends EventEmitter {
                 // sandbox WRITE denial may be granted the path + retried (still
                 // sandboxed) with the user's approval. Background/promoted runs
                 // resolve async and are skipped.
-                if (!result.success && !promoted && !explicitBackground) {
+                // The exit code is NOT a reliable signal that nothing was denied. A
+                // pipeline reports the LAST command's status, so
+                // `docker build … | tail -40` exits 0 while the build died on a
+                // sandbox write denial — and gating this whole path on
+                // `!result.success` made it unreachable exactly when it was needed
+                // (observed 2026-08-29). Ask the output too.
+                const escalation = sandboxEscalationDecision(result);
+                if (escalation.escalate && !promoted && !explicitBackground) {
                     try {
                         const retried = await this.maybeEscalateSandboxDenial(result, {
                             commandToRun,
                             workingDir,
                             sandboxOpts,
                             operationId,
+                            allowRetry: escalation.allowRetry,
                         });
                         if (retried) result = retried;
                     } catch (e) {

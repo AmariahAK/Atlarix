@@ -1,25 +1,20 @@
 # Atlarix TODO
 
-**Current version:** v14.38.3 — **RELEASED 2026-08-28.** 12 assets, draft=false, body carries the
-changelog. MSIX built and **submitted to the Microsoft Store** on a re-run, and is now REQUIRED by
-`publish-release` so it can never be skipped again — see the trap below.
-Launchpad caught up TWO releases (it was still on 14.38.1).
+**Current version:** v14.38.4 — **RELEASING 2026-08-29.** The auth-plumbing release: sign-in fixed
+(the redirect had one slash too many and stopped matching Supabase's allow-list), sign-out and
+sign-in now reach every window, Docker builds run under the sandbox, a denied write offers a grant
+even when the command hides its own failure, edits stop rendering as "Create · new file", and the
+prompt finally states the workspace root.
 
-Shipped out-of-band the same day, needing no release: **Core 1 → GLM 5.3**, the reviewer security
-pass, the proxy's account-binding gate and per-call cost header, the partial-refund fix, nightly
-encrypted money-DB backups, and the `users` INSERT policy.
+**Previous:** v14.38.3 (2026-08-28) — Core 1 → GLM 5.3 and the dead realtime scaffolding. 12 assets,
+MSIX submitted to the Store and now REQUIRED by `publish-release`.
 
-**Previous:** v14.38.2 (2026-08-27) — The Settings → Integrations fix,
-the doc corrections, the connected-repositories list, the navbar label, and the realtime
-teardown: the always-open plan-change channel was 93.5% of database execution time and is
-replaced by a read on window focus — which also fixes the upgrade flow the old handler
-missed entirely (it only refreshed after a 60s idle-out).
-
-**Previous:** v14.38.0 (2026-08-27) · v14.37.0 (2026-08-24) · v14.36.0 (2026-08-22) ·
+**Previous:** v14.38.2 (2026-08-27) · v14.38.0 (2026-08-27) · v14.37.0 (2026-08-24) ·
+v14.36.0 (2026-08-22) ·
 v14.35.0 (2026-08-20). Full narrative for every one of them is in
 [`CHANGELOG.md`](./CHANGELOG.md).
 
-**Last updated:** 2026-08-28
+**Last updated:** 2026-08-29
 
 > **What belongs here:** open work, decisions still owed, and traps worth not
 > rediscovering.
@@ -63,6 +58,90 @@ NEXT change is made.
 
 
 ## 🔜 Next session — the queue, in order
+
+### 0a. SHIPPED in v14.38.4 (2026-08-29)
+
+**Sign-out and sign-in now reach every window.** `SubscriptionManager.signOut()` cleared the session
+and announced nothing, so a second window kept rendering a signed-in account until restart — the
+sign-out half of the unshared-`useAuth` hazard. Fixed by making `auth:resolved` the one channel that
+carries current auth state: `signOut()` broadcasts `{user:null}`, `updateSession()` broadcasts the
+account, and `handleAuthResolved` clears on a null user.
+
+**The sign-in broadcast is not symmetry, it is what makes the clear safe.** `auth-ipc-bridge` replays
+its last `auth:resolved` to late-mounting consumers, and that cache was never refreshed on sign-in
+(`oauth-callback-success` is a different channel, sent to `mainWindow` only). Deleting the null
+early-return without it would have let a stale cached null sign out any component mounted after a
+sign-in. Pinned by `auth-resolved-bridge.test.ts`'s sequence test.
+
+**Docker builds could not run under the sandbox, and the system-scope audit line lied.** Observed
+2026-08-29: an agent burned six turns on `xattr` / `ls -lO` / file flags chasing a macOS permissions
+ghost that was the write sandbox denying `~/.docker/buildx/activity/` — Docker Desktop's buildx
+writes an activity timestamp there on EVERY build and aborts if it cannot. Fixed through the two
+layers `wrap-command.ts` already has rather than a new hardcode: `BUILDX_CONFIG` joins
+`TOOLCHAIN_DIR_ENV_VARS`, `[".docker", "buildx"]` joins `HOME_CACHE_DIRS`, and `dockerBuildxDirs()`
+follows a redirected `DOCKER_CONFIG` (buildx resolves its default as `$DOCKER_CONFIG/buildx`, which
+neither other layer covers). **`~/.docker` itself is deliberately NOT granted** — `config.json` holds
+registry credentials, so the sub-path discipline of `.local/share` and `.nuget/packages` applies. A
+test asserts the parent is absent, so a later "simplification" fails loudly.
+
+**The policy was NOT changed and was not the problem.** Keeping the sandbox on for an approval that
+is system-scope only by PATH, and widening the roots instead, stays exactly as it was.
+
+**Scoped OUT, each worth its own pass:** a **deny-list** (Claude Code's model — wildcard read-deny
+taking precedence inside allowed regions, which is what would let `~/.docker` be granted broadly
+while protecting `config.json`), and triggering `sandbox-failure-context` on stderr matching EPERM
+regardless of exit code. The second is why the agent never learned a sandbox existed at all: the
+denial happened inside buildkit, and `| tail -40` made the failing build exit **0**, so
+escalate-on-denial had nothing to fire on.
+
+**An edit to an existing file rendered as "Create · (new file)".** Observed 2026-08-29: a 16-line
+change to a long-existing Go file showed `+16` on the collapsed row and, expanded, a green **Create**
+chip and a single empty added line. Both numbers come from the same object — the row prints the
+payload's `addedCount` (16, correct) while `SmartDiffView` recomputes from `oldContent`/`newContent`
+and got 1 — so the counts were never wrong, the CONTENT was, and the label was guessed from it.
+Two independent causes in `buildDiffView`, each proven to reproduce it on its own:
+`edit_file`'s enum is `write | replace | merge` and none was matched, so the tool's own answer was
+discarded on every edit; and the multi-edit `edits: [{old_content, new_content}]` form was never read,
+so both contents arrived empty. Display-only — the bytes on disk were right.
+
+**Both broadcasts now go through `broadcastToAllWindows`** instead of a hand-rolled loop, which also
+gives them the destroyed-window guard they never had — `win.webContents.send()` on a torn-down
+webContents throws "Object has been destroyed", a fatal main-process crash. It is also the only
+reason they are testable: they read `require("electron")` inside the method, which is undefined under
+vitest and threw straight into a swallowing catch, so **no test could observe a broadcast at all**.
+
+
+### 0. OAuth sign-in — FIXED in code and SHIPPED in v14.38.4 (2026-08-29)
+
+`AUTH_CALLBACK_URL` was built as `` `${DEEP_LINK_PROTOCOL}://${AUTH_CALLBACK_PATH}` `` — and
+`AUTH_CALLBACK_PATH` already carries a leading slash, so the app has been asking Supabase to
+redirect to **`atlarix:///auth/callback`, three slashes, since `c7984394` (2026-01-14)**. It worked
+for seven months because the allowlist held an entry that matched it. The list was tidied and now
+holds only `atlarix://auth/callback` + `https://www.atlarix.dev/**`, and GoTrue matches the
+requested redirect as a LITERAL string against a compiled glob — no URL normalisation, so the two
+spellings are simply different. **A non-match is not an error: GoTrue substitutes the Site URL.**
+Sign-in therefore completes in the browser, lands on the website, and the app is never launched.
+
+Fixed in the app: `AUTH_CALLBACK_URL` is now the canonical `atlarix://auth/callback` (main process
+and renderer stub), locked by `src/__tests__/oauth-redirect-allowlist-match.test.ts`, and the
+allowlist is documented in `src/lib/auth/README.md` §4 — it was documented nowhere before, which is
+what made a dashboard edit look free.
+
+**Owed by the owner, and the code fix does NOT cover it: every already-installed build — v14.38.3
+and every version before it — still sends the three-slash spelling and stays broken until it
+updates.** Add **`atlarix://*/auth/callback`** to Supabase → Authentication → URL Configuration →
+Redirect URLs, alongside the two-slash entry, and keep both until those builds are out of the field.
+
+**Not the literal three-slash string — the dashboard refuses it** ("Please provide a valid URL";
+its validator rejects an empty host). `atlarix://*/auth/callback` is the way in, and it is narrow:
+verified 2026-08-29 against `gobwas/glob` compiled as GoTrue compiles it (`glob.Compile(uri, '.',
+'/')`), `*` matches the EMPTY host so the pattern matches `atlarix:///auth/callback`, does not match
+the two-slash form, and does not match `atlarix://mcp/oauth/callback`. `atlarix://**` matches all
+three — which is exactly why it is the wrong answer: it would make the MCP handler's deep link a
+legal OAuth redirect target.
+**Not via `supabase config push`:** `supabase/config.toml`'s `[auth]` block is the LOCAL stack's
+(`site_url = "http://127.0.0.1:3000"`), so a push would overwrite the hosted Site URL with localhost.
+
 
 ### 1. Connected repositories — SHIPPED 2026-08-27
 
@@ -112,10 +191,8 @@ traffic is X" the only honest source is the dashboard's **Logs Explorer on `edge
 grouped by `request.path`** — which needs a Management API token the CLI keeps in the login
 keychain.
 
-**Still open, and still the biggest risk here: `LAST BACKUP: No backups`.** Confirmed again
-2026-08-28 via `supabase backups list` — `pitr_enabled: false`, `backups: []` — on the project
-holding `credit_wallet`, `credit_grants` and the append-only `credit_transactions` ledger.
-Owner chose Cloudflare R2; see the backup section.
+**The backup gap that was open here is CLOSED** — nightly encrypted dumps to R2, restore-rehearsed.
+See 2b.
 
 ### 2. Cut v14.38.2 — DONE 2026-08-27
 
@@ -123,24 +200,25 @@ Owner chose Cloudflare R2; see the backup section.
 `extract-changelog.sh` must match, or the body silently degrades to a download list), local
 gate incl. `check:sandbox`, push, flip the repo public, tag, wait green, flip back private.
 
-### 2b. Money-DB backups — IN PROGRESS 2026-08-28, blocked on the owner
+### 2b. Money-DB backups — DONE 2026-08-28
 
-Owner chose **Cloudflare R2** over a Supabase Pro upgrade. What is owed by them, because none
-of it can be done from here: a personal Cloudflare account (**R2 requires a card on file even
-on the free tier** — usage stays $0 inside 10 GB / 1M Class A / 10M Class B, and a nightly
-ledger dump is single-digit MB), a bucket, a bucket-scoped Object Read & Write token, the
-Supabase **session-pooler** URI on **port 5432** (transaction mode on 6543 does not work with
-`pg_dump`), and an `age` keypair whose PUBLIC half is all the service ever sees.
+Owner chose **Cloudflare R2** over a Supabase Pro upgrade. Kept because it is what the NEXT person
+wiring one needs: the **session-pooler** URI on **port 5432** (transaction mode on 6543 does not work
+with `pg_dump`), a bucket-scoped Object Read & Write token, and an `age` keypair whose PUBLIC half is
+all the service ever sees. R2 requires a card on file even on the free tier; usage stays $0 inside
+10 GB / 1M Class A / 10M Class B, and a nightly ledger dump is single-digit MB.
 
-Shape agreed: a separate `atlarix-backup` repo on its own Railway cron service, `postgres:17-alpine`
+Shape: a separate `atlarix-backup` repo on its own Railway cron service, `postgres:17-alpine`
 (the server is **17.6**; a mismatched `pg_dump` refuses), `pg_dump --schema=public` PLUS a
 data-only dump of `auth.users` — credit rows key on `auth.users.id`, so without it a restore
 cannot map wallets to people. **Deliberately NOT inside `atlarix-reviewer`:** that process
 ingests pull-request text written by strangers, and a full Postgres connection string is
 exactly what `atlarix-proxy/src/entitlement.ts`'s header warns against putting there.
 
-**A restore rehearsal is part of the work, not a follow-up.** A backup that has never been
-restored is not a backup.
+**The restore rehearsal ran, and it earned its place** — `atlarix-backup@2dc0392`, "make the dump
+actually restorable — the rehearsal caught it". A backup that has never been restored is not a
+backup, and this one was not, until it was tried. The cron now lives in the repo rather than only
+the dashboard (`49d496d`).
 
 ### 3. One non-owner run of the reviewer, end to end
 
@@ -397,10 +475,6 @@ warm run. (Separately: three Core 503s on 2026-08-27 — watched, not diagnosed.
   while fixing the plan lost-update race, which is why plan writes use their own FIFO chain
   (`withPlanArtifactLock`). Its callers are app-lifecycle paths; whether they ever see three
   concurrent callers is the open question. Changing shared locking semantics deserves its own pass.
-- **A `DatabaseClosingError` escapes as an unhandled rejection.** Three boot tasks catch it and log
-  "non-fatal"; one leaves a floating promise, so it reaches Sentry as `handled = no` and pages the
-  owner. The guard is right; one boot task needs a `.catch`. Any user who quits during startup can
-  hit it.
 - **Local packaged builds report `environment=production` to Sentry — KEEP, decided 2026-08-22.**
   `app.isPackaged` is true for a local ad-hoc build, so a developer machine reports as production.
   That was filed here as a defect with a fix attached (gate the DSN on a CI marker or the signing
@@ -416,16 +490,11 @@ warm run. (Separately: three Core 503s on 2026-08-27 — watched, not diagnosed.
   a stale session. `broadcastAuthResolved()` already has no null-session guard (deliberately — that
   guard *was* the bug), so the fix is one call plus making `handleAuthResolved` clear `user`/`status`
   on a null user instead of early-returning. Do it with the rest of the unshared-hook work.
-- **vite 8 warns that `configLoader: 'native'` will become the default** — `vitest.config.ts` uses
-  ESM syntax while loaded as CommonJS. Harmless today, fatal when the default flips. The fix (`.mjs`
-  or `"type": "module"`) changes how every config in the repo loads, so it wants its own change.
 - **`ai@7`'s `instructions` placement is the aligned end state, not done.** `role:"system"` inside
   `messages` is re-permitted with `allowSystemInMessages: true` so the v10.1 prompt-cache layout
   stays byte-identical and measurable. Moving it into `instructions` (which accepts
   `Array<SystemModelMessage>`, so breakpoints could survive) needs its own commit and its own
   `[prompt-cache] read=` measurement.
-- **`drizzle-kit` stays at 0.30.6** while `drizzle-orm` is 0.45.2. **Bump it before the next schema
-  change**, or `db:generate` runs against a mismatched pair.
 - **Accepted advisories, with reasons rather than a shrug.**
   `@huggingface/transformers` → `onnxruntime-node` → `adm-zip` → `sharp` has no fix and is the
   deliberately-pinned voice stack. `shepherd.js` → `deepmerge-ts` (stack exhaustion on recursive
@@ -446,10 +515,9 @@ warm run. (Separately: three Core 503s on 2026-08-27 — watched, not diagnosed.
 `../SECURITY_AUDIT_reviewer_2026-08-28.md`, `../SECURITY_AUDIT_app_supabase_2026-08-28.md`,
 `../SECURITY_SECRETS_2026-08-28.md`.
 
-**Open, and the only one:** the `users` INSERT policy constrains identity but not privilege, so an
-account whose row is missing could insert itself as `plan='pro'`. Migration written and NOT
-applied — `supabase/migrations/20260828090000_users_insert_policy_cannot_set_privileges.sql`. It is
-production RLS on the signup path; run it by hand in the SQL editor.
+**The `users` INSERT policy is APPLIED — this section has no open item.** `20260828090000` shows
+local == remote in `supabase migration list --linked` (verified 2026-08-29). It closes the hole where
+an account whose row was missing could insert itself as `plan='pro'`.
 
 **Secrets: there is now a leak-response note**, not a rotation schedule — the question it answers
 is "this key just leaked, now what", which nothing answered before. Three credentials matter:
@@ -684,6 +752,79 @@ approval, MCP description wrapping + OAuth-URL validation, the universal write-c
 ---
 
 ## 🪤 Traps worth not rediscovering
+
+### An audit line that RE-DERIVES a decision will eventually state the opposite of it
+
+`[SYSTEM-SCOPE-AUDIT]` printed "(runs unsandboxed)" whenever `preview.systemScopeInteractive` was
+true. `buildRunCommandSandbox` applies a SECOND condition — a command that is system-scope only by
+path keeps the sandbox and widens `extraWritablePaths` — so both spellings landed in one live log a
+millisecond apart, the audit claiming the opposite of what happened. It now logs from the builder's
+return value, which also lets it describe the three other ways the sandbox legitimately comes off
+(`ATLARIX_DISABLE_SANDBOX`, `sandboxRunCommand: false`, no workspace) that the old wording could not.
+
+Sibling of "a comment claiming containment is not containment", and worse in one respect: a comment
+misleads whoever reads the code, an audit line misleads whoever is reconstructing an incident, which
+is the moment you can least afford it. **Any log asserting a security property must read the value
+that decided it, never recompute the condition.**
+
+
+### A tool's own enum must be MAPPED, not compared against two values
+
+`buildDiffView` decided the diff label with
+`operationRaw === "create" || operationRaw === "delete" ? operationRaw : oldContent ? "update" : "create"`.
+`edit_file` emits `write | replace | merge`, so **every** edit fell through to the guess, and an edit
+whose content had not been extracted was labelled a CREATE of a NEW FILE. Wrong in the worst
+direction: a create is the card you skim past in Build mode.
+
+**Why the tests did not catch it:** every existing case passed `operation` explicitly in the RESULT
+payload, so the enum branch was never exercised. The real result carries only success and line
+counts — the tool's `operation` ARG is the only source, and that was the discarded one. When a test
+supplies a field the production payload does not, it is testing a shape that never occurs.
+
+Sibling of the "Runned <tool>" label trap: a new tool needs LABELS/DONE_LABELS and an expand-view
+branch — and now also a mapping for every value of its own operation enum.
+
+
+### The prompt stated no workspace root, so an agent inverted the memory slug into one
+
+Observed 2026-08-29. An agent in `/Users/…/Github/supabase-auth` spent six tool calls against
+`/Users/…/Github/supabase-auth-jdv5y5`, which does not exist. Atlarix was right at every layer — the
+cwd, the interceptor and the workspace binding all logged the real path. The invented one came from
+the MEMORY directory: `workspaceSlug()` renders the workspace path with `/` → `-` and appends a djb2
+hash, so `Users-amariah-Documents-Github-supabase-auth-jdv5y5` reads exactly like a project path with
+a suffix — and it was the only absolute path in the prompt naming the project.
+
+**The fix was one added FACT, not a guard.** `workspacePath` reached the prompt builder and was spent
+entirely on internals (project instructions, docs hint, `memoryDir`); it is now printed as
+**Workspace root**. `tool_contract` had been telling agents that an absolute path is the only spelling
+that reaches outside the workspace while giving them no root to build one from.
+
+**And the honest scope, because the logs were checked before writing anything:** DeepSeek V4 Pro ran
+**7 turns across three workspaces with no memory store** — the exact risk condition — and never did
+this. The single inversion was `openrouter/openrouter/free`. A first draft of the fix also added ~60
+tokens of hedging to the memory line ("this is a store, not a path within the project…"); that was
+reverted. **Paying for defensive prose in the cache prefix on every turn of every user, to argue with
+one weak model's inference, is the surface growth the harness filter exists to stop.** State missing
+facts; do not argue with bad guesses.
+
+
+### A redirect Supabase does not recognise is not refused — it is REPLACED
+
+GoTrue compiles every Redirect-URLs entry into a glob (separators `.` and `/`) and matches the
+requested `redirect_to` as a literal string. A miss falls back to the **Site URL**, silently, with a
+200 the whole way. So a one-character allowlist difference presents as "sign-in does nothing" with
+no error to grep for, in the app, the browser, or the Supabase logs.
+
+**And it cannot be probed from outside.** `/auth/v1/authorize` echoes whatever `redirect_to` you
+hand it into the provider URL — `https://evil.example.com/x` is echoed back verbatim — because
+validation happens later, at `/auth/v1/callback`, against a flow-state row keyed by an opaque UUID.
+Confirmed by hand 2026-08-29: the echo proves nothing. The only honest check is the allowlist
+itself, byte for byte, against the string the client actually sends.
+
+**The generalisation:** a redirect URI is a shared constant that lives half in a dashboard nobody
+diffs. Whenever one is built by concatenation, print it and compare it to the allowlist entry
+character by character — `://` + `/path` is two slashes plus one.
+
 
 ### Deleting railway.toml FLIPS the builder — an 8-minute outage
 

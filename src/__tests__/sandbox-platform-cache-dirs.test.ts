@@ -24,6 +24,7 @@ import path from "node:path";
 import {
   HOME_CACHE_DIRS,
   MACOS_CACHE_DIRS,
+  dockerBuildxDirs,
   windowsCacheDirs,
 } from "@/lib/sandbox/wrap-command";
 
@@ -49,6 +50,50 @@ describe("cross-platform home cache dirs", () => {
 
   it("covers NuGet, which uses ~/.nuget/packages on every platform", () => {
     expect(flatten(HOME_CACHE_DIRS)).toContain(".nuget/packages");
+  });
+
+  it("grants ~/.docker/buildx, without which no Docker build runs at all", () => {
+    // Docker Desktop's buildx writes an activity timestamp under
+    // `~/.docker/buildx/activity/` on EVERY build and ABORTS if it cannot. Observed
+    // 2026-08-29: `docker compose build` failed with an unattributable
+    // "operation not permitted" and cost an agent six turns chasing xattrs.
+    expect(flatten(HOME_CACHE_DIRS)).toContain(".docker/buildx");
+  });
+
+  it("does NOT grant ~/.docker itself — config.json holds registry credentials", () => {
+    // The narrow path is the whole point. Widening this entry to the parent to
+    // "simplify" would turn the sandbox into a credential-tamper surface, so fail
+    // loudly if anyone does.
+    expect(flatten(HOME_CACHE_DIRS)).not.toContain(".docker");
+    for (const entry of HOME_CACHE_DIRS) {
+      if (entry[0] === ".docker") expect(entry.length).toBeGreaterThan(1);
+    }
+  });
+});
+
+describe("dockerBuildxDirs", () => {
+  const saved = process.env.DOCKER_CONFIG;
+  afterEach(() => {
+    if (saved === undefined) delete process.env.DOCKER_CONFIG;
+    else process.env.DOCKER_CONFIG = saved;
+  });
+
+  it("follows a redirected DOCKER_CONFIG, which the curated ~/.docker entry misses", () => {
+    // buildx resolves its default as `$DOCKER_CONFIG/buildx`. Neither other layer
+    // covers this: the env layer only sees BUILDX_CONFIG (usually unset), and the
+    // curated entry is the wrong path once DOCKER_CONFIG moves.
+    process.env.DOCKER_CONFIG = "/custom/docker";
+    expect(dockerBuildxDirs()).toEqual([path.join("/custom/docker", "buildx")]);
+  });
+
+  it("stays empty when DOCKER_CONFIG is unset — the curated entry already covers it", () => {
+    delete process.env.DOCKER_CONFIG;
+    expect(dockerBuildxDirs()).toEqual([]);
+  });
+
+  it("never yields the config dir itself", () => {
+    process.env.DOCKER_CONFIG = "/custom/docker";
+    expect(dockerBuildxDirs()).not.toContain("/custom/docker");
   });
 });
 

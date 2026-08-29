@@ -23,6 +23,13 @@ import {
     type OAuthProvider,
 } from './auth/supabase-client';
 import type { Session } from '@supabase/supabase-js';
+// Shared, guarded, and already covered by broadcast-all-windows.test.ts. Both
+// broadcasts below used to hand-roll the same loop WITHOUT the destroyed-window
+// guard — `win.webContents.send()` on a window whose webContents is already gone
+// throws "Object has been destroyed", which is a fatal main-process crash, not a
+// warning. Renderer-safe because this module is swapped for a stub there
+// (vite/renderer-main-only-shims-plugin.ts).
+import { broadcastToAllWindows } from '../ipc/utils/broadcast_all_windows';
 
 const logger = log.scope('subscription');
 
@@ -253,6 +260,25 @@ export class SubscriptionManager {
             // refreshes after it — see refreshPlanFromServer for the measurement.
             await this.refreshPlanFromServer(0);
         }
+
+        // Announce the resolved session to every window. Two reasons, and the
+        // second is the non-obvious one:
+        //
+        //  1. Signing IN reached one window only. `oauth-callback-success` is sent
+        //     to `mainWindow` alone (main.ts), so a second window stayed signed out
+        //     — the exact mirror of the sign-out bug fixed above.
+        //  2. `auth-ipc-bridge` REPLAYS the last `auth:resolved` to every
+        //     late-mounting `useAuth`. Without this call that cache still holds the
+        //     startup payload, so after a sign-in a lazily-rendered route would be
+        //     replayed a stale `{ user: null }` — and now that the renderer clears
+        //     on a null user, that would sign the component out. Keeping this
+        //     channel current is what makes the clear safe.
+        //
+        // Last, deliberately: `refreshPlanFromServer` above may change the plan, and
+        // the payload should carry the settled one. The startup path broadcasts
+        // twice as a result (here and main.ts's `finally`) — same payload, and two
+        // IPC messages rather than the twenty-two a re-check ping would cost.
+        this.broadcastAuthResolved();
     }
 
     /**
@@ -294,16 +320,7 @@ export class SubscriptionManager {
     static broadcastAuthResolved(): void {
         // NOTE: no `if (!session) return` here, deliberately — that guard on
         // `broadcastSessionState` above is the whole bug being fixed.
-        const payload = buildAuthResolvedPayload(this.session);
-        try {
-            const { BrowserWindow } = require("electron");
-            for (const win of BrowserWindow.getAllWindows()) {
-                (win as { webContents: { send: (c: string, p: unknown) => void } })
-                    .webContents.send("auth:resolved", payload);
-            }
-        } catch (e) {
-            logger.warn('[SubscriptionManager] auth:resolved broadcast failed', e);
-        }
+        broadcastToAllWindows("auth:resolved", buildAuthResolvedPayload(this.session));
     }
 
     /** Single place that emits `plan-changed`, so the payload can't drift. */
@@ -314,15 +331,7 @@ export class SubscriptionManager {
         subscriptionStatus?: string | null;
         subscriptionEndsAt?: string | null;
     }): void {
-        try {
-            const { BrowserWindow } = require("electron");
-            for (const win of BrowserWindow.getAllWindows()) {
-                (win as { webContents: { send: (c: string, p: unknown) => void } })
-                    .webContents.send("plan-changed", payload);
-            }
-        } catch (e) {
-            logger.warn('[SubscriptionManager] plan-changed broadcast failed', e);
-        }
+        broadcastToAllWindows("plan-changed", payload);
     }
 
     /**
@@ -589,6 +598,14 @@ export class SubscriptionManager {
         invalidatePlanCaches();
         this.lastPlanFingerprint = "";
         this.lastPlanFingerprintAt = 0;
+        // Tell every window, not just the one that clicked Sign out.
+        //
+        // `useAuth` is an UNSHARED hook, so a second window holds its own copy of
+        // the account and had no way to learn the session was gone — it kept
+        // rendering a signed-in user until the app restarted. This must run AFTER
+        // `this.session = null` so the payload is `{ user: null }`, which is the
+        // whole message.
+        this.broadcastAuthResolved();
     }
 
     /**

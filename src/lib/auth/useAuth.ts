@@ -233,7 +233,20 @@ export function useAuth() {
             // is what a live ban flip arrives on, and it is the reason a ban takes
             // effect now rather than at the next sign-in.
             setBanned(!!data?.user?.banned);
-            if (!data?.user) return;
+            if (!data?.user) {
+                // `user: null` is an ANSWER, and since v14.38.4 it is also how a
+                // sign-out in another window arrives — this hook is unshared, so
+                // nothing else would tell this mount. Clearing here is what makes
+                // the second window follow the first.
+                //
+                // Safe only because `auth:resolved` is now broadcast on sign-IN too
+                // (SubscriptionManager.updateSession): the bridge replays its last
+                // payload to late subscribers, and before that this branch could be
+                // reached with a stale null and sign out a live session.
+                setUser(null);
+                setStatus(null);
+                return;
+            }
             setUser({
                 id: data.user.id,
                 email: data.user.email ?? '',

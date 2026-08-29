@@ -227,6 +227,16 @@ export interface ConstructSystemPromptParams {
      * deliberately excludes below.
      */
     memoryDir?: string;
+    /**
+     * Absolute path of the open workspace — the agent's project root, published in
+     * the runtime identity block. Omitted for chat-only.
+     *
+     * Stable per workspace, so it belongs in the cache prefix beside `memoryDir`.
+     * It exists because omitting it was load-bearing: the memory path was then the
+     * only absolute path naming the project, and agents inverted its slug into a
+     * project path that does not exist.
+     */
+    workspaceRoot?: string;
 }
 
 /**
@@ -265,6 +275,7 @@ export const constructSystemPromptParts = ({
     registeredToolNames,
     hasWorkspace,
     memoryDir,
+    workspaceRoot,
 }: ConstructSystemPromptParams): SystemPromptParts => {
     const headless = process.env.ATLARIX_HEADLESS === "1";
     const baseRaw =
@@ -333,11 +344,16 @@ In user-visible text, tool summaries, and markdown replies, prefer short ASCII m
                   labelWithProvider:
                       labelWithProvider ?? identity?.labelWithProvider,
                   appVersion,
+                  workspaceRoot,
                   memoryDir,
               })
             : `# Atlarix runtime identity
 You run inside **Atlarix** ([atlarix.dev](https://atlarix.dev)) — an agent workstation built by **NorahLabs** ([norahlabs.com](https://norahlabs.com/)).
 - **App version:** \`${appVersion}\`${
+                  workspaceRoot
+                      ? `\n- **Workspace root:** \`${workspaceRoot}\` — the open project, and the absolute path to build any other from.`
+                      : ""
+              }${
                   memoryDir
                       ? `\n- **Project memory (the only store):** \`${memoryDir}\` — read and write notes there and nowhere else; do not search for another location.`
                       : ""
@@ -494,6 +510,11 @@ export async function buildSystemPromptWithProjectInstructions(params: {
         // from having to remember. `memoryDirFor` is the same resolver the memory
         // reader/writer use, so the path published to the model and the path the
         // store actually lives at cannot drift.
+        // The project root, stated. Without it the memory path below was the only
+        // absolute path in the prompt naming the project, and agents inverted its
+        // slug into a project path that does not exist — see
+        // buildWorkstationIdentityBlock's note.
+        workspaceRoot: workspacePath || undefined,
         memoryDir: workspacePath ? memoryDirFor(workspacePath) : undefined,
         registeredToolNames,
     });
