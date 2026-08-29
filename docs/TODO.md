@@ -1,6 +1,10 @@
 # Atlarix TODO
 
-**Current version:** v14.38.4 — **RELEASING 2026-08-29.** The auth-plumbing release: sign-in fixed
+**Current version:** v14.38.4 — **RELEASED 2026-08-29.** 12 assets, draft=false, body carries the
+changelog; MSIX green on the first run. Launchpad caught up the same day (and its archived changelog
+was 24 releases stale — /changelog was missing everything between 14.0 and 14.24).
+
+The release itself: The auth-plumbing release: sign-in fixed
 (the redirect had one slash too many and stopped matching Supabase's allow-list), sign-out and
 sign-in now reach every window, Docker builds run under the sandbox, a denied write offers a grant
 even when the command hides its own failure, edits stop rendering as "Create · new file", and the
