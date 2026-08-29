@@ -36,7 +36,7 @@ const SIGNED_IN = {
   id: "u-1",
   email: "owner@example.test",
   name: "Owner",
-  plan: "pro",
+  plan: "pro" as const,
   effectiveTier: "pro" as const,
   banned: false,
 };

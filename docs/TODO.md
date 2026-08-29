@@ -753,6 +753,18 @@ approval, MCP description wrapping + OAuth-URL validation, the universal write-c
 
 ## 🪤 Traps worth not rediscovering
 
+### The local typecheck and CI's typecheck are DIFFERENT PROJECTS
+
+`npx tsc --noEmit -p tsconfig.json` passes on code that `npm run check:ts` rejects. CI runs the
+latter, which is `tsc -p **tsconfig.app.json**` — and that is the project that covers
+`src/__tests__/renderer/**`. A widened string literal in a renderer test passed a full local gate
+(378 files, 3381 tests, `check:sandbox`) and then failed `quality` on the release push, 2026-08-29.
+
+**Run `npm run check:ts`, not a hand-rolled `tsc -p tsconfig.json`.** The launchpad has the mirror
+of this and its own note says so: "typechecked with tsconfig.app.json — the root tsconfig does not
+check src". Same shape, two repos. A gate that does not run CI's own command is not the gate.
+
+
 ### An audit line that RE-DERIVES a decision will eventually state the opposite of it
 
 `[SYSTEM-SCOPE-AUDIT]` printed "(runs unsandboxed)" whenever `preview.systemScopeInteractive` was
