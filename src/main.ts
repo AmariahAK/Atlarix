@@ -1747,36 +1747,6 @@ function handleDeepLinkReturn(url: string) {
     return;
   }
 
-  // MCP OAuth callback: atlarix://mcp/oauth/callback?code=...&state=...
-  if (
-    parsed.hostname === "mcp" &&
-    parsed.pathname.startsWith("/oauth/callback")
-  ) {
-    import("./ipc/handlers/mcp_oauth_handlers").then(
-      async ({ handleMcpOAuthDeepLink }) => {
-        await handleMcpOAuthDeepLink(url);
-      },
-    ).catch((err) => {
-      log.error("Failed to handle MCP OAuth callback:", err);
-    });
-    return;
-  }
-
-  // MCP OAuth callback: atlarix://mcp/oauth/callback?code=...&state=...
-  if (
-    parsed.hostname === "mcp" &&
-    parsed.pathname.startsWith("/oauth/callback")
-  ) {
-    import("./ipc/handlers/mcp_oauth_handlers").then(
-      async ({ handleMcpOAuthDeepLink }) => {
-        await handleMcpOAuthDeepLink(url);
-      },
-    ).catch((err) => {
-      log.error("Failed to handle MCP OAuth callback:", err);
-    });
-    return;
-  }
-
   // Handle OAuth callback: atlarix://auth/callback#access_token=...&refresh_token=...
   // Supabase OAuth returns tokens in hash fragment, not query params
   if (parsed.hostname === "auth" || parsed.pathname.startsWith("/auth/callback")) {

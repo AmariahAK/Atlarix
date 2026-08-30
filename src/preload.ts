@@ -154,7 +154,6 @@ const validInvokeChannels = [
   "mcp:list-tools",
   "mcp:test-connection",
   "mcp:sandbox-diagnostics",
-  "mcp:sandbox-diagnostics",
   "mcp:get-tool-consents",
   "mcp:start-oauth",
   "mcp:cancel-oauth",
@@ -217,7 +216,6 @@ const validInvokeChannels = [
   "searxng:get-config",
   "searxng:set-config",
   "searxng:delete-config",
-  // Test-only channels
   // Permission system (Build mode)
   "execute-permission",
   "reject-permission",
@@ -235,10 +233,6 @@ const validInvokeChannels = [
   "file-permissions:list-granted-folders",
   "file-permissions:grant-folder",
   "file-permissions:revoke-granted-folder",
-  "command-permissions:list",
-  "command-permissions:defaults",
-  "command-permissions:upsert",
-  "command-permissions:revoke",
   "terminal:run",
   "pty:spawn", // v10 interactive terminal
   "pty:kill",
@@ -362,7 +356,6 @@ const validReceiveChannels = [
   "mcp:auth-required",
   "mcp:auth-updated",
   "mcp:tool-consent-request",
-  "mcp:tool-consent-request",
   // Permission system (Build mode)
   "permission-request",
   "user-question-request", // ask_user: show question + options in chat UI
@@ -409,7 +402,6 @@ const validReceiveChannels = [
   "autonomous:session-complete",
   "chat:auto-self-correct", // main → renderer: synthetic fix prompt inserted; continue stream
   // OAuth callback from main process
-  "oauth-callback-success",
   "open-community-dialog",
   // Auto-updater
   "update:downloading",   // update is being fetched in background; payload: { version: string }

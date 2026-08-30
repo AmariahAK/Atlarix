@@ -513,11 +513,26 @@ warm run. (Separately: three Core 503s on 2026-08-27 — watched, not diagnosed.
   flow-in-progress gate stays. Revisiting needs confirmation that the Supabase redirect-URL
   allowlist permits a query param.
 
-## 🔐 Security — reviewer and money path DONE (2026-08-28). The app has one open fix.
+## 🔐 Security — reviewer, money path and app hygiene ALL CLOSED (2026-08-30)
 
-**Three documents, all deliberately OUTSIDE every repository** (these repos flip public for CI):
-`../SECURITY_AUDIT_reviewer_2026-08-28.md`, `../SECURITY_AUDIT_app_supabase_2026-08-28.md`,
-`../SECURITY_SECRETS_2026-08-28.md`.
+**One document remains, deliberately OUTSIDE every repository** (these repos flip public for CI):
+`../SECURITY_SECRETS_2026-08-28.md`, the leak-response note.
+
+**The two audit write-ups were verified closed and DELETED on 2026-08-30.** Every finding was
+re-checked against the code first, not taken from the status column: `safeRepoPath` guards both
+`PrContext` implementations, `MAY_REQUEST_REVIEW` gates the mention, the per-prompt nonce and the
+scoped installation token are in place, `isRepoFullName` is at both entry points — 196 reviewer
+tests green. The lessons that outlive the findings are kept below; the exploit write-ups are not
+kept, because a repo whose visibility toggles is not a home for them and they had served their
+purpose.
+
+**App hygiene (the last open item) is now fixed, unreleased:** the three identical
+`atlarix://mcp/oauth/callback` branches in `handleDeepLinkReturn` are one branch again (two were
+unreachable — a fix could have landed in a copy that never runs), and `preload.ts` lost the
+`// Test-only channels` comment that sat above the LIVE Build-mode permission channels plus seven
+within-list duplicate entries (the audit said three; it undercounted). No channel was lost:
+`validInvokeChannels` 281 → 276, `validReceiveChannels` 83 → 81, both now duplicate-free, with
+`ts:main` and all 3,470 tests green.
 
 **The `users` INSERT policy is APPLIED — this section has no open item.** `20260828090000` shows
 local == remote in `supabase migration list --linked` (verified 2026-08-29). It closes the hole where
@@ -533,11 +548,11 @@ integrity precisely BECAUSE C6 was closed on the Store's behalf), and the **Supa
 ### Lessons kept from the reviewer audit — and what is still unaudited
 
 Owner scoped the pass to **`atlarix-reviewer` only**, audited by hand. Five findings, all
-five fixed in `atlarix-reviewer@edc457e`. **The write-up lives at
-`../SECURITY_AUDIT_reviewer_2026-08-28.md` — OUTSIDE every repository, on purpose:** the
-reviewer and proxy repos get flipped public to run CI past the Actions budget block, so a
-repo whose visibility toggles is not a home for a live exploit write-up. That is a general
-rule now, not a one-off.
+five fixed in `atlarix-reviewer@edc457e` and re-verified against the code on 2026-08-30.
+**The write-up was kept OUTSIDE every repository and has since been deleted:** the reviewer
+and proxy repos get flipped public to run CI past the Actions budget block, so a repo whose
+visibility toggles is not a home for a live exploit write-up. That is a general rule now, not
+a one-off — and it is why the lessons live here rather than in a file beside the code.
 
 **The two that mattered, kept here because they are lessons, not history:**
 
