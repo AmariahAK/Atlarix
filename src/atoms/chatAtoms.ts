@@ -98,7 +98,13 @@ export const lastAuxTokensByChatIdAtom = atom<Record<number, number>>({});
 export const lastAuxBySourceByChatIdAtom = atom<
   Record<
     number,
-    Array<{ source: "subagents" | "compaction" | "other"; tokens: number; calls: number }>
+    Array<{
+      source: "subagents" | "compaction" | "other";
+      tokens: number;
+      calls: number;
+      /** Of `tokens`, the share ESTIMATED because a provider reported no usage. */
+      estimatedTokens: number;
+    }>
   >
 >({});
 

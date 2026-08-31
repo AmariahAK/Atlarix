@@ -158,6 +158,15 @@ export interface ChatResponseEnd {
   /** v10: auxiliary LLM tokens this turn (sub-agents, compaction) — counted toward usage. */
   auxTokens?: number;
   /**
+   * How much of `auxTokens` is ESTIMATED rather than provider-reported, present
+   * only when some is. Some providers (notably free OpenRouter routes) return no
+   * usage at all; those calls used to be dropped from the total entirely, so a turn
+   * that ran four sub-agents could report one. They are now counted with their size
+   * estimated — and the estimate is carried separately so nothing downstream shows
+   * it as a measured figure. Estimates here have been ~2x off before.
+   */
+  auxEstimatedTokens?: number;
+  /**
    * Per-source split of `auxTokens`, largest first. Sub-agents are work the user
    * asked for; compaction is the app spending on their behalf — a single lumped
    * figure hid that distinction.
@@ -166,6 +175,8 @@ export interface ChatResponseEnd {
     source: "subagents" | "compaction" | "other";
     tokens: number;
     calls: number;
+    /** Of `tokens`, the estimated share (see `auxEstimatedTokens`). */
+    estimatedTokens: number;
   }>;
   /** v12 7D: estimated BYOK USD cost of this turn (omitted for Core/unknown-price). */
   turnCostUsd?: number;

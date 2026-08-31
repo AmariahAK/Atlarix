@@ -54,6 +54,12 @@ tokens to under 8,000.
 **If you cap a provider's token budget in Settings, the model is now told that number.** It was
 being told the model's full catalogue window while every budget governing the request used your cap.
 
+**Sub-agent work is no longer missing from what a turn cost you.** Some providers return no usage
+figures at all — common on free routes — and a call like that was dropped from the turn's total
+entirely, not just its size but the fact it happened. A turn that ran four sub-agents could report
+one. Those calls are now counted, with their size estimated and shown as an estimate rather than
+passed off as a measured figure.
+
 **A conversation is no longer trimmed by deleting your oldest turns first.** When context ran out,
 the first thing Atlarix did was delete the two oldest messages, repeatedly, and only then try to
 summarise. Those turns reached no summary and left no trace. The order is now reversed: summarise,

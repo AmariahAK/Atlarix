@@ -329,12 +329,20 @@ export async function finalizeTurn(
             const auxUsage = takeAuxUsage(req.chatId);
             const auxBySource = summarizeAuxBySource(auxUsage);
             if (auxUsage) {
+              // The estimated portion is reported SEPARATELY, never folded into the
+              // measured figure. Before this, a call whose provider returned no
+              // usage was dropped entirely — a turn that ran four sub-agents logged
+              // "across 1 call(s)".
+              const est = auxUsage.totalEstimatedTokens;
               logger.log(
-                `[usage] auxiliary LLM tokens this turn: ${auxUsage.totalTokens} across ${auxUsage.calls} call(s) — ${Object.entries(
-                  auxUsage.byLabel,
-                )
-                  .map(([k, v]) => `${k}=${v.tokens}(${v.calls} call${v.calls === 1 ? "" : "s"})`)
-                  .join(", ")}`,
+                `[usage] auxiliary LLM tokens this turn: ${auxUsage.totalTokens}` +
+                  (est > 0 ? ` (+~${est} estimated)` : "") +
+                  ` across ${auxUsage.calls} call(s) — ${Object.entries(auxUsage.byLabel)
+                    .map(
+                      ([k, v]) =>
+                        `${k}=${v.tokens}${v.estimatedTokens > 0 ? `+~${v.estimatedTokens}est` : ""}(${v.calls} call${v.calls === 1 ? "" : "s"})`,
+                    )
+                    .join(", ")}`,
               );
             }
             safeSend(event.sender, "chat:response:end", {
@@ -346,7 +354,18 @@ export async function finalizeTurn(
               // drives the "needs your answer" vs "finished responding" notification.
               endedWaitingOnUser: ctx.askUserEndedTurn === true,
               usedCompass: usedCompassThisStream,
-              ...(auxUsage ? { auxTokens: auxUsage.totalTokens } : {}),
+              // Best available total: measured plus estimated. The estimated share
+              // travels alongside so a consumer can show it as approximate rather
+              // than pass it off as a provider figure.
+              ...(auxUsage
+                ? {
+                    auxTokens:
+                      auxUsage.totalTokens + auxUsage.totalEstimatedTokens,
+                    ...(auxUsage.totalEstimatedTokens > 0
+                      ? { auxEstimatedTokens: auxUsage.totalEstimatedTokens }
+                      : {}),
+                  }
+                : {}),
               // Per-source split so the UI can separate work the user asked for
               // (sub-agents) from work the app did on their behalf (compaction).
               // The old single figure lumped both under a "Sub-agents" label.

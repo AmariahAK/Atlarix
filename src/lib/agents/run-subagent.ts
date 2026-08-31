@@ -28,7 +28,7 @@ import {
 } from "@/lib/context/resolve-model-context-limit";
 import { estimateTokens } from "@/ipc/utils/token_utils";
 import { recordAuxUsage } from "@/lib/usage/turn-usage-aggregator";
-import { totalTokensFromAiUsage } from "@/lib/usage/ai-usage";
+import { estimateModelMessagesTokens } from "@/lib/ai/native-history";
 import { ToolRegistry } from "@/lib/tools/registry";
 import { loadSkill } from "../skills/skill-loader";
 import { runSubagentCommandViaParent } from "./subagent-command";
@@ -533,6 +533,8 @@ export async function runSubagent(
     let lengthAttempts = 0;
     let totalSteps = 0;
     let subagentTokens = 0;
+    /** True once any round's size had to be estimated — marks the footer with "~". */
+    let anyRoundEstimated = false;
     let round = 0;
 
     let tierLimit = GENERIC_CONTEXT_FALLBACK;
@@ -606,10 +608,34 @@ export async function runSubagent(
       return { text, finishReason, usage, response, steps };
     };
 
+    /**
+     * What this round cost, when the provider will not say.
+     *
+     * Estimated over the request messages plus the reply, using the same
+     * `estimateModelMessagesTokens` the compaction path uses — one notion of an
+     * estimated token count rather than a second one that drifts from it. Only
+     * consulted when the provider reported no usage; see `recordAuxUsage`.
+     */
+    const estimateRoundTokens = (
+      requestMsgs: ModelMessage[],
+      text: string | undefined,
+    ): number =>
+      estimateModelMessagesTokens(requestMsgs) +
+      estimateModelMessagesTokens([
+        { role: "assistant", content: text ?? "" } as ModelMessage,
+      ]);
+
     let result = await runRound();
     totalSteps += result.steps?.length ?? 0;
-    recordAuxUsage(args.chatId, result.usage, "subagent:task");
-    subagentTokens += totalTokensFromAiUsage(result.usage) ?? 0;
+    {
+      const recorded = recordAuxUsage(args.chatId, result.usage, "subagent:task", {
+        estimateTokens: () => {
+          anyRoundEstimated = true;
+          return estimateRoundTokens(msgs, result.text);
+        },
+      });
+      subagentTokens += recorded ?? 0;
+    }
     if (subagentTokens > 0) emit?.({ type: "subagent_tokens", tokens: subagentTokens });
 
     while (
@@ -647,8 +673,15 @@ export async function runSubagent(
 
       result = await runRound();
       totalSteps += result.steps?.length ?? 0;
-      recordAuxUsage(args.chatId, result.usage, "subagent:task");
-      subagentTokens += totalTokensFromAiUsage(result.usage) ?? 0;
+      {
+        const recorded = recordAuxUsage(args.chatId, result.usage, "subagent:task", {
+          estimateTokens: () => {
+            anyRoundEstimated = true;
+            return estimateRoundTokens(msgs, result.text);
+          },
+        });
+        subagentTokens += recorded ?? 0;
+      }
       if (subagentTokens > 0) emit?.({ type: "subagent_tokens", tokens: subagentTokens });
     }
 
@@ -666,8 +699,12 @@ export async function runSubagent(
       uniqTools.length > 0 ? `\n\n— Tools used: ${uniqTools.join(", ")}` : "";
     // Per-sub-agent token readout, folded into the summary so it shows on the
     // sub-agent card and gives the main agent honest delegation-cost feedback.
+    // "~" when any round's provider reported no usage, so a mixed measured/estimated
+    // figure is never shown as if it were measured.
     const tokensFooter =
-      subagentTokens > 0 ? `\n— ${formatCompactTokens(subagentTokens)} tokens` : "";
+      subagentTokens > 0
+        ? `\n— ${anyRoundEstimated ? "~" : ""}${formatCompactTokens(subagentTokens)} tokens`
+        : "";
 
     logger.info(
       `Subagent run complete (id=${delegationId}); steps=${totalSteps}; tokens=${subagentTokens}`,

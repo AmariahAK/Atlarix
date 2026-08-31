@@ -356,22 +356,39 @@ export function TokenBar({ chatId }: TokenBarProps) {
                     {/* Named per source: this line previously read "Sub-agents" while
                         also counting compaction, so app-initiated spend looked like
                         work the user had asked for. */}
-                    {(lastAuxBySource ?? []).map(({ source, tokens, calls }) => (
-                      <div
-                        key={source}
-                        className="grid grid-cols-[20px_1fr_auto] gap-x-2 items-center text-muted-foreground"
-                      >
-                        <span />
-                        <span className="pl-1">
-                          {source === "subagents"
-                            ? `Sub-agents (${calls} call${calls === 1 ? "" : "s"})`
-                            : source === "compaction"
-                              ? "Context compaction"
-                              : "Other"}
-                        </span>
-                        <span>{tokens.toLocaleString()}</span>
-                      </div>
-                    ))}
+                    {(lastAuxBySource ?? []).map(
+                      ({ source, tokens, calls, estimatedTokens }) => (
+                        <div
+                          key={source}
+                          className="grid grid-cols-[20px_1fr_auto] gap-x-2 items-center text-muted-foreground"
+                        >
+                          <span />
+                          <span className="pl-1">
+                            {source === "subagents"
+                              ? `Sub-agents (${calls} call${calls === 1 ? "" : "s"})`
+                              : source === "compaction"
+                                ? "Context compaction"
+                                : "Other"}
+                          </span>
+                          {/* A "~" whenever any of this figure was ESTIMATED rather than
+                              reported by the provider. Some providers (free routes
+                              especially) return no usage; those calls used to be dropped
+                              from the total entirely, so the number was quietly too low.
+                              They are counted now — but an estimate shown as measured
+                              spend would be the worse bug of the two, so it is marked. */}
+                          <span
+                            title={
+                              (estimatedTokens ?? 0) > 0
+                                ? `${estimatedTokens.toLocaleString()} of these tokens are estimated — the provider reported no usage for at least one call`
+                                : undefined
+                            }
+                          >
+                            {(estimatedTokens ?? 0) > 0 ? "~" : ""}
+                            {tokens.toLocaleString()}
+                          </span>
+                        </div>
+                      ),
+                    )}
                   </div>
                 ) : null}
                 {lastTurnCostUsd != null && lastTurnCostUsd > 0 ? (

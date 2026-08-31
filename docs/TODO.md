@@ -244,6 +244,48 @@ scores ~300 tokens because BPE collapses a single-character run, so a "70K" fixt
 and asserting "it got smaller" cannot distinguish which step did it. Sizing had to be MEASURED
 (`/tmp/sizes.txt` probe) and each test aimed at the narrow band where only its own step can act.
 
+### 0d. STAGED 2026-08-31 (fourth pass) — auxiliary spend, and one bug left open
+
+**A sub-agent run cost real money and was reported as nothing.** Observed in the packaged app: a
+turn spawned four sub-agents, all four completed (steps 7/4/6/8), and the turn logged
+`auxiliary LLM tokens this turn: 131289 across 1 call(s)`. `recordAuxUsage` bailed on
+`tokens == null || tokens <= 0`, which dropped not just the SIZE but the FACT of the call — so a run
+whose provider returned no usage vanished from the total entirely. Free OpenRouter routes commonly
+omit usage, and those are exactly the routes someone watching their spend is on.
+
+Callers can now pass `fallbackTokens`; a silent provider's call is counted with its size estimated
+from the round's messages (`estimateModelMessagesTokens`, the same estimator compaction uses). The
+estimate lands in `estimatedTokens`, kept SEPARATE from provider-reported `tokens` all the way out
+through `summarizeAuxBySource` and the `chat:response:end` payload.
+
+**Why separate and not summed:** this repo has been burned trusting an estimate — one session
+measured 417K by the provider against 211K estimated, ~2x, which is why `maxTokensUsed` exists. An
+estimate shown as spend is a worse failure than the under-report it replaces. Mutation-tested four
+ways: dropping silent calls, folding the estimate into the measured total, letting a fallback beat a
+provider figure, and gating the drain on measured tokens each fail a test.
+
+### 🔍 OPEN — the sub-agent round panel renders twice
+
+Not fixed (owner's call: cosmetic, and no cause was proven). The AGENTS are not duplicated — four ran
+and `4/4 running` was correct; the PANEL appears twice, labelled differently each time. Candidates,
+so the next attempt starts from evidence rather than re-deriving it:
+
+- `mergeSubagentActivityIntoThread` falls back to a constant `roundId` of `"subagent-round"` when an
+  event carries none, while the live path sends `roundId: ctx.turnId`
+  (`register-delegation-tools.ts`). Two ids cannot merge — `upsertSubagentRound` keys on roundId.
+- `synthesizeSubagentRoundFromParts` uses `"subagent-round-fallback"` — but it is guarded by
+  `if (isStreaming) return null` (`AssistantMessageBody.tsx`) and the observation was mid-stream, so
+  probably NOT this one.
+- `stickyAgents` accumulates per `AssistantMessageBody`; two assistant bodies in one turn would each
+  render the round.
+- `consolidateSubagentRoundsInThread` DOES merge multiple rounds and runs on BOTH the live and
+  completed threads — which is why the duplicate is most likely ACROSS message bodies, not within one.
+
+The visible symptom is the labelling, and it names the two sources: `${agentRole} · ${scope}` from
+the handoff path versus `subagentLabel()`'s `Sub-agent: Explorer`. **Start by instrumenting which
+call site emits each panel** — every theory above is consistent with the screenshots, which is
+exactly why none of them should be acted on yet.
+
 **Owed before release:** verify in the PACKAGED app (a long real session, quit, reopen, confirm the
 meter and the history start from the summary), then `/security-review` on the diff.
 

@@ -31,6 +31,9 @@ describe("recordAuxUsage", () => {
       calls: 2,
       inputTokens: 150,
       outputTokens: 30,
+      // Zero, not absent: nothing here was estimated, and a consumer must be able
+      // to tell "measured" from "inferred" without checking for undefined.
+      estimatedTokens: 0,
     });
   });
 
@@ -79,8 +82,8 @@ describe("summarizeAuxBySource", () => {
     recordAuxUsage(CHAT, { inputTokens: 900, outputTokens: 0 }, "compaction");
     const summary = summarizeAuxBySource(takeAuxUsage(CHAT));
     expect(summary).toEqual([
-      { source: "compaction", tokens: 900, calls: 1 },
-      { source: "subagents", tokens: 100, calls: 1 },
+      { source: "compaction", tokens: 900, calls: 1, estimatedTokens: 0 },
+      { source: "subagents", tokens: 100, calls: 1, estimatedTokens: 0 },
     ]);
   });
 
@@ -88,7 +91,7 @@ describe("summarizeAuxBySource", () => {
     recordAuxUsage(CHAT, { inputTokens: 10, outputTokens: 0 }, "subagent:task");
     recordAuxUsage(CHAT, { inputTokens: 20, outputTokens: 0 }, "subagent:reviewer");
     const summary = summarizeAuxBySource(takeAuxUsage(CHAT));
-    expect(summary).toEqual([{ source: "subagents", tokens: 30, calls: 2 }]);
+    expect(summary).toEqual([{ source: "subagents", tokens: 30, calls: 2, estimatedTokens: 0 }]);
   });
 
   it("orders largest first, so the dominant spender reads first", () => {
@@ -100,7 +103,7 @@ describe("summarizeAuxBySource", () => {
   it("buckets an unrecognized label as 'other' rather than dropping it", () => {
     recordAuxUsage(CHAT, { inputTokens: 7, outputTokens: 0 }, "title-generation");
     expect(summarizeAuxBySource(takeAuxUsage(CHAT))).toEqual([
-      { source: "other", tokens: 7, calls: 1 },
+      { source: "other", tokens: 7, calls: 1, estimatedTokens: 0 },
     ]);
   });
 
@@ -115,5 +118,86 @@ describe("summarizeAuxBySource", () => {
     const totals = takeAuxUsage(CHAT)!;
     const summed = summarizeAuxBySource(totals).reduce((a, s) => a + s.tokens, 0);
     expect(summed).toBe(totals.totalTokens);
+  });
+});
+
+describe("a call the provider reports nothing for", () => {
+  /**
+   * OBSERVED 2026-08-31, packaged app. A turn ran four sub-agents — one of them
+   * eight steps deep — and logged `across 1 call(s)`. `recordAuxUsage` bailed on
+   * `tokens == null || tokens <= 0`, which dropped not just the size but the FACT
+   * of the call, so the total the user sees understated what they spent. Free
+   * OpenRouter routes commonly omit usage, and those are exactly the routes someone
+   * watching their spend is on.
+   */
+  it("is COUNTED, with its size estimated", () => {
+    recordAuxUsage(CHAT, undefined, "subagent:task", { estimateTokens: () => 5_000 });
+    const totals = takeAuxUsage(CHAT)!;
+
+    expect(totals).toBeTruthy();
+    expect(totals.calls).toBe(1); // the call existed — that is the point
+    expect(totals.totalEstimatedTokens).toBe(5_000);
+    // And it is NOT laundered into the measured figure.
+    expect(totals.totalTokens).toBe(0);
+    expect(totals.byLabel["subagent:task"]!.tokens).toBe(0);
+    expect(totals.byLabel["subagent:task"]!.estimatedTokens).toBe(5_000);
+  });
+
+  it("still records nothing when there is no fallback either", () => {
+    // Unchanged from before: never invent a zero-token entry that reads as real.
+    expect(recordAuxUsage(CHAT, undefined, "subagent:task")).toBeNull();
+    expect(takeAuxUsage(CHAT)).toBeNull();
+  });
+
+  it("does not ESTIMATE when the provider already answered", () => {
+    // Estimating runs an exact tokenizer over the whole request. On a sub-agent's
+    // tool-heavy history that is real work, and it is pure waste on the common path
+    // where usage came back. The thunk must not be called at all.
+    let called = 0;
+    recordAuxUsage(CHAT, { totalTokens: 500 }, "subagent:task", {
+      estimateTokens: () => {
+        called += 1;
+        return 9_999;
+      },
+    });
+    expect(called).toBe(0);
+    expect(takeAuxUsage(CHAT)!.totalTokens).toBe(500);
+  });
+
+  it("never lets an estimate override a provider figure", () => {
+    // A measured number always wins, however large the guess beside it.
+    recordAuxUsage(CHAT, { totalTokens: 100 }, "subagent:task", { estimateTokens: () => 999_999 });
+    const totals = takeAuxUsage(CHAT)!;
+    expect(totals.totalTokens).toBe(100);
+    expect(totals.totalEstimatedTokens).toBe(0);
+    expect(totals.byLabel["subagent:task"]!.estimatedTokens).toBe(0);
+  });
+
+  it("surfaces a turn whose auxiliary spend was ONLY estimated", () => {
+    // `takeAuxUsage` used to gate on `totalTokens > 0`, so a turn whose every
+    // auxiliary call came from a silent provider drained as null and vanished.
+    recordAuxUsage(CHAT, null, "subagent:task", { estimateTokens: () => 2_500 });
+    const totals = takeAuxUsage(CHAT);
+    expect(totals).not.toBeNull();
+    expect(totals!.calls).toBe(1);
+  });
+
+  it("reports the real call count and a distinguishable estimate", () => {
+    // The exact shape from the observed turn: four runs, one silent.
+    recordAuxUsage(CHAT, { totalTokens: 78_640 }, "subagent:task");
+    recordAuxUsage(CHAT, { totalTokens: 25_600 }, "subagent:task");
+    recordAuxUsage(CHAT, { totalTokens: 27_049 }, "subagent:task");
+    recordAuxUsage(CHAT, undefined, "subagent:task", { estimateTokens: () => 30_000 });
+
+    const totals = takeAuxUsage(CHAT)!;
+    expect(totals.calls).toBe(4); // was 3
+    expect(totals.totalTokens).toBe(131_289);
+    expect(totals.totalEstimatedTokens).toBe(30_000);
+
+    const [subagents] = summarizeAuxBySource(totals);
+    expect(subagents!.calls).toBe(4);
+    // The best available total, with the untrustworthy share named.
+    expect(subagents!.tokens).toBe(161_289);
+    expect(subagents!.estimatedTokens).toBe(30_000);
   });
 });
