@@ -2,8 +2,6 @@ import type { ModelMessage } from "ai";
 import type { LargeLanguageModel, UserSettings } from "../schemas";
 import {
   summarizeMessagesWithCompactionPrompt,
-  runSteppedCompaction,
-  isCompactionSummaryMessage,
   IN_TASK_SUMMARY_PREFIX,
 } from "../context/compaction";
 import { estimateTokens } from "../../ipc/utils/token_utils";
@@ -34,24 +32,12 @@ export interface EnforceContextBudgetParams {
   limitedMessageHistory: BudgetHistoryMessage[];
   codebasePrefixMessages: readonly ModelMessage[];
   otherCodebasePrefixMessages: readonly ModelMessage[];
-  /**
-   * The chat being dispatched, and its bound session. Required for compaction to
-   * be DURABLE — without them the summary this function pays for is discarded at
-   * end of turn and re-bought next turn. Optional only so existing tests that
-   * exercise the trimming steps need not supply them.
-   */
-  chatId?: number;
-  workspaceSessionId?: string | null;
 }
 
 export interface EnforceContextBudgetResult {
   systemPrompt: string;
   limitedMessageHistory: BudgetHistoryMessage[];
   contextAssemblerBlob: string;
-  /** True if the shared compactor summarized at least once. */
-  llmCompactionApplied?: boolean;
-  /** True if that summary reached the session as a `[COMPACTION MARKER]` row. */
-  summaryPersisted?: boolean;
   /** Messages dropped without ever reaching a summary — the model is told. */
   droppedMessageCount?: number;
 }
@@ -175,24 +161,30 @@ function trimContextAssemblerBlobOneStep(blob: string, userPrompt: string): stri
 }
 
 /**
- * Pre-dispatch budgeting — one of the three triggers for the shared compactor.
+ * The pre-dispatch BACKSTOP: what to do when a request is still over the model's
+ * hard limit after compaction has already run.
  *
- * ORDER MATTERS, AND IT USED TO BE BACKWARDS. This function's first act was to
- * DELETE the two oldest conversation messages (`headConversation.slice(2)`),
- * looping up to 24 times, and only reach for a summary afterwards. So the turns
- * most likely to matter were destroyed before anything had a chance to summarize
- * them, silently, with no marker and (until `droppedHistoryNotice` existed) no
- * word to the model. Dropping is now LAST:
+ * IT DOES NOT SUMMARIZE, DELIBERATELY. It used to — with its own marker string
+ * (`[Earlier conversation — compressed for context budget]`) that
+ * `sliceFromLastCompactionSummary` does not recognise, never persisted, so every
+ * summary it paid for was rebought the next turn. The previous pass replaced that
+ * with a call to the shared compactor; this pass removes the call entirely,
+ * because it was the WEAKER of two paths doing the same job. Compaction is owned
+ * by the pre-dispatch gate in `turn-runner/context-assembly.ts`, which can do the
+ * thing this function structurally cannot: compact the LIVE TRANSPORT (via
+ * `executeCompressContext`'s `setMessages`) so the shrink survives into later
+ * turns. All this function ever had was the per-request copy.
  *
- *   1. compact  — the shared compactor, which summarizes AND persists a marker
- *   2. trim     — the context-assembler blob inside the system prompt (only this
- *                 function can do this; the compactor never sees the prompt)
- *   3. drop     — head messages, with `droppedHistoryNotice` telling the model
+ * What is left is the two jobs only it can do, and the ORDER, which used to be
+ * backwards. Its first act was to DELETE the two oldest conversation messages
+ * (`headConversation.slice(2)`), looping up to 24 times, before anything had a
+ * chance to summarize them — silently, with no marker and no word to the model:
  *
- * It also wrote its own marker string (`[Earlier conversation — compressed for
- * context budget]`) which `sliceFromLastCompactionSummary` does not recognise, and
- * never persisted it — so every summary it paid for was rebought the next turn.
- * Both are gone: the compactor owns the marker and the durable write.
+ *   1. trim — the context-assembler blob inside the system prompt. Nothing else
+ *             sees the prompt, so nothing else can do this.
+ *   2. drop — head messages, LAST, and only when trimming still left us over the
+ *             model's hard limit. Reports a count so `droppedHistoryNotice` can
+ *             tell the model it lost context instead of letting it guess.
  */
 export async function enforceContextBudget(
   params: EnforceContextBudgetParams,
@@ -207,8 +199,6 @@ export async function enforceContextBudget(
     params.effectiveModel,
     settings,
   );
-  let llmCompactionApplied = false;
-  let summaryPersisted = false;
   let droppedMessageCount = 0;
 
   const currentEstimate = () =>
@@ -225,57 +215,9 @@ export async function enforceContextBudget(
     return { systemPrompt, limitedMessageHistory, contextAssemblerBlob };
   }
 
-  // ── 1. Compact — ONCE per dispatch, outside the loop.
-  //
-  // Deliberately not inside the round loop. `force: true` bypasses the ratio gate
-  // (we are already over the model's hard limit, so waiting for it would be
-  // circular), which means a second round would summarize a second time in the
-  // SAME dispatch: two provider calls and two `[COMPACTION MARKER]` rows for one
-  // turn. The compactor's `headIsOnlyPriorSummary` guard catches the degenerate
-  // case where the whole head is the previous summary, but not the case where a
-  // long tail leaves real messages in the head. Compaction is a per-turn event;
-  // the loop below is for the cheap steps that can usefully repeat.
-  //
-  // The compactor runs its own cheap steps first (microcompact → prune tool
-  // outputs → strip media) before spending anything on a summary.
-  {
-    const beforeCompaction = limitedMessageHistory.length;
-    const stepped = await runSteppedCompaction(
-      limitedMessageHistory.map((m, i) => ({
-        id: i,
-        role: m.role,
-        content: m.content ?? "",
-      })),
-      tierLimit,
-      undefined,
-      {
-        force: true,
-        alreadyUsedTokens: estimateTokens(systemPrompt),
-        chatId: params.chatId,
-        workspaceSessionId: params.workspaceSessionId,
-      },
-    );
-    if (stepped.compactionApplied) {
-      // Map back onto the caller's shape. Rows the compactor kept keep their
-      // ORIGINAL object — and so their commitHash / native-envelope fields, which
-      // revert-to-turn depends on — with only content replaced. The summary row it
-      // introduced carries a negative id and has no counterpart, so it is added as
-      // a bare {role, content}.
-      limitedMessageHistory = stepped.modelContext.map((m) =>
-        m.id >= 0 && m.id < beforeCompaction && !isCompactionSummaryMessage(m.content)
-          ? { ...limitedMessageHistory[m.id], content: m.content ?? "" }
-          : { role: m.role, content: m.content ?? "" },
-      );
-      if (stepped.strategy === "summarized") {
-        llmCompactionApplied = true;
-        summaryPersisted = stepped.summaryPersisted;
-      }
-    }
-  }
-
   const maxRounds = 24;
   for (let round = 0; round < maxRounds && overBudget(); round++) {
-    // ── 2. Trim the context-assembler blob out of the system prompt.
+    // ── 1. Trim the context-assembler blob out of the system prompt.
     if (contextAssemblerBlob.trim()) {
       const prev = contextAssemblerBlob;
       const trimmed = trimContextAssemblerBlobOneStep(
@@ -290,8 +232,9 @@ export async function enforceContextBudget(
 
     if (!overBudget()) break;
 
-    // ── 3. Drop, last. Only reached when a summary and every trim still left us
-    // over the model's hard limit, i.e. the protected tail alone does not fit.
+    // ── 2. Drop, last. Only reached when compaction (which ran before this
+    // function) and every blob trim still left us over the model's hard limit —
+    // i.e. the protected tail alone does not fit the window.
     const entries = nonSystemEntries(limitedMessageHistory);
     const pStart = protectedEntryStartIndex(entries);
     const firstProtectedOriginalIndex =
@@ -316,8 +259,6 @@ export async function enforceContextBudget(
     systemPrompt,
     limitedMessageHistory,
     contextAssemblerBlob,
-    llmCompactionApplied,
-    summaryPersisted,
     droppedMessageCount,
   };
 }

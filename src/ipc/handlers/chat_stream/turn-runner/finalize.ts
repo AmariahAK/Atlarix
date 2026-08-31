@@ -30,7 +30,18 @@ import { stripThinkBlocks } from "@/ipc/utils/thinking_tags";
 import { listBackgroundJobs } from "@/lib/agent/background-commands";
 import { clearMutationOutcomes } from "@/lib/agent/mutation-verify";
 import { runningSubagentCount } from "@/lib/agents/subagent-results";
-import { hasNativeToolParts, serializeNativeHistory } from "@/lib/ai/native-history";
+import {
+  boundNativeHistoryForPersist,
+  estimateModelMessagesTokens,
+  hasNativeToolParts,
+  serializeNativeHistory,
+} from "@/lib/ai/native-history";
+import { getEffectiveBudget } from "@/ipc/utils/token_utils";
+
+/** A single turn's persisted envelope may not exceed this share of the window. */
+const MAX_ENVELOPE_WINDOW_FRACTION = 0.5;
+/** Floor, so a tiny/overridden window still keeps a usable turn history. */
+const MIN_ENVELOPE_BUDGET_TOKENS = 8_000;
 import { getStreamTransport } from "@/lib/chat/stream-transport";
 import { trackPendingWork } from "@/lib/pending-work";
 import { estimateTurnCostUsd } from "@/lib/routing/byok-pricing";
@@ -111,8 +122,47 @@ export async function finalizeTurn(
           // versioned envelope on the assistant message's modelContent — the
           // next turn's assembly splices them back natively instead of
           // re-ingesting flattened prose. Empty when no native tools ran.
-          const assistantModelContent = hasNativeToolParts(ctx.nativeTurnMessages)
-            ? serializeNativeHistory(ctx.nativeTurnMessages, {
+          //
+          // v14.39: BOUNDED FIRST. Mid-loop compaction shrinks the request but
+          // `foldNativeIntoTurn` pushes every round into this envelope too, and
+          // nothing bounded it — so a long turn persisted its full tool history and
+          // the next message rehydrated all of it, paying to summarize what mid-turn
+          // already had. Clipping happens HERE, once, on the way to disk: the stored
+          // envelope is replayed byte-stable each turn for the provider's prompt
+          // cache, so the same transform applied on read would change the prefix
+          // every turn and defeat it. No message is removed, only tool-result text
+          // clipped, so every tool_use keeps its tool_result.
+          let nativeForPersist = ctx.nativeTurnMessages;
+          if (hasNativeToolParts(nativeForPersist)) {
+            try {
+              const { budget } = await getEffectiveBudget(
+                effectiveModel.provider ?? "auto",
+                req.chatId,
+              );
+              // One TURN may not claim more than half the window: the rest is for
+              // earlier turns and the next prompt. Cross-turn pressure is the
+              // pre-dispatch compactor's job, not this step's.
+              const envelopeBudget = Math.max(
+                MIN_ENVELOPE_BUDGET_TOKENS,
+                Math.floor(budget * MAX_ENVELOPE_WINDOW_FRACTION),
+              );
+              const before = estimateModelMessagesTokens(nativeForPersist);
+              if (before > envelopeBudget) {
+                nativeForPersist = boundNativeHistoryForPersist(nativeForPersist, {
+                  budgetTokens: envelopeBudget,
+                });
+                logger.info(
+                  `[stream:${req.chatId}] turn envelope bounded for persist: ~${before} → ~${estimateModelMessagesTokens(nativeForPersist)} est. tokens (budget ${envelopeBudget})`,
+                );
+              }
+            } catch (e) {
+              // Never lose a turn over a size optimisation — persist it unbounded.
+              logger.warn(`[stream:${req.chatId}] envelope bounding skipped`, e);
+              nativeForPersist = ctx.nativeTurnMessages;
+            }
+          }
+          const assistantModelContent = hasNativeToolParts(nativeForPersist)
+            ? serializeNativeHistory(nativeForPersist, {
                 builtinProviderId: modelClient.builtinProviderId,
               })
             : "";

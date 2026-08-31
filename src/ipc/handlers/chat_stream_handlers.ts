@@ -137,8 +137,8 @@ import {
   AuthRequiredError,
 } from "../../lib/auth/require_auth_session";
 import {
-  getContextWindow,
   getContextWindowDetailed,
+  getEffectiveBudget,
   setCompassContextWindow,
 } from "../utils/token_utils";
 import {
@@ -1244,9 +1244,22 @@ export function registerChatStreamHandlers() {
           // 124,907-token session on a 1M-token model at 8.9% fill — see
           // dropped-history-notice.ts.
           let limitedMessageHistory = messageHistory;
-          const contextSummaryForSystem: string | null = null;
 
-          const contextSize = await getContextWindow(effectiveModel, req.chatId);
+          // The number the model is TOLD, and its only two consumers are the two
+          // system-prompt builders below.
+          //
+          // `getContextWindow` ignores `tokenBudgetOverrides`, so a user who capped
+          // a provider at 16,000 was told "Your context window this session is
+          // 1,048,576 tokens" while every budget that governs the request used
+          // 16,000. Observed 2026-08-31. `getEffectiveBudget` respects the cap, so
+          // the stated fact matches the budget the request is actually held to —
+          // the same rule as not letting a doc restate a number the config decides.
+          const contextSize = (
+            await getEffectiveBudget(
+              effectiveModel.provider ?? settings.selectedModel?.provider ?? "auto",
+              req.chatId,
+            )
+          ).budget;
           // v12 0.1: legacy "agent" is coerced to "build" upstream (readSettings
           // + custom-command modeOverride) — only ask/build reach this point.
           const chatMode: "ask" | "build" =
@@ -1511,15 +1524,12 @@ export function registerChatStreamHandlers() {
 
           // (projectMemory / atlarix.md is loaded concurrently above — S18.)
 
-          // Phase 6: Inject context summary (compacted earlier conversation)
-          if (contextSummaryForSystem) {
-            contextSections.push({
-              name: "contextSummary",
-              priority: 5,
-              content: `## Session Summary (earlier conversation)\n${contextSummaryForSystem}`,
-            });
-            logger.info("Injected context summary from auto-compaction");
-          }
+          // A `contextSummaryForSystem` block used to sit here, injecting a
+          // "## Session Summary (earlier conversation)" section. It was hardcoded
+          // `null` and threaded through this handler and `context-assembly.ts` to
+          // two `if` statements that could never be true — compaction's summary
+          // reaches the model as a `[COMPACTION MARKER]` MESSAGE, not as a system
+          // prompt section, and has since v11.1. Removed with the whole thread.
 
           // v14.7: the redundant rolling 7-exchange "session memory" summary was
           // REMOVED. It was a lossy, char-truncated second copy of the recent
@@ -1655,16 +1665,14 @@ export function registerChatStreamHandlers() {
               limitedMessageHistory,
               codebasePrefixMessages: [...codebasePrefix],
               otherCodebasePrefixMessages: [...otherCodebasePrefix],
-              // Durability: without these the summary this call may pay for is
-              // discarded at end of turn and re-bought on the next one.
-              chatId: req.chatId,
-              workspaceSessionId: req.workspaceSessionId,
             }),
           );
           systemPrompt = tierBudgeted.systemPrompt;
           limitedMessageHistory = tierBudgeted.limitedMessageHistory;
           contextAssemblerBlob = tierBudgeted.contextAssemblerBlob;
-          const llmCompactionApplied = tierBudgeted.llmCompactionApplied ?? false;
+          // Compaction is no longer done here — see enforceContextBudget's header.
+          // What this backstop still reports is how many messages it had to DROP.
+          const budgetDroppedMessages = tierBudgeted.droppedMessageCount ?? 0;
 
           dispatchEstimate = estimateDispatchTokens({
             systemPrompt,
@@ -1704,7 +1712,6 @@ export function registerChatStreamHandlers() {
               event,
               modelContextResolved,
               promptBundleDeps,
-              contextSummaryForSystem,
               contextWindowTokens,
             },
           );
@@ -1735,7 +1742,7 @@ export function registerChatStreamHandlers() {
                   modelClient.builtinProviderId === "compass") &&
                 (budgetTracker.isCritical() || budgetTracker.isOverLimit());
               logger.log(
-                `[TTFT] provider=${String(modelClient.builtinProviderId)} model=${String((effectiveModel as { name?: string })?.name ?? "")} contextLength=${modelContextResolved.rawContextLength ?? "unknown"} ttft=${Date.now() - ttftStartRef.ms}ms budgetTier=${budgetTracker.getBudgetTier()} estimatedTokens=${dispatchEstimate} pruningApplied=${contextBudgetPruningApplied} compressionApplied=${openRouterCompressionApplied} compactionApplied=${llmCompactionApplied}`,
+                `[TTFT] provider=${String(modelClient.builtinProviderId)} model=${String((effectiveModel as { name?: string })?.name ?? "")} contextLength=${modelContextResolved.rawContextLength ?? "unknown"} ttft=${Date.now() - ttftStartRef.ms}ms budgetTier=${budgetTracker.getBudgetTier()} estimatedTokens=${dispatchEstimate} pruningApplied=${contextBudgetPruningApplied} compressionApplied=${openRouterCompressionApplied} budgetDroppedMessages=${budgetDroppedMessages}`,
               );
             };
           })();

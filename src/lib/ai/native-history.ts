@@ -319,6 +319,151 @@ function flattenOutputText(output: unknown): string {
   return safeJson(output).slice(0, FLATTEN_TOOL_RESULT_MAX_CHARS);
 }
 
+// ─── Persist-time bounding (what the NEXT turn rehydrates) ──────────────────
+
+/** Marker left in a clipped result so the model knows text is missing, not empty. */
+const TRUNCATION_NOTE = "\n\n[…older tool output clipped when this turn was saved. " +
+  "Re-run the tool, or use `session_search`, if you need the full text.]";
+
+/** Smallest useful remnant of a clipped result — below this, clipping buys nothing. */
+const MIN_KEPT_RESULT_CHARS = 400;
+
+/**
+ * Shrink a finished turn's native history before it is PERSISTED.
+ *
+ * WHY THIS EXISTS. `foldNativeIntoTurn` pushes every agentic round into two
+ * places: `agenticMessages` (the request, which mid-loop compaction shrinks) and
+ * `rt.nativeTurnMessages` (this, the envelope stored on the assistant message's
+ * `modelContent`). Nothing bounded the second. So mid-work compaction was real but
+ * did not STICK: a thirty-round turn persisted its full tool history, the next
+ * message rehydrated all of it, and the pre-dispatch gate paid to summarize what
+ * mid-turn had already summarized. Observed 2026-08-31 as a meter reading
+ * 34,954 / 16.0k on a single turn.
+ *
+ * WHY IT TRUNCATES CONTENT AND NEVER REMOVES A MESSAGE. The envelope is replayed
+ * to the provider as native `tool_use` / `tool_result` pairs. Dropping a message
+ * can orphan a `tool_result` whose `tool_use` is gone (or the reverse), which is a
+ * provider 400 on the next turn — a hard failure in exchange for saved tokens.
+ * Clipping the TEXT INSIDE a result keeps every pair intact by construction, which
+ * is why this is a separate, deterministic step and not a second compactor.
+ * opencode draws the same line: tool-output bounding is "provider-independent" and
+ * kept out of compaction, which owns token pressure (CONTEXT.md).
+ *
+ * OLDEST FIRST. The recent rounds are the ones the next turn reasons from; the
+ * early ones have usually been superseded by their own follow-ups.
+ *
+ * CALL IT ONCE, AT PERSIST — never on read. The stored envelope is replayed
+ * byte-stable each turn so the provider's prompt cache holds; a transform applied
+ * on the way out would produce a different prefix every turn and defeat it. This
+ * function is idempotent so that a second application is a no-op rather than a
+ * slow erosion of the same turn.
+ */
+export function boundNativeHistoryForPersist(
+  messages: ModelMessage[],
+  opts: { budgetTokens: number },
+): ModelMessage[] {
+  const budget = Math.max(0, opts.budgetTokens);
+  if (budget === 0) return messages;
+
+  // Per-message estimates ONCE, then a running total updated in place.
+  //
+  // The first version called `estimateModelMessagesTokens(out)` inside the loop,
+  // re-tokenizing the entire turn on every message — O(n²) over exactly the inputs
+  // that make this function necessary (a thirty-round turn of large reads). It ran
+  // at persist time, with the user waiting on the end of their turn, and made an
+  // eight-case unit test take 13s. Measure once, subtract as you clip.
+  const sizes = messages.map(estimateModelMessageTokens);
+  let total = sizes.reduce((a, b) => a + b, 0);
+  if (total <= budget) return messages;
+
+  // Work on a shallow copy; only the messages actually clipped are rebuilt.
+  const out = [...messages];
+
+  // Oldest first. `messages` is in round order, so index order is age order.
+  for (let i = 0; i < out.length && total > budget; i++) {
+    const m = out[i]!;
+    if (m.role !== "tool" || typeof m.content === "string") continue;
+
+    const parts = contentParts(m);
+    let changed = false;
+    const nextParts = parts.map((part) => {
+      if (part?.type !== "tool-result") return part;
+      const clipped = clipToolResultOutput((part as { output?: unknown }).output);
+      if (!clipped.changed) return part;
+      changed = true;
+      return { ...part, output: clipped.output };
+    });
+    if (!changed) continue;
+
+    const next = { ...m, content: nextParts as never } as ModelMessage;
+    out[i] = next;
+    const after = estimateModelMessageTokens(next);
+    total += after - sizes[i]!;
+    sizes[i] = after;
+  }
+  return out;
+}
+
+/**
+ * Clip one tool result's output in place, preserving its shape (`text` stays
+ * `text`, `json` becomes `text` since a truncated JSON string is not JSON).
+ * Reports `changed: false` when there is nothing worth clipping, which is what
+ * makes the whole pass idempotent.
+ */
+function clipToolResultOutput(
+  output: unknown,
+): { output: unknown; changed: boolean } {
+  const asText = (value: string): { output: unknown; changed: boolean } => {
+    // Already clipped by a previous pass: report no change so the caller keeps the
+    // existing part object instead of rebuilding an identical one.
+    //
+    // NOT what makes this idempotent — that comes from the kept prefix being a
+    // fixed `slice(0, MIN_KEPT_RESULT_CHARS)`, so re-clipping a clipped value
+    // reproduces it byte for byte. Verified by deleting this line and watching the
+    // stability tests still pass. It is an early-out, not a correctness guard, and
+    // it is documented that way so nobody later "fixes" the stability tests by
+    // strengthening this line.
+    if (value.includes(TRUNCATION_NOTE)) return { output, changed: false };
+    if (value.length <= MIN_KEPT_RESULT_CHARS) return { output, changed: false };
+    return {
+      output: {
+        type: "text",
+        value: value.slice(0, MIN_KEPT_RESULT_CHARS) + TRUNCATION_NOTE,
+      },
+      changed: true,
+    };
+  };
+
+  if (output == null) return { output, changed: false };
+  if (typeof output === "string") {
+    const r = asText(output);
+    // A bare string output stays a bare string.
+    return r.changed
+      ? { output: output.slice(0, MIN_KEPT_RESULT_CHARS) + TRUNCATION_NOTE, changed: true }
+      : r;
+  }
+  const o = output as { type?: string; value?: unknown };
+  if (o.type === "text" || o.type === "error-text") {
+    return asText(String(o.value ?? ""));
+  }
+  if (o.type === "json" || o.type === "error-json") {
+    return asText(safeJson(o.value));
+  }
+  if (o.type === "content" && Array.isArray(o.value)) {
+    // Media parts are left alone — they are already placeholders or re-gated
+    // elsewhere, and clipping a data URI mid-string produces something invalid.
+    const text = (o.value as AnyPart[])
+      .map((part) =>
+        part?.type === "media" ? "" : String((part as { text?: string }).text ?? ""),
+      )
+      .filter(Boolean)
+      .join("\n");
+    if (!text) return { output, changed: false };
+    return asText(text);
+  }
+  return { output, changed: false };
+}
+
 // ─── Provider-shift re-gating (reload on a different provider) ──────────────
 
 /**

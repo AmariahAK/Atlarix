@@ -18,6 +18,7 @@ import type { UserSettings, LargeLanguageModel } from "@/lib/schemas";
 import type { ContextSection } from "@/lib/context/ContextAssembler";
 import { getEffectiveModelForOptions } from "@/ipc/utils/get_model_client";
 import { safeSend } from "@/ipc/utils/safe_sender";
+import { COMPACTION_THRESHOLD } from "@/lib/context/mid-loop-threshold";
 import { estimateTokens } from "@/ipc/utils/token_utils";
 import {
   buildPromptBundle,
@@ -58,7 +59,6 @@ export interface ContextAssemblyDeps {
   event: IpcMainInvokeEvent;
   modelContextResolved: { tierLimit: number };
   promptBundleDeps: PromptBundleDeps;
-  contextSummaryForSystem: string | null;
   contextWindowTokens: number;
 }
 
@@ -77,7 +77,6 @@ export async function runContextAssembly(
     event,
     modelContextResolved,
     promptBundleDeps,
-    contextSummaryForSystem,
     contextWindowTokens,
   } = deps;
   let {
@@ -93,21 +92,15 @@ export async function runContextAssembly(
     contextSections,
   } = state;
   let proactiveContextReminderForStream: string | undefined;
-            let loggedCompactionRem55 = false;
-            let loggedCompactionAuto75 = false;
-            let loggedCompactionForced90 = false;
-            const logCompactionLine = (
-              est: number,
-              kind: "reminder" | "auto" | "forced",
-              gate: 55 | 75 | 90,
-            ) => {
+            // Two kinds now, once each per dispatch: the model-facing fill
+            // REMINDER, and the one COMPACT decision. It used to carry a
+            // `gate: 55 | 75 | 90` and three "have I logged this yet" flags,
+            // because there were two compaction gates to distinguish. There is one.
+            const loggedOnce = { reminder: false, compact: false };
+            const logCompactionLine = (est: number, kind: "reminder" | "compact") => {
+              if (loggedOnce[kind]) return;
+              loggedOnce[kind] = true;
               const pct = (est / contextWindowTokens) * 100;
-              if (gate === 55 && loggedCompactionRem55) return;
-              if (gate === 75 && loggedCompactionAuto75) return;
-              if (gate === 90 && loggedCompactionForced90) return;
-              if (gate === 55) loggedCompactionRem55 = true;
-              if (gate === 75) loggedCompactionAuto75 = true;
-              if (gate === 90) loggedCompactionForced90 = true;
               logger.info(
                 `[compaction] Context at ${pct.toFixed(1)}% (${est}tokens / ${contextWindowTokens}tokens) — ${kind}`,
               );
@@ -189,14 +182,11 @@ export async function runContextAssembly(
                 // No count-based cap here either — the token budget below is the
                 // only thing permitted to shrink history.
               }
+              // `contextSummaryForSystem` is hardcoded `null` at
+              // chat_stream_handlers.ts and threaded through unchanged, so the
+              // re-insert branch that used to sit here never ran. The filter stays:
+              // it is what removes a section a PREVIOUS build may have added.
               contextSections = contextSections.filter((s) => s.name !== "contextSummary");
-              if (contextSummaryForSystem) {
-                contextSections.push({
-                  name: "contextSummary",
-                  priority: 5,
-                  content: `## Session Summary (earlier conversation)\n${contextSummaryForSystem}`,
-                });
-              }
               workingSections = [...contextSections];
               promptBundle = await buildPromptBundle(workingSections, promptBundleDeps);
               ({
@@ -214,10 +204,6 @@ export async function runContextAssembly(
                 limitedMessageHistory,
                 codebasePrefixMessages: [...codebasePrefix],
                 otherCodebasePrefixMessages: [...otherCodebasePrefix],
-                // Durability: without these the summary this call may pay for is
-                // discarded at end of turn and re-bought on the next one.
-                chatId: req.chatId,
-                workspaceSessionId: req.workspaceSessionId,
               });
               systemPrompt = tierBudgetedR.systemPrompt;
               limitedMessageHistory = tierBudgetedR.limitedMessageHistory;
@@ -240,101 +226,93 @@ export async function runContextAssembly(
               };
             };
 
+            /** Bounded retries for the one pre-dispatch gate (was the 0.90 block's 3). */
+            const MAX_COMPACTION_PASSES = 3;
+
+            // THE pre-dispatch compaction trigger. One gate, one threshold.
+            //
+            // This was TWO near-identical blocks — 0.75 ("proactive") and 0.90
+            // ("forced", looping up to 3 times) — each logging, emitting the same
+            // pair of activity events and calling the same `runCompressAndRebuild`.
+            // Two thresholds for one decision, so "when does Atlarix compact" had a
+            // different answer depending on which block noticed first, and the 0.90
+            // block could only ever run after the 0.75 one had already compacted.
+            // Collapsed to a single gate at COMPACTION_THRESHOLD with the retry
+            // kept: re-measure after each pass and stop as soon as we are under.
+            //
             // Always on. This used to be opt-out, and opting out did not mean
             // "keep everything" — it meant the old count cap deleted turns
             // outright instead. Summarizing is unconditionally better than that.
-            const fillRatioBefore = dispatchEstimate / contextWindowTokens;
-            if (fillRatioBefore >= 0.75) {
-              {
-                const reason = "proactive-fill-75%";
-                logCompactionLine(dispatchEstimate, "auto", 75);
-                logger.log(
-                  `[stream:${req.chatId}] proactive context compaction (${reason}) fill=${(fillRatioBefore * 100).toFixed(1)}% est=${dispatchEstimate}/${contextWindowTokens}`,
-                );
-                const activityBase = `proactive-compact-${req.chatId}-${Date.now()}`;
-                safeSend(event.sender, "chat:activity", {
-                  id: `${activityBase}-run`,
-                  type: "compaction",
-                  label: "Context compacted automatically",
-                  status: "running",
-                  timestamp: Date.now(),
-                  detail: reason,
-                  chatId: req.chatId,
-                  modelInitiated: false,
-                });
-                try {
-                  const cr = await runCompressAndRebuild(reason);
-                  safeSend(event.sender, "chat:activity", {
-                    id: `${activityBase}-done`,
-                    type: "compaction",
-                    label: "Context compacted automatically",
-                    status: cr.ok ? "done" : "error",
-                    timestamp: Date.now(),
-                    detail:
-                      typeof cr.tokensBefore === "number" && typeof cr.tokensAfter === "number"
-                        ? `${cr.tokensBefore} → ${cr.tokensAfter} est. (${String(cr.status ?? "")})`
-                        : String(cr.status ?? "noop"),
-                    chatId: req.chatId,
-                    modelInitiated: false,
-                  });
-                } catch (e) {
-                  safeSend(event.sender, "chat:activity", {
-                    id: `${activityBase}-err`,
-                    type: "compaction",
-                    label: "Context compacted automatically",
-                    status: "error",
-                    timestamp: Date.now(),
-                    detail: String(e),
-                    chatId: req.chatId,
-                    modelInitiated: false,
-                  });
-                  logger.warn(`[stream:${req.chatId}] proactive compaction failed`, e);
-                }
-              }
-            }
-            const fillAfter75 = dispatchEstimate / contextWindowTokens;
-            if (fillAfter75 >= 0.9) {
-              {
-                logCompactionLine(dispatchEstimate, "forced", 90);
-                const forcedBase = `forced-compact-${req.chatId}-${Date.now()}`;
-                safeSend(event.sender, "chat:activity", {
-                  id: `${forcedBase}-run`,
-                  type: "compaction",
-                  label: "Compacting context before continuing...",
-                  status: "running",
-                  timestamp: Date.now(),
-                  detail: "forced-fill-90%",
-                  chatId: req.chatId,
-                  modelInitiated: false,
-                });
-                let forcedAny = false;
-                try {
-                  for (let fi = 0; fi < 3; fi++) {
-                    if (dispatchEstimate / contextWindowTokens < 0.9) break;
-                    const crF = await runCompressAndRebuild("forced-fill-90%");
-                    if (!crF.ok) break;
-                    forcedAny = true;
+            //
+            // WHY THIS STAYS THE MECHANISM, rather than folding into
+            // `enforceContextBudget`: only this path can compact the LIVE
+            // TRANSPORT. `executeCompressContext`'s `setMessages` replaces the
+            // ephemeral chat's messages, so the shrink survives into later turns
+            // and the durable `[COMPACTION MARKER]` is written for the reload.
+            // `enforceContextBudget` only ever shrinks the per-request copy, which
+            // is why the compaction call added there in the previous pass has been
+            // removed as the weaker, redundant half. It keeps the jobs only it can
+            // do: trimming the context-assembler blob out of the system prompt, and
+            // dropping head messages as a last resort with a notice to the model.
+            const fillBefore = dispatchEstimate / contextWindowTokens;
+            if (fillBefore >= COMPACTION_THRESHOLD) {
+              logCompactionLine(dispatchEstimate, "compact");
+              logger.log(
+                `[stream:${req.chatId}] pre-dispatch context compaction fill=${(fillBefore * 100).toFixed(1)}% est=${dispatchEstimate}/${contextWindowTokens} threshold=${COMPACTION_THRESHOLD}`,
+              );
+              const activityBase = `predispatch-compact-${req.chatId}-${Date.now()}`;
+              safeSend(event.sender, "chat:activity", {
+                id: `${activityBase}-run`,
+                type: "compaction",
+                label: "Context compacted automatically",
+                status: "running",
+                timestamp: Date.now(),
+                detail: `fill-${Math.round(fillBefore * 100)}%`,
+                chatId: req.chatId,
+                modelInitiated: false,
+              });
+              let lastResult: Awaited<ReturnType<typeof runCompressAndRebuild>> | null =
+                null;
+              try {
+                // Bounded: a history that cannot be compressed further must not
+                // spin. `runCompressAndRebuild` recomputes `dispatchEstimate`, so
+                // the loop condition sees each pass's real effect.
+                for (let pass = 0; pass < MAX_COMPACTION_PASSES; pass++) {
+                  if (dispatchEstimate / contextWindowTokens < COMPACTION_THRESHOLD) {
+                    break;
                   }
-                } catch (forcedErr) {
-                  logger.warn(`[stream:${req.chatId}] forced compaction failed`, forcedErr);
+                  const cr = await runCompressAndRebuild(
+                    `pre-dispatch-fill-${Math.round(
+                      (dispatchEstimate / contextWindowTokens) * 100,
+                    )}%`,
+                  );
+                  lastResult = cr;
+                  if (!cr.ok) break;
                 }
-                safeSend(event.sender, "chat:activity", {
-                  id: `${forcedBase}-done`,
-                  type: "compaction",
-                  label: "Compacting context before continuing...",
-                  status: forcedAny ? "done" : "error",
-                  timestamp: Date.now(),
-                  chatId: req.chatId,
-                  modelInitiated: false,
-                });
+              } catch (e) {
+                logger.warn(`[stream:${req.chatId}] pre-dispatch compaction failed`, e);
               }
+              safeSend(event.sender, "chat:activity", {
+                id: `${activityBase}-done`,
+                type: "compaction",
+                label: "Context compacted automatically",
+                status: lastResult?.ok ? "done" : "error",
+                timestamp: Date.now(),
+                detail:
+                  typeof lastResult?.tokensBefore === "number" &&
+                  typeof lastResult?.tokensAfter === "number"
+                    ? `${lastResult.tokensBefore} → ${lastResult.tokensAfter} est. (${String(lastResult.status ?? "")})`
+                    : String(lastResult?.status ?? "noop"),
+                chatId: req.chatId,
+                modelInitiated: false,
+              });
             }
 
             const CONTEXT_PROACTIVE_THRESHOLD = 0.55;
             const fillAfterProactive = dispatchEstimate / contextWindowTokens;
             if (fillAfterProactive >= CONTEXT_PROACTIVE_THRESHOLD) {
               const livePct = Math.round(fillAfterProactive * 100);
-              logCompactionLine(dispatchEstimate, "reminder", 55);
+              logCompactionLine(dispatchEstimate, "reminder");
               proactiveContextReminderForStream = `Context is at ${livePct}% capacity. Consider calling compress_context before your next heavy tool use.`;
             }
             // Context meter: report the ACTUAL model-facing dispatched size

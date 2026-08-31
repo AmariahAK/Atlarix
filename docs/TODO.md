@@ -147,6 +147,50 @@ recomputing the counts with two full `.includes()` scans of the history on every
 rounds to fill it; that computation is gone with the rewrite. Deleting the parameter itself touches
 ask-branch/build-branch, which is outside this change's blast radius — one small follow-up pass.
 
+### 0b. STAGED 2026-08-31 (second pass) — the follow-up the testing session forced
+
+**ONE pre-dispatch trigger, finally.** The proactive 0.75 and 0.90 gates in
+`context-assembly.ts` were two near-identical blocks — same logging, same activity events, same
+`runCompressAndRebuild` — so the 0.90 one could only ever run after the 0.75 one had already
+compacted. Collapsed to a single gate at `COMPACTION_THRESHOLD` with the retry kept.
+
+**`runCompressAndRebuild` stays the mechanism, and the compaction call added to
+`enforceContextBudget` in the first pass is REMOVED.** They were not equivalent, which is what made
+the first plan wrong: `executeCompressContext`'s `setMessages` replaces the LIVE TRANSPORT, so the
+shrink survives into later turns; `enforceContextBudget` only ever had the per-request copy.
+The backstop keeps the jobs only it can do — trimming the assembler blob out of the system prompt,
+and dropping head messages LAST with a count for `droppedHistoryNotice`. A test now pins the
+NEGATIVE (it must not call the provider, must not write a marker), because "let's make the backstop
+smarter" is exactly how a second summariser comes back.
+
+**The envelope is bounded at persist — this is the mid-work fix.** `foldNativeIntoTurn` pushes every
+round into `agenticMessages` (shrunk by mid-loop compaction) AND `rt.nativeTurnMessages` (bounded by
+nothing). Now clipped in `boundNativeHistoryForPersist` at the one choke point,
+`finalize.ts` before `serializeNativeHistory`. Measured end to end: ~48,000 → under 8,000 est.
+tokens on a four-file turn.
+- **It clips tool-result TEXT and never removes a message.** Removing one can orphan a `tool_result`
+  whose `tool_use` is gone — a provider 400 next turn, traded for saved tokens.
+- **Once, at persist, never on read.** The envelope is replayed byte-stable for the prompt cache.
+- **Idempotence comes from `slice(0, N)` being a fixed prefix, NOT from the
+  `includes(TRUNCATION_NOTE)` early-out.** Verified by deleting that line and watching the stability
+  tests stay green; the comment says so, so nobody "strengthens" it believing it load-bearing.
+- **The first version was O(n²)** — it re-tokenised the whole turn per message, at persist time with
+  the user waiting. Per-message sizes once, running total after.
+
+**A cap you set is now the number the model is told.** `getContextWindow` ignores
+`tokenBudgetOverrides`; `getEffectiveBudget` respects it. With a 16,000 cap the prompt was still
+saying 1,048,576.
+
+**More dead surface gone:** `contextSummaryForSystem` was hardcoded `null` and threaded through two
+files into two `if`s that could never be true — compaction's summary has reached the model as a
+`[COMPACTION MARKER]` message, not a prompt section, since v11.1.
+
+**Two test lessons, both from this pass.** A mutation that passes is information: bypassing the
+envelope wiring failed the eval (good), but deleting the truncation-note guard did not — because the
+real invariant lay elsewhere. And an eval can assert nothing while looking thorough: the first
+envelope eval passed because the eval model reports a 200,000-token window, so a 48,000-token turn
+needed no clipping. It now caps the window via `runTurn`'s `settings`.
+
 **Owed before release:** verify in the PACKAGED app (a long real session, quit, reopen, confirm the
 meter and the history start from the summary), then `/security-review` on the diff.
 

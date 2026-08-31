@@ -265,11 +265,22 @@ describe("the recovery hint reaches the agent but not the next summary", () => {
   });
 });
 
-describe("enforceContextBudget: compact first, drop LAST", () => {
+describe("enforceContextBudget is the BACKSTOP — it must not summarize", () => {
+  /**
+   * It used to. The previous pass had it call the shared compactor; this pass
+   * removed that, because compaction belongs to the pre-dispatch gate in
+   * `turn-runner/context-assembly.ts` — the only path that can compact the LIVE
+   * TRANSPORT so the shrink survives into later turns. This function only ever had
+   * the per-request copy, which made it the weaker of two paths doing one job.
+   *
+   * These tests pin the negative (no provider call, no marker row) because that is
+   * the part a future "let's make the backstop smarter" change would quietly undo,
+   * reintroducing a second summarizer and a second marker per turn.
+   */
   const enforce = async (
     history: Array<{ role: string; content: string; commitHash?: string }>,
     tierLimit: number,
-    extra: Record<string, unknown> = {},
+    blob = "",
   ) => {
     budget.tierLimit.value = tierLimit;
     const { enforceContextBudget } = await import(
@@ -279,117 +290,14 @@ describe("enforceContextBudget: compact first, drop LAST", () => {
       settings: {} as never,
       effectiveModel: { provider: "test", name: "m" } as never,
       userPrompt: "go",
-      systemPrompt: "SYS",
-      contextAssemblerBlob: "",
+      systemPrompt: `SYS${blob ? `\n\n${blob}` : ""}`,
+      contextAssemblerBlob: blob,
       limitedMessageHistory: history,
       codebasePrefixMessages: [],
       otherCodebasePrefixMessages: [],
-      chatId: -42,
-      workspaceSessionId: "s1",
-      ...extra,
     });
   };
 
-  beforeEach(() => {
-    sessionHandlers.persistSpy.mockClear();
-    sessionHandlers.resolveSpy.mockClear();
-    sessionHandlers.resolveSpy.mockResolvedValue("resolved-session");
-    llm.generateText.mockClear();
-  });
-
-  it("is a no-op when already within budget (no call, no write)", async () => {
-    const history = [{ role: "user", content: "short" }];
-    const out = await enforce(history, 1_000_000);
-    expect(out.limitedMessageHistory).toBe(history);
-    expect(out.llmCompactionApplied).toBeFalsy();
-    expect(llm.generateText).not.toHaveBeenCalled();
-    expect(sessionHandlers.persistSpy).not.toHaveBeenCalled();
-  });
-
-  it("compacts DURABLY when over budget, and drops nothing it could summarize", async () => {
-    const history = bigHistory(14).map((m) => ({
-      role: m.role,
-      content: m.content,
-    }));
-    const total = countMessagesTokens(history);
-    const out = await enforce(history, Math.floor(total * 0.6));
-
-    expect(out.llmCompactionApplied).toBe(true);
-    // THE regression this whole pass is about: the summary reached the session.
-    expect(out.summaryPersisted).toBe(true);
-    expect(sessionHandlers.persistSpy).toHaveBeenCalledTimes(1);
-    const [, persisted] = sessionHandlers.persistSpy.mock.calls[0]!;
-    expect(persisted).toContain(COMPACTION_SUMMARY_PREFIX);
-    // The surviving history carries a marker the dispatch slice recognises.
-    expect(
-      out.limitedMessageHistory.some((m) =>
-        isCompactionSummaryMessage(m.content),
-      ),
-    ).toBe(true);
-    // Dropping is the last resort — a summary was enough here.
-    expect(out.droppedMessageCount ?? 0).toBe(0);
-  });
-
-  it("preserves per-message fields (commitHash) through the compactor round-trip", async () => {
-    // The compactor speaks {id, role, content}; the budget speaks
-    // BudgetHistoryMessage. If the map back loses commitHash, revert-to-turn
-    // silently stops working for everything older than the last compaction.
-    const history = bigHistory(14).map((m, i) => ({
-      role: m.role,
-      content: m.content,
-      ...(i >= 24 ? { commitHash: `sha-${i}` } : {}),
-    }));
-    const total = countMessagesTokens(history);
-    const out = await enforce(history, Math.floor(total * 0.6));
-
-    const withHashes = out.limitedMessageHistory.filter(
-      (m) => (m as { commitHash?: string }).commitHash,
-    );
-    expect(withHashes.length).toBeGreaterThan(0);
-    expect((withHashes[0] as { commitHash?: string }).commitHash).toMatch(/^sha-/);
-  });
-
-  it("never drops the protected tail, even when the window cannot fit it", async () => {
-    const history = bigHistory(14).map((m) => ({
-      role: m.role,
-      content: m.content,
-    }));
-    // A window so small nothing fits. Compaction summarizes what it can and the
-    // last exchanges are then ALL protected, so there is nothing left that may be
-    // dropped. Overflowing here is the honest outcome — the provider rejects and
-    // overflow recovery takes over — and it beats silently deleting the turns the
-    // user is mid-conversation about.
-    const out = await enforce(history, 200);
-    expect(out.llmCompactionApplied).toBe(true);
-    expect(out.droppedMessageCount ?? 0).toBe(0);
-  });
-
-  it("falls back to dropping — and REPORTS it — when the summarizer is unavailable", async () => {
-    // The provider being down must not turn the budget into a silent deleter: the
-    // count is what `droppedHistoryNotice` uses to tell the model it lost context,
-    // and a model that does not know it lost context guesses instead of looking.
-    // mockResolvedValue, not ...Once: the budget loop makes up to 24 rounds, so a
-    // one-shot outage would be papered over by round 2 succeeding.
-    llm.generateText.mockResolvedValue({
-      text: "",
-      usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
-    } as never);
-
-    const history = bigHistory(14).map((m) => ({
-      role: m.role,
-      content: m.content,
-    }));
-    const total = countMessagesTokens(history);
-    const out = await enforce(history, Math.floor(total * 0.6));
-
-    // No summary was produced, so nothing was persisted...
-    expect(sessionHandlers.persistSpy).not.toHaveBeenCalled();
-    // ...and the drop path engaged instead, with an honest count.
-    expect(out.droppedMessageCount ?? 0).toBeGreaterThan(0);
-  });
-});
-
-describe("enforceContextBudget compacts ONCE per dispatch", () => {
   beforeEach(() => {
     sessionHandlers.persistSpy.mockClear();
     sessionHandlers.resolveSpy.mockClear();
@@ -401,44 +309,70 @@ describe("enforceContextBudget compacts ONCE per dispatch", () => {
     } as never);
   });
 
-  it("summarizes at most once and writes at most one marker, even when still over budget", async () => {
-    // A window so small that one summary cannot get under it.
-    //
-    // WHAT THIS DOES AND DOES NOT PROVE. It pins the user-visible property — one
-    // over-budget dispatch costs one summarization and one marker row — which is
-    // what matters for cost and for the session log. It does NOT isolate the
-    // mechanism: two things currently enforce it, the compaction call sitting
-    // outside the round loop AND the compactor's own `headIsOnlyPriorSummary`
-    // guard. Moving the call back inside the loop still passes this test, because
-    // for this input the guard catches the second attempt. The call is outside the
-    // loop anyway, because the guard only covers the case where the head is
-    // exactly the prior summary — a long protected tail would leave real messages
-    // in the head and re-summarize, and `force: true` bypasses the ratio gate that
-    // would otherwise stop it.
-    budget.tierLimit.value = 200;
-    const { enforceContextBudget } = await import(
-      "@/lib/routing/tier_context_budget"
-    );
+  it("is a no-op when already within budget", async () => {
+    const history = [{ role: "user", content: "short" }];
+    const out = await enforce(history, 1_000_000);
+    expect(out.limitedMessageHistory).toBe(history);
+    expect(llm.generateText).not.toHaveBeenCalled();
+    expect(sessionHandlers.persistSpy).not.toHaveBeenCalled();
+  });
+
+  it("NEVER calls the provider and NEVER writes a marker, however far over budget", async () => {
     const history = bigHistory(14).map((m) => ({
       role: m.role,
       content: m.content,
     }));
+    const total = countMessagesTokens(history);
 
-    const out = await enforceContextBudget({
-      settings: {} as never,
-      effectiveModel: { provider: "test", name: "m" } as never,
-      userPrompt: "go",
-      systemPrompt: "SYS",
-      contextAssemblerBlob: "",
-      limitedMessageHistory: history,
-      codebasePrefixMessages: [],
-      otherCodebasePrefixMessages: [],
-      chatId: -42,
-      workspaceSessionId: "s1",
-    });
+    for (const limit of [Math.floor(total * 0.6), 200]) {
+      llm.generateText.mockClear();
+      sessionHandlers.persistSpy.mockClear();
+      await enforce(history, limit);
+      // A second summarizer here would mean two provider calls and two
+      // [COMPACTION MARKER] rows for a single dispatch.
+      expect(llm.generateText).not.toHaveBeenCalled();
+      expect(sessionHandlers.persistSpy).not.toHaveBeenCalled();
+    }
+  });
 
-    expect(out.llmCompactionApplied).toBe(true);
-    expect(llm.generateText).toHaveBeenCalledTimes(1);
-    expect(sessionHandlers.persistSpy).toHaveBeenCalledTimes(1);
+  it("trims the context-assembler blob — the job nothing else can do", async () => {
+    // Only this function sees the system prompt, so only it can shrink the blob
+    // that was merged into it.
+    const blob = [
+      "## Codebase",
+      ...Array.from({ length: 400 }, (_, i) => `Key: src/module-${i}.ts`),
+    ].join("\n");
+    const history = [{ role: "user", content: "word ".repeat(200) }];
+    const out = await enforce(history, 600, blob);
+    expect(out.contextAssemblerBlob.length).toBeLessThan(blob.length);
+    expect(out.systemPrompt).not.toContain(blob);
+  });
+
+  it("drops head messages LAST, and reports the count so the model is told", async () => {
+    const history = bigHistory(14).map((m) => ({
+      role: m.role,
+      content: m.content,
+    }));
+    const out = await enforce(history, 200);
+    // With no compaction available to it, the backstop's only remaining lever is
+    // dropping — and it must say how much, or droppedHistoryNotice has nothing to
+    // report and the model fills the hole by guessing.
+    expect(out.droppedMessageCount ?? 0).toBeGreaterThan(0);
+  });
+
+  it("preserves per-message fields on the messages it keeps", async () => {
+    // commitHash is what revert-to-turn depends on; a rebuild that drops it
+    // silently breaks reverting everything older than the last budget pass.
+    const history = bigHistory(6).map((m, i) => ({
+      role: m.role,
+      content: m.content,
+      ...(i >= 8 ? { commitHash: `sha-${i}` } : {}),
+    }));
+    const out = await enforce(history, Math.floor(countMessagesTokens(history) * 0.9));
+    const kept = out.limitedMessageHistory.filter(
+      (m) => (m as { commitHash?: string }).commitHash,
+    );
+    expect(kept.length).toBeGreaterThan(0);
+    expect((kept[0] as { commitHash?: string }).commitHash).toMatch(/^sha-/);
   });
 });

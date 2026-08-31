@@ -20,10 +20,20 @@ search that transcript — this conversation's, or an earlier one in the same pr
 through whole turns around a hit. Available in every mode, since every mode compacts. It reads
 sessions in the open project only, and a deleted session is gone: there is nothing left to search.
 
-**Older turns survive longer before anything is summarised.** Where a summary is actually written,
-the fill it waits for is now one number — 90% — instead of three that disagreed depending on which
-part of the app noticed first. Summarising earlier than necessary throws away detail the model had
-room to keep.
+**Older turns survive longer before anything is summarised.** There is now ONE point at which
+Atlarix decides to summarise before sending a request, at one fill level (90%), instead of two gates
+at 75% and 90% plus a third fallback that only acted once you were already over the limit.
+Summarising earlier than necessary throws away detail the model had room to keep.
+
+**A long turn no longer drags its whole tool history into the next message.** When the agent reads
+twenty files in one go, all of that was saved with the turn and re-read on your next message — so the
+next message paid to summarise work that had already been summarised mid-task. The saved copy is now
+trimmed: older tool output is clipped, the recent output is kept in full, and the transcript you see
+on screen is untouched. Measured on a four-file turn: what the model re-reads went from ~48,000
+tokens to under 8,000.
+
+**If you cap a provider's token budget in Settings, the model is now told that number.** It was
+being told the model's full catalogue window while every budget governing the request used your cap.
 
 **A conversation is no longer trimmed by deleting your oldest turns first.** When context ran out,
 the first thing Atlarix did was delete the two oldest messages, repeatedly, and only then try to
