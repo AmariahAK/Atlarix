@@ -35,6 +35,9 @@ const EXPLORE_LIST_TOOLS = new Set([
 const SEARCH_MATCH_TOOLS = new Set([
   "grep",
   "glob",
+  // Emits the same `ui.groups` {file, matchCount} shape, with `file` reading
+  // "<session> · turn N · role" instead of a path.
+  "session_search",
   // legacy: persisted sessions
   "search",
   "search_code",

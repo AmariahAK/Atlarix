@@ -1,6 +1,6 @@
 /**
- * When mid-TASK compaction fires — the pure predicate, deliberately kept in its
- * own module.
+ * WHEN COMPACTION FIRES — the one threshold, plus the pure predicate that reads
+ * it. Deliberately its own module, and deliberately the OWNER of the number.
  *
  * It used to live in `tier_context_budget.ts`, which transitively imports the
  * summarizer, the provider clients and settings/keychain. Nothing about
@@ -8,17 +8,30 @@
  * test made the run hang past the node project's default timeout — so the one
  * number that decides whether a long turn survives had no direct coverage.
  * `tier_context_budget` re-exports these, so callers are unchanged.
+ *
+ * The constant lives HERE rather than in `compaction.ts` for exactly that reason:
+ * this is the leaf, so the compactor can import the number without the number's
+ * test having to import the compactor.
  */
 
 import type { ModelMessage } from "ai";
 import { estimateTokens } from "../../ipc/utils/token_utils";
 
 /**
- * Overflow-only. Compaction that fires while a turn still has room throws away
- * detail it never needed to lose, so this sits close to the real ceiling rather
- * than the old 0.75.
+ * The fill ratio at which an LLM summary becomes worth paying for — shared by all
+ * three triggers (pre-dispatch budget, mid-turn loop, model-initiated).
+ *
+ * There used to be three numbers for this one decision: 0.75 in `compaction.ts`,
+ * 0.9 here, and an effective 1.0 in `enforceContextBudget` (which only acted once
+ * already over the hard limit). "When does Atlarix compact" therefore had three
+ * answers depending on which code path noticed first.
+ *
+ * 0.9 wins because it is the value with an argument behind it: compaction that
+ * fires while a turn still has room throws away detail it never needed to lose,
+ * and a summary is lossy in a way the raw history is not. Claude Code sits higher
+ * still (~967K of a 1M window). The remaining 10% is output headroom.
  */
-export const MID_LOOP_COMPACTION_THRESHOLD = 0.9;
+export const COMPACTION_THRESHOLD = 0.9;
 
 /** Text of a ModelMessage for estimation — tool results included, media ignored. */
 export function modelMessageText(content: unknown): string {
@@ -60,7 +73,7 @@ export function midLoopCompactionWouldTrigger(params: {
   contextWindowTokens?: number;
   threshold?: number;
 }): { willTrigger: boolean; beforeTokens: number } {
-  const threshold = params.threshold ?? MID_LOOP_COMPACTION_THRESHOLD;
+  const threshold = params.threshold ?? COMPACTION_THRESHOLD;
   const limitDenom = params.contextWindowTokens ?? params.tierLimit;
   const beforeTokens =
     params.messages.reduce(

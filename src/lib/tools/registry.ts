@@ -68,7 +68,7 @@ const NEVER_TRUNCATE = new Set<string>(["browser_screenshot"]);
 // gain — exempt it; the envelope is for unbounded outputs (commands, etc.).
 // read_attachment self-pages the same way since W3 (v14.8.11) — offset/limit
 // over the cached full extraction, page size bounded in the tool itself.
-const SELF_PAGINATED_TOOLS = new Set<string>(["read_file", "read_attachment"]);
+const SELF_PAGINATED_TOOLS = new Set<string>(["read_file", "read_attachment", "session_search"]);
 
 /**
  * If `result` exceeds the token budget (or the byte ceiling) and the tool is

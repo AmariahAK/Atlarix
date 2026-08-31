@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import type { ModelMessage } from "ai";
 import {
-  MID_LOOP_COMPACTION_THRESHOLD,
+  COMPACTION_THRESHOLD,
   midLoopCompactionWouldTrigger,
 } from "@/lib/context/mid-loop-threshold";
 
@@ -85,7 +85,7 @@ describe("mid-task compaction threshold", () => {
 
 describe("the threshold has ONE source", () => {
   it("is 0.9 and is what the predicate defaults to", () => {
-    expect(MID_LOOP_COMPACTION_THRESHOLD).toBe(0.9);
+    expect(COMPACTION_THRESHOLD).toBe(0.9);
     // Exactly at the line triggers; a hair under does not.
     expect(trigger(900).willTrigger).toBe(true);
     expect(trigger(880).willTrigger).toBe(false);

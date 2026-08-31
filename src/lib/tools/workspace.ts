@@ -117,44 +117,13 @@ export type ExecuteCompressContextContext = {
     workspaceSessionId?: string | null;
 };
 
-/**
- * Durable copy of a compaction summary into the bound session so a reload (and the
- * dispatch funnel's `sliceFromLastCompactionSummary`) keeps the compact history.
- * Returns true when the `[COMPACTION MARKER]` row was actually written. Prefers the
- * caller-supplied `sessionId` (the stream's known-good `req.workspaceSessionId`)
- * over re-resolving from `chatId`.
+/*
+ * `persistCompactionSummaryToSession` used to live here. It now lives in
+ * `lib/context/compaction.ts` and is called by the compactor itself, because
+ * durability being this tool's responsibility is precisely how the other two
+ * compaction paths ended up without it. Nothing in this file writes the marker
+ * any more — `runSteppedCompaction` does, for every trigger.
  */
-async function persistCompactionSummaryToSession(
-    chatId: number,
-    afterList: Array<{ role: string; content?: string | null }>,
-    sessionId?: string | null,
-): Promise<boolean> {
-    try {
-        const { isCompactionSummaryMessage } = await import("../context/compaction");
-        const summaryMsg = afterList.find(
-            (m) => m.role === "user" && isCompactionSummaryMessage(m.content),
-        );
-        if (!summaryMsg?.content) return false;
-        const {
-            resolveOrBindWorkspaceSessionForStream,
-            persistWorkspaceSessionUserMessage,
-        } = await import("@/ipc/handlers/workspace_session_handlers");
-        const resolvedSessionId =
-            sessionId ?? (await resolveOrBindWorkspaceSessionForStream({ chatId }));
-        if (!resolvedSessionId) {
-            logger.warn(
-                `[compaction] No workspace session id to persist summary (chat ${chatId}); reopened session will not stay compacted.`,
-            );
-            return false;
-        }
-        await persistWorkspaceSessionUserMessage(resolvedSessionId, summaryMsg.content, {});
-        logger.info(`[compaction] Summary persisted to session ${resolvedSessionId}`);
-        return true;
-    } catch (err) {
-        logger.warn("[compaction] Could not persist summary to session:", err);
-        return false;
-    }
-}
 
 /**
  * v11.1 overflow recovery: aggressively compact an ephemeral chat's message
@@ -182,7 +151,11 @@ export async function forceCompactEphemeralChat(
     );
     // Half the current size as the target forces prune + summarize.
     const forcedLimit = Math.max(8_000, Math.floor(currentTokens / 2));
-    const stepped = await runSteppedCompaction(msgList, forcedLimit, providerId);
+    // The compactor persists its own marker (chatId supplied) — the explicit
+    // persist call that used to follow this line is gone with the helper.
+    const stepped = await runSteppedCompaction(msgList, forcedLimit, providerId, {
+        chatId,
+    });
     if (!stepped.compactionApplied) return false;
 
     chat.messages = stepped.modelContext.map((m) => ({
@@ -192,9 +165,6 @@ export async function forceCompactEphemeralChat(
         content: m.content || "",
         createdAt: new Date(),
     }));
-    if (stepped.strategy === "summarized") {
-        await persistCompactionSummaryToSession(chatId, stepped.modelContext);
-    }
     logger.info(
         `[compaction] Forced overflow compaction freed ~${stepped.tokensFreed} tokens (chat ${chatId})`,
     );
@@ -238,21 +208,16 @@ export async function executeCompressContext(
     const stepped = await runSteppedCompaction(msgList, tierLimit, ctx.providerId, {
         force: true,
         alreadyUsedTokens: (ctx.systemPromptTokens ?? 0) + (ctx.inputTokens ?? 0),
+        // v11.1 durable compaction, now owned by the compactor: it writes the
+        // `[COMPACTION MARKER]` row to the bound session itself, so a reload keeps
+        // the compact model history (dispatch slices from the last marker).
+        chatId: ctx.chatId,
+        workspaceSessionId: ctx.workspaceSessionId,
     });
     const afterList = stepped.modelContext ?? msgList;
     const tokensAfter = countMessagesTokens(afterList);
     ctx.setMessages(afterList.map((m) => ({ id: m.id, role: m.role, content: m.content || "" })));
-    // v11.1 durable compaction: persist the summary message to the bound
-    // workspace session so reloads keep the compact model history (the
-    // dispatch funnel slices from the last summary marker).
-    let summaryPersisted = false;
-    if (stepped.strategy === "summarized") {
-        summaryPersisted = await persistCompactionSummaryToSession(
-            ctx.chatId,
-            afterList,
-            ctx.workspaceSessionId,
-        );
-    }
+    const summaryPersisted = stepped.summaryPersisted;
     const applied = stepped.compactionApplied === true;
     return {
         success: applied,

@@ -1,10 +1,15 @@
 # Atlarix TODO
 
-**Current version:** v14.38.4 — **RELEASED 2026-08-29.** 12 assets, draft=false, body carries the
-changelog; MSIX green on the first run. Launchpad caught up the same day (and its archived changelog
-was 24 releases stale — /changelog was missing everything between 14.0 and 14.24).
+**Current version:** v14.39.0 — **staged 2026-08-31, not yet released.** One compaction system,
+`session_search`, and the launchpad's changelog parser fixed + deployed.
 
-The release itself: The auth-plumbing release: sign-in fixed
+The release itself: compaction was THREE implementations with three thresholds, three marker strings
+and two near-identical summarizers, and only one of them persisted — so the two AUTOMATIC paths paid
+a provider call for a summary every turn and threw it away. Now one compactor, three triggers, one
+threshold (0.9), one marker, one durable write owned by the compactor. Plus `session_search`, the
+tool that reads behind the compaction boundary, and a drop step that no longer runs FIRST.
+
+**Previous:** v14.38.4 (2026-08-29) — the auth-plumbing release: sign-in fixed
 (the redirect had one slash too many and stopped matching Supabase's allow-list), sign-out and
 sign-in now reach every window, Docker builds run under the sandbox, a denied write offers a grant
 even when the command hides its own failure, edits stop rendering as "Create · new file", and the
@@ -18,7 +23,7 @@ v14.36.0 (2026-08-22) ·
 v14.35.0 (2026-08-20). Full narrative for every one of them is in
 [`CHANGELOG.md`](./CHANGELOG.md).
 
-**Last updated:** 2026-08-29
+**Last updated:** 2026-08-31
 
 > **What belongs here:** open work, decisions still owed, and traps worth not
 > rediscovering.
@@ -62,6 +67,89 @@ NEXT change is made.
 
 
 ## 🔜 Next session — the queue, in order
+
+### 0a. STAGED in v14.39.0 (2026-08-31) — one compaction system
+
+**Compaction was several implementations pretending to be one setting.** `runSteppedCompaction`
+(0.75 internally, durable), `enforceContextBudget` (fired only once ALREADY over the limit,
+non-durable) and `compactAgenticMessagesIfNeeded` (0.9, non-durable). Each wrote its own marker
+string; only the first was one `sliceFromLastCompactionSummary` recognises, and only the first
+persisted. Now: one compactor, one threshold, one marker, and the durable write owned by the
+compactor rather than by whoever calls it.
+
+**CORRECTED 2026-08-31 — the first audit MISSED a fourth path, and the write-up overstated the cost
+because of it.** `context-assembly.ts` has proactive pre-dispatch gates at **0.75 and 0.90** that
+call `executeCompressContext` → `runSteppedCompaction`. That path **was already durable**, and it is
+the one that fires first in practice. So "both automatic paths bought a summary and threw it away"
+(as the first version of this section and of `1bfb3f4a`'s message said) was wrong: the PRIMARY
+automatic path persisted. What was genuinely non-durable was `enforceContextBudget` — a rarer
+over-limit fallback — and the mid-turn loop. The consolidation still stands on one threshold, one
+marker, ownership of the durable write, and drop-LAST ordering; the money story is smaller.
+
+**The lesson, and it is the second time in two days:** an audit that enumerates implementations by
+grepping for the summarizer misses a path that reaches it through a TOOL (`executeCompressContext`).
+Trace by call graph from the thing being consolidated, not by name.
+
+**Also missed, and the actual remaining waste:** `rt.nativeTurnMessages` — the assistant turn's
+persisted native envelope — is never bounded. Mid-turn compaction shrinks the REQUEST
+(`agenticMessages`) but `foldNativeIntoTurn` pushes every round into both, so a long turn persists its
+full tool history and the next message rehydrates all of it. Addressed in the follow-up pass.
+
+**The durable path was the only one NOT billing its own summarization.** There were two ~95%
+identical summarizers; the one with `pruneToolOutputs` + `recordAuxUsage` was wired to the two
+throwaway paths. `summarizeMessages` is deleted; the good copy is the only one left.
+
+**Four documented claims were false, and the docs disagreed with each other.**
+`compaction.ts:3` claimed it ran "before every dispatch" (two callers, both reactive);
+`dropped-history-notice.ts` documented a pipeline that omitted the durable compactor entirely;
+`mid_loop_compaction.ts`'s `enabled` flag mirrored `settings.enableContextAutoSummarize`, removed in
+v14.18.0 and hardcoded `true` at both callers. All corrected or deleted. **Two files in one directory
+describing two different pipelines is how the actual gap stayed hidden for four releases.**
+
+**`enforceContextBudget` DELETED the two oldest turns first** (`headConversation.slice(2)`, up to 24
+rounds) and only then reached for a summary — so the turns most worth summarizing were destroyed
+before anything could summarize them. Order is now compact → trim the assembler blob → drop, and a
+drop reports its count so `droppedHistoryNotice` can tell the model. In practice the drop is now
+near-unreachable: after compaction what remains is usually all protected tail, which is why a tiny
+window now overflows to the provider (and overflow recovery) rather than silently deleting the turns
+the user is mid-conversation about. A test pins that.
+
+**`session_search` — one tool, two modes, not two tools.** Current-session and previous-session
+search are the same query at a different scope. SQL `LIKE`/`instr` over `session_messages`, never
+FTS5 (deliberately deleted in the retrieval teardown). Bound in EVERY mode via `EVERY_MODE_TOOLS`.
+Reuses grep's `match_list` expand view by emitting the same `ui.groups` shape — zero new UI.
+
+**The trap it nearly fell into:** `GLOBAL_CHAT_TOOLS` in `tool-registry-audit.ts` silences the AUDIT
+but is not the runtime gate — `isToolAllowedInMode` reads the per-mode allow sets built from
+`EVERY_MODE_TOOLS`. Adding the tool to the audit list alone would have left it invisible in
+ask/plan/review while every check went green. The `toolset-golden` eval is what proves reachability,
+because it resolves the surface actually offered to the model.
+
+**Isolation is structural, and deletion is real — both verified, not assumed.** Every message lookup
+is keyed by a session id read out of `chat_sessions` filtered by the injected `workspaceId`, so an
+ORPHANED row is unreachable even with foreign keys off (tested with FKs deliberately disabled).
+Separately, `foreign_keys = ON` is set on the connection and enforced, so deleting a session cascades
+its messages away. Two independent guarantees, because either one alone is a leak.
+
+**A marker prefix is a PERSISTED DATA FORMAT.** The first version of the new test compared against
+the imported constant, so renaming the prefix moved both sides of the assertion and stayed green —
+while every already-written `[COMPACTION MARKER]` row would have stopped being recognised and every
+reopened session would have silently re-expanded. Now pinned as a literal. Mutation-tested: three
+deliberate breaks, each caught.
+
+**Found next door, deliberately NOT fixed in this pass:** `sessionStats`
+(`{toolCallCount, delegationCount}`) is threaded through `summarization_model.ts`,
+`compaction.ts`, `tier_context_budget.ts` and three turn-runner branches, and is read by
+NOTHING — its consumer takes it as `_sessionStats` and its own doc says it is "retained in the
+signature for caller compatibility but no longer influences model choice". All three real call sites
+pass literal `{ toolCallCount: 0, delegationCount: 0 }`. `enforceContextBudget` was additionally
+recomputing the counts with two full `.includes()` scans of the history on every one of up to 24
+rounds to fill it; that computation is gone with the rewrite. Deleting the parameter itself touches
+ask-branch/build-branch, which is outside this change's blast radius — one small follow-up pass.
+
+**Owed before release:** verify in the PACKAGED app (a long real session, quit, reopen, confirm the
+meter and the history start from the summary), then `/security-review` on the diff.
+
 
 ### 0a. SHIPPED in v14.38.4 (2026-08-29)
 
@@ -771,6 +859,32 @@ approval, MCP description wrapping + OAuth-URL validation, the universal write-c
 ---
 
 ## 🪤 Traps worth not rediscovering
+
+### An audit list is not the runtime gate
+
+`tool-registry-audit.ts`'s `GLOBAL_CHAT_TOOLS` exists so a chat-scoped tool does not trip
+"registered but not on any mode allowlist". It has NOTHING to do with whether the tool is offered:
+`isToolAllowedInMode` reads per-mode sets built from `EVERY_MODE_TOOLS` in `mode-tool-registry.ts`.
+Adding `session_search` to the audit list alone left every check green — `auditToolRegistry`,
+`tool-activity-labels-coverage`, the typechecks — while the tool was invisible in ask/plan/review.
+
+The general form: when a name appears in two lists, find out which one the RUNTIME reads. The check
+that catches it is `toolset-golden.eval.test.ts`, because it resolves the surface actually handed to
+the model rather than any list's opinion about it. If a new tool does not change that golden, it is
+not reachable.
+
+### A durable format must be pinned as a LITERAL, not as its own constant
+
+`expect(COMPACTION_SUMMARY_PREFIX).toBe(COMPACTION_SUMMARY_PREFIX)` is the shape a lot of
+"format" tests accidentally take: importing the constant and comparing against it means a rename
+moves both sides and the test stays green. `[COMPACTION MARKER]` is already written into users'
+`session_messages` rows — renaming it would leave every existing session unrecognised and silently
+re-expanding its full history on reopen. Anything that has been WRITTEN TO DISK gets asserted as a
+literal string, and changing it needs a migration.
+
+Corollary, learned the same hour: after writing a test for a bug, break the fix on purpose and
+confirm the test fails. Three mutations were tried here; the first version of the suite caught two.
+
 
 ### The local typecheck and CI's typecheck are DIFFERENT PROJECTS
 

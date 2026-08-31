@@ -1,16 +1,21 @@
 import type { ModelMessage } from "ai";
 import type { LargeLanguageModel, UserSettings } from "../schemas";
-import { summarizeMessagesWithCompactionPrompt } from "../context/compaction";
+import {
+  summarizeMessagesWithCompactionPrompt,
+  runSteppedCompaction,
+  isCompactionSummaryMessage,
+  IN_TASK_SUMMARY_PREFIX,
+} from "../context/compaction";
 import { estimateTokens } from "../../ipc/utils/token_utils";
 import { resolveModelContextLimit } from "../context/resolve-model-context-limit";
 import {
-  MID_LOOP_COMPACTION_THRESHOLD,
+  COMPACTION_THRESHOLD,
   midLoopCompactionWouldTrigger,
   modelMessageText,
 } from "../context/mid-loop-threshold";
 
 // Re-exported so existing callers keep importing from here.
-export { midLoopCompactionWouldTrigger, MID_LOOP_COMPACTION_THRESHOLD };
+export { midLoopCompactionWouldTrigger, COMPACTION_THRESHOLD };
 
 export interface BudgetHistoryMessage {
   role: string;
@@ -29,14 +34,26 @@ export interface EnforceContextBudgetParams {
   limitedMessageHistory: BudgetHistoryMessage[];
   codebasePrefixMessages: readonly ModelMessage[];
   otherCodebasePrefixMessages: readonly ModelMessage[];
+  /**
+   * The chat being dispatched, and its bound session. Required for compaction to
+   * be DURABLE — without them the summary this function pays for is discarded at
+   * end of turn and re-bought next turn. Optional only so existing tests that
+   * exercise the trimming steps need not supply them.
+   */
+  chatId?: number;
+  workspaceSessionId?: string | null;
 }
 
 export interface EnforceContextBudgetResult {
   systemPrompt: string;
   limitedMessageHistory: BudgetHistoryMessage[];
   contextAssemblerBlob: string;
-  /** True if summarizeMessagesWithCompactionPrompt ran at least once. */
+  /** True if the shared compactor summarized at least once. */
   llmCompactionApplied?: boolean;
+  /** True if that summary reached the session as a `[COMPACTION MARKER]` row. */
+  summaryPersisted?: boolean;
+  /** Messages dropped without ever reaching a summary — the model is told. */
+  droppedMessageCount?: number;
 }
 
 function totalPrefixTokens(prefixes: readonly ModelMessage[]): number {
@@ -158,7 +175,24 @@ function trimContextAssemblerBlobOneStep(blob: string, userPrompt: string): stri
 }
 
 /**
- * Pre-dispatch budgeting: model context limit, with LLM summarize only as last resort.
+ * Pre-dispatch budgeting — one of the three triggers for the shared compactor.
+ *
+ * ORDER MATTERS, AND IT USED TO BE BACKWARDS. This function's first act was to
+ * DELETE the two oldest conversation messages (`headConversation.slice(2)`),
+ * looping up to 24 times, and only reach for a summary afterwards. So the turns
+ * most likely to matter were destroyed before anything had a chance to summarize
+ * them, silently, with no marker and (until `droppedHistoryNotice` existed) no
+ * word to the model. Dropping is now LAST:
+ *
+ *   1. compact  — the shared compactor, which summarizes AND persists a marker
+ *   2. trim     — the context-assembler blob inside the system prompt (only this
+ *                 function can do this; the compactor never sees the prompt)
+ *   3. drop     — head messages, with `droppedHistoryNotice` telling the model
+ *
+ * It also wrote its own marker string (`[Earlier conversation — compressed for
+ * context budget]`) which `sliceFromLastCompactionSummary` does not recognise, and
+ * never persisted it — so every summary it paid for was rebought the next turn.
+ * Both are gone: the compactor owns the marker and the durable write.
  */
 export async function enforceContextBudget(
   params: EnforceContextBudgetParams,
@@ -174,13 +208,8 @@ export async function enforceContextBudget(
     settings,
   );
   let llmCompactionApplied = false;
-
-  const countToolsInMessages = (msgs: BudgetHistoryMessage[]) =>
-    msgs.filter(
-      (m) =>
-        (m.content ?? "").includes("tool_result") ||
-        (m.content ?? "").includes("tool_use"),
-    ).length;
+  let summaryPersisted = false;
+  let droppedMessageCount = 0;
 
   const currentEstimate = () =>
     estimateDispatchTokens({
@@ -190,36 +219,63 @@ export async function enforceContextBudget(
       otherCodebasePrefixMessages,
     });
 
-  let overBudget = () => currentEstimate() > tierLimit;
+  const overBudget = () => currentEstimate() > tierLimit;
 
   if (!overBudget()) {
     return { systemPrompt, limitedMessageHistory, contextAssemblerBlob };
   }
 
-  const softCap = tierLimit * 0.85;
+  // ── 1. Compact — ONCE per dispatch, outside the loop.
+  //
+  // Deliberately not inside the round loop. `force: true` bypasses the ratio gate
+  // (we are already over the model's hard limit, so waiting for it would be
+  // circular), which means a second round would summarize a second time in the
+  // SAME dispatch: two provider calls and two `[COMPACTION MARKER]` rows for one
+  // turn. The compactor's `headIsOnlyPriorSummary` guard catches the degenerate
+  // case where the whole head is the previous summary, but not the case where a
+  // long tail leaves real messages in the head. Compaction is a per-turn event;
+  // the loop below is for the cheap steps that can usefully repeat.
+  //
+  // The compactor runs its own cheap steps first (microcompact → prune tool
+  // outputs → strip media) before spending anything on a summary.
+  {
+    const beforeCompaction = limitedMessageHistory.length;
+    const stepped = await runSteppedCompaction(
+      limitedMessageHistory.map((m, i) => ({
+        id: i,
+        role: m.role,
+        content: m.content ?? "",
+      })),
+      tierLimit,
+      undefined,
+      {
+        force: true,
+        alreadyUsedTokens: estimateTokens(systemPrompt),
+        chatId: params.chatId,
+        workspaceSessionId: params.workspaceSessionId,
+      },
+    );
+    if (stepped.compactionApplied) {
+      // Map back onto the caller's shape. Rows the compactor kept keep their
+      // ORIGINAL object — and so their commitHash / native-envelope fields, which
+      // revert-to-turn depends on — with only content replaced. The summary row it
+      // introduced carries a negative id and has no counterpart, so it is added as
+      // a bare {role, content}.
+      limitedMessageHistory = stepped.modelContext.map((m) =>
+        m.id >= 0 && m.id < beforeCompaction && !isCompactionSummaryMessage(m.content)
+          ? { ...limitedMessageHistory[m.id], content: m.content ?? "" }
+          : { role: m.role, content: m.content ?? "" },
+      );
+      if (stepped.strategy === "summarized") {
+        llmCompactionApplied = true;
+        summaryPersisted = stepped.summaryPersisted;
+      }
+    }
+  }
+
   const maxRounds = 24;
   for (let round = 0; round < maxRounds && overBudget(); round++) {
-    const entries = nonSystemEntries(limitedMessageHistory);
-    const pStart = protectedEntryStartIndex(entries);
-    const firstProtectedOriginalIndex =
-      pStart < entries.length ? entries[pStart].i : limitedMessageHistory.length;
-
-    const head = limitedMessageHistory.slice(0, firstProtectedOriginalIndex);
-    const tail = limitedMessageHistory.slice(firstProtectedOriginalIndex);
-    const headConversation = head.filter(
-      (m) => m.role === "user" || m.role === "assistant",
-    );
-
-    if (headConversation.length > 0) {
-      limitedMessageHistory = [
-        ...head.filter((m) => m.role === "system"),
-        ...headConversation.slice(2),
-        ...tail,
-      ];
-    }
-
-    if (!overBudget()) break;
-
+    // ── 2. Trim the context-assembler blob out of the system prompt.
     if (contextAssemblerBlob.trim()) {
       const prev = contextAssemblerBlob;
       const trimmed = trimContextAssemblerBlobOneStep(
@@ -234,53 +290,26 @@ export async function enforceContextBudget(
 
     if (!overBudget()) break;
 
-    const entriesAfterTrim = nonSystemEntries(limitedMessageHistory);
-    const pStart2 = protectedEntryStartIndex(entriesAfterTrim);
-    const firstProtected2 =
-      pStart2 < entriesAfterTrim.length
-        ? entriesAfterTrim[pStart2].i
-        : limitedMessageHistory.length;
-    const head2 = limitedMessageHistory.slice(0, firstProtected2);
-    const tail2 = limitedMessageHistory.slice(firstProtected2);
-    const headConversation2 = head2.filter(
+    // ── 3. Drop, last. Only reached when a summary and every trim still left us
+    // over the model's hard limit, i.e. the protected tail alone does not fit.
+    const entries = nonSystemEntries(limitedMessageHistory);
+    const pStart = protectedEntryStartIndex(entries);
+    const firstProtectedOriginalIndex =
+      pStart < entries.length ? entries[pStart].i : limitedMessageHistory.length;
+    const head = limitedMessageHistory.slice(0, firstProtectedOriginalIndex);
+    const tail = limitedMessageHistory.slice(firstProtectedOriginalIndex);
+    const headConversation = head.filter(
       (m) => m.role === "user" || m.role === "assistant",
     );
+    if (headConversation.length === 0) break;
 
-    if (
-      headConversation2.length >= 2 &&
-      currentEstimate() >= softCap &&
-      overBudget()
-    ) {
-      const toolCallCount = countToolsInMessages(limitedMessageHistory);
-      const delegationCount = limitedMessageHistory.filter(
-        (m) =>
-          (m.content ?? "").includes("delegate_to_agent") ||
-          (m.content ?? "").includes("delegation"),
-      ).length;
-      const summary = await summarizeMessagesWithCompactionPrompt({
-        messages: headConversation2.map((m) => ({
-          role: m.role,
-          content: m.content ?? "",
-        })),
-        sessionStats: { toolCallCount, delegationCount },
-      });
-      if (summary) {
-        llmCompactionApplied = true;
-        const headSystemOnly = head2.filter((m) => m.role === "system");
-        const summaryMsg: BudgetHistoryMessage = {
-          role: "user",
-          content:
-            "[Earlier conversation — compressed for context budget]\n" + summary,
-        };
-        limitedMessageHistory = [...headSystemOnly, summaryMsg, ...tail2];
-      }
-    }
-
-    if (!overBudget()) break;
-
-    if (headConversation.length === 0) {
-      break;
-    }
+    const kept = headConversation.slice(2);
+    droppedMessageCount += headConversation.length - kept.length;
+    limitedMessageHistory = [
+      ...head.filter((m) => m.role === "system"),
+      ...kept,
+      ...tail,
+    ];
   }
 
   return {
@@ -288,6 +317,8 @@ export async function enforceContextBudget(
     limitedMessageHistory,
     contextAssemblerBlob,
     llmCompactionApplied,
+    summaryPersisted,
+    droppedMessageCount,
   };
 }
 
@@ -353,7 +384,7 @@ export async function compactAgenticMessagesIfNeeded(
   // Stage 3a: overflow-only (0.9, was 0.75) — mirrors opencode's "compact only
   // near the usable limit". Fires far less often; combined with native-tail
   // preservation below, mid-loop compaction is no longer a coherence hazard.
-  const threshold = params.threshold ?? MID_LOOP_COMPACTION_THRESHOLD;
+  const threshold = params.threshold ?? COMPACTION_THRESHOLD;
   const protect = params.protectExchanges ?? 3;
   const limitDenom = params.contextWindowTokens ?? params.tierLimit;
 
@@ -403,6 +434,8 @@ export async function compactAgenticMessagesIfNeeded(
     return { messages: params.messages, compacted: false, beforeTokens, afterTokens: beforeTokens };
   }
 
+  // THE one summarizer (there were two near-identical copies; the one that pruned
+  // tool outputs and recorded its own token usage is the survivor).
   const summary = await summarizeMessagesWithCompactionPrompt({
     messages: headConversation.map((m) => ({
       role: m.role,
@@ -415,9 +448,19 @@ export async function compactAgenticMessagesIfNeeded(
     return { messages: params.messages, compacted: false, beforeTokens, afterTokens: beforeTokens };
   }
 
+  // Deliberately the IN-TASK prefix, not COMPACTION_SUMMARY_PREFIX, and
+  // deliberately not persisted. This summary exists to keep the current tool loop
+  // inside the window; it is written for "what does the model need to finish this
+  // iteration", which is the wrong brief for "what does someone need to resume
+  // this conversation tomorrow". Giving it the durable marker would make
+  // `sliceFromLastCompactionSummary` cut a reopened session at a boundary chosen
+  // for a loop that had already ended. The turn-end trigger
+  // (`enforceContextBudget`) owns the durable write; both prefixes are defined in
+  // `context/compaction.ts` so the distinction stays a decision rather than an
+  // accident of two call sites inventing their own strings.
   const summaryMsg: ModelMessage = {
     role: "user",
-    content: "[Earlier in-task conversation — compressed for context budget]\n" + summary,
+    content: `${IN_TASK_SUMMARY_PREFIX}\n${summary}`,
   };
   // Stage 3b: reconstruct the protected tail (and head system messages) from the
   // ORIGINAL native messages when provided (1:1 index with the flattened input),

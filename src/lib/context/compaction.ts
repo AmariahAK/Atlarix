@@ -1,8 +1,30 @@
 /**
- * Context Compaction - v7.1.4
- * Automatic stepped compaction that runs before every dispatch.
- * Follows OpenCode pattern: measure → prune tool outputs → strip media → LLM summarize.
- * Task NEVER stops — compaction runs transparently.
+ * Context Compaction — THE compactor (v14.39.0).
+ *
+ * Steps, cheapest first, opencode's order: measure → microcompact → prune tool
+ * outputs → strip media → LLM summarize. A task NEVER stops for this; compaction
+ * runs transparently and, when it summarizes, writes its own durable marker.
+ *
+ * ONE IMPLEMENTATION, THREE TRIGGERS.
+ * This header used to claim it "runs before every dispatch". It did not — it had
+ * two callers, both reactive (the model calling `compress_context`, and recovery
+ * after a provider had already rejected the request). The pre-dispatch and
+ * mid-turn paths each had their OWN summarize-and-splice code in
+ * `routing/tier_context_budget.ts`, with their own thresholds (1.0 and 0.9 against
+ * this file's 0.75) and their own marker strings — neither of which
+ * `sliceFromLastCompactionSummary` recognises and neither of which was persisted.
+ * So the two automatic paths paid for a real summary every turn and threw it away,
+ * while `dropped-history-notice.ts` documented a pipeline that did not include
+ * this file at all. Both docs were half right and the money was real.
+ *
+ * Now: `runSteppedCompaction` is the only thing that summarizes, and the three
+ * triggers are just *when* it is called —
+ *   · pre-dispatch budget  → enforceContextBudget       (tier_context_budget.ts)
+ *   · mid-turn loop        → compactAgenticMessagesIfNeeded (same file)
+ *   · model-initiated      → compress_context           (tools/workspace.ts)
+ * plus overflow recovery, which is the same call with the gates forced.
+ * One threshold (COMPACTION_THRESHOLD), one marker (COMPACTION_SUMMARY_PREFIX),
+ * one durable write (persistCompactionSummaryToSession, owned here).
  */
 
 import { generateText } from "ai";
@@ -16,6 +38,7 @@ import {
 import log from "electron-log";
 import { exactTokenCount, exactTokenCountText } from "./token-counter";
 import { recordAuxUsage } from "../usage/turn-usage-aggregator";
+import { COMPACTION_THRESHOLD } from "./mid-loop-threshold";
 
 const logger = log.scope("compaction");
 
@@ -25,7 +48,15 @@ const logger = log.scope("compaction");
 
 export const PRUNE_MINIMUM_TOKENS = 20_000;
 const DEFAULT_TAIL_TURNS = 2;
-const COMPACTION_THRESHOLD = 0.75;
+/**
+ * The summarize threshold is OWNED BY `mid-loop-threshold.ts`, the dependency-light
+ * leaf, so the number's own test does not have to import this file's provider and
+ * keychain chain. One number, three triggers — see that module for why 0.9.
+ *
+ * The denominator is `tierLimit`, which IS the raw context window in the normal
+ * case: `overflowClampFor` defaults to 1 and only shrinks after an observed
+ * provider overflow (see resolve-model-context-limit.ts).
+ */
 const PRUNE_THRESHOLD = 0.60;
 const TOOL_OUTPUT_MAX_CHARS = 2_000;
 /** Microcompact keeps tool outputs from the last N user turns; older ones are
@@ -41,6 +72,24 @@ const PRUNE_PROTECTED_TOOLS = ["skill"];
  * model's context. The UI keeps the full scrollback.
  */
 export const COMPACTION_SUMMARY_PREFIX = "[COMPACTION MARKER]";
+
+/**
+ * The MID-TURN summary's prefix — the one deliberate exception to "one marker".
+ *
+ * A mid-loop summary is written to keep a tool loop inside the context window and
+ * is discarded when the turn ends. It must NOT carry
+ * `COMPACTION_SUMMARY_PREFIX`, because that prefix is what
+ * `sliceFromLastCompactionSummary` cuts a REOPENED session at — and cutting there
+ * would resume tomorrow's conversation from a summary written for the tail end of
+ * an iteration that has already finished.
+ *
+ * It lives here, next to the durable marker, so the two are visibly one decision.
+ * Before v14.39.0 each of the three compaction paths invented its own string at
+ * its own call site, which is how two of them ended up with markers that nothing
+ * recognised and nothing persisted.
+ */
+export const IN_TASK_SUMMARY_PREFIX =
+  "[Earlier in-task conversation — compressed for context budget]";
 
 export function isCompactionSummaryMessage(
   content: string | null | undefined,
@@ -68,6 +117,77 @@ export function sliceFromLastCompactionSummary<
 
 /** Closes a summary body. Written by the compactor, stripped on the way back in. */
 const COMPACTION_SUMMARY_SUFFIX = "[END COMPACTION]";
+
+/**
+ * Told to the agent alongside every summary: the detail is RECOVERABLE.
+ *
+ * Without this the tool exists and goes unused. A model handed a summary has no
+ * way to know the turns behind it are still on disk and searchable — the honest
+ * default assumption is that they are gone, which is what the summary looks like.
+ *
+ * Deliberately placed AFTER `COMPACTION_SUMMARY_SUFFIX`: `extractPriorSummary`
+ * cuts the body at the last suffix occurrence, so this line reaches the agent
+ * every turn but is never folded into the next generation's summary as though it
+ * were session content.
+ */
+const COMPACTION_RECOVERY_HINT =
+  "Detail omitted above is not lost — it is still in this session's transcript. " +
+  "Use `session_search` to retrieve a specific fact (an exact path, an error string, a decision) " +
+  "instead of guessing or asking the user to repeat it. Do not use it to re-read the conversation wholesale.";
+
+/**
+ * Durable copy of a compaction summary into the bound session, so a reload (and
+ * the dispatch funnel's `sliceFromLastCompactionSummary`) keeps the compact
+ * history. Returns true when the `[COMPACTION MARKER]` row was actually written.
+ *
+ * WHY THIS LIVES IN THE COMPACTOR AND NOT AT A CALL SITE.
+ * It used to sit in `lib/tools/workspace.ts`, which meant durability was a thing
+ * each caller had to remember — and only ONE of the three ever did. The other two
+ * (`enforceContextBudget` pre-dispatch, `compactAgenticMessagesIfNeeded` mid-turn)
+ * each paid for a real LLM summary, wrote their own ad-hoc marker string, and
+ * threw the result away at end of turn; the next turn rebuilt the full history
+ * from the session log and paid again. Owning the write here makes durability a
+ * property of compacting rather than an obligation on whoever calls it.
+ */
+async function persistCompactionSummaryToSession(
+  chatId: number | undefined,
+  afterList: Array<{ role: string; content?: string | null }>,
+  sessionId?: string | null,
+): Promise<boolean> {
+  try {
+    const summaryMsg = afterList.find(
+      (m) => m.role === "user" && isCompactionSummaryMessage(m.content),
+    );
+    if (!summaryMsg?.content) return false;
+    const {
+      resolveOrBindWorkspaceSessionForStream,
+      persistWorkspaceSessionUserMessage,
+    } = await import("@/ipc/handlers/workspace_session_handlers");
+    const resolvedSessionId =
+      sessionId ??
+      (chatId != null
+        ? await resolveOrBindWorkspaceSessionForStream({ chatId })
+        : null);
+    if (!resolvedSessionId) {
+      logger.warn(
+        `[compaction] No workspace session id to persist summary (chat ${String(chatId)}); reopened session will not stay compacted.`,
+      );
+      return false;
+    }
+    await persistWorkspaceSessionUserMessage(
+      resolvedSessionId,
+      summaryMsg.content,
+      {},
+    );
+    logger.info(`[compaction] Summary persisted to session ${resolvedSessionId}`);
+    return true;
+  } catch (err) {
+    logger.warn("[compaction] Could not persist summary to session:", err);
+    return false;
+  }
+}
+
+export { persistCompactionSummaryToSession };
 
 /**
  * How many times this conversation has been summarized. Generation 1 is the
@@ -419,46 +539,13 @@ function stripMediaFromMessages(
 // LLM SUMMARIZATION (Step 4)
 // ═══════════════════════════════════════════════════════════════
 
-async function summarizeMessages(
-  messages: MessageForCompaction[],
-): Promise<string | null> {
-  if (messages.length === 0) return null;
-
-  // The previous summary is already sitting in this list (dispatch slices from
-  // the marker, it does not drop it). Lift it out so it reaches the prompt as a
-  // labelled PRIOR SUMMARY instead of being flattened and cut to 2,000 chars.
-  const { prior, rest } = extractPriorSummary(messages);
-  if (rest.length === 0) return null;
-
-  const formatted = rest
-    .map(
-      (m) =>
-        `${m.role === "user" ? "User" : "Assistant"}: ${(m.content || "")
-          .replace(/\n/g, " ")
-          .slice(0, 2000)}`,
-    )
-    .join("\n\n");
-
-  const userPrompt = buildCompactionUserPromptPrefix(prior ?? undefined) + formatted;
-
-  try {
-    const settings = readSettings();
-    const summarizationModel = await getCompactionSummarizationModel(settings);
-    const { modelClient } = await getModelClient(summarizationModel, settings);
-
-    const result = await generateText({
-      model: modelClient.model,
-      system: CONTEXT_COMPACTION_SYSTEM,
-      messages: [{ role: "user" as const, content: userPrompt }],
-      maxTokens: 1500,
-    } as Parameters<typeof generateText>[0]);
-
-    return result.text.trim() || null;
-  } catch (error) {
-    logger.error("summarizeMessages failed:", error);
-    return null;
-  }
-}
+/**
+ * `summarizeMessages` lived here and was a near-copy of
+ * `summarizeMessagesWithCompactionPrompt` below, differing only in what it LACKED:
+ * no `pruneToolOutputs` pass over the head, and no `recordAuxUsage`. Those are the
+ * two things you want, so the copy that had them is the one that survived and this
+ * path now calls it directly. See that function for the shared behaviour.
+ */
 
 // ═══════════════════════════════════════════════════════════════
 // COMPACTION RESULT TYPES
@@ -478,6 +565,12 @@ export interface RunSteppedCompactionResult {
   summaryText?: string;
   usageRatio: number;
   compactionApplied: boolean;
+  /**
+   * True when the durable `[COMPACTION MARKER]` row reached the bound session, so
+   * a reopened session stays compacted. False whenever `strategy !== "summarized"`
+   * (nothing to persist) or when no session id could be resolved.
+   */
+  summaryPersisted: boolean;
 }
 
 /**
@@ -527,6 +620,24 @@ export async function runSteppedCompaction(
      * "meter says 70%, tool says nothing to do" disagreements.
      */
     alreadyUsedTokens?: number;
+    /**
+     * The chat this compaction belongs to. Two jobs, and both used to be missing
+     * on this path: summarization tokens are attributed to the turn via
+     * `recordAuxUsage`, and the durable `[COMPACTION MARKER]` row is persisted
+     * against the chat's bound workspace session.
+     *
+     * Compaction on this path was BILLED TO NOBODY before v14.39.0 — the durable
+     * compactor called a summarizer that took no chatId, while the two throwaway
+     * compactors called one that did. The only compaction whose result survived
+     * a reload was the only one whose cost never reached the meter.
+     */
+    chatId?: number;
+    /**
+     * The stream's already-resolved workspace session id. Preferred over
+     * re-resolving from `chatId`, which is negative/unbound for the live
+     * transport and would silently fail to persist the marker.
+     */
+    workspaceSessionId?: string | null;
   },
 ): Promise<RunSteppedCompactionResult> {
   if (messages.length === 0) {
@@ -536,6 +647,7 @@ export async function runSteppedCompaction(
       tokensFreed: 0,
       usageRatio: 0,
       compactionApplied: false,
+      summaryPersisted: false,
     };
   }
 
@@ -551,6 +663,7 @@ export async function runSteppedCompaction(
       tokensFreed: 0,
       usageRatio,
       compactionApplied: false,
+      summaryPersisted: false,
     };
   }
 
@@ -561,6 +674,7 @@ export async function runSteppedCompaction(
       tokensFreed: 0,
       usageRatio,
       compactionApplied: false,
+      summaryPersisted: false,
     };
   }
 
@@ -614,7 +728,7 @@ export async function runSteppedCompaction(
   const tokensAfterStrip = countMessagesTokens(modelContext);
   const ratioAfterStrip = tierLimit > 0 ? tokensAfterStrip / tierLimit : 0;
 
-  // Step 4: LLM summarization if still over 75% — or on a forced
+  // Step 4: LLM summarization if still over COMPACTION_THRESHOLD — or on a forced
   // (model-initiated) call whose cheap steps freed little: the model asked
   // for space, so give it real space instead of a token-identical no-op.
   const forcedSummarize =
@@ -637,7 +751,13 @@ export async function runSteppedCompaction(
       // prior summary claims (1 when there isn't one, so the first is gen=1).
       const priorGeneration =
         extractPriorSummary(headMessages).prior?.compactionGeneration ?? 0;
-      let summary = await summarizeMessages(headMessages);
+      let summary = await summarizeMessagesWithCompactionPrompt({
+        messages: headMessages.map((m) => ({
+          role: m.role,
+          content: m.content ?? "",
+        })),
+        chatId: opts?.chatId,
+      });
 
       // v11.1 guard: a runaway summary defeats the purpose — cap it at 25%
       // of the budget (rare; generateText maxTokens already bounds it).
@@ -657,7 +777,7 @@ export async function runSteppedCompaction(
         const summaryMsg: MessageForCompaction = {
           id: -Date.now(),
           role: "user",
-          content: `${COMPACTION_SUMMARY_PREFIX} gen=${priorGeneration + 1}\n${summary}\n${COMPACTION_SUMMARY_SUFFIX}`,
+          content: `${COMPACTION_SUMMARY_PREFIX} gen=${priorGeneration + 1}\n${summary}\n${COMPACTION_SUMMARY_SUFFIX}\n${COMPACTION_RECOVERY_HINT}`,
         };
 
         const tailMessages = tailStartId
@@ -678,6 +798,27 @@ export async function runSteppedCompaction(
     }
   }
 
+  // The durable write, owned here rather than by whoever called us. Only a
+  // "summarized" pass produces a marker worth persisting — the cheap steps
+  // (microcompact, prune, strip) leave the transcript's own messages in place,
+  // so there is nothing a reload would need to be told about.
+  //
+  // There is deliberately NO opt-out parameter. One was written and removed
+  // before it shipped: the mid-TURN path must not persist, but it does not reach
+  // this function at all (it summarizes its own head so it can rebuild the
+  // protected tail from native messages), so the flag had no caller. An
+  // extension point with no extensions is the `profile.taskCompleteGate` shape
+  // this codebase has already deleted twice. If a mid-turn caller ever does route
+  // through here, add it then.
+  let summaryPersisted = false;
+  if (strategy === "summarized") {
+    summaryPersisted = await persistCompactionSummaryToSession(
+      opts?.chatId,
+      modelContext,
+      opts?.workspaceSessionId,
+    );
+  }
+
   return {
     modelContext,
     strategy,
@@ -685,6 +826,7 @@ export async function runSteppedCompaction(
     summaryText,
     usageRatio,
     compactionApplied: strategy !== "none",
+    summaryPersisted,
   };
 }
 

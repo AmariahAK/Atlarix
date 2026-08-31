@@ -26,11 +26,17 @@ import {
 } from "@/lib/context/dropped-history-notice";
 
 describe("droppedHistoryNotice", () => {
-  it("states the loss and tells the model to re-read rather than recall", () => {
+  it("states the loss and points at a way to RECOVER it, not at the user", () => {
     const notice = droppedHistoryNotice(12);
     expect(notice).toContain("12 earlier messages");
     expect(notice).toContain("removed to fit the context window");
-    expect(notice).toMatch(/re-read/i);
+    // The instruction not to trust recall is the point of the notice.
+    expect(notice).toMatch(/do not assume you still have that detail/i);
+    // v14.39: it used to say "re-read the relevant files or ask the user", which
+    // was the harness conceding it had no recall path and charging the cost to
+    // whoever was waiting. The transcript was always on disk; it just had no tool.
+    expect(notice).toContain("session_search");
+    expect(notice).not.toMatch(/ask the user to repeat/i);
   });
 
   it("uses singular wording for a single message", () => {

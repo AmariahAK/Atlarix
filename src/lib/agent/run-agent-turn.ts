@@ -877,8 +877,6 @@ export async function runAgentTurn(
         systemPromptEstimate: estimateTokens(roundSystemPromptEstimateText),
         tierLimit: rt.tierLimit,
         contextWindowTokens: rt.contextWindowTokens,
-        // Always on — compaction is no longer user-disableable (v14.18.0).
-        enabled: true,
         chatId: rt.chatId,
         loopLabel: profile.compactionLabel,
         emitActivity: rt.emitCompactionActivity,

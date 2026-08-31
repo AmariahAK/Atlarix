@@ -57,7 +57,7 @@ const GOLDEN = {
     "browser_inspect", "browser_interact",
     "browser_navigate", "browser_tabs", "compress_context", "glob", "grep", "list_attachments",
     "list_available_mcps", "mcp_call", "read_attachment", "read_file",
-    "read_url", "run_command", "schedule_wakeup", "subagents", "task",
+    "read_url", "run_command", "schedule_wakeup", "session_search", "subagents", "task",
     "tool_help", "web_search",
   ],
   plan: [
@@ -65,7 +65,8 @@ const GOLDEN = {
     "browser_interact", "browser_navigate", "browser_tabs",
     "compress_context", "glob", "grep", "list_attachments",
     "list_available_mcps", "mcp_call", "plan", "read_attachment", "read_file",
-    "read_url", "schedule_wakeup", "subagents", "task", "tool_help", "web_search",
+    "read_url", "schedule_wakeup", "session_search", "subagents", "task", "tool_help",
+    "web_search",
   ],
   build: [
     // Sorted. `browser_test` sits with the rest of the browser_* family now — it was
@@ -75,7 +76,7 @@ const GOLDEN = {
     "browser_navigate", "browser_tabs", "browser_test", "compress_context", "edit_file",
     "glob", "grep", "list_attachments", "list_available_mcps",
     "mcp_call", "plan", "proposals", "read_attachment", "read_file",
-    "read_url", "run_command", "schedule_wakeup", "subagents", "task",
+    "read_url", "run_command", "schedule_wakeup", "session_search", "subagents", "task",
     "tool_help", "web_search",
   ],
 } as const;

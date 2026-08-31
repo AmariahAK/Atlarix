@@ -8,6 +8,7 @@ const LABELS: Record<string, string> = {
   // `Running <tool name>…` template — the documented "Runned <tool>" trap, caught by
   // `tool-activity-labels-coverage.test.ts` rather than by the next person to notice.
   compress_context: "Compacting context…",
+  session_search: "Searching session history…",
   list_attachments: "Listing attachments…",
   schedule_wakeup: "Setting a timer…",
   read_attachment: "Reading attachment…",
@@ -284,6 +285,7 @@ export function getToolActivityLabelWithArgs(
 
 const DONE_LABELS: Record<string, string> = {
   compress_context: "Context compacted",
+  session_search: "Searched session history",
   list_attachments: "Listed attachments",
   read_attachment: "Read attachment",
   schedule_wakeup: "Timer set",

@@ -27,12 +27,25 @@
  *
  * all of which measure tokens and always run.
  *
+ * v14.39.0 CORRECTION: that chain was never the whole picture, and describing it as
+ * such is what let the real gap hide. `runSteppedCompaction` — the compactor that
+ * writes a DURABLE `[COMPACTION MARKER]`, folds the previous summary forward and
+ * survives a reload — was missing from this list, while `compaction.ts` separately
+ * claimed to run "before every dispatch" when nothing called it automatically.
+ * Two files in this directory documented two different pipelines and both were
+ * half right. There is now ONE compactor with three triggers; see
+ * `context/compaction.ts` for the list.
+ *
  * WHAT REMAINS HERE
- * The token budget can still DROP messages rather than summarize them (its
- * head-trim step runs before it reaches for the LLM summarizer). That drop is
- * silent to the model, which is the part that actually costs accuracy — a model
- * that doesn't know it lost context fills the hole by guessing instead of
- * re-reading. This module carries that notice.
+ * The token budget can still DROP messages rather than summarize them, but as of
+ * v14.39.0 that step runs LAST rather than first: compact (durable summary) → trim
+ * the context-assembler blob → only then drop. So a drop now means a summary and
+ * every trim still left the history over the model's hard limit, which makes it
+ * rare and makes this notice worth reading when it does fire.
+ *
+ * The drop is silent to the model, which is the part that actually costs accuracy —
+ * a model that doesn't know it lost context fills the hole by guessing instead of
+ * looking. This module carries that notice.
  */
 
 /**
@@ -46,7 +59,12 @@ export function droppedHistoryNotice(droppedCount: number): string {
   return [
     `${droppedCount} earlier message${droppedCount === 1 ? "" : "s"} in this conversation ` +
       `${droppedCount === 1 ? "was" : "were"} removed to fit the context window.`,
-    "Do not assume you still have that detail. If you need something from earlier in the session, re-read the relevant files or ask the user rather than recalling it.",
+    // Until v14.39 this said "re-read the relevant files or ask the user", which
+    // was the harness conceding it had no recall path and handing the cost to
+    // someone who was already waiting. The transcript was never gone — it is in
+    // session_messages for the UI's scrollback — it was just unreachable by any
+    // tool, because grep is ripgrep over FILES and a conversation is rows.
+    "Do not assume you still have that detail. Use `session_search` to find what was actually said earlier in this session, rather than recalling it or asking the user to repeat it.",
   ].join(" ");
 }
 

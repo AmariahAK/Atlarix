@@ -1655,6 +1655,10 @@ export function registerChatStreamHandlers() {
               limitedMessageHistory,
               codebasePrefixMessages: [...codebasePrefix],
               otherCodebasePrefixMessages: [...otherCodebasePrefix],
+              // Durability: without these the summary this call may pay for is
+              // discarded at end of turn and re-bought on the next one.
+              chatId: req.chatId,
+              workspaceSessionId: req.workspaceSessionId,
             }),
           );
           systemPrompt = tierBudgeted.systemPrompt;

@@ -391,8 +391,12 @@ This machine has **${cpuCount} CPU cores** and **${totalMemGb} GB RAM**. Dev ser
     // The FACT (the window size) is what the model cannot know. The rest was a
     // lecture about when not to compact; the harness already warns at the real
     // threshold, and `compress_context`'s own description can say the rest.
+    // v14.39: the second sentence now ends with where the detail WENT. A model
+    // told only that older turns are "summarised for you" reasonably concludes
+    // they are gone, and then guesses or asks the user to repeat something the
+    // transcript still holds. `session_search` is bound in every mode.
     const contextBudgetInfo = `# Context budget
-Your context window this session is **${contextSize.toLocaleString("en-US")} tokens**. You are warned explicitly when it is close to full, and older turns are summarised for you — so a long thread is not a full one.`;
+Your context window this session is **${contextSize.toLocaleString("en-US")} tokens**. You are warned explicitly when it is close to full, and older turns are summarised for you — so a long thread is not a full one. Anything a summary left out is still in this session's transcript: use \`session_search\` to retrieve a specific earlier fact rather than guessing at it.`;
 
     /**
      * Identity FIRST — who the model is, and where its memory lives.

@@ -638,8 +638,6 @@ export async function runSubagent(
         messages: msgs,
         systemPromptEstimate: systemEstimate,
         tierLimit,
-        // Always on — compaction is no longer user-disableable (v14.18.0).
-        enabled: true,
         chatId: args.chatId ?? 0,
         loopLabel: "Subagent",
         onInfo: (msg) => logger.log(msg),

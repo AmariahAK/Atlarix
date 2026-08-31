@@ -5,7 +5,6 @@
  *
  * The compaction logic itself lives in `src/lib/routing/tier_context_budget.ts`
  * (Build was the only caller before this pass). This helper adds:
- *  - a single opt-out via `enabled` (mirrors settings.enableContextAutoSummarize).
  *  - structured activity emission (running -> done) so the UI can pulse the
  *    token bar via `useCompactionTokenVisuals` (matches `/summariz/i` filter,
  *    see PASS8 G2).
@@ -18,7 +17,7 @@ import {
   compactAgenticMessagesIfNeeded,
 } from "@/lib/routing/tier_context_budget";
 import {
-  MID_LOOP_COMPACTION_THRESHOLD,
+  COMPACTION_THRESHOLD,
   midLoopCompactionWouldTrigger,
 } from "@/lib/context/mid-loop-threshold";
 
@@ -41,8 +40,6 @@ export interface RunMidLoopCompactionParams {
   tierLimit: number;
   /** When set, mid-loop compaction compares fill to this raw context size (tokens). */
   contextWindowTokens?: number;
-  /** Mirrors `settings.enableContextAutoSummarize !== false` from the caller. */
-  enabled: boolean;
   chatId: number;
   /** Short label distinguishing where the compaction fired (e.g. "Ask tier"). */
   loopLabel: string;
@@ -54,7 +51,7 @@ export interface RunMidLoopCompactionParams {
   /** Optional logger callbacks. */
   onInfo?: (msg: string) => void;
   onWarn?: (msg: string, err?: unknown) => void;
-  /** Threshold override (defaults to 0.7 to match Build). */
+  /** Threshold override. Defaults to the one shared COMPACTION_THRESHOLD. */
   threshold?: number;
 }
 
@@ -74,7 +71,6 @@ export async function runMidLoopCompaction(
     systemPromptEstimate,
     tierLimit,
     contextWindowTokens,
-    enabled,
     chatId,
     loopLabel,
     emitActivity,
@@ -82,12 +78,8 @@ export async function runMidLoopCompaction(
     onWarn,
     // Overflow-only. One source for the number so the wrapper, the predicate
     // and the compactor cannot drift apart.
-    threshold = MID_LOOP_COMPACTION_THRESHOLD,
+    threshold = COMPACTION_THRESHOLD,
   } = params;
-
-  if (!enabled) {
-    return { messages, compacted: false, beforeTokens: 0, afterTokens: 0 };
-  }
 
   // Gate ALL activity emission behind the real compaction trigger (same
   // predicate as compactAgenticMessagesIfNeeded). Without this, a

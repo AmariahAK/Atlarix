@@ -28,6 +28,7 @@ import "./plan";
 import "./automations"; // v14.27 agent-visible standing automations
 import "./browser"; // v11 in-app browser agent tools
 import "./tool-help"; // v14.34 full usage for tools bound with a one-line summary
+import "./sessions"; // v14.39 read behind the compaction boundary
 
 // Re-export registry for convenience
 import { ToolRegistry } from "./registry";

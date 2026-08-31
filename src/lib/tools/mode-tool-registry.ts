@@ -58,6 +58,10 @@ export const EVERY_MODE_TOOLS = [
   // EVERY mode — a peripheral tool's bound description points at it, so a mode
   // that offered the pointer without the tool would be a dead end.
   "tool_help",
+  // v14.39: the other half of compaction. EVERY mode compacts, so every mode can
+  // lose a detail to a summary and must be able to read back behind the boundary.
+  // Read-only, so it is safe on the Ask/Plan/Review surfaces.
+  "session_search",
 ] as const;
 
 function withEveryModeTools(list: readonly string[]): readonly string[] {

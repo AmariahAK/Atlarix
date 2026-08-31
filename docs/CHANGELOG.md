@@ -3,6 +3,37 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
+## [14.39.0] (2026-08-31) — One way of compacting, and a way back to what it summarised
+
+**Compaction had three different ideas about when to run, and one of them forgot its work.**
+Atlarix summarises older turns as a conversation approaches the model's context limit. The main
+automatic path already kept that summary across a restart — but a second, rarer one (the fallback for
+a conversation already over the limit) and the one that runs mid-task both threw their summary away
+when the turn ended, so the next message paid to summarise the same history again. They now keep it
+the same way the others do.
+
+**`session_search`: a new tool for reading what a summary left out.** A summary is shorter than the
+conversation on purpose, so detail does go missing — an exact path you gave once, an error string, a
+decision from twenty turns ago. Until now the agent's only options were to guess or to ask you to
+repeat yourself, even though the full transcript was still on disk for the scrollback. It can now
+search that transcript — this conversation's, or an earlier one in the same project — and page
+through whole turns around a hit. Available in every mode, since every mode compacts. It reads
+sessions in the open project only, and a deleted session is gone: there is nothing left to search.
+
+**Older turns survive longer before anything is summarised.** Where a summary is actually written,
+the fill it waits for is now one number — 90% — instead of three that disagreed depending on which
+part of the app noticed first. Summarising earlier than necessary throws away detail the model had
+room to keep.
+
+**A conversation is no longer trimmed by deleting your oldest turns first.** When context ran out,
+the first thing Atlarix did was delete the two oldest messages, repeatedly, and only then try to
+summarise. Those turns reached no summary and left no trace. The order is now reversed: summarise,
+then trim the project context in the prompt, and only drop messages if a summary still does not fit —
+which now also tells the agent it happened, so it looks things up instead of guessing.
+
+**Compaction's own cost now appears in the token meter.** The one path whose summary survived a
+reload was also the only one that never recorded what its summarisation spent.
+
 ## [14.38.4] (2026-08-29) — Sign-in works again, and signing out no longer leaves a window signed in
 
 **Signing in works again.** Sign-in would open your browser, complete, and then land you on
