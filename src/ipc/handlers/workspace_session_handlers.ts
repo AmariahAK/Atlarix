@@ -516,6 +516,63 @@ export async function seedEphemeralCounterFromSessions(): Promise<void> {
   }
 }
 
+/**
+ * Is this session REALLY safe to reuse or delete? Read the row itself, not an
+ * aggregate computed alongside forty others.
+ *
+ * Two independent conditions, because either alone has a hole:
+ *  · `count(*)` for this one id — closes any staleness between
+ *    `listSessionsWithMessageCounts` and the decision.
+ *  · `updatedAt === createdAt` — a session that has been TOUCHED has had
+ *    something happen in it. Every message insert bumps `updatedAt`
+ *    (`addSessionMessageDirect`), so this catches a session whose rows are
+ *    somehow invisible to the count. On the row observed on 2026-08-31 (created
+ *    15:37:10, updated 15:51:08) this condition alone would have refused.
+ *
+ * The cost of a false refusal is one extra "Untitled" row in the sidebar. The
+ * cost of a false accept is a blank pane or a deleted conversation.
+ */
+async function verifyTrulyEmptySession(sessionId: string): Promise<{
+  row: typeof chatSessions.$inferSelect | undefined;
+  empty: boolean;
+  reason: string;
+}> {
+  const [row] = await db
+    .select()
+    .from(chatSessions)
+    .where(eq(chatSessions.id, sessionId));
+  if (!row) return { row: undefined, empty: false, reason: "row is gone" };
+
+  const [counted] = await db
+    .select({ n: sql<number>`count(*)` })
+    .from(sessionMessages)
+    .where(eq(sessionMessages.sessionId, sessionId));
+  const messageCount = Number(counted?.n ?? 0);
+  if (messageCount > 0) {
+    return {
+      row,
+      empty: false,
+      reason: `re-count found ${messageCount} message(s)`,
+    };
+  }
+
+  const created = row.createdAt?.getTime?.() ?? 0;
+  const updated = row.updatedAt?.getTime?.() ?? 0;
+  if (updated !== created) {
+    return {
+      row,
+      empty: false,
+      reason: `updatedAt (${new Date(updated).toISOString()}) !== createdAt (${new Date(created).toISOString()}) — the session has been written to`,
+    };
+  }
+
+  if (!DEFAULT_SESSION_TITLES.has(row.title)) {
+    return { row, empty: false, reason: `title "${row.title}" is not a default` };
+  }
+
+  return { row, empty: true, reason: "empty" };
+}
+
 export async function startWorkspaceSession(workspaceId: number): Promise<{
   sessionId: string;
   chatId: number;
@@ -524,26 +581,69 @@ export async function startWorkspaceSession(workspaceId: number): Promise<{
   // v10.1 fix: every app reopen created a fresh "Untitled" session, cluttering
   // the sidebar with empties. Reuse the most recent session when it's still
   // default-titled with zero messages, and prune any other stale empties.
+  //
+  // v14.39.1: every candidate is RE-VERIFIED against the row itself before it is
+  // reused or deleted. Observed 2026-08-31: a session holding a 60-char user
+  // message and a 76,003-char completed assistant turn was logged as
+  // "Reusing empty session" on the next launch, handed to a fresh transport, and
+  // rendered as an empty pane. The aggregate in `listSessionsWithMessageCounts`
+  // must have reported 0 for it; both rows were inserted minutes earlier with
+  // insert-time `createdAt`, and the same query returns 2 today, so the mechanism
+  // is NOT understood.
+  //
+  // Which is the point of fixing it this way: the guard does not depend on knowing
+  // the cause. It also covers `pruneIds`, and that half matters more — a reuse
+  // shows a blank pane, but a PRUNE runs `delete(chatSessions)`, which cascades to
+  // `session_messages`. The same stale count that mis-reused this session could
+  // have deleted a conversation instead.
   let session: ChatSessionRow | null = null;
   try {
     const rows = await listSessionsWithMessageCounts(workspaceId);
     const { reuseId, pruneIds } = pickSessionReuse(rows);
+    if (rows.length > 0) {
+      // The decision's inputs, so a recurrence explains itself instead of needing
+      // DB forensics after the fact.
+      logger.log(
+        `[session-reuse] workspace ${workspaceId} candidates: ` +
+          rows
+            .map((r) => `${r.id.slice(0, 8)}(msgs=${String(r.messageCount)},"${r.title}")`)
+            .join(" ") +
+          ` → reuse=${reuseId ? reuseId.slice(0, 8) : "none"} prune=[${pruneIds
+            .map((p) => p.slice(0, 8))
+            .join(",")}]`,
+      );
+    }
     if (reuseId) {
-      const [reuse] = await db
-        .select()
-        .from(chatSessions)
-        .where(eq(chatSessions.id, reuseId));
-      if (reuse) {
-        session = mapSession(reuse);
+      const verified = await verifyTrulyEmptySession(reuseId);
+      if (verified.row && verified.empty) {
+        session = mapSession(verified.row);
         logger.log(
           `Reusing empty session ${session.id} for workspace ${workspaceId}`,
         );
+      } else if (verified.row) {
+        logger.warn(
+          `[session-reuse] REFUSED reuse of ${reuseId}: ${verified.reason}. ` +
+            `A new session is created instead. The aggregate said empty and the row disagrees — ` +
+            `if you are seeing this, the count query is the thing to investigate.`,
+        );
       }
     }
-    if (pruneIds.length > 0) {
-      await db.delete(chatSessions).where(inArray(chatSessions.id, pruneIds));
+    // Verify each prune target independently. One that turns out non-empty is
+    // skipped, not deleted — better a stale sidebar row than a deleted conversation.
+    const safeToPrune: string[] = [];
+    for (const id of pruneIds) {
+      const verified = await verifyTrulyEmptySession(id);
+      if (verified.row && verified.empty) safeToPrune.push(id);
+      else if (verified.row) {
+        logger.warn(
+          `[session-reuse] REFUSED prune of ${id}: ${verified.reason}. Kept.`,
+        );
+      }
+    }
+    if (safeToPrune.length > 0) {
+      await db.delete(chatSessions).where(inArray(chatSessions.id, safeToPrune));
       logger.log(
-        `Pruned ${pruneIds.length} stale empty session(s) for workspace ${workspaceId}`,
+        `Pruned ${safeToPrune.length} stale empty session(s) for workspace ${workspaceId}`,
       );
     }
   } catch (e) {
