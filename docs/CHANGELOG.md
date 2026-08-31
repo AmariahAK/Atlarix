@@ -21,9 +21,28 @@ through whole turns around a hit. Available in every mode, since every mode comp
 sessions in the open project only, and a deleted session is gone: there is nothing left to search.
 
 **Older turns survive longer before anything is summarised.** There is now ONE point at which
-Atlarix decides to summarise before sending a request, at one fill level (90%), instead of two gates
-at 75% and 90% plus a third fallback that only acted once you were already over the limit.
-Summarising earlier than necessary throws away detail the model had room to keep.
+Atlarix decides to summarise before sending a request, instead of two gates plus a third fallback
+that only acted once you were already over the limit.
+
+**And it now knows how much room it actually has.** Compaction used to trigger at a flat 90% of the
+context window. But the window has to hold the reply too, and how long a reply can be has nothing to
+do with a percentage: on a million-token model that reserved about 68,000 tokens more than any reply
+needs, so conversations were summarised far earlier than necessary; on a small model it reserved far
+too little to answer at all. It now subtracts the model's real output limit, read from the model
+catalogue.
+
+**Compaction works on small models again — it had quietly stopped.** Every step of it compared
+against a fixed token count tuned for large windows, so on a small one each step ruled itself out:
+one protected 20,000 tokens of recent tool output even when the whole budget was 16,000, another
+discarded its own work for freeing "only" 15,000 tokens, and summarising was blocked outright on
+conversations shorter than about five messages however large they were. A four-message, 41,000-token
+session against a 16,000-token budget compacted by exactly nothing, every turn. Those limits are now
+proportions of the budget, so they scale with whatever model you are on.
+
+**A long reply can no longer make itself un-compactable.** Recent turns are protected from
+summarising, and that protection used to be counted in turns rather than size — so one very long
+answer was untouchable simply because it was recent, even when it alone was larger than the entire
+budget. Protection is now a size, and the last thing you said is always kept intact.
 
 **A long turn no longer drags its whole tool history into the next message.** When the agent reads
 twenty files in one go, all of that was saved with the turn and re-read on your next message — so the
@@ -43,6 +62,15 @@ which now also tells the agent it happened, so it looks things up instead of gue
 
 **Compaction's own cost now appears in the token meter.** The one path whose summary survived a
 reload was also the only one that never recorded what its summarisation spent.
+
+## [14.39.1] (2026-08-31) — Sessions that stay put
+
+**A conversation could be deleted when you reopened the app.** Atlarix tidies away empty "Untitled"
+sessions on start. The check for "is this empty" was broken in a way that made EVERY untitled session
+look empty, whatever it held — so a project with two or more untitled conversations kept the newest
+and deleted the rest, along with their messages. If a session ever came back blank, this was why.
+Fixed, and the tidy-up now re-checks each session against its own record before reusing or removing
+it — a stale sidebar row is a much better outcome than a lost conversation.
 
 ## [14.38.4] (2026-08-29) — Sign-in works again, and signing out no longer leaves a window signed in
 

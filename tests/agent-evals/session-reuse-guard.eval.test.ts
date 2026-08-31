@@ -7,17 +7,18 @@ import { setupEvalContext, type EvalContext } from "../infra/turn";
  *
  * OBSERVED 2026-08-31, shipped v14.38.4. After a 12-minute Explore turn, quit and
  * reopen showed an empty chat pane. The session held a 60-char user message and a
- * 76,003-char completed assistant turn, both intact in the DB — but startup logged
- * `Reusing empty session 4730c40f-…` and bound a fresh transport to it. The
- * aggregate in `listSessionsWithMessageCounts` must have reported 0 for a row that
- * had two messages inserted minutes earlier; re-running that exact query today
- * returns 2, so the MECHANISM IS NOT UNDERSTOOD.
+ * 76,003-char completed assistant turn, both intact — but startup logged
+ * `Reusing empty session 4730c40f-…` and bound a fresh transport to it.
  *
- * These tests therefore assert the OUTCOME rather than any theory of the cause:
- * whatever the count says, a session holding messages is neither reused nor
- * deleted. The prune half matters more than the reuse half — a bad reuse shows a
- * blank pane, a bad prune runs `delete(chatSessions)` and cascades to
- * `session_messages`.
+ * MECHANISM, found once the guard logged what the decision saw:
+ * `listSessionsWithMessageCounts` returned 0 for EVERY session, always. Its `sql`
+ * template rendered an uncorrelated subquery whose two sides both resolved
+ * against `session_messages` — see that function for the full account.
+ *
+ * The query is fixed and pinned in the first describe below. The GUARD stays
+ * anyway, and the second describe still asserts outcomes rather than counts: the
+ * consequence of trusting a wrong count here is `delete(chatSessions)` cascading
+ * to a real conversation, which is too expensive to protect with only one layer.
  */
 
 let ctx: EvalContext;
@@ -72,6 +73,69 @@ const sessionExists = async (id: string) => {
       .where(eq(chatSessions.id, id))).length > 0
   );
 };
+
+describe("the message count itself — the root cause", () => {
+  /**
+   * `listSessionsWithMessageCounts` returned 0 for EVERY session. Its `sql`
+   * template rendered an uncorrelated subquery:
+   *
+   *   select count(*) from "session_messages" where "session_id" = "id"
+   *
+   * Both names resolved against `session_messages` (which has its own `id`), so
+   * each message's `session_id` was compared to its own `id` and never matched.
+   *
+   * Because `pickSessionReuse` reads 0 as "safe to reuse or DELETE", every
+   * default-titled session looked empty — so a workspace with two or more
+   * "Untitled" conversations had all but the newest handed to
+   * `delete(chatSessions)`, cascading to their messages. This asserts the count
+   * is real, which is what makes the reuse and prune decisions meaningful at all.
+   */
+  it("reports the true count per session, not zero", async () => {
+    const { appId } = await ctx.testDb.seedApp({
+      path: "/tmp/reuse-count",
+      name: "reuse-count",
+    });
+    await seedSession(appId, "count-two", { messages: 2 });
+    await seedSession(appId, "count-zero", { messages: 0 });
+    await seedSession(appId, "count-five", { messages: 5 });
+
+    const { chatSessions, sessionMessages } = await import("@/db/schema");
+    const { eq, sql, desc } = await import("drizzle-orm");
+    const rows = await ctx.testDb.db
+      .select({
+        id: chatSessions.id,
+        messageCount: sql<number>`count(${sessionMessages.id})`,
+      })
+      .from(chatSessions)
+      .leftJoin(sessionMessages, eq(sessionMessages.sessionId, chatSessions.id))
+      .where(eq(chatSessions.workspaceId, appId))
+      .groupBy(chatSessions.id)
+      .orderBy(desc(chatSessions.updatedAt));
+
+    const byId = new Map(rows.map((r) => [r.id, Number(r.messageCount)]));
+    expect(byId.get("count-two")).toBe(2);
+    expect(byId.get("count-zero")).toBe(0);
+    expect(byId.get("count-five")).toBe(5);
+  });
+
+  it("so two Untitled conversations both SURVIVE a start — the data-loss case", async () => {
+    // With an always-zero count both looked empty: one reused, the other deleted.
+    const { appId } = await ctx.testDb.seedApp({
+      path: "/tmp/reuse-two-full",
+      name: "reuse-two-full",
+    });
+    await seedSession(appId, "full-a", { messages: 3 });
+    await seedSession(appId, "full-b", { messages: 4 });
+
+    const { startWorkspaceSession } = await import(
+      "@/ipc/handlers/workspace_session_handlers"
+    );
+    await startWorkspaceSession(appId);
+
+    expect(await sessionExists("full-a")).toBe(true);
+    expect(await sessionExists("full-b")).toBe(true);
+  });
+});
 
 describe("startWorkspaceSession never reuses or prunes a session with content", () => {
   it("refuses to reuse a default-titled session that holds messages", async () => {

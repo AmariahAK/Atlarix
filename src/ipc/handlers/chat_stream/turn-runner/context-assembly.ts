@@ -18,7 +18,7 @@ import type { UserSettings, LargeLanguageModel } from "@/lib/schemas";
 import type { ContextSection } from "@/lib/context/ContextAssembler";
 import { getEffectiveModelForOptions } from "@/ipc/utils/get_model_client";
 import { safeSend } from "@/ipc/utils/safe_sender";
-import { COMPACTION_THRESHOLD } from "@/lib/context/mid-loop-threshold";
+
 import { estimateTokens } from "@/ipc/utils/token_utils";
 import {
   buildPromptBundle,
@@ -60,6 +60,8 @@ export interface ContextAssemblyDeps {
   modelContextResolved: { tierLimit: number };
   promptBundleDeps: PromptBundleDeps;
   contextWindowTokens: number;
+  /** Window minus the reply reserve — what a request may actually occupy. */
+  usableTokens: number;
 }
 
 export async function runContextAssembly(
@@ -78,6 +80,7 @@ export async function runContextAssembly(
     modelContextResolved,
     promptBundleDeps,
     contextWindowTokens,
+    usableTokens,
   } = deps;
   let {
     systemPrompt,
@@ -254,11 +257,15 @@ export async function runContextAssembly(
             // removed as the weaker, redundant half. It keeps the jobs only it can
             // do: trimming the context-assembler blob out of the system prompt, and
             // dropping head messages as a last resort with a notice to the model.
+            // `usableTokens` is the window MINUS the reply reserve, resolved from
+            // the model's real output limit. Comparing against it directly retires
+            // the flat 0.9, which reserved ~68,000 tokens too many on a 1M window
+            // and far too few on a small one.
             const fillBefore = dispatchEstimate / contextWindowTokens;
-            if (fillBefore >= COMPACTION_THRESHOLD) {
+            if (dispatchEstimate > usableTokens) {
               logCompactionLine(dispatchEstimate, "compact");
               logger.log(
-                `[stream:${req.chatId}] pre-dispatch context compaction fill=${(fillBefore * 100).toFixed(1)}% est=${dispatchEstimate}/${contextWindowTokens} threshold=${COMPACTION_THRESHOLD}`,
+                `[stream:${req.chatId}] pre-dispatch context compaction fill=${(fillBefore * 100).toFixed(1)}% est=${dispatchEstimate} usable=${usableTokens} window=${contextWindowTokens}`,
               );
               const activityBase = `predispatch-compact-${req.chatId}-${Date.now()}`;
               safeSend(event.sender, "chat:activity", {
@@ -278,9 +285,7 @@ export async function runContextAssembly(
                 // spin. `runCompressAndRebuild` recomputes `dispatchEstimate`, so
                 // the loop condition sees each pass's real effect.
                 for (let pass = 0; pass < MAX_COMPACTION_PASSES; pass++) {
-                  if (dispatchEstimate / contextWindowTokens < COMPACTION_THRESHOLD) {
-                    break;
-                  }
+                  if (dispatchEstimate <= usableTokens) break;
                   const cr = await runCompressAndRebuild(
                     `pre-dispatch-fill-${Math.round(
                       (dispatchEstimate / contextWindowTokens) * 100,

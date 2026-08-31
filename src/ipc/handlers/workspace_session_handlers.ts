@@ -477,7 +477,30 @@ export function pickSessionReuse(
   };
 }
 
-/** Sessions for this workspace (most recent first) with their message counts. */
+/**
+ * Sessions for this workspace (most recent first) with their message counts.
+ *
+ * THIS QUERY RETURNED 0 FOR EVERY SESSION. It was a `sql` template correlated
+ * subquery, and drizzle rendered both sides of its WHERE unqualified:
+ *
+ *   select count(*) from "session_messages" where "session_id" = "id"
+ *
+ * Inside that subquery BOTH names resolve against `session_messages`, which has
+ * its own `id` column — so it compared each message's `session_id` to that same
+ * message's `id`. Those never match. The subquery was never correlated with the
+ * outer row at all, and the count was structurally always zero.
+ *
+ * What that cost: `pickSessionReuse` treats `messageCount === 0` plus a default
+ * title as "safe to reuse or DELETE", so every default-titled session looked
+ * empty. A workspace with two or more "Untitled" sessions holding real
+ * conversations had all but the newest passed to `delete(chatSessions)`, which
+ * cascades to `session_messages`. Only the title check limited the blast radius.
+ * Observed 2026-08-31 as a session that came back blank; the caller's re-verify
+ * guard is what caught it, and that guard stays regardless of this fix.
+ *
+ * A LEFT JOIN with GROUP BY instead of a raw template: in a join drizzle
+ * qualifies the columns itself, so the bug is not expressible.
+ */
 async function listSessionsWithMessageCounts(
   workspaceId: number,
 ): Promise<{ id: string; title: string; messageCount: number }[]> {
@@ -485,13 +508,12 @@ async function listSessionsWithMessageCounts(
     .select({
       id: chatSessions.id,
       title: chatSessions.title,
-      messageCount: sql<number>`(
-        select count(*) from ${sessionMessages}
-        where ${sessionMessages.sessionId} = ${chatSessions.id}
-      )`,
+      messageCount: sql<number>`count(${sessionMessages.id})`,
     })
     .from(chatSessions)
+    .leftJoin(sessionMessages, eq(sessionMessages.sessionId, chatSessions.id))
     .where(eq(chatSessions.workspaceId, workspaceId))
+    .groupBy(chatSessions.id)
     .orderBy(desc(chatSessions.updatedAt));
 }
 
@@ -586,16 +608,15 @@ export async function startWorkspaceSession(workspaceId: number): Promise<{
   // reused or deleted. Observed 2026-08-31: a session holding a 60-char user
   // message and a 76,003-char completed assistant turn was logged as
   // "Reusing empty session" on the next launch, handed to a fresh transport, and
-  // rendered as an empty pane. The aggregate in `listSessionsWithMessageCounts`
-  // must have reported 0 for it; both rows were inserted minutes earlier with
-  // insert-time `createdAt`, and the same query returns 2 today, so the mechanism
-  // is NOT understood.
+  // rendered as an empty pane.
   //
-  // Which is the point of fixing it this way: the guard does not depend on knowing
-  // the cause. It also covers `pruneIds`, and that half matters more — a reuse
-  // shows a blank pane, but a PRUNE runs `delete(chatSessions)`, which cascades to
-  // `session_messages`. The same stale count that mis-reused this session could
-  // have deleted a conversation instead.
+  // The cause is now known and fixed — `listSessionsWithMessageCounts` returned 0
+  // for every session, always (see that function). The guard STAYS anyway, and not
+  // out of superstition: the failure mode of trusting that count is
+  // `delete(chatSessions)` cascading to a real conversation. A count is cheap to
+  // get wrong and expensive to be wrong about, so it is checked twice — and the
+  // guard is what surfaced the bug in the first place, by logging what the
+  // decision actually saw.
   let session: ChatSessionRow | null = null;
   try {
     const rows = await listSessionsWithMessageCounts(workspaceId);

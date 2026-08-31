@@ -127,7 +127,8 @@ export interface AskBranchDeps {
     argsTextSoFar: string;
   }) => void;
   abortController: AbortController;
-  contextWindowTokens: number;
+  /** Window minus the reply reserve — what a request may actually occupy. */
+  usableTokens: number;
   processResponseChunkUpdate: (args: { fullResponse: string }) => Promise<string>;
   applyTierEscalation: (args: {
     agenticIteration: number;
@@ -169,7 +170,7 @@ export async function runAskBranch(
     handleToolInputProgress,
     handleToolInputDelta,
     abortController,
-    contextWindowTokens,
+    usableTokens,
     processResponseChunkUpdate,
     applyTierEscalation,
   } = deps;
@@ -943,7 +944,7 @@ export async function runAskBranch(
                   continuationTurnId: String(placeholderAssistantMessage.id),
                   streamTurnId,
                   tierLimit: modelContextResolved.tierLimit,
-                  contextWindowTokens,
+                  usableTokens,
                   maxContinuationAttempts: STREAM_CONTINUATION_MAX,
                   taskLedger: taskLedgerBlock,
                   permissionInterceptor: askPermissionInterceptor,

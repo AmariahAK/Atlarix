@@ -23,8 +23,12 @@
  *   · mid-turn loop        → compactAgenticMessagesIfNeeded (same file)
  *   · model-initiated      → compress_context           (tools/workspace.ts)
  * plus overflow recovery, which is the same call with the gates forced.
- * One threshold (COMPACTION_THRESHOLD), one marker (COMPACTION_SUMMARY_PREFIX),
- * one durable write (persistCompactionSummaryToSession, owned here).
+ * One budget (`usable` — the window minus the room the reply needs), one marker
+ * (COMPACTION_SUMMARY_PREFIX), one durable write (persistCompactionSummaryToSession,
+ * owned here). Every step below sizes itself as a FRACTION of that budget rather
+ * than against a fixed token count: five absolute constants used to live here, and
+ * on a small window each one silently switched its own step off. See
+ * `compactionBudgets` in `mid-loop-threshold.ts`.
  */
 
 import { generateText } from "ai";
@@ -38,7 +42,7 @@ import {
 import log from "electron-log";
 import { exactTokenCount, exactTokenCountText } from "./token-counter";
 import { recordAuxUsage } from "../usage/turn-usage-aggregator";
-import { COMPACTION_THRESHOLD } from "./mid-loop-threshold";
+import { compactionBudgets, usableContextBudget } from "./mid-loop-threshold";
 
 const logger = log.scope("compaction");
 
@@ -46,8 +50,16 @@ const logger = log.scope("compaction");
 // OPENCODE-STYLE CONSTANTS
 // ═══════════════════════════════════════════════════════════════
 
+/**
+ * @deprecated Kept only for callers that still import it. The pruner now derives
+ * its protection from `compactionBudgets(usable).pruneProtectRecent`.
+ *
+ * As a fixed number this was the single biggest reason compaction did nothing on
+ * a small window: it protected the most recent 20,000 tokens of tool output even
+ * when the ENTIRE budget was 16,000, so a 19,000-token message was kept whole and
+ * every later step then had nothing left to work with.
+ */
 export const PRUNE_MINIMUM_TOKENS = 20_000;
-const DEFAULT_TAIL_TURNS = 2;
 /**
  * The summarize threshold is OWNED BY `mid-loop-threshold.ts`, the dependency-light
  * leaf, so the number's own test does not have to import this file's provider and
@@ -58,10 +70,14 @@ const DEFAULT_TAIL_TURNS = 2;
  * provider overflow (see resolve-model-context-limit.ts).
  */
 const PRUNE_THRESHOLD = 0.60;
+/**
+ * Everything below is derived from the USABLE budget, not fixed.
+ *
+ * The rule this file kept breaking: a protection floor must never exceed the
+ * budget it is protecting space within. See `compactionBudgets` in
+ * `mid-loop-threshold.ts` for the numbers and the measurement that produced them.
+ */
 const TOOL_OUTPUT_MAX_CHARS = 2_000;
-/** Microcompact keeps tool outputs from the last N user turns; older ones are
- * DROPPED entirely (no LLM call) — cheaper than truncation+summarization. */
-const MICROCOMPACT_KEEP_TURNS = 3;
 const PRUNE_PROTECTED_TOOLS = ["skill"];
 
 /**
@@ -317,57 +333,93 @@ function splitTurn(
   return undefined;
 }
 
-function preserveRecentBudget(tierLimit: number): number {
-  const budget = tierLimit;
-  const PRESERVE_RECENT_TOKENS = 2_000;
-  const MAX_PRESERVE_RECENT_TOKENS = 8_000;
-  return Math.min(
-    MAX_PRESERVE_RECENT_TOKENS,
-    Math.max(PRESERVE_RECENT_TOKENS, Math.floor(budget * 0.25))
-  );
+/**
+ * How much recent conversation is kept verbatim.
+ *
+ * The 2,000/8,000 clamps that used to bound this were absolutes: on a 16,000-token
+ * budget the 8,000 ceiling let HALF the budget be unprotectable-from, and the
+ * 2,000 floor could exceed a tiny budget outright. Derived from `usable` now, so
+ * it is a share of what there is.
+ */
+function preserveRecentBudget(usable: number): number {
+  return compactionBudgets(usable).preserveRecent;
 }
 
+/**
+ * Split the history into a HEAD to summarise and a TAIL to keep verbatim.
+ *
+ * PROTECTION IS A TOKEN BUDGET, NOT A TURN COUNT. It used to take the last
+ * `DEFAULT_TAIL_TURNS = 2` turns and, if they did not fit `preserveRecentBudget`,
+ * try to split inside the newest turn — and when THAT failed, select no tail at
+ * all, which made `head = everything` and let the caller's count precondition
+ * refuse. Two turns can be 200 tokens or 40,000; the rule could not tell.
+ *
+ * Measured 2026-08-31: a 4-message session of ~41,000 tokens against a 16,000-token
+ * cap, whose newest assistant turn was 22,348 tokens on its own. The newest turn
+ * could not fit a 4,000-token protection budget, no split fit either, so nothing
+ * was protected, everything became head, and compaction refused. A message was
+ * untouchable purely because it was RECENT, at any fill level.
+ *
+ * Now: walk back accumulating tokens until the budget is spent, and when even the
+ * newest assistant turn will not fit, PROTECT LESS rather than abandon — an
+ * oversized recent turn falls into the head, where the summariser handles it like
+ * any other history. That is also why there is no separate "oversized message"
+ * mechanism: being recent stops being unconditional protection.
+ *
+ * The one thing always protected is the last USER message, however small. A tail
+ * of nothing means summarising the request the model is currently answering.
+ */
 function selectMessagesForCompaction(
   msgs: MessageForCompaction[],
-  tierLimit: number,
+  usable: number,
 ): { head: MessageForCompaction[]; tail_start_id: number | undefined } {
-  const budget = preserveRecentBudget(tierLimit);
+  const budget = preserveRecentBudget(usable);
   const all = turns(msgs);
-
   if (all.length === 0) return { head: msgs, tail_start_id: undefined };
 
-  const recent = all.slice(-DEFAULT_TAIL_TURNS);
+  const sizeOf = (turn: Turn) =>
+    exactTokenCount(
+      msgs
+        .slice(turn.start, turn.end)
+        .map((m) => ({ role: m.role, content: m.content })),
+    );
+
   let total = 0;
   let keep: Tail | undefined;
 
-  for (let i = recent.length - 1; i >= 0; i--) {
-    const turn = recent[i]!;
-    const turnMsgs = msgs.slice(turn.start, turn.end);
-    const turnSize = exactTokenCount(turnMsgs.map(m => ({ role: m.role, content: m.content })));
-
+  // Newest first, for as many whole turns as the budget affords — no turn CAP,
+  // so a long tail of small turns is protected as cheaply as it deserves.
+  for (let i = all.length - 1; i >= 0; i--) {
+    const turn = all[i]!;
+    const turnSize = sizeOf(turn);
     if (total + turnSize <= budget) {
       total += turnSize;
       keep = { start: turn.start, id: turn.id };
       continue;
     }
-
-    const remaining = budget - total;
-    const split = splitTurn(msgs, turn, remaining);
+    // Does part of this turn fit?
+    const split = splitTurn(msgs, turn, budget - total);
     if (split) keep = split;
-    else if (!keep) {
-      logger.info("tail fallback", { budget, turnSize, total });
-    }
     break;
+  }
+
+  // Nothing fit — the newest turn alone is bigger than the whole protection
+  // budget. Protect the last user message and let the oversized assistant turn be
+  // summarised, instead of protecting everything and compacting nothing.
+  if (!keep) {
+    const lastUser = all[all.length - 1];
+    if (lastUser && lastUser.start > 0) {
+      logger.info(
+        `[compaction] newest turn exceeds the ${budget}-token protection budget — protecting the last user message only`,
+      );
+      keep = { start: lastUser.start, id: lastUser.id };
+    }
   }
 
   if (!keep || keep.start === 0) {
     return { head: msgs, tail_start_id: undefined };
   }
-
-  return {
-    head: msgs.slice(0, keep.start),
-    tail_start_id: keep.id,
-  };
+  return { head: msgs.slice(0, keep.start), tail_start_id: keep.id };
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -411,7 +463,11 @@ export function pruneToolOutputs(
 ): { messages: MessageForCompaction[]; tokensPruned: number } {
   if (msgs.length === 0) return { messages: msgs, tokensPruned: 0 };
 
-  const minKeep = Math.max(PRUNE_MINIMUM_TOKENS, protectRecentTokens);
+  // NOT `Math.max(20_000, …)`. That fixed floor protected more tool output than a
+  // small budget contains, so on a 16,000-token cap a 19,000-token message was
+  // kept whole and the pruner freed nothing. The caller passes a budget-derived
+  // number; the floor may never exceed the budget it protects space within.
+  const minKeep = protectRecentTokens;
 
   let userTurns = 0;
   const out = msgs.map((m) => ({ ...m }));
@@ -465,19 +521,22 @@ export function pruneToolOutputs(
  */
 export function microcompactStaleToolOutputs(
   msgs: MessageForCompaction[],
-  keepRecentTurns: number = MICROCOMPACT_KEEP_TURNS,
+  /**
+   * Tool-output tokens to leave untouched, newest first. Previously a count of
+   * USER TURNS (default 3), which is why this did nothing on the session that
+   * prompted the change: it had two turns, so all 41,000 tokens were "recent".
+   * A budget cannot be fooled by a conversation being short and enormous.
+   */
+  keepRecentTokens: number,
 ): { messages: MessageForCompaction[]; tokensDropped: number } {
   if (msgs.length === 0) return { messages: msgs, tokensDropped: 0 };
 
   const out = msgs.map((m) => ({ ...m }));
-  let userTurns = 0;
+  let keptToolTokens = 0;
   let tokensDropped = 0;
 
   for (let i = out.length - 1; i >= 0; i--) {
     const m = out[i]!;
-    if (m.role === "user") userTurns++;
-    // Still inside the recent keep-window — leave everything intact.
-    if (userTurns <= keepRecentTurns) continue;
     if (m.role !== "assistant" && m.role !== "user") continue;
 
     const content = m.content || "";
@@ -487,6 +546,11 @@ export function microcompactStaleToolOutputs(
 
     const t = exactTokenCountText(content);
     if (t === 0) continue;
+    // Inside the recent keep-window, measured in tokens.
+    if (keptToolTokens + t <= keepRecentTokens) {
+      keptToolTokens += t;
+      continue;
+    }
     tokensDropped += t;
     out[i] = {
       ...m,
@@ -588,7 +652,6 @@ export function countMessagesTokens(
 }
 
 /** Below this many history tokens a forced compaction is an honest no-op. */
-const FORCE_COMPACT_MIN_HISTORY_TOKENS = 8_000;
 
 // ═══════════════════════════════════════════════════════════════
 // MAIN COMPACTION FUNCTION (Steps 1-5)
@@ -653,10 +716,15 @@ export async function runSteppedCompaction(
 
   const force = opts?.force === true;
   const currentTokens = countMessagesTokens(messages);
-  const usageRatio =
-    tierLimit > 0 ? (currentTokens + (opts?.alreadyUsedTokens ?? 0)) / tierLimit : 0;
+  const alreadyUsed = opts?.alreadyUsedTokens ?? 0;
+  // `usable` is what the caller passes: the window MINUS the reply reserve. Every
+  // step below sizes itself against it, so none of them can protect more room
+  // than exists. See `compactionBudgets`.
+  const usable = Math.max(1, tierLimit);
+  const budgets = compactionBudgets(usable);
+  const usageRatio = (currentTokens + alreadyUsed) / usable;
 
-  if (force && currentTokens < FORCE_COMPACT_MIN_HISTORY_TOKENS) {
+  if (force && currentTokens < budgets.forceMinHistory) {
     return {
       modelContext: messages,
       strategy: "none",
@@ -689,6 +757,7 @@ export async function runSteppedCompaction(
   {
     const { messages: micro, tokensDropped } = microcompactStaleToolOutputs(
       modelContext,
+      budgets.microcompactKeepTokens,
     );
     if (tokensDropped > 0) {
       modelContext = micro;
@@ -697,11 +766,18 @@ export async function runSteppedCompaction(
     }
   }
 
-  // Step 2: Prune tool outputs if over 60% (or on a forced call)
+  // Step 2: Prune tool outputs.
   if (force || usageRatio > PRUNE_THRESHOLD) {
-    const protectBudget = preserveRecentBudget(tierLimit);
-    const { messages: pruned, tokensPruned } = pruneToolOutputs(modelContext, protectBudget);
-    if (tokensPruned > PRUNE_MINIMUM_TOKENS) {
+    const { messages: pruned, tokensPruned } = pruneToolOutputs(
+      modelContext,
+      budgets.pruneProtectRecent,
+    );
+    // ACCEPT ANY REAL REDUCTION. This used to require `tokensPruned >
+    // PRUNE_MINIMUM_TOKENS` (20,000) — so on a 16,000-token budget the pruner
+    // could free 15,000 tokens and have the result THROWN AWAY for not being big
+    // enough. A fixed floor deciding whether work counts is the same bug as a
+    // fixed floor deciding whether to do it.
+    if (tokensPruned > 0) {
       modelContext = pruned;
       tokensFreed = tokensPruned;
       strategy = "pruned";
@@ -710,10 +786,9 @@ export async function runSteppedCompaction(
 
   // Recalculate after pruning
   const tokensAfterPrune = countMessagesTokens(modelContext);
-  const ratioAfterPrune = tierLimit > 0 ? tokensAfterPrune / tierLimit : 0;
 
-  // Step 3: Strip media if still over 75%
-  if (ratioAfterPrune > COMPACTION_THRESHOLD) {
+  // Step 3: Strip media if still over budget.
+  if (tokensAfterPrune + alreadyUsed > usable) {
     const stripped = stripMediaFromMessages(modelContext);
     const strippedTokens = countMessagesTokens(stripped);
     const freedByStrip = tokensAfterPrune - strippedTokens;
@@ -726,15 +801,15 @@ export async function runSteppedCompaction(
 
   // Recalculate after media strip
   const tokensAfterStrip = countMessagesTokens(modelContext);
-  const ratioAfterStrip = tierLimit > 0 ? tokensAfterStrip / tierLimit : 0;
 
-  // Step 4: LLM summarization if still over COMPACTION_THRESHOLD — or on a forced
+  // Step 4: LLM summarization if still over the usable budget — or on a forced
   // (model-initiated) call whose cheap steps freed little: the model asked
   // for space, so give it real space instead of a token-identical no-op.
   const forcedSummarize =
     force && tokensFreed < Math.max(2_000, Math.floor(currentTokens * 0.1));
-  if (ratioAfterStrip > COMPACTION_THRESHOLD || forcedSummarize) {
-    const { head: headMessages, tail_start_id: tailStartId } = selectMessagesForCompaction(modelContext, tierLimit);
+  if (tokensAfterStrip + alreadyUsed > usable || forcedSummarize) {
+    const { head: headMessages, tail_start_id: tailStartId } =
+      selectMessagesForCompaction(modelContext, usable);
 
     // v11.1 guard: don't re-summarize a head that is just the previous
     // summary (nothing new to fold in) — avoids degenerate double passes.
@@ -742,11 +817,20 @@ export async function runSteppedCompaction(
       headMessages.length === 1 &&
       isCompactionSummaryMessage(headMessages[0]?.content);
 
-    if (
-      !headIsOnlyPriorSummary &&
-      headMessages.length > 0 &&
-      headMessages.length < modelContext.length - 2
-    ) {
+    // GATE ON TOKEN MASS, NOT MESSAGE COUNT.
+    //
+    // This used to require `headMessages.length < modelContext.length - 2`: the
+    // head had to be at least two messages shorter than the whole list. With four
+    // messages the head had to be exactly one; with three it was arithmetically
+    // impossible. So a short-but-enormous conversation — four messages holding
+    // 41,000 tokens, which is what a couple of tool-heavy turns looks like —
+    // could never be summarised at any fill level. Measured 2026-08-31.
+    //
+    // What actually matters is whether the head holds enough to be worth a
+    // provider call, which is a question about tokens.
+    const headTokens = countMessagesTokens(headMessages);
+    const worthSummarising = headTokens >= Math.min(budgets.forceMinHistory, 1_000);
+    if (!headIsOnlyPriorSummary && headMessages.length > 0 && worthSummarising) {
       // The generation the NEXT marker carries: one past whatever the head's
       // prior summary claims (1 when there isn't one, so the first is gen=1).
       const priorGeneration =
@@ -895,6 +979,17 @@ export function isContextOverflowError(error: unknown): boolean {
  * expects a MODEL id, so the row never matched and every provider got the
  * hardcoded 128K fallback.
  */
+/**
+ * The budget a request may actually occupy: the model's window MINUS the room its
+ * reply needs.
+ *
+ * The name was previously a lie — it returned `tierLimit`, the whole window, with
+ * no output reserve at all. Everything downstream then compared against a flat
+ * 0.9 to leave headroom, which on a 1M window reserved ~68,000 tokens more than
+ * any reply needs and on a 16,000 cap reserved far too little for a reasoning
+ * model to answer at all. The reserve is now the model's real `maxOutputTokens`
+ * from models.dev, clamped so it can never swallow the window.
+ */
 export async function getUsableBudget(providerId?: string): Promise<number> {
   const settings = readSettings();
   const selected = settings.selectedModel;
@@ -910,7 +1005,32 @@ export async function getUsableBudget(providerId?: string): Promise<number> {
     model as Parameters<typeof resolveModelContextLimit>[0],
     settings,
   );
-  return resolved.tierLimit;
+  return resolveUsableBudget(
+    model as Parameters<typeof resolveModelContextLimit>[0],
+    resolved.tierLimit,
+  );
+}
+
+/**
+ * Shared by every caller that needs "how much room do I actually have": resolve
+ * the model's output limit from the catalog and subtract it from the window.
+ * Falls back to the window itself if the catalog lookup throws — a missing
+ * reserve is better than a failed turn.
+ */
+export async function resolveUsableBudget(
+  model: { provider?: string; name?: string },
+  contextWindow: number,
+): Promise<number> {
+  try {
+    const { getMaxTokensWithFloor } = await import("@/ipc/utils/token_utils");
+    const maxOutputTokens = await getMaxTokensWithFloor(
+      model as Parameters<typeof getMaxTokensWithFloor>[0],
+    );
+    return usableContextBudget({ contextWindow, maxOutputTokens });
+  } catch (e) {
+    logger.warn("[compaction] could not resolve output reserve — using the full window", e);
+    return contextWindow;
+  }
 }
 
 /**

@@ -16,10 +16,7 @@ import type { ModelMessage } from "ai";
 import {
   compactAgenticMessagesIfNeeded,
 } from "@/lib/routing/tier_context_budget";
-import {
-  COMPACTION_THRESHOLD,
-  midLoopCompactionWouldTrigger,
-} from "@/lib/context/mid-loop-threshold";
+import { compactionWouldTrigger } from "@/lib/context/mid-loop-threshold";
 
 export interface MidLoopCompactionActivityPayload {
   id: string;
@@ -38,8 +35,8 @@ export interface RunMidLoopCompactionParams {
   nativeMessages?: ModelMessage[];
   systemPromptEstimate: number;
   tierLimit: number;
-  /** When set, mid-loop compaction compares fill to this raw context size (tokens). */
-  contextWindowTokens?: number;
+  /** Window MINUS the reply reserve. See `usableContextBudget`. */
+  usableTokens?: number;
   chatId: number;
   /** Short label distinguishing where the compaction fired (e.g. "Ask tier"). */
   loopLabel: string;
@@ -51,8 +48,7 @@ export interface RunMidLoopCompactionParams {
   /** Optional logger callbacks. */
   onInfo?: (msg: string) => void;
   onWarn?: (msg: string, err?: unknown) => void;
-  /** Threshold override. Defaults to the one shared COMPACTION_THRESHOLD. */
-  threshold?: number;
+
 }
 
 export interface RunMidLoopCompactionResult {
@@ -70,15 +66,12 @@ export async function runMidLoopCompaction(
     nativeMessages,
     systemPromptEstimate,
     tierLimit,
-    contextWindowTokens,
+    usableTokens,
     chatId,
     loopLabel,
     emitActivity,
     onInfo,
     onWarn,
-    // Overflow-only. One source for the number so the wrapper, the predicate
-    // and the compactor cannot drift apart.
-    threshold = COMPACTION_THRESHOLD,
   } = params;
 
   // Gate ALL activity emission behind the real compaction trigger (same
@@ -86,12 +79,11 @@ export async function runMidLoopCompaction(
   // "Summarizing in-task context" card pulsed on EVERY loop iteration — even
   // at ~6k tokens against a 1M window — because the running/done events were
   // emitted unconditionally. Below threshold: do nothing, emit nothing.
-  const pre = midLoopCompactionWouldTrigger({
+  const pre = compactionWouldTrigger({
     messages,
     systemPromptEstimate,
     tierLimit,
-    contextWindowTokens,
-    threshold,
+    usableTokens,
   });
   if (!pre.willTrigger) {
     return {
@@ -125,8 +117,7 @@ export async function runMidLoopCompaction(
       nativeMessages,
       systemPromptEstimate,
       tierLimit,
-      contextWindowTokens,
-      threshold,
+      usableTokens,
       chatId,
     });
 

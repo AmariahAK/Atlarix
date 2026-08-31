@@ -191,6 +191,59 @@ real invariant lay elsewhere. And an eval can assert nothing while looking thoro
 envelope eval passed because the eval model reports a 200,000-token window, so a 48,000-token turn
 needed no clipping. It now caps the window via `runTurn`'s `settings`.
 
+### 0c. STAGED 2026-08-31 (third pass) — what the packaged run exposed
+
+**A DATA-LOSS BUG, found because the guard logged its inputs.**
+`listSessionsWithMessageCounts` returned **0 for every session, always**. Its `sql` template
+rendered an UNCORRELATED subquery — `where "session_id" = "id"`, both unqualified, so both resolved
+against `session_messages` (which has its own `id`) and each message's `session_id` was compared to
+its own `id`. Never matched.
+
+`pickSessionReuse` reads 0 + a default title as "safe to reuse or DELETE", so every "Untitled"
+session looked empty and `pruneIds` handed all but the newest to `delete(chatSessions)` — cascading
+to their messages. **Two or more Untitled conversations in one workspace meant all but one were
+deleted on app start.** Only the title check limited the blast radius. Now a `leftJoin` + `groupBy`,
+where drizzle qualifies the columns itself and the bug is not expressible.
+
+**The lesson, and it is the reason the diagnostic was worth writing:** the guard was added without
+knowing the cause, and logging *what the decision saw* is what produced the cause on the first
+recurrence — `candidates: 4730c40f(msgs=0)` next to `re-count found 2 message(s)`. When you cannot
+explain a bug, ship the guard AND the evidence collector.
+
+**COMPACTION HAD DISABLED ITSELF ON SMALL WINDOWS.** Every step compared against an absolute token
+constant tuned for a large window. Measured on a real 4-message / ~41,000-token session against a
+16,000-token cap, where nothing compacted turn after turn:
+
+| step | constant | effect at 16K |
+|---|---|---|
+| microcompact | keep last 3 TURNS | session had 2 → no-op |
+| prune | `PRUNE_MINIMUM_TOKENS = 20_000` | protected more than the whole budget |
+| prune (accept) | `tokensPruned > 20_000` | **discarded its own successful work** |
+| summarise | `head.length < ctx.length - 2` | impossible under ~5 messages |
+| tail select | last 2 TURNS by count | oversized newest turn → protect nothing → refuse |
+
+All now proportions of the usable budget, via `compactionBudgets()`. The invariant —
+**no protection floor may exceed the budget it protects within** — is a function
+(`assertBudgetsFitWithin`) driven across 8K→1M windows.
+
+**The flat 0.9 threshold is gone.** `usable = window − min(max(maxOutputTokens, floor), window×0.4)`.
+A percentage cannot express "leave room for the reply": 0.9 reserved ~68,000 tokens too many on a 1M
+window and far too few on a 16K one. `maxOutputTokens` comes from models.dev, so it scales per model;
+the 0.4 clamp exists because the reasoning floor (32,000) otherwise makes `usable` NEGATIVE on a
+small cap.
+
+**Protection is a token budget, so an oversized recent message is no longer untouchable** — it falls
+into the head and is summarised like any other history. No per-message summariser was added; that
+would have been a third mechanism after two passes spent deleting duplicates. The last USER message
+is always kept verbatim.
+
+**Test lesson, third time this week.** The first version of the small-window suite passed all five
+mutations for the wrong reason: the fixture was rescued by whichever step ran first, so no test
+isolated the fix it was named for. Two more traps found while fixing that — `"x".repeat(70_000)`
+scores ~300 tokens because BPE collapses a single-character run, so a "70K" fixture measured nothing;
+and asserting "it got smaller" cannot distinguish which step did it. Sizing had to be MEASURED
+(`/tmp/sizes.txt` probe) and each test aimed at the narrow band where only its own step can act.
+
 **Owed before release:** verify in the PACKAGED app (a long real session, quit, reopen, confirm the
 meter and the history start from the summary), then `/security-review` on the diff.
 
@@ -903,6 +956,38 @@ approval, MCP description wrapping + OAuth-URL validation, the universal write-c
 ---
 
 ## 🪤 Traps worth not rediscovering
+
+### A `sql` template does not qualify its columns — a subquery can silently self-compare
+
+`sql\`select count(*) from ${sessionMessages} where ${sessionMessages.sessionId} = ${chatSessions.id}\``
+renders BOTH sides unqualified: `where "session_id" = "id"`. Inside the subquery both names resolve
+against `session_messages`, which has its own `id`, so every row compared its `session_id` to its own
+`id` and the count was **structurally always zero**. It returned a plausible number, never threw, and
+drove a delete. Use a `leftJoin` + `groupBy` where the query builder qualifies for you; if a raw
+template is unavoidable, write the table prefixes by hand and test the count against a seeded row.
+
+The general form: **a query that returns a WRONG number is worse than one that throws**, and an
+aggregate is the easiest place to get one. Any count that gates a destructive action gets a test with
+a known answer.
+
+### A fixed token constant is a bug waiting for a smaller window
+
+Compaction accumulated five of them — 20,000 / 20,000 / 8,000 / 40,000 / "3 turns" — each sensible
+against a 1M window and each one an automatic no-op against 16,000. Nothing failed; every step just
+declined, and the feature looked implemented while doing nothing. Anything compared against a token
+count must be a proportion of the budget in play, and the invariant to assert is that **no protection
+floor exceeds the budget it protects within**.
+
+Its sibling: a threshold expressed as a PERCENTAGE of the window cannot express "leave room for the
+reply", because reply length has no relationship to window size. Subtract a real reserve
+(`maxOutputTokens` from the catalog), clamped so it cannot invert.
+
+### `"x".repeat(n)` is not a large fixture
+
+BPE collapses a run of one character to a couple of tokens, so a 70,000-character fixture built that
+way scores ~300 and every size assertion around it is vacuous. Build fixtures from varied text, and
+MEASURE them rather than assuming chars ÷ 4.
+
 
 ### An audit list is not the runtime gate
 

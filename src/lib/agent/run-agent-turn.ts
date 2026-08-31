@@ -82,7 +82,7 @@ export interface TurnRuntime {
   readonly continuationTurnId: string;
   readonly streamTurnId: string;
   readonly tierLimit: number;
-  readonly contextWindowTokens: number;
+  readonly usableTokens: number;
   readonly maxContinuationAttempts: number;
   /**
    * v14.8.7 §A2: compact task ledger for this session (or null). Threaded into
@@ -876,7 +876,7 @@ export async function runAgentTurn(
         nativeMessages: agenticMessages,
         systemPromptEstimate: estimateTokens(roundSystemPromptEstimateText),
         tierLimit: rt.tierLimit,
-        contextWindowTokens: rt.contextWindowTokens,
+        usableTokens: rt.usableTokens,
         chatId: rt.chatId,
         loopLabel: profile.compactionLabel,
         emitActivity: rt.emitCompactionActivity,

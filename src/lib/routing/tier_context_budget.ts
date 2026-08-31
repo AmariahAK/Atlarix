@@ -7,13 +7,12 @@ import {
 import { estimateTokens } from "../../ipc/utils/token_utils";
 import { resolveModelContextLimit } from "../context/resolve-model-context-limit";
 import {
-  COMPACTION_THRESHOLD,
-  midLoopCompactionWouldTrigger,
+  compactionWouldTrigger,
   modelMessageText,
 } from "../context/mid-loop-threshold";
 
 // Re-exported so existing callers keep importing from here.
-export { midLoopCompactionWouldTrigger, COMPACTION_THRESHOLD };
+export { compactionWouldTrigger };
 
 export interface BudgetHistoryMessage {
   role: string;
@@ -275,10 +274,9 @@ export interface MidLoopCompactionParams {
   systemPromptEstimate: number;
   /** Effective per-dispatch limit (from `resolveModelContextLimit`). */
   tierLimit: number;
-  /** Catalog raw context length; when set, fill ratio uses this instead of `tierLimit`. */
-  contextWindowTokens?: number;
-  /** Trigger compaction when `(systemPromptEstimate + history) >= threshold * limitDenom`. */
-  threshold?: number;
+  /** Window MINUS the reply reserve; falls back to `tierLimit`. */
+  usableTokens?: number;
+  /** Trigger compaction when `(systemPromptEstimate + history)` exceeds `usableTokens`. */
   /** Last N protected user+assistant exchanges (default 3 — matches `enforceTierContextBudget`). */
   protectExchanges?: number;
   /**
@@ -322,19 +320,17 @@ export interface MidLoopCompactionResult {
 export async function compactAgenticMessagesIfNeeded(
   params: MidLoopCompactionParams,
 ): Promise<MidLoopCompactionResult> {
-  // Stage 3a: overflow-only (0.9, was 0.75) — mirrors opencode's "compact only
-  // near the usable limit". Fires far less often; combined with native-tail
-  // preservation below, mid-loop compaction is no longer a coherence hazard.
-  const threshold = params.threshold ?? COMPACTION_THRESHOLD;
+  // Compact only near the usable limit (opencode's rule). `usable` is the window
+  // minus the room the reply needs, so there is no separate ratio to tune.
   const protect = params.protectExchanges ?? 3;
-  const limitDenom = params.contextWindowTokens ?? params.tierLimit;
+  const usable = params.usableTokens ?? params.tierLimit;
 
   const tokensOf = (m: ModelMessage) => estimateTokens(modelMessageText(m.content));
   const total = (msgs: ModelMessage[]) =>
     msgs.reduce((acc, m) => acc + tokensOf(m), 0) + params.systemPromptEstimate;
 
   const beforeTokens = total(params.messages);
-  if (beforeTokens < threshold * limitDenom) {
+  if (beforeTokens <= usable) {
     return { messages: params.messages, compacted: false, beforeTokens, afterTokens: beforeTokens };
   }
 

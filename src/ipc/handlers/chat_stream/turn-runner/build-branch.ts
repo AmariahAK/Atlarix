@@ -102,7 +102,8 @@ export interface BuildBranchDeps {
     argsTextSoFar: string;
   }) => void;
   abortController: AbortController;
-  contextWindowTokens: number;
+  /** Window minus the reply reserve — what a request may actually occupy. */
+  usableTokens: number;
   processResponseChunkUpdate: (args: { fullResponse: string }) => Promise<string>;
   applyTierEscalation: (args: {
     agenticIteration: number;
@@ -153,7 +154,7 @@ export async function runBuildBranch(
     handleToolInputProgress,
     handleToolInputDelta,
     abortController,
-    contextWindowTokens,
+    usableTokens,
     processResponseChunkUpdate,
     applyTierEscalation,
     buildToolStreamOpts,
@@ -1574,7 +1575,7 @@ export async function runBuildBranch(
                     continuationTurnId: String(placeholderAssistantMessage.id),
                     streamTurnId,
                     tierLimit: modelContextResolved.tierLimit,
-                    contextWindowTokens,
+                    usableTokens,
                     maxContinuationAttempts: STREAM_CONTINUATION_MAX,
                     taskLedger: taskLedgerBlock,
                     permissionInterceptor,

@@ -110,6 +110,7 @@ import {
   resolveReasoningRequest,
 } from "@/lib/routing/model-reasoning-profile";
 import { enforceContextBudget } from "@/lib/routing/tier_context_budget";
+import { resolveUsableBudget } from "@/lib/context/compaction";
 import { AttachmentStore } from "../../lib/attachment-store";
 import {
   buildPasteAttachmentDirective,
@@ -1592,6 +1593,20 @@ export function registerChatStreamHandlers() {
             modelContextResolved.rawContextLength > 0
               ? modelContextResolved.rawContextLength
               : Math.max(1, Math.round(modelContextResolved.tierLimit / 0.8));
+          /**
+           * What a request may actually OCCUPY: the window minus the room this
+           * model's reply needs, from its models.dev `maxOutputTokens`. Resolved
+           * once per turn and threaded down, so the pre-dispatch gate, the
+           * mid-turn loop and the compactor all size themselves against one
+           * number instead of each applying its own fraction of the window.
+           */
+          const usableTokens = await resolveUsableBudget(
+            effectiveModel,
+            contextWindowTokens,
+          );
+          logger.info(
+            `[budget] window=${contextWindowTokens} usable=${usableTokens} reserve=${contextWindowTokens - usableTokens}`,
+          );
 
           const applyTierEscalation = async (_args: {
             agenticIteration: number;
@@ -1712,6 +1727,12 @@ export function registerChatStreamHandlers() {
               event,
               modelContextResolved,
               promptBundleDeps,
+              // Both, deliberately: `usableTokens` is what the compaction gate
+              // DECIDES on, `contextWindowTokens` is the raw window the fill
+              // percentage and the context meter are REPORTED against. Conflating
+              // them would either make the meter lie about the model's capacity or
+              // make the gate ignore the room the reply needs.
+              usableTokens,
               contextWindowTokens,
             },
           );
@@ -2058,7 +2079,7 @@ export function registerChatStreamHandlers() {
               handleToolInputProgress,
               handleToolInputDelta,
               abortController,
-              contextWindowTokens,
+              usableTokens,
               processResponseChunkUpdate,
               applyTierEscalation,
             };
@@ -2091,7 +2112,7 @@ export function registerChatStreamHandlers() {
               handleToolInputProgress,
               handleToolInputDelta,
               abortController,
-              contextWindowTokens,
+              usableTokens,
               processResponseChunkUpdate,
               applyTierEscalation,
               buildToolStreamOpts,
