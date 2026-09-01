@@ -3,6 +3,18 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
+## [14.39.2] (2026-09-01) — The trial credit goes to real accounts
+
+**The one-time $1 trial credit is now limited to accounts created with a sign-in method Atlarix
+actually offers** — Google, GitHub or Discord. Email and password sign-up was still switched on
+behind the scenes even though nothing in the app or the website has ever used it, which meant the
+credit could be claimed by accounts created straight against our servers with a throwaway address.
+That route is now closed in two places: the sign-up method is turned off, and the credit itself
+checks how the account was made before granting anything.
+
+**If you already have your credit, nothing changes** — it was only ever granted once per account,
+and existing balances are untouched.
+
 ## [14.39.1] (2026-09-01) — A summary that stays out of the way, and a clearer answer about data
 
 **The summary Atlarix writes when a conversation gets long no longer shows up as a message.** When

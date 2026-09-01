@@ -568,24 +568,41 @@ enforcing without data is how legitimate mail starts landing in spam.
 **Deliberately skipped: CAA.** Vercel controls issuance; pinning a CA risks a silent renewal failure
 for a threat Certificate Transparency already surfaces. Revisit only if issuance moves in-house.
 
-### Turnstile — I got this wrong once; both halves belong here
+### Turnstile — CLOSED 2026-09-01, and not the way it was framed
 
-**It cannot gate OAuth sign-in.** Both surfaces are `signInWithOAuth` only (`useAuth.ts:76` on the
-site, `supabase-client.ts:201` in the app) — no password, OTP, magic-link or signup path anywhere.
-Supabase's CAPTCHA attaches to endpoints that accept a `captchaToken` (`signUp`,
-`signInWithPassword`, `signInWithOtp`, `resetPasswordForEmail`, `verifyOtp`, `resend`); a redirect
-takes no such option. **The general rule, worth more than the instance: Turnstile needs an endpoint
-that accepts a token in a body you control. A pure OIDC redirect has nowhere to put one** — so the
-question to ask before budgeting the work is "does any auth endpoint take a credential in a request
-body?", and if not the item closes rather than defers.
+**The hole was real and LIVE, not the disposable-email hypothesis this section used to describe.**
+Neither product has an email-auth call site — both are `signInWithOAuth` only — and I took that to
+mean there was nothing to protect. Wrong thing to reason about. The Supabase Auth REST API is public
+and the anon key ships in the app binary and the site bundle, so our call sites bound nothing:
 
-**But it CAN gate the money.** I told the owner "Turnstile has nothing to protect", and that was
-wrong — I had looked only at auth flows. `claim_signup_credit()` grants **$1 per ACCOUNT** guarded
-only by `(kind, ref = user_id)`; measured 2026-08-28: **23 claims, $23**. It is a real RPC
-(`auth_handlers.ts:392`), so it *could* carry a token. Caveats before anyone builds it: it is called
-from the Electron **main process**, so the widget needs a renderer surface; and the deeper weakness
-is that the dedupe key is a free-to-create account, which a cheaper control (account age, or
-requiring a payment method) might address better than a challenge.
+    curl -H "apikey: <anon>" https://<ref>.supabase.co/auth/v1/settings
+    → "email": true, "disable_signup": false
+
+**Email/password signup was ENABLED on a project that never uses it.** `POST /auth/v1/signup` →
+confirm through a disposable inbox (`mailer_autoconfirm: false` — required, and exactly what those
+services automate) → sign in → `claim_signup_credit()` → $1, never touching our UI. 23 claims, $23.
+
+**Closed twice, on purpose.**
+1. Dashboard: Authentication → Providers → **Email off**. Removes an endpoint nothing uses.
+2. Code: `20260901100000_trial_credit_requires_oauth_identity.sql` refuses the grant unless
+   `auth.identities` holds a row with `provider <> 'email'`.
+
+The toggle alone was not enough: it exists only in the dashboard, `supabase/config.toml`'s `[auth]`
+block is the LOCAL stack's, and re-enabling it would reopen the hole with nothing in the repo to
+show. **A payout rule belongs next to the payout.** Not an allowlist of provider names — adding a
+fourth provider later would silently stop paying the credit, and nobody reports a dollar they never
+knew existed.
+
+**Turnstile itself was never the answer here** and is not needed now. It cannot attach to
+`signInWithOAuth` (a redirect carries no `captchaToken`), and with signup disabled and the RPC gated
+it protects nothing that is not already covered.
+
+**Still open, not urgent at $23:** the dedupe key is `(kind='trial', ref=user_id)`, so the scarce
+thing is an account, and Google/GitHub accounts remain free. The durable answer is tying the grant to
+something costlier — a payment method, or account age — not a challenge; Turnstile could not help
+regardless, since that signup happens on Google's site. The owner has separately recorded wanting the
+credit raised to ~$5 "gated on a verified account", which is the same decision from the other end.
+
 
 ### Still not worth it
 
@@ -701,6 +718,24 @@ Cloudflare's own panel still said "pending" for an hour after four resolvers wer
 renewal, and there is no origin IP to hide — their addresses are shared anycast. On the free tier
 every WAF, rate-limit and challenge feature is proxy-gated, so grey-clouding forgoes nothing usable.
 Corollary for anything non-HTTP (WebRTC, SSE): it must stay DNS-only too.
+
+### An anon key is a public credential — enumerate the SERVICE, not your call sites
+
+Proven on ourselves, 2026-09-01. Both products use `signInWithOAuth` exclusively and have no
+email-auth call site anywhere, from which I concluded email signup was closed. It was not: the
+project had `"email": true, "disable_signup": false`, and the anon key that reaches it ships inside
+the app binary and the website bundle. **What your client calls places no limit on what anyone else
+can call with the same key.** The cost was a `$1`-per-account payout claimable without ever touching
+our UI.
+
+The check is one read-only request — `curl -H "apikey: <anon>" https://<ref>.supabase.co/auth/v1/settings`
+— and the general form is: enumerate the exposed surface from the SERVICE (auth settings, function
+`GRANT`s, RLS policies, edge-function `verify_jwt`), never by grepping our own code. A capability
+nothing in the repo uses is still a capability.
+
+Its mirror, which is how this hid: having correctly established that Turnstile cannot attach to an
+OAuth redirect, I stopped. **Auth flow and money flow are different questions** — the next one was
+"what else pays out per account?"
 
 ### Turnstile needs an endpoint that accepts a token
 
