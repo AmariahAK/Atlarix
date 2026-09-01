@@ -17,26 +17,23 @@ cd ../../../atlarix-references/pi-terminal-bench && uv venv && source .venv/bin/
 # Atlarix adapter (this dir) — importable as atlarix_tb:AtlarixAgent
 cd -; uv pip install -e .
 
-# REQUIRED Harbor fix (agent-created /tests nesting bug)
+# Harbor's /tests nesting fix is upstream as of 0.22; this now reports
+# "nothing to do" rather than patching. Kept until the floor in pyproject.toml
+# is above every Harbor that still had the bug.
 python patch-harbor.py
 ```
 
-## Atlarix headless bundle (the tarball)
+## Atlarix headless bundle
 
-Easiest — use the auto-published prebuilt bundle (rebuilt by the **Atlarix Headless**
-GitHub workflow on demand / on `headless-v*` tags):
+Nothing to set up. The agent installs itself in each task container with
+`npm i -g atlarix`, so there is no tarball to build, host, or point an environment
+variable at. To pin a specific version, pass Harbor's `--agent-version`; unset
+resolves `@latest`.
 
-```bash
-export ATLARIX_HEADLESS_TARBALL_URL="https://github.com/AmariahAK/atlarix-releases/releases/download/headless-bench/atlarix-headless-linux-amd64.tar.gz"
-```
-
-Or build it yourself (Linux Node-ABI bundle, in a Docker node container — NOT on macOS):
-
-```bash
-../../scripts/build-headless-tarball.sh
-# then host the tarball and point ATLARIX_HEADLESS_TARBALL_URL at it:
-export ATLARIX_HEADLESS_TARBALL_URL="https://…/atlarix-headless-<ver>.tar.gz"
-```
+A prebuilt `linux/amd64` tarball still exists on the `headless-bench` prerelease
+as a fallback for images where npm can neither find a `better-sqlite3` prebuild
+nor compile one (musl/Alpine, an unusual Node ABI). It is not used by this
+adapter.
 
 ## Keys + pin
 
@@ -49,10 +46,10 @@ export ATLARIX_OPENROUTER_PROVIDER_JSON='{"order":["deepinfra"],"allow_fallbacks
 
 ```bash
 # Reference solutions — confirms install + Docker:
-harbor run --dataset terminal-bench/terminal-bench-2-1 --agent oracle --n-concurrent 4
+harbor run --dataset terminal-bench/terminal-bench@4.0.0 --agent oracle --n-concurrent 4
 
 # One real task per harness (~5 min each):
-BENCH_EXTRA="--dataset-task-names hello-world --timeout-multiplier 6" BENCH_MODELS="deepseek/deepseek-v4-pro" bash ../run-matrix.sh
+BENCH_EXTRA="--dataset-task-names hello-world --timeout-multiplier 6" BENCH_MODELS="deepseek/deepseek-v4-flash" bash ../run-matrix.sh
 ```
 
 ## Full run + results

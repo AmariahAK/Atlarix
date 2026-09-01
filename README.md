@@ -29,7 +29,7 @@ any repo size. The agent has a workspace. You have control.
 
 **Created by [NorahLabs](https://norahlabs.com)** (Nairobi, Kenya)  
 **Website:** [atlarix.dev](https://atlarix.dev)  
-**Current release:** **v14.39.1**
+**Current release:** **v14.40.0**
 
 **Downloads:** Installers for **macOS**, **Linux**, and **Windows** are on [atlarix.dev](https://atlarix.dev). *(Windows builds are currently unsigned; code signing is coming soon.)*
 
@@ -156,19 +156,26 @@ See [`.github/workflows/release.yml`](.github/workflows/release.yml) for the sec
 
 ### Headless agent (benchmarking / CI)
 
-`npm run build:headless` bundles an **Electron-free CLI** (`src/headless/`) that drives the real agent loop in plain Node — used by the Terminal-Bench (Harbor) and SWE-bench adapters under [`benchmarks/`](benchmarks/). A prebuilt `linux/amd64` bundle is published as the [`headless-bench`](https://github.com/AmariahAK/atlarix-releases/releases/tag/headless-bench) **prerelease** on atlarix-releases, rebuilt by the [Atlarix Headless workflow](.github/workflows/headless.yml) (run it from **Actions → Atlarix Headless**, or push a `headless-v*` tag). Stable download URL (always newest):
+The **Electron-free CLI** (`src/headless/`) drives the real agent loop in plain Node — for benchmarks, CI and unattended runs. Install it with one command:
+
+```bash
+npm i -g atlarix          # requires Node >=20
+atlarix run --workspace /path/to/repo --prompt-file task.md \
+  --provider-id deepseek --model deepseek-v4-flash \
+  --deep-thinking --trajectory-file trajectory.jsonl
+```
+
+The API key comes from `ATLARIX_HEADLESS_API_KEY` (or `--api-key`, though the env var keeps it out of the process command line). `--deep-thinking` selects the model's own declared reasoning ceiling. `--trajectory-file` writes a JSONL trace — tool calls with their arguments and results, real token and cost totals — streamed as the run happens, so a run that is killed still leaves everything up to that point. Credentials are stripped from every line.
+
+Published from [`packages/headless`](packages/headless) by the [Atlarix Headless workflow](.github/workflows/headless.yml) on any `v*` or `headless-v*` tag, over OIDC with no stored token.
+
+**Prebuilt tarball (fallback).** A `linux/amd64` bundle carrying a compiled `better-sqlite3` is also attached to the [`headless-bench`](https://github.com/AmariahAK/atlarix-releases/releases/tag/headless-bench) prerelease. Prefer npm; this exists for images where npm can neither find a `better-sqlite3` prebuild nor compile one (musl/Alpine, an unusual Node ABI). Stable URL, always newest:
 
 ```
 https://github.com/AmariahAK/atlarix-releases/releases/download/headless-bench/atlarix-headless-linux-amd64.tar.gz
 ```
 
-```bash
-node dist-headless/atlarix-headless.mjs \
-  --workspace /path/to/repo --prompt-file task.md \
-  --provider-id openrouter --model deepseek/deepseek-v4-pro \
-  --api-key "$OPENROUTER_API_KEY" \
-  --openrouter-provider '{"order":["deepinfra"],"allow_fallbacks":false}'
-```
+Build either locally with `npm run build:headless` (bundle) or `npm run build:headless:npm` (bundle + staged npm package).
 
 All flags have `ATLARIX_HEADLESS_*` env-var equivalents; `--mode build|ask`; exit `0` = completed. Custom OpenAI-compatible endpoints via `--provider-url`.
 

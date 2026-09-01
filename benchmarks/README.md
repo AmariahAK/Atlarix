@@ -14,17 +14,17 @@ provider are held constant; the harness is the only variable.
 - **Docker** running.
 - **Harbor**: `uv tool install harbor`.
 - **One `OPENROUTER_API_KEY`** with provider preferences locked (this is how all three harnesses share an identical backend/quant — see `models.md`).
-- A host for the **Atlarix headless tarball** (`scripts/build-headless-tarball.sh` → `ATLARIX_HEADLESS_TARBALL_URL`).
+- Nothing to host for Atlarix: the adapter installs it with `npm i -g atlarix`.
 - Optional **`DAYTONA_API_KEY`** for cheap high-concurrency runs.
-- The pi adapter (`atlarix-references/pi-terminal-bench`) + this repo's `terminal-bench/` adapter installed; Harbor `upload_dir` patch applied.
+- The pi adapter (`atlarix-references/pi-terminal-bench`) + this repo's `terminal-bench/` adapter installed; Harbor's `upload_dir` fix is upstream as of 0.22, so no patch is needed.
 
 ## Run it (short version)
 ```bash
 # 1. setup + patch (see terminal-bench/README.md)
-# 2. build + host the Atlarix tarball; export ATLARIX_HEADLESS_TARBALL_URL
+# 2. (nothing to do for Atlarix — the adapter npm-installs it in each container)
 # 3. export OPENROUTER_API_KEY (pinned)
 # 4. smoke one task per harness:
-BENCH_EXTRA="--dataset-task-names hello-world --timeout-multiplier 6" BENCH_MODELS="deepseek/deepseek-v4-pro" bash benchmarks/run-matrix.sh
+BENCH_EXTRA="--dataset-task-names hello-world --timeout-multiplier 6" BENCH_MODELS="deepseek/deepseek-v4-flash" bash benchmarks/run-matrix.sh
 # 5. full matrix (89 tasks × 3 harnesses × 2 models):
 bash benchmarks/run-matrix.sh           # or DAYTONA_API_KEY=… BENCH_EXTRA="--env daytona" BENCH_CONCURRENCY=32 …
 # 6. read results/summary.md
