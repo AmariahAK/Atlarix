@@ -115,6 +115,15 @@ function processSettingsForTelemetry(settings: UserSettings) {
   } else {
     window.localStorage.removeItem(TELEMETRY_CONSENT_KEY);
   }
+  // The opt-in hook. PostHog is no longer started at bootstrap for a user who
+  // has not consented (it would write a distinct-id to localStorage and a cookie
+  // before the first-run modal was even answered), so the client has to be
+  // started at the moment consent arrives. This is the single choke point every
+  // settings load and change already passes through. No-op when already running
+  // or still not opted in.
+  void import("@/lib/analytics/posthog-client").then((m) =>
+    m.ensurePostHogInitialized(),
+  );
   if (settings.telemetryUserId) {
     window.localStorage.setItem(
       TELEMETRY_USER_ID_KEY,

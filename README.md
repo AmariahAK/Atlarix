@@ -29,7 +29,7 @@ any repo size. The agent has a workspace. You have control.
 
 **Created by [NorahLabs](https://norahlabs.com)** (Nairobi, Kenya)  
 **Website:** [atlarix.dev](https://atlarix.dev)  
-**Current release:** **v14.38.2**
+**Current release:** **v14.39.1**
 
 **Downloads:** Installers for **macOS**, **Linux**, and **Windows** are on [atlarix.dev](https://atlarix.dev). *(Windows builds are currently unsigned; code signing is coming soon.)*
 
@@ -92,7 +92,8 @@ Retrieval is **purely lexical — no index, no embeddings, no map tool, no backg
 ### Context & Session Management
 
 - **Context bar** — Real-time token usage with color-coded warnings.
-- **Compaction** — Model-triggered **`compress_context`** when threads get long.
+- **Compaction** — One summariser, three triggers: automatically before a request that would exceed the window, mid-task when a long tool loop would, and on demand via **`compress_context`**. The summary is **durable** — it survives quitting and reopening, so the next message doesn't pay to summarise the same history again.
+- **`session_search`** — Search or re-read this conversation's earlier turns, or an earlier conversation in the workspace, **including turns a summary has already replaced**. Scoped to the open workspace; a deleted session is unfindable.
 - **Workspace sessions** — Saved chats per workspace; **New chat** starts a fresh thread; background streams continue when switching sessions.
 - **Approval queue** — Approve / reject file and command changes before execution.
 

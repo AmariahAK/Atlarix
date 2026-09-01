@@ -815,9 +815,14 @@ around it doesn't cooperate — no network, a background tab, a provider returni
   linked to the Supabase user, so one person on two machines was two people and a reinstall minted a
   third — inflating every per-user number, retention worst of all. Sign-in now sends `alias`
   (anonymous → user id, once per install) and attributes everything after to the user id, in both
-  main and renderer. Person properties carry plan/tier only — never email, name, or avatar.
+  main and renderer. Person properties carry plan/tier — and, since a later owner decision,
+  your email and name when signed in, so usage counts once across devices. *(Corrected
+  2026-09-01: this line originally read "never email, name, or avatar", which the code
+  already contradicted. See v14.39.1.)*
 - **`persistence` changed from `memory` to `localStorage+cookie`** so `$session_id` survives a restart;
-  session-scoped metrics were previously meaningless. Consent gating is unchanged.
+  session-scoped metrics were previously meaningless. *(Corrected 2026-09-01: consent gating
+  was NOT unchanged in effect — persisting meant `init` wrote a distinct id to localStorage
+  and a cookie before consent existed. Fixed in v14.39.1 by gating initialisation.)*
 - **Events renamed to one convention** (three coexisted): `compass:turn_completed`/`_failed` →
   `core_turn_completed`/`core_turn_failed`, `app:initial-load` → `app_ui_ready`,
   `auth:chat_stream_blocked` → `auth_chat_stream_blocked`, `action:*` → `action_*`, `extra-files:*` →

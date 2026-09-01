@@ -369,6 +369,7 @@ export function GeneralSettings({ appVersion }: { appVersion: string | null }) {
               prompts, file names, or file contents. Anonymous when signed out.
               When signed in, it's linked to your account and includes your
               email and name, so your usage counts once across your devices.
+              Crash and error reports are sent separately and are not covered by this choice — they carry stack traces and device info, never your code or prompts.
             </p>
           </div>
           <Switch

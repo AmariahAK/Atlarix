@@ -1,7 +1,8 @@
 # Atlarix TODO
 
-**Current version:** v14.39.0 — **staged 2026-08-31, not yet released.** One compaction system,
-`session_search`, and the launchpad's changelog parser fixed + deployed.
+**Current version:** v14.39.1 — released 2026-09-01. The compaction marker became a real column,
+the summary stopped showing up as a chat message, telemetry stopped writing before consent, and the
+public data claims were made true. v14.39.0 (same day) was the one-compaction-system release.
 
 The release itself: compaction was THREE implementations with three thresholds, three marker strings
 and two near-identical summarizers, and only one of them persisted — so the two AUTOMATIC paths paid
@@ -40,229 +41,7 @@ v14.35.0 (2026-08-20). Full narrative for every one of them is in
 
 ---
 
-## 🚀 Shipped — v14.38.1 and v14.38.0 (2026-08-27)
-
-Narrative lives in [`CHANGELOG.md`](./CHANGELOG.md); the durable lessons are in
-**Traps worth not rediscovering** below. What is kept here is only what changes how the
-NEXT change is made.
-
-- **`billing_copy.ts` forbids printing the allowance in dollars, and v14.38.0 broke that
-  rule in the first thing that ever rendered the number.** A module-level rule is not
-  enforcement. When a new field reaches a new surface, re-read the rule that governs it.
-  Corollaries now in the code: `<1% used` never `0% used` once anything is spent, and a
-  meter fill needs a visible minimum or a sub-pixel bar reads as untouched.
-- **Per-product ALLOWANCE is real; per-product CREDIT is not.** `credit_grants` is one row
-  per `(user, product)`. `credit_wallet` is a SINGLE shared balance and `spend_from_wallet`
-  deliberately lets one product's allowance pay for the other — so the honest per-product
-  number is **spend**, from the ledger's `source` column. Do not add a per-product balance.
-- **`get_credit_breakdown` is a SECOND RPC on purpose.** `get_credit_balance` is on the
-  proxy's hot path before every request and must stay one cheap row.
-- **Two startup bugs, and the write-up here had the second cause WRONG.** `--doctor` does
-  await `whenReady`; it never called `initializeDatabase()`. Separately,
-  `resolveSystemPath()` reads settings at module scope and trips `safeStorage` before ready.
-  Two independent bugs printing in one report — see Traps.
-- **The launchpad missed v14.38.0 entirely** (`package.json` at 14.37.0, changelog topped
-  out there), so v14.38.1 owed the site TWO changelog sections. The three manual launchpad
-  edits remain the step that actually gets skipped.
-
-
 ## 🔜 Next session — the queue, in order
-
-### 0a. SHIPPED in v14.39.0 (2026-09-01) — one compaction system
-
-**Compaction was several implementations pretending to be one setting.** `runSteppedCompaction`
-(0.75 internally, durable), `enforceContextBudget` (fired only once ALREADY over the limit,
-non-durable) and `compactAgenticMessagesIfNeeded` (0.9, non-durable). Each wrote its own marker
-string; only the first was one `sliceFromLastCompactionSummary` recognises, and only the first
-persisted. Now: one compactor, one threshold, one marker, and the durable write owned by the
-compactor rather than by whoever calls it.
-
-**CORRECTED 2026-08-31 — the first audit MISSED a fourth path, and the write-up overstated the cost
-because of it.** `context-assembly.ts` has proactive pre-dispatch gates at **0.75 and 0.90** that
-call `executeCompressContext` → `runSteppedCompaction`. That path **was already durable**, and it is
-the one that fires first in practice. So "both automatic paths bought a summary and threw it away"
-(as the first version of this section and of `1bfb3f4a`'s message said) was wrong: the PRIMARY
-automatic path persisted. What was genuinely non-durable was `enforceContextBudget` — a rarer
-over-limit fallback — and the mid-turn loop. The consolidation still stands on one threshold, one
-marker, ownership of the durable write, and drop-LAST ordering; the money story is smaller.
-
-**The lesson, and it is the second time in two days:** an audit that enumerates implementations by
-grepping for the summarizer misses a path that reaches it through a TOOL (`executeCompressContext`).
-Trace by call graph from the thing being consolidated, not by name.
-
-**Also missed, and the actual remaining waste:** `rt.nativeTurnMessages` — the assistant turn's
-persisted native envelope — is never bounded. Mid-turn compaction shrinks the REQUEST
-(`agenticMessages`) but `foldNativeIntoTurn` pushes every round into both, so a long turn persists its
-full tool history and the next message rehydrates all of it. Addressed in the follow-up pass.
-
-**The durable path was the only one NOT billing its own summarization.** There were two ~95%
-identical summarizers; the one with `pruneToolOutputs` + `recordAuxUsage` was wired to the two
-throwaway paths. `summarizeMessages` is deleted; the good copy is the only one left.
-
-**Four documented claims were false, and the docs disagreed with each other.**
-`compaction.ts:3` claimed it ran "before every dispatch" (two callers, both reactive);
-`dropped-history-notice.ts` documented a pipeline that omitted the durable compactor entirely;
-`mid_loop_compaction.ts`'s `enabled` flag mirrored `settings.enableContextAutoSummarize`, removed in
-v14.18.0 and hardcoded `true` at both callers. All corrected or deleted. **Two files in one directory
-describing two different pipelines is how the actual gap stayed hidden for four releases.**
-
-**`enforceContextBudget` DELETED the two oldest turns first** (`headConversation.slice(2)`, up to 24
-rounds) and only then reached for a summary — so the turns most worth summarizing were destroyed
-before anything could summarize them. Order is now compact → trim the assembler blob → drop, and a
-drop reports its count so `droppedHistoryNotice` can tell the model. In practice the drop is now
-near-unreachable: after compaction what remains is usually all protected tail, which is why a tiny
-window now overflows to the provider (and overflow recovery) rather than silently deleting the turns
-the user is mid-conversation about. A test pins that.
-
-**`session_search` — one tool, two modes, not two tools.** Current-session and previous-session
-search are the same query at a different scope. SQL `LIKE`/`instr` over `session_messages`, never
-FTS5 (deliberately deleted in the retrieval teardown). Bound in EVERY mode via `EVERY_MODE_TOOLS`.
-Reuses grep's `match_list` expand view by emitting the same `ui.groups` shape — zero new UI.
-
-**The trap it nearly fell into:** `GLOBAL_CHAT_TOOLS` in `tool-registry-audit.ts` silences the AUDIT
-but is not the runtime gate — `isToolAllowedInMode` reads the per-mode allow sets built from
-`EVERY_MODE_TOOLS`. Adding the tool to the audit list alone would have left it invisible in
-ask/plan/review while every check went green. The `toolset-golden` eval is what proves reachability,
-because it resolves the surface actually offered to the model.
-
-**Isolation is structural, and deletion is real — both verified, not assumed.** Every message lookup
-is keyed by a session id read out of `chat_sessions` filtered by the injected `workspaceId`, so an
-ORPHANED row is unreachable even with foreign keys off (tested with FKs deliberately disabled).
-Separately, `foreign_keys = ON` is set on the connection and enforced, so deleting a session cascades
-its messages away. Two independent guarantees, because either one alone is a leak.
-
-**A marker prefix is a PERSISTED DATA FORMAT.** The first version of the new test compared against
-the imported constant, so renaming the prefix moved both sides of the assertion and stayed green —
-while every already-written `[COMPACTION MARKER]` row would have stopped being recognised and every
-reopened session would have silently re-expanded. Now pinned as a literal. Mutation-tested: three
-deliberate breaks, each caught.
-
-**Found next door, deliberately NOT fixed in this pass:** `sessionStats`
-(`{toolCallCount, delegationCount}`) is threaded through `summarization_model.ts`,
-`compaction.ts`, `tier_context_budget.ts` and three turn-runner branches, and is read by
-NOTHING — its consumer takes it as `_sessionStats` and its own doc says it is "retained in the
-signature for caller compatibility but no longer influences model choice". All three real call sites
-pass literal `{ toolCallCount: 0, delegationCount: 0 }`. `enforceContextBudget` was additionally
-recomputing the counts with two full `.includes()` scans of the history on every one of up to 24
-rounds to fill it; that computation is gone with the rewrite. Deleting the parameter itself touches
-ask-branch/build-branch, which is outside this change's blast radius — one small follow-up pass.
-
-### 0b. SHIPPED in v14.39.0 (second pass) — the follow-up the testing session forced
-
-**ONE pre-dispatch trigger, finally.** The proactive 0.75 and 0.90 gates in
-`context-assembly.ts` were two near-identical blocks — same logging, same activity events, same
-`runCompressAndRebuild` — so the 0.90 one could only ever run after the 0.75 one had already
-compacted. Collapsed to a single gate at `COMPACTION_THRESHOLD` with the retry kept.
-
-**`runCompressAndRebuild` stays the mechanism, and the compaction call added to
-`enforceContextBudget` in the first pass is REMOVED.** They were not equivalent, which is what made
-the first plan wrong: `executeCompressContext`'s `setMessages` replaces the LIVE TRANSPORT, so the
-shrink survives into later turns; `enforceContextBudget` only ever had the per-request copy.
-The backstop keeps the jobs only it can do — trimming the assembler blob out of the system prompt,
-and dropping head messages LAST with a count for `droppedHistoryNotice`. A test now pins the
-NEGATIVE (it must not call the provider, must not write a marker), because "let's make the backstop
-smarter" is exactly how a second summariser comes back.
-
-**The envelope is bounded at persist — this is the mid-work fix.** `foldNativeIntoTurn` pushes every
-round into `agenticMessages` (shrunk by mid-loop compaction) AND `rt.nativeTurnMessages` (bounded by
-nothing). Now clipped in `boundNativeHistoryForPersist` at the one choke point,
-`finalize.ts` before `serializeNativeHistory`. Measured end to end: ~48,000 → under 8,000 est.
-tokens on a four-file turn.
-- **It clips tool-result TEXT and never removes a message.** Removing one can orphan a `tool_result`
-  whose `tool_use` is gone — a provider 400 next turn, traded for saved tokens.
-- **Once, at persist, never on read.** The envelope is replayed byte-stable for the prompt cache.
-- **Idempotence comes from `slice(0, N)` being a fixed prefix, NOT from the
-  `includes(TRUNCATION_NOTE)` early-out.** Verified by deleting that line and watching the stability
-  tests stay green; the comment says so, so nobody "strengthens" it believing it load-bearing.
-- **The first version was O(n²)** — it re-tokenised the whole turn per message, at persist time with
-  the user waiting. Per-message sizes once, running total after.
-
-**A cap you set is now the number the model is told.** `getContextWindow` ignores
-`tokenBudgetOverrides`; `getEffectiveBudget` respects it. With a 16,000 cap the prompt was still
-saying 1,048,576.
-
-**More dead surface gone:** `contextSummaryForSystem` was hardcoded `null` and threaded through two
-files into two `if`s that could never be true — compaction's summary has reached the model as a
-`[COMPACTION MARKER]` message, not a prompt section, since v11.1.
-
-**Two test lessons, both from this pass.** A mutation that passes is information: bypassing the
-envelope wiring failed the eval (good), but deleting the truncation-note guard did not — because the
-real invariant lay elsewhere. And an eval can assert nothing while looking thorough: the first
-envelope eval passed because the eval model reports a 200,000-token window, so a 48,000-token turn
-needed no clipping. It now caps the window via `runTurn`'s `settings`.
-
-### 0c. SHIPPED in v14.39.0 (third pass) — what the packaged run exposed
-
-**A DATA-LOSS BUG, found because the guard logged its inputs.**
-`listSessionsWithMessageCounts` returned **0 for every session, always**. Its `sql` template
-rendered an UNCORRELATED subquery — `where "session_id" = "id"`, both unqualified, so both resolved
-against `session_messages` (which has its own `id`) and each message's `session_id` was compared to
-its own `id`. Never matched.
-
-`pickSessionReuse` reads 0 + a default title as "safe to reuse or DELETE", so every "Untitled"
-session looked empty and `pruneIds` handed all but the newest to `delete(chatSessions)` — cascading
-to their messages. **Two or more Untitled conversations in one workspace meant all but one were
-deleted on app start.** Only the title check limited the blast radius. Now a `leftJoin` + `groupBy`,
-where drizzle qualifies the columns itself and the bug is not expressible.
-
-**The lesson, and it is the reason the diagnostic was worth writing:** the guard was added without
-knowing the cause, and logging *what the decision saw* is what produced the cause on the first
-recurrence — `candidates: 4730c40f(msgs=0)` next to `re-count found 2 message(s)`. When you cannot
-explain a bug, ship the guard AND the evidence collector.
-
-**COMPACTION HAD DISABLED ITSELF ON SMALL WINDOWS.** Every step compared against an absolute token
-constant tuned for a large window. Measured on a real 4-message / ~41,000-token session against a
-16,000-token cap, where nothing compacted turn after turn:
-
-| step | constant | effect at 16K |
-|---|---|---|
-| microcompact | keep last 3 TURNS | session had 2 → no-op |
-| prune | `PRUNE_MINIMUM_TOKENS = 20_000` | protected more than the whole budget |
-| prune (accept) | `tokensPruned > 20_000` | **discarded its own successful work** |
-| summarise | `head.length < ctx.length - 2` | impossible under ~5 messages |
-| tail select | last 2 TURNS by count | oversized newest turn → protect nothing → refuse |
-
-All now proportions of the usable budget, via `compactionBudgets()`. The invariant —
-**no protection floor may exceed the budget it protects within** — is a function
-(`assertBudgetsFitWithin`) driven across 8K→1M windows.
-
-**The flat 0.9 threshold is gone.** `usable = window − min(max(maxOutputTokens, floor), window×0.4)`.
-A percentage cannot express "leave room for the reply": 0.9 reserved ~68,000 tokens too many on a 1M
-window and far too few on a 16K one. `maxOutputTokens` comes from models.dev, so it scales per model;
-the 0.4 clamp exists because the reasoning floor (32,000) otherwise makes `usable` NEGATIVE on a
-small cap.
-
-**Protection is a token budget, so an oversized recent message is no longer untouchable** — it falls
-into the head and is summarised like any other history. No per-message summariser was added; that
-would have been a third mechanism after two passes spent deleting duplicates. The last USER message
-is always kept verbatim.
-
-**Test lesson, third time this week.** The first version of the small-window suite passed all five
-mutations for the wrong reason: the fixture was rescued by whichever step ran first, so no test
-isolated the fix it was named for. Two more traps found while fixing that — `"x".repeat(70_000)`
-scores ~300 tokens because BPE collapses a single-character run, so a "70K" fixture measured nothing;
-and asserting "it got smaller" cannot distinguish which step did it. Sizing had to be MEASURED
-(`/tmp/sizes.txt` probe) and each test aimed at the narrow band where only its own step can act.
-
-### 0d. SHIPPED in v14.39.0 (fourth pass) — auxiliary spend, and one bug left open
-
-**A sub-agent run cost real money and was reported as nothing.** Observed in the packaged app: a
-turn spawned four sub-agents, all four completed (steps 7/4/6/8), and the turn logged
-`auxiliary LLM tokens this turn: 131289 across 1 call(s)`. `recordAuxUsage` bailed on
-`tokens == null || tokens <= 0`, which dropped not just the SIZE but the FACT of the call — so a run
-whose provider returned no usage vanished from the total entirely. Free OpenRouter routes commonly
-omit usage, and those are exactly the routes someone watching their spend is on.
-
-Callers can now pass `fallbackTokens`; a silent provider's call is counted with its size estimated
-from the round's messages (`estimateModelMessagesTokens`, the same estimator compaction uses). The
-estimate lands in `estimatedTokens`, kept SEPARATE from provider-reported `tokens` all the way out
-through `summarizeAuxBySource` and the `chat:response:end` payload.
-
-**Why separate and not summed:** this repo has been burned trusting an estimate — one session
-measured 417K by the provider against 211K estimated, ~2x, which is why `maxTokensUsed` exists. An
-estimate shown as spend is a worse failure than the under-report it replaces. Mutation-tested four
-ways: dropping silent calls, folding the estimate into the measured total, letting a fallback beat a
-provider figure, and gating the drain on measured tokens each fail a test.
 
 ### 🔍 OPEN — the sub-agent round panel renders twice
 
@@ -290,183 +69,26 @@ exactly why none of them should be acted on yet.
 meter and the history start from the summary), then `/security-review` on the diff.
 
 
-### 0e. SHIPPED in v14.39.0 (fifth pass) — the two bugs the release itself surfaced
+### 0. OAuth redirect allowlist — OWNER ACTION, still owed
 
-**`session_search` could not reach the conversation it defaults to.** The schema declared
-`chatId: numberParam("Current chat id (auto-provided)")` and nothing auto-provided it — tools
-receive `workspaceSessionId` and `_chatSessionId`; `execArgs.chatId` is set only for
-`stream_terminal_output`. So omitting `session`, which the description tells the model to do,
-returned "No current session to search" and the only way forward was `session:"all"`. **The safe
-default was unreachable and the wide one was the fallback.** Now reads what the harness injects,
-and `chatId` is gone from the schema — it was the one model-facing route into
-`resolveOrBindWorkspaceSessionForStream`, which can bind or create a session row, so `isReadOnly`
-was a claim rather than a fact. Found by the release's own security review, which correctly rated
-the write itself a non-issue and the functional break the thing that mattered.
+The code fix shipped in v14.38.4 (`AUTH_CALLBACK_URL` is now the canonical two-slash
+`atlarix://auth/callback`, locked by `src/__tests__/oauth-redirect-allowlist-match.test.ts`). **It
+does not reach builds already in the field**: v14.38.3 and earlier still send the three-slash
+`atlarix:///auth/callback` and stay broken until they update.
 
-**Every start minted an Untitled session.** v14.38.4's reuse guard refused any session whose
-`updatedAt` had moved — and `persistSessionStreamChatId` bumped `updatedAt`, on every bind,
-including the bind to a session it had just reused. So reusing an empty session is what stopped it
-being reused again. The guard's own comment priced a false refusal at "one extra Untitled row";
-it was one per start, forever. Binding no longer counts as activity, and the drift condition now
-gates **prune only** — prune cascades a delete, reuse does not, and pricing them the same is what
-went wrong.
+Add **`atlarix://*/auth/callback`** to Supabase → Authentication → URL Configuration → Redirect
+URLs, alongside the two-slash entry, and keep both until those builds are gone.
 
-**The fixture traps, both of which passed while asserting nothing.** `created_at`/`updated_at` are
-`unixepoch()` — WHOLE SECONDS — so a session created and bound inside one start shows zero drift
-even with the bug present. And `pickSessionReuse` takes the NEWEST empty as the reuse target, so
-seeding both prune candidates "now" handed the drifted one the reuse slot and the prune branch
-never ran. Same class as the `"x".repeat(n)` token fixture: the units hid the effect.
+- **Not the literal three-slash string** — the dashboard's validator rejects an empty host.
+- **Not `atlarix://**`** — that would also match `atlarix://mcp/oauth/callback`, making the MCP deep
+  link a legal OAuth redirect target. Verified 2026-08-29 against `gobwas/glob` as GoTrue compiles
+  it: `*` matches the empty host, so the narrow pattern hits the three-slash form and nothing else.
+- **Not via `supabase config push`** — `supabase/config.toml`'s `[auth]` block is the LOCAL stack's,
+  so a push overwrites the hosted Site URL with `127.0.0.1`.
 
-### 0f. DONE 2026-09-01 — the compaction marker has a column
-
-`isCompactionSummaryMessage` matched `content.startsWith("[COMPACTION MARKER]")` on a `role:"user"`
-row and nothing else, so any text beginning with those bytes was a marker as far as
-`sliceFromLastCompactionSummary` was concerned — and it cuts the MODEL's history at whatever it
-finds. Not hypothetical: `flattenNativeForCompaction` renders tool results as
-`{ role: "user", content: "<tool_result …>" }`, exactly the shape the detector keys on, so a file
-read back, a pasted transcript, or command output could do it.
-
-**No migration.** `session_messages.kind` already existed as plain TEXT with a drizzle
-compile-time enum and no CHECK, so `"compaction_marker"` is a third value and nothing more — the
-same route `status` took to gain `"waiting"`. That avoided the `.sql`/`bundled.generated.ts` pair,
-whose mismatch makes `initializeDatabase()` DELETE `sqlite.db` and retry.
-
-**The work was the plumbing, not the column.** `kind` was dropped at three hops between the row and
-the detector — `joinTransportRows`, `hydrateStreamTransport`, and the dispatch `.map()` in
-`chat_stream_handlers`. The first two already carry comments about `maxTokensUsed` having been
-dropped in exactly the same place, which halved the context meter for a release. Same two functions,
-same mistake, second time.
-
-**Two things found on the way.** The dispatch slice matches `modelContent ?? content` for user rows
-while `token_count_handlers` matches `content` alone — the two consumers could land on different
-boundaries; `kind` makes them agree. And `trimSessionMessagesIfNeeded` deletes oldest-first past
-`SESSION_STORE_MESSAGE_MAX`, which targets the marker FIRST (it is old by construction), and losing
-it re-expands the whole history on the next reload. Markers are now exempt from the trim.
-
-**The fallback, and its honest limit.** Rows written before this carry `kind = "message"`, so the
-string match stays for them. The rule that actually closes the hole is narrower than "prefer the
-column": once a list contains one genuinely flagged marker, text matches are ignored entirely for
-that list. An untouched pre-v14.39.1 session is still forgeable, and there is a test that says so
-rather than overclaiming.
-
-Seven guarantees mutation-tested. `selectTrimmableMessageIds` is exported for testing (the
-convention `pickSessionReuse` set) because the real cap is 100,000 rows — an end-to-end fixture
-would measure the database, not the decision.
-
-### 0g. DONE 2026-09-01 — the marker is no longer shown or searched
-
-Both were one-liners once the rows were identifiable, but the UI half had a trap worth recording.
-
-**Where the UI filter had to go.** `hydrateSessionIntoChat` builds the transport's row refs from
-`uiMessages.map(...)` — the SAME list the renderer displays. So filtering the marker at
-`sessions:get`, or in `sessionMessagesToUiMessages`, would have removed it from the MODEL's transport
-too and silently disabled the entire compaction slice. It is filtered at `SimpleInlineChat`'s
-`visibleMessages`, the render choke point that already drops system messages, so the atom keeps the
-row (transport refs, edit targeting by `sessionRowId`, and revert snapshots all stay aligned) and
-only the view loses it. That choke point also covers the live-stream path, not just reload.
-
-**A leaf module.** The renderer needs the same predicate, and `lib/context/compaction.ts` drags in
-the `ai` SDK, settings and the keychain chain. `lib/chat/compaction-marker.ts` now owns
-`COMPACTION_SUMMARY_PREFIX`, `COMPACTION_MARKER_KIND` and `isCompactionSummaryMessage`;
-`compaction.ts` re-exports them, so there is still one definition.
-
-**`session_search` excludes markers in BOTH modes, and that is load-bearing.** `search` numbers hits
-with `ROW_NUMBER()` and `read` pages by `offset`; excluding in one but not the other would make
-"turn 7" mean different rows in each and send the read-around-a-hit workflow to the wrong place. The
-exclusion also carries a `content NOT LIKE '[COMPACTION MARKER]%'` clause for pre-column rows —
-SQLite's LIKE gives `[` no special meaning, unlike SQL Server.
-
-Two more mutation tests (search exclusion, read exclusion), nine in this area total.
-
-### 0a. SHIPPED in v14.38.4 (2026-08-29)
-
-**Sign-out and sign-in now reach every window.** `SubscriptionManager.signOut()` cleared the session
-and announced nothing, so a second window kept rendering a signed-in account until restart — the
-sign-out half of the unshared-`useAuth` hazard. Fixed by making `auth:resolved` the one channel that
-carries current auth state: `signOut()` broadcasts `{user:null}`, `updateSession()` broadcasts the
-account, and `handleAuthResolved` clears on a null user.
-
-**The sign-in broadcast is not symmetry, it is what makes the clear safe.** `auth-ipc-bridge` replays
-its last `auth:resolved` to late-mounting consumers, and that cache was never refreshed on sign-in
-(`oauth-callback-success` is a different channel, sent to `mainWindow` only). Deleting the null
-early-return without it would have let a stale cached null sign out any component mounted after a
-sign-in. Pinned by `auth-resolved-bridge.test.ts`'s sequence test.
-
-**Docker builds could not run under the sandbox, and the system-scope audit line lied.** Observed
-2026-08-29: an agent burned six turns on `xattr` / `ls -lO` / file flags chasing a macOS permissions
-ghost that was the write sandbox denying `~/.docker/buildx/activity/` — Docker Desktop's buildx
-writes an activity timestamp there on EVERY build and aborts if it cannot. Fixed through the two
-layers `wrap-command.ts` already has rather than a new hardcode: `BUILDX_CONFIG` joins
-`TOOLCHAIN_DIR_ENV_VARS`, `[".docker", "buildx"]` joins `HOME_CACHE_DIRS`, and `dockerBuildxDirs()`
-follows a redirected `DOCKER_CONFIG` (buildx resolves its default as `$DOCKER_CONFIG/buildx`, which
-neither other layer covers). **`~/.docker` itself is deliberately NOT granted** — `config.json` holds
-registry credentials, so the sub-path discipline of `.local/share` and `.nuget/packages` applies. A
-test asserts the parent is absent, so a later "simplification" fails loudly.
-
-**The policy was NOT changed and was not the problem.** Keeping the sandbox on for an approval that
-is system-scope only by PATH, and widening the roots instead, stays exactly as it was.
-
-**Scoped OUT, each worth its own pass:** a **deny-list** (Claude Code's model — wildcard read-deny
-taking precedence inside allowed regions, which is what would let `~/.docker` be granted broadly
-while protecting `config.json`), and triggering `sandbox-failure-context` on stderr matching EPERM
-regardless of exit code. The second is why the agent never learned a sandbox existed at all: the
-denial happened inside buildkit, and `| tail -40` made the failing build exit **0**, so
-escalate-on-denial had nothing to fire on.
-
-**An edit to an existing file rendered as "Create · (new file)".** Observed 2026-08-29: a 16-line
-change to a long-existing Go file showed `+16` on the collapsed row and, expanded, a green **Create**
-chip and a single empty added line. Both numbers come from the same object — the row prints the
-payload's `addedCount` (16, correct) while `SmartDiffView` recomputes from `oldContent`/`newContent`
-and got 1 — so the counts were never wrong, the CONTENT was, and the label was guessed from it.
-Two independent causes in `buildDiffView`, each proven to reproduce it on its own:
-`edit_file`'s enum is `write | replace | merge` and none was matched, so the tool's own answer was
-discarded on every edit; and the multi-edit `edits: [{old_content, new_content}]` form was never read,
-so both contents arrived empty. Display-only — the bytes on disk were right.
-
-**Both broadcasts now go through `broadcastToAllWindows`** instead of a hand-rolled loop, which also
-gives them the destroyed-window guard they never had — `win.webContents.send()` on a torn-down
-webContents throws "Object has been destroyed", a fatal main-process crash. It is also the only
-reason they are testable: they read `require("electron")` inside the method, which is undefined under
-vitest and threw straight into a swallowing catch, so **no test could observe a broadcast at all**.
-
-
-### 0. OAuth sign-in — FIXED in code and SHIPPED in v14.38.4 (2026-08-29)
-
-`AUTH_CALLBACK_URL` was built as `` `${DEEP_LINK_PROTOCOL}://${AUTH_CALLBACK_PATH}` `` — and
-`AUTH_CALLBACK_PATH` already carries a leading slash, so the app has been asking Supabase to
-redirect to **`atlarix:///auth/callback`, three slashes, since `c7984394` (2026-01-14)**. It worked
-for seven months because the allowlist held an entry that matched it. The list was tidied and now
-holds only `atlarix://auth/callback` + `https://www.atlarix.dev/**`, and GoTrue matches the
-requested redirect as a LITERAL string against a compiled glob — no URL normalisation, so the two
-spellings are simply different. **A non-match is not an error: GoTrue substitutes the Site URL.**
-Sign-in therefore completes in the browser, lands on the website, and the app is never launched.
-
-Fixed in the app: `AUTH_CALLBACK_URL` is now the canonical `atlarix://auth/callback` (main process
-and renderer stub), locked by `src/__tests__/oauth-redirect-allowlist-match.test.ts`, and the
-allowlist is documented in `src/lib/auth/README.md` §4 — it was documented nowhere before, which is
-what made a dashboard edit look free.
-
-**Owed by the owner, and the code fix does NOT cover it: every already-installed build — v14.38.3
-and every version before it — still sends the three-slash spelling and stays broken until it
-updates.** Add **`atlarix://*/auth/callback`** to Supabase → Authentication → URL Configuration →
-Redirect URLs, alongside the two-slash entry, and keep both until those builds are out of the field.
-
-**Not the literal three-slash string — the dashboard refuses it** ("Please provide a valid URL";
-its validator rejects an empty host). `atlarix://*/auth/callback` is the way in, and it is narrow:
-verified 2026-08-29 against `gobwas/glob` compiled as GoTrue compiles it (`glob.Compile(uri, '.',
-'/')`), `*` matches the EMPTY host so the pattern matches `atlarix:///auth/callback`, does not match
-the two-slash form, and does not match `atlarix://mcp/oauth/callback`. `atlarix://**` matches all
-three — which is exactly why it is the wrong answer: it would make the MCP handler's deep link a
-legal OAuth redirect target.
-**Not via `supabase config push`:** `supabase/config.toml`'s `[auth]` block is the LOCAL stack's
-(`site_url = "http://127.0.0.1:3000"`), so a push would overwrite the hosted Site URL with localhost.
-
-
-### 1. Connected repositories — SHIPPED 2026-08-27
-
-`atlarix-reviewer@09f6ff3` + migration `20260827180000`. The covered set is recorded
-from the webhooks that always carried it and the account page lists it. See 1b for why
-existing installs still read empty.
+**Why a non-match is invisible:** GoTrue matches the requested redirect as a literal string against
+a compiled glob and, on a miss, silently substitutes the Site URL. Sign-in completes in the browser,
+lands on the website, and the app is simply never launched.
 
 ### 1b. The repository list is live but the EXISTING installs are empty
 
@@ -486,58 +108,6 @@ is the honest thing for it to say. Two ways out:
 - **Proper, if it ever matters at scale:** a one-time backfill calling
   `GET /installation/repositories` per install with an installation token and applying it
   with `mode: 'set'`. Needs the App private key, which lives in Railway, not locally.
-
-### 1c. Supabase load — CLOSED 2026-08-28. Both polls are gone.
-
-Realtime first (v14.38.2), then the one underneath it. Cumulative
-`realtime.list_changes` went 7,323,466 -> 7,324,770 in a day: the fire is out and the 93.5%
-still on the dashboard is history, because `pg_stat_statements` has not been reset since
-2026-01-14.
-
-**What was left was the REVIEWER, and its own comment undercounted it by 2x.** The
-`IDLE_POLL_MS` note said "`claim()` is one PostgREST select". The idle path is TWO —
-`reclaimStale()` runs whenever `claim()` comes back empty, which on an empty queue is every
-tick. Measured three times, longest window 600s: **2.00 calls/min, 120/hour**, forever,
-against a `review_jobs` table that has held **seven jobs in its lifetime**. Fixed in
-`atlarix-reviewer@5db86b4`: 5-minute interval, reclaim every 4th idle pass (STALE_CLAIM_MS is
-20 min, so that cadence loses nothing). **120/hr -> ~15/hr.**
-
-**The measurement trap, for next time.** `pg_stat_statements` has NO per-request counter.
-`select set_config('search_path'...)` looks like one and is not — it fires per CONNECTION, and
-PostgREST pools, so it did not move at all across a 600s window in which 20 REST queries ran.
-The numerator is measurable this way; the denominator is not. For "what fraction of our
-traffic is X" the only honest source is the dashboard's **Logs Explorer on `edge_logs`,
-grouped by `request.path`** — which needs a Management API token the CLI keeps in the login
-keychain.
-
-**The backup gap that was open here is CLOSED** — nightly encrypted dumps to R2, restore-rehearsed.
-See 2b.
-
-### 2. Cut v14.38.2 — DONE 2026-08-27
-
-`0a6e8e2e` is on `main` and untagged. Standard flow: changelog heading FIRST (the awk in
-`extract-changelog.sh` must match, or the body silently degrades to a download list), local
-gate incl. `check:sandbox`, push, flip the repo public, tag, wait green, flip back private.
-
-### 2b. Money-DB backups — DONE 2026-08-28
-
-Owner chose **Cloudflare R2** over a Supabase Pro upgrade. Kept because it is what the NEXT person
-wiring one needs: the **session-pooler** URI on **port 5432** (transaction mode on 6543 does not work
-with `pg_dump`), a bucket-scoped Object Read & Write token, and an `age` keypair whose PUBLIC half is
-all the service ever sees. R2 requires a card on file even on the free tier; usage stays $0 inside
-10 GB / 1M Class A / 10M Class B, and a nightly ledger dump is single-digit MB.
-
-Shape: a separate `atlarix-backup` repo on its own Railway cron service, `postgres:17-alpine`
-(the server is **17.6**; a mismatched `pg_dump` refuses), `pg_dump --schema=public` PLUS a
-data-only dump of `auth.users` — credit rows key on `auth.users.id`, so without it a restore
-cannot map wallets to people. **Deliberately NOT inside `atlarix-reviewer`:** that process
-ingests pull-request text written by strangers, and a full Postgres connection string is
-exactly what `atlarix-proxy/src/entitlement.ts`'s header warns against putting there.
-
-**The restore rehearsal ran, and it earned its place** — `atlarix-backup@2dc0392`, "make the dump
-actually restorable — the rehearsal caught it". A backup that has never been restored is not a
-backup, and this one was not, until it was tried. The cron now lives in the repo rather than only
-the dashboard (`49d496d`).
 
 ### 3. One non-owner run of the reviewer, end to end
 
@@ -759,14 +329,6 @@ what made this queue read three times its real size.
       notifications expire rather than clicking them; success is a clean Sentry week.
 - [ ] Linux voice, never tested, now on the same WebGPU-first path.
 
-## 🩺 Atlarix Core: one 12s timeout, not reproducible
-
-Seen once on the first `--doctor` after packaging v14.38.0, then 1.7s on the next
-run. Cold session refresh, most likely. Worth a second look only if it recurs on a
-warm run. (Separately: three Core 503s on 2026-08-27 — watched, not diagnosed.)
-
----
-
 ## ⚠️ Known and NOT fixed — deliberately, with reasons
 
 - **Windows: the packaged app does not exit after `--self-test`. ROOT CAUSE UNIDENTIFIED.** It prints
@@ -841,7 +403,7 @@ tests green. The lessons that outlive the findings are kept below; the exploit w
 kept, because a repo whose visibility toggles is not a home for them and they had served their
 purpose.
 
-**App hygiene (the last open item) is now fixed, unreleased:** the three identical
+**App hygiene (the last open item) — fixed and SHIPPED in v14.39.0 (`0a7bb027`):** the three identical
 `atlarix://mcp/oauth/callback` branches in `handleDeepLinkReturn` are one branch again (two were
 unreachable — a fix could have landed in a copy that never runs), and `preload.ts` lost the
 `// Test-only channels` comment that sat above the LIVE Build-mode permission channels plus seven
@@ -984,35 +546,54 @@ item.
 Supabase request count is the tell, and the 2026-08-26 lesson was that 704 requests/hour looked like
 the website and was actually a 5-second poll. Do not scale on a hunch.
 
-## ☁️ Cloudflare on the free tier — surveyed 2026-08-28, none of it started
+## ☁️ Cloudflare — DNS MIGRATED 2026-09-01; what is left is small
 
 > The account is the owner's **PERSONAL** Cloudflare (`amariah.abish@gmail.com`), created for the
 > R2 backups. The `wrangler` setup on this machine belongs to SpacInsider — **never do Atlarix work
-> through the work account.** None of the below needs `wrangler`; it is dashboard plus DNS.
+> through the work account.** Nothing below needs `wrangler`; it is dashboard plus DNS.
 
-Ranked by what they actually buy, cheapest first. Already in use: **R2**, holding the nightly
-encrypted money-DB backups.
+**Done.** `atlarix.dev` moved Namecheap BasicDNS → Cloudflare (`perla`/`vicente.ns.cloudflare.com`)
+with zero downtime, all 10 records intact. **Everything is DNS-only (grey) and stays that way** —
+Vercel advises against a proxy in front of it, which intercepts their ACME path and breaks cert
+renewal, and every free-tier WAF / rate-limit / Bot-Fight feature is proxy-gated, so grey-clouding
+forgoes nothing we could have used. Also landed: **DNSSEC** (DS `2371 13 2`, AD flag verified on
+1.1.1.1 / 8.8.8.8 / 9.9.9.9 / OpenDNS), the **apex SPF** that was missing entirely
+(`include:_spf.google.com ~all` — Google only; Resend has its own on `send.`), and **DMARC
+reporting** (`rua=mailto:dmarc@atlarix.dev`; the record had been `p=none` with no `rua`, so it
+monitored nothing).
 
-- **1. Turnstile on signup — the one with a number attached.** `claim_signup_credit()` grants
-  **$1 per ACCOUNT**, and its only guard is `(kind, ref = user_id)` — one per account, not one per
-  person. Measured 2026-08-28: **23 claims, $23 given away.** Nothing stops disposable-email
-  farming. It costs nothing until someone notices and then scales linearly, which is the shape of
-  problem worth pre-empting rather than watching. Turnstile is free with unlimited challenges and
-  unlimited siteverify (20 widgets), and **works without moving DNS**, so it can be tried on its
-  own.
-- **2. Move `atlarix.dev` DNS to Cloudflare.** Currently Namecheap BasicDNS
-  (`dns1/dns2.registrar-servers.com`). Free brings the Free Managed Ruleset (deployed by default),
-  DDoS absorption, CDN caching — ~35 prerendered static pages is close to the ideal case — and it
-  stops the origin being directly addressable.
-- **3. Put the proxy behind a Cloudflare-proxied hostname — ON ITS OWN, never bundled.**
-  `atlarix-production.up.railway.app` resolves straight to `69.46.46.95`, so the money endpoint's
-  origin is public. An `api.atlarix.dev` CNAME would hide it, absorb DDoS and allow a rate-limit
-  rule (Free includes them, with limits).
-  **The caveat travels with the recommendation:** Cloudflare in front of a streaming SSE endpoint
-  can buffer or time out and break token streaming for every desktop user. Do it alone, and make a
-  real streaming turn the acceptance test — not `/health`, which would pass either way.
-- **Explicitly NOT worth it:** Workers, Pages, Zero Trust, Images. No current need, and each is
-  another moving part with its own failure modes.
+**Owed:** watch the DMARC reports for 2–4 weeks, then move `p=none` → `p=quarantine`. Not before —
+enforcing without data is how legitimate mail starts landing in spam.
+
+**Deliberately skipped: CAA.** Vercel controls issuance; pinning a CA risks a silent renewal failure
+for a threat Certificate Transparency already surfaces. Revisit only if issuance moves in-house.
+
+### Turnstile — I got this wrong once; both halves belong here
+
+**It cannot gate OAuth sign-in.** Both surfaces are `signInWithOAuth` only (`useAuth.ts:76` on the
+site, `supabase-client.ts:201` in the app) — no password, OTP, magic-link or signup path anywhere.
+Supabase's CAPTCHA attaches to endpoints that accept a `captchaToken` (`signUp`,
+`signInWithPassword`, `signInWithOtp`, `resetPasswordForEmail`, `verifyOtp`, `resend`); a redirect
+takes no such option. **The general rule, worth more than the instance: Turnstile needs an endpoint
+that accepts a token in a body you control. A pure OIDC redirect has nowhere to put one** — so the
+question to ask before budgeting the work is "does any auth endpoint take a credential in a request
+body?", and if not the item closes rather than defers.
+
+**But it CAN gate the money.** I told the owner "Turnstile has nothing to protect", and that was
+wrong — I had looked only at auth flows. `claim_signup_credit()` grants **$1 per ACCOUNT** guarded
+only by `(kind, ref = user_id)`; measured 2026-08-28: **23 claims, $23**. It is a real RPC
+(`auth_handlers.ts:392`), so it *could* carry a token. Caveats before anyone builds it: it is called
+from the Electron **main process**, so the widget needs a renderer surface; and the deeper weakness
+is that the dedupe key is a free-to-create account, which a cheaper control (account age, or
+requiring a payment method) might address better than a challenge.
+
+### Still not worth it
+
+Workers, Pages, Zero Trust, Images. And **proxying the Railway origin** (`api.atlarix.dev`) stays
+off: Cloudflare in front of a streaming SSE endpoint can buffer or time out and break token
+streaming for every desktop user. If it is ever revisited, do it alone and make a real streaming
+turn the acceptance test — `/health` would pass either way.
+
 
 ## 🔐 Security follow-ups — owner-triaged, deferred
 
@@ -1022,9 +603,9 @@ approval, MCP description wrapping + OAuth-URL validation, the universal write-c
 (Windows since rebuilt on Low IL), and the system-scope approval gate (which also closed M1).
 **Deferred:**
 
-- **C6 — auto-update signature verification (Windows/Linux).** Highest blast radius, but release
-  infra (signing certs + `app-update.yml` for NsisUpdater; out-of-band signature for AppImage), not
-  app code. The owner chose not to gate the public release on it.
+- **C6 — auto-update signature verification.** Moved: see **CLOSED — do not re-propose**, which
+  records it as closed for the path that matters (2026-08-28) along with the residual. It was listed
+  in both places with opposite verdicts.
 - **Native sandbox validation in CI.** The Windows/Linux helpers cannot compile on macOS.
   `npm run check:sandbox` cross-target type-checks both and the helpers are gated on behaviour, but
   neither substitutes for running them on the real OS.
@@ -1086,6 +667,50 @@ approval, MCP description wrapping + OAuth-URL validation, the universal write-c
 ---
 
 ## 🪤 Traps worth not rediscovering
+
+### Moving DNS: the zone is bigger than the zone you can see
+
+Migrating `atlarix.dev` to Cloudflare, 2026-09-01. Zero downtime, and the technique is the reason.
+
+**Cloudflare answers for the zone the moment it is created, BEFORE the registrar is touched.** So
+both authoritative sources can be diffed while production is untouched, at zero risk:
+`dig @perla.ns.cloudflare.com … ` vs `dig @dns1.registrar-servers.com …`, every name and type. Do
+that until it is clean, and only then flip. Normalise TXT chunking (`sed 's/" "//g'`) or a DKIM key
+split into 255-char segments reads as a DIFF when the value is identical.
+
+**A zone cannot be enumerated from outside — export it from the registrar.** `dig` can only confirm
+names you already guessed. Namecheap also **paginates and hides records behind "SHOW MORE"**, and
+what it hides is DKIM/SPF/DMARC — exactly the set whose loss is invisible. Our zone had a whole
+`send.atlarix.dev` delegation (Resend, which fronts SES) that no reconstruction would have found.
+
+**Rank the records by how loudly they fail.** SPF/DKIM loss shows up as spam-foldering within days.
+Losing Resend's **bounce-feedback MX** shows up as nothing at all, while sender reputation decays
+over weeks. Resend provisions that subdomain on every domain, so treat it as a checklist item.
+
+**DS after signing, never before.** Publishing a DS at the registrar while the zone is unsigned tells
+every validating resolver to reject unsigned answers for a zone that only has unsigned answers —
+hard failure, not degradation. Enable DNSSEC at the DNS provider first, then paste the DS.
+
+**Check for a stale DS before flipping at all** (`dig +short DS <zone>`) and confirm the algorithm
+dropdown matches what the provider actually signs with — Cloudflare uses 13/ECDSAP256SHA256 with a
+SHA-256 digest, and a registrar UI's first dropdown entry is `1 RSA/MD5`. A mismatched DS validates
+against nothing. Prove the chain closed by the **AD flag** on a real query, not by the dashboard:
+Cloudflare's own panel still said "pending" for an hour after four resolvers were validating.
+
+**Vercel stays DNS-only forever.** A proxy in front intercepts the ACME path and breaks their cert
+renewal, and there is no origin IP to hide — their addresses are shared anycast. On the free tier
+every WAF, rate-limit and challenge feature is proxy-gated, so grey-clouding forgoes nothing usable.
+Corollary for anything non-HTTP (WebRTC, SSE): it must stay DNS-only too.
+
+### Turnstile needs an endpoint that accepts a token
+
+A pure OAuth/OIDC redirect has nowhere to put one — `signInWithOAuth` takes no `captchaToken`, and
+the provider's own login page is where bot defence actually applies. Before budgeting the work, ask
+"does any auth endpoint take a credential in a request body I control?" If not, the item **closes**
+rather than defers. The trap is answering "add a CAPTCHA to login" without checking the auth *shape*
+— and its mirror, which caught me here: having concluded that, do not then assume there is nothing
+to protect. `claim_signup_credit()` is an RPC that pays out real money per account and *could* carry
+a token. Auth flow and money flow are different questions.
 
 ### A `sql` template does not qualify its columns — a subquery can silently self-compare
 
@@ -1620,6 +1245,8 @@ the traps themselves are consolidated above.
 
 | Version | Shipped | Trap |
 | --- | --- | --- |
+| **v14.39.1** | The compaction summary hidden from the chat and from `session_search`; the marker identified by a DB column instead of its first bytes; telemetry stopped writing before consent; error reports disclosed; every public data claim reconciled with the code | A comment is not a control: `showExtraFilesToast` opened with "NEVER send `files` — these are absolute paths" and then sent git's raw error, which quotes those same paths. `before_send` dropping events is not the same as writing nothing — `posthog.init` writes a distinct id to localStorage **and** a cookie before consent exists; gate INITIALISATION, not `persistence`, or you re-break `$session_id` continuity. A durable record must be identified STRUCTURALLY: `flattenNativeForCompaction` renders tool results as `{role:"user", content:"<tool_result …>"}`, the exact shape a text-matched marker keys on. Filter a hidden row at the RENDER choke point only — `hydrateSessionIntoChat` builds the model transport's refs from the same list the UI shows, so filtering earlier silently disables the compaction slice. |
+| **v14.39.0** | One compaction system — one summariser, three triggers, one durable marker; `session_search` to read behind it; drop-turns-first reordered to summarise-first; a turn envelope that stops growing; auxiliary sub-agent spend counted; the always-zero session message count fixed | An aggregate `sql` template that does not qualify its columns can self-compare and return 0 forever — here it fed `delete(chatSessions)`. Five absolute token constants each silently switched their own compaction step off on a small window: size every floor as a FRACTION of the budget it protects within. `"x".repeat(70_000)` scores ~300 tokens because BPE collapses a single-character run, so a "70K" fixture measures nothing — size fixtures in TOKENS and prove each test targets the band only its own step can act in. A guard that refuses on `updatedAt !== createdAt` will refuse forever once any bookkeeping write touches the row: binding a transport is not activity, and prune (destructive) and reuse (not) must not share a condition. |
 | **v14.38.1** | Usage bar as a percentage; purchased-credit headline; per-product allowance % and spend on the account page; two startup bugs | A module-level rule is not enforcement — `billing_copy.ts` forbids printing the allowance in dollars and the first thing that rendered it broke that rule. `vi.mock("electron")` does NOT reach a `createRequire` consumer, and `log.scope(name)` returns a NEW logger per call — both produce a green test that asserts nothing. **Confirm a regression test FAILS against the old code before keeping it.** `--doctor` never called `initializeDatabase()`; a bare `catch {}` reported that as the user's database being broken, next to a `Local database: OK` row. |
 | **v14.38.0** | Core included with Pro; the refund path the subscription wallet shipped without; browser tools on localhost; what's-new panel | A refund must reduce a period total by the amount **taken**, not the amount requested, or consumed exceeds total. Backfill a new column from the LEDGER, not from the remaining balance. A `WebContentsView` never added to the hierarchy lays out at ZERO WIDTH, so every answer about the page is plausibly wrong. Resolve a refund's account from the subscription row ONLY — taking from the wrong account is worse than granting to one. |
 | **v14.37.0** | Deep thinking on Core and every OpenAI-compatible provider; lines-written stats; web-search query fidelity | `compass` is a WIRE id, not a vendor: dispatch keys off the wire provider, capability off the vendor. A camelCase `reasoningEffort` sends NOTHING and throws nothing — assert on the DISPATCHED request. Anything reporting on a turn must read what dispatched, not what was selected, or a Core fallback files its work under the user's own key. |

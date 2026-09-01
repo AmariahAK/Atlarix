@@ -3,6 +3,36 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
+## [14.39.1] (2026-09-01) — A summary that stays out of the way, and a clearer answer about data
+
+**The summary Atlarix writes when a conversation gets long no longer shows up as a message.** When
+older turns are condensed, that summary was being saved like any other message — so it appeared in
+your chat as a block of `[COMPACTION MARKER]` text you never wrote, and turned up in
+`session_search` results as though it were part of the conversation. It is bookkeeping, and it now
+stays behind the scenes. Nothing about the conversation itself changed: the full history is still
+there, and the model still uses the summary exactly as before.
+
+**A summary can no longer be faked, or thrown away by accident.** Atlarix used to recognise its own
+summary purely by the text it started with — so a file you read, a pasted transcript, or a command's
+output that happened to begin the same way could be mistaken for one, and a long conversation could
+be cut short at the wrong place. It is now marked in the database instead of guessed from its
+wording. The same change stops the summary being deleted by the routine tidy-up of very long
+histories, which previously could remove it and force the whole conversation to be re-sent.
+
+**Clearer answers about what leaves your machine.** Two things were collected in ways our own
+documentation did not describe. Usage analytics is opt-in and always was — but crash and error
+reports are sent regardless of that choice, and nothing in the app said so. It now does, in the
+first-run prompt and in Settings. Separately, analytics no longer writes anything to your device
+before you have answered that prompt, and an error report about files changed outside Atlarix no
+longer includes the raw error text, which could contain file paths and your username. The website's
+privacy, security and data-use pages have been brought in line with what the code actually does,
+including naming every service that handles your data.
+
+**Security hardening for atlarix.dev.** Our domain now uses signed DNS, so the answers your computer
+gets when it looks up atlarix.dev can be verified rather than trusted, and we have published the
+records that let mail providers reject email pretending to be from us. This affects sign-in,
+downloads and anything we send you; nothing in the app changes.
+
 ## [14.39.0] (2026-09-01) — One way of compacting, and a way back to what it summarised
 
 **Compaction had three different ideas about when to run, and one of them forgot its work.**

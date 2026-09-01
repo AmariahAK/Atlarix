@@ -1,6 +1,16 @@
 /**
- * Main-process PostHog analytics. Only sends events when user has opted in (telemetryConsent === 'opted_in').
- * Uses a persistent anonymous ID stored in userData/analytics-id.json (no email, name, or identifiable data).
+ * Main-process PostHog analytics. Only sends events when the user has opted in
+ * (`telemetryConsent === 'opted_in'`).
+ *
+ * Identity: a persistent anonymous id in `userData/analytics-id.json` while
+ * signed out. ON SIGN-IN THAT STOPS BEING ANONYMOUS — `identifyUser` aliases the
+ * id to the Supabase user id and `SubscriptionManager` sends `email` and `name`
+ * with it (owner decision, so accounts are identifiable in the PostHog UI).
+ *
+ * This header used to end "(no email, name, or identifiable data)", which the
+ * code 95 lines below had already contradicted, and the same false claim reached
+ * a published changelog. Still never sent, and this part is real: code, prompts,
+ * file names, file contents.
  */
 
 import path from "node:path";

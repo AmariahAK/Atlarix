@@ -43,7 +43,16 @@ export function AnalyticsConsentModal() {
         {/* Must match Settings → "Help improve Atlarix" exactly. This modal used
             to promise "no personal info… anonymous" flat out, while Settings
             correctly said signed-in telemetry carries your email and name — two
-            different answers to the same question, both shipped. */}
+            different answers to the same question, both shipped.
+
+            SECOND correction, v14.39.1: this offered a choice and then collected
+            regardless of the answer. Sentry initialises on DSN presence alone
+            (`main.ts`, `renderer.tsx`) and never reads `telemetryConsent`, so
+            "No thanks" still sent stack traces, breadcrumbs and 10%-sampled
+            performance traces. The owner's call was to keep error reporting and
+            SAY so rather than gate it — an undisclosed collection is the part
+            that was wrong, not the collection. If either string changes, change
+            both; the two drifting apart is how the first correction happened. */}
         <p className="mt-2 text-sm text-muted-foreground">
           Share usage data — which features get used, and whether things work —
           to help us understand what matters most.
@@ -53,6 +62,9 @@ export function AnalyticsConsentModal() {
           signed out. When signed in, it&apos;s linked to your account and
           includes your email and name, so your usage counts once across your
           devices. You can change this anytime in Settings.
+        </p>
+        <p className="mt-3 text-sm text-muted-foreground">
+          Crash and error reports are sent separately and are not covered by this choice — they carry stack traces and device info, never your code or prompts.
         </p>
         <div className="mt-6 flex gap-3 justify-end">
           <Button variant="secondary" onClick={handleNo}>

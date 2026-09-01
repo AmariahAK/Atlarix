@@ -5,7 +5,11 @@ import { router } from "./router";
 import { RouterProvider } from "@tanstack/react-router";
 import { PostHogProvider } from "posthog-js/react";
 import posthog from "posthog-js";
-import { isTelemetryOptedIn } from "./hooks/useSettings";
+import {
+  ensurePostHogInitialized,
+  getPostHogClient,
+  setPostHogConfig,
+} from "@/lib/analytics/posthog-client";
 import {
   QueryCache,
   QueryClient,
@@ -124,36 +128,6 @@ const queryClient = new QueryClient({
   }),
 });
 
-// PostHog client: inited in bootstrap from main process config (API key + anonymous ID)
-let posthogClient: ReturnType<typeof posthog.init> | null = null;
-
-function initPostHogFromConfig(apiKey: string, analyticsId: string): void {
-  posthogClient = posthog.init(apiKey, {
-    api_host: "https://eu.i.posthog.com",
-    // Was "memory": every launch started with a fresh client state, so
-    // `$session_id` was new each time and every session-scoped metric
-    // (session count, session duration, sessions-per-user) was meaningless.
-    // Safe to persist — `before_send` below still drops everything when the
-    // user hasn't opted in, so nothing is written for a non-consenting user.
-    persistence: "localStorage+cookie",
-    autocapture: false,
-    capture_pageview: false,
-    disable_session_recording: true,
-    // @ts-ignore
-    debug: import.meta.env.MODE === "development",
-    before_send: (event) => {
-      if (!isTelemetryOptedIn()) {
-        return null;
-      }
-      if (event?.properties?.["$ip"]) {
-        event.properties["$ip"] = null;
-      }
-      return event;
-    },
-  });
-  posthog.identify(analyticsId);
-}
-
 /**
  * Re-identify the renderer client once the user signs in, so renderer events
  * land on the same person as main's (which switches to the Supabase user id via
@@ -166,7 +140,7 @@ function initPostHogFromConfig(apiKey: string, analyticsId: string): void {
 function PostHogIdentityBridge() {
   const { user } = useAuth();
   useEffect(() => {
-    if (!posthogClient || !user?.id) return;
+    if (!getPostHogClient() || !user?.id) return;
     if (posthog.get_distinct_id() === user.id) return;
     posthog.identify(user.id);
   }, [user?.id]);
@@ -286,16 +260,17 @@ async function bootstrap() {
     });
   }
   if (posthogConfig.posthogApiKey) {
-    initPostHogFromConfig(
-      posthogConfig.posthogApiKey,
-      posthogConfig.analyticsId,
-    );
+    // Held, not started. `ensurePostHogInitialized` writes nothing to this
+    // device until consent exists — see posthog-client.ts for why that is not
+    // the same as `before_send` dropping events.
+    setPostHogConfig(posthogConfig.posthogApiKey, posthogConfig.analyticsId);
+    ensurePostHogInitialized();
   }
   createRoot(document.getElementById("root")!).render(
     <StrictMode>
       <SentryErrorBoundary fallback={<SentryFallback />}>
         <QueryClientProvider client={queryClient}>
-          <PostHogProvider client={posthogClient ?? posthog}>
+          <PostHogProvider client={getPostHogClient() ?? posthog}>
             <PostHogIdentityBridge />
             <DevServerProvider>
               <DbReadyGate>
