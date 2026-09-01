@@ -308,3 +308,4 @@ describe("headless trajectory writer", () => {
     expect(() => w.close()).not.toThrow();
   });
 });
+

@@ -34,6 +34,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { runHeadlessAgent } from "./headless-runner";
+import { isNetworkStreamError } from "@/ipc/handlers/chat_stream/network-retry";
 
 // Point the catalog at the snapshot shipped beside this bundle. Without it the
 // snapshot is looked for under `cwd` — the task directory in a benchmark run —
@@ -165,6 +166,34 @@ async function main() {
   );
   process.exit(res.completed ? 0 : 1);
 }
+
+/**
+ * A dropped provider socket must not kill the process.
+ *
+ * undici surfaces a mid-stream disconnect (`UND_ERR_SOCKET`, "other side
+ * closed") as a rejection on its own read promise, which belongs to no awaited
+ * chain. Node's default for an unhandled rejection is to terminate, so the
+ * process died before either the round-level reconnect (three tries at 2s/5s/10s
+ * in `round-retry.ts`) or `main().catch()` below could run — observed on a real
+ * Terminal-Bench trial that produced neither a retry line nor a fatal line.
+ *
+ * Swallowing it lets the stream simply go quiet, which is a condition the turn
+ * already handles: the stall watchdog notices no chunks arriving and retries.
+ * Only errors the app already classifies as retryable network faults are
+ * absorbed; anything else keeps the previous fail-fast behaviour, because a bug
+ * that leaves the agent in an unknown state is worse than a crash.
+ */
+process.on("unhandledRejection", (reason) => {
+  if (isNetworkStreamError(reason)) {
+    const detail = reason instanceof Error ? reason.message : String(reason);
+    console.error(
+      `[atlarix-headless] network fault absorbed, letting the turn retry: ${detail}`,
+    );
+    return;
+  }
+  console.error("[atlarix-headless] fatal (unhandled rejection):", reason);
+  process.exit(1);
+});
 
 main().catch((err) => {
   console.error("[atlarix-headless] fatal:", err);

@@ -3,6 +3,25 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
+## [14.39.4] (2026-09-01) — A dropped connection no longer ends the run
+
+**A provider connection that drops mid-answer used to end the whole run.** Atlarix already
+knew how to reconnect — it retries three times, waiting a little longer each time — but the
+failure was arriving in a form that skipped that handling entirely and stopped the program
+outright. Found on a real benchmark task, where the run died with the work half finished and
+nothing in the log to say a reconnect had even been attempted. Dropped connections are now
+handed to the retry that was always meant to receive them, while genuine faults still stop the
+run as before.
+
+**Atlarix also mistook some dropped connections for its own bugs.** A disconnect can arrive
+described in several different ways, and only some of them were recognised; the rest were
+treated as programming errors, which are never retried. All of them are now recognised,
+including the ones that only name the problem one layer down.
+
+**Cached input is reported as cached.** Providers charge far less for prompt text they have
+already seen, and unattended runs were reporting only the raw total, which makes a long run
+look many times more expensive than it was.
+
 ## [14.39.3] (2026-09-01) — The headless agent becomes installable, and stops handicapping itself
 
 **Atlarix's headless agent installs with one command: `npm i -g atlarix`.** The Electron-free

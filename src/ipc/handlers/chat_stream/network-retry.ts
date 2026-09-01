@@ -91,10 +91,51 @@ export function isNetworkStreamError(err: unknown): boolean {
     if (code == null) return true; // transport-level APICallError (no HTTP status)
     return code === 429 || code >= 500;
   }
+  // undici reports transport faults by CODE, and the wrapper it throws can carry
+  // a message the regex below knows nothing about. Only genuinely transport-level
+  // codes are listed: UND_ERR_ABORTED is deliberately absent, since an abort is a
+  // decision rather than a fault and retrying it would fight the caller.
+  const code = (err as { code?: unknown })?.code;
+  if (
+    typeof code === "string" &&
+    [
+      "UND_ERR_SOCKET",
+      "UND_ERR_CONNECT_TIMEOUT",
+      "UND_ERR_HEADERS_TIMEOUT",
+      "UND_ERR_BODY_TIMEOUT",
+      "UND_ERR_RESPONSE_STATUS_CODE",
+      "ECONNRESET",
+      "ETIMEDOUT",
+      "EPIPE",
+    ].includes(code)
+  )
+    return true;
+
   const msg = String((err as { message?: unknown })?.message ?? err);
-  return /terminated|fetch failed|ECONNRESET|ETIMEDOUT|socket hang up|premature close|connection (?:reset|refused|closed)|network/i.test(
-    msg,
-  );
+  if (
+    /terminated|fetch failed|ECONNRESET|ETIMEDOUT|socket hang up|premature close|other side closed|connection (?:reset|refused|closed)|network/i.test(
+      msg,
+    )
+  )
+    return true;
+
+  // Follow `cause`. undici wraps a socket fault in an outer error whose own
+  // message can be uninformative while the cause names it exactly; checking only
+  // the top level classified a real disconnect as a programming bug. Depth-capped
+  // because a cause chain can be cyclic.
+  const cause = (err as { cause?: unknown })?.cause;
+  if (cause && cause !== err) {
+    let depth = 0;
+    let node: unknown = cause;
+    while (node && depth < 4) {
+      if (isNetworkStreamError(node)) return true;
+      const next = (node as { cause?: unknown })?.cause;
+      if (next === node) break;
+      node = next;
+      depth++;
+    }
+  }
+  return false;
 }
 
 /**
