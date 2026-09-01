@@ -1,6 +1,6 @@
 {
   "name": "atlarix",
-  "version": "14.39.4",
+  "version": "14.40.0",
   "description": "Headless Atlarix coding agent — the Electron-free agent loop as a CLI, for benchmarks, CI and unattended runs.",
   "license": "PROPRIETARY",
   "author": {

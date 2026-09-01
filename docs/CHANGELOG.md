@@ -3,7 +3,10 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
-## [14.39.4] (2026-09-01) — A dropped connection no longer ends the run
+## [14.40.0] (2026-09-01) — A dropped connection no longer ends the run
+
+> The headless agent was published to npm as 14.39.4 while this was being tested; it is the
+> same code as this release.
 
 **A provider connection that drops mid-answer used to end the whole run.** Atlarix already
 knew how to reconnect — it retries three times, waiting a little longer each time — but the
@@ -17,6 +20,12 @@ run as before.
 described in several different ways, and only some of them were recognised; the rest were
 treated as programming errors, which are never retried. All of them are now recognised,
 including the ones that only name the problem one layer down.
+
+**A command that failed no longer looks like it succeeded.** When a command exited with an
+error, or you declined it, the card in chat still showed a tick and a past-tense success label —
+"Ran the tests" beside output saying they had not run. The same card also lost the command's own
+output, so there was nothing to read back after the fact. Both are fixed: a failed or declined
+command is now shown as failed, and its output is kept with it.
 
 **Cached input is reported as cached.** Providers charge far less for prompt text they have
 already seen, and unattended runs were reporting only the raw total, which makes a long run
