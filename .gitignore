@@ -132,6 +132,7 @@ assets/model2vec/
 dist-headless/
 # Headless agent CLI tarball (build artifact)
 dist-headless-tarball/
+packages/headless/dist-headless/
 # Stray root bundle emitted by some local builds (real entry is .vite/build/main.js)
 /main.js
 # Python bytecode (benchmark harness tooling)

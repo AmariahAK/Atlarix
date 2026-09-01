@@ -401,7 +401,20 @@ export async function finalizeTurn(
                     : null,
                   ctx.turnActualCostUsd > 0 ? ctx.turnActualCostUsd : null,
                 );
-                return cost != null ? { turnCostUsd: cost } : {};
+                return {
+                  ...(cost != null ? { turnCostUsd: cost } : {}),
+                  // The cache split, alongside the cost derived FROM it. The cost
+                  // is only available where a rate is known — an unpriced model
+                  // returns null — so a consumer that has to compute its own
+                  // needs the counts, and `turnTokens` alone cannot be priced:
+                  // a cached read is a fraction of a fresh one.
+                  ...(ctx.turnCachedInputTokens > 0
+                    ? { turnCachedInputTokens: ctx.turnCachedInputTokens }
+                    : {}),
+                  ...(ctx.turnCacheCreationTokens > 0
+                    ? { turnCacheCreationTokens: ctx.turnCacheCreationTokens }
+                    : {}),
+                };
               })(),
               // v12 0.2 (B2): renderer passes this through to the session
               // store as extras.modelContent when persisting the assistant

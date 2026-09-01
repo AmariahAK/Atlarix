@@ -95,6 +95,21 @@ const STATIC_RATES: Array<{ test: RegExp; rate: PerMillionRate }> = [
     test: /o3-mini/i,
     rate: { inputPerMtok: 1.1, outputPerMtok: 4.4, cacheReadPerMtok: 0.55 },
   },
+  // DeepSeek bills two tariffs for the same model — off-peak is half of peak,
+  // with peak at 01:00-04:00 and 06:00-10:00 UTC on weekdays. A static table
+  // cannot know which applied, so these are the PEAK rates: on a figure that
+  // gets published (a benchmark's reported cost, the session spend meter),
+  // overstating is the safe direction and understating is the one that misleads.
+  // Without these entries `rateForModel` returned null for every DeepSeek model
+  // and the cost was simply absent — observed on a real V4 Flash run.
+  {
+    test: /deepseek.*flash/i,
+    rate: { inputPerMtok: 0.44, outputPerMtok: 1.32, cacheReadPerMtok: 0.014 },
+  },
+  {
+    test: /deepseek.*pro/i,
+    rate: { inputPerMtok: 1.32, outputPerMtok: 3.96, cacheReadPerMtok: 0.044 },
+  },
 ];
 
 export interface TurnUsageSplit {

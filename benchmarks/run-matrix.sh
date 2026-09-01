@@ -1,5 +1,5 @@
 #!/bin/bash
-# Terminal-Bench 2.1 for every (model × harness), then collect results.
+# Terminal-Bench 4.0 for every (model x harness), then collect results.
 # Harnesses: atlarix / opencode / pi — each via an import-path adapter that
 # starts an IN-CONTAINER pin proxy (benchmarks/pin-proxy.mjs) on localhost and
 # points the harness at it. The proxy injects the OpenRouter provider/quant pin
@@ -16,11 +16,11 @@
 # Prereqs (run from repo root):
 #   set -a; source scripts/.env; set +a              # OPENROUTER_API_KEY, DAYTONA_*
 #   source .bench-venv/bin/activate                  # harbor + atlarix_tb importable
-#   export ATLARIX_HEADLESS_TARBALL_URL=…             # atlarix headless bundle
 #   bash Atlarix/benchmarks/run-matrix.sh
 #
 # Env knobs:
-#   BENCH_MODELS  default "deepseek/deepseek-v4-pro minimax/minimax-m3"
+#   BENCH_MODELS  default "deepseek/deepseek-v4-flash minimax/minimax-m3"
+#   BENCH_EFFORT  default "max" (the level every leaderboard entry runs)
 #   BENCH_CONCURRENCY default 4   (use 32 with BENCH_EXTRA="-e daytona")
 #   BENCH_EXTRA   extra harbor flags, e.g. "-e daytona" or a SMOKE "-i terminal-bench/fix-git -l 1"
 #   BENCH_RESULTS default ./results   HARBOR_BIN default harbor
@@ -28,11 +28,17 @@ set -euo pipefail
 : "${OPENROUTER_API_KEY:?set OPENROUTER_API_KEY (set -a; source scripts/.env; set +a)}"
 
 HARBOR="${HARBOR_BIN:-harbor}"
-DATASET="${BENCH_DATASET:-terminal-bench/terminal-bench-2-1}"
+# 4.0 is the current dataset and the only one the leaderboard tracks. Scores are
+# NOT comparable to 2.x: 4.0 recalibrated task resources, removed saturated
+# tasks and standardised an 8-hour agent timeout. Pinned rather than @latest so
+# a mid-run dataset bump cannot make two cells of the same matrix incomparable.
+DATASET="${BENCH_DATASET:-terminal-bench/terminal-bench@4.0.0}"
 N="${BENCH_CONCURRENCY:-4}"
 EXTRA="${BENCH_EXTRA:-}"
 RESULTS="${BENCH_RESULTS:-results}"
-read -ra MODELS <<< "${BENCH_MODELS:-deepseek/deepseek-v4-pro minimax/minimax-m3}"
+# V4 Flash supersedes V4 Pro on agentic work at a third of the price, and it is
+# the open-weight question nobody has answered on 4.0 — so it leads.
+read -ra MODELS <<< "${BENCH_MODELS:-deepseek/deepseek-v4-flash minimax/minimax-m3}"
 
 # run <canonical-model> <harness> <harbor-model-string> [extra harbor args...]
 run() {
@@ -40,16 +46,19 @@ run() {
   local jobs="$RESULTS/${model//\//_}/$harness"
   mkdir -p "$jobs"
   echo "=== $harness × $model  (-m $hmodel, n=$N, via proxy) ==="
-  "$HARBOR" run -d "$DATASET" -m "$hmodel" -o "$jobs" -n "$N" -y $EXTRA "$@"
+  # `--ak reasoning_effort=max` is how the board configures every entry it
+  # lists. Without it the harness dispatches a notch below the model's ceiling
+  # and the comparison measures a handicap rather than the harness.
+  "$HARBOR" run -d "$DATASET" -m "$hmodel" -o "$jobs" -n "$N" \
+    --ak "reasoning_effort=${BENCH_EFFORT:-max}" -y $EXTRA "$@"
 }
 
 for model in "${MODELS[@]}"; do
-  [ -n "${ATLARIX_HEADLESS_TARBALL_URL:-}" ] || echo "WARN: ATLARIX_HEADLESS_TARBALL_URL unset — atlarix cell will fail to install" >&2
-
-  # atlarix: AtlarixAgent starts the in-container proxy and points headless at
-  #   it via --provider-url (custom OpenAI-compatible). -m openai/<slug> ->
-  #   model=<slug> (the proxy matches the bare slug).
-  run "$model" atlarix  "openai/$model"  --agent-import-path atlarix_tb:AtlarixAgent
+  # atlarix: AtlarixPinnedAgent subclasses Harbor's built-in `atlarix`, starting
+  #   the in-container proxy and redirecting the parent at it via a custom
+  #   OpenAI-compatible endpoint. -m openai/<slug> -> model=<slug> (the proxy
+  #   matches the bare slug). Install is `npm i -g atlarix`, inherited upstream.
+  run "$model" atlarix  "openai/$model"  --agent-import-path atlarix_tb:AtlarixPinnedAgent
 
   # opencode: BenchOpenCodeAgent starts the in-container proxy and registers a
   #   `bench` openai-compatible provider pointing at it (chat/completions, not

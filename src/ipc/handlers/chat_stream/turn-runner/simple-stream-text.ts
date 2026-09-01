@@ -729,6 +729,20 @@ export async function simpleStreamText(
                       totalTokens:
                         total ??
                         (split?.inputTokens ?? 0) + (split?.outputTokens ?? 0),
+                      // The cache split, which `inputOutputTokensFromUsage`
+                      // already resolves and this emit used to discard. Without
+                      // it a consumer sees only the gross input count and has no
+                      // way to price it: a cached read costs a small fraction of
+                      // a fresh one — on DeepSeek roughly a thirtieth — so a
+                      // trajectory reporting gross input alone overstates spend
+                      // by more than an order of magnitude on a long agent run,
+                      // which is exactly the sort of run this is used for.
+                      ...(split?.cachedInputTokens != null
+                        ? { cachedInputTokens: split.cachedInputTokens }
+                        : {}),
+                      ...(split?.cacheCreationInputTokens != null
+                        ? { cacheCreationInputTokens: split.cacheCreationInputTokens }
+                        : {}),
                       toolBuckets: { ...turnBuckets },
                     });
                   }

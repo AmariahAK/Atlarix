@@ -3,6 +3,35 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
+## [14.39.3] (2026-09-01) — The headless agent becomes installable, and stops handicapping itself
+
+**Atlarix's headless agent installs with one command: `npm i -g atlarix`.** The Electron-free
+agent loop — the same one the desktop app runs — is now a published package with an `atlarix`
+binary, instead of a tarball you had to know the URL of. It exists for benchmarks, CI and
+unattended runs; `atlarix run --workspace <dir> --prompt-file <file>` is the shape.
+
+**Unattended runs were quietly reasoning one notch below the model's best.** The headless
+runner never set the Deep-thinking preference, and because that setting has no default, every
+benchmark run resolved to the lower level — for DeepSeek, Qwen and MiniMax models that meant
+`high` where the model offers `max`. Published leaderboard results for other harnesses all run
+the ceiling, so our own numbers were measured with the model held back. `--deep-thinking` now
+selects it explicitly, and a test asserts the level on the outgoing request rather than on the
+stored setting.
+
+**A ten-minute ceiling no longer cuts long tasks short.** A headless run imposed its own
+10-minute deadline unless an environment variable said otherwise, then exited as a failure.
+Benchmark harnesses allow hours and enforce their own timeouts, so the deadline now belongs to
+whoever launched the run; `--timeout` still sets one when you want it.
+
+**Runs can be replayed.** `--trajectory-file` writes a JSONL trace — every tool call with its
+arguments and result, the model's text, and real token and cost totals. It is written as the run
+happens rather than at the end, so a run that is killed still leaves everything up to that
+moment, and credentials are stripped from every line because these traces are meant to be
+published.
+
+**`--version` answers.** It previously exited with an error, which left benchmark harnesses
+recording the Node version as Atlarix's.
+
 ## [14.39.2] (2026-09-01) — The trial credit goes to real accounts
 
 **The one-time $1 trial credit is now limited to accounts created with a sign-in method Atlarix

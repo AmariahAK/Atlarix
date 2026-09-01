@@ -1,0 +1,50 @@
+{
+  "name": "atlarix",
+  "version": "14.39.3",
+  "description": "Headless Atlarix coding agent — the Electron-free agent loop as a CLI, for benchmarks, CI and unattended runs.",
+  "license": "PROPRIETARY",
+  "author": {
+    "name": "NorahLabs",
+    "email": "support@norahlabs.com",
+    "url": "https://norahlabs.com"
+  },
+  "homepage": "https://atlarix.dev",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AmariahAK/Atlarix.git"
+  },
+  "bugs": {
+    "url": "https://github.com/AmariahAK/atlarix-releases/issues"
+  },
+  "keywords": [
+    "ai",
+    "agent",
+    "coding-agent",
+    "cli",
+    "headless",
+    "benchmark",
+    "terminal-bench",
+    "swe-bench"
+  ],
+  "type": "module",
+  "bin": {
+    "atlarix": "dist-headless/atlarix-headless.mjs"
+  },
+  "files": [
+    "dist-headless"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "os": [
+    "darwin",
+    "linux",
+    "win32"
+  ],
+  "dependencies": {
+    "better-sqlite3": "^12.11.1"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

@@ -1,158 +1,96 @@
 """
-Harbor agent adapter for the Atlarix headless agent (Harbor >= 0.13).
+Pin-proxy variant of Harbor's built-in `atlarix` agent, for the harness
+comparison only.
 
-Mirrors Harbor's built-in `pi` agent (harbor.agents.installed.pi): a
-BaseInstalledAgent that installs Node + the prebuilt Atlarix headless bundle in
-the task container, then runs it on the task instruction. Atlarix's
-`run_command` executes in the container shell — which is what Terminal-Bench
-verifies. opencode and pi are built-in (`-a opencode` / `-a pi`); only Atlarix
-needs this custom adapter.
+WHAT CHANGED. The adapter used to be a full `BaseInstalledAgent` living here: it
+installed Node by hand, downloaded a tarball from a URL supplied in an env var,
+parsed the provider itself, and passed the task text on the command line. All of
+that now lives upstream in `harbor.agents.installed.atlarix:Atlarix` — installed
+with `npm i -g atlarix`, ATIF trajectories, and the instruction routed through
+the environment so it never enters the agent's own `/proc/<pid>/cmdline` (see
+harbor issue #2311). Use `--agent atlarix` for a normal run; this file exists
+ONLY for the study below.
 
-Run:
-  harbor run -d terminal-bench/terminal-bench-2-1 \
-    --agent-import-path atlarix_tb:AtlarixAgent \
-    -m openrouter/deepseek/deepseek-v4-pro -n 4 -y
+WHY IT STILL EXISTS. The opencode comparison holds the model, provider and quant
+constant across harnesses, so every harness must reach the SAME backend. When the
+run goes through OpenRouter, OpenRouter is free to route a model across backends
+and quantisations, and that variance would be indistinguishable from a difference
+between harnesses. `pin-proxy.mjs` runs on localhost inside each task container,
+injects the provider/quant pin, and forwards upstream — so the only thing left
+varying is the harness. Upstream must not carry any of that: a pre-integrated
+agent should talk to the provider Harbor resolved, not to a benchmark fixture.
 
-Host env (forwarded into the container by run()):
-  OPENROUTER_API_KEY              required
-  ATLARIX_HEADLESS_TARBALL_URL    required (prebuilt Linux bundle; used by install())
-  ATLARIX_OPENROUTER_PROVIDER_JSON  optional provider/quant pin
+This is the same shape `pi_proxy.py` uses over Harbor's built-in `Pi`: subclass,
+redirect at the proxy, defer to the parent for everything else.
+
+Run (matrix): `bash benchmarks/run-matrix.sh`
+Run (directly):
+  harbor run -d terminal-bench/terminal-bench@4.0.0 \
+    --agent-import-path atlarix_tb:AtlarixPinnedAgent \
+    -m openai/deepseek/deepseek-v4-flash --ak reasoning_effort=max -n 4 -y
+
+Host env (forwarded into the container by the sidecar):
+  OPENROUTER_API_KEY   required — consumed by the in-container pin proxy
+  ATLARIX_OPENROUTER_PROVIDER_JSON   optional provider/quant pin
 """
 
-import os
-import shlex
+from typing import override
 
-from harbor.agents.installed.base import BaseInstalledAgent, with_prompt_template
+from harbor.agents.installed.atlarix import Atlarix
+from harbor.agents.model_connection import ModelConnectionSpec
 from harbor.environments.base import BaseEnvironment
 from harbor.models.agent.context import AgentContext
 
+from atlarix_tb.proxy_sidecar import PROXY_API_KEY, start_sidecar
 
-class AtlarixAgent(BaseInstalledAgent):
-    _OUTPUT_FILENAME = "atlarix.log"
+
+class AtlarixPinnedAgent(Atlarix):
+    """Atlarix routed through the in-container pin proxy."""
+
+    # The proxy holds the real upstream key and injects the pin, so nothing about
+    # the model connection should be resolved from the host environment — the
+    # parent's passthrough spec would hand Atlarix a real provider key and a real
+    # base URL, and the request would bypass the proxy entirely.
+    MODEL_CONNECTION = ModelConnectionSpec()
 
     @staticmethod
+    @override
     def name() -> str:
+        # Keep the upstream name so results files, `collect-results.mjs` and the
+        # comparison tables read the same whichever variant produced them.
         return "atlarix"
 
-    def get_version_command(self) -> str | None:
-        return ". ~/.nvm/nvm.sh; node /opt/atlarix/dist-headless/atlarix-headless.mjs --version 2>/dev/null || node -v"
-
-    async def install(self, environment: BaseEnvironment) -> None:
-        url = os.environ.get("ATLARIX_HEADLESS_TARBALL_URL")
-        if not url:
-            raise ValueError("ATLARIX_HEADLESS_TARBALL_URL is not set")
-        await self.exec_as_root(
-            environment,
-            command="apt-get update && apt-get install -y curl tar",
-            env={"DEBIAN_FRONTEND": "noninteractive"},
-        )
-        # One statement per line under `set -e`: the previous &&/|| one-liner had
-        # a precedence bug (`. nvm.sh || true && command -v nvm`) that let the
-        # shell reach `nvm install` before the nvm function was loaded → exit 127.
-        await self.exec_as_agent(
-            environment,
-            command=(
-                "set -euo pipefail\n"
-                'export NVM_DIR="$HOME/.nvm"\n'
-                "curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.2/install.sh | bash\n"
-                '[ -s "$NVM_DIR/nvm.sh" ] && \\. "$NVM_DIR/nvm.sh"\n'
-                "command -v nvm >/dev/null || { echo 'Error: NVM failed to load' >&2; exit 1; }\n"
-                "nvm install 22\n"
-                "node -v\n"
-                "mkdir -p /opt/atlarix\n"
-                # Resumable, retrying download: the tarball may be served over a
-                # bandwidth-limited tunnel that resets mid-transfer (curl 35/18/56).
-                # `-C -` resumes from the partial file; loop until tar validates.
-                f"URL={shlex.quote(url)}\n"
-                "ok=0\n"
-                "for i in 1 2 3 4 5 6 7 8 9 10; do\n"
-                '  curl -fSL --retry 5 --retry-delay 3 --retry-all-errors -C - '
-                '--connect-timeout 30 --max-time 900 "$URL" -o /tmp/atlarix.tar.gz || true\n'
-                "  if tar -tzf /tmp/atlarix.tar.gz >/dev/null 2>&1; then ok=1; break; fi\n"
-                '  echo "tarball download incomplete (attempt $i), retrying..." >&2\n'
-                "  sleep 5\n"
-                "done\n"
-                '[ "$ok" = 1 ] || { echo "Error: tarball download failed after retries" >&2; exit 1; }\n'
-                "tar -xzf /tmp/atlarix.tar.gz -C /opt/atlarix\n"
-                "test -f /opt/atlarix/dist-headless/atlarix-headless.mjs\n"
-            ),
-        )
-
-    @with_prompt_template
+    @override
     async def run(
         self,
         instruction: str,
         environment: BaseEnvironment,
         context: AgentContext,
     ) -> None:
-        escaped = shlex.quote(instruction)
-        if not self.model_name or "/" not in self.model_name:
-            raise ValueError("Model name must be provider/model (e.g. openai/deepseek/deepseek-v4-pro)")
-        provider_id, model = self.model_name.split("/", 1)  # openai, deepseek/deepseek-v4-pro
+        proxy_url = await start_sidecar(self, environment)
 
-        env: dict[str, str] = {
-            "ATLARIX_HEADLESS": "1",
-            "ATLARIX_DISABLE_TEXT_TOOLS": "1",
-            # Operator consent for an unattended, disposable container: grant the
-            # danger-command acknowledgement once, up front (rm -rf, sudo, …),
-            # since there is no human to tick the per-command checkbox. Default in
-            # auto-approve.ts stays BLOCKED; only this explicit flag lifts it.
-            "ATLARIX_AUTONOMOUS_DANGER": "1",
-        }
-        for key in ["ATLARIX_HEADLESS_TIMEOUT_MS"]:
-            val = os.environ.get(key)
-            if val:
-                env[key] = val
+        # Point the parent at the proxy as a custom OpenAI-compatible endpoint,
+        # with the dummy key the proxy expects. `_pinned_connection` is read by
+        # the `model_connection` property below, which is what the parent's run()
+        # consults — so the parent needs no knowledge of any of this.
+        self._pinned_base_url = proxy_url
+        await super().run(instruction, environment, context)
 
-        use_sidecar = os.environ.get("ATLARIX_BENCH_SIDECAR", "1") != "0"
-        if use_sidecar:
-            # Start the in-container pin proxy (localhost) and route Atlarix
-            # through it as a custom OpenAI-compatible provider. The proxy holds
-            # the real key + injects the provider pin; `model` is the bare slug
-            # (e.g. deepseek/deepseek-v4-pro) so the proxy can match it. Dummy
-            # key — the proxy supplies the real one upstream.
-            #
-            # An external (hosted) proxy is unreachable from Daytona task
-            # sandboxes (egress allow-list), so the proxy must live in-container.
-            from atlarix_tb.proxy_sidecar import start_sidecar, PROXY_API_KEY
-
-            proxy_url = await start_sidecar(self, environment)
-            env["ATLARIX_HEADLESS_API_KEY"] = PROXY_API_KEY
-            # NOTE: deliberately NO --provider-id. headless-runner only seeds the
-            # custom OpenAI-compatible provider row (at --provider-url) when
-            # provider.id is undefined (atlarix-headless.mts:48 ->
-            # `id: providerId ?? (providerUrl ? undefined : "openrouter")`).
-            # Passing --provider-id openai defeated the proxy path entirely
-            # (NoOutputGeneratedError, no request ever reached the proxy).
-            provider_args = (
-                f"--provider-url {shlex.quote(proxy_url)} "
-                f"--model {shlex.quote(model)} --api-key {PROXY_API_KEY} "
-            )
-        else:
-            # Direct path (e.g. local-docker smoke): OpenRouter builtin + per-request pin.
-            for key in ["OPENROUTER_API_KEY", "ATLARIX_OPENROUTER_PROVIDER_JSON"]:
-                val = os.environ.get(key)
-                if val:
-                    env[key] = val
-            if os.environ.get("OPENROUTER_API_KEY"):
-                env["ATLARIX_HEADLESS_API_KEY"] = os.environ["OPENROUTER_API_KEY"]
-            provider_args = f"--provider-id {shlex.quote(provider_id)} --model {shlex.quote(model)} "
-
-        await self.exec_as_agent(
-            environment,
-            command=(
-                ". ~/.nvm/nvm.sh; "
-                "node /opt/atlarix/dist-headless/atlarix-headless.mjs "
-                f"{provider_args}"
-                f"--prompt {escaped} "
-                f"2>&1 | stdbuf -oL tee /logs/agent/{self._OUTPUT_FILENAME}"
-            ),
-            env=env,
+    @property
+    @override
+    def model_connection(self):
+        access = super().model_connection
+        base_url = getattr(self, "_pinned_base_url", None)
+        if not base_url:
+            return access
+        # dataclasses.replace would be tidier, but ResolvedModelConnection carries
+        # an `env` mapping the parent merges into the run env, and it must stay
+        # empty here: a forwarded provider key would give Atlarix a second, real
+        # route to the vendor and silently un-pin the run.
+        return type(access)(
+            provider=access.provider,
+            api_key=PROXY_API_KEY,
+            base_url=base_url,
+            configured_base_url=base_url,
+            env={},
         )
-
-    def populate_context_post_run(self, context: AgentContext) -> None:
-        # Terminal-Bench judges via its own in-container verifier; this is just
-        # trajectory logging — confirm the run produced output.
-        output_file = self.logs_dir / self._OUTPUT_FILENAME
-        if not output_file.exists():
-            print(f"atlarix output file not found: {output_file}")

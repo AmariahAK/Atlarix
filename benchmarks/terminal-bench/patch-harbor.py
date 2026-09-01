@@ -13,7 +13,11 @@ import sys
 
 
 def find_docker_module() -> str:
+    # docker_unix first: Harbor moved the actual `docker compose cp` down into
+    # the per-platform module, so the wrapper (docker.py) no longer contains the
+    # call this script is about and checking it alone reports a false negative.
     for modpath in (
+        "harbor.environments.docker.docker_unix",
         "harbor.environments.docker.docker",
         "harbor.environments.docker",
     ):
@@ -32,6 +36,19 @@ def main() -> None:
 
     if "rstrip('/') + '/.'" in src or 'rstrip("/") + "/."' in src:
         print(f"[patch-harbor] already patched: {path}")
+        return
+
+    # Harbor fixed this upstream (verified against v0.22.0, 2026-09-01): the
+    # platform-level upload_dir now passes `f"{source_dir}/."` directly, so there
+    # is nothing left to patch. Detected explicitly because the alternative is
+    # this script reporting "could not find the cp call", which reads as a broken
+    # patcher rather than as a fix that landed. Keep the script until the floor in
+    # pyproject.toml is above every Harbor that still had the bug.
+    if '/."' in src and "cp" in src:
+        print(
+            "[patch-harbor] nothing to do — Harbor already copies the directory "
+            f"CONTENTS upstream: {path}"
+        )
         return
 
     # Replace the cp source argument `str(source_dir)` inside the upload cp call.

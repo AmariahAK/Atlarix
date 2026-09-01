@@ -18,6 +18,13 @@ import { createRequire } from "node:module";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
+// The bundle carried no version string at all, so a benchmark harness asking the
+// binary what it is (Harbor's `get_version_command()`, filed as `agent_version` on
+// a leaderboard row) fell through to reporting the NODE version. Inject the app's.
+const pkgVersion = JSON.parse(
+  fs.readFileSync(path.join(root, "package.json"), "utf8"),
+).version;
+
 /** Handle vite-style `import x from "./file.sql?raw"` (text contents). */
 const rawLoaderPlugin = {
   name: "raw-loader",
@@ -63,6 +70,7 @@ await build({
   sourcemap: true,
   logLevel: "info",
   external,
+  define: { __ATLARIX_HEADLESS_VERSION__: JSON.stringify(pkgVersion) },
   plugins: [rawLoaderPlugin],
   alias: {
     electron: path.join(root, "src/headless/electron-stub.ts"),
@@ -75,14 +83,22 @@ await build({
   // module-init unless we define them. __dirname resolves to the bundle's own
   // dir (dist-headless), which is where we also ship the AGENTS*.md files.
   banner: {
+    // The shebang makes the bundle directly executable, which is what the npm
+    // package's `bin` entry needs — without it `atlarix` resolves to a file the
+    // shell tries to run as a shell script. It must be alone on line 1, hence the
+    // newline join here rather than the space join used for the interop shims
+    // below. Node strips it when the file is imported.
     js: [
-      "import { createRequire as __cr } from 'node:module';",
-      "import { fileURLToPath as __fileURLToPath } from 'node:url';",
-      "import { dirname as __pathDirname } from 'node:path';",
-      "const require = __cr(import.meta.url);",
-      "const __filename = __fileURLToPath(import.meta.url);",
-      "const __dirname = __pathDirname(__filename);",
-    ].join(" "),
+      "#!/usr/bin/env node",
+      [
+        "import { createRequire as __cr } from 'node:module';",
+        "import { fileURLToPath as __fileURLToPath } from 'node:url';",
+        "import { dirname as __pathDirname } from 'node:path';",
+        "const require = __cr(import.meta.url);",
+        "const __filename = __fileURLToPath(import.meta.url);",
+        "const __dirname = __pathDirname(__filename);",
+      ].join(" "),
+    ].join("\n"),
   },
 });
 
@@ -98,6 +114,17 @@ const assets = [
   // the 6-line FALLBACK_AGENTS stub. Keep this filename in sync with that loader.
   { src: path.join(root, "AGENTS.md"), dest: "AGENTS.md" },
   { src: path.join(root, "node_modules/tiktoken/lite/tiktoken_bg.wasm"), dest: "tiktoken_bg.wasm" },
+  // The models.dev catalog snapshot. Headless resolved it relative to `cwd`,
+  // which in a benchmark container is the TASK directory — so it was never found
+  // and the catalog depended entirely on reaching models.dev over the network.
+  // That is not a safe dependency where it matters most: Terminal-Bench sandboxes
+  // enforce an egress allow-list (github / npm / the model endpoint), and
+  // models.dev is not on it. With no catalog, per-model reasoning profiles are
+  // unavailable and reasoning falls back to a provider heuristic that sends a
+  // DIFFERENT wire shape — so the same command would mean different things
+  // depending on whether the sandbox happened to have open egress. Shipping it
+  // makes that resolution deterministic. 438KB gzipped.
+  { src: path.join(root, "build/models-snapshot.json.gz"), dest: "models-snapshot.json.gz" },
 ];
 // AGENTS.md is load-bearing: without it headless runs on the FALLBACK_AGENTS
 // stub (silent capability cliff). Fail the build loudly rather than ship a

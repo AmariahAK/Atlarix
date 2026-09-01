@@ -24,7 +24,11 @@ v14.36.0 (2026-08-22) ·
 v14.35.0 (2026-08-20). Full narrative for every one of them is in
 [`CHANGELOG.md`](./CHANGELOG.md).
 
-**Last updated:** 2026-08-31
+**Last updated:** 2026-09-01
+
+**Trap worth keeping:** an `## [Unreleased]` changelog heading ships **empty** release notes —
+`scripts/ci/extract-changelog.sh` matches `^## \[?v?<version>\]?`, so it finds nothing. Rename the
+heading to the real version before tagging. (Done for 14.39.3.)
 
 > **What belongs here:** open work, decisions still owed, and traps worth not
 > rediscovering.
@@ -42,6 +46,71 @@ v14.35.0 (2026-08-20). Full narrative for every one of them is in
 ---
 
 ## 🔜 Next session — the queue, in order
+
+### 1. Harbor upstream integration — IN PROGRESS 2026-09-01
+
+**Why this route and not a submission.** Terminal-Bench 4.0 community submissions are CLOSED —
+`leaderboard/SUBMIT.md`: *"Only submissions run by the maintainers will be added."* The
+leaderboard repo pins one dataset (`dataset_version_refs: ['4']`), so 2.1 is not a back door
+either. A listed run therefore has to be executed BY a maintainer, which means Atlarix has to be
+a pre-integrated Harbor agent. `CONTRIBUTING.md` is *"fairly liberal"* about agent integrations
+and asks only that **one user of the agent** request it (precedent: harbor issue #2942, where a
+commenter with `author_association: NONE` satisfied it the next day).
+
+**The payoff is not only the leaderboard.** Harbor carries 100+ benchmark adapters (`swebench`,
+`swebenchpro`, `swelancer`, `aider_polyglot`, `osworld`, `gaia`, `multi-swe-bench`, …). Upstream
+the agent once and every one becomes `harbor run -d <dataset> --agent atlarix` — a standing
+regression suite for the agent loop, independent of anyone reading a leaderboard.
+
+**Done:** `npm i -g atlarix` is live (14.39.2, trusted-publisher OIDC from `headless.yml`, no
+token in secrets); reasoning reaches the wire at the model's ceiling; the self-timeout is gone;
+`--version` answers; `--trajectory-file` streams JSONL with secrets redacted.
+
+**Owed:**
+- `src/harbor/agents/installed/atlarix.py` in the fork at `../harbor`, plus `AgentName.ATLARIX`
+  and `factory.py` — the only three touchpoints (verified by searching `AgentName.OPENCODE`).
+  Mirror `opencode.py`: `ModelConnectionSpec(passthrough=True)`, `ensure_system_dependencies`,
+  `nvm_node_install_snippet()`, `CliFlag`/`ErrorPattern`, `AgentCapabilities(atif=True)`.
+- **The instruction must NOT go in argv.** `atlarix_tb/agent.py` passes `--prompt {escaped}`,
+  which puts the task text in the agent's own `/proc/<pid>/cmdline`; harbor **#2311** documents
+  agents killed by their own `pkill -f` this way — 15/15 trials, exit 143/137, each graded on a
+  half-finished workspace. Route it env var → file → `--prompt-file`, as `claude_code.py` does.
+- Port `benchmarks/` from `terminal-bench-2-1` to `terminal-bench/terminal-bench@4.0.0`, keeping
+  `atlarix_tb` as a thin pin-proxy subclass (same shape as `pi_proxy.py` over `Pi`) so the
+  opencode comparison still runs.
+- **Keep `patch-harbor.py`.** The `upload_dir` `docker cp` bug it works around is still OPEN
+  upstream (#202, #2686, #2043) and bites local-docker runs. Modal avoids it, and Modal is what
+  Harbor's own CI and leaderboard use.
+- Free k=1 smoke on ~10 tasks. Not for a score — to prove install, completion and a parseable
+  trajectory before a maintainer spends donated compute on it.
+
+**Owner action:** file the issue (harbor's Golden Rule requires the first AND last draft to be
+human, with a disclosure that an agent wrote the code), then get one real user to comment.
+
+**Four things only a REAL run found — unit tests passed through all of them.**
+
+- **The inline tool tags carry ATTRIBUTES.** `<atlarix-tool-call tool="run_command"
+  status="running">`, not `<atlarix-tool-call>`. A stripper anchored on the bare tag matched
+  nothing a live stream produces, so the whole serialised call block was spliced into
+  `assistant_text` as though the model had said it. Tests using bare tags passed.
+- **A command's completion is announced TWICE.** The canonical `chat:activity` event carries
+  `toolCallId` + `toolArgs`; a second one carries neither, nor a result. Recording it invents a
+  tool call — six entries for four calls. A trajectory audit reads phantom calls as the agent
+  having acted. Filtered at source in `trajectory-writer.ts`, deduped again in the adapter
+  because that file's contract is the JSONL, not the writer.
+- **`ensure_system_dependencies` takes KEYS, not package names.** `("make", "g++")` failed a
+  real trial before the agent installed anything: `ValueError: Unknown system dependencies`.
+  The key is `build_tools`, which maps per distro (build-essential on apt, build-base on apk).
+- **No DeepSeek row existed in `byok-pricing.ts`**, so `turnCostUsd` was absent on every
+  DeepSeek turn and a leaderboard cost column would have been blank. Added V4 Flash and Pro at
+  their PEAK rates — the off-peak tariff is half, a static table cannot know which window
+  applied, and on a published figure overstating is the safe direction.
+
+**Still open, and worth knowing before a scored run:** `resultText` is populated for
+`read_file` but NOT for `run_command`, so command OUTPUT does not reach the trajectory. The
+leaderboard's reward-hacking judge reviews trajectories, and a run whose commands show no
+output is weaker evidence than one whose do. Fixing it means touching how `build-branch.ts`
+emits command activity, which is wider than this work.
 
 ### 🔍 OPEN — the sub-agent round panel renders twice
 

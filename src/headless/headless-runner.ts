@@ -12,6 +12,7 @@ import os from "node:os";
 import path from "node:path";
 import { makeFakeSender } from "./fake-sender";
 import { autoApprove } from "./auto-approve";
+import { createTrajectoryWriter } from "./trajectory-writer";
 
 export interface HeadlessProvider {
   /**
@@ -33,6 +34,21 @@ export interface RunHeadlessOptions {
   provider: HeadlessProvider;
   mode?: "build" | "ask";
   timeoutMs?: number;
+  /**
+   * The app's Deep-thinking toggle. ON dispatches at the model's own declared
+   * reasoning ceiling ("max" where the vendor supports a budget channel, "high"
+   * where effort tops out there); OFF is one notch below. Written explicitly rather
+   * than left to DEFAULT_SETTINGS so a benchmark run records the level it used —
+   * unset silently meant OFF, while every published leaderboard entry runs the
+   * ceiling.
+   */
+  deepThinking?: boolean;
+  /**
+   * Stream a JSONL trajectory of the run here (see `trajectory-writer.ts`).
+   * Benchmark orchestrators convert it to their own trace format; Harbor's ATIF
+   * is the reason it exists.
+   */
+  trajectoryFile?: string;
   /** Resolve a registered IPC handler. Default reads the headless electron stub;
    *  the vitest test injects its own (electron is mocked there). */
   resolveHandler?: (channel: string) => Promise<HandlerFn>;
@@ -66,7 +82,14 @@ const PROVIDER_ID = "atlarix-headless";
 export async function runHeadlessAgent(
   opts: RunHeadlessOptions,
 ): Promise<RunHeadlessResult> {
-  const timeoutMs = opts.timeoutMs ?? 600_000;
+  // No self-imposed deadline by default: whoever launched this owns the timeout.
+  // A benchmark orchestrator already enforces one (Terminal-Bench 4.0 allows eight
+  // hours), and the old 10-minute default silently capped every long task ~48x
+  // early and exited 1 — which grades as a failed trial, not as a timeout anyone
+  // can see. Callers that DO want a limit still pass `timeoutMs`.
+  // `waitFor` special-cases a non-finite value; it must never reach `setTimeout`,
+  // which clamps out-of-range delays to 1ms and would fire immediately.
+  const timeoutMs = opts.timeoutMs ?? Number.POSITIVE_INFINITY;
   const mode = opts.mode ?? "build";
   const resolveHandler = opts.resolveHandler ?? defaultResolveHandler;
 
@@ -137,6 +160,9 @@ export async function runHeadlessAgent(
     selectedModel: { name: opts.provider.model, provider: providerId },
     hasRunBefore: true,
     telemetryConsent: "opted_out",
+    // Always written, both states. `deepThinking` is `z.boolean().optional()` with no
+    // default, so omitting it resolved to OFF — one notch below the model's ceiling.
+    deepThinking: !!opts.deepThinking,
   };
   if (opts.provider.apiKey) {
     settings.providerSettings = {
@@ -168,32 +194,66 @@ export async function runHeadlessAgent(
   );
   const chatId = await createStreamTransport(appId);
 
-  const sender = makeFakeSender();
-  const chatStream = await resolveHandler("chat:stream");
-  const executePermission = await resolveHandler("execute-permission");
+  const trajectory = opts.trajectoryFile
+    ? createTrajectoryWriter(opts.trajectoryFile, {
+        workspaceDir: opts.workspaceDir,
+        model: opts.provider.model,
+        provider: providerId,
+        mode,
+      })
+    : undefined;
 
-  // Handler returns immediately (void runStream); the terminal signal is
-  // chat:response:end. Auto-approve runs concurrently.
-  await chatStream(sender.event, { chatId, prompt: opts.prompt });
-
-  const endPromise = sender.waitFor(
-    "chat:response:end",
-    (p) => (p as { chatId?: number })?.chatId === chatId,
-    timeoutMs,
-  );
-  const approvePromise = autoApprove({ sender, executePermission, chatId, timeoutMs });
-
-  let completed = true;
-  try {
-    await Promise.all([endPromise, approvePromise]);
-  } catch {
-    completed = false; // timed out / hung — caller still captures partial work
+  // `process.once` + explicit removal, never a bare `process.on`: this function is
+  // a library entry point called repeatedly in one process (the vitest suite calls
+  // it several times per file), and a listener per call leaks until Node warns.
+  const onSignal = (signal: NodeJS.Signals) => () => {
+    trajectory?.recordTermination(signal);
+    trajectory?.close();
+    process.exit(130);
+  };
+  const sigterm = onSignal("SIGTERM");
+  const sigint = onSignal("SIGINT");
+  if (trajectory) {
+    process.once("SIGTERM", sigterm);
+    process.once("SIGINT", sigint);
   }
 
-  const lastAssistant =
-    [...(getStreamTransport(chatId)?.messages ?? [])]
-      .reverse()
-      .find((m) => m.role === "assistant")?.content ?? null;
+  try {
+    const sender = makeFakeSender(trajectory?.onSend);
+    const chatStream = await resolveHandler("chat:stream");
+    const executePermission = await resolveHandler("execute-permission");
 
-  return { completed, lastAssistant };
+    trajectory?.recordUserText(opts.prompt);
+
+    // Handler returns immediately (void runStream); the terminal signal is
+    // chat:response:end. Auto-approve runs concurrently.
+    await chatStream(sender.event, { chatId, prompt: opts.prompt });
+
+    const endPromise = sender.waitFor(
+      "chat:response:end",
+      (p) => (p as { chatId?: number })?.chatId === chatId,
+      timeoutMs,
+    );
+    const approvePromise = autoApprove({ sender, executePermission, chatId, timeoutMs });
+
+    let completed = true;
+    try {
+      await Promise.all([endPromise, approvePromise]);
+    } catch {
+      completed = false; // timed out / hung — caller still captures partial work
+    }
+
+    trajectory?.recordRunEnd(completed);
+
+    const lastAssistant =
+      [...(getStreamTransport(chatId)?.messages ?? [])]
+        .reverse()
+        .find((m) => m.role === "assistant")?.content ?? null;
+
+    return { completed, lastAssistant };
+  } finally {
+    process.removeListener("SIGTERM", sigterm);
+    process.removeListener("SIGINT", sigint);
+    trajectory?.close();
+  }
 }

@@ -1,11 +1,14 @@
 [project]
 name = "atlarix-terminal-bench"
 version = "0.1.0"
-description = "Harbor agent adapter to run Atlarix (headless) on Terminal-Bench"
+description = "Pin-proxy Atlarix variant for the Terminal-Bench harness comparison"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    "harbor>=0.1.0",
+    # The declarative agent API this adapter subclasses (ModelConnectionSpec,
+    # CliFlag, AgentCapabilities, ATIF models) landed well after 0.1; pinning the
+    # floor stops it importing against a Harbor that has none of them.
+    "harbor>=0.22.0",
 ]
 
 [build-system]

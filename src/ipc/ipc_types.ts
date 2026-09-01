@@ -184,6 +184,17 @@ export interface ChatResponseEnd {
   /** Fix 6: this turn's billed tokens (input+output) — summed into the
    * cumulative session-spend meter (the context meter is occupancy, not spend). */
   turnTokens?: number;
+  /**
+   * Of this turn's input, how much was served from the provider's prompt cache.
+   * Reported beside `turnCostUsd` rather than folded into it because the cost is
+   * only present when a rate is known, and `turnTokens` alone cannot be priced —
+   * a cached read costs a small fraction of a fresh one (on DeepSeek roughly a
+   * thirtieth), so gross input overstates a long run's spend by an order of
+   * magnitude. Omitted when zero.
+   */
+  turnCachedInputTokens?: number;
+  /** Tokens written INTO the cache this turn (Anthropic-style write surcharge). */
+  turnCacheCreationTokens?: number;
   /** v12 2.3: the snapshot turn id (= ledger turn id) so a detached background
    * agent can revert this turn's writes via the shadow-git snapshot. */
   snapshotTurnId?: string;

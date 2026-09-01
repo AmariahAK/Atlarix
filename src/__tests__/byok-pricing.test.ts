@@ -44,6 +44,28 @@ describe("estimateTurnCostUsd", () => {
     ).toBeCloseTo(6, 5);
   });
 
+  it("prices the DeepSeek V4 models rather than reporting no cost at all", () => {
+    // Before these entries the table had no DeepSeek pattern, so a real V4 Flash
+    // run reported `turnCostUsd` as absent — which on a benchmark leaderboard
+    // reads as a blank cost column rather than as a missing rate.
+    //
+    // PEAK rates, deliberately: DeepSeek's off-peak tariff is half of peak and a
+    // static table cannot know which window a turn fell in, so the estimate errs
+    // high. Flash: $0.44 in + $1.32 out. Pro: $1.32 + $3.96.
+    expect(
+      estimateTurnCostUsd({ name: "deepseek-v4-flash" }, usage),
+    ).toBeCloseTo(1.76, 5);
+    expect(estimateTurnCostUsd({ name: "deepseek-v4-pro" }, usage)).toBeCloseTo(
+      5.28,
+      5,
+    );
+    // Flash must not be priced as Pro: the table is first-match, so a broader
+    // DeepSeek pattern added above these would silently triple Flash's cost.
+    expect(estimateTurnCostUsd({ name: "deepseek-v4-flash" }, usage)).toBeLessThan(
+      estimateTurnCostUsd({ name: "deepseek-v4-pro" }, usage)!,
+    );
+  });
+
   it("scales sub-million usage correctly", () => {
     // 10k in + 2k out on Opus → 10k*5/1M + 2k*25/1M = 0.05 + 0.05 = 0.10.
     expect(

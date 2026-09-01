@@ -293,6 +293,13 @@ async function saveToCache(data: ModelsDevData): Promise<void> {
  * Regenerate with `npm run models:snapshot` (see `scripts/fetch-models-snapshot.mjs`).
  */
 function resolveSnapshotPath(): string {
+  // Explicit override, set by the headless CLI to the copy shipped beside its
+  // own bundle. Checked FIRST because the fallback below resolves against `cwd`,
+  // which for a benchmark run is the task directory — somewhere the snapshot has
+  // no reason to be, so headless silently had no offline catalog at all and
+  // depended on reaching models.dev over the network.
+  const override = process.env.ATLARIX_MODELS_SNAPSHOT;
+  if (override) return override;
   try {
     if (app.isPackaged) {
       // extraResource copies by basename → resources/models-snapshot.json.gz

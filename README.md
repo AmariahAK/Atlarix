@@ -105,7 +105,7 @@ Cloud providers with native model fetch and tool calling: **OpenAI**, **Anthropi
 
 ## Benchmarks
 
-> **Preliminary, self-run — not an official leaderboard result.** We're working toward a verified place on the [Terminal-Bench leaderboard](https://www.tbench.ai/leaderboard/terminal-bench/2.0); we're not there yet.
+> **Preliminary, self-run — not an official leaderboard result.** We're working toward a place on the [Terminal-Bench leaderboard](https://www.tbench.ai/); we're not there yet, and the route runs through Harbor: community submissions to Terminal-Bench 4.0 are currently closed, so a listed run has to be executed by the maintainers, which in turn means Atlarix has to be a pre-integrated Harbor agent first.
 
 A coding harness should let an open model express its full ability. As a first controlled test, we ran Atlarix head-to-head with **[opencode](https://github.com/sst/opencode)** on **Terminal-Bench 2.0** (all 89 tasks), holding the **model, pinned provider, and infrastructure** constant:
 
@@ -115,6 +115,14 @@ A coding harness should let an open model express its full ability. As a first c
 | opencode | 39 / 89  | 44%   |
 
 _MiniMax-M3 (fp8) · **single attempt (k=1)** · native function-calling · matched timeouts · Modal._
+
+> **Measured 2026-08 on Atlarix v14.36-era, and superseded in two ways.** Terminal-Bench has
+> since moved to **4.0** (2.x scores are not comparable to it — 4.0 recalibrated task
+> resources, dropped saturated tasks and standardised an 8-hour agent timeout), and the
+> headless runner that produced these numbers dispatched reasoning one notch **below** each
+> model's declared ceiling, while every published leaderboard entry runs the ceiling. Both are
+> fixed; the run has not been repeated yet. Treat the table as a historical data point, not a
+> current claim.
 
 **This does not prove Atlarix is ahead.** The official leaderboard requires 5 attempts (k=5); we ran one. A 3-task difference at k=1 is within run-to-run noise — at most this says Atlarix is **competitive with a leading harness** on this model (absolute scores sit below the ~66% tuned-scaffold ceiling, as expected at fp8 / single-attempt). The only deviation from the app's default behavior was granting command approval up-front (`ATLARIX_AUTONOMOUS_DANGER=1`) so the agent can run unattended — every agent does this to run a benchmark. Raw result files, full reproduction steps, and roadmap (more models, an official k=5 run): **[atlarix.dev/benchmark](https://atlarix.dev/benchmark)**.
 

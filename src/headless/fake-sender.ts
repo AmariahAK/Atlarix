@@ -27,7 +27,15 @@ export interface FakeSender {
   ): Promise<RecordedSend>;
 }
 
-export function makeFakeSender(): FakeSender {
+/**
+ * @param onSend Called synchronously for every send, in arrival order, BEFORE any
+ *   waiter is resolved. The trajectory writer uses this to stream each event
+ *   straight to disk — see `trajectory-writer.ts` for why buffering is not an
+ *   option. Keep any implementation write-through and O(1): `sends` already
+ *   retains everything, and a second accumulator here would double that cost on a
+ *   multi-hour run. Must not throw; a throwing callback would abort the send.
+ */
+export function makeFakeSender(onSend?: (send: RecordedSend) => void): FakeSender {
   const sends: RecordedSend[] = [];
   const waiters: Waiter[] = [];
 
@@ -35,6 +43,7 @@ export function makeFakeSender(): FakeSender {
   const record = (channel: string, payload: any) => {
     const send: RecordedSend = { channel, payload };
     sends.push(send);
+    onSend?.(send);
     for (let i = waiters.length - 1; i >= 0; i--) {
       const w = waiters[i];
       if (w.channel === channel && (!w.pred || w.pred(payload))) {
@@ -62,6 +71,14 @@ export function makeFakeSender(): FakeSender {
       return new Promise<RecordedSend>((resolve, reject) => {
         const waiter: Waiter = { channel, pred, resolve };
         waiters.push(waiter);
+        // A non-finite timeout means "wait as long as it takes" — the caller's
+        // orchestrator owns the deadline. It must NOT be handed to setTimeout:
+        // Node clamps any delay outside 1..2147483647 to 1ms, so `Infinity` fires
+        // on the next tick and every run would report an instant timeout — the
+        // exact opposite of what was asked for. Register the waiter, schedule
+        // nothing. Handled here rather than per call site because both
+        // headless-runner and auto-approve funnel through this function.
+        if (!Number.isFinite(timeoutMs)) return;
         const t = setTimeout(() => {
           const i = waiters.indexOf(waiter);
           if (i >= 0) {

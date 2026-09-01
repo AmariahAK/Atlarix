@@ -40,8 +40,20 @@ export async function autoApprove(opts: {
   let ended = false;
   const deadline = Date.now() + timeoutMs;
 
+  // Resume point into `sender.sends`, which is append-only. Rescanning from 0 on
+  // every 40ms tick is quadratic over the run, and `sends` retains EVERY ipc send
+  // (including each unthrottled response chunk). That was survivable only while a
+  // 10-minute self-timeout capped the run; with the deadline now owned by the
+  // orchestrator — 8 hours on Terminal-Bench 4.0 — the array reaches hundreds of
+  // thousands of entries and the rescan starts costing more than the work.
+  let scanned = 0;
+
   const approveNew = async () => {
-    for (const s of sender.sends) {
+    // Snapshot the length first: `sends` can grow while we await below, and those
+    // late arrivals belong to the next pass, not this index range.
+    const end = sender.sends.length;
+    for (; scanned < end; scanned++) {
+      const s = sender.sends[scanned];
       if (s.channel !== "permission-request") continue;
       if (s.payload?.chatId !== chatId) continue;
       const operationId = s.payload?.operationId as string | undefined;

@@ -329,6 +329,20 @@ export async function runBuildBranch(
                   let activityStatus: "done" | "error" = "done";
                   let toolResultForActivity: unknown;
                   const isStreamTool = toolName === "stream_terminal_output";
+                  /**
+                   * Return a tool result AND record it for the activity event.
+                   *
+                   * The `finally` below builds the completion event from
+                   * `toolResultForActivity`, which only the direct-return path
+                   * assigned — so every permission-gated tool (i.e. every command)
+                   * emitted a completion with no result attached. Routing those
+                   * returns through here keeps the two in step by construction
+                   * rather than by remembering.
+                   */
+                  const recordActivityResult = <T>(value: T): T => {
+                    toolResultForActivity = value;
+                    return value;
+                  };
                   // Fix: Finding 4 — status line (stream tools use inner _sendToolActivity only)
                   const uiToolLabel = getToolActivityLabel(toolName);
                   if (!isStreamTool) {
@@ -808,13 +822,17 @@ export async function runBuildBranch(
                               permRequest.operation,
                               execResult,
                             );
-                            return jsonAfterSuccessfulExec(execResult);
+                            // This is the branch UNATTENDED runs take — headless,
+                            // benchmarks, the automations path — so it is the one
+                            // whose missing result actually reaches a trajectory.
+                            return recordActivityResult(jsonAfterSuccessfulExec(execResult));
                           }
                           if (execResult.exitCode !== undefined) {
                             logger.log(
                               `[Build Mode] Autonomous exec command failed: ${operationId} (exit ${execResult.exitCode})`,
                             );
-                            return JSON.stringify({
+                            activityStatus = "error";
+                            return recordActivityResult(JSON.stringify({
                               success: false,
                               error:
                                 execResult.error ||
@@ -825,21 +843,23 @@ export async function runBuildBranch(
                               path:
                                 (permRequest.preview as { path?: string; command?: string }).path ||
                                 (permRequest.preview as { command?: string }).command,
-                            });
+                            }));
                           }
-                          return JSON.stringify({
+                          activityStatus = "error";
+                          return recordActivityResult(JSON.stringify({
                             success: false,
                             error: execMeta.error ?? execResult.error ?? "Execution failed",
                             operation: permRequest.operation,
                             path: (permRequest.preview as { path?: string }).path,
-                          });
+                          }));
                         } catch (error) {
                           logger.error(`[Build Mode] Autonomous permission error: ${operationId}`, error);
-                          return JSON.stringify({
+                          activityStatus = "error";
+                          return recordActivityResult(JSON.stringify({
                             success: false,
                             error: `Permission request failed: ${error instanceof Error ? error.message : String(error)}`,
                             timedOut: true,
-                          });
+                          }));
                         }
                       }
 
@@ -889,7 +909,16 @@ export async function runBuildBranch(
                           const execResult = permissionInterceptor.getExecutionResult(operationId);
                           logger.log(`[Build Mode] Permission approved: ${operationId}`);
 
-                          return jsonAfterSuccessfulExec(execResult);
+                          // Record what the activity event should carry. Every
+                          // return in this permission branch used to leave
+                          // `toolResultForActivity` unassigned, so the `finally`
+                          // below computed `resultText` from `undefined` and
+                          // dropped it — which is why `run_command`, the tool that
+                          // ALWAYS takes this branch, reported no output anywhere
+                          // downstream. Benchmark trajectories are audited by
+                          // reading what the agent did; a command with no visible
+                          // output is materially weaker evidence than one with it.
+                          return recordActivityResult(jsonAfterSuccessfulExec(execResult));
                         } else {
                           // Check if this was a command failure vs user rejection
                           const execResult = permissionInterceptor.getExecutionResult(operationId);
@@ -897,23 +926,30 @@ export async function runBuildBranch(
                           if (execResult.exitCode !== undefined) {
                             // Command was executed but failed - include error details for AI
                             logger.log(`[Build Mode] Command failed: ${operationId} (exit ${execResult.exitCode})`);
-                            return JSON.stringify({
+                            // "error", not the default "done": a non-zero exit
+                            // rendered with a green tick and a past-tense success
+                            // label. Same defect the comment further down records
+                            // fixing for RETURNED failures — this branch was missed,
+                            // and it is the one every command goes through.
+                            activityStatus = "error";
+                            return recordActivityResult(JSON.stringify({
                               success: false,
                               error: execResult.error || `Command failed with exit code ${execResult.exitCode}`,
                               exitCode: execResult.exitCode,
                               output: execResult.output,  // Include terminal output for AI context
                               operation: permRequest.operation,
                               path: (permRequest.preview as any).path || (permRequest.preview as any).command,
-                            });
+                            }));
                           } else {
                             // User actually rejected or timeout
                             logger.log(`[Build Mode] Permission denied: ${operationId}`);
-                            return JSON.stringify({
+                            activityStatus = "error";
+                            return recordActivityResult(JSON.stringify({
                               success: false,
                               error: "Permission denied by user",
                               operation: permRequest.operation,
                               path: (permRequest.preview as any).path,
-                            });
+                            }));
                           }
                         }
                       } catch (error) {
@@ -921,10 +957,11 @@ export async function runBuildBranch(
                         // unwinds the round (don't feed the model a tool result).
                         if (abortController.signal.aborted) throw error;
                         logger.error(`[Build Mode] Permission error: ${operationId}`, error);
-                        return JSON.stringify({
+                        activityStatus = "error";
+                        return recordActivityResult(JSON.stringify({
                           success: false,
                           error: `Permission request failed: ${error instanceof Error ? error.message : String(error)}`,
-                        });
+                        }));
                       }
                     }
                   }
