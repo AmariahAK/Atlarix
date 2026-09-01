@@ -353,14 +353,30 @@ Seven guarantees mutation-tested. `selectTrimmableMessageIds` is exported for te
 convention `pickSessionReuse` set) because the real cap is 100,000 rows — an end-to-end fixture
 would measure the database, not the decision.
 
-### 🔍 OPEN — the marker is still shown to the user, and still searchable
+### 0g. DONE 2026-09-01 — the marker is no longer shown or searched
 
-`sessionMessagesToUiMessages` filters on `role` only, and `sessions:get` filters `kind !== "plan"`,
-so a marker renders as an ordinary user bubble containing the raw
-`[COMPACTION MARKER] gen=N … [END COMPACTION] …` text. `session_search` returns marker rows as
-ordinary turns too. Both are now one-line changes since the rows are identifiable — deliberately NOT
-done here, because hiding content the user can currently see is a UX decision, not a correctness fix,
-and it should be made on its own.
+Both were one-liners once the rows were identifiable, but the UI half had a trap worth recording.
+
+**Where the UI filter had to go.** `hydrateSessionIntoChat` builds the transport's row refs from
+`uiMessages.map(...)` — the SAME list the renderer displays. So filtering the marker at
+`sessions:get`, or in `sessionMessagesToUiMessages`, would have removed it from the MODEL's transport
+too and silently disabled the entire compaction slice. It is filtered at `SimpleInlineChat`'s
+`visibleMessages`, the render choke point that already drops system messages, so the atom keeps the
+row (transport refs, edit targeting by `sessionRowId`, and revert snapshots all stay aligned) and
+only the view loses it. That choke point also covers the live-stream path, not just reload.
+
+**A leaf module.** The renderer needs the same predicate, and `lib/context/compaction.ts` drags in
+the `ai` SDK, settings and the keychain chain. `lib/chat/compaction-marker.ts` now owns
+`COMPACTION_SUMMARY_PREFIX`, `COMPACTION_MARKER_KIND` and `isCompactionSummaryMessage`;
+`compaction.ts` re-exports them, so there is still one definition.
+
+**`session_search` excludes markers in BOTH modes, and that is load-bearing.** `search` numbers hits
+with `ROW_NUMBER()` and `read` pages by `offset`; excluding in one but not the other would make
+"turn 7" mean different rows in each and send the read-around-a-hit workflow to the wrong place. The
+exclusion also carries a `content NOT LIKE '[COMPACTION MARKER]%'` clause for pre-column rows —
+SQLite's LIKE gives `[` no special meaning, unlike SQL Server.
+
+Two more mutation tests (search exclusion, read exclusion), nine in this area total.
 
 ### 0a. SHIPPED in v14.38.4 (2026-08-29)
 

@@ -206,3 +206,96 @@ describe("the trim never deletes a marker", () => {
     expect(selectTrimmableMessageIds(rows, 2)).toEqual([]);
   });
 });
+
+describe("the marker is bookkeeping, so it stays out of what the user and model read", () => {
+  async function seedWithMarker(name: string) {
+    const { chatSessions, sessionMessages } = await import("@/db/schema");
+    const db = ctx.testDb.db;
+    const { appId } = await ctx.testDb.seedApp({
+      path: `/tmp/${name}`,
+      name,
+    });
+    await db.insert(chatSessions).values({
+      id: `${name}-s`,
+      workspaceId: appId,
+      title: "Session",
+    });
+    const sec = (n: number) => new Date(Math.floor(Date.now() / 1000) * 1000 + n * 1000);
+    // Distinct seconds: created_at is unixepoch(), so same-second rows tie and
+    // the turn numbering below would be undefined.
+    await db.insert(sessionMessages).values([
+      { id: `${name}-1`, sessionId: `${name}-s`, role: "user", content: "deploy to KISUMU-4", createdAt: sec(0) },
+      {
+        id: `${name}-2`,
+        sessionId: `${name}-s`,
+        role: "user",
+        kind: "compaction_marker",
+        content: "[COMPACTION MARKER] gen=1\nthe user mentioned KISUMU-4\n[END COMPACTION]",
+        createdAt: sec(1),
+      },
+      { id: `${name}-3`, sessionId: `${name}-s`, role: "assistant", content: "done with KISUMU-4", createdAt: sec(2) },
+      {
+        id: `${name}-4`,
+        sessionId: `${name}-s`,
+        role: "user",
+        // A LEGACY marker: no kind, prefix only. Must be excluded too.
+        content: "[COMPACTION MARKER]\nlegacy summary of KISUMU-4\n[END COMPACTION]",
+        createdAt: sec(3),
+      },
+    ]);
+    return { appId, sessionId: `${name}-s` };
+  }
+
+  async function search(args: Record<string, unknown>) {
+    const { executeSessionSearch } = await import("@/lib/tools/sessions");
+    return executeSessionSearch(args as never);
+  }
+
+  it("session_search does not return marker rows as conversation", async () => {
+    const { appId } = await seedWithMarker("ss-marker");
+    const hit = await search({ query: "KISUMU-4", session: "all", workspaceId: appId });
+    expect(hit.success).toBe(true);
+    // The two real turns match; neither summary does — including the legacy one,
+    // which has no `kind` and is caught by the content clause.
+    expect(hit.result).toContain("KISUMU-4");
+    expect(hit.result).not.toContain("[COMPACTION MARKER]");
+    expect(hit.result).not.toContain("legacy summary");
+    expect(hit.ui!.groups).toHaveLength(2);
+  });
+
+  it("read mode pages past them, and its turn numbers match search's", async () => {
+    const { appId, sessionId } = await seedWithMarker("ss-read");
+    const page = await search({
+      mode: "read",
+      session: sessionId,
+      workspaceId: appId,
+      limit: 10,
+      offset: 0,
+    });
+    expect(page.success).toBe(true);
+    expect(page.result).not.toContain("[COMPACTION MARKER]");
+    // Two turns, and the total reported to the model counts the same filtered
+    // set — a total that included hidden rows would make the model page into
+    // nothing.
+    expect(page.result).toMatch(/turn 1 · user/);
+    expect(page.result).toMatch(/turn 2 · assistant/);
+    expect(page.result).not.toMatch(/turn 3/);
+  });
+
+  it("the UI filter drops a marker but keeps the conversation", async () => {
+    // The renderer's choke point (SimpleInlineChat's `visibleMessages`) uses this
+    // predicate. Asserted on the predicate rather than through React, since the
+    // filter IS the behaviour.
+    const { isCompactionSummaryMessage } = await import(
+      "@/lib/chat/compaction-marker"
+    );
+    const thread = [
+      { role: "user", content: "hello" },
+      { role: "user", content: "[COMPACTION MARKER] gen=1\nx", kind: "compaction_marker" },
+      { role: "user", content: "[COMPACTION MARKER]\nlegacy" },
+      { role: "assistant", content: "hi" },
+    ];
+    const visible = thread.filter((m) => !isCompactionSummaryMessage(m));
+    expect(visible.map((m) => m.content)).toEqual(["hello", "hi"]);
+  });
+});

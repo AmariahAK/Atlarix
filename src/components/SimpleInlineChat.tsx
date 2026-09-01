@@ -19,6 +19,7 @@ import {
     streamThreadForChatAtom,
 } from "../atoms/chatAtoms";
 import { IpcClient } from "@/ipc/ipc_client";
+import { isCompactionSummaryMessage } from "@/lib/chat/compaction-marker";
 import { buildRevertSnapshotMap } from "@/lib/chat/revert-snapshot-rehydrate";
 import { SimpleMessage } from "./SimpleMessage";
 import { VirtualizedMessageList } from "./VirtualizedMessageList";
@@ -202,8 +203,18 @@ export function SimpleInlineChat({
     // Render the FULL conversation (parity with Claude Code / opencode) — no
     // last-N-exchanges cutoff. System messages are excluded from the view; the
     // memoized SimpleMessage rows keep this cheap even for long sessions.
+    // The compaction marker is excluded here and NOWHERE EARLIER. It stays in
+    // `chatMessagesByIdAtom`, because `hydrateSessionIntoChat` builds the
+    // transport's row refs from that same list — filtering it at `sessions:get`
+    // or in `sessionMessagesToUiMessages` would drop it from the MODEL's history
+    // too and silently disable the whole compaction slice. This is the view, and
+    // only the view: a `[COMPACTION MARKER] gen=N … [END COMPACTION]` blob is
+    // harness bookkeeping, not something the user typed or the model said.
     const visibleMessages = messages.filter(
-        (m) => m && (m.role === "user" || m.role === "assistant"),
+        (m) =>
+            m &&
+            (m.role === "user" || m.role === "assistant") &&
+            !isCompactionSummaryMessage(m),
     );
     // Anchor the settled "A" to the LAST assistant message, not the last array
     // element — a trailing synthetic/user message (compaction continuation,

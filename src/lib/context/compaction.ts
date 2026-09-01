@@ -43,6 +43,11 @@ import log from "electron-log";
 import { exactTokenCount, exactTokenCountText } from "./token-counter";
 import { recordAuxUsage } from "../usage/turn-usage-aggregator";
 import { compactionBudgets, usableContextBudget } from "./mid-loop-threshold";
+import {
+  COMPACTION_MARKER_KIND,
+  COMPACTION_SUMMARY_PREFIX,
+  isCompactionSummaryMessage,
+} from "../chat/compaction-marker";
 
 const logger = log.scope("compaction");
 
@@ -81,13 +86,16 @@ const TOOL_OUTPUT_MAX_CHARS = 2_000;
 const PRUNE_PROTECTED_TOOLS = ["skill"];
 
 /**
- * v11.1 durable compaction: summary messages are recognizable by this prefix.
- * The summary is persisted to the workspace session like any other message,
- * and dispatch slices the MODEL history from the LAST summary onward — so a
- * reload (which rehydrates the full session log) doesn't re-expand the
- * model's context. The UI keeps the full scrollback.
+ * The marker's identity lives in `lib/chat/compaction-marker.ts`, a leaf, because
+ * the RENDERER needs the same predicate and must not import this module's `ai` /
+ * settings / keychain chain. Re-exported here so every existing importer and the
+ * "one marker" story stay put.
  */
-export const COMPACTION_SUMMARY_PREFIX = "[COMPACTION MARKER]";
+export {
+  COMPACTION_SUMMARY_PREFIX,
+  COMPACTION_MARKER_KIND,
+  isCompactionSummaryMessage,
+} from "../chat/compaction-marker";
 
 /**
  * The MID-TURN summary's prefix — the one deliberate exception to "one marker".
@@ -106,43 +114,6 @@ export const COMPACTION_SUMMARY_PREFIX = "[COMPACTION MARKER]";
  */
 export const IN_TASK_SUMMARY_PREFIX =
   "[Earlier in-task conversation — compressed for context budget]";
-
-/** The DB `kind` that marks a durable summary row. See `SessionMessageKind`. */
-export const COMPACTION_MARKER_KIND = "compaction_marker";
-
-/** Anything the detector can be asked about: a live message or a loaded row. */
-type MarkerCandidate = { content?: string | null; kind?: string | null };
-
-/**
- * Is this row the durable compaction summary?
- *
- * STRUCTURE FIRST, TEXT ONLY AS A FALLBACK. The text check is what this whole
- * change exists to retire: `flattenNativeForCompaction` renders tool results as
- * `{ role: "user", content: "<tool_result …>" }`, so before the column ANY tool
- * output, pasted text, or file the model read back that began with
- * `[COMPACTION MARKER]` was indistinguishable from a real marker — and the slice
- * below would cut the model's history at it.
- *
- * The fallback stays because rows written before v14.39.1 carry
- * `kind = "message"`, and a session compacted last week must keep working. See
- * `sliceFromLastCompactionSummary` for why that fallback stops applying the
- * moment a session has a real flagged marker in it.
- */
-export function isCompactionSummaryMessage(
-  candidate: MarkerCandidate | string | null | undefined,
-): boolean {
-  if (typeof candidate === "string" || candidate == null) {
-    return (
-      typeof candidate === "string" &&
-      candidate.startsWith(COMPACTION_SUMMARY_PREFIX)
-    );
-  }
-  if (candidate.kind === COMPACTION_MARKER_KIND) return true;
-  return (
-    typeof candidate.content === "string" &&
-    candidate.content.startsWith(COMPACTION_SUMMARY_PREFIX)
-  );
-}
 
 /**
  * Model-history slice: keep [last summary message .. end]. Returns the input

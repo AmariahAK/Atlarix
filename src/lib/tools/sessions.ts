@@ -51,7 +51,7 @@
  */
 
 import log from "electron-log";
-import { and, asc, desc, eq, like, sql } from "drizzle-orm";
+import { and, asc, desc, eq, like, ne, notLike, sql } from "drizzle-orm";
 import { db } from "../../db";
 import { chatSessions, sessionMessages } from "../../db/schema";
 import {
@@ -76,6 +76,31 @@ const MAX_READ_LIMIT = 50;
 const SESSION_LOOKUP_CAP = 50;
 
 type SessionRef = { id: string; title: string; createdAt: Date };
+
+/**
+ * Compaction markers are not conversation, and this tool reads conversation.
+ *
+ * A `[COMPACTION MARKER] gen=N … [END COMPACTION]` row is harness bookkeeping —
+ * a summary the compactor wrote so a reload need not re-send the whole history.
+ * Returning it here is worse than noise: the model asked to recover a specific
+ * fact, and a summary is the lossy thing it is trying to look behind.
+ *
+ * EXCLUDED IDENTICALLY IN BOTH MODES, and that is load-bearing. `search` numbers
+ * its hits with `ROW_NUMBER()` and `read` pages by `offset`; if one excluded
+ * markers and the other did not, "turn 7" would mean different rows in each and
+ * the read-around-a-hit workflow the tool description promises would land in the
+ * wrong place.
+ *
+ * The `content` clause carries rows written before the `kind` column. SQLite's
+ * LIKE gives `[` no special meaning (that is SQL Server), so the literal matches.
+ */
+const EXCLUDE_MARKERS_SQL = sql`m.kind != 'compaction_marker' AND m.content NOT LIKE '[COMPACTION MARKER]%'`;
+
+const notACompactionMarker = () =>
+    and(
+        ne(sessionMessages.kind, "compaction_marker"),
+        notLike(sessionMessages.content, "[COMPACTION MARKER]%"),
+    );
 
 /**
  * Which session is "the current one", from what the HARNESS injected.
@@ -276,14 +301,24 @@ export async function executeSessionSearch(args: SessionSearchArgs) {
         const rows = await db
             .select()
             .from(sessionMessages)
-            .where(eq(sessionMessages.sessionId, target.id))
+            .where(
+                and(
+                    eq(sessionMessages.sessionId, target.id),
+                    notACompactionMarker(),
+                ),
+            )
             .orderBy(asc(sessionMessages.createdAt))
             .limit(limit)
             .offset(offset);
         const [{ total } = { total: 0 }] = await db
             .select({ total: sql<number>`count(*)` })
             .from(sessionMessages)
-            .where(eq(sessionMessages.sessionId, target.id));
+            .where(
+                and(
+                    eq(sessionMessages.sessionId, target.id),
+                    notACompactionMarker(),
+                ),
+            );
 
         if (rows.length === 0) {
             return {
@@ -376,6 +411,7 @@ export async function executeSessionSearch(args: SessionSearchArgs) {
           JOIN ${chatSessions} s ON s.id = m.session_id
           WHERE s.workspace_id = ${workspaceId}
             AND m.session_id IN ${sessionIds}
+            AND ${EXCLUDE_MARKERS_SQL}
         )
         WHERE lower(content) LIKE ${needle}
         ORDER BY session_id, turn
