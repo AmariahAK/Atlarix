@@ -36,6 +36,9 @@
  * as well). A workspace cannot name another workspace's session, and there is no
  * code path that takes a session id from the model without that check.
  *
+ * The current-conversation id is injected too, and is NOT in the schema — see
+ * `resolveCurrentSessionId` for why that matters beyond tidiness.
+ *
  * A DELETED session is therefore unfindable twice over. `session_messages.session_id`
  * is `ON DELETE CASCADE` against `chat_sessions.id` and the connection sets
  * `foreign_keys = ON`, so deleting a conversation removes its messages outright.
@@ -75,37 +78,70 @@ const SESSION_LOOKUP_CAP = 50;
 type SessionRef = { id: string; title: string; createdAt: Date };
 
 /**
+ * Which session is "the current one", from what the HARNESS injected.
+ *
+ * Not from the model. The first version of this tool took a `chatId` parameter
+ * documented as "(auto-provided)" — and nothing provided it. `execArgs.chatId` is
+ * set only for `stream_terminal_output` (`ask-branch.ts`, `build-branch.ts`); what
+ * every tool actually receives is `workspaceSessionId` and `_chatSessionId`. So a
+ * model that did the right thing and omitted `session` was told "No current
+ * session to search", and its only way forward was `session:"all"`. The default
+ * was unreachable and the WIDER scope was the fallback — the wrong way round for
+ * a tool that reads conversation history.
+ *
+ * Two shapes, because the two call sites inject differently:
+ *   - a turn injects `workspaceSessionId` (the uuid) — used directly, no lookup
+ *   - a sub-agent injects only `_chatSessionId` (the numeric transport id), which
+ *     `resolveOrBindWorkspaceSessionForStream` maps to a session
+ *
+ * Neither name is in the tool schema, so the model cannot supply either. That is
+ * what keeps `isReadOnly: true` honest: `resolveOrBindWorkspaceSessionForStream`
+ * can BIND or CREATE a session row, and a model-supplied id must never reach it.
+ */
+async function resolveCurrentSessionId(args: {
+    workspaceSessionId?: string;
+    _chatSessionId?: number;
+}): Promise<string | null> {
+    const provided = args.workspaceSessionId?.trim();
+    if (provided) return provided;
+    if (args._chatSessionId == null) return null;
+    const { resolveOrBindWorkspaceSessionForStream } = await import(
+        "@/ipc/handlers/workspace_session_handlers"
+    );
+    try {
+        return await resolveOrBindWorkspaceSessionForStream({
+            chatId: args._chatSessionId,
+        });
+    } catch {
+        // An ephemeral chat that was never persisted has no session to resolve.
+        return null;
+    }
+}
+
+/**
  * Resolve the `session` argument to concrete sessions, ALWAYS inside `workspaceId`.
  *
- * - omitted        → the current session only (resolved from the stream's chatId)
+ * - omitted        → the current session only (resolved from what the harness injected)
  * - "all"          → every session in this workspace, newest first
  * - a session id   → that session, but only if it belongs to this workspace
  * - anything else  → sessions whose title contains it (case-insensitive)
  */
 async function resolveSessions(
     workspaceId: number,
-    chatId: number | undefined,
+    current: { workspaceSessionId?: string; _chatSessionId?: number },
     session: string | undefined,
 ): Promise<{ sessions: SessionRef[]; error?: string }> {
     const pick = (rows: Array<typeof chatSessions.$inferSelect>): SessionRef[] =>
         rows.map((r) => ({ id: r.id, title: r.title, createdAt: r.createdAt }));
 
     if (!session || session.trim() === "" || session === "current") {
-        if (chatId == null) {
-            return {
-                sessions: [],
-                error: "No current session to search. Pass `session` to name one, or \"all\".",
-            };
-        }
-        const { resolveOrBindWorkspaceSessionForStream } = await import(
-            "@/ipc/handlers/workspace_session_handlers"
-        );
-        const sessionId = await resolveOrBindWorkspaceSessionForStream({ chatId });
+        const sessionId = await resolveCurrentSessionId(current);
         if (!sessionId) {
             return {
                 sessions: [],
                 error:
-                    "This conversation has not been persisted yet, so it has no searchable history.",
+                    "This conversation has not been persisted yet, so it has no searchable history. " +
+                    'Pass `session` to name an earlier one, or "all".',
             };
         }
         // Re-read through the workspace filter: never trust an id straight into a
@@ -200,8 +236,10 @@ export type SessionSearchArgs = {
     turn?: number;
     offset?: number;
     limit?: number;
+    // Harness-injected, never model-facing. See `resolveCurrentSessionId`.
     workspaceId?: number;
-    chatId?: number;
+    workspaceSessionId?: string;
+    _chatSessionId?: number;
 };
 
 export async function executeSessionSearch(args: SessionSearchArgs) {
@@ -216,7 +254,10 @@ export async function executeSessionSearch(args: SessionSearchArgs) {
     const mode = args.mode === "read" ? "read" : "search";
     const { sessions, error } = await resolveSessions(
         workspaceId,
-        args.chatId,
+        {
+            workspaceSessionId: args.workspaceSessionId,
+            _chatSessionId: args._chatSessionId,
+        },
         args.session,
     );
     if (error) return { success: false, error };
@@ -406,8 +447,10 @@ ToolRegistry.register({
             limit: numberParam(
                 "search mode: max hits (default 20, max 100). read mode: messages per page (default 10, max 50).",
             ),
+            // `workspaceSessionId` / `_chatSessionId` are injected by the harness and
+            // deliberately absent here: they select which conversation is read, and
+            // `resolveOrBindWorkspaceSessionForStream` can bind or create a session row.
             workspaceId: numberParam("Workspace ID (auto-provided)"),
-            chatId: numberParam("Current chat id (auto-provided)"),
         },
         [],
     ),

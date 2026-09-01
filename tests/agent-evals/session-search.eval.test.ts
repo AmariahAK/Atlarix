@@ -233,3 +233,155 @@ describe("isolation, against the REAL query", () => {
     expect(after.result).toContain("No sessions to search.");
   });
 });
+
+describe("the CURRENT conversation — the default the tool advertises", () => {
+  /**
+   * SHIPPED BROKEN, caught before release. The schema declared
+   * `chatId: numberParam("Current chat id (auto-provided)")` and nothing provided
+   * it: `execArgs.chatId` is set only for `stream_terminal_output`, while every
+   * tool receives `workspaceSessionId` and `_chatSessionId`. So omitting `session`
+   * — exactly what the tool's own description tells the model to do for the
+   * current conversation — returned "No current session to search", and the only
+   * way forward was `session:"all"`.
+   *
+   * That is why it is a release blocker and not a papercut: the SAFE default was
+   * unreachable and the WIDE scope was the fallback. Every test in this file
+   * passed `session` explicitly, which is precisely how it got through.
+   *
+   * These assert the injection CONTRACT — the two argument shapes the two call
+   * sites actually produce. If a call site is ever changed to inject something
+   * else, one of these fails.
+   */
+
+  it("resolves from the injected workspaceSessionId, with no `session` argument", async () => {
+    // The shape a turn injects: ask-branch.ts / build-branch.ts set
+    // `workspaceSessionId: req.workspaceSessionId`.
+    const { chatSessions, sessionMessages } = await import("@/db/schema");
+    const db = ctx.testDb.db;
+    const { appId } = await ctx.testDb.seedApp({
+      path: "/tmp/current-by-uuid",
+      name: "current-by-uuid",
+    });
+    await db.insert(chatSessions).values({
+      id: "current-uuid-session",
+      workspaceId: appId,
+      title: "Current",
+    });
+    await db.insert(sessionMessages).values({
+      id: "current-uuid-msg",
+      sessionId: "current-uuid-session",
+      role: "user",
+      content: "the marker is NAIROBI-118",
+    });
+    // A second session in the SAME workspace that must NOT be searched — this is
+    // what distinguishes "resolved the current one" from "quietly searched all".
+    await db.insert(chatSessions).values({
+      id: "other-uuid-session",
+      workspaceId: appId,
+      title: "Other",
+    });
+    await db.insert(sessionMessages).values({
+      id: "other-uuid-msg",
+      sessionId: "other-uuid-session",
+      role: "user",
+      content: "the marker is NAIROBI-118 as well",
+    });
+
+    const hit = await search({
+      query: "NAIROBI-118",
+      workspaceId: appId,
+      workspaceSessionId: "current-uuid-session",
+    });
+    expect(hit.success).toBe(true);
+    expect(hit.result).toContain("NAIROBI-118");
+    // Exactly one session's worth of hits: the current one, not both.
+    expect(hit.result).toContain("Current");
+    expect(hit.result).not.toContain("Other");
+  });
+
+  it("falls back to the injected _chatSessionId — the sub-agent shape", async () => {
+    // run-subagent.ts injects `_chatSessionId` and no `workspaceSessionId`, so the
+    // uuid path above cannot be the only one that works.
+    const { chatSessions, sessionMessages } = await import("@/db/schema");
+    const db = ctx.testDb.db;
+    const { appId } = await ctx.testDb.seedApp({
+      path: "/tmp/current-by-chatid",
+      name: "current-by-chatid",
+    });
+    const transportChatId = -4242; // stream transport ids are negative
+    await db.insert(chatSessions).values({
+      id: "current-chatid-session",
+      workspaceId: appId,
+      title: "Sub-agent parent",
+      streamChatId: transportChatId,
+    });
+    await db.insert(sessionMessages).values({
+      id: "current-chatid-msg",
+      sessionId: "current-chatid-session",
+      role: "user",
+      content: "the marker is MOMBASA-77",
+    });
+
+    const hit = await search({
+      query: "MOMBASA-77",
+      workspaceId: appId,
+      _chatSessionId: transportChatId,
+    });
+    expect(hit.success).toBe(true);
+    expect(hit.result).toContain("MOMBASA-77");
+  });
+
+  it("refuses when the harness injected neither — never widens to every session", async () => {
+    const { chatSessions, sessionMessages } = await import("@/db/schema");
+    const db = ctx.testDb.db;
+    const { appId } = await ctx.testDb.seedApp({
+      path: "/tmp/current-none",
+      name: "current-none",
+    });
+    await db.insert(chatSessions).values({
+      id: "unreachable-session",
+      workspaceId: appId,
+      title: "Unreachable",
+    });
+    await db.insert(sessionMessages).values({
+      id: "unreachable-msg",
+      sessionId: "unreachable-session",
+      role: "user",
+      content: "the marker is ELDORET-9",
+    });
+
+    const out = await search({ query: "ELDORET-9", workspaceId: appId });
+    // A clean refusal. The failure mode that matters is the opposite one: falling
+    // through to every session in the workspace because none was resolved.
+    expect(out.success).toBe(false);
+    expect(out.result ?? "").not.toContain("ELDORET-9");
+  });
+
+  it("a model-supplied session id still cannot cross workspaces", async () => {
+    // `session` IS model-facing, unlike the two injected names. The workspace
+    // re-read is what makes that safe, and it applies to the default path too.
+    const { chatSessions } = await import("@/db/schema");
+    const db = ctx.testDb.db;
+    const { appId: mine } = await ctx.testDb.seedApp({
+      path: "/tmp/xws-mine",
+      name: "xws-mine",
+    });
+    const { appId: theirs } = await ctx.testDb.seedApp({
+      path: "/tmp/xws-theirs",
+      name: "xws-theirs",
+    });
+    await db.insert(chatSessions).values({
+      id: "their-session",
+      workspaceId: theirs,
+      title: "Theirs",
+    });
+
+    const out = await search({
+      query: "anything",
+      session: "their-session",
+      workspaceId: mine,
+    });
+    expect(out.success).toBe(false);
+    expect(out.error).toContain("No session in this workspace");
+  });
+});
