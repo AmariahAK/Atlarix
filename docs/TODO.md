@@ -68,7 +68,7 @@ NEXT change is made.
 
 ## 🔜 Next session — the queue, in order
 
-### 0a. STAGED in v14.39.0 (2026-08-31) — one compaction system
+### 0a. SHIPPED in v14.39.0 (2026-09-01) — one compaction system
 
 **Compaction was several implementations pretending to be one setting.** `runSteppedCompaction`
 (0.75 internally, durable), `enforceContextBudget` (fired only once ALREADY over the limit,
@@ -147,7 +147,7 @@ recomputing the counts with two full `.includes()` scans of the history on every
 rounds to fill it; that computation is gone with the rewrite. Deleting the parameter itself touches
 ask-branch/build-branch, which is outside this change's blast radius — one small follow-up pass.
 
-### 0b. STAGED 2026-08-31 (second pass) — the follow-up the testing session forced
+### 0b. SHIPPED in v14.39.0 (second pass) — the follow-up the testing session forced
 
 **ONE pre-dispatch trigger, finally.** The proactive 0.75 and 0.90 gates in
 `context-assembly.ts` were two near-identical blocks — same logging, same activity events, same
@@ -191,7 +191,7 @@ real invariant lay elsewhere. And an eval can assert nothing while looking thoro
 envelope eval passed because the eval model reports a 200,000-token window, so a 48,000-token turn
 needed no clipping. It now caps the window via `runTurn`'s `settings`.
 
-### 0c. STAGED 2026-08-31 (third pass) — what the packaged run exposed
+### 0c. SHIPPED in v14.39.0 (third pass) — what the packaged run exposed
 
 **A DATA-LOSS BUG, found because the guard logged its inputs.**
 `listSessionsWithMessageCounts` returned **0 for every session, always**. Its `sql` template
@@ -244,7 +244,7 @@ scores ~300 tokens because BPE collapses a single-character run, so a "70K" fixt
 and asserting "it got smaller" cannot distinguish which step did it. Sizing had to be MEASURED
 (`/tmp/sizes.txt` probe) and each test aimed at the narrow band where only its own step can act.
 
-### 0d. STAGED 2026-08-31 (fourth pass) — auxiliary spend, and one bug left open
+### 0d. SHIPPED in v14.39.0 (fourth pass) — auxiliary spend, and one bug left open
 
 **A sub-agent run cost real money and was reported as nothing.** Observed in the packaged app: a
 turn spawned four sub-agents, all four completed (steps 7/4/6/8), and the turn logged
@@ -289,6 +289,43 @@ exactly why none of them should be acted on yet.
 **Owed before release:** verify in the PACKAGED app (a long real session, quit, reopen, confirm the
 meter and the history start from the summary), then `/security-review` on the diff.
 
+
+### 0e. SHIPPED in v14.39.0 (fifth pass) — the two bugs the release itself surfaced
+
+**`session_search` could not reach the conversation it defaults to.** The schema declared
+`chatId: numberParam("Current chat id (auto-provided)")` and nothing auto-provided it — tools
+receive `workspaceSessionId` and `_chatSessionId`; `execArgs.chatId` is set only for
+`stream_terminal_output`. So omitting `session`, which the description tells the model to do,
+returned "No current session to search" and the only way forward was `session:"all"`. **The safe
+default was unreachable and the wide one was the fallback.** Now reads what the harness injects,
+and `chatId` is gone from the schema — it was the one model-facing route into
+`resolveOrBindWorkspaceSessionForStream`, which can bind or create a session row, so `isReadOnly`
+was a claim rather than a fact. Found by the release's own security review, which correctly rated
+the write itself a non-issue and the functional break the thing that mattered.
+
+**Every start minted an Untitled session.** v14.38.4's reuse guard refused any session whose
+`updatedAt` had moved — and `persistSessionStreamChatId` bumped `updatedAt`, on every bind,
+including the bind to a session it had just reused. So reusing an empty session is what stopped it
+being reused again. The guard's own comment priced a false refusal at "one extra Untitled row";
+it was one per start, forever. Binding no longer counts as activity, and the drift condition now
+gates **prune only** — prune cascades a delete, reuse does not, and pricing them the same is what
+went wrong.
+
+**The fixture traps, both of which passed while asserting nothing.** `created_at`/`updated_at` are
+`unixepoch()` — WHOLE SECONDS — so a session created and bound inside one start shows zero drift
+even with the bug present. And `pickSessionReuse` takes the NEWEST empty as the reuse target, so
+seeding both prune candidates "now" handed the drifted one the reuse slot and the prune branch
+never ran. Same class as the `"x".repeat(n)` token fixture: the units hid the effect.
+
+### DEFERRED — give the compaction marker a column
+
+`isCompactionSummaryMessage` matches `content.startsWith("[COMPACTION MARKER]")` on a `role:"user"`
+row. Nothing else distinguishes a marker, so ordinary text — a user paste, a tool result, a file the
+model read back — that begins with those bytes is indistinguishable from one, and
+`sliceFromLastCompactionSummary` would truncate history at it. Pre-existing (identical at
+`0a7bb027`), so it was **not** in scope for v14.39.0's security review. Worth doing now because this
+release makes markers durable from three trigger paths instead of one: an `is_compaction_marker`
+column settles it, and the string match becomes a fallback for rows written before the migration.
 
 ### 0a. SHIPPED in v14.38.4 (2026-08-29)
 

@@ -3,7 +3,7 @@
 > Entries are condensed to the shipped changes per version. Full prose, rationale, and
 > file-level detail live in the git history.
 
-## [14.39.0] (2026-08-31) — One way of compacting, and a way back to what it summarised
+## [14.39.0] (2026-09-01) — One way of compacting, and a way back to what it summarised
 
 **Compaction had three different ideas about when to run, and one of them forgot its work.**
 Atlarix summarises older turns as a conversation approaches the model's context limit. The main
@@ -69,14 +69,24 @@ which now also tells the agent it happened, so it looks things up instead of gue
 **Compaction's own cost now appears in the token meter.** The one path whose summary survived a
 reload was also the only one that never recorded what its summarisation spent.
 
-## [14.39.1] (2026-08-31) — Sessions that stay put
-
 **A conversation could be deleted when you reopened the app.** Atlarix tidies away empty "Untitled"
 sessions on start. The check for "is this empty" was broken in a way that made EVERY untitled session
 look empty, whatever it held — so a project with two or more untitled conversations kept the newest
 and deleted the rest, along with their messages. If a session ever came back blank, this was why.
 Fixed, and the tidy-up now re-checks each session against its own record before reusing or removing
 it — a stale sidebar row is a much better outcome than a lost conversation.
+
+**And reopening the app no longer leaves a new empty session behind each time.** The fix above was
+too cautious in one direction: it treated a session as "in use" if its record had been touched at
+all — and simply attaching the chat window to a session counted as touching it. So reusing an empty
+session was what stopped it being reused again, and every start added another "Untitled" to the
+sidebar that could never be tidied away. Attaching a window no longer counts, and the cautious check
+now applies only to deleting a session, never to reusing one. Existing stray sessions get picked back
+up rather than accumulating.
+
+**`session_search` can now read the conversation you are in.** The new tool defaults to searching the
+current conversation, and that default did not work — it could only search *every* conversation in
+the project. Fixed, so the narrow, obvious thing the tool advertises is the thing it does.
 
 ## [14.38.4] (2026-08-29) — Sign-in works again, and signing out no longer leaves a window signed in
 
