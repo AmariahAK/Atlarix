@@ -163,9 +163,16 @@ describe("startWorkspaceSession never reuses or prunes a session with content", 
     expect(kept).toHaveLength(2);
   });
 
-  it("refuses to reuse a session that has been written to, even with no messages", async () => {
-    // The condition that would have caught the observed row on its own: the count
-    // said empty, but updatedAt had moved past createdAt.
+  it("KEEPS a session that has been written to, and reuses it if it holds nothing", async () => {
+    // REVISED 2026-09-01. This test used to assert `not.toBe("guard-touched")` —
+    // that a drifted `updatedAt` disqualified a session from reuse as well as from
+    // deletion. That was the v14.38.4 guard's mistake and it caused the Untitled
+    // litter: see the "reuse SURVIVES being reused" describe below for the loop.
+    //
+    // The guarantee this test exists for is UNCHANGED and still asserted: the row
+    // is never destroyed. What changed is that a timestamp alone no longer costs
+    // the user a new session on every start, because the re-count is authoritative
+    // about whether a conversation is in there.
     const { appId } = await ctx.testDb.seedApp({
       path: "/tmp/reuse-guard-2",
       name: "reuse-guard-2",
@@ -177,7 +184,7 @@ describe("startWorkspaceSession never reuses or prunes a session with content", 
     );
     const started = await startWorkspaceSession(appId);
 
-    expect(started.sessionId).not.toBe("guard-touched");
+    expect(started.sessionId).toBe("guard-touched");
     expect(await sessionExists("guard-touched")).toBe(true);
   });
 
@@ -223,5 +230,154 @@ describe("startWorkspaceSession never reuses or prunes a session with content", 
       .from(sessionMessages)
       .where(eq(sessionMessages.sessionId, "guard-prune-full"));
     expect(kept).toHaveLength(4);
+  });
+});
+
+describe("reuse SURVIVES being reused — the Untitled-litter regression", () => {
+  /**
+   * OBSERVED 2026-09-01, one day after the guard above shipped. The sidebar filled
+   * with empty "Untitled" sessions: three in the owner's DB, one (cdf6f368) with
+   * zero messages and 11,783 seconds of `updatedAt` drift, permanently unreusable
+   * and permanently unprunable.
+   *
+   * THE LOOP. `startWorkspaceSession` ends by binding a fresh transport to
+   * whatever session it settled on — INCLUDING one it has just reused — and
+   * `persistSessionStreamChatId` used to set `updatedAt: new Date()`. So:
+   *
+   *   start 1  create A, bind A          → A.updated == A.created (same second)
+   *   start 2  reuse A, bind A           → A.updated  >  A.created, forever
+   *   start 3  A refused (drift), create B
+   *   start 4  B refused, create C …
+   *
+   * Nothing ever un-drifts a timestamp, so every start minted a row that could
+   * never be reused or pruned again. The fix is two-sided: binding a transport no
+   * longer counts as activity, and the drift condition now gates only the
+   * DESTRUCTIVE prune, never reuse.
+   *
+   * This asserts the loop directly — the same workspace opened three times — which
+   * is the shape no single-start test could catch.
+   */
+  it("reuses the SAME empty session across repeated starts", async () => {
+    const { appId } = await ctx.testDb.seedApp({
+      path: "/tmp/reuse-repeat",
+      name: "reuse-repeat",
+    });
+    const { startWorkspaceSession } = await import(
+      "@/ipc/handlers/workspace_session_handlers"
+    );
+
+    const first = await startWorkspaceSession(appId);
+    const second = await startWorkspaceSession(appId);
+    const third = await startWorkspaceSession(appId);
+
+    // One conversation-less session, not three.
+    expect(second.sessionId).toBe(first.sessionId);
+    expect(third.sessionId).toBe(first.sessionId);
+
+    const { chatSessions } = await import("@/db/schema");
+    const { eq } = await import("drizzle-orm");
+    const rows = await ctx.testDb.db
+      .select()
+      .from(chatSessions)
+      .where(eq(chatSessions.workspaceId, appId));
+    expect(rows).toHaveLength(1);
+  });
+
+  it("binding a transport does not count as activity", async () => {
+    // The root cause in isolation, and it needs a session created in an EARLIER
+    // second than the bind. `created_at`/`updated_at` are `unixepoch()` — whole
+    // seconds — so a session created and bound inside one start shows zero drift
+    // even with the bug present, and a test built that way measures nothing.
+    // (Same trap as the `"x".repeat(n)` token fixture: the units hide the effect.)
+    const { appId } = await ctx.testDb.seedApp({
+      path: "/tmp/reuse-bind-clean",
+      name: "reuse-bind-clean",
+    });
+    const { chatSessions } = await import("@/db/schema");
+    const { eq } = await import("drizzle-orm");
+    // Second-aligned: the columns are `unixepoch()`, so a Date carrying millis
+    // never compares equal to what comes back out.
+    const past = new Date(Math.floor((Date.now() - 5 * 60_000) / 1000) * 1000);
+    await ctx.testDb.db.insert(chatSessions).values({
+      id: "bind-clean",
+      workspaceId: appId,
+      title: "Untitled",
+      createdAt: past,
+      updatedAt: past,
+    });
+
+    const { startWorkspaceSession } = await import(
+      "@/ipc/handlers/workspace_session_handlers"
+    );
+    const started = await startWorkspaceSession(appId);
+    expect(started.sessionId).toBe("bind-clean");
+
+    const [row] = await ctx.testDb.db
+      .select()
+      .from(chatSessions)
+      .where(eq(chatSessions.id, "bind-clean"));
+    // Untouched: reusing and binding a session is not something that happened IN
+    // the conversation. If this drifts, the next start refuses the row and mints
+    // an Untitled instead — forever.
+    expect(row!.updatedAt.getTime()).toBe(past.getTime());
+    // …and the binding itself still happened.
+    expect(row!.streamChatId).toBe(started.chatId);
+  });
+
+  it("still reuses a session whose timestamp already drifted, but never PRUNES it", async () => {
+    // Heals the rows already poisoned in the field (cdf6f368 and friends): drift
+    // with zero messages must not disqualify reuse. Prune stays conservative.
+    const { appId } = await ctx.testDb.seedApp({
+      path: "/tmp/reuse-drifted",
+      name: "reuse-drifted",
+    });
+    await seedSession(appId, "drifted-empty", { messages: 0, touch: true });
+
+    const { startWorkspaceSession } = await import(
+      "@/ipc/handlers/workspace_session_handlers"
+    );
+    const started = await startWorkspaceSession(appId);
+
+    expect(started.sessionId).toBe("drifted-empty");
+    expect(await sessionExists("drifted-empty")).toBe(true);
+  });
+
+  it("a drifted empty session is still never DELETED as a prune candidate", async () => {
+    // The asymmetry, asserted on the DESTRUCTIVE side — and it only tests anything
+    // if the drifted session is actually a prune candidate. `pickSessionReuse`
+    // takes the newest empty as the reuse target, so seeding both "now" hands the
+    // drifted one the reuse slot and the prune branch never sees it. The drifted
+    // row must therefore be OLDER, with the clean row newest.
+    const { appId } = await ctx.testDb.seedApp({
+      path: "/tmp/prune-drifted",
+      name: "prune-drifted",
+    });
+    const { chatSessions } = await import("@/db/schema");
+    const sec = (ms: number) => new Date(Math.floor(ms / 1000) * 1000);
+    const now = Date.now();
+    // Old, empty, and drifted → a prune target that must survive anyway.
+    await ctx.testDb.db.insert(chatSessions).values({
+      id: "prune-drifted-touched",
+      workspaceId: appId,
+      title: "Untitled",
+      createdAt: sec(now - 10 * 60_000),
+      updatedAt: sec(now - 9 * 60_000),
+    });
+    // Newest and untouched → wins the reuse slot.
+    await ctx.testDb.db.insert(chatSessions).values({
+      id: "prune-clean",
+      workspaceId: appId,
+      title: "Untitled",
+      createdAt: sec(now - 60_000),
+      updatedAt: sec(now - 60_000),
+    });
+
+    const { startWorkspaceSession } = await import(
+      "@/ipc/handlers/workspace_session_handlers"
+    );
+    const started = await startWorkspaceSession(appId);
+
+    expect(started.sessionId).toBe("prune-clean");
+    expect(await sessionExists("prune-drifted-touched")).toBe(true);
   });
 });

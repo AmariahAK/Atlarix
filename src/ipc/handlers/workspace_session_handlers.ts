@@ -542,19 +542,30 @@ export async function seedEphemeralCounterFromSessions(): Promise<void> {
  * Is this session REALLY safe to reuse or delete? Read the row itself, not an
  * aggregate computed alongside forty others.
  *
- * Two independent conditions, because either alone has a hole:
- *  · `count(*)` for this one id — closes any staleness between
- *    `listSessionsWithMessageCounts` and the decision.
- *  · `updatedAt === createdAt` — a session that has been TOUCHED has had
- *    something happen in it. Every message insert bumps `updatedAt`
- *    (`addSessionMessageDirect`), so this catches a session whose rows are
- *    somehow invisible to the count. On the row observed on 2026-08-31 (created
- *    15:37:10, updated 15:51:08) this condition alone would have refused.
+ * Two conditions, and THEY ARE NOT SYMMETRIC — `purpose` decides which apply:
  *
- * The cost of a false refusal is one extra "Untitled" row in the sidebar. The
- * cost of a false accept is a blank pane or a deleted conversation.
+ *  · `count(*)` for this one id — closes any staleness between
+ *    `listSessionsWithMessageCounts` and the decision. Applies to BOTH, and it is
+ *    the authoritative one now that the aggregate's uncorrelated-subquery bug is
+ *    fixed.
+ *  · `updatedAt === createdAt` — belt-and-braces for a session whose rows are
+ *    somehow invisible to the count. Applies to PRUNE ONLY.
+ *
+ * The asymmetry is the whole correction. Prune runs `delete(chatSessions)`, which
+ * cascades: a false accept destroys a conversation, so a timestamp that merely
+ * *hints* at content is worth refusing on. Reuse is non-destructive — the worst a
+ * false accept does is hand back an empty row someone had also touched — while a
+ * false REFUSAL costs a new "Untitled" on every single start, forever, because
+ * nothing ever un-drifts a timestamp.
+ *
+ * Applying it to both is what shipped in v14.38.4's fix, and it turned one bug
+ * into another: see `persistSessionStreamChatId` for the bookkeeping write that
+ * guaranteed the drift.
  */
-async function verifyTrulyEmptySession(sessionId: string): Promise<{
+async function verifyTrulyEmptySession(
+  sessionId: string,
+  purpose: "reuse" | "prune",
+): Promise<{
   row: typeof chatSessions.$inferSelect | undefined;
   empty: boolean;
   reason: string;
@@ -578,14 +589,16 @@ async function verifyTrulyEmptySession(sessionId: string): Promise<{
     };
   }
 
-  const created = row.createdAt?.getTime?.() ?? 0;
-  const updated = row.updatedAt?.getTime?.() ?? 0;
-  if (updated !== created) {
-    return {
-      row,
-      empty: false,
-      reason: `updatedAt (${new Date(updated).toISOString()}) !== createdAt (${new Date(created).toISOString()}) — the session has been written to`,
-    };
+  if (purpose === "prune") {
+    const created = row.createdAt?.getTime?.() ?? 0;
+    const updated = row.updatedAt?.getTime?.() ?? 0;
+    if (updated !== created) {
+      return {
+        row,
+        empty: false,
+        reason: `updatedAt (${new Date(updated).toISOString()}) !== createdAt (${new Date(created).toISOString()}) — the session has been written to`,
+      };
+    }
   }
 
   if (!DEFAULT_SESSION_TITLES.has(row.title)) {
@@ -635,7 +648,7 @@ export async function startWorkspaceSession(workspaceId: number): Promise<{
       );
     }
     if (reuseId) {
-      const verified = await verifyTrulyEmptySession(reuseId);
+      const verified = await verifyTrulyEmptySession(reuseId, "reuse");
       if (verified.row && verified.empty) {
         session = mapSession(verified.row);
         logger.log(
@@ -653,7 +666,7 @@ export async function startWorkspaceSession(workspaceId: number): Promise<{
     // skipped, not deleted — better a stale sidebar row than a deleted conversation.
     const safeToPrune: string[] = [];
     for (const id of pruneIds) {
-      const verified = await verifyTrulyEmptySession(id);
+      const verified = await verifyTrulyEmptySession(id, "prune");
       if (verified.row && verified.empty) safeToPrune.push(id);
       else if (verified.row) {
         logger.warn(
@@ -697,14 +710,27 @@ async function insertWorkspaceSession(
   return mapSession(row);
 }
 
-/** Bind in-memory stream transport to a persisted session (optional column). */
+/**
+ * Bind in-memory stream transport to a persisted session (optional column).
+ *
+ * DOES NOT TOUCH `updatedAt`, and that is the point. Which transport a session is
+ * attached to is bookkeeping about the UI, not something that happened in the
+ * conversation — the row is byte-identical to a user reading the sidebar.
+ *
+ * It used to bump it, and that quietly broke empty-session reuse for good.
+ * `startWorkspaceSession` binds on EVERY start, including to the empty session it
+ * has just decided to reuse, so one reuse left `updatedAt !== createdAt` forever
+ * after; `verifyTrulyEmptySession` then refused that row and every start minted
+ * another "Untitled" that could never be reused or pruned either. Observed
+ * 2026-09-01: session cdf6f368, zero messages, 11,783 seconds of drift.
+ */
 async function persistSessionStreamChatId(
   sessionId: string,
   chatId: number,
 ): Promise<void> {
   await db
     .update(chatSessions)
-    .set({ streamChatId: chatId, updatedAt: new Date() })
+    .set({ streamChatId: chatId })
     .where(eq(chatSessions.id, sessionId));
 }
 
