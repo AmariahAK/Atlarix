@@ -1088,6 +1088,29 @@ in `git log -- docs/TODO.md` and `CHANGELOG.md`.
 
 ### Migrations and Postgres
 
+- **The Supabase CLI reports BOOKKEEPING, not behaviour — and its "nothing to do" is indistinguishable
+  from its "already done".** 2026-09-01, applying the trial-credit gate: `supabase migration list`
+  showed the new version in both the local AND remote columns, and `supabase db push --dry-run` said
+  `{"upToDate":true,"migrations":[]}`. Both readings are exactly what you would see if the migration
+  had silently never applied. A row in `supabase_migrations.schema_migrations` is a claim that the
+  file ran, not evidence that the objects changed. **Verify against the database.** `supabase db
+  query --linked` exists and needs no password:
+
+      -- did the body actually change?
+      select position('<a token unique to the new body>' in pg_get_functiondef(p.oid))
+      from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+      where n.nspname = 'public' and p.proname = '<fn>';
+
+      -- and did the grants survive? (see the PUBLIC trap below)
+      select array_to_string(p.proacl, ' | ') from pg_proc p … ;
+
+  A correct-looking `proacl` is `authenticated=X/postgres | service_role=X/postgres` — a bare
+  `=X/postgres` entry with no role before the `=` IS the PUBLIC grant.
+- **After ANY `CREATE OR REPLACE` of a DEFINER function, read `proacl` back.** Postgres re-adds the
+  default PUBLIC grant on replace, so a migration written to NARROW a function widens it unless the
+  `REVOKE … FROM PUBLIC` is re-asserted — and the migration succeeds either way. This is how
+  `credit_wallet_service` became callable by anon (20260714150000). Re-asserting the revoke is half
+  the fix; confirming it stuck is the other half.
 - **The source of truth for a `CREATE OR REPLACE` body is the newest MIGRATION that defines it** —
   never an audit snapshot, a docstring, or an older migration. `supabase/audit/prod_schema.sql` is
   **stale**: it predates the pricing-reframe teardown, which dropped `team_members`, `teams`,
