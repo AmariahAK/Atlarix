@@ -149,7 +149,10 @@ describe("runSteppedCompaction owns the durable write", () => {
     expect(sessionHandlers.persistSpy).toHaveBeenCalledWith(
       "resolved-session",
       expect.stringContaining(COMPACTION_SUMMARY_PREFIX),
-      {},
+      // The row must carry `kind`, not just the right first bytes. That column is
+      // what makes the marker unforgeable — content alone is something any tool
+      // result can imitate.
+      { kind: "compaction_marker" },
     );
   });
 

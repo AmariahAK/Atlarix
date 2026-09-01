@@ -217,6 +217,8 @@ export function hydrateStreamTransport(
     sessionRowId?: string | null;
     displaySnapshot?: DisplaySnapshotV1 | null;
     modelContent?: string | null;
+    /** Carried so the dispatch slice sees a compaction marker's COLUMN. */
+    kind?: import("@/db/schema").SessionMessageKind;
     pasteAttachments?: import("@/ipc/ipc_types").PasteAttachmentMeta[] | null;
     fileAttachments?: import("@/ipc/ipc_types").StoredFileAttachment[] | null;
     attachments?: import("@/ipc/ipc_types").AttachmentInfo[] | null;
@@ -241,6 +243,8 @@ export function hydrateStreamTransport(
       createdAt: new Date(),
       ...(m.sessionRowId ? { sessionRowId: m.sessionRowId } : {}),
       ...(m.modelContent ? { modelContent: m.modelContent } : {}),
+      // Only a non-default kind is worth carrying; "message" is the absent case.
+      ...(m.kind && m.kind !== "message" ? { kind: m.kind } : {}),
       ...(m.pasteAttachments?.length
         ? { pasteAttachments: m.pasteAttachments }
         : {}),

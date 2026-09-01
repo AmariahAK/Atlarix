@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { DisplaySnapshotV1 } from "@/lib/chat/display-snapshot";
 import type { WorkMode } from "@/lib/schemas";
+import type { SessionMessageKind } from "@/db/schema";
 import type { ProblemReport, Problem } from "../../shared/tsc_types";
 export type { ProblemReport, Problem };
 
@@ -314,6 +315,13 @@ export interface Message {
   sessionRowId?: string;
   /** Full model-facing user text (attachment bodies); UI uses `content` when set. */
   modelContent?: string | null;
+  /**
+   * `session_messages.kind`, threaded through hydration so the dispatch slice can
+   * recognise a durable compaction marker by its COLUMN rather than by its text.
+   * Absent on a purely ephemeral message, which is why the detector still falls
+   * back to matching content.
+   */
+  kind?: SessionMessageKind;
   /** Ephemeral/chat-only: in-memory chat id (not persisted). */
   chatId?: number;
   approvalState?: "approved" | "rejected" | null;

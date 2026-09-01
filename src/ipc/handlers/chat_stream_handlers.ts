@@ -1178,14 +1178,24 @@ export function registerChatStreamHandlers() {
           // Note: For ephemeral messages, sourceCommitHash and commitHash may be undefined
           // We only include them if they have actual values to avoid confusing the AI SDK
           type Msg = { role: string; content?: string; sourceCommitHash?: string; commitHash?: string };
-          let messageHistory = updatedChat.messages.map((message: Msg & { modelContent?: string | null }) => {
+          let messageHistory = updatedChat.messages.map((message: Msg & { modelContent?: string | null; kind?: string }) => {
             const content =
               message.role === "user"
                 ? (message.modelContent ?? message.content ?? "")
                 : (message.content || "");
-            const baseMessage: { role: "user" | "assistant" | "system"; content: string } = {
+            // `kind` rides along so `sliceFromLastCompactionSummary` can identify
+            // a durable compaction marker structurally. Note the `content` above
+            // prefers `modelContent` for user rows — so WITHOUT `kind` the slice
+            // here and the one in token_count_handlers (which reads `content`)
+            // can disagree about where the boundary is.
+            const baseMessage: {
+              role: "user" | "assistant" | "system";
+              content: string;
+              kind?: string;
+            } = {
               role: message.role as "user" | "assistant" | "system",
               content,
+              ...(message.kind ? { kind: message.kind } : {}),
             };
 
             // Only include commit hash fields if they're defined (DB messages have them, ephemeral don't)

@@ -317,15 +317,50 @@ even with the bug present. And `pickSessionReuse` takes the NEWEST empty as the 
 seeding both prune candidates "now" handed the drifted one the reuse slot and the prune branch
 never ran. Same class as the `"x".repeat(n)` token fixture: the units hid the effect.
 
-### DEFERRED — give the compaction marker a column
+### 0f. DONE 2026-09-01 — the compaction marker has a column
 
-`isCompactionSummaryMessage` matches `content.startsWith("[COMPACTION MARKER]")` on a `role:"user"`
-row. Nothing else distinguishes a marker, so ordinary text — a user paste, a tool result, a file the
-model read back — that begins with those bytes is indistinguishable from one, and
-`sliceFromLastCompactionSummary` would truncate history at it. Pre-existing (identical at
-`0a7bb027`), so it was **not** in scope for v14.39.0's security review. Worth doing now because this
-release makes markers durable from three trigger paths instead of one: an `is_compaction_marker`
-column settles it, and the string match becomes a fallback for rows written before the migration.
+`isCompactionSummaryMessage` matched `content.startsWith("[COMPACTION MARKER]")` on a `role:"user"`
+row and nothing else, so any text beginning with those bytes was a marker as far as
+`sliceFromLastCompactionSummary` was concerned — and it cuts the MODEL's history at whatever it
+finds. Not hypothetical: `flattenNativeForCompaction` renders tool results as
+`{ role: "user", content: "<tool_result …>" }`, exactly the shape the detector keys on, so a file
+read back, a pasted transcript, or command output could do it.
+
+**No migration.** `session_messages.kind` already existed as plain TEXT with a drizzle
+compile-time enum and no CHECK, so `"compaction_marker"` is a third value and nothing more — the
+same route `status` took to gain `"waiting"`. That avoided the `.sql`/`bundled.generated.ts` pair,
+whose mismatch makes `initializeDatabase()` DELETE `sqlite.db` and retry.
+
+**The work was the plumbing, not the column.** `kind` was dropped at three hops between the row and
+the detector — `joinTransportRows`, `hydrateStreamTransport`, and the dispatch `.map()` in
+`chat_stream_handlers`. The first two already carry comments about `maxTokensUsed` having been
+dropped in exactly the same place, which halved the context meter for a release. Same two functions,
+same mistake, second time.
+
+**Two things found on the way.** The dispatch slice matches `modelContent ?? content` for user rows
+while `token_count_handlers` matches `content` alone — the two consumers could land on different
+boundaries; `kind` makes them agree. And `trimSessionMessagesIfNeeded` deletes oldest-first past
+`SESSION_STORE_MESSAGE_MAX`, which targets the marker FIRST (it is old by construction), and losing
+it re-expands the whole history on the next reload. Markers are now exempt from the trim.
+
+**The fallback, and its honest limit.** Rows written before this carry `kind = "message"`, so the
+string match stays for them. The rule that actually closes the hole is narrower than "prefer the
+column": once a list contains one genuinely flagged marker, text matches are ignored entirely for
+that list. An untouched pre-v14.39.1 session is still forgeable, and there is a test that says so
+rather than overclaiming.
+
+Seven guarantees mutation-tested. `selectTrimmableMessageIds` is exported for testing (the
+convention `pickSessionReuse` set) because the real cap is 100,000 rows — an end-to-end fixture
+would measure the database, not the decision.
+
+### 🔍 OPEN — the marker is still shown to the user, and still searchable
+
+`sessionMessagesToUiMessages` filters on `role` only, and `sessions:get` filters `kind !== "plan"`,
+so a marker renders as an ordinary user bubble containing the raw
+`[COMPACTION MARKER] gen=N … [END COMPACTION] …` text. `session_search` returns marker rows as
+ordinary turns too. Both are now one-line changes since the rows are identifiable — deliberately NOT
+done here, because hiding content the user can currently see is a UX decision, not a correctness fix,
+and it should be made on its own.
 
 ### 0a. SHIPPED in v14.38.4 (2026-08-29)
 

@@ -107,24 +107,71 @@ export const COMPACTION_SUMMARY_PREFIX = "[COMPACTION MARKER]";
 export const IN_TASK_SUMMARY_PREFIX =
   "[Earlier in-task conversation — compressed for context budget]";
 
+/** The DB `kind` that marks a durable summary row. See `SessionMessageKind`. */
+export const COMPACTION_MARKER_KIND = "compaction_marker";
+
+/** Anything the detector can be asked about: a live message or a loaded row. */
+type MarkerCandidate = { content?: string | null; kind?: string | null };
+
+/**
+ * Is this row the durable compaction summary?
+ *
+ * STRUCTURE FIRST, TEXT ONLY AS A FALLBACK. The text check is what this whole
+ * change exists to retire: `flattenNativeForCompaction` renders tool results as
+ * `{ role: "user", content: "<tool_result …>" }`, so before the column ANY tool
+ * output, pasted text, or file the model read back that began with
+ * `[COMPACTION MARKER]` was indistinguishable from a real marker — and the slice
+ * below would cut the model's history at it.
+ *
+ * The fallback stays because rows written before v14.39.1 carry
+ * `kind = "message"`, and a session compacted last week must keep working. See
+ * `sliceFromLastCompactionSummary` for why that fallback stops applying the
+ * moment a session has a real flagged marker in it.
+ */
 export function isCompactionSummaryMessage(
-  content: string | null | undefined,
+  candidate: MarkerCandidate | string | null | undefined,
 ): boolean {
-  return typeof content === "string" && content.startsWith(COMPACTION_SUMMARY_PREFIX);
+  if (typeof candidate === "string" || candidate == null) {
+    return (
+      typeof candidate === "string" &&
+      candidate.startsWith(COMPACTION_SUMMARY_PREFIX)
+    );
+  }
+  if (candidate.kind === COMPACTION_MARKER_KIND) return true;
+  return (
+    typeof candidate.content === "string" &&
+    candidate.content.startsWith(COMPACTION_SUMMARY_PREFIX)
+  );
 }
 
 /**
  * Model-history slice: keep [last summary message .. end]. Returns the input
  * array unchanged when no summary exists (the common case — cheap check).
+ *
+ * RETURN IDENTITY IS LOAD-BEARING. `token_count_handlers` decides whether to
+ * bypass its delta cache with `modelFacing.length === ordered.length`, so the
+ * no-match and `i === 0` cases must keep returning the input array itself.
+ *
+ * ONCE A LIST HAS A FLAGGED MARKER, TEXT STOPS COUNTING. A session compacted
+ * since v14.39.1 has a row with `kind = "compaction_marker"`, which proves the
+ * column is being written for this session — so any OTHER row that merely looks
+ * like a marker is text pretending, and is ignored. A legacy session with no
+ * flagged row keeps the old text behaviour. This is what actually closes the
+ * forgery, rather than just labelling the real one.
  */
 export function sliceFromLastCompactionSummary<
-  T extends { role: string; content?: string | null },
+  T extends { role: string; content?: string | null; kind?: string | null },
 >(messages: T[]): T[] {
+  const hasFlagged = messages.some(
+    (m) => m.role === "user" && m.kind === COMPACTION_MARKER_KIND,
+  );
   for (let i = messages.length - 1; i >= 0; i--) {
-    if (
-      messages[i].role === "user" &&
-      isCompactionSummaryMessage(messages[i].content)
-    ) {
+    const m = messages[i];
+    if (m.role !== "user") continue;
+    const isMarker = hasFlagged
+      ? m.kind === COMPACTION_MARKER_KIND
+      : isCompactionSummaryMessage(m);
+    if (isMarker) {
       return i === 0 ? messages : messages.slice(i);
     }
   }
@@ -167,12 +214,12 @@ const COMPACTION_RECOVERY_HINT =
  */
 async function persistCompactionSummaryToSession(
   chatId: number | undefined,
-  afterList: Array<{ role: string; content?: string | null }>,
+  afterList: Array<{ role: string; content?: string | null; kind?: string | null }>,
   sessionId?: string | null,
 ): Promise<boolean> {
   try {
     const summaryMsg = afterList.find(
-      (m) => m.role === "user" && isCompactionSummaryMessage(m.content),
+      (m) => m.role === "user" && isCompactionSummaryMessage(m),
     );
     if (!summaryMsg?.content) return false;
     const {
@@ -190,10 +237,12 @@ async function persistCompactionSummaryToSession(
       );
       return false;
     }
+    // The whole point of the column: the row identifies itself, so nothing
+    // downstream has to trust that its first bytes were written by us.
     await persistWorkspaceSessionUserMessage(
       resolvedSessionId,
       summaryMsg.content,
-      {},
+      { kind: COMPACTION_MARKER_KIND },
     );
     logger.info(`[compaction] Summary persisted to session ${resolvedSessionId}`);
     return true;
@@ -218,7 +267,12 @@ export type PriorCompactionSummary = {
   compactionGeneration: number;
 };
 
-const GENERATION_RE = /^\[COMPACTION MARKER\]\s*gen=(\d+)/;
+// Built from the constant, not written out again. The literal used to appear
+// here a second time, so a change to the prefix would have silently stopped
+// generation numbers parsing while detection carried on working.
+const GENERATION_RE = new RegExp(
+  `^${COMPACTION_SUMMARY_PREFIX.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*gen=(\\d+)`,
+);
 
 /**
  * Split the previous compaction summary out of a message list.
@@ -239,16 +293,17 @@ const GENERATION_RE = /^\[COMPACTION MARKER\]\s*gen=(\d+)/;
  * it through the per-message truncator.
  */
 export function extractPriorSummary<
-  T extends { role: string; content?: string | null },
+  T extends { role: string; content?: string | null; kind?: string | null },
 >(messages: T[]): { prior: PriorCompactionSummary | null; rest: T[] } {
   for (let i = messages.length - 1; i >= 0; i--) {
     const content = messages[i]?.content;
     // `role === "user"` matches sliceFromLastCompactionSummary exactly. If the
     // two disagreed about which row is the summary — say an assistant quoted
     // the marker back — dispatch would slice from one place and the summarizer
-    // would fold in another.
+    // would fold in another. Passing the MESSAGE (not just its content) keeps
+    // that true now that the marker is identified by its `kind`.
     if (messages[i]?.role !== "user") continue;
-    if (!isCompactionSummaryMessage(content)) continue;
+    if (!isCompactionSummaryMessage(messages[i])) continue;
 
     const generation = Number(GENERATION_RE.exec(content!)?.[1] ?? 1);
     let body = content!.slice(COMPACTION_SUMMARY_PREFIX.length);
@@ -275,6 +330,13 @@ interface MessageForCompaction {
   id: number;
   role: string;
   content: string;
+  /**
+   * "compaction_marker" on the summary row. Set on the IN-MEMORY object too, not
+   * only on the DB row: `executeCompressContext` and `forceCompactEphemeralChat`
+   * push this straight into the live transport, so without it the marker would be
+   * unidentifiable-by-column until the next reload.
+   */
+  kind?: string;
   toolCalls?: Array<{ id: string; name: string; arguments?: string }>;
   filesWritten?: string[] | null;
 }
@@ -815,7 +877,7 @@ export async function runSteppedCompaction(
     // summary (nothing new to fold in) — avoids degenerate double passes.
     const headIsOnlyPriorSummary =
       headMessages.length === 1 &&
-      isCompactionSummaryMessage(headMessages[0]?.content);
+      isCompactionSummaryMessage(headMessages[0]);
 
     // GATE ON TOKEN MASS, NOT MESSAGE COUNT.
     //
@@ -861,6 +923,7 @@ export async function runSteppedCompaction(
         const summaryMsg: MessageForCompaction = {
           id: -Date.now(),
           role: "user",
+          kind: COMPACTION_MARKER_KIND,
           content: `${COMPACTION_SUMMARY_PREFIX} gen=${priorGeneration + 1}\n${summary}\n${COMPACTION_SUMMARY_SUFFIX}\n${COMPACTION_RECOVERY_HINT}`,
         };
 

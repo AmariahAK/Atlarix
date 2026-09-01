@@ -1,7 +1,11 @@
 import { randomUUID } from "node:crypto";
 import log from "electron-log";
 import { db } from "../../db";
-import { chatSessions, sessionMessages } from "../../db/schema";
+import {
+  chatSessions,
+  sessionMessages,
+  type SessionMessageKind,
+} from "../../db/schema";
 import { eq, desc, asc, sql, inArray, and } from "drizzle-orm";
 import { createLoggedHandler } from "./safe_handle";
 import {
@@ -70,7 +74,7 @@ export type SessionMessageRow = {
   sessionId: string;
   role: "user" | "assistant" | "tool";
   content: string;
-  kind: "message" | "plan";
+  kind: SessionMessageKind;
   /**
    * "interrupted" = cut off mid-stream (partial content, "Continue" affordance).
    * "waiting" = v14.7 turn parked on a human wait (approval / `ask_user`) — not an error.
@@ -91,6 +95,12 @@ export type SessionMessageRow = {
 };
 
 export type SessionMessageExtras = {
+  /**
+   * Defaults to "message". `persistCompactionSummaryToSession` passes
+   * "compaction_marker" so the durable summary row is identifiable by its
+   * COLUMN rather than by its content — see `SessionMessageKind`.
+   */
+  kind?: SessionMessageKind;
   modelContent?: string | null;
   pasteAttachments?: PasteAttachmentMeta[] | null;
   fileAttachments?: StoredFileAttachment[] | null;
@@ -117,7 +127,11 @@ function mapMessage(row: typeof sessionMessages.$inferSelect): SessionMessageRow
     sessionId: row.sessionId,
     role: row.role as SessionMessageRow["role"],
     content: row.content,
-    kind: (row.kind ?? "message") as SessionMessageRow["kind"],
+    // No cast: `kind` is now the same union on both sides, so a value the type
+    // does not cover is a compile error rather than something a cast waves
+    // through. It was `as SessionMessageRow["kind"]`, which would have let a
+    // third DB value past silently.
+    kind: row.kind ?? "message",
     status: (row.status ?? "complete") as SessionMessageRow["status"],
     createdAt: row.createdAt,
     displaySnapshot: parseDisplaySnapshot(row.displaySnapshot),
@@ -187,9 +201,35 @@ export async function persistEditedSessionMessageById(
 }
 
 
+/**
+ * Which rows the trim may delete, oldest-first, given the whole ordered list.
+ *
+ * Exported for testing (same convention as `pickSessionReuse`), because the real
+ * gate is `SESSION_STORE_MESSAGE_MAX = 100_000` — a test that seeded past it
+ * would be measuring the DB, not the decision.
+ *
+ * NEVER TRIMS A COMPACTION MARKER. A marker is one of the oldest rows by
+ * construction — it summarises everything before it — so oldest-first deletion
+ * comes for it first, and losing it is silently expensive: the next reload finds
+ * no marker, re-sends the entire history, and re-overflows the context the
+ * marker exists to keep inside its budget. Markers are a handful of rows per
+ * session, so exempting them cannot meaningfully defeat the cap.
+ */
+export function selectTrimmableMessageIds(
+  rows: Array<{ id: string; kind?: string | null }>,
+  max: number,
+): string[] {
+  if (rows.length <= max) return [];
+  const excess = rows.length - max;
+  return rows
+    .filter((r) => r.kind !== "compaction_marker")
+    .slice(0, excess)
+    .map((r) => r.id);
+}
+
 async function trimSessionMessagesIfNeeded(sessionId: string): Promise<void> {
   const rows = await db
-    .select({ id: sessionMessages.id })
+    .select({ id: sessionMessages.id, kind: sessionMessages.kind })
     .from(sessionMessages)
     .where(eq(sessionMessages.sessionId, sessionId))
     // Same second-granularity tie as above, and here the order picks which rows
@@ -197,9 +237,8 @@ async function trimSessionMessagesIfNeeded(sessionId: string): Promise<void> {
     // an older one. `rowid` is insertion order.
     .orderBy(asc(sessionMessages.createdAt), sql`rowid asc`);
 
-  if (rows.length > SESSION_STORE_MESSAGE_MAX) {
-    const excess = rows.length - SESSION_STORE_MESSAGE_MAX;
-    const idsToDelete = rows.slice(0, excess).map((r) => r.id);
+  const idsToDelete = selectTrimmableMessageIds(rows, SESSION_STORE_MESSAGE_MAX);
+  if (idsToDelete.length > 0) {
     await db
       .delete(sessionMessages)
       .where(inArray(sessionMessages.id, idsToDelete));
@@ -331,6 +370,7 @@ export async function persistWorkspaceSessionUserMessage(
       sessionId,
       role: "user",
       content,
+      kind: extras?.kind ?? "message",
       modelContent: extras?.modelContent ?? null,
       pasteAttachments: extras?.pasteAttachments ?? null,
       fileAttachments: extras?.fileAttachments ?? null,
@@ -432,6 +472,12 @@ export function joinTransportRows(
   sessionRowId: string;
   role: SessionMessageRow["role"];
   content: string;
+  /**
+   * Carried so the dispatch slice can recognise a compaction marker by its
+   * COLUMN. Dropping a field here is the same mistake `maxTokensUsed` records
+   * below — the row knows, and everything downstream stops knowing.
+   */
+  kind: SessionMessageKind;
   displaySnapshot: DisplaySnapshotV1 | null;
   modelContent: string | null;
   pasteAttachments: PasteAttachmentMeta[] | null;
@@ -449,6 +495,7 @@ export function joinTransportRows(
         sessionRowId: row.id,
         role: row.role,
         content: row.content ?? "",
+        kind: row.kind ?? "message",
         displaySnapshot: row.displaySnapshot ?? null,
         modelContent: row.modelContent ?? null,
         pasteAttachments: row.pasteAttachments ?? null,

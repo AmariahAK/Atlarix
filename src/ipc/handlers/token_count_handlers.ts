@@ -36,6 +36,14 @@ type TokenCountMessageRow = {
    * command output. Which, in a coding session, is most of the context.
    */
   modelContent?: string | null;
+  /**
+   * `session_messages.kind`. The slice below needs it to recognise a compaction
+   * marker structurally — and to AGREE with the dispatch slice, which reads
+   * `modelContent ?? content` for user rows while this path reads `content`. Two
+   * consumers matching different fields is how they end up cutting the history in
+   * two different places.
+   */
+  kind?: string | null;
   maxTokensUsed?: number | null;
   createdAt?: Date;
 };
@@ -346,6 +354,12 @@ export function registerTokenCountHandlers() {
           modelContent:
             "modelContent" in m && typeof m.modelContent === "string"
               ? (m as { modelContent: string }).modelContent
+              : null,
+          // Lets the slice below find a compaction marker by its column, and so
+          // land on the same boundary the dispatch slice does.
+          kind:
+            "kind" in m && typeof m.kind === "string"
+              ? (m as { kind: string }).kind
               : null,
           maxTokensUsed:
             "maxTokensUsed" in m && m.maxTokensUsed != null

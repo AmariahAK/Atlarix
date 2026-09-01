@@ -156,7 +156,20 @@ export const chatSessions = sqliteTable("chat_sessions", {
     .default(sql`(unixepoch())`),
 });
 
-export type SessionMessageKind = "message" | "plan";
+/**
+ * What sort of row this is. THE source of truth — import this rather than
+ * re-declaring the union, which is how it drifted before.
+ *
+ * "compaction_marker" (v14.39.1) is the durable summary row compaction writes.
+ * Before it, a marker was a plain "message" recognised only by its content
+ * starting with `[COMPACTION MARKER]` — so any tool output, pasted text or file
+ * beginning with those bytes was indistinguishable from one, and
+ * `sliceFromLastCompactionSummary` would cut the model's history there.
+ * `flattenNativeForCompaction` makes that concrete: it turns tool results into
+ * `{ role: "user", content: "<tool_result …>" }`, exactly the shape the detector
+ * keys on.
+ */
+export type SessionMessageKind = "message" | "plan" | "compaction_marker";
 export type PlanArtifactStatus = "plan" | "building" | "built";
 
 export const sessionMessages = sqliteTable("session_messages", {
@@ -166,7 +179,12 @@ export const sessionMessages = sqliteTable("session_messages", {
     .references(() => chatSessions.id, { onDelete: "cascade" }),
   role: text("role", { enum: ["user", "assistant", "tool"] }).notNull(),
   content: text("content").notNull(),
-  kind: text("kind", { enum: ["message", "plan"] })
+  /**
+   * See `SessionMessageKind`. Plain-TEXT column (SQLite doesn't enforce the
+   * enum) → adding a value needs no migration, same as `status` gaining
+   * "waiting" below.
+   */
+  kind: text("kind", { enum: ["message", "plan", "compaction_marker"] })
     .notNull()
     .default("message"),
   /**
