@@ -16,7 +16,8 @@ import {
 import type { ActivityStreamItem } from "@/atoms/sourceAtoms";
 import { IpcClient } from "@/ipc/ipc_client";
 import AtlarixAnimation from "@/components/atlarix/AtlarixAnimation";
-import { ChevronDown, ChevronUp, TimerIcon } from "lucide-react";
+import { Archive, ChevronDown, ChevronUp, TimerIcon } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { getToolActivityLabelWithArgs } from "@/lib/tool-activity-labels";
 import { describePendingApproval } from "@/components/chat/PendingApprovalsBar";
 import { useSettings } from "@/hooks/useSettings";
@@ -102,6 +103,7 @@ export function InlineStreamStatus({
     chatId != null && isStreamingThisChat === true;
   const waiting = chatId != null ? waitingByChatId.get(chatId) : undefined;
 
+
   // 1s ticker for the elapsed displays (waiting chip / still-working note).
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -109,6 +111,35 @@ export function InlineStreamStatus({
     const id = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(id);
   }, [active, isTargetStreaming]);
+  /**
+   * Compaction, mid-turn — the pause the UI never explained.
+   *
+   * The agent stops for several seconds to summarise its own context, and the
+   * status line said nothing, so it read as a hang.
+   *
+   * READ FROM THE `background` EVENT, NOT THE `compaction` ONE. The main process
+   * emits both for the same moment, and `chat-activity-normalize.ts` drops the
+   * `compaction` type ON PURPOSE — admitting it would put two rows in the atom
+   * for one event, and `compress-context-persistence.test.ts` pins the drop as
+   * the documented contract. So this matches the same shape
+   * `useCompactionTokenVisuals` already does: a background row whose label reads
+   * as compaction. One channel, already working, no new type.
+   */
+  const compaction = useMemo(() => {
+    const rows = activityItems.filter(
+      (i) =>
+        i.type === "background" &&
+        /summariz|compress|compact/i.test(i.label ?? "") &&
+        (chatId == null || i.chatId === chatId),
+    );
+    const last = rows[rows.length - 1];
+    if (!last) return undefined;
+    // A finished compaction is only interesting for a moment. After that the
+    // ordinary status line is more useful than a stale banner.
+    if (last.status === "done" && now - (last.timestamp ?? 0) > 6000) return undefined;
+    return last;
+  }, [activityItems, chatId, now]);
+
 
   const autonomousOverride = useMemo(
     () => subagentsActiveForChat(activityItems, chatId ?? undefined),
@@ -331,6 +362,40 @@ export function InlineStreamStatus({
         >
           stop
         </button>
+      </div>
+    );
+  }
+
+  // ORDER MATTERS, and this is the right slot. It comes AFTER reconnecting and
+  // after a pending approval — both of those either need the user or mean the
+  // turn is in trouble, and compaction means the opposite (it is working) — and
+  // BEFORE the ordinary status line, which is the thing it has to replace.
+  if (compaction) {
+    const running = compaction.status === "running";
+    return (
+      <div className="mt-1.5 text-xs text-muted-foreground">
+        <div
+          className="inline-flex items-center gap-1.5 rounded-full border border-border bg-muted/40 px-2.5 py-1"
+          // Announced, because it explains a pause the user is already noticing.
+          role="status"
+          aria-live="polite"
+          title={compaction.detail ?? undefined}
+        >
+          <Archive
+            className={cn(
+              "h-3 w-3 text-sky-600 dark:text-sky-400",
+              // The pulse IS the message while it runs: something is happening
+              // and the turn has not stalled. A finished pill sits still.
+              running && "animate-pulse",
+            )}
+          />
+          <span className={cn("font-medium", running && "animate-pulse")}>
+            {running ? "Compressing context…" : "Context compressed"}
+          </span>
+          {compaction.detail ? (
+            <span className="text-[10px] opacity-70">{compaction.detail}</span>
+          ) : null}
+        </div>
       </div>
     );
   }

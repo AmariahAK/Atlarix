@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { FolderOpen, GitBranch, LogOut, Search, Settings, Trash2 } from "lucide-react";
+import { FolderOpen, LogOut, Search, Settings, Trash2 } from "lucide-react";
 import { DISCORD_INVITE_URL } from "@/lib/community/discord";
 import { IpcClient } from "@/ipc/ipc_client";
 import { PlanLimitError } from "@/lib/plan-limit-error";
@@ -12,7 +12,6 @@ import { useLoadApps } from "@/hooks/useLoadApps";
 import { formatCompassSubscriptionTier } from "@/shared/compass_product_copy";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { WelcomeCloneDialog } from "@/components/welcome/WelcomeCloneDialog";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -58,7 +57,6 @@ export default function WelcomeLauncher() {
   const navigate = useNavigate();
   const { user, status, isAuthenticated, authResolved, banned, signOut } = useAuth();
   const { apps, refreshApps } = useLoadApps();
-  const [cloneOpen, setCloneOpen] = useState(false);
   const [recentQuery, setRecentQuery] = useState("");
   /** Restore has been pending long enough to say so. */
   const [restoreSlow, setRestoreSlow] = useState(false);
@@ -284,7 +282,9 @@ export default function WelcomeLauncher() {
         </div>
       </header>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full max-w-xl">
+      {/* One button now that Clone repo is gone — a lone half-width card in a
+          two-column grid reads as a missing sibling. */}
+      <div className="grid grid-cols-1 gap-3 w-full max-w-xs">
         <Button
           variant="outline"
           className="h-auto py-4 flex flex-col gap-2"
@@ -307,19 +307,6 @@ export default function WelcomeLauncher() {
         >
           <FolderOpen className="h-5 w-5" />
           <span>Open folder</span>
-        </Button>
-        <Button
-          variant="outline"
-          className="h-auto py-4 flex flex-col gap-2"
-          onClick={() =>
-            void (async () => {
-              if (!(await ensureCanAddWorkspace())) return;
-              setCloneOpen(true);
-            })()
-          }
-        >
-          <GitBranch className="h-5 w-5" />
-          <span>Clone repo</span>
         </Button>
       </div>
 
@@ -405,7 +392,6 @@ export default function WelcomeLauncher() {
         </section>
       ) : null}
 
-      <WelcomeCloneDialog open={cloneOpen} onOpenChange={setCloneOpen} />
 
       {/*
         Removing a workspace is two very different actions wearing one icon, and

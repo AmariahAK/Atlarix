@@ -27,6 +27,7 @@ import {
   Trash2,
   X,
   Wifi,
+  ChevronRight,
 } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { UrlInputField, UrlReadOnlyRow } from "@/components/settings/UrlDisplayField";
@@ -528,70 +529,6 @@ export function ToolsMcpSettings({
         </div>
       )}
 
-      <div className="rounded-lg border border-border/60 p-4 space-y-3">
-        <div className="text-sm font-medium">Stdio MCP sandbox (Linux)</div>
-        <div className="flex items-center justify-between gap-4">
-          <Label htmlFor="sandbox-mcp-stdio" className="text-sm text-muted-foreground">
-            Wrap stdio MCP servers in firejail when available
-          </Label>
-          <Switch
-            id="sandbox-mcp-stdio"
-            checked={settings?.sandboxMcpStdio === true}
-            onCheckedChange={(checked) => updateSettings({ sandboxMcpStdio: checked })}
-          />
-        </div>
-        <div className="flex items-center justify-between gap-4">
-          <Label htmlFor="firejail-net" className="text-sm text-muted-foreground">
-            Allow network inside sandbox
-          </Label>
-          <Switch
-            id="firejail-net"
-            disabled={!settings?.sandboxMcpStdio}
-            checked={settings?.mcpStdioFirejail?.allowNetwork === true}
-            onCheckedChange={(checked) =>
-              updateSettings({
-                mcpStdioFirejail: {
-                  ...settings?.mcpStdioFirejail,
-                  allowNetwork: checked,
-                },
-              })
-            }
-          />
-        </div>
-        <div className="space-y-1">
-          <Label htmlFor="firejail-path" className="text-xs text-muted-foreground">
-            Custom firejail binary path (optional)
-          </Label>
-          <Input
-            id="firejail-path"
-            disabled={!settings?.sandboxMcpStdio}
-            placeholder="/usr/bin/firejail"
-            value={settings?.mcpStdioFirejail?.customBinaryPath ?? ""}
-            onChange={(e) =>
-              updateSettings({
-                mcpStdioFirejail: {
-                  ...settings?.mcpStdioFirejail,
-                  customBinaryPath: e.target.value || undefined,
-                },
-              })
-            }
-          />
-        </div>
-        {sandboxDiag ? (
-          <p className="text-xs text-muted-foreground">
-            {sandboxDiag.platform !== "linux"
-              ? "Firejail sandbox applies on Linux only; stdio spawns are unchanged on this platform."
-              : sandboxDiag.sandboxWouldBeActive
-                ? `Sandbox active (firejail: ${sandboxDiag.firejailPath}).`
-                : settings?.sandboxMcpStdio
-                  ? sandboxDiag.firejailFound
-                    ? "Firejail found but sandbox is off — enable the toggle above."
-                    : "Firejail not found. Install with your package manager (e.g. apt install firejail)."
-                  : "Sandbox disabled."}
-          </p>
-        ) : null}
-      </div>
-
       <div className="space-y-2">
         <div className="grid grid-cols-2 gap-3">
           <div>
@@ -866,6 +803,95 @@ export function ToolsMcpSettings({
           </div>
         )}
       </div>
+
+      {/*
+        ADVANCED, AND LAST.
+
+        This block used to be the FIRST thing on the MCP page — above "Name",
+        above the server list. It is Linux-only stdio-sandbox plumbing (a
+        firejail toggle, a network toggle, and a custom binary path), so on
+        macOS and Windows the first three controls a user met were inert, and on
+        Linux they preceded the thing they were there to do.
+
+        Now it sits below the servers, collapsed. `<details>` rather than a
+        JS disclosure so it is keyboard-operable and its content is real DOM
+        either way; the diagnostic line inside already reports the platform, so
+        an interested reader on macOS still gets a straight answer.
+      */}
+      <details className="group rounded-lg border border-border/60">
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 p-4 text-sm font-medium transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+          <span>Advanced — stdio MCP sandbox (Linux)</span>
+          <ChevronRight
+            aria-hidden="true"
+            className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-90"
+          />
+        </summary>
+        <div className="px-4 pb-4">
+        <div className="rounded-lg border border-border/60 p-4 space-y-3">
+          <div className="text-sm font-medium">Stdio MCP sandbox (Linux)</div>
+          <div className="flex items-center justify-between gap-4">
+            <Label htmlFor="sandbox-mcp-stdio" className="text-sm text-muted-foreground">
+              Wrap stdio MCP servers in firejail when available
+            </Label>
+            <Switch
+              id="sandbox-mcp-stdio"
+              checked={settings?.sandboxMcpStdio === true}
+              onCheckedChange={(checked) => updateSettings({ sandboxMcpStdio: checked })}
+            />
+          </div>
+          <div className="flex items-center justify-between gap-4">
+            <Label htmlFor="firejail-net" className="text-sm text-muted-foreground">
+              Allow network inside sandbox
+            </Label>
+            <Switch
+              id="firejail-net"
+              disabled={!settings?.sandboxMcpStdio}
+              checked={settings?.mcpStdioFirejail?.allowNetwork === true}
+              onCheckedChange={(checked) =>
+                updateSettings({
+                  mcpStdioFirejail: {
+                    ...settings?.mcpStdioFirejail,
+                    allowNetwork: checked,
+                  },
+                })
+              }
+            />
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="firejail-path" className="text-xs text-muted-foreground">
+              Custom firejail binary path (optional)
+            </Label>
+            <Input
+              id="firejail-path"
+              disabled={!settings?.sandboxMcpStdio}
+              placeholder="/usr/bin/firejail"
+              value={settings?.mcpStdioFirejail?.customBinaryPath ?? ""}
+              onChange={(e) =>
+                updateSettings({
+                  mcpStdioFirejail: {
+                    ...settings?.mcpStdioFirejail,
+                    customBinaryPath: e.target.value || undefined,
+                  },
+                })
+              }
+            />
+          </div>
+          {sandboxDiag ? (
+            <p className="text-xs text-muted-foreground">
+              {sandboxDiag.platform !== "linux"
+                ? "Firejail sandbox applies on Linux only; stdio spawns are unchanged on this platform."
+                : sandboxDiag.sandboxWouldBeActive
+                  ? `Sandbox active (firejail: ${sandboxDiag.firejailPath}).`
+                  : settings?.sandboxMcpStdio
+                    ? sandboxDiag.firejailFound
+                      ? "Firejail found but sandbox is off — enable the toggle above."
+                      : "Firejail not found. Install with your package manager (e.g. apt install firejail)."
+                    : "Sandbox disabled."}
+            </p>
+          ) : null}
+        </div>
+        </div>
+      </details>
     </div>
   );
 }

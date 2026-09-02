@@ -233,21 +233,6 @@ export function readSettings(): UserSettings {
     if (ai?.guided?.agentModel) {
       ai.guided.agentModel = coerceTierModel(ai.guided.agentModel);
     }
-    if (combinedSettings.githubAccessToken) {
-      const encryptionType = combinedSettings.githubAccessToken.encryptionType;
-      const value = tryDecryptSecret(
-        combinedSettings.githubAccessToken,
-        onDecryptFailure,
-      );
-      if (value !== undefined) {
-        combinedSettings.githubAccessToken = {
-          value,
-          encryptionType,
-        };
-      } else {
-        delete combinedSettings.githubAccessToken;
-      }
-    }
     for (const provider in combinedSettings.providerSettings) {
       if (combinedSettings.providerSettings[provider].apiKey) {
         const encryptionType =
@@ -334,23 +319,6 @@ export function writeSettings(settings: Partial<UserSettings>): void {
     >;
     const callerTouchedProviders = settings.providerSettings != null;
 
-    if ("githubAccessToken" in settings) {
-      // Explicit: honour it, including an explicit removal.
-      if (newSettings.githubAccessToken) {
-        newSettings.githubAccessToken = encrypt(
-          newSettings.githubAccessToken.value,
-        );
-      }
-    } else if (newSettings.githubAccessToken) {
-      newSettings.githubAccessToken = encrypt(
-        newSettings.githubAccessToken.value,
-      );
-    } else if (raw?.githubAccessToken) {
-      // Present on disk, unreadable now, untouched by the caller — keep it.
-      newSettings.githubAccessToken =
-        raw.githubAccessToken as UserSettings["githubAccessToken"];
-    }
-
     for (const provider in newSettings.providerSettings) {
       const callerTouchedThisProvider =
         callerTouchedProviders && settings.providerSettings?.[provider] != null;
@@ -431,7 +399,17 @@ export function reEncryptPlaintextSecretsIfPossible(): void {
     const s = readSettings();
     const isPlain = (sec?: { encryptionType?: string }) =>
       sec?.encryptionType === "plaintext";
-    let hasPlaintext = isPlain(s.githubAccessToken);
+    /**
+     * Seeded false, then set by the provider loop below.
+     *
+     * This used to be `isPlain(s.githubAccessToken)` — the GitHub token was
+     * simply the first secret in the file. Deleting that field could not just
+     * delete this line: the variable is what decides whether the
+     * plaintext→encrypted recovery runs at all, and it must still be reachable
+     * for PROVIDER keys and the Vertex service-account key, which is the whole
+     * remaining point of this function.
+     */
+    let hasPlaintext = false;
     for (const p in s.providerSettings ?? {}) {
       const ps = s.providerSettings[p] as { apiKey?: Secret } & VertexProviderSetting;
       if (isPlain(ps.apiKey)) hasPlaintext = true;

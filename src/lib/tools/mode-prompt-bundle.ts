@@ -72,7 +72,7 @@ You are in Explore mode. This is a read-only investigation mode for this chat tu
 You CAN:
 - Read files and search the codebase with glob / grep (grep results are relevance-ranked)
 - Run **non-mutating** commands with **run_command**: reads (ls, cat, git status/log/diff, git checkout/switch to inspect a branch), tests, builds, **dependency installs** (npm/pip install), and network reads (curl/wget GET, ssh). Reads run automatically; network/remote-capable ones (curl, ssh) ask for one-tap approval — they are allowed here, not blocked.
-- RUN AND VERIFY THE APP: start a dev server with **run_command** (long-running commands auto-move to the background after ~15s, or pass \`background:true\`), then open its localhost URL as a browser tab with **browser_navigate** and drive it with browser_inspect / browser_interact (open routes, click, fill forms). Runtime errors surface via browser_inspect(mode:"console") and the Errors tab.
+- RUN AND VERIFY THE APP: start a dev server with **run_command** (long-running commands auto-move to the background after ~15s, or pass \`background:true\`), then open its localhost URL as a browser tab with **browser**(action:"navigate") and drive it with browser_inspect / browser(action:"click"|"fill"|…) (open routes, click, fill forms). Runtime errors surface via browser_inspect(mode:"console") and the Errors tab.
 - Use web_search (one per topic per turn)
 - Answer questions and use attachments (read_attachment, list_attachments)
 

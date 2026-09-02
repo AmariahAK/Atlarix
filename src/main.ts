@@ -1895,6 +1895,15 @@ app.on("before-quit", (e) => {
     } catch (abortErr) {
       logger.warn("abortAllStreams on quit:", abortErr);
     }
+    // v14.41: put the emulator's `show_touches` back if the mobile tools turned
+    // it on. A device that had tap circles off must not keep them after we quit.
+    // Lazily imported so a session that never touched a device never loads this.
+    try {
+      const { restoreTapFeedback } = await import("./lib/mobile/device-tools");
+      await restoreTapFeedback();
+    } catch (tapErr) {
+      logger.warn("restoreTapFeedback on quit:", tapErr);
+    }
     // v12 3.7: drain tracked state-mutating background work (self-correction
     // dispatch, snapshot writes, usage records) before the process dies.
     try {

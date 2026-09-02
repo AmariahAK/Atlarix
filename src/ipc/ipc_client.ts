@@ -40,8 +40,6 @@ import type {
   RespondToAppInputParams,
   McpServerUpdate,
   CreateMcpServer,
-  CloneRepoParams,
-  GithubCloneProgress,
   SelectNodeFolderResult,
   DiscordInviteInfoResult,
   PlanUpdatePayload,
@@ -72,20 +70,6 @@ export interface ChatStreamCallbacks {
 
 export interface AppStreamCallbacks {
   onOutput: (output: AppOutput) => void;
-}
-
-export interface GitHubDeviceFlowUpdateData {
-  userCode?: string;
-  verificationUri?: string;
-  message?: string;
-}
-
-export interface GitHubDeviceFlowSuccessData {
-  message?: string;
-}
-
-export interface GitHubDeviceFlowErrorData {
-  error: string;
 }
 
 interface DeleteCustomModelParams {
@@ -2163,144 +2147,15 @@ export class IpcClient {
     return this.ipcRenderer.invoke("nodejs-status");
   }
 
-  // --- GitHub Device Flow ---
-  public startGithubDeviceFlow(appId: number | null): void {
-    void this.ipcRenderer.invoke("github:start-flow", { appId });
-  }
-
-  public cancelGithubDeviceFlow(): void {
-    void this.ipcRenderer.invoke("github:cancel-flow");
-  }
-
-  public cancelGithubClone(): void {
-    void this.ipcRenderer.invoke("github:cancel-clone");
-  }
-
-  public onGithubCloneProgress(
-    callback: (data: GithubCloneProgress) => void,
-  ): () => void {
-    const listener = (data: GithubCloneProgress) => {
-      callback(data);
-    };
-    this.ipcRenderer.on("github:clone:progress", listener);
-    return () => {
-      this.ipcRenderer.removeListener("github:clone:progress", listener);
-    };
-  }
-
-  public onGithubDeviceFlowUpdate(
-    callback: (data: GitHubDeviceFlowUpdateData) => void,
-  ): () => void {
-    const listener = (data: any) => {
-      console.log("github:flow-update", data);
-      callback(data as GitHubDeviceFlowUpdateData);
-    };
-    this.ipcRenderer.on("github:flow-update", listener);
-    // Return a function to remove the listener
-    return () => {
-      this.ipcRenderer.removeListener("github:flow-update", listener);
-    };
-  }
-
-  public onGithubDeviceFlowSuccess(
-    callback: (data: GitHubDeviceFlowSuccessData) => void,
-  ): () => void {
-    const listener = (data: any) => {
-      console.log("github:flow-success", data);
-      callback(data as GitHubDeviceFlowSuccessData);
-    };
-    this.ipcRenderer.on("github:flow-success", listener);
-    return () => {
-      this.ipcRenderer.removeListener("github:flow-success", listener);
-    };
-  }
-
-  public onGithubDeviceFlowError(
-    callback: (data: GitHubDeviceFlowErrorData) => void,
-  ): () => void {
-    const listener = (data: any) => {
-      console.log("github:flow-error", data);
-      callback(data as GitHubDeviceFlowErrorData);
-    };
-    this.ipcRenderer.on("github:flow-error", listener);
-    return () => {
-      this.ipcRenderer.removeListener("github:flow-error", listener);
-    };
-  }
-  // --- End GitHub Device Flow ---
-
-  // --- GitHub Repo Management ---
-  public async listGithubRepos(): Promise<
-    { name: string; full_name: string; private: boolean }[]
-  > {
-    return this.ipcRenderer.invoke("github:list-repos");
-  }
-
-  public async getGithubRepoBranches(
-    owner: string,
-    repo: string,
-  ): Promise<{ name: string; commit: { sha: string } }[]> {
-    return this.ipcRenderer.invoke("github:get-repo-branches", {
-      owner,
-      repo,
-    });
-  }
-
-  public async connectToExistingGithubRepo(
-    owner: string,
-    repo: string,
-    branch: string,
-    appId: number,
-  ): Promise<void> {
-    await this.ipcRenderer.invoke("github:connect-existing-repo", {
-      owner,
-      repo,
-      branch,
-      appId,
-    });
-  }
-
-  public async checkGithubRepoAvailable(
-    org: string,
-    repo: string,
-  ): Promise<{ available: boolean; error?: string }> {
-    return this.ipcRenderer.invoke("github:is-repo-available", {
-      org,
-      repo,
-    });
-  }
-
-  public async createGithubRepo(
-    org: string,
-    repo: string,
-    appId: number,
-    branch?: string,
-  ): Promise<void> {
-    await this.ipcRenderer.invoke("github:create-repo", {
-      org,
-      repo,
-      appId,
-      branch,
-    });
-  }
-
-  // Sync (push) local repo to GitHub
-  public async syncGithubRepo(
-    appId: number,
-    force?: boolean,
-  ): Promise<{ success: boolean; error?: string }> {
-    return this.ipcRenderer.invoke("github:push", {
-      appId,
-      force,
-    });
-  }
-
-  public async disconnectGithubRepo(appId: number): Promise<void> {
-    await this.ipcRenderer.invoke("github:disconnect", {
-      appId,
-    });
-  }
-  // --- End GitHub Repo Management ---
+  /**
+   * REMOVED: the GitHub device-flow and repo-management methods.
+   *
+   * Their only consumer was the clone dialog, and the flow was GitHub-shaped —
+   * it could never reach GitLab, Bitbucket or plain SSH. `create-repo`, `push`
+   * and `is-repo-available` had already lost their UI callers before that.
+   * Cloning is now `git clone` through `run_command`, on any host, with the
+   * user's own credentials. Signing in with GitHub is untouched (Supabase).
+   */
 
 
   // Get the main app version
@@ -3559,20 +3414,8 @@ export class IpcClient {
     return this.ipcRenderer.invoke("get-user-budget");
   }
 
-  public async cloneRepoFromUrl(
-    params: CloneRepoParams,
-  ): Promise<{ app: App } | { error: string }> {
-    return this.ipcRenderer.invoke("github:clone-repo-from-url", params);
-  }
 
   /** Validate a hand-typed destination folder (clone dialog). */
-  public async validateParentDir(
-    dirPath: string,
-  ): Promise<{ ok: boolean; path?: string; willCreate?: boolean; error?: string }> {
-    return this.ipcRenderer.invoke("workspace:validate-parent-dir", {
-      path: dirPath,
-    });
-  }
 
   // --- Remote SSH ---
   public async listSshHosts(): Promise<

@@ -31,7 +31,7 @@ describe("qa built-in agent", () => {
     // nothing and cannot iterate.
     expect(qa.tools).toContain("run_command");
     expect(qa.tools).toContain("browser_test");
-    expect(qa.tools).toContain("browser_interact");
+    expect(qa.tools).toContain("browser");
     // And the dev server's log, which is where an empty-bodied 500 actually is.
     expect(qa.tools).toContain("background_jobs");
 

@@ -5,9 +5,8 @@
 import { useState } from "react";
 import { useAtomValue } from "jotai";
 import { useQueryClient } from "@tanstack/react-query";
-import { Button } from "@/components/ui/button";
-import { ArrowLeft, Folder, Sparkles } from "lucide-react";
-import { useRouter, useSearch } from "@tanstack/react-router";
+import { Sparkles } from "lucide-react";
+import { useSearch } from "@tanstack/react-router";
 import {
   Tabs,
   TabsList,
@@ -31,37 +30,29 @@ function WorkspaceRequiredEmpty() {
 }
 
 export function McpSettingsPage() {
-  const router = useRouter();
   const queryClient = useQueryClient();
   const selectedAppId = useAtomValue(selectedAppIdAtom);
   const workspaceInfo = useAtomValue(selectedWorkspaceInfoAtom);
-  // Deep link: /settings/mcp?tab=marketplace (first-run wizard CTA).
+  // Deep link: /integrations/mcp?tab=marketplace (first-run wizard CTA).
   const search = useSearch({ strict: false }) as { tab?: string };
   const [activeTab, setActiveTab] = useState<"active" | "marketplace">(() =>
     search?.tab === "marketplace" ? "marketplace" : "active",
   );
 
   const workspaceName = workspaceInfo?.name ?? "Workspace";
-  const workspacePath = workspaceInfo?.path ?? "";
 
+  /**
+   * Content only. The page shell — scroll container, width, back button, and the
+   * workspace name/path header — belongs to the `/integrations` layout now, which
+   * is also what lets the copy below drop "your current workspace": the route
+   * and the header above already say which project this is.
+   */
   return (
-    <div className="flex-1 min-h-0 bg-background overflow-y-auto">
-      <div className="max-w-4xl mx-auto px-8 py-6 pb-20 space-y-6">
-        <Button
-          onClick={() => router.navigate({ to: "/settings" })}
-          variant="outline"
-          size="sm"
-          className="mb-4 bg-(--background-lightest) py-5"
-        >
-          <ArrowLeft className="h-4 w-4 mr-2" />
-          Back to Settings
-        </Button>
-
+    <div className="space-y-6">
         <div>
-          <h1 className="text-3xl font-bold text-foreground">MCP Servers</h1>
-          <p className="text-muted-foreground mt-1">
-            MCP servers for your <strong>current workspace</strong> only (max{" "}
-            {MAX_WORKSPACE_MCP} per workspace). Use{" "}
+          <h2 className="text-xl font-semibold text-foreground">MCP servers</h2>
+          <p className="text-muted-foreground mt-1 text-sm">
+            Up to {MAX_WORKSPACE_MCP} per workspace. Use{" "}
             <code className="text-xs bg-muted px-1 rounded">@mcp name</code> in chat.
           </p>
         </div>
@@ -81,26 +72,15 @@ export function McpSettingsPage() {
               </TabsTrigger>
             </TabsList>
 
+            {/* The workspace name/path header that used to repeat here is gone —
+                the /integrations layout shows it once, above the section nav. */}
             <TabsContent value="active" className="space-y-8 mt-4">
-              <div className="space-y-4">
-                <div className="flex items-center gap-2">
-                  <Folder className="w-5 h-5 text-primary" />
-                  <div className="min-w-0">
-                    <h2 className="text-xl font-semibold text-foreground truncate">
-                      {workspaceName}
-                    </h2>
-                    {workspacePath ? (
-                      <p className="text-xs text-muted-foreground truncate">{workspacePath}</p>
-                    ) : null}
-                  </div>
-                </div>
-                <div className="bg-card rounded-xl shadow-sm p-6 border border-border">
-                  <ToolsMcpSettings
-                    scope="workspace"
-                    appId={selectedAppId}
-                    maxServers={MAX_WORKSPACE_MCP}
-                  />
-                </div>
+              <div className="bg-card rounded-xl shadow-sm p-6 border border-border">
+                <ToolsMcpSettings
+                  scope="workspace"
+                  appId={selectedAppId}
+                  maxServers={MAX_WORKSPACE_MCP}
+                />
               </div>
               <OrphanedMcpSection workspaceAppId={selectedAppId} />
             </TabsContent>
@@ -118,7 +98,6 @@ export function McpSettingsPage() {
             </TabsContent>
           </Tabs>
         )}
-      </div>
     </div>
   );
 }

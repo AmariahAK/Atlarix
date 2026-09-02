@@ -1,7 +1,7 @@
 {
   "name": "atlarix",
   "productName": "Atlarix",
-  "version": "14.40.0",
+  "version": "14.41.0",
   "private": true,
   "description": "The private AI workstation for engineering teams — your code stays on your machine, with managed Atlarix Core models, any-model BYOK across 145+ providers, and local execution.",
   "main": ".vite/build/main.js",
@@ -195,7 +195,6 @@
     "fix-path": "^4.0.0",
     "fs-extra": "^10.1.0",
     "glob": "^13.0.6",
-    "isomorphic-git": "^1.30.1",
     "jotai": "^2.12.2",
     "jsdom": "^29.0.2",
     "kill-port": "^2.0.1",

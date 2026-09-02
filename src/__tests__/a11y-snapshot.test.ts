@@ -24,8 +24,10 @@ describe("formatA11ySnapshot", () => {
     expect(out).toContain('[e1] link "Home"');
     expect(out).toContain('[e2] input placeholder="Email"');
     expect(out).toContain('[e3] button "Sign in"');
-    // The header tells the model how to act on refs.
-    expect(out).toContain("browser_interact");
+    // The header tells the model how to act on refs. v14.41: the act surface is
+    // the consolidated `browser` tool, so naming `browser_interact` here would
+    // point at a name that only resolves as an alias.
+    expect(out).toContain("Act on any ref with browser");
   });
 
   it("reports the REAL total when truncated, not just the cap", () => {
@@ -97,7 +99,7 @@ describe("formatA11yFind", () => {
     };
     const out = formatA11yFind(res);
     expect(out).toContain('[e3] button "Sign in"');
-    expect(out).toContain("browser_interact");
+    expect(out).toContain("Act on a ref with browser");
     expect(out).not.toContain("narrow the query");
   });
 

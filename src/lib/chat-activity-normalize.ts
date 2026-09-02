@@ -26,6 +26,12 @@ const VALID_TYPES = new Set<string>([
   "delegation_error",
   "self_review",
   "background",
+  // NOT "compaction". That type is deliberately absent and stays absent: the
+  // main process emits BOTH a "compaction" banner event and a parallel
+  // "background" one for the same moment, and admitting the banner type here
+  // would put two rows in the atom for one event. Feed A and the mid-stream
+  // compaction pill both read the "background" one, matched on its label.
+  // `compress-context-persistence.test.ts` pins this — see the Bug 1c cases.
   "tool_use",
   "turn_summary",
   "mode_change",

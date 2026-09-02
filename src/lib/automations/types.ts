@@ -15,47 +15,31 @@ export const ScheduleTriggerSchema = z.object({
   preset: z.enum(["hourly", "daily", "weekly", "weekday-mornings"]).optional(),
 });
 
-export const GithubTriggerEventSchema = z.enum([
-  "new-pr",
-  "review-requested",
-  "ci-failed",
-]);
-
 /**
- * A CI/code host to watch. The vendor is a FIELD, not the kind.
+ * RETIRED: `PipelineTriggerSchema` and `LegacyGithubTriggerSchema`.
  *
- * `host` is deliberately an unconstrained string here — no enum, no union, so
- * adding GitLab or a self-hosted Jenkins never touches this file. What a host
- * MEANS is decided by `pipeline-hosts.ts`: if nothing there can poll it, the
- * create is refused with the registered list, because an automation that can
- * never fire is worse than one that is refused.
+ * A pipeline trigger watched a CI/code host, and its only registered host was
+ * GitHub. That is the same hardcoding as the deleted clone flow: polling for a
+ * new PR, a mention or a finished job is an API problem, identical for GitHub,
+ * GitLab and Bitbucket, and a bespoke poller for one vendor could never serve
+ * the other two.
  *
- * Replaces `kind: "github"`, which made one vendor into a schema branch, a
- * poller call and a form tab.
+ * WHY THE SHAPE HAD TO GO, NOT JUST THE HOST. With the host unregistered but
+ * the schema branch kept, a `pipeline` trigger would still SAVE cleanly and
+ * then never fire — and "never fired" is indistinguishable from "nothing
+ * happened yet", forever. the deleted `pipeline-hosts.test.ts` was written to warn
+ * about exactly that shape, so leaving the branch would have shipped the very
+ * thing that test existed to prevent.
+ *
+ * The host-agnostic replacement already exists: an **MCP trigger** polls any
+ * API (an MCP server can speak to all three hosts), and a **schedule** trigger
+ * plus `run_command` covers the rest.
+ *
+ * Stored rows of the retired kinds no longer parse. `runner.ts` does NOT let
+ * that pass quietly — `retireUnparseableAutomation` disables the automation and
+ * records the reason in the run feed, because an automation left enabled and
+ * unable to fire IS the failure above.
  */
-export const PipelineTriggerSchema = z.object({
-  kind: z.literal("pipeline"),
-  /** e.g. "github". Free-form; validated against the poller registry. */
-  host: z.string().min(1),
-  /** What to watch — shape depends on the host ("owner/name" for GitHub). */
-  repo: z.string().min(1),
-  events: z.array(GithubTriggerEventSchema).min(1),
-  intervalMinutes: z.number().int().min(MIN_POLL_INTERVAL_MINUTES),
-});
-
-/**
- * The pre-v14.27.0 shape, kept ONLY so saved automations still parse.
- *
- * Migration 0072 rewrites stored rows to `pipeline`; this alias covers anything
- * that slipped through (an in-flight edit, a hand-written file) and is
- * normalised by `parseTrigger` rather than reaching the runner.
- */
-export const LegacyGithubTriggerSchema = z.object({
-  kind: z.literal("github"),
-  repo: z.string().regex(/^[\w.-]+\/[\w.-]+$/),
-  events: z.array(GithubTriggerEventSchema).min(1),
-  intervalMinutes: z.number().int().min(MIN_POLL_INTERVAL_MINUTES),
-});
 
 export const McpTriggerSchema = z.object({
   kind: z.literal("mcp"),
@@ -66,34 +50,12 @@ export const McpTriggerSchema = z.object({
   intervalMinutes: z.number().int().min(MIN_POLL_INTERVAL_MINUTES),
 });
 
-const RawAutomationTriggerSchema = z.discriminatedUnion("kind", [
+export const AutomationTriggerSchema = z.discriminatedUnion("kind", [
   ScheduleTriggerSchema,
-  PipelineTriggerSchema,
-  LegacyGithubTriggerSchema,
   McpTriggerSchema,
 ]);
 
-/**
- * Accepts the legacy `github` shape and hands back a `pipeline`, so exactly one
- * shape reaches the runner, the form and the tool.
- */
-export const AutomationTriggerSchema = RawAutomationTriggerSchema.transform(
-  (t) =>
-    t.kind === "github"
-      ? ({
-          kind: "pipeline" as const,
-          host: "github",
-          repo: t.repo,
-          events: t.events,
-          intervalMinutes: t.intervalMinutes,
-        })
-      : t,
-);
-
 export type ScheduleTrigger = z.infer<typeof ScheduleTriggerSchema>;
-export type PipelineTrigger = z.infer<typeof PipelineTriggerSchema>;
-/** Legacy alias — the GitHub poller still speaks this shape. */
-export type GithubTrigger = z.infer<typeof LegacyGithubTriggerSchema>;
 export type McpTrigger = z.infer<typeof McpTriggerSchema>;
 export type AutomationTrigger = z.infer<typeof AutomationTriggerSchema>;
 
@@ -138,12 +100,6 @@ export const AutomationInputSchema = z
     path: ["prompt"],
   });
 export type AutomationInput = z.infer<typeof AutomationInputSchema>;
-
-export type GithubCursor = {
-  lastPrNumber?: number;
-  seenReviewIds?: number[];
-  lastWorkflowRunId?: number;
-};
 
 export type McpCursor = { hash: string };
 

@@ -162,6 +162,26 @@ export function resolveToolsetForSession(
     // doesn't share the prefix) — no such view exists in the Electron-free CLI.
     "browser_test",
   ]);
+  /**
+   * DRIVES A UI SURFACE THE RUN DOES NOT HAVE — dropped headless AND unattended.
+   *
+   * This used to be a `startsWith("browser_")` test, which was correct while
+   * every browser tool carried the prefix. v14.41 consolidated six into
+   * `browser_inspect` + **`browser`**, and `"browser".startsWith("browser_")`
+   * is FALSE — so the act tool silently survived both filters and was offered
+   * to headless benchmark runs with no window and to unattended automations
+   * nobody is watching. A prefix test is only as stable as the naming
+   * convention it assumes; this names the tools.
+   *
+   * `mobile_*` is here for the same reason and not by prefix: a headless CLI
+   * has no emulator, and an unattended automation driving one is a UI surface
+   * with no observer.
+   */
+  const DRIVES_A_VIEW = (name: string) =>
+    name === "browser" ||
+    name.startsWith("browser_") ||
+    name === "mobile" ||
+    name.startsWith("mobile_");
   // Unattended (automation) runs happen inside the real app — MCP servers,
   // web search, attachments all exist — so only human-handoff and UI-view
   // tools are dropped: ask_user would park the turn forever (no responder),
@@ -173,12 +193,12 @@ export function resolveToolsetForSession(
   const afterHeadless =
     process.env.ATLARIX_HEADLESS === "1"
       ? preTrim.filter(
-          (t) => !t.name.startsWith("browser_") && !HEADLESS_DROP.has(t.name),
+          (t) => !DRIVES_A_VIEW(t.name) && !HEADLESS_DROP.has(t.name),
         )
       : preTrim;
   const tools = input.unattended
     ? afterHeadless.filter(
-        (t) => !t.name.startsWith("browser_") && !UNATTENDED_DROP.has(t.name),
+        (t) => !DRIVES_A_VIEW(t.name) && !UNATTENDED_DROP.has(t.name),
       )
     : afterHeadless;
 

@@ -7,7 +7,6 @@ import { registerTerminalHandlers } from "./handlers/terminal_handlers";
 import { registerTerminalInstancesHandlers } from "./handlers/terminal_instances_handlers";
 import { registerPtyHandlers } from "./handlers/pty_handlers";
 import { registerCliHandlers } from "./handlers/cli_handlers";
-import { registerGithubHandlers } from "./handlers/github_handlers";
 import { registerNodeHandlers } from "./handlers/node_handlers";
 import { registerProposalHandlers } from "./handlers/proposal_handlers";
 import { registerDebugHandlers } from "./handlers/debug_handlers";
@@ -65,7 +64,6 @@ export function registerIpcHandlers() {
   registerTerminalInstancesHandlers();
   registerPtyHandlers(); // v10 interactive terminal
   registerCliHandlers();
-  registerGithubHandlers();
   registerNodeHandlers();
   registerProposalHandlers();
   registerDebugHandlers();

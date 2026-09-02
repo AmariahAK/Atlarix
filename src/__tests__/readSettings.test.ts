@@ -138,35 +138,8 @@ describe("readSettings", () => {
       });
     });
 
-    it("should decrypt encrypted GitHub access token", () => {
-      const mockFileContent = {
-        githubAccessToken: {
-          value: "encrypted-github-token",
-          encryptionType: "electron-safe-storage",
-        },
-      };
-
-      mockFs.existsSync.mockReturnValue(true);
-      mockFs.readFileSync.mockReturnValue(JSON.stringify(mockFileContent));
-      mockSafeStorage.decryptString.mockReturnValue("decrypted-github-token");
-
-      const result = readSettings();
-
-      expect(mockSafeStorage.decryptString).toHaveBeenCalledWith(
-        Buffer.from("encrypted-github-token", "base64"),
-      );
-      expect(result.githubAccessToken).toEqual({
-        value: "decrypted-github-token",
-        encryptionType: "electron-safe-storage",
-      });
-    });
-
     it("should handle plaintext secrets without decryption", () => {
       const mockFileContent = {
-        githubAccessToken: {
-          value: "plaintext-token",
-          encryptionType: "plaintext",
-        },
         providerSettings: {
           openai: {
             apiKey: {
@@ -183,7 +156,6 @@ describe("readSettings", () => {
       const result = readSettings();
 
       expect(mockSafeStorage.decryptString).not.toHaveBeenCalled();
-      expect(result.githubAccessToken?.value).toBe("plaintext-token");
       expect(result.providerSettings.openai.apiKey?.value).toBe(
         "plaintext-api-key",
       );
@@ -191,9 +163,6 @@ describe("readSettings", () => {
 
     it("should handle secrets without encryptionType", () => {
       const mockFileContent = {
-        githubAccessToken: {
-          value: "token-without-encryption-type",
-        },
         providerSettings: {
           openai: {
             apiKey: {
@@ -209,9 +178,6 @@ describe("readSettings", () => {
       const result = readSettings();
 
       expect(mockSafeStorage.decryptString).not.toHaveBeenCalled();
-      expect(result.githubAccessToken?.value).toBe(
-        "token-without-encryption-type",
-      );
       expect(result.providerSettings.openai.apiKey?.value).toBe(
         "api-key-without-encryption-type",
       );
@@ -337,10 +303,19 @@ describe("readSettings", () => {
     });
 
     it("should handle decryption errors gracefully", () => {
+      // Fixture switched from `githubAccessToken` to a provider key when the
+      // GitHub token was removed. This is the ONLY test exercising
+      // `tryDecryptSecret`'s failure branch, so it had to move to a surviving
+      // secret rather than be deleted with the field — dropping it would have
+      // left corrupted provider keys uncovered.
       const mockFileContent = {
-        githubAccessToken: {
-          value: "corrupted-encrypted-data",
-          encryptionType: "electron-safe-storage",
+        providerSettings: {
+          openai: {
+            apiKey: {
+              value: "corrupted-encrypted-data",
+              encryptionType: "electron-safe-storage",
+            },
+          },
         },
       };
 

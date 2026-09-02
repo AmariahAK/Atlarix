@@ -6,6 +6,7 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { ToolRegistry } from "@/lib/tools";
 import {
   compileRule,
   evaluateRuleset,
@@ -67,8 +68,40 @@ describe("evaluateRuleset", () => {
 
   it("bare tool-name globs match regardless of target", () => {
     const rs = compiled(["browser_*"]);
-    expect(evaluateRuleset(rs, "browser_navigate", {})?.kind).toBe("deny");
+    expect(evaluateRuleset(rs, "browser_inspect", {})?.kind).toBe("deny");
     expect(evaluateRuleset(rs, "read_file", {})).toBeNull();
+  });
+
+  it("a rule on the canonical name is NOT matched by a retired alias here", () => {
+    // Documents the seam deliberately, because it is a security boundary:
+    // `evaluateRuleset` is a pure string matcher and knows nothing about the
+    // registry. `browser_navigate` resolves to `browser` at EXECUTE time, so a
+    // gate that passed only the as-called name let a `browser` deny rule be
+    // bypassed by calling the retired name. The fix lives at the call site
+    // (tool-execute.ts evaluates BOTH names) — asserted below — and this test
+    // pins why that call site cannot be simplified back to one lookup.
+    const rs = compiled(["browser"]);
+    expect(evaluateRuleset(rs, "browser", {})?.kind).toBe("deny");
+    expect(evaluateRuleset(rs, "browser_navigate", {})).toBeNull();
+  });
+
+  it("both-name evaluation closes the alias bypass in either direction", () => {
+    // The exact composition tool-execute.ts performs.
+    const decide = (rs: ReturnType<typeof compiled>, called: string) => {
+      const canonical = ToolRegistry.resolveName(called);
+      return (
+        evaluateRuleset(rs, called, {}) ??
+        (canonical !== called ? evaluateRuleset(rs, canonical, {}) : null)
+      );
+    };
+    // A rule on the CURRENT name blocks a call by a RETIRED name.
+    expect(decide(compiled(["browser"]), "browser_navigate")?.kind).toBe("deny");
+    // A rule on a RETIRED name still blocks that call (old rules keep working).
+    expect(decide(compiled(["browser_navigate"]), "browser_navigate")?.kind).toBe(
+      "deny",
+    );
+    // And an unrelated tool is still allowed.
+    expect(decide(compiled(["browser"]), "read_file")).toBeNull();
   });
 
 
@@ -118,5 +151,26 @@ describe("mergeRulesets (global ~/.atlarix layer, S16)", () => {
     expect(
       evaluateRuleset(merged, "run_command", { command: "anything" }),
     ).toBeNull();
+  });
+});
+
+describe("the mobile tools are deniable", () => {
+  it("a bare `mobile` rule denies the act tool", () => {
+    // Claimed in DESIGN_NOTES: the mobile tools `execFile` adb from the main
+    // process, so the OS command sandbox does NOT constrain them — the
+    // permission ruleset is what does. That claim needs a test, not a sentence.
+    const rs = compiled(["mobile"]);
+    expect(evaluateRuleset(rs, "mobile", { action: "tap", ref: "m1" })?.kind).toBe(
+      "deny",
+    );
+    // And the read half stays available, since `mobile_*` is a different name.
+    expect(evaluateRuleset(rs, "mobile_inspect", {})).toBeNull();
+  });
+
+  it("a `mobile_*` glob denies both", () => {
+    const rs = compiled(["mobile*"]);
+    expect(evaluateRuleset(rs, "mobile", {})?.kind).toBe("deny");
+    expect(evaluateRuleset(rs, "mobile_inspect", {})?.kind).toBe("deny");
+    expect(evaluateRuleset(rs, "read_file", { path: "a.ts" })).toBeNull();
   });
 });

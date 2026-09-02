@@ -25,7 +25,6 @@ import {
   stringParam,
   enumParam,
   booleanParam,
-  numberParam,
 } from "./registry";
 import {
   AutomationInputSchema,
@@ -36,7 +35,6 @@ import {
 import { listAutomations, getAutomation } from "@/lib/automations/service";
 import { SubscriptionManager } from "@/lib/SubscriptionManager";
 import { capRemedy, describePlanCap, planCapClause } from "@/lib/plan-caps";
-import { pipelineHostIds } from "@/lib/automations/pipeline-hosts";
 
 const logger = log.scope("automations-tool");
 
@@ -50,9 +48,6 @@ const AUTOMATION_RUN_PROMOTE_AFTER_MS = 15_000;
 /** Plain-English trigger, for the approval card and the model's own summary. */
 export function describeTrigger(trigger: AutomationTrigger): string {
   if (trigger.kind === "schedule") return `on the schedule \`${trigger.cron}\``;
-  if (trigger.kind === "pipeline") {
-    return `on ${trigger.events.join(" / ")} in ${trigger.repo} (${trigger.host}), polled every ${trigger.intervalMinutes} min`;
-  }
   return `by polling MCP tool \`${trigger.tool}\` every ${trigger.intervalMinutes} min`;
 }
 
@@ -132,9 +127,15 @@ ToolRegistry.register({
       name: stringParam("Short human name, e.g. \"CI failures on main\"."),
       trigger: {
         type: "object",
+        // The `pipeline` shape is deliberately NOT advertised. Its only host was
+        // GitHub, which went with the clone flow — a bespoke poller for one
+        // vendor could never serve GitLab or Bitbucket. With no hosts
+        // registered, describing it would render "hosts Atlarix can poll right
+        // now: (none)" and invite the model to propose an automation that
+        // `assertPollableHost` then refuses. An MCP trigger is the
+        // host-agnostic way to poll any API.
         description:
           "One of: {kind:\"schedule\", cron:\"0 9 * * 1-5\"} · " +
-          `{kind:"pipeline", host:"<host>", repo:"owner/name", events:["new-pr"|"review-requested"|"ci-failed"], intervalMinutes:>=${MIN_POLL_INTERVAL_MINUTES}} — hosts Atlarix can poll right now: ${pipelineHostIds().join(", ") || "(none)"} · ` +
           `{kind:"mcp", serverId:<number>, tool:"<tool>", args:{…}, intervalMinutes:>=${MIN_POLL_INTERVAL_MINUTES}}`,
       },
       prompt: stringParam(
@@ -149,7 +150,8 @@ ToolRegistry.register({
         "Does a finished run reach YOU (true) or only the user (false)? Required on create — there is no default, because this is what decides whether the automation can spend tokens.",
       ),
       enabled: booleanParam("Whether the automation is armed. Defaults to true."),
-      workspaceId: numberParam("Injected by the harness."),
+      // `workspaceId` is injected by the turn runner and NOT advertised; the
+      // handler below still reads `args.workspaceId`.
     },
     ["operation"],
   ),

@@ -62,6 +62,17 @@ export const EVERY_MODE_TOOLS = [
   // lose a detail to a summary and must be able to read back behind the boundary.
   // Read-only, so it is safe on the Ask/Plan/Review surfaces.
   "session_search",
+  // v14.41: the mobile pair, EVERY mode — for the same reason `browser` is every
+  // mode. Neither touches the workspace: driving an emulator changes the state of
+  // a device, not the project, so Plan's filesystem-read-only rule is untouched.
+  // And the read half is the point in Explore: "what does the app look like on a
+  // phone" is a question, not a build step.
+  //
+  // The tokens are affordable because both are PERIPHERAL under tool-reveal, so
+  // every mode binds one sentence plus a `tool_help` pointer rather than the full
+  // description — which is why their first sentences carry the cheap default.
+  "mobile_inspect",
+  "mobile",
 ] as const;
 
 function withEveryModeTools(list: readonly string[]): readonly string[] {
@@ -75,12 +86,8 @@ function withEveryModeTools(list: readonly string[]): readonly string[] {
 const ASK_TOOLS = [
   "automations",
   "background_jobs",
-  "browser_batch",
-  "browser_find",
+  "browser",
   "browser_inspect",
-  "browser_interact",
-  "browser_navigate",
-  "browser_tabs",
   "glob",
   "grep",
   "list_available_mcps",
@@ -96,12 +103,8 @@ const ASK_TOOLS = [
 // list and the execute-gate (incl. the text-tool fallback path).
 const PLAN_TOOLS = [
   "automations",
-  "browser_batch",
-  "browser_find",
+  "browser",
   "browser_inspect",
-  "browser_interact",
-  "browser_navigate",
-  "browser_tabs",
   "glob",
   "grep",
   "list_available_mcps",
@@ -114,12 +117,8 @@ const PLAN_TOOLS = [
 const REVIEW_TOOLS = [
   "automations",
   "background_jobs",
-  "browser_batch",
-  "browser_find",
+  "browser",
   "browser_inspect",
-  "browser_interact",
-  "browser_navigate",
-  "browser_tabs",
   "glob",
   "grep",
   "list_available_mcps",

@@ -50,12 +50,14 @@ describe("browser_inspect — visual is the way to SEE; screenshot is last resor
 
   it("still carries the guidance that BROWSER_NOTE used to hold", () => {
     // The three facts that existed ONLY in the deleted prompt block.
-    expect(String(ToolRegistry.get("browser_tabs")!.description)).toMatch(
-      /every tab shares one browser session/i,
-    );
-    expect(String(ToolRegistry.get("browser_interact")!.description)).toMatch(
-      /scroll position/i,
-    );
+    // v14.41: browser 6→2. Both facts used to live on a tool each; they now ride
+    // the consolidated `browser` description. Reading it via the RETIRED names
+    // would still pass (they resolve as aliases) and would therefore not notice
+    // if the prose had been dropped in the move — so assert on the canonical
+    // tool, which is the one actually bound in the prompt.
+    const browserDesc = String(ToolRegistry.get("browser")!.description);
+    expect(browserDesc).toMatch(/every tab shares one browser session/i);
+    expect(browserDesc).toMatch(/scroll position/i);
     expect(String(ToolRegistry.get("browser_test")!.description)).toMatch(
       /turn will not finish while the app is throwing runtime errors/i,
     );

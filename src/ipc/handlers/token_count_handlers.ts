@@ -2,7 +2,8 @@ import {
   constructSystemPrompt,
   type ModeSystemKey,
 } from "../../prompts/system_prompt";
-import type { WorkMode } from "@/lib/schemas";
+import { resolveEffectiveWorkMode } from "@/lib/work-mode";
+import { measureToolSurface } from "@/lib/context/prompt-budget";
 import log from "electron-log";
 // extractCodebase removed - using diagram-first context system
 
@@ -109,7 +110,7 @@ function sumRows(rows: TokenCountMessageRow[]): RowTokens {
 
 type SystemPromptCacheKey = string;
 type SystemPromptCacheEntry = {
-  tokens: number;
+  tokens: PromptPrefixTokens;
   builtAt: number;
 };
 const SYSTEM_PROMPT_TOKEN_CACHE = new Map<
@@ -120,23 +121,50 @@ const SYSTEM_PROMPT_TOKEN_CACHE = new Map<
  * app version (which never changes mid-session). Five minutes is plenty. */
 const SYSTEM_PROMPT_CACHE_TTL_MS = 5 * 60 * 1000;
 
-function systemPromptCacheKey(args: {
+/**
+ * The whole fixed prefix: system prompt AND the tool surface.
+ *
+ * `effectiveWorkMode` is REQUIRED here. It used to be optional, and an
+ * `undefined` sent `constructSystemPrompt` down its legacy all-five-modes path
+ * — whose own dev warning says "never use for live streams" — so the meter
+ * could report a prompt shape no dispatch has ever produced. There is no longer
+ * a "legacy" key, because there is no longer a caller that omits the mode.
+ */
+type PromptPrefixTokens = {
+  system: number;
+  toolDescriptions: number;
+  toolSchemas: number;
+  total: number;
+};
+
+type PromptPrefixArgs = {
   chatMode: "build" | "ask";
-  effectiveWorkMode?: ModeSystemKey;
+  effectiveWorkMode: ModeSystemKey;
   contextSize: number;
-}): SystemPromptCacheKey {
+  hasWorkspace: boolean;
+  model: {
+    name?: string;
+    provider?: string;
+    builtinProviderId?: string;
+  };
+};
+
+function systemPromptCacheKey(args: PromptPrefixArgs): SystemPromptCacheKey {
   return [
     args.chatMode,
-    args.effectiveWorkMode ?? "legacy",
+    args.effectiveWorkMode,
     args.contextSize,
+    args.hasWorkspace ? "ws" : "no-ws",
+    // The tool surface varies by model (the capability profile simplifies
+    // schemas for weak ones), so a model switch must not read a stale entry.
+    args.model.builtinProviderId ?? args.model.provider ?? "?",
+    args.model.name ?? "?",
   ].join(":");
 }
 
-function getOrComputeSystemPromptTokens(args: {
-  chatMode: "build" | "ask";
-  effectiveWorkMode?: ModeSystemKey;
-  contextSize: number;
-}): number {
+function getOrComputePromptPrefixTokens(
+  args: PromptPrefixArgs,
+): PromptPrefixTokens {
   const key = systemPromptCacheKey(args);
   const cached = SYSTEM_PROMPT_TOKEN_CACHE.get(key);
   const now = Date.now();
@@ -147,9 +175,37 @@ function getOrComputeSystemPromptTokens(args: {
     chatMode: args.chatMode,
     effectiveWorkMode: args.effectiveWorkMode,
     contextSize: args.contextSize,
-    hasWorkspace: true,
+    hasWorkspace: args.hasWorkspace,
   });
-  const tokens = estimateTokens(systemPrompt);
+  const system = estimateTokens(systemPrompt);
+
+  // The half the meter never counted. Measured through the same resolver both
+  // stream branches call, so this cannot drift from what dispatches.
+  let toolDescriptions = 0;
+  let toolSchemas = 0;
+  try {
+    const surface = measureToolSurface({
+      workMode: args.effectiveWorkMode,
+      hasWorkspace: args.hasWorkspace,
+      workspaceIntegrationEligible: args.hasWorkspace,
+      model: args.model,
+    });
+    toolDescriptions = surface.descriptionTokens;
+    toolSchemas = surface.schemaTokens;
+  } catch (e) {
+    // A meter is not worth failing a keystroke over: report the system half and
+    // say so, rather than throwing or silently pretending tools cost nothing.
+    logger.warn(
+      `[token_count] tool-surface measurement failed; reporting system prompt only: ${String(e)}`,
+    );
+  }
+
+  const tokens: PromptPrefixTokens = {
+    system,
+    toolDescriptions,
+    toolSchemas,
+    total: system + toolDescriptions + toolSchemas,
+  };
   SYSTEM_PROMPT_TOKEN_CACHE.set(key, { tokens, builtAt: now });
   return tokens;
 }
@@ -289,16 +345,44 @@ async function computeTokenCountResult(
       : rawChatMode === "build" || rawChatMode === "agent" || rawChatMode === undefined
         ? "build"
         : "ask";
-  const pref = settings.workModePreference as WorkMode | undefined;
-  const tokenWorkMode: ModeSystemKey | undefined =
-    (settings.intentMode ?? cacheChatMode) !== "auto" && pref
-      ? pref
-      : undefined;
-  const systemPromptTokens = getOrComputeSystemPromptTokens({
+  /**
+   * The mode the next turn will ACTUALLY run in.
+   *
+   * This used to be hand-rolled here and got it wrong twice over: it resolved to
+   * `undefined` whenever `intentMode` was "auto" or no global preference was
+   * set (sending the prompt builder down its legacy all-five-modes path), and it
+   * read the GLOBAL `workModePreference` even though sessions have owned their
+   * own mode since v14.36.0 — so a session on Debug could be metered as Explore.
+   *
+   * Now it calls `resolveEffectiveWorkMode`, the same resolver
+   * `chat_stream_handlers` dispatches with, and takes `req.workMode` in the
+   * `workModeOverride` slot exactly as the stream takes the renderer's session
+   * mode there. One rule, one place.
+   */
+  const tokenWorkMode = resolveEffectiveWorkMode({
+    workModeOverride: req.workMode,
+    intentMode: settings.intentMode,
+    workModePreference: settings.workModePreference,
+    selectedChatMode: settings.selectedChatMode ?? "ask",
+  }) as ModeSystemKey;
+
+  const prefix = getOrComputePromptPrefixTokens({
     chatMode: cacheChatMode,
     effectiveWorkMode: tokenWorkMode,
     contextSize,
+    // A workspace-bound stream is the only path that reaches this handler
+    // (the non-transport branch throws), so the workspace tools do bind.
+    hasWorkspace: true,
+    model: {
+      name: settings.selectedModel?.name,
+      provider: settings.selectedModel?.provider,
+      // `builtinProviderId` is not on the persisted selection; the capability
+      // profile falls back to provider + name, which is what it does for every
+      // custom endpoint anyway.
+      builtinProviderId: undefined,
+    },
   });
+  const systemPromptTokens = prefix.total;
 
   // The tool buckets are carved OUT of message history, never added on top:
   // tool results ARE history (they ride as native parts on the assistant rows),
@@ -324,6 +408,13 @@ async function computeTokenCountResult(
     otherToolOutputTokens: history.otherToolOutput,
     inputTokens,
     systemPromptTokens,
+    // The prefix, broken out. `systemPromptTokens` stays the whole fixed cost
+    // (so existing consumers keep summing to the right total); these three
+    // PARTITION it, the same contract the history buckets above follow.
+    systemInstructionTokens: prefix.system,
+    toolDescriptionTokens: prefix.toolDescriptions,
+    toolSchemaTokens: prefix.toolSchemas,
+    workMode: tokenWorkMode,
     contextWindow,
     effectiveBudget,
     providerId,

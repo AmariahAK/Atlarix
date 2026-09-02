@@ -482,7 +482,27 @@ export const mcpServers = sqliteTable("mcp_servers", {
   enabled: integer("enabled", { mode: "boolean" })
     .notNull()
     .default(sql`0`),
-  scope: text("scope").notNull().default("global"), // 'global' | 'workspace'
+  /**
+   * Always "workspace" in practice. Global MCP servers were retired and their
+   * rows purged by migration `0049_workspace_only_remote.sql`.
+   *
+   * THE DEFAULT IS STILL THE RETIRED VALUE, and that is deliberate rather than
+   * an oversight. It is a latent trap — every read filters `scope =
+   * 'workspace'`, so an insert that omitted `scope` would write a server that
+   * saves successfully and is then invisible everywhere, with nothing to explain
+   * why. It is UNREACHABLE today: both insert paths bind it explicitly
+   * (`mcp_handlers.ts:127` and `:435`, each `const scope = "workspace"`).
+   *
+   * Why it is not simply flipped: SQLite has no `ALTER COLUMN SET DEFAULT`, so
+   * changing it means rebuilding the table — the same cost as dropping the
+   * column, for a path nothing can currently take. Changing it here WITHOUT a
+   * migration would be worse still: new installs would get one default and
+   * existing installs the other, so the schema would describe neither.
+   *
+   * If a third insert path is ever added, bind `scope` explicitly like the other
+   * two. That is the enforcement; this comment is the warning.
+   */
+  scope: text("scope").notNull().default("global"),
   appId: integer("app_id").references(() => apps.id, { onDelete: "cascade" }),
   /** Pass 7: when true, this server was installed from the marketplace registry. */
   fromRegistry: integer("from_registry", { mode: "boolean" })
@@ -777,7 +797,16 @@ export const reviewPatterns = sqliteTable(
 );
 
 // --- Skills (Community registry installs) ---
-// Same skill id can exist in both global and workspace scope, so uniqueness is composite.
+//
+// WORKSPACE SCOPE ONLY. Global installs were retired and their rows purged by
+// migration `0049_workspace_only_remote.sql`; `skills:install` hardcodes
+// `scope: "workspace"` and every query filters on it.
+//
+// The `scope` column STAYS despite having one legal value, because it is part of
+// the composite primary key below — SQLite cannot drop a primary-key member
+// without rebuilding the table, which is real migration risk for no user-visible
+// gain. `workspacePath` stays nullable for the same reason (it was nullable
+// *because* of global scope).
 export const installedSkills = sqliteTable(
   "installed_skills",
   {
@@ -789,8 +818,8 @@ export const installedSkills = sqliteTable(
     tags: text("tags").notNull(), // JSON: string[]
     compatibleModes: text("compatible_modes").notNull(), // JSON: string[]
     installedAt: integer("installed_at", { mode: "timestamp" }).notNull(),
-    scope: text("scope").notNull(), // "global" | "workspace"
-    workspacePath: text("workspace_path"), // null when scope === "global"
+    scope: text("scope").notNull(), // always "workspace" — see the note above
+    workspacePath: text("workspace_path"), // nullable only for legacy reasons
     cachedFiles: text("cached_files").notNull(), // JSON: { name, localPath }[]
   },
   (table) => ({

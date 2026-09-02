@@ -46,7 +46,6 @@ function triggerLabel(trigger: unknown): string {
   const t = trigger as AutomationTrigger | null;
   if (!t || typeof t !== "object") return "unknown trigger";
   if (t.kind === "schedule") return `cron ${t.cron}`;
-  if (t.kind === "pipeline") return `${t.host} ${t.repo} (${t.events.join(", ")})`;
   return `MCP ${t.tool} every ${t.intervalMinutes}m`;
 }
 
@@ -449,7 +448,6 @@ export function AutomationsTab({ appId }: { appId: number | null }) {
           workspaceId={appId}
           existing={editing}
           mcpServers={mcpServers}
-          defaultRepo={null}
           open={formOpen}
           onClose={() => setFormOpen(false)}
           onSaved={() => void refresh()}

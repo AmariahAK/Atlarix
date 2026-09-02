@@ -1,6 +1,7 @@
 /**
  * Automation runner: arms node-cron tasks for schedule triggers and interval
- * pollers for github/mcp triggers, with a single global FIFO run queue
+ * pollers for the surviving trigger kinds (schedule, mcp), with a single
+ * global FIFO run queue
  * (concurrency 1, per-automation dedupe). Poll loops are deterministic — only
  * a fired trigger costs an agent run.
  *
@@ -32,17 +33,15 @@ export interface RunnerDeps {
     triggerContext: string | null,
     deps?: ExecuteRunDeps,
   ) => Promise<unknown>;
-  pollGithub: typeof import("./pollers/github").pollGithub;
   pollMcp: typeof import("./pollers/mcp").pollMcp;
 }
 
 async function defaultDeps(): Promise<RunnerDeps> {
-  const [{ executeAutomationRun }, { pollGithub }, { pollMcp }] = await Promise.all([
+  const [{ executeAutomationRun }, { pollMcp }] = await Promise.all([
     import("./execute-run"),
-    import("./pollers/github"),
     import("./pollers/mcp"),
   ]);
-  return { executeRun: executeAutomationRun, pollGithub, pollMcp };
+  return { executeRun: executeAutomationRun, pollMcp };
 }
 
 let runnerDeps: RunnerDeps | null = null;
@@ -96,6 +95,42 @@ function parseTrigger(raw: string): AutomationTrigger | null {
   }
 }
 
+/**
+ * A stored trigger this build can no longer parse must be LOUD, not quiet.
+ *
+ * Retiring the `pipeline` kind made every saved pipeline automation unparseable.
+ * The old behaviour for an unparseable trigger was `return` — so such an
+ * automation would sit enabled and simply never fire again, and "never fired" is
+ * indistinguishable from "nothing has happened yet", forever. That is precisely
+ * the failure the pipeline host registry was built to prevent, so it would have
+ * been perverse to reintroduce it while deleting that registry.
+ *
+ * So: disable it once, and record the reason in the run feed where the user is
+ * already looking. `recordPollError` dedupes on the same message, so this says
+ * it once rather than every interval.
+ */
+async function retireUnparseableAutomation(
+  automationId: string,
+  name: string,
+): Promise<void> {
+  const row = await db.query.automations.findFirst({
+    where: eq(automations.id, automationId),
+  });
+  if (!row?.enabled) return; // already retired, or off — say nothing more.
+  await db
+    .update(automations)
+    .set({ enabled: false, updatedAt: new Date() })
+    .where(eq(automations.id, automationId));
+  disarm(automationId);
+  const message =
+    "This automation used a trigger type Atlarix no longer supports " +
+    "(it polled a single code host). It has been disabled. Recreate it as a " +
+    "Schedule or MCP trigger — an MCP server can poll any API, including " +
+    "GitHub, GitLab and Bitbucket.";
+  logger.warn(`automation "${name}" retired: unsupported trigger type`);
+  await recordPollError(automationId, message);
+}
+
 // `unknown`: a pipeline host owns its own cursor shape, and the runner only
 // stores it. Narrowing here would mean this file knowing every host's internals.
 async function persistCursor(automationId: string, cursor: unknown): Promise<void> {
@@ -142,33 +177,21 @@ async function pollOnce(automationId: string): Promise<void> {
   });
   if (!automation?.enabled) return;
   const trigger = parseTrigger(automation.trigger);
-  if (!trigger || trigger.kind === "schedule") return;
+  if (!trigger) {
+    await retireUnparseableAutomation(automationId, automation.name);
+    return;
+  }
+  if (trigger.kind === "schedule") return;
   const deps = runnerDeps ?? (runnerDeps = await defaultDeps());
 
   try {
-    if (trigger.kind === "pipeline") {
-      // Dispatch by HOST through the registry rather than by a hardcoded vendor
-      // branch — adding GitLab is a registry entry, not an edit here.
-      const { getPipelineHost } = await import("./pipeline-hosts");
-      const host = getPipelineHost(trigger.host);
-      if (!host) {
-        // Registered at create time, so this means a build without that poller.
-        // Say it once rather than failing silently every interval.
-        throw new Error(
-          `No poller registered for pipeline host "${trigger.host}" — this automation cannot fire.`,
-        );
-      }
-      const cursor = automation.cursor ? (JSON.parse(automation.cursor) as unknown) : null;
-      const result = await host.poll(trigger, cursor);
-      await persistCursor(automationId, result.nextCursor);
-      if (result.fired) enqueueRun(automationId, result.context ?? null, "poll");
-    } else {
-      const cursor = automation.cursor ? (JSON.parse(automation.cursor) as McpCursor) : null;
-      if (automation.workspaceId == null) return;
-      const result = await deps.pollMcp(trigger, cursor, automation.workspaceId);
-      await persistCursor(automationId, result.nextCursor);
-      if (result.fired) enqueueRun(automationId, result.context ?? null, "poll");
-    }
+    // MCP is the only polled kind now — `schedule` returned above, and the
+    // `pipeline` branch went with the trigger kind (see types.ts).
+    const cursor = automation.cursor ? (JSON.parse(automation.cursor) as McpCursor) : null;
+    if (automation.workspaceId == null) return;
+    const result = await deps.pollMcp(trigger, cursor, automation.workspaceId);
+    await persistCursor(automationId, result.nextCursor);
+    if (result.fired) enqueueRun(automationId, result.context ?? null, "poll");
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
     logger.warn(`automation "${automation.name}" poll failed: ${message}`);
@@ -192,7 +215,9 @@ async function arm(automationId: string): Promise<void> {
   if (!automation?.enabled) return;
   const trigger = parseTrigger(automation.trigger);
   if (!trigger) {
-    logger.warn(`automation "${automation.name}" has an invalid trigger — not armed`);
+    // Not just "not armed": disable it and say why, or it stays enabled in the
+    // UI while being incapable of firing.
+    await retireUnparseableAutomation(automationId, automation.name);
     return;
   }
 

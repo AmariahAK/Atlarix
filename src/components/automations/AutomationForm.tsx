@@ -18,7 +18,6 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { IpcClient } from "@/ipc/ipc_client";
-import { pipelineHostIds } from "@/lib/automations/pipeline-hosts";
 import {
   clockFromCron,
   cronWithClock,
@@ -34,12 +33,6 @@ const SCHEDULE_PRESETS: Array<{ key: string; label: string; cron: string }> = [
   { key: "daily", label: "Daily (9am)", cron: "0 9 * * *" },
   { key: "weekly", label: "Weekly (Mon 9am)", cron: "0 9 * * 1" },
   { key: "weekday-mornings", label: "Weekday mornings", cron: "0 9 * * 1-5" },
-];
-
-const GITHUB_EVENTS: Array<{ key: "new-pr" | "review-requested" | "ci-failed"; label: string }> = [
-  { key: "new-pr", label: "New pull request" },
-  { key: "review-requested", label: "Review requested from me" },
-  { key: "ci-failed", label: "CI run failed" },
 ];
 
 function cnRunMode(disabled: boolean, selected: boolean): string {
@@ -119,7 +112,6 @@ export function AutomationForm({
   workspaceId,
   existing,
   mcpServers,
-  defaultRepo,
   open,
   onClose,
   onSaved,
@@ -127,7 +119,6 @@ export function AutomationForm({
   workspaceId: number;
   existing: AutomationListItem | null;
   mcpServers: McpServerOption[];
-  defaultRepo: string | null;
   open: boolean;
   onClose: () => void;
   onSaved: () => void;
@@ -138,23 +129,14 @@ export function AutomationForm({
   const [cron, setCron] = useState(
     existingTrigger?.kind === "schedule" ? existingTrigger.cron : SCHEDULE_PRESETS[1].cron,
   );
-  const [repo, setRepo] = useState(
-    existingTrigger?.kind === "pipeline" ? existingTrigger.repo : (defaultRepo ?? ""),
-  );
-  // Free-form. The registry supplies suggestions; it does not constrain typing —
-  // adding a host is registering a poller, not editing an enum here.
-  const [host, setHost] = useState(
-    existingTrigger?.kind === "pipeline"
-      ? existingTrigger.host
-      : (pipelineHostIds()[0] ?? "github"),
-  );
-  const [events, setEvents] = useState<Array<"new-pr" | "review-requested" | "ci-failed">>(
-    existingTrigger?.kind === "pipeline" ? existingTrigger.events : ["new-pr"],
-  );
+  /**
+   * The Pipelines tab is gone with the `pipeline` trigger kind — its only host
+   * was GitHub, and a bespoke poller for one vendor could never serve GitLab or
+   * Bitbucket. `repo`, `host` and `events` were pipeline-only state and went
+   * with it; polling an API is an MCP trigger now.
+   */
   const [interval, setIntervalMin] = useState(
-    existingTrigger?.kind === "pipeline" || existingTrigger?.kind === "mcp"
-      ? existingTrigger.intervalMinutes
-      : 15,
+    existingTrigger?.kind === "mcp" ? existingTrigger.intervalMinutes : 15,
   );
   const [mcpServerId, setMcpServerId] = useState<number | null>(
     existingTrigger?.kind === "mcp" ? existingTrigger.serverId : (mcpServers[0]?.id ?? null),
@@ -192,16 +174,6 @@ export function AutomationForm({
     if (kind === "schedule") {
       return cron.trim() ? { kind: "schedule", cron: cron.trim() } : null;
     }
-    if (kind === "pipeline") {
-      if (!/^[\w.-]+\/[\w.-]+$/.test(repo.trim()) || events.length === 0) return null;
-      return {
-        kind: "pipeline",
-        host: host.trim(),
-        repo: repo.trim(),
-        events,
-        intervalMinutes: Math.max(5, interval),
-      };
-    }
     if (mcpServerId == null || !mcpTool.trim()) return null;
     let args: unknown;
     try {
@@ -216,7 +188,7 @@ export function AutomationForm({
       args,
       intervalMinutes: Math.max(5, interval),
     };
-  }, [kind, cron, repo, events, interval, mcpServerId, mcpTool, mcpArgs]);
+  }, [kind, cron, interval, mcpServerId, mcpTool, mcpArgs]);
 
   const effectiveRunMode = runMode;
   const valid = Boolean(
@@ -277,9 +249,8 @@ export function AutomationForm({
           </div>
 
           <Tabs value={kind} onValueChange={(v) => setKind(v as AutomationTrigger["kind"])}>
-            <TabsList className="grid w-full grid-cols-3">
+            <TabsList className="grid w-full grid-cols-2">
               <TabsTrigger value="schedule">Schedule</TabsTrigger>
-              <TabsTrigger value="pipeline">Pipelines</TabsTrigger>
               <TabsTrigger value="mcp">MCP</TabsTrigger>
             </TabsList>
           </Tabs>
@@ -369,59 +340,6 @@ export function AutomationForm({
             </div>
           )}
 
-          {kind === "pipeline" && (
-            <div className="space-y-2">
-              <div className="space-y-1.5">
-                <Label htmlFor="automation-host">Host</Label>
-                <Input
-                  id="automation-host"
-                  list="automation-host-options"
-                  value={host}
-                  onChange={(e) => setHost(e.target.value)}
-                  placeholder="github"
-                  className="font-mono"
-                />
-                {/* Suggestions, not a closed list — the field accepts anything,
-                    and the save is what tells you if nothing can poll it. */}
-                <datalist id="automation-host-options">
-                  {pipelineHostIds().map((h) => (
-                    <option key={h} value={h} />
-                  ))}
-                </datalist>
-                <p className="text-xs text-muted-foreground">
-                  Atlarix can poll: {pipelineHostIds().join(", ") || "nothing yet"}.
-                </p>
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="automation-repo">Repository (owner/name)</Label>
-                <Input
-                  id="automation-repo"
-                  value={repo}
-                  onChange={(e) => setRepo(e.target.value)}
-                  placeholder="owner/repo"
-                  className="font-mono"
-                />
-              </div>
-              <div className="space-y-1">
-                {GITHUB_EVENTS.map((ev) => (
-                  <label key={ev.key} className="flex items-center gap-2 text-sm">
-                    <input
-                      type="checkbox"
-                      checked={events.includes(ev.key)}
-                      onChange={(e) =>
-                        setEvents((prev) =>
-                          e.target.checked
-                            ? [...prev, ev.key]
-                            : prev.filter((k) => k !== ev.key),
-                        )
-                      }
-                    />
-                    {ev.label}
-                  </label>
-                ))}
-              </div>
-            </div>
-          )}
 
           {kind === "mcp" && (
             <div className="space-y-2">
@@ -469,7 +387,7 @@ export function AutomationForm({
             </div>
           )}
 
-          {(kind === "pipeline" || kind === "mcp") && (
+          {kind === "mcp" && (
             <div className="space-y-1.5">
               <Label htmlFor="automation-interval">Poll every (minutes, min 5)</Label>
               <Input

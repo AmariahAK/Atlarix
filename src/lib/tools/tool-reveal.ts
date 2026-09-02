@@ -193,6 +193,96 @@ export function describeToolForMode(
   );
 }
 
+/**
+ * The parameter SCHEMA to bind for this tool in this mode.
+ *
+ * The half this file was missing. It tiered descriptions from the day it was
+ * written, on the reasoning that descriptions were the cost — and they were the
+ * cost that had been measured. Measured again on v14.40.0, the parameter schemas
+ * are LARGER: 5,747 tokens against 4,183 of descriptions on Build's surface,
+ * with no trimming stage of any kind.
+ *
+ * Same tier decision, same pointer, same cache-safety argument: `tool_help`
+ * returns the full text through the MESSAGE stream, so the tools array — which
+ * sits inside the first cache breakpoint — is untouched. A peripheral tool keeps
+ * every parameter, its type, its enum and its default; only the prose is cut to
+ * a first sentence.
+ *
+ * CORE TOOLS ARE LEFT ALONE, deliberately. `run_command`, `edit_file`, `task`
+ * and `read_file` are where a mis-filled parameter costs the most, and the
+ * aggressive variant of this (first-sentence everywhere) would have saved ~1,400
+ * tokens instead of ~350 by trimming exactly those. That trade was declined:
+ * the point of the exercise is a prefix that is smaller AND at least as
+ * accurate, and there is no evidence a shorter `edit_file` schema is as good.
+ */
+export function parametersForMode(
+  tool: Pick<ToolMetadata, "name" | "description" | "parameters">,
+  mode: ModeRegistryKey,
+): unknown {
+  const parameters = tool.parameters;
+  if (revealTierForMode(tool.name, tool.description, mode) === "core") {
+    return parameters;
+  }
+  return trimParameterProse(parameters);
+}
+
+/**
+ * Cut every parameter's `description` to its first sentence, without touching
+ * anything a call depends on.
+ *
+ * Returns a NEW object at every level it rewrites — the input is the registry's
+ * own singleton, shared across every turn and every mode, so mutating it would
+ * tier a tool permanently the first time any mode bound it peripherally.
+ *
+ * Handles the two `parameters` shapes this codebase actually contains: a proper
+ * `{type:"object", properties}` schema, and the "bare property map" some tools
+ * hand-write (documented in lib/ai/normalize-tool-schema.ts). An unrecognised
+ * shape is returned untouched rather than guessed at.
+ */
+function trimParameterProse(parameters: unknown): unknown {
+  if (!parameters || typeof parameters !== "object" || Array.isArray(parameters)) {
+    return parameters;
+  }
+  const schema = parameters as Record<string, unknown>;
+  const props = schema.properties;
+
+  if (props && typeof props === "object" && !Array.isArray(props)) {
+    return { ...schema, properties: trimPropertyMap(props as Record<string, unknown>) };
+  }
+
+  // Bare property map: no `type`/`properties` wrapper, values are schema nodes.
+  if (schema.type === undefined && schema.properties === undefined) {
+    return trimPropertyMap(schema);
+  }
+  return parameters;
+}
+
+function trimPropertyMap(
+  props: Record<string, unknown>,
+): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [key, node] of Object.entries(props)) {
+    if (!node || typeof node !== "object" || Array.isArray(node)) {
+      out[key] = node;
+      continue;
+    }
+    const n = node as Record<string, unknown>;
+    out[key] =
+      typeof n.description === "string" && n.description.length > 0
+        ? { ...n, description: firstSentence(n.description, PARAM_PROSE_MAX) }
+        : n;
+  }
+  return out;
+}
+
+/**
+ * Shorter than the 200-char default `firstSentence` uses for a tool
+ * description: a parameter's first sentence is normally its whole point ("Which
+ * tab to act on"), and the ones that run long do so by appending a second
+ * clause after the period, which the sentence split already drops.
+ */
+const PARAM_PROSE_MAX = 140;
+
 /** Names bound with a trimmed description in this mode (for logging/tests). */
 export function peripheralToolNames(
   tools: readonly Pick<ToolMetadata, "name" | "description">[],
@@ -203,16 +293,48 @@ export function peripheralToolNames(
     .map((t) => t.name);
 }
 
-/** Chars saved by the tiering this turn — the number worth logging. */
+/**
+ * Chars saved by the tiering this turn — the number worth logging.
+ *
+ * Counts descriptions AND schemas, because the tiering now covers both. It
+ * reported descriptions alone while the schemas were the larger half, which
+ * made the log line an understatement of its own effect.
+ */
 export function revealSavings(
-  tools: readonly Pick<ToolMetadata, "name" | "description">[],
+  tools: readonly Pick<ToolMetadata, "name" | "description" | "parameters">[],
   mode: ModeRegistryKey,
-): { full: number; bound: number } {
-  let full = 0;
-  let bound = 0;
+): {
+  full: number;
+  bound: number;
+  descFull: number;
+  descBound: number;
+  schemaFull: number;
+  schemaBound: number;
+} {
+  let descFull = 0;
+  let descBound = 0;
+  let schemaFull = 0;
+  let schemaBound = 0;
   for (const t of tools) {
-    full += t.description.length;
-    bound += describeToolForMode(t, mode).length;
+    descFull += t.description.length;
+    descBound += describeToolForMode(t, mode).length;
+    schemaFull += schemaChars(t.parameters);
+    schemaBound += schemaChars(parametersForMode(t, mode));
   }
-  return { full, bound };
+  return {
+    full: descFull + schemaFull,
+    bound: descBound + schemaBound,
+    descFull,
+    descBound,
+    schemaFull,
+    schemaBound,
+  };
+}
+
+function schemaChars(parameters: unknown): number {
+  try {
+    return JSON.stringify(parameters ?? {})?.length ?? 0;
+  } catch {
+    return 0;
+  }
 }

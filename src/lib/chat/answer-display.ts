@@ -369,8 +369,16 @@ const TEXT_EMITTED_TOOL_TAG_NAMES = [
   "list_attachments",
   "compress_context",
   "background_jobs",
-  "browser_navigate",
   "browser_inspect",
+  // v14.41: the consolidated act tool and the mobile pair. The regex requires a
+  // `>` or whitespace immediately after the name, so plain "browser" does NOT
+  // also swallow a `<browser_inspect>` block — `_` matches neither.
+  "browser",
+  "mobile",
+  "mobile_inspect",
+  // Retired names, kept: a reloaded session can replay a leak that already
+  // happened, and it should still be stripped rather than shown as raw text.
+  "browser_navigate",
   "browser_interact",
 ] as const;
 

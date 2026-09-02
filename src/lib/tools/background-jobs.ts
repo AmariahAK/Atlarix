@@ -86,12 +86,12 @@ ToolRegistry.register({
   description:
     "Inspect and control background commands you started with run_command(background:true). " +
     "Identify a job with `job`: its id, or a distinctive part of its command — whichever you have. " +
-    "operation:\"list\" — running jobs (job_id, command, elapsed). " +
+    "operation:\"list\" — running jobs (id, command, elapsed). " +
     "operation:\"output\" — by default the NEW output since your last check (incremental). Pass mode:\"tail\" for the most recent output instead, which is what you want to see a still-running server's CURRENT state; tail never consumes your incremental position. Works on finished jobs too. " +
-    "operation:\"cancel\" — stop `job_id`. " +
-    "operation:\"watch\" — attach a wake condition to a running `job_id`: pass `wake_on` and you'll be woken when its output contains that text (prefer this over polling). " +
-    "operation:\"allow_stalled\" — mark a running `job_id` as expected-to-be-quiet (a dev server / watcher / long service): stop the harness pinging you when it goes silent. It still runs and you still get its exit result. " +
-    "operation:\"wake_in\" — set/replace a live countdown timer on a running `job_id`: pass `seconds` and you'll be re-engaged then to re-check THAT job (only ONE timer per job — setting again replaces it, so timers never pile up). Prefer wake_on when the event is observable in output; use this for a timed re-check. " +
+    "operation:\"cancel\" — stop the job. " +
+    "operation:\"watch\" — attach a wake condition to a running job: pass `wake_on` and you'll be woken when its output contains that text (prefer this over polling). " +
+    "operation:\"allow_stalled\" — mark a running job as expected-to-be-quiet (a dev server / watcher / long service): stop the harness pinging you when it goes silent. It still runs and you still get its exit result. " +
+    "operation:\"wake_in\" — set/replace a live countdown timer on a running job: pass `seconds` and you'll be re-engaged then to re-check THAT job (only ONE timer per job — setting again replaces it, so timers never pile up). Prefer wake_on when the event is observable in output; use this for a timed re-check. " +
     "operation:\"adjust_timer\" — add/subtract time on a job's existing countdown: pass `delta_seconds` (negative = sooner). " +
     "\"list\" shows `wake_in_s` (the live seconds left) for any job that has a timer; a finished job drops its countdown, and won't ask you to re-check it even if the countdown had already elapsed. " +
     "Finished jobs are delivered to you automatically — use this only to peek at, watch, allow_stalled, time, or stop STILL-RUNNING jobs; never poll on a loop.",
@@ -105,12 +105,11 @@ ToolRegistry.register({
       },
       job: {
         type: "string",
-        description: "Which job to act on: a job id, or a distinctive substring of its command (e.g. \"npm run dev\"). Preferred over job_id — the command you ran is easier to get right than a generated id.",
+        description: "Which job to act on: a job id, or a distinctive substring of its command (e.g. \"npm run dev\").",
       },
-      job_id: {
-        type: "string",
-        description: "The background job id (returned by run_command background:true). Equivalent to `job`; kept for compatibility.",
-      },
+      // `job_id` is still ACCEPTED (the handler reads `args.job_id`) but no
+      // longer advertised: it was the same parameter under a second name, and
+      // `job` already takes an id. One spelling in the schema, both at runtime.
       mode: {
         type: "string",
         enum: ["new", "tail"],

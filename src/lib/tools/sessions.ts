@@ -486,7 +486,9 @@ ToolRegistry.register({
             // `workspaceSessionId` / `_chatSessionId` are injected by the harness and
             // deliberately absent here: they select which conversation is read, and
             // `resolveOrBindWorkspaceSessionForStream` can bind or create a session row.
-            workspaceId: numberParam("Workspace ID (auto-provided)"),
+            // `workspaceId` is injected by the turn runner and NOT advertised.
+            // Every query is still filtered by it — see the note at the top of
+            // this file; that scoping is unaffected by dropping it from the schema.
         },
         [],
     ),

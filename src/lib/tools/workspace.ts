@@ -56,11 +56,9 @@ ToolRegistry.register({
                 items: { type: "string" },
                 description: "Optional: list of choices for the single question (preferred for multiple choice)",
             },
-            choices: {
-                type: "array",
-                items: { type: "string" },
-                description: "Optional: same as options (alias if the model uses this name)",
-            },
+            // `choices` remains accepted as an alias for `options` but is not
+            // advertised — two names for one array is a coin-flip the model
+            // should not have to make.
             questions: {
                 type: "array",
                 items: {

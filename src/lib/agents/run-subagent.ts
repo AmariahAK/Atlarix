@@ -143,12 +143,13 @@ const QA_SUBAGENT_TOOL_NAMES = [
   ...SUBAGENT_TOOL_NAMES,
   "run_command",
   "background_jobs",
-  "browser_navigate",
+  "browser",
   "browser_inspect",
-  "browser_interact",
-  "browser_find",
-  "browser_tabs",
   "browser_test",
+  // v14.41: a QA worker verifying a mobile build needs the same read/act pair
+  // it gets for the web — running the thing IS the observation.
+  "mobile",
+  "mobile_inspect",
 ] as const;
 
 /** Tools whose nested expand detail may be larger (read/search payloads). */

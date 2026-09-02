@@ -172,7 +172,10 @@ const ATTACHMENT_TOOLS = new Set(["read_attachment"]);
 const MAX_TABLE_CARD_ROWS = 30;
 
 // v11 in-app browser + WebMCP bridge
+// `browser` is the consolidated act tool; the retired names stay so a reloaded
+// session's stored rows still render their cards.
 const BROWSER_TEXT_TOOLS = new Set([
+  "browser",
   "browser_navigate",
   "browser_inspect",
   "browser_interact",
@@ -184,11 +187,23 @@ const BROWSER_TEXT_TOOLS = new Set([
   "browser_snapshot",
   "browser_click",
   "browser_fill",
+  // v14.41: the mobile pair reads and acts on an emulator. Its text results
+  // (hierarchy, logs, device list) render in the same card as the browser's.
+  "mobile_inspect",
+  "mobile",
 ]);
 // browser_inspect(mode:"screenshot") returns a PNG payload; the screenshot
 // block below guards on `payload.data`, so non-screenshot inspect results fall
 // through to the text block. "browser_screenshot" stays for old sessions.
-const BROWSER_SCREENSHOT_TOOLS = new Set(["browser_inspect", "browser_screenshot"]);
+// This set is NAME-keyed, unlike the model-facing image path (extractImageMedia
+// gates on the SHAPE of the result). So a PNG-returning tool gets no screenshot
+// card until it is listed here — the renderer dispatches on `view.kind`, so
+// nothing else is needed.
+const BROWSER_SCREENSHOT_TOOLS = new Set([
+  "browser_inspect",
+  "browser_screenshot",
+  "mobile_inspect",
+]);
 const WEBMCP_LIST_TOOLS = new Set(["list_webmcp_tools"]);
 const WEBMCP_CALL_TOOLS = new Set(["call_webmcp_tool"]);
 
@@ -1087,12 +1102,25 @@ export function buildToolExpandView(
     if (delegation) return delegation;
   }
 
+  /**
+   * A `success: false` that is NOT a failure — a no-op, or a call the loop guard
+   * declined. Shown as ordinary text, ABOVE the error branch, because the whole
+   * point is that it must not be red. See `envelopeFromObject`: the markers are
+   * explicit (`status: "noop"`, `loop_guidance`), never inferred.
+   *
+   * Observed before this existed: "Context compacted ✓" with a red "Tool
+   * failed" underneath it, for a compaction that had correctly decided there was
+   * nothing to compact and said so in its own words.
+   */
+  if (envelope.notice && streamStatus !== "error") {
+    return { kind: "text", body: envelope.notice };
+  }
+
   if (streamStatus === "error" || envelope.error) {
-    const msg =
-      envelope.error ??
-      (typeof envelope.payload.message === "string"
-        ? envelope.payload.message
-        : "Tool failed");
+    // `envelope.error` already walked every field a tool uses to explain itself
+    // (EXPLANATION_FIELDS), so reaching the literal fallback means the result
+    // genuinely carried no explanation at all.
+    const msg = envelope.error ?? "Tool failed";
     return { kind: "text", body: msg, isError: true };
   }
 
@@ -1133,6 +1161,29 @@ export function buildToolExpandView(
     // indistinguishable from a card that simply failed to render.
     const empty = buildEmptyWebSearchView(payload, args);
     if (empty) return empty;
+  }
+
+  /**
+   * `tool_help` — the fetch half of progressive tool reveal.
+   *
+   * It had NO branch, so every call rendered as a bare **"Done"**: the card
+   * showed nothing about which tool was asked about or what came back. That is
+   * the same defect the `plan` and `task` comments above describe, and it is
+   * worse here, because this tool exists precisely so a peripheral tool's full
+   * instructions can be READ — and the read was the one thing the UI hid.
+   *
+   * Its result is `{ tool, usage }`, so the tool name is the header and the
+   * usage text is the body. Markdown, because tool descriptions are written in it.
+   */
+  if (toolName === "tool_help") {
+    const tool = typeof payload.tool === "string" ? payload.tool : "";
+    const usage = typeof payload.usage === "string" ? payload.usage.trim() : "";
+    if (usage) {
+      return {
+        kind: "text",
+        body: tool ? `**${tool}**\n\n${usage}` : usage,
+      };
+    }
   }
 
   if (PLAN_TOOLS.has(toolName)) {

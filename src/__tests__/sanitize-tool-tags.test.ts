@@ -143,3 +143,45 @@ describe("isOnlyToolDebris", () => {
     expect(isOnlyToolDebris('","message":"Plan created."}')).toBe(true);
   });
 });
+
+/**
+ * v14.41: `browser` is now a bare tool name, which makes it the first entry in
+ * this list that is a strict PREFIX of another entry (`browser_inspect`). The
+ * regex requires `>` or whitespace immediately after the name, so it is safe —
+ * but "it is safe because of how the regex is written" is exactly the claim that
+ * should be a test rather than a comment.
+ */
+describe("a bare tool name that prefixes another", () => {
+  it("strips a leaked <browser> block", () => {
+    const out = stripTextEmittedToolCallBlocks(
+      'Opening it now.\n<browser>{"action":"navigate","url":"http://localhost:3000"}</browser>\nDone.',
+    );
+    expect(out).not.toContain("browser");
+    expect(out).toContain("Opening it now.");
+    expect(out).toContain("Done.");
+  });
+
+  it("does NOT let `browser` swallow a <browser_inspect> block's tags", () => {
+    // If the name matched loosely, `<browser` + `...>` would open on
+    // `<browser_inspect>` and the closing `</browser>` would never be found —
+    // taking the whole rest of the message with the streaming-tail rule.
+    const out = stripTextEmittedToolCallBlocks(
+      'Reading.\n<browser_inspect>{"mode":"snapshot"}</browser_inspect>\nThe login form is there.',
+    );
+    expect(out).toContain("Reading.");
+    expect(out).toContain("The login form is there.");
+    expect(out).not.toContain("browser_inspect");
+  });
+
+  it("strips the mobile pair too", () => {
+    const out = stripTextEmittedToolCallBlocks(
+      '<mobile_inspect>{"mode":"hierarchy"}</mobile_inspect>then<mobile>{"action":"tap","ref":"m1"}</mobile>',
+    );
+    expect(out.trim()).toBe("then");
+  });
+
+  it("preserves prose that merely names a tool", () => {
+    const prose = "Use the <browser> tool to drive the page.";
+    expect(stripTextEmittedToolCallBlocks(prose)).toBe(prose);
+  });
+});

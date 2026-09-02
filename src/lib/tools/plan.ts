@@ -8,7 +8,6 @@
 import {
   ToolRegistry,
   createParameters,
-  stringParam,
   enumParam,
 } from "./registry";
 import {
@@ -657,7 +656,10 @@ ToolRegistry.register({
           "Plan artifact id — optional for all ops; when omitted the session's latest plan is used.",
         required: false,
       },
-      workspaceSessionId: stringParam("Workspace session id (auto-injected)"),
+      // `workspaceSessionId` is injected by the turn runner and NOT advertised —
+      // the model cannot affect it (the branch overwrites whatever it sends) and
+      // does not need to know a session id exists. `resolveWorkspaceSessionId`
+      // still reads it from args.
       status: {
         type: "string",
         description:

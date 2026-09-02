@@ -46,7 +46,13 @@ beforeAll(async () => {
       transport: "http",
       url: "http://localhost:1/fake",
       enabled: true,
-      scope: "global",
+      // v14.41: `scope: "global"` here tested a shape production cannot produce.
+      // Migration 0049 deleted every global row and both writers in
+      // mcp_handlers.ts hardcode "workspace", so the lookup's `scope = 'global'`
+      // branch was dead code that only this fixture kept alive. Bind it to the
+      // eval workspace, which is what a real server looks like.
+      scope: "workspace",
+      appId: ctx.appId,
       authType: "none",
     })
     .returning();

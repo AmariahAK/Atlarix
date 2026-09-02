@@ -2,6 +2,19 @@
 @import "tw-animate-css";
 @plugin "@tailwindcss/typography";
 
+/* A scroll container whose affordance is something OTHER than the bar itself —
+   the sideways tab strips in Settings and Integrations, which use chevron
+   buttons. Tailwind has no built-in for this, and referencing a class that does
+   not exist fails silently, so it is defined once here rather than assumed. */
+@utility scrollbar-none {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+
 /* Load Geist Font — vendored woff2 (v11: dropped the `geist` npm package,
    which pulled in next/@next, ~284MB of dev install weight). */
 

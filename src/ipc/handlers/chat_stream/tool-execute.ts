@@ -60,11 +60,33 @@ export async function runToolExecute(
   const gateWorkspace =
     typeof executeArgs.workspace === "string" ? executeArgs.workspace : undefined;
   if (gateWorkspace) {
-    const decision = evaluateRuleset(
-      loadEffectiveRuleset(gateWorkspace),
-      toolName,
-      executeArgs,
-    );
+    // v14.41: EVALUATE BOTH THE AS-CALLED NAME AND THE CANONICAL ONE.
+    //
+    // `ToolRegistry.execute` resolves a retired name to its current tool, but it
+    // does so BELOW this gate — so the gate only ever saw the name the model
+    // typed. With browser 6→2 that became a bypass with five doors: a user rule
+    // denying `browser` did nothing against `browser({action:"navigate"})` called
+    // by its retired name `browser_navigate`, because the strings differ.
+    //
+    // Checking both directions also keeps rules written against the OLD names
+    // working (`browser_*` still matches `browser_navigate` as called), which a
+    // plain canonicalise-then-check would have silently broken.
+    //
+    // The `??` cannot fail open, and the reason is the TYPE, not the order:
+    // `RulesetDecision` is `{kind:"deny"} | null` — there is no allow decision, so
+    // a rule cannot produce a non-null value that short-circuits the canonical
+    // check. (Precisely, "first non-null decision wins"; with a deny-only type
+    // that is the same as "first deny wins". If an allow/ask decision is ever
+    // added to the ruleset, THIS composition has to be revisited before it is.)
+    // The first operand is byte-identical to the old single call, so the deny set
+    // is a strict superset: adding a name can only tighten the gate.
+    const ruleset = loadEffectiveRuleset(gateWorkspace);
+    const canonicalName = ToolRegistry.resolveName(toolName);
+    const decision =
+      evaluateRuleset(ruleset, toolName, executeArgs) ??
+      (canonicalName !== toolName
+        ? evaluateRuleset(ruleset, canonicalName, executeArgs)
+        : null);
     if (decision?.kind === "deny") {
       logger.warn(
         `[ruleset] ${toolName} blocked by permission rule: ${decision.rule}`,

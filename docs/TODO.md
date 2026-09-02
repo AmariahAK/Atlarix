@@ -1,6 +1,41 @@
 # Atlarix TODO
 
-**Current version:** v14.39.1 — released 2026-09-01. The compaction marker became a real column,
+**Current version:** v14.41.0 — STAGED 2026-09-02, not released. The context meter counted the
+system prompt and nothing else, so ~10,000 tokens of tool descriptions and parameter schemas
+were billed every turn and measured by nothing; per-project settings moved off the global
+Settings page; the launchpad's three densest pages were restructured; six browser tools became
+two; the GitHub clone flow and the GitHub Automations trigger were deleted as host-specific
+hardcoding; and Atlarix can now read and drive a mobile emulator screen.
+
+Measured prefix, per mode: Explore 11,539 → 10,404; Plan 10,891 → 9,839; Build 15,329 → 14,605;
+Review 11,199 → 10,055; Debug 14,738 → 14,014. Build's number INCLUDES the two new mobile tools
+(~430) — the browser consolidation had taken it to 14,174.
+
+**Owed before tagging v14.41.0:**
+- **`mobile_inspect` / `mobile` are UNVERIFIED against a real device.** See the traps section
+  above for the exact loop to run. Do not tag claiming mobile works off a green suite.
+- **The `[prompt-cache]` measurement (was already on this list).** One long session in the
+  PACKAGED app on a Core model, recording `write=` on turn 1 and `read=` on turns 2..n. It no
+  longer BLOCKS: the owner settled the cache as-is and the prose pass was dropped, so this is
+  now information for the next cycle rather than a gate on this one.
+- **Walk the Settings/Integrations split by hand in the packaged app:** every control that
+  was on `/settings` is still reachable from one of the two pages; the MCP OAuth prompt
+  lands on `/integrations/mcp`; a model error in chat lands on `/integrations`; a
+  permission rule set in project A is absent in project B; the token budget cap clears to
+  "No cap" and the **Use auto** button works.
+- **Walk the DELETIONS by hand, by presence as well as absence:** GitHub SIGN-IN to the Atlarix
+  account still works (the one thing that must not break); the welcome screen still offers a
+  route to a first workspace now that Clone repo is gone; an existing cron/MCP automation still
+  fires; and creating one of each remaining trigger kind from the form does not render an empty
+  host dropdown.
+- **Drive a page end to end through the consolidated `browser` tool** (navigate → find → click →
+  read) and confirm the activity row reads properly rather than "Runned browser".
+- `/security-review` on the diff.
+
+**Owner actions:** delete the `OAUTH_CLIENT_ID` repository secret (nothing reads it any more —
+`src/lib/auth/README.md` records why there is no second GitHub credential).
+
+**Previous:** v14.39.1 — released 2026-09-01. The compaction marker became a real column,
 the summary stopped showing up as a chat message, telemetry stopped writing before consent, and the
 public data claims were made true. v14.39.0 (same day) was the one-compaction-system release.
 
@@ -44,6 +79,231 @@ heading to the real version before tagging. (Done for 14.39.3.)
 
 
 ---
+
+
+## Traps from v14.41.0 (2026-09-02)
+
+- **An alias resolves a NAME, not a dispatch.** `ToolMetadata.aliases` made `browser_navigate`
+  resolve to `browser` in the registry, and `tool-name-aliases.test.ts` passed — but both dispatch
+  paths look the tool up in the resolved ToolSet first, which advertises canonical names only. The
+  text-tool path answered `Error: Unknown tool "browser_navigate"` and the native path never
+  reached Atlarix code at all. **If you rename a tool, test a DISPATCHED call by the old name, not
+  `ToolRegistry.get`.**
+- **Making an alias executable is a permission change.** A deny rule is a plain string match. Once
+  `browser_navigate` runs, a rule on `browser` must catch it AND a rule already written against
+  `browser_navigate` must keep catching it. The gate evaluates both names; canonicalising at the
+  dispatch site instead looks correct and silently voids every pre-existing rule.
+- **`oxlint`'s `no-unreachable` is a design signal.** Re-keying the browser labels left a trailing
+  `return null` unreachable; every label test still passed because they only pass browser tools.
+  The warning forced the real question (what happens to a non-browser tool?) — the answer was the
+  guard at the top of the function, which had to be checked rather than assumed.
+- **A bulk substitution inside string literals produces unescaped nested quotes.** Replacing
+  `browser_navigate` with `browser({action:"navigate"})` broke five double-quoted strings in
+  `browser.ts` and `shell.ts` — twice, in two separate passes, because the second pass reintroduced
+  it. `tsc` catches it; a grep-and-replace does not. Prefer quote-free prose in model-facing strings.
+- **Retiring a feature leaves typed orphans a type-checker will not find.** §3 deleted the GitHub
+  poller but left `GithubTriggerEventSchema` (a runtime value, so knip could not see it as an unused
+  type) and `GithubCursor`. Run `npx knip` AND grep the feature's noun after any deletion.
+- **Candidate, NOT done: three staged deps that look unnecessary.** With pinning fixed, the log
+  now names the roots it cannot pin individually — `keytar`, `mysql2`, `pg` — and all three look
+  like they should not be installed into the app at all. `keytar` is explicitly unused
+  (`supabase-secure-storage.ts`: "intentionally does NOT use keytar"; it is a native module, so
+  this is real install cost and a build-failure surface), and `mysql2`/`pg` are Drizzle's
+  optional drivers where Atlarix uses SQLite. They are in `mainRollupExternals` for a good
+  reason — the bundler must not try to bundle code Drizzle references — but being an EXTERNAL
+  and being an install ROOT are different questions, and the hook conflates them.
+  **Not changed:** if anything does a top-level require of one of them, removing it crashes the
+  packaged app, and that needs verifying in the `.app` rather than reasoning about. Bloat win,
+  crash risk — worth doing deliberately, not as a side effect.
+- **RELEASE INTEGRITY: the staged-app dependency pinning had silently never worked.**
+  `forge.config.ts`'s `packageAfterPrune` reads `package-lock.json` to install the staged app's
+  runtime deps at the EXACT versions that were tested. Inside that hook,
+  `const fs = await import("node:fs/promises")` shadows the top-level
+  `import fs from "node:fs"`, and the promises API has no `readFileSync` — so the try always
+  threw, the catch always fired, and every release installed all 31 roots UNPINNED. **The tell is
+  in the build log: `could not read package-lock.json (fs.readFileSync is not a function)`
+  followed by `0 pinned from package-lock`.** Fixed to `await fs.readFile`. It means every
+  shipped build so far may contain dependency versions that were never tested — worth knowing
+  when triaging a "works on my machine" report against an older release.
+  **Verify by log, not by reading the code:** the line must say `N pinned from package-lock`
+  with N > 0.
+- **`npm run package` is NOT concurrency-safe.** It starts with `npm run clean`, so a second
+  package run started while the first is finalizing deletes the first's electron-packager staging
+  directory. The first then dies as `ENOENT ... lstat /var/.../electron-packager/tmp-XXXX`, which
+  reads exactly like a build bug and is not one. Run one at a time. (The
+  `Cannot find module .../node_modules/electron/install.js` line in the log is unrelated and
+  benign: the staged app's `postinstall` references a devDependency that is correctly absent, and
+  the script's own `|| true` swallows it.)
+- **A tool result's field NAMES are a UI contract, not just data.** The browser expand card reads
+  `title` / `url` for its header and `content` / `note` for its body. `mobile_inspect` first
+  returned `summary` and `mobile` returned `detail` — both landed in `BROWSER_TEXT_TOOLS`, both
+  rendered as a bare "Done", and the model still saw everything, so nothing looked broken. Match
+  the existing field names instead of widening the renderer.
+- **`success: false` is not the same as "failed", and a generic fallback ASSERTS something
+  untrue.** Two of the commonest results in a long session rendered as a red "Tool failed"
+  under a green ✓: `compress_context`'s no-op (`status:"noop"`, with a `summary` reading
+  "Already compact: history is 7474 tokens (~39%…) — nothing worth compacting") and the loop
+  guard's declined call (`loop_guidance`: "…This call was NOT executed"). `envelopeFromObject`
+  read only `error` and `message`, so both explanations were discarded. **The chain now walks
+  error → message → loop_guidance → summary → reason → detail → note**, and `status:"noop"` /
+  `loop_guidance` mark a result as NOT an error. Header fixed too — "Context compacted" was the
+  one thing that had not happened.
+- **The registry's failure sentinels must not reach the user.** `ToolRegistry.execute` fills in
+  `error: "TOOL_ERROR"` and `message: "Tool returned an error"` when a tool supplies neither.
+  The first version of the fix above read `error` first and so displayed "TOOL_ERROR" — worse
+  than "Tool failed", because it looks like an error code you could look up. They are skipped
+  in favour of a real field, and kept only as a last resort so an unexplained failure is not a
+  blank card.
+- **Read the DB, not the log, for what a tool actually returned.** `main.log` records no
+  structured tool results, so the payload behind a bad card is invisible there. It IS in
+  `session_messages.content` in `~/Library/Application Support/Atlarix/sqlite.db` — the
+  `<atlarix-tool-result …>` blocks hold the verbatim JSON. Two rounds of reasoning about the
+  wrong envelope shape ended the moment I queried it: the text-tool path stores the handler's
+  raw return, while the native path stores the registry's wrapper, and they render differently.
+- **A tool's own error message decides whether the model recovers or thrashes.** Filling
+  Wikipedia's Vector search failed with **"Illegal invocation"** — a native `value` setter
+  invoked on a wrapper element, because the code picked the prototype by ELIMINATION
+  (`textarea ? … : HTMLInputElement.prototype`). A native accessor rejects a receiver of the
+  wrong type, so a wrong guess throws instead of degrading. Observed cost: the model retried
+  the same call twice, tried a click-then-fill batch, concluded the whole action system was
+  broken, and worked around it — **three wasted turns for a wrapper element.** Two fixes: walk
+  to the field the wrapper contains, and choose the prototype from what the node IS.
+- **The model's post-mortem is not evidence.** That transcript reads "Both click and fill are
+  failing with Illegal invocation" and "the entire action pathway is broken for refs on this
+  page". Neither was true: only `fill` ever failed, and the batch it blamed had failed at its
+  fill STEP. There is exactly one `.call` site in the whole browser tool. **Grep for the
+  mechanism before believing the narration.**
+- **"Done" means a tool has no expand branch.** `tool_help` returns `{ tool, usage }` and the
+  card reads `content`/`note`, so every reveal rendered as a bare "Done" — the tool whose
+  entire purpose is to be READ was the one the UI hid. Third instance of this class this
+  release (see also the mobile pair). **A new tool needs a `tool-expand-view` branch or a
+  result shaped like an existing one.**
+- **A computed label subject is silently DISCARDED without an `ARG_VERBS` entry.** Adding
+  `tool_help` to `subjectFromArgs` changed nothing until the verb map had a row too, because
+  the verb lookup came back `undefined` and there was no fallback. The done-tense path is a
+  separate branch again — so a label can end up correct in one tense and generic in the other.
+- **ONE implementation, SIX announcements — the consolidation that got left behind.** v14.39.0
+  unified compaction into one compactor with three triggers and left the *announcing* hand-rolled
+  at six call sites across four files, with three labels ("Context compacted automatically",
+  "Context compressed", "Summarizing in-task context") and inconsistent event types. **That
+  inconsistency was itself the bug:** `context-assembly.ts`'s automatic pre-dispatch compaction
+  emitted only `type: "compaction"` (dropped by the renderer, by design) and never the
+  `background` event the pill reads — so the trigger nobody asks for was the only one with no UI,
+  reported with the ring at 100%. `emitModelCompactionActivity` had the same defect from a
+  different cause: its `background` event sat inside `if (outcome.success)`, so a no-op was
+  invisible too. Now `emitCompactionActivity` is the only emitter, and **the label is derived
+  from trigger + phase rather than passed in** — a per-site label string is exactly how three
+  variants drifted apart. When you unify an implementation, check whether its NOTIFICATIONS were
+  unified with it.
+- **Do not "fix" a deliberate drop.** Compaction was invisible mid-turn, and the obvious cause
+  looked like `chat-activity-normalize.ts` omitting `"compaction"` from `VALID_TYPES`. That
+  omission is INTENTIONAL — the main process emits a `compaction` banner event AND a parallel
+  `background` one, and admitting both would put two rows in the atom for one moment.
+  `compress-context-persistence.test.ts` pins it as the Bug 1c contract and caught the wrong
+  fix immediately. The pill reads the `background` row by label instead, the same shape
+  `useCompactionTokenVisuals` already used. **A missing entry in an allowlist may be the
+  decision, not the bug** — and `compaction-activity.ts`'s comment pointing at a
+  `CompactionProgressStrip` that no longer exists is what made the wrong reading plausible.
+- **A test fixture can keep a dead query branch alive.** `listConfiguredMcps` read
+  `scope = 'global' OR (scope = 'workspace' AND appId = ?)`, and two MCP evals inserted their
+  server with `scope: "global"` — a shape production cannot produce, since migration 0049 deleted
+  every global row and both writers in `mcp_handlers.ts` hardcode `"workspace"`. Removing the dead
+  branch broke both evals, which looked like a regression and was the opposite. **When a change to
+  a query breaks a test, check what shape the FIXTURE creates before assuming the change is wrong**
+  — and verify a "no code path does X" claim by naming the writers, not by reasoning.
+- **The `simctl` `-` bug left a 2.8 MB file named `-` in the REPO ROOT.** Found during release
+  prep, one `git add -A` away from being committed. The live-iOS test ran with the repo as its
+  CWD, and `simctl io <id> screenshot -` writes a file literally called `-` there. The code is
+  fixed (temp file, then unlink), but check for it before any commit that follows a mobile test
+  run: `ls -- './-'`. A filename of `-` is also awkward to delete — `rm -f -- './-'`, since
+  plain `rm -- -` and `rm '-'` both fight the shell.
+- **iOS half VERIFIED on a live simulator 2026-09-02; the ANDROID half is still unverified.**
+  `mobile-live-ios.test.ts` runs against a booted simulator and `describe.skipIf`s itself when
+  there isn't one, so it stays in the suite. **It is the only thing that found any of these,
+  and the mocked suite was green throughout:**
+  - `simctl io <id> screenshot -` does NOT stream to stdout the way `adb exec-out screencap -p`
+    does. `simctl` treats `-` as a FILENAME: exit 0, "Wrote screenshot to: …/-", zero bytes on
+    stdout, and a junk file called `-` left in the working directory. Temp file now.
+  - `--predicate 'messageType >= "Default"'` matches **NOTHING** — 0 characters where the
+    unfiltered query returned 18.7 MB. Not an error, a silent zero: every iOS log read said
+    "No recent entries" regardless. Apple's log has no "warn"; the types are Default, Info,
+    Debug, Error, Fault, and the comparison operator does not work on that field. Equality now.
+  - Volume: a simulator's log is the WHOLE OS. 2 minutes filtered to errors is 3.2 MB, 30
+    seconds is 1.7 MB, and a `process` filter is **184 characters**. Hence the bounded window
+    and the `package` parameter.
+  - A live screenshot is 2.85 MB (~3.8 MB base64), so there is now a downscale AND a hard
+    refusal above 1.5 MB — the downscale needs Electron's `nativeImage`, and its fallback
+    would otherwise send the raw capture.
+- **STILL UNVERIFIED: Android.** `adb` is not installed on this machine (not on PATH, no SDK
+  platform-tools), so nothing in the emulator loop has ever run. Before claiming it works, on a
+  real Android emulator: read the hierarchy, tap a ref, type into a field, swipe, read the logs
+  with and without `package`, take one screenshot. **Also behavioural, not reasoned: whether the
+  OS sandbox permits `adb`'s local socket.** Do not tick this off a green suite.
+  Add to that loop, since it writes device state: **tap feedback**. On a device with
+  `show_touches` OFF, act once and confirm the circle appears and the note says so; quit Atlarix
+  and confirm `adb shell settings get system show_touches` reports `null` again (not the literal
+  string `"null"`). On a device where the user had it ON, confirm Atlarix says nothing and leaves
+  it on after quitting.
+- **A test that reuses the implementation's own predicate cannot catch the predicate being
+  wrong.** `resolve-toolset-unattended.test.ts` asserted `!names.some(n => n.startsWith("browser_"))`
+  — the same expression as the filter it was testing. When `browser` lost its underscore the
+  filter stopped covering it and the test kept passing, VACUOUSLY. It now NAMES the five
+  view-driving tools, and has a positive control (attended runs DO get them) so
+  "dropped everywhere" cannot pass either. Verified by reverting the filter and watching three
+  tests fail.
+- **`vi.mock` cannot intercept a call made inside the same module.** `ensureTapFeedback` calls
+  `runDeviceCli` from within `device-tools.ts`, so the call is a lexical binding that never goes
+  through the module's exports — a spread-mock of the module leaves it untouched, and the test
+  observes nothing while looking like it works (empty `calls` array, four confusing failures).
+  Use an explicit seam (`setDeviceCliRunnerForTests`, same shape as
+  `setGlobalAtlarixDirForTests`) rather than restructuring production code around the mock.
+- **Two things the security review flagged as CONTEXT, not findings — both pre-existing, both
+  worth knowing.** (a) `pollMcp` (`automations/pollers/mcp.ts`) looks a server up by
+  `trigger.serverId` with **no workspace predicate**, and `upsertMcpConsentIfNeeded`
+  (`automations/service.ts`) grants `consent:"always"` for an arbitrary `serverId`. It is not
+  exploitable across workspaces today because the invocation still goes through `mcp_call` with
+  the automation's own `workspaceId` — the id is used only for the name lookup and the consent
+  row. Untouched by v14.41.0; tighten it when automations are next opened. (b) `forge.config.ts`
+  interpolates a lockfile `version` into `name@<value>` and `runNpmInstall` uses `shell: true`
+  on Windows, so a crafted `package-lock.json` could yield an unexpected package spec. Requires
+  write access to the lockfile, which already dictates tarball URLs and can carry `postinstall`
+  — so it grants nothing new. Belt-and-braces if ever wanted: reject a version not matching
+  `/^\d+\.\d+\.\d+[\w.+-]*$/` and resolve `npm.cmd` explicitly instead of `shell: true`.
+- **`RulesetDecision` is deny-only, and the permission gate's `??` composition DEPENDS on that.**
+  `evaluateRuleset` returns `{kind:"deny"} | null` — there is no allow decision — which is why
+  checking the as-called name and then the canonical name cannot fail open. **If an allow or ask
+  decision is ever added to the ruleset, revisit `tool-execute.ts`'s composition before doing
+  it**, because a non-null allow would short-circuit the canonical check.
+- **SECURITY REVIEW FINDING (fixed): the same value, three treatments.** `mode:"logs"`'s
+  `package` was interpolated into an iOS NSPredicate with no validation, while
+  `action:"launch"` validated the identical kind of value and the Android logs path quoted it.
+  `.split(".").pop()` is not a sanitiser — a dotless payload survives it whole — so
+  `x" OR message CONTAINS "password` widened a filter the tool still reported as app-scoped.
+  Validated once up front now. **When one untrusted value reaches several call sites, the risk
+  is the DIFFERENCE between their treatments**, because checking one site convinces you the
+  value is handled.
+- **`execFile` protects the local shell, not the far one.** `adb shell <args…>` joins its
+  arguments and runs them through `/system/bin/sh -c` on the DEVICE, so an argv array buys
+  nothing there: `input text "a; rm -rf /sdcard/x"` runs the `rm`. Quote for the device shell.
+  The reason it matters is not agent privilege (it has `run_command`) but that an agent types
+  what it READ — this is a prompt-injection path into a device shell.
+- **A prefix test is only as stable as the naming convention it assumes.** `resolve-toolset.ts`
+  dropped UI-driving tools headless/unattended with `startsWith("browser_")`. Consolidating to a
+  tool named plain `browser` made that FALSE, so the act tool was silently offered to headless
+  benchmark runs with no window and to unattended automations nobody watches. The plan itself
+  asserted this filter "keeps working automatically" — it did not. Now a named `DRIVES_A_VIEW`
+  predicate lists the tools, and `mobile_*` is in it for the same reason.
+- **`NEVER_TRIM` has a bar, and the alternative is usually better.** `mobile_inspect`'s
+  screenshot-is-a-last-resort wording mirrors `browser_inspect`'s, but that list is for prose
+  preventing an OBSERVED failure and no device has been driven yet. Instead the tool's DEFAULT
+  (no `mode`) is the cheap text read, and its first sentence — the only part a peripheral tool
+  binds — says so. Work with the reveal mechanism rather than exempting yourself from it.
+- **A ceiling left high is a ratchet that only loosens.** `prompt-budget.eval.test.ts`'s per-mode
+  ceilings move DOWN with every prefix reduction, or the next accidental growth is free.
+- **A deleted UI control can make a threat model worse, not better.** `DESIGN_NOTES.md`'s
+  nested-repo-trust note cited the clone dialog as the re-entry path. Deleting the dialog made a
+  mid-session clone the ONLY way to clone, i.e. the normal case. Re-read a threat note when you
+  delete the thing it names.
 
 ## 🔜 Next session — the queue, in order
 
@@ -349,7 +609,13 @@ These are trips and clicks, not tasks. Each fix is already shipped.
       roaming request being reported as unsupported.
 - [ ] **CI must resolve the win32 + linux TypeScript 7 platform binaries.** Only darwin-arm64 is
       proven.
-- [ ] **Confirm `[prompt-cache]` still shows a large `read=` on later turns in a mode.** A `write=`
+- [ ] **Confirm `[prompt-cache]` still shows a large `read=` on later turns in a mode.**
+      **PROMOTED 2026-09-02 — this now BLOCKS the v14.41.0 prose work** (see the header). The
+      prefix is ~14,600 tokens in Build and sits inside one cache breakpoint; whether that is
+      paid once or every turn is the difference between the remaining prose cuts being
+      pointless and being the most valuable thing in the cycle. Core models get placement
+      `"none"` (`anthropic-cache-breakpoints.ts`), i.e. we depend on the provider matching a
+      byte-identical prefix — which is exactly the mechanism that fails silently. A `write=`
       that jumps every turn would mean the per-mode tool-description tiering is invalidating the
       cached prefix.
 
@@ -753,6 +1019,113 @@ approval, MCP description wrapping + OAuth-URL validation, the universal write-c
 ---
 
 ## 🪤 Traps worth not rediscovering
+
+### A silent zero is the failure mode to design against, twice over
+
+Both of this cycle's real bugs returned a plausible-looking ZERO instead of failing.
+
+**The prompt-budget measurement.** Tools register themselves only as a side effect of
+importing `lib/tools/index`; nothing calls an `initializeTools()` at startup (its log line
+never appears in a packaged boot). `resolve-toolset` imports `ToolRegistry` from
+`./registry` DIRECTLY, so it does not pull the index in — meaning the meter could resolve
+zero tools and report a prefix of zero tool tokens without throwing. It under-reported by
+~10,000 tokens and looked exactly like a saving. **Caused by a dead-code report:** knip
+flagged an unused helper, and removing it took the load-bearing side-effect import with it.
+Now: the import is back with a comment saying it must not be cleaned up, an empty surface
+THROWS (the caller already degrades that into a visible warning), and
+`prompt-budget-registry.test.ts` deliberately does not import the index so its absence is
+the assertion. **A dead-code report cannot tell a load-bearing side-effect import from
+noise — check what an "unused" import was holding up before deleting it.**
+
+**The token budget cap.** `localValue` used `""` for two states — "not editing, show the
+saved value" and "the user cleared the field" — so clearing put the saved number straight
+back. The only way out left a literal `0` on screen, which then failed a `> 0` check and
+silently deleted the override: the field displayed a cap of zero while the provider was on
+automatic. **Two states sharing one spelling, and the display disagreeing with the stored
+value.** Reported by the owner, not by any test. When a control has an "unset" state, give
+it its own value (`null`), and have the UI SAY which state it is in rather than leaving an
+empty box to be interpreted.
+
+The general rule: an error is a gift, a zero is a trap. When a measurement can legitimately
+be small, make the impossible case throw.
+
+### A meter that measures the wrong thing is worse than no meter
+
+Found 2026-09-02 while sizing the prompt. Three faults in one function
+(`token_count_handlers.ts`), and the shape of them is the lesson.
+
+**It measured what it BUILT, not what dispatched.** It called `constructSystemPrompt` and
+stopped — no tools array — so it reported ~4,000 tokens against a real fixed prefix of
+~15,300 in Build. The tool DESCRIPTIONS (4,183) and, larger, the parameter SCHEMAS (5,747)
+are inside the same cache breakpoint and billed on every turn, and nothing had ever counted
+them. `tool-reveal.ts` had reasoned carefully about descriptions being the cost, which was
+true when it was written and had since stopped being true.
+
+**It re-derived a decision the dispatch already makes.** It hand-rolled work-mode resolution
+instead of calling `resolveEffectiveWorkMode`, and yielded `undefined` whenever
+`intentMode === "auto"` — which sends the prompt builder down its legacy all-five-modes path,
+a shape whose own dev warning says "never use for live streams". **When two places answer the
+same question, one of them is wrong and you will not find out from either.**
+
+**It read global state for a per-session decision** (`settings.workModePreference`, when
+`chatSessions.workMode` has owned it since v14.36.0) — the third instance of that class.
+
+The fix that matters beyond this bug: the budget eval reads `body.messages` + `body.tools`
+off the FAKE SERVER's recorded request. That is why it can be trusted, and it also revealed
+that a real dispatch runs ~1,100 tokens ABOVE a bare builder measurement (mode reanchor +
+ContextAssembler pointers) — a gap no amount of calling the builder directly would have shown.
+
+### The advertised schema and the runtime guidance have to agree
+
+`read_file` advertised three paging schemes (`max_lines`, `start_line`+`end_line`,
+`offset`+`limit`) — 1,269 chars of schema against a 226-char description, on the most-called
+tool in the app. Collapsing to `offset`/`limit` was easy; the part worth remembering is that
+its own truncation FOOTERS still said "lower `max_lines`" and "use `start_line`/`end_line`",
+i.e. the tool was telling the model at runtime to use parameters it could no longer see.
+`background_jobs`' description named `job_id` five times over after the same change.
+**Grep the tool's own output strings whenever you change its schema.**
+
+### Advertising a parameter the harness overwrites is worse than free
+
+`grep.workspace`, `grep.workspaceId`, `plan.workspaceSessionId`, `automations.workspaceId`,
+`session_search.workspaceId` were all in the model's schema. The turn runner injects them by
+spreading `...tc.args` and THEN overwriting, so whatever the model sent was discarded — it
+paid tokens for parameters it could not affect and was invited to guess a workspace id.
+`chatMode` and `_chatSessionId` were already injected without being advertised, so the right
+pattern existed in the same file. Saving: ~290 tokens in Build. The point is the surface, not
+the tokens.
+
+### `git grep` found the handlers; it did not find the tools
+
+Auditing the retired `"global"` scope, I checked `mcp_handlers.ts`, found every read filtered
+on `scope = 'workspace'`, and said so. **Wrong.** `lib/tools/mcp.ts` had two more sites and
+`lib/workspace/workspace-capabilities.ts` a third, and one had a live consequence:
+`listConfiguredMcps` with no workspace queried `scope = 'global'` ALONE, and since those rows
+were purged by migration 0049 and nothing can create one, `list_available_mcps` returned an
+empty list through a query that could never match. Both MCP tools are
+`requiresWorkspace: false`, so that path is reachable. Empty was the CORRECT answer and it was
+arriving by accident. **When you conclude "every call site does X", name the files you looked
+in — the ones you did not name are the ones that bite.**
+
+### SQLite has no `ALTER COLUMN SET DEFAULT`
+
+`mcp_servers.scope` still defaults to `"global"`, the retired value — a latent trap, since
+every read filters `scope = 'workspace'` and an insert omitting it would save a server that is
+then invisible with nothing to explain why. It is unreachable (both insert paths bind it), and
+it STAYS, because flipping a default in SQLite means rebuilding the table — the same cost as
+dropping the column. Changing it in `schema.ts` without a migration would be worse still: new
+installs would get one default and existing ones the other, so the schema would describe
+neither. Same reasoning keeps `installed_skills.scope`, which is part of a composite primary
+key. **Narrow the TYPES, leave the columns.**
+
+### A comment asking people to remember is not a control
+
+`SettingsList.tsx` opened with a comment saying an entry with no matching section "is a dead
+link that silently does nothing", and cited `team` as a past instance. Then the per-project
+move deleted the `workflow`, `mcp` and `skills` sections — and would have left three more
+dead entries, for exactly the reason the comment described. `settings-nav-parity.test.ts` is
+the control now (and was verified to FAIL against a reintroduced dead entry before being kept).
+
 
 ### Moving DNS: the zone is bigger than the zone you can see
 

@@ -23,7 +23,8 @@ export function DeepLinkProvider({ children }: { children: React.ReactNode }) {
       // Update with timestamp to ensure state change even if same type comes twice
       setLastDeepLink({ ...data, timestamp: Date.now() });
       if (data.type === "add-mcp-server") {
-        navigate({ to: "/settings/mcp" });
+        // MCP servers live under Integrations, scoped to the open project.
+        navigate({ to: "/integrations/mcp" });
       } else if (data.type === "add-prompt") {
         navigate({ to: "/" });
       }

@@ -31,6 +31,14 @@ export interface EnforceContextBudgetParams {
   limitedMessageHistory: BudgetHistoryMessage[];
   codebasePrefixMessages: readonly ModelMessage[];
   otherCodebasePrefixMessages: readonly ModelMessage[];
+  /**
+   * Bound tool descriptions + parameter schemas for this turn.
+   *
+   * Required, not defaulted: this function decides what to TRIM to fit the
+   * window, and it used to price the prefix without the tool surface — so it
+   * believed it had ~6,700 tokens more room than it had. A silent 0 is the bug.
+   */
+  toolSurfaceTokens: number;
 }
 
 export interface EnforceContextBudgetResult {
@@ -45,11 +53,33 @@ function totalPrefixTokens(prefixes: readonly ModelMessage[]): number {
   return prefixes.reduce((acc, m) => acc + estimateTokens(String(m.content ?? "")), 0);
 }
 
+/**
+ * What a dispatch will actually occupy.
+ *
+ * `toolSurfaceTokens` IS NOT OPTIONAL BY ACCIDENT. This function counted the
+ * system prompt, the history and the codebase prefixes, and stopped — omitting
+ * the bound tool descriptions and parameter schemas, which are ~6,700 tokens in
+ * Explore and ~9,300 in Build, ride inside the same cache breakpoint, and are
+ * billed on every single turn.
+ *
+ * That made this an UNDER-estimate feeding `enforceContextBudget`, i.e. the
+ * thing that decides what to trim to fit the window. Atlarix believed it had
+ * ~6,700 tokens more headroom than it had, so it could allow a dispatch that
+ * overflows and compact later than it should.
+ *
+ * The caller computes it once per turn from `measureToolSurface`
+ * (`lib/context/prompt-budget.ts`), which resolves the toolset through
+ * `resolveToolsetForSession` — the same single assembly point both stream
+ * branches use. Required rather than defaulted to 0, because a silent 0 here is
+ * exactly the bug this parameter exists to fix.
+ */
 export function estimateDispatchTokens(params: {
   systemPrompt: string;
   history: BudgetHistoryMessage[];
   codebasePrefixMessages: readonly ModelMessage[];
   otherCodebasePrefixMessages: readonly ModelMessage[];
+  /** Bound tool descriptions + parameter schemas for this turn's surface. */
+  toolSurfaceTokens: number;
 }): number {
   const msgTok = params.history.reduce(
     (acc, m) => acc + estimateTokens(m.content ?? ""),
@@ -57,6 +87,7 @@ export function estimateDispatchTokens(params: {
   );
   return (
     estimateTokens(params.systemPrompt) +
+    params.toolSurfaceTokens +
     msgTok +
     totalPrefixTokens(params.codebasePrefixMessages) +
     totalPrefixTokens(params.otherCodebasePrefixMessages)
@@ -206,6 +237,7 @@ export async function enforceContextBudget(
       history: limitedMessageHistory,
       codebasePrefixMessages,
       otherCodebasePrefixMessages,
+      toolSurfaceTokens: params.toolSurfaceTokens,
     });
 
   const overBudget = () => currentEstimate() > tierLimit;

@@ -38,7 +38,6 @@ const MAIN_KEYS = [
   "ATLARIX_CORE_MODEL_3",
   "ATLARIX_CORE_MODEL_4",
   "TEMPLATE_TOKEN",
-  "OAUTH_CLIENT_ID",
 ] as const;
 
 /** Keep in sync with `forge.config.ts` `packageAfterPrune` (named export for fallback + npm install roots). */

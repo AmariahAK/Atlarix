@@ -148,11 +148,16 @@ describe("v14.8.8 — per-tool guidance rides the capability-gated tool schema",
     // The guidance relocated out of AGENTS.md now lives on the tool itself.
     expect(runCmd).toMatch(/auto-background|background=true/i);
     // v14.15.0 removed the Preview tab — a dev server's localhost URL is now
-    // opened as a BROWSER tab, so the guidance names browser_navigate rather
+    // opened as a BROWSER tab, so the guidance points at the browser rather
     // than the old target:"preview". This assertion tracked the deleted feature.
-    expect(runCmd).toContain("browser_navigate");
+    //
+    // v14.41: browser 6→2, so it names the consolidated tool. Asserting on the
+    // retired `browser_navigate` would now pass through the alias map while the
+    // model was being shown a name it cannot call — which is the exact failure
+    // this eval exists to catch, one level up.
+    expect(runCmd).toContain("browser(");
     // Browser guidance is present because browser tools are in build mode.
-    expect(descOf(req, "browser_navigate")).toBeTruthy();
+    expect(descOf(req, "browser")).toBeTruthy();
     // v14.8.9: browser_inspect steers "what do you see" → visual, screenshot is
     // last resort, and the "VISUAL confirmation" lure is gone (the observed bug).
     const inspect = descOf(req, "browser_inspect")!;

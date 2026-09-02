@@ -103,7 +103,7 @@ const NOISY_PREVIEW_RESOURCE_TYPES: ReadonlySet<string> = new Set([
  *
  * Deliberately NOT per window: the `persist:atlarix-browser` session (one cookie
  * jar, so a login the user performed themselves works everywhere — what
- * browser_tabs already promises the model) and `paintHost` (a compositor
+ * the browser tool already promises the model) and `paintHost` (a compositor
  * surface, not state).
  */
 export type BrowserScope = {
