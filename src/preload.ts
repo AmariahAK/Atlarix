@@ -107,15 +107,6 @@ const validInvokeChannels = [
   "nodejs-status",
   "install-node",
   "select-node-folder",
-  "github:start-flow",
-  "github:cancel-flow",
-  "github:list-repos",
-  "github:get-repo-branches",
-  "github:is-repo-available",
-  "github:create-repo",
-  "github:connect-existing-repo",
-  "github:push",
-  "github:disconnect",
   "get-app-version",
   "whats-new:get",
   "get-sentry-config",
@@ -177,8 +168,6 @@ const validInvokeChannels = [
   "take-screenshot",
   // adding app to favorite
   "add-to-favorite",
-  "github:clone-repo-from-url",
-  "github:cancel-clone",
   // Provider API Keys
   "provider:get-api-key",
   "provider:set-api-key",
@@ -208,7 +197,6 @@ const validInvokeChannels = [
   // Dialog
   "dialog:openDirectory",
   // Typed destination folder validation (clone dialog)
-  "workspace:validate-parent-dir",
   // SearxNG
   "searxng:health-check",
   "searxng:validate-url",
@@ -334,10 +322,6 @@ const validReceiveChannels = [
   "whats-new:changed",
   "window:fullscreen-changed",
   "app:output",
-  "github:clone:progress",
-  "github:flow-update",
-  "github:flow-success",
-  "github:flow-error",
   "deep-link-received",
   "plan-changed",              // Realtime plan updates from Supabase
   "auth:resolved",             // main → renderer: the startup session restore SETTLED (user or null). Unlike plan-changed this always fires — a restore that found nothing is still an answer the renderer needs.

@@ -667,10 +667,13 @@ Noted, not scheduled. Sources: opencode `v1.18.17`, claude-code `v2.1.229` / `23
   cases were never examined at all. Re-open with the read-deny work, which would cover both tools at
   once rather than half of one.
 - **Nested-repo trust.** Upstream fixed nested git repos inheriting trust from a parent directory.
-  Our re-entry path is the clone dialog: the agent clones a repo into the workspace, and that repo
-  ships `.atlarix/hooks.json`, which is `/bin/sh -c`'d on every tool call. The original hole was
-  closed with authority-file approval — the open question is whether a repo cloned *mid-session*
-  re-triggers it.
+  This note used to name the clone dialog as our re-entry path. That dialog was deleted in
+  v14.41.0 — and the threat did NOT go with it. It got slightly worse: cloning is now done by the
+  agent running `git clone` through `run_command`, which is the ONLY route left, so a repo arriving
+  mid-session is now the normal case rather than the unusual one. The shape is unchanged: the
+  cloned repo ships `.atlarix/hooks.json`, which is `/bin/sh -c`'d on every tool call. The original
+  hole was closed with authority-file approval — the open question is still whether a repo cloned
+  *mid-session* re-triggers that approval, and it is now worth more than it was.
 - **Approval notifications.** Upstream fixed Notification hooks not firing for permission prompts.
   An OS notification when the window is backgrounded and a turn is waiting for approval is small
   and immediately felt, especially alongside automations.
@@ -681,3 +684,397 @@ Noted, not scheduled. Sources: opencode `v1.18.17`, claude-code `v2.1.229` / `23
   newer — modern models don't need the scaffold — and deleted the startup tip suggesting custom
   subagents. That is upstream arriving at our own net-less-surface filter. It argues for an eval on
   whether the `plan` tool helps or hurts on Core models, not for deleting anything on vibes.
+
+## No host-specific integrations — 2026-09-02
+
+The owner's rule, in their words: **"hardcoding does not help anyone at all."** It settled two
+deletions in v14.41.0 and is the reusable part.
+
+A "Clone repo" button that runs a GitHub device-code flow and stores a GitHub API token is not a
+cloning feature. It is a GitHub cloning feature, and GitLab, Bitbucket, self-hosted and plain SSH
+can never reach it. The same for an Automations trigger that polls the GitHub API for a new PR: the
+capability is "poll an API for new information, a mention, or a finished job", and that capability
+is identical on every host.
+
+**The test to apply.** For an integration, ask what the generic capability is, then ask whether we
+already have it. If we do, the host-specific version is not a feature — it is a hardcoded instance
+of one, and it carries costs the generic path does not: a credential to hold, refresh and leak; a
+poller to maintain; and a UI that promises a shape only one vendor has.
+
+- Cloning → `git clone` via `run_command`, using the user's OWN auth (SSH keys, credential helper,
+  `gh`/`glab`). Atlarix holds nothing. Strictly more capable than what was deleted.
+- Polling → an MCP trigger reaches any API; a schedule plus a command covers the rest.
+
+**What this is NOT an argument against.** Signing in with GitHub stays: that is an identity
+provider, not an integration, it goes through Supabase, and Supabase holds the OAuth credentials
+server-side. Nor is it an argument against the Atlarix Reviewer GitHub App, which IS a
+GitHub-shaped product because it reviews GitHub pull requests.
+
+**The cost of getting this wrong is not just the dead code.** The deleted `githubAccessToken` had
+already produced a real user report: people conflated it with signing in to Atlarix, because two
+GitHub credentials existed for unrelated reasons and only one of them mattered.
+
+## An alias must be honoured where calls are DISPATCHED, not where names are looked up — 2026-09-02
+
+`ToolMetadata.aliases` exists so a retired tool name keeps working: a stored transcript that
+contains it still renders, and a model that learned it still gets through. `tool-name-aliases.test.ts`
+pinned that contract when `preview_test` became `browser_test`, and it passed — because it tested
+`ToolRegistry.get` and `resolveName`, which is where the alias map lives.
+
+**No dispatch path honoured it.** Both paths look a tool up in the resolved ToolSet first, and a
+ToolSet advertises canonical names ONLY — that is the other half of the alias contract. So:
+
+- **text-tool path** — `if (!tools[toolCall.toolName])` → `Error: Unknown tool "browser_navigate"`,
+  reached before `ToolRegistry.execute` could resolve anything. Fixed in v14.41.0 by resolving for
+  the lookup. This is the path that mattered most: text tools are the fallback for models WITHOUT
+  native tool calling, i.e. exactly the population most likely to emit a name it learned.
+- **native path** — the provider SDK validates the call against the tools it was handed, so an
+  alias fails before any Atlarix code runs. Left as-is deliberately: the model has only the current
+  name in front of it, and a loud failure it can retry beats a repair hook.
+
+**The second-order defect, which is the more interesting one.** Making the alias executable
+*created* a security regression, because a permission rule is a plain string match with no idea
+aliases exist. Two directions, both live:
+
+- A rule denying `browser` did nothing against `browser_navigate` — the strings differ.
+- Canonicalising at the dispatch site instead would have silently voided every rule a user had
+  already written against an old name.
+
+So the gate evaluates BOTH the as-called name and the canonical one, first deny wins — adding a
+name can only tighten it. And the canonicalisation happens in exactly one place, the gate, because
+only the gate sees both strings.
+
+**What the tests taught here.** A registry-level alias test is not evidence that a call by a retired
+name works. Test the DISPATCH, through the funnel, or the assertion is about a lookup nobody
+performs. Both fixes were verified by reverting each one and watching a specific eval fail.
+
+## Lint caught what four test files could not — 2026-09-02
+
+Re-keying the browser activity labels from tool-name dispatch to `args.action` dispatch left the
+function's trailing `return null` unreachable. Every label test passed, because they all pass
+browser tools. `oxlint`'s `no-unreachable` was the only signal, and the question it forced was the
+useful one: if this can never return null, what happens to a non-browser tool? (Nothing — the
+`BROWSER_TOOLS` guard at the top is the null path. But that had to be checked, not assumed, and
+the answer is now a comment where the missing `return` used to be.)
+
+## A fixture that outlives the shape it fixtures — 2026-09-02
+
+MCP servers have been workspace-scoped since migration 0049, which deleted every `scope = 'global'`
+row; both writers in `mcp_handlers.ts` hardcode `"workspace"` (the one `"global"` in that file is a
+legacy parameter type immediately overridden on the next line). So the `scope = 'global'` branch in
+`listConfiguredMcps` and `mcp_call`'s lookup could never match a real row — and a workspace-less
+caller got an empty list by accident rather than by design.
+
+Two evals still passed, because both inserted their fixture directly with `scope: "global"`. The
+fixture was the only thing in the codebase producing that shape, so the tests were verifying that
+dead code still worked rather than that the feature did.
+
+**The general shape.** A test that constructs its own rows can assert on a state the product has
+retired. When a query change breaks such a test, the first question is what shape the FIXTURE
+builds, not whether the change is wrong. Both evals now bind to `ctx.appId` with
+`scope: "workspace"`, which is what a real server looks like.
+
+**And on the verification itself:** this was checked by `git stash`-ing the whole change and
+re-running the two evals, which is the only way to tell "my change broke this" from "this was
+already red". They passed on the stashed tree, which is what made it worth chasing rather than
+dismissing.
+
+## Mobile: refs, not coordinates — 2026-09-02
+
+`mobile_inspect` + `mobile` mirror the browser pair on purpose, down to the naming, so a
+model that knows one knows the other. Three decisions are worth keeping.
+
+**Refs, not coordinates.** `adb shell input tap X Y` is the obvious primitive and the wrong
+contract. A coordinate is correct for one screen size and density; on any other it taps empty
+space — and it does so by SUCCEEDING. `input tap` returns 0, nothing happens, and the agent
+reads an unchanged screen and concludes the app is broken. `uiautomator dump` gives `bounds`,
+`resource-id`, `text`, `content-desc` and `clickable` per node, which is the exact analogue of
+a browser element ref, and a stale ref fails loudly. Refs are re-resolved against the LIVE
+screen on every act, never cached from the last read: a cached index still resolves after a
+screen change, to a different element, which is the bug refs exist to prevent.
+
+**Text first, screenshot last — and the DEFAULT is the cheap one.** The same argument
+`browser_inspect` makes: a hierarchy dump answers "what is on screen", "is the button there",
+"did the form submit" in a few hundred tokens, and a PNG answers fewer questions for thousands.
+Both mobile tools are peripheral under `tool-reveal`, so a Build turn binds their first
+sentence and a `tool_help` pointer — which is why the first sentence carries the cheap default
+rather than an introduction, and why neither needed a `NEVER_TRIM` entry. That list is
+reserved for prose preventing an observed failure; making the default correct is strictly
+better than exempting a tool from a mechanism that exists to save tokens.
+
+**Report a platform gap as a LIMITATION, not a failure.** `simctl` screenshots, streams logs
+and launches an app; it has no hierarchy dump and no input injection (those need `idb`, a
+separate install with its own daemon). An agent told "not supported, do not retry" stops; an
+agent told "failed" retries, and retrying a capability the platform does not have is an
+expensive way to learn nothing. The wording is asserted by a test, because it is the
+behaviour, not decoration.
+
+**Every mode, not build/debug only.** The first cut was build/debug, on "you do not tap
+through a simulator from Explore". That was wrong, and the argument that corrects it is the one
+already written for `browser`: neither tool touches the WORKSPACE — driving an emulator changes
+a device's state, not the project — so Plan's filesystem-read-only rule is untouched, and "what
+does this look like on a phone" is a question, which is Explore's whole job. The cost is ~471
+tokens on each read-only mode, and it is affordable only because both tools are peripheral
+under `tool-reveal` in every mode: one sentence plus a `tool_help` pointer.
+
+Of that 471, descriptions are 140 and parameter SCHEMAS are 318. The 140 is already
+post-reveal, so reveal is doing its job; the schemas are the residue, because reveal trims
+parameter PROSE and deliberately keeps every parameter, type, enum and default. That is where
+to look next, not at the descriptions.
+
+**But NOT where there is nothing to look at.** Dropped headless (the Electron-free npm CLI and
+the Harbor agent that wraps it) and dropped unattended (an automation nobody is watching) — the
+same `DRIVES_A_VIEW` predicate as the browser. So making them every-MODE did not put them in
+the headless surface, and no change to the npm package or the Harbor integration is needed.
+`adb` may well exist on a benchmark machine; an emulator does not.
+
+**`execFile` does not protect the FAR shell.** `runDeviceCli` passes an argv array, so there is
+no local shell to inject into — but `adb shell <args…>` joins its remaining arguments and runs
+the result through `/system/bin/sh -c` ON THE DEVICE. So `input text "a; rm -rf /sdcard/x"`
+runs the `rm`. The fix is to quote for the device shell (`quoteForDeviceShell`, POSIX
+`'\''`) and to VALIDATE the package id rather than quote it, since anything outside
+`[A-Za-z0-9._-]` is a model mistake worth reporting.
+
+This is not an escalation of what the agent may do — it can already call `adb` through
+`run_command`. It matters because the typed string is not always the agent's own words: an
+agent types what it READ, from a page or a file, which makes this the path by which
+prompt-injected content would reach a device shell. Quoting also removed the need for adb's
+`%s` space substitution, and is better than it: `%s` mangles a literal percent in the text.
+
+**Watching it work: use the platform's own indicator.** `ai-cursor.ts` draws a pointer, a
+target ring and an action chip into the PAGE, which is possible only because we inject JS into
+something we control. An emulator is a separate OS-level window we can only send input events
+to. Android already solves this with the `show_touches` developer setting, so the equivalent of
+the AI cursor is one `settings put` — and it applies to taps we send exactly as to the user's
+own.
+
+That writes a setting on someone's device, so the restraint is the design:
+
+- once per device per process, and on an **ACT only** — looking at a screen must never change it;
+- the previous value is read BEFORE writing, and restored in the `before-quit` chain (an unset
+  key is `delete`d, not written back as the literal string `"null"` that `settings get` prints);
+- a device that already had it on is recorded as such and left completely alone on restore;
+- entirely best-effort and silent on failure, because a visual nicety must never be the reason
+  a tap fails — and it must not CLAIM to have worked when the write failed, or restore would
+  later "undo" a change that never happened.
+
+The lifecycle routes through `setDeviceCliRunnerForTests`, an explicit seam: `vi.mock` cannot
+intercept it, because `ensureTapFeedback` calls `runDeviceCli` from inside the same module and
+the call is a lexical binding that never goes through the module's exports.
+
+**No npm or Harbor change was needed for any of this,** which was worth checking rather than
+assuming: the headless surface is COMPUTED by `resolveToolsetForSession`, never declared, and
+`headless-runner.ts` sets `ATLARIX_HEADLESS=1` before any turn resolves a toolset. Nothing in
+`src/headless/` or the docs enumerates a tool list, so making the mobile tools every-MODE did
+not put them in the CLI's surface.
+
+**These calls do NOT go through the command sandbox, and that is worth saying out loud.**
+`run_command` is enforced by the OS sandbox (Seatbelt / AppContainer / Landlock); the mobile
+tools `execFile` `adb` directly from the main process, exactly as the browser tools call
+Electron APIs directly. So Plan and Explore running a read-only sandbox profile does not
+constrain them — which is consistent with the reasoning above (a device is not the workspace)
+but must not be mistaken for "the sandbox covers this".
+
+What DOES cover them is the permission ruleset at `runToolExecute`, which is tool-name based,
+so `{"deny": ["mobile"]}` in `.atlarix/permissions.json` works and is the supported way to
+switch this off per project. The reach is also not new: `adb` was already available through
+`run_command`, so the sandbox never constrained driving a device — the wrapper adds refs, not
+reach.
+
+**The asymmetry was the vulnerability.** The release security review found one real issue, and
+its shape is the lesson: three call sites took an app identifier from the model, and each
+treated it differently — `action:"launch"` VALIDATED it with `isValidPackageId`, the Android
+`logs` path QUOTED it for the device shell, and the iOS `logs` path did NEITHER, interpolating
+it into an NSPredicate (`process CONTAINS "…"`). `.split(".").pop()` was standing in for a
+sanitiser there, and it is not one: a payload containing no dot passes through whole, quotes
+included, so `x" OR message CONTAINS "password` widened a filter the tool then still described
+as scoped to one app.
+
+Not shell injection — `execFile` takes an argv array — but NSPredicate is an expression
+language, and this was the single place a model-relayed string reached an interpreter
+unescaped. The impact was bounded (omitting `package` with `level:"all"` already returns an
+unfiltered log), so the real damage was attribution: a cross-process selection presented as one
+app's log. Fixed by validating once, up front, for both platforms.
+
+**Worth generalising:** when the same untrusted value reaches N call sites, the risk is not the
+weakest treatment, it is the DIFFERENCE between them — because a reviewer checking one site
+concludes the value is handled. Validate at one boundary, before the branch.
+
+**Scope discipline.** No device manager, no install pipeline, no log streaming beyond a
+bounded tail. Booting emulators, installing APKs and tailing logs all work through
+`run_command` today; wrapping them would be surface without capability — the thing this
+release spent its budget removing. The wrapper earns its tokens only where it adds what
+`run_command` cannot: refs.
+
+**What a live device found that 30 mocked assertions could not.** The iOS half was run against
+a booted iPhone 17 simulator, and the mocked suite had been green through all of this:
+
+- `simctl io <id> screenshot -` looks like the `adb exec-out screencap -p` equivalent and is
+  not: `simctl` treats `-` as a FILENAME. Exit 0, zero bytes on stdout, and a junk file called
+  `-` in the working directory.
+- `--predicate 'messageType >= "Default"'` matched NOTHING — 0 characters against 18.7 MB
+  unfiltered. A silent zero, so every iOS log read reported "No recent entries" whatever had
+  happened. Apple's unified log has no "warn" level and the comparison operator does not apply
+  to that field.
+- A simulator log is the whole OS: 3.2 MB over two minutes filtered to errors, versus 184
+  characters with a process filter. That gap is why `package` exists on the read.
+- A real screenshot is 2.85 MB, i.e. ~3.8 MB of base64.
+
+Every one of those is a thing that "works" in a mock, because a mock returns what you told it
+to. **The general lesson is not "write more tests" — it is that a wrapper around an external
+CLI has to be run against that CLI at least once**, and the assertion that catches these is
+about the SHAPE of the real output (PNG magic bytes, a non-zero character count), not about
+the arguments we passed.
+
+The suite keeps `mobile-live-ios.test.ts` and `describe.skipIf`s it when nothing is booted, so
+it costs nothing on a machine without Xcode and is there the moment someone boots a device.
+
+**The ANDROID half remains unverified:** `adb` is not installed on this machine, so no part of
+the emulator loop has run. Tracked in docs/TODO.md as explicitly UNVERIFIED, and it should not
+be ticked off a green suite — the iOS findings above are the argument for why.
+
+## An error message is part of the tool's contract — 2026-09-02
+
+`browser({action:"fill"})` on Wikipedia's search box threw **"Illegal invocation"**. The cause
+was small: the handler chose its native `value` setter by elimination —
+`el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype`
+— and a ref can point at a WRAPPER rather than the field. A native accessor rejects a receiver
+of the wrong type, so the wrong guess THREW where a normal property assignment would have
+degraded quietly.
+
+What the failure cost is the interesting part, and it was all in the message. From the observed
+transcript: retry the identical call, retry again, try a click-then-fill batch, conclude "the
+entire action pathway is broken for refs on this page", then work around it by clicking a
+different element until a fillable input appeared. Three turns, and a correct diagnosis was
+never available, because "Illegal invocation" names a JavaScript invariant rather than anything
+the model could act on.
+
+So the fix is two things, and the second matters more:
+
+1. **Walk to the field.** `el.matches(fillable)` → else the contained one, else the ancestor.
+   The accessibility snapshot labels Wikipedia's wrapper "search input" because that is its
+   ROLE; the node is a div with the input inside. Component libraries do this constantly.
+2. **Say what the element is and what to do.** `<div> is not a field and contains none
+   (role="combobox"). It may be a wrapper that reveals the real input when clicked: try
+   action:"click" on this ref, then re-read the page…` — which is exactly the recovery the
+   model eventually found by trial and error.
+
+**And a lesson about reading transcripts.** That model concluded both `click` and `fill` were
+broken. Only `fill` ever was: the batch it cited had failed at its fill step. There is exactly
+one `.call` site in the entire browser tool, which settled it in one grep. A model's
+post-mortem is a hypothesis, not evidence.
+
+## A missing allowlist entry may be the decision, not the bug — 2026-09-02
+
+Compaction was invisible: the agent paused for several seconds mid-turn to summarise its own
+context, and nothing on screen said so. The obvious cause was `chat-activity-normalize.ts`
+omitting `"compaction"` from `VALID_TYPES`, so the event normalised to `null` and never reached
+the atom — and `compaction-activity.ts`'s comment saying that type "drives the raw-IPC banner
+(CompactionProgressStrip)" made that reading very plausible, since no such component exists.
+
+The omission is deliberate. The main process emits BOTH a `compaction` banner event and a
+parallel `background` one for the same moment; admitting the banner type would put two rows in
+the activity atom for one event. `compress-context-persistence.test.ts` pins the drop
+explicitly, as the Bug 1c contract, and failed the moment the "fix" landed — which is the test
+doing precisely its job.
+
+The pill therefore reads the `background` row matched by label, the same shape
+`useCompactionTokenVisuals` was already using. One channel, already working, no new type. The
+stale comment is corrected, because a pointer at a deleted component is what made the wrong
+answer look right.
+
+**The general form:** when a value is absent from an allowlist and adding it would fix your
+symptom, look for the test that pins the absence before you add it. If there is one, the
+absence is a decision and your symptom has another cause.
+
+## `success: false` has three meanings, and the card must tell them apart — 2026-09-02
+
+Reported from the packaged app: two rows with a green ✓ in the header and a red **"Tool
+failed"** underneath. Both were the system working correctly.
+
+Read back out of `session_messages` (the log records nothing structured about tool results —
+the DB does):
+
+```json
+{"success":false,"status":"noop","tokensBefore":7474,"tokensAfter":7474,
+ "summary":"Already compact: history is 7474 tokens (~39% of the 19200-token usable
+            budget) — nothing worth compacting. No action needed."}
+```
+
+```json
+{"success":false,"loop_guidance":"You have made this exact read_url call 3 times in a row
+  with identical input… This call was NOT executed. Do not repeat it."}
+```
+
+`envelopeFromObject` read `error`, then `message`, then gave up on the literal string
+`"Tool failed"` — and neither payload has either field. So the card **discarded a better
+explanation than it could possibly invent, and replaced it with an assertion that was false.**
+A generic fallback is not merely uninformative here; it actively misinforms.
+
+**The three meanings.** `success: false` is the right signal for the MODEL in all of them —
+the work did not happen — and only one of them is an error:
+
+| | Marker | Card |
+|---|---|---|
+| It broke | an `error` the tool wrote | red |
+| Nothing to do | `status: "noop"` | plain text |
+| Declined | `loop_guidance` present | plain text |
+
+Both non-error cases are marked EXPLICITLY. Nothing here infers "did anything happen" from the
+shape of a result, because that inference is how you get a confidently wrong label — which is
+what the header was already doing: the label map says "Context compacted" for
+`compress_context`, so the row claimed the one thing that had not occurred. It now says
+"Context already compact", reusing the wording the compaction banner has had since v14.8.11 so
+the two surfaces cannot drift.
+
+**And the sentinels.** `ToolRegistry.execute`'s failure branch fills in
+`error: fail.error ?? "TOOL_ERROR"` and `message: fail.message ?? "Tool returned an error"`.
+The first version of this fix read `error` first and surfaced `"TOOL_ERROR"` — worse than
+"Tool failed", because it looks like a code you could look up. They are skipped in favour of a
+real field, and remembered only as a last resort so an unexplained failure is not a blank card.
+
+**Two general shapes worth keeping.** A fallback string in a display path is a claim; make it
+the last resort after every field a tool might have written, and make it say only what you
+know. And when a card renders wrongly, the payload is in the DB — the text-tool path stores
+the handler's raw return while the native path stores the registry's wrapper, and reasoning
+about which one you are looking at is slower and less reliable than querying it.
+
+## Unifying an implementation does not unify its notifications — 2026-09-02
+
+v14.39.0's headline was that compaction had been THREE implementations with three thresholds
+and two summarizers, and became one compactor with three triggers. That consolidation was
+correct and is still correct. What it did not touch was how compaction ANNOUNCES itself, and
+that had quietly become the same mess one layer up: six hand-rolled `safeSend(…,
+"chat:activity", …)` calls across four files, emitting three different labels for one event.
+
+| Site | Emitted | Label |
+|---|---|---|
+| `context-assembly.ts` ×2 (automatic) | `compaction` only | "Context compacted automatically" |
+| `ask-branch.ts` ×2 (model) | `compaction` only | "Context compressed" |
+| `build-branch.ts` ×1 (model) | `compaction` only | "Context compressed" |
+| `compaction-activity.ts` ×2 | both, conditionally | "Context compressed" / "Summarizing in-task context" |
+
+**The inconsistency was the bug, not a tidiness complaint.** `chat-activity-normalize.ts` drops
+`type: "compaction"` deliberately (one moment must not produce two activity rows), so only the
+sites that ALSO emitted a `background` event were visible. The automatic pre-dispatch trigger
+did not — making the compaction a user never asks for, the one most likely to read as a hang,
+the only one with no indicator at all. Reported with the context ring pinned at 100% and
+nothing on screen. `emitModelCompactionActivity` had the same symptom from a different cause:
+its `background` event sat inside `if (outcome.success)`, so a no-op emitted only the dropped
+type.
+
+`emitCompactionActivity(sender, chatId, {id, trigger, status, noop, detail})` is now the only
+emitter. Two details are deliberate:
+
+- **It always sends both events.** Not "the caller decides" — that choice is what produced the
+  gap, and no call site has a reason to want one without the other.
+- **The label is DERIVED from trigger + phase, never passed in.** A per-site label string is
+  precisely how three variants drifted, and a label is not free-form here: the renderer matches
+  it against `/summariz|compress|compact/i`, so a site inventing new wording can silently opt
+  itself out of the UI. Deriving it makes that impossible.
+
+**The general shape.** After consolidating an implementation, ask what still talks ABOUT it.
+Telemetry, activity events, log lines and labels tend to be written at the call site, so they
+survive a refactor that unified everything underneath them — and they are the layer the user
+actually sees, which means the drift shows up as "the feature doesn't work" rather than as
+duplication.

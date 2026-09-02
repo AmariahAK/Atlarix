@@ -247,8 +247,12 @@ ToolRegistry.register({
         4096,
         500_000,
       ),
-      workspace: { type: "string", description: "Workspace root path (auto-provided)" },
-      workspaceId: { type: "number", description: "Workspace ID (auto-provided)" },
+      // `workspace` / `workspaceId` are NOT advertised. The turn runner injects
+      // them by spreading `...tc.args` and then overwriting, so anything the
+      // model sent was discarded — it was paying tokens for parameters it could
+      // not affect, and being invited to guess a workspace id. Same treatment
+      // `chatMode` and `_chatSessionId` already got. The handler below still
+      // receives them; they simply never enter the model's schema.
     },
     ["pattern"],
   ),
@@ -260,7 +264,9 @@ ToolRegistry.register({
     context_lines?: number;
     max_results?: number;
     max_bytes?: number;
+    /** Injected by the turn runner, never advertised — see above. */
     workspace?: string;
+    /** Injected by the turn runner, never advertised — see above. */
     workspaceId?: number;
   }) => {
     const maxResults = Math.min(200, Math.max(1, params.max_results ?? 20));

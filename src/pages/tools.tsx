@@ -116,7 +116,7 @@ const FEATURES: ToolFeature[] = [
     id: "workspace-open",
     title: "Open a workspace",
     shortDescription:
-      "Start from the welcome screen with Open folder or Clone repo — no global chat without a project folder.",
+      "Start from the welcome screen with Open folder — no global chat without a project folder.",
     category: "ai",
     steps: [
       "Sign in and land on the welcome launcher",

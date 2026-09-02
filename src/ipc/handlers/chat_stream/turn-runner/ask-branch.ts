@@ -42,6 +42,7 @@ import { getEffectiveModelForOptions } from "@/ipc/utils/get_model_client";
 import { safeSend } from "@/ipc/utils/safe_sender";
 import { estimateTokens, getContextWindow } from "@/ipc/utils/token_utils";
 import {
+  emitCompactionActivity,
   emitCompactionMirroredActivity,
   emitModelCompactionActivity,
 } from "@/ipc/handlers/chat_stream/compaction-activity";
@@ -80,6 +81,7 @@ import { resolveReasoningCatalogModelId } from "@/lib/routing/reasoning-detector
 import { resolveToolsetForSession } from "@/lib/tools/resolve-toolset";
 import {
   describeToolForMode,
+  parametersForMode,
   peripheralToolNames,
   revealSavings,
 } from "@/lib/tools/tool-reveal";
@@ -306,7 +308,11 @@ export async function runAskBranch(
                 description: describeToolForMode(tool, effectiveWorkMode),
                 inputSchema: normalizeToolInputSchemaForAiSdk(
                   simplifyToolParametersForProfile(
-                    tool.parameters ??
+                    // v14.41: parameter prose is tiered by the same per-mode
+                    // reveal that tiers descriptions (tool-reveal.ts). The
+                    // `.function.parameters` fallback stays for the few tools
+                    // that carry the OpenAI-style wrapper.
+                    parametersForMode(tool, effectiveWorkMode) ??
                       (tool as { function?: { parameters?: unknown } }).function
                         ?.parameters,
                     askCapabilityProfile,
@@ -408,15 +414,15 @@ export async function runAskBranch(
                         args && typeof args.reason === "string" && args.reason.trim()
                           ? args.reason.trim()
                           : "model-initiated";
-                      safeSend(event.sender, "chat:activity", {
-                        id: `compress-context-${req.chatId}-${Date.now()}`,
-                        type: "compaction",
-                        label: "Context compressed",
+                      // Minted ONCE and reused by the completion + error legs,
+                      // so the episode collapses to one row. See
+                      // emitCompactionActivity.
+                      const compactionEpisodeId = `compress-context-${req.chatId}-${Date.now()}`;
+                      emitCompactionActivity(event.sender, req.chatId, {
+                        id: compactionEpisodeId,
+                        trigger: "model",
                         status: "running",
-                        timestamp: Date.now(),
                         detail: reason,
-                        chatId: req.chatId,
-                        modelInitiated: true,
                       });
                       try {
                         const providerId =
@@ -452,7 +458,13 @@ export async function runAskBranch(
                             },
                           },
                         );
-                        emitModelCompactionActivity(event.sender, req.chatId, outcome, reason);
+                        emitModelCompactionActivity(
+                          event.sender,
+                          req.chatId,
+                          outcome,
+                          reason,
+                          compactionEpisodeId,
+                        );
                         // Context meter: push the new model-facing size so the UI
                         // DROPS after compression, mirroring the summarize path
                         // (useContextReport keeps the prior contextWindow). Without
@@ -482,15 +494,11 @@ export async function runAskBranch(
                           summaryPersisted: outcome.summaryPersisted,
                         });
                       } catch (e) {
-                        safeSend(event.sender, "chat:activity", {
-                          id: `compress-context-${req.chatId}-${Date.now()}`,
-                          type: "compaction",
-                          label: "Context compressed",
+                        emitCompactionActivity(event.sender, req.chatId, {
+                          id: compactionEpisodeId,
+                          trigger: "model",
                           status: "error",
-                          timestamp: Date.now(),
                           detail: String(e),
-                          chatId: req.chatId,
-                          modelInitiated: true,
                         });
                         return JSON.stringify({ success: false, error: String(e), reason });
                       }

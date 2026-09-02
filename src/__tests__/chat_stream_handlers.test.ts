@@ -60,8 +60,6 @@ vi.mock("../ipc/utils/git_utils", () => ({
   gitCurrentBranch: vi.fn(),
   gitLog: vi.fn(),
   gitInit: vi.fn(),
-  gitPush: vi.fn(),
-  gitSetRemoteUrl: vi.fn(),
   gitStatus: vi.fn().mockResolvedValue([]),
   getGitUncommittedFiles: vi.fn().mockResolvedValue([]),
   getCoAuthorTrailerForCommit: vi.fn(() => undefined),

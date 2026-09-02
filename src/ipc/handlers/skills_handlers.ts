@@ -51,13 +51,13 @@ export type SkillRegistryIndex = {
 
 export type InstallSkillParams = {
   skill: SkillManifestEntry;
-  scope: "global" | "workspace";
+  scope: "workspace";
   workspacePath?: string;
 };
 
 export type UninstallSkillParams = {
   skillId: string;
-  scope: "global" | "workspace";
+  scope: "workspace";
   workspacePath?: string;
 };
 
@@ -72,10 +72,9 @@ function assertValidInstallParams(params: InstallSkillParams): void {
     throw new Error("Invalid skill.compatibleModes");
   if (!Array.isArray(params.skill.files) || params.skill.files.length === 0)
     throw new Error("Invalid skill.files");
-  if (params.scope === "workspace") {
-    if (!params.workspacePath?.trim()) {
-      throw new Error("workspacePath is required when scope === \"workspace\"");
-    }
+  // Always required: workspace is the only scope there is.
+  if (!params.workspacePath?.trim()) {
+    throw new Error("workspacePath is required to install a skill");
   }
 }
 
@@ -286,13 +285,11 @@ export function registerSkillsHandlers() {
     requirePaidSkills();
     const skillId = params?.skillId?.trim();
     if (!skillId) throw new Error("skillId is required");
-    const scope = params.scope;
+    // Skills are workspace-scoped only (global was retired by migration 0049),
+    // so the two guards that used to stand here collapsed into this one: the
+    // `scope !== "workspace"` half is now unreachable by type.
     const workspacePath = params.workspacePath?.trim();
-    if (scope === "workspace" && !workspacePath) {
-      throw new Error("workspacePath is required when scope === \"workspace\"");
-    }
-
-    if (scope !== "workspace" || !workspacePath) {
+    if (!workspacePath) {
       throw new Error("workspacePath is required to uninstall a skill.");
     }
     const where = and(

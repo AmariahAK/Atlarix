@@ -33,7 +33,8 @@ import { cwdNoteForCommand } from "@/lib/commands/cwd-note";
 import { stripThinkBlocks } from "@/ipc/utils/thinking_tags";
 import { estimateTokens } from "@/ipc/utils/token_utils";
 import { appendAutonomousOp, autonomousOpFromPermissionExec } from "@/ipc/handlers/autonomous-session-state";
-import { emitCompactionMirroredActivity, emitModelCompactionActivity } from "@/ipc/handlers/chat_stream/compaction-activity";
+import { emitCompactionActivity,
+  emitCompactionMirroredActivity, emitModelCompactionActivity } from "@/ipc/handlers/chat_stream/compaction-activity";
 import { runCommandGateResult, emitFilePermissionActivity, enrichPermissionRequestForUi, emitAutoApprovedWritePreview, runCommandCategoryGateToolResult, shouldSkipPermissionWaitForRunCommand, requiresHumanReviewDespiteAutoApprove } from "@/ipc/handlers/chat_stream/permission-ui";
 import { isSystemScopeCommand } from "@/lib/system-scope-commands";
 import { resolveAskUserToolResult, flushInterruptedDraft } from "@/ipc/handlers/chat_stream/stream-lifecycle";
@@ -60,6 +61,7 @@ import { recordToolOnLedger } from "@/lib/tasks/task-ledger";
 import { resolveToolsetForSession } from "@/lib/tools/resolve-toolset";
 import {
   describeToolForMode,
+  parametersForMode,
   peripheralToolNames,
   revealSavings,
 } from "@/lib/tools/tool-reveal";
@@ -287,7 +289,14 @@ export async function runBuildBranch(
                 inputSchema: aiJsonSchema(
                   sanitizeJsonSchemaForProvider(
                     simplifyToolParametersForProfile(
-                      toolMeta.parameters ?? { type: "object", properties: {} },
+                      // v14.41: the reveal now tiers PARAMETER prose too, not
+                      // just descriptions — on Build's surface the schemas were
+                      // the larger half. Innermost, so the weak-model
+                      // simplification still applies last.
+                      parametersForMode(toolMeta, effectiveWorkMode) ?? {
+                        type: "object",
+                        properties: {},
+                      },
                       buildCapabilityProfile,
                     ),
                   ),
@@ -426,6 +435,24 @@ export async function runBuildBranch(
                           ? args.reason.trim()
                           : "model-initiated";
 
+                      // Minted ONCE and reused by the completion + error legs, so
+                      // the episode collapses to one row (see
+                      // emitCompactionActivity).
+                      const compactionEpisodeId = `compress-context-${req.chatId}-${Date.now()}`;
+                      // The RUNNING leg was missing entirely on this branch: the
+                      // comment above claims to emit activity, and only the
+                      // completion did — so a model-initiated compaction in BUILD
+                      // mode showed no "Compressing context" at all, while the
+                      // same call in Ask mode did. Same class of gap as the
+                      // automatic trigger's, found by grepping for the id rather
+                      // than by the suite.
+                      emitCompactionActivity(event.sender, req.chatId, {
+                        id: compactionEpisodeId,
+                        trigger: "model",
+                        status: "running",
+                        detail: reason,
+                      });
+
                       try {
                         const providerId =
                           getEffectiveModelForOptions(settings)?.provider ??
@@ -456,7 +483,13 @@ export async function runBuildBranch(
                           },
                         );
 
-                        emitModelCompactionActivity(event.sender, req.chatId, outcome, reason);
+                        emitModelCompactionActivity(
+                          event.sender,
+                          req.chatId,
+                          outcome,
+                          reason,
+                          compactionEpisodeId,
+                        );
 
                         // Context meter: push the new model-facing size so the UI
                         // DROPS after compression, mirroring the summarize path
@@ -488,15 +521,11 @@ export async function runBuildBranch(
                           summaryPersisted: outcome.summaryPersisted,
                         });
                       } catch (e) {
-                        safeSend(event.sender, "chat:activity", {
-                          id: `compress-context-${req.chatId}-${Date.now()}`,
-                          type: "compaction",
-                          label: "Context compressed",
+                        emitCompactionActivity(event.sender, req.chatId, {
+                          id: compactionEpisodeId,
+                          trigger: "model",
                           status: "error",
-                          timestamp: Date.now(),
                           detail: String(e),
-                          chatId: req.chatId,
-                          modelInitiated: true,
                         });
                         return JSON.stringify({ success: false, error: String(e), reason });
                       }
@@ -1291,7 +1320,24 @@ export async function runBuildBranch(
                     toolResult = toolCallsToProcess[i].toolResult;
                   } else {
                     try {
-                      if (!tools[toolCall.toolName]) {
+                      // v14.41: resolve a RETIRED name before the lookup. The
+                      // registry's alias map made `browser_navigate` resolve to
+                      // `browser`, but this gate compared against the ToolSet —
+                      // which advertises canonical names only — so an alias
+                      // died here as "Unknown tool" and the alias map was
+                      // decorative on this path. Text tools are the fallback for
+                      // models WITHOUT native tool calling, i.e. exactly the
+                      // population most likely to emit a name it learned.
+                      // Resolved for the LOOKUP only. The call below still
+                      // passes the name the model used, because the permission
+                      // gate has to see it: a user rule written against a
+                      // retired name must keep matching, and only the gate sees
+                      // both strings (it canonicalises there). `ToolRegistry
+                      // .execute` resolves the alias again for dispatch.
+                      const dispatchName = ToolRegistry.resolveName(
+                        toolCall.toolName,
+                      );
+                      if (!tools[dispatchName]) {
                         toolResult = `Error: Unknown tool "${toolCall.toolName}"`;
                       } else {
                         const argsWithWorkspace = {

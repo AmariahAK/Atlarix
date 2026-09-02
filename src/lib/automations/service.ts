@@ -23,7 +23,6 @@ import { db } from "@/db";
 import { apps, automationRuns, automations, mcpToolConsents } from "@/db/schema";
 import { SubscriptionManager } from "@/lib/SubscriptionManager";
 import { broadcastToAllWindows } from "@/ipc/utils/broadcast_all_windows";
-import { assertPollableHost } from "./pipeline-hosts";
 import type { AutomationInput } from "./types";
 import {
   AUTOMATIONS_FREE_MAX as FREE_MAX,
@@ -81,18 +80,15 @@ async function upsertMcpConsentIfNeeded(input: AutomationInput): Promise<void> {
 }
 
 /**
- * Refuse a pipeline whose host nothing can poll.
+ * REMOVED: `assertPipelineHostIsPollable`.
  *
- * Checked at SAVE, not at poll time: an automation that saves and then never
- * fires is indistinguishable from one that has had nothing to report, so the
- * user waits forever on an alert that cannot arrive. Failing at the moment of
- * creation is the only point where the message is useful.
+ * It refused a `pipeline` trigger whose host nothing could poll — the right
+ * guard, for the right reason (an automation that saves and then never fires is
+ * indistinguishable from one that has had nothing to report, forever). The
+ * whole trigger kind is gone now, so there is no host to validate: see the note
+ * in `types.ts`. The invariant it protected is preserved by construction —
+ * `schedule` and `mcp` are the only kinds, and both can always fire.
  */
-function assertPipelineHostIsPollable(input: AutomationInput): void {
-  if (input.trigger.kind !== "pipeline") return;
-  // Throws with the registered hosts named — see pipeline-hosts.ts.
-  assertPollableHost(input.trigger.host);
-}
 
 async function refreshSchedule(automationId: string): Promise<void> {
   const { refreshAutomationSchedule } = await import("./runner");
@@ -173,7 +169,6 @@ export async function createAutomation(
     );
   }
 
-  assertPipelineHostIsPollable(input);
   await upsertMcpConsentIfNeeded(input);
   const id = randomUUID();
   const now = new Date();
@@ -202,7 +197,6 @@ export async function updateAutomation(
   id: string,
   input: AutomationInput,
 ): Promise<void> {
-  assertPipelineHostIsPollable(input);
   await upsertMcpConsentIfNeeded(input);
   await db
     .update(automations)

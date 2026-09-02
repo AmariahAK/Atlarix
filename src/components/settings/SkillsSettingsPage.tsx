@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useAtomValue } from "jotai";
-import { ArrowLeft, Folder, Sparkles } from "lucide-react";
-import { useNavigate, useRouter } from "@tanstack/react-router";
+import { Folder, Sparkles } from "lucide-react";
+import { useNavigate } from "@tanstack/react-router";
 import { selectedAppIdAtom, selectedWorkspaceInfoAtom } from "@/atoms/appAtoms";
 
 import { Button } from "@/components/ui/button";
@@ -60,7 +60,7 @@ type InstalledSkillRow = {
   tags: string[];
   compatibleModes: string[];
   installedAt: string | Date;
-  scope: "global" | "workspace";
+  scope: "workspace";
   workspacePath: string | null;
   cachedFiles: Array<{ name: string; localPath: string }>;
 };
@@ -269,7 +269,6 @@ function InstalledSkillCard({
 }
 
 export function SkillsSettingsPage() {
-  const router = useRouter();
   const navigate = useNavigate();
   const ipc = IpcClient.getInstance();
   const selectedAppId = useAtomValue(selectedAppIdAtom);
@@ -483,35 +482,23 @@ export function SkillsSettingsPage() {
     [ipc, refreshInstalled],
   );
 
+  /**
+   * Content only. The page shell — scroll container, width, back button, and the
+   * workspace name/path header — belongs to the `/integrations` layout now, and the
+   * layout also handles the no-workspace case, so the placeholder that used to
+   * sit here is gone rather than duplicated.
+   */
   return (
-    <div className="flex-1 bg-background overflow-auto">
-      <div className="max-w-5xl mx-auto px-8 py-6 pb-20 space-y-8">
-        <Button
-          onClick={() => router.navigate({ to: "/settings" })}
-          variant="outline"
-          size="sm"
-          className="mb-4 bg-(--background-lightest) py-5"
-        >
-          <ArrowLeft className="h-4 w-4 mr-2" />
-          Back to Settings
-        </Button>
-
+    <div className="space-y-8">
         <div>
           <div className="flex items-center gap-2">
-            <Sparkles className="w-6 h-6 text-primary" />
-            <h1 className="text-3xl font-bold text-foreground">Skills</h1>
+            <Sparkles className="w-5 h-5 text-primary" />
+            <h2 className="text-xl font-semibold text-foreground">Skills</h2>
           </div>
-          <p className="text-muted-foreground mt-1">
-            Browse and install skills for your <strong>current workspace</strong> only (max{" "}
-            {MAX_WORKSPACE} per workspace).
+          <p className="text-muted-foreground mt-1 text-sm">
+            Up to {MAX_WORKSPACE} per workspace.
           </p>
         </div>
-
-        {!selectedAppId ? (
-          <p className="text-sm text-muted-foreground py-4">
-            Open a workspace from the welcome screen or sidebar to manage skills for that project.
-          </p>
-        ) : null}
 
         {/* Tier gate — informational, mirroring the MCP marketplace tab. Landing
             here on Free must never trigger a checkout; upgrading is an explicit
@@ -776,8 +763,6 @@ export function SkillsSettingsPage() {
         )}
         </>
         )}
-      </div>
     </div>
   );
 }
-

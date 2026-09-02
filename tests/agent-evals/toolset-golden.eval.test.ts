@@ -51,32 +51,44 @@ function offeredToolNames(scenarioId: string): string[] {
 // mutation, its mutating operations go through the approval gate, and `list`
 // from a read-only mode is the point — Explore is where the user is most likely
 // to be doing by hand the repeated check that should become an automation.
+// v14.41: six browser_* tools became TWO. `browser_inspect` reads (and stays
+// separate — it is the sole NEVER_TRIM entry, its wording steers away from an
+// observed bug); `browser` acts, with navigate/find/click/fill/key/hover/
+// scroll/tabs/batch as an `action`. The retired names still RESOLVE as aliases,
+// but aliases are deliberately not advertised, so they must not appear here.
+// v14.41: `mobile_inspect` + `mobile` added to EVERY mode, for the same reason
+// `browser` is in every mode — neither touches the workspace (driving an
+// emulator changes a device's state, not the project), and "what does this look
+// like on a phone" is a question, not a build step. They were briefly
+// build/debug-only; that was the wrong cut.
+// Net for Build: 6 browser tools + 0 mobile → 2 browser + 2 mobile, i.e. a
+// SMALLER surface that can also see the app it is building. Both are peripheral
+// under tool-reveal in EVERY mode, so each binds one sentence plus a tool_help
+// pointer — which is why those first sentences carry the cheap default.
 const GOLDEN = {
   ask: [
-    "ask_user", "automations", "background_jobs", "browser_batch", "browser_find",
-    "browser_inspect", "browser_interact",
-    "browser_navigate", "browser_tabs", "compress_context", "glob", "grep", "list_attachments",
-    "list_available_mcps", "mcp_call", "read_attachment", "read_file",
-    "read_url", "run_command", "schedule_wakeup", "session_search", "subagents", "task",
-    "tool_help", "web_search",
+    "ask_user", "automations", "background_jobs", "browser",
+    "browser_inspect", "compress_context", "glob", "grep", "list_attachments",
+    "list_available_mcps", "mcp_call", "mobile", "mobile_inspect",
+    "read_attachment", "read_file",
+    "read_url", "run_command", "schedule_wakeup", "session_search",
+    "subagents", "task", "tool_help", "web_search",
   ],
   plan: [
-    "ask_user", "automations", "browser_batch", "browser_find", "browser_inspect",
-    "browser_interact", "browser_navigate", "browser_tabs",
+    "ask_user", "automations", "browser", "browser_inspect",
     "compress_context", "glob", "grep", "list_attachments",
-    "list_available_mcps", "mcp_call", "plan", "read_attachment", "read_file",
-    "read_url", "schedule_wakeup", "session_search", "subagents", "task", "tool_help",
-    "web_search",
+    "list_available_mcps", "mcp_call", "mobile", "mobile_inspect", "plan",
+    "read_attachment", "read_file",
+    "read_url", "schedule_wakeup", "session_search", "subagents", "task",
+    "tool_help", "web_search",
   ],
   build: [
-    // Sorted. `browser_test` sits with the rest of the browser_* family now — it was
-    // `preview_test` (renamed v14.23.0), which sorted after `plan`.
-    "ask_user", "automations", "background_jobs", "browser_batch", "browser_find",
-    "browser_inspect", "browser_interact",
-    "browser_navigate", "browser_tabs", "browser_test", "compress_context", "edit_file",
-    "glob", "grep", "list_attachments", "list_available_mcps",
-    "mcp_call", "plan", "proposals", "read_attachment", "read_file",
-    "read_url", "run_command", "schedule_wakeup", "session_search", "subagents", "task",
+    "ask_user", "automations", "background_jobs", "browser",
+    "browser_inspect", "browser_test", "compress_context", "edit_file",
+    "glob", "grep", "list_attachments", "list_available_mcps", "mcp_call",
+    "mobile", "mobile_inspect",
+    "plan", "proposals", "read_attachment", "read_file", "read_url",
+    "run_command", "schedule_wakeup", "session_search", "subagents", "task",
     "tool_help", "web_search",
   ],
 } as const;

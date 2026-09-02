@@ -38,22 +38,18 @@ vi.mock("node:fs", async () => {
 });
 ```
 
-### Mocking isomorphic-git
+### Git, and why there is no JS fallback to mock
 
-isomorphic-git is only used as the lazily-imported no-git-binary fallback for
-`gitClone`/`gitPush`/`gitSetRemoteUrl` (all local git operations shell out via
-`system_git_exec`). When testing those fallback paths, mock `isGitAvailable`
-to resolve `false` and provide a default export:
+`isomorphic-git` was removed in v14.41.0. It had ever been only a lazily imported
+fallback for the NETWORK flows — `gitClone` / `gitPush` / `gitSetRemoteUrl` — and
+all three went with the GitHub clone dialog. Every surviving git operation shells
+out through `system_git_exec`.
 
-```typescript
-vi.mock("isomorphic-git", () => ({
-  default: {
-    clone: vi.fn().mockResolvedValue(undefined),
-    push: vi.fn().mockResolvedValue(undefined),
-    // Add other git methods as needed
-  },
-}));
-```
+So there is nothing to mock for a "no git binary" path: with no fallback, a
+machine without git has no git features, and the behaviour under test is the
+DEGRADATION — `warnGitMissingOnce` and `GIT_NOT_INSTALLED_MESSAGE`. Mock
+`isGitAvailable` to resolve `false` and assert on the message the user is shown.
+See `git-missing-degradation.test.ts`.
 
 ### Testing IPC Handlers
 

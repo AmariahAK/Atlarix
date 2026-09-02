@@ -14,7 +14,7 @@ const DEFAULT_TIMEOUT_MS = 15_000;
  * an exfiltration attempt, not a legitimate request — block it regardless of
  * host. High-confidence shapes only (see redact-secrets), so false positives are
  * negligible. Applies to every outbound channel that validates via
- * assertUrlAllowed (read_url's safeFetch and browser_navigate).
+ * assertUrlAllowed (read_url's safeFetch and the browser tool's navigate).
  */
 function assertNoSecretInUrl(parsed: URL): void {
   const raw = `${parsed.pathname}${parsed.search}${parsed.hash}`;

@@ -270,7 +270,7 @@ describe("buildToolExpandView", () => {
             id: 1,
             name: "github",
             transport: "stdio",
-            scope: "global",
+            scope: "workspace",
             tools: [
               { name: "search_issues", description: "Search issues" },
               { name: "create_pr" },
@@ -468,5 +468,95 @@ describe("buildToolExpandView — task (sub-agent delegation)", () => {
       expect(view.markdown).toBeFalsy();
       expect(view.body.trim()).not.toBe("");
     }
+  });
+});
+
+/**
+ * v14.41: the mobile pair. Two of these sets are NAME-keyed, and the model-facing
+ * image path is not — `extractImageMedia` gates on the SHAPE of the result, so a
+ * PNG reaches the model with no wiring at all while the UI shows nothing. That
+ * asymmetry is exactly how a screenshot card goes missing and no test notices.
+ */
+describe("mobile tools render in the browser cards", () => {
+  it("a mobile screenshot gets the screenshot card, not a text dump", () => {
+    const raw = JSON.stringify({
+      success: true,
+      mimeType: "image/png",
+      // 1x1 transparent PNG.
+      data: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==",
+      device: "Pixel 7",
+    });
+    const view = buildToolExpandView("mobile_inspect", { mode: "screenshot" }, raw, "done");
+    expect(view?.kind).toBe("browser_screenshot");
+    expect((view as { dataUrl?: string }).dataUrl).toMatch(/^data:image\/png;base64,/);
+  });
+
+  it("a mobile hierarchy read falls through to the TEXT card", () => {
+    // The screenshot block guards on `payload.data`, so a non-image result from
+    // the same tool must not be swallowed by it.
+    const raw = JSON.stringify({
+      success: true,
+      device: "Pixel 7",
+      summary: '3 element(s) on Pixel 7 (android). Act on any ref with mobile.\n[m1] Button "Continue"',
+    });
+    const view = buildToolExpandView("mobile_inspect", {}, raw, "done");
+    expect(view?.kind).not.toBe("browser_screenshot");
+    expect(JSON.stringify(view)).toContain("Continue");
+  });
+
+  it("the act tool renders too, rather than falling off the end", () => {
+    // `content` and `title`, not invented field names: the browser text card
+    // reads exactly those, so matching the contract is why no renderer change
+    // was needed for either mobile tool.
+    const raw = JSON.stringify({
+      success: true,
+      device: "Pixel 7",
+      title: "Pixel 7",
+      content: "Tapped Continue. Re-read the screen if this navigated.",
+    });
+    const view = buildToolExpandView("mobile", { action: "tap", ref: "m1" }, raw, "done");
+    expect(view).toBeTruthy();
+    expect(JSON.stringify(view)).toContain("Tapped Continue");
+  });
+});
+
+/**
+ * `tool_help` — the fetch half of progressive tool reveal.
+ *
+ * Observed in the packaged app: every call rendered as a bare **"Done"**. It had
+ * no expand branch, so it fell to the generic tail, and its result carries
+ * `{ tool, usage }` — no field the generic path reads. The tool exists so a
+ * peripheral tool's full instructions can be READ, and the read was the one
+ * thing the card hid.
+ *
+ * The label was equally blind: "Read tool usage", identically, whatever it
+ * fetched. Note WHY adding a subject was not enough — a subject with no
+ * `ARG_VERBS` entry is computed and then silently discarded.
+ */
+describe("tool_help renders what it fetched", () => {
+  it("shows the tool name and its usage instead of 'Done'", () => {
+    const raw = JSON.stringify({
+      success: true,
+      tool: "browser",
+      usage: "Act on the page in Atlarix's built-in browser.",
+    });
+    const view = buildToolExpandView("tool_help", { tool: "browser" }, raw, "done");
+    expect(view?.kind).toBe("text");
+    const body = (view as { body?: string }).body ?? "";
+    expect(body).not.toBe("Done");
+    expect(body).toContain("browser");
+    expect(body).toContain("Act on the page");
+  });
+
+  it("still renders when the result has no tool name", () => {
+    const raw = JSON.stringify({ success: true, usage: "Some usage text." });
+    const view = buildToolExpandView("tool_help", {}, raw, "done");
+    expect((view as { body?: string }).body).toBe("Some usage text.");
+  });
+
+  it("falls through on a failure so the error still shows", () => {
+    const raw = JSON.stringify({ success: false, error: 'No tool named "nope".' });
+    const view = buildToolExpandView("tool_help", { tool: "nope" }, raw, "done");
+    expect(JSON.stringify(view)).toContain("No tool named");
   });
 });

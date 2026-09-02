@@ -217,8 +217,13 @@ export function ChatInputControls({ chatId }: { chatId?: number }) {
               pulse={pulse}
               flashSuccess={flashSuccess}
             />
+            {/* A percentage, matching TokenBar. This showed the raw count, and
+                once the meter started counting the tool surface honestly an
+                untouched chat read "10,864 / 200K" — accurate, and alarming for
+                no reason. The exact figures stay in the `title` above and in the
+                TokenBar card. */}
             <span className="tabular-nums text-[10px] text-muted-foreground/90">
-              {usedTokens.toLocaleString()} / {formatTokens(budgetTokens)}
+              {contextPercent.toFixed(0)}%
             </span>
           </div>
         )}

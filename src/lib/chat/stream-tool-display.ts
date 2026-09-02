@@ -97,6 +97,11 @@ type ParsedEnvelope = {
   payload: Record<string, unknown>;
   error?: string;
   plainText?: string;
+  /**
+   * `success: false` that is NOT a failure — the call was declined or had
+   * nothing to do. Rendered as ordinary text rather than a red error.
+   */
+  notice?: string;
 };
 
 /** Unwrap tool JSON envelopes; never stringify nested objects for display. */
@@ -123,15 +128,98 @@ export function parseToolResultEnvelope(raw: string | unknown): ParsedEnvelope |
   return null;
 }
 
+/**
+ * Fields a tool may use to explain itself, in the order they are preferred.
+ *
+ * The old chain was `error` then `message` then the literal string
+ * **"Tool failed"** — and two very common results carry neither. OBSERVED
+ * 2026-09-02, both of them the system working CORRECTLY and reported as a
+ * failure with no reason:
+ *
+ *   compress_context → {success:false, status:"noop", reason, summary:
+ *     "Already compact: history is 7474 tokens (~39% of the 19200-token usable
+ *     budget) — nothing worth compacting. No action needed."}
+ *
+ *   the loop guard → {success:false, loop_guidance: "You have made this exact
+ *     read_url call 3 times in a row with identical input… This call was NOT
+ *     executed. Do not repeat it."}
+ *
+ * Both wrote a better explanation than anything the UI could invent, and both
+ * displayed as "Tool failed". A generic fallback string is the worst possible
+ * answer here: it is not just uninformative, it asserts something untrue.
+ */
+const EXPLANATION_FIELDS = [
+  "error",
+  "message",
+  // The two that were being discarded.
+  "loop_guidance",
+  "summary",
+  "reason",
+  // Used by the browser/mobile act tools and several others.
+  "detail",
+  "note",
+] as const;
+
+/**
+ * Values that are PLACEHOLDERS, not explanations.
+ *
+ * `ToolRegistry.execute`'s failure path fills these in when the tool did not
+ * supply its own: `error: fail.error ?? "TOOL_ERROR"` and
+ * `message: fail.message ?? "Tool returned an error"`. They are sentinels for
+ * the model's benefit, and showing either to a person is no better than "Tool
+ * failed" — it is worse, because it looks like a real error code.
+ *
+ * Skipping them lets the chain fall through to the field the tool actually
+ * wrote, which is how the native path reaches the compactor's own "Already
+ * compact: …" instead of the string "TOOL_ERROR".
+ */
+const PLACEHOLDER_EXPLANATIONS = new Set([
+  "TOOL_ERROR",
+  "Tool returned an error",
+  "Tool failed",
+]);
+
+function firstExplanation(o: Record<string, unknown>): string | undefined {
+  let placeholder: string | undefined;
+  for (const key of EXPLANATION_FIELDS) {
+    const v = o[key];
+    if (typeof v !== "string" || !v.trim()) continue;
+    const text = v.trim();
+    if (PLACEHOLDER_EXPLANATIONS.has(text)) {
+      // Remembered, not returned: if NOTHING else explains the failure, a
+      // sentinel still beats an empty card.
+      placeholder ??= text;
+      continue;
+    }
+    return text;
+  }
+  return placeholder;
+}
+
+/**
+ * `success: false` does NOT always mean something went wrong.
+ *
+ * A no-op ("nothing worth compacting") and a declined call (the loop guard) both
+ * report `success: false` because from the MODEL's point of view the work did
+ * not happen — which is the right signal for the model and the wrong one for a
+ * red error card. They are distinguishable: `status: "noop"` and the presence of
+ * `loop_guidance` are explicit markers, not guesses.
+ */
+function isNotAFailure(o: Record<string, unknown>): boolean {
+  if (o.status === "noop") return true;
+  if (typeof o.loop_guidance === "string" && o.loop_guidance.trim()) return true;
+  return false;
+}
+
 function envelopeFromObject(o: Record<string, unknown>): ParsedEnvelope {
   if (o.success === false) {
-    const err =
-      typeof o.error === "string"
-        ? o.error
-        : typeof o.message === "string"
-          ? o.message
-          : "Tool failed";
-    return { payload: o, error: err };
+    const explanation = firstExplanation(o);
+    if (isNotAFailure(o)) {
+      // Not an error: keep the payload so a tool-specific card can still render,
+      // and carry the explanation as a notice rather than an error.
+      return { payload: o, notice: explanation ?? "Nothing to do." };
+    }
+    return { payload: o, error: explanation ?? "Tool failed" };
   }
 
   const result = o.result;
@@ -599,6 +687,33 @@ export function formatToolStartPreview(
     return `${base}: ${c}…`;
   }
   return getToolActivityLabel(registryName);
+}
+
+/**
+ * A completed call that did NOTHING, named as such.
+ *
+ * `compress_context` on an already-small history returns
+ * `{success:false, status:"noop", summary:"Already compact: …"}` — a correct
+ * outcome — and the label map turned that into **"Context compacted"**, which
+ * is the one thing that did not happen. Observed alongside a red "Tool failed"
+ * body, so the row managed to be wrong in both directions at once.
+ *
+ * "Context already compact" is not new wording: it is what the compaction banner
+ * has said for this case since v14.8.11 (see `emitModelCompactionActivity`), and
+ * reusing it keeps the two surfaces from drifting.
+ *
+ * Narrow ON PURPOSE. `status: "noop"` is a contract only `compress_context`
+ * declares; guessing at "did anything happen" from any other result would be
+ * exactly the kind of inference that produces a confidently wrong label.
+ */
+export function noopSummary(toolName: string, resultText?: string): string | null {
+  if (toolName !== "compress_context" || !resultText?.trim()) return null;
+  try {
+    const o = JSON.parse(resultText) as { status?: unknown };
+    return o?.status === "noop" ? "Context already compact" : null;
+  } catch {
+    return null;
+  }
 }
 
 export function getToolCompletedSummary(

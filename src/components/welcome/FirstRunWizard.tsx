@@ -31,13 +31,11 @@ import {
   Check,
   Compass,
   FolderOpen,
-  GitBranch,
   KeyRound,
   Rocket,
   Settings as SettingsIcon,
   Sparkles,
 } from "lucide-react";
-import { WelcomeCloneDialog } from "@/components/welcome/WelcomeCloneDialog";
 
 const TOTAL_STEPS = 4;
 
@@ -129,7 +127,6 @@ export function FirstRunWizard() {
     };
   }, [settings, decided, checkLegacyMarker, updateSettings]);
 
-  const [cloneOpen, setCloneOpen] = useState(false);
 
   const detectedProviders = useMemo(() => {
     const ps = settings?.providerSettings ?? {};
@@ -171,17 +168,8 @@ export function FirstRunWizard() {
     }
   }, [finish, navigate, refreshApps]);
 
-  const handleCloneRepo = useCallback(async () => {
-    // Close the wizard first (same as Open folder…) so the clone dialog isn't
-    // stacked on top of it, then hand over. The clone dialog navigates into the
-    // new workspace itself once the clone succeeds.
-    await finish();
-    setCloneOpen(true);
-  }, [finish]);
 
-  // Stay mounted while the clone dialog is up — `finish()` clears `open`, and an
-  // early return here would unmount the dialog the moment it was asked for.
-  if (!open && !cloneOpen) return null;
+  if (!open) return null;
 
   const stepDots = (
     <div className="flex items-center gap-1.5" aria-label={`Step ${step + 1} of ${TOTAL_STEPS}`}>
@@ -289,7 +277,7 @@ export function FirstRunWizard() {
                     variant="ghost"
                     size="sm"
                     className="h-6 px-2 text-xs"
-                    onClick={() => void finish("/settings/mcp", { tab: "marketplace" })}
+                    onClick={() => void finish("/integrations/mcp", { tab: "marketplace" })}
                   >
                     Browse
                   </Button>
@@ -340,26 +328,23 @@ export function FirstRunWizard() {
               </DialogTitle>
               <DialogDescription>
                 Atlarix is workspace-first — chat, sessions, tools and memory all
-                belong to one project folder. Open one you already have, or clone
-                a repository from any git host.
+                belong to one project folder. Open a folder you already have, or
+                an empty one — then ask the agent to clone into it, from any git
+                host, using your own git credentials.
               </DialogDescription>
             </DialogHeader>
-            {/* Both entry points live HERE. Telling a new user to "clone from the
-                welcome screen" meant finishing setup before they could start —
-                the exact dead end that lost an onboarding review in v14.24.0. */}
+            {/* One entry point. "Clone repo…" used to sit beside this, opening a
+                GitHub-only device flow — so it could never reach GitLab,
+                Bitbucket, self-hosted or plain SSH. `git clone` through the
+                agent works on every host with the user's own credentials, which
+                is why the copy above points there instead. The v14.24.0 lesson
+                still holds and is why this button is HERE rather than behind
+                setup: a new user must be able to start without finishing a
+                wizard first. */}
             <div className="flex flex-wrap gap-2">
               <Button type="button" className="gap-2" onClick={() => void handleOpenFolder()}>
                 <FolderOpen className="h-4 w-4" />
                 Open folder…
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                className="gap-2"
-                onClick={() => void handleCloneRepo()}
-              >
-                <GitBranch className="h-4 w-4" />
-                Clone repo…
               </Button>
             </div>
           </>
@@ -394,7 +379,6 @@ export function FirstRunWizard() {
         </DialogFooter>
       </DialogContent>
     </Dialog>
-    <WelcomeCloneDialog open={cloneOpen} onOpenChange={setCloneOpen} />
     </>
   );
 }

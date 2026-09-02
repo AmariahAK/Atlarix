@@ -26,6 +26,7 @@ import {
   type PromptBundleDeps,
 } from "@/ipc/handlers/chat_stream/turn-runner/prompt-bundle";
 import { ContextBudgetTracker } from "@/lib/context/context-budget-tracker";
+import { emitCompactionActivity } from "@/ipc/handlers/chat_stream/compaction-activity";
 import {
   enforceContextBudget,
   estimateDispatchTokens,
@@ -62,6 +63,17 @@ export interface ContextAssemblyDeps {
   contextWindowTokens: number;
   /** Window minus the reply reserve — what a request may actually occupy. */
   usableTokens: number;
+  /**
+   * Bound tool descriptions + parameter schemas for this turn, measured ONCE by
+   * the caller (`chat_stream_handlers`) via `measureToolSurface`.
+   *
+   * Passed in rather than derived here on purpose: this file has
+   * `effectiveModel` and `req` but not `effectiveWorkMode`, so deriving it
+   * would mean a second resolution of the work mode — and two places answering
+   * that question is precisely how the context meter came to price a prompt
+   * shape no dispatch had ever sent.
+   */
+  toolSurfaceTokens: number;
 }
 
 export async function runContextAssembly(
@@ -79,6 +91,7 @@ export async function runContextAssembly(
     event,
     modelContextResolved,
     promptBundleDeps,
+    toolSurfaceTokens,
     contextWindowTokens,
     usableTokens,
   } = deps;
@@ -207,6 +220,7 @@ export async function runContextAssembly(
                 limitedMessageHistory,
                 codebasePrefixMessages: [...codebasePrefix],
                 otherCodebasePrefixMessages: [...otherCodebasePrefix],
+                toolSurfaceTokens,
               });
               systemPrompt = tierBudgetedR.systemPrompt;
               limitedMessageHistory = tierBudgetedR.limitedMessageHistory;
@@ -216,6 +230,7 @@ export async function runContextAssembly(
                 history: limitedMessageHistory,
                 codebasePrefixMessages: [...codebasePrefix],
                 otherCodebasePrefixMessages: [...otherCodebasePrefix],
+                toolSurfaceTokens,
               });
               budgetTracker = new ContextBudgetTracker(
                 modelContextResolved.tierLimit,
@@ -268,15 +283,19 @@ export async function runContextAssembly(
                 `[stream:${req.chatId}] pre-dispatch context compaction fill=${(fillBefore * 100).toFixed(1)}% est=${dispatchEstimate} usable=${usableTokens} window=${contextWindowTokens}`,
               );
               const activityBase = `predispatch-compact-${req.chatId}-${Date.now()}`;
-              safeSend(event.sender, "chat:activity", {
-                id: `${activityBase}-run`,
-                type: "compaction",
-                label: "Context compacted automatically",
+              // THE TRIGGER THAT HAD NO UI. This site emitted only
+              // `type: "compaction"`, which the renderer drops by design, and
+              // never the `background` event the mid-stream pill reads — so the
+              // one compaction a user never asked for was also the only one that
+              // happened silently, reported with the ring pinned at 100%.
+              // `emitCompactionActivity` sends both, for every trigger.
+              // ONE id for both legs — see emitCompactionActivity. The `-run` /
+              // `-done` suffixes here were what left two rows in the transcript.
+              emitCompactionActivity(event.sender, req.chatId, {
+                id: activityBase,
+                trigger: "automatic",
                 status: "running",
-                timestamp: Date.now(),
-                detail: `fill-${Math.round(fillBefore * 100)}%`,
-                chatId: req.chatId,
-                modelInitiated: false,
+                detail: `context at ${Math.round(fillBefore * 100)}%`,
               });
               let lastResult: Awaited<ReturnType<typeof runCompressAndRebuild>> | null =
                 null;
@@ -297,19 +316,16 @@ export async function runContextAssembly(
               } catch (e) {
                 logger.warn(`[stream:${req.chatId}] pre-dispatch compaction failed`, e);
               }
-              safeSend(event.sender, "chat:activity", {
-                id: `${activityBase}-done`,
-                type: "compaction",
-                label: "Context compacted automatically",
+              emitCompactionActivity(event.sender, req.chatId, {
+                id: activityBase,
+                trigger: "automatic",
                 status: lastResult?.ok ? "done" : "error",
-                timestamp: Date.now(),
+                noop: lastResult?.status === "noop",
                 detail:
                   typeof lastResult?.tokensBefore === "number" &&
                   typeof lastResult?.tokensAfter === "number"
-                    ? `${lastResult.tokensBefore} → ${lastResult.tokensAfter} est. (${String(lastResult.status ?? "")})`
-                    : String(lastResult?.status ?? "noop"),
-                chatId: req.chatId,
-                modelInitiated: false,
+                    ? `${lastResult.tokensBefore} → ${lastResult.tokensAfter} tokens`
+                    : undefined,
               });
             }
 

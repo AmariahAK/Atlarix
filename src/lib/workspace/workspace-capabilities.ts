@@ -33,15 +33,13 @@ export async function loadWorkspaceCapabilitiesSummary(opts: {
     })
     .from(mcpServers)
     .where(
+      // Per-workspace only: the `scope = 'global'` alternative this used to carry
+      // could never match (rows purged by migration 0049, and nothing creates
+      // one), so it only widened the query.
       and(
         enabled,
-        or(
-          eq(mcpServers.scope, "global"),
-          and(
-            eq(mcpServers.scope, "workspace"),
-            eq(mcpServers.appId, opts.workspaceId),
-          ),
-        ),
+        eq(mcpServers.scope, "workspace"),
+        eq(mcpServers.appId, opts.workspaceId),
       ),
     );
 

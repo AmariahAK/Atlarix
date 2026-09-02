@@ -665,7 +665,9 @@ ToolRegistry.register({
                 description: "When true, perform multi-source deep synthesis (formerly deep_search) — fetch full content from the top URLs and aggregate. Default: false (quick lookup).",
                 default: false,
             },
-            mode: stringParam("Legacy alias for `deep` — prefer the deep flag. ('deep'/'comprehensive' behave as deep:true.)"),
+            // `mode` is a legacy alias for `deep` and is still accepted by the
+            // handler; advertising it invited the model to choose between two
+            // spellings of one flag.
             sources: stringParam("Sources to search. For news/articles use 'general'. For code use 'stackoverflow,github,mdn'. Default: 'general'"),
             num_results: {
                 type: "number",
@@ -964,7 +966,7 @@ async function runDeepSearch(
 ToolRegistry.register({
     name: "read_url",
     description:
-        "Fetch and read content from a URL — use it when the user gives you a specific URL, or to confirm a primary source. Extracts the main content as Markdown, and renders the page in a real browser when a plain fetch comes back empty, so JavaScript-heavy pages work. Prefer this (and web_search) over opening browser_navigate for plain content/reading — reserve the browser tools for pages you need to interact with.",
+        "Fetch and read content from a URL — use it when the user gives you a specific URL, or to confirm a primary source. Extracts the main content as Markdown, and renders the page in a real browser when a plain fetch comes back empty, so JavaScript-heavy pages work. Prefer this (and web_search) over opening a browser tab for plain content/reading — reserve the browser tools for pages you need to interact with.",
     requiresWorkspace: false,
     isCore: true,
     isReadOnly: true, // Safe for Ask mode - only reads URL content

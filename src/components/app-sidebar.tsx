@@ -3,6 +3,7 @@ import {
   Settings,
   HelpCircle,
   Wrench,
+  Plug,
   LogIn,
   LogOut,
   User,
@@ -31,6 +32,7 @@ import {
 import { AppList } from "./AppList";
 import { HelpDialog } from "./HelpDialog"; // Import the new dialog
 import { SettingsList } from "./SettingsList";
+import { IntegrationsList } from "./IntegrationsList";
 import { triggerUpgrade } from "@/hooks/useUpgrade";
 import { useCreditBalance } from "@/hooks/useCreditBalance";
 import { SignOutDialog } from "@/components/auth/SignOutDialog";
@@ -53,6 +55,15 @@ const items = [
     to: "/settings",
     icon: Settings,
   },
+  // Split from Settings by KIND: everything Atlarix connects TO (model
+  // providers, MCP servers, Skills) plus the per-project policy
+  // governing what it may do there. Settings is preferences; this is
+  // connections. See pages/integrations.tsx.
+  {
+    title: "Integrations",
+    to: "/integrations",
+    icon: Plug,
+  },
 ];
 
 // Hover state types
@@ -61,6 +72,7 @@ type HoverState =
   | "start-hover:chat"
   | "start-hover:tools"
   | "start-hover:settings"
+  | "start-hover:integrations"
   | "clear-hover"
   | "no-hover";
 
@@ -109,6 +121,8 @@ export function AppSidebar() {
   const routerState = useRouterState();
   const isAppRoute = routerState.location.pathname === "/";
   const isSettingsRoute = routerState.location.pathname.startsWith("/settings");
+  const isIntegrationsRoute =
+    routerState.location.pathname.startsWith("/integrations");
 
   let selectedItem: string | null = null;
   if (hoverState === "start-hover:app") {
@@ -119,11 +133,15 @@ export function AppSidebar() {
     selectedItem = "Tools";
   } else if (hoverState === "start-hover:settings") {
     selectedItem = "Settings";
+  } else if (hoverState === "start-hover:integrations") {
+    selectedItem = "Integrations";
   } else if (state === "expanded") {
     if (isAppRoute) {
       selectedItem = "Apps";
     } else if (isSettingsRoute) {
       selectedItem = "Settings";
+    } else if (isIntegrationsRoute) {
+      selectedItem = "Integrations";
     }
   }
 
@@ -151,6 +169,7 @@ export function AppSidebar() {
           <div className="w-[240px]">
             <AppList show={selectedItem === "Apps"} />
             <SettingsList show={selectedItem === "Settings"} />
+            <IntegrationsList show={selectedItem === "Integrations"} />
           </div>
         </div>
       </SidebarContent>
@@ -397,7 +416,7 @@ function AppIcons({
                     to={item.to}
                     data-onboarding={item.title === "Settings" ? "settings-link" : undefined}
                     data-tour={item.title === "Settings" ? "tour-extensions" : undefined}
-                    className={`flex flex-col items-center gap-1 h-14 mb-2 rounded-2xl ${isActive ? "bg-sidebar-accent" : ""
+                    className={`flex flex-col items-center justify-center gap-1 min-h-14 py-1.5 mb-2 rounded-2xl ${isActive ? "bg-sidebar-accent" : ""
                       }`}
                     onMouseEnter={() => {
                       if (item.title === "Apps") {
@@ -408,12 +427,26 @@ function AppIcons({
                         onHoverChange("start-hover:tools");
                       } else if (item.title === "Settings") {
                         onHoverChange("start-hover:settings");
+                      } else if (item.title === "Integrations") {
+                        onHoverChange("start-hover:integrations");
                       }
                     }}
                   >
-                    <div className="flex flex-col items-center gap-1">
-                      <item.icon className="h-5 w-5" />
-                      <span className={"text-xs"}>{item.title}</span>
+                    <div className="flex flex-col items-center gap-0.5 w-full min-w-0">
+                      <item.icon className="h-5 w-5 shrink-0" />
+                      {/* The rail is 56px wide. "Integrations" overflowed it at
+                          text-xs and was clipped to "ntegration", so long labels
+                          step down a size and wrap instead — renaming the page to
+                          fit the sidebar would be the tail wagging the dog. */}
+                      <span
+                        className={
+                          item.title.length > 8
+                            ? "text-[10px] leading-tight text-center w-full px-0.5 break-words"
+                            : "text-xs"
+                        }
+                      >
+                        {item.title}
+                      </span>
                     </div>
                   </Link>
                 </SidebarMenuButton>

@@ -19,7 +19,7 @@ import { capRemedy, describePlanCap, planCapClause } from "@/lib/plan-caps";
 import { wrapUntrustedData } from "../streaming/untrusted-data";
 import { db } from "../../db";
 import { mcpServers } from "../../db/schema";
-import { and, eq, or } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import {
   McpNeedsAuthError,
   McpNeedsOAuthError,
@@ -81,16 +81,28 @@ function formatMcpError(
 }
 
 async function listConfiguredMcps(workspaceId: number | null | undefined): Promise<ListedMcpServer[]> {
-  const enabled = eq(mcpServers.enabled, true as any);
-  const where =
-    workspaceId != null
-      ? and(
-          enabled,
-          or(eq(mcpServers.scope, "global"), and(eq(mcpServers.scope, "workspace"), eq(mcpServers.appId, workspaceId)))
-        )
-      : and(enabled, eq(mcpServers.scope, "global"));
+  /**
+   * MCP servers are per-workspace, full stop.
+   *
+   * This used to read `scope = 'global' OR (scope = 'workspace' AND appId = ?)`,
+   * and with no workspace it read `scope = 'global'` ALONE. Global servers were
+   * retired and their rows purged by migration 0049, and no code path can create
+   * one — so that second branch was a query that could never match, and a
+   * workspace-less caller got an empty list by accident rather than by design.
+   * Returning early says the same thing on purpose, and saves a DB round trip.
+   */
+  if (workspaceId == null) return [];
 
-  const servers = await db.select().from(mcpServers).where(where);
+  const servers = await db
+    .select()
+    .from(mcpServers)
+    .where(
+      and(
+        eq(mcpServers.enabled, true as any),
+        eq(mcpServers.scope, "workspace"),
+        eq(mcpServers.appId, workspaceId),
+      ),
+    );
   const out: ListedMcpServer[] = [];
 
   const { mcpManager } = await import("../../ipc/utils/mcp_manager");
@@ -204,20 +216,28 @@ ToolRegistry.register({
       return { error: "mcp_call requires { server, tool }. Use list_available_mcps to discover both." };
     }
 
-    const enabled = eq(mcpServers.enabled, true as any);
-    const where =
-      args.workspaceId != null
-        ? and(
-            enabled,
-            eq(mcpServers.name, args.server),
-            or(
-              eq(mcpServers.scope, "global"),
-              and(eq(mcpServers.scope, "workspace"), eq(mcpServers.appId, args.workspaceId))
-            )
-          )
-        : and(enabled, eq(mcpServers.scope, "global"), eq(mcpServers.name, args.server));
+    // Per-workspace only — see listConfiguredMcps. Without a workspace there is
+    // nothing to find, and saying so beats a lookup that cannot match followed
+    // by a "not found" that implies the server might exist elsewhere.
+    if (args.workspaceId == null) {
+      return {
+        error:
+          "MCP servers are configured per workspace. Open a workspace folder to use one.",
+      };
+    }
 
-    const [server] = await db.select().from(mcpServers).where(where).limit(1);
+    const [server] = await db
+      .select()
+      .from(mcpServers)
+      .where(
+        and(
+          eq(mcpServers.enabled, true as any),
+          eq(mcpServers.name, args.server),
+          eq(mcpServers.scope, "workspace"),
+          eq(mcpServers.appId, args.workspaceId),
+        ),
+      )
+      .limit(1);
     if (!server) {
       return {
         error: `MCP server "${args.server}" not found or not enabled. Call list_available_mcps to see what is configured.`,

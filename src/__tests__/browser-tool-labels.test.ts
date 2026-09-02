@@ -179,3 +179,31 @@ describe("grep/glob search labels surface the pattern", () => {
     expect(done.length).toBeLessThan("Searched for ".length + 45);
   });
 });
+
+describe("tool_help names the tool it read", () => {
+  it("running and done labels both carry the subject", () => {
+    // "Read tool usage" was the same row for every reveal in a turn.
+    expect(getToolActivityLabelWithArgs("tool_help", { tool: "browser" })).toBe(
+      "Reading browser…",
+    );
+    expect(getToolDoneLabel("tool_help", { tool: "browser" })).toBe(
+      "Read browser usage",
+    );
+  });
+
+  it("falls back to the generic label with no argument", () => {
+    expect(getToolDoneLabel("tool_help")).toBe("Read tool usage");
+    expect(getToolDoneLabel("tool_help", {})).toBe("Read tool usage");
+  });
+
+  it("a subject needs an ARG_VERBS entry to survive", () => {
+    // The trap that made the first attempt a no-op: subjectFromArgs computed
+    // "browser" correctly and getToolActivityLabelWithArgs discarded it, because
+    // the verb lookup came back undefined and there was no fallback. If this
+    // regresses, the running label silently reverts to the generic string while
+    // the done label keeps working — an inconsistency worth catching.
+    expect(getToolActivityLabelWithArgs("tool_help", { tool: "grep" })).toMatch(
+      /grep/,
+    );
+  });
+});

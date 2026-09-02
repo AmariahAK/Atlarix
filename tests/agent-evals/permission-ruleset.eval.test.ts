@@ -130,4 +130,103 @@ describe("permission ruleset — deny rules at the single funnel", () => {
     }
   }, 30_000);
 
+
+  it("a retired tool name executes, and a rule on the CURRENT name still blocks it", async () => {
+    // TWO defects found together while consolidating browser 6→2 (v14.41).
+    //
+    // 1. The registry's alias map made `browser_navigate` resolve to `browser`,
+    //    but the text-tool dispatch compared the model's name against the
+    //    ToolSet — which advertises canonical names only — so the alias died as
+    //    "Unknown tool" and the map was decorative on the one path that could
+    //    have used it. Text tools are the fallback for models WITHOUT native
+    //    tool calling: exactly the population most likely to emit a stale name.
+    // 2. Once it DOES resolve, the permission gate had to be told, or a user
+    //    rule denying `browser` would be bypassed by the retired name — the
+    //    ruleset is a pure string matcher and knows nothing about aliases.
+    //
+    // Driven through the real funnel, because neither defect was in the matcher
+    // or the alias map; both were in what the call site passed along.
+    process.env.ATLARIX_FORCE_TEXT_TOOLS = "1";
+    ctx.ws.write(
+      ".atlarix/permissions.json",
+      JSON.stringify({ deny: ["browser"] }),
+    );
+    ctx.server.register(
+      scenario("alias-bypass")
+        .text(
+          'Opening the page.\n<tool_call name="browser_navigate">{"url": "http://localhost:3000/admin"}</tool_call>',
+        )
+        .text("Blocked — I will not retry that call.")
+        .text("Blocked.")
+        .text("Blocked.")
+        .text("Blocked.")
+        .build(),
+    );
+
+    const chatId = await ctx.newChat();
+    let fakeIpc;
+    try {
+      ({ fakeIpc } = await runTurn(ctx, {
+        chatId,
+        prompt: "sc=alias-bypass Open the admin page.",
+        mode: "build",
+      }));
+    } finally {
+      delete process.env.ATLARIX_FORCE_TEXT_TOOLS;
+    }
+    expectStreamEnded(fakeIpc.sends, chatId);
+
+    const blob = JSON.stringify(ctx.server.requestsFor("alias-bypass"));
+    // The alias RESOLVED (it reached the gate rather than dying as unknown)...
+    expect(blob).not.toContain('Unknown tool "browser_navigate"');
+    // ...and the gate caught it under the canonical name's rule.
+    expect(blob).toContain("Blocked by permission rule");
+
+    ctx.ws.write(".atlarix/permissions.json", JSON.stringify({ deny: [] }));
+  }, 30_000);
+
+
+  it("a rule written against a RETIRED name keeps blocking it", async () => {
+    // The other direction, and the reason the gate checks BOTH names rather
+    // than canonicalising once: making the alias executable would otherwise
+    // have silently voided every deny rule a user had already written against
+    // an old name. Before v14.41 such a call failed as "Unknown tool" so the
+    // rule was moot; now it runs, so the rule has to bite.
+    process.env.ATLARIX_FORCE_TEXT_TOOLS = "1";
+    ctx.ws.write(
+      ".atlarix/permissions.json",
+      JSON.stringify({ deny: ["browser_navigate"] }),
+    );
+    ctx.server.register(
+      scenario("legacy-rule")
+        .text(
+          'Opening the page.\n<tool_call name="browser_navigate">{"url": "http://localhost:3000/admin"}</tool_call>',
+        )
+        .text("Blocked — I will not retry that call.")
+        .text("Blocked.")
+        .text("Blocked.")
+        .text("Blocked.")
+        .build(),
+    );
+
+    const chatId = await ctx.newChat();
+    let fakeIpc;
+    try {
+      ({ fakeIpc } = await runTurn(ctx, {
+        chatId,
+        prompt: "sc=legacy-rule Open the admin page.",
+        mode: "build",
+      }));
+    } finally {
+      delete process.env.ATLARIX_FORCE_TEXT_TOOLS;
+    }
+    expectStreamEnded(fakeIpc.sends, chatId);
+
+    const blob = JSON.stringify(ctx.server.requestsFor("legacy-rule"));
+    expect(blob).toContain("Blocked by permission rule");
+    expect(blob).toContain("browser_navigate");
+
+    ctx.ws.write(".atlarix/permissions.json", JSON.stringify({ deny: [] }));
+  }, 30_000);
+
 });

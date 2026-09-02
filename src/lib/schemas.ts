@@ -206,10 +206,6 @@ export const AIConfigurationSchema = z.object({
   activityStream: ActivityStreamConfigSchema.optional(),
 });
 
-export const GithubUserSchema = z.object({
-  email: z.string(),
-});
-
 export const GlobPathSchema = z.object({
   globPath: z.string(),
 });
@@ -266,8 +262,19 @@ export const DBConnectionStoredSchema = z.object({
 export const UserSettingsSchema = z.object({
   selectedModel: LargeLanguageModelSchema,
   providerSettings: z.record(z.string(), ProviderSettingSchema),
-  githubUser: GithubUserSchema.optional(),
-  githubAccessToken: SecretSchema.optional(),
+  /**
+   * REMOVED: `githubUser` and `githubAccessToken`.
+   *
+   * `githubAccessToken` was written only by the GitHub device flow, which
+   * existed only for the clone dialog — a GitHub-shaped path that could never
+   * reach GitLab, Bitbucket or plain SSH. `githubUser` was already dead: its
+   * only writer set it to `undefined` and nothing read it.
+   *
+   * `SecretSchema` stays — provider API keys and the Vertex service-account key
+   * share it, and `main/settings.ts` still encrypts/decrypts those.
+   *
+   * Signing in with GitHub is unaffected; that is a Supabase credential.
+   */
   telemetryConsent: z.enum(["opted_in", "opted_out", "unset"]).optional(),
   telemetryUserId: z.string().optional(),
   hasRunBefore: z.boolean().optional(),

@@ -6,8 +6,6 @@ import {
 export { ATLARIX_CO_AUTHOR_TRAILER } from "./git_author";
 import {
   exec,
-  execStreaming,
-  isGitAvailable,
   isGitMissingResult,
 } from "./system_git_exec";
 import fs from "node:fs";
@@ -19,24 +17,29 @@ import type {
   GitFileParams,
   GitCheckoutParams,
   GitBranchRenameParams,
-  GitCloneParams,
   GitCommitParams,
   GitLogParams,
   GitFileAtCommitParams,
-  GitSetRemoteUrlParams,
   GitStageToRevertParams,
   GitInitParams,
-  GitPushParams,
   GitCommit,
 } from "../git_types";
 
 const logger = log.scope("git_utils");
 
 /**
- * All local git operations shell out to the system (or bundled) git —
- * isomorphic-git cannot read packfiles ≥2GiB (it buffers the whole pack) and
- * is kept only as a lazily-imported fallback for the network flows
- * (clone/push/set-remote) when no git binary exists at all.
+ * Every git operation here shells out to the system (or bundled) git.
+ *
+ * `isomorphic-git` used to be a lazily-imported fallback for the NETWORK flows
+ * — clone, push, set-remote — for machines with no git binary at all. All three
+ * are gone (they existed for the GitHub clone dialog), so the dependency went
+ * with them. It was never suitable for local work anyway: it cannot read
+ * packfiles ≥2GiB, because it buffers the whole pack.
+ *
+ * Consequence worth knowing: with no JS fallback left, a machine without git
+ * has no git features. That is what `warnGitMissingOnce` and
+ * `GIT_NOT_INSTALLED_MESSAGE` are for — degrade with an explanation rather than
+ * a stack trace.
  */
 
 let warnedGitMissing = false;
@@ -359,190 +362,8 @@ export async function gitRenameBranch({
   }
 }
 
-/** `Receiving objects:  42% (…)` / `Resolving deltas: 100% (…)` from `git clone --progress`. */
-const GIT_PROGRESS_LINE = /^([A-Za-z][A-Za-z ]+):\s+(\d{1,3})%/;
 
-export async function gitClone({
-  path,
-  url,
-  accessToken,
-  singleBranch = true,
-  depth,
-  signal,
-  onProgress,
-}: GitCloneParams): Promise<void> {
-  if (signal?.aborted) {
-    const err = new Error("Clone cancelled");
-    err.name = "AbortError";
-    throw err;
-  }
-  // SSH URLs (ssh:// or scp-like git@host:owner/repo) authenticate with the user's own
-  // keys/agent — never rewrite them to HTTPS or attach a token.
-  const isSshUrl = /^ssh:\/\//i.test(url) || /^[^/]+@[^/:]+:/.test(url);
-  if (await isGitAvailable()) {
-    // Build authenticated URL if accessToken is provided and URL doesn't already have auth
-    const finalUrl =
-      accessToken && !isSshUrl && !url.includes("@")
-        ? url.replace("https://", `https://${accessToken}:x-oauth-basic@`)
-        : url;
-    const args = ["clone", "--progress"];
-    if (depth && depth > 0) {
-      args.push("--depth", String(depth));
-    }
-    if (singleBranch) {
-      args.push("--single-branch");
-    }
-    // `--` so a URL that somehow starts with a dash can't be read as a flag.
-    args.push("--", finalUrl, path);
-    const result = await execStreaming(args, ".", {
-      signal,
-      env: isSshUrl
-        ? // Never let git/ssh block on an interactive prompt inside the app.
-          { GIT_TERMINAL_PROMPT: "0", GIT_SSH_COMMAND: "ssh -o BatchMode=yes" }
-        : { GIT_TERMINAL_PROMPT: "0" },
-      onStderrLine: onProgress
-        ? (line) => {
-            const match = line.match(GIT_PROGRESS_LINE);
-            if (match) {
-              onProgress({ phase: match[1].trim(), percent: Number(match[2]) });
-            }
-          }
-        : undefined,
-    });
 
-    if (signal?.aborted) {
-      const err = new Error("Clone cancelled");
-      err.name = "AbortError";
-      throw err;
-    }
-    if (result.exitCode !== 0) {
-      throw new Error(result.stderr.toString());
-    }
-  } else {
-    if (isSshUrl) {
-      throw new Error(
-        "SSH clones need Git installed (Atlarix's built-in fallback speaks HTTPS only). Install Git, or use the repository's https:// URL.",
-      );
-    }
-    logger.warn("gitClone: no git binary — using isomorphic-git fallback");
-    const { default: git } = await import("isomorphic-git");
-    const { default: http } = await import("isomorphic-git/http/node");
-    // Strip any embedded auth from URL since isomorphic-git uses onAuth
-    const cleanUrl = url.replace(/https:\/\/[^@]+@/, "https://");
-    await git.clone({
-      fs,
-      http,
-      dir: path,
-      url: cleanUrl,
-      onAuth: accessToken
-        ? () => ({
-            username: accessToken,
-            password: "x-oauth-basic",
-          })
-        : undefined,
-      onProgress: onProgress
-        ? (event) => {
-            onProgress({
-              phase: event.phase,
-              percent:
-                event.total && event.total > 0
-                  ? Math.round((event.loaded / event.total) * 100)
-                  : undefined,
-            });
-          }
-        : undefined,
-      singleBranch,
-      depth: depth ?? undefined,
-    });
-    if (signal?.aborted) {
-      const err = new Error("Clone cancelled");
-      err.name = "AbortError";
-      throw err;
-    }
-  }
-}
-
-export async function gitSetRemoteUrl({
-  path,
-  remoteUrl,
-}: GitSetRemoteUrlParams): Promise<void> {
-  if (await isGitAvailable()) {
-    try {
-      // Try to add the remote
-      const result = await exec(["remote", "add", "origin", remoteUrl], path);
-
-      // If remote already exists, update it instead
-      if (result.exitCode !== 0 && result.stderr.includes("already exists")) {
-        const updateResult = await exec(
-          ["remote", "set-url", "origin", remoteUrl],
-          path,
-        );
-
-        if (updateResult.exitCode !== 0) {
-          throw new Error(`Failed to update remote: ${updateResult.stderr}`);
-        }
-      } else if (result.exitCode !== 0) {
-        // Handle other errors
-        throw new Error(`Failed to add remote: ${result.stderr}`);
-      }
-    } catch (error: any) {
-      logger.error("Error setting up remote:", error);
-      throw error; // or handle as needed
-    }
-  } else {
-    logger.warn("gitSetRemoteUrl: no git binary — using isomorphic-git fallback");
-    const { default: git } = await import("isomorphic-git");
-    await git.setConfig({
-      fs,
-      dir: path,
-      path: "remote.origin.url",
-      value: remoteUrl,
-    });
-  }
-}
-
-export async function gitPush({
-  path,
-  branch,
-  accessToken,
-  force,
-}: GitPushParams): Promise<void> {
-  if (await isGitAvailable()) {
-    try {
-      // Push using the configured origin remote (which already has auth in URL)
-      const args = ["push", "origin", `main:${branch}`];
-      if (force) {
-        args.push("--force");
-      }
-      const result = await exec(args, path);
-
-      if (result.exitCode !== 0) {
-        const errorMsg = result.stderr.toString() || result.stdout.toString();
-        throw new Error(`Git push failed: ${errorMsg}`);
-      }
-    } catch (error: any) {
-      logger.error("Error during git push:", error);
-      throw new Error(`Git push failed: ${error.message}`);
-    }
-  } else {
-    logger.warn("gitPush: no git binary — using isomorphic-git fallback");
-    const { default: git } = await import("isomorphic-git");
-    const { default: http } = await import("isomorphic-git/http/node");
-    await git.push({
-      fs,
-      http,
-      dir: path,
-      remote: "origin",
-      ref: "main",
-      remoteRef: branch,
-      onAuth: () => ({
-        username: accessToken,
-        password: "x-oauth-basic",
-      }),
-      force: !!force,
-    });
-  }
-}
 
 export async function gitCurrentBranch({
   path,

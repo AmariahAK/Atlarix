@@ -464,6 +464,15 @@ export type LocalModelListResponse = {
 export interface TokenCountParams {
   chatId: number;
   input: string;
+  /**
+   * The mode the next turn will run in, as the composer resolved it
+   * (`useWorkModeSelection`). Fills the same slot `workModeOverride` fills on a
+   * stream request, and for the same reason: sessions have owned their own work
+   * mode since v14.36.0, so the main process cannot recover it from global
+   * settings. Omitted → the handler falls back to the global preference, which
+   * is right for a session that never picked a mode.
+   */
+  workMode?: WorkMode;
 }
 
 export interface TokenCountResult {
@@ -481,7 +490,25 @@ export interface TokenCountResult {
   searchResultTokens: number;
   otherToolOutputTokens: number;
   inputTokens: number;
+  /**
+   * The whole FIXED prefix: system instructions plus the bound tool surface.
+   *
+   * It carries the tool half as of v14.41. Before that it was the system prompt
+   * alone, which under-reported the real prefix by ~10,000 tokens in Build —
+   * the tool descriptions and parameter schemas are billed on every turn and
+   * were counted by nothing.
+   */
   systemPromptTokens: number;
+  /**
+   * The three below PARTITION `systemPromptTokens` (same contract as the
+   * history buckets): system instructions, bound tool descriptions after
+   * per-mode reveal tiering, and parameter JSON schemas.
+   */
+  systemInstructionTokens: number;
+  toolDescriptionTokens: number;
+  toolSchemaTokens: number;
+  /** The mode the prefix was measured for, so the UI can say which it priced. */
+  workMode: WorkMode;
   contextWindow: number;
   /** Effective budget (override or context window) for warnings */
   effectiveBudget?: number;
@@ -724,7 +751,15 @@ export interface McpServer {
   url?: string | null;
   apiKey?: string | null;
   enabled: boolean;
-  scope?: "global" | "workspace";
+  /**
+   * Workspace only. Global scope was retired and its rows purged by migration
+   * `0049_workspace_only_remote.sql` (mcp_servers, installed_skills and
+   * prompts alike); the handlers now hardcode "workspace" and every query
+   * filters on it. The DB columns stay — `installed_skills.scope` is part of
+   * a composite primary key, so dropping it would mean a SQLite table rebuild
+   * for no user-visible gain.
+   */
+  scope?: "workspace";
   appId?: number | null;
   authType?: "none" | "env" | "api_key" | "oauth";
   oauthConnected?: boolean;
@@ -734,7 +769,7 @@ export interface McpServer {
 
 export interface CreateMcpServer
   extends Omit<McpServer, "id" | "createdAt" | "updatedAt"> {
-  scope?: "global" | "workspace";
+  scope?: "workspace";
   appId?: number | null;
 }
 export type McpServerUpdate = Partial<McpServer> & Pick<McpServer, "id">;
@@ -785,13 +820,13 @@ export interface SkillRegistryIndex {
 
 export interface InstallSkillParams {
   skill: SkillManifestEntry;
-  scope: "global" | "workspace";
+  scope: "workspace";
   workspacePath?: string;
 }
 
 export interface UninstallSkillParams {
   skillId: string;
-  scope: "global" | "workspace";
+  scope: "workspace";
   workspacePath?: string;
 }
 
@@ -821,7 +856,7 @@ export interface InstalledSkillRow {
   tags: string[];
   compatibleModes: string[];
   installedAt: Date | string;
-  scope: "global" | "workspace";
+  scope: "workspace";
   workspacePath: string | null;
   cachedFiles: Array<{ name: string; localPath: string }>;
 }

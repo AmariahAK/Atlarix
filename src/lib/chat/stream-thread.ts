@@ -13,6 +13,7 @@ import { summarizeToolActivityItem } from "@/lib/chat/inline-timeline";
 import {
   formatToolResultPreview,
   getToolCompletedSummary,
+  noopSummary,
   getToolFailedSummary,
   getToolRunningSummary,
   looksLikeToolArgsJson,
@@ -328,7 +329,8 @@ function finalizeToolItem(
             // beside an error text is the same lie v14.22.0 fixed for run_command's
             // "Successfully executed" next to a non-zero exit. Name the attempt.
             getToolFailedSummary(registryName, item.toolArgs)
-          : getToolCompletedSummary(registryName, item.toolArgs)),
+          : noopSummary(registryName, resultText) ??
+            getToolCompletedSummary(registryName, item.toolArgs)),
     detail: rawDetail,
     resultText,
     expand,

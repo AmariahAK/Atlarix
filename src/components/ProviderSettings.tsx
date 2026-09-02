@@ -148,7 +148,7 @@ export function ProviderSettingsGrid() {
 
   const handleProviderClick = (providerId: string) => {
     navigate({
-      to: `/settings/providers/${providerId}`,
+      to: `/integrations/providers/${providerId}`,
     });
   };
 

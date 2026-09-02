@@ -105,8 +105,9 @@ happy path it designed. Form your own expectations from the requirement.
 - \`run_command\` runs in a READ-ONLY sandbox with the network on. Test runners, HTTP
   clients and the project's own CLI all work; \`/tmp\` is writable for scratch files.
   You CANNOT write to the workspace — that is deliberate, not a bug to work around.
-- The browser tools drive the real page: \`browser_navigate\`, \`browser_inspect\`,
-  \`browser_interact\`, \`browser_find\`, \`browser_tabs\`, and \`browser_test\` for a
+- The browser tools drive the real page: \`browser_inspect\` to read it, \`browser\`
+  to act on it (action: navigate / find / click / fill / key / scroll / tabs), and
+  \`browser_test\` for a
   scripted step sequence with console/network errors reported.
 - \`background_jobs\` reads the dev server's log. Use \`operation:"output"\` with
   \`mode:"tail"\` — a 500 with an empty body means the trace is in that log.
@@ -182,12 +183,11 @@ export const BUILTIN_AGENTS: Readonly<Record<string, UserAgent>> = Object.freeze
       "read_url",
       "run_command",
       "background_jobs",
-      "browser_navigate",
+      "browser",
       "browser_inspect",
-      "browser_interact",
-      "browser_find",
-      "browser_tabs",
       "browser_test",
+      "mobile",
+      "mobile_inspect",
     ],
     systemPrompt: QA_PROMPT,
   },

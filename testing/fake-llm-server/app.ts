@@ -2,19 +2,6 @@ import express from "express";
 import cors from "cors";
 import { createChatCompletionHandler } from "./chatCompletionHandler";
 import { mountScenarioRoutes } from "./scenario";
-import {
-  handleDeviceCode,
-  handleAccessToken,
-  handleUser,
-  handleUserEmails,
-  handleUserRepos,
-  handleRepo,
-  handleRepoBranches,
-  handleOrgRepos,
-  handleGitPush,
-  handleGetPushEvents,
-  handleClearPushEvents,
-} from "./githubHandler";
 
 /**
  * Build the fake-LLM express app without listening.
@@ -132,28 +119,15 @@ export function createApp() {
   // Default test provider handler:
   app.post("/v1/chat/completions", createChatCompletionHandler());
 
-  // GitHub API Mock Endpoints
-  console.log("Setting up GitHub mock endpoints");
-
-  // GitHub OAuth Device Flow
-  app.post("/github/login/device/code", handleDeviceCode);
-  app.post("/github/login/oauth/access_token", handleAccessToken);
-
-  // GitHub API endpoints
-  app.get("/github/api/user", handleUser);
-  app.get("/github/api/user/emails", handleUserEmails);
-  app.get("/github/api/user/repos", handleUserRepos);
-  app.post("/github/api/user/repos", handleUserRepos);
-  app.get("/github/api/repos/:owner/:repo", handleRepo);
-  app.get("/github/api/repos/:owner/:repo/branches", handleRepoBranches);
-  app.post("/github/api/orgs/:org/repos", handleOrgRepos);
-
-  // GitHub test endpoints for verifying push operations
-  app.get("/github/api/test/push-events", handleGetPushEvents);
-  app.post("/github/api/test/clear-push-events", handleClearPushEvents);
-
-  // GitHub Git endpoints - intercept all paths with /github/git prefix
-  app.all("/github/git/*", handleGitPush);
+  /**
+   * The GitHub API mock that sat here is gone with the feature it served.
+   *
+   * It faked a device-code flow, a repo list, a push and a git-http endpoint —
+   * all for the in-app clone dialog, which was GitHub-shaped and could never
+   * reach GitLab, Bitbucket or plain SSH. Cloning is `git clone` through
+   * run_command now, so there is nothing to mock: the agent uses the user's own
+   * git credentials against a real remote.
+   */
 
   return app;
 }

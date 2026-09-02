@@ -88,3 +88,114 @@ describe("InlineStreamStatus", () => {
     expect(screen.getByText("mapping out structure")).toBeInTheDocument();
   });
 });
+
+/**
+ * Compaction, mid-turn — the pause the UI never explained.
+ *
+ * The agent stops for several seconds to summarise its own context and the
+ * status line said nothing, which reads as a hang.
+ *
+ * NOTE WHICH EVENT THIS READS. The main process emits both a `compaction`
+ * banner event and a parallel `background` one, and `chat-activity-normalize.ts`
+ * drops the `compaction` type DELIBERATELY — admitting it would put two rows in
+ * the atom for one event, and `compress-context-persistence.test.ts` pins that
+ * drop as the contract. The first attempt here un-dropped it and that test
+ * caught it, correctly. So the pill reads the `background` row by label, the
+ * same shape `useCompactionTokenVisuals` already uses.
+ */
+describe("compaction is visible mid-turn", () => {
+  const bg = (over: Record<string, unknown>) =>
+    [
+      {
+        id: "c1",
+        type: "background",
+        label: "Summarizing in-task context",
+        status: "running",
+        timestamp: Date.now(),
+        chatId: CHAT_ID,
+        ...over,
+      },
+    ] as never;
+
+  beforeEach(() => {
+    const store = renderWithProviders(<div />).store;
+    store.set(toolIndicatorAtom, emptyToolIndicatorState());
+    store.set(isStreamingByIdAtom, new Map([[CHAT_ID, true]]));
+    store.set(activityStreamItemsAtom, []);
+  });
+
+  it("the `compaction` type stays dropped by normalize", async () => {
+    // Guarding the decision, not just the behaviour: the obvious "fix" for an
+    // invisible compaction is to admit this type, and that is the wrong one.
+    const { normalizeChatActivityPayload } = await import(
+      "@/lib/chat-activity-normalize"
+    );
+    expect(
+      normalizeChatActivityPayload({
+        id: "c1",
+        type: "compaction",
+        label: "Context compressed",
+        status: "done",
+        timestamp: 1,
+        chatId: CHAT_ID,
+      }),
+    ).toBeNull();
+  });
+
+  it("shows a running pill instead of the ordinary status line", () => {
+    const store = renderWithProviders(<div />).store;
+    store.set(activityStreamItemsAtom, bg({}));
+    renderWithProviders(<InlineStreamStatus chatId={CHAT_ID} active />);
+    const pill = screen.getByRole("status");
+    // The main process's label is internal wording ("Summarizing in-task
+    // context"); the pill says what the USER needs to know.
+    expect(pill.textContent).toContain("Compressing context");
+    // Announced, because it explains a pause the user is already noticing.
+    expect(pill.getAttribute("aria-live")).toBe("polite");
+    // The pulse IS the message: the turn has not stalled.
+    expect(pill.innerHTML).toContain("animate-pulse");
+  });
+
+  it("shows the finished pill briefly, then gets out of the way", () => {
+    const store = renderWithProviders(<div />).store;
+    store.set(
+      activityStreamItemsAtom,
+      bg({ status: "done", label: "Context compressed", detail: "120000 → 40000 tokens" }),
+    );
+    const { unmount } = renderWithProviders(
+      <InlineStreamStatus chatId={CHAT_ID} active />,
+    );
+    // "It compressed and carried on" is the reassuring half of the story —
+    // dropping it leaves the user wondering what the pause was.
+    expect(screen.getByRole("status").textContent).toContain("Context compressed");
+    expect(screen.getByRole("status").textContent).toContain("120000 → 40000");
+    unmount();
+
+    store.set(
+      activityStreamItemsAtom,
+      bg({
+        status: "done",
+        label: "Context compressed",
+        timestamp: Date.now() - 20_000,
+      }),
+    );
+    renderWithProviders(<InlineStreamStatus chatId={CHAT_ID} active />);
+    expect(screen.queryByRole("status")).toBeNull();
+  });
+
+  it("ignores an unrelated background row", () => {
+    // The filter is by LABEL, so a background job that is not compaction must
+    // not hijack the status line.
+    const store = renderWithProviders(<div />).store;
+    store.set(activityStreamItemsAtom, bg({ label: "Running dev server" }));
+    renderWithProviders(<InlineStreamStatus chatId={CHAT_ID} active />);
+    expect(screen.queryByRole("status")).toBeNull();
+  });
+
+  it("ignores another chat's compaction", () => {
+    const store = renderWithProviders(<div />).store;
+    store.set(activityStreamItemsAtom, bg({ chatId: CHAT_ID + 1 }));
+    renderWithProviders(<InlineStreamStatus chatId={CHAT_ID} active />);
+    expect(screen.queryByRole("status")).toBeNull();
+  });
+});

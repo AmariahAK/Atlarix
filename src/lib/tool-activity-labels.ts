@@ -40,12 +40,21 @@ const LABELS: Record<string, string> = {
   google_search: "Searching the web…",
   deep_research: "Deep research…",
   read_url: "Reading URL…",
-  browser_navigate: "Opening page…",
   browser_inspect: "Reading page…",
+  // One entry for the consolidated act tool; `browserToolLabel` refines it per
+  // action ("Clicking…", "Opening page…") from the args.
+  browser: "Acting on page…",
+  // Retired names, KEPT. A reloaded session or a stored activity row still
+  // carries them, and this plain lookup is the path taken when no args are
+  // available — without these, old history would read "Running browser
+  // navigate…" / "Completed browser navigate".
+  browser_navigate: "Opening page…",
   browser_interact: "Acting on page…",
   browser_find: "Finding on page…",
   browser_tabs: "Managing tabs…",
   browser_batch: "Running browser steps…",
+  mobile_inspect: "Reading the screen…",
+  mobile: "Acting on the device…",
   browser_test: "Testing the app…",
   background_jobs: "Checking background jobs…",
   diagnose_issue: "Diagnosing issue…",
@@ -92,6 +101,9 @@ const ARG_VERBS: Record<string, string> = {
   delete_file: "Deleting",
   rename_file: "Renaming",
   explore_folder: "Exploring",
+  // Without an entry here a subject is computed and then silently DISCARDED,
+  // which is why adding one to subjectFromArgs changed nothing on its own.
+  tool_help: "Reading",
 };
 
 /** Clamp a subject string so status lines stay short. */
@@ -105,6 +117,12 @@ function subjectFromArgs(toolName: string, args: Record<string, unknown>): strin
     typeof v === "string" && v.trim() ? v.trim() : null;
   // grep/glob first: their `pattern` is the subject, and grep's `path` arg is the
   // search root (not what we want to surface), so this must precede the path check.
+  // `tool_help` reads ONE tool's instructions, so the row should say which —
+  // "Read tool usage" was the same string whatever it fetched.
+  if (toolName === "tool_help") {
+    const tool = str(args.tool);
+    if (tool) return tool;
+  }
   if (toolName === "grep" || toolName === "glob") {
     const pattern = str(args.pattern) ?? str(args.query);
     if (pattern) {
@@ -133,9 +151,20 @@ function subjectFromArgs(toolName: string, args: Record<string, unknown>): strin
   return null;
 }
 
+/**
+ * The two browser tools. Six collapsed into these, so the arg-aware labels
+ * below now key off `args.action` for `browser` rather than off five tool names.
+ *
+ * The retired names stay in the set deliberately: a REPLAYED transcript (a
+ * reloaded session, a stored activity row) still carries them, and a card that
+ * rendered "Completed browser navigate" for history would be a visible
+ * regression in old sessions.
+ */
 const BROWSER_TOOLS = new Set([
-  "browser_navigate",
+  "browser",
   "browser_inspect",
+  // Retired names — still labelled so historical activity rows read correctly.
+  "browser_navigate",
   "browser_interact",
   "browser_find",
   "browser_tabs",
@@ -174,7 +203,16 @@ export function browserToolLabel(
   const suffix = isPreview ? " · preview" : "";
   const noun = isPreview ? "preview" : "page";
 
-  if (toolName === "browser_navigate") {
+  // `browser` carries the verb in `action`; the retired tool names carry it in
+  // the name itself. Normalise to one verb so each label lives in one place.
+  const verb =
+    toolName === "browser"
+      ? str(a.action)
+      : toolName.startsWith("browser_")
+        ? toolName.slice("browser_".length)
+        : "";
+
+  if (verb === "navigate") {
     const where = str(a.url)
       ? ` ${shortText(hostFromUrl(str(a.url)))}`
       : isPreview
@@ -201,12 +239,12 @@ export function browserToolLabel(
     return tense === "running" ? `${run}…` : done;
   }
 
-  if (toolName === "browser_find") {
+  if (verb === "find") {
     const q = str(a.query) ? ` "${shortText(str(a.query), 28)}"` : "";
     return tense === "running" ? `Finding${q}…` : `Found${q}`;
   }
 
-  if (toolName === "browser_tabs") {
+  if (verb === "tabs") {
     const op = str(a.operation);
     const map: Record<string, [string, string]> = {
       list: ["Listing browser tabs", "Listed browser tabs"],
@@ -218,14 +256,22 @@ export function browserToolLabel(
     return tense === "running" ? `${run}…` : done;
   }
 
-  if (toolName === "browser_batch") {
+  if (verb === "batch") {
     const n = Array.isArray(a.steps) ? a.steps.length : 0;
     const what = n ? ` ${n} step${n === 1 ? "" : "s"}` : "";
     return tense === "running" ? `Running${what} in the browser…` : `Ran${what} in the browser`;
   }
 
-  if (toolName === "browser_interact") {
-    const action = str(a.action);
+  // The five act verbs, whether they arrived as `browser({action})` or as the
+  // retired `browser_interact({action})`.
+  //
+  // This block always returns, and that is correct rather than an oversight:
+  // the ONLY null path is the `BROWSER_TOOLS` guard at the top of the function,
+  // which is what lets a non-browser tool fall through to `subjectFromArgs` in
+  // the callers. A trailing `return null` here would be unreachable, so a
+  // browser tool with an unrecognised action gets the generic act label instead.
+  {
+    const action = verb === "interact" ? str(a.action) : verb;
     if (action === "fill") {
       const what = str(a.value) ? ` "${shortText(str(a.value), 24)}"` : " field";
       return (tense === "running" ? `Filling${what}` : `Filled${what}`) + suffix;
@@ -250,7 +296,6 @@ export function browserToolLabel(
     }
     return (tense === "running" ? "Acting on page" : "Acted on page") + suffix;
   }
-  return null;
 }
 
 /**
@@ -317,12 +362,16 @@ const DONE_LABELS: Record<string, string> = {
   google_search: "Searched the web",
   deep_research: "Completed deep research",
   read_url: "Read URL",
-  browser_navigate: "Opened page",
   browser_inspect: "Read page",
+  browser: "Acted on page",
+  // Retired names — see the note in LABELS above.
+  browser_navigate: "Opened page",
   browser_interact: "Acted on page",
   browser_find: "Found on page",
   browser_tabs: "Managed tabs",
   browser_batch: "Ran browser steps",
+  mobile_inspect: "Read the screen",
+  mobile: "Acted on the device",
   browser_test: "Tested the app",
   background_jobs: "Checked background jobs",
   diagnose_issue: "Diagnosed issue",
@@ -362,6 +411,13 @@ export function getToolDoneLabel(
           ? `Searched for ${subject}`
           : `Found files matching ${subject}`;
       }
+    }
+    // Name the tool whose instructions were fetched. "Read tool usage" was the
+    // same string for every call, which made the row useless for telling apart
+    // several reveals in one turn.
+    if (toolName === "tool_help") {
+      const subject = subjectFromArgs(toolName, args);
+      if (subject) return `Read ${subject} usage`;
     }
   }
   if (toolName.includes("__")) {

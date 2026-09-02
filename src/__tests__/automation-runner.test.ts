@@ -97,7 +97,6 @@ function makeDeps(overrides?: Partial<RunnerDeps>): RunnerDeps & {
       await sleep(30);
       return { runId: `run-${id}` };
     }),
-    pollGithub: vi.fn(async () => ({ fired: false, nextCursor: {} })),
     pollMcp: vi.fn(async () => ({ fired: false, nextCursor: { hash: "h" } })),
     ...overrides,
   };

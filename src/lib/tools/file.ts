@@ -162,18 +162,33 @@ function smartSliceFile(lines: string[], maxLines: number, context: SliceContext
 ToolRegistry.register({
     name: "read_file",
     description:
-        "Read file contents. Default ~2000 lines / 50KB per call; for larger files page with offset (1-based start line) + limit, repeating until the footer no longer says more lines remain. Use context or start_line/end_line to focus.",
+        "Read file contents. Default ~2000 lines / 50KB per call; for larger files page with offset (1-based start line) + limit, repeating until the footer no longer says more lines remain. Use context to focus on one kind of declaration.",
     requiresWorkspace: true,
     isCore: true,
     isReadOnly: true,
+    /**
+     * ONE paging scheme is advertised: `offset` + `limit`.
+     *
+     * There were three, on the most-called tool in the app — `max_lines`,
+     * `start_line`+`end_line`, and `offset`+`limit` — which cost 1,269 chars of
+     * schema against a 226-char description and gave the model three ways to
+     * express one intent. `offset`/`limit` wins because it is the scheme the
+     * tool's OWN truncation footer tells the model to use, so the advertised
+     * schema and the runtime guidance now agree.
+     *
+     * `file_path`, `max_lines`, `start_line` and `end_line` are still ACCEPTED —
+     * see the handler, which continues to read all four. A model with a strong
+     * training prior will send them whatever the schema says, and a tool that
+     * then failed would be a regression dressed up as a saving. Pinned by
+     * tests/agent-evals/unadvertised-params.eval.test.ts, which drives a real
+     * turn calling `file_path` and `start_line`/`end_line`.
+     *
+     * `context` STAYS advertised: `smartSliceFile` implements it and it is a
+     * live navigation feature, not a duplicate spelling of paging.
+     */
     parameters: createParameters(
         {
             path: stringParam("Path to the file to read — workspace-relative, or an ABSOLUTE path for anything outside the workspace."),
-            file_path: stringParam("Alternative: Path to the file (alias for path)"),
-            max_lines: {
-                type: "number",
-                description: `Maximum lines to return (default: ${READ_FILE_DEFAULT_MAX_LINES}, max: ${READ_FILE_MAX_LINES_CAP}).`,
-            },
             max_bytes: numberParam(
                 "Max UTF-8 bytes of returned text (default 80000, max 200000).",
                 READ_FILE_DEFAULT_MAX_BYTES,
@@ -184,14 +199,6 @@ ToolRegistry.register({
                 type: "string",
                 description: "What to focus on: 'full' (default), 'imports', 'exports', 'functions', 'classes', 'types', 'errors'. Helps prioritize relevant sections.",
                 enum: ["full", "imports", "exports", "functions", "classes", "types", "errors"],
-            },
-            start_line: {
-                type: "number",
-                description: "Read from this line (1-indexed). Use with end_line for specific range.",
-            },
-            end_line: {
-                type: "number",
-                description: "Read to this line (1-indexed). Use with start_line for specific range.",
             },
             offset: {
                 type: "number",
@@ -411,7 +418,7 @@ ToolRegistry.register({
                         .map((line, idx) => `${idx + 1}: ${line}`)
                         .join("\n");
                     const block = `File: ${displayPath}\nLines: 1-${lines.length} (complete)\n\n${numberedLines}`;
-                    return truncateUtf8ByBytes(block, capBytes, { margin: 120, suffix: "\n\n… [truncated: exceeded max_bytes; lower max_lines/max_bytes or use start_line/end_line]" });
+                    return truncateUtf8ByBytes(block, capBytes, { margin: 120, suffix: "\n\n… [truncated: exceeded max_bytes; lower max_bytes, or page with offset + limit]" });
                 }
                 // Over-cap: return the first page linearly + an offset footer (same
                 // shape as the range path), so the model pages forward to the exact
@@ -433,10 +440,10 @@ ToolRegistry.register({
             let result = `File: ${displayPath}\n`;
             result += `Total lines: ${lines.length} | Showing: ${sliced.linesShown} (${sliced.strategy})\n`;
             result +=
-                "Tip: page the rest with offset (1-based start line) + limit, or use start_line/end_line for a specific range.\n\n";
+                "Tip: page the rest with offset (1-based start line) + limit.\n\n";
             result += sliced.text;
 
-            return truncateUtf8ByBytes(result, capBytes, { margin: 120, suffix: "\n\n… [truncated: exceeded max_bytes; lower max_lines/max_bytes or use start_line/end_line]" });
+            return truncateUtf8ByBytes(result, capBytes, { margin: 120, suffix: "\n\n… [truncated: exceeded max_bytes; lower max_bytes, or page with offset + limit]" });
         } catch (error) {
             let structured = readFileStructuredError(error, displayPath);
             if (structured) {

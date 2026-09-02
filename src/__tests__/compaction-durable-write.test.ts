@@ -298,6 +298,11 @@ describe("enforceContextBudget is the BACKSTOP — it must not summarize", () =>
       limitedMessageHistory: history,
       codebasePrefixMessages: [],
       otherCodebasePrefixMessages: [],
+      // 0 keeps these tests measuring exactly what they measured before the
+      // tool surface entered the budget: the history/blob trimming behaviour at
+      // a given tierLimit. A non-zero surface would shift every threshold in
+      // the file and turn a behavioural test into an arithmetic one.
+      toolSurfaceTokens: 0,
     });
   };
 

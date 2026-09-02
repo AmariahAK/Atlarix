@@ -7,6 +7,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { useCountTokens } from "@/hooks/useCountTokens";
+import { labelForWorkMode } from "@/lib/work-mode";
 import {
   MessageSquare,
   FileText,
@@ -15,6 +16,8 @@ import {
   Sparkles,
   Bot,
   AlignLeft,
+  Wrench,
+  Braces,
 } from "lucide-react";
 import {
   chatInputValueAtom,
@@ -136,6 +139,10 @@ export function TokenBar({ chatId }: TokenBarProps) {
     searchResultTokens,
     otherToolOutputTokens,
     systemPromptTokens,
+    systemInstructionTokens,
+    toolDescriptionTokens,
+    toolSchemaTokens,
+    workMode: meteredWorkMode,
     inputTokens,
     contextWindow,
     effectiveBudget,
@@ -263,15 +270,32 @@ export function TokenBar({ chatId }: TokenBarProps) {
                   pulse={pulse}
                   flashSuccess={flashSuccess}
                 />
+                {/*
+                  THE RING AND A PERCENTAGE — NOT A RAW COUNT.
+
+                  This used to lead with `{totalTokens} / {budgetLabel}`. Once the
+                  meter started counting the tool surface honestly (it had been
+                  omitting ~6,700 tokens), an untouched chat opened reading
+                  "10,864 / 200K" — which reads as "you have already spent
+                  something" before the user types a word. The number was right;
+                  the impression was wrong.
+
+                  A percentage says the same thing without the alarm: 5% is
+                  legible, 10,864 is not. Every figure is still one hover away in
+                  the card below, itemised into system / tool descriptions / tool
+                  schemas / history / input — so this hides nothing, it stops
+                  shouting. And the app's own arithmetic keeps the honest total,
+                  because the budget enforcer and the compactor depend on it.
+                */}
                 <div className="flex flex-col min-w-0 leading-tight">
                   <span className="text-muted-foreground tabular-nums truncate">
-                    {totalTokens.toLocaleString()} / {budgetLabel}
+                    {Math.round(percentUsed)}% of {budgetLabel}
                     {budgetSource === "override" && (
                       <span className="text-muted-foreground/70 ml-0.5">(capped)</span>
                     )}
                   </span>
                   <span className="text-[10px] text-muted-foreground/80">
-                    {Math.round(percentUsed)}% context
+                    context
                     {coreCreditLabel ? (
                       <span className="ml-1.5 text-muted-foreground/70 tabular-nums">
                         · Core {coreCreditLabel}
@@ -297,7 +321,17 @@ export function TokenBar({ chatId }: TokenBarProps) {
             </TooltipTrigger>
             <TooltipContent side="top" className="w-64 p-2">
               <div className="space-y-1">
-                <div className="font-medium">Token usage</div>
+                {/* Naming the mode matters now that the prefix is metered per
+                    mode: Build binds every tool where Plan binds a subset, so
+                    the same conversation prices differently and the reader
+                    should not have to guess which mode produced the number. */}
+                <div className="font-medium">
+                  Token usage
+                  <span className="font-normal text-muted-foreground">
+                    {" · "}
+                    {labelForWorkMode(meteredWorkMode)}
+                  </span>
+                </div>
                 <div className="grid grid-cols-[20px_1fr_auto] gap-x-2 items-center">
                   <MessageSquare size={12} className="text-blue-500" />
                   <span>Conversation</span>
@@ -319,9 +353,23 @@ export function TokenBar({ chatId }: TokenBarProps) {
                   <span>Skills &amp; instructions</span>
                   <span>{contextSectionTokens.toLocaleString()}</span>
 
+                  {/* The fixed prefix, split three ways. It used to be one
+                      "System prompt" row carrying the instructions alone, which
+                      hid ~10,000 tokens of tool descriptions and parameter
+                      schemas that are billed on every turn. These three rows
+                      PARTITION the prefix — they do not add to it — so the Total
+                      below is unchanged in meaning. */}
                   <Bot size={12} className="text-purple-500" />
                   <span>System prompt</span>
-                  <span>{systemPromptTokens.toLocaleString()}</span>
+                  <span>{systemInstructionTokens.toLocaleString()}</span>
+
+                  <Wrench size={12} className="text-purple-400" />
+                  <span>Tool descriptions</span>
+                  <span>{toolDescriptionTokens.toLocaleString()}</span>
+
+                  <Braces size={12} className="text-purple-300" />
+                  <span>Tool schemas</span>
+                  <span>{toolSchemaTokens.toLocaleString()}</span>
 
                   <AlignLeft size={12} className="text-yellow-500" />
                   <span>Current input</span>
@@ -331,6 +379,18 @@ export function TokenBar({ chatId }: TokenBarProps) {
                   <div className="flex justify-between font-medium">
                     <span>Total</span>
                     <span>{breakdownTotal.toLocaleString()}</span>
+                  </div>
+                  {/* The figure the RING is drawn from, stated once. The headline
+                      shows a percentage now, so without this line the number
+                      behind the ring would be visible nowhere — and it is not
+                      always `breakdownTotal` above: `totalTokens` prefers the
+                      provider's live report or the dispatched size when either
+                      exists. Two honest measurements, both named. */}
+                  <div className="flex justify-between text-muted-foreground">
+                    <span>Context used</span>
+                    <span className="tabular-nums">
+                      {totalTokens.toLocaleString()} / {budget.toLocaleString()}
+                    </span>
                   </div>
                   {/* The provider counts with its own tokenizer and includes
                       cache/reasoning tokens the breakdown can't attribute, so it

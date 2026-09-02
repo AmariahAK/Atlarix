@@ -111,7 +111,7 @@ describe("tool reveal tiering", () => {
     const surface = [
       "automations",
       "browser_inspect",
-      "browser_interact",
+      "browser",
       "run_command",
       "edit_file",
       "read_file",

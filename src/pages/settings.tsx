@@ -1,12 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
-import posthog from "posthog-js";
 import ConfirmationDialog from "@/components/ConfirmationDialog";
 import { IpcClient } from "@/ipc/ipc_client";
 import { showSuccess, showError } from "@/lib/toast";
 // Hidden: ThinkingBudgetSelector, ReleaseChannelSelector, RuntimeModeSelector, NodePathSelector
 import { useSettings } from "@/hooks/useSettings";
-import { useAppVersion } from "@/hooks/useAppVersion";
-import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
@@ -22,69 +19,181 @@ import { useTheme } from "@/contexts/ThemeContext";
 import { SearchSettings } from "@/components/settings/SearchSettings";
 import { VoiceInputSettings } from "@/components/settings/VoiceInputSettings";
 import { DiagnosticsPanel } from "@/components/settings/DiagnosticsPanel";
-import { useLanguageModelProviders } from "@/hooks/useLanguageModelProviders";
-import { WorkspaceTerminalPermissions } from "@/components/settings/WorkspaceTerminalPermissions";
-import {
-  WorkspaceFilePermissions,
-  WorkspaceGrantedFolders,
-} from "@/components/settings/WorkspaceFilePermissions";
-import { GitHubIntegration } from "@/components/GitHubIntegration";
 import { CommunitySettingsSection } from "@/components/community/CommunitySettingsSection";
-import { useSetAtom, getDefaultStore } from "jotai";
 import {
-  activeSettingsSectionAtom,
-  pendingSettingsScrollAtom,
-} from "@/atoms/viewAtoms";
-import { useNavigate } from "@tanstack/react-router";
-import { Server, ChevronRight, Sparkles } from "lucide-react";
-import { useAuth } from "@/lib/auth/useAuth";
-import { ProviderSettingsGrid } from "@/components/ProviderSettings";
+  Link,
+  Outlet,
+  useNavigate,
+  useRouterState,
+} from "@tanstack/react-router";
+import { cn } from "@/lib/utils";
+import { ScrollableTabNav } from "@/components/ScrollableTabNav";
+import {
+  SlidersHorizontal,
+  Stethoscope,
+  Globe,
+  Search,
+  Bell,
+  Mic,
+  Users,
+  TriangleAlert,
+} from "lucide-react";
 
 
-export default function SettingsPage() {
+/**
+ * Settings — how the app behaves for you.
+ *
+ * ONE SECTION PER SCREEN, not one long scroll.
+ *
+ * This page was a single scroll of eleven cards with a sidebar that SCROLLED to
+ * anchors, which needed ~60 lines of geometry (a scroll listener recomputing the
+ * active section every frame, after an earlier IntersectionObserver attempt that
+ * never ran and a detection band of exactly zero height). All of that existed to
+ * answer "which section am I looking at?" — a question the router answers for
+ * free.
+ *
+ * So each section is a route now, matching /integrations. Three things fall out:
+ * a wrong path fails at COMPILE time because TanStack's `to` is a typed union,
+ * the id-parity hazard disappears (there are no ids to keep in sync), and the
+ * scroll-spy is deleted rather than maintained.
+ *
+ * Order: what this install IS (General, Diagnostics), then how it behaves
+ * (Browser, Search, Notifications, Voice), then Community, then the escape hatch.
+ */
+
+const SECTIONS = [
+  { to: "/settings", label: "General", icon: SlidersHorizontal },
+  { to: "/settings/diagnostics", label: "Diagnostics", icon: Stethoscope },
+  { to: "/settings/browser", label: "Browser", icon: Globe },
+  { to: "/settings/search", label: "Search", icon: Search },
+  { to: "/settings/notifications", label: "Notifications", icon: Bell },
+  { to: "/settings/voice", label: "Voice input", icon: Mic },
+  { to: "/settings/community", label: "Community", icon: Users },
+  { to: "/settings/danger", label: "Danger zone", icon: TriangleAlert },
+] as const;
+
+function SettingsNav() {
+  const pathname = useRouterState({ select: (st) => st.location.pathname });
+  return (
+    <ScrollableTabNav label="Settings" className="mb-8">
+      {SECTIONS.map((sec) => {
+        const Icon = sec.icon;
+        // Exact match for the index, prefix for children — otherwise
+        // /settings/browser would also light up "General".
+        const active =
+          sec.to === "/settings"
+            ? pathname === "/settings" || pathname === "/settings/"
+            : pathname.startsWith(sec.to);
+        return (
+          <Link
+            key={sec.to}
+            to={sec.to}
+            className={cn(
+              "inline-flex shrink-0 whitespace-nowrap items-center gap-2 rounded-lg border px-3 py-2 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+              active
+                ? "border-primary/50 bg-primary/10 text-foreground font-medium"
+                : "border-border text-muted-foreground hover:text-foreground hover:bg-muted/40",
+            )}
+            aria-current={active ? "page" : undefined}
+          >
+            <Icon className="h-4 w-4 shrink-0" aria-hidden />
+            {sec.label}
+          </Link>
+        );
+      })}
+    </ScrollableTabNav>
+  );
+}
+
+export function SettingsLayout() {
+  return (
+    <div className="flex-1 bg-background overflow-auto">
+      <div className="max-w-5xl mx-auto px-8 py-6 pb-20">
+        <SettingsWorkspaceNav className="mb-4" />
+        <div className="flex items-center gap-3 mb-2">
+          <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+            <SlidersHorizontal className="w-5 h-5 text-primary" aria-hidden />
+          </div>
+          <h1 className="text-3xl font-bold text-foreground">Settings</h1>
+        </div>
+        <p className="text-muted-foreground mb-8 max-w-2xl">
+          How Atlarix behaves for you. Model providers, MCP servers, Skills and
+          project permissions live under{" "}
+          <Link to="/integrations" className="text-primary hover:underline">
+            Integrations
+          </Link>
+          .
+        </p>
+
+        <SettingsNav />
+        <Outlet />
+      </div>
+    </div>
+  );
+}
+
+/** Browser — what the in-app browser tells the agent about. */
+export function BrowserSettings() {
+  const { settings, updateSettings } = useSettings();
+  return (
+    <div className="bg-card rounded-xl shadow-sm p-6 border border-border">
+      <h2 className="text-lg font-medium text-foreground mb-4">Browser</h2>
+      <div className="space-y-3">
+        <label
+          htmlFor="browser-runtime-notice"
+          className="text-sm text-foreground block"
+        >
+          Tell the agent when a page logs something
+        </label>
+        <select
+          id="browser-runtime-notice"
+          value={settings?.browserRuntimeNotice ?? "any"}
+          onChange={(e) =>
+            updateSettings({
+              browserRuntimeNotice: e.target.value as "off" | "failures" | "any",
+            })
+          }
+          className="w-full max-w-xs rounded-md border border-border bg-background px-3 py-2 text-sm"
+        >
+          <option value="any">Anything it recorded (default)</option>
+          <option value="failures">Only failures</option>
+          <option value="off">Never</option>
+        </select>
+        <p className="text-xs text-muted-foreground">
+          One line per turn, with counts — never the entries themselves. It never
+          blocks the agent from finishing; it is a pointer the agent may follow or
+          ignore, and you can always send specific entries yourself from the
+          Console and Network tabs.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+export function SearchSettingsSection() {
+  return (
+    <div className="bg-card rounded-xl shadow-sm p-6 border border-border">
+      <h2 className="text-lg font-medium text-foreground mb-4">Search</h2>
+      <SearchSettings />
+    </div>
+  );
+}
+
+export function DiagnosticsSection() {
+  return (
+    <div className="bg-card rounded-xl shadow-sm p-6 border border-border">
+      <DiagnosticsPanel />
+    </div>
+  );
+}
+
+export function CommunitySection() {
+  return <CommunitySettingsSection />;
+}
+
+export function DangerZoneSettings() {
   const [isResetDialogOpen, setIsResetDialogOpen] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
-  const appVersion = useAppVersion();
-  const { settings, updateSettings } = useSettings();
-  const setActiveSettingsSection = useSetAtom(activeSettingsSectionAtom);
-
-  useEffect(() => {
-    // Honor a one-shot deep-link target (e.g. ChatErrorBox → "ai", MCP prompts →
-    // "mcp"): consume it and scroll the section into view. Otherwise default to
-    // the top (general). Without this, the deep-link atom set just before
-    // navigation was clobbered here and nothing scrolled.
-    const pending = getDefaultStore().get(pendingSettingsScrollAtom);
-    if (pending) {
-      getDefaultStore().set(pendingSettingsScrollAtom, null); // one-shot consume
-      setActiveSettingsSection(pending);
-      posthog.capture("settings_opened", { section: pending });
-      // Sections are rendered at mount, but content above (provider grids) can
-      // load async and shift layout — poll briefly until the element exists,
-      // scroll, then do one settle pass.
-      let tries = 0;
-      let settled = false;
-      const tryScroll = () => {
-        const el = document.getElementById(pending);
-        if (el) {
-          el.scrollIntoView({ behavior: "smooth", block: "start" });
-          if (!settled) {
-            settled = true;
-            window.setTimeout(() => {
-              document
-                .getElementById(pending)
-                ?.scrollIntoView({ behavior: "smooth", block: "start" });
-            }, 250);
-          }
-          return;
-        }
-        if (tries++ < 8) window.setTimeout(tryScroll, 120);
-      };
-      requestAnimationFrame(tryScroll);
-    } else {
-      setActiveSettingsSection("general");
-      posthog.capture("settings_opened", { section: "general" });
-    }
-  }, [setActiveSettingsSection]);
 
   const handleResetEverything = async () => {
     setIsResetting(true);
@@ -104,220 +213,62 @@ export default function SettingsPage() {
   };
 
   return (
-    <div className="flex-1 bg-background overflow-auto">
-      <div className="max-w-5xl mx-auto px-8 py-4 pb-20">
-        <SettingsWorkspaceNav className="mb-4" />
-        <div className="flex justify-between mb-4">
-          <h1 className="text-3xl font-bold text-foreground">
-            Settings
-          </h1>
-        </div>
-
-        <div className="space-y-6">
-          <GeneralSettings appVersion={appVersion} />
-          <WorkflowSettings />
-          <AISettings />
-
-          {/* Search Settings */}
-          <div
-            id="search"
-            className="bg-card rounded-xl shadow-sm p-6 border border-border"
+    <div className="bg-card rounded-xl shadow-sm p-6 border border-destructive/30">
+      <h2 className="text-lg font-medium text-red-600 dark:text-red-400 mb-4">
+        Danger zone
+      </h2>
+      <div className="space-y-4">
+        <div className="flex items-start justify-between flex-col sm:flex-row sm:items-center gap-4">
+          <div>
+            <h3 className="text-sm font-medium text-foreground">
+              Reset everything
+            </h3>
+            <p className="text-xs text-muted-foreground mt-1">
+              This will delete all your workspaces, diagrams, prompts, and
+              settings. This action cannot be undone.
+            </p>
+          </div>
+          <button
+            onClick={() => setIsResetDialogOpen(true)}
+            disabled={isResetting}
+            className="rounded-md border border-transparent bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            <h2 className="text-lg font-medium text-foreground mb-4">
-              Search Settings
-            </h2>
-            <SearchSettings />
-          </div>
-
-          {/* MCP Servers - clickable card like AI providers */}
-          <div id="mcp" className="bg-card rounded-xl shadow-sm p-6 border border-border">
-            <McpServersCard />
-          </div>
-
-          {/* Skills - clickable card like MCP */}
-          <div id="skills" className="bg-card rounded-xl shadow-sm p-6 border border-border">
-            <SkillsCard />
-          </div>
-
-          {/* Browser — what the in-app browser tells the agent about. */}
-          <div id="browser" className="bg-card rounded-xl shadow-sm p-6 border border-border">
-            <h2 className="text-lg font-medium text-foreground mb-4">Browser</h2>
-            <div className="space-y-3">
-              <label
-                htmlFor="browser-runtime-notice"
-                className="text-sm text-foreground block"
-              >
-                Tell the agent when a page logs something
-              </label>
-              <select
-                id="browser-runtime-notice"
-                value={settings?.browserRuntimeNotice ?? 'any'}
-                onChange={(e) =>
-                  updateSettings({
-                    browserRuntimeNotice: e.target
-                      .value as 'off' | 'failures' | 'any',
-                  })
-                }
-                className="w-full max-w-xs rounded-md border border-border bg-background px-3 py-2 text-sm"
-              >
-                <option value="any">Anything it recorded (default)</option>
-                <option value="failures">Only failures</option>
-                <option value="off">Never</option>
-              </select>
-              <p className="text-xs text-muted-foreground">
-                One line per turn, with counts — never the entries themselves. It
-                never blocks the agent from finishing; it is a pointer the agent
-                may follow or ignore, and you can always send specific entries
-                yourself from the Console and Network tabs.
-              </p>
-            </div>
-          </div>
-
-          {/* Integrations */}
-          {/* Diagnostics — the in-app doctor. `UpdateDiagnostics` lives INSIDE it
-              (it used to sit in General), so everything about "is this install
-              healthy" is in one place instead of two. */}
-          <div id="diagnostics" className="bg-card rounded-xl shadow-sm p-6 border border-border">
-            <DiagnosticsPanel />
-          </div>
-
-          <div id="integrations" className="bg-card rounded-xl shadow-sm p-6 border border-border">
-            <h2 className="text-lg font-medium text-foreground mb-4">
-              Integrations
-            </h2>
-            <div className="space-y-4">
-              <div className="flex items-center gap-2">
-                <input
-                  id="include-atlarix-co-author"
-                  type="checkbox"
-                  checked={settings?.includeAtlarixCoAuthor !== false}
-                  onChange={(e) => updateSettings({ includeAtlarixCoAuthor: e.target.checked })}
-                  className="rounded border-border"
-                />
-                <label htmlFor="include-atlarix-co-author" className="text-sm text-foreground">
-                  Include Atlarix as co-author in commits
-                </label>
-              </div>
-              <p className="text-xs text-muted-foreground">
-                When enabled, every commit made through Atlarix will include a Co-authored-by trailer for atlarix-agent.
-              </p>
-              {/* Inside the list, and its own copy lives with it. The sentence
-                  that used to sit here rendered unconditionally while the
-                  component returned null when disconnected, so it described a
-                  button that was not on the screen. */}
-              <GitHubIntegration />
-            </div>
-          </div>
-
-          {/* Community — below Integrations, above the Danger Zone. */}
-          <CommunitySettingsSection />
-
-          {/* Danger Zone */}
-          <div
-            id="danger-zone"
-            className="bg-card rounded-xl shadow-sm p-6 border border-destructive/30"
-          >
-            <h2 className="text-lg font-medium text-red-600 dark:text-red-400 mb-4">
-              Danger Zone
-            </h2>
-
-            <div className="space-y-4">
-              <div className="flex items-start justify-between flex-col sm:flex-row sm:items-center gap-4">
-                <div>
-                  <h3 className="text-sm font-medium text-gray-900 dark:text-white">
-                    Reset Everything
-                  </h3>
-                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                    This will delete all your workspaces, diagrams, prompts, and settings. This
-                    action cannot be undone.
-                  </p>
-                </div>
-                <button
-                  onClick={() => setIsResetDialogOpen(true)}
-                  disabled={isResetting}
-                  className="rounded-md border border-transparent bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {isResetting ? "Resetting..." : "Reset Everything"}
-                </button>
-              </div>
-            </div>
-          </div>
+            {isResetting ? "Resetting..." : "Reset everything"}
+          </button>
         </div>
-
-        <ConfirmationDialog
-          isOpen={isResetDialogOpen}
-          title="Reset Everything"
-          message="Are you sure you want to reset everything? This will delete all your workspaces, diagrams, prompts and settings. This action cannot be undone."
-          confirmText="Reset Everything"
-          cancelText="Cancel"
-          onConfirm={handleResetEverything}
-          onCancel={() => setIsResetDialogOpen(false)}
-        />
       </div>
+
+      <ConfirmationDialog
+        isOpen={isResetDialogOpen}
+        title="Reset Everything"
+        message="Are you sure you want to reset everything? This will delete all your workspaces, diagrams, prompts and settings. This action cannot be undone."
+        confirmText="Reset Everything"
+        cancelText="Cancel"
+        onConfirm={handleResetEverything}
+        onCancel={() => setIsResetDialogOpen(false)}
+      />
     </div>
   );
 }
 
-function McpServersCard() {
-  const navigate = useNavigate();
-  return (
-    <button
-      type="button"
-      onClick={() => navigate({ to: "/settings/mcp" })}
-      className="w-full text-left flex items-center justify-between p-4 rounded-lg border border-border bg-card/50 hover:bg-card hover:shadow-md transition-all cursor-pointer group"
-    >
-      <div className="flex items-center gap-3">
-        <div className="p-2 rounded-md bg-primary/10 text-primary">
-          <Server className="h-5 w-5" />
-        </div>
-        <div>
-          <h2 className="text-lg font-medium text-foreground">MCP Servers</h2>
-          <p className="text-sm text-muted-foreground">
-            MCP servers for the current workspace (10 max). Use @mcp name in chat.
-          </p>
-        </div>
-      </div>
-      <ChevronRight className="h-5 w-5 text-muted-foreground group-hover:text-foreground" />
-    </button>
-  );
-}
-
-function SkillsCard() {
-  const navigate = useNavigate();
-  const { status } = useAuth();
-  const plan = status?.plan ?? "free";
-  const isPaid = plan === "pro";
-  return (
-    <button
-      type="button"
-      // Free tier opens the page too — it explains that Skills are a Pro
-      // feature, exactly like the MCP marketplace tab does. Clicking a
-      // settings row must never open a checkout on its own; upgrading stays
-      // an explicit choice the user makes from the notice inside. There is no
-      // `loading` guard any more either: the row navigates on every tier, so
-      // swallowing a click while auth resolves only made it feel broken.
-      onClick={() => {
-        navigate({ to: "/settings/skills" });
-      }}
-      className="w-full text-left flex items-center justify-between p-4 rounded-lg border border-border bg-card/50 hover:bg-card hover:shadow-md transition-all cursor-pointer group"
-    >
-      <div className="flex items-center gap-3">
-        <div className="p-2 rounded-md bg-primary/10 text-primary">
-          <Sparkles className="h-5 w-5" />
-        </div>
-        <div>
-          <h2 className="text-lg font-medium text-foreground">Skills</h2>
-          <p className="text-sm text-muted-foreground">
-            {isPaid
-              ? "Browse the registry and install skills for the current workspace (10 max)."
-              : "Agent Behaviors from the skills registry — a Pro feature."}
-          </p>
-        </div>
-      </div>
-      <ChevronRight className="h-5 w-5 text-muted-foreground group-hover:text-foreground" />
-    </button>
-  );
-}
+/**
+ * DELETED from this page: `WorkflowSettings`, `McpServersCard`, `SkillsCard`,
+ * `WorkspaceSettingsPointer` and `ModelsProvidersSettings`.
+ *
+ * All five were about things Atlarix CONNECTS TO, or the policy governing what
+ * it may do there, and they now live on /integrations:
+ *
+ *   ModelsProvidersSettings  → pages/integrations-providers.tsx
+ *   McpServersCard           → /integrations/mcp
+ *   SkillsCard               → /integrations/skills
+ *   WorkflowSettings         → pages/integrations-permissions.tsx
+ *   the co-author trailer     → pages/integrations-co-author.tsx
+ *
+ * `WorkspaceSettingsPointer` was a row pointing at the per-project surface,
+ * which a top-level Integrations entry in the sidebar makes unnecessary — a
+ * pointer to a page that is already one click away in the nav is just another
+ * card to read past.
+ */
 
 export function GeneralSettings({ appVersion }: { appVersion: string | null }) {
   const { settings, updateSettings } = useSettings();
@@ -514,98 +465,52 @@ function CliLauncherSettings() {
   );
 }
 
-export function WorkflowSettings() {
+/**
+ * DELETED: `WorkflowSettings`.
+ *
+ * It wrapped `WorkspaceTerminalPermissions`, `WorkspaceFilePermissions` and
+ * `WorkspaceGrantedFolders` — all three of which read `selectedAppIdAtom` and
+ * are per-project. They now live on `/workspace` (see
+ * `pages/workspace-permissions.tsx`), where the route carries the scope instead
+ * of the copy having to explain it ("...can be managed per workspace below when
+ * a workspace is selected" was the sentence that gave it away).
+ */
+
+/**
+ * `AISettings` was SPLIT, then split again.
+ *
+ * One card called "AI Settings" carried four unrelated things — voice input,
+ * build verification, notification sounds, and the model provider grid — in
+ * that order. The provider grid, which is the first thing a new user needs,
+ * was last, in a card whose name did not mention models.
+ *
+ * The grid then left this file entirely: connecting a model is an integration,
+ * so it is the index of /integrations now. What stays here are the two halves
+ * that really are preferences — `VoiceSettings`, and `NotificationsSettings`,
+ * which is where build verification belongs (it is a "tell me when"
+ * preference, not a model one). Nothing was removed anywhere.
+ */
+export function VoiceSettings() {
   return (
-    <div
-      id="workflow"
-      className="bg-card rounded-xl shadow-sm p-6 border border-border"
-    >
-      <h2 className="text-lg font-medium text-foreground mb-4">
-        Workflow Settings
-      </h2>
-
-      <p className="text-sm text-muted-foreground mb-6">
-        File and command approvals are reviewed inline in chat. Terminal command categories can be
-        managed per workspace below when a workspace is selected.
-      </p>
-
-      <WorkspaceTerminalPermissions />
-      <WorkspaceFilePermissions />
-      <WorkspaceGrantedFolders />
+    <div id="voice" className="bg-card rounded-xl shadow-sm p-6 border border-border">
+      <h2 className="text-lg font-medium text-foreground mb-4">Voice input</h2>
+      <VoiceInputSettings />
     </div>
   );
 }
 
-export function AISettings() {
-  const queryClient = useQueryClient();
-  const [isRefreshing, setIsRefreshing] = useState(false);
+export function NotificationsSettings() {
   const { settings, updateSettings } = useSettings();
-  useLanguageModelProviders();
-
-  const handleRefreshModels = async () => {
-    setIsRefreshing(true);
-    try {
-      const result = await IpcClient.getInstance().refreshModelsDev();
-      if (result.success) {
-        await queryClient.invalidateQueries({
-          queryKey: ["language-models-by-providers"],
-        });
-        showSuccess("Model list refreshed");
-      } else {
-        showError("Failed to refresh model list");
-      }
-    } catch {
-      showError("Failed to refresh model list");
-    } finally {
-      setIsRefreshing(false);
-    }
-  };
-
   return (
     <div
-      id="ai"
+      id="notifications"
       className="bg-card rounded-xl shadow-sm p-6 border border-border"
     >
       <h2 className="text-lg font-medium text-foreground mb-4">
-        AI Settings
+        Notifications &amp; automation
       </h2>
 
-      {/* Hidden for cleaner UI: ThinkingBudgetSelector */}
-
-      {/* v14.18.0: MaxChatTurnsSelector removed. It exposed a fixed turn cap and an
-          auto-summarize toggle, but the cap ran regardless of the toggle and
-          deleted history outright, while switching the toggle off ALSO disabled
-          compaction — so neither position was safe. Compaction is now always on
-          and context is bounded purely by the token budget; there is nothing left
-          to configure. */}
-
-      {/* v13.1: the "Auto-fix from LSP" switch was removed with the LSP feature —
-          verification is the project's own checks/tests via run_command. */}
-
-      {/* Pass 7: Blueprint context tier selector removed with the Blueprint subsystem. */}
-
-      <VoiceInputSettings />
-
-      <div className="mt-6 space-y-4 border-t border-border pt-6">
-        <h3 className="text-sm font-medium text-foreground">Build and automation</h3>
-        <div className="flex items-center justify-between max-w-md gap-4">
-          <Label htmlFor="build-verify-enabled" className="text-sm">
-            Build verification after autonomous task complete
-          </Label>
-          <Switch
-            id="build-verify-enabled"
-            checked={settings?.buildVerification?.enabled !== false}
-            onCheckedChange={(checked) =>
-              updateSettings({
-                buildVerification: { ...settings?.buildVerification, enabled: checked },
-              })
-            }
-          />
-        </div>
-      </div>
-
-      <div className="mt-6 space-y-4 border-t border-border pt-6">
-        <h3 className="text-sm font-medium text-foreground">Notifications</h3>
+      <div className="space-y-4">
         <div className="flex items-center justify-between max-w-md gap-4">
           <Label htmlFor="notif-sound-enabled" className="text-sm">
             Play a sound when Atlarix needs you (approval / questions)
@@ -653,31 +558,21 @@ export function AISettings() {
         </p>
       </div>
 
-
-      <p className="text-xs text-muted-foreground mt-2">
-        Token budget caps are configured per provider in each provider&apos;s
-        settings.
-      </p>
-
-      <div className="mt-6">
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="text-sm font-medium text-gray-900 dark:text-white">
-            Model Providers
-          </h3>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleRefreshModels}
-            disabled={isRefreshing}
-          >
-            {isRefreshing ? "Refreshing..." : "Refresh model list"}
-          </Button>
+      <div className="mt-6 space-y-4 border-t border-border pt-6">
+        <div className="flex items-center justify-between max-w-md gap-4">
+          <Label htmlFor="build-verify-enabled" className="text-sm">
+            Build verification after autonomous task complete
+          </Label>
+          <Switch
+            id="build-verify-enabled"
+            checked={settings?.buildVerification?.enabled !== false}
+            onCheckedChange={(checked) =>
+              updateSettings({
+                buildVerification: { ...settings?.buildVerification, enabled: checked },
+              })
+            }
+          />
         </div>
-        <p className="text-xs text-muted-foreground mb-4">
-          Compass is built in (no API key). Add keys for other providers as needed.
-          Models are fetched from models.dev (refreshed hourly).
-        </p>
-        <ProviderSettingsGrid />
       </div>
     </div>
   );

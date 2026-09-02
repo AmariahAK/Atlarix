@@ -1,16 +1,14 @@
 import { atom } from "jotai";
 
-export const activeSettingsSectionAtom = atom<string | null>(
-  "general-settings",
-);
-
 /**
- * One-shot deep-link target: set to a settings section id (e.g. "ai", "mcp")
- * right before navigating to /settings, then consumed + scrolled-to once on the
- * SettingsPage mount. Distinct from activeSettingsSectionAtom (which is the
- * scroll-position-driven highlight) so a normal settings open never re-jumps.
+ * DELETED: `activeSettingsSectionAtom` and `pendingSettingsScrollAtom`.
+ *
+ * Both existed to make a long scrolling Settings page navigable: one held the
+ * scroll-spy's current section, the other a one-shot "scroll here after mount"
+ * target for deep links. Settings and Integrations are one-section-per-route
+ * now, so the router holds that state and `useScrollAndNavigateTo` is gone with
+ * them. `openSettingsSection` maps a section id straight to a route.
  */
-export const pendingSettingsScrollAtom = atom<string | null>(null);
 
 /** Incremented after a Compass chat turn completes so usage hooks can refetch. */
 export const compassUsageBumpAtom = atom(0);

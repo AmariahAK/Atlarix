@@ -130,6 +130,7 @@ import {
 } from "@/lib/context/context-budget-pruning";
 import { resolveModelContextLimit } from "@/lib/context/resolve-model-context-limit";
 import { estimateDispatchTokens } from "@/lib/routing/tier_context_budget";
+import { measureToolSurface } from "@/lib/context/prompt-budget";
 // Skills reach the model as an INDEX (skill-index.ts) — names, descriptions and
 // paths. Bodies are read on demand with read_file; nothing is auto-injected.
 import {
@@ -1295,6 +1296,47 @@ export function registerChatStreamHandlers() {
               ? (effectiveWorkMode as ModeSystemKey)
               : "ask";
 
+          /**
+           * The bound tool surface, in tokens, computed ONCE for this turn.
+           *
+           * Every budget decision below needs it and none of them had it: the
+           * dispatch estimate, `enforceContextBudget` (which decides what to
+           * TRIM to fit the window) and the compactor's `alreadyUsedTokens` all
+           * priced the prefix as system TEXT only. The tool descriptions and
+           * parameter schemas — ~6,700 tokens in Explore, ~9,300 in Build — ride
+           * in the same request and are billed on every turn, so Atlarix
+           * believed it had that much more headroom than it had.
+           *
+           * Measured through `measureToolSurface`, which resolves the toolset via
+           * `resolveToolsetForSession` — the same single assembly point both
+           * stream branches use, so this cannot drift from what dispatches.
+           * Computed here rather than at each site because four independent
+           * derivations is exactly how the context meter came to disagree with
+           * the dispatch in the first place.
+           *
+           * Failure is non-fatal and LOUD: a budget that silently reverts to the
+           * old under-count is the bug, so it logs rather than throwing (a turn
+           * must still run) and 0 only ever means "we said so".
+           */
+          let toolSurfaceTokens = 0;
+          try {
+            toolSurfaceTokens = measureToolSurface({
+              workMode: effectiveWorkMode,
+              hasWorkspace,
+              workspaceIntegrationEligible: hasWorkspace,
+              model: {
+                name: effectiveModel?.name,
+                provider: effectiveModel?.provider,
+                builtinProviderId: modelClient?.builtinProviderId,
+              },
+              unattended: Boolean(req.automation),
+            }).total;
+          } catch (e) {
+            logger.warn(
+              `[budget] tool-surface measurement failed; budget decisions this turn use the system prompt alone: ${String(e)}`,
+            );
+          }
+
           // #15: compact active-mode re-anchor injected after the latest user
           // turn (recency), with a "mode changed" prefix when the mode differs
           // from this chat's previous turn — weaker models otherwise follow the
@@ -1630,6 +1672,7 @@ export function registerChatStreamHandlers() {
             history: limitedMessageHistory,
             codebasePrefixMessages: [...codebasePrefix],
             otherCodebasePrefixMessages: [...otherCodebasePrefix],
+            toolSurfaceTokens,
           });
           let budgetTracker = new ContextBudgetTracker(
             modelContextResolved.tierLimit,
@@ -1673,6 +1716,7 @@ export function registerChatStreamHandlers() {
               history: limitedMessageHistory,
               codebasePrefixMessages: [...codebasePrefix],
               otherCodebasePrefixMessages: [...otherCodebasePrefix],
+              toolSurfaceTokens,
             });
             budgetTracker = new ContextBudgetTracker(
               modelContextResolved.tierLimit,
@@ -1690,6 +1734,7 @@ export function registerChatStreamHandlers() {
               limitedMessageHistory,
               codebasePrefixMessages: [...codebasePrefix],
               otherCodebasePrefixMessages: [...otherCodebasePrefix],
+              toolSurfaceTokens,
             }),
           );
           systemPrompt = tierBudgeted.systemPrompt;
@@ -1704,6 +1749,7 @@ export function registerChatStreamHandlers() {
             history: limitedMessageHistory,
             codebasePrefixMessages: [...codebasePrefix],
             otherCodebasePrefixMessages: [...otherCodebasePrefix],
+            toolSurfaceTokens,
           });
           budgetTracker = new ContextBudgetTracker(
             modelContextResolved.tierLimit,
@@ -1744,6 +1790,7 @@ export function registerChatStreamHandlers() {
               // make the gate ignore the room the reply needs.
               usableTokens,
               contextWindowTokens,
+              toolSurfaceTokens,
             },
           );
           systemPrompt = asmResult.systemPrompt;

@@ -43,12 +43,12 @@ vi.mock("node:fs", () => {
   };
 });
 
-vi.mock("isomorphic-git", () => ({
-  default: {
-    clone: vi.fn().mockResolvedValue(undefined),
-  },
-}));
-vi.mock("isomorphic-git/http/node", () => ({ default: {} }));
+// `isomorphic-git` mocks lived here until v14.41.0. The package was a lazily
+// imported fallback for the NETWORK flows only (clone/push/set-remote), all of
+// which went with the GitHub clone dialog — so the dependency went too, and a
+// `vi.mock` for a module nothing imports is a no-op that reads like coverage.
+// git_utils.ts's header records the consequence: with no JS fallback left, a
+// machine without git has no git features, and that is what these tests check.
 
 import {
   gitLog,
@@ -59,9 +59,7 @@ import {
   gitIsIgnored,
   getCurrentCommitHash,
   gitCommit,
-  gitClone,
 } from "@/ipc/utils/git_utils";
-import isomorphicGit from "isomorphic-git";
 
 describe("git read operations degrade gracefully when git is missing", () => {
   it("gitLog returns []", async () => {
@@ -107,20 +105,9 @@ describe("git write operations still throw when git is missing", () => {
   });
 });
 
-describe("network flows fall back to isomorphic-git when git is missing", () => {
-  it("gitClone uses isomorphic-git with onAuth", async () => {
-    await gitClone({
-      path: "/tmp/clone-target",
-      url: "https://github.com/a/b.git",
-      accessToken: "tok",
-    });
-    const clone = vi.mocked(isomorphicGit.clone);
-    expect(clone).toHaveBeenCalledTimes(1);
-    const args = clone.mock.calls[0][0] as { url: string; onAuth?: () => unknown };
-    expect(args.url).toBe("https://github.com/a/b.git");
-    expect(args.onAuth?.()).toEqual({
-      username: "tok",
-      password: "x-oauth-basic",
-    });
-  });
-});
+/**
+ * The `gitClone` case that sat here went with the clone feature: it was the only
+ * caller, and the flow it served was GitHub-specific (an `accessToken` and
+ * `x-oauth-basic` basic-auth shim). `gitCommit`'s git-missing degradation above
+ * is the part that still matters, and it is unaffected.
+ */

@@ -547,10 +547,19 @@ const config: ForgeConfig = {
        * with no lockfile entry keeps the old behaviour and says so, rather than
        * failing a release over a package we cannot pin.
        */
-      const pinnedRoots: string[] = (() => {
+      // `await` and `fs.readFile`, NOT `fs.readFileSync`.
+      //
+      // This block has silently never worked. `const fs = await
+      // import("node:fs/promises")` earlier in this hook SHADOWS the top-level
+      // `import fs from "node:fs"`, and the promises API has no `readFileSync` —
+      // so the try always threw, the catch always fired, and every release
+      // installed all 31 roots UNPINNED ("0 pinned from package-lock" in the
+      // build log, which is the tell). The staged app therefore shipped whatever
+      // npm resolved at build time rather than the versions that were tested.
+      const pinnedRoots: string[] = await (async () => {
         try {
           const lock = JSON.parse(
-            fs.readFileSync(path.join(process.cwd(), "package-lock.json"), "utf8"),
+            await fs.readFile(path.join(process.cwd(), "package-lock.json"), "utf8"),
           ) as { packages?: Record<string, { version?: string }> };
           const packages = lock.packages ?? {};
           return toInstall.map((name) => {

@@ -4,7 +4,7 @@
  *
  * An injected DOM walker tags elements with a `data-atlarix-ref` ("e1", "e2", …)
  * and returns a compact list. The model reads this (far lighter than a
- * screenshot or full DOM) and acts via `browser_interact({ action, ref })`,
+ * screenshot or full DOM) and acts via `browser({ action, ref })`,
  * resolving the ref by attribute instead of a brittle CSS selector.
  *
  * REFS ARE STABLE PER ELEMENT (v14.16): the ref registry is a `WeakMap` living
@@ -81,7 +81,7 @@ export interface A11yFindResult {
 const MAX_ELEMENTS = 200;
 /** The combined read carries content too, so it gets a larger budget. */
 const MAX_ELEMENTS_ALL = 400;
-/** Max matches returned by browser_find before asking for a narrower query. */
+/** Max matches returned by action:"find" before asking for a narrower query. */
 const MAX_FIND_MATCHES = 20;
 
 /**
@@ -214,7 +214,7 @@ export function formatA11ySnapshot(snap: A11ySnapshot): string {
   // not how much it was missing.
   const hasScroll = (snap.scrollMax ?? 0) > 0;
   const truncNote = snap.truncated
-    ? ` (showing ${snap.count} of ${total} — narrow with a selector or use browser_find${hasScroll ? " or scroll down to trigger lazy-loaded content" : ""})`
+    ? ` (showing ${snap.count} of ${total} — narrow with a more specific query via browser({action:"find"})${hasScroll ? " or scroll down to trigger lazy-loaded content" : ""})`
     : "";
   const what = combined
     ? `${snap.count} element(s): page content + interactive controls`
@@ -231,12 +231,12 @@ export function formatA11ySnapshot(snap: A11ySnapshot): string {
   }
   const header =
     `Page read — ${what}${truncNote}.${viewportNote}${scrollNote}` +
-    ` Act on any ref with browser_interact (e.g. ref:"e3"). Refs are stable for this page.`;
+    ` Act on any ref with browser (e.g. action:"click", ref:"e3"). Refs are stable for this page.`;
   return `${header}\n${lines.join("\n")}`;
 }
 
 /**
- * `browser_find` — natural-language element lookup, ranked HEURISTICALLY in the
+ * action:"find" — natural-language element lookup, ranked HEURISTICALLY in the
  * page (deterministic, free, instant — no LLM call). Scores each candidate on
  * role + accessible name + text against the query's tokens.
  */
@@ -324,6 +324,6 @@ export function formatA11yFind(res: A11yFindResult): string {
     : "";
   return (
     `${res.matches.length} match(es) for "${res.query}", best first.${more}` +
-    ` Act on a ref with browser_interact.\n${lines.join("\n")}`
+    ` Act on a ref with browser (e.g. action:"click", ref).\n${lines.join("\n")}`
   );
 }

@@ -3,6 +3,7 @@ import type { InlineTimelineToolStatus } from "@/lib/chat/inline-timeline";
 import {
   formatToolResultPreview,
   getToolCompletedSummary,
+  noopSummary,
   getToolFailedSummary,
   getToolRunningSummary,
 } from "@/lib/chat/stream-tool-display";
@@ -41,7 +42,9 @@ export function getPersistedToolSummary(
     return err ? `${base}: ${err.slice(0, 80)}` : base;
   }
   const hint = argsPathHint(part.args);
-  const base = getToolCompletedSummary(part.toolName, toolArgs);
+  const base =
+    noopSummary(part.toolName, part.resultText) ??
+    getToolCompletedSummary(part.toolName, toolArgs);
   if (hint) {
     const short =
       hint.length > 56 ? `${hint.slice(0, 55)}…` : hint;
