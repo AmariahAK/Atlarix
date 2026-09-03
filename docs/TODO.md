@@ -1,49 +1,46 @@
 # Atlarix TODO
 
-**Current version:** v14.41.0 — STAGED 2026-09-02, not released. The context meter counted the
-system prompt and nothing else, so ~10,000 tokens of tool descriptions and parameter schemas
-were billed every turn and measured by nothing; per-project settings moved off the global
-Settings page; the launchpad's three densest pages were restructured; six browser tools became
-two; the GitHub clone flow and the GitHub Automations trigger were deleted as host-specific
-hardcoding; and Atlarix can now read and drive a mobile emulator screen.
+**Current version:** v14.42.0 — released 2026-09-03. A message you type mid-turn now reaches the
+turn that is RUNNING instead of being parked until it ends, delivered as an untagged user turn on
+the next step and inserted into the transcript in front of the streaming row. The queue moved to
+main and became a list (a second message used to be silently rejected). Plus the three-defect
+chain behind it — the queued flush pre-empting a question card, a stop latch an answer could not
+clear (five sub-agent wakes refused), a sub-agent card frozen mid-count — and the user bubble's
+glare.
 
-Measured prefix, per mode: Explore 11,539 → 10,404; Plan 10,891 → 9,839; Build 15,329 → 14,605;
-Review 11,199 → 10,055; Debug 14,738 → 14,014. Build's number INCLUDES the two new mobile tools
-(~430) — the browser consolidation had taken it to 14,174.
+**Owed for v14.42.0:**
+- **The mid-turn path is UNVERIFIED in a packaged build.** Type mid-stream, confirm the row
+  appears in front of the streaming text and the assistant KEEPS streaming underneath it, then the
+  question flow end to end (type → it asks → answer → the queued message is delivered, and the
+  next sub-agent wake is admitted). The owner chose to ship on the suite; this is the watch item.
+- **One provider question no test can answer:** whether every Core provider tolerates two
+  consecutive untagged user messages mid-round without merging them. Check a recorded request body
+  against a Core model. If one merges, fall back to a single combined untagged message.
 
-**Owed before tagging v14.41.0:**
-- **`mobile_inspect` / `mobile` are UNVERIFIED against a real device.** See the traps section
-  above for the exact loop to run. Do not tag claiming mobile works off a green suite.
-- **The `[prompt-cache]` measurement (was already on this list).** One long session in the
-  PACKAGED app on a Core model, recording `write=` on turn 1 and `read=` on turns 2..n. It no
-  longer BLOCKS: the owner settled the cache as-is and the prose pass was dropped, so this is
-  now information for the next cycle rather than a gate on this one.
-- **Walk the Settings/Integrations split by hand in the packaged app:** every control that
-  was on `/settings` is still reachable from one of the two pages; the MCP OAuth prompt
-  lands on `/integrations/mcp`; a model error in chat lands on `/integrations`; a
-  permission rule set in project A is absent in project B; the token budget cap clears to
-  "No cap" and the **Use auto** button works.
-- **Walk the DELETIONS by hand, by presence as well as absence:** GitHub SIGN-IN to the Atlarix
-  account still works (the one thing that must not break); the welcome screen still offers a
-  route to a first workspace now that Clone repo is gone; an existing cron/MCP automation still
-  fires; and creating one of each remaining trigger kind from the form does not render an empty
-  host dropdown.
+**Carried from v14.41.0, still not done:**
+- **`mobile_inspect` / `mobile` are UNVERIFIED against a real device** (no `adb` on this machine).
+  Do not claim mobile works off a green suite.
+- **Walk the v14.41.0 DELETIONS by presence, not just absence:** GitHub SIGN-IN to the Atlarix
+  account still works (the one thing that must not break); the welcome screen still routes to a
+  first workspace now that Clone repo is gone; an existing cron/MCP automation still fires.
 - **Drive a page end to end through the consolidated `browser` tool** (navigate → find → click →
   read) and confirm the activity row reads properly rather than "Runned browser".
-- `/security-review` on the diff.
+- **The `[prompt-cache]` measurement.** One long packaged session on a Core model, recording
+  `write=` on turn 1 and `read=` on turns 2..n. Information for the next cycle, not a gate.
 
 **Owner actions:** delete the `OAUTH_CLIENT_ID` repository secret (nothing reads it any more —
 `src/lib/auth/README.md` records why there is no second GitHub credential).
 
-**Previous:** v14.39.1 — released 2026-09-01. The compaction marker became a real column,
-the summary stopped showing up as a chat message, telemetry stopped writing before consent, and the
-public data claims were made true. v14.39.0 (same day) was the one-compaction-system release.
+**Previous:** v14.41.0 — released 2026-09-02 (its header sat on "STAGED, not released" until this
+cut; it published 15:24Z that day). The context meter counted the system prompt and nothing else,
+so ~10,000 tokens of tool descriptions and schemas were billed every turn and measured by nothing;
+six browser tools became two; per-project settings moved off the global Settings page; and Atlarix
+can read and drive a mobile emulator screen. Measured prefix, per mode: Explore 11,539 → 10,404;
+Plan 10,891 → 9,839; Build 15,329 → 14,605; Review 11,199 → 10,055; Debug 14,738 → 14,014.
 
-The release itself: compaction was THREE implementations with three thresholds, three marker strings
-and two near-identical summarizers, and only one of them persisted — so the two AUTOMATIC paths paid
-a provider call for a summary every turn and threw it away. Now one compactor, three triggers, one
-threshold (0.9), one marker, one durable write owned by the compactor. Plus `session_search`, the
-tool that reads behind the compaction boundary, and a drop step that no longer runs FIRST.
+**Previous:** v14.40.0 (2026-09-01) — a dropped connection no longer ends the run.
+v14.39.2 · v14.39.1 · v14.39.0 (all 2026-09-01) — one compaction system where there had been
+three, the marker as a real column, and `session_search` to read behind the boundary.
 
 **Previous:** v14.38.4 (2026-08-29) — the auth-plumbing release: sign-in fixed
 (the redirect had one slash too many and stopped matching Supabase's allow-list), sign-out and
