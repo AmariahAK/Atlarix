@@ -171,6 +171,7 @@ import {
   isChatStreamLive,
   isChatUserStopped,
   clearChatUserStopped,
+  shouldClearUserStopLatch,
 } from "./chat_stream/stream-state";
 import {
   resolveModeChange,
@@ -278,9 +279,30 @@ export function registerChatStreamHandlers() {
       };
     }
 
-    // The user is driving again — release the stop latch. Keyed on real content,
-    // so a wake's empty prompt can never clear its own suppression.
-    if (req.prompt.trim().length > 0) {
+    // The user is driving again — release the stop latch.
+    //
+    // KEYED ON `systemWake`, NOT ON PROMPT CONTENT. It used to require
+    // `req.prompt.trim().length > 0`, on the reasoning that a wake's empty prompt
+    // must never clear its own suppression — right goal, wrong discriminator.
+    // Several USER actions also send an empty prompt, because their content
+    // travels out of band: answering `ask_user`
+    // (`InlineUserQuestions.tsx` → `{ prompt: "", continueAfterQuestions: true }`,
+    // where the answers are persisted as their own user message) and clicking
+    // Continue on an interrupted turn.
+    //
+    // OBSERVED 2026-09-03: a chat that went through one `ask_user` round was
+    // latched `user-stopped` FOREVER. Closing the question flow aborts the stream,
+    // which latches the stop; the answer turn then could not clear it. Five
+    // sub-agents finished over the next five minutes and all five wakes were
+    // dropped — `[wake] dropped system wake for chat -42: user-stopped` ×5 — so
+    // their results only arrived when the user next TYPED something. Every
+    // background source loses eager delivery the same way: commands, automations,
+    // scheduled self-wakes.
+    //
+    // `systemWake` is the property that actually means "machine-originated", and
+    // every such call site sets it. So a wake still cannot clear its own
+    // suppression, and a user action clears it whether or not it carries text.
+    if (shouldClearUserStopLatch(req)) {
       clearChatUserStopped(req.chatId);
     }
 

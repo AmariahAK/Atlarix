@@ -504,6 +504,65 @@ export function useStreamChat({
   const latestDispatchByChatRef = useRef<Map<number, number>>(new Map());
 
 
+  /**
+   * Settle a sub-agent card that finished AFTER its turn ended.
+   *
+   * PERSISTENT (mount-level) on purpose. The stream's own `chat:activity`
+   * listener is unsubscribed in its cleanup, so every `subagent_complete`
+   * arriving after the turn had nowhere to land: the card froze into the display
+   * snapshot with whatever state it held at stream end and span forever.
+   *
+   * OBSERVED 2026-09-03: a card stuck on "Sub-agents · 4/5 running" while all
+   * five had in fact completed (11:20:42 → 11:25:16). The background-tasks pill
+   * was correct throughout, because it reads main-process state rather than a
+   * transient event — which is the tell that the card was listening, not
+   * deriving.
+   *
+   * `onBackgroundSettled` in register-delegation-tools already emits this event
+   * post-turn, deliberately ("this closure outlives the tool call"). The only
+   * missing half was a receiver, and the ids line up exactly: both the start and
+   * the completion carry the DELEGATION id, which is what the card is keyed on
+   * (the task store's `taskId` is a separate randomUUID and is not usable here).
+   *
+   * Only completion/progress are handled. Anything else post-turn belongs to the
+   * stream listener and would double-apply.
+   */
+  useEffect(() => {
+    const unsub = IpcClient.getInstance().onChatActivity((payload: unknown) => {
+      const item = normalizeChatActivityPayload(payload);
+      if (!item) return;
+      if (
+        item.type !== "subagent_complete" &&
+        item.type !== "subagent_progress"
+      ) {
+        return;
+      }
+      // A LIVE turn already routes these through its own listener; applying them
+      // twice would fight over the same row.
+      if (item.chatId != null) {
+        const live = getDefaultStore().get(isStreamingByIdAtom).get(item.chatId);
+        if (live === true) return;
+      }
+      getDefaultStore().set(
+        completedStreamThreadByAssistantMessageIdAtom,
+        (frozen) => {
+          let changed = false;
+          const next: Record<number, StreamThreadItem[]> = {};
+          for (const [key, thread] of Object.entries(frozen)) {
+            // Only the message that actually owns this sub-agent row is touched;
+            // `mergeSubagentActivityIntoThread` is keyed on the delegation id, so
+            // a thread without it comes back referentially identical.
+            const merged = mergeSubagentActivityIntoThread(thread, item);
+            next[Number(key)] = merged;
+            if (merged !== thread) changed = true;
+          }
+          return changed ? next : frozen;
+        },
+      );
+    });
+    return unsub;
+  }, []);
+
   // v14: background jobs — keep the indicator atom fresh and AUTO-WAKE the agent
   // when a job finishes while the chat is idle. Persistent (mount-level) so it
   // fires even after the turn that started the job has ended.
@@ -1736,7 +1795,28 @@ export function useStreamChat({
               const queued = getDefaultStore()
                 .get(queuedMessageByChatIdAtom)
                 .get(chatId);
-              if (queued?.trim()) {
+              /**
+               * DO NOT flush over a pending question.
+               *
+               * `ask_user` deliberately ENDS the turn ("answers arrive as the
+               * next message"), so this stream-end handler runs while the
+               * question card is on screen. Flushing here started a fresh turn
+               * on the queued text, which pre-empted the card — leaving the user
+               * no way to answer except pressing Stop.
+               *
+               * OBSERVED 2026-09-03, and it was the first domino of three: the
+               * forced Stop latched `user-stopped`, the empty-prompt answer turn
+               * could not clear that latch, and five sub-agents then had every
+               * wake refused. Fixing the latch alone would have left the user
+               * still forced to Stop.
+               *
+               * The message is KEPT queued, not dropped — answering flushes it
+               * on the next stream end, in the order the user typed it.
+               */
+              const awaitingAnswer = Boolean(
+                getDefaultStore().get(pendingUserQuestionByChatIdAtom)[chatId],
+              );
+              if (queued?.trim() && !awaitingAnswer) {
                 getDefaultStore().set(queuedMessageByChatIdAtom, (prev) => {
                   const n = new Map(prev);
                   n.delete(chatId);

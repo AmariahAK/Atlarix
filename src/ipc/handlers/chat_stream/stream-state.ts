@@ -157,6 +157,33 @@ export function shouldDropSystemWake(
   return null;
 }
 
+/**
+ * Should this request RELEASE the user-stop latch?
+ *
+ * Pure, and exported for the test that pins it — for the same reason
+ * `shouldDropSystemWake` is: the failure mode was a guard that looked right.
+ *
+ * The rule is "the user is driving again", and `systemWake` is the property that
+ * actually expresses it. The previous rule was `prompt.trim().length > 0`, whose
+ * goal was right (a wake's empty prompt must not clear its own suppression) and
+ * whose discriminator was wrong: several USER actions send an empty prompt
+ * because their content travels out of band — answering `ask_user` (the answers
+ * are persisted as their own message) and clicking Continue on an interrupted
+ * turn.
+ *
+ * Consequence, observed 2026-09-03: one `ask_user` round latched a chat
+ * `user-stopped` permanently. Closing the question flow aborts the stream, which
+ * latches the stop; the empty-prompt answer turn could not clear it. Five
+ * sub-agents finished over the following five minutes and every wake was dropped,
+ * so their results waited for the user to TYPE. Commands, automations and
+ * scheduled self-wakes all lose eager delivery the same way.
+ */
+export function shouldClearUserStopLatch(req: {
+  systemWake?: boolean;
+}): boolean {
+  return !req.systemWake;
+}
+
 /** Is a turn live for this chat? The authoritative, cross-window answer. */
 export function isChatStreamLive(chatId: number): boolean {
   return activeStreams.has(chatId) || activeStreamRuns.has(chatId);
