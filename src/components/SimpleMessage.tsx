@@ -151,8 +151,15 @@ function SimpleMessageImpl({
                 )}
 
                 <div
+                    // The user bubble has its own surface tokens rather than
+                    // `bg-primary`: primary is a BUTTON colour, and a
+                    // paragraph-sized block of it glares — the more so because
+                    // the markdown inside carries `dark:prose-invert`, which
+                    // forces light prose text and won over
+                    // `text-primary-foreground`'s near-black. White on full
+                    // emerald was the result. See globals.css for the pair.
                     className={`rounded-lg p-3 ${isUser
-                        ? "bg-primary text-primary-foreground"
+                        ? "bg-user-bubble text-user-bubble-foreground border border-user-bubble-border"
                         : "bg-muted"
                         }`}
                 >
